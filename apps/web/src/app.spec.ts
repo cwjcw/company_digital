@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { excelMonthlyPlanColumns, monthlyPlanColumns, processDefinitions } from "@tracker/shared";
-import { getValue } from "./api";
+import { containsText, getValue } from "./api";
 
 describe("monthly plan configuration", () => {
-  it("keeps the 77-column import contract and exposes the expanded web fields", () => {
-    expect(excelMonthlyPlanColumns).toHaveLength(77);
-    expect(monthlyPlanColumns).toHaveLength(81);
+  it("keeps the 93-column import contract and exposes the expanded web fields", () => {
+    expect(excelMonthlyPlanColumns).toHaveLength(93);
+    expect(monthlyPlanColumns).toHaveLength(97);
     expect(processDefinitions).toHaveLength(14);
     expect(monthlyPlanColumns[0]?.header).toBe("序号");
     expect(monthlyPlanColumns.at(-1)?.header).toBe("所属事业部");
@@ -24,5 +24,12 @@ describe("monthly plan configuration", () => {
 
   it("reads nested process values by field key", () => {
     expect(getValue({ processes: { drawingBom: { status: "Y" } } }, "processes.drawingBom.status")).toBe("Y");
+  });
+
+  it("matches quick text filters without case sensitivity", () => {
+    expect(containsText("TEST-2026-001", "test")).toBe(true);
+    expect(containsText("TEST-2026-001", "  test  ")).toBe(true);
+    expect(containsText("TEST-2026-001", "2026")).toBe(true);
+    expect(containsText("TEST-2026-001", "other")).toBe(false);
   });
 });

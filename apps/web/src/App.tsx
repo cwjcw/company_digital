@@ -9,7 +9,6 @@ import {
   Input, InputNumber, Layout, Menu, Modal, Progress, Select, Space, Statistic,
   Table, Tabs, Tag, TreeSelect, Typography, Upload, Switch, Checkbox, message
 } from "antd";
-import type { UploadFile } from "antd";
 import dayjs from "dayjs";
 import {
   AllCommunityModule, ModuleRegistry, type ColDef,
@@ -19,7 +18,7 @@ import { AgGridReact } from "ag-grid-react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import { monthlyPlanColumns, type ColumnDefinition } from "@tracker/shared";
-import { api, ApiError, getValue } from "./api";
+import { api, ApiError, containsText, getValue } from "./api";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 const { Header, Sider, Content } = Layout;
@@ -80,7 +79,6 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/finished-goods-inbound", icon: <FileExcelOutlined />, label: "成品入库" }
     ] },
     { key: "system", label: "系统管理", type: "group" as const, children: [
-      { key: "/imports", icon: <FileExcelOutlined />, label: "Excel 导入" },
       { key: "/audit", icon: <AuditOutlined />, label: "审计日志" }
     ] }
   ];
@@ -111,7 +109,6 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/master-data" element={<DataOperations />} />
           <Route path="/data-operations" element={<DataOperations />} />
           <Route path="/finished-goods-inbound" element={<FinishedGoodsInboundPage />} />
-          <Route path="/imports" element={<ExcelImport />} />
           <Route path="/audit" element={<AuditLogs />} />
           <Route path="/admin" element={<AdminCenter />} />
           <Route path="/users" element={<AdminCenter />} />
@@ -140,6 +137,28 @@ function PageHeader({ title, subtitle, actions }: { title: string; subtitle: str
     {actions && <div className="page-header-actions">{actions}</div>}
   </Flex>;
 }
+
+type ImportFeedback = { type: "success" | "error"; message: string; errors?: string[] };
+function failedImport(error: unknown): ImportFeedback {
+  const details = error instanceof ApiError ? error.details as any : undefined;
+  return {
+    type: "error",
+    message: details?.message || (error instanceof Error ? error.message : "导入失败"),
+    errors: Array.isArray(details?.errors) ? details.errors : undefined
+  };
+}
+function ImportFeedbackAlert({ value, onClose }: { value?: ImportFeedback; onClose: () => void }) {
+  if (!value) return null;
+  return <Alert closable onClose={onClose} showIcon type={value.type} message={value.message}
+    description={value.errors?.length ? <ul>{value.errors.slice(0, 30).map((error, index) => <li key={`${index}-${error}`}>{error}</li>)}</ul> : undefined}
+    style={{ margin: "12px 0" }} />;
+}
+
+const auditLabels: Record<string, string> = { createdAt: "创建时间", updatedAt: "最后修改时间", updatedBy: "修改人" };
+const auditColumns = Object.entries(auditLabels).map(([dataIndex, title]) => ({
+  title, dataIndex, width: 168,
+  render: (value: unknown) => dataIndex === "updatedBy" ? String(value ?? "system") : value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : "—"
+}));
 
 async function downloadApiFile(path: string, filename: string) {
   const blob = await api<Blob>(path);
@@ -268,7 +287,10 @@ const rollingColumnsMeta: ColumnDefinition[] = [
   { key: "actualCompletionDate", header: "订单实际完成日期", group: "订单执行信息", kind: "date", editable: true },
   { key: "shippingDate", header: "出货日期", group: "订单执行信息", kind: "date", editable: true },
   { key: "deliveryScore", header: "交期评分", group: "订单执行结果评估", kind: "decimal", editable: true },
-  { key: "qualityScore", header: "品质评分", group: "订单执行结果评估", kind: "decimal", editable: true }
+  { key: "qualityScore", header: "品质评分", group: "订单执行结果评估", kind: "decimal", editable: true },
+  { key: "createdAt", header: "创建时间", group: "审计信息", kind: "text", editable: false },
+  { key: "updatedAt", header: "最后修改时间", group: "审计信息", kind: "text", editable: false },
+  { key: "updatedBy", header: "修改人", group: "审计信息", kind: "text", editable: false }
 ];
 
 type RollingQuickFilters = {
@@ -466,6 +488,7 @@ function SalesSummaryDetails() {
   const [rollingSaving, setRollingSaving] = useState(false);
   const [rollingLastSaved, setRollingLastSaved] = useState<string>();
   const [rollingSaveNotice, setRollingSaveNotice] = useState<{ type: "success" | "error"; text: string }>();
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
   const rollingGridApi = useRef<GridApi | null>(null);
   const rollingManualSave = useRef(false);
   const rollingSaveAndExit = useRef(false);
@@ -484,14 +507,14 @@ function SalesSummaryDetails() {
   const filtered = useMemo(() => filterPlanRows(data, filters, rollingColumnsMeta).filter((row: any) => {
     const completionRate = row.completionRate === null || row.completionRate === undefined
       ? null : Number(row.completionRate) * 100;
-    return (!quickFilters.orderNumber || String(row.orderNumber ?? "").toLocaleLowerCase().includes(quickFilters.orderNumber.toLocaleLowerCase()))
+    return containsText(row.orderNumber, quickFilters.orderNumber)
       && (!quickFilters.month || String(row.month ?? "").includes(quickFilters.month))
       && matchesDateRange(row.customerDueDate, quickFilters.customerDueDateStart, quickFilters.customerDueDateEnd)
       && matchesDateRange(row.reviewDueDate, quickFilters.reviewDueDateStart, quickFilters.reviewDueDateEnd)
       && matchesDateRange(row.exceptionDueDate, quickFilters.exceptionDueDateStart, quickFilters.exceptionDueDateEnd)
       && (quickFilters.completionRateStart === null || (completionRate !== null && completionRate >= quickFilters.completionRateStart))
       && (quickFilters.completionRateEnd === null || (completionRate !== null && completionRate <= quickFilters.completionRateEnd))
-      && (!quickFilters.customer || String(row.customer ?? "").toLocaleLowerCase().includes(quickFilters.customer.toLocaleLowerCase()))
+      && containsText(row.customer, quickFilters.customer)
       && (!quickFilters.division || row.division === quickFilters.division);
   }), [data, filters, quickFilters]);
   const saveRolling = () => {
@@ -553,7 +576,8 @@ function SalesSummaryDetails() {
   const columns: (ColDef | ColGroupDef)[] = [
     groupColumns("订单信息", "sales-summary-group-order", true),
     groupColumns("订单执行信息", "sales-summary-group-execution"),
-    groupColumns("订单执行结果评估", "sales-summary-group-evaluation")
+    groupColumns("订单执行结果评估", "sales-summary-group-evaluation"),
+    groupColumns("审计信息", "sales-summary-group-order")
   ];
   return <div>
     <div className="monthly-toolbar rolling-toolbar">
@@ -579,13 +603,14 @@ function SalesSummaryDetails() {
         const form = new FormData(); form.append("file", file as File);
         try {
           const result = await api<{ imported: number; skipped: number }>("/plans/orders/import-file", { method: "POST", body: form });
-          message.success(`已导入 ${result.imported} 条接单记录${result.skipped ? `，跳过 ${result.skipped} 行` : ""}`);
+          setImportFeedback({ type: "success", message: `全部校验通过，成功导入 ${result.imported} 条接单记录` });
           void queryClient.invalidateQueries({ queryKey: ["rolling"] });
-        } catch (error) { message.error((error as Error).message); }
+        } catch (error) { setImportFeedback(failedImport(error)); }
         return false;
       }}><Button>导入销售接单明细 Excel</Button></Upload>
       <FieldVisibility all={rollingColumnsMeta.map((column) => ({ key: column.key, label: column.header }))} visible={visibleFields} onChange={setVisibleFields} />
       </Flex>
+      <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
       <Flex className="monthly-toolbar-row rolling-filter-row" align="center" gap={8} wrap>
         <PlanFilterDrawer columns={rollingColumnsMeta} options={dictionaryOptions} value={filters} onChange={setFilters} />
         <Button onClick={() => { setQuickFilters(emptyRollingQuickFilters()); setFilters([]); }}>清空筛选</Button>
@@ -828,6 +853,7 @@ function MonthlyPlan({ year, month, setYear, setMonth }: {
   const [monthlyImportOpen, setMonthlyImportOpen] = useState(false);
   const [monthlyImporting, setMonthlyImporting] = useState(false);
   const [monthlyImportFileName, setMonthlyImportFileName] = useState("");
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
   const [imageOpen, setImageOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addForm] = Form.useForm();
@@ -854,15 +880,21 @@ function MonthlyPlan({ year, month, setYear, setMonth }: {
   const rows = useMemo(() =>
     filterPlanRows(query.data?.rows ?? [], filters, monthlyPlanColumns).filter((row: any) =>
       (!quickFilters.division || row.division === quickFilters.division)
-      && (!quickFilters.orderNumber || String(row.orderNumber ?? "").includes(quickFilters.orderNumber))
-      && (!quickFilters.itemNumber || String(row.itemNumber ?? "").includes(quickFilters.itemNumber))
+      && containsText(row.orderNumber, quickFilters.orderNumber)
+      && containsText(row.itemNumber, quickFilters.itemNumber)
       && (!quickFilters.itemStatus || row.itemStatus === quickFilters.itemStatus)
       && matchesDateRange(row.customerDueDate, quickFilters.customerDueDateStart, quickFilters.customerDueDateEnd)
       && matchesDateRange(row.reviewDueDate, quickFilters.reviewDueDateStart, quickFilters.reviewDueDateEnd)
       && matchesDateRange(row.exceptionDueDate, quickFilters.exceptionDueDateStart, quickFilters.exceptionDueDateEnd)
     ), [filters, query.data?.rows, quickFilters]);
   const columnDefs = useMemo<(ColDef | ColGroupDef)[]>(
-    () => makeMonthlyColumnDefs(editMode, hiddenFields, dictionaryOptions),
+    () => [...makeMonthlyColumnDefs(editMode, hiddenFields, dictionaryOptions), {
+      headerName: "审计信息", marryChildren: true, children: [
+        { headerName: "创建时间", field: "createdAt", editable: false, width: 168, valueFormatter: ({ value }: any) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—" },
+        { headerName: "最后修改时间", field: "updatedAt", editable: false, width: 168, valueFormatter: ({ value }: any) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—" },
+        { headerName: "修改人", field: "updatedBy", editable: false, width: 110 }
+      ]
+    } as ColGroupDef],
     [dictionaryOptions, editMode, hiddenFields]
   );
   const saveMonthly = () => {
@@ -939,13 +971,15 @@ function MonthlyPlan({ year, month, setYear, setMonth }: {
         try {
           const preview = await api<any>("/imports/preview", { method: "POST", body: form });
           setMonthlyImportPreview(preview); setMonthlyImportFileName(file.name); setMonthlyImportOpen(true);
-        } catch (error) { message.error((error as Error).message); }
+          setImportFeedback({ type: "success", message: "文件全部校验通过，请核对预览后确认写入" });
+        } catch (error) { setImportFeedback(failedImport(error)); }
         finally { setMonthlyImporting(false); }
         return false;
       }}><Button loading={monthlyImporting}>导入月度计划 Excel</Button></Upload>
       <Button onClick={() => setFieldOpen(true)}>字段显示</Button>
       <Button type="primary" href={`/api/v1/plans/monthly/export?year=${year}&month=${month}`} target="_blank">导出 Excel</Button>
       </Flex>
+      <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
       <Flex className="monthly-toolbar-row monthly-filter-row" align="center" gap={8} wrap>
         <PlanFilterDrawer columns={monthlyPlanColumns} options={dictionaryOptions} value={filters} onChange={setFilters} />
         <Button onClick={() => { setQuickFilters({
@@ -1060,11 +1094,11 @@ function MonthlyPlan({ year, month, setYear, setMonth }: {
         setMonthlyImporting(true);
         try {
           await api(`/imports/${monthlyImportPreview.jobId}/confirm`, { method: "POST" });
-          message.success("月度计划导入成功");
+          setImportFeedback({ type: "success", message: "月度计划全部导入成功" });
           setMonthlyImportOpen(false); setMonthlyImportPreview(undefined);
           void queryClient.invalidateQueries({ queryKey: ["monthly", year, month] });
           void queryClient.invalidateQueries({ queryKey: ["rolling"] });
-        } catch (error) { message.error(`导入失败：${(error as Error).message}`); }
+        } catch (error) { setImportFeedback(failedImport(error)); }
         finally { setMonthlyImporting(false); }
       }}>
       <Descriptions size="small" column={2} bordered items={[
@@ -1127,7 +1161,8 @@ const inboundFieldLabels: Record<string, string> = {
   workshop: "生产车间", handlerCode: "经手人编码", handler: "经手人", remark: "备注",
   creator: "制单人", auditor: "审核人", inventoryCode: "存货编码", inventoryName: "存货",
   specification: "规格型号", unit: "计量单位", relationInfo: "关联信息",
-  receivedQuantity: "实收数量", unitPrice: "单价", totalAmount: "总金额", voucherWord: "凭证字号"
+  receivedQuantity: "实收数量", unitPrice: "单价", totalAmount: "总金额", voucherWord: "凭证字号",
+  createdAt: "创建时间（系统）", updatedAt: "最后修改时间", updatedBy: "修改人"
 };
 const inboundFields = Object.keys(inboundFieldLabels);
 
@@ -1143,16 +1178,17 @@ function DataOperations() {
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [processOpen, setProcessOpen] = useState(false);
   const [importing, setImporting] = useState<string>();
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
   const [supplierForm] = Form.useForm();
   const [dictionaryForm] = Form.useForm();
   const [processForm] = Form.useForm();
   const baseUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
-  const supplierFields = ["code", "name", "remark", "enabled"];
-  const dictionaryFields = ["code", "typeName", "value", "sortOrder", "enabled"];
-  const processFields = ["sortOrder", "code", "name", "enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"];
-  const [supplierVisible, setSupplierVisible] = useState<string[]>(() => JSON.parse(localStorage.getItem(`suppliers-visible-fields:${baseUser}`) ?? JSON.stringify(supplierFields)));
-  const [dictionaryVisible, setDictionaryVisible] = useState<string[]>(() => JSON.parse(localStorage.getItem(`dictionaries-visible-fields:${baseUser}`) ?? JSON.stringify(dictionaryFields)));
-  const [processVisible, setProcessVisible] = useState<string[]>(() => JSON.parse(localStorage.getItem(`processes-visible-fields:${baseUser}`) ?? JSON.stringify(processFields)));
+  const supplierFields = ["code", "name", "remark", "enabled", "createdAt", "updatedAt", "updatedBy"];
+  const dictionaryFields = ["code", "typeName", "value", "sortOrder", "enabled", "createdAt", "updatedAt", "updatedBy"];
+  const processFields = ["sortOrder", "code", "name", "enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled", "createdAt", "updatedAt", "updatedBy"];
+  const [supplierVisible, setSupplierVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`suppliers-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...supplierFields.filter((field) => !saved.includes(field))]; });
+  const [dictionaryVisible, setDictionaryVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`dictionaries-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...dictionaryFields.filter((field) => !saved.includes(field))]; });
+  const [processVisible, setProcessVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`processes-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...processFields.filter((field) => !saved.includes(field))]; });
   useEffect(() => {
     localStorage.setItem(`suppliers-visible-fields:${baseUser}`, JSON.stringify(supplierVisible));
     localStorage.setItem(`dictionaries-visible-fields:${baseUser}`, JSON.stringify(dictionaryVisible));
@@ -1179,10 +1215,10 @@ function DataOperations() {
     setImporting(kind);
     try {
       const result = await api<{ imported: number; skipped?: number }>(`/master-data/${kind}/import-file`, { method: "POST", body: form });
-      message.success(`已导入 ${result.imported} 行${result.skipped ? `，跳过 ${result.skipped} 行` : ""}`);
+      setImportFeedback({ type: "success", message: `全部校验通过，成功导入 ${result.imported} 行` });
       refresh(kind);
     } catch (error) {
-      message.error((error as Error).message);
+      setImportFeedback(failedImport(error));
     } finally {
       setImporting(undefined);
     }
@@ -1203,20 +1239,23 @@ function DataOperations() {
     { title: "编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "code", v)} /> },
     { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "name", v)} /> },
     { title: "备注", dataIndex: "remark", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "remark", v)} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateSupplier(row.id, "enabled", v)} /> }
+    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateSupplier(row.id, "enabled", v)} /> },
+    ...auditColumns
   ].filter((column) => supplierVisible.includes(column.dataIndex));
   const dictionaryColumns = [
     { title: "字典编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row.typeId, "code", v)} /> },
     { title: "字典名称", dataIndex: "typeName", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row.typeId, "name", v)} /> },
     { title: "值", dataIndex: "value", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryValue(row.id, "value", v)} /> },
     { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateDictionaryValue(row.id, "sortOrder", v)} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateDictionaryValue(row.id, "enabled", v)} /> }
+    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateDictionaryValue(row.id, "enabled", v)} /> },
+    ...auditColumns
   ].filter((column) => dictionaryVisible.includes(column.dataIndex));
   const processColumns = [
     { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateProcess(row.id, "sortOrder", v)} /> },
     { title: "代码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row.id, "code", v)} /> },
     { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row.id, "name", v)} /> },
-    ...["enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"].map((field) => ({ title: ({ enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用" } as any)[field], dataIndex: field, render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateProcess(row.id, field, v)} /> }))
+    ...["enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"].map((field) => ({ title: ({ enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用" } as any)[field], dataIndex: field, render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateProcess(row.id, field, v)} /> })),
+    ...auditColumns
   ].filter((column) => processVisible.includes(column.dataIndex));
 
   return <div><PageHeader title="基础数据维护" subtitle="表格内容可直接编辑；复选框支持多选" actions={<Space>
@@ -1224,6 +1263,7 @@ function DataOperations() {
     <Button onClick={() => setDictionaryOpen(true)}>新增字典值</Button>
     <Button onClick={() => setProcessOpen(true)}>新增工序</Button>
   </Space>} />
+    <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
     <Tabs items={[
       { key: "suppliers", label: `供应商（${suppliers.data?.length ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
@@ -1233,7 +1273,7 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("suppliers", "xlsx")}>下载 XLSX 模板</Button>
           <Button onClick={() => void downloadTemplate("suppliers", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!supplierIds.length} onClick={async () => { await api("/master-data/suppliers/delete", { method: "POST", body: JSON.stringify({ ids: supplierIds }) }); setSupplierIds([]); refresh("suppliers"); }}>停用选中（{supplierIds.length}）</Button>
-          <FieldVisibility all={supplierFields.map((key) => ({ key, label: ({ code: "编码", name: "名称", remark: "备注", enabled: "启用" } as any)[key] }))} visible={supplierVisible} onChange={setSupplierVisible} />
+          <FieldVisibility all={supplierFields.map((key) => ({ key, label: ({ code: "编码", name: "名称", remark: "备注", enabled: "启用", ...auditLabels } as any)[key] }))} visible={supplierVisible} onChange={setSupplierVisible} />
         </Space>
         <Table rowKey="id" rowSelection={{ selectedRowKeys: supplierIds, onChange: setSupplierIds }} dataSource={suppliers.data} pagination={{ pageSize: 50 }} columns={supplierColumns} />
       </> },
@@ -1245,15 +1285,22 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("dictionaries", "xlsx")}>下载 XLSX 模板</Button>
           <Button onClick={() => void downloadTemplate("dictionaries", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!dictionaryIds.length} onClick={async () => { await api("/master-data/dictionary-values/delete", { method: "POST", body: JSON.stringify({ ids: dictionaryIds }) }); setDictionaryIds([]); refresh("dictionaries"); }}>停用选中（{dictionaryIds.length}）</Button>
-          <FieldVisibility all={dictionaryFields.map((key) => ({ key, label: ({ code: "字典编码", typeName: "字典名称", value: "值", sortOrder: "顺序", enabled: "启用" } as any)[key] }))} visible={dictionaryVisible} onChange={setDictionaryVisible} />
+          <FieldVisibility all={dictionaryFields.map((key) => ({ key, label: ({ code: "字典编码", typeName: "字典名称", value: "值", sortOrder: "顺序", enabled: "启用", ...auditLabels } as any)[key] }))} visible={dictionaryVisible} onChange={setDictionaryVisible} />
         </Space>
         <Table rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} pagination={{ pageSize: 50 }} columns={dictionaryColumns} />
       </> },
       { key: "processes", label: `工序（${processes.data?.length ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
-          <Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => { const rows = await parseCsvFile(file as File); await api("/master-data/processes/import", { method: "POST", body: JSON.stringify({ rows: rows.map((row: any) => ({ ...row, sortOrder: Number(row.sortOrder ?? row["顺序"]), enableRequiredDays: String(row.enableRequiredDays ?? row["所需天数"]).toLowerCase() === "true", enableDueDate: String(row.enableDueDate ?? row["交期"]).toLowerCase() === "true", enableStatus: String(row.enableStatus ?? row["状态"]).toLowerCase() === "true", enableException: String(row.enableException ?? row["异常"]).toLowerCase() === "true" })) }) }); message.success(`已导入 ${rows.length} 行`); refresh("processes"); return false; }}><Button>导入工序 CSV</Button></Upload>
+          <Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => {
+            try {
+              const rows = await parseCsvFile(file as File);
+              const result = await api<{ imported: number }>("/master-data/processes/import", { method: "POST", body: JSON.stringify({ rows: rows.map((row: any, index) => ({ ...row, __row: index + 2, sortOrder: Number(row.sortOrder ?? row["顺序"]), enableRequiredDays: String(row.enableRequiredDays ?? row["所需天数"]).toLowerCase() === "true", enableDueDate: String(row.enableDueDate ?? row["交期"]).toLowerCase() === "true", enableStatus: String(row.enableStatus ?? row["状态"]).toLowerCase() === "true", enableException: String(row.enableException ?? row["异常"]).toLowerCase() === "true" })) }) });
+              setImportFeedback({ type: "success", message: `全部校验通过，成功导入 ${result.imported} 行` }); refresh("processes");
+            } catch (error) { setImportFeedback(failedImport(error)); }
+            return false;
+          }}><Button>导入工序 CSV</Button></Upload>
           <Button danger disabled={!processIds.length} onClick={async () => { await api("/master-data/processes/delete", { method: "POST", body: JSON.stringify({ ids: processIds }) }); setProcessIds([]); refresh("processes"); }}>停用选中（{processIds.length}）</Button>
-          <FieldVisibility all={processFields.map((key) => ({ key, label: ({ sortOrder: "顺序", code: "代码", name: "名称", enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用" } as any)[key] }))} visible={processVisible} onChange={setProcessVisible} />
+          <FieldVisibility all={processFields.map((key) => ({ key, label: ({ sortOrder: "顺序", code: "代码", name: "名称", enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用", ...auditLabels } as any)[key] }))} visible={processVisible} onChange={setProcessVisible} />
         </Space>
         <Table rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data} pagination={false} columns={processColumns} />
       </> }
@@ -1289,6 +1336,7 @@ function FinishedGoodsInboundPage() {
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
   const [exporting, setExporting] = useState<string>();
   const [form] = Form.useForm();
   const userKey = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
@@ -1320,9 +1368,9 @@ function FinishedGoodsInboundPage() {
       const result = await api<{ imported: number; skipped?: number }>("/master-data/finished-goods-inbound/import-file", {
         method: "POST", body
       });
-      message.success(`已导入 ${result.imported} 行${result.skipped ? `，跳过 ${result.skipped} 行` : ""}`);
+      setImportFeedback({ type: "success", message: `全部校验通过，成功导入 ${result.imported} 行` });
       refresh();
-    } catch (error) { message.error((error as Error).message); }
+    } catch (error) { setImportFeedback(failedImport(error)); }
     finally { setImporting(false); }
     return false;
   };
@@ -1346,7 +1394,9 @@ function FinishedGoodsInboundPage() {
     title: inboundFieldLabels[field],
     dataIndex: field,
     width: wideFields.has(field) ? 260 : field === "createdTime" ? 190 : 145,
-    render: (value: unknown, row: any) => <InlineText
+    render: (value: unknown, row: any) => ["createdAt", "updatedAt", "updatedBy"].includes(field)
+      ? (field === "updatedBy" ? String(value ?? "system") : value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : "—")
+      : <InlineText
       type={numericFields.has(field) ? "number" : dateFields.has(field) ? "date" : "text"}
       value={field === "createdTime" && value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : value}
       onSave={(next) => updateRow(row.id, field, next)}
@@ -1368,6 +1418,7 @@ function FinishedGoodsInboundPage() {
       <FieldVisibility all={inboundFields.map((key) => ({ key, label: inboundFieldLabels[key] ?? key }))}
         visible={visibleFields} onChange={setVisibleFields} />
     </Space>
+    <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
     <Table className="editable-master-table" rowKey="id"
       rowSelection={{ selectedRowKeys: selectedIds, onChange: setSelectedIds }}
       dataSource={records.data} loading={records.isLoading}
@@ -1402,45 +1453,6 @@ function FinishedGoodsInboundPage() {
         </div>
       </Form>
     </Modal>
-  </div>;
-}
-
-function ExcelImport() {
-  const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(8);
-  const [preview, setPreview] = useState<any>();
-  const [loading, setLoading] = useState(false);
-  const doPreview = async () => {
-    const file = fileList[0]?.originFileObj;
-    if (!file) return message.warning("请选择 Excel 文件");
-    const form = new FormData(); form.append("file", file); form.append("year", String(year)); form.append("month", String(month));
-    setLoading(true);
-    try { setPreview(await api("/imports/preview", { method: "POST", body: form })); } catch (error) { message.error((error as Error).message); } finally { setLoading(false); }
-  };
-  const confirm = async () => {
-    setLoading(true);
-    try { await api(`/imports/${preview.jobId}/confirm`, { method: "POST" }); message.success("导入完成"); setPreview(undefined); }
-    catch (error) { message.error((error as Error).message); } finally { setLoading(false); }
-  };
-  return <div><PageHeader title="Excel 导入" subtitle="先预览校验，确认后以事务和业务键幂等写入" />
-    <Card>
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <Alert showIcon type="info" message="年份和月份必须由你明确确认，系统不会按当前日期猜测。" />
-        <Space>
-          <InputNumber value={year} onChange={(v) => setYear(v ?? 2026)} />
-          <Select value={month} onChange={setMonth} options={Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` }))} style={{ width: 90 }} />
-          <Upload accept=".xlsx" maxCount={1} fileList={fileList} beforeUpload={() => false} onChange={({ fileList: list }) => setFileList(list)}>
-            <Button>选择 .xlsx 文件</Button>
-          </Upload>
-          <Button type="primary" loading={loading} onClick={doPreview}>上传并预览</Button>
-        </Space>
-        {preview && <Card title="导入预览" extra={<Button type="primary" loading={loading} onClick={confirm}>确认写入</Button>}>
-          <Descriptions column={5} items={Object.entries(preview.summary).map(([key, value]) => ({ key, label: ({ add: "新增", update: "更新", skip: "跳过", warning: "警告", failure: "失败" } as any)[key], children: String(value) }))} />
-          {preview.warnings?.length > 0 && <Alert type="warning" showIcon message={`${preview.warnings.length} 条数据质量提示`} description={<ul>{preview.warnings.slice(0, 10).map((warning: string) => <li key={warning}>{warning}</li>)}</ul>} />}
-        </Card>}
-      </Space>
-    </Card>
   </div>;
 }
 
@@ -1527,8 +1539,6 @@ function AdminCenter() {
   const [open, setOpen] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [organizationOpen, setOrganizationOpen] = useState(false);
-  const [editingOrganizationId, setEditingOrganizationId] = useState<string>();
   const [editingRole, setEditingRole] = useState<any>();
   const [permissionDraft, setPermissionDraft] = useState<Record<string, Record<string, boolean>>>({});
   const [assignmentUsers, setAssignmentUsers] = useState<string[]>([]);
@@ -1537,12 +1547,9 @@ function AdminCenter() {
   const [selectedRoleIds, setSelectedRoleIds] = useState<React.Key[]>([]);
   const [form] = Form.useForm();
   const [roleForm] = Form.useForm();
-  const [organizationForm] = Form.useForm();
   const users = useQuery({ queryKey: ["admin-users"], queryFn: () => api<any[]>("/admin/users") });
   const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<any[]>("/admin/roles") });
   const organizations = useQuery({ queryKey: ["organization-units"], queryFn: () => api<any[]>("/admin/organization-units") });
-  const contacts = useQuery({ queryKey: ["contacts"], queryFn: () => api<any[]>("/admin/contacts") });
-  const dictionaryOptions = useDictionaryOptions();
   const permissionResources = [
     ["sales-summary-dashboard", "销售接单汇总大屏"], ["rolling-plan", "销售接单明细"], ["monthly-plan", "月度计划"],
     ["finished-goods-inbound", "成品入库"], ["sales-orders", "销售订单"], ["suppliers", "供应商"], ["dictionaries", "字典"],
@@ -1550,7 +1557,7 @@ function AdminCenter() {
   ] as const;
   const permissionActions = [["read", "查看"], ["create", "新增"], ["update", "编辑"], ["import", "导入"], ["export", "导出"]] as const;
   const adminUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
-  const allUserFields = ["username", "displayName", "position", "departmentPaths", "roles", "enabled", "lastLoginAt"];
+  const allUserFields = ["username", "displayName", "position", "departmentPaths", "roles", "enabled", "lastLoginAt", "createdAt", "updatedAt", "updatedBy"];
   const [visibleUserFields, setVisibleUserFields] = useState<string[]>(() => {
     const saved = JSON.parse(localStorage.getItem(`users-visible-fields:${adminUser}`) ?? "null");
     return Array.isArray(saved) ? [...saved, ...allUserFields.filter((field) => !saved.includes(field))] : allUserFields;
@@ -1589,18 +1596,15 @@ function AdminCenter() {
     { title: "工号/账号", dataIndex: "username" }, { title: "姓名", dataIndex: "displayName" },
     { title: "角色", dataIndex: "roles", render: (_values: string[], row: any) => <Select mode="multiple" value={row.roleIds} style={{ minWidth: 180 }} options={(roles.data ?? []).map((role) => ({ value: role.id, label: role.name }))} onChange={(roleIds) => void updateUser(row.id, { roleIds })} /> },
     { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateUser(row.id, { enabled: v })} /> },
-    { title: "上次登录", dataIndex: "lastLoginAt", render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—" }
+    { title: "上次登录", dataIndex: "lastLoginAt", render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—" },
+    ...auditColumns
     ,{ title: "密码", dataIndex: "password", render: (_: unknown, row: any) => <Button type="link" onClick={() => void resetPassword(row.id)}>重置密码</Button> }
   ].filter((column) => visibleUserFields.includes(column.dataIndex as string) || column.dataIndex === "password");
   const roleColumns = [
     { title: "角色", dataIndex: "name", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { name: v })} /> }, { title: "说明", dataIndex: "description", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { description: v })} /> },
     { title: "权限条目", dataIndex: "permissions", render: (values: any[]) => values?.length ?? 0 },
+    ...auditColumns,
     { title: "配置", render: (_: unknown, row: any) => <Button type="link" onClick={() => openRolePermissions(row)}>配置表格权限</Button> }
-  ];
-  const organizationColumns = [
-    { title: "层级", dataIndex: "level", render: (value: number) => `第 ${value} 级` },
-    { title: "组织名称", dataIndex: "name", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => api(`/admin/organization-units/${row.id}`, { method: "PATCH", body: JSON.stringify({ name: v }) }).then(() => organizations.refetch())} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(enabled) => void api(`/admin/organization-units/${row.id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }).then(() => organizations.refetch())} /> }
   ];
   const organizationTreeData = useMemo(() => {
     const units = organizations.data ?? [];
@@ -1610,19 +1614,7 @@ function AdminCenter() {
       children: make(unit.id)
     }));
     return make(null);
-  }, [organizations.data, organizationForm]);
-  const contactColumns = [
-    { title: "姓名", dataIndex: "name" }, { title: "工号", dataIndex: "employeeNo" }, { title: "职位", dataIndex: "position" },
-    { title: "所属组织", dataIndex: "departmentPaths", render: (paths: string[][]) => <Space direction="vertical" size={0}>{(paths ?? []).map((path, index) => <span key={index}>{path.join(" / ")}</span>)}</Space> },
-    { title: "直属上级", dataIndex: "directLeaders", render: (values: string[]) => values?.join("、") || "—" }, { title: "电话", dataIndex: "telephone" },
-    { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> }
-  ];
-  const importContacts = async (file: File) => {
-    const body = new FormData(); body.append("file", file);
-    try { const result = await api<{ imported: number; sourceRows: number }>("/admin/contacts/import-file", { method: "POST", body }); message.success(`通讯录已同步：${result.imported} 位员工（源文件 ${result.sourceRows} 行）`); void contacts.refetch(); }
-    catch (error) { message.error((error as Error).message); }
-    return false;
-  };
+  }, [organizations.data]);
   return <div><PageHeader title="用户与角色" subtitle="可直接编辑；复选框支持多选批量停用" actions={<Space><Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => { const raw = await parseCsvFile(file as File); const rows = raw.map((row: any) => ({ username: row.username ?? row["账号"], displayName: row.displayName ?? row["姓名"], division: row.division ?? row["事业部"], roleIds: String(row.roles ?? row["角色"] ?? "").split(/[、|;]/).map((name) => roles.data?.find((role) => role.name === name)?.id).filter(Boolean) })); await api("/admin/users/import", { method: "POST", body: JSON.stringify({ rows }) }); message.success(`已导入 ${rows.length} 个用户`); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); return false; }}><Button>导入用户 CSV</Button></Upload><Button danger disabled={!selectedUserIds.length} onClick={async () => { await api("/admin/users/delete", { method: "POST", body: JSON.stringify({ ids: selectedUserIds }) }); setSelectedUserIds([]); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); }}>停用选中（{selectedUserIds.length}）</Button><FieldVisibility all={allUserFields.map((key) => ({ key, label: ({ username: "账号", displayName: "姓名", roles: "角色", division: "事业部", enabled: "状态", lastLoginAt: "上次登录" } as any)[key] }))} visible={visibleUserFields} onChange={setVisibleUserFields} /><Button type="primary" onClick={() => setOpen(true)}>新增用户</Button></Space>} />
     <Tabs items={[
       { key: "users", label: "用户", children: <Table rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={users.data} loading={users.isLoading} columns={userColumns} /> },
@@ -1638,9 +1630,6 @@ function AdminCenter() {
         <Form.Item label="指定用户"><Select mode="multiple" allowClear showSearch optionFilterProp="label" maxTagCount="responsive" value={assignmentUsers} onChange={setAssignmentUsers} options={(users.data ?? []).map((user: any) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} placeholder="可搜索并多选用户" /></Form.Item>
         <Form.Item label="指定组织架构"><TreeSelect treeData={organizationTreeData} treeCheckable showCheckedStrategy={TreeSelect.SHOW_PARENT} treeDefaultExpandAll multiple value={assignmentOrganizations} onChange={setAssignmentOrganizations} placeholder="展开后选择组织架构" style={{ width: "100%" }} /></Form.Item>
       </Form>
-    </Modal>
-    <Modal title={editingOrganizationId ? "编辑组织单元" : "新增组织单元"} open={organizationOpen} onCancel={() => setOrganizationOpen(false)} onOk={() => organizationForm.validateFields().then(async (values) => { await api(editingOrganizationId ? `/admin/organization-units/${editingOrganizationId}` : "/admin/organization-units", { method: editingOrganizationId ? "PATCH" : "POST", body: JSON.stringify(editingOrganizationId ? { name: values.name } : values) }); message.success(editingOrganizationId ? "组织单元已更新" : "组织单元已新增"); setOrganizationOpen(false); organizations.refetch(); })}>
-      <Form form={organizationForm} layout="vertical"><Form.Item name="level" label="层级" rules={[{ required: true }]}><Select options={[1, 2, 3, 4, 5].map((value) => ({ value, label: String(value) }))} /></Form.Item><Form.Item name="parentId" label="上级组织"><Select allowClear options={(organizations.data ?? []).map((item) => ({ value: item.id, label: item.name }))} /></Form.Item><Form.Item name="name" label="组织名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item></Form>
     </Modal>
     <Modal title="新增用户" open={open} okText="创建" cancelText="取消" confirmLoading={createUser.isPending} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then((values) => createUser.mutate(values))}>
       <Form form={form} layout="vertical" initialValues={{ roleIds: [], password: "kainice123" }}>
@@ -1660,7 +1649,8 @@ function ContactDirectory() {
     { title: "姓名", dataIndex: "name" }, { title: "工号", dataIndex: "employeeNo" }, { title: "职位", dataIndex: "position" },
     { title: "所属组织", dataIndex: "departmentPaths", render: (paths: string[][]) => <Space direction="vertical" size={0}>{(paths ?? []).map((path, index) => <span key={index}>{path.join(" / ")}</span>)}</Space> },
     { title: "直属上级", dataIndex: "directLeaders", render: (values: string[]) => values?.join("、") || "—" }, { title: "电话", dataIndex: "telephone" },
-    { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> }
+    { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> },
+    ...auditColumns
   ];
   return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.length ?? 0} 位员工</Text>} /><Table rowKey="id" dataSource={contacts.data} loading={contacts.isLoading} columns={columns} pagination={{ pageSize: 50, showSizeChanger: true }} scroll={{ x: "max-content", y: "calc(100vh - 250px)" }} /></div>;
 }

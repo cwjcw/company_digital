@@ -108,6 +108,7 @@ export class PlanController {
               : cellValue;
       }
       if (Object.values(record).some((value) => value !== null && value !== undefined && value !== "")) rows.push(record);
+      record.__row = rowNumber;
     });
     return this.plans.importOrders(rows, req.user, req.requestId);
   }
@@ -197,16 +198,19 @@ export class MasterDataController {
     @InjectRepository(ProcessDefinitionEntity) private readonly processes: Repository<ProcessDefinitionEntity>,
     @InjectRepository(SalesOrder) private readonly salesOrders: Repository<SalesOrder>,
     @InjectRepository(FinishedGoodsInbound) private readonly finishedGoodsInbound: Repository<FinishedGoodsInbound>,
-    private readonly imports: ImportService
+    private readonly imports: ImportService,
+    private readonly dataSource: DataSource
   ) {}
   private enabledValue(value: unknown) { return !["false", "0", "否", "停用", "禁用"].includes(String(value ?? "是").trim().toLowerCase()); }
-  private csvRows(buffer: Buffer) {
+  private csvRows(buffer: Buffer): Record<string, unknown>[] {
     const lines = buffer.toString("utf8").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
     const parse = (line: string) => { const values: string[] = []; let current = ""; let quoted = false; for (let i = 0; i < line.length; i++) { const char = line[i]!; if (char === '"' && line[i + 1] === '"') { current += '"'; i++; } else if (char === '"') quoted = !quoted; else if (char === "," && !quoted) { values.push(current.trim()); current = ""; } else current += char; } values.push(current.trim()); return values; };
     const headers = parse(lines.shift() ?? "");
-    return lines.map((line) => Object.fromEntries(parse(line).map((value, index) => [headers[index], value])));
+    return lines.map((line, rowIndex) => ({
+      ...Object.fromEntries(parse(line).map((value, index) => [headers[index], value])), __row: rowIndex + 2
+    }));
   }
-  private async uploadedRows(file: Express.Multer.File) {
+  private async uploadedRows(file: Express.Multer.File): Promise<Record<string, unknown>[]> {
     if (!file?.buffer) throw new BadRequestException("请选择 CSV 或 XLSX 文件");
     if (file.originalname.toLowerCase().endsWith(".csv")) return this.csvRows(file.buffer);
     const workbook = await this.imports.loadWorkbook(file);
@@ -218,7 +222,7 @@ export class MasterDataController {
       if (rowNumber === 1) return;
       const record: Record<string, unknown> = {};
       for (let column = 1; column < headers.length; column++) record[String(headers[column] ?? "").trim()] = row.getCell(column).text.trim();
-      if (Object.values(record).some((value) => value !== "")) rows.push(record);
+      if (Object.values(record).some((value) => value !== "")) rows.push({ ...record, __row: rowNumber });
     });
     return rows;
   }
@@ -315,16 +319,23 @@ export class MasterDataController {
   }
   @Post("suppliers/delete") async deleteSuppliers(@Body() body: { ids: string[] }) { await this.suppliers.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Post("suppliers/import") async importSuppliers(@Body() body: { rows: Array<{ code?: string; name: string; remark?: string; enabled?: boolean }> }) {
-    for (const row of body.rows ?? []) {
-      const code = row.code?.trim(); if (!code || !row.name?.trim()) throw new BadRequestException("供应商编码和名称不能为空");
-      await this.suppliers.createQueryBuilder().insert().values({ code, name: row.name.trim(), remark: row.remark?.trim() || null, enabled: row.enabled ?? true }).orUpdate(["name", "remark", "enabled"], ["code"]).execute();
+    const errors: string[] = []; const seen = new Set<string>();
+    for (const [index, row] of (body.rows ?? []).entries()) {
+      const code = row.code?.trim(); const line = Number((row as any).__row) || index + 2;
+      if (!code || !row.name?.trim()) errors.push(`第 ${line} 行：供应商编码和名称不能为空`);
+      else if (seen.has(code)) errors.push(`第 ${line} 行：供应商编码“${code}”在文件内重复`); else seen.add(code);
     }
-    return { imported: body.rows?.length ?? 0 };
+    if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
+    await this.dataSource.transaction(async (manager) => {
+      for (const row of body.rows) await manager.createQueryBuilder().insert().into(Supplier).values({ code: row.code!.trim(), name: row.name.trim(), remark: row.remark?.trim() || null, enabled: row.enabled ?? true }).orUpdate(["name", "remark", "enabled"], ["code"]).execute();
+    });
+    return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
   @Post("suppliers/import-file") @ApiConsumes("multipart/form-data") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
   async importSupplierFile(@UploadedFile() file: Express.Multer.File) {
     const raw = await this.uploadedRows(file);
-    return this.importSuppliers({ rows: raw.map((row: any) => ({ code: row.code ?? row["编码"], name: row.name ?? row["名称"], remark: row.remark ?? row["备注"], enabled: this.enabledValue(row.enabled ?? row["是否启用"]) })) });
+    return this.importSuppliers({ rows: raw.map((row: any) => ({ code: row.code ?? row["编码"], name: row.name ?? row["名称"], remark: row.remark ?? row["备注"], enabled: this.enabledValue(row.enabled ?? row["是否启用"]), __row: row.__row })) as any });
   }
   @Get("dictionaries") async dictionaries() {
     const types = await this.dictionaryTypes.find();
@@ -332,18 +343,28 @@ export class MasterDataController {
     return types.map((type) => ({ ...type, values: values.filter((value) => value.typeId === type.id) }));
   }
   @Post("dictionaries/import") async importDictionaries(@Body() body: { rows: Array<{ code: string; name?: string; value: string }> }) {
-    for (const row of body.rows ?? []) {
-      if (!row.code?.trim() || !row.value?.trim()) continue;
-      let type = await this.dictionaryTypes.findOneBy({ code: row.code.trim() });
-      type ??= await this.dictionaryTypes.save({ code: row.code.trim(), name: row.name?.trim() || row.code.trim() });
-      await this.dictionaryValues.createQueryBuilder().insert().values({ typeId: type.id, value: row.value.trim(), sortOrder: 0, enabled: true }).orIgnore().execute();
+    const errors: string[] = []; const seen = new Set<string>();
+    for (const [index, row] of (body.rows ?? []).entries()) {
+      const code = row.code?.trim(); const value = row.value?.trim(); const line = Number((row as any).__row) || index + 2;
+      if (!code || !value) errors.push(`第 ${line} 行：字典编码和字典值不能为空`);
+      else if (seen.has(`${code}\u0000${value}`)) errors.push(`第 ${line} 行：字典编码/值“${code}/${value}”在文件内重复`); else seen.add(`${code}\u0000${value}`);
     }
-    return { imported: body.rows?.length ?? 0 };
+    if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
+    await this.dataSource.transaction(async (manager) => {
+      for (const row of body.rows) {
+        const code = row.code.trim();
+        let type = await manager.findOneBy(DictionaryType, { code });
+        type ??= await manager.save(DictionaryType, { code, name: row.name?.trim() || code });
+        await manager.createQueryBuilder().insert().into(DictionaryValue).values({ typeId: type.id, value: row.value.trim(), sortOrder: 0, enabled: true }).orIgnore().execute();
+      }
+    });
+    return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
   @Post("dictionaries/import-file") @ApiConsumes("multipart/form-data") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
   async importDictionaryFile(@UploadedFile() file: Express.Multer.File) {
     const raw = await this.uploadedRows(file);
-    return this.importDictionaries({ rows: raw.map((row: any) => ({ code: row.code ?? row["字典编码"], name: row.name ?? row["字典名称"], value: row.value ?? row["字典值"] })) });
+    return this.importDictionaries({ rows: raw.map((row: any) => ({ code: row.code ?? row["字典编码"], name: row.name ?? row["字典名称"], value: row.value ?? row["字典值"], __row: row.__row })) as any });
   }
   @Post("dictionaries") async addDictionaryValue(@Body() body: { code: string; name?: string; value: string }) { return this.importDictionaries({ rows: [body] }); }
   @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string }) { return this.dictionaryTypes.update(id, body); }
@@ -354,8 +375,19 @@ export class MasterDataController {
   @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity>) { return this.processes.update(id, body); }
   @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }) { await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Post("processes/import") async importProcesses(@Body() body: { rows: Array<Partial<ProcessDefinitionEntity>> }) {
-    for (const row of body.rows ?? []) if (row.code && row.name) await this.processes.createQueryBuilder().insert().values({ ...row, enabled: row.enabled ?? true }).orUpdate(["name", "sort_order", "enable_required_days", "enable_due_date", "enable_status", "enable_exception", "enabled"], ["code"]).execute();
-    return { imported: body.rows?.length ?? 0 };
+    const errors: string[] = []; const seen = new Set<string>();
+    for (const [index, row] of (body.rows ?? []).entries()) {
+      const line = Number((row as any).__row) || index + 2; const code = row.code?.trim();
+      if (!code || !row.name?.trim()) errors.push(`第 ${line} 行：工序编码和名称不能为空`);
+      else if (seen.has(code)) errors.push(`第 ${line} 行：工序编码“${code}”在文件内重复`); else seen.add(code);
+      if (row.sortOrder !== undefined && !Number.isFinite(Number(row.sortOrder))) errors.push(`第 ${line} 行：排序必须为数字`);
+    }
+    if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
+    await this.dataSource.transaction(async (manager) => {
+      for (const row of body.rows) await manager.createQueryBuilder().insert().into(ProcessDefinitionEntity).values({ ...row, enabled: row.enabled ?? true }).orUpdate(["name", "sort_order", "enable_required_days", "enable_due_date", "enable_status", "enable_exception", "enabled"], ["code"]).execute();
+    });
+    return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
 
   private text(value: unknown) {
@@ -379,6 +411,13 @@ export class MasterDataController {
     if (!normalized) return null;
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? String(parsed) : null;
+  }
+  private importValueErrors(value: unknown, kind: "date" | "datetime" | "number", field: string, line: number) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    if (kind === "number" && !Number.isFinite(Number(String(value).replace(/,/g, "")))) return `第 ${line} 行：${field}必须为数字`;
+    if (kind === "date" && !this.date(value)) return `第 ${line} 行：${field}日期格式无效，应为 YYYY-MM-DD`;
+    if (kind === "datetime" && !this.dateTime(value)) return `第 ${line} 行：${field}时间格式无效`;
+    return null;
   }
 
   @Get("sales-orders")
@@ -424,13 +463,19 @@ export class MasterDataController {
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
   async importSalesOrders(@UploadedFile() file: Express.Multer.File) {
     const rows = await this.uploadedRows(file);
-    let imported = 0;
-    let skipped = 0;
-    for (const row of rows) {
+    const errors: string[] = []; const prepared: any[] = []; const seen = new Set<string>();
+    for (const [index, row] of rows.entries()) {
+      const line = Number(row.__row) || index + 2;
       const orderNumber = this.text(row["订单号"] ?? row.orderNumber);
       const itemNumber = this.text(row["品号"] ?? row.itemNumber);
-      if (!orderNumber || !itemNumber) { skipped++; continue; }
-      await this.salesOrders.createQueryBuilder().insert().values({
+      if (!orderNumber || !itemNumber) errors.push(`第 ${line} 行：订单号和品号为必填项`);
+      else if (seen.has(`${orderNumber}\u0000${itemNumber}`)) errors.push(`第 ${line} 行：订单号/品号在文件内重复`); else seen.add(`${orderNumber}\u0000${itemNumber}`);
+      for (const error of [
+        this.importValueErrors(row["下单日期"] ?? row.orderDate, "date", "下单日期", line),
+        this.importValueErrors(row["产前评审交期"] ?? row.reviewDueDate, "date", "产前评审交期", line),
+        this.importValueErrors(row["数量"] ?? row.quantity, "number", "数量", line)
+      ]) if (error) errors.push(error);
+      prepared.push({
         orderNumber,
         itemNumber,
         itemName: this.text(row["品名"] ?? row.itemName),
@@ -438,10 +483,14 @@ export class MasterDataController {
         reviewDueDate: this.date(row["产前评审交期"] ?? row.reviewDueDate),
         quantity: this.numeric(row["数量"] ?? row.quantity),
         remark: this.text(row["备注"] ?? row.remark)
-      }).orUpdate(["item_name", "order_date", "review_due_date", "quantity", "remark"], ["order_number", "item_number"]).execute();
-      imported++;
+      });
     }
-    return { imported, skipped };
+    if (!rows.length) errors.push("文件中没有可导入的数据行");
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
+    await this.dataSource.transaction(async (manager) => {
+      for (const row of prepared) await manager.createQueryBuilder().insert().into(SalesOrder).values(row).orUpdate(["item_name", "order_date", "review_due_date", "quantity", "remark"], ["order_number", "item_number"]).execute();
+    });
+    return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
 
   @Get("finished-goods-inbound")
@@ -535,22 +584,35 @@ export class MasterDataController {
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 100 * 1024 * 1024 } }))
   async importFinishedGoodsInbound(@UploadedFile() file: Express.Multer.File) {
     const rows = await this.uploadedRows(file);
-    let imported = 0;
-    let skipped = 0;
-    for (const source of rows) {
+    const errors: string[] = []; const prepared: any[] = []; const seen = new Set<string>();
+    for (const [index, source] of rows.entries()) {
+      const line = Number(source.__row) || index + 2;
       const row = this.finishedGoodsRow(source);
-      if (!row.documentNumber || !row.inventoryCode || !row.relationInfo) { skipped++; continue; }
-      await this.finishedGoodsInbound.createQueryBuilder().insert().values(row).orUpdate([
+      if (!row.documentNumber || !row.inventoryCode || !row.relationInfo) errors.push(`第 ${line} 行：单据编号、存货编码和关联信息为必填项`);
+      const key = `${row.documentNumber}\u0000${row.inventoryCode}\u0000${row.relationInfo}`;
+      if (seen.has(key)) errors.push(`第 ${line} 行：单据编号/存货编码/关联信息在文件内重复`); else seen.add(key);
+      for (const error of [
+        this.importValueErrors(source.documentDate ?? source["单据日期"], "date", "单据日期", line),
+        this.importValueErrors(source.createdTime ?? source["创建时间"], "datetime", "创建时间", line),
+        this.importValueErrors(source.receivedQuantity ?? source["实收数量"], "number", "实收数量", line),
+        this.importValueErrors(source.unitPrice ?? source["单价"], "number", "单价", line),
+        this.importValueErrors(source.totalAmount ?? source["总金额"], "number", "总金额", line)
+      ]) if (error) errors.push(error);
+      prepared.push(row);
+    }
+    if (!rows.length) errors.push("文件中没有可导入的数据行");
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
+    await this.dataSource.transaction(async (manager) => {
+      for (const row of prepared) await manager.createQueryBuilder().insert().into(FinishedGoodsInbound).values(row).orUpdate([
         "sales_order_number", "document_date", "created_time", "business_type", "warehouse_code",
         "warehouse", "inbound_category", "workshop_code", "workshop", "handler_code", "handler",
         "remark", "creator", "auditor", "inventory_name", "specification", "unit",
         "received_quantity", "unit_price", "total_amount", "voucher_word"
       ], ["document_number", "inventory_code", "relation_info"]).execute();
-      imported++;
-    }
-    return { imported, skipped };
+    });
+    return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
-  private finishedGoodsRow(row: Record<string, unknown>): Omit<FinishedGoodsInbound, "id" | "createdAt" | "updatedAt"> {
+  private finishedGoodsRow(row: Record<string, unknown>): Omit<FinishedGoodsInbound, "id" | "createdAt" | "updatedAt" | "updatedBy"> {
     return {
       salesOrderNumber: this.text(row.salesOrderNumber ?? row["销售订单号"]),
       documentDate: this.date(row.documentDate ?? row["单据日期"]),
@@ -676,6 +738,7 @@ export class AdminController {
       id: user.id, username: user.username, displayName: user.displayName, enabled: user.enabled,
       division: user.division, employeeNo: user.employeeNo, wechatUserId: user.wechatUserId, position: user.position, departmentPaths: user.departmentPaths,
       mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt, updatedAt: user.updatedAt, updatedBy: user.updatedBy,
       roleIds: links.filter((link) => link.userId === user.id).map((link) => link.roleId),
       roles: links.filter((link) => link.userId === user.id).map((link) => roleMap.get(link.roleId)?.name).filter(Boolean)
     }));
@@ -695,7 +758,7 @@ export class AdminController {
   }
 
   @Get("contacts")
-  async listContacts(@Req() req: UserRequest) {
+  async listContacts() {
     return this.contacts.find({ order: { name: "ASC" } });
   }
 

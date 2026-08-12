@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import { DataSource, Repository } from "typeorm";
 import { excelMonthlyPlanColumns, milestoneProcessCodes, processDefinitions } from "@tracker/shared";
 import {
-  ImportJob, ImportJobError, ItemProcessProgress,
+  DictionaryType, DictionaryValue, ImportJob, ImportJobError, ItemProcessProgress,
   Order, OrderItem, OutsourcingDetail, PlanPeriod, ProcessDefinitionEntity, Supplier
 } from "./entities";
 
@@ -32,14 +32,14 @@ async function normalizeSpreadsheetMlPrefixes(buffer: Buffer) {
   return changed ? Buffer.from(await zip.generateAsync({ type: "nodebuffer" })) : buffer;
 }
 
-function rawCell(cell: ExcelJS.Cell, key: string, warnings: string[]) {
+function rawCell(cell: ExcelJS.Cell, key: string, warnings: string[], errors: string[]) {
   let value: any = cell.value;
   if (value && typeof value === "object" && "formula" in value) {
     warnings.push(`${cell.address} 来源为公式，仅使用缓存值`);
     value = value.result;
   }
   if (value && typeof value === "object" && "error" in value) {
-    warnings.push(`${cell.address} 包含 Excel 错误值 ${value.error}，已置空`);
+    errors.push(`${cell.address} 包含 Excel 错误值 ${value.error}`);
     return null;
   }
   if (value === null || value === undefined || value === "") return null;
@@ -47,11 +47,19 @@ function rawCell(cell: ExcelJS.Cell, key: string, warnings: string[]) {
     if (value instanceof Date) return value.toISOString().slice(0, 10);
     if (typeof value === "number") return new Date(epoch + Math.floor(value) * 86400000).toISOString().slice(0, 10);
     const text = String(value).trim();
-    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(new Date(`${text}T00:00:00Z`).getTime())) {
+      errors.push(`${cell.address} 日期“${text}”无效，应为 YYYY-MM-DD`);
+      return null;
+    }
+    return text;
   }
   if (decimalKeys.has(key)) {
     const numeric = typeof value === "number" ? value : Number(String(value).trim());
-    return Number.isFinite(numeric) ? String(numeric) : null;
+    if (!Number.isFinite(numeric)) {
+      errors.push(`${cell.address} “${String(value)}”不是有效数字`);
+      return null;
+    }
+    return String(numeric);
   }
   return String(value).trim();
 }
@@ -65,6 +73,9 @@ export class ImportService {
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(OrderItem) private readonly items: Repository<OrderItem>,
     @InjectRepository(ProcessDefinitionEntity) private readonly processes: Repository<ProcessDefinitionEntity>,
+    @InjectRepository(DictionaryType) private readonly dictionaryTypes: Repository<DictionaryType>,
+    @InjectRepository(DictionaryValue) private readonly dictionaryValues: Repository<DictionaryValue>,
+    @InjectRepository(Supplier) private readonly suppliers: Repository<Supplier>,
     private readonly dataSource: DataSource
   ) {}
 
@@ -95,17 +106,61 @@ export class ImportService {
       ?? workbook.worksheets.find((sheet) => /^\d{1,2}月计划$/.test(sheet.name));
     if (!monthly) throw new BadRequestException(`缺少“${month}月计划”或“月度计划”Sheet`);
     const warnings: string[] = [];
+    const validationErrors: string[] = [];
     const rows: Record<string, any>[] = [];
     monthly!.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber <= 2) return;
       const parsed: Record<string, any> = {};
       excelMonthlyPlanColumns.forEach((column, index) => {
-        parsed[column.key] = rawCell(row.getCell(index + 1), column.key, warnings);
+        parsed[column.key] = rawCell(row.getCell(index + 1), column.key, warnings, validationErrors);
       });
-      if (!parsed.orderNumber && !parsed.itemNumber) return;
+      const hasValue = Object.values(parsed).some((value) => value !== null && value !== undefined && value !== "");
+      if (!hasValue) return;
+      if (!parsed.orderNumber) validationErrors.push(`第 ${rowNumber} 行缺少订单号`);
+      if (!parsed.itemNumber) validationErrors.push(`第 ${rowNumber} 行缺少品号`);
       parsed.__row = rowNumber;
       rows.push(parsed);
     });
+    if (!rows.length) validationErrors.push("Excel 中没有可导入的数据行");
+    const seen = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.orderNumber || !row.itemNumber) continue;
+      const key = `${row.orderNumber}\u0000${row.itemNumber}`;
+      const previous = seen.get(key);
+      if (previous) validationErrors.push(`第 ${row.__row} 行的订单号/品号与第 ${previous} 行重复`);
+      else seen.set(key, row.__row);
+    }
+
+    const types = await this.dictionaryTypes.find();
+    const values = await this.dictionaryValues.find({ where: { enabled: true } });
+    const typeByCode = new Map(types.map((type) => [type.code, type.id]));
+    const allowedByCode = new Map<string, Set<string>>();
+    for (const [code, typeId] of typeByCode) {
+      allowedByCode.set(code, new Set(values.filter((value) => value.typeId === typeId).map((value) => value.value)));
+    }
+    const supplierNames = new Set((await this.suppliers.find({ where: { enabled: true } })).map((supplier) => supplier.name));
+    const dictionaryFields: Record<string, string> = {
+      exceptionDeliveryMethod: "deliveryMethod", division: "division", modelAge: "modelAge",
+      productAttribute: "productAttribute", surfaceNature: "surfaceNature", specialItem: "specialItem",
+      handlingMethod: "handlingMethod", "outsourcing.method": "outsourcingMethod"
+    };
+    for (const row of rows) {
+      for (const [field, code] of Object.entries(dictionaryFields)) {
+        const value = row[field];
+        if (value && !allowedByCode.get(code)?.has(String(value))) {
+          const header = excelMonthlyPlanColumns.find((column) => column.key === field)?.header ?? field;
+          validationErrors.push(`第 ${row.__row} 行“${header}”的值“${value}”不在启用字典中`);
+        }
+      }
+      const supplier = row["outsourcing.supplier"];
+      if (supplier && !supplierNames.has(String(supplier))) validationErrors.push(`第 ${row.__row} 行外协供应商“${supplier}”不在启用供应商中`);
+    }
+    if (validationErrors.length) {
+      throw new BadRequestException({
+        message: `导入校验失败，共 ${validationErrors.length} 处错误，未写入任何数据`,
+        errors: validationErrors.slice(0, 200)
+      });
+    }
     const suppliers = (workbook.getWorksheet("供应商名单")?.getColumn(1).values.slice(2) ?? [])
       .map((value) => String(value ?? "").trim()).filter(Boolean);
     const dictionaries: Record<string, string[]> = {};

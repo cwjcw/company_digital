@@ -315,6 +315,7 @@ export class PlanService {
         orderAmount: order.orderAmount ?? this.domain.orderAmount(items), division: order.division,
         actualCompletionDate: order.actualCompletionDate, shippingDate: order.shippingDate,
         deliveryScore: order.deliveryScore, qualityScore: order.qualityScore,
+        createdAt: order.createdAt, updatedAt: order.updatedAt, updatedBy: order.updatedBy,
         ...this.domain.orderMetrics(items) };
     });
   }
@@ -389,18 +390,43 @@ export class PlanService {
   }
 
   async importOrders(rows: Record<string, unknown>[], user: any, requestId: string) {
-    let imported = 0;
-    let skipped = 0;
+    const errors: string[] = [];
+    const prepared: Array<{ orderNumber: string; values: Record<string, unknown>; rowNumber: number }> = [];
+    const seen = new Map<string, number>();
+    if (!rows?.length) errors.push("Excel 中没有可导入的数据行");
+    for (const [index, row] of (rows ?? []).entries()) {
+      const rowNumber = Number(row.__row) || index + 4;
+      const orderNumber = String(row.orderNumber ?? "").trim();
+      if (!orderNumber) {
+        errors.push(`第 ${rowNumber} 行缺少订单号`);
+        continue;
+      }
+      if (seen.has(orderNumber)) {
+        errors.push(`第 ${rowNumber} 行订单号“${orderNumber}”与第 ${seen.get(orderNumber)} 行重复`);
+        continue;
+      }
+      seen.set(orderNumber, rowNumber);
+      try {
+        prepared.push({
+          orderNumber,
+          rowNumber,
+          values: { orderDate: this.normalizeOrderDate(row.orderDate), ...(await this.normalizedOrderValues(row)) }
+        });
+      } catch (error) {
+        const response = error instanceof BadRequestException ? error.getResponse() : null;
+        const detail = typeof response === "string" ? response : (response as any)?.message;
+        errors.push(`第 ${rowNumber} 行：${Array.isArray(detail) ? detail.join("；") : detail || (error as Error).message}`);
+      }
+    }
+    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors: errors.slice(0, 200) });
+
     await this.dataSource.transaction(async (manager) => {
-      for (const row of rows ?? []) {
-        const orderNumber = String(row.orderNumber ?? "").trim();
-        if (!orderNumber) { skipped += 1; continue; }
+      for (const row of prepared) {
+        const { orderNumber } = row;
         let order = await manager.findOneBy(Order, { orderNumber });
-        const values = await this.normalizedOrderValues(row);
         const next = {
           orderNumber,
-          orderDate: this.normalizeOrderDate(row.orderDate),
-          ...values,
+          ...row.values,
           version: order ? order.version + 1 : 1
         };
         order = order ? Object.assign(order, next) : manager.create(Order, next);
@@ -409,10 +435,9 @@ export class PlanService {
           actorId: user.sub, actorName: user.username, resource: "sales-order-summary", recordId: order.id,
           action: "import", beforeJson: null, afterJson: next, requestId, source: "import"
         });
-        imported += 1;
       }
     });
-    return { imported, skipped };
+    return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
 
   async importPlanRows(rows: Array<{ year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }>, user: any, requestId: string) {

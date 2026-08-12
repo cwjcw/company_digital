@@ -37,3 +37,8 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
 export function getValue(row: any, key: string) {
   return key.split(".").reduce((value, part) => value?.[part], row);
 }
+
+export function containsText(value: unknown, search: unknown) {
+  const query = String(search ?? "").trim().toLocaleLowerCase();
+  return !query || String(value ?? "").toLocaleLowerCase().includes(query);
+}

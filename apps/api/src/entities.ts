@@ -3,8 +3,14 @@ import {
   PrimaryGeneratedColumn, Unique, UpdateDateColumn
 } from "typeorm";
 
+export abstract class AuditedEntity {
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
+  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
+  @Column({ name: "updated_by", type: "varchar", default: "system" }) updatedBy!: string;
+}
+
 @Entity("users")
-export class User {
+export class User extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() username!: string;
   @Column({ name: "display_name" }) displayName!: string;
@@ -20,7 +26,7 @@ export class User {
 }
 
 @Entity("roles")
-export class Role {
+export class Role extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() name!: string;
   @Column({ type: "varchar", nullable: true }) description!: string | null;
@@ -28,7 +34,7 @@ export class Role {
 
 @Entity("user_roles")
 @Unique(["userId", "roleId"])
-export class UserRole {
+export class UserRole extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "user_id", type: "uuid" }) userId!: string;
   @Column({ name: "role_id", type: "uuid" }) roleId!: string;
@@ -36,7 +42,7 @@ export class UserRole {
 
 @Entity("permissions")
 @Unique(["roleId", "resource", "fieldKey"])
-export class Permission {
+export class Permission extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "role_id", type: "uuid" }) roleId!: string;
   @Column() resource!: string;
@@ -51,7 +57,7 @@ export class Permission {
 
 @Entity("role_data_scopes")
 @Unique(["roleId", "division"])
-export class RoleDataScope {
+export class RoleDataScope extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "role_id", type: "uuid" }) roleId!: string;
   @Column() division!: string;
@@ -59,7 +65,7 @@ export class RoleDataScope {
 
 @Entity("role_organization_scopes")
 @Unique(["roleId", "organizationUnitId"])
-export class RoleOrganizationScope {
+export class RoleOrganizationScope extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "role_id", type: "uuid" }) roleId!: string;
   @Column({ name: "organization_unit_id", type: "uuid" }) organizationUnitId!: string;
@@ -67,7 +73,7 @@ export class RoleOrganizationScope {
 
 @Entity("organization_units")
 @Unique(["parentId", "name"])
-export class OrganizationUnit {
+export class OrganizationUnit extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column() name!: string;
   @Column({ type: "smallint" }) level!: number;
@@ -78,7 +84,7 @@ export class OrganizationUnit {
 }
 
 @Entity("contacts")
-export class Contact {
+export class Contact extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column({ name: "wechat_user_id" }) wechatUserId!: string;
   @Column({ name: "employee_no", type: "varchar", nullable: true }) employeeNo!: string | null;
@@ -93,17 +99,16 @@ export class Contact {
 
 @Entity("plan_periods")
 @Unique(["year", "month"])
-export class PlanPeriod {
+export class PlanPeriod extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ type: "smallint" }) year!: number;
   @Column({ type: "smallint" }) month!: number;
   @Column({ default: "active" }) status!: string;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
 }
 
 @Entity("orders")
 @Index(["orderNumber"])
-export class Order {
+export class Order extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "order_number" }) orderNumber!: string;
   @Column({ name: "order_date", type: "date", nullable: true }) orderDate!: string | null;
@@ -120,14 +125,12 @@ export class Order {
   @Column({ name: "quality_score", type: "numeric", precision: 8, scale: 2, nullable: true }) qualityScore!: string | null;
   @Index() @Column({ type: "varchar", nullable: true }) division!: string | null;
   @Column({ default: 1 }) version!: number;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
 }
 
 @Entity("order_items")
 @Unique(["periodId", "orderId", "itemNumber"])
 @Index(["periodId", "orderId"])
-export class OrderItem {
+export class OrderItem extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "order_id", type: "uuid" }) orderId!: string;
   @ManyToOne(() => Order, { onDelete: "CASCADE" }) @JoinColumn({ name: "order_id" }) order!: Order;
@@ -162,12 +165,10 @@ export class OrderItem {
   @Column({ name: "unit_price", type: "numeric", precision: 18, scale: 4, nullable: true }) unitPrice!: string | null;
   @Column({ default: true }) active!: boolean;
   @Column({ default: 1 }) version!: number;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
 }
 
 @Entity("outsourcing_details")
-export class OutsourcingDetail {
+export class OutsourcingDetail extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column({ name: "order_item_id", type: "uuid" }) orderItemId!: string;
   @OneToOne(() => OrderItem, { onDelete: "CASCADE" }) @JoinColumn({ name: "order_item_id" }) orderItem!: OrderItem;
@@ -178,7 +179,7 @@ export class OutsourcingDetail {
 }
 
 @Entity("process_definitions")
-export class ProcessDefinitionEntity {
+export class ProcessDefinitionEntity extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() code!: string;
   @Column() name!: string;
@@ -192,7 +193,7 @@ export class ProcessDefinitionEntity {
 
 @Entity("item_process_progress")
 @Unique(["orderItemId", "processDefinitionId"])
-export class ItemProcessProgress {
+export class ItemProcessProgress extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "order_item_id", type: "uuid" }) orderItemId!: string;
   @Column({ name: "process_definition_id", type: "uuid" }) processDefinitionId!: string;
@@ -205,7 +206,7 @@ export class ItemProcessProgress {
 }
 
 @Entity("dictionary_types")
-export class DictionaryType {
+export class DictionaryType extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() code!: string;
   @Column() name!: string;
@@ -213,7 +214,7 @@ export class DictionaryType {
 
 @Entity("dictionary_values")
 @Unique(["typeId", "value"])
-export class DictionaryValue {
+export class DictionaryValue extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "type_id", type: "uuid" }) typeId!: string;
   @Column() value!: string;
@@ -222,7 +223,7 @@ export class DictionaryValue {
 }
 
 @Entity("suppliers")
-export class Supplier {
+export class Supplier extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column({ type: "varchar", nullable: true }) code!: string | null;
   @Index({ unique: true }) @Column() name!: string;
@@ -232,7 +233,7 @@ export class Supplier {
 
 @Entity("sales_orders")
 @Unique(["orderNumber", "itemNumber"])
-export class SalesOrder {
+export class SalesOrder extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index() @Column({ name: "order_number" }) orderNumber!: string;
   @Index() @Column({ name: "item_number" }) itemNumber!: string;
@@ -241,13 +242,11 @@ export class SalesOrder {
   @Column({ name: "review_due_date", type: "date", nullable: true }) reviewDueDate!: string | null;
   @Column({ type: "numeric", precision: 18, scale: 4, nullable: true }) quantity!: string | null;
   @Column({ type: "text", nullable: true }) remark!: string | null;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
 }
 
 @Entity("finished_goods_inbound")
 @Unique(["documentNumber", "inventoryCode", "relationInfo"])
-export class FinishedGoodsInbound {
+export class FinishedGoodsInbound extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index() @Column({ name: "sales_order_number", type: "varchar", nullable: true }) salesOrderNumber!: string | null;
   @Column({ name: "document_date", type: "date", nullable: true }) documentDate!: string | null;
@@ -273,13 +272,11 @@ export class FinishedGoodsInbound {
   @Column({ name: "unit_price", type: "numeric", precision: 18, scale: 6, nullable: true }) unitPrice!: string | null;
   @Column({ name: "total_amount", type: "numeric", precision: 18, scale: 6, nullable: true }) totalAmount!: string | null;
   @Column({ name: "voucher_word", type: "varchar", nullable: true }) voucherWord!: string | null;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
 }
 
 @Entity("audit_logs")
 @Index(["createdAt"])
-export class AuditLog {
+export class AuditLog extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "actor_id", type: "uuid", nullable: true }) actorId!: string | null;
   @Column({ name: "actor_name", type: "varchar", nullable: true }) actorName!: string | null;
@@ -290,11 +287,10 @@ export class AuditLog {
   @Column({ name: "after_json", type: "jsonb", nullable: true }) afterJson!: unknown;
   @Column({ name: "request_id" }) requestId!: string;
   @Column() source!: string;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
 }
 
 @Entity("api_keys")
-export class ApiKey {
+export class ApiKey extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column() name!: string;
   @Index({ unique: true }) @Column({ name: "key_hash" }) keyHash!: string;
@@ -307,17 +303,16 @@ export class ApiKey {
 }
 
 @Entity("refresh_tokens")
-export class RefreshToken {
+export class RefreshToken extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "user_id", type: "uuid" }) userId!: string;
   @Index({ unique: true }) @Column({ name: "token_hash" }) tokenHash!: string;
   @Column({ name: "expires_at", type: "timestamptz" }) expiresAt!: Date;
   @Column({ name: "revoked_at", type: "timestamptz", nullable: true }) revokedAt!: Date | null;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
 }
 
 @Entity("import_jobs")
-export class ImportJob {
+export class ImportJob extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "file_name" }) fileName!: string;
   @Column({ name: "file_hash" }) fileHash!: string;
@@ -325,11 +320,10 @@ export class ImportJob {
   @Column({ type: "jsonb", nullable: true }) summary!: unknown;
   @Column({ name: "preview_payload", type: "jsonb", nullable: true }) previewPayload!: unknown;
   @Column({ name: "created_by", type: "uuid", nullable: true }) createdBy!: string | null;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
 }
 
 @Entity("import_job_errors")
-export class ImportJobError {
+export class ImportJobError extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Column({ name: "job_id", type: "uuid" }) jobId!: string;
   @Column({ name: "sheet_name" }) sheetName!: string;
@@ -340,12 +334,11 @@ export class ImportJobError {
 }
 
 @Entity("idempotency_keys")
-export class IdempotencyRecord {
+export class IdempotencyRecord extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() key!: string;
   @Column({ name: "request_hash" }) requestHash!: string;
   @Column({ name: "response_json", type: "jsonb" }) responseJson!: unknown;
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
 }
 
 export const entities = [

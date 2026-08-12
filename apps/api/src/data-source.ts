@@ -3,6 +3,7 @@ import path from "node:path";
 import { config } from "dotenv";
 import { DataSource } from "typeorm";
 import { entities } from "./entities";
+import { ModificationAuditSubscriber } from "./modification-audit";
 
 config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -15,6 +16,7 @@ const dataSource = new DataSource({
   database: process.env.DATABASE_NAME ?? "four_department_tracker",
   entities,
   migrations: [path.join(__dirname, "migrations/*.{ts,js}")],
+  subscribers: [ModificationAuditSubscriber],
   synchronize: false,
   logging: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"]
 });

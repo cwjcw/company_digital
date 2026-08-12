@@ -2,7 +2,13 @@ import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from "@nestjs/
 import { JwtService } from "@nestjs/jwt";
 import { Server, Socket } from "socket.io";
 
-@WebSocketGateway({ namespace: "/plans", cors: { origin: true, credentials: true } })
+@WebSocketGateway({
+  namespace: "/plans",
+  cors: {
+    origin: process.env.WEB_ORIGIN?.split(",") ?? ["http://localhost:5173"],
+    credentials: true
+  }
+})
 export class PlanGateway implements OnGatewayConnection {
   @WebSocketServer() server!: Server;
   constructor(private readonly jwt: JwtService) {}

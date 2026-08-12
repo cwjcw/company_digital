@@ -7,6 +7,7 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
+import { ModificationContextInterceptor } from "./modification-audit";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -19,6 +20,7 @@ async function bootstrap() {
     next();
   });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: false }));
+  app.useGlobalInterceptors(new ModificationContextInterceptor());
   app.setGlobalPrefix("api/v1", { exclude: ["api/docs", "api/openapi.json"] });
   const config = new DocumentBuilder()
     .setTitle("四部追踪表 API").setDescription("生产主计划、月度计划、基础资料与导入导出")
