@@ -1,7 +1,10 @@
 {
-  "name": "four-department-tracker",
+  "name": "kainan-digital-os",
   "private": true,
   "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter @tracker/api --filter @tracker/web dev",
     "build": "pnpm -r build",
@@ -10,11 +13,19 @@
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @tracker/web test:e2e",
     "templates:generate": "pnpm --filter @tracker/shared build && node apps/api/scripts/generate-import-templates.cjs",
+    "sync:tplus": "node data-operations/tplus/sync.mjs",
+    "sync:tplus:dry-run": "node data-operations/tplus/sync.mjs --dry-run",
+    "test:tplus-sync": "node --test data-operations/tplus/*.test.mjs",
     "db:migrate": "pnpm --filter @tracker/api db:migrate",
     "db:revert": "pnpm --filter @tracker/api db:revert",
-    "db:seed": "pnpm --filter @tracker/api db:seed"
+    "db:seed": "pnpm --filter @tracker/api db:seed",
+    "db:kdos:create": "./scripts/init-kdos-db.sh",
+    "db:kdos:migrate": "node scripts/migrate-kdos.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.2.0"
+    "concurrently": "^9.2.0",
+    "dotenv": "^17.4.2",
+    "mssql": "^12.7.0",
+    "pg": "^8.16.3"
   }
 }

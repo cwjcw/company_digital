@@ -4,6 +4,8 @@ body, .ant-layout, .ant-typography, .ag-root-wrapper, .ag-cell, .ag-cell-value {
 body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .app-shell { min-height: 100vh; }
 .sidebar { background: linear-gradient(180deg, #102f3c 0%, #173d49 100%) !important; box-shadow: 4px 0 18px rgba(15, 45, 57, .12); }
+.sidebar.ant-layout-sider-collapsed .brand { justify-content: center; padding: 0; }
+.sidebar.ant-layout-sider-collapsed .ant-menu-item-group-title { display: none; }
 .sidebar-collapse { position: absolute !important; right: -16px; top: 84px; z-index: 10; }
 .brand { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; color: white; font-size: 17px; font-weight: 700; white-space: nowrap; }
 .brand-badge, .login-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: white; font-weight: 800; background: linear-gradient(135deg, #28a6a0, #d4a85d); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
@@ -11,6 +13,7 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .topbar-page-title { min-width: 0; color: #173d49; font-size: 20px; font-weight: 700; line-height: 1; }
 .topbar-user { display: flex; align-items: center; gap: 18px; text-align: right; line-height: 1.2; }
 .content { padding: 22px 24px; overflow: auto; }
+.sidebar-is-collapsed .content { padding-right: 12px; padding-left: 12px; }
 .page-header { margin-bottom: 18px; gap: 20px; }
 .page-header-title { flex: 0 0 auto; min-width: 210px; white-space: nowrap; }
 .page-header-actions { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
@@ -56,6 +59,22 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .grid-card, .monthly-grid { width: 100%; height: calc(100vh - 252px); border-radius: 10px; overflow: hidden; background: white; box-shadow: 0 5px 18px rgba(17, 52, 66, .08); }
 .rolling-grid { height: calc(100vh - 276px); }
 .monthly-grid { height: calc(100vh - 260px); }
+.daily-progress-grid { height: calc(100vh - 238px); }
+.daily-process-header { background: #eaf5f1; }
+.daily-progress-editable { background: #fffbea; }
+.daily-balance-cell { color: #c2410c; font-weight: 600; }
+.daily-progress-toolbar .ant-picker { width: 142px; }
+.monthly-grid.ag-theme-quartz {
+  --ag-font-size: 11.5px;
+  --ag-grid-size: 4px;
+  --ag-row-height: 32px;
+  --ag-header-height: 50px;
+  --ag-header-column-resize-handle-width: 4px;
+}
+.monthly-grid .ag-header-cell,
+.monthly-grid .ag-header-group-cell { padding-right: 3px; padding-left: 3px; }
+.monthly-grid .ag-header-cell-resize { width: 7px; }
+.monthly-grid .ag-cell { padding-right: 4px; padding-left: 4px; }
 .monthly-toolbar {
   margin-bottom: 12px;
   padding: 8px 10px;

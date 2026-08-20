@@ -118,11 +118,17 @@ export class Order extends AuditedEntity {
   @Column({ name: "exception_delivery_method", type: "varchar", nullable: true }) exceptionDeliveryMethod!: string | null;
   @Column({ type: "varchar", nullable: true }) customer!: string | null;
   @Column({ type: "varchar", nullable: true }) salesperson!: string | null;
+  @Column({ name: "order_type", type: "varchar", nullable: true }) orderType!: string | null;
   @Column({ name: "order_amount", type: "numeric", precision: 18, scale: 4, nullable: true }) orderAmount!: string | null;
   @Column({ name: "actual_completion_date", type: "date", nullable: true }) actualCompletionDate!: string | null;
   @Column({ name: "shipping_date", type: "date", nullable: true }) shippingDate!: string | null;
   @Column({ name: "delivery_score", type: "numeric", precision: 8, scale: 2, nullable: true }) deliveryScore!: string | null;
   @Column({ name: "quality_score", type: "numeric", precision: 8, scale: 2, nullable: true }) qualityScore!: string | null;
+  @Index() @Column({ name: "source_system", type: "varchar", nullable: true }) sourceSystem!: string | null;
+  @Index() @Column({ name: "source_database", type: "varchar", nullable: true }) sourceDatabase!: string | null;
+  @Column({ name: "source_account_name", type: "varchar", nullable: true }) sourceAccountName!: string | null;
+  @Column({ name: "source_total_quantity", type: "numeric", precision: 28, scale: 6, nullable: true }) sourceTotalQuantity!: string | null;
+  @Column({ name: "source_active", default: true }) sourceActive!: boolean;
   @Index() @Column({ type: "varchar", nullable: true }) division!: string | null;
   @Column({ default: 1 }) version!: number;
 }
@@ -203,6 +209,17 @@ export class ItemProcessProgress extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) status!: string | null;
   @Column({ type: "varchar", nullable: true }) exception!: string | null;
   @Column({ default: 1 }) version!: number;
+}
+
+@Entity("daily_process_progress")
+@Unique(["orderItemId", "processDefinitionId", "workDate"])
+@Index(["workDate"])
+export class DailyProcessProgress extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "order_item_id", type: "uuid" }) orderItemId!: string;
+  @Column({ name: "process_definition_id", type: "uuid" }) processDefinitionId!: string;
+  @Column({ name: "work_date", type: "date" }) workDate!: string;
+  @Column({ type: "numeric", precision: 18, scale: 4 }) quantity!: string;
 }
 
 @Entity("dictionary_types")
@@ -343,7 +360,7 @@ export class IdempotencyRecord extends AuditedEntity {
 
 export const entities = [
   User, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact, PlanPeriod, Order, OrderItem,
-  OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
+  OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, AuditLog, ApiKey,
   RefreshToken, ImportJob, ImportJobError, IdempotencyRecord
 ];

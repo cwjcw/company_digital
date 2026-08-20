@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
 import { ApiKey, OrganizationUnit, Permission, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
+import { planningPermissions } from "@kdos/contracts";
 
 @Injectable()
 export class AuthService {
@@ -52,17 +53,26 @@ export class AuthService {
     // 事业部计划组不需要逐张订单配置范围：它的范围就是本人所属事业部。
     if (isDivisionPlanningGroup && user.division) divisions.add(user.division);
     const hasFullDataScope = isSystemAdmin || isGroupAdmin;
+    const hasLegacyPlanRead = permissions.some((permission) => permission.resource === "monthly-plan" && permission.read);
+    const rolePlanningPermissions = isGroupAdmin
+      ? [...planningPermissions]
+      : isDivisionPlanningGroup
+        ? planningPermissions.filter((permission) => !["planning.plan.delete", "planning.plan.unlock", "planning.admin.manage"].includes(permission))
+        : hasLegacyPlanRead ? ["planning.plan.read", "planning.process.read", "planning.progress.read"] : [];
     return {
       sub: user.id,
       username: user.username,
       displayName: user.displayName,
       roles: roles.map((role) => role.name),
       divisions: hasFullDataScope ? "*" : [...divisions],
-      permissions: isSystemAdmin ? ["*"] : permissions.flatMap((permission) =>
-        ["read", "create", "update", "delete", "import", "export"]
-          .filter((action) => permission[action as keyof Permission])
-          .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
-      ),
+      permissions: isSystemAdmin ? ["*"] : [...new Set([
+        ...permissions.flatMap((permission) =>
+          ["read", "create", "update", "delete", "import", "export"]
+            .filter((action) => permission[action as keyof Permission])
+            .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
+        ),
+        ...rolePlanningPermissions
+      ])],
       mustChangePassword: user.mustChangePassword
     };
   }
@@ -140,7 +150,8 @@ export class AuthService {
 export class AuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
-    @InjectRepository(ApiKey) private readonly apiKeys: Repository<ApiKey>
+    @InjectRepository(ApiKey) private readonly apiKeys: Repository<ApiKey>,
+    @InjectRepository(User) private readonly users: Repository<User>
   ) {}
   async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<Request & { user?: any }>();
@@ -158,8 +169,21 @@ export class AuthGuard implements CanActivate {
     const keyHash = createHash("sha256").update(apiKey).digest("hex");
     const record = await this.apiKeys.findOneBy({ keyHash, enabled: true });
     if (!record || (record.expiresAt && record.expiresAt <= new Date())) throw new UnauthorizedException("API Key 无效或已过期");
+    const linkedUser = record.userId ? await this.users.findOneBy({ id: record.userId }) : null;
+    if (record.userId && !linkedUser) throw new UnauthorizedException("API Key 关联人员不存在，请联系管理员重新配置");
+    if (linkedUser && !linkedUser.enabled) throw new UnauthorizedException("API Key 关联人员已停用");
+    if (!linkedUser && !["GET", "HEAD", "OPTIONS"].includes(request.method?.toUpperCase() ?? "")) {
+      throw new UnauthorizedException("API Key 未关联人员，不能执行上传、新增或修改操作");
+    }
     await this.apiKeys.update(record.id, { lastUsedAt: new Date() });
-    request.user = { sub: record.id, username: `api-key:${record.name}`, roles: ["API Key"], divisions: "*", permissions: record.scopes };
+    request.user = {
+      sub: linkedUser?.id ?? record.id,
+      username: linkedUser?.username ?? `api-key:${record.name}`,
+      displayName: linkedUser?.displayName ?? `API Key：${record.name}`,
+      actorName: linkedUser?.displayName ?? `API Key：${record.name}`,
+      apiKeyId: record.id,
+      roles: ["API Key"], divisions: "*", permissions: record.scopes
+    };
     return true;
   }
 }

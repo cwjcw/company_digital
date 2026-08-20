@@ -1,6 +1,8 @@
 import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
+import { OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Server, Socket } from "socket.io";
+import { PlanningDomainEventBus } from "./modules/planning/domain-event-bus";
 
 @WebSocketGateway({
   namespace: "/plans",
@@ -9,9 +11,19 @@ import { Server, Socket } from "socket.io";
     credentials: true
   }
 })
-export class PlanGateway implements OnGatewayConnection {
+export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
   @WebSocketServer() server!: Server;
-  constructor(private readonly jwt: JwtService) {}
+  private unsubscribe?: () => void;
+  constructor(private readonly jwt: JwtService, private readonly events: PlanningDomainEventBus) {}
+
+  onModuleInit() {
+    this.unsubscribe = this.events.subscribe((event) => {
+      this.server.to(`period:${event.periodId}`).emit("plan.changed", {
+        entityId: event.entityId, version: event.version, changeType: event.changeType, event: event.name
+      });
+    });
+  }
+  onModuleDestroy() { this.unsubscribe?.(); }
 
   async handleConnection(client: Socket) {
     const token = String(client.handshake.auth?.token ?? "");

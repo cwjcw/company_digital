@@ -7,15 +7,15 @@ type ModificationContext = { actor: string };
 
 export const modificationContext = new AsyncLocalStorage<ModificationContext>();
 
-function actor() {
+export function currentModificationActor() {
   return modificationContext.getStore()?.actor || "system";
 }
 
 @Injectable()
 export class ModificationContextInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<{ user?: { username?: string } }>();
-    const currentActor = request.user?.username?.trim() || "system";
+    const request = context.switchToHttp().getRequest<{ user?: { actorName?: string; username?: string } }>();
+    const currentActor = request.user?.actorName?.trim() || request.user?.username?.trim() || "system";
     return new Observable((subscriber) => modificationContext.run({ actor: currentActor }, () => next.handle().subscribe(subscriber)));
   }
 }
@@ -23,11 +23,10 @@ export class ModificationContextInterceptor implements NestInterceptor {
 @EventSubscriber()
 export class ModificationAuditSubscriber implements EntitySubscriberInterface {
   beforeInsert(event: InsertEvent<Record<string, unknown>>) {
-    if (event.entity && event.metadata.findColumnWithPropertyName("updatedBy")) event.entity.updatedBy = actor();
+    if (event.entity && event.metadata.findColumnWithPropertyName("updatedBy")) event.entity.updatedBy = currentModificationActor();
   }
 
   beforeUpdate(event: UpdateEvent<Record<string, unknown>>) {
-    if (event.entity && event.metadata.findColumnWithPropertyName("updatedBy")) event.entity.updatedBy = actor();
+    if (event.entity && event.metadata.findColumnWithPropertyName("updatedBy")) event.entity.updatedBy = currentModificationActor();
   }
 }
-

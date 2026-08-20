@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .env
+data/tplus-snapshots/
 .env.*
 !.env.example
 .env.local

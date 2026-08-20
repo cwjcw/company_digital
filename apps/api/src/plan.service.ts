@@ -6,7 +6,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { milestoneProcessCodes, monthlyPlanColumns } from "@tracker/shared";
 import {
-  AuditLog, DictionaryType, DictionaryValue, IdempotencyRecord, ItemProcessProgress, Order, OrderItem,
+  AuditLog, DailyProcessProgress, DictionaryType, DictionaryValue, IdempotencyRecord, ItemProcessProgress, Order, OrderItem,
   OutsourcingDetail, PlanPeriod, ProcessDefinitionEntity, Supplier
 } from "./entities";
 import { DomainService } from "./domain.service";
@@ -43,6 +43,7 @@ export class PlanService {
     @InjectRepository(OutsourcingDetail) private readonly outsourcing: Repository<OutsourcingDetail>,
     @InjectRepository(ProcessDefinitionEntity) private readonly processDefs: Repository<ProcessDefinitionEntity>,
     @InjectRepository(ItemProcessProgress) private readonly progress: Repository<ItemProcessProgress>,
+    @InjectRepository(DailyProcessProgress) private readonly dailyProgress: Repository<DailyProcessProgress>,
     @InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>,
     @InjectRepository(IdempotencyRecord) private readonly idempotency: Repository<IdempotencyRecord>,
     private readonly domain: DomainService,
@@ -290,10 +291,106 @@ export class PlanService {
     };
   }
 
+  private normalizeProgressDate(value: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? "")) throw new BadRequestException("日期格式必须为 YYYY-MM-DD");
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year!, month! - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
+      throw new BadRequestException("日期无效");
+    }
+    return value;
+  }
+
+  async dailyProgressList(dateInput: string, user: any) {
+    const date = this.normalizeProgressDate(dateInput);
+    const scope = this.scope(user, "i");
+    const items = await this.items.createQueryBuilder("i")
+      .innerJoinAndSelect("i.order", "o")
+      .innerJoinAndSelect("i.period", "period")
+      .where("i.active = true")
+      .andWhere(scope.clause, scope.params)
+      .orderBy("period.year", "ASC").addOrderBy("period.month", "ASC")
+      .addOrderBy("o.orderNumber", "ASC").addOrderBy("i.itemNumber", "ASC")
+      .getMany();
+    const unfinished = items.filter((item) => this.domain.hasOutstandingBalance(item));
+    const definitions = await this.processDefs.find({ where: { enabled: true }, order: { sortOrder: "ASC" } });
+    const entries = unfinished.length ? await this.dailyProgress.createQueryBuilder("d")
+      .where("d.workDate = :date", { date })
+      .andWhere("d.orderItemId IN (:...ids)", { ids: unfinished.map((item) => item.id) })
+      .getMany() : [];
+    const quantityMap = new Map(entries.map((entry) => [
+      `${entry.orderItemId}:${entry.processDefinitionId}`, entry.quantity
+    ]));
+    return {
+      date,
+      processes: definitions.map(({ id, code, name, sortOrder }) => ({ id, code, name, sortOrder })),
+      rows: unfinished.map((item, index) => {
+        const metrics = this.domain.itemMetrics(item);
+        return {
+          id: item.id,
+          sequence: index + 1,
+          month: `${item.period.year}-${String(item.period.month).padStart(2, "0")}`,
+          orderNumber: item.order.orderNumber,
+          orderType: item.order.orderType,
+          itemNumber: item.itemNumber,
+          itemName: item.itemName,
+          customer: item.customer,
+          division: item.division,
+          productionQuantity: metrics.productionQuantity,
+          balanceQuantity: metrics.balanceQuantity,
+          progress: Object.fromEntries(definitions.map((definition) => [
+            definition.code, quantityMap.get(`${item.id}:${definition.id}`) ?? null
+          ]))
+        };
+      })
+    };
+  }
+
+  async updateDailyProgress(
+    orderItemId: string,
+    body: { date: string; processCode: string; quantity: unknown },
+    user: any,
+    requestId: string
+  ) {
+    if (!(user.permissions?.includes("*") || user.permissions?.includes("monthly-plan:*:update"))) {
+      throw new ForbiddenException("没有录入日进度的权限");
+    }
+    const date = this.normalizeProgressDate(body.date);
+    const item = await this.items.findOne({ where: { id: orderItemId, active: true }, relations: { order: true } });
+    if (!item) throw new NotFoundException("月度计划品号不存在");
+    if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
+    if (!this.domain.hasOutstandingBalance(item)) throw new BadRequestException("该订单品号已完成，不再允许录入日进度");
+    const definition = await this.processDefs.findOneBy({ code: String(body.processCode ?? ""), enabled: true });
+    if (!definition) throw new BadRequestException("工序不存在或已停用");
+    const rawQuantity = body.quantity;
+    const quantity = rawQuantity === null || rawQuantity === undefined || rawQuantity === ""
+      ? null : Number(String(rawQuantity).replace(/,/g, ""));
+    if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0)) throw new BadRequestException("当日完成数量必须为大于等于 0 的数字");
+
+    const where = { orderItemId, processDefinitionId: definition.id, workDate: date };
+    let entry = await this.dailyProgress.findOneBy(where);
+    const before = entry?.quantity ?? null;
+    if (quantity === null) {
+      if (entry) await this.dailyProgress.remove(entry);
+    } else {
+      entry = entry ?? this.dailyProgress.create(where);
+      entry.quantity = String(quantity);
+      entry.updatedBy = user.username;
+      entry = await this.dailyProgress.save(entry);
+    }
+    await this.audits.save({
+      actorId: user.sub, actorName: user.username, resource: "daily-progress", recordId: entry?.id ?? orderItemId,
+      action: "update", beforeJson: { date, processCode: definition.code, quantity: before },
+      afterJson: { date, processCode: definition.code, quantity }, requestId, source: "web"
+    });
+    return { orderItemId, date, processCode: definition.code, quantity: quantity === null ? null : entry!.quantity };
+  }
+
   async rolling(user: any) {
     const scope = this.scope(user);
     const orders = await this.orders.createQueryBuilder("o")
       .where(scope.clause, scope.params)
+      .andWhere("o.sourceActive = true")
       .orderBy("o.orderNumber", "ASC").getMany();
     if (!orders.length) return [];
     const records = await this.items.createQueryBuilder("i")
@@ -308,7 +405,8 @@ export class PlanService {
     return orders.map((order) => {
       const items = grouped.get(order.id) ?? [];
       const months = [...new Set(items.map((item) => periodMap.get(item.periodId)).filter(Boolean))].sort();
-      return { id: order.id, orderNumber: order.orderNumber, orderDate: order.orderDate, month: months.join("、"), months,
+      return { id: order.id, orderNumber: order.orderNumber, orderType: order.orderType, orderDate: order.orderDate, month: months.join("、"), months,
+        sourceAccountName: order.sourceAccountName, sourceDatabase: order.sourceDatabase,
         customerDueDate: order.customerDueDate, reviewDueDate: order.reviewDueDate,
         exceptionDueDate: order.exceptionDueDate, exceptionDeliveryMethod: order.exceptionDeliveryMethod,
         customer: order.customer, salesperson: order.salesperson,
@@ -316,7 +414,7 @@ export class PlanService {
         actualCompletionDate: order.actualCompletionDate, shippingDate: order.shippingDate,
         deliveryScore: order.deliveryScore, qualityScore: order.qualityScore,
         createdAt: order.createdAt, updatedAt: order.updatedAt, updatedBy: order.updatedBy,
-        ...this.domain.orderMetrics(items) };
+        ...this.domain.orderMetrics(items, order.sourceTotalQuantity) };
     });
   }
 
@@ -340,7 +438,7 @@ export class PlanService {
 
   private async normalizedOrderValues(body: Record<string, unknown>) {
     const values: Record<string, unknown> = {};
-    const textFields = ["customer", "salesperson"];
+    const textFields = ["customer", "salesperson", "orderType"];
     const dateFields = ["customerDueDate", "reviewDueDate", "exceptionDueDate", "actualCompletionDate", "shippingDate"];
     const decimalFields = ["orderAmount", "deliveryScore", "qualityScore"];
     for (const field of textFields) if (field in body) values[field] = String(body[field] ?? "").trim() || null;
@@ -371,7 +469,7 @@ export class PlanService {
     if (!order) throw new NotFoundException("订单不存在");
     if (user.divisions !== "*" && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
     const allowed = [
-      "customer", "salesperson", "customerDueDate", "reviewDueDate", "exceptionDueDate",
+      "customer", "salesperson", "orderType", "customerDueDate", "reviewDueDate", "exceptionDueDate",
       "exceptionDeliveryMethod", "orderAmount", "division", "actualCompletionDate", "shippingDate",
       "deliveryScore", "qualityScore"
     ] as const;

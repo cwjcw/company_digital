@@ -30,7 +30,7 @@
 5. 不要引入任何付费组件、试用版组件或需要商业授权才能上线的功能。
 6. 前端只允许使用 `ag-grid-community`，禁止安装或间接引入 `ag-grid-enterprise`。
 7. PostgreSQL 是唯一业务数据源；Excel 只用于初始化、导入、导出和人工核对，不能作为运行时数据库。
-8. 密码、JWT 密钥和 API Key 只能放进被 Git 忽略的 `.env`；仓库只提交 `.env.example`。数据库密码weijie81
+8. 密码、JWT 密钥和 API Key 只能放进被 Git 忽略的 `.env`；仓库只提交 `.env.example`，不得在文档中记录真实数据库密码。
 
 开始时先执行并记录结果：
 

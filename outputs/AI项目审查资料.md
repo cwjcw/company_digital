@@ -1,282 +1,164 @@
-# 凯南计划中心 Web 项目审查资料
+# KDOS 项目 AI 技术审查资料
 
-> 用途：将本文档连同项目源码交给另一个 AI，请其审查当前技术栈、架构设计、实现方案、数据一致性、安全性、可维护性和后续演进路线，并提出有优先级的改进意见。
->
-> 资料生成时间：2026-08-20（Asia/Shanghai）
->
-> 重要前提：当前 Git 工作区存在未提交修改。审查应以工作区当前源码为准，并区分“已经实现”“文档声称已验证”和“仍需在当前环境重新验证”的内容。
+> 生成日期：2026-08-20（Asia/Shanghai）
+> 审查基准：当前 Git 工作区/本次第一阶段提交，而不是重构前 `98a9cfb`。
+> 审查目标：识别技术栈、模块边界、数据一致性、安全、性能和后续迁移风险，并给出 P0/P1/P2 优先级建议。
 
-## 1. 项目定位
+## 1. 项目定位与阶段状态
 
-项目名称：凯南计划中心 Web 应用（代码包名：`four-department-tracker`）。
+项目已从“凯南计划中心 Web”演进为 **凯南数字化工作台（Kainan Digital OS，KDOS）**。第一阶段采用模块化单体，不引入微服务、Kafka 或 Kubernetes；Planning Center 是首个正式业务模块。
 
-项目目标是把原有的 `4部追踪表_web.xlsx` / 四部生产追踪表，转化为一个以 PostgreSQL 为唯一运行时业务数据源的生产主计划和月度计划协同系统。Excel 不再作为在线主数据库，而是用于导入、导出、人工核对和历史数据迁移。
+当前处于兼容迁移期：
 
-核心业务对象包括：订单、订单品号/月度计划行、14 个生产工序、外协信息、供应商、字典、销售接单、成品入库、日进度、用户/角色/组织范围、审计日志和外部 API Key。
+- 新业务链路使用 `kdos` PostgreSQL 数据库、Drizzle Schema、Planning Application/Domain/Repository/Query 分层。
+- 原 `four_department_tracker` 数据库、TypeORM 实体和非 Planning 旧页面暂时保留，便于回滚与渐进迁移。
+- 新旧数据库同时存在，但 Planning 新模块不直接写旧表。
+- Node.js 24 是正式构建和容器运行目标；开发宿主机当前为 Node.js 22，因此 pnpm 会给出 engine 提示。
 
-## 2. 当前主要能力
+## 2. 技术栈
 
-- 月度计划：按年月查看计划，支持约 97 个 Web 字段、双层表头、横向虚拟滚动、筛选、字段显示控制、单元格编辑、批量更新、移动到其他月份、图片上传。
-- 滚动主计划和销售接单汇总：按订单聚合品号、数量、入库、欠数、金额和完成率，并提供交期预警及执行概览。
-- 工序管理：默认 14 个配置化工序，每个工序可配置所需天数、交期、状态和异常等字段；其中部分里程碑工序使用数量驱动状态。
-- 月初滚动：上海时区每月 1 日 01:00 通过数据库函数创建新计划月，把上一有效月份仍有欠数的品号复制到新月份，并将已入库量归零、生产量转为未完成量；设计上支持幂等执行。
-- Excel 导入：月度计划和销售接单均支持模板、预览、错误/警告、事务确认和业务键幂等；整份文件通过校验后才允许确认写入。供应商、字典等基础资料也支持 CSV/XLSX 导入。
-- Excel 导出：支持月度计划和成品入库等数据导出，月度计划导出保持 Excel 业务字段结构。
-- 协同编辑：JWT 鉴权、事业部/组织数据范围、字段级权限、整数版本号乐观锁、HTTP 409 冲突、Socket.IO 广播、请求号和审计记录。
-- 账号与集成：用户、角色、权限、组织单位、联系人、API Key、刷新令牌、密码修改/重置；外部系统通过带权限范围和有效期的 API Key 写入。
-- T+ 订单同步：独立的 `data-operations/tplus` 模块读取双账套有效销售订单，使用“源数据库 + 订单号”作为幂等业务键，支持 dry-run 和受鉴权 HTTP API 写入销售接单数据。
-- 运维：Docker Compose 三容器部署（Nginx、NestJS API、PostgreSQL 18），有启动、停止、升级、迁移、备份、恢复、日志和健康检查脚本。
+| 层次 | 技术 |
+| --- | --- |
+| Web | React 19、TypeScript 5.9、Vite 7、React Router 7、TanStack Query 5、Ant Design 5、AG Grid Community 34、Socket.IO Client |
+| API | Node.js 24、NestJS 11、Express 5、Swagger、Socket.IO、Decimal.js、ExcelJS、Multer、Sharp |
+| 新数据层 | PostgreSQL 18、Drizzle ORM/Schema、原生 `pg` 事务与 Repository 接口 |
+| 兼容数据层 | TypeORM 0.3，仅服务尚未迁出的旧模块 |
+| 身份权限 | JWT 兼容认证、AuthProvider/Keycloak Provider 边界、RBAC、字段策略、tenant RLS |
+| 工程 | pnpm 11 workspace、Docker Compose、Nginx、ESLint、Jest、Vitest、Playwright |
 
-## 3. 技术栈
-
-### 前端
-
-- React 19、TypeScript 5.9、Vite 7
-- React Router 7
-- TanStack Query 5：服务端数据获取、缓存和失效
-- Ant Design 5：表单、弹窗、表格、布局和管理界面
-- AG Grid Community 34：大宽表、虚拟滚动、编辑和筛选
-- Socket.IO Client 4：计划变更实时通知
-- Vitest、Testing Library、Playwright
-
-### 后端
-
-- Node.js 22、NestJS 11、TypeScript
-- Express 5、Helmet、CORS
-- TypeORM 0.3、PostgreSQL 18、`pg`
-- JWT access token + refresh token，`bcryptjs` 密码哈希
-- Socket.IO / Nest WebSocket Gateway
-- Swagger / OpenAPI
-- ExcelJS、JSZip、Multer、Sharp
-- `decimal.js`：数量、金额和完成率计算使用十进制定点逻辑
-- Jest、Supertest、ts-jest
-
-### 工程与部署
-
-- pnpm 11 workspace，工作区包含 `apps/web`、`apps/api`、`packages/shared`
-- Docker 多阶段构建；生产前端运行在 Nginx，API 和 PostgreSQL 只在 Compose 内部网络可见
-- PostgreSQL、上传文件、备份和日志使用宿主机目录持久化
-- Cloudflare Tunnel 由宿主机 systemd 管理，不在本项目 Compose 内运行
-
-## 4. 代码结构
+## 3. 代码结构与依赖方向
 
 ```text
-.
-├── apps/
-│   ├── web/                         React/Vite 前端
-│   │   └── src/App.tsx              当前主要页面与交互集中在此文件
-│   └── api/                         NestJS 后端
-│       └── src/
-│           ├── controllers.ts       REST 控制器，目前承载大量业务端点
-│           ├── entities.ts          TypeORM 实体定义
-│           ├── plan.service.ts      计划、订单、单元格和聚合业务逻辑
-│           ├── domain.service.ts    数量、金额、里程碑状态等纯领域计算
-│           ├── import.service.ts    Excel 读取、校验、预览和确认导入
-│           ├── auth.ts              登录、刷新令牌、API Key 鉴权
-│           ├── gateway.ts           Socket.IO 计划变更广播
-│           ├── modification-audit.ts 自动记录修改操作者和变更上下文
-│           ├── monthly-rollover.service.ts 月初滚动
-│           ├── storage.service.ts   简图上传存储
-│           ├── migrations/          TypeORM 数据库迁移
-│           └── data-operations/tplus/ T+ API 同步模块
-├── packages/shared/                 前后端共享字段、字典、工序、权限契约
-├── data-operations/tplus/            T+ SQL 读取、映射、同步脚本和测试
-├── scripts/                          部署、备份、恢复、迁移、健康检查脚本
-├── docs/                             架构、进度、Excel 分析、业务说明和模板
-└── outputs/                          本次生成的审查交接资料
+apps/
+  web/src/modules/planning/       Planning 页面、元数据列构建器
+  api/src/modules/planning/       Controller、Application、Domain、Query、Repository
+  worker/                         异步任务契约骨架
+  mcp/                            只读 AI Tool Catalog 骨架
+packages/
+  contracts/                      Planning API、事件、权限和 102 字段 Registry
+  database/                       Drizzle Schema 与连接
+  permissions/                    操作与字段权限判断
+  auth/                           Local/Keycloak Provider 边界
+  canonical-model/                ERP 中立模型
+  integration-sdk/                Adapter 与幂等契约
+  workflow-sdk/                   WorkflowGateway
+  plugin-sdk/                     Module Manifest
+  ai-tool-sdk/                    只读 AI Tool Definition
+integrations/tplus/               双账套 T+ → Canonical Model Adapter
+database/migrations/              新 kdos SQL 迁移
 ```
 
-当前实现有明显的“单文件聚合”特征：前端大量页面和组件集中在 `apps/web/src/App.tsx`，后端多数 REST 控制器集中在 `apps/api/src/controllers.ts`。这有利于早期快速交付，但应重点评估后续拆分策略、模块边界和测试可维护性。
+核心依赖方向：
 
-## 5. 数据模型概览
+```text
+Web / Import / T+ / SYSTEM Job / future AI
+                    ↓
+       Planning Application Service
+                    ↓
+             Planning Domain
+                    ↓
+        Planning Repository interface
+                    ↓
+        Drizzle + PostgreSQL adapter
+```
 
-主要表/实体如下：
+HTTP Controller 只做输入输出适配。业务规则不应进入 Controller、Excel Parser、React 组件或 T+ Reader。
 
-| 领域 | 实体 |
+## 4. Planning 业务模型
+
+`PlanPeriod` 对应年月，拥有多个 `PlanVersion`：
+
+- `DRAFT`：可编辑；新增、单元格修改、批量修改、排序、导入和图片操作仅允许此状态。
+- `PUBLISHED`：正式只读；发布时创建不可变 JSON Snapshot，并归档上一正式版本。
+- `LOCKED`：结账式只读；锁定/解锁必须有权限和原因。
+- `ARCHIVED`：历史正式版本，仅查询。
+
+创建新 Draft 可复制上一正式版本的计划行和工序进度。`plan_items.version` 与 `process_progress.version` 用于乐观锁；过期写入返回 HTTP 409。发布、锁定、解锁、批量更新、排序和导入确认均通过 Application Service 和数据库事务。
+
+## 5. 新数据库
+
+Schema 与主要表：
+
+| Schema | 表 |
 | --- | --- |
-| 身份与权限 | `users`、`roles`、`user_roles`、`permissions`、`role_data_scopes`、`role_organization_scopes`、`refresh_tokens`、`api_keys` |
-| 组织与通讯录 | `organization_units`、`contacts` |
-| 计划 | `plan_periods`、`orders`、`order_items`、`outsourcing_details` |
-| 工序 | `process_definitions`、`item_process_progress`、`daily_process_progress` |
-| 主数据 | `dictionary_types`、`dictionary_values`、`suppliers` |
-| 外部业务数据 | `sales_orders`、`finished_goods_inbound` |
-| 可追溯性 | `audit_logs`、`import_jobs`、`import_job_errors`、`idempotency_keys` |
+| `core` | `schema_migrations`（含 checksum） |
+| `iam` | `tenants`、`organizations`、`departments`、`positions`、`employees`、`users`、`identities`、`roles`、`permissions`、`role_permissions`、`role_bindings`、`field_policies` |
+| `planning` | `plan_periods`、`plan_versions`、`sales_orders`、`sales_order_lines`、`plan_items`、`process_definitions`、`process_progress`、`daily_progress`、`plan_snapshots`、`plan_changes` |
+| `audit` | `audit_logs` |
+| `integration` | `import_jobs` |
 
-关键约束：
+关键约束包括：tenant+年月唯一、周期+版本号唯一、版本+订单+品号唯一、计划行+工序唯一、计划行+工序+日期唯一、导入幂等键唯一。数量和金额使用 PostgreSQL `numeric`，领域计算使用 `decimal.js`。协同表带 `tenant_id`，已启用 23 条 tenant RLS Policy；事务内设置 `app.tenant_id`，应用查询仍显式带 tenant 条件。
 
-- 计划月 `(year, month)` 唯一。
-- 月度品号 `(period_id, order_id, item_number)` 唯一。
-- 工序进度 `(order_item_id, process_definition_id)` 唯一。
-- 日进度 `(order_item_id, process_definition_id, work_date)` 唯一。
-- 销售接单使用 `(order_number, item_number)` 唯一。
-- 成品入库使用 `(document_number, inventory_code, relation_info)` 唯一。
-- 多数业务实体带创建/修改时间、修改人和 `version`，用于审计或乐观锁。
+当前验收数据库统计：2 条迁移、1 个 tenant、15 个 Planning 权限、14 个工序、1 个计划周期、3 个版本、10 个测试计划行、2 个快照、20 条审计、23 条 RLS Policy。测试版本状态为 `v1 ARCHIVED / v2 PUBLISHED / v3 DRAFT`。
 
-## 6. 主要业务计算
+## 6. 字段与 AG Grid 迁移
 
-`DomainService` 负责相对纯粹的业务计算：
+- 原 97 个 Web 业务字段全部保留。
+- 新增优先级、计划顺序、责任组织、负责人、计划状态 5 个编排字段，共 102 个 Registry 字段。
+- 原 Excel 93 列契约保留；导入支持两层表头以及 CSV。
+- 14 个工序全部配置化保留。
+- Registry 统一定义标签、分组、顺序、宽度、固定、类型、编辑器、Renderer、可见性、可编辑性、权限和来源。
+- 保留多层/折叠表头、固定选择列、横向虚拟滚动、字段显示、快速筛选、状态颜色、单元格编辑、批量更新、持久化排序和图片弹窗。
+- 前端元数据权限只负责表现，后端每次写入再次校验字段权限。
 
-- 欠数 = 生产数量 - 历史入库数量 - 当天入库数量。
-- 已完成数量 = 总数量 - 欠数合计。
-- 完成率 = 已完成数量 / 总数量；总数量为 0 时返回 `null`。
-- 入库金额、欠数金额使用 `Decimal`，避免 JavaScript 浮点误差。
-- 负欠数不强行截断，保留原始数据并返回数据质量警告。
-- 里程碑状态结合数量、完成数量和日期计算，并优先判断逾期状态。
+## 7. 导入、导出与图片
 
-业务上仍有待确认的规则：产前评审交期“当天且未完成”在需求描述中同时出现黄色/红色；当前实现约定为等于今天黄色、早于今天红色、完成率大于等于 100% 绿色。
+导入链路是：上传 → 解析 → 标准化 → 校验 → 预览 → 用户确认 → Application Command → 单事务写入。
 
-## 7. 导入与外部同步流程
+- `.xlsx` 和 `.csv` 均支持。
+- 文件哈希 + 目标版本形成幂等键；重复确认返回既有结果。
+- 任一写入失败则整个确认事务回滚。
+- 两层工序表头会写入 `planning.process_progress`，不会降级成不可查询 JSON。
+- Excel 导出由相同字段 Registry 生成两层表头。
+- 图片通过 `ObjectStorage` 抽象；第一阶段实现 LocalObjectStorage，校验 MIME、大小和每行最多两张，并对数据库失败做补偿删除。
 
-### 月度计划 Excel
+## 8. 权限、审计和协同
 
-1. 用户在“主计划 → 月度计划”选择年月并上传标准 `.xlsx`。
-2. 后端解析工作表、双层表头、日期、数字、字典和工序字段。
-3. 创建导入任务并保存错误/警告；预览阶段不写入正式业务数据。
-4. 全部硬错误通过后，用户确认，后端在事务中按业务键插入或更新。
-5. 同一业务键重复导入时更新现有记录，不增加重复数据。
+- 15 个 Planning Action Permission 已建模和 seed。
+- Field Policy 支持 `HIDDEN / READONLY / EDITABLE / MASKED`。
+- API 从 JWT claims 获取用户、角色和权限，服务端拒绝越权字段写入。
+- PostgreSQL RLS 提供 tenant 级第二道隔离。
+- 业务写入记录 `audit.audit_logs` 和 `planning.plan_changes`，包含 actor、source、requestId、traceId、before/after 和 reason。
+- Socket 事件只包含 tenant、period、version、entity、乐观版本和 change type；客户端收到后失效缓存并按自身权限重取。
 
-企业 DRM/透明加密文件可能不是标准 ZIP/XLSX 容器。系统可选地调用本机解密命令或在受信任 Windows Excel 环境转换临时标准文件；不会绕过加密，临时明文应在流程结束后删除。
+## 9. 集成、工作流、插件和 AI
 
-### T+ 同步
+- `canonical-model` 隔离 ERP 专有字段。
+- `integration-sdk` 定义 Adapter、幂等键和同步结果。
+- `integrations/tplus` 支持双账套映射与去重测试；T+ SQL Reader 仍隔离在 `data-operations/tplus`。
+- 月初滚动使用 `SYSTEM` Actor 调用 Planning Query/Application Service，不再直接调用数据库函数。
+- `WorkflowGateway` 已定义发布、重大变更、交期变更、解锁和关账边界；第一阶段未部署 Flowable。
+- Planning Plugin Manifest 已建立。
+- MCP/AI 只读工具定义包括计划搜索、计划详情、订单进度、工序进度和风险汇总；当前只有骨架，不执行任意 SQL。
 
-`data-operations/tplus` 从 SQL Server/T+ 数据源读取双账套有效订单，最早日期由 `TPLUS_BEGIN_DATE` 控制。建议先运行：
+## 10. 已验证链路
 
-```bash
-pnpm sync:tplus:dry-run
-pnpm test:tplus-sync
-pnpm sync:tplus
-```
+- 建立周期和 Draft、复制新版本。
+- 单行与批量修改、排序、负责人/责任组织/优先级修改。
+- 过期 `expectedVersion` 返回 HTTP 409。
+- CSV 预览、确认、重复确认幂等、工序数据写入。
+- Excel 导出成功。
+- 图片上传和 Nginx 静态访问成功。
+- 发布生成 Snapshot，发布后写入被拒绝。
+- 锁定、解锁及原因记录。
+- 风险汇总返回交期逾期、未来 7 天到期、工序逾期和未关闭异常。
+- Lint、类型检查、单元测试、构建、Playwright 11/11、T+ 测试通过。
 
-真实数据库密码和写入 API Key 只应放在未提交的 `.env`。API Key 需要关联启用用户并具备 `tplus-sales-orders:*:import` 权限。
+## 11. 希望 AI 重点审查的问题
 
-## 8. 鉴权、权限和协同机制
+1. 新旧 TypeORM/Drizzle 共存期的事务、连接池和最终退役策略是否清晰。
+2. PostgreSQL RLS 是否需要 `FORCE ROW LEVEL SECURITY`、更严格的连接重置与管理员旁路审计。
+3. Planning Repository 中原生 SQL 与 Drizzle Schema 的边界是否合适，是否应逐步使用 typed query builder。
+4. 版本状态机在并发发布、并发建 Draft、锁定/解锁时是否还需数据库级排他约束。
+5. Snapshot JSON 的长期体积、查询和归档策略。
+6. 导入任务对超大 Excel 的内存、超时、异步化、病毒扫描和对象存储生命周期设计。
+7. 图片是否需要从公开静态路径升级为鉴权下载或签名 URL。
+8. Keycloak 生产接入、MFA、账号映射和现有 refresh token 迁移方案。
+9. T+ Adapter 从“契约与映射已就绪”到“正式写入 Planning Application Service”的切换设计。
+10. Web 主包、共享 legacy UI 与非 Planning 旧页面的下一轮拆分顺序。
 
-- 登录返回短期 access token 和 refresh token；支持登出和修改密码。
-- JWT claims 包含用户、角色、权限和事业部范围。
-- API 请求统一经过鉴权；计划查询、更新和导入还需要资源/动作权限及数据范围检查。
-- 外部自动化使用 API Key，可配置作用域、关联用户/角色、有效期和停用/重新生成。
-- 计划单元格更新携带 `expectedVersion`；版本不一致返回 409，前端应保留编辑状态并提示冲突。
-- 变更成功后通过 WebSocket 广播；当前设计目标是业务记录协同，不是对同一个 XLSX 文件做 OT/CRDT。
-- 修改上下文通过 `AsyncLocalStorage` 传递给审计订阅器，记录操作者、请求号和前后值。
+## 12. 审查输出格式建议
 
-审查时需特别确认：所有写入端点（尤其基础资料、管理端点、T+ 端点、批量导入）是否一致执行资源权限、字段权限、数据范围、审计和幂等策略；不能只检查主计划单元格更新路径。
+请按以下格式回答：总体评价；P0/P1/P2 问题表（证据、影响、建议、工作量）；技术栈保留/替换建议；数据一致性/权限/RLS/审计/幂等/并发专项；AG Grid 与元数据专项；下一阶段最多 10 项的实施顺序和验收标准。
 
-## 9. API 与前端页面边界
-
-API 前缀为 `/api/v1`，Swagger UI 为 `/api/docs`，OpenAPI JSON 为 `/api/openapi.json`。主要控制器边界：
-
-- `auth`：登录、刷新、登出、修改密码。
-- `plans`：计划期间、月度计划、日进度、滚动计划、销售汇总、订单、计划行、批量更新、图片和导出。
-- `imports`：月度计划导入预览与确认。
-- `master-data`：供应商、字典、工序、销售接单、成品入库及其导入导出。
-- `audit-logs`：审计检索。
-- `api-keys`：API Key 生命周期管理。
-- `admin`：用户、角色、组织单位、联系人。
-- `data-operations/tplus`：T+ 销售订单快照写入。
-
-前端主要页面/模块：
-
-- 销售接单汇总大屏。
-- 销售接单明细。
-- 2026 年月度计划页面。
-- 日进度页面。
-- 基础数据维护。
-- 成品入库。
-- 审计日志。
-- API Key 管理。
-- 用户与角色。
-- 企业微信通讯录只读目录。
-
-## 10. 部署与运行
-
-生产 Compose 服务：
-
-1. `postgres`：PostgreSQL 18，仅内部网络可访问，数据挂载到 `data/postgres`。
-2. `api`：NestJS，内部暴露 15173，上传目录挂载到 `data/uploads`。
-3. `web`：Nginx，宿主机入口通常为 15172，负责 SPA、`/api`、`/uploads` 和 `/socket.io` 反向代理。
-
-常用命令：
-
-```bash
-./scripts/init-env.sh
-./scripts/start.sh
-./scripts/healthcheck.sh
-./scripts/backup.sh
-./scripts/migrate.sh
-./scripts/upgrade.sh
-./scripts/stop.sh
-```
-
-部署脚本强调：`.env` 不入 Git；数据库恢复前检查 SHA256 和空 schema；常规停止/重建不删除宿主机持久化数据；不要使用 `docker compose down -v`。
-
-## 11. 已有测试与验证信息
-
-仓库包含：
-
-- API 单元测试：领域计算、鉴权/API Key、T+ 数据映射。
-- API 集成测试：健康检查等系统边界。
-- Web 单元测试：共享字段契约、列数、状态计算、筛选和图标。
-- Playwright E2E：核心登录、计划查看/编辑、导入和错误处理等流程。
-- T+ Node 原生测试：SQL 参数处理和订单映射。
-- README 声称 lint、typecheck、unit/API integration、build、Playwright、migration 和 seed 已通过；当前工作树有未提交修改，交给审查 AI 前建议在目标环境重新执行完整命令。
-
-建议验证命令：
-
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm test:e2e
-pnpm test:tplus-sync
-```
-
-## 12. 已知待确认项与风险线索
-
-以下不是已经确认的缺陷，而是应优先让审查 AI 评估的风险点：
-
-1. **前后端大文件聚合**：`App.tsx` 和 `controllers.ts` 集中了大量页面/端点，长期可能降低模块隔离、测试定位和多人协作效率。
-2. **权限一致性**：需要逐个核查所有管理、导入、基础资料和集成写入端点是否没有绕过字段级权限、事业部范围和审计。
-3. **导入事务边界**：确认大文件解析、预览任务、确认写入、错误清单、重复导入和并发确认时的状态机是否完整，是否可能重复确认或长事务阻塞。
-4. **实时协同范围**：确认 WebSocket 广播不会把其他事业部/组织范围的数据或变更细节泄露给无权用户，并评估断线重连、消息丢失和缓存失效策略。
-5. **文件安全**：评估上传文件类型校验、文件名/路径、图片处理、静态资源访问权限、大小限制、临时明文删除和恶意压缩包风险。
-6. **计算一致性**：确认欠数、金额、完成率和工序状态在 API 查询、导入、批量修改、日进度、月初滚动和前端展示中只有一个权威规则来源。
-7. **数据来源治理**：销售接单既有人工/Excel 入口又有 T+ 快照入口，需要明确来源字段、覆盖策略、删除/停用语义和冲突处理。
-8. **数据库迁移与恢复**：评估 PostgreSQL 18 绑定目录、migration 回滚能力、备份可恢复演练、升级期间停机窗口和大表索引策略。
-9. **观测性**：目前有请求号、审计和容器日志；可进一步评估结构化日志、指标、慢查询、导入耗时、WebSocket 在线状态和告警。
-10. **业务规则未完全固化**：未来计划来源、图片与品号映射、交期颜色规则、外协规则和部分历史 Excel 字段仍需要业务确认。
-11. **环境耦合**：T+ SQL 文件路径、局域网 IP、Cloudflare 域名和 Windows 解密能力都通过环境或宿主机约定提供，应评估跨环境部署、凭据轮换和失败降级。
-12. **当前版本边界**：工作区包含未提交变更；应先形成可复现提交/版本和数据库迁移基线，再讨论生产发布或大规模重构。
-
-## 13. 请审查 AI 重点回答的问题
-
-请基于源码而不是只基于本文档，按“问题 → 证据 → 影响 → 优先级 → 建议方案 → 实施成本/风险”的格式回答：
-
-1. 当前 React + AG Grid + Ant Design + TanStack Query、NestJS + TypeORM + PostgreSQL 的组合是否适合这个大宽表生产协同场景？哪些技术需要保留、替换或补充？
-2. 现有实体关系、唯一键、版本控制、导入任务和月初滚动是否能保证数据一致性、可追溯和幂等？
-3. 权限模型（资源动作 + 字段 + 事业部/组织范围 + API Key）是否足够安全且可维护？请找出可能绕过权限的路径。
-4. Excel 导入、T+ 同步、人工编辑三类写入如何建立统一的数据来源、优先级、冲突、停用和审计策略？
-5. WebSocket 协同设计是否合理？请评估并发编辑、409 冲突、断线重连、消息顺序、权限过滤和前端缓存一致性。
-6. 以当前代码组织方式，应该如何拆分前后端模块、领域服务、DTO、校验器、查询层和组件，同时控制重构风险？
-7. 哪些 API、数据库查询、导入解析和前端 AG Grid 交互可能在数据量扩大后出现性能瓶颈？请给出容量假设和优化顺序。
-8. 请进行安全审查：认证、Token/API Key、密码、CORS、上传、Excel 解密、静态文件、SQL、日志脱敏、备份和生产网络暴露面。
-9. 测试覆盖是否能支撑发布？请列出缺少的单元、集成、契约、并发、恢复、权限矩阵和端到端测试。
-10. 请给出分阶段技术路线：短期修补（1–2 周）、中期治理（1–2 月）、长期演进（季度级），每项标明收益、依赖和验收标准。
-
-## 14. 审查输出建议格式
-
-请先给出不超过一页的结论，然后按以下章节展开：
-
-- 总体评价与架构适配度
-- 必须立即修复的高风险问题
-- 技术栈保留/替换/新增建议
-- 数据模型与一致性审查
-- 权限和安全审查
-- 性能与可扩展性审查
-- 测试与发布工程审查
-- 推荐目标架构（可附目录结构或 Mermaid 图）
-- 分阶段实施路线图
-- 需要业务方确认的问题
-- 最终优先级清单（P0/P1/P2）
-
-请避免泛泛而谈；每个重要结论都应引用具体文件、类、方法、实体、API 或配置作为证据，并说明是否已通过测试验证。
+相关权威资料：根目录 `ARCHITECTURE.md`、`SECURITY.md`、`AGENTS.md`、`docs/migration/legacy-master-plan-inventory.md`、`docs/runbook.md`、`docs/integration-guide.md`、`docs/workflow/planning-workflows.md`。

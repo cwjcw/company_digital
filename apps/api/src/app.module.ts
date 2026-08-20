@@ -13,9 +13,12 @@ import { DomainService } from "./domain.service";
 import { entities } from "./entities";
 import { ImportService } from "./import.service";
 import { MonthlyRolloverService } from "./monthly-rollover.service";
-import { PlanGateway } from "./gateway";
 import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
+import { TplusOrderSyncController } from "./data-operations/tplus/tplus-order-sync.controller";
+import { TplusOrderSyncService } from "./data-operations/tplus/tplus-order-sync.service";
+import { PlanningModule } from "./modules/planning/planning.module";
+import { StorageModule } from "./storage/storage.module";
 
 @Module({
   imports: [
@@ -23,15 +26,18 @@ import { StorageService } from "./storage.service";
     TypeOrmModule.forRoot({ ...dataSource.options, autoLoadEntities: true }),
     TypeOrmModule.forFeature(entities),
     JwtModule.register({ global: true }),
-    ScheduleModule.forRoot()
+    ScheduleModule.forRoot(),
+    StorageModule,
+    PlanningModule
   ],
   controllers: [
     SystemController, AuthController, PlanController, ImportController,
-    MasterDataController, AuditController, ApiKeyController, AdminController
+    MasterDataController, AuditController, ApiKeyController, AdminController,
+    TplusOrderSyncController
   ],
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
-    PlanGateway, MonthlyRolloverService, StorageService
+    MonthlyRolloverService, StorageService, TplusOrderSyncService
   ]
 })
 export class AppModule {}

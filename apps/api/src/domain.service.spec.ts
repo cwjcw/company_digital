@@ -32,6 +32,23 @@ describe("DomainService", () => {
     expect(service.orderMetrics([]).completionRate).toBeNull();
   });
 
+  it("keeps only positive order balances on the daily progress surface", () => {
+    expect(service.hasOutstandingBalance({ productionQuantity: 10, historicalInboundQuantity: 4, todayInboundQuantity: 5 })).toBe(true);
+    expect(service.hasOutstandingBalance({ productionQuantity: 10, historicalInboundQuantity: 4, todayInboundQuantity: 6 })).toBe(false);
+    expect(service.hasOutstandingBalance({ productionQuantity: 10, historicalInboundQuantity: 4, todayInboundQuantity: 7 })).toBe(false);
+  });
+
+  it("uses a source-system total while keeping completion derived from item inbound", () => {
+    expect(service.orderMetrics([], "125.5")).toEqual({
+      totalQuantity: "125.5", completedQuantity: "0", pendingQuantity: "125.5", completionRate: 0
+    });
+    expect(service.orderMetrics([
+      { productionQuantity: 20, historicalInboundQuantity: 12, todayInboundQuantity: 3 }
+    ], "30")).toEqual({
+      totalQuantity: "30", completedQuantity: "15", pendingQuantity: "15", completionRate: 0.5
+    });
+  });
+
   it("calculates milestone status from quantity, production quantity and due date", () => {
     expect(service.milestoneStatus({ quantity: "30", dueDate: "2026-08-01" }, "30", "2026-08-07")).toBe("已完成");
     expect(service.milestoneStatus({ quantity: "10", dueDate: "2026-08-08" }, "30", "2026-08-07")).toBe("进行中");

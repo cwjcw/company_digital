@@ -54,11 +54,17 @@ export class DomainService {
     };
   }
 
-  orderMetrics(items: QuantityInput[]) {
+  hasOutstandingBalance(item: QuantityInput) {
+    return decimal(this.itemMetrics(item).balanceQuantity).greaterThan(0);
+  }
+
+  orderMetrics(items: QuantityInput[], totalOverride?: string | number | null) {
     const metrics = items.map((item) => this.itemMetrics(item));
-    const total = metrics.reduce((sum, item) => sum.plus(item.productionQuantity), new Decimal(0));
-    const balance = metrics.reduce((sum, item) => sum.plus(item.balanceQuantity), new Decimal(0));
-    const completed = total.minus(balance);
+    const itemTotal = metrics.reduce((sum, item) => sum.plus(item.productionQuantity), new Decimal(0));
+    const total = totalOverride === null || totalOverride === undefined || totalOverride === ""
+      ? itemTotal : decimal(totalOverride);
+    const completed = metrics.reduce((sum, item) => sum.plus(item.completedQuantity), new Decimal(0));
+    const balance = total.minus(completed);
     return {
       totalQuantity: total.toFixed(),
       completedQuantity: completed.toFixed(),

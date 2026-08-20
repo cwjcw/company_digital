@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import sharp from "sharp";
 import { Repository } from "typeorm";
 import { AuditLog, OrderItem } from "./entities";
 import { PlanGateway } from "./gateway";
+import { OBJECT_STORAGE, type ObjectStorage } from "./storage/object-storage";
 
 const allowedMime = new Map([
   ["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]
@@ -17,7 +16,8 @@ export class StorageService {
   constructor(
     @InjectRepository(OrderItem) private readonly items: Repository<OrderItem>,
     @InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>,
-    private readonly gateway: PlanGateway
+    private readonly gateway: PlanGateway,
+    @Inject(OBJECT_STORAGE) private readonly objectStorage: ObjectStorage
   ) {}
 
   async addImages(itemId: string, files: Express.Multer.File[], user: any, requestId: string) {
@@ -30,8 +30,6 @@ export class StorageService {
     if (user.divisions !== "*" && !user.divisions.includes(item.order.division)) throw new ForbiddenException("超出事业部数据范围");
     const existing = item.imageRefs ?? [];
     if (existing.length + files.length > 2) throw new BadRequestException("每个品号最多保存 2 张图片");
-    const uploadDir = path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? "./data/uploads");
-    await fs.mkdir(uploadDir, { recursive: true });
     const maxBytes = Number(process.env.MAX_IMAGE_BYTES ?? 3 * 1024 * 1024);
     const urls: string[] = [];
     for (const file of files) {
@@ -45,8 +43,8 @@ export class StorageService {
         if (buffer.length > maxBytes) throw new BadRequestException("图片压缩后仍超过 3MB，请选择更小的图片");
       }
       const name = `${randomUUID()}.${finalExtension}`;
-      await fs.writeFile(path.join(uploadDir, name), buffer);
-      urls.push(`/uploads/${name}`);
+      const stored = await this.objectStorage.put({ key: name, body: buffer, contentType: `image/${finalExtension === "jpg" ? "jpeg" : finalExtension}` });
+      urls.push(stored.url);
     }
     item.imageRefs = [...existing, ...urls];
     item.version += 1;

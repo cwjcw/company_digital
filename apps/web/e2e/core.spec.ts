@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { planningFieldRegistry } from "@kdos/contracts";
 
 async function mockApp(page: Page) {
   await page.route("**/api/v1/auth/login", async (route) => {
@@ -7,9 +8,24 @@ async function mockApp(page: Page) {
     if (body.password !== "test") return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "密码错误" }) });
     return route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "test-token", refreshToken: "refresh", user: { username: "admin", displayName: "测试管理员", roles: ["系统管理员"], permissions: ["*"], divisions: "*", mustChangePassword: false } }) });
   });
-  await page.route("**/api/v1/plans/rolling", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
+  await page.route("**/api/v1/plans/rolling", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderType: null, orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
   await page.route("**/api/v1/plans/sales-dashboard", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
   await page.route("**/api/v1/plans/monthly?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ period: { id: "p1", year: 2026, month: 8 }, rows: [{ id: "i1", version: 1, relationKey: "2026C235004-99996277-1/1", orderNumber: "2026C235004", orderDate: "2026-08-01", customerDueDate: "2026-08-20", exceptionDueDate: "2026-08-25", itemNumber: "99996277-1/1", itemName: "双面主架", itemStatus: "进行中", month: "2026-08", productAttribute: "五金", productionQuantity: "30", historicalInboundQuantity: "0", todayInboundQuantity: "0", processes: { blank: { dueDate: "2026-08-20", quantity: "30", status: "已完成" }, bakingPlating: { dueDate: "2026-08-25", quantity: "10", status: "进行中" }, assemblyPacking: { dueDate: "2026-08-28", quantity: "0", status: "进行中" } } }] }) }));
+  const planningItem = { id: "i1", version: 1, planVersionId: "v1", priority: 50, planSequence: 10, sequence: 1, planningStatus: "PENDING", responsibleOrgId: null, ownerUserId: null, relationKey: "2026C235004-99996277-1/1", orderNumber: "2026C235004", orderDate: "2026-08-01", customerDueDate: "2026-08-20", exceptionDueDate: "2026-08-25", itemNumber: "99996277-1/1", itemName: "双面主架", itemStatus: "进行中", month: "2026-08", productAttribute: "五金", productionQuantity: "30", historicalInboundQuantity: "0", todayInboundQuantity: "0", imageRefs: [], processes: { frontParts: { requiredDays: "2", dueDate: "2026-08-18", status: "进行中", exception: null }, blank: { dueDate: "2026-08-20", quantity: "30", status: "已完成" }, bakingPlating: { dueDate: "2026-08-25", quantity: "10", status: "进行中" }, assemblyPacking: { dueDate: "2026-08-28", quantity: "0", status: "进行中" } } };
+  await page.route("**/api/v1/planning/fields", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(planningFieldRegistry.map((field) => ({ ...field, access: field.editable ? "EDITABLE" : "READONLY" }))) }));
+  await page.route("**/api/v1/planning/periods/by-month?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "p1", year: 2026, month: 8, currentVersionId: null, versions: [{ id: "v1", tenantId: "t1", periodId: "p1", versionNumber: 1, name: "v1", status: "DRAFT", basedOnVersionId: null }] }) }));
+  await page.route("**/api/v1/planning/versions/v1/items", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([planningItem]) }));
+  await page.route("**/api/v1/planning/versions/v1/risks?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ overdue: [], dueSoon: [planningItem], processOverdue: [], openExceptions: [] }) }));
+  await page.route("**/api/v1/planning/items/i1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...planningItem, version: 2 }) }));
+  await page.route("**/api/v1/planning/versions/v1/items/bulk", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ ...planningItem, version: 2 }]) }));
+  await page.route("**/api/v1/planning/versions/v1/reorder", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ ...planningItem, planSequence: 10 }]) }));
+  await page.route("**/api/v1/planning/items/i1/images", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...planningItem, imageRefs: ["/uploads/test.png"], version: 2 }) }));
+  await page.route("**/api/v1/plans/daily-progress?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({
+    date: "2026-08-18",
+    processes: [{ id: "p-machining", code: "machining", name: "机加", sortOrder: 5 }, { id: "p-welding", code: "welding", name: "焊接/点焊", sortOrder: 6 }],
+    rows: [{ id: "i1", sequence: 1, month: "2026-08", orderNumber: "2026C235004", orderType: null, itemNumber: "99996277-1/1", itemName: "双面主架", customer: "测试客户", division: "事业一部", productionQuantity: "30", balanceQuantity: "20", progress: { machining: null, welding: "3" } }]
+  }) }));
+  await page.route("**/api/v1/plans/daily-progress/*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ orderItemId: "i1", date: "2026-08-18", processCode: "machining", quantity: "5" }) }));
   await page.route("**/api/v1/plans/items/*/cell", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "i1", version: 2 }) }));
   await page.route("**/api/v1/plans/items/move", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ moved: 1, skipped: 0, target: { id: "p2", year: 2026, month: 9 } }) }));
   await page.route("**/api/v1/plans/orders/*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "o1", version: 2 }) }));
@@ -39,11 +55,15 @@ async function mockApp(page: Page) {
 
 async function login(page: Page) {
   await page.goto("/");
-  await expect(page).toHaveTitle("凯南计划中心");
+  await expect(page).toHaveTitle("凯南数字化工作台 · KDOS");
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("test");
   await page.locator("button[type=submit]").click();
   await expect(page.getByText("表格操作", { exact: true })).toBeVisible();
+}
+
+async function openAugustMonthlyPlan(page: Page) {
+  await page.getByText("202608", { exact: true }).click();
 }
 
 test("login reports username and password errors separately", async ({ page }) => {
@@ -61,13 +81,15 @@ test("login reports username and password errors separately", async ({ page }) =
 
 test("monthly plan selection is the first fixed column and field state is per user", async ({ page }) => {
   await mockApp(page); await login(page);
-  await page.getByText("月度计划", { exact: true }).click();
+  await page.screenshot({ path: "../../docs/migration/screenshots/master-plan-after.png", fullPage: true });
+  await openAugustMonthlyPlan(page);
   const title = page.locator(".topbar-page-title", { hasText: "2026年8月计划" });
   await expect(title).toBeVisible();
   await expect.poll(async () => (await title.boundingBox())?.width ?? 0).toBeGreaterThan(120);
   const headers = page.locator(".monthly-grid .ag-header-cell");
   await expect(headers.first().locator(".ag-header-select-all")).toBeVisible();
-  await expect(headers.nth(1)).toContainText("序号");
+  await expect(headers.nth(1)).toContainText("优先级");
+  await page.screenshot({ path: "../../docs/migration/screenshots/monthly-plan-after.png", fullPage: true });
   await expect(page.locator('.monthly-grid .ag-header-cell[col-id="relationKey"]')).toHaveCount(0);
   const orderCell = page.locator('.monthly-grid .ag-cell[col-id="orderNumber"]').first();
   await orderCell.click();
@@ -91,8 +113,11 @@ test("monthly plan selection is the first fixed column and field state is per us
   await expect(dueDateCell.locator("input")).toHaveCount(0);
   await expect(page.getByText("快速筛选", { exact: true })).toBeVisible();
   await expect(orderCell).toHaveCSS("user-select", "text");
-  await page.locator(".monthly-grid .ag-center-cols-viewport").evaluate((element) => { element.scrollLeft = 900; });
   await page.getByRole("button", { name: "进入编辑模式" }).click();
+  await page.locator(".monthly-grid .ag-body-horizontal-scroll-viewport").evaluate((element) => {
+    element.scrollLeft = 400;
+    element.dispatchEvent(new Event("scroll"));
+  });
   const attributeCell = page.locator('.monthly-grid .ag-cell[col-id="productAttribute"]').first();
   await attributeCell.click();
   await page.keyboard.press("Enter");
@@ -108,13 +133,41 @@ test("monthly plan selection is the first fixed column and field state is per us
   await page.getByRole("dialog").getByRole("button", { name: /关\s*闭/ }).click();
   await page.getByRole("button", { name: "字段显示" }).click();
   await expect(page.getByRole("dialog")).toContainText("字段显示");
-  await page.getByRole("button", { name: "Close" }).click();
-  await expect.poll(() => page.evaluate(() => localStorage.getItem("monthly-hidden-fields-v2:admin"))).toBe(JSON.stringify(["relationKey"]));
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("kdos-planning-hidden:admin"))).toBe(JSON.stringify(["relationKey"]));
+});
+
+test("monthly plan menu exposes the 2026 month pages and daily progress saves process quantity", async ({ page }) => {
+  await mockApp(page); await login(page);
+  await expect(page.getByText("2026年", { exact: true })).toBeVisible();
+  for (const period of ["202608", "202609", "202610", "202611", "202612"]) {
+    await expect(page.getByText(period, { exact: true })).toBeVisible();
+  }
+  await page.getByText("202609", { exact: true }).click();
+  await expect(page).toHaveURL(/\/monthly\/202609$/);
+  await expect(page.locator(".topbar-page-title")).toHaveText("2026年9月计划");
+
+  await page.getByText("日进度", { exact: true }).click();
+  await expect(page).toHaveURL(/\/daily-progress$/);
+  await expect(page.getByText("仅显示订单欠数大于 0 的月度计划订单 + 品号，共 1 条")).toBeVisible();
+  await expect(page.locator('.daily-progress-grid .ag-header-cell[col-id="progress.machining"]')).toContainText("机加");
+  await expect(page.locator('.daily-progress-grid .ag-header-cell[col-id="progress.welding"]')).toContainText("焊接/点焊");
+  await page.getByRole("button", { name: "进入录入模式" }).click();
+  const machiningCell = page.locator('.daily-progress-grid .ag-cell[col-id="progress.machining"]').first();
+  await machiningCell.dblclick();
+  const input = machiningCell.locator("input");
+  await expect(input).toBeVisible();
+  await input.fill("5");
+  const saveRequest = page.waitForRequest((request) => request.url().includes("/api/v1/plans/daily-progress/i1") && request.method() === "PATCH");
+  await page.keyboard.press("Enter");
+  const request = await saveRequest;
+  expect(request.postDataJSON()).toMatchObject({ processCode: "machining", quantity: 5 });
+  await expect(page.getByText(/机加 已保存/)).toBeVisible();
 });
 
 test("monthly plan uses compact dates, selectable headers, colors and collapsed production stages", async ({ page }) => {
   await mockApp(page); await login(page);
-  await page.getByText("月度计划", { exact: true }).click();
+  await openAugustMonthlyPlan(page);
   await expect(page.locator('.monthly-grid .ag-cell[col-id="orderDate"]').first()).toHaveText("08-01");
   const headerText = page.locator('.monthly-grid .ag-header-cell[col-id="orderNumber"] .ag-header-cell-text');
   await expect(headerText).toHaveCSS("user-select", "text");
@@ -130,42 +183,54 @@ test("monthly plan uses compact dates, selectable headers, colors and collapsed 
   await expect(page.locator('.monthly-grid .ag-header-cell[col-id="processes.frontParts.status"]')).toContainText("状态");
   await expect(page.locator('.monthly-grid .ag-header-cell[col-id="processes.frontParts.exception"]')).toContainText("异常");
   await expect(page.locator(".monthly-grid .ag-header-cell-text", { hasText: "状态/数量" }).first()).toBeVisible();
-  await expect(page.getByText("表格操作", { exact: true })).toBeVisible();
+  await expect(page.getByText("编排操作", { exact: true })).toBeVisible();
   await expect(page.getByText("快速筛选", { exact: true })).toBeVisible();
-  await expect(page.getByText("筛选", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "清空筛选" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "筛选事业部" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "筛选品号状态" })).toBeVisible();
-  const itemNumberFilter = await page.getByRole("textbox", { name: "筛选品号" }).boundingBox();
-  const itemStatusFilter = await page.getByRole("combobox", { name: "筛选品号状态" }).boundingBox();
-  const dateFilter = await page.getByLabel("筛选客户要求交期范围").first().boundingBox();
-  expect(Math.abs(itemStatusFilter!.y - itemNumberFilter!.y)).toBeLessThan(8);
-  expect(dateFilter!.y).toBeGreaterThan(itemStatusFilter!.y + 20);
-  await expect(page.getByRole("button", { name: "导入月度计划 Excel" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "导入月度计划 CSV" })).toHaveCount(0);
-  await expect(page.getByLabel("筛选客户要求交期范围").first()).toBeVisible();
-  await expect(page.getByLabel("筛选产前评审交期范围").first()).toBeVisible();
-  await expect(page.getByLabel("筛选异常后二次交期范围").first()).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "筛选订单号" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "筛选品号" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导入 Excel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "批量修改（0）" })).toBeVisible();
+  await expect(page.getByText("7天内到期 1", { exact: true })).toBeVisible();
 });
 
-test("selected monthly items can move to another year and month", async ({ page }) => {
+test("collapsed sidebar shows the monthly plan through today's inbound and handling method", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await mockApp(page); await login(page);
-  await page.getByText("月度计划", { exact: true }).click();
+  await openAugustMonthlyPlan(page);
+  await page.locator(".sidebar-collapse").click();
+  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-is-collapsed/);
+
+  const todayInbound = page.locator('.monthly-grid .ag-header-cell[col-id="todayInboundQuantity"]');
+  const handlingMethod = page.locator('.monthly-grid .ag-header-cell[col-id="handlingMethod"]');
+  await expect(todayInbound).toBeVisible();
+  await expect(handlingMethod).toBeVisible();
+  await page.locator(".monthly-grid .ag-body-horizontal-scroll-viewport").evaluate((element) => {
+    element.scrollLeft += 160; element.dispatchEvent(new Event("scroll"));
+  });
+  const rightEdge = await handlingMethod.evaluate((element) => element.getBoundingClientRect().right);
+  expect(rightEdge).toBeLessThanOrEqual(1920);
+  await expect(handlingMethod).toContainText("制作方式");
+  await expect(page.locator('.monthly-grid .ag-header-cell[col-id="orderNumber"] .ag-header-cell-resize')).toBeAttached();
+});
+
+test("selected monthly items support batch orchestration and persisted order", async ({ page }) => {
+  await mockApp(page); await login(page);
+  await openAugustMonthlyPlan(page);
   const rowCheckbox = page.getByRole("checkbox", { name: /Press Space to toggle row selection/ }).first();
   await page.locator(".monthly-grid .ag-row .ag-selection-checkbox .ag-checkbox-input-wrapper").first().click();
   await expect(rowCheckbox).toBeChecked();
-  const moveButton = page.getByRole("button", { name: "调整月份（1）" });
-  await expect(moveButton).toBeEnabled();
-  await moveButton.click();
-  const dialog = page.getByRole("dialog", { name: "调整所选品号的月份（1 个）" });
-  await expect(dialog).toContainText("其他数据保持不变");
-  await dialog.getByLabel("目标年月").click();
-  await page.getByRole("cell", { name: "9月" }).click();
-  const moveRequest = page.waitForRequest((request) => request.url().endsWith("/api/v1/plans/items/move") && request.method() === "POST");
+  const bulkButton = page.getByRole("button", { name: "批量修改（1）" });
+  await expect(bulkButton).toBeEnabled(); await bulkButton.click();
+  const dialog = page.getByRole("dialog", { name: "批量修改 1 行" });
+  await dialog.getByLabel("字段").click(); await page.getByText("优先级", { exact: true }).last().click();
+  await dialog.getByLabel("新值").fill("20");
+  const bulkRequest = page.waitForRequest((request) => request.url().endsWith("/api/v1/planning/versions/v1/items/bulk") && request.method() === "POST");
   await dialog.getByRole("button", { name: "确 定" }).click();
-  const request = await moveRequest;
-  expect(request.postDataJSON()).toEqual({ ids: ["i1"], targetYear: 2026, targetMonth: 9 });
-  await expect(page.getByText("已将 1 个品号调整到 2026年09月")).toBeVisible();
+  expect((await bulkRequest).postDataJSON()).toMatchObject({ updates: [{ id: "i1", field: "priority", value: 20, expectedVersion: 1 }] });
+  await expect(page.getByText("已批量修改 1 行")).toBeVisible();
+  const reorderRequest = page.waitForRequest((request) => request.url().endsWith("/api/v1/planning/versions/v1/reorder") && request.method() === "POST");
+  await page.getByRole("button", { name: "移到顶部" }).click();
+  expect((await reorderRequest).postDataJSON()).toEqual({ itemIds: ["i1"] });
 });
 
 test("users and master data expose add, multi-select, inline edit and import", async ({ page }) => {
@@ -221,9 +286,9 @@ test("sales order details keep only controls and the reference table", async ({ 
   await expect(page.locator(".rolling-grid .ag-header-group-cell", { hasText: "订单执行结果评估" })).toBeVisible();
   const summaryHeaders = (await page.locator(".rolling-grid .ag-header-cell-text").allTextContents()).filter(Boolean);
   expect(summaryHeaders).toEqual([
-    "序号", "客户", "业务员", "订单号", "下单日期", "客户要求交期", "产前评审交期", "异常后二次交期",
+    "序号", "账套", "订单类型", "客户", "业务员", "订单号", "下单日期", "客户要求交期", "产前评审交期", "异常后二次交期",
     "异常交货方式", "订单金额", "订单总数量", "承产单位", "已完成数量", "待完成数量", "完成比例",
-    "订单实际完成日期", "出货日期", "交期评分", "品质评分"
+    "订单实际完成日期", "出货日期", "交期评分", "品质评分", "创建时间", "最后修改时间", "修改人"
   ]);
   await expect(page.getByLabel("筛选滚动订单号")).toBeVisible();
   await expect(page.getByLabel("筛选所属月份")).toBeVisible();
@@ -301,14 +366,14 @@ test("api key list can regenerate, reveal and copy a key", async ({ page }) => {
 
 test("monthly save failure is reported and keeps edit mode", async ({ page }) => {
   await mockApp(page);
-  await page.unroute("**/api/v1/plans/items/*/cell");
-  await page.route("**/api/v1/plans/items/*/cell", (route) => route.fulfill({
+  await page.unroute("**/api/v1/planning/items/i1");
+  await page.route("**/api/v1/planning/items/i1", (route) => route.fulfill({
     status: 500,
     contentType: "application/json",
     body: JSON.stringify({ message: "模拟保存错误" })
   }));
   await login(page);
-  await page.getByText("月度计划", { exact: true }).click();
+  await openAugustMonthlyPlan(page);
   await page.getByRole("button", { name: "进入编辑模式" }).click();
   await expect(page.getByRole("button", { name: "退出编辑模式" })).toBeVisible();
   const dueDateCell = page.locator('.monthly-grid .ag-cell[col-id="customerDueDate"]').first();

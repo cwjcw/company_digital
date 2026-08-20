@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { excelMonthlyPlanColumns, monthlyPlanColumns, processDefinitions } from "@tracker/shared";
 import { containsText, getValue } from "./api";
 
@@ -31,5 +33,13 @@ describe("monthly plan configuration", () => {
     expect(containsText("TEST-2026-001", "  test  ")).toBe(true);
     expect(containsText("TEST-2026-001", "2026")).toBe(true);
     expect(containsText("TEST-2026-001", "other")).toBe(false);
+  });
+
+  it("ships explicit browser icons", () => {
+    const root = path.resolve(__dirname, "..");
+    const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+    expect(html).toContain('href="/favicon.ico?v=kn2"');
+    expect(html).toContain('href="/apple-touch-icon.png?v=kn2"');
+    expect(fs.statSync(path.join(root, "public/favicon.ico")).size).toBeGreaterThan(1000);
   });
 });

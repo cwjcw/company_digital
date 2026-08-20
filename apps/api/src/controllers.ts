@@ -21,6 +21,7 @@ import {
 import { ImportService } from "./import.service";
 import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
+import { currentModificationActor } from "./modification-audit";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -67,6 +68,19 @@ export class PlanController {
   monthly(@Query("year", ParseIntPipe) year: number, @Query("month", ParseIntPipe) month: number, @Req() req: UserRequest) {
     requireTablePermission(req, "monthly-plan", "read");
     return this.plans.monthly(year, month, req.user);
+  }
+  @Get("daily-progress")
+  dailyProgress(@Query("date") date: string, @Req() req: UserRequest) {
+    requireTablePermission(req, "monthly-plan", "read");
+    return this.plans.dailyProgressList(date, req.user);
+  }
+  @Patch("daily-progress/:orderItemId")
+  updateDailyProgress(
+    @Param("orderItemId") orderItemId: string,
+    @Body() body: { date: string; processCode: string; quantity: unknown },
+    @Req() req: UserRequest
+  ) {
+    return this.plans.updateDailyProgress(orderItemId, body, req.user, req.requestId);
   }
   @Get("rolling") rolling(@Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "read"); return this.plans.rolling(req.user); }
   @Get("sales-dashboard") dashboard(@Req() req: UserRequest) { requireTablePermission(req, "sales-summary-dashboard", "read"); return this.plans.rolling(req.user); }
@@ -328,7 +342,7 @@ export class MasterDataController {
     if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
-      for (const row of body.rows) await manager.createQueryBuilder().insert().into(Supplier).values({ code: row.code!.trim(), name: row.name.trim(), remark: row.remark?.trim() || null, enabled: row.enabled ?? true }).orUpdate(["name", "remark", "enabled"], ["code"]).execute();
+      for (const row of body.rows) await manager.createQueryBuilder().insert().into(Supplier).values({ code: row.code!.trim(), name: row.name.trim(), remark: row.remark?.trim() || null, enabled: row.enabled ?? true, updatedBy: currentModificationActor() }).orUpdate(["name", "remark", "enabled", "updated_by"], ["code"]).execute();
     });
     return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
@@ -385,7 +399,7 @@ export class MasterDataController {
     if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
-      for (const row of body.rows) await manager.createQueryBuilder().insert().into(ProcessDefinitionEntity).values({ ...row, enabled: row.enabled ?? true }).orUpdate(["name", "sort_order", "enable_required_days", "enable_due_date", "enable_status", "enable_exception", "enabled"], ["code"]).execute();
+      for (const row of body.rows) await manager.createQueryBuilder().insert().into(ProcessDefinitionEntity).values({ ...row, enabled: row.enabled ?? true, updatedBy: currentModificationActor() }).orUpdate(["name", "sort_order", "enable_required_days", "enable_due_date", "enable_status", "enable_exception", "enabled", "updated_by"], ["code"]).execute();
     });
     return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
@@ -488,7 +502,7 @@ export class MasterDataController {
     if (!rows.length) errors.push("文件中没有可导入的数据行");
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
-      for (const row of prepared) await manager.createQueryBuilder().insert().into(SalesOrder).values(row).orUpdate(["item_name", "order_date", "review_due_date", "quantity", "remark"], ["order_number", "item_number"]).execute();
+      for (const row of prepared) await manager.createQueryBuilder().insert().into(SalesOrder).values({ ...row, updatedBy: currentModificationActor() }).orUpdate(["item_name", "order_date", "review_due_date", "quantity", "remark", "updated_by"], ["order_number", "item_number"]).execute();
     });
     return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
@@ -603,11 +617,11 @@ export class MasterDataController {
     if (!rows.length) errors.push("文件中没有可导入的数据行");
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
-      for (const row of prepared) await manager.createQueryBuilder().insert().into(FinishedGoodsInbound).values(row).orUpdate([
+      for (const row of prepared) await manager.createQueryBuilder().insert().into(FinishedGoodsInbound).values({ ...row, updatedBy: currentModificationActor() }).orUpdate([
         "sales_order_number", "document_date", "created_time", "business_type", "warehouse_code",
         "warehouse", "inbound_category", "workshop_code", "workshop", "handler_code", "handler",
         "remark", "creator", "auditor", "inventory_name", "specification", "unit",
-        "received_quantity", "unit_price", "total_amount", "voucher_word"
+        "received_quantity", "unit_price", "total_amount", "voucher_word", "updated_by"
       ], ["document_number", "inventory_code", "relation_info"]).execute();
     });
     return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
@@ -671,7 +685,8 @@ export class ApiKeyController {
     const rows = await this.apiKeys.find({ order: { name: "ASC" } });
     return rows.map((row) => ({
       id: row.id, name: row.name, scopes: row.scopes, expiresAt: row.expiresAt,
-      lastUsedAt: row.lastUsedAt, enabled: row.enabled, userId: row.userId, roleId: row.roleId
+      lastUsedAt: row.lastUsedAt, enabled: row.enabled, userId: row.userId, roleId: row.roleId,
+      createdAt: row.createdAt, updatedAt: row.updatedAt, updatedBy: row.updatedBy
     }));
   }
 
@@ -789,7 +804,7 @@ export class AdminController {
     });
     const whiteboard = await this.roles.findOneBy({ name: "白板" });
     for (const contact of grouped.values()) {
-      await this.contacts.createQueryBuilder().insert().values({ ...contact, departmentPaths: contact.paths }).orUpdate(["employee_no", "name", "position", "telephone", "direct_leaders", "department_paths", "enabled", "imported_at"], ["wechat_user_id"]).execute();
+      await this.contacts.createQueryBuilder().insert().values({ ...contact, departmentPaths: contact.paths, updatedBy: currentModificationActor() }).orUpdate(["employee_no", "name", "position", "telephone", "direct_leaders", "department_paths", "enabled", "imported_at", "updated_by"], ["wechat_user_id"]).execute();
       if (!whiteboard) continue;
       const username = contact.employeeNo ?? contact.wechatUserId;
       let user = contact.employeeNo ? await this.users.findOneBy({ employeeNo: contact.employeeNo }) : await this.users.findOneBy({ username });
@@ -905,8 +920,11 @@ export class AdminController {
   @Post("roles")
   async createRole(@Body() body: { name: string; description?: string; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
     this.admin(req);
+    const name = body.name?.trim();
+    if (!name) throw new BadRequestException("角色名称不能为空");
+    if (await this.roles.findOneBy({ name })) throw new ConflictException("角色名称已存在");
     return this.dataSource.transaction(async (manager) => {
-      const role = await manager.save(Role, { name: body.name.trim(), description: body.description?.trim() || null });
+      const role = await manager.save(Role, { name, description: body.description?.trim() || null });
       for (const permission of body.permissions ?? []) await manager.save(Permission, { ...permission, roleId: role.id, resource: permission.resource!, fieldKey: permission.fieldKey ?? "*" });
       for (const userId of [...new Set(body.userIds ?? [])]) await manager.save(UserRole, { userId, roleId: role.id });
       for (const organizationUnitId of [...new Set(body.organizationUnitIds ?? [])]) await manager.save(RoleOrganizationScope, { roleId: role.id, organizationUnitId });
@@ -920,7 +938,13 @@ export class AdminController {
     return this.dataSource.transaction(async (manager) => {
       const role = await manager.findOneBy(Role, { id });
       if (!role) throw new ForbiddenException("角色不存在");
-      if (body.name !== undefined) role.name = body.name.trim();
+      if (body.name !== undefined) {
+        const name = body.name.trim();
+        if (!name) throw new BadRequestException("角色名称不能为空");
+        const duplicate = await manager.findOneBy(Role, { name });
+        if (duplicate && duplicate.id !== id) throw new ConflictException("角色名称已存在");
+        role.name = name;
+      }
       if (body.description !== undefined) role.description = body.description || null;
       await manager.save(role);
       if (body.permissions) { await manager.delete(Permission, { roleId: id }); for (const p of body.permissions) await manager.save(Permission, { ...p, roleId: id, resource: p.resource!, fieldKey: p.fieldKey ?? "*" }); }
@@ -933,7 +957,7 @@ export class AdminController {
   @Post("roles/import")
   async importRoles(@Body() body: { rows: Array<{ name: string; description?: string }> }, @Req() req: UserRequest) {
     this.admin(req);
-    for (const row of body.rows ?? []) if (row.name?.trim()) await this.roles.createQueryBuilder().insert().values({ name: row.name.trim(), description: row.description?.trim() || null }).orUpdate(["description"], ["name"]).execute();
+    for (const row of body.rows ?? []) if (row.name?.trim()) await this.roles.createQueryBuilder().insert().values({ name: row.name.trim(), description: row.description?.trim() || null, updatedBy: currentModificationActor() }).orUpdate(["description", "updated_by"], ["name"]).execute();
     return { imported: body.rows?.length ?? 0 };
   }
 }
