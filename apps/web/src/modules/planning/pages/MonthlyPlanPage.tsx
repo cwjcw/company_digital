@@ -45,6 +45,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const [importPreview, setImportPreview] = useState<ImportPreview>();
   const [importFileName, setImportFileName] = useState("");
   const [importing, setImporting] = useState(false);
+  const [creatingItem, setCreatingItem] = useState(false);
   const [reasonAction, setReasonAction] = useState<"lock" | "unlock">();
   const [reason, setReason] = useState("");
   const [selectedItem, setSelectedItem] = useState<any>();
@@ -101,20 +102,28 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     onSuccess: refresh, onError: refresh
   });
 
-  const createPeriod = async () => {
-    try {
+  const ensureDraftVersion = async () => {
+    const existingDraft = period?.versions.find((entry) => entry.status === "DRAFT");
+    if (existingDraft) { setActiveVersionId(existingDraft.id); return existingDraft.id; }
+    let targetPeriod = period;
+    if (!targetPeriod) {
       const created = await api<any>("/planning/periods", { method: "POST", body: JSON.stringify({ year, month }) });
-      const draft = await api<any>(`/planning/periods/${created.id}/versions`, { method: "POST", body: "{}" });
-      setActiveVersionId(draft.id); setNotice({ type: "success", text: `已创建 ${year}-${String(month).padStart(2, "0")} v1 DRAFT` }); refresh();
-    } catch (error) { setNotice({ type: "error", text: (error as Error).message }); }
-  };
-  const createDraft = async () => {
-    if (!period) return;
+      targetPeriod = { ...created, versions: [] };
+    }
+    if (!targetPeriod) throw new Error("无法准备当前月份的计划数据");
+    let draft: PlanningVersionContract | undefined;
     try {
-      const basedOnVersionId = period.currentVersionId ?? activeVersionId ?? null;
-      const result = await api<any>(`/planning/periods/${period.id}/versions`, { method: "POST", body: JSON.stringify({ basedOnVersionId }) });
-      setActiveVersionId(result.id); setNotice({ type: "success", text: `${result.name} DRAFT 已创建，正式版本保持不变` }); refresh();
-    } catch (error) { setNotice({ type: "error", text: (error as Error).message }); }
+      draft = await api<PlanningVersionContract>(`/planning/periods/${targetPeriod.id}/versions`, { method: "POST", body: JSON.stringify({ basedOnVersionId: targetPeriod.currentVersionId ?? null }) });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 409) throw error;
+      const concurrent = await api<PeriodResponse>(`/planning/periods/by-month?year=${year}&month=${month}`);
+      draft = concurrent?.versions.find((entry) => entry.status === "DRAFT");
+      if (!draft) throw error;
+    }
+    const latest = await api<PeriodResponse>(`/planning/periods/by-month?year=${year}&month=${month}`);
+    if (latest) queryClient.setQueryData(["planning-period", year, month], latest);
+    setActiveVersionId(draft.id);
+    return draft.id;
   };
   const publish = async () => {
     if (!period || !activeVersionId) return;
@@ -129,10 +138,15 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     } catch (error) { setNotice({ type: "error", text: (error as Error).message }); }
   };
   const createItem = async () => {
-    if (!activeVersionId) return;
-    const values = await addForm.validateFields();
-    await api(`/planning/versions/${activeVersionId}/items`, { method: "POST", body: JSON.stringify({ ...values, deliveryDate: values.deliveryDate?.format("YYYY-MM-DD") }) });
-    setAddOpen(false); addForm.resetFields(); setNotice({ type: "success", text: "计划行已创建" }); refresh();
+    setCreatingItem(true);
+    try {
+      const values = await addForm.validateFields();
+      const versionId = await ensureDraftVersion();
+      await api(`/planning/versions/${versionId}/items`, { method: "POST", body: JSON.stringify({ ...values, deliveryDate: values.deliveryDate?.format("YYYY-MM-DD") }) });
+      setAddOpen(false); addForm.resetFields(); setNotice({ type: "success", text: "计划行已创建，可直接在表格中继续编辑" }); refresh();
+    } catch (error) {
+      setNotice({ type: "error", text: (error as Error).message });
+    } finally { setCreatingItem(false); }
   };
   const bulkUpdate = async () => {
     if (!activeVersionId) return;
@@ -164,9 +178,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         <Text strong>Planning Center</Text>
         <Tag color="blue">{year}年{String(month).padStart(2, "0")}月</Tag>
         <Select aria-label="计划版本" placeholder="尚未建立版本" value={activeVersionId} disabled={!versions.length} onChange={setActiveVersionId} style={{ width: 180 }} options={versions.map((entry) => ({ value: entry.id, label: `${entry.name} ${entry.status}` }))} />
-        <Tag color={versionColor(activeVersion?.status)}>{activeVersion ? `${activeVersion.status === "LOCKED" ? "🔒 " : ""}${activeVersion.name} ${activeVersion.status}` : "未建立计划周期"}</Tag>
-        {!period && <Button type="primary" loading={periodQuery.isLoading} onClick={() => void createPeriod()}>创建周期和 v1 草稿</Button>}
-        <Button onClick={() => void createDraft()} disabled={!period || versions.some((entry) => entry.status === "DRAFT")}>新建草稿版本</Button>
+        <Tag color={versionColor(activeVersion?.status)}>{activeVersion ? `${activeVersion.status === "LOCKED" ? "🔒 " : ""}${activeVersion.name} ${activeVersion.status}` : "暂无计划数据"}</Tag>
         <Button type="primary" disabled={!canEdit || !(itemsQuery.data?.length)} onClick={() => Modal.confirm({ title: `发布 ${activeVersion?.name}？`, content: "发布将创建不可变快照，其他部门默认读取该正式版本。", onOk: publish })}>发布</Button>
         <Button disabled={activeVersion?.status !== "PUBLISHED"} onClick={() => setReasonAction("lock")}>锁定</Button>
         <Button danger disabled={activeVersion?.status !== "LOCKED"} onClick={() => setReasonAction("unlock")}>解锁</Button>
@@ -179,21 +191,22 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
           else { setEditMode(false); setNotice({ type: "success", text: "保存成功；所有单元格修改均已实时提交" }); }
         }}>保存</Button>}
         {editMode && <Tag color={write.isPending ? "processing" : "success"}>{write.isPending ? "保存中" : "失焦自动保存"}</Tag>}
-        <Button disabled={!canEdit} onClick={() => setAddOpen(true)}>新增计划行</Button>
+        <Button disabled={periodQuery.isLoading} onClick={() => setAddOpen(true)}>新增计划行</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => setBulkOpen(true)}>批量修改（{selectedIds.length}）</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("top")}>移到顶部</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("up")}>上移</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("down")}>下移</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("bottom")}>移到底部</Button>
-        <Upload accept=".xlsx,.csv" showUploadList={false} disabled={!canEdit} beforeUpload={async (file) => {
+        <Upload accept=".xlsx,.csv" showUploadList={false} disabled={periodQuery.isLoading} beforeUpload={async (file) => {
           const form = new FormData(); form.append("file", file as File); setImporting(true);
           try {
-            const preview = await api<ImportPreview>(`/planning/versions/${activeVersionId}/imports/preview`, { method: "POST", body: form });
+            const versionId = await ensureDraftVersion();
+            const preview = await api<ImportPreview>(`/planning/versions/${versionId}/imports/preview`, { method: "POST", body: form });
             setImportFileName(file.name); setImportPreview(preview); setNotice({ type: "info", text: "文件校验完成，请核对预览并确认写入" });
           } catch (error) { setNotice({ type: "error", text: (error as Error).message }); }
           finally { setImporting(false); }
           return false;
-        }}><Button loading={importing} disabled={!canEdit}>导入 Excel</Button></Upload>
+        }}><Button loading={importing} disabled={periodQuery.isLoading}>导入 Excel</Button></Upload>
         <Button href={`/api/v1/planning/versions/${activeVersionId}/export`} target="_blank" disabled={!activeVersionId}>导出 Excel</Button>
         <Button onClick={() => setFieldOpen(true)}>字段显示</Button>
       </Flex>
@@ -212,8 +225,8 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     {periodQuery.isLoading
       ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message="正在加载计划周期；字段和空表格可先查看。" />
       : !period
-        ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message={`${year}年${month}月尚未建立 KDOS 计划周期；当前展示完整字段和空表格。`} action={<Button type="primary" onClick={() => void createPeriod()}>创建周期和 v1 草稿</Button>} />
-        : !canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="正式发布或锁定版本为只读；需要调整时请基于正式版本创建新的 DRAFT。" />}
+        ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message={`${year}年${month}月暂无计划数据；可直接导入 Excel 或新增计划行，系统会在首次写入时自动准备。`} />
+        : !canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="当前版本为只读；直接导入或新增计划行时，系统会自动准备新的可编辑版本。" />}
     <div className="monthly-grid ag-theme-quartz">
       <AgGridReact rowData={rows} columnDefs={columnDefs} loading={itemsQuery.isLoading} theme="legacy" singleClickEdit={editMode}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }} selectionColumnDef={{ pinned: "left", lockPosition: true, width: 48, resizable: false }}
@@ -259,7 +272,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       ]} />
       {!!importPreview?.warnings.length && <Alert style={{ marginTop: 12 }} type="warning" showIcon message={`${importPreview.warnings.length} 条数据质量提示`} description={<ul>{importPreview.warnings.slice(0, 20).map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul>} />}
     </Modal>
-    <Modal title="新增计划行" open={addOpen} onCancel={() => setAddOpen(false)} onOk={() => void createItem()}>
+    <Modal title="新增计划行" open={addOpen} confirmLoading={creatingItem} onCancel={() => setAddOpen(false)} onOk={() => void createItem()}>
       <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="计划生产数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="交期"><DatePicker style={{ width: "100%" }} /></Form.Item><Form.Item name="priority" label="优先级" initialValue={50}><InputNumber min={1} max={999} style={{ width: "100%" }} /></Form.Item></Form>
     </Modal>
     <Modal title={`批量修改 ${selectedIds.length} 行`} open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => void bulkUpdate()}>

@@ -141,16 +141,47 @@ test("an empty month still renders the complete planning field grid", async ({ p
   await mockApp(page);
   await page.unroute("**/api/v1/planning/periods/by-month?*");
   await page.route("**/api/v1/planning/periods/by-month?*", (route) => route.fulfill({ status: 200, body: "" }));
+  let periodCreated = 0;
+  let versionCreated = 0;
+  let itemCreated = 0;
+  await page.route("**/api/v1/planning/periods", (route) => {
+    periodCreated += 1;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "p-empty", year: 2026, month: 8, currentVersionId: null }) });
+  });
+  await page.route("**/api/v1/planning/periods/p-empty/versions", (route) => {
+    versionCreated += 1;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "v-empty", periodId: "p-empty", versionNumber: 1, name: "v1", status: "DRAFT", basedOnVersionId: null }) });
+  });
+  await page.route("**/api/v1/planning/versions/v-empty/items", (route) => {
+    if (route.request().method() === "POST") {
+      itemCreated += 1;
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "i-empty", version: 1 }) });
+    }
+    return route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/v1/planning/versions/v-empty/risks?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ overdue: [], dueSoon: [], processOverdue: [], openExceptions: [] }) }));
   await login(page);
   await openAugustMonthlyPlan(page);
 
   await expect(page.getByText("Planning Center", { exact: true })).toBeVisible();
-  await expect(page.getByText("2026年8月尚未建立 KDOS 计划周期；当前展示完整字段和空表格。")).toBeVisible();
-  await expect(page.getByRole("button", { name: "创建周期和 v1 草稿" }).first()).toBeVisible();
+  await expect(page.getByText("2026年8月暂无计划数据；可直接导入 Excel 或新增计划行，系统会在首次写入时自动准备。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建周期和 v1 草稿" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "新建草稿版本" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "新增计划行" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "导入 Excel" })).toBeEnabled();
   await expect(page.locator(".monthly-grid .ag-header-cell").first().locator(".ag-header-select-all")).toBeVisible();
   await expect(page.locator('.monthly-grid .ag-header-cell[col-id="priority"]')).toContainText("优先级");
   await expect(page.locator('.monthly-grid .ag-header-cell[col-id="orderNumber"]')).toContainText("订单号");
   await expect(page.getByText("本月暂无计划数据，字段结构已完整加载", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "新增计划行" }).click();
+  const dialog = page.getByRole("dialog", { name: "新增计划行" });
+  await dialog.getByLabel("订单号").fill("2026A000001");
+  await dialog.getByLabel("品号").fill("P001");
+  await dialog.getByLabel("计划生产数量").fill("10");
+  await dialog.getByRole("button", { name: /确\s*定/ }).click();
+  await expect(page.getByText("计划行已创建，可直接在表格中继续编辑")).toBeVisible();
+  expect({ periodCreated, versionCreated, itemCreated }).toEqual({ periodCreated: 1, versionCreated: 1, itemCreated: 1 });
 });
 
 test("monthly plan menu exposes the 2026 month pages and daily progress saves process quantity", async ({ page }) => {
