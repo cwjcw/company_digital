@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   AuditOutlined, BulbOutlined, CalendarOutlined, DatabaseOutlined, FileExcelOutlined, FolderOpenOutlined, LogoutOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined
+  MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined, SettingOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,6 +15,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, usePa
 import { api, ApiError } from "./api";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
+import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import {
   FieldVisibility, ImportFeedbackAlert, InlineText, PageHeader, auditColumns, auditLabels,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -105,7 +106,8 @@ function Shell({ logout }: { logout: () => void }) {
       ] }
     ] },
     { key: "development", label: "需求与开发", type: "group" as const, children: [
-      { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" }
+      { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
+      ...(user.roles?.some((role: string) => ["系统管理员", "集团管理员"].includes(role)) ? [{ key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }] : [])
     ] },
     { key: "master", label: "基础资料", type: "group" as const, children: [
       { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" },
@@ -133,6 +135,7 @@ function Shell({ logout }: { logout: () => void }) {
           /^\/monthly\/\d{6}$/.test(location.pathname)
             ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
             : location.pathname === "/development-requests" ? "需求与开发"
+            : location.pathname === "/workflow-settings" ? "审批流程配置"
             : location.pathname === "/daily-progress" ? "日进度" : ""
         }</div>
         <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text><br /><Text type="secondary">{user.roles?.join(" / ")}</Text></div>
@@ -147,6 +150,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
           <Route path="/daily-progress" element={<DailyProgress />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
+          <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
           <Route path="/data-operations" element={<DataOperations />} />
           <Route path="/finished-goods-inbound" element={<FinishedGoodsInboundPage />} />

@@ -20,6 +20,7 @@ import { TplusOrderSyncService } from "./data-operations/tplus/tplus-order-sync.
 import { PlanningModule } from "./modules/planning/planning.module";
 import { DevelopmentRequestModule } from "./modules/development-requests/development-request.module";
 import { StorageModule } from "./storage/storage.module";
+import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approval-flow-config.module";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { StorageModule } from "./storage/storage.module";
     JwtModule.register({ global: true }),
     ScheduleModule.forRoot(),
     StorageModule,
+    ApprovalFlowConfigModule,
     PlanningModule,
     DevelopmentRequestModule
   ],

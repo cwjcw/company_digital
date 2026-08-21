@@ -137,6 +137,22 @@ export class DevelopmentRequestEvent extends AuditedEntity {
   @Column({ type: "jsonb", nullable: true }) snapshot!: unknown;
 }
 
+@Entity("approval_flow_configs")
+export class ApprovalFlowConfig extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index({ unique: true }) @Column({ name: "flow_key", length: 100 }) flowKey!: string;
+  @Column({ length: 100 }) name!: string;
+  @Column({ default: true }) enabled!: boolean;
+  @Column({ name: "allow_draft", default: true }) allowDraft!: boolean;
+  @Column({ name: "allow_withdraw", default: true }) allowWithdraw!: boolean;
+  @Column({ name: "return_mode", length: 30, default: "ANY_PREVIOUS" }) returnMode!: "ANY_PREVIOUS" | "PREVIOUS_ONLY";
+  @Column({ name: "reject_target_mode", length: 30, default: "DRAFT" }) rejectTargetMode!: "DRAFT" | "PREVIOUS";
+  @Column({ name: "approval_comment_required", default: false }) approvalCommentRequired!: boolean;
+  @Column({ name: "admin_role_names", type: "jsonb", default: () => "'[\"系统管理员\",\"集团管理员\"]'" }) adminRoleNames!: string[];
+  @Column({ name: "node_labels", type: "jsonb", default: () => "'{}'" }) nodeLabels!: Record<string, string>;
+  @Column({ type: "integer", default: 1 }) version!: number;
+}
+
 @Entity("plan_periods")
 @Unique(["year", "month"])
 export class PlanPeriod extends AuditedEntity {
@@ -400,7 +416,7 @@ export class IdempotencyRecord extends AuditedEntity {
 
 export const entities = [
   User, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
-  DevelopmentRequest, DevelopmentRequestEvent, PlanPeriod, Order, OrderItem,
+  DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, AuditLog, ApiKey,
   RefreshToken, ImportJob, ImportJobError, IdempotencyRecord

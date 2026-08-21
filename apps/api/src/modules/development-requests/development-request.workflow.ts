@@ -11,15 +11,33 @@ export const developmentRequestStages = [
 
 export type DevelopmentRequestStatus = typeof developmentRequestStages[number]["key"];
 export type DevelopmentRequestAction =
-  | "EDIT_DRAFT" | "SUBMIT" | "WITHDRAW" | "RETURN"
+  | "EDIT_DRAFT" | "SUBMIT" | "WITHDRAW" | "RETURN" | "REJECT"
   | "REQUESTER_APPROVE" | "ASSIGN" | "SUBMIT_PLAN" | "HANDLER_APPROVE";
 export type DevelopmentActor = { id: string; name: string; roles: string[] };
 export type DevelopmentWorkflowEvent = { actorId: string; action: string; fromStatus: string | null; toStatus: string };
+export type DevelopmentWorkflowPolicy = {
+  allowWithdraw: boolean;
+  returnMode: "ANY_PREVIOUS" | "PREVIOUS_ONLY";
+  adminRoleNames: string[];
+  nodeLabels: Record<string, string>;
+};
+
+export const defaultDevelopmentWorkflowPolicy: DevelopmentWorkflowPolicy = {
+  allowWithdraw: true,
+  returnMode: "ANY_PREVIOUS",
+  adminRoleNames: ["系统管理员", "集团管理员"],
+  nodeLabels: {}
+};
 
 const forwardActions = new Set(["SUBMIT", "RESUBMIT", "REQUESTER_APPROVE", "ASSIGN", "SUBMIT_PLAN"]);
 
-export function isDevelopmentAdmin(actor: DevelopmentActor) {
-  return actor.roles.some((role) => role === "系统管理员" || role === "集团管理员");
+export function configuredDevelopmentStages(policy: Partial<DevelopmentWorkflowPolicy> = {}) {
+  const labels = policy.nodeLabels ?? {};
+  return developmentRequestStages.map((stage) => ({ ...stage, label: labels[stage.key] || stage.label }));
+}
+
+export function isDevelopmentAdmin(actor: DevelopmentActor, adminRoleNames = defaultDevelopmentWorkflowPolicy.adminRoleNames) {
+  return actor.roles.some((role) => adminRoleNames.includes(role));
 }
 
 function isCurrentNodeActor(request: {
@@ -28,9 +46,9 @@ function isCurrentNodeActor(request: {
   requesterManagerId: string | null;
   handlerId: string | null;
   handlerManagerId: string | null;
-}, actor: DevelopmentActor) {
+}, actor: DevelopmentActor, policy: DevelopmentWorkflowPolicy) {
   if (request.status === "PENDING_REQUESTER_APPROVAL") return request.requesterManagerId === actor.id;
-  if (request.status === "PENDING_ADMIN_ASSIGNMENT") return isDevelopmentAdmin(actor);
+  if (request.status === "PENDING_ADMIN_ASSIGNMENT") return isDevelopmentAdmin(actor, policy.adminRoleNames);
   if (request.status === "PENDING_HANDLER_PLAN") return request.handlerId === actor.id;
   if (request.status === "PENDING_HANDLER_MANAGER_APPROVAL") return request.handlerManagerId === actor.id;
   return false;
@@ -51,14 +69,21 @@ export function developmentApprovalCapabilities(request: {
   requesterManagerId: string | null;
   handlerId: string | null;
   handlerManagerId: string | null;
-}, actor: DevelopmentActor, latestEvent?: DevelopmentWorkflowEvent | null) {
-  return approvalCapabilities({
-    stages: developmentRequestStages,
+}, actor: DevelopmentActor, latestEvent?: DevelopmentWorkflowEvent | null, inputPolicy: Partial<DevelopmentWorkflowPolicy> = {}) {
+  const policy = { ...defaultDevelopmentWorkflowPolicy, ...inputPolicy };
+  const stages = configuredDevelopmentStages(policy);
+  const capabilities = approvalCapabilities({
+    stages,
     currentStage: request.status,
     actorId: actor.id,
-    isCurrentNodeActor: isCurrentNodeActor(request, actor),
+    isCurrentNodeActor: isCurrentNodeActor(request, actor, policy),
     latestTransition: transition(latestEvent)
   });
+  if (!policy.allowWithdraw) capabilities.canWithdraw = false;
+  if (policy.returnMode === "PREVIOUS_ONLY" && capabilities.returnTargets.length > 1) {
+    capabilities.returnTargets = capabilities.returnTargets.slice(-1);
+  }
+  return capabilities;
 }
 
 export function availableDevelopmentActions(request: {
@@ -67,14 +92,15 @@ export function availableDevelopmentActions(request: {
   requesterManagerId: string | null;
   handlerId: string | null;
   handlerManagerId: string | null;
-}, actor: DevelopmentActor, latestEvent?: DevelopmentWorkflowEvent | null): DevelopmentRequestAction[] {
+}, actor: DevelopmentActor, latestEvent?: DevelopmentWorkflowEvent | null, inputPolicy: Partial<DevelopmentWorkflowPolicy> = {}): DevelopmentRequestAction[] {
+  const policy = { ...defaultDevelopmentWorkflowPolicy, ...inputPolicy };
   const actions: DevelopmentRequestAction[] = [];
   if (request.status === "DRAFT" && request.requesterId === actor.id) actions.push("EDIT_DRAFT", "SUBMIT");
-  if (request.status === "PENDING_REQUESTER_APPROVAL" && request.requesterManagerId === actor.id) actions.push("REQUESTER_APPROVE");
-  if (request.status === "PENDING_ADMIN_ASSIGNMENT" && isDevelopmentAdmin(actor)) actions.push("ASSIGN");
+  if (request.status === "PENDING_REQUESTER_APPROVAL" && request.requesterManagerId === actor.id) actions.push("REQUESTER_APPROVE", "REJECT");
+  if (request.status === "PENDING_ADMIN_ASSIGNMENT" && isDevelopmentAdmin(actor, policy.adminRoleNames)) actions.push("ASSIGN");
   if (request.status === "PENDING_HANDLER_PLAN" && request.handlerId === actor.id) actions.push("SUBMIT_PLAN");
-  if (request.status === "PENDING_HANDLER_MANAGER_APPROVAL" && request.handlerManagerId === actor.id) actions.push("HANDLER_APPROVE");
-  const capabilities = developmentApprovalCapabilities(request, actor, latestEvent);
+  if (request.status === "PENDING_HANDLER_MANAGER_APPROVAL" && request.handlerManagerId === actor.id) actions.push("HANDLER_APPROVE", "REJECT");
+  const capabilities = developmentApprovalCapabilities(request, actor, latestEvent, policy);
   if (capabilities.returnTargets.length) actions.push("RETURN");
   if (capabilities.canWithdraw) actions.push("WITHDRAW");
   return actions;

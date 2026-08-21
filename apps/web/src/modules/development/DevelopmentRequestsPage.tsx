@@ -10,8 +10,13 @@ import { PageHeader } from "../../shared/legacy-ui";
 
 const { Text, Paragraph } = Typography;
 
-type Action = "EDIT_DRAFT" | "SUBMIT" | "WITHDRAW" | "RETURN" | "REQUESTER_APPROVE" | "ASSIGN" | "SUBMIT_PLAN" | "HANDLER_APPROVE";
+type Action = "EDIT_DRAFT" | "SUBMIT" | "WITHDRAW" | "RETURN" | "REJECT" | "REQUESTER_APPROVE" | "ASSIGN" | "SUBMIT_PLAN" | "HANDLER_APPROVE";
 type Person = { id: string; username: string; displayName: string; employeeNo?: string | null; position?: string | null; departmentPaths?: string[][]; managerIds: string[] };
+type FlowConfig = {
+  enabled: boolean; allowDraft: boolean; allowWithdraw: boolean; returnMode: "ANY_PREVIOUS" | "PREVIOUS_ONLY";
+  rejectTargetMode: "DRAFT" | "PREVIOUS"; approvalCommentRequired: boolean; nodeLabels: Record<string, string>;
+  stages: Array<{ key: string; label: string; order: number; terminal?: boolean }>;
+};
 type RequestRow = {
   id: string; requestNumber: string; title: string | null; category: string | null; description: string | null; businessValue?: string | null;
   urgency: string; desiredDate?: string | null; status: string; requesterId: string; requesterName: string;
@@ -31,12 +36,12 @@ const statusMeta: Record<string, { label: string; color: string; step: number }>
   APPROVED_FOR_DEVELOPMENT: { label: "已批准开发", color: "green", step: 5 }
 };
 const actionLabels: Record<Action, string> = {
-  EDIT_DRAFT: "编辑草稿", SUBMIT: "提交审批", WITHDRAW: "撤回", RETURN: "退回前序环节",
-  REQUESTER_APPROVE: "上级通过", ASSIGN: "分配处理人", SUBMIT_PLAN: "填写资源与工期", HANDLER_APPROVE: "开发审批通过"
+  EDIT_DRAFT: "编辑草稿", SUBMIT: "提交审批", WITHDRAW: "撤回", RETURN: "退回", REJECT: "拒绝",
+  REQUESTER_APPROVE: "通过", ASSIGN: "分配处理人", SUBMIT_PLAN: "填写资源与工期", HANDLER_APPROVE: "通过"
 };
 const eventLabels: Record<string, string> = {
   SAVE_DRAFT: "保存需求草稿", SUBMIT: "填写人提交需求", RESUBMIT: "填写人修改后重提",
-  WITHDRAW: "提交人撤回", RETURN: "当前处理人退回前序环节", REQUESTER_APPROVE: "填写人上级审批通过",
+  WITHDRAW: "提交人撤回", RETURN: "当前处理人退回", REJECT: "审批人拒绝", REQUESTER_APPROVE: "填写人上级审批通过",
   ASSIGN: "管理员分配处理人员", SUBMIT_PLAN: "处理人提交资源与工期", HANDLER_APPROVE: "处理人上级审批通过"
 };
 const urgencyMeta: Record<string, { label: string; color: string }> = {
@@ -46,6 +51,12 @@ const urgencyMeta: Record<string, { label: string; color: string }> = {
 function personLabel(person: Person) {
   const department = person.departmentPaths?.[0]?.slice(-2).join(" / ");
   return `${person.displayName}（${person.employeeNo ?? person.username}${person.position ? ` · ${person.position}` : ""}${department ? ` · ${department}` : ""}）`;
+}
+
+function configuredStatusLabel(status: string, nodeLabels?: Record<string, string>) {
+  const nodeLabel = nodeLabels?.[status];
+  if (!nodeLabel || status === "DRAFT") return statusMeta[status]?.label ?? status;
+  return status.startsWith("PENDING_") ? `待${nodeLabel}` : nodeLabel;
 }
 
 export function DevelopmentRequestsPage() {
@@ -59,7 +70,7 @@ export function DevelopmentRequestsPage() {
   const [decision, setDecision] = useState<{ row: RequestRow; action: "REQUESTER_APPROVE" | "HANDLER_APPROVE" }>();
   const [assigning, setAssigning] = useState<RequestRow>();
   const [planning, setPlanning] = useState<RequestRow>();
-  const [movement, setMovement] = useState<{ row: RequestRow; action: "WITHDRAW" | "RETURN" }>();
+  const [movement, setMovement] = useState<{ row: RequestRow; action: "WITHDRAW" | "RETURN" | "REJECT" }>();
   const [saving, setSaving] = useState(false);
   const [requestForm] = Form.useForm();
   const [decisionForm] = Form.useForm();
@@ -67,6 +78,7 @@ export function DevelopmentRequestsPage() {
   const [planForm] = Form.useForm();
   const [movementForm] = Form.useForm();
   const people = useQuery({ queryKey: ["development-people"], queryFn: () => api<Person[]>("/development-requests/people") });
+  const flowConfig = useQuery({ queryKey: ["development-flow-config"], queryFn: () => api<FlowConfig>("/development-requests/config") });
   const requests = useQuery({ queryKey: ["development-requests", scope, search], queryFn: () => api<RequestRow[]>(`/development-requests?scope=${scope}&search=${encodeURIComponent(search)}`) });
   const detail = useQuery({ queryKey: ["development-request", detailId], queryFn: () => api<RequestRow>(`/development-requests/${detailId}`), enabled: Boolean(detailId) });
   const rows = useMemo(() => requests.data ?? [], [requests.data]);
@@ -115,7 +127,7 @@ export function DevelopmentRequestsPage() {
     if (action === "SUBMIT") return submit(`/development-requests/${row.id}/submit`, {}, "需求已提交给上级领导审批");
     if (action === "ASSIGN") { setAssigning(row); assignForm.resetFields(); return; }
     if (action === "SUBMIT_PLAN") return openPlan(row);
-    if (action === "WITHDRAW" || action === "RETURN") { movementForm.resetFields(); setMovement({ row, action }); return; }
+    if (action === "WITHDRAW" || action === "RETURN" || action === "REJECT") { movementForm.resetFields(); setMovement({ row, action }); return; }
     decisionForm.resetFields(); setDecision({ row, action });
   };
   const counters = useMemo(() => ({
@@ -128,7 +140,7 @@ export function DevelopmentRequestsPage() {
     { title: "需求标题", dataIndex: "title", width: 240, ellipsis: true, render: (value: string | null) => value || "未命名草稿" },
     { title: "类型", dataIndex: "category", width: 100, render: (value: string | null) => value || "—" },
     { title: "紧急程度", dataIndex: "urgency", width: 95, render: (value: string) => <Tag color={urgencyMeta[value]?.color}>{urgencyMeta[value]?.label ?? value}</Tag> },
-    { title: "当前状态", dataIndex: "status", width: 170, render: (value: string) => <Tag color={statusMeta[value]?.color}>{statusMeta[value]?.label ?? value}</Tag> },
+    { title: "当前状态", dataIndex: "status", width: 170, render: (value: string) => <Tag color={statusMeta[value]?.color}>{configuredStatusLabel(value, flowConfig.data?.nodeLabels)}</Tag> },
     { title: "填写人", dataIndex: "requesterName", width: 100 },
     { title: "填写人上级", dataIndex: "requesterManagerName", width: 110 },
     { title: "处理人员", dataIndex: "handlerName", width: 100, render: (value: string | null) => value ?? "待分配" },
@@ -136,16 +148,17 @@ export function DevelopmentRequestsPage() {
     { title: "预计工作日", dataIndex: "estimatedWorkdays", width: 105, render: (value: string | null) => value ? `${Number(value)} 天` : "—" },
     { title: "计划完成", dataIndex: "plannedCompletionDate", width: 105, render: (value: string | null) => value ?? "—" },
     { title: "更新时间", dataIndex: "updatedAt", width: 150, render: (value: string) => dayjs(value).format("YYYY-MM-DD HH:mm") },
-    { title: "操作", key: "actions", fixed: "right" as const, width: 340, render: (_: unknown, row: RequestRow) => <Space size={4} wrap>
+    { title: "操作", key: "actions", fixed: "right" as const, width: 380, render: (_: unknown, row: RequestRow) => <Space size={4} wrap>
       <Button size="small" onClick={() => setDetailId(row.id)}>详情</Button>
-      {row.availableActions.map((action) => <Button key={action} size="small" type={["SUBMIT", "REQUESTER_APPROVE", "HANDLER_APPROVE", "ASSIGN", "SUBMIT_PLAN"].includes(action) ? "primary" : "default"} danger={action === "RETURN"} onClick={() => startAction(row, action)}>{actionLabels[action]}</Button>)}
+      {row.availableActions.map((action) => <Button key={action} size="small" type={["SUBMIT", "REQUESTER_APPROVE", "HANDLER_APPROVE", "ASSIGN", "SUBMIT_PLAN"].includes(action) ? "primary" : "default"} danger={["RETURN", "REJECT"].includes(action)} onClick={() => startAction(row, action)}>{actionLabels[action]}</Button>)}
     </Space> }
   ];
   const detailRow = detail.data;
   const currentStep = statusMeta[detailRow?.status ?? ""]?.step ?? 0;
 
   return <div className="development-page">
-    <PageHeader title="需求与开发" subtitle="需求提报、领导审批、管理员分配、开发资源与工期评估的统一工作台" actions={<Button type="primary" onClick={openNew}>提报新需求</Button>} />
+    <PageHeader title="需求与开发" subtitle="需求提报、领导审批、管理员分配、开发资源与工期评估的统一工作台" actions={<Button type="primary" disabled={flowConfig.data?.enabled === false} onClick={openNew}>提报新需求</Button>} />
+    {flowConfig.data?.enabled === false && <Alert type="warning" showIcon message="该审批流程当前已停用，不能提报新需求；已有需求仍可继续处理。" style={{ marginBottom: 16 }} />}
     <div className="development-stats">
       <Card><Statistic title="当前可见需求" value={counters.total} /></Card>
       <Card><Statistic title="待我处理" value={counters.todo} valueStyle={{ color: counters.todo ? "#cf6b18" : undefined }} /></Card>
@@ -162,10 +175,10 @@ export function DevelopmentRequestsPage() {
 
     <Modal title={editingDraft ? `编辑需求草稿 · ${editingDraft.requestNumber}` : "提报新需求"} width={720} open={requestOpen} onCancel={() => { setRequestOpen(false); setEditingDraft(undefined); }} footer={<Space>
       <Button onClick={() => { setRequestOpen(false); setEditingDraft(undefined); }}>取消</Button>
-      <Button loading={saving} onClick={() => void saveRequest(false)}>保存草稿</Button>
+      {flowConfig.data?.allowDraft !== false && <Button loading={saving} onClick={() => void saveRequest(false)}>保存草稿</Button>}
       <Button loading={saving} type="primary" onClick={() => void saveRequest(true)}>提交审批</Button>
     </Space>}>
-      <Alert type="info" showIcon message="可以先保存未填写完整的草稿；提交后，在上级处理前可以撤回。" style={{ marginBottom: 16 }} />
+      <Alert type="info" showIcon message={`${flowConfig.data?.allowDraft === false ? "当前流程不保存草稿；" : "可以先保存未填写完整的草稿；"}${flowConfig.data?.allowWithdraw === false ? "提交后不可撤回。" : "提交后，在后一级处理前可以撤回。"}`} style={{ marginBottom: 16 }} />
       <Form form={requestForm} layout="vertical">
         <Form.Item name="title" label="需求标题" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} showCount /></Form.Item>
         <Flex gap={14}><Form.Item name="category" label="需求类型" rules={[{ required: true }]} style={{ flex: 1 }}><Select options={["系统功能", "流程优化", "数据报表", "接口集成", "移动端", "其他"].map((value) => ({ value }))} /></Form.Item><Form.Item name="urgency" label="紧急程度" rules={[{ required: true }]} style={{ flex: 1 }}><Select options={Object.entries(urgencyMeta).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item><Form.Item name="desiredDate" label="期望完成日期" style={{ flex: 1 }}><DatePicker style={{ width: "100%" }} /></Form.Item></Flex>
@@ -181,14 +194,14 @@ export function DevelopmentRequestsPage() {
       return submit(`/development-requests/${decision.row.id}/${requester ? "requester-decision" : "handler-manager-decision"}`, { approved: true, comment: values.comment }, "审批已通过");
     })}>
       <Paragraph>{decision?.row.title}</Paragraph>
-      <Form form={decisionForm} layout="vertical"><Form.Item name="comment" label="审批意见"><Input.TextArea rows={4} maxLength={2000} placeholder="可选填审批意见；如需退回，请关闭后使用“退回前序环节”" /></Form.Item></Form>
+      <Form form={decisionForm} layout="vertical"><Form.Item name="comment" label="审批意见" rules={flowConfig.data?.approvalCommentRequired ? [{ required: true, whitespace: true, message: "请填写审批意见" }] : []}><Input.TextArea rows={4} maxLength={2000} placeholder={`${flowConfig.data?.approvalCommentRequired ? "请填写审批意见" : "可选填审批意见"}；如不同意，可使用“退回”或“拒绝”`} /></Form.Item></Form>
     </Modal>
 
-    <Modal title={movement ? `${actionLabels[movement.action]} · ${movement.row.requestNumber}` : "流程操作"} open={Boolean(movement)} confirmLoading={saving} okButtonProps={{ danger: movement?.action === "RETURN" }} okText={movement?.action === "RETURN" ? "确认退回" : "确认撤回"} onCancel={() => setMovement(undefined)} onOk={() => movementForm.validateFields().then((values) => movement && submit(`/development-requests/${movement.row.id}/${movement.action === "RETURN" ? "return" : "withdraw"}`, values, movement.action === "RETURN" ? "已退回到指定前序环节" : "已撤回到上一环节"))}>
-      <Alert type="warning" showIcon message={movement?.action === "RETURN" ? "当前环节处理人可以退回到此前任一环节，目标环节及其后续流程需要重新处理。" : "仅在后一级尚未处理时允许撤回。"} style={{ marginBottom: 16 }} />
+    <Modal title={movement ? `${actionLabels[movement.action]} · ${movement.row.requestNumber}` : "流程操作"} open={Boolean(movement)} confirmLoading={saving} okButtonProps={{ danger: movement?.action !== "WITHDRAW" }} okText={movement?.action === "RETURN" ? "确认退回" : movement?.action === "REJECT" ? "确认拒绝" : "确认撤回"} onCancel={() => setMovement(undefined)} onOk={() => movementForm.validateFields().then((values) => movement && submit(`/development-requests/${movement.row.id}/${movement.action === "RETURN" ? "return" : movement.action === "REJECT" ? "reject" : "withdraw"}`, values, movement.action === "RETURN" ? "已退回到指定前序环节" : movement.action === "REJECT" ? "已拒绝并退回到配置的目标环节" : "已撤回到上一环节"))}>
+      <Alert type="warning" showIcon message={movement?.action === "RETURN" ? `当前环节处理人可以退回到${flowConfig.data?.returnMode === "PREVIOUS_ONLY" ? "紧邻的上一环节" : "此前任一环节"}，目标环节及其后续流程需要重新处理。` : movement?.action === "REJECT" ? `拒绝后将退回到${flowConfig.data?.rejectTargetMode === "PREVIOUS" ? "紧邻的上一环节" : "创建草稿环节"}，拒绝原因会写入流程记录。` : "仅在后一级尚未处理时允许撤回。"} style={{ marginBottom: 16 }} />
       <Form form={movementForm} layout="vertical">
         {movement?.action === "RETURN" && <Form.Item name="targetStatus" label="退回到" rules={[{ required: true, message: "请选择退回环节" }]}><Select options={movement.row.returnTargets.map((target) => ({ value: target.status, label: target.label }))} /></Form.Item>}
-        <Form.Item name="comment" label={movement?.action === "RETURN" ? "退回原因" : "撤回说明"} rules={movement?.action === "RETURN" ? [{ required: true, whitespace: true, message: "请填写退回原因" }] : []}><Input.TextArea rows={4} maxLength={2000} /></Form.Item>
+        <Form.Item name="comment" label={movement?.action === "RETURN" ? "退回原因" : movement?.action === "REJECT" ? "拒绝原因" : "撤回说明"} rules={movement?.action !== "WITHDRAW" ? [{ required: true, whitespace: true, message: movement?.action === "REJECT" ? "请填写拒绝原因" : "请填写退回原因" }] : []}><Input.TextArea rows={4} maxLength={2000} /></Form.Item>
       </Form>
     </Modal>
 
@@ -210,9 +223,9 @@ export function DevelopmentRequestsPage() {
 
     <Drawer title={detailRow ? `${detailRow.requestNumber} · ${detailRow.title || "未命名草稿"}` : "需求详情"} width={760} open={Boolean(detailId)} onClose={() => setDetailId(undefined)}>
       {detail.isLoading ? <Alert type="info" showIcon message="正在加载需求详情" /> : !detailRow ? <Empty /> : <Space direction="vertical" size={18} style={{ width: "100%" }}>
-        <Steps current={currentStep} size="small" items={[{ title: "创建" }, { title: "填写人上级审批" }, { title: "管理员分配" }, { title: "资源工期评估" }, { title: "处理人上级审批" }, { title: "待开发" }]} />
+        <Steps current={currentStep} size="small" items={(flowConfig.data?.stages ?? [{ label: "创建" }, { label: "填写人上级审批" }, { label: "管理员分配" }, { label: "资源工期评估" }, { label: "处理人上级审批" }, { label: "待开发" }]).map((stage) => ({ title: stage.label }))} />
         <Descriptions bordered size="small" column={2} items={[
-          { key: "status", label: "状态", children: <Tag color={statusMeta[detailRow.status]?.color}>{statusMeta[detailRow.status]?.label}</Tag> },
+          { key: "status", label: "状态", children: <Tag color={statusMeta[detailRow.status]?.color}>{configuredStatusLabel(detailRow.status, flowConfig.data?.nodeLabels)}</Tag> },
           { key: "urgency", label: "紧急程度", children: urgencyMeta[detailRow.urgency]?.label },
           { key: "category", label: "需求类型", children: detailRow.category },
           { key: "desired", label: "期望完成", children: detailRow.desiredDate ?? "—" },
@@ -226,7 +239,7 @@ export function DevelopmentRequestsPage() {
         <Card size="small" title="需求说明"><Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{detailRow.description || "尚未填写"}</Paragraph></Card>
         {detailRow.businessValue && <Card size="small" title="业务价值"><Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{detailRow.businessValue}</Paragraph></Card>}
         {detailRow.requiredResources && <Card size="small" title="开发所需资源"><Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{detailRow.requiredResources}</Paragraph></Card>}
-        <Card size="small" title="流程记录">{detailRow.events?.length ? <Timeline items={detailRow.events.map((event) => ({ color: event.action === "RETURN" ? "red" : event.action === "WITHDRAW" ? "orange" : event.action.includes("APPROVE") ? "green" : "blue", children: <div><Text strong>{eventLabels[event.action] ?? event.action}</Text><br /><Text type="secondary">{event.actorName} · {dayjs(event.createdAt).format("YYYY-MM-DD HH:mm")}</Text>{event.comment && <Paragraph style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{event.comment}</Paragraph>}</div> }))} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无流程记录" />}</Card>
+        <Card size="small" title="流程记录">{detailRow.events?.length ? <Timeline items={detailRow.events.map((event) => ({ color: ["RETURN", "REJECT"].includes(event.action) ? "red" : event.action === "WITHDRAW" ? "orange" : event.action.includes("APPROVE") ? "green" : "blue", children: <div><Text strong>{eventLabels[event.action] ?? event.action}</Text><br /><Text type="secondary">{event.actorName} · {dayjs(event.createdAt).format("YYYY-MM-DD HH:mm")}</Text>{event.comment && <Paragraph style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{event.comment}</Paragraph>}</div> }))} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无流程记录" />}</Card>
       </Space>}
     </Drawer>
   </div>;

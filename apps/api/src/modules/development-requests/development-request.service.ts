@@ -3,9 +3,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Repository } from "typeorm";
 import { Contact, DevelopmentRequest, DevelopmentRequestEvent, User } from "../../entities";
 import {
-  availableDevelopmentActions, developmentApprovalCapabilities, developmentRequestStages,
-  type DevelopmentActor, isDevelopmentAdmin
+  availableDevelopmentActions, configuredDevelopmentStages, developmentApprovalCapabilities, developmentRequestStages,
+  type DevelopmentActor, type DevelopmentWorkflowPolicy, isDevelopmentAdmin
 } from "./development-request.workflow";
+import { ApprovalFlowConfigService, type ApprovalFlowRuntimeConfig } from "../approval-flow-configs/approval-flow-config.service";
 
 type RequestInput = {
   title?: string | null;
@@ -24,8 +25,31 @@ export class DevelopmentRequestService {
     @InjectRepository(DevelopmentRequestEvent) private readonly events: Repository<DevelopmentRequestEvent>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
+    private readonly flowConfigs: ApprovalFlowConfigService,
     private readonly dataSource: DataSource
   ) {}
+
+  private async config() { return this.flowConfigs.get("development-request"); }
+  private policy(config: ApprovalFlowRuntimeConfig): DevelopmentWorkflowPolicy {
+    return {
+      allowWithdraw: config.allowWithdraw,
+      returnMode: config.returnMode,
+      adminRoleNames: config.adminRoleNames,
+      nodeLabels: config.nodeLabels
+    };
+  }
+
+  async runtimeConfig() {
+    const config = await this.config();
+    return {
+      flowKey: config.flowKey, name: config.name, enabled: config.enabled,
+      allowDraft: config.allowDraft, allowWithdraw: config.allowWithdraw,
+      returnMode: config.returnMode, rejectTargetMode: config.rejectTargetMode,
+      approvalCommentRequired: config.approvalCommentRequired,
+      nodeLabels: config.nodeLabels,
+      stages: configuredDevelopmentStages(this.policy(config))
+    };
+  }
 
   private cleanText(value: unknown, label: string, max: number) {
     const text = String(value ?? "").trim();
@@ -79,9 +103,9 @@ export class DevelopmentRequestService {
     request.requesterManagerId = approver.id;
   }
 
-  private canView(request: DevelopmentRequest, actor: DevelopmentActor) {
-    if (request.status === "DRAFT") return isDevelopmentAdmin(actor) || request.requesterId === actor.id;
-    return isDevelopmentAdmin(actor) || [request.requesterId, request.requesterManagerId, request.handlerId, request.handlerManagerId].includes(actor.id);
+  private canView(request: DevelopmentRequest, actor: DevelopmentActor, policy: DevelopmentWorkflowPolicy) {
+    if (request.status === "DRAFT") return isDevelopmentAdmin(actor, policy.adminRoleNames) || request.requesterId === actor.id;
+    return isDevelopmentAdmin(actor, policy.adminRoleNames) || [request.requesterId, request.requesterManagerId, request.handlerId, request.handlerManagerId].includes(actor.id);
   }
 
   private async locked(id: string, manager: EntityManager) {
@@ -117,7 +141,8 @@ export class DevelopmentRequestService {
     });
   }
 
-  private async present(rows: DevelopmentRequest[], actor: DevelopmentActor, knownEvents?: DevelopmentRequestEvent[]) {
+  private async present(rows: DevelopmentRequest[], actor: DevelopmentActor, config: ApprovalFlowRuntimeConfig, knownEvents?: DevelopmentRequestEvent[]) {
+    const policy = this.policy(config);
     const ids = [...new Set(rows.flatMap((request) => [request.requesterId, request.requesterManagerId, request.handlerId, request.handlerManagerId]).filter(Boolean) as string[])];
     const requestIds = rows.map((request) => request.id);
     const [users, events] = await Promise.all([
@@ -129,40 +154,47 @@ export class DevelopmentRequestService {
     for (const event of events) latestByRequest.set(event.requestId, event);
     return rows.map((request) => {
       const latest = latestByRequest.get(request.id);
-      const capabilities = developmentApprovalCapabilities(request, actor, latest);
+      const capabilities = developmentApprovalCapabilities(request, actor, latest, policy);
       return {
         ...request,
         requesterName: names.get(request.requesterId) ?? "—",
         requesterManagerName: request.requesterManagerId ? names.get(request.requesterManagerId) ?? "—" : "待选择",
         handlerName: request.handlerId ? names.get(request.handlerId) ?? "—" : null,
         handlerManagerName: request.handlerManagerId ? names.get(request.handlerManagerId) ?? "—" : null,
-        availableActions: availableDevelopmentActions(request, actor, latest),
+        availableActions: availableDevelopmentActions(request, actor, latest, policy),
         returnTargets: capabilities.returnTargets.map((stage) => ({ status: stage.key, label: stage.label }))
       };
     });
   }
 
   async list(actor: DevelopmentActor, scope?: string, search?: string) {
+    const config = await this.config();
+    const policy = this.policy(config);
     let rows = await this.requests.find({ order: { updatedAt: "DESC" }, take: 1000 });
-    rows = rows.filter((request) => this.canView(request, actor));
+    rows = rows.filter((request) => this.canView(request, actor, policy));
     const keyword = String(search ?? "").trim().toLocaleLowerCase();
     if (keyword) rows = rows.filter((request) => [request.requestNumber, request.title, request.description, request.category].some((value) => String(value ?? "").toLocaleLowerCase().includes(keyword)));
-    let presented = await this.present(rows, actor);
+    let presented = await this.present(rows, actor, config);
     if (scope === "mine") presented = presented.filter((request) => request.requesterId === actor.id);
     if (scope === "todo") presented = presented.filter((request) => request.availableActions.length > 0);
     return presented;
   }
 
   async detail(id: string, actor: DevelopmentActor) {
+    const config = await this.config();
+    const policy = this.policy(config);
     const request = await this.requests.findOneBy({ id });
     if (!request) throw new NotFoundException("需求不存在");
-    if (!this.canView(request, actor)) throw new ForbiddenException("无权查看该需求");
+    if (!this.canView(request, actor, policy)) throw new ForbiddenException("无权查看该需求");
     const events = await this.events.find({ where: { requestId: id }, order: { createdAt: "ASC" } });
-    const [presented] = await this.present([request], actor, events);
+    const [presented] = await this.present([request], actor, config, events);
     return { ...presented, events };
   }
 
   async create(input: RequestInput, submit: boolean, actor: DevelopmentActor) {
+    const config = await this.config();
+    if (!config.enabled) throw new BadRequestException("需求提报流程当前已停用，不能创建新需求");
+    if (!submit && !config.allowDraft) throw new BadRequestException("当前流程未启用保存草稿");
     const patch = this.draftPatch(input);
     return this.dataSource.transaction(async (manager) => {
       await this.activeUser(actor.id, "填写人", manager);
@@ -181,6 +213,8 @@ export class DevelopmentRequestService {
   }
 
   async updateDraft(id: string, input: RequestInput, submit: boolean, actor: DevelopmentActor) {
+    const config = await this.config();
+    if (!submit && !config.allowDraft) throw new BadRequestException("当前流程未启用保存草稿");
     const patch = this.draftPatch(input);
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
@@ -229,10 +263,12 @@ export class DevelopmentRequestService {
   }
 
   async withdraw(id: string, comment: string | undefined, actor: DevelopmentActor) {
+    const config = await this.config();
+    const policy = this.policy(config);
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
       const latest = await this.latestEvent(id, manager);
-      const capabilities = developmentApprovalCapabilities(request, actor, latest);
+      const capabilities = developmentApprovalCapabilities(request, actor, latest, policy);
       if (!capabilities.canWithdraw || !capabilities.withdrawTarget) throw new ForbiddenException("后续环节已处理或当前操作不能撤回");
       const from = request.status;
       this.resetForStage(request, capabilities.withdrawTarget.key);
@@ -245,10 +281,12 @@ export class DevelopmentRequestService {
 
   async returnTo(id: string, targetStatus: string | undefined, comment: string | undefined, actor: DevelopmentActor) {
     const reason = this.cleanText(comment, "退回原因", 2000);
+    const config = await this.config();
+    const policy = this.policy(config);
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
       const latest = await this.latestEvent(id, manager);
-      const capabilities = developmentApprovalCapabilities(request, actor, latest);
+      const capabilities = developmentApprovalCapabilities(request, actor, latest, policy);
       const target = capabilities.returnTargets.find((stage) => stage.key === targetStatus);
       if (!target) throw new ForbiddenException("只能由当前环节处理人退回到之前的环节");
       const from = request.status;
@@ -260,8 +298,34 @@ export class DevelopmentRequestService {
     });
   }
 
+  async reject(id: string, comment: string | undefined, actor: DevelopmentActor) {
+    const reason = this.cleanText(comment, "拒绝原因", 2000);
+    const config = await this.config();
+    return this.dataSource.transaction(async (manager) => {
+      const request = await this.locked(id, manager);
+      const isApprovalNode =
+        (request.status === "PENDING_REQUESTER_APPROVAL" && request.requesterManagerId === actor.id) ||
+        (request.status === "PENDING_HANDLER_MANAGER_APPROVAL" && request.handlerManagerId === actor.id);
+      if (!isApprovalNode) throw new ForbiddenException("只能由当前审批人拒绝");
+      const stages = configuredDevelopmentStages(this.policy(config));
+      const current = stages.find((stage) => stage.key === request.status)!;
+      const target = config.rejectTargetMode === "DRAFT"
+        ? stages.find((stage) => stage.key === "DRAFT")
+        : stages.filter((stage) => stage.order < current.order).at(-1);
+      if (!target) throw new BadRequestException("当前审批节点没有可用的拒绝去向");
+      const from = request.status;
+      this.resetForStage(request, target.key);
+      request.version += 1;
+      await manager.save(request);
+      await this.addEvent(manager, request, actor, "REJECT", from, reason, { targetStatus: target.key, targetLabel: target.label });
+      return request;
+    });
+  }
+
   async requesterDecision(id: string, approved: boolean, comment: string | undefined, actor: DevelopmentActor) {
     if (!approved) return this.returnTo(id, "DRAFT", comment, actor);
+    const config = await this.config();
+    if (config.approvalCommentRequired) this.cleanText(comment, "审批意见", 2000);
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
       if (request.status !== "PENDING_REQUESTER_APPROVAL" || request.requesterManagerId !== actor.id) throw new ForbiddenException("当前需求不在你的审批节点");
@@ -273,7 +337,8 @@ export class DevelopmentRequestService {
   }
 
   async assign(id: string, handlerId: string | undefined, handlerManagerId: string | undefined, comment: string | undefined, actor: DevelopmentActor) {
-    if (!isDevelopmentAdmin(actor)) throw new ForbiddenException("仅管理员可以分配处理人员");
+    const config = await this.config();
+    if (!isDevelopmentAdmin(actor, config.adminRoleNames)) throw new ForbiddenException("当前角色不能处理管理员分配节点");
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
       if (request.status !== "PENDING_ADMIN_ASSIGNMENT") throw new BadRequestException("当前需求不在管理员分配节点");
@@ -305,6 +370,8 @@ export class DevelopmentRequestService {
 
   async handlerManagerDecision(id: string, approved: boolean, comment: string | undefined, actor: DevelopmentActor) {
     if (!approved) return this.returnTo(id, "PENDING_HANDLER_PLAN", comment, actor);
+    const config = await this.config();
+    if (config.approvalCommentRequired) this.cleanText(comment, "审批意见", 2000);
     return this.dataSource.transaction(async (manager) => {
       const request = await this.locked(id, manager);
       if (request.status !== "PENDING_HANDLER_MANAGER_APPROVAL" || request.handlerManagerId !== actor.id) throw new ForbiddenException("当前需求不在你的审批节点");
