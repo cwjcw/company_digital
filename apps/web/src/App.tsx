@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
-  AuditOutlined, BulbOutlined, CalendarOutlined, DatabaseOutlined, FileExcelOutlined, FolderOpenOutlined, LogoutOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined, SettingOutlined
+  ApiOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
+  FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
+  SettingOutlined, TeamOutlined, UserOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,6 +17,8 @@ import { api, ApiError } from "./api";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
+import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
+import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import {
   FieldVisibility, ImportFeedbackAlert, InlineText, PageHeader, auditColumns, auditLabels,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -61,6 +64,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
       localStorage.setItem("accessToken", result.accessToken);
       localStorage.setItem("refreshToken", result.refreshToken);
       localStorage.setItem("sessionUser", JSON.stringify(result.user));
+      window.history.replaceState(null, "", "/");
       onLogin();
     } catch (error) {
       const errorMessage = error instanceof ApiError
@@ -74,9 +78,9 @@ function Login({ onLogin }: { onLogin: () => void }) {
   };
   return <div className="login-shell">
     <Card className="login-card">
-      <div className="login-mark">KD</div>
+      <BrandLogo compact />
       <div className="login-title">凯南数字化工作台</div>
-      <Text type="secondary">Kainan Digital OS · Planning Center</Text>
+      <Text type="secondary">Kainan Digital OS · 企业数字化工作入口</Text>
       {loginError && <Alert type="error" showIcon message={loginError} style={{ marginTop: 16 }} />}
       <Form layout="vertical" onFinish={submit} requiredMark={false}>
         <Form.Item label="用户名" name="username" rules={[{ required: true, message: "请输入用户名" }]}><Input autoFocus size="large" /></Form.Item>
@@ -96,48 +100,66 @@ function Shell({ logout }: { logout: () => void }) {
     const period = `2026${String(month).padStart(2, "0")}`;
     return { key: `/monthly/${period}`, label: period };
   });
-  const menu = [
-    { key: "main", label: "主计划", type: "group" as const, children: [
-      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" },
+  if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.path)} onLogout={logout} />;
+
+  const moduleId = location.pathname === "/sales-summary-dashboard" ? "cockpit"
+    : ["/sales-summary-details", "/rolling", "/daily-progress"].includes(location.pathname) || location.pathname.startsWith("/monthly") ? "planning"
+    : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
+    : location.pathname === "/profile" ? "profile" : "system";
+  const activeModule = portalModules.find((module) => module.id === moduleId)!;
+  const navigationByModule: Record<string, any[]> = {
+    cockpit: [{ key: "cockpit", label: "公司驾驶舱", type: "group", children: [
+      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
+    ] }],
+    planning: [{ key: "planning", label: "主计划", type: "group", children: [
       { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
-      { key: "/monthly", icon: <FileExcelOutlined />, label: "月度计划", children: [
-        { key: "/daily-progress", icon: <CalendarOutlined />, label: "日进度" },
+      { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
         { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
-      ] }
-    ] },
-    { key: "development", label: "需求与开发", type: "group" as const, children: [
+      ] },
+      { key: "/daily-progress", icon: <ScheduleOutlined />, label: "日进度" }
+    ] }],
+    workflow: [{ key: "workflow", label: "流程审批", type: "group", children: [
       { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
-      ...(user.roles?.some((role: string) => ["系统管理员", "集团管理员"].includes(role)) ? [{ key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }] : [])
-    ] },
-    { key: "master", label: "基础资料", type: "group" as const, children: [
-      { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" },
-      { key: "/finished-goods-inbound", icon: <FileExcelOutlined />, label: "成品入库" }
-    ] },
-    { key: "system", label: "系统管理", type: "group" as const, children: [
-      { key: "/audit", icon: <AuditOutlined />, label: "审计日志" }
-    ] }
-  ];
-  const enhancedMenu = [...menu, {
-    key: "access-pages", label: "账户与接口", type: "group" as const, children: [
-      { key: "/users", icon: <DatabaseOutlined />, label: "用户与角色" },
-      ...(user.roles?.includes("系统管理员") ? [{ key: "/api-keys", icon: <DatabaseOutlined />, label: "API Key" }] : [])
-    ]
-  }];
+      { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }
+    ] }],
+    system: [
+      { key: "master", label: "基础资料", type: "group", children: [
+        { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" },
+        { key: "/finished-goods-inbound", icon: <FileExcelOutlined />, label: "成品入库" }
+      ] },
+      { key: "system", label: "系统管理", type: "group", children: [
+        { key: "/audit", icon: <AuditOutlined />, label: "审计日志" }
+      ] },
+      { key: "accounts", label: "账户与接口", type: "group", children: [
+        { key: "/users", icon: <TeamOutlined />, label: "用户与角色" },
+        { key: "/contacts", icon: <ContactsOutlined />, label: "通讯录" },
+        { key: "/api-keys", icon: <ApiOutlined />, label: "API Key" }
+      ] }
+    ],
+    profile: [{ key: "profile", label: "个人中心", type: "group", children: [
+      { key: "/profile", icon: <UserOutlined />, label: "账户资料与安全" }
+    ] }]
+  };
+  const pageTitle = /^\/monthly\/\d{6}$/.test(location.pathname)
+    ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
+    : ({
+      "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
+      "/daily-progress": "日进度", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
+      "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
+      "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/contacts": "通讯录",
+      "/api-keys": "API Key", "/profile": "个人中心"
+    } as Record<string, string>)[location.pathname] ?? activeModule.title;
   return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}`}>
     <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
-      <div className="brand"><span className="brand-badge">KD</span>{!collapsed && <span>凯南数字化工作台</span>}</div>
-      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={["/monthly", "/monthly/2026"]} items={enhancedMenu} onClick={({ key }) => navigate(key)} />
+      <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
+      {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
+      <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
+      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={["/monthly", "/monthly/2026"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>
     <Layout>
       <Header className="topbar">
-        <div className="topbar-page-title">{
-          /^\/monthly\/\d{6}$/.test(location.pathname)
-            ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
-            : location.pathname === "/development-requests" ? "需求与开发"
-            : location.pathname === "/workflow-settings" ? "审批流程配置"
-            : location.pathname === "/daily-progress" ? "日进度" : ""
-        }</div>
+        <div className="topbar-context"><Text type="secondary">{activeModule.title}</Text><div className="topbar-page-title">{pageTitle}</div></div>
         <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text><br /><Text type="secondary">{user.roles?.join(" / ")}</Text></div>
           <Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></div>
       </Header>
@@ -159,7 +181,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/users" element={<AdminCenter />} />
           <Route path="/contacts" element={<ContactDirectory />} />
           <Route path="/api-keys" element={<ApiKeyCenter />} />
-          <Route path="*" element={<Navigate to="/sales-summary-details" replace />} />
+          <Route path="/profile" element={<ProfileCenterPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Content>
     </Layout>

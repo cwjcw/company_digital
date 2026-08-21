@@ -37,6 +37,8 @@ async function mockApp(page: Page) {
     nodeLabels: { DRAFT: "创建并填写", PENDING_REQUESTER_APPROVAL: "填写人上级审批", PENDING_ADMIN_ASSIGNMENT: "管理员分配", PENDING_HANDLER_PLAN: "资源与工期评估", PENDING_HANDLER_MANAGER_APPROVAL: "处理人上级审批", APPROVED_FOR_DEVELOPMENT: "已批准开发" },
     stages: [{ key: "DRAFT", label: "创建并填写", order: 0 }, { key: "PENDING_REQUESTER_APPROVAL", label: "填写人上级审批", order: 1 }, { key: "PENDING_ADMIN_ASSIGNMENT", label: "管理员分配", order: 2 }, { key: "PENDING_HANDLER_PLAN", label: "资源与工期评估", order: 3 }, { key: "PENDING_HANDLER_MANAGER_APPROVAL", label: "处理人上级审批", order: 4 }, { key: "APPROVED_FOR_DEVELOPMENT", label: "已批准开发", order: 5, terminal: true }]
   }) }));
+  await page.route(/\/api\/v1\/development-requests\/people$/, (route) => route.fulfill({ contentType: "application/json", body: "[]" }));
+  await page.route(/\/api\/v1\/development-requests\?.*$/, (route) => route.fulfill({ contentType: "application/json", body: "[]" }));
   await page.route("**/api/v1/master-data/suppliers", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "s1", code: "S001", name: "测试供应商", remark: "", enabled: true }]) }));
   await page.route("**/api/v1/master-data/dictionaries", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([
     { id: "dt1", code: "division", name: "事业部", values: [{ id: "dv1", value: "事业一部", sortOrder: 1, enabled: true }] },
@@ -65,10 +67,15 @@ async function login(page: Page) {
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("test");
   await page.locator("button[type=submit]").click();
-  await expect(page.getByText("表格操作", { exact: true })).toBeVisible();
+  await expect(page.locator(".portal-module-grid")).toBeVisible();
+}
+
+async function openModule(page: Page, name: "公司驾驶舱" | "主计划" | "流程审批" | "系统管理" | "个人中心") {
+  if (await page.locator(".module-portal").isVisible()) await page.getByRole("button", { name: `进入${name}` }).click();
 }
 
 async function openAugustMonthlyPlan(page: Page) {
+  await openModule(page, "主计划");
   await page.getByText("202608", { exact: true }).click();
 }
 
@@ -85,8 +92,74 @@ test("login reports username and password errors separately", async ({ page }) =
   await expect(page.getByText("密码错误")).toBeVisible();
 });
 
+test("all users enter a compact five-module portal and each module owns its navigation", async ({ page }) => {
+  await mockApp(page);
+  await page.unroute("**/api/v1/auth/login");
+  await page.route("**/api/v1/auth/login", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      accessToken: "staff-token",
+      refreshToken: "refresh",
+      user: {
+        sub: "u-staff",
+        username: "staff",
+        displayName: "普通员工",
+        roles: ["普通用户"],
+        permissions: [],
+        divisions: ["事业一部"],
+        mustChangePassword: false
+      }
+    })
+  }));
+
+  await page.goto("/");
+  await page.getByLabel("用户名").fill("staff");
+  await page.getByLabel("密码").fill("test");
+  await page.locator("button[type=submit]").click();
+
+  const moduleNames = ["公司驾驶舱", "主计划", "流程审批", "系统管理", "个人中心"] as const;
+  await expect(page.locator(".module-portal")).toBeVisible();
+  for (const moduleName of moduleNames) {
+    await expect(page.getByRole("button", { name: `进入${moduleName}` })).toBeVisible();
+  }
+  await expect(page.getByText("更多业务模块", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "../../docs/migration/screenshots/module-portal-after.png", fullPage: true });
+
+  await page.getByRole("button", { name: "进入公司驾驶舱" }).click();
+  await expect(page).toHaveURL(/\/sales-summary-dashboard$/);
+  await expect(page.getByText("销售接单汇总大屏", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("月度计划", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "返回全部模块" }).click();
+  await page.getByRole("button", { name: "进入主计划" }).click();
+  await expect(page).toHaveURL(/\/sales-summary-details$/);
+  await expect(page.getByText("销售接单明细", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("月度计划", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "返回全部模块" }).click();
+  await page.getByRole("button", { name: "进入流程审批" }).click();
+  await expect(page).toHaveURL(/\/development-requests$/);
+  await expect(page.getByText("需求提报与审批", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("审批流程配置", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "返回全部模块" }).click();
+  await page.getByRole("button", { name: "进入系统管理" }).click();
+  await expect(page).toHaveURL(/\/master-data$/);
+  await expect(page.getByText("基础资料", { exact: true })).toBeVisible();
+  await expect(page.getByText("系统管理", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("账户与接口", { exact: true })).toBeVisible();
+  await expect(page.getByText("API Key", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "返回全部模块" }).click();
+  await page.getByRole("button", { name: "进入个人中心" }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole("heading", { name: "个人中心" })).toBeVisible();
+  await expect(page.getByLabel("当前密码")).toBeVisible();
+});
+
 test("monthly plan selection is the first fixed column and field state is per user", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "主计划");
   await page.screenshot({ path: "../../docs/migration/screenshots/master-plan-after.png", fullPage: true });
   await openAugustMonthlyPlan(page);
   const title = page.locator(".topbar-page-title", { hasText: "2026年8月计划" });
@@ -192,6 +265,7 @@ test("an empty month still renders the complete planning field grid", async ({ p
 
 test("monthly plan menu exposes the 2026 month pages and daily progress saves process quantity", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "主计划");
   await expect(page.getByText("2026年", { exact: true })).toBeVisible();
   for (const period of ["202608", "202609", "202610", "202611", "202612"]) {
     await expect(page.getByText(period, { exact: true })).toBeVisible();
@@ -288,6 +362,7 @@ test("selected monthly items support batch orchestration and persisted order", a
 
 test("users and master data expose add, multi-select, inline edit and import", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "系统管理");
   await page.getByText("用户与角色", { exact: true }).click();
   await expect(page.getByRole("button", { name: "新增用户" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导入用户 CSV" })).toBeVisible();
@@ -324,6 +399,7 @@ test("users and master data expose add, multi-select, inline edit and import", a
 
 test("sales order details keep only controls and the reference table", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "主计划");
   const orderCell = page.locator('.grid-card .ag-cell[col-id="orderNumber"]').first();
   await expect(page.getByText("跨月订单实时汇总，不维护重复汇总数据", { exact: true })).toHaveCount(0);
   await expect(page.getByText("销售接单明细", { exact: true })).toBeVisible();
@@ -384,6 +460,7 @@ test("sales order details keep only controls and the reference table", async ({ 
 
 test("sales order dashboard shows the first-version management overview", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "公司驾驶舱");
   await page.locator(".ant-menu-item").getByText("销售接单汇总大屏", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "销售接单汇总大屏" })).toBeVisible();
   await expect(page.locator(".dashboard-kpi-grid .ant-card")).toHaveCount(6);
@@ -406,6 +483,7 @@ test("sales order dashboard shows the first-version management overview", async 
 
 test("api key list can regenerate, reveal and copy a key", async ({ page }) => {
   await mockApp(page); await login(page);
+  await openModule(page, "系统管理");
   await page.getByText("API Key", { exact: true }).click();
   await expect(page.getByRole("columnheader", { name: "API KEY" })).toBeVisible();
   await expect(page.getByText("已隐藏，请重新生成后查看")).toBeVisible();
@@ -478,8 +556,7 @@ test("development requests follow both approval levels and resource planning", a
   await page.route("**/api/v1/development-requests/req-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...row, events }) }));
 
   await login(page);
-  await expect(page.getByText("需求与开发", { exact: true })).toBeVisible();
-  await page.getByText("需求提报与审批", { exact: true }).click();
+  await openModule(page, "流程审批");
   await expect(page.getByRole("heading", { name: "需求与开发" })).toBeVisible();
   await expect(page.getByText("待我处理", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "提报新需求" }).click();
@@ -579,7 +656,7 @@ test("approval policy supports incomplete drafts, withdrawal and return to any e
   });
 
   await login(page);
-  await page.getByText("需求提报与审批", { exact: true }).click();
+  await openModule(page, "流程审批");
   await page.getByRole("button", { name: "提报新需求" }).click();
   const newDialog = page.getByRole("dialog", { name: "提报新需求" });
   await newDialog.getByRole("button", { name: "保存草稿" }).click();
@@ -637,7 +714,8 @@ test("authorized administrators can configure approval flow behavior and node la
   });
 
   await login(page);
-  await page.getByText("审批流程配置", { exact: true }).click();
+  await openModule(page, "流程审批");
+  await page.getByRole("menuitem", { name: "审批流程配置" }).click();
   await expect(page.getByRole("heading", { name: "审批流程配置" })).toBeVisible();
   await expect(page.getByRole("row", { name: /需求提报与审批 development-request/ })).toBeVisible();
   await page.getByRole("button", { name: "配置" }).click();
