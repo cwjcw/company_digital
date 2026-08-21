@@ -137,6 +137,22 @@ test("monthly plan selection is the first fixed column and field state is per us
   await expect.poll(() => page.evaluate(() => localStorage.getItem("kdos-planning-hidden:admin"))).toBe(JSON.stringify(["relationKey"]));
 });
 
+test("an empty month still renders the complete planning field grid", async ({ page }) => {
+  await mockApp(page);
+  await page.unroute("**/api/v1/planning/periods/by-month?*");
+  await page.route("**/api/v1/planning/periods/by-month?*", (route) => route.fulfill({ status: 200, body: "" }));
+  await login(page);
+  await openAugustMonthlyPlan(page);
+
+  await expect(page.getByText("Planning Center", { exact: true })).toBeVisible();
+  await expect(page.getByText("2026年8月尚未建立 KDOS 计划周期；当前展示完整字段和空表格。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建周期和 v1 草稿" }).first()).toBeVisible();
+  await expect(page.locator(".monthly-grid .ag-header-cell").first().locator(".ag-header-select-all")).toBeVisible();
+  await expect(page.locator('.monthly-grid .ag-header-cell[col-id="priority"]')).toContainText("优先级");
+  await expect(page.locator('.monthly-grid .ag-header-cell[col-id="orderNumber"]')).toContainText("订单号");
+  await expect(page.getByText("本月暂无计划数据，字段结构已完整加载", { exact: true })).toBeVisible();
+});
+
 test("monthly plan menu exposes the 2026 month pages and daily progress saves process quantity", async ({ page }) => {
   await mockApp(page); await login(page);
   await expect(page.getByText("2026年", { exact: true })).toBeVisible();

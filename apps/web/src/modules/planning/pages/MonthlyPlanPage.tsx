@@ -155,19 +155,18 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     setNotice({ type: "success", text: "计划顺序已保存" }); refresh();
   };
 
-  if (periodQuery.isLoading) return <Alert type="info" showIcon message="正在加载计划周期…" />;
-  if (!period) return <div><Alert type="info" showIcon message={`${year}年${month}月尚未建立 KDOS 计划周期`} action={<Button type="primary" onClick={() => void createPeriod()}>创建周期和 v1 草稿</Button>} /></div>;
-
   const canEdit = activeVersion?.status === "DRAFT";
   const risk = risksQuery.data ?? { overdue: [], dueSoon: [], processOverdue: [], openExceptions: [] };
+  const versions = period?.versions ?? [];
   return <div>
     <div className="monthly-toolbar planning-version-toolbar">
       <Flex className="monthly-toolbar-row" align="center" gap={8} wrap>
         <Text strong>Planning Center</Text>
         <Tag color="blue">{year}年{String(month).padStart(2, "0")}月</Tag>
-        <Select aria-label="计划版本" value={activeVersionId} onChange={setActiveVersionId} style={{ width: 180 }} options={period.versions.map((entry) => ({ value: entry.id, label: `${entry.name} ${entry.status}` }))} />
-        <Tag color={versionColor(activeVersion?.status)}>{activeVersion?.status === "LOCKED" ? "🔒 " : ""}{activeVersion?.name} {activeVersion?.status}</Tag>
-        <Button onClick={() => void createDraft()} disabled={period.versions.some((entry) => entry.status === "DRAFT")}>新建草稿版本</Button>
+        <Select aria-label="计划版本" placeholder="尚未建立版本" value={activeVersionId} disabled={!versions.length} onChange={setActiveVersionId} style={{ width: 180 }} options={versions.map((entry) => ({ value: entry.id, label: `${entry.name} ${entry.status}` }))} />
+        <Tag color={versionColor(activeVersion?.status)}>{activeVersion ? `${activeVersion.status === "LOCKED" ? "🔒 " : ""}${activeVersion.name} ${activeVersion.status}` : "未建立计划周期"}</Tag>
+        {!period && <Button type="primary" loading={periodQuery.isLoading} onClick={() => void createPeriod()}>创建周期和 v1 草稿</Button>}
+        <Button onClick={() => void createDraft()} disabled={!period || versions.some((entry) => entry.status === "DRAFT")}>新建草稿版本</Button>
         <Button type="primary" disabled={!canEdit || !(itemsQuery.data?.length)} onClick={() => Modal.confirm({ title: `发布 ${activeVersion?.name}？`, content: "发布将创建不可变快照，其他部门默认读取该正式版本。", onOk: publish })}>发布</Button>
         <Button disabled={activeVersion?.status !== "PUBLISHED"} onClick={() => setReasonAction("lock")}>锁定</Button>
         <Button danger disabled={activeVersion?.status !== "LOCKED"} onClick={() => setReasonAction("unlock")}>解锁</Button>
@@ -210,7 +209,11 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       </Flex>
     </div>
     {notice && <Alert className="save-notice" type={notice.type} showIcon closable message={notice.text} onClose={() => setNotice(undefined)} />}
-    {!canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="正式发布或锁定版本为只读；需要调整时请基于正式版本创建新的 DRAFT。" />}
+    {periodQuery.isLoading
+      ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message="正在加载计划周期；字段和空表格可先查看。" />
+      : !period
+        ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message={`${year}年${month}月尚未建立 KDOS 计划周期；当前展示完整字段和空表格。`} action={<Button type="primary" onClick={() => void createPeriod()}>创建周期和 v1 草稿</Button>} />
+        : !canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="正式发布或锁定版本为只读；需要调整时请基于正式版本创建新的 DRAFT。" />}
     <div className="monthly-grid ag-theme-quartz">
       <AgGridReact rowData={rows} columnDefs={columnDefs} loading={itemsQuery.isLoading} theme="legacy" singleClickEdit={editMode}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }} selectionColumnDef={{ pinned: "left", lockPosition: true, width: 48, resizable: false }}
@@ -229,10 +232,11 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         }}
         getRowClass={(params: RowClassParams) => params.node.rowIndex! % 2 ? "order-alt" : ""}
         defaultColDef={{ sortable: true, resizable: true, filter: false, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        overlayNoRowsTemplate="<span class='ag-overlay-no-rows-center'>本月暂无计划数据，字段结构已完整加载</span>"
         rowHeight={40} headerHeight={58} groupHeaderHeight={42} stopEditingWhenCellsLoseFocus />
     </div>
     <Modal title="字段显示" width={800} open={fieldOpen} onCancel={() => setFieldOpen(false)} footer={<Button type="primary" onClick={() => setFieldOpen(false)}>完成</Button>}>
-      <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.length - hiddenFields.length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields(["relationKey"])}>恢复默认</Button></Space></Flex>
+      <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.filter((field) => !hiddenFields.includes(field.code)).length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields(["relationKey"])}>恢复默认</Button></Space></Flex>
       <Select mode="multiple" showSearch optionFilterProp="label" maxTagCount="responsive" value={fields.filter((field) => !hiddenFields.includes(field.code)).map((field) => field.code)} style={{ width: "100%" }} options={fields.map((field) => ({ value: field.code, label: `${field.groupLabel} · ${field.label}` }))} onChange={(visible) => setHiddenFields(fields.map((field) => field.code).filter((code) => !visible.includes(code)))} />
     </Modal>
     <Modal title="导入计划预览" open={Boolean(importPreview)} confirmLoading={importing} okText="确认写入" cancelText="取消"
