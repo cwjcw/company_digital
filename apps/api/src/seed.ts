@@ -7,6 +7,7 @@ import {
   DictionaryType, DictionaryValue, Permission, PlanPeriod, ProcessDefinitionEntity,
   Role, User, UserRole
 } from "./entities";
+import { DEFAULT_USER_PASSWORD } from "./user-defaults";
 
 async function seed() {
   await dataSource.initialize();
@@ -49,7 +50,7 @@ async function seed() {
   const managerRole = roleMap.get("集团管理员")!;
   for (const [username, displayName] of [["01382", "吴志琴"], ["09432", "周志明"]]) {
     let user = await users.findOneBy({ username });
-    if (!user) user = await users.save({ username, displayName, passwordHash: await bcrypt.hash("kainice123", 12), enabled: true, division: null, mustChangePassword: true, lastLoginAt: null });
+    if (!user) user = await users.save({ username, displayName, passwordHash: await bcrypt.hash(DEFAULT_USER_PASSWORD, 12), enabled: true, division: null, mustChangePassword: true, lastLoginAt: null });
     await userRoles.createQueryBuilder().insert().values({ userId: user.id, roleId: managerRole.id }).orIgnore().execute();
   }
 

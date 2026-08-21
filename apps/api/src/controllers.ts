@@ -22,6 +22,7 @@ import { ImportService } from "./import.service";
 import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
 import { currentModificationActor } from "./modification-audit";
+import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -808,7 +809,8 @@ export class AdminController {
       if (!whiteboard) continue;
       const username = contact.employeeNo ?? contact.wechatUserId;
       let user = contact.employeeNo ? await this.users.findOneBy({ employeeNo: contact.employeeNo }) : await this.users.findOneBy({ username });
-      if (!user) user = await this.users.save({ username, displayName: contact.name, passwordHash: await bcrypt.hash("kainice123", 12), enabled: contact.enabled, employeeNo: contact.employeeNo, wechatUserId: contact.wechatUserId, position: contact.position, departmentPaths: contact.paths, division: contact.paths[0]?.find((value) => value.includes("事业部")) ?? null, mustChangePassword: true, lastLoginAt: null });
+      if (!user && isPrimaryAdminUsername(username)) continue;
+      if (!user) user = await this.users.save({ username, displayName: contact.name, passwordHash: await bcrypt.hash(DEFAULT_USER_PASSWORD, 12), enabled: contact.enabled, employeeNo: contact.employeeNo, wechatUserId: contact.wechatUserId, position: contact.position, departmentPaths: contact.paths, division: contact.paths[0]?.find((value) => value.includes("事业部")) ?? null, mustChangePassword: true, lastLoginAt: null });
       else { await this.users.update(user.id, { displayName: contact.name, enabled: contact.enabled, employeeNo: contact.employeeNo, wechatUserId: contact.wechatUserId, position: contact.position, departmentPaths: contact.paths }); }
       const assigned = await this.userRoles.find({ where: { userId: user.id } });
       const assignedRoles = assigned.length ? await this.roles.createQueryBuilder("r").where("r.id IN (:...ids)", { ids: assigned.map((link) => link.roleId) }).getMany() : [];
@@ -856,12 +858,14 @@ export class AdminController {
   }
 
   @Post("users")
-  async createUser(@Body() body: { username: string; displayName: string; password: string; division?: string; roleIds: string[] }, @Req() req: UserRequest) {
+  async createUser(@Body() body: { username: string; displayName: string; password?: string; division?: string; roleIds: string[] }, @Req() req: UserRequest) {
     this.admin(req);
-    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(body.username) || !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(body.password)) throw new ForbiddenException("用户名或密码不符合安全要求");
+    const password = body.password || DEFAULT_USER_PASSWORD;
+    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(body.username) || !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) throw new ForbiddenException("用户名或密码不符合安全要求");
+    if (isPrimaryAdminUsername(body.username) && password === DEFAULT_USER_PASSWORD) throw new ForbiddenException("admin 账户不能使用普通用户默认密码");
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.save(User, {
-        username: body.username, displayName: body.displayName.trim(), passwordHash: await bcrypt.hash(body.password, 12),
+        username: body.username, displayName: body.displayName.trim(), passwordHash: await bcrypt.hash(password, 12),
         enabled: true, division: body.division || null, mustChangePassword: true, lastLoginAt: null
       });
       for (const roleId of [...new Set(body.roleIds ?? [])]) await manager.insert(UserRole, { userId: user.id, roleId });
@@ -875,7 +879,8 @@ export class AdminController {
     for (const row of body.rows ?? []) {
       if (!row.username?.trim() || !row.displayName?.trim()) continue;
       let user = await this.users.findOneBy({ username: row.username.trim() });
-      if (!user) user = await this.users.save({ username: row.username.trim(), displayName: row.displayName.trim(), passwordHash: await bcrypt.hash("kainice123", 12), enabled: true, division: row.division || null, mustChangePassword: true, lastLoginAt: null });
+      if (!user && isPrimaryAdminUsername(row.username)) continue;
+      if (!user) user = await this.users.save({ username: row.username.trim(), displayName: row.displayName.trim(), passwordHash: await bcrypt.hash(DEFAULT_USER_PASSWORD, 12), enabled: true, division: row.division || null, mustChangePassword: true, lastLoginAt: null });
       if (row.roleIds?.length) { await this.userRoles.delete({ userId: user.id }); for (const roleId of [...new Set(row.roleIds)]) await this.userRoles.insert({ userId: user.id, roleId }); }
     }
     return { imported: body.rows?.length ?? 0 };
@@ -908,7 +913,8 @@ export class AdminController {
     this.admin(req);
     const user = await this.users.findOneBy({ id });
     if (!user) throw new BadRequestException("用户不存在");
-    user.passwordHash = await bcrypt.hash("kainice123", 12);
+    if (isPrimaryAdminUsername(user.username)) throw new BadRequestException("admin 账户不能重置为普通用户默认密码");
+    user.passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 12);
     user.mustChangePassword = true;
     await this.users.save(user);
     return { id, reset: true, mustChangePassword: true };

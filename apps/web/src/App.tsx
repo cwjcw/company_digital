@@ -570,7 +570,7 @@ function AdminCenter() {
   });
   const updateUser = async (id: string, patch: Record<string, unknown>) => { await api(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); };
   const updateRole = async (id: string, patch: Record<string, unknown>) => { await api(`/admin/roles/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); void queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); };
-  const resetPassword = async (id: string) => { try { await api(`/admin/users/${id}/reset-password`, { method: "POST" }); message.success("密码已重置为 kainice123，用户首次登录需修改密码"); } catch (error) { message.error((error as Error).message); } };
+  const resetPassword = async (id: string) => { try { await api(`/admin/users/${id}/reset-password`, { method: "POST" }); message.success("密码已重置为 kn123456，用户首次登录需修改密码"); } catch (error) { message.error((error as Error).message); } };
   const openRolePermissions = (role: any) => {
     const next: Record<string, Record<string, boolean>> = {};
     for (const [resource] of permissionResources) {
@@ -608,7 +608,7 @@ function AdminCenter() {
     { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateUser(row.id, { enabled: v })} /> },
     { title: "上次登录", dataIndex: "lastLoginAt", render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—" },
     ...auditColumns
-    ,{ title: "密码", dataIndex: "password", render: (_: unknown, row: any) => <Button type="link" onClick={() => void resetPassword(row.id)}>重置密码</Button> }
+    ,{ title: "密码", dataIndex: "password", render: (_: unknown, row: any) => String(row.username).toLowerCase() === "admin" ? <Text type="secondary">单独维护</Text> : <Button type="link" onClick={() => void resetPassword(row.id)}>重置为默认密码</Button> }
   ].filter((column) => isAuditField(column.dataIndex as string) || visibleUserFields.includes(column.dataIndex as string) || column.dataIndex === "password");
   const roleColumns = [
     { title: "角色", dataIndex: "name", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { name: v })} /> }, { title: "说明", dataIndex: "description", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { description: v })} /> },
@@ -645,10 +645,10 @@ function AdminCenter() {
       </Form>
     </Modal>
     <Modal title="新增用户" open={open} okText="创建" cancelText="取消" confirmLoading={createUser.isPending} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then((values) => createUser.mutate(values))}>
-      <Form form={form} layout="vertical" initialValues={{ roleIds: [], password: "kainice123" }}>
+      <Form form={form} layout="vertical" initialValues={{ roleIds: [], password: "kn123456" }}>
         <Form.Item label="账号" name="username" rules={[{ required: true, pattern: /^[a-zA-Z0-9_.-]{3,64}$/, message: "3–64 位字母、数字、._-" }]}><Input /></Form.Item>
         <Form.Item label="姓名" name="displayName" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item label="首次密码" name="password" rules={[{ required: true, min: 10 }]}><Input.Password /></Form.Item>
+        <Form.Item label="首次密码" name="password" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item>
         <Form.Item label="角色" name="roleIds" rules={[{ required: true }]}><Select mode="multiple" options={(roles.data ?? []).map((role) => ({ value: role.id, label: role.name }))} /></Form.Item>
         <Form.Item label="所属事业部" name="division"><Select allowClear options={["事业一部", "事业二部", "事业三部", "事业四部", "贻居", "电镀厂"].map((value) => ({ value }))} /></Form.Item>
       </Form>

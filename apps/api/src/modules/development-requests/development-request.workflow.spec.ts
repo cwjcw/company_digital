@@ -1,22 +1,35 @@
-import { availableDevelopmentActions } from "./development-request.workflow";
+import { availableDevelopmentActions, developmentApprovalCapabilities } from "./development-request.workflow";
 
 const request = (status: string) => ({ status, requesterId: "requester", requesterManagerId: "requester-manager", handlerId: "handler", handlerManagerId: "handler-manager" });
 const actor = (id: string, roles: string[] = []) => ({ id, name: id, roles });
+const event = (actorId: string, action: string, fromStatus: string, toStatus: string) => ({ actorId, action, fromStatus, toStatus });
 
 describe("development request workflow", () => {
-  it("routes requester approval and admin assignment to the correct people", () => {
-    expect(availableDevelopmentActions(request("PENDING_REQUESTER_APPROVAL"), actor("requester-manager"))).toEqual(["REQUESTER_APPROVE", "REQUESTER_REJECT"]);
-    expect(availableDevelopmentActions(request("PENDING_ADMIN_ASSIGNMENT"), actor("admin", ["系统管理员"]))).toEqual(["ASSIGN"]);
-    expect(availableDevelopmentActions(request("PENDING_ADMIN_ASSIGNMENT"), actor("requester-manager"))).toEqual([]);
+  it("supports editable drafts and submission by their creator", () => {
+    expect(availableDevelopmentActions(request("DRAFT"), actor("requester"))).toEqual(["EDIT_DRAFT", "SUBMIT"]);
+    expect(availableDevelopmentActions(request("DRAFT"), actor("requester-manager"))).toEqual([]);
   });
 
-  it("allows rejected work to be revised by its owner", () => {
-    expect(availableDevelopmentActions(request("REQUESTER_REJECTED"), actor("requester"))).toEqual(["RESUBMIT"]);
-    expect(availableDevelopmentActions(request("HANDLER_MANAGER_REJECTED"), actor("handler"))).toEqual(["SUBMIT_PLAN"]);
+  it("routes each active node to the responsible person", () => {
+    expect(availableDevelopmentActions(request("PENDING_REQUESTER_APPROVAL"), actor("requester-manager"))).toEqual(["REQUESTER_APPROVE", "RETURN"]);
+    expect(availableDevelopmentActions(request("PENDING_ADMIN_ASSIGNMENT"), actor("admin", ["系统管理员"]))).toEqual(["ASSIGN", "RETURN"]);
+    expect(availableDevelopmentActions(request("PENDING_HANDLER_PLAN"), actor("handler"))).toEqual(["SUBMIT_PLAN", "RETURN"]);
+    expect(availableDevelopmentActions(request("PENDING_HANDLER_MANAGER_APPROVAL"), actor("handler-manager"))).toEqual(["HANDLER_APPROVE", "RETURN"]);
   });
 
-  it("routes the resource and schedule plan to the handler manager", () => {
-    expect(availableDevelopmentActions(request("PENDING_HANDLER_PLAN"), actor("handler"))).toEqual(["SUBMIT_PLAN"]);
-    expect(availableDevelopmentActions(request("PENDING_HANDLER_MANAGER_APPROVAL"), actor("handler-manager"))).toEqual(["HANDLER_APPROVE", "HANDLER_REJECT"]);
+  it("lets a submitter withdraw while the immediately following node has not acted", () => {
+    const latest = event("requester", "SUBMIT", "DRAFT", "PENDING_REQUESTER_APPROVAL");
+    expect(availableDevelopmentActions(request("PENDING_REQUESTER_APPROVAL"), actor("requester"), latest)).toEqual(["WITHDRAW"]);
+    expect(availableDevelopmentActions(request("PENDING_REQUESTER_APPROVAL"), actor("other"), latest)).toEqual([]);
+  });
+
+  it("allows the current actor to select any earlier stage as a return target", () => {
+    expect(developmentApprovalCapabilities(request("PENDING_HANDLER_MANAGER_APPROVAL"), actor("handler-manager")).returnTargets.map((stage) => stage.key)).toEqual([
+      "DRAFT", "PENDING_REQUESTER_APPROVAL", "PENDING_ADMIN_ASSIGNMENT", "PENDING_HANDLER_PLAN"
+    ]);
+  });
+
+  it("does not expose workflow operations after final approval", () => {
+    expect(availableDevelopmentActions(request("APPROVED_FOR_DEVELOPMENT"), actor("handler-manager"))).toEqual([]);
   });
 });

@@ -102,15 +102,15 @@ export class Contact extends AuditedEntity {
 export class DevelopmentRequest extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column({ name: "request_number" }) requestNumber!: string;
-  @Column({ length: 200 }) title!: string;
-  @Column({ length: 50 }) category!: string;
-  @Column({ type: "text" }) description!: string;
+  @Column({ type: "varchar", length: 200, nullable: true }) title!: string | null;
+  @Column({ type: "varchar", length: 50, nullable: true }) category!: string | null;
+  @Column({ type: "text", nullable: true }) description!: string | null;
   @Column({ name: "business_value", type: "text", nullable: true }) businessValue!: string | null;
   @Column({ length: 20, default: "NORMAL" }) urgency!: string;
   @Column({ name: "desired_date", type: "date", nullable: true }) desiredDate!: string | null;
   @Index() @Column({ length: 50 }) status!: string;
   @Index() @Column({ name: "requester_id", type: "uuid" }) requesterId!: string;
-  @Index() @Column({ name: "requester_manager_id", type: "uuid" }) requesterManagerId!: string;
+  @Index() @Column({ name: "requester_manager_id", type: "uuid", nullable: true }) requesterManagerId!: string | null;
   @Index() @Column({ name: "handler_id", type: "uuid", nullable: true }) handlerId!: string | null;
   @Index() @Column({ name: "handler_manager_id", type: "uuid", nullable: true }) handlerManagerId!: string | null;
   @Column({ name: "required_resources", type: "text", nullable: true }) requiredResources!: string | null;

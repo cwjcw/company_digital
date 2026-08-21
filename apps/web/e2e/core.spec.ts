@@ -423,7 +423,7 @@ test("development requests follow both approval levels and resource planning", a
   let row: any;
   const events: any[] = [];
   const update = (status: string, availableActions: string[], patch: Record<string, unknown> = {}) => {
-    row = { ...row, ...patch, status, availableActions, updatedAt: "2026-08-21T04:00:00.000Z" };
+    row = { ...row, ...patch, status, availableActions, returnTargets: [], updatedAt: "2026-08-21T04:00:00.000Z" };
   };
   await page.route("**/api/v1/development-requests/people", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(people) }));
   await page.route("**/api/v1/development-requests?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(row ? [row] : []) }));
@@ -436,7 +436,7 @@ test("development requests follow both approval levels and resource planning", a
       requesterManagerId: body.requesterManagerId, requesterManagerName: "李经理", handlerId: null, handlerName: null,
       handlerManagerId: null, handlerManagerName: null, requiredResources: null, estimatedWorkdays: null,
       plannedCompletionDate: null, createdAt: "2026-08-21T03:00:00.000Z", updatedAt: "2026-08-21T03:00:00.000Z",
-      availableActions: ["REQUESTER_APPROVE", "REQUESTER_REJECT"]
+      availableActions: ["REQUESTER_APPROVE"], returnTargets: [{ status: "DRAFT", label: "创建并填写" }]
     };
     events.push({ id: "e1", action: "SUBMIT", actorName: "测试管理员", comment: "提交需求", toStatus: row.status, createdAt: row.createdAt });
     return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
@@ -458,7 +458,7 @@ test("development requests follow both approval levels and resource planning", a
   await page.route("**/api/v1/development-requests/req-1/plan", async (route) => {
     const body = route.request().postDataJSON() as any;
     expect(body).toMatchObject({ requiredResources: "1 名开发人员、测试环境", estimatedWorkdays: 8, plannedCompletionDate: "2026-09-30" });
-    update("PENDING_HANDLER_MANAGER_APPROVAL", ["HANDLER_APPROVE", "HANDLER_REJECT"], { requiredResources: body.requiredResources, estimatedWorkdays: "8", plannedCompletionDate: body.plannedCompletionDate });
+    update("PENDING_HANDLER_MANAGER_APPROVAL", ["HANDLER_APPROVE"], { requiredResources: body.requiredResources, estimatedWorkdays: "8", plannedCompletionDate: body.plannedCompletionDate });
     events.push({ id: "e4", action: "SUBMIT_PLAN", actorName: "开发人员", toStatus: row.status, createdAt: row.updatedAt });
     return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
   });
@@ -516,6 +516,87 @@ test("development requests follow both approval levels and resource planning", a
   await page.getByRole("button", { name: /详\s*情/ }).click();
   await expect(page.getByText("流程记录", { exact: true })).toBeVisible();
   await expect(page.getByText("处理人上级审批通过", { exact: true })).toBeVisible();
+});
+
+test("approval policy supports incomplete drafts, withdrawal and return to any earlier stage", async ({ page }) => {
+  test.setTimeout(60_000);
+  await mockApp(page);
+  const people = [
+    { id: "u-admin", username: "admin", employeeNo: "A001", displayName: "测试管理员", position: "系统管理员", departmentPaths: [["集团"]], managerIds: ["u-manager"] },
+    { id: "u-manager", username: "manager", employeeNo: "M001", displayName: "李经理", position: "部门经理", departmentPaths: [["集团", "业务部"]], managerIds: [] }
+  ];
+  let row: any;
+  const base = {
+    id: "req-policy", requestNumber: "REQ-202608-000002", title: "未命名草稿", category: "—", description: "", businessValue: null,
+    urgency: "NORMAL", desiredDate: null, requesterId: "u-admin", requesterName: "测试管理员", requesterManagerId: null,
+    requesterManagerName: "待选择", handlerId: null, handlerName: null, handlerManagerId: null, handlerManagerName: null,
+    requiredResources: null, estimatedWorkdays: null, plannedCompletionDate: null,
+    createdAt: "2026-08-21T05:00:00.000Z", updatedAt: "2026-08-21T05:00:00.000Z", events: []
+  };
+  const draft = () => { row = { ...base, ...row, status: "DRAFT", availableActions: ["EDIT_DRAFT", "SUBMIT"], returnTargets: [] }; };
+  const pendingManager = () => { row = { ...base, ...row, status: "PENDING_REQUESTER_APPROVAL", requesterManagerId: "u-manager", requesterManagerName: "李经理", availableActions: ["REQUESTER_APPROVE", "RETURN", "WITHDRAW"], returnTargets: [{ status: "DRAFT", label: "创建并填写" }] }; };
+  const pendingAdmin = () => { row = { ...row, status: "PENDING_ADMIN_ASSIGNMENT", availableActions: ["ASSIGN", "RETURN", "WITHDRAW"], returnTargets: [{ status: "DRAFT", label: "创建并填写" }, { status: "PENDING_REQUESTER_APPROVAL", label: "填写人上级审批" }] }; };
+  await page.route("**/api/v1/development-requests/people", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(people) }));
+  await page.route("**/api/v1/development-requests?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(row ? [row] : []) }));
+  await page.route("**/api/v1/development-requests", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body.submit).toBe(false);
+    row = { ...base, ...body, requesterManagerName: body.requesterManagerId ? "李经理" : "待选择" };
+    draft();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-policy/draft", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    row = { ...row, title: body.title, category: body.category, description: body.description, requesterManagerId: body.requesterManagerId, requesterManagerName: "李经理" };
+    if (body.submit) pendingManager(); else draft();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-policy/withdraw", async (route) => {
+    draft();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-policy/requester-decision", async (route) => {
+    expect((route.request().postDataJSON() as any).approved).toBe(true);
+    pendingAdmin();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-policy/return", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body).toMatchObject({ targetStatus: "PENDING_REQUESTER_APPROVAL", comment: "需要重新确认审批意见" });
+    pendingManager();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+
+  await login(page);
+  await page.getByText("需求提报与审批", { exact: true }).click();
+  await page.getByRole("button", { name: "提报新需求" }).click();
+  const newDialog = page.getByRole("dialog", { name: "提报新需求" });
+  await newDialog.getByRole("button", { name: "保存草稿" }).click();
+  await expect(page.getByText("未命名草稿", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "编辑草稿" }).click();
+  const draftDialog = page.getByRole("dialog", { name: /编辑需求草稿/ });
+  await draftDialog.getByLabel("需求标题").fill("通用流程能力验证");
+  await draftDialog.getByLabel("需求说明").fill("验证保存草稿、撤回和任意前序退回。 ");
+  await draftDialog.getByRole("button", { name: "提交审批" }).click();
+  await expect(page.getByRole("button", { name: /撤\s*回/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /撤\s*回/ }).click();
+  await page.getByRole("dialog", { name: /撤回/ }).getByRole("button", { name: "确认撤回" }).click();
+  await expect(page.getByText("草稿", { exact: true }).last()).toBeVisible();
+
+  await page.getByRole("button", { name: "编辑草稿" }).click();
+  await page.getByRole("dialog", { name: /编辑需求草稿/ }).getByRole("button", { name: "提交审批" }).click();
+  await page.getByRole("button", { name: "上级通过" }).click();
+  await page.getByRole("dialog", { name: /上级通过/ }).getByRole("button", { name: "上级通过" }).click();
+  await page.getByRole("button", { name: "退回前序环节" }).click();
+  const returnDialog = page.getByRole("dialog", { name: /退回前序环节/ });
+  await returnDialog.getByLabel("退回到").click();
+  await expect(page.getByText("创建并填写", { exact: true }).last()).toBeVisible();
+  await page.getByText("填写人上级审批", { exact: true }).last().click();
+  await returnDialog.getByLabel("退回原因").fill("需要重新确认审批意见");
+  await returnDialog.getByRole("button", { name: "确认退回" }).click();
+  await expect(page.getByText("待填写人上级审批", { exact: true }).last()).toBeVisible();
 });
 
 test("monthly save failure is reported and keeps edit mode", async ({ page }) => {
