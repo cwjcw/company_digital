@@ -31,7 +31,12 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
     throw new ApiError(details?.message ?? `请求失败 (${response.status})`, response.status, details);
   }
   const type = response.headers.get("content-type") ?? "";
-  return (type.includes("json") ? await response.json() : await response.blob()) as T;
+  if (type.includes("json")) {
+    const text = await response.text();
+    return (text ? JSON.parse(text) : null) as T;
+  }
+  const blob = await response.blob();
+  return (blob.size ? blob : null) as T;
 }
 
 export function getValue(row: any, key: string) {
