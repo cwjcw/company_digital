@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
-  AuditOutlined, CalendarOutlined, DatabaseOutlined, FileExcelOutlined, FolderOpenOutlined, LogoutOutlined,
+  AuditOutlined, BulbOutlined, CalendarOutlined, DatabaseOutlined, FileExcelOutlined, FolderOpenOutlined, LogoutOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "./api";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
+import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import {
   FieldVisibility, ImportFeedbackAlert, InlineText, PageHeader, auditColumns, auditLabels,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -103,6 +104,9 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
       ] }
     ] },
+    { key: "development", label: "需求与开发", type: "group" as const, children: [
+      { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" }
+    ] },
     { key: "master", label: "基础资料", type: "group" as const, children: [
       { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" },
       { key: "/finished-goods-inbound", icon: <FileExcelOutlined />, label: "成品入库" }
@@ -128,6 +132,7 @@ function Shell({ logout }: { logout: () => void }) {
         <div className="topbar-page-title">{
           /^\/monthly\/\d{6}$/.test(location.pathname)
             ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
+            : location.pathname === "/development-requests" ? "需求与开发"
             : location.pathname === "/daily-progress" ? "日进度" : ""
         }</div>
         <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text><br /><Text type="secondary">{user.roles?.join(" / ")}</Text></div>
@@ -141,6 +146,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
           <Route path="/daily-progress" element={<DailyProgress />} />
+          <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
           <Route path="/data-operations" element={<DataOperations />} />
           <Route path="/finished-goods-inbound" element={<FinishedGoodsInboundPage />} />

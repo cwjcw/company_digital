@@ -6,7 +6,7 @@ async function mockApp(page: Page) {
     const body = route.request().postDataJSON() as { username?: string; password?: string };
     if (body.username !== "admin") return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "用户名不存在" }) });
     if (body.password !== "test") return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "密码错误" }) });
-    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "test-token", refreshToken: "refresh", user: { username: "admin", displayName: "测试管理员", roles: ["系统管理员"], permissions: ["*"], divisions: "*", mustChangePassword: false } }) });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "test-token", refreshToken: "refresh", user: { sub: "u-admin", username: "admin", displayName: "测试管理员", roles: ["系统管理员"], permissions: ["*"], divisions: "*", mustChangePassword: false } }) });
   });
   await page.route("**/api/v1/plans/rolling", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderType: null, orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
   await page.route("**/api/v1/plans/sales-dashboard", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
@@ -409,6 +409,113 @@ test("api key list can regenerate, reveal and copy a key", async ({ page }) => {
   await dialog.getByRole("button", { name: "重新生成" }).click();
   await expect(page.getByText("fdt_regenerated_test_key", { exact: true })).toBeVisible();
   await expect(page.locator(".ant-typography-copy").first()).toBeVisible();
+});
+
+test("development requests follow both approval levels and resource planning", async ({ page }) => {
+  test.setTimeout(60_000);
+  await mockApp(page);
+  const people = [
+    { id: "u-admin", username: "admin", employeeNo: "A001", displayName: "测试管理员", position: "系统管理员", departmentPaths: [["集团"]], managerIds: ["u-manager"] },
+    { id: "u-manager", username: "manager", employeeNo: "M001", displayName: "李经理", position: "部门经理", departmentPaths: [["集团", "业务部"]], managerIds: [] },
+    { id: "u-handler", username: "developer", employeeNo: "D001", displayName: "开发人员", position: "开发工程师", departmentPaths: [["集团", "信息部"]], managerIds: ["u-handler-manager"] },
+    { id: "u-handler-manager", username: "devmanager", employeeNo: "D002", displayName: "开发主管", position: "信息部经理", departmentPaths: [["集团", "信息部"]], managerIds: [] }
+  ];
+  let row: any;
+  const events: any[] = [];
+  const update = (status: string, availableActions: string[], patch: Record<string, unknown> = {}) => {
+    row = { ...row, ...patch, status, availableActions, updatedAt: "2026-08-21T04:00:00.000Z" };
+  };
+  await page.route("**/api/v1/development-requests/people", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(people) }));
+  await page.route("**/api/v1/development-requests?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(row ? [row] : []) }));
+  await page.route("**/api/v1/development-requests", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    row = {
+      id: "req-1", requestNumber: "REQ-202608-000001", title: body.title, category: body.category,
+      description: body.description, businessValue: body.businessValue, urgency: body.urgency, desiredDate: body.desiredDate,
+      status: "PENDING_REQUESTER_APPROVAL", requesterId: "u-admin", requesterName: "测试管理员",
+      requesterManagerId: body.requesterManagerId, requesterManagerName: "李经理", handlerId: null, handlerName: null,
+      handlerManagerId: null, handlerManagerName: null, requiredResources: null, estimatedWorkdays: null,
+      plannedCompletionDate: null, createdAt: "2026-08-21T03:00:00.000Z", updatedAt: "2026-08-21T03:00:00.000Z",
+      availableActions: ["REQUESTER_APPROVE", "REQUESTER_REJECT"]
+    };
+    events.push({ id: "e1", action: "SUBMIT", actorName: "测试管理员", comment: "提交需求", toStatus: row.status, createdAt: row.createdAt });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-1/requester-decision", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body.approved).toBe(true);
+    update("PENDING_ADMIN_ASSIGNMENT", ["ASSIGN"]);
+    events.push({ id: "e2", action: "REQUESTER_APPROVE", actorName: "李经理", toStatus: row.status, createdAt: row.updatedAt });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-1/assign", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body).toMatchObject({ handlerId: "u-handler", handlerManagerId: "u-handler-manager" });
+    update("PENDING_HANDLER_PLAN", ["SUBMIT_PLAN"], { handlerId: body.handlerId, handlerName: "开发人员", handlerManagerId: body.handlerManagerId, handlerManagerName: "开发主管" });
+    events.push({ id: "e3", action: "ASSIGN", actorName: "测试管理员", toStatus: row.status, createdAt: row.updatedAt });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-1/plan", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body).toMatchObject({ requiredResources: "1 名开发人员、测试环境", estimatedWorkdays: 8, plannedCompletionDate: "2026-09-30" });
+    update("PENDING_HANDLER_MANAGER_APPROVAL", ["HANDLER_APPROVE", "HANDLER_REJECT"], { requiredResources: body.requiredResources, estimatedWorkdays: "8", plannedCompletionDate: body.plannedCompletionDate });
+    events.push({ id: "e4", action: "SUBMIT_PLAN", actorName: "开发人员", toStatus: row.status, createdAt: row.updatedAt });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-1/handler-manager-decision", async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body.approved).toBe(true);
+    update("APPROVED_FOR_DEVELOPMENT", []);
+    events.push({ id: "e5", action: "HANDLER_APPROVE", actorName: "开发主管", toStatus: row.status, createdAt: row.updatedAt });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(row) });
+  });
+  await page.route("**/api/v1/development-requests/req-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...row, events }) }));
+
+  await login(page);
+  await expect(page.getByText("需求与开发", { exact: true })).toBeVisible();
+  await page.getByText("需求提报与审批", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "需求与开发" })).toBeVisible();
+  await expect(page.getByText("待我处理", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "提报新需求" }).click();
+  const requestDialog = page.getByRole("dialog", { name: "提报新需求" });
+  await requestDialog.getByLabel("需求标题").fill("新增质量异常闭环功能");
+  await expect(requestDialog.getByText(/李经理（M001/)).toBeVisible();
+  await requestDialog.getByLabel("需求说明").fill("建立质量异常提报、跟踪和关闭流程，并保留完整处理记录。");
+  await requestDialog.getByLabel("业务价值").fill("减少线下沟通并提升异常关闭效率。");
+  await requestDialog.getByRole("button", { name: /提交审批/ }).click();
+  await expect(page.getByText("新增质量异常闭环功能")).toBeVisible();
+
+  await page.getByRole("button", { name: "上级通过" }).click();
+  const firstApproval = page.getByRole("dialog", { name: /上级通过/ });
+  await firstApproval.getByLabel("审批意见").fill("同意，进入开发评估。");
+  await firstApproval.getByRole("button", { name: /上级通过/ }).click();
+  await expect(page.getByRole("button", { name: "分配处理人" })).toBeVisible();
+
+  await page.getByRole("button", { name: "分配处理人" }).click();
+  const assignDialog = page.getByRole("dialog", { name: /分配处理人员/ });
+  await assignDialog.getByLabel("处理人员", { exact: true }).click();
+  await page.getByText(/开发人员（D001/).click();
+  await expect(assignDialog.getByText(/开发主管（D002/)).toBeVisible();
+  await assignDialog.getByRole("button", { name: /确认分配/ }).click();
+  await expect(page.getByRole("button", { name: "填写资源与工期" })).toBeVisible();
+
+  await page.getByRole("button", { name: "填写资源与工期" }).click();
+  const planDialog = page.getByRole("dialog", { name: /填写开发资源与工期/ });
+  await planDialog.getByLabel("开发所需资源").fill("1 名开发人员、测试环境");
+  await planDialog.getByLabel("开发所需时间（工作日）").fill("8");
+  await planDialog.getByLabel("计划完成日期").fill("2026-09-30");
+  await planDialog.getByLabel("计划完成日期").press("Enter");
+  await planDialog.getByRole("button", { name: /提交上级审批/ }).click();
+  await expect(page.getByRole("button", { name: "开发审批通过" })).toBeVisible();
+
+  await page.getByRole("button", { name: "开发审批通过" }).click();
+  const finalApproval = page.getByRole("dialog", { name: /开发审批通过/ });
+  await finalApproval.getByLabel("审批意见").fill("资源与工期合理，同意开发。");
+  await finalApproval.getByRole("button", { name: /开发审批通过/ }).click();
+  await expect(page.getByText("已批准开发", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: /详\s*情/ }).click();
+  await expect(page.getByText("流程记录", { exact: true })).toBeVisible();
+  await expect(page.getByText("处理人上级审批通过", { exact: true })).toBeVisible();
 });
 
 test("monthly save failure is reported and keeps edit mode", async ({ page }) => {

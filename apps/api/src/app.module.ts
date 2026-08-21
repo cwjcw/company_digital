@@ -18,6 +18,7 @@ import { StorageService } from "./storage.service";
 import { TplusOrderSyncController } from "./data-operations/tplus/tplus-order-sync.controller";
 import { TplusOrderSyncService } from "./data-operations/tplus/tplus-order-sync.service";
 import { PlanningModule } from "./modules/planning/planning.module";
+import { DevelopmentRequestModule } from "./modules/development-requests/development-request.module";
 import { StorageModule } from "./storage/storage.module";
 
 @Module({
@@ -28,7 +29,8 @@ import { StorageModule } from "./storage/storage.module";
     JwtModule.register({ global: true }),
     ScheduleModule.forRoot(),
     StorageModule,
-    PlanningModule
+    PlanningModule,
+    DevelopmentRequestModule
   ],
   controllers: [
     SystemController, AuthController, PlanController, ImportController,

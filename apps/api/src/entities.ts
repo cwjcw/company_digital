@@ -97,6 +97,46 @@ export class Contact extends AuditedEntity {
   @CreateDateColumn({ name: "imported_at", type: "timestamptz" }) importedAt!: Date;
 }
 
+@Entity("development_requests")
+@Index(["status", "updatedAt"])
+export class DevelopmentRequest extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index({ unique: true }) @Column({ name: "request_number" }) requestNumber!: string;
+  @Column({ length: 200 }) title!: string;
+  @Column({ length: 50 }) category!: string;
+  @Column({ type: "text" }) description!: string;
+  @Column({ name: "business_value", type: "text", nullable: true }) businessValue!: string | null;
+  @Column({ length: 20, default: "NORMAL" }) urgency!: string;
+  @Column({ name: "desired_date", type: "date", nullable: true }) desiredDate!: string | null;
+  @Index() @Column({ length: 50 }) status!: string;
+  @Index() @Column({ name: "requester_id", type: "uuid" }) requesterId!: string;
+  @Index() @Column({ name: "requester_manager_id", type: "uuid" }) requesterManagerId!: string;
+  @Index() @Column({ name: "handler_id", type: "uuid", nullable: true }) handlerId!: string | null;
+  @Index() @Column({ name: "handler_manager_id", type: "uuid", nullable: true }) handlerManagerId!: string | null;
+  @Column({ name: "required_resources", type: "text", nullable: true }) requiredResources!: string | null;
+  @Column({ name: "estimated_workdays", type: "numeric", precision: 8, scale: 2, nullable: true }) estimatedWorkdays!: string | null;
+  @Column({ name: "planned_completion_date", type: "date", nullable: true }) plannedCompletionDate!: string | null;
+  @Column({ name: "requester_approved_at", type: "timestamptz", nullable: true }) requesterApprovedAt!: Date | null;
+  @Column({ name: "assigned_at", type: "timestamptz", nullable: true }) assignedAt!: Date | null;
+  @Column({ name: "plan_submitted_at", type: "timestamptz", nullable: true }) planSubmittedAt!: Date | null;
+  @Column({ name: "handler_manager_approved_at", type: "timestamptz", nullable: true }) handlerManagerApprovedAt!: Date | null;
+  @Column({ type: "integer", default: 1 }) version!: number;
+}
+
+@Entity("development_request_events")
+@Index(["requestId", "createdAt"])
+export class DevelopmentRequestEvent extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "request_id", type: "uuid" }) requestId!: string;
+  @Column({ name: "actor_id", type: "uuid" }) actorId!: string;
+  @Column({ name: "actor_name" }) actorName!: string;
+  @Column({ length: 50 }) action!: string;
+  @Column({ name: "from_status", type: "varchar", nullable: true }) fromStatus!: string | null;
+  @Column({ name: "to_status", type: "varchar" }) toStatus!: string;
+  @Column({ type: "text", nullable: true }) comment!: string | null;
+  @Column({ type: "jsonb", nullable: true }) snapshot!: unknown;
+}
+
 @Entity("plan_periods")
 @Unique(["year", "month"])
 export class PlanPeriod extends AuditedEntity {
@@ -359,7 +399,8 @@ export class IdempotencyRecord extends AuditedEntity {
 }
 
 export const entities = [
-  User, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact, PlanPeriod, Order, OrderItem,
+  User, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
+  DevelopmentRequest, DevelopmentRequestEvent, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, AuditLog, ApiKey,
   RefreshToken, ImportJob, ImportJobError, IdempotencyRecord
