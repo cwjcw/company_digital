@@ -23,7 +23,22 @@ import {
 ModuleRegistry.registerModules([AllCommunityModule]);
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
-const KdosMonthlyPlanPage = lazy(() => import("./modules/planning/pages/MonthlyPlanPage").then((module) => ({ default: module.MonthlyPlanPage })));
+const MONTHLY_CHUNK_RELOAD_KEY = "kdos:monthly-plan-chunk-reload";
+const KdosMonthlyPlanPage = lazy(async () => {
+  try {
+    const module = await import("./modules/planning/pages/MonthlyPlanPage");
+    sessionStorage.removeItem(MONTHLY_CHUNK_RELOAD_KEY);
+    return { default: module.MonthlyPlanPage };
+  } catch (error) {
+    if (!sessionStorage.getItem(MONTHLY_CHUNK_RELOAD_KEY)) {
+      sessionStorage.setItem(MONTHLY_CHUNK_RELOAD_KEY, "1");
+      window.location.reload();
+      return await new Promise<never>(() => undefined);
+    }
+    sessionStorage.removeItem(MONTHLY_CHUNK_RELOAD_KEY);
+    throw error;
+  }
+});
 
 function KdosMonthlyPlanRoute() {
   const { period = "" } = useParams();
