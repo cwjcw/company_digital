@@ -61,6 +61,7 @@ services:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-15172}:80"
       - "[::1]:${WEB_PORT:-15172}:80"
       - "${WEB_LAN_ADDRESS:?WEB_LAN_ADDRESS is required}:${WEB_PORT:-15172}:80"
+      - "${WEB_ZEROTIER_ADDRESS:?WEB_ZEROTIER_ADDRESS is required}:${WEB_PORT:-15172}:80"
     depends_on:
       api:
         condition: service_healthy
