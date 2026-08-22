@@ -21,6 +21,9 @@ import { PlanningModule } from "./modules/planning/planning.module";
 import { DevelopmentRequestModule } from "./modules/development-requests/development-request.module";
 import { StorageModule } from "./storage/storage.module";
 import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approval-flow-config.module";
+import { MarketingModule } from "./modules/marketing/marketing.module";
+import { AdminQueryService } from "./modules/admin/admin-query.service";
+import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
 
 @Module({
   imports: [
@@ -32,6 +35,8 @@ import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approv
     StorageModule,
     ApprovalFlowConfigModule,
     PlanningModule,
+    MarketingModule,
+    PlanningOperationsModule,
     DevelopmentRequestModule
   ],
   controllers: [
@@ -41,7 +46,7 @@ import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approv
   ],
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
-    MonthlyRolloverService, StorageService, TplusOrderSyncService
+    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService
   ]
 })
 export class AppModule {}

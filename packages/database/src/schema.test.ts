@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getTableName } from "drizzle-orm";
-import { planItems, planPeriods, planVersions, processProgress, tenants } from "./schema";
+import { businessCustomerMappings, orderSchedules, planItems, planPeriods, planVersions, processProgress, tenants, weeklyPlanItems, workReports } from "./schema";
 
 describe("KDOS Drizzle schema", () => {
   it("defines the tenant and planning aggregate tables", () => {
@@ -9,5 +9,12 @@ describe("KDOS Drizzle schema", () => {
     expect(getTableName(planVersions)).toBe("plan_versions");
     expect(getTableName(planItems)).toBe("plan_items");
     expect(getTableName(processProgress)).toBe("process_progress");
+  });
+
+  it("defines tenant-scoped marketing center tables", () => {
+    expect(getTableName(businessCustomerMappings)).toBe("business_customer_mappings");
+    expect(getTableName(orderSchedules)).toBe("order_schedules");
+    expect(getTableName(weeklyPlanItems)).toBe("weekly_plan_items");
+    expect(getTableName(workReports)).toBe("work_reports");
   });
 });

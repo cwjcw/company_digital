@@ -92,6 +92,41 @@ export const planningPermissions = [
   "planning.progress.read", "planning.progress.update", "planning.admin.manage"
 ] as const;
 
+export const tablePermissionActions = ["read", "create", "update", "delete", "import", "export"] as const;
+export type TablePermissionAction = typeof tablePermissionActions[number];
+
+/**
+ * Single registry for every independently authorized table/report in KDOS.
+ * New UI tables must be registered here before they are exposed by an API.
+ */
+export const tableResourceRegistry = [
+  { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱" },
+  { code: "rolling-plan", label: "销售接单明细", module: "主计划" },
+  { code: "monthly-plan", label: "月度计划", module: "主计划" },
+  { code: "daily-progress", label: "日进度", module: "主计划" },
+  { code: "sales-orders", label: "订单表", module: "数据中心" },
+  { code: "finished-goods-inbound", label: "入库表", module: "数据中心" },
+  { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心" },
+  { code: "order-schedule", label: "订单排期", module: "营销中心" },
+  { code: "weekly-plan", label: "周计划", module: "主计划" },
+  { code: "work-report", label: "报工表", module: "主计划" },
+  { code: "development-requests", label: "需求提报与审批", module: "流程审批" },
+  { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批" },
+  { code: "suppliers", label: "供应商", module: "系统管理" },
+  { code: "dictionaries", label: "字典", module: "系统管理" },
+  { code: "processes", label: "工序", module: "系统管理" },
+  { code: "users", label: "用户", module: "系统管理" },
+  { code: "roles", label: "角色与权限", module: "系统管理" },
+  { code: "organization", label: "组织架构", module: "系统管理" },
+  { code: "contacts", label: "通讯录", module: "系统管理" },
+  { code: "imports", label: "导入记录", module: "系统管理" },
+  { code: "audit-logs", label: "审计日志", module: "系统管理" },
+  { code: "api-keys", label: "API Key", module: "系统管理" },
+  { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理" }
+] as const;
+
+export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
+
 export interface PlanningPeriodContract {
   id: string;
   year: number;

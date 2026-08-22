@@ -305,12 +305,40 @@ export class Supplier extends AuditedEntity {
 }
 
 @Entity("sales_orders")
-@Unique(["orderNumber", "itemNumber"])
 export class SalesOrder extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "document_date", type: "date", nullable: true }) documentDate!: string | null;
   @Index() @Column({ name: "order_number" }) orderNumber!: string;
+  @Column({ name: "document_name", type: "varchar", nullable: true }) documentName!: string | null;
+  @Column({ name: "close_status", type: "varchar", nullable: true }) closeStatus!: string | null;
+  @Index() @Column({ name: "customer_code", type: "varchar", nullable: true }) customerCode!: string | null;
+  @Column({ name: "ship_to_customer_code", type: "varchar", nullable: true }) shipToCustomerCode!: string | null;
+  @Column({ name: "invoice_customer_code", type: "varchar", nullable: true }) invoiceCustomerCode!: string | null;
+  @Column({ name: "employee_name", type: "varchar", nullable: true }) employeeName!: string | null;
+  @Column({ name: "tax_included", type: "varchar", nullable: true }) taxIncluded!: string | null;
+  @Column({ name: "currency_code", type: "varchar", nullable: true }) currencyCode!: string | null;
+  @Column({ name: "exchange_rate", type: "numeric", precision: 18, scale: 6, nullable: true }) exchangeRate!: string | null;
+  @Column({ name: "sequence_number", type: "integer", nullable: true }) sequenceNumber!: number | null;
   @Index() @Column({ name: "item_number" }) itemNumber!: string;
   @Column({ name: "item_name", type: "varchar", nullable: true }) itemName!: string | null;
+  @Column({ type: "varchar", nullable: true }) specification!: string | null;
+  @Column({ name: "unit_name", type: "varchar", nullable: true }) unitName!: string | null;
+  @Column({ name: "business_quantity", type: "numeric", precision: 18, scale: 4, nullable: true }) businessQuantity!: string | null;
+  @Column({ name: "price_quantity", type: "numeric", precision: 18, scale: 4, nullable: true }) priceQuantity!: string | null;
+  @Column({ type: "numeric", precision: 18, scale: 6, nullable: true }) price!: string | null;
+  @Column({ name: "rmb_price", type: "numeric", precision: 18, scale: 6, nullable: true }) rmbPrice!: string | null;
+  @Column({ name: "rmb_tax_included_amount", type: "numeric", precision: 20, scale: 6, nullable: true }) rmbTaxIncludedAmount!: string | null;
+  @Column({ name: "delivered_business_quantity", type: "numeric", precision: 18, scale: 4, nullable: true }) deliveredBusinessQuantity!: string | null;
+  @Column({ name: "planned_delivery_date", type: "date", nullable: true }) plannedDeliveryDate!: string | null;
+  @Column({ name: "tax_rate", type: "numeric", precision: 10, scale: 4, nullable: true }) taxRate!: string | null;
+  @Column({ name: "amount_excluding_tax_bc", type: "numeric", precision: 20, scale: 6, nullable: true }) amountExcludingTaxBc!: string | null;
+  @Column({ name: "tax_bc", type: "numeric", precision: 20, scale: 6, nullable: true }) taxBc!: string | null;
+  @Column({ name: "creator_user_id", type: "varchar", nullable: true }) creatorUserId!: string | null;
+  @Column({ name: "creator_user_name", type: "varchar", nullable: true }) creatorUserName!: string | null;
+  @Column({ name: "admin_unit_name", type: "varchar", nullable: true }) adminUnitName!: string | null;
+  @Column({ name: "owner_department", type: "varchar", nullable: true }) ownerDepartment!: string | null;
+  @Column({ name: "owner_employee", type: "varchar", nullable: true }) ownerEmployee!: string | null;
+  @Column({ name: "owner_division", type: "varchar", nullable: true }) ownerDivision!: string | null;
   @Column({ name: "order_date", type: "date", nullable: true }) orderDate!: string | null;
   @Column({ name: "review_due_date", type: "date", nullable: true }) reviewDueDate!: string | null;
   @Column({ type: "numeric", precision: 18, scale: 4, nullable: true }) quantity!: string | null;
@@ -321,8 +349,13 @@ export class SalesOrder extends AuditedEntity {
 @Unique(["documentNumber", "inventoryCode", "relationInfo"])
 export class FinishedGoodsInbound extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "category_number", type: "varchar", nullable: true }) categoryNumber!: string | null;
   @Index() @Column({ name: "sales_order_number", type: "varchar", nullable: true }) salesOrderNumber!: string | null;
+  @Column({ name: "document_full_name", type: "varchar", nullable: true }) documentFullName!: string | null;
   @Column({ name: "document_date", type: "date", nullable: true }) documentDate!: string | null;
+  @Index() @Column({ name: "inbound_date", type: "date", nullable: true }) inboundDate!: string | null;
+  @Column({ name: "line_number", type: "integer", nullable: true }) lineNumber!: number | null;
+  @Index() @Column({ name: "work_order_number", type: "varchar", nullable: true }) workOrderNumber!: string | null;
   @Column({ name: "created_time", type: "timestamptz", nullable: true }) createdTime!: Date | null;
   @Index() @Column({ name: "document_number" }) documentNumber!: string;
   @Column({ name: "business_type", type: "varchar", nullable: true }) businessType!: string | null;
@@ -337,6 +370,7 @@ export class FinishedGoodsInbound extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) creator!: string | null;
   @Column({ type: "varchar", nullable: true }) auditor!: string | null;
   @Index() @Column({ name: "inventory_code" }) inventoryCode!: string;
+  @Column({ name: "quick_code", type: "varchar", nullable: true }) quickCode!: string | null;
   @Column({ name: "inventory_name", type: "varchar", nullable: true }) inventoryName!: string | null;
   @Column({ type: "varchar", nullable: true }) specification!: string | null;
   @Column({ type: "varchar", nullable: true }) unit!: string | null;
@@ -345,6 +379,7 @@ export class FinishedGoodsInbound extends AuditedEntity {
   @Column({ name: "unit_price", type: "numeric", precision: 18, scale: 6, nullable: true }) unitPrice!: string | null;
   @Column({ name: "total_amount", type: "numeric", precision: 18, scale: 6, nullable: true }) totalAmount!: string | null;
   @Column({ name: "voucher_word", type: "varchar", nullable: true }) voucherWord!: string | null;
+  @Column({ type: "varchar", nullable: true }) category!: string | null;
 }
 
 @Entity("audit_logs")

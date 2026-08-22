@@ -8,6 +8,7 @@ export const iam = pgSchema("iam");
 export const planning = pgSchema("planning");
 export const audit = pgSchema("audit");
 export const integration = pgSchema("integration");
+export const marketing = pgSchema("marketing");
 
 const auditColumns = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -292,11 +293,65 @@ export const importJobs = integration.table("import_jobs", {
   ...auditColumns
 }, (table) => [uniqueIndex("import_jobs_tenant_idempotency_uq").on(table.tenantId, table.idempotencyKey)]);
 
+export const businessCustomerMappings = marketing.table("business_customer_mappings", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  department: varchar("department", { length: 200 }).notNull(),
+  section: varchar("section", { length: 200 }).notNull(),
+  salesperson: varchar("salesperson", { length: 200 }).notNull(),
+  customerCodes: text("customer_codes").notNull(),
+  version: integer("version").notNull().default(1),
+  ...auditColumns
+}, (table) => [
+  uniqueIndex("business_customer_mappings_tenant_salesperson_uq").on(table.tenantId, table.department, table.section, table.salesperson),
+  index("business_customer_mappings_tenant_department_idx").on(table.tenantId, table.department, table.section)
+]);
+
+export const orderSchedules = marketing.table("order_schedules", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  customerCode: varchar("customer_code", { length: 120 }).notNull(),
+  orderNumber: varchar("order_number", { length: 120 }).notNull(),
+  itemNumber: varchar("item_number", { length: 160 }).notNull(),
+  itemName: varchar("item_name", { length: 320 }).notNull(),
+  customerDueDate: date("customer_due_date"),
+  orderTotalQuantity: numeric("order_total_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
+  productionUnit: varchar("production_unit", { length: 200 }),
+  completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
+  sourcePlanItemId: uuid("source_plan_item_id"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  version: integer("version").notNull().default(1),
+  ...auditColumns
+}, (table) => [
+  uniqueIndex("two_week_schedules_tenant_order_item_uq").on(table.tenantId, table.orderNumber, table.itemNumber),
+  index("order_schedules_tenant_order_idx").on(table.tenantId, table.orderNumber, table.itemNumber),
+  check("order_schedules_completion_ck", sql`${table.completionRatio} between 0 and 100`)
+]);
+
+export const weeklyPlanPeriods = planning.table("weekly_plan_periods", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  sequence: integer("sequence").notNull(), name: varchar("name", { length: 120 }).notNull(), startDate: date("start_date").notNull(), endDate: date("end_date").notNull(), ...auditColumns
+}, (table) => [uniqueIndex("weekly_plan_periods_tenant_start_uq").on(table.tenantId, table.startDate)]);
+
+export const weeklyPlanItems = planning.table("weekly_plan_items", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  weeklyPlanPeriodId: uuid("weekly_plan_period_id").notNull().references(() => weeklyPlanPeriods.id, { onDelete: "cascade" }),
+  sourceOrderScheduleId: uuid("source_order_schedule_id").references(() => orderSchedules.id, { onDelete: "set null" }),
+  customerCode: varchar("customer_code", { length: 120 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }),
+  orderTotalQuantity: numeric("order_total_quantity", { precision: 18, scale: 4 }).notNull().default("0"), productionUnit: varchar("production_unit", { length: 200 }), completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
+  customerDueDate: date("customer_due_date"), reviewDueDate: date("review_due_date"), version: integer("version").notNull().default(1), ...auditColumns
+}, (table) => [uniqueIndex("weekly_plan_items_period_order_item_uq").on(table.weeklyPlanPeriodId, table.orderNumber, table.itemNumber), index("weekly_plan_items_period_idx").on(table.tenantId, table.weeklyPlanPeriodId)]);
+
+export const workReports = planning.table("work_reports", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), workDate: date("work_date").notNull(), sourcePlanItemId: uuid("source_plan_item_id").notNull().references(() => planItems.id, { onDelete: "cascade" }),
+  customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), version: integer("version").notNull().default(1), ...auditColumns
+}, (table) => [uniqueIndex("work_reports_tenant_date_source_uq").on(table.tenantId, table.workDate, table.sourcePlanItemId), index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate)]);
+
 export const schema = {
   tenants, organizations, departments, positions, employees, iamUsers, identities, roles, permissions, rolePermissions, roleBindings, fieldPolicies,
   planPeriods, planVersions, salesOrders, salesOrderLines, planItems,
   processDefinitions, processProgress, dailyProgress, planSnapshots, planChanges,
-  auditLogs, importJobs
+  auditLogs, importJobs, businessCustomerMappings, orderSchedules, weeklyPlanPeriods, weeklyPlanItems, workReports
 };
 
 export type KdosSchema = typeof schema;

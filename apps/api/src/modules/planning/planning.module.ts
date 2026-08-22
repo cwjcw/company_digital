@@ -23,6 +23,6 @@ import { PlanningImageService } from "./planning-image.service";
     { provide: KDOS_DATABASE, useFactory: () => createKdosDatabase() },
     { provide: PLANNING_REPOSITORY, useClass: DrizzlePlanningRepository }
   ],
-  exports: [PlanningApplicationService, PlanQueryService, PlanGateway, PlanningDomainEventBus]
+  exports: [PlanningApplicationService, PlanQueryService, PlanGateway, PlanningDomainEventBus, KDOS_DATABASE]
 })
 export class PlanningModule {}

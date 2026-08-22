@@ -23,8 +23,45 @@ import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
 import { currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
+import { AdminQueryService } from "./modules/admin/admin-query.service";
 
 type UserRequest = Request & { user: any; requestId: string };
+
+const salesOrderImportFields: Array<{ property: keyof SalesOrder; headers: string[]; kind?: "date" | "number" | "integer" }> = [
+  { property: "documentDate", headers: ["DOC_DATE", "单据日期"], kind: "date" },
+  { property: "orderDate", headers: ["ORDER_DATE", "订单日期", "下单日期"], kind: "date" },
+  { property: "orderNumber", headers: ["DOC_NO", "订单编号", "订单号"] },
+  { property: "documentName", headers: ["DOC_NAME", "单据名称"] },
+  { property: "closeStatus", headers: ["CLOSE", "关闭状态"] },
+  { property: "customerCode", headers: ["CUSTOMER_CODE", "客户代码"] },
+  { property: "shipToCustomerCode", headers: ["SHIP_TO_CUSTOMER_CODE", "送货客户代码"] },
+  { property: "invoiceCustomerCode", headers: ["INVOICE_CUSTOMER_CODE", "开票客户代码"] },
+  { property: "employeeName", headers: ["EMPLOYEE_NAME", "业务员"] },
+  { property: "taxIncluded", headers: ["TAX_INCLUDED", "含税标识"] },
+  { property: "currencyCode", headers: ["CURRENCY_CODE", "币种"] },
+  { property: "exchangeRate", headers: ["EXCHANGE_RATE", "汇率"], kind: "number" },
+  { property: "sequenceNumber", headers: ["SequenceNumber", "SEQUENCE_NUMBER", "序号"], kind: "integer" },
+  { property: "itemNumber", headers: ["ITEM_CODE", "品项编码", "品号"] },
+  { property: "itemName", headers: ["ITEM_DESCRIPTION", "品项名称", "品名"] },
+  { property: "specification", headers: ["ITEM_SPECIFICATION", "规格"] },
+  { property: "unitName", headers: ["UNIT_NAME", "业务单位"] },
+  { property: "businessQuantity", headers: ["BUSINESS_QTY", "订单数量"], kind: "number" },
+  { property: "priceQuantity", headers: ["PRICE_QTY", "计价数量"], kind: "number" },
+  { property: "price", headers: ["PRICE", "单价"], kind: "number" },
+  { property: "rmbPrice", headers: ["RMB_PRICE", "人民币单价"], kind: "number" },
+  { property: "rmbTaxIncludedAmount", headers: ["人民币含税价", "RMB_TAX_INCLUDED_AMOUNT"], kind: "number" },
+  { property: "deliveredBusinessQuantity", headers: ["DELIVER_BUSINESS_QTY", "已交数量"], kind: "number" },
+  { property: "plannedDeliveryDate", headers: ["PLAN_DELIVERY_DATE", "计划交期"], kind: "date" },
+  { property: "taxRate", headers: ["TAX_RATE", "税率"], kind: "number" },
+  { property: "amountExcludingTaxBc", headers: ["AMT_UNINCLUDE_TAX_BC", "本币未税金额"], kind: "number" },
+  { property: "taxBc", headers: ["TAX_BC", "本币税额"], kind: "number" },
+  { property: "creatorUserId", headers: ["USER_ID", "制单人编号"] },
+  { property: "creatorUserName", headers: ["USER_NAME", "制单人"] },
+  { property: "adminUnitName", headers: ["ADMIN_UNIT_NAME", "管理单位"] },
+  { property: "ownerDepartment", headers: ["Owner_Dept", "责任部门"] },
+  { property: "ownerEmployee", headers: ["Owner_Emp", "责任业务"] },
+  { property: "ownerDivision", headers: ["Owner_Division", "责任事业部"] }
+];
 
 function requireTablePermission(req: UserRequest, resource: string, action: string) {
   const permissions = req.user.permissions ?? [];
@@ -72,7 +109,7 @@ export class PlanController {
   }
   @Get("daily-progress")
   dailyProgress(@Query("date") date: string, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "read");
+    requireTablePermission(req, "daily-progress", "read");
     return this.plans.dailyProgressList(date, req.user);
   }
   @Patch("daily-progress/:orderItemId")
@@ -81,16 +118,19 @@ export class PlanController {
     @Body() body: { date: string; processCode: string; quantity: unknown },
     @Req() req: UserRequest
   ) {
+    requireTablePermission(req, "daily-progress", "update");
     return this.plans.updateDailyProgress(orderItemId, body, req.user, req.requestId);
   }
   @Get("rolling") rolling(@Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "read"); return this.plans.rolling(req.user); }
   @Get("sales-dashboard") dashboard(@Req() req: UserRequest) { requireTablePermission(req, "sales-summary-dashboard", "read"); return this.plans.rolling(req.user); }
   @Post("orders") createOrder(@Body() body: Record<string, unknown>, @Req() req: UserRequest) {
+    requireTablePermission(req, "rolling-plan", "create");
     return this.plans.createOrder(body, req.user, req.requestId);
   }
   @Post("orders/import-file") @ApiConsumes("multipart/form-data")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 200 * 1024 * 1024 } }))
   async importOrders(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
+    requireTablePermission(req, "rolling-plan", "import");
     const workbook = await this.imports.loadWorkbook(file);
     const sheet = workbook.getWorksheet("接单汇总") ?? workbook.worksheets[0];
     if (!sheet) throw new BadRequestException("Excel 中没有工作表");
@@ -127,30 +167,34 @@ export class PlanController {
     });
     return this.plans.importOrders(rows, req.user, req.requestId);
   }
-  @Patch("orders/:id") updateOrder(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: UserRequest) { return this.plans.updateOrder(id, body, req.user, req.requestId); }
+  @Patch("orders/:id") updateOrder(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "update"); return this.plans.updateOrder(id, body, req.user, req.requestId); }
   @Post("orders/delete") deleteOrders() { throw new ForbiddenException("销售接单汇总不允许手工删除"); }
-  @Post("rows/import") importRows(@Body() body: { rows: Array<{ year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }> }, @Req() req: UserRequest) { return this.plans.importPlanRows(body.rows, req.user, req.requestId); }
-  @Post("items") createItem(@Body() body: { year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }, @Req() req: UserRequest) { return this.plans.createItem(body, req.user, req.requestId); }
+  @Post("rows/import") importRows(@Body() body: { rows: Array<{ year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }> }, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "import"); return this.plans.importPlanRows(body.rows, req.user, req.requestId); }
+  @Post("items") createItem(@Body() body: { year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "create"); return this.plans.createItem(body, req.user, req.requestId); }
   @Post("items/delete") deleteItems() { throw new ForbiddenException("月度计划不允许手工删除"); }
   @Post("items/move")
   moveItems(
     @Body() body: { ids: string[]; targetYear: number; targetMonth: number },
     @Req() req: UserRequest
   ) {
+    requireTablePermission(req, "monthly-plan", "update");
     return this.plans.moveItems(body.ids, body.targetYear, body.targetMonth, req.user, req.requestId);
   }
   @Patch("items/:id/cell")
   update(@Param("id") id: string, @Body() body: { field: string; value: unknown; expectedVersion: number }, @Req() req: UserRequest) {
+    requireTablePermission(req, "monthly-plan", "update");
     return this.plans.updateCell(id, body, req.user, req.requestId);
   }
   @Post("items/bulk")
   bulkUpdate(@Body() body: { updates: Array<{ id: string; field: string; value: unknown; expectedVersion: number }> }, @Req() req: UserRequest) {
+    requireTablePermission(req, "monthly-plan", "update");
     const idempotencyKey = req.headers["idempotency-key"];
     return this.plans.bulkUpdate(body.updates, req.user, req.requestId, typeof idempotencyKey === "string" ? idempotencyKey : "");
   }
   @Post("items/:id/images")
   @UseInterceptors(FileInterceptor("image", { limits: { fileSize: 15 * 1024 * 1024 } }))
   uploadImage(@Param("id") id: string, @UploadedFile() image: Express.Multer.File, @Req() req: UserRequest) {
+    requireTablePermission(req, "monthly-plan", "update");
     return this.storage.addImages(id, image ? [image] : [], req.user, req.requestId);
   }
   @Get("monthly/export")
@@ -158,6 +202,7 @@ export class PlanController {
     @Query("year", ParseIntPipe) year: number, @Query("month", ParseIntPipe) month: number,
     @Req() req: UserRequest, @Res() response: Response
   ) {
+    requireTablePermission(req, "monthly-plan", "export");
     const result = await this.plans.monthly(year, month, req.user);
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(`${month}月计划`, { views: [{ state: "frozen", xSplit: 12, ySplit: 2 }] });
@@ -196,9 +241,10 @@ export class ImportController {
   @ApiBody({ schema: { type: "object", properties: { file: { type: "string", format: "binary" }, year: { type: "integer" }, month: { type: "integer" } } } })
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 200 * 1024 * 1024 } }))
   preview(@UploadedFile() file: Express.Multer.File, @Body() body: { year: string; month: string }, @Req() req: UserRequest) {
+    requireTablePermission(req, "monthly-plan", "import");
     return this.imports.preview(file, Number(body.year), Number(body.month), req.user.sub);
   }
-  @Post(":id/confirm") confirm(@Param("id") id: string) { return this.imports.confirm(id); }
+  @Post(":id/confirm") confirm(@Param("id") id: string, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "import"); return this.imports.confirm(id); }
 }
 
 @ApiTags("基础资料")
@@ -242,7 +288,7 @@ export class MasterDataController {
     return rows;
   }
   @Get("templates/:kind")
-  async downloadTemplate(@Param("kind") kind: string, @Query("format") format: string, @Res() response: Response) {
+  async downloadTemplate(@Param("kind") kind: string, @Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
     const names: Record<string, string> = {
       suppliers: "供应商导入模板",
       dictionaries: "字典导入模板",
@@ -251,13 +297,14 @@ export class MasterDataController {
     };
     const baseName = names[kind];
     if (!baseName) throw new BadRequestException("未知模板类型");
+    const resourceByKind: Record<string, string> = { suppliers: "suppliers", dictionaries: "dictionaries", "sales-orders": "sales-orders", "finished-goods-inbound": "finished-goods-inbound" };
+    requireTablePermission(req, resourceByKind[kind]!, "import");
     const extension = format === "csv" ? "csv" : "xlsx";
     const dynamicHeaders: Record<string, string[]> = {
-      "sales-orders": ["订单号", "品号", "品名", "下单日期", "产前评审交期", "数量", "备注"],
+      "sales-orders": salesOrderImportFields.map((field) => field.headers[0]!),
       "finished-goods-inbound": [
-        "销售订单号", "单据日期", "创建时间", "单据编号", "业务类型", "仓库编码", "仓库", "入库类别",
-        "生产车间编码", "生产车间", "经手人编码", "经手人", "备注", "制单人", "审核人", "存货编码",
-        "存货", "规格型号", "计量单位", "关联信息", "实收数量", "单价", "总金额", "凭证字号"
+        "分类编号", "入库单单号", "单据全称", "单据日期", "入库日期", "序号", "工单单号", "销售单号",
+        "产品品号", "快捷码", "品名", "规格", "允收数量", "业务单位", "类别"
       ]
     };
     const headers = dynamicHeaders[kind];
@@ -281,19 +328,19 @@ export class MasterDataController {
       };
       sheet.getRow(1).alignment = { horizontal: "center", vertical: "middle" };
       if (kind === "finished-goods-inbound") {
-        sheet.getCell("T1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } };
-        sheet.getColumn("B").numFmt = "yyyy-mm-dd";
-        sheet.getColumn("C").numFmt = "yyyy-mm-dd hh:mm:ss";
-        sheet.getColumn("U").numFmt = "0.####";
-        sheet.getColumn("V").numFmt = "0.######";
-        sheet.getColumn("W").numFmt = "0.######";
-        const widths = [18, 15, 22, 19, 12, 10, 10, 14, 14, 12, 12, 12, 42, 10, 10, 18, 22, 12, 10, 30, 12, 12, 14, 12];
-        widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
-      } else {
         sheet.getColumn("D").numFmt = "yyyy-mm-dd";
         sheet.getColumn("E").numFmt = "yyyy-mm-dd";
-        sheet.getColumn("F").numFmt = "0.####";
-        [18, 18, 28, 15, 17, 12, 36].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+        sheet.getColumn("F").numFmt = "0";
+        sheet.getColumn("M").numFmt = "0.####";
+        const widths = [12, 22, 20, 15, 15, 8, 22, 22, 22, 12, 24, 18, 14, 12, 12];
+        widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+      } else {
+        for (const [index, field] of salesOrderImportFields.entries()) {
+          if (field.kind === "date") sheet.getColumn(index + 1).numFmt = "yyyy-mm-dd";
+          if (field.kind === "number") sheet.getColumn(index + 1).numFmt = "0.######";
+          if (field.kind === "integer") sheet.getColumn(index + 1).numFmt = "0";
+          sheet.getColumn(index + 1).width = field.property === "itemName" ? 28 : 18;
+        }
       }
       for (let row = 1; row <= 101; row++) {
         sheet.getRow(row).height = kind === "sales-orders" ? 20 : 18;
@@ -435,97 +482,99 @@ export class MasterDataController {
     return null;
   }
 
+  private salesOrderValue(row: Record<string, unknown>, property: keyof SalesOrder, headers: string[]) {
+    if (row[property] !== undefined) return row[property];
+    for (const header of headers) if (row[header] !== undefined) return row[header];
+    return undefined;
+  }
+  private salesOrderRow(row: Record<string, unknown>) {
+    const result: Record<string, unknown> = {};
+    for (const field of salesOrderImportFields) {
+      const value = this.salesOrderValue(row, field.property, field.headers);
+      result[field.property] = field.kind === "date" ? this.date(value)
+        : field.kind === "number" ? this.numeric(value)
+          : field.kind === "integer" ? (this.numeric(value) === null ? null : Number(this.numeric(value)))
+            : this.text(value);
+    }
+    result.quantity = result.businessQuantity;
+    result.reviewDueDate = result.plannedDeliveryDate;
+    result.remark = this.text(row.remark ?? row["备注"]);
+    return result as Partial<SalesOrder> & { orderNumber: string | null; itemNumber: string | null; sequenceNumber: number | null };
+  }
+
   @Get("sales-orders")
-  listSalesOrders() {
+  listSalesOrders(@Req() req: UserRequest) {
+    requireTablePermission(req, "sales-orders", "read");
     return this.salesOrders.find({ order: { orderDate: "DESC", orderNumber: "ASC", itemNumber: "ASC" } });
   }
   @Post("sales-orders")
-  async addSalesOrder(@Body() body: Partial<SalesOrder>) {
-    const orderNumber = this.text(body.orderNumber);
-    const itemNumber = this.text(body.itemNumber);
-    if (!orderNumber || !itemNumber) throw new BadRequestException("订单号和品号为必填项");
-    if (await this.salesOrders.findOneBy({ orderNumber, itemNumber })) throw new ConflictException("该订单号和品号已存在");
-    return this.salesOrders.save({
-      orderNumber,
-      itemNumber,
-      itemName: this.text(body.itemName),
-      orderDate: this.date(body.orderDate),
-      reviewDueDate: this.date(body.reviewDueDate),
-      quantity: this.numeric(body.quantity),
-      remark: this.text(body.remark)
-    });
+  async addSalesOrder(@Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
+    requireTablePermission(req, "sales-orders", "create");
+    const row = this.salesOrderRow(body as Record<string, unknown>);
+    if (!row.orderNumber || !row.itemNumber) throw new BadRequestException("订单编号和品项编码为必填项");
+    const duplicate = await this.salesOrders.createQueryBuilder("salesOrder").where("salesOrder.orderNumber=:orderNumber", { orderNumber: row.orderNumber }).andWhere("salesOrder.itemNumber=:itemNumber", { itemNumber: row.itemNumber }).andWhere(row.sequenceNumber === null ? "salesOrder.sequenceNumber IS NULL" : "salesOrder.sequenceNumber=:sequenceNumber", { sequenceNumber: row.sequenceNumber }).getOne();
+    if (duplicate) throw new ConflictException("该订单编号、品项编码和序号已存在");
+    return this.salesOrders.save(row as SalesOrder);
   }
   @Patch("sales-orders/:id")
-  async updateSalesOrder(@Param("id") id: string, @Body() body: Partial<SalesOrder>) {
+  async updateSalesOrder(@Param("id") id: string, @Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
+    requireTablePermission(req, "sales-orders", "update");
     const current = await this.salesOrders.findOneBy({ id });
     if (!current) throw new BadRequestException("销售订单不存在");
-    const next = {
-      orderNumber: body.orderNumber === undefined ? current.orderNumber : this.text(body.orderNumber) ?? "",
-      itemNumber: body.itemNumber === undefined ? current.itemNumber : this.text(body.itemNumber) ?? "",
-      itemName: body.itemName === undefined ? current.itemName : this.text(body.itemName),
-      orderDate: body.orderDate === undefined ? current.orderDate : this.date(body.orderDate),
-      reviewDueDate: body.reviewDueDate === undefined ? current.reviewDueDate : this.date(body.reviewDueDate),
-      quantity: body.quantity === undefined ? current.quantity : this.numeric(body.quantity),
-      remark: body.remark === undefined ? current.remark : this.text(body.remark)
-    };
-    if (!next.orderNumber || !next.itemNumber) throw new BadRequestException("订单号和品号为必填项");
-    const duplicate = await this.salesOrders.findOneBy({ orderNumber: next.orderNumber, itemNumber: next.itemNumber });
+    const next = this.salesOrderRow({ ...current, ...body } as Record<string, unknown>);
+    if (!next.orderNumber || !next.itemNumber) throw new BadRequestException("订单编号和品项编码为必填项");
+    const duplicate = await this.salesOrders.createQueryBuilder("salesOrder").where("salesOrder.orderNumber=:orderNumber", { orderNumber: next.orderNumber }).andWhere("salesOrder.itemNumber=:itemNumber", { itemNumber: next.itemNumber }).andWhere(next.sequenceNumber === null ? "salesOrder.sequenceNumber IS NULL" : "salesOrder.sequenceNumber=:sequenceNumber", { sequenceNumber: next.sequenceNumber }).getOne();
     if (duplicate && duplicate.id !== id) throw new ConflictException("该订单号和品号已存在");
     await this.salesOrders.update(id, next);
     return this.salesOrders.findOneByOrFail({ id });
   }
   @Post("sales-orders/import-file") @ApiConsumes("multipart/form-data")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
-  async importSalesOrders(@UploadedFile() file: Express.Multer.File) {
+  async importSalesOrders(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
+    requireTablePermission(req, "sales-orders", "import");
     const rows = await this.uploadedRows(file);
     const errors: string[] = []; const prepared: any[] = []; const seen = new Set<string>();
     for (const [index, row] of rows.entries()) {
       const line = Number(row.__row) || index + 2;
-      const orderNumber = this.text(row["订单号"] ?? row.orderNumber);
-      const itemNumber = this.text(row["品号"] ?? row.itemNumber);
-      if (!orderNumber || !itemNumber) errors.push(`第 ${line} 行：订单号和品号为必填项`);
-      else if (seen.has(`${orderNumber}\u0000${itemNumber}`)) errors.push(`第 ${line} 行：订单号/品号在文件内重复`); else seen.add(`${orderNumber}\u0000${itemNumber}`);
-      for (const error of [
-        this.importValueErrors(row["下单日期"] ?? row.orderDate, "date", "下单日期", line),
-        this.importValueErrors(row["产前评审交期"] ?? row.reviewDueDate, "date", "产前评审交期", line),
-        this.importValueErrors(row["数量"] ?? row.quantity, "number", "数量", line)
-      ]) if (error) errors.push(error);
-      prepared.push({
-        orderNumber,
-        itemNumber,
-        itemName: this.text(row["品名"] ?? row.itemName),
-        orderDate: this.date(row["下单日期"] ?? row.orderDate),
-        reviewDueDate: this.date(row["产前评审交期"] ?? row.reviewDueDate),
-        quantity: this.numeric(row["数量"] ?? row.quantity),
-        remark: this.text(row["备注"] ?? row.remark)
-      });
+      const normalized = this.salesOrderRow(row);
+      if (!normalized.orderNumber || !normalized.itemNumber) errors.push(`第 ${line} 行：DOC_NO/ITEM_CODE 为必填项`);
+      const key = `${normalized.orderNumber}\u0000${normalized.itemNumber}\u0000${normalized.sequenceNumber ?? ""}`;
+      if (seen.has(key)) errors.push(`第 ${line} 行：订单编号/品项编码/序号在文件内重复`); else seen.add(key);
+      for (const field of salesOrderImportFields) {
+        const value = this.salesOrderValue(row, field.property, field.headers);
+        if (field.kind === "date") { const error = this.importValueErrors(value, "date", field.headers[0]!, line); if (error) errors.push(error); }
+        if (field.kind === "number" || field.kind === "integer") { const error = this.importValueErrors(value, "number", field.headers[0]!, line); if (error) errors.push(error); }
+      }
+      prepared.push(normalized);
     }
     if (!rows.length) errors.push("文件中没有可导入的数据行");
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
-      for (const row of prepared) await manager.createQueryBuilder().insert().into(SalesOrder).values({ ...row, updatedBy: currentModificationActor() }).orUpdate(["item_name", "order_date", "review_due_date", "quantity", "remark", "updated_by"], ["order_number", "item_number"]).execute();
+      for (const row of prepared) await manager.createQueryBuilder().insert().into(SalesOrder).values({ ...row, updatedBy: currentModificationActor() }).orUpdate(
+        salesOrderImportFields.filter((field) => !["orderNumber", "itemNumber", "sequenceNumber"].includes(field.property)).map((field) => this.salesOrders.metadata.findColumnWithPropertyName(String(field.property))!.databaseName).concat(["quantity", "review_due_date", "updated_by"]),
+        ["order_number", "item_number", "sequence_number"]
+      ).execute();
     });
     return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
 
   @Get("finished-goods-inbound")
-  listFinishedGoodsInbound() {
-    return this.finishedGoodsInbound.find({ order: { documentDate: "DESC", documentNumber: "ASC", inventoryCode: "ASC" } });
+  listFinishedGoodsInbound(@Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-inbound", "read");
+    return this.finishedGoodsInbound.find({ order: { inboundDate: "DESC", documentNumber: "ASC", lineNumber: "ASC" } });
   }
   @Get("finished-goods-inbound/export")
-  async exportFinishedGoodsInbound(@Query("format") format: string, @Res() response: Response) {
+  async exportFinishedGoodsInbound(@Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
+    requireTablePermission(req, "finished-goods-inbound", "export");
     const rows = await this.finishedGoodsInbound.find({
-      order: { documentDate: "DESC", documentNumber: "ASC", inventoryCode: "ASC" }
+      order: { inboundDate: "DESC", documentNumber: "ASC", lineNumber: "ASC" }
     });
     const fields: Array<[keyof FinishedGoodsInbound, string]> = [
-      ["salesOrderNumber", "销售订单号"], ["documentDate", "单据日期"], ["createdTime", "创建时间"],
-      ["documentNumber", "单据编号"], ["businessType", "业务类型"], ["warehouseCode", "仓库编码"],
-      ["warehouse", "仓库"], ["inboundCategory", "入库类别"], ["workshopCode", "生产车间编码"],
-      ["workshop", "生产车间"], ["handlerCode", "经手人编码"], ["handler", "经手人"],
-      ["remark", "备注"], ["creator", "制单人"], ["auditor", "审核人"], ["inventoryCode", "存货编码"],
-      ["inventoryName", "存货"], ["specification", "规格型号"], ["unit", "计量单位"],
-      ["relationInfo", "关联信息"], ["receivedQuantity", "实收数量"], ["unitPrice", "单价"],
-      ["totalAmount", "总金额"], ["voucherWord", "凭证字号"]
+      ["categoryNumber", "分类编号"], ["documentNumber", "入库单单号"], ["documentFullName", "单据全称"],
+      ["documentDate", "单据日期"], ["inboundDate", "入库日期"], ["lineNumber", "序号"],
+      ["workOrderNumber", "工单单号"], ["salesOrderNumber", "销售单号"], ["inventoryCode", "产品品号"],
+      ["quickCode", "快捷码"], ["inventoryName", "品名"], ["specification", "规格"],
+      ["receivedQuantity", "允收数量"], ["unit", "业务单位"], ["category", "类别"]
     ];
     const extension = format === "csv" ? "csv" : "xlsx";
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`成品入库数据.${extension}`)}`);
@@ -552,23 +601,22 @@ export class MasterDataController {
       if (numericFields.has(field) && value !== null && value !== undefined && value !== "") return Number(value);
       return value ?? null;
     }));
-    sheet.autoFilter = { from: "A1", to: "X1" };
+    sheet.autoFilter = { from: "A1", to: "O1" };
     sheet.getRow(1).font = { name: "新宋体", size: 9, bold: true };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
     sheet.getRow(1).alignment = { horizontal: "center", vertical: "middle" };
-    sheet.getColumn("B").numFmt = "yyyy-mm-dd";
-    sheet.getColumn("C").numFmt = "yyyy-mm-dd hh:mm:ss";
-    sheet.getColumn("U").numFmt = "0.####";
-    sheet.getColumn("V").numFmt = "0.######";
-    sheet.getColumn("W").numFmt = "0.######";
-    const widths = [18, 15, 22, 19, 12, 10, 10, 14, 14, 12, 12, 12, 42, 10, 10, 18, 22, 12, 10, 30, 12, 12, 14, 12];
+    sheet.getColumn("D").numFmt = "yyyy-mm-dd";
+    sheet.getColumn("E").numFmt = "yyyy-mm-dd";
+    sheet.getColumn("M").numFmt = "0.####";
+    const widths = [12, 22, 20, 15, 15, 8, 22, 22, 22, 12, 24, 18, 14, 12, 12];
     widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
     response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     await workbook.xlsx.write(response);
     response.end();
   }
   @Post("finished-goods-inbound")
-  async addFinishedGoodsInbound(@Body() body: Partial<FinishedGoodsInbound>) {
+  async addFinishedGoodsInbound(@Body() body: Partial<FinishedGoodsInbound>, @Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-inbound", "create");
     const row = this.finishedGoodsRow(body as Record<string, unknown>);
     if (!row.documentNumber || !row.inventoryCode || !row.relationInfo) {
       throw new BadRequestException("单据编号、存货编码和关联信息为必填项");
@@ -579,7 +627,8 @@ export class MasterDataController {
     return this.finishedGoodsInbound.save(row);
   }
   @Patch("finished-goods-inbound/:id")
-  async updateFinishedGoodsInbound(@Param("id") id: string, @Body() body: Partial<FinishedGoodsInbound>) {
+  async updateFinishedGoodsInbound(@Param("id") id: string, @Body() body: Partial<FinishedGoodsInbound>, @Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-inbound", "update");
     const current = await this.finishedGoodsInbound.findOneBy({ id });
     if (!current) throw new BadRequestException("成品入库记录不存在");
     const normalized = this.finishedGoodsRow({ ...current, ...body });
@@ -597,7 +646,8 @@ export class MasterDataController {
   }
   @Post("finished-goods-inbound/import-file") @ApiConsumes("multipart/form-data")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 100 * 1024 * 1024 } }))
-  async importFinishedGoodsInbound(@UploadedFile() file: Express.Multer.File) {
+  async importFinishedGoodsInbound(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-inbound", "import");
     const rows = await this.uploadedRows(file);
     const errors: string[] = []; const prepared: any[] = []; const seen = new Set<string>();
     for (const [index, source] of rows.entries()) {
@@ -608,10 +658,9 @@ export class MasterDataController {
       if (seen.has(key)) errors.push(`第 ${line} 行：单据编号/存货编码/关联信息在文件内重复`); else seen.add(key);
       for (const error of [
         this.importValueErrors(source.documentDate ?? source["单据日期"], "date", "单据日期", line),
-        this.importValueErrors(source.createdTime ?? source["创建时间"], "datetime", "创建时间", line),
-        this.importValueErrors(source.receivedQuantity ?? source["实收数量"], "number", "实收数量", line),
-        this.importValueErrors(source.unitPrice ?? source["单价"], "number", "单价", line),
-        this.importValueErrors(source.totalAmount ?? source["总金额"], "number", "总金额", line)
+        this.importValueErrors(source.inboundDate ?? source["入库日期"], "date", "入库日期", line),
+        this.importValueErrors(source.lineNumber ?? source["序号"], "number", "序号", line),
+        this.importValueErrors(source.receivedQuantity ?? source["允收数量"] ?? source["实收数量"], "number", "允收数量", line)
       ]) if (error) errors.push(error);
       prepared.push(row);
     }
@@ -619,6 +668,7 @@ export class MasterDataController {
     if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
     await this.dataSource.transaction(async (manager) => {
       for (const row of prepared) await manager.createQueryBuilder().insert().into(FinishedGoodsInbound).values({ ...row, updatedBy: currentModificationActor() }).orUpdate([
+        "category_number", "document_full_name", "inbound_date", "line_number", "work_order_number", "quick_code", "category",
         "sales_order_number", "document_date", "created_time", "business_type", "warehouse_code",
         "warehouse", "inbound_category", "workshop_code", "workshop", "handler_code", "handler",
         "remark", "creator", "auditor", "inventory_name", "specification", "unit",
@@ -628,11 +678,18 @@ export class MasterDataController {
     return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
   private finishedGoodsRow(row: Record<string, unknown>): Omit<FinishedGoodsInbound, "id" | "createdAt" | "updatedAt" | "updatedBy"> {
+    const lineNumberValue = this.numeric(row.lineNumber ?? row["序号"]);
+    const workOrderNumber = this.text(row.workOrderNumber ?? row["工单单号"]);
     return {
-      salesOrderNumber: this.text(row.salesOrderNumber ?? row["销售订单号"]),
+      categoryNumber: this.text(row.categoryNumber ?? row["分类编号"]),
+      salesOrderNumber: this.text(row.salesOrderNumber ?? row["销售单号"] ?? row["销售订单号"]),
+      documentFullName: this.text(row.documentFullName ?? row["单据全称"]),
       documentDate: this.date(row.documentDate ?? row["单据日期"]),
+      inboundDate: this.date(row.inboundDate ?? row["入库日期"]),
+      lineNumber: lineNumberValue === null ? null : Number(lineNumberValue),
+      workOrderNumber,
       createdTime: this.dateTime(row.createdTime ?? row["创建时间"]),
-      documentNumber: this.text(row.documentNumber ?? row["单据编号"]) ?? "",
+      documentNumber: this.text(row.documentNumber ?? row["入库单单号"] ?? row["单据编号"]) ?? "",
       businessType: this.text(row.businessType ?? row["业务类型"]),
       warehouseCode: this.text(row.warehouseCode ?? row["仓库编码"]),
       warehouse: this.text(row.warehouse ?? row["仓库"]),
@@ -644,15 +701,17 @@ export class MasterDataController {
       remark: this.text(row.remark ?? row["备注"]),
       creator: this.text(row.creator ?? row["制单人"]),
       auditor: this.text(row.auditor ?? row["审核人"]),
-      inventoryCode: this.text(row.inventoryCode ?? row["存货编码"]) ?? "",
-      inventoryName: this.text(row.inventoryName ?? row["存货"]),
-      specification: this.text(row.specification ?? row["规格型号"]),
-      unit: this.text(row.unit ?? row["计量单位"]),
-      relationInfo: this.text(row.relationInfo ?? row["关联信息"]) ?? "",
-      receivedQuantity: this.numeric(row.receivedQuantity ?? row["实收数量"]),
+      inventoryCode: this.text(row.inventoryCode ?? row["产品品号"] ?? row["存货编码"]) ?? "",
+      quickCode: this.text(row.quickCode ?? row["快捷码"]),
+      inventoryName: this.text(row.inventoryName ?? row["品名"] ?? row["存货"]),
+      specification: this.text(row.specification ?? row["规格"] ?? row["规格型号"]),
+      unit: this.text(row.unit ?? row["业务单位"] ?? row["计量单位"]),
+      relationInfo: this.text(row.relationInfo ?? row["关联信息"]) ?? `${workOrderNumber ?? ""}|${lineNumberValue ?? ""}`,
+      receivedQuantity: this.numeric(row.receivedQuantity ?? row["允收数量"] ?? row["实收数量"]),
       unitPrice: this.numeric(row.unitPrice ?? row["单价"]),
       totalAmount: this.numeric(row.totalAmount ?? row["总金额"]),
-      voucherWord: this.text(row.voucherWord ?? row["凭证字号"])
+      voucherWord: this.text(row.voucherWord ?? row["凭证字号"]),
+      category: this.text(row.category ?? row["类别"])
     };
   }
 }
@@ -664,7 +723,8 @@ export class MasterDataController {
 export class AuditController {
   constructor(@InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>) {}
   @Get()
-  list(@Query("user") user?: string, @Query("action") action?: string, @Query("order") order?: string) {
+  list(@Query("user") user: string | undefined, @Query("action") action: string | undefined, @Query("order") order: string | undefined, @Req() req: UserRequest) {
+    requireTablePermission(req, "audit-logs", "read");
     const query = this.audits.createQueryBuilder("a").orderBy("a.createdAt", "DESC").take(500);
     if (user) query.andWhere("a.actorName ILIKE :user", { user: `%${user}%` });
     if (action) query.andWhere("a.action = :action", { action });
@@ -738,7 +798,8 @@ export class AdminController {
     @InjectRepository(RoleOrganizationScope) private readonly organizationScopes: Repository<RoleOrganizationScope>,
     @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
     private readonly imports: ImportService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly adminQueries: AdminQueryService
   ) {}
 
   private admin(req: UserRequest) {
@@ -746,18 +807,9 @@ export class AdminController {
   }
 
   @Get("users")
-  async listUsers(@Req() req: UserRequest) {
+  async listUsers(@Query("search") search: string | undefined, @Req() req: UserRequest) {
     this.admin(req);
-    const [users, links, roles] = await Promise.all([this.users.find({ order: { username: "ASC" } }), this.userRoles.find(), this.roles.find()]);
-    const roleMap = new Map(roles.map((role) => [role.id, role]));
-    return users.map((user) => ({
-      id: user.id, username: user.username, displayName: user.displayName, enabled: user.enabled,
-      division: user.division, employeeNo: user.employeeNo, wechatUserId: user.wechatUserId, position: user.position, departmentPaths: user.departmentPaths,
-      mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt, updatedAt: user.updatedAt, updatedBy: user.updatedBy,
-      roleIds: links.filter((link) => link.userId === user.id).map((link) => link.roleId),
-      roles: links.filter((link) => link.userId === user.id).map((link) => roleMap.get(link.roleId)?.name).filter(Boolean)
-    }));
+    return this.adminQueries.listUsers(search);
   }
 
   @Get("roles")

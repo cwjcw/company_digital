@@ -211,13 +211,11 @@ export const emptyRollingQuickFilters = (): RollingQuickFilters => ({
 });
 
 export const inboundFieldLabels: Record<string, string> = {
-  salesOrderNumber: "销售订单号", documentDate: "单据日期", createdTime: "创建时间",
-  documentNumber: "单据编号", businessType: "业务类型", warehouseCode: "仓库编码",
-  warehouse: "仓库", inboundCategory: "入库类别", workshopCode: "生产车间编码",
-  workshop: "生产车间", handlerCode: "经手人编码", handler: "经手人", remark: "备注",
-  creator: "制单人", auditor: "审核人", inventoryCode: "存货编码", inventoryName: "存货",
-  specification: "规格型号", unit: "计量单位", relationInfo: "关联信息",
-  receivedQuantity: "实收数量", unitPrice: "单价", totalAmount: "总金额", voucherWord: "凭证字号",
+  categoryNumber: "分类编号", documentNumber: "入库单单号", documentFullName: "单据全称",
+  documentDate: "单据日期", inboundDate: "入库日期", lineNumber: "序号",
+  workOrderNumber: "工单单号", salesOrderNumber: "销售单号", inventoryCode: "产品品号",
+  quickCode: "快捷码", inventoryName: "品名", specification: "规格",
+  receivedQuantity: "允收数量", unit: "业务单位", category: "类别",
   createdAt: "创建时间（系统）", updatedAt: "最后修改时间", updatedBy: "修改人"
 };
 export const inboundFields = Object.keys(inboundFieldLabels);

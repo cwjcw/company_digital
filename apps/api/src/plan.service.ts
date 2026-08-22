@@ -352,7 +352,7 @@ export class PlanService {
     user: any,
     requestId: string
   ) {
-    if (!(user.permissions?.includes("*") || user.permissions?.includes("monthly-plan:*:update"))) {
+    if (!(user.permissions?.includes("*") || user.permissions?.includes("daily-progress:*:update") || user.permissions?.includes("monthly-plan:*:update"))) {
       throw new ForbiddenException("没有录入日进度的权限");
     }
     const date = this.normalizeProgressDate(body.date);

@@ -1,13 +1,13 @@
 import {
   ApartmentOutlined, ArrowRightOutlined, CalendarOutlined, DashboardOutlined,
-  SettingOutlined, UserOutlined
+  DatabaseOutlined, ShopOutlined, SettingOutlined, UserOutlined
 } from "@ant-design/icons";
 import { Button, Tag, Typography } from "antd";
 
 const { Text, Title } = Typography;
 
 export type PortalModule = {
-  id: "cockpit" | "planning" | "workflow" | "system" | "profile";
+  id: "cockpit" | "planning" | "data" | "marketing" | "workflow" | "system" | "profile";
   title: string;
   englishTitle: string;
   description: string;
@@ -26,6 +26,16 @@ export const portalModules: PortalModule[] = [
     id: "planning", title: "主计划", englishTitle: "MASTER PLANNING",
     description: "统一管理销售接单、月度排产与每日生产进度。",
     features: ["销售接单明细", "月度计划", "日进度"], path: "/sales-summary-details", tone: "teal"
+  },
+  {
+    id: "data", title: "数据中心", englishTitle: "DATA CENTER",
+    description: "集中管理订单与入库基础业务数据，为计划与分析提供统一来源。",
+    features: ["订单表", "入库表"], path: "/data-center/sales-orders", tone: "cyan"
+  },
+  {
+    id: "marketing", title: "营销中心", englishTitle: "MARKETING CENTER",
+    description: "维护业务客户归属并安排未来两周订单优先级。",
+    features: ["业务客户对应", "订单排期"], path: "/marketing/business-customers", tone: "rose"
   },
   {
     id: "workflow", title: "流程审批", englishTitle: "WORKFLOW",
@@ -47,6 +57,8 @@ export const portalModules: PortalModule[] = [
 const moduleIcons = {
   cockpit: <DashboardOutlined />,
   planning: <CalendarOutlined />,
+  data: <DatabaseOutlined />,
+  marketing: <ShopOutlined />,
   workflow: <ApartmentOutlined />,
   system: <SettingOutlined />,
   profile: <UserOutlined />

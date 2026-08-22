@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ApiOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
@@ -14,11 +14,15 @@ import dayjs from "dayjs";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "./api";
+import { tableResourceRegistry } from "@kdos/contracts";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
+import { SalesOrdersPage } from "./modules/data-center/DataCenterPages";
+import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
+import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
 import {
   FieldVisibility, ImportFeedbackAlert, InlineText, PageHeader, auditColumns, auditLabels,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -100,10 +104,16 @@ function Shell({ logout }: { logout: () => void }) {
     const period = `2026${String(month).padStart(2, "0")}`;
     return { key: `/monthly/${period}`, label: period };
   });
+  const weeklyPages = [
+    { start: "2026-08-16", end: "2026-08-22" }, { start: "2026-08-23", end: "2026-08-29" },
+    { start: "2026-08-30", end: "2026-09-05" }, { start: "2026-09-06", end: "2026-09-12" }
+  ].map((week) => ({ key: `/weekly/${week.start.replaceAll("-", "")}`, label: `${week.start.slice(5)} 至 ${week.end.slice(5)}` }));
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.path)} onLogout={logout} />;
 
   const moduleId = location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/sales-summary-details", "/rolling", "/daily-progress"].includes(location.pathname) || location.pathname.startsWith("/monthly") ? "planning"
+    : ["/sales-summary-details", "/rolling", "/daily-progress", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
+    : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
+    : location.pathname.startsWith("/marketing") ? "marketing"
     : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
     : location.pathname === "/profile" ? "profile" : "system";
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
@@ -116,7 +126,17 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
         { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
       ] },
-      { key: "/daily-progress", icon: <ScheduleOutlined />, label: "日进度" }
+      { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: weeklyPages },
+      { key: "/daily-progress", icon: <ScheduleOutlined />, label: "日进度" },
+      { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
+    ] }],
+    data: [{ key: "data", label: "数据中心", type: "group", children: [
+      { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
+      { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" }
+    ] }],
+    marketing: [{ key: "marketing", label: "营销中心", type: "group", children: [
+      { key: "/marketing/business-customers", icon: <TeamOutlined />, label: "业务人员与客户对应表" },
+      { key: "/marketing/order-schedule", icon: <ScheduleOutlined />, label: "订单排期" }
     ] }],
     workflow: [{ key: "workflow", label: "流程审批", type: "group", children: [
       { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
@@ -124,8 +144,7 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     system: [
       { key: "master", label: "基础资料", type: "group", children: [
-        { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" },
-        { key: "/finished-goods-inbound", icon: <FileExcelOutlined />, label: "成品入库" }
+        { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" }
       ] },
       { key: "system", label: "系统管理", type: "group", children: [
         { key: "/audit", icon: <AuditOutlined />, label: "审计日志" }
@@ -142,10 +161,13 @@ function Shell({ logout }: { logout: () => void }) {
   };
   const pageTitle = /^\/monthly\/\d{6}$/.test(location.pathname)
     ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
+    : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
       "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
-      "/daily-progress": "日进度", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
+      "/daily-progress": "日进度", "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
+      "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表",
+      "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/contacts": "通讯录",
       "/api-keys": "API Key", "/profile": "个人中心"
     } as Record<string, string>)[location.pathname] ?? activeModule.title;
@@ -154,7 +176,7 @@ function Shell({ logout }: { logout: () => void }) {
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
       {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
-      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={["/monthly", "/monthly/2026"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
+      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={["/monthly", "/monthly/2026", "/weekly"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>
     <Layout>
@@ -171,11 +193,21 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
           <Route path="/daily-progress" element={<DailyProgress />} />
+          <Route path="/weekly/20260816" element={<WeeklyPlanPage startDate="2026-08-16" />} />
+          <Route path="/weekly/20260823" element={<WeeklyPlanPage startDate="2026-08-23" />} />
+          <Route path="/weekly/20260830" element={<WeeklyPlanPage startDate="2026-08-30" />} />
+          <Route path="/weekly/20260906" element={<WeeklyPlanPage startDate="2026-09-06" />} />
+          <Route path="/work-reports" element={<WorkReportsPage />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
           <Route path="/data-operations" element={<DataOperations />} />
-          <Route path="/finished-goods-inbound" element={<FinishedGoodsInboundPage />} />
+          <Route path="/finished-goods-inbound" element={<Navigate to="/data-center/inbound" replace />} />
+          <Route path="/data-center/sales-orders" element={<SalesOrdersPage />} />
+          <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
+          <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
+          <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
+          <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/audit" element={<AuditLogs />} />
           <Route path="/admin" element={<AdminCenter />} />
           <Route path="/users" element={<AdminCenter />} />
@@ -410,9 +442,9 @@ function FinishedGoodsInboundPage() {
     } catch (error) { message.error((error as Error).message); }
     finally { setExporting(undefined); }
   };
-  const numericFields = new Set(["receivedQuantity", "unitPrice", "totalAmount"]);
-  const dateFields = new Set(["documentDate"]);
-  const wideFields = new Set(["remark", "inventoryName", "relationInfo"]);
+  const numericFields = new Set(["lineNumber", "receivedQuantity"]);
+  const dateFields = new Set(["documentDate", "inboundDate"]);
+  const wideFields = new Set(["documentNumber", "workOrderNumber", "salesOrderNumber", "inventoryCode", "inventoryName"]);
   const columns = inboundFields.filter((field) => isAuditField(field) || visibleFields.includes(field)).map((field) => ({
     title: inboundFieldLabels[field],
     dataIndex: field,
@@ -427,11 +459,11 @@ function FinishedGoodsInboundPage() {
   }));
 
   return <div>
-    <PageHeader title="成品入库" subtitle="独立维护成品入库数据；支持直接编辑、Excel/CSV 导入和导出" />
+    <PageHeader title="入库表" subtitle="字段来自 25年-现在入库明细.xlsx；已导入 2026 年以来数据" />
     <Space wrap className="master-data-toolbar">
-      <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增成品入库</Button>
+      <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增入库记录</Button>
       <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}>
-        <Button loading={importing}>导入成品入库（CSV/XLSX）</Button>
+        <Button loading={importing}>导入入库表（CSV/XLSX）</Button>
       </Upload>
       <Button onClick={() => void downloadTemplate("xlsx")}>下载 XLSX 模板</Button>
       <Button onClick={() => void downloadTemplate("csv")}>下载 CSV 模板</Button>
@@ -447,29 +479,27 @@ function FinishedGoodsInboundPage() {
       dataSource={records.data} loading={records.isLoading}
       pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
       scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} columns={columns} />
-    <Modal title="新增成品入库" width={1080} open={open} onCancel={() => setOpen(false)}
+    <Modal title="新增入库记录" width={1080} open={open} onCancel={() => setOpen(false)}
       onOk={() => form.validateFields().then(async (values) => {
         await api("/master-data/finished-goods-inbound", {
           method: "POST",
           body: JSON.stringify({
             ...values,
             documentDate: values.documentDate?.format("YYYY-MM-DD"),
-            createdTime: values.createdTime?.toISOString()
+            inboundDate: values.inboundDate?.format("YYYY-MM-DD")
           })
         });
-        setOpen(false); form.resetFields(); message.success("成品入库记录新增成功"); refresh();
+        setOpen(false); form.resetFields(); message.success("入库记录新增成功"); refresh();
       }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
       <Form form={form} layout="vertical">
         <div className="master-data-form-grid inbound-form-grid">
           {inboundBusinessFields.map((field) => <Form.Item key={field} name={field} label={inboundFieldLabels[field]}
             className={field === "remark" ? "master-data-form-wide" : undefined}
-            rules={["documentNumber", "inventoryCode", "relationInfo"].includes(field)
-              ? [{ required: true, whitespace: true, message: `请输入${inboundFieldLabels[field]}` }] : undefined}>
-            {field === "documentDate"
+            rules={["documentNumber", "inventoryCode", "lineNumber"].includes(field)
+              ? [{ required: true, message: `请输入${inboundFieldLabels[field]}` }] : undefined}>
+            {dateFields.has(field)
               ? <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
-              : field === "createdTime"
-                ? <DatePicker showTime style={{ width: "100%" }} format="YYYY-MM-DD HH:mm:ss" />
-                : numericFields.has(field)
+              : numericFields.has(field)
                   ? <InputNumber style={{ width: "100%" }} precision={field === "receivedQuantity" ? 4 : 6} />
                   : field === "remark" ? <Input.TextArea rows={2} /> : <Input />}
           </Form.Item>)}
@@ -573,15 +603,12 @@ function AdminCenter() {
   const [selectedRoleIds, setSelectedRoleIds] = useState<React.Key[]>([]);
   const [form] = Form.useForm();
   const [roleForm] = Form.useForm();
-  const users = useQuery({ queryKey: ["admin-users"], queryFn: () => api<any[]>("/admin/users") });
+  const [userSearch, setUserSearch] = useState("");
+  const deferredUserSearch = useDeferredValue(userSearch);
+  const users = useQuery({ queryKey: ["admin-users", deferredUserSearch], queryFn: () => api<any[]>(`/admin/users?search=${encodeURIComponent(deferredUserSearch)}`) });
   const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<any[]>("/admin/roles") });
   const organizations = useQuery({ queryKey: ["organization-units"], queryFn: () => api<any[]>("/admin/organization-units") });
-  const permissionResources = [
-    ["sales-summary-dashboard", "销售接单汇总大屏"], ["rolling-plan", "销售接单明细"], ["monthly-plan", "月度计划"],
-    ["finished-goods-inbound", "成品入库"], ["sales-orders", "销售订单"], ["suppliers", "供应商"], ["dictionaries", "字典"],
-    ["processes", "工序"], ["users", "用户"], ["roles", "角色与权限"], ["organization", "组织架构"], ["imports", "导入记录"], ["audit-logs", "审计日志"],
-    ["tplus-sales-orders", "T+ 销售订单同步"]
-  ] as const;
+  const permissionResources = tableResourceRegistry.map((resource) => [resource.code, resource.label, resource.module] as const);
   const permissionActions = [["read", "查看"], ["create", "新增"], ["update", "编辑"], ["delete", "删除/停用"], ["import", "导入"], ["export", "导出"]] as const;
   const adminUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
   const allUserFields = ["username", "displayName", "position", "departmentPaths", "roles", "enabled", "lastLoginAt"];
@@ -652,7 +679,7 @@ function AdminCenter() {
     }));
     return make(null);
   }, [organizations.data]);
-  return <div><PageHeader title="用户与角色" subtitle="可直接编辑；复选框支持多选批量停用" actions={<Space><Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => { const raw = await parseCsvFile(file as File); const rows = raw.map((row: any) => ({ username: row.username ?? row["账号"], displayName: row.displayName ?? row["姓名"], division: row.division ?? row["事业部"], roleIds: String(row.roles ?? row["角色"] ?? "").split(/[、|;]/).map((name) => roles.data?.find((role) => role.name === name)?.id).filter(Boolean) })); await api("/admin/users/import", { method: "POST", body: JSON.stringify({ rows }) }); message.success(`已导入 ${rows.length} 个用户`); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); return false; }}><Button>导入用户 CSV</Button></Upload><Button danger disabled={!selectedUserIds.length} onClick={async () => { await api("/admin/users/delete", { method: "POST", body: JSON.stringify({ ids: selectedUserIds }) }); setSelectedUserIds([]); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); }}>停用选中（{selectedUserIds.length}）</Button><FieldVisibility all={allUserFields.map((key) => ({ key, label: ({ username: "账号", displayName: "姓名", roles: "角色", division: "事业部", enabled: "状态", lastLoginAt: "上次登录" } as any)[key] }))} visible={visibleUserFields} onChange={setVisibleUserFields} /><Button type="primary" onClick={() => setOpen(true)}>新增用户</Button></Space>} />
+  return <div><PageHeader title="用户与角色" subtitle="可通过账号、姓名或部门搜索员工" actions={<Space wrap><Input allowClear value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="搜索账号、姓名、部门" style={{ width: 240 }} /><Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => { const raw = await parseCsvFile(file as File); const rows = raw.map((row: any) => ({ username: row.username ?? row["账号"], displayName: row.displayName ?? row["姓名"], division: row.division ?? row["事业部"], roleIds: String(row.roles ?? row["角色"] ?? "").split(/[、|;]/).map((name) => roles.data?.find((role) => role.name === name)?.id).filter(Boolean) })); await api("/admin/users/import", { method: "POST", body: JSON.stringify({ rows }) }); message.success(`已导入 ${rows.length} 个用户`); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); return false; }}><Button>导入用户 CSV</Button></Upload><Button danger disabled={!selectedUserIds.length} onClick={async () => { await api("/admin/users/delete", { method: "POST", body: JSON.stringify({ ids: selectedUserIds }) }); setSelectedUserIds([]); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); }}>停用选中（{selectedUserIds.length}）</Button><FieldVisibility all={allUserFields.map((key) => ({ key, label: ({ username: "账号", displayName: "姓名", roles: "角色", division: "事业部", enabled: "状态", lastLoginAt: "上次登录" } as any)[key] }))} visible={visibleUserFields} onChange={setVisibleUserFields} /><Button type="primary" onClick={() => setOpen(true)}>新增用户</Button></Space>} />
     <Tabs items={[
       { key: "users", label: "用户", children: <Table rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={users.data} loading={users.isLoading} columns={userColumns} scroll={{ x: "max-content" }} /> },
       { key: "roles", label: "角色与权限", children: <><Space style={{ marginBottom: 12 }}><Button type="primary" onClick={openNewRole}>新增角色</Button><Text type="secondary">可手工新增角色，并逐项配置页面及操作权限</Text></Space><Table rowKey="id" rowSelection={{ selectedRowKeys: selectedRoleIds, onChange: setSelectedRoleIds }} dataSource={roles.data} loading={roles.isLoading} columns={roleColumns} scroll={{ x: "max-content" }} /></> }
@@ -660,10 +687,10 @@ function AdminCenter() {
     <Modal title={editingRole ? `配置角色权限：${editingRole.name}` : "新增角色与权限"} open={roleOpen} width={1120} onCancel={() => setRoleOpen(false)} onOk={() => void saveRolePermissions()}>
       <Button style={{ marginBottom: 12 }} onClick={() => setAssignmentOpen(true)}>添加用户或架构</Button>
       <Form form={roleForm} layout="vertical"><Form.Item name="name" label="角色名称" rules={[{ required: true, whitespace: true, message: "请输入角色名称" }]}><Input maxLength={100} /></Form.Item><Form.Item name="description" label="角色说明"><Input maxLength={255} /></Form.Item></Form>
-      <Table rowKey="resource" size="small" pagination={false} dataSource={permissionResources.map(([resource, label]) => {
+      <Table rowKey="resource" size="small" pagination={false} dataSource={permissionResources.map(([resource, label, module]) => {
         const permission = editingRole?.permissions?.find((entry: any) => entry.resource === resource && entry.fieldKey === "*");
-        return { resource, label, createdAt: permission?.createdAt, updatedAt: permission?.updatedAt, updatedBy: permission?.updatedBy };
-      })} columns={[{ title: "表/页面", dataIndex: "label" }, ...permissionActions.map(([action, label]) => ({ title: label, align: "center" as const, render: (_: unknown, row: any) => <Checkbox checked={Boolean(permissionDraft[row.resource]?.[action])} onChange={(event) => setPermissionDraft((previous) => ({ ...previous, [row.resource]: { ...(previous[row.resource] ?? {}), [action]: event.target.checked } }))} /> })), ...auditColumns]} scroll={{ x: "max-content" }} />
+        return { resource, label, module, createdAt: permission?.createdAt, updatedAt: permission?.updatedAt, updatedBy: permission?.updatedBy };
+      })} columns={[{ title: "模块", dataIndex: "module", width: 120 }, { title: "表/报表", dataIndex: "label" }, ...permissionActions.map(([action, label]) => ({ title: label, align: "center" as const, render: (_: unknown, row: any) => <Checkbox checked={Boolean(permissionDraft[row.resource]?.[action])} onChange={(event) => setPermissionDraft((previous) => ({ ...previous, [row.resource]: { ...(previous[row.resource] ?? {}), [action]: event.target.checked } }))} /> })), ...auditColumns]} scroll={{ x: "max-content" }} />
     </Modal>
     <Modal title="添加用户或架构" open={assignmentOpen} onCancel={() => setAssignmentOpen(false)} onOk={() => setAssignmentOpen(false)}>
       <Form layout="vertical">

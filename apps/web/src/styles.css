@@ -193,6 +193,8 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 
 .portal-tone-indigo { --tone: #4f62c7; --tone-soft: #eef0ff; }
 .portal-tone-teal { --tone: #138678; --tone-soft: #e8f7f4; }
+.portal-tone-cyan { --tone: #167d95; --tone-soft: #e8f6f9; }
+.portal-tone-rose { --tone: #b34f72; --tone-soft: #fbeef3; }
 .portal-tone-orange { --tone: #c8752c; --tone-soft: #fff1e5; }
 .portal-tone-blue { --tone: #2877a8; --tone-soft: #eaf5fb; }
 .portal-tone-violet { --tone: #7b58a7; --tone-soft: #f4edfb; }
