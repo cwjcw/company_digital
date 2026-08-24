@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Table, Upload } from "antd";
 import { api, ApiError } from "../../api";
 import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
+import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
 
 type SalesField = { key: string; label: string; type?: "date" | "number"; width?: number; required?: boolean };
 const salesFields: SalesField[] = [
@@ -38,7 +39,7 @@ export function SalesOrdersPage() {
   };
   const columns = salesFields.map((field) => ({
     title: field.label, dataIndex: field.key, width: field.width ?? 150,
-    render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} value={value} onSave={(next) => update(row, field.key, next)} />
+    render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={isDueDateLabel(field.label) ? DUE_DATE_DISPLAY_FORMAT : undefined} value={value} onSave={(next) => update(row, field.key, next)} />
   }));
   return <div><PageHeader title="订单表" subtitle="字段与 E10 sales_order.sql 的 33 个查询结果一致；支持直接维护及 Excel/CSV 导入" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增订单</Button>
@@ -54,7 +55,7 @@ export function SalesOrdersPage() {
     }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>{salesFields.map((field) =>
         <Form.Item key={field.key} name={field.key} label={field.label} rules={field.required ? [{ required: true }] : undefined}>
-          {field.type === "date" ? <DatePicker style={{ width: "100%" }} /> : field.type === "number" ? <InputNumber precision={field.key === "sequenceNumber" ? 0 : 6} style={{ width: "100%" }} /> : <Input />}
+          {field.type === "date" ? <DatePicker format={isDueDateLabel(field.label) ? DUE_DATE_DISPLAY_FORMAT : undefined} style={{ width: "100%" }} /> : field.type === "number" ? <InputNumber precision={field.key === "sequenceNumber" ? 0 : 6} style={{ width: "100%" }} /> : <Input />}
         </Form.Item>
       )}</Form>
     </Modal>

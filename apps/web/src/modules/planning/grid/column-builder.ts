@@ -2,6 +2,7 @@ import type { ColDef, ColGroupDef } from "ag-grid-community";
 import dayjs from "dayjs";
 import type { FieldAccess, PlanningFieldDefinition } from "./column-registry";
 import { getValue } from "../../../api";
+import { formatDueDate, isDueDateLabel } from "../../../shared/date-format";
 
 export type DictionaryOptions = Record<string, string[]>;
 export type RuntimePlanningField = PlanningFieldDefinition & { access?: FieldAccess };
@@ -27,13 +28,13 @@ function column(field: RuntimePlanningField, editMode: boolean, dictionaries: Di
     resizable: true, sortable: field.sortable, headerTooltip: field.label,
     tooltipValueGetter: ({ value }) => value == null || value === "" ? field.label : String(value),
     type: numeric ? "numericColumn" : undefined,
-    cellEditor: field.editorType === "dictionary" ? "agSelectCellEditor" : undefined,
+    cellEditor: field.dataType === "date" ? "agDateStringCellEditor" : field.editorType === "dictionary" ? "agSelectCellEditor" : undefined,
     cellEditorParams: field.editorType === "dictionary" ? { values: dictionaries[field.dictionaryCode ?? ""] ?? [] } : undefined,
     headerClass: fieldTone ? `column-tone-${fieldTone}-header` : undefined,
     cellClass: fieldTone ? `column-tone-${fieldTone}` : undefined,
     valueGetter: ({ data }) => field.dataType === "image" ? (data?.imageRefs?.length ?? 0) : getValue(data, field.code),
     valueFormatter: field.dataType === "image" ? ({ value }) => value ? `${value} 张` : "上传"
-      : field.dataType === "date" ? ({ value }) => value ? dayjs(value).format("MM-DD") : "" : undefined,
+      : field.dataType === "date" ? ({ value }) => isDueDateLabel(field.label) ? formatDueDate(value) : value ? dayjs(value).format("MM-DD") : "" : undefined,
     valueParser: numeric ? ({ newValue }) => newValue === "" ? null : Number(newValue) : undefined,
     cellClassRules: field.rendererType === "status" ? {
       "process-status-complete": ({ value }) => value === "已完成" || value === "完成" || value === "COMPLETED",

@@ -4,6 +4,7 @@ import { Button, DatePicker, Input, message, Space, Table } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../../api";
 import { InlineText, PageHeader } from "../../../shared/legacy-ui";
+import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
 
 export function WeeklyPlanPage({ startDate }: { startDate: string }) {
   const queryClient = useQueryClient(); const [search, setSearch] = useState("");
@@ -18,8 +19,8 @@ export function WeeklyPlanPage({ startDate }: { startDate: string }) {
     { title: "品项编码", dataIndex: "itemNumber", width: 170 }, { title: "品项名称", dataIndex: "itemName", width: 260 },
     { title: "订单总数量", dataIndex: "orderTotalQuantity", width: 140 }, { title: "生产单位", dataIndex: "productionUnit", width: 160 },
     { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` },
-    { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" value={value} onSave={(next) => update(row, "customerDueDate", next)} /> },
-    { title: "评审交期", dataIndex: "reviewDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" value={value} onSave={(next) => update(row, "reviewDueDate", next)} /> }
+    { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "customerDueDate", next)} /> },
+    { title: "评审交期", dataIndex: "reviewDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "reviewDueDate", next)} /> }
   ];
   return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${period.startDate} 至 ${period.endDate}；仅从订单排期同步完成比例小于 100% 的记录` : "正在加载周计划周期"} actions={<Space>
     <Input.Search allowClear placeholder="搜索客户、订单、品项、生产单位" onSearch={setSearch} style={{ width: 320 }} /><Button type="primary" disabled={!period} onClick={() => void sync()}>从订单排期同步</Button>

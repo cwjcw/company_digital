@@ -78,6 +78,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
 }) {
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 18 ? "下午好" : "晚上好";
+  const visibleModules = portalModules.filter((module) => module.id !== "system" || user.roles?.includes("系统管理员"));
   return <div className="module-portal">
     <header className="portal-header">
       <BrandLogo />
@@ -97,7 +98,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
         <div className="portal-date"><strong>{new Date().getDate()}</strong><span>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", weekday: "long" }).format(new Date())}</span></div>
       </section>
       <section className="portal-module-grid" aria-label="工作模块">
-        {portalModules.map((module) => <button type="button" key={module.id} className={`portal-module-card portal-tone-${module.tone}`} onClick={() => onOpen(module)} aria-label={`进入${module.title}`}>
+        {visibleModules.map((module) => <button type="button" key={module.id} className={`portal-module-card portal-tone-${module.tone}`} onClick={() => onOpen(module)} aria-label={`进入${module.title}`}>
           <span className="portal-module-top"><span className="portal-module-icon">{moduleIcons[module.id]}</span><ArrowRightOutlined className="portal-module-arrow" /></span>
           <span className="portal-module-name"><small>{module.englishTitle}</small><strong>{module.title}</strong></span>
           <span className="portal-module-description">{module.description}</span>

@@ -8,6 +8,7 @@ import type { PlanningVersionContract } from "@kdos/contracts";
 import { api, ApiError, containsText } from "../../../api";
 import { buildPlanningColumns, type DictionaryOptions, type RuntimePlanningField } from "../grid/column-builder";
 import { planningFieldRegistry } from "../grid/column-registry";
+import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
 
 const { Text } = Typography;
 type Notice = { type: "success" | "error" | "info"; text: string };
@@ -15,8 +16,8 @@ type PeriodResponse = { id: string; year: number; month: number; currentVersionI
 type ImportPreview = { jobId: string; summary: { total: number; warnings: number }; warnings: string[] };
 
 function useDictionaryOptions() {
-  const dictionaries = useQuery({ queryKey: ["dictionaries"], queryFn: () => api<any[]>("/master-data/dictionaries") });
-  const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<any[]>("/master-data/suppliers") });
+  const dictionaries = useQuery({ queryKey: ["reference-dictionaries"], queryFn: () => api<any[]>("/reference-data/dictionaries") });
+  const suppliers = useQuery({ queryKey: ["reference-suppliers"], queryFn: () => api<any[]>("/reference-data/suppliers") });
   return useMemo<DictionaryOptions>(() => {
     const options: DictionaryOptions = {};
     for (const type of dictionaries.data ?? []) options[type.code] = (type.values ?? []).filter((entry: any) => entry.enabled).map((entry: any) => entry.value);
@@ -273,10 +274,10 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       {!!importPreview?.warnings.length && <Alert style={{ marginTop: 12 }} type="warning" showIcon message={`${importPreview.warnings.length} 条数据质量提示`} description={<ul>{importPreview.warnings.slice(0, 20).map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul>} />}
     </Modal>
     <Modal title="新增计划行" open={addOpen} confirmLoading={creatingItem} onCancel={() => setAddOpen(false)} onOk={() => void createItem()}>
-      <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="计划生产数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="交期"><DatePicker style={{ width: "100%" }} /></Form.Item><Form.Item name="priority" label="优先级" initialValue={50}><InputNumber min={1} max={999} style={{ width: "100%" }} /></Form.Item></Form>
+      <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="计划生产数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item><Form.Item name="priority" label="优先级" initialValue={50}><InputNumber min={1} max={999} style={{ width: "100%" }} /></Form.Item></Form>
     </Modal>
     <Modal title={`批量修改 ${selectedIds.length} 行`} open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => void bulkUpdate()}>
-      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select options={[{ value: "priority", label: "优先级" }, { value: "responsibleOrgId", label: "责任组织 ID" }, { value: "ownerUserId", label: "负责人 ID" }, { value: "customerDueDate", label: "交期" }, { value: "planningStatus", label: "计划状态" }]} /></Form.Item><Form.Item noStyle shouldUpdate={(before, after) => before.field !== after.field}>{({ getFieldValue }) => <Form.Item name="value" label="新值" rules={[{ required: true }]}>{getFieldValue("field") === "customerDueDate" ? <DatePicker style={{ width: "100%" }} /> : getFieldValue("field") === "priority" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>}</Form.Item></Form>
+      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select options={[{ value: "priority", label: "优先级" }, { value: "responsibleOrgId", label: "责任组织 ID" }, { value: "ownerUserId", label: "负责人 ID" }, { value: "customerDueDate", label: "交期" }, { value: "planningStatus", label: "计划状态" }]} /></Form.Item><Form.Item noStyle shouldUpdate={(before, after) => before.field !== after.field}>{({ getFieldValue }) => <Form.Item name="value" label="新值" rules={[{ required: true }]}>{getFieldValue("field") === "customerDueDate" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : getFieldValue("field") === "priority" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>}</Form.Item></Form>
     </Modal>
     <Modal title={selectedItem ? `上传简图 · 品号 ${selectedItem.itemNumber}` : "上传简图"} open={imageOpen} onCancel={() => setImageOpen(false)} footer={<Button onClick={() => setImageOpen(false)}>关闭</Button>}>
       {!selectedItem ? <Alert type="info" showIcon message="请点击表格中的简图单元格" /> : <Space wrap>

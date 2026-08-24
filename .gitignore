@@ -15,6 +15,8 @@ backups/
 *.sql
 !database/migrations/0003_data_marketing_centers.sql
 !database/migrations/0004_order_schedule_weekly_work_reports.sql
+!database/demo/seed_legacy_demo.sql
+!database/demo/seed_kdos_demo.sql
 playwright-report/
 test-results/
 .codex-tmp/

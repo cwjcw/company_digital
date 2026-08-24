@@ -15,6 +15,7 @@ import {
   statusClass, useDictionaryOptions,
   type ImportFeedback, type PlanFilter, type RollingQuickFilters
 } from "../../../shared/legacy-ui";
+import { DUE_DATE_DISPLAY_FORMAT, formatDueDate, isDueDateLabel } from "../../../shared/date-format";
 
 const { Text } = Typography;
 
@@ -175,7 +176,7 @@ export function SalesSummaryDashboard() {
             { title: "订单号", dataIndex: "orderNumber", width: 140 },
             { title: "客户", dataIndex: "customer", ellipsis: true },
             { title: "承产单位", dataIndex: "division", width: 110 },
-            { title: "有效交期", dataIndex: "dueDate", width: 100, render: (value: string) => dayjs(value).format("MM-DD") },
+            { title: "有效交期", dataIndex: "dueDate", width: 100, render: formatDueDate },
             { title: "状态", dataIndex: "status", width: 90, render: (value: string) => <Tag color={value === "延期" ? "red" : value === "即将延期" ? "orange" : "blue"}>{value}</Tag> },
             ...auditColumns
           ]} />
@@ -270,7 +271,7 @@ export function SalesSummaryDetails() {
     valueFormatter: ["createdAt", "updatedAt"].includes(meta.key)
       ? ({ value }) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—"
       : meta.kind === "date"
-      ? ({ value }) => value ? dayjs(value).format("MM-DD") : ""
+      ? ({ value }) => isDueDateLabel(meta.header) ? formatDueDate(value) : value ? dayjs(value).format("MM-DD") : ""
       : meta.key === "completionRate"
         ? ({ value }) => value === null || value === undefined ? "—" : `${(Number(value) * 100).toFixed(1)}%`
         : undefined,
@@ -334,7 +335,7 @@ export function SalesSummaryDetails() {
         <DatePicker aria-label="筛选所属月份" picker="month" allowClear format="YYYY年M月" placeholder="所属月份"
           value={quickFilters.month ? dayjs(`${quickFilters.month}-01`) : null}
           onChange={(value) => setQuickFilters((current) => ({ ...current, month: value?.format("YYYY-MM") ?? "" }))} style={{ width: 128 }} />
-        <DatePicker.RangePicker aria-label="筛选滚动客户要求交期范围" allowClear format="M月D日"
+        <DatePicker.RangePicker aria-label="筛选滚动客户要求交期范围" allowClear format={DUE_DATE_DISPLAY_FORMAT}
           placeholder={["客户交期开始", "客户交期结束"]}
           value={quickFilters.customerDueDateStart && quickFilters.customerDueDateEnd
             ? [dayjs(quickFilters.customerDueDateStart), dayjs(quickFilters.customerDueDateEnd)] : null}
@@ -342,7 +343,7 @@ export function SalesSummaryDetails() {
             customerDueDateStart: values?.[0]?.format("YYYY-MM-DD") ?? "",
             customerDueDateEnd: values?.[1]?.format("YYYY-MM-DD") ?? ""
           }))} style={{ width: 260 }} />
-        <DatePicker.RangePicker aria-label="筛选滚动产前评审交期范围" allowClear format="M月D日"
+        <DatePicker.RangePicker aria-label="筛选滚动产前评审交期范围" allowClear format={DUE_DATE_DISPLAY_FORMAT}
           placeholder={["评审交期开始", "评审交期结束"]}
           value={quickFilters.reviewDueDateStart && quickFilters.reviewDueDateEnd
             ? [dayjs(quickFilters.reviewDueDateStart), dayjs(quickFilters.reviewDueDateEnd)] : null}
@@ -353,7 +354,7 @@ export function SalesSummaryDetails() {
       </Flex>
       <Flex className="monthly-toolbar-row rolling-filter-row monthly-filter-row-secondary" align="center" gap={8} wrap>
         <span className="monthly-filter-indent" aria-hidden="true" />
-        <DatePicker.RangePicker aria-label="筛选滚动异常后二次交期范围" allowClear format="M月D日"
+        <DatePicker.RangePicker aria-label="筛选滚动异常后二次交期范围" allowClear format={DUE_DATE_DISPLAY_FORMAT}
           placeholder={["异常交期开始", "异常交期结束"]}
           value={quickFilters.exceptionDueDateStart && quickFilters.exceptionDueDateEnd
             ? [dayjs(quickFilters.exceptionDueDateStart), dayjs(quickFilters.exceptionDueDateEnd)] : null}
@@ -420,9 +421,9 @@ export function SalesSummaryDetails() {
         <Form.Item name="salesperson" label="业务员"><Input /></Form.Item>
         <Form.Item name="orderNumber" label="订单号" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
         <Form.Item name="orderDate" label="下单日期"><DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="customerDueDate" label="客户要求交期"><DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="reviewDueDate" label="产前评审交期"><DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="exceptionDueDate" label="异常后二次交期"><DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="customerDueDate" label="客户要求交期"><DatePicker style={{ width: "100%" }} format={DUE_DATE_DISPLAY_FORMAT} /></Form.Item>
+        <Form.Item name="reviewDueDate" label="产前评审交期"><DatePicker style={{ width: "100%" }} format={DUE_DATE_DISPLAY_FORMAT} /></Form.Item>
+        <Form.Item name="exceptionDueDate" label="异常后二次交期"><DatePicker style={{ width: "100%" }} format={DUE_DATE_DISPLAY_FORMAT} /></Form.Item>
         <Form.Item name="exceptionDeliveryMethod" label="异常交货方式"><Select allowClear options={(dictionaryOptions.deliveryMethod ?? []).map((value) => ({ value, label: value }))} /></Form.Item>
         <Form.Item name="orderAmount" label="订单金额"><InputNumber style={{ width: "100%" }} precision={4} /></Form.Item>
         <Form.Item name="division" label="承产单位"><Select allowClear options={(dictionaryOptions.division ?? []).map((value) => ({ value, label: value }))} /></Form.Item>

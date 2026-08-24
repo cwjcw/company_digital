@@ -100,6 +100,8 @@ function Shell({ logout }: { logout: () => void }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+  const isSystemAdmin = user.roles?.includes("系统管理员");
+  const systemPaths = ["/master-data", "/data-operations", "/audit", "/admin", "/users", "/contacts", "/api-keys"];
   const monthlyPages = Array.from({ length: 5 }, (_, index) => 8 + index).map((month) => {
     const period = `2026${String(month).padStart(2, "0")}`;
     return { key: `/monthly/${period}`, label: period };
@@ -109,6 +111,7 @@ function Shell({ logout }: { logout: () => void }) {
     { start: "2026-08-30", end: "2026-09-05" }, { start: "2026-09-06", end: "2026-09-12" }
   ].map((week) => ({ key: `/weekly/${week.start.replaceAll("-", "")}`, label: `${week.start.slice(5)} 至 ${week.end.slice(5)}` }));
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.path)} onLogout={logout} />;
+  if (systemPaths.includes(location.pathname) && !isSystemAdmin) return <Navigate to="/" replace />;
 
   const moduleId = location.pathname === "/sales-summary-dashboard" ? "cockpit"
     : ["/sales-summary-details", "/rolling", "/daily-progress", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"

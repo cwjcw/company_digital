@@ -7,7 +7,7 @@ import dataSource from "./data-source";
 import { AuthGuard, AuthService } from "./auth";
 import {
   AuditController, AuthController, ImportController, MasterDataController,
-  PlanController, SystemController, ApiKeyController, AdminController
+  PlanController, SystemController, ReferenceDataController, ApiKeyController, AdminController
 } from "./controllers";
 import { DomainService } from "./domain.service";
 import { entities } from "./entities";
@@ -40,7 +40,7 @@ import { PlanningOperationsModule } from "./modules/planning-operations/planning
     DevelopmentRequestModule
   ],
   controllers: [
-    SystemController, AuthController, PlanController, ImportController,
+    SystemController, ReferenceDataController, AuthController, PlanController, ImportController,
     MasterDataController, AuditController, ApiKeyController, AdminController,
     TplusOrderSyncController
   ],

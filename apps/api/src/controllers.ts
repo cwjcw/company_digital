@@ -12,7 +12,7 @@ import ExcelJS from "exceljs";
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { DataSource, Repository } from "typeorm";
-import { monthlyPlanColumns } from "@tracker/shared";
+import { dictionarySeeds, monthlyPlanColumns } from "@tracker/shared";
 import { AuthGuard, AuthService } from "./auth";
 import {
   ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, Permission,
@@ -69,10 +69,33 @@ function requireTablePermission(req: UserRequest, resource: string, action: stri
   throw new ForbiddenException("当前权限组没有此表的操作权限");
 }
 
+function requireSystemAdmin(req: UserRequest) {
+  if (req.user.roles?.includes("系统管理员")) return;
+  throw new ForbiddenException("仅系统管理员可以访问系统管理模块");
+}
+
 @ApiTags("系统")
 @Controller()
 export class SystemController {
   @Get("health") health() { return { status: "ok", timestamp: new Date().toISOString() }; }
+}
+
+@ApiTags("业务参考数据")
+@ApiBearerAuth()
+@UseGuards(AuthGuard)
+@Controller("reference-data")
+export class ReferenceDataController {
+  @Get("dictionaries")
+  dictionaries() {
+    return Object.entries(dictionarySeeds).map(([code, values]) => ({
+      code, name: code, values: values.map((value, index) => ({ id: `demo-${code}-${index + 1}`, value, sortOrder: index + 1, enabled: true }))
+    }));
+  }
+
+  @Get("suppliers")
+  suppliers() {
+    return [{ id: "demo-supplier-1", code: "DEMO-SUPPLIER", name: "演示外协供应商", enabled: true }];
+  }
 }
 
 @ApiTags("登录")
@@ -298,7 +321,8 @@ export class MasterDataController {
     const baseName = names[kind];
     if (!baseName) throw new BadRequestException("未知模板类型");
     const resourceByKind: Record<string, string> = { suppliers: "suppliers", dictionaries: "dictionaries", "sales-orders": "sales-orders", "finished-goods-inbound": "finished-goods-inbound" };
-    requireTablePermission(req, resourceByKind[kind]!, "import");
+    if (["suppliers", "dictionaries", "processes"].includes(kind)) requireSystemAdmin(req);
+    else requireTablePermission(req, resourceByKind[kind]!, "import");
     const extension = format === "csv" ? "csv" : "xlsx";
     const dynamicHeaders: Record<string, string[]> = {
       "sales-orders": salesOrderImportFields.map((field) => field.headers[0]!),
@@ -365,22 +389,25 @@ export class MasterDataController {
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${baseName}.${extension}`)}`);
     response.send(content);
   }
-  @Get("suppliers") listSuppliers() { return this.suppliers.find({ order: { name: "ASC" } }); }
-  @Post("suppliers") async addSupplier(@Body() body: { code: string; name: string; remark?: string; enabled?: boolean }) {
+  @Get("suppliers") listSuppliers(@Req() req: UserRequest) { requireSystemAdmin(req); return this.suppliers.find({ order: { name: "ASC" } }); }
+  @Post("suppliers") async addSupplier(@Body() body: { code: string; name: string; remark?: string; enabled?: boolean }, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const code = body.code?.trim();
     if (!code || !body.name?.trim()) throw new BadRequestException("供应商编码和名称为必填项");
     if (await this.suppliers.findOneBy({ code })) throw new ConflictException("供应商编码已存在");
     return this.suppliers.save({ code, name: body.name.trim(), remark: body.remark ?? null, enabled: body.enabled ?? true });
   }
-  @Patch("suppliers/:id") async updateSupplier(@Param("id") id: string, @Body() body: { code?: string; name?: string; remark?: string; enabled?: boolean }) {
+  @Patch("suppliers/:id") async updateSupplier(@Param("id") id: string, @Body() body: { code?: string; name?: string; remark?: string; enabled?: boolean }, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     if (body.code !== undefined) {
       const code = body.code.trim(); if (!code) throw new BadRequestException("供应商编码不能为空");
       const duplicate = await this.suppliers.findOneBy({ code }); if (duplicate && duplicate.id !== id) throw new ConflictException("供应商编码已存在"); body.code = code;
     }
     return this.suppliers.update(id, body);
   }
-  @Post("suppliers/delete") async deleteSuppliers(@Body() body: { ids: string[] }) { await this.suppliers.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
-  @Post("suppliers/import") async importSuppliers(@Body() body: { rows: Array<{ code?: string; name: string; remark?: string; enabled?: boolean }> }) {
+  @Post("suppliers/delete") async deleteSuppliers(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.suppliers.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
+  @Post("suppliers/import") async importSuppliers(@Body() body: { rows: Array<{ code?: string; name: string; remark?: string; enabled?: boolean }> }, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const errors: string[] = []; const seen = new Set<string>();
     for (const [index, row] of (body.rows ?? []).entries()) {
       const code = row.code?.trim(); const line = Number((row as any).__row) || index + 2;
@@ -395,16 +422,19 @@ export class MasterDataController {
     return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
   @Post("suppliers/import-file") @ApiConsumes("multipart/form-data") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
-  async importSupplierFile(@UploadedFile() file: Express.Multer.File) {
+  async importSupplierFile(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const raw = await this.uploadedRows(file);
-    return this.importSuppliers({ rows: raw.map((row: any) => ({ code: row.code ?? row["编码"], name: row.name ?? row["名称"], remark: row.remark ?? row["备注"], enabled: this.enabledValue(row.enabled ?? row["是否启用"]), __row: row.__row })) as any });
+    return this.importSuppliers({ rows: raw.map((row: any) => ({ code: row.code ?? row["编码"], name: row.name ?? row["名称"], remark: row.remark ?? row["备注"], enabled: this.enabledValue(row.enabled ?? row["是否启用"]), __row: row.__row })) as any }, req);
   }
-  @Get("dictionaries") async dictionaries() {
+  @Get("dictionaries") async dictionaries(@Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const types = await this.dictionaryTypes.find();
     const values = await this.dictionaryValues.find({ order: { sortOrder: "ASC" } });
     return types.map((type) => ({ ...type, values: values.filter((value) => value.typeId === type.id) }));
   }
-  @Post("dictionaries/import") async importDictionaries(@Body() body: { rows: Array<{ code: string; name?: string; value: string }> }) {
+  @Post("dictionaries/import") async importDictionaries(@Body() body: { rows: Array<{ code: string; name?: string; value: string }> }, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const errors: string[] = []; const seen = new Set<string>();
     for (const [index, row] of (body.rows ?? []).entries()) {
       const code = row.code?.trim(); const value = row.value?.trim(); const line = Number((row as any).__row) || index + 2;
@@ -424,19 +454,21 @@ export class MasterDataController {
     return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
   }
   @Post("dictionaries/import-file") @ApiConsumes("multipart/form-data") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
-  async importDictionaryFile(@UploadedFile() file: Express.Multer.File) {
+  async importDictionaryFile(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const raw = await this.uploadedRows(file);
-    return this.importDictionaries({ rows: raw.map((row: any) => ({ code: row.code ?? row["字典编码"], name: row.name ?? row["字典名称"], value: row.value ?? row["字典值"], __row: row.__row })) as any });
+    return this.importDictionaries({ rows: raw.map((row: any) => ({ code: row.code ?? row["字典编码"], name: row.name ?? row["字典名称"], value: row.value ?? row["字典值"], __row: row.__row })) as any }, req);
   }
-  @Post("dictionaries") async addDictionaryValue(@Body() body: { code: string; name?: string; value: string }) { return this.importDictionaries({ rows: [body] }); }
-  @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string }) { return this.dictionaryTypes.update(id, body); }
-  @Patch("dictionary-values/:id") updateDictionaryValue(@Param("id") id: string, @Body() body: { value?: string; sortOrder?: number; enabled?: boolean }) { return this.dictionaryValues.update(id, body); }
-  @Post("dictionary-values/delete") async deleteDictionaryValues(@Body() body: { ids: string[] }) { await this.dictionaryValues.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
-  @Get("processes") processesList() { return this.processes.find({ order: { sortOrder: "ASC" } }); }
-  @Post("processes") addProcess(@Body() body: Partial<ProcessDefinitionEntity>) { return this.processes.save({ ...body, enabled: body.enabled ?? true }); }
-  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity>) { return this.processes.update(id, body); }
-  @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }) { await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
-  @Post("processes/import") async importProcesses(@Body() body: { rows: Array<Partial<ProcessDefinitionEntity>> }) {
+  @Post("dictionaries") async addDictionaryValue(@Body() body: { code: string; name?: string; value: string }, @Req() req: UserRequest) { return this.importDictionaries({ rows: [body] }, req); }
+  @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string }, @Req() req: UserRequest) { requireSystemAdmin(req); return this.dictionaryTypes.update(id, body); }
+  @Patch("dictionary-values/:id") updateDictionaryValue(@Param("id") id: string, @Body() body: { value?: string; sortOrder?: number; enabled?: boolean }, @Req() req: UserRequest) { requireSystemAdmin(req); return this.dictionaryValues.update(id, body); }
+  @Post("dictionary-values/delete") async deleteDictionaryValues(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.dictionaryValues.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
+  @Get("processes") processesList(@Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.find({ order: { sortOrder: "ASC" } }); }
+  @Post("processes") addProcess(@Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.save({ ...body, enabled: body.enabled ?? true }); }
+  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.update(id, body); }
+  @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
+  @Post("processes/import") async importProcesses(@Body() body: { rows: Array<Partial<ProcessDefinitionEntity>> }, @Req() req: UserRequest) {
+    requireSystemAdmin(req);
     const errors: string[] = []; const seen = new Set<string>();
     for (const [index, row] of (body.rows ?? []).entries()) {
       const line = Number((row as any).__row) || index + 2; const code = row.code?.trim();
@@ -724,7 +756,7 @@ export class AuditController {
   constructor(@InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>) {}
   @Get()
   list(@Query("user") user: string | undefined, @Query("action") action: string | undefined, @Query("order") order: string | undefined, @Req() req: UserRequest) {
-    requireTablePermission(req, "audit-logs", "read");
+    requireSystemAdmin(req);
     const query = this.audits.createQueryBuilder("a").orderBy("a.createdAt", "DESC").take(500);
     if (user) query.andWhere("a.actorName ILIKE :user", { user: `%${user}%` });
     if (action) query.andWhere("a.action = :action", { action });
@@ -742,7 +774,7 @@ export class ApiKeyController {
 
   @Get()
   async list(@Req() req: UserRequest) {
-    if (!req.user.roles?.includes("系统管理员")) throw new ForbiddenException("仅系统管理员可以管理 API Key");
+    requireSystemAdmin(req);
     const rows = await this.apiKeys.find({ order: { name: "ASC" } });
     return rows.map((row) => ({
       id: row.id, name: row.name, scopes: row.scopes, expiresAt: row.expiresAt,
@@ -753,7 +785,7 @@ export class ApiKeyController {
 
   @Post()
   async create(@Body() body: { name: string; scopes: string[]; expiresAt?: string; userId?: string; roleId?: string }, @Req() req: UserRequest) {
-    if (!req.user.roles?.includes("系统管理员")) throw new ForbiddenException("仅系统管理员可以管理 API Key");
+    requireSystemAdmin(req);
     const secret = `fdt_${randomBytes(32).toString("base64url")}`;
     const apiKey = await this.apiKeys.save({
       name: body.name.trim(), keyHash: createHash("sha256").update(secret).digest("hex"),
@@ -765,7 +797,7 @@ export class ApiKeyController {
 
   @Post(":id/regenerate")
   async regenerate(@Param("id") id: string, @Req() req: UserRequest) {
-    if (!req.user.roles?.includes("系统管理员")) throw new ForbiddenException("仅系统管理员可以管理 API Key");
+    requireSystemAdmin(req);
     const record = await this.apiKeys.findOneBy({ id });
     if (!record) throw new NotFoundException("API Key 记录不存在");
     const secret = `fdt_${randomBytes(32).toString("base64url")}`;
@@ -778,7 +810,7 @@ export class ApiKeyController {
 
   @Patch(":id/disable")
   async disable(@Param("id") id: string, @Req() req: UserRequest) {
-    if (!req.user.roles?.includes("系统管理员")) throw new ForbiddenException("仅系统管理员可以管理 API Key");
+    requireSystemAdmin(req);
     await this.apiKeys.update(id, { enabled: false });
     return { status: "disabled" };
   }
@@ -803,7 +835,7 @@ export class AdminController {
   ) {}
 
   private admin(req: UserRequest) {
-    if (!(req.user.roles?.includes("系统管理员") || req.user.roles?.includes("集团管理员"))) throw new ForbiddenException("仅系统管理员或集团管理员可管理用户与权限");
+    requireSystemAdmin(req);
   }
 
   @Get("users")
@@ -826,7 +858,8 @@ export class AdminController {
   }
 
   @Get("contacts")
-  async listContacts() {
+  async listContacts(@Req() req: UserRequest) {
+    this.admin(req);
     return this.contacts.find({ order: { name: "ASC" } });
   }
 

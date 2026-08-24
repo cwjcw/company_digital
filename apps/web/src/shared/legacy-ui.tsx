@@ -3,7 +3,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { FilterOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Card, Drawer, Flex, Input, Modal, Select, Space, Typography } from "antd";
+import { Alert, Button, Card, DatePicker, Drawer, Flex, Input, Modal, Select, Space, Typography } from "antd";
 import dayjs from "dayjs";
 import { type ColumnDefinition } from "@tracker/shared";
 import { api, ApiError, getValue } from "../api";
@@ -70,10 +70,14 @@ export async function parseCsvFile(file: File) {
   return lines.map((line) => Object.fromEntries(parse(line).map((value, index) => [headers[index], value])));
 }
 
-export function InlineText({ value, onSave, type = "text" }: { value: unknown; onSave: (value: unknown) => Promise<unknown>; type?: "text" | "number" | "date" }) {
+export function InlineText({ value, onSave, type = "text", dateDisplayFormat }: { value: unknown; onSave: (value: unknown) => Promise<unknown>; type?: "text" | "number" | "date"; dateDisplayFormat?: string }) {
   const [draft, setDraft] = useState(value == null ? "" : String(value));
   useEffect(() => setDraft(value == null ? "" : String(value)), [value]);
   const save = async () => { const normalized = type === "number" && draft !== "" ? Number(draft) : draft; if (normalized !== value) await onSave(normalized); };
+  if (type === "date" && dateDisplayFormat) return <DatePicker size="small" allowClear format={dateDisplayFormat} value={draft ? dayjs(draft) : null} style={{ width: "100%" }} onChange={(date) => {
+    const normalized = date?.format("YYYY-MM-DD") ?? ""; setDraft(normalized);
+    if (normalized !== String(value ?? "")) void onSave(normalized);
+  }} />;
   return <Input size="small" type={type} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => void save()} onPressEnter={() => void save()} />;
 }
 
@@ -86,8 +90,8 @@ export type PlanFilter = { field: string; value: string };
 export type DictionaryOptions = Record<string, string[]>;
 
 export function useDictionaryOptions() {
-  const dictionaries = useQuery({ queryKey: ["dictionaries"], queryFn: () => api<any[]>("/master-data/dictionaries") });
-  const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<any[]>("/master-data/suppliers") });
+  const dictionaries = useQuery({ queryKey: ["reference-dictionaries"], queryFn: () => api<any[]>("/reference-data/dictionaries") });
+  const suppliers = useQuery({ queryKey: ["reference-suppliers"], queryFn: () => api<any[]>("/reference-data/suppliers") });
   return useMemo<DictionaryOptions>(() => {
     const options: DictionaryOptions = {};
     for (const type of dictionaries.data ?? []) {

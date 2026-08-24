@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Form, Input, message, Modal, Select, Space, Table, Upload } from "antd";
+import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Table, Upload } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { api, ApiError } from "../../api";
 import { downloadApiFile, ImportFeedbackAlert, InlineText, PageHeader, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
+import { DUE_DATE_DISPLAY_FORMAT, formatDueDate } from "../../shared/date-format";
 
 export function BusinessCustomerMappingsPage() {
   const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [open, setOpen] = useState(false);
@@ -38,6 +39,7 @@ export function BusinessCustomerMappingsPage() {
 export function OrderSchedulePage() {
   const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<string[]>([]);
   const [completion, setCompletion] = useState("all"); const [dueRange, setDueRange] = useState<[Dayjs | null, Dayjs | null] | null>(null); const [batchDate, setBatchDate] = useState<Dayjs | null>(null);
+  const [editing, setEditing] = useState<any>(); const [saving, setSaving] = useState(false); const [editForm] = Form.useForm();
   const rows = useQuery({ queryKey: ["order-schedules", search], queryFn: () => api<any[]>(`/marketing/order-schedules?search=${encodeURIComponent(search)}`) });
   const refresh = () => { setSelected([]); void queryClient.invalidateQueries({ queryKey: ["order-schedules"] }); };
   const data = (rows.data ?? []).filter((row) => {
@@ -53,20 +55,46 @@ export function OrderSchedulePage() {
   };
   const sync = async () => { const result = await api<{ synced: number }>("/marketing/order-schedules/sync-from-planning", { method: "POST" }); message.success(`已从主计划同步 ${result.synced} 条，原客户交期保持不变`); refresh(); };
   const selectWholeOrders = () => { const orders = new Set((rows.data ?? []).filter((row) => selected.includes(row.id)).map((row) => row.orderNumber)); setSelected((rows.data ?? []).filter((row) => orders.has(row.orderNumber)).map((row) => row.id)); };
+  const openEditor = () => {
+    const row = (rows.data ?? []).find((item) => item.id === selected[0]); if (!row) return;
+    setEditing(row); editForm.setFieldsValue({ ...row, customerDueDate: row.customerDueDate ? dayjs(row.customerDueDate) : null, orderTotalQuantity: Number(row.orderTotalQuantity), completionRatio: Number(row.completionRatio) });
+  };
+  const saveEditing = async () => {
+    if (!editing) return;
+    try {
+      const values = await editForm.validateFields(); setSaving(true);
+      await api(`/marketing/order-schedules/${editing.id}`, { method: "PATCH", body: JSON.stringify({ ...values, customerDueDate: values.customerDueDate?.format("YYYY-MM-DD") ?? null, sourcePlanItemId: editing.sourcePlanItemId ?? null, expectedVersion: editing.version }) });
+      message.success("订单排期已更新"); setEditing(undefined); editForm.resetFields(); refresh();
+    } catch (error) {
+      if (!(error && typeof error === "object" && "errorFields" in error)) message.error((error as Error).message);
+    } finally { setSaving(false); }
+  };
   const columns = [
     { title: "客户代码", dataIndex: "customerCode", width: 140 }, { title: "订单编号", dataIndex: "orderNumber", width: 170 },
     { title: "品项编码", dataIndex: "itemNumber", width: 170 }, { title: "品项名称", dataIndex: "itemName", width: 260 },
-    { title: "客户交期", dataIndex: "customerDueDate", width: 140 }, { title: "订单总数量", dataIndex: "orderTotalQuantity", width: 140 },
+    { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown) => formatDueDate(value) }, { title: "订单总数量", dataIndex: "orderTotalQuantity", width: 140 },
     { title: "生产单位", dataIndex: "productionUnit", width: 160 }, { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` }
   ];
   return <div><PageHeader title="订单排期" subtitle="主计划同步不会覆盖客户交期；支持按订单一键选中全部品项并批量填写交期" actions={<Space wrap>
     <Input.Search allowClear placeholder="搜索客户、订单、品项、生产单位" onSearch={setSearch} style={{ width: 300 }} />
     <Select value={completion} onChange={setCompletion} style={{ width: 130 }} options={[{ value: "all", label: "全部完成度" }, { value: "unfinished", label: "未完成" }, { value: "completed", label: "已完成" }]} />
-    <DatePicker.RangePicker value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
+    <DatePicker.RangePicker format={DUE_DATE_DISPLAY_FORMAT} value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
     <Button type="primary" onClick={() => void sync()}>从主计划同步</Button>
     <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>
   </Space>} />
-    <Space style={{ marginBottom: 12 }} wrap><Button disabled={!selected.length} onClick={selectWholeOrders}>选中同订单全部记录</Button><DatePicker value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => setSelected([])}>清空选择</Button></Space>
+    <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button><Button disabled={!selected.length} onClick={selectWholeOrders}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => setSelected([])}>清空选择</Button></Space>
     <Table rowKey="id" rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }} loading={rows.isLoading} dataSource={data} columns={columns} pagination={{ pageSize: 50, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} />
+    <Modal title="编辑订单排期" open={Boolean(editing)} confirmLoading={saving} onCancel={() => { setEditing(undefined); editForm.resetFields(); }} onOk={() => void saveEditing()} destroyOnHidden>
+      <Form form={editForm} layout="vertical">
+        <Form.Item name="customerCode" label="客户代码" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
+        <Form.Item name="orderNumber" label="订单编号" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
+        <Form.Item name="itemNumber" label="品项编码" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
+        <Form.Item name="itemName" label="品项名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
+        <Form.Item name="customerDueDate" label="客户交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item>
+        <Form.Item name="orderTotalQuantity" label="订单总数量" rules={[{ required: true, message: "请输入订单总数量" }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item>
+        <Form.Item name="productionUnit" label="生产单位"><Input /></Form.Item>
+        <Form.Item name="completionRatio" label="订单完成比例（%）" rules={[{ required: true, message: "请输入订单完成比例" }]}><InputNumber min={0} max={100} precision={4} style={{ width: "100%" }} /></Form.Item>
+      </Form>
+    </Modal>
   </div>;
 }
