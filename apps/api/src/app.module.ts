@@ -7,7 +7,7 @@ import dataSource from "./data-source";
 import { AuthGuard, AuthService } from "./auth";
 import {
   AuditController, AuthController, ImportController, MasterDataController,
-  PlanController, SystemController, ReferenceDataController, ApiKeyController, AdminController
+  PlanController, SystemController, ReferenceDataController, DirectoryController, ApiKeyController, AdminController
 } from "./controllers";
 import { DomainService } from "./domain.service";
 import { entities } from "./entities";
@@ -23,7 +23,9 @@ import { StorageModule } from "./storage/storage.module";
 import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approval-flow-config.module";
 import { MarketingModule } from "./modules/marketing/marketing.module";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
+import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
+import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
 
 @Module({
   imports: [
@@ -37,16 +39,17 @@ import { PlanningOperationsModule } from "./modules/planning-operations/planning
     PlanningModule,
     MarketingModule,
     PlanningOperationsModule,
-    DevelopmentRequestModule
+    DevelopmentRequestModule,
+    ContactSyncModule
   ],
   controllers: [
-    SystemController, ReferenceDataController, AuthController, PlanController, ImportController,
+    SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController, ImportController,
     MasterDataController, AuditController, ApiKeyController, AdminController,
     TplusOrderSyncController
   ],
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
-    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService
+    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService
   ]
 })
 export class AppModule {}

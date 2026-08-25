@@ -1,37 +1,80 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Table, Upload } from "antd";
+import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Upload } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { api, ApiError } from "../../api";
 import { downloadApiFile, ImportFeedbackAlert, InlineText, PageHeader, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate } from "../../shared/date-format";
+import { KdosDataTable, useKdosTableEditMode } from "../../shared/KdosDataTable";
+
+type DirectoryUser = { id: string; displayName: string; departmentPaths: string[][]; enabled: boolean };
+
+function UserMultiSelectCell({ value, users, selectedUsers, onSave }: { value: string[]; users: DirectoryUser[]; selectedUsers: DirectoryUser[]; onSave: (ids: string[]) => Promise<void> }) {
+  const { editing } = useKdosTableEditMode();
+  const [draft, setDraft] = useState<string[]>(value ?? []); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft(value ?? []); setDirty(false); }, [value]);
+  const commit = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    try { await onSave(draft); setDirty(false); } finally { setSaving(false); }
+  };
+  const mergedUsers = [...new Map([...users, ...selectedUsers].map((user) => [user.id, user])).values()];
+  if (!editing) {
+    const names = (value ?? []).map((id) => mergedUsers.find((user) => user.id === id)?.displayName ?? id);
+    return <span className="kdos-readonly-cell">{names.join("、") || "—"}</span>;
+  }
+  return <Select
+    mode="multiple" showSearch optionFilterProp="label" value={draft} loading={saving} maxTagCount="responsive"
+    placeholder="选择通讯录成员" style={{ minWidth: 280, width: "100%" }}
+    options={mergedUsers.map((user) => ({ value: user.id, label: user.enabled ? user.displayName : `${user.displayName}（已停用）`, disabled: !user.enabled }))}
+    onChange={(ids) => { setDraft(ids); setDirty(true); }} onOpenChange={(open) => { if (!open) void commit(); }}
+  />;
+}
+
+function MappingDeleteAction({ row, onRemove }: { row: any; onRemove: (row: any) => Promise<void> }) {
+  const { editing } = useKdosTableEditMode();
+  return editing ? <Button danger type="text" icon={<DeleteOutlined />} aria-label="删除对应关系" onClick={() => void onRemove(row)} /> : null;
+}
 
 export function BusinessCustomerMappingsPage() {
   const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false); const [feedback, setFeedback] = useState<ImportFeedback>(); const [form] = Form.useForm();
   const rows = useQuery({ queryKey: ["business-customer-mappings", search], queryFn: () => api<any[]>(`/marketing/business-customer-mappings?search=${encodeURIComponent(search)}`) });
+  const directory = useQuery({ queryKey: ["marketing-directory-users"], queryFn: () => api<DirectoryUser[]>("/marketing/directory-users") });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["business-customer-mappings"] });
-  const update = async (row: any, field: string, value: unknown) => { try { await api(`/marketing/business-customer-mappings/${row.id}`, { method: "PATCH", body: JSON.stringify({ ...row, [field]: value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
+  const update = async (row: any, field: string, value: unknown) => { try { const payload = { department: row.department, section: row.section, customerCode: row.customerCode, salespersonUserIds: row.salespersonUserIds ?? [], [field]: value, expectedVersion: row.version }; await api(`/marketing/business-customer-mappings/${row.id}`, { method: "PATCH", body: JSON.stringify(payload) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const remove = async (row: any) => { await api(`/marketing/business-customer-mappings/${row.id}`, { method: "DELETE", body: JSON.stringify({ expectedVersion: row.version }) }); refresh(); };
-  const importFile = async (file: File) => { const body = new FormData(); body.append("file", file); setImporting(true); try { const result = await api<{ imported: number; repeated: boolean }>("/marketing/business-customer-mappings/import", { method: "POST", body }); setFeedback({ type: "success", message: result.repeated ? "该文件已经导入，无需重复写入" : `成功导入 ${result.imported} 条业务映射` }); refresh(); } catch (error) { setFeedback(failedImport(error)); } finally { setImporting(false); } return false; };
+  const importFile = async (file: File) => { const body = new FormData(); body.append("file", file); setImporting(true); try {
+    const result = await api<{ imported: number; repeated: boolean; ignoredBlankCustomerRows: number; unmatchedSalespeople: string[]; ambiguousSalespeople: Array<{ name: string }>; crossSectionCustomers: Array<{ customerCode: string; locations: string[] }> }>("/marketing/business-customer-mappings/import", { method: "POST", body });
+    setFeedback({ type: "success", message: result.repeated ? "该文件已经导入，无需重复写入" : `成功导入 ${result.imported} 个客户；忽略 ${result.ignoredBlankCustomerRows} 行空客户` });
+    if (result.unmatchedSalespeople.length || result.ambiguousSalespeople.length || result.crossSectionCustomers.length) Modal.info({
+      title: "导入完成，以下情况未阻断导入", width: 680,
+      content: <Space direction="vertical" style={{ width: "100%" }}>
+        <div>通讯录未匹配业务员：{result.unmatchedSalespeople.join("、") || "无"}</div>
+        <div>通讯录重名业务员：{result.ambiguousSalespeople.map((item) => item.name).join("、") || "无"}</div>
+        <div>跨课室客户：{result.crossSectionCustomers.map((item) => `${item.customerCode}（${item.locations.join("；")}）`).join("、") || "无"}</div>
+      </Space>
+    });
+    refresh();
+  } catch (error) { setFeedback(failedImport(error)); } finally { setImporting(false); } return false; };
   const columns = [
     { title: "部门", dataIndex: "department", render: (value: unknown, row: any) => <InlineText value={value} onSave={(next) => update(row, "department", next)} /> },
     { title: "课室", dataIndex: "section", render: (value: unknown, row: any) => <InlineText value={value} onSave={(next) => update(row, "section", next)} /> },
-    { title: "业务", dataIndex: "salesperson", render: (value: unknown, row: any) => <InlineText value={value} onSave={(next) => update(row, "salesperson", next)} /> },
-    { title: "客户代码", dataIndex: "customerCodes", width: 420, render: (value: unknown, row: any) => <InlineText value={value} onSave={(next) => update(row, "customerCodes", next)} /> },
-    { title: "操作", width: 80, render: (_: unknown, row: any) => <Button danger type="text" icon={<DeleteOutlined />} onClick={() => void remove(row)} /> }
+    { title: "客户", dataIndex: "customerCode", width: 180, render: (value: unknown, row: any) => <InlineText value={value} onSave={(next) => update(row, "customerCode", next)} /> },
+    { title: "业务员", dataIndex: "salespersonUserIds", width: 360, render: (value: string[], row: any) => <UserMultiSelectCell value={value ?? []} users={directory.data ?? []} selectedUsers={row.salespersonUsers ?? []} onSave={(ids) => update(row, "salespersonUserIds", ids)} /> },
+    { title: "操作", width: 80, render: (_: unknown, row: any) => <MappingDeleteAction row={row} onRemove={remove} /> }
   ];
-  return <div><PageHeader title="业务人员与客户对应表" subtitle="同一业务对应多个客户时，客户代码使用 | 分隔" actions={<Space wrap>
-    <Input.Search allowClear placeholder="搜索部门、课室、业务或客户代码" onSearch={setSearch} style={{ width: 320 }} />
+  return <div><PageHeader title="业务人员与客户对应表" subtitle="每个客户一行；业务员从通讯录中多选" actions={<Space wrap>
+    <Input.Search allowClear placeholder="搜索部门、课室、客户或业务员" onSearch={setSearch} style={{ width: 320 }} />
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增对应关系</Button>
     <Upload accept=".xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入业务接单周报</Button></Upload>
     <Button onClick={() => void downloadApiFile("/marketing/business-customer-mappings/export", "业务人员与客户对应表.csv")}>导出 CSV</Button>
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
-    <Table rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} pagination={{ pageSize: 50, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 270px)" }} />
-    <Modal title="新增业务与客户对应关系" open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => { await api("/marketing/business-customer-mappings", { method: "POST", body: JSON.stringify(values) }); setOpen(false); form.resetFields(); refresh(); }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
-      <Form form={form} layout="vertical"><Form.Item name="department" label="部门" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="section" label="课室"><Input /></Form.Item><Form.Item name="salesperson" label="业务" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="customerCodes" label="客户代码" rules={[{ required: true }]}><Input placeholder="例如 A001|A002" /></Form.Item></Form>
+    <KdosDataTable resource="business-customer-mapping" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 325px)" }} />
+    <Modal title="新增业务与客户对应关系" open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => { await api("/marketing/business-customer-mappings", { method: "POST", body: JSON.stringify({ ...values, salespersonUserIds: values.salespersonUserIds ?? [] }) }); setOpen(false); form.resetFields(); refresh(); }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
+      <Form form={form} layout="vertical"><Form.Item name="department" label="部门" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="section" label="课室"><Input /></Form.Item><Form.Item name="customerCode" label="客户" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="salespersonUserIds" label="业务员"><Select mode="multiple" showSearch optionFilterProp="label" placeholder="从通讯录选择，可多选" options={(directory.data ?? []).map((user) => ({ value: user.id, label: user.displayName }))} /></Form.Item></Form>
     </Modal>
   </div>;
 }
@@ -83,7 +126,7 @@ export function OrderSchedulePage() {
     <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>
   </Space>} />
     <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button><Button disabled={!selected.length} onClick={selectWholeOrders}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => setSelected([])}>清空选择</Button></Space>
-    <Table rowKey="id" rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }} loading={rows.isLoading} dataSource={data} columns={columns} pagination={{ pageSize: 50, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} />
+    <KdosDataTable resource="order-schedule" rowKey="id" rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }} loading={rows.isLoading} dataSource={data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 365px)" }} />
     <Modal title="编辑订单排期" open={Boolean(editing)} confirmLoading={saving} onCancel={() => { setEditing(undefined); editForm.resetFields(); }} onOk={() => void saveEditing()} destroyOnHidden>
       <Form form={editForm} layout="vertical">
         <Form.Item name="customerCode" label="客户代码" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>

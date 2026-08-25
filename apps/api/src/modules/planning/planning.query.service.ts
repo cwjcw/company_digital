@@ -54,7 +54,7 @@ export class PlanQueryService {
         balanceAmount: metrics.balanceAmount, completionRate: metrics.completionRate,
         itemStatus: this.domain.itemStatus(metrics.balanceQuantity, processStatuses),
         imageRefs: row.imageRefs, remark: row.remark, orderException: row.exception,
-        processes, createdAt: row.createdAt, updatedAt: row.updatedAt
+        processes, createdBy: row.createdBy, createdAt: row.createdAt, updatedBy: row.updatedBy, updatedAt: row.updatedAt
       };
     });
   }

@@ -1,4 +1,4 @@
-export type PermissionAction = "read" | "create" | "update" | "delete" | "import" | "export";
+export type PermissionAction = "read" | "create" | "copy" | "update" | "delete" | "batch_print" | "batch_update" | "import" | "export";
 export type ResourceKey =
   | "rolling-plan"
   | "monthly-plan"
@@ -121,7 +121,7 @@ const ordinaryStart: ColumnDefinition[] = [
   { key: "itemStatus", header: "品号状态", kind: "text", editable: false }
 ];
 
-const outsourcing: ColumnDefinition[] = [
+const legacyOutsourcing: ColumnDefinition[] = [
   { key: "outsourcing.method", header: "外协方式", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "outsourcingMethod" },
   { key: "outsourcing.supplier", header: "外协供应商", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "supplier" },
   { key: "outsourcing.dueDate", header: "外协交期", group: "外协相关", kind: "date", editable: true },
@@ -146,7 +146,7 @@ const sourceProcessColumns: ColumnDefinition[] = processDefinitions.flatMap((pro
   }))
 );
 
-const processColumns: ColumnDefinition[] = processDefinitions.flatMap((process) =>
+const legacyProcessColumns: ColumnDefinition[] = processDefinitions.flatMap((process) =>
   process.fields.flatMap<ColumnDefinition>((field): ColumnDefinition[] => {
     if (field === "status" && milestoneProcessCodes.includes(process.code as typeof milestoneProcessCodes[number])) {
       return [
@@ -182,20 +182,70 @@ const ordinaryEndBase: ColumnDefinition[] = [
   dictionaryCode: key === "division" ? "division" : undefined
 }));
 
-const ordinaryEnd: ColumnDefinition[] = ordinaryEndBase.map((column) =>
+const legacyOrdinaryEnd: ColumnDefinition[] = ordinaryEndBase.map((column) =>
   column.key === "month"
     ? { ...column, header: "年月", kind: "text", editable: false }
     : column
 );
 
+/**
+ * Retained for backward compatibility and historical data migration only.
+ * The active monthly-plan UI/export contract is the exact 84-column list below.
+ */
+export const legacyMonthlyPlanColumns: ColumnDefinition[] = [
+  ...ordinaryStart, ...legacyOutsourcing, ...legacyProcessColumns, ...legacyOrdinaryEnd
+];
+
+export const legacyExcelMonthlyPlanColumns: ColumnDefinition[] = [
+  ...ordinaryStartBase, ...legacyOutsourcing, ...sourceProcessColumns, ...ordinaryEndBase
+];
+
+const monthlyOutsourcingColumns: ColumnDefinition[] = [
+  { key: "outsourcing.supplier", header: "供应商", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "supplier" },
+  { key: "outsourcing.method", header: "外协方式", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "outsourcingMethod" },
+  { key: "outsourcing.dueDate", header: "外协交期", group: "外协相关", kind: "date", editable: true },
+  { key: "outsourcing.exceptionDueDate", header: "外协实际交期", group: "外协相关", kind: "date", editable: true },
+  { key: "outsourcing.requiredDays", header: "所需周期", group: "外协相关", kind: "decimal", editable: true },
+  { key: "outsourcing.processDueDate", header: "交期", group: "外协相关", kind: "date", editable: true },
+  { key: "outsourcing.status", header: "状态", group: "外协相关", kind: "text", editable: true },
+  { key: "outsourcing.exception", header: "异常", group: "外协相关", kind: "text", editable: true }
+];
+
+const monthlyProcessGroups = [
+  ["drawingBom", "图纸&BOM"],
+  ["metalMain", "五金主材"],
+  ["woodMain", "木作主材"],
+  ["machining", "机加"],
+  ["welding", "焊接"],
+  ["blank", "毛坯"],
+  ["bakingPlating", "电镀"],
+  ["acrylic", "亚克力"],
+  ["painting", "烤漆"],
+  ["assemblyPacking", "组装&包装"],
+  ["rearPackingParts", "包装打托"]
+] as const;
+
+const monthlyProcessColumns: ColumnDefinition[] = monthlyProcessGroups.flatMap(([code, group]) => [
+  { key: `processes.${code}.requiredDays`, header: "所需周期", group, kind: "decimal", editable: true },
+  { key: `processes.${code}.dueDate`, header: "交期", group, kind: "date", editable: true },
+  { key: `processes.${code}.status`, header: "状态", group, kind: "text", editable: true },
+  { key: `processes.${code}.exception`, header: "异常", group, kind: "text", editable: true }
+]);
+
+const monthlyOrdinaryEnd = ordinaryEndBase.filter((column) => column.key !== "division");
+
 export const monthlyPlanColumns: ColumnDefinition[] = [
-  ...ordinaryStart, ...outsourcing, ...processColumns, ...ordinaryEnd
+  ...ordinaryStartBase,
+  ...monthlyOutsourcingColumns,
+  ...monthlyProcessColumns,
+  ...monthlyOrdinaryEnd
 ];
 
-export const excelMonthlyPlanColumns: ColumnDefinition[] = [
-  ...ordinaryStartBase, ...outsourcing, ...sourceProcessColumns, ...ordinaryEndBase
-];
+export const excelMonthlyPlanColumns: ColumnDefinition[] = monthlyPlanColumns;
 
-if (excelMonthlyPlanColumns.length !== 93 || monthlyPlanColumns.length !== 97) {
-  throw new Error(`Plan column counts must be Excel=93 and Web=97, got Excel=${excelMonthlyPlanColumns.length}, Web=${monthlyPlanColumns.length}`);
+if (legacyExcelMonthlyPlanColumns.length !== 93 || legacyMonthlyPlanColumns.length !== 97) {
+  throw new Error(`Legacy plan column counts must remain Excel=93 and Web=97, got Excel=${legacyExcelMonthlyPlanColumns.length}, Web=${legacyMonthlyPlanColumns.length}`);
+}
+if (excelMonthlyPlanColumns.length !== 84 || monthlyPlanColumns.length !== 84) {
+  throw new Error(`Active monthly plan must contain exactly 84 columns, got Excel=${excelMonthlyPlanColumns.length}, Web=${monthlyPlanColumns.length}`);
 }

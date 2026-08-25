@@ -10,7 +10,9 @@ describe("ModulePortal system access", () => {
   });
 
   it("shows system management to system administrators", () => {
-    render(<ModulePortal user={{ username: "admin", roles: ["系统管理员"] }} onOpen={vi.fn()} onLogout={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "进入系统管理" })).toBeInTheDocument();
+    const onOpen = vi.fn();
+    render(<ModulePortal user={{ username: "admin", roles: ["系统管理员"] }} onOpen={onOpen} onLogout={vi.fn()} />);
+    screen.getByRole("button", { name: "进入系统管理" }).click();
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/users" }));
   });
 });

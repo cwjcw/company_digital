@@ -157,6 +157,8 @@ export class DevelopmentRequestService {
       const capabilities = developmentApprovalCapabilities(request, actor, latest, policy);
       return {
         ...request,
+        createdBy: request.createdBy ?? request.requesterId,
+        updatedBy: request.updatedBy,
         requesterName: names.get(request.requesterId) ?? "—",
         requesterManagerName: request.requesterManagerId ? names.get(request.requesterManagerId) ?? "—" : "待选择",
         handlerName: request.handlerId ? names.get(request.handlerId) ?? "—" : null,

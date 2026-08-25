@@ -30,7 +30,7 @@ export interface PlanItemRecord {
   unitPrice: string; deliveryDate: string | null; responsibleOrgId: string | null;
   ownerUserId: string | null; priority: number; sequence: number; status: string;
   exception: string | null; remark: string | null; imageRefs: string[];
-  legacyData: Record<string, unknown>; version: number; createdAt: Date; updatedAt: Date;
+  legacyData: Record<string, unknown>; version: number; createdBy: string | null; createdAt: Date; updatedBy: string | null; updatedAt: Date;
 }
 
 export interface ProcessProgressRecord {

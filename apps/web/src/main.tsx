@@ -11,7 +11,25 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import "./styles.css";
 import App from "./App";
 
+declare const __BUILD_ID__: string;
+
 dayjs.locale("zh-cn");
+
+if (import.meta.env.PROD) {
+  const checkForNewBuild = async () => {
+    try {
+      const response = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const version = await response.json() as { buildId?: string };
+      if (version.buildId && version.buildId !== __BUILD_ID__) window.location.reload();
+    } catch {
+      // A temporary network failure must not interrupt the current session.
+    }
+  };
+  window.addEventListener("focus", () => void checkForNewBuild());
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void checkForNewBuild(); });
+  window.setInterval(() => void checkForNewBuild(), 60_000);
+}
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 

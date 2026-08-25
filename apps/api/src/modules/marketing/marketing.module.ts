@@ -6,12 +6,13 @@ import { PlanningModule } from "../planning/planning.module";
 import { DrizzleMarketingRepository } from "./drizzle-marketing.repository";
 import { MarketingApplicationService } from "./marketing.application.service";
 import { MarketingController } from "./marketing.controller";
+import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
 import { MarketingImportService } from "./marketing-import.service";
 import { MARKETING_REPOSITORY } from "./marketing.repository";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), PlanningModule],
   controllers: [MarketingController],
-  providers: [AuthGuard, MarketingApplicationService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
+  providers: [AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
 })
 export class MarketingModule {}

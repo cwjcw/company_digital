@@ -15,12 +15,12 @@ describe("PlanningImportService", () => {
   it("uses both header levels so repeated process labels never cross process groups", async () => {
     const commands = { previewImport: jest.fn().mockResolvedValue({ jobId: "job-2", summary: { total: 1, warnings: 0 }, warnings: [] }) } as any;
     const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("主计划");
-    sheet.addRow(["计划信息", "计划信息", "计划信息", "计划信息", "计划信息", "前道配件", "前道配件", "机加", "机加"]);
-    sheet.addRow(["订单号", "品号", "品名", "订单需求数量", "客户要求交期", "所需天数", "交期", "所需天数", "交期"]);
+    sheet.addRow(["计划信息", "计划信息", "计划信息", "计划信息", "计划信息", "图纸&BOM", "图纸&BOM", "机加", "机加"]);
+    sheet.addRow(["订单号", "品号", "品名", "订单需求数量", "客户要求交期", "所需周期", "交期", "所需周期", "交期"]);
     sheet.addRow(["SO-X", "I-X", "测试", 12, "2026-09-20", 1.5, "2026-09-10", 2.5, "2026-09-12"]);
     const file = { originalname: "plan.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()), mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } as Express.Multer.File;
     await new PlanningImportService(commands).preview("version-1", file, actor);
     const row = commands.previewImport.mock.calls[0][3][0];
-    expect(row.legacyData.processes).toMatchObject({ frontParts: { requiredDays: 1.5, dueDate: "2026-09-10" }, machining: { requiredDays: 2.5, dueDate: "2026-09-12" } });
+    expect(row.legacyData.processes).toMatchObject({ drawingBom: { requiredDays: 1.5, dueDate: "2026-09-10" }, machining: { requiredDays: 2.5, dueDate: "2026-09-12" } });
   });
 });

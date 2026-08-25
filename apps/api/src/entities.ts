@@ -5,8 +5,10 @@ import {
 
 export abstract class AuditedEntity {
   @CreateDateColumn({ name: "created_at", type: "timestamptz" }) createdAt!: Date;
+  @Column({ name: "created_by", type: "uuid", nullable: true }) createdBy!: string | null;
   @UpdateDateColumn({ name: "updated_at", type: "timestamptz" }) updatedAt!: Date;
   @Column({ name: "updated_by", type: "varchar", default: "system" }) updatedBy!: string;
+  @Column({ name: "version", type: "integer", default: 1 }) version!: number;
 }
 
 @Entity("users")
@@ -20,9 +22,20 @@ export class User extends AuditedEntity {
   @Index({ unique: true }) @Column({ name: "employee_no", type: "varchar", nullable: true }) employeeNo!: string | null;
   @Column({ name: "wechat_user_id", type: "varchar", nullable: true }) wechatUserId!: string | null;
   @Column({ type: "varchar", nullable: true }) position!: string | null;
+  @Column({ type: "varchar", nullable: true }) alias!: string | null;
+  @Column({ type: "varchar", nullable: true }) gender!: string | null;
+  @Column({ type: "varchar", nullable: true }) mobile!: string | null;
+  @Column({ type: "varchar", nullable: true }) email!: string | null;
   @Column({ name: "department_paths", type: "jsonb", default: () => "'[]'" }) departmentPaths!: string[][];
   @Column({ name: "must_change_password", default: true }) mustChangePassword!: boolean;
   @Column({ name: "last_login_at", type: "timestamptz", nullable: true }) lastLoginAt!: Date | null;
+}
+
+@Entity("role_groups")
+export class RoleGroup extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index({ unique: true }) @Column() name!: string;
+  @Column({ name: "sort_order", type: "integer", default: 0 }) sortOrder!: number;
 }
 
 @Entity("roles")
@@ -30,6 +43,7 @@ export class Role extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() name!: string;
   @Column({ type: "varchar", nullable: true }) description!: string | null;
+  @Column({ name: "role_group_id", type: "uuid", nullable: true }) roleGroupId!: string | null;
 }
 
 @Entity("user_roles")
@@ -49,8 +63,11 @@ export class Permission extends AuditedEntity {
   @Column({ name: "field_key", default: "*" }) fieldKey!: string;
   @Column({ default: false }) read!: boolean;
   @Column({ default: false }) create!: boolean;
+  @Column({ default: false }) copy!: boolean;
   @Column({ default: false }) update!: boolean;
   @Column({ default: false }) delete!: boolean;
+  @Column({ name: "batch_print", default: false }) batchPrint!: boolean;
+  @Column({ name: "batch_update", default: false }) batchUpdate!: boolean;
   @Column({ default: false }) import!: boolean;
   @Column({ default: false }) export!: boolean;
 }
@@ -75,6 +92,7 @@ export class RoleOrganizationScope extends AuditedEntity {
 @Unique(["parentId", "name"])
 export class OrganizationUnit extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index({ unique: true }) @Column({ name: "wechat_department_id", type: "varchar", nullable: true }) wechatDepartmentId!: string | null;
   @Column() name!: string;
   @Column({ type: "smallint" }) level!: number;
   @Column({ name: "parent_id", type: "uuid", nullable: true }) parentId!: string | null;
@@ -120,7 +138,6 @@ export class DevelopmentRequest extends AuditedEntity {
   @Column({ name: "assigned_at", type: "timestamptz", nullable: true }) assignedAt!: Date | null;
   @Column({ name: "plan_submitted_at", type: "timestamptz", nullable: true }) planSubmittedAt!: Date | null;
   @Column({ name: "handler_manager_approved_at", type: "timestamptz", nullable: true }) handlerManagerApprovedAt!: Date | null;
-  @Column({ type: "integer", default: 1 }) version!: number;
 }
 
 @Entity("development_request_events")
@@ -150,7 +167,6 @@ export class ApprovalFlowConfig extends AuditedEntity {
   @Column({ name: "approval_comment_required", default: false }) approvalCommentRequired!: boolean;
   @Column({ name: "admin_role_names", type: "jsonb", default: () => "'[\"系统管理员\",\"集团管理员\"]'" }) adminRoleNames!: string[];
   @Column({ name: "node_labels", type: "jsonb", default: () => "'{}'" }) nodeLabels!: Record<string, string>;
-  @Column({ type: "integer", default: 1 }) version!: number;
 }
 
 @Entity("plan_periods")
@@ -186,7 +202,6 @@ export class Order extends AuditedEntity {
   @Column({ name: "source_total_quantity", type: "numeric", precision: 28, scale: 6, nullable: true }) sourceTotalQuantity!: string | null;
   @Column({ name: "source_active", default: true }) sourceActive!: boolean;
   @Index() @Column({ type: "varchar", nullable: true }) division!: string | null;
-  @Column({ default: 1 }) version!: number;
 }
 
 @Entity("order_items")
@@ -226,7 +241,6 @@ export class OrderItem extends AuditedEntity {
   @Column({ name: "source_month", type: "smallint", nullable: true }) month!: number | null;
   @Column({ name: "unit_price", type: "numeric", precision: 18, scale: 4, nullable: true }) unitPrice!: string | null;
   @Column({ default: true }) active!: boolean;
-  @Column({ default: 1 }) version!: number;
 }
 
 @Entity("outsourcing_details")
@@ -264,7 +278,6 @@ export class ItemProcessProgress extends AuditedEntity {
   @Column({ type: "numeric", precision: 12, scale: 2, nullable: true }) quantity!: string | null;
   @Column({ type: "varchar", nullable: true }) status!: string | null;
   @Column({ type: "varchar", nullable: true }) exception!: string | null;
-  @Column({ default: 1 }) version!: number;
 }
 
 @Entity("daily_process_progress")
@@ -427,7 +440,6 @@ export class ImportJob extends AuditedEntity {
   @Column() status!: string;
   @Column({ type: "jsonb", nullable: true }) summary!: unknown;
   @Column({ name: "preview_payload", type: "jsonb", nullable: true }) previewPayload!: unknown;
-  @Column({ name: "created_by", type: "uuid", nullable: true }) createdBy!: string | null;
 }
 
 @Entity("import_job_errors")
@@ -450,7 +462,7 @@ export class IdempotencyRecord extends AuditedEntity {
 }
 
 export const entities = [
-  User, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
+  User, RoleGroup, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, AuditLog, ApiKey,

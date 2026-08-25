@@ -1,0 +1,11 @@
+[Unit]
+Description=KDOS WeCom contact synchronization
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/automation/code/work/PMC/knweb
+ExecStart=/data/automation/code/work/basci/basic_code/.venv/bin/python /data/automation/code/work/PMC/knweb/automation/wecom_sync/main.py sync
+TimeoutStartSec=30min
+Nice=10

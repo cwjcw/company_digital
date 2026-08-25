@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { planningFieldRegistry, type PlanningFieldDefinition } from "@kdos/contracts";
+import { monthlyPlanningFieldRegistry, type PlanningFieldDefinition } from "@kdos/contracts";
 import ExcelJS from "exceljs";
 import type { CreatePlanItemInput, PlanningActor } from "./planning.types";
 import { PlanningApplicationService } from "./planning.application.service";
@@ -69,10 +69,10 @@ export class PlanningImportService {
     const lower = file.originalname.toLowerCase();
     if (!lower.endsWith(".xlsx") && !lower.endsWith(".csv")) throw new BadRequestException("仅支持标准 .xlsx 或 .csv 文件");
     const sourceRows = lower.endsWith(".csv") ? this.csv(file.buffer) : await this.excel(file.buffer);
-    const codeMap = new Map(planningFieldRegistry.map((field) => [field.code, field]));
-    const compositeMap = new Map(planningFieldRegistry.map((field) => [`${field.groupLabel}::${field.label}`, field]));
+    const codeMap = new Map(monthlyPlanningFieldRegistry.map((field) => [field.code, field]));
+    const compositeMap = new Map(monthlyPlanningFieldRegistry.map((field) => [`${field.groupLabel}::${field.label}`, field]));
     const labelGroups = new Map<string, PlanningFieldDefinition[]>();
-    for (const field of planningFieldRegistry) labelGroups.set(field.label, [...(labelGroups.get(field.label) ?? []), field]);
+    for (const field of monthlyPlanningFieldRegistry) labelGroups.set(field.label, [...(labelGroups.get(field.label) ?? []), field]);
     const fieldFor = (header: string) => codeMap.get(header) ?? compositeMap.get(header) ?? (labelGroups.get(header)?.length === 1 ? labelGroups.get(header)![0] : undefined);
     const warnings: string[] = []; const deduplicated = new Map<string, CreatePlanItemInput>();
     sourceRows.forEach((source, index) => {

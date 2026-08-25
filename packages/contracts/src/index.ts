@@ -1,4 +1,4 @@
-import { monthlyPlanColumns, type ColumnDefinition } from "@tracker/shared";
+import { legacyMonthlyPlanColumns, monthlyPlanColumns, type ColumnDefinition } from "@tracker/shared";
 
 export type PlanVersionStatus = "DRAFT" | "PUBLISHED" | "LOCKED" | "ARCHIVED";
 export type PlanningFieldDataType = "text" | "date" | "decimal" | "image" | "dictionary" | "uuid" | "integer";
@@ -19,7 +19,7 @@ export interface PlanningFieldDefinition {
   filterable: boolean;
   required: boolean;
   permissionCode: string;
-  rendererType?: "image" | "date" | "status" | "decimal";
+  rendererType?: "image" | "date" | "datetime" | "status" | "decimal";
   editorType?: "text" | "date" | "decimal" | "dictionary";
   sourceType: PlanningFieldSource;
   dictionaryCode?: string;
@@ -48,7 +48,7 @@ function groupCode(column: ColumnDefinition) {
   return "plan";
 }
 
-export const legacyPlanningFieldRegistry: PlanningFieldDefinition[] = monthlyPlanColumns.map((column, index) => ({
+function fieldRegistry(columns: ColumnDefinition[], hideRelationKey = false): PlanningFieldDefinition[] { return columns.map((column, index) => ({
   code: column.key,
   label: column.header,
   groupCode: groupCode(column),
@@ -56,7 +56,7 @@ export const legacyPlanningFieldRegistry: PlanningFieldDefinition[] = monthlyPla
   dataType: column.kind,
   width: widths[column.key] ?? 82,
   order: index + 10,
-  visible: column.key !== "relationKey",
+  visible: !hideRelationKey || column.key !== "relationKey",
   editable: Boolean(column.editable),
   sortable: true,
   filterable: true,
@@ -67,6 +67,34 @@ export const legacyPlanningFieldRegistry: PlanningFieldDefinition[] = monthlyPla
   sourceType: sourceType(column),
   dictionaryCode: column.dictionaryCode,
   pinned: Boolean(column.pinned) || column.key === "relationKey"
+})); }
+
+/** Preserved for historical migrations; it is not exposed by the active monthly-plan page. */
+export const legacyPlanningFieldRegistry = fieldRegistry(legacyMonthlyPlanColumns, true);
+/** Exact field contract for the active monthly-plan page, import and export. */
+export const monthlyPlanningFieldRegistry = fieldRegistry(monthlyPlanColumns);
+
+const planningAuditSeeds: Array<{
+  code: string; label: string; dataType: PlanningFieldDataType; width: number; rendererType?: PlanningFieldDefinition["rendererType"];
+}> = [
+  { code: "createdBy", label: "创建人", dataType: "uuid", width: 150 },
+  { code: "createdAt", label: "创建时间", dataType: "text", width: 168, rendererType: "datetime" },
+  { code: "updatedBy", label: "更新人", dataType: "uuid", width: 150 },
+  { code: "updatedAt", label: "更新时间", dataType: "text", width: 168, rendererType: "datetime" }
+];
+
+export const planningAuditFieldRegistry: PlanningFieldDefinition[] = planningAuditSeeds.map((field, index) => ({
+  ...field,
+  groupCode: "audit",
+  groupLabel: "审计信息",
+  order: 10_000 + index,
+  visible: true,
+  editable: false,
+  sortable: true,
+  filterable: true,
+  required: false,
+  permissionCode: `planning.plan.field.${field.code}`,
+  sourceType: "DISPLAY" as const
 }));
 
 export const orchestrationFieldRegistry: PlanningFieldDefinition[] = [
@@ -83,7 +111,7 @@ export const orchestrationFieldRegistry: PlanningFieldDefinition[] = [
   sourceType: "CORE" as const, pinned: index < 2
 }));
 
-export const planningFieldRegistry = [...orchestrationFieldRegistry, ...legacyPlanningFieldRegistry];
+export const planningFieldRegistry = [...monthlyPlanningFieldRegistry, ...planningAuditFieldRegistry];
 
 export const planningPermissions = [
   "planning.plan.read", "planning.plan.create", "planning.plan.update", "planning.plan.delete",
@@ -92,8 +120,24 @@ export const planningPermissions = [
   "planning.progress.read", "planning.progress.update", "planning.admin.manage"
 ] as const;
 
-export const tablePermissionActions = ["read", "create", "update", "delete", "import", "export"] as const;
+export const tablePermissionActions = ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"] as const;
 export type TablePermissionAction = typeof tablePermissionActions[number];
+
+export const presetPermissionGroupTypes = ["ADD_ONLY", "ADD_MANAGE_OWN", "ADD_VIEW_ALL", "MANAGE_ALL", "VIEW_ALL"] as const;
+export type PresetPermissionGroupType = typeof presetPermissionGroupTypes[number];
+
+/** Immutable server-side truth for KDOS system permission groups. Display names are deliberately not used as keys. */
+export const presetTablePermissionMatrix: Record<PresetPermissionGroupType, Readonly<Record<TablePermissionAction, boolean>>> = {
+  ADD_ONLY:       { read: false, create: true,  copy: false, update: false, delete: false, batch_print: false, batch_update: false, import: false, export: false },
+  ADD_MANAGE_OWN: { read: true,  create: true,  copy: true,  update: true,  delete: true,  batch_print: true,  batch_update: true,  import: false, export: true  },
+  ADD_VIEW_ALL:   { read: true,  create: true,  copy: false, update: false, delete: false, batch_print: true,  batch_update: false, import: false, export: false },
+  MANAGE_ALL:     { read: true,  create: true,  copy: true,  update: true,  delete: true,  batch_print: true,  batch_update: true,  import: false, export: true  },
+  VIEW_ALL:       { read: true,  create: false, copy: false, update: false, delete: false, batch_print: true,  batch_update: false, import: false, export: false }
+};
+
+export const presetTablePermissionDataScope: Record<PresetPermissionGroupType, "NONE" | "OWN" | "ALL"> = {
+  ADD_ONLY: "NONE", ADD_MANAGE_OWN: "OWN", ADD_VIEW_ALL: "ALL", MANAGE_ALL: "ALL", VIEW_ALL: "ALL"
+};
 
 /**
  * Single registry for every independently authorized table/report in KDOS.

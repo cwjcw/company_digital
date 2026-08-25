@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Table, Upload } from "antd";
+import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Upload } from "antd";
 import { api, ApiError } from "../../api";
 import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
+import { KdosDataTable } from "../../shared/KdosDataTable";
 
 type SalesField = { key: string; label: string; type?: "date" | "number"; width?: number; required?: boolean };
 const salesFields: SalesField[] = [
@@ -28,7 +29,7 @@ export function SalesOrdersPage() {
   const [feedback, setFeedback] = useState<ImportFeedback>(); const [form] = Form.useForm();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["data-center-sales-orders"] });
   const update = async (row: any, field: string, value: unknown) => {
-    try { await api(`/master-data/sales-orders/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) }); refresh(); }
+    try { await api(`/master-data/sales-orders/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh(); }
     catch (error) { message.error((error as Error).message); refresh(); throw error; }
   };
   const importFile = async (file: File) => {
@@ -47,7 +48,7 @@ export function SalesOrdersPage() {
     <Button onClick={() => void downloadApiFile("/master-data/templates/sales-orders?format=xlsx", "订单表导入模板.xlsx")}>下载模板</Button>
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
-    <Table rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 260px)" }} />
+    <KdosDataTable resource="sales-orders" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 315px)" }} />
     <Modal title="新增订单" width={1000} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
       await api("/master-data/sales-orders", { method: "POST", body: JSON.stringify(payload) });

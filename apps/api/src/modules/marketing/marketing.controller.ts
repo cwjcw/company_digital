@@ -26,9 +26,10 @@ export class MarketingController {
   }
 
   @Get("business-customer-mappings") listMappings(@Query("search") search: string | undefined, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listMappings(search, this.actor(req, tenant, ip)); }
+  @Get("directory-users") listDirectoryUsers(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listDirectoryUsers(this.actor(req, tenant, ip)); }
   @Get("business-customer-mappings/export") async exportMappings(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string, @Res() response: Response) {
     const rows: any[] = await this.application.listMappings(undefined, this.actor(req, tenant, ip), "export") as any[];
-    this.csv(response, "业务人员与客户对应表.csv", ["部门", "课室", "业务", "客户代码"], rows.map((row) => [row.department, row.section, row.salesperson, row.customerCodes]));
+    this.csv(response, "业务人员与客户对应表.csv", ["部门", "课室", "客户", "业务员"], rows.map((row) => [row.department, row.section, row.customerCode, (row.salespersonNames ?? []).join("|")]));
   }
   @Post("business-customer-mappings") saveMapping(@Body() body: BusinessCustomerMappingInput, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.saveMapping(null, body, null, this.actor(req, tenant, ip)); }
   @Patch("business-customer-mappings/:id") updateMapping(@Param("id") id: string, @Body() body: BusinessCustomerMappingInput & { expectedVersion: number }, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.saveMapping(id, body, Number(body.expectedVersion), this.actor(req, tenant, ip)); }

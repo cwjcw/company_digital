@@ -1,4 +1,4 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
   ApiOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
@@ -8,13 +8,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, App as AntApp, Button, Card, DatePicker, Form,
   Input, InputNumber, Layout, Menu, Modal, Select, Space,
-  Table, Tabs, Tag, TreeSelect, Typography, Upload, Switch, Checkbox, message
+  Tabs, Tag, Typography, Upload, Switch, message
 } from "antd";
 import dayjs from "dayjs";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "./api";
-import { tableResourceRegistry } from "@kdos/contracts";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
@@ -23,8 +22,10 @@ import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import { SalesOrdersPage } from "./modules/data-center/DataCenterPages";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
+import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
+import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
 import {
-  FieldVisibility, ImportFeedbackAlert, InlineText, PageHeader, auditColumns, auditLabels,
+  ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
   parseCsvFile, type ImportFeedback
 } from "./shared/legacy-ui";
@@ -33,6 +34,11 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 const MONTHLY_CHUNK_RELOAD_KEY = "kdos:monthly-plan-chunk-reload";
+
+function EditableSwitchCell({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  const { editing } = useKdosTableEditMode();
+  return editing ? <Switch checked={checked} onChange={onChange} /> : <span className="kdos-readonly-cell">{checked ? "启用" : "停用"}</span>;
+}
 const KdosMonthlyPlanPage = lazy(async () => {
   try {
     const module = await import("./modules/planning/pages/MonthlyPlanPage");
@@ -212,8 +218,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/audit" element={<AuditLogs />} />
-          <Route path="/admin" element={<AdminCenter />} />
-          <Route path="/users" element={<AdminCenter />} />
+          <Route path="/admin" element={<AdminWorkspace />} />
+          <Route path="/users" element={<AdminWorkspace />} />
           <Route path="/contacts" element={<ContactDirectory />} />
           <Route path="/api-keys" element={<ApiKeyCenter />} />
           <Route path="/profile" element={<ProfileCenterPage />} />
@@ -240,23 +246,11 @@ function DataOperations() {
   const [supplierForm] = Form.useForm();
   const [dictionaryForm] = Form.useForm();
   const [processForm] = Form.useForm();
-  const baseUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
-  const supplierFields = ["code", "name", "remark", "enabled"];
-  const dictionaryFields = ["code", "typeName", "value", "sortOrder", "enabled"];
-  const processFields = ["sortOrder", "code", "name", "enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"];
-  const [supplierVisible, setSupplierVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`suppliers-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...supplierFields.filter((field) => !saved.includes(field))]; });
-  const [dictionaryVisible, setDictionaryVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`dictionaries-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...dictionaryFields.filter((field) => !saved.includes(field))]; });
-  const [processVisible, setProcessVisible] = useState<string[]>(() => { const saved = JSON.parse(localStorage.getItem(`processes-visible-fields:${baseUser}`) ?? "[]"); return [...saved, ...processFields.filter((field) => !saved.includes(field))]; });
-  useEffect(() => {
-    localStorage.setItem(`suppliers-visible-fields:${baseUser}`, JSON.stringify(supplierVisible));
-    localStorage.setItem(`dictionaries-visible-fields:${baseUser}`, JSON.stringify(dictionaryVisible));
-    localStorage.setItem(`processes-visible-fields:${baseUser}`, JSON.stringify(processVisible));
-  }, [baseUser, supplierVisible, dictionaryVisible, processVisible]);
   const refresh = (key: string) => void queryClient.invalidateQueries({ queryKey: [key] });
-  const dictionaryRows = (dictionaries.data ?? []).flatMap((type: any) => type.values.map((value: any) => ({ ...value, typeId: type.id, code: type.code, typeName: type.name })));
-  const updateSupplier = async (id: string, field: string, value: unknown) => {
+  const dictionaryRows = (dictionaries.data ?? []).flatMap((type: any) => type.values.map((value: any) => ({ ...value, typeId: type.id, typeVersion: type.version, code: type.code, typeName: type.name })));
+  const updateSupplier = async (row: any, field: string, value: unknown) => {
     try {
-      await api(`/master-data/suppliers/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+      await api(`/master-data/suppliers/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
       refresh("suppliers");
     } catch (error) {
       message.error((error as Error).message);
@@ -264,9 +258,9 @@ function DataOperations() {
       throw error;
     }
   };
-  const updateDictionaryType = async (id: string, field: string, value: unknown) => { await api(`/master-data/dictionary-types/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) }); refresh("dictionaries"); };
-  const updateDictionaryValue = async (id: string, field: string, value: unknown) => { await api(`/master-data/dictionary-values/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) }); refresh("dictionaries"); };
-  const updateProcess = async (id: string, field: string, value: unknown) => { await api(`/master-data/processes/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) }); refresh("processes"); };
+  const updateDictionaryType = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-types/${row.typeId}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.typeVersion }) }); refresh("dictionaries"); };
+  const updateDictionaryValue = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-values/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("dictionaries"); };
+  const updateProcess = async (row: any, field: string, value: unknown) => { await api(`/master-data/processes/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("processes"); };
   const importMasterFile = async (file: File, kind: "suppliers" | "dictionaries") => {
     const form = new FormData();
     form.append("file", file);
@@ -294,27 +288,27 @@ function DataOperations() {
     }
   };
   const supplierColumns = [
-    { title: "编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "code", v)} /> },
-    { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "name", v)} /> },
-    { title: "备注", dataIndex: "remark", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row.id, "remark", v)} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateSupplier(row.id, "enabled", v)} /> },
+    { title: "编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "code", v)} /> },
+    { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "name", v)} /> },
+    { title: "备注", dataIndex: "remark", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "remark", v)} /> },
+    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <EditableSwitchCell checked={value} onChange={(v) => void updateSupplier(row, "enabled", v)} /> },
     ...auditColumns
-  ].filter((column) => isAuditField(column.dataIndex) || supplierVisible.includes(column.dataIndex));
+  ];
   const dictionaryColumns = [
-    { title: "字典编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row.typeId, "code", v)} /> },
-    { title: "字典名称", dataIndex: "typeName", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row.typeId, "name", v)} /> },
-    { title: "值", dataIndex: "value", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryValue(row.id, "value", v)} /> },
-    { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateDictionaryValue(row.id, "sortOrder", v)} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateDictionaryValue(row.id, "enabled", v)} /> },
+    { title: "字典编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "code", v)} /> },
+    { title: "字典名称", dataIndex: "typeName", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "name", v)} /> },
+    { title: "值", dataIndex: "value", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryValue(row, "value", v)} /> },
+    { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateDictionaryValue(row, "sortOrder", v)} /> },
+    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <EditableSwitchCell checked={value} onChange={(v) => void updateDictionaryValue(row, "enabled", v)} /> },
     ...auditColumns
-  ].filter((column) => isAuditField(column.dataIndex) || dictionaryVisible.includes(column.dataIndex));
+  ];
   const processColumns = [
-    { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateProcess(row.id, "sortOrder", v)} /> },
-    { title: "代码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row.id, "code", v)} /> },
-    { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row.id, "name", v)} /> },
-    ...["enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"].map((field) => ({ title: ({ enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用" } as any)[field], dataIndex: field, render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateProcess(row.id, field, v)} /> })),
+    { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateProcess(row, "sortOrder", v)} /> },
+    { title: "代码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row, "code", v)} /> },
+    { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateProcess(row, "name", v)} /> },
+    ...["enableRequiredDays", "enableDueDate", "enableStatus", "enableException", "enabled"].map((field) => ({ title: ({ enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用" } as any)[field], dataIndex: field, render: (value: boolean, row: any) => <EditableSwitchCell checked={value} onChange={(v) => void updateProcess(row, field, v)} /> })),
     ...auditColumns
-  ].filter((column) => isAuditField(column.dataIndex) || processVisible.includes(column.dataIndex));
+  ];
 
   return <div><PageHeader title="基础数据维护" subtitle="表格内容可直接编辑；复选框支持多选" actions={<Space>
     <Button onClick={() => { supplierForm.resetFields(); supplierForm.setFieldsValue({ enabled: true }); setSupplierOpen(true); }}>新增供应商</Button>
@@ -331,9 +325,8 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("suppliers", "xlsx")}>下载 XLSX 模板</Button>
           <Button onClick={() => void downloadTemplate("suppliers", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!supplierIds.length} onClick={async () => { await api("/master-data/suppliers/delete", { method: "POST", body: JSON.stringify({ ids: supplierIds }) }); setSupplierIds([]); refresh("suppliers"); }}>停用选中（{supplierIds.length}）</Button>
-          <FieldVisibility all={supplierFields.map((key) => ({ key, label: ({ code: "编码", name: "名称", remark: "备注", enabled: "启用", ...auditLabels } as any)[key] }))} visible={supplierVisible} onChange={setSupplierVisible} />
         </Space>
-        <Table rowKey="id" rowSelection={{ selectedRowKeys: supplierIds, onChange: setSupplierIds }} dataSource={suppliers.data} pagination={{ pageSize: 50 }} columns={supplierColumns} scroll={{ x: "max-content" }} />
+        <KdosDataTable resource="suppliers" editable rowKey="id" rowSelection={{ selectedRowKeys: supplierIds, onChange: setSupplierIds }} dataSource={suppliers.data} pagination={{ pageSize: 50 }} columns={supplierColumns} scroll={{ x: "max-content", y: 480 }} />
       </> },
       { key: "dictionaries", label: `字典值（${dictionaryRows.length}）`, children: <>
         <Space wrap className="master-data-toolbar">
@@ -343,9 +336,8 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("dictionaries", "xlsx")}>下载 XLSX 模板</Button>
           <Button onClick={() => void downloadTemplate("dictionaries", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!dictionaryIds.length} onClick={async () => { await api("/master-data/dictionary-values/delete", { method: "POST", body: JSON.stringify({ ids: dictionaryIds }) }); setDictionaryIds([]); refresh("dictionaries"); }}>停用选中（{dictionaryIds.length}）</Button>
-          <FieldVisibility all={dictionaryFields.map((key) => ({ key, label: ({ code: "字典编码", typeName: "字典名称", value: "值", sortOrder: "顺序", enabled: "启用", ...auditLabels } as any)[key] }))} visible={dictionaryVisible} onChange={setDictionaryVisible} />
         </Space>
-        <Table rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} pagination={{ pageSize: 50 }} columns={dictionaryColumns} scroll={{ x: "max-content" }} />
+        <KdosDataTable resource="dictionaries" editable rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} pagination={{ pageSize: 50 }} columns={dictionaryColumns} scroll={{ x: "max-content", y: 480 }} />
       </> },
       { key: "processes", label: `工序（${processes.data?.length ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
@@ -358,9 +350,8 @@ function DataOperations() {
             return false;
           }}><Button>导入工序 CSV</Button></Upload>
           <Button danger disabled={!processIds.length} onClick={async () => { await api("/master-data/processes/delete", { method: "POST", body: JSON.stringify({ ids: processIds }) }); setProcessIds([]); refresh("processes"); }}>停用选中（{processIds.length}）</Button>
-          <FieldVisibility all={processFields.map((key) => ({ key, label: ({ sortOrder: "顺序", code: "代码", name: "名称", enableRequiredDays: "所需天数", enableDueDate: "交期", enableStatus: "状态", enableException: "异常", enabled: "启用", ...auditLabels } as any)[key] }))} visible={processVisible} onChange={setProcessVisible} />
         </Space>
-        <Table rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data} pagination={false} columns={processColumns} scroll={{ x: "max-content" }} />
+        <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data} pagination={false} columns={processColumns} scroll={{ x: "max-content", y: 480 }} />
       </> }
     ]} />
     <Modal title="新增供应商" open={supplierOpen} onCancel={() => setSupplierOpen(false)} onOk={async () => {
@@ -397,20 +388,11 @@ function FinishedGoodsInboundPage() {
   const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
   const [exporting, setExporting] = useState<string>();
   const [form] = Form.useForm();
-  const userKey = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
-  const visibilityKey = `finished-goods-inbound-visible-fields:${userKey}`;
-  const [visibleFields, setVisibleFields] = useState<string[]>(() =>
-    JSON.parse(localStorage.getItem(visibilityKey) ?? JSON.stringify(inboundBusinessFields))
-  );
-  useEffect(() => {
-    localStorage.setItem(visibilityKey, JSON.stringify(visibleFields));
-  }, [visibilityKey, visibleFields]);
-
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["finished-goods-inbound"] });
-  const updateRow = async (id: string, field: string, value: unknown) => {
+  const updateRow = async (row: any, field: string, value: unknown) => {
     try {
-      await api(`/master-data/finished-goods-inbound/${id}`, {
-        method: "PATCH", body: JSON.stringify({ [field]: value })
+      await api(`/master-data/finished-goods-inbound/${row.id}`, {
+        method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version })
       });
       refresh();
     } catch (error) {
@@ -448,16 +430,16 @@ function FinishedGoodsInboundPage() {
   const numericFields = new Set(["lineNumber", "receivedQuantity"]);
   const dateFields = new Set(["documentDate", "inboundDate"]);
   const wideFields = new Set(["documentNumber", "workOrderNumber", "salesOrderNumber", "inventoryCode", "inventoryName"]);
-  const columns = inboundFields.filter((field) => isAuditField(field) || visibleFields.includes(field)).map((field) => ({
+  const columns = inboundFields.map((field) => ({
     title: inboundFieldLabels[field],
     dataIndex: field,
     width: wideFields.has(field) ? 260 : field === "createdTime" ? 190 : 145,
-    render: (value: unknown, row: any) => ["createdAt", "updatedAt", "updatedBy"].includes(field)
-      ? (field === "updatedBy" ? String(value ?? "system") : value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : "—")
+    render: (value: unknown, row: any) => isAuditField(field)
+      ? (field === "createdBy" ? String(value ?? "—") : value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : "—")
       : <InlineText
       type={numericFields.has(field) ? "number" : dateFields.has(field) ? "date" : "text"}
       value={field === "createdTime" && value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : value}
-      onSave={(next) => updateRow(row.id, field, next)}
+      onSave={(next) => updateRow(row, field, next)}
     />
   }));
 
@@ -473,11 +455,9 @@ function FinishedGoodsInboundPage() {
       <Button loading={exporting === "xlsx"} onClick={() => void exportData("xlsx")}>导出 XLSX</Button>
       <Button loading={exporting === "csv"} onClick={() => void exportData("csv")}>导出 CSV</Button>
       <Text type="secondary">已选择 {selectedIds.length} 行</Text>
-      <FieldVisibility all={inboundBusinessFields.map((key) => ({ key, label: inboundFieldLabels[key] ?? key }))}
-        visible={visibleFields} onChange={setVisibleFields} />
     </Space>
     <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
-    <Table className="editable-master-table" rowKey="id"
+    <KdosDataTable resource="finished-goods-inbound" editable className="editable-master-table" rowKey="id"
       rowSelection={{ selectedRowKeys: selectedIds, onChange: setSelectedIds }}
       dataSource={records.data} loading={records.isLoading}
       pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
@@ -515,7 +495,7 @@ function FinishedGoodsInboundPage() {
 function AuditLogs() {
   const logs = useQuery({ queryKey: ["audit"], queryFn: () => api<any[]>("/audit-logs") });
   return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
-    <Table rowKey="id" loading={logs.isLoading} dataSource={logs.data} columns={[
+    <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data} columns={[
       { title: "用户", dataIndex: "actorName", width: 120 }, { title: "资源", dataIndex: "resource", width: 130 },
       { title: "动作", dataIndex: "action", width: 90 }, { title: "记录 ID", dataIndex: "recordId", ellipsis: true },
       { title: "来源", dataIndex: "source", width: 90 }, { title: "requestId", dataIndex: "requestId", ellipsis: true },
@@ -568,9 +548,9 @@ function ApiKeyCenter() {
   };
   return <div><PageHeader title="API Key 管理" subtitle="仅系统管理员可创建、关联用户并设置只读或读写权限" actions={<Button type="primary" onClick={() => setOpen(true)}>新增 API Key</Button>} />
     <Alert type="info" showIcon style={{ marginBottom: 12 }} message="完整 API KEY 仅在新建或重新生成后显示；刷新页面后将自动隐藏，请及时复制保存。" />
-    <Table rowKey="id" dataSource={keys.data} loading={keys.isLoading} columns={[
+    <KdosDataTable resource="api-keys" rowKey="id" dataSource={keys.data} loading={keys.isLoading} columns={[
       { title: "名称", dataIndex: "name" },
-      { title: "API KEY", dataIndex: "apiKey", width: 430, render: (_value, row) => revealedKeys[row.id]
+      { title: "API KEY", dataIndex: "apiKey", width: 430, render: (_value: unknown, row: any) => revealedKeys[row.id]
         ? <Typography.Text code copyable={{ text: revealedKeys[row.id] }}>{revealedKeys[row.id]}</Typography.Text>
         : <Text type="secondary">已隐藏，请重新生成后查看</Text> },
       { title: "权限", dataIndex: "scopes", render: (values: string[]) => values?.join("、") },
@@ -593,125 +573,6 @@ function ApiKeyCenter() {
   </div>;
 }
 
-function AdminCenter() {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [roleOpen, setRoleOpen] = useState(false);
-  const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<any>();
-  const [permissionDraft, setPermissionDraft] = useState<Record<string, Record<string, boolean>>>({});
-  const [assignmentUsers, setAssignmentUsers] = useState<string[]>([]);
-  const [assignmentOrganizations, setAssignmentOrganizations] = useState<string[]>([]);
-  const [selectedUserIds, setSelectedUserIds] = useState<React.Key[]>([]);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<React.Key[]>([]);
-  const [form] = Form.useForm();
-  const [roleForm] = Form.useForm();
-  const [userSearch, setUserSearch] = useState("");
-  const deferredUserSearch = useDeferredValue(userSearch);
-  const users = useQuery({ queryKey: ["admin-users", deferredUserSearch], queryFn: () => api<any[]>(`/admin/users?search=${encodeURIComponent(deferredUserSearch)}`) });
-  const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<any[]>("/admin/roles") });
-  const organizations = useQuery({ queryKey: ["organization-units"], queryFn: () => api<any[]>("/admin/organization-units") });
-  const permissionResources = tableResourceRegistry.map((resource) => [resource.code, resource.label, resource.module] as const);
-  const permissionActions = [["read", "查看"], ["create", "新增"], ["update", "编辑"], ["delete", "删除/停用"], ["import", "导入"], ["export", "导出"]] as const;
-  const adminUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
-  const allUserFields = ["username", "displayName", "position", "departmentPaths", "roles", "enabled", "lastLoginAt"];
-  const [visibleUserFields, setVisibleUserFields] = useState<string[]>(() => {
-    const saved = JSON.parse(localStorage.getItem(`users-visible-fields:${adminUser}`) ?? "null");
-    return Array.isArray(saved) ? [...saved, ...allUserFields.filter((field) => !saved.includes(field))] : allUserFields;
-  });
-  useEffect(() => localStorage.setItem(`users-visible-fields:${adminUser}`, JSON.stringify(visibleUserFields)), [adminUser, visibleUserFields]);
-  const createUser = useMutation({
-    mutationFn: (values: any) => api("/admin/users", { method: "POST", body: JSON.stringify(values) }),
-    onSuccess: () => { message.success("用户已创建，首次登录必须修改密码"); setOpen(false); form.resetFields(); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); },
-    onError: (error: Error) => message.error(error.message)
-  });
-  const updateUser = async (id: string, patch: Record<string, unknown>) => { await api(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); };
-  const updateRole = async (id: string, patch: Record<string, unknown>) => { await api(`/admin/roles/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); void queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); };
-  const resetPassword = async (id: string) => { try { await api(`/admin/users/${id}/reset-password`, { method: "POST" }); message.success("密码已重置为 kn123456，用户首次登录需修改密码"); } catch (error) { message.error((error as Error).message); } };
-  const openRolePermissions = (role: any) => {
-    const next: Record<string, Record<string, boolean>> = {};
-    for (const [resource] of permissionResources) {
-      const saved = role.permissions?.find((permission: any) => permission.resource === resource && permission.fieldKey === "*") ?? {};
-      next[resource] = Object.fromEntries(permissionActions.map(([action]) => [action, Boolean(saved[action])])) as Record<string, boolean>;
-    }
-    setEditingRole(role); setPermissionDraft(next);
-    setAssignmentUsers(role.userIds ?? []); setAssignmentOrganizations(role.organizationUnitIds ?? []);
-    roleForm.setFieldsValue({ name: role.name, description: role.description }); setRoleOpen(true);
-  };
-  const openNewRole = () => {
-    setEditingRole(undefined);
-    setPermissionDraft(Object.fromEntries(permissionResources.map(([resource]) => [resource,
-      Object.fromEntries(permissionActions.map(([action]) => [action, false]))])));
-    setAssignmentUsers([]); setAssignmentOrganizations([]);
-    roleForm.resetFields(); setRoleOpen(true);
-  };
-  const saveRolePermissions = async () => {
-    const values = await roleForm.validateFields();
-    const payload = {
-      name: values.name.trim(), description: values.description,
-      userIds: assignmentUsers,
-      organizationUnitIds: assignmentOrganizations,
-      permissions: permissionResources.map(([resource]) => ({ resource, fieldKey: "*", ...(permissionDraft[resource] ?? {}) }))
-    };
-    if (editingRole) await updateRole(editingRole.id, payload);
-    else await api("/admin/roles", { method: "POST", body: JSON.stringify(payload) });
-    await queryClient.invalidateQueries({ queryKey: ["admin-roles"] });
-    message.success(editingRole ? "角色权限已保存" : "角色已创建并配置权限"); setRoleOpen(false);
-  };
-  const userColumns = [
-    { title: "职位", dataIndex: "position" }, { title: "所属部门", dataIndex: "departmentPaths", render: (paths: string[][]) => <Space direction="vertical" size={0}>{(paths ?? []).map((path, index) => <span key={index}>{path.join(" / ")}</span>)}</Space> },
-    { title: "工号/账号", dataIndex: "username" }, { title: "姓名", dataIndex: "displayName" },
-    { title: "角色", dataIndex: "roles", render: (_values: string[], row: any) => <Select mode="multiple" value={row.roleIds} style={{ minWidth: 180 }} options={(roles.data ?? []).map((role) => ({ value: role.id, label: role.name }))} onChange={(roleIds) => void updateUser(row.id, { roleIds })} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <Switch checked={value} onChange={(v) => void updateUser(row.id, { enabled: v })} /> },
-    { title: "上次登录", dataIndex: "lastLoginAt", render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—" },
-    ...auditColumns
-    ,{ title: "密码", dataIndex: "password", render: (_: unknown, row: any) => String(row.username).toLowerCase() === "admin" ? <Text type="secondary">单独维护</Text> : <Button type="link" onClick={() => void resetPassword(row.id)}>重置为默认密码</Button> }
-  ].filter((column) => isAuditField(column.dataIndex as string) || visibleUserFields.includes(column.dataIndex as string) || column.dataIndex === "password");
-  const roleColumns = [
-    { title: "角色", dataIndex: "name", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { name: v })} /> }, { title: "说明", dataIndex: "description", render: (value: string, row: any) => <InlineText value={value} onSave={(v) => updateRole(row.id, { description: v })} /> },
-    { title: "权限条目", dataIndex: "permissions", render: (values: any[]) => values?.length ?? 0 },
-    ...auditColumns,
-    { title: "配置", render: (_: unknown, row: any) => <Button type="link" onClick={() => openRolePermissions(row)}>配置表格权限</Button> }
-  ];
-  const organizationTreeData = useMemo(() => {
-    const units = organizations.data ?? [];
-    const make = (parentId: string | null): any[] => units.filter((unit) => (unit.parentId ?? null) === parentId).map((unit) => ({
-      key: unit.id, value: unit.id,
-      title: unit.name,
-      children: make(unit.id)
-    }));
-    return make(null);
-  }, [organizations.data]);
-  return <div><PageHeader title="用户与角色" subtitle="可通过账号、姓名或部门搜索员工" actions={<Space wrap><Input allowClear value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="搜索账号、姓名、部门" style={{ width: 240 }} /><Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => { const raw = await parseCsvFile(file as File); const rows = raw.map((row: any) => ({ username: row.username ?? row["账号"], displayName: row.displayName ?? row["姓名"], division: row.division ?? row["事业部"], roleIds: String(row.roles ?? row["角色"] ?? "").split(/[、|;]/).map((name) => roles.data?.find((role) => role.name === name)?.id).filter(Boolean) })); await api("/admin/users/import", { method: "POST", body: JSON.stringify({ rows }) }); message.success(`已导入 ${rows.length} 个用户`); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); return false; }}><Button>导入用户 CSV</Button></Upload><Button danger disabled={!selectedUserIds.length} onClick={async () => { await api("/admin/users/delete", { method: "POST", body: JSON.stringify({ ids: selectedUserIds }) }); setSelectedUserIds([]); void queryClient.invalidateQueries({ queryKey: ["admin-users"] }); }}>停用选中（{selectedUserIds.length}）</Button><FieldVisibility all={allUserFields.map((key) => ({ key, label: ({ username: "账号", displayName: "姓名", roles: "角色", division: "事业部", enabled: "状态", lastLoginAt: "上次登录" } as any)[key] }))} visible={visibleUserFields} onChange={setVisibleUserFields} /><Button type="primary" onClick={() => setOpen(true)}>新增用户</Button></Space>} />
-    <Tabs items={[
-      { key: "users", label: "用户", children: <Table rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={users.data} loading={users.isLoading} columns={userColumns} scroll={{ x: "max-content" }} /> },
-      { key: "roles", label: "角色与权限", children: <><Space style={{ marginBottom: 12 }}><Button type="primary" onClick={openNewRole}>新增角色</Button><Text type="secondary">可手工新增角色，并逐项配置页面及操作权限</Text></Space><Table rowKey="id" rowSelection={{ selectedRowKeys: selectedRoleIds, onChange: setSelectedRoleIds }} dataSource={roles.data} loading={roles.isLoading} columns={roleColumns} scroll={{ x: "max-content" }} /></> }
-    ]} />
-    <Modal title={editingRole ? `配置角色权限：${editingRole.name}` : "新增角色与权限"} open={roleOpen} width={1120} onCancel={() => setRoleOpen(false)} onOk={() => void saveRolePermissions()}>
-      <Button style={{ marginBottom: 12 }} onClick={() => setAssignmentOpen(true)}>添加用户或架构</Button>
-      <Form form={roleForm} layout="vertical"><Form.Item name="name" label="角色名称" rules={[{ required: true, whitespace: true, message: "请输入角色名称" }]}><Input maxLength={100} /></Form.Item><Form.Item name="description" label="角色说明"><Input maxLength={255} /></Form.Item></Form>
-      <Table rowKey="resource" size="small" pagination={false} dataSource={permissionResources.map(([resource, label, module]) => {
-        const permission = editingRole?.permissions?.find((entry: any) => entry.resource === resource && entry.fieldKey === "*");
-        return { resource, label, module, createdAt: permission?.createdAt, updatedAt: permission?.updatedAt, updatedBy: permission?.updatedBy };
-      })} columns={[{ title: "模块", dataIndex: "module", width: 120 }, { title: "表/报表", dataIndex: "label" }, ...permissionActions.map(([action, label]) => ({ title: label, align: "center" as const, render: (_: unknown, row: any) => <Checkbox checked={Boolean(permissionDraft[row.resource]?.[action])} onChange={(event) => setPermissionDraft((previous) => ({ ...previous, [row.resource]: { ...(previous[row.resource] ?? {}), [action]: event.target.checked } }))} /> })), ...auditColumns]} scroll={{ x: "max-content" }} />
-    </Modal>
-    <Modal title="添加用户或架构" open={assignmentOpen} onCancel={() => setAssignmentOpen(false)} onOk={() => setAssignmentOpen(false)}>
-      <Form layout="vertical">
-        <Form.Item label="指定用户"><Select mode="multiple" allowClear showSearch optionFilterProp="label" maxTagCount="responsive" value={assignmentUsers} onChange={setAssignmentUsers} options={(users.data ?? []).map((user: any) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} placeholder="可搜索并多选用户" /></Form.Item>
-        <Form.Item label="指定组织架构"><TreeSelect treeData={organizationTreeData} treeCheckable showCheckedStrategy={TreeSelect.SHOW_PARENT} treeDefaultExpandAll multiple value={assignmentOrganizations} onChange={setAssignmentOrganizations} placeholder="展开后选择组织架构" style={{ width: "100%" }} /></Form.Item>
-      </Form>
-    </Modal>
-    <Modal title="新增用户" open={open} okText="创建" cancelText="取消" confirmLoading={createUser.isPending} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then((values) => createUser.mutate(values))}>
-      <Form form={form} layout="vertical" initialValues={{ roleIds: [], password: "kn123456" }}>
-        <Form.Item label="账号" name="username" rules={[{ required: true, pattern: /^[a-zA-Z0-9_.-]{3,64}$/, message: "3–64 位字母、数字、._-" }]}><Input /></Form.Item>
-        <Form.Item label="姓名" name="displayName" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item label="首次密码" name="password" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item>
-        <Form.Item label="角色" name="roleIds" rules={[{ required: true }]}><Select mode="multiple" options={(roles.data ?? []).map((role) => ({ value: role.id, label: role.name }))} /></Form.Item>
-        <Form.Item label="所属事业部" name="division"><Select allowClear options={["事业一部", "事业二部", "事业三部", "事业四部", "贻居", "电镀厂"].map((value) => ({ value }))} /></Form.Item>
-      </Form>
-    </Modal>
-  </div>;
-}
 
 function ContactDirectory() {
   const contacts = useQuery({ queryKey: ["contacts"], queryFn: () => api<any[]>("/admin/contacts") });
@@ -722,7 +583,7 @@ function ContactDirectory() {
     { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> },
     ...auditColumns
   ];
-  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.length ?? 0} 位员工</Text>} /><Table rowKey="id" dataSource={contacts.data} loading={contacts.isLoading} columns={columns} pagination={{ pageSize: 50, showSizeChanger: true }} scroll={{ x: "max-content", y: "calc(100vh - 250px)" }} /></div>;
+  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.length ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data} loading={contacts.isLoading} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }
 
 function ForcePasswordChange({ done }: { done: () => void }) {
@@ -748,6 +609,9 @@ function ForcePasswordChange({ done }: { done: () => void }) {
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(localStorage.getItem("accessToken")));
   const [mustChange, setMustChange] = useState(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword));
-  const logout = () => { localStorage.removeItem("accessToken"); localStorage.removeItem("refreshToken"); localStorage.removeItem("sessionUser"); setAuthenticated(false); };
+  const logout = () => {
+    localStorage.removeItem("accessToken"); localStorage.removeItem("refreshToken"); localStorage.removeItem("sessionUser");
+    window.location.assign("/");
+  };
   return <AntApp><BrowserRouter>{authenticated ? (mustChange ? <ForcePasswordChange done={() => setMustChange(false)} /> : <Shell logout={logout} />) : <Login onLogin={() => { setAuthenticated(true); setMustChange(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword)); }} />}</BrowserRouter></AntApp>;
 }

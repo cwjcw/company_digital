@@ -67,8 +67,8 @@ export class AuthService {
       divisions: hasFullDataScope ? "*" : [...divisions],
       permissions: isSystemAdmin ? ["*"] : [...new Set([
         ...permissions.flatMap((permission) =>
-          ["read", "create", "update", "delete", "import", "export"]
-            .filter((action) => permission[action as keyof Permission])
+          ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"]
+            .filter((action) => permission[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])
             .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
         ),
         ...rolePlanningPermissions

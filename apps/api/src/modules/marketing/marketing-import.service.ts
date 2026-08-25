@@ -2,13 +2,17 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import ExcelJS from "exceljs";
 import { MarketingApplicationService } from "./marketing.application.service";
-import type { BusinessCustomerMappingInput, MarketingActor } from "./marketing.types";
+import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
+import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor } from "./marketing.types";
 
 @Injectable()
 export class MarketingImportService {
-  constructor(private readonly application: MarketingApplicationService) {}
+  constructor(
+    private readonly application: MarketingApplicationService,
+    private readonly directory: MarketingDirectoryQueryService
+  ) {}
 
-  private cellText(cell: ExcelJS.Cell) {
+  private cellText(cell: ExcelJS.Cell): string {
     const value: any = cell.value;
     if (value && typeof value === "object" && Array.isArray(value.richText)) return value.richText.map((part: any) => String(part.text ?? "")).join("").trim();
     if (value && typeof value === "object" && "result" in value) return String(value.result ?? "").trim();
@@ -16,27 +20,88 @@ export class MarketingImportService {
     return String(value ?? "").trim();
   }
 
+  private originalFileName(value: string) {
+    const decoded = Buffer.from(value, "latin1").toString("utf8");
+    return decoded.includes("\uFFFD") ? value : decoded;
+  }
+
   async importMappings(file: Express.Multer.File, actor: MarketingActor) {
     if (!file?.buffer?.length) throw new BadRequestException("请选择业务接单周报 Excel 文件");
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
-    const sheet = workbook.getWorksheet("工作表1");
-    if (!sheet) throw new BadRequestException("Excel 中缺少“工作表1”");
-    const headers = new Map<string, number>();
-    sheet.getRow(2).eachCell((cell, column) => headers.set(this.cellText(cell).replace(/\s+/g, ""), column));
-    const required = ["部门", "课室", "业务", "客户代码"];
-    if (required.some((header) => !headers.has(header))) throw new BadRequestException("工作表1 缺少部门、课室、业务或客户代码字段");
-    const groups = new Map<string, BusinessCustomerMappingInput & { codes: Set<string> }>();
-    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber <= 2) return;
-      const get = (header: string) => this.cellText(row.getCell(headers.get(header)!));
-      const department = get("部门"); const section = get("课室"); const salesperson = get("业务"); const customerCode = get("客户代码");
-      if (!department || !salesperson || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(customerCode)) return;
-      const key = `${department}\u0000${section}\u0000${salesperson}`;
-      const current = groups.get(key) ?? { department, section, salesperson, customerCodes: "", codes: new Set<string>() };
-      current.codes.add(customerCode); groups.set(key, current);
+    const aliases = new Map([["部门", "部门"], ["课室", "课室"], ["业务", "业务"], ["业务员", "业务"], ["客户代码", "客户"], ["客户", "客户"]]);
+    let target: { sheet: ExcelJS.Worksheet; headerRow: number; headers: Map<string, number> } | undefined;
+    for (const sheet of workbook.worksheets) {
+      for (let rowNumber = 1; rowNumber <= Math.min(sheet.rowCount, 5); rowNumber += 1) {
+        const headers = new Map<string, number>();
+        sheet.getRow(rowNumber).eachCell((cell, column) => {
+          const normalized = this.cellText(cell).replace(/\s+/g, "");
+          const canonical = aliases.get(normalized);
+          if (canonical) headers.set(canonical, column);
+        });
+        if (["部门", "课室", "业务", "客户"].every((header) => headers.has(header))) {
+          target = { sheet, headerRow: rowNumber, headers };
+          break;
+        }
+      }
+      if (target) break;
+    }
+    if (!target) throw new BadRequestException("Excel 中没有找到部门、课室、业务员和客户字段");
+
+    type CustomerGroup = { department: string; section: string; customerCode: string; salespersonNames: Set<string>; locations: Set<string> };
+    const customers = new Map<string, CustomerGroup>();
+    let ignoredBlankCustomerRows = 0;
+    let sourceRows = 0;
+    target.sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber <= target!.headerRow) return;
+      sourceRows += 1;
+      const get = (header: string): string => this.cellText(row.getCell(target!.headers.get(header)!));
+      const department = get("部门");
+      const section = get("课室");
+      const customerText = get("客户");
+      if (!customerText) {
+        ignoredBlankCustomerRows += 1;
+        return;
+      }
+      if (!department) throw new BadRequestException(`第 ${rowNumber} 行客户 ${customerText} 缺少部门`);
+      const salespersonNames = get("业务").split(/[/|、,，;；\n]+/).map((name) => name.trim()).filter(Boolean);
+      const customerCodes = customerText.split(/[|、,，;；\n]+/).map((code) => code.trim()).filter(Boolean);
+      for (const customerCode of customerCodes) {
+        const key = customerCode.toLocaleUpperCase();
+        const location = `${department}\u0000${section}`;
+        const current = customers.get(key) ?? { department, section, customerCode, salespersonNames: new Set<string>(), locations: new Set<string>() };
+        current.locations.add(location);
+        salespersonNames.forEach((name) => current.salespersonNames.add(name));
+        customers.set(key, current);
+      }
     });
-    const rows = [...groups.values()].map(({ codes, ...row }) => ({ ...row, customerCodes: [...codes].join("|") }));
-    return this.application.replaceMappings(rows, file.originalname, createHash("sha256").update(file.buffer).digest("hex"), actor);
+
+    const allNames = [...new Set([...customers.values()].flatMap((row) => [...row.salespersonNames]))];
+    const directoryMatches = await this.directory.resolveEnabledUsersByNames(allNames);
+    const unmatchedSalespeople = allNames.filter((name) => !directoryMatches.has(name)).sort((left, right) => left.localeCompare(right, "zh-CN"));
+    const ambiguousSalespeople = allNames.flatMap((name) => {
+      const matches = directoryMatches.get(name) ?? [];
+      return matches.length > 1 ? [{ name, userIds: matches.map((user) => user.id) }] : [];
+    });
+    const rows: BusinessCustomerMappingInput[] = [...customers.values()].map((row) => ({
+      department: row.department,
+      section: row.section,
+      customerCode: row.customerCode,
+      salespersonUserIds: [...row.salespersonNames].flatMap((name) => {
+        const matches = directoryMatches.get(name) ?? [];
+        return matches.length === 1 ? [matches[0]!.id] : [];
+      }).filter((id, index, ids) => ids.indexOf(id) === index)
+    }));
+    const summary: MappingImportSummary = {
+      ignoredBlankCustomerRows,
+      sourceRows,
+      unmatchedSalespeople,
+      ambiguousSalespeople,
+      crossSectionCustomers: [...customers.values()].filter((row) => row.locations.size > 1).map((row) => ({
+        customerCode: row.customerCode,
+        locations: [...row.locations].map((location) => location.split("\u0000").filter(Boolean).join(" / "))
+      }))
+    };
+    return this.application.replaceMappings(rows, this.originalFileName(file.originalname), createHash("sha256").update(file.buffer).digest("hex"), summary, actor);
   }
 }

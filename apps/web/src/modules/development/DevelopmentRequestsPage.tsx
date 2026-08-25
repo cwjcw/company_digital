@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, Button, Card, DatePicker, Descriptions, Drawer, Empty, Flex, Form, Input,
-  InputNumber, Modal, Select, Space, Statistic, Steps, Table, Tag, Timeline, Typography, message
+  InputNumber, Modal, Select, Space, Statistic, Steps, Tag, Timeline, Typography, message
 } from "antd";
 import dayjs from "dayjs";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
+import { KdosDataTable } from "../../shared/KdosDataTable";
 
 const { Text, Paragraph } = Typography;
 
@@ -170,7 +171,7 @@ export function DevelopmentRequestsPage() {
         <Select value={scope} onChange={setScope} style={{ width: 170 }} options={[{ value: "all", label: "全部可见需求" }, { value: "todo", label: "待我处理" }, { value: "mine", label: "我提报的需求" }]} />
         <Input.Search allowClear placeholder="搜索编号、标题、类型或需求说明" onSearch={setSearch} style={{ width: 360 }} />
       </Flex>
-      <Table style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 1930, y: "calc(100vh - 410px)" }} />
+      <KdosDataTable resource="development-requests" style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 2260, y: "calc(100vh - 465px)" }} />
     </Card>
 
     <Modal title={editingDraft ? `编辑需求草稿 · ${editingDraft.requestNumber}` : "提报新需求"} width={720} open={requestOpen} onCancel={() => { setRequestOpen(false); setEditingDraft(undefined); }} footer={<Space>

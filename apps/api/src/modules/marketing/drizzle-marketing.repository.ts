@@ -3,7 +3,7 @@ import type { KdosDatabaseClient } from "@kdos/database";
 import type { PoolClient } from "pg";
 import { KDOS_DATABASE } from "../planning/drizzle-planning.repository";
 import type { MarketingRepository } from "./marketing.repository";
-import type { BusinessCustomerMappingInput, MarketingActor, OrderScheduleInput } from "./marketing.types";
+import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor, OrderScheduleInput } from "./marketing.types";
 
 @Injectable()
 export class DrizzleMarketingRepository implements MarketingRepository {
@@ -31,21 +31,21 @@ export class DrizzleMarketingRepository implements MarketingRepository {
 
   private async audit(client: PoolClient, tenantId: string, actor: MarketingActor, action: string, resourceType: string, resourceId: string | null, before: unknown, after: unknown) {
     await client.query(`INSERT INTO audit.audit_logs
-      (tenant_id,user_id,action,resource_type,resource_id,before,after,source,request_id,ip)
-      VALUES($1,$2,$3,$4,$5,$6,$7,'WEB',$8,$9)`, [
+      (tenant_id,user_id,action,resource_type,resource_id,before,after,source,request_id,ip,created_by,updated_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,'WEB',$8,$9,$2,$2)`, [
       tenantId, actor.userId, action, resourceType, resourceId,
       before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.ip ?? null
     ]);
   }
 
-  async listMappings(tenantId: string, search = "") {
+  async listMappings(tenantId: string) {
     return this.transaction(tenantId, async (client) => {
-      const value = search.trim();
-      const result = await client.query(`SELECT id,department,section,salesperson,customer_codes AS "customerCodes",version,
-          created_at AS "createdAt",updated_at AS "updatedAt"
-        FROM marketing.business_customer_mappings
-        WHERE tenant_id=$1 AND ($2='' OR concat_ws(' ',department,section,salesperson,customer_codes) ILIKE '%' || $2 || '%')
-        ORDER BY department,section,salesperson`, [tenantId, value]);
+      const result = await client.query(`SELECT mapping.id,mapping.department,mapping.section,mapping.customer_code AS "customerCode",
+          mapping.salesperson_user_ids AS "salespersonUserIds",mapping.version,
+          mapping.created_by AS "createdBy",mapping.created_at AS "createdAt",mapping.updated_by AS "updatedBy",mapping.updated_at AS "updatedAt"
+        FROM marketing.business_customer_mappings mapping
+        WHERE mapping.tenant_id=$1
+        ORDER BY department,section,customer_code`, [tenantId]);
       return result.rows;
     });
   }
@@ -53,55 +53,72 @@ export class DrizzleMarketingRepository implements MarketingRepository {
   async listSchedules(tenantId: string, search = "") {
     return this.transaction(tenantId, async (client) => {
       const value = search.trim();
-      const result = await client.query(`SELECT id,customer_code AS "customerCode",order_number AS "orderNumber",
-          item_number AS "itemNumber",item_name AS "itemName",customer_due_date AS "customerDueDate",
-          order_total_quantity AS "orderTotalQuantity",production_unit AS "productionUnit",
-          completion_ratio AS "completionRatio",source_plan_item_id AS "sourcePlanItemId",last_synced_at AS "lastSyncedAt",
-          version,created_at AS "createdAt",updated_at AS "updatedAt"
-        FROM marketing.order_schedules
-        WHERE tenant_id=$1 AND ($2='' OR concat_ws(' ',customer_code,order_number,item_number,item_name,production_unit) ILIKE '%' || $2 || '%')
+      const result = await client.query(`SELECT schedule.id,schedule.customer_code AS "customerCode",schedule.order_number AS "orderNumber",
+          schedule.item_number AS "itemNumber",schedule.item_name AS "itemName",schedule.customer_due_date AS "customerDueDate",
+          schedule.order_total_quantity AS "orderTotalQuantity",schedule.production_unit AS "productionUnit",
+          schedule.completion_ratio AS "completionRatio",schedule.source_plan_item_id AS "sourcePlanItemId",schedule.last_synced_at AS "lastSyncedAt",
+          schedule.version,schedule.created_by AS "createdBy",schedule.created_at AS "createdAt",schedule.updated_by AS "updatedBy",schedule.updated_at AS "updatedAt"
+        FROM marketing.order_schedules schedule
+        WHERE schedule.tenant_id=$1 AND ($2='' OR concat_ws(' ',schedule.customer_code,schedule.order_number,schedule.item_number,schedule.item_name,schedule.production_unit) ILIKE '%' || $2 || '%')
         ORDER BY customer_due_date NULLS LAST,order_number,item_number`, [tenantId, value]);
       return result.rows;
     });
   }
 
   async saveMapping(tenantId: string, id: string | null, input: BusinessCustomerMappingInput, expectedVersion: number | null, actor: MarketingActor) {
-    return this.transaction(tenantId, async (client) => {
-      if (!id) {
-        const result = await client.query(`INSERT INTO marketing.business_customer_mappings
-          (tenant_id,department,section,salesperson,customer_codes,created_by,updated_by)
-          VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING *`, [tenantId, input.department, input.section, input.salesperson, input.customerCodes, actor.userId]);
-        await this.audit(client, tenantId, actor, "marketing.mapping.created", "BusinessCustomerMapping", result.rows[0].id, null, result.rows[0]);
+    try {
+      return await this.transaction(tenantId, async (client) => {
+        if (!id) {
+          const result = await client.query(`INSERT INTO marketing.business_customer_mappings
+            (tenant_id,department,section,customer_code,salesperson_user_ids,created_by,updated_by)
+            VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING *`, [tenantId, input.department, input.section, input.customerCode, input.salespersonUserIds, actor.userId]);
+          await this.audit(client, tenantId, actor, "marketing.mapping.created", "BusinessCustomerMapping", result.rows[0].id, null, result.rows[0]);
+          return result.rows[0];
+        }
+        const current = await client.query("SELECT * FROM marketing.business_customer_mappings WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
+        if (!current.rowCount) throw new NotFoundException("业务与客户对应关系不存在");
+        if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
+        const result = await client.query(`UPDATE marketing.business_customer_mappings SET
+            department=$3,section=$4,customer_code=$5,salesperson_user_ids=$6,version=version+1,updated_at=now(),updated_by=$7
+          WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, id, input.department, input.section, input.customerCode, input.salespersonUserIds, actor.userId]);
+        await this.audit(client, tenantId, actor, "marketing.mapping.updated", "BusinessCustomerMapping", id, current.rows[0], result.rows[0]);
         return result.rows[0];
-      }
-      const current = await client.query("SELECT * FROM marketing.business_customer_mappings WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
-      if (!current.rowCount) throw new NotFoundException("业务与客户对应关系不存在");
-      if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
-      const result = await client.query(`UPDATE marketing.business_customer_mappings SET
-          department=$3,section=$4,salesperson=$5,customer_codes=$6,version=version+1,updated_at=now(),updated_by=$7
-        WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, id, input.department, input.section, input.salesperson, input.customerCodes, actor.userId]);
-      await this.audit(client, tenantId, actor, "marketing.mapping.updated", "BusinessCustomerMapping", id, current.rows[0], result.rows[0]);
-      return result.rows[0];
-    });
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") throw new ConflictException(`客户 ${input.customerCode} 已存在，每个客户只能有一行`);
+      throw error;
+    }
   }
 
-  async replaceMappings(tenantId: string, rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, actor: MarketingActor) {
+  async replaceMappings(tenantId: string, rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, summary: MappingImportSummary, actor: MarketingActor) {
     return this.transaction(tenantId, async (client) => {
       const idempotencyKey = `BUSINESS_CUSTOMER_MAPPING:${fileHash}`;
-      const previous = await client.query("SELECT result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE", [tenantId, idempotencyKey]);
-      if (previous.rowCount) return { imported: Number(previous.rows[0].result?.imported ?? rows.length), repeated: true };
-      for (const row of rows) await client.query(`INSERT INTO marketing.business_customer_mappings
-        (tenant_id,department,section,salesperson,customer_codes,created_by,updated_by)
-        VALUES($1,$2,$3,$4,$5,$6,$6)
-        ON CONFLICT(tenant_id,department,section,salesperson) DO UPDATE SET customer_codes=EXCLUDED.customer_codes,
-          version=marketing.business_customer_mappings.version+1,updated_at=now(),updated_by=$6`,
-      [tenantId, row.department, row.section, row.salesperson, row.customerCodes, actor.userId]);
-      const result = { imported: rows.length, repeated: false };
+      const previous = await client.query("SELECT id,file_name,result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE", [tenantId, idempotencyKey]);
+      if (previous.rowCount) {
+        if (previous.rows[0].file_name !== fileName) {
+          const corrected = await client.query("UPDATE integration.import_jobs SET file_name=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *", [tenantId, previous.rows[0].id, fileName, actor.userId]);
+          await this.audit(client, tenantId, actor, "marketing.mapping.import_filename_corrected", "ImportJob", previous.rows[0].id, previous.rows[0], corrected.rows[0]);
+        }
+        return { ...summary, ...(previous.rows[0].result ?? {}), imported: Number(previous.rows[0].result?.imported ?? rows.length), repeated: true };
+      }
+      const before = await client.query(`SELECT id,department,section,customer_code AS "customerCode",salesperson_user_ids AS "salespersonUserIds",version
+        FROM marketing.business_customer_mappings WHERE tenant_id=$1 ORDER BY customer_code`, [tenantId]);
+      await client.query("DELETE FROM marketing.business_customer_mappings WHERE tenant_id=$1", [tenantId]);
+      const inserted = [];
+      for (const row of rows) {
+        const saved = await client.query(`INSERT INTO marketing.business_customer_mappings
+          (tenant_id,department,section,customer_code,salesperson_user_ids,created_by,updated_by)
+          VALUES($1,$2,$3,$4,$5,$6,$6)
+          RETURNING id,department,section,customer_code AS "customerCode",salesperson_user_ids AS "salespersonUserIds",version`,
+        [tenantId, row.department, row.section, row.customerCode, row.salespersonUserIds, actor.userId]);
+        inserted.push(saved.rows[0]);
+      }
+      const result = { imported: rows.length, repeated: false, ...summary };
       await client.query(`INSERT INTO integration.import_jobs
         (tenant_id,type,idempotency_key,file_name,file_hash,status,result,confirmed_at,created_by,updated_by)
-        VALUES($1,'BUSINESS_CUSTOMER_MAPPING',$2,$3,$4,'CONFIRMED',$5,now(),$6,$6)`,
+        VALUES($1,'BUSINESS_CUSTOMER_MAPPING',$2,$3,$4,'CONFIRMED',$5,now(),$6,$6) RETURNING id`,
       [tenantId, idempotencyKey, fileName, fileHash, JSON.stringify(result), actor.userId]);
-      await this.audit(client, tenantId, actor, "marketing.mapping.imported", "BusinessCustomerMapping", null, null, result);
+      await this.audit(client, tenantId, actor, "marketing.mapping.imported", "BusinessCustomerMapping", null, before.rows, { rows: inserted, summary: result });
       return result;
     });
   }

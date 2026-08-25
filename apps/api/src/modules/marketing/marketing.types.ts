@@ -10,8 +10,28 @@ export type MarketingActor = {
 export type BusinessCustomerMappingInput = {
   department: string;
   section: string;
-  salesperson: string;
-  customerCodes: string;
+  customerCode: string;
+  salespersonUserIds: string[];
+};
+
+export type DirectoryUserOption = {
+  id: string;
+  displayName: string;
+  departmentPaths: string[][];
+  enabled: boolean;
+};
+
+export type MappingImportSummary = {
+  ignoredBlankCustomerRows: number;
+  sourceRows: number;
+  unmatchedSalespeople: string[];
+  ambiguousSalespeople: Array<{ name: string; userIds: string[] }>;
+  crossSectionCustomers: Array<{ customerCode: string; locations: string[] }>;
+};
+
+export type MappingImportResult = MappingImportSummary & {
+  imported: number;
+  repeated: boolean;
 };
 
 export type OrderScheduleInput = {

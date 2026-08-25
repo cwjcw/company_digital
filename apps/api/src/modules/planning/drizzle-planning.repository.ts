@@ -31,7 +31,7 @@ const item = (row: any): PlanItemRecord => ({
   deliveryDate: dateText(row.delivery_date), responsibleOrgId: row.responsible_org_id, ownerUserId: row.owner_user_id,
   priority: row.priority, sequence: row.sequence, status: row.status, exception: row.exception,
   remark: row.remark, imageRefs: row.image_refs ?? [], legacyData: row.legacy_data ?? {},
-  version: row.version, createdAt: row.created_at, updatedAt: row.updated_at
+  version: row.version, createdBy: row.created_by, createdAt: row.created_at, updatedBy: row.updated_by, updatedAt: row.updated_at
 });
 const progress = (row: any): ProcessProgressRecord => ({
   id: row.id, planItemId: row.plan_item_id, processDefinitionId: row.process_definition_id,
@@ -73,8 +73,8 @@ export class DrizzlePlanningRepository implements PlanningRepository {
 
   private async audit(client: PoolClient, tenantId: string, actor: PlanningActor, action: string, resourceType: string, resourceId: string | null, before: unknown, after: unknown, reason?: string) {
     await client.query(`INSERT INTO audit.audit_logs
-      (tenant_id,user_id,action,resource_type,resource_id,before,after,reason,source,request_id,trace_id,ip)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+      (tenant_id,user_id,action,resource_type,resource_id,before,after,reason,source,request_id,trace_id,ip,created_by,updated_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$2,$2)`, [
       tenantId, actor.userId, action, resourceType, resourceId, before == null ? null : JSON.stringify(before),
       after == null ? null : JSON.stringify(after), reason ?? null, actor.source, actor.requestId, actor.traceId ?? null, actor.ip ?? null
     ]);
@@ -196,13 +196,13 @@ export class DrizzlePlanningRepository implements PlanningRepository {
     if (input.ownerUserId) add("owner_user_id=?", input.ownerUserId);
     if (input.responsibleOrgId) add("responsible_org_id=?", input.responsibleOrgId);
     values.push(Math.min(Math.max(input.limit ?? 5000, 1), 10000), Math.max(input.offset ?? 0, 0));
-    const result = await this.database.pool.query(`SELECT * FROM planning.plan_items WHERE ${where.join(" AND ")}
+    const result = await this.database.pool.query(`SELECT planning.plan_items.* FROM planning.plan_items WHERE ${where.join(" AND ")}
       ORDER BY priority ASC, sequence ASC, created_at ASC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
     return this.itemViews(result.rows, tenantId);
   }
 
   async getItem(tenantId: string, itemId: string) {
-    const result = await this.database.pool.query("SELECT * FROM planning.plan_items WHERE tenant_id=$1 AND id=$2", [tenantId, itemId]);
+    const result = await this.database.pool.query(`SELECT planning.plan_items.* FROM planning.plan_items WHERE tenant_id=$1 AND id=$2`, [tenantId, itemId]);
     return result.rowCount ? (await this.itemViews(result.rows, tenantId))[0]! : null;
   }
 

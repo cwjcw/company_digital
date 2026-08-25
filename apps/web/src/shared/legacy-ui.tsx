@@ -7,6 +7,9 @@ import { Alert, Button, Card, DatePicker, Drawer, Flex, Input, Modal, Select, Sp
 import dayjs from "dayjs";
 import { type ColumnDefinition } from "@tracker/shared";
 import { api, ApiError, getValue } from "../api";
+import { useKdosTableEditMode } from "./KdosDataTable";
+export { auditLabels, isAuditField, useAuditColumns, useAuditIdentityDirectory, formatAuditUser } from "./audit-fields";
+import { auditLabels, isAuditField } from "./audit-fields";
 
 const { Title, Text } = Typography;
 
@@ -43,13 +46,8 @@ export function ImportFeedbackAlert({ value, onClose }: { value?: ImportFeedback
     style={{ margin: "12px 0" }} />;
 }
 
-export const auditLabels: Record<string, string> = { createdAt: "创建时间", updatedAt: "最后修改时间", updatedBy: "修改人" };
-const auditFieldNames = Object.keys(auditLabels);
-export const isAuditField = (field: string) => auditFieldNames.includes(field);
-export const auditColumns = Object.entries(auditLabels).map(([dataIndex, title]) => ({
-  title, dataIndex, width: 168,
-  render: (value: unknown) => dataIndex === "updatedBy" ? String(value ?? "system") : value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm:ss") : "—"
-}));
+/** KdosDataTable replaces these placeholders with its protected, name-resolving system columns. */
+export const auditColumns = Object.entries(auditLabels).map(([dataIndex, title]) => ({ title, dataIndex, key: dataIndex, width: 168 }));
 
 export async function downloadApiFile(path: string, filename: string) {
   const blob = await api<Blob>(path);
@@ -71,9 +69,15 @@ export async function parseCsvFile(file: File) {
 }
 
 export function InlineText({ value, onSave, type = "text", dateDisplayFormat }: { value: unknown; onSave: (value: unknown) => Promise<unknown>; type?: "text" | "number" | "date"; dateDisplayFormat?: string }) {
+  const { editing } = useKdosTableEditMode();
   const [draft, setDraft] = useState(value == null ? "" : String(value));
   useEffect(() => setDraft(value == null ? "" : String(value)), [value]);
   const save = async () => { const normalized = type === "number" && draft !== "" ? Number(draft) : draft; if (normalized !== value) await onSave(normalized); };
+  if (!editing) {
+    if (!draft) return <span className="kdos-readonly-cell">—</span>;
+    if (type === "date") return <span className="kdos-readonly-cell">{dayjs(draft).isValid() ? dayjs(draft).format(dateDisplayFormat ?? "YYYY-MM-DD") : draft}</span>;
+    return <span className="kdos-readonly-cell">{draft}</span>;
+  }
   if (type === "date" && dateDisplayFormat) return <DatePicker size="small" allowClear format={dateDisplayFormat} value={draft ? dayjs(draft) : null} style={{ width: "100%" }} onChange={(date) => {
     const normalized = date?.format("YYYY-MM-DD") ?? ""; setDraft(normalized);
     if (normalized !== String(value ?? "")) void onSave(normalized);
@@ -185,9 +189,10 @@ export const rollingColumnsMeta: ColumnDefinition[] = [
   { key: "shippingDate", header: "出货日期", group: "订单执行信息", kind: "date", editable: true },
   { key: "deliveryScore", header: "交期评分", group: "订单执行结果评估", kind: "decimal", editable: true },
   { key: "qualityScore", header: "品质评分", group: "订单执行结果评估", kind: "decimal", editable: true },
+  { key: "createdBy", header: "创建人", group: "审计信息", kind: "text", editable: false },
   { key: "createdAt", header: "创建时间", group: "审计信息", kind: "text", editable: false },
-  { key: "updatedAt", header: "最后修改时间", group: "审计信息", kind: "text", editable: false },
-  { key: "updatedBy", header: "修改人", group: "审计信息", kind: "text", editable: false }
+  { key: "updatedBy", header: "更新人", group: "审计信息", kind: "text", editable: false },
+  { key: "updatedAt", header: "更新时间", group: "审计信息", kind: "text", editable: false },
 ];
 
 export type RollingQuickFilters = {
@@ -220,7 +225,7 @@ export const inboundFieldLabels: Record<string, string> = {
   workOrderNumber: "工单单号", salesOrderNumber: "销售单号", inventoryCode: "产品品号",
   quickCode: "快捷码", inventoryName: "品名", specification: "规格",
   receivedQuantity: "允收数量", unit: "业务单位", category: "类别",
-  createdAt: "创建时间（系统）", updatedAt: "最后修改时间", updatedBy: "修改人"
+  createdBy: "创建人", createdAt: "创建时间", updatedBy: "更新人", updatedAt: "更新时间"
 };
 export const inboundFields = Object.keys(inboundFieldLabels);
 export const inboundBusinessFields = inboundFields.filter((field) => !isAuditField(field));

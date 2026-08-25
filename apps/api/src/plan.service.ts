@@ -321,11 +321,16 @@ export class PlanService {
     const quantityMap = new Map(entries.map((entry) => [
       `${entry.orderItemId}:${entry.processDefinitionId}`, entry.quantity
     ]));
+    const versionMap = new Map(entries.map((entry) => [
+      `${entry.orderItemId}:${entry.processDefinitionId}`, entry.version
+    ]));
     return {
       date,
       processes: definitions.map(({ id, code, name, sortOrder }) => ({ id, code, name, sortOrder })),
       rows: unfinished.map((item, index) => {
         const metrics = this.domain.itemMetrics(item);
+        const auditEntry = entries.filter((entry) => entry.orderItemId === item.id)
+          .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0];
         return {
           id: item.id,
           sequence: index + 1,
@@ -338,6 +343,13 @@ export class PlanService {
           division: item.division,
           productionQuantity: metrics.productionQuantity,
           balanceQuantity: metrics.balanceQuantity,
+          createdBy: auditEntry?.createdBy ?? item.createdBy,
+          createdAt: auditEntry?.createdAt ?? item.createdAt,
+          updatedBy: auditEntry?.updatedBy ?? item.updatedBy,
+          updatedAt: auditEntry?.updatedAt ?? item.updatedAt,
+          progressVersions: Object.fromEntries(definitions.map((definition) => [
+            definition.code, versionMap.get(`${item.id}:${definition.id}`) ?? 0
+          ])),
           progress: Object.fromEntries(definitions.map((definition) => [
             definition.code, quantityMap.get(`${item.id}:${definition.id}`) ?? null
           ]))
@@ -348,7 +360,7 @@ export class PlanService {
 
   async updateDailyProgress(
     orderItemId: string,
-    body: { date: string; processCode: string; quantity: unknown },
+    body: { date: string; processCode: string; quantity: unknown; expectedVersion: number },
     user: any,
     requestId: string
   ) {
@@ -367,23 +379,32 @@ export class PlanService {
       ? null : Number(String(rawQuantity).replace(/,/g, ""));
     if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0)) throw new BadRequestException("当日完成数量必须为大于等于 0 的数字");
 
-    const where = { orderItemId, processDefinitionId: definition.id, workDate: date };
-    let entry = await this.dailyProgress.findOneBy(where);
-    const before = entry?.quantity ?? null;
-    if (quantity === null) {
-      if (entry) await this.dailyProgress.remove(entry);
-    } else {
-      entry = entry ?? this.dailyProgress.create(where);
-      entry.quantity = String(quantity);
-      entry.updatedBy = user.username;
-      entry = await this.dailyProgress.save(entry);
-    }
-    await this.audits.save({
-      actorId: user.sub, actorName: user.username, resource: "daily-progress", recordId: entry?.id ?? orderItemId,
-      action: "update", beforeJson: { date, processCode: definition.code, quantity: before },
-      afterJson: { date, processCode: definition.code, quantity }, requestId, source: "web"
+    const expectedVersion = Number(body.expectedVersion);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new BadRequestException("expectedVersion 必填");
+    return this.dataSource.transaction(async (manager) => {
+      const where = { orderItemId, processDefinitionId: definition.id, workDate: date };
+      let entry = await manager.findOne(DailyProcessProgress, { where, lock: { mode: "pessimistic_write" } });
+      const currentVersion = entry?.version ?? 0;
+      if (currentVersion !== expectedVersion) throw new ConflictException({ message: "日进度已被其他用户修改，请刷新后重试", currentVersion, submittedVersion: expectedVersion });
+      const before = entry?.quantity ?? null;
+      if (quantity === null) {
+        if (entry) await manager.remove(entry);
+      } else {
+        entry = entry ?? manager.create(DailyProcessProgress, where);
+        entry.quantity = String(quantity);
+        entry.updatedBy = user.sub;
+        entry.version = currentVersion + 1;
+        entry = await manager.save(entry);
+      }
+      const changedAt = new Date();
+      await manager.save(AuditLog, {
+        actorId: user.sub, actorName: user.username, resource: "daily-progress", recordId: entry?.id ?? orderItemId,
+        action: "update", beforeJson: { date, processCode: definition.code, quantity: before, version: currentVersion },
+        afterJson: { date, processCode: definition.code, quantity, version: quantity === null ? null : currentVersion + 1 }, requestId, source: "web",
+        createdAt: changedAt
+      });
+      return { orderItemId, date, processCode: definition.code, quantity: quantity === null ? null : entry!.quantity, version: quantity === null ? 0 : entry!.version };
     });
-    return { orderItemId, date, processCode: definition.code, quantity: quantity === null ? null : entry!.quantity };
   }
 
   async rolling(user: any) {
@@ -413,7 +434,7 @@ export class PlanService {
         orderAmount: order.orderAmount ?? this.domain.orderAmount(items), division: order.division,
         actualCompletionDate: order.actualCompletionDate, shippingDate: order.shippingDate,
         deliveryScore: order.deliveryScore, qualityScore: order.qualityScore,
-        createdAt: order.createdAt, updatedAt: order.updatedAt, updatedBy: order.updatedBy,
+        version: order.version, createdBy: order.createdBy, createdAt: order.createdAt, updatedBy: order.updatedBy, updatedAt: order.updatedAt,
         ...this.domain.orderMetrics(items, order.sourceTotalQuantity) };
     });
   }
@@ -465,26 +486,28 @@ export class PlanService {
   }
 
   async updateOrder(id: string, body: Record<string, unknown>, user: any, requestId: string) {
-    const order = await this.orders.findOneBy({ id });
-    if (!order) throw new NotFoundException("订单不存在");
-    if (user.divisions !== "*" && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
+    const expectedVersion = Number(body.expectedVersion);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw new BadRequestException("expectedVersion 必填");
     const allowed = [
       "customer", "salesperson", "orderType", "customerDueDate", "reviewDueDate", "exceptionDueDate",
       "exceptionDeliveryMethod", "orderAmount", "division", "actualCompletionDate", "shippingDate",
       "deliveryScore", "qualityScore"
     ] as const;
-    const rejected = Object.keys(body).filter((field) => !allowed.includes(field as typeof allowed[number]));
+    const rejected = Object.keys(body).filter((field) => field !== "expectedVersion" && !allowed.includes(field as typeof allowed[number]));
     if (rejected.length) throw new BadRequestException(`字段不可编辑：${rejected.join("、")}`);
-    const before: Record<string, unknown> = {};
     const normalized = await this.normalizedOrderValues(body);
-    for (const field of allowed) if (field in normalized) {
-      before[field] = order[field];
-      (order as any)[field] = normalized[field];
-    }
-    order.version += 1;
-    await this.orders.save(order);
-    await this.audits.save({ actorId: user.sub, actorName: user.username, resource: "rolling-plan", recordId: id, action: "update", beforeJson: before, afterJson: body, requestId, source: "web" });
-    return order;
+    return this.dataSource.transaction(async (manager) => {
+      const order = await manager.findOne(Order, { where: { id }, lock: { mode: "pessimistic_write" } });
+      if (!order) throw new NotFoundException("订单不存在");
+      if (user.divisions !== "*" && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
+      if (order.version !== expectedVersion) throw new ConflictException({ message: "销售接单已被其他用户修改，请刷新后重试", currentVersion: order.version, submittedVersion: expectedVersion });
+      const before: Record<string, unknown> = {};
+      for (const field of allowed) if (field in normalized) { before[field] = order[field]; (order as any)[field] = normalized[field]; }
+      const changedAt = new Date(); order.version += 1;
+      await manager.save(order);
+      await manager.save(AuditLog, { actorId: user.sub, actorName: user.username, resource: "rolling-plan", recordId: id, action: "update", beforeJson: before, afterJson: normalized, requestId, source: "web", createdAt: changedAt });
+      return order;
+    });
   }
 
   async importOrders(rows: Record<string, unknown>[], user: any, requestId: string) {

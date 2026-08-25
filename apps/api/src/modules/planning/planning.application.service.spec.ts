@@ -34,6 +34,7 @@ describe("PlanningApplicationService", () => {
   it("requires publish permission and server-side editable field permission", async () => {
     expect(() => service.publish("period-1", "version-1", actor(["planning.plan.read"]))).toThrow(ForbiddenException);
     expect(() => service.updateItem("item-1", { field: "balanceQuantity", value: 0, expectedVersion: 1 }, actor())).toThrow(ForbiddenException);
+    expect(() => service.updateItem("item-1", { field: "updatedBy", value: "00000000-0000-7000-8000-000000000001", expectedVersion: 1 }, actor())).toThrow(ForbiddenException);
   });
 
   it("enforces lock and unlock permissions independently", () => {

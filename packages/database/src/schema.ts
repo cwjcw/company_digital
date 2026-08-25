@@ -14,7 +14,8 @@ const auditColumns = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid("created_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedBy: uuid("updated_by")
+  updatedBy: uuid("updated_by"),
+  version: integer("version").notNull().default(1)
 };
 
 export const tenants = iam.table("tenants", {
@@ -59,7 +60,7 @@ export const iamUsers = iam.table("users", {
 export const identities = iam.table("identities", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), userId: uuid("user_id").notNull().references(() => iamUsers.id, { onDelete: "cascade" }),
   provider: varchar("provider", { length: 80 }).notNull(), subject: varchar("subject", { length: 320 }).notNull(), claims: jsonb("claims").notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  ...auditColumns
 }, (table) => [uniqueIndex("identities_tenant_provider_subject_uq").on(table.tenantId, table.provider, table.subject), uniqueIndex("identities_user_provider_uq").on(table.userId, table.provider)]);
 
 export const roles = iam.table("roles", {
@@ -69,18 +70,18 @@ export const roles = iam.table("roles", {
 
 export const permissions = iam.table("permissions", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), code: varchar("code", { length: 200 }).notNull(),
-  description: varchar("description", { length: 500 }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  description: varchar("description", { length: 500 }), ...auditColumns
 }, (table) => [uniqueIndex("permissions_tenant_code_uq").on(table.tenantId, table.code)]);
 
 export const rolePermissions = iam.table("role_permissions", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), roleId: uuid("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
-  permissionId: uuid("permission_id").notNull().references(() => permissions.id, { onDelete: "cascade" }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), createdBy: uuid("created_by")
+  permissionId: uuid("permission_id").notNull().references(() => permissions.id, { onDelete: "cascade" }), ...auditColumns
 }, (table) => [uniqueIndex("role_permissions_role_permission_uq").on(table.roleId, table.permissionId)]);
 
 export const roleBindings = iam.table("role_bindings", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), roleId: uuid("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => iamUsers.id, { onDelete: "cascade" }), organizationId: uuid("organization_id").references(() => organizations.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), createdBy: uuid("created_by")
+  ...auditColumns
 }, (table) => [uniqueIndex("role_bindings_role_user_org_uq").on(table.roleId, table.userId, table.organizationId), index("role_bindings_tenant_user_idx").on(table.tenantId, table.userId)]);
 
 export const fieldPolicies = iam.table("field_policies", {
@@ -181,7 +182,6 @@ export const planItems = planning.table("plan_items", {
   remark: text("remark"),
   imageRefs: jsonb("image_refs").notNull().default([]),
   legacyData: jsonb("legacy_data").notNull().default({}),
-  version: integer("version").notNull().default(1),
   ...auditColumns
 }, (table) => [
   uniqueIndex("plan_items_version_order_item_uq").on(table.planVersionId, table.orderNumber, table.itemNumber),
@@ -216,7 +216,6 @@ export const processProgress = planning.table("process_progress", {
   completedQuantity: numeric("completed_quantity", { precision: 18, scale: 4 }),
   status: varchar("status", { length: 40 }),
   exception: text("exception"),
-  version: integer("version").notNull().default(1),
   ...auditColumns
 }, (table) => [
   uniqueIndex("process_progress_item_definition_uq").on(table.planItemId, table.processDefinitionId),
@@ -230,7 +229,6 @@ export const dailyProgress = planning.table("daily_progress", {
   processDefinitionId: uuid("process_definition_id").notNull().references(() => processDefinitions.id),
   workDate: date("work_date").notNull(),
   completedQuantity: numeric("completed_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
-  version: integer("version").notNull().default(1),
   ...auditColumns
 }, (table) => [uniqueIndex("daily_progress_item_process_date_uq").on(table.planItemId, table.processDefinitionId, table.workDate)]);
 
@@ -240,8 +238,7 @@ export const planSnapshots = planning.table("plan_snapshots", {
   versionId: uuid("version_id").notNull().references(() => planVersions.id),
   snapshotNumber: integer("snapshot_number").notNull(),
   payload: jsonb("payload").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  createdBy: uuid("created_by")
+  ...auditColumns
 }, (table) => [uniqueIndex("plan_snapshots_version_number_uq").on(table.versionId, table.snapshotNumber)]);
 
 export const planChanges = planning.table("plan_changes", {
@@ -254,8 +251,7 @@ export const planChanges = planning.table("plan_changes", {
   after: jsonb("after"),
   reason: text("reason"),
   source: varchar("source", { length: 40 }).notNull().default("WEB"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  createdBy: uuid("created_by")
+  ...auditColumns
 });
 
 export const auditLogs = audit.table("audit_logs", {
@@ -272,7 +268,7 @@ export const auditLogs = audit.table("audit_logs", {
   requestId: varchar("request_id", { length: 120 }).notNull(),
   traceId: varchar("trace_id", { length: 120 }),
   ip: varchar("ip", { length: 120 }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  ...auditColumns
 }, (table) => [
   index("audit_logs_tenant_created_idx").on(table.tenantId, table.createdAt),
   index("audit_logs_resource_idx").on(table.resourceType, table.resourceId)
@@ -298,12 +294,11 @@ export const businessCustomerMappings = marketing.table("business_customer_mappi
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   department: varchar("department", { length: 200 }).notNull(),
   section: varchar("section", { length: 200 }).notNull(),
-  salesperson: varchar("salesperson", { length: 200 }).notNull(),
-  customerCodes: text("customer_codes").notNull(),
-  version: integer("version").notNull().default(1),
+  customerCode: varchar("customer_code", { length: 120 }).notNull(),
+  salespersonUserIds: uuid("salesperson_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
   ...auditColumns
 }, (table) => [
-  uniqueIndex("business_customer_mappings_tenant_salesperson_uq").on(table.tenantId, table.department, table.section, table.salesperson),
+  uniqueIndex("business_customer_mappings_tenant_customer_uq").on(table.tenantId, table.customerCode),
   index("business_customer_mappings_tenant_department_idx").on(table.tenantId, table.department, table.section)
 ]);
 
@@ -320,7 +315,6 @@ export const orderSchedules = marketing.table("order_schedules", {
   completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
   sourcePlanItemId: uuid("source_plan_item_id"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
-  version: integer("version").notNull().default(1),
   ...auditColumns
 }, (table) => [
   uniqueIndex("two_week_schedules_tenant_order_item_uq").on(table.tenantId, table.orderNumber, table.itemNumber),
@@ -339,12 +333,12 @@ export const weeklyPlanItems = planning.table("weekly_plan_items", {
   sourceOrderScheduleId: uuid("source_order_schedule_id").references(() => orderSchedules.id, { onDelete: "set null" }),
   customerCode: varchar("customer_code", { length: 120 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }),
   orderTotalQuantity: numeric("order_total_quantity", { precision: 18, scale: 4 }).notNull().default("0"), productionUnit: varchar("production_unit", { length: 200 }), completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
-  customerDueDate: date("customer_due_date"), reviewDueDate: date("review_due_date"), version: integer("version").notNull().default(1), ...auditColumns
+  customerDueDate: date("customer_due_date"), reviewDueDate: date("review_due_date"), ...auditColumns
 }, (table) => [uniqueIndex("weekly_plan_items_period_order_item_uq").on(table.weeklyPlanPeriodId, table.orderNumber, table.itemNumber), index("weekly_plan_items_period_idx").on(table.tenantId, table.weeklyPlanPeriodId)]);
 
 export const workReports = planning.table("work_reports", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), workDate: date("work_date").notNull(), sourcePlanItemId: uuid("source_plan_item_id").notNull().references(() => planItems.id, { onDelete: "cascade" }),
-  customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), version: integer("version").notNull().default(1), ...auditColumns
+  customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), ...auditColumns
 }, (table) => [uniqueIndex("work_reports_tenant_date_source_uq").on(table.tenantId, table.workDate, table.sourcePlanItemId), index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate)]);
 
 export const schema = {

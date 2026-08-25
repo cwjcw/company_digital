@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, Button, Card, DatePicker, Flex, Form, Input, InputNumber, Modal, Progress,
-  Select, Space, Statistic, Table, Tag, Typography, Upload, message
+  Select, Space, Statistic, Tag, Typography, Upload, message
 } from "antd";
 import dayjs from "dayjs";
 import { type ColDef, type ColGroupDef, type GridApi, type RowClassParams } from "ag-grid-community";
@@ -10,12 +10,13 @@ import { AgGridReact } from "ag-grid-react";
 import { processDefinitions, type ColumnDefinition } from "@tracker/shared";
 import { api, ApiError, containsText } from "../../../api";
 import {
-  FieldVisibility, ImportFeedbackAlert, PageHeader, PlanFilterDrawer, auditColumns,
+  FieldVisibility, ImportFeedbackAlert, PageHeader, PlanFilterDrawer,
   emptyRollingQuickFilters, failedImport, filterPlanRows, matchesDateRange, rollingColumnsMeta,
-  statusClass, useDictionaryOptions,
+  formatAuditUser, statusClass, useAuditColumns, useAuditIdentityDirectory, useDictionaryOptions,
   type ImportFeedback, type PlanFilter, type RollingQuickFilters
 } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate, isDueDateLabel } from "../../../shared/date-format";
+import { KdosDataTable } from "../../../shared/KdosDataTable";
 
 const { Text } = Typography;
 
@@ -31,6 +32,7 @@ function salesSummaryStatus(row: any) {
 }
 
 export function SalesSummaryDashboard() {
+  const auditColumns = useAuditColumns();
   const dictionaryOptions = useDictionaryOptions();
   const [timeDimension, setTimeDimension] = useState<"year" | "month" | "day">("month");
   const [period, setPeriod] = useState<dayjs.Dayjs>(dayjs());
@@ -144,7 +146,7 @@ export function SalesSummaryDashboard() {
         </Flex>
       </Card>
       <Card title="客户订单金额 TOP 8" loading={isLoading}>
-        <Table size="small" rowKey="customer" pagination={false} dataSource={customerRows}
+        <KdosDataTable resource="sales-summary-dashboard-customers" systemFields={false} size="small" rowKey="customer" pagination={false} dataSource={customerRows}
           columns={[
             { title: "客户", dataIndex: "customer", ellipsis: true },
             { title: "订单数", dataIndex: "orders", width: 72, align: "center" as const },
@@ -171,7 +173,7 @@ export function SalesSummaryDashboard() {
         </div>
       </Card>
       <Card title="交期预警（延期及未来 3 天）" loading={isLoading}>
-        <Table size="small" rowKey="id" pagination={false} dataSource={warningRows}
+        <KdosDataTable resource="sales-summary-dashboard-warnings" systemFields={false} size="small" rowKey="id" pagination={false} dataSource={warningRows}
           locale={{ emptyText: "暂无交期预警" }} columns={[
             { title: "订单号", dataIndex: "orderNumber", width: 140 },
             { title: "客户", dataIndex: "customer", ellipsis: true },
@@ -186,6 +188,7 @@ export function SalesSummaryDashboard() {
 }
 
 export function SalesSummaryDetails() {
+  const auditIdentityNames = useAuditIdentityDirectory();
   const queryClient = useQueryClient();
   const [editMode, setEditMode] = useState(false);
   const [rollingSaving, setRollingSaving] = useState(false);
@@ -268,7 +271,9 @@ export function SalesSummaryDetails() {
           : undefined,
     cellEditorParams: meta.kind === "dictionary"
       ? { values: dictionaryOptions[meta.dictionaryCode ?? ""] ?? [] } : undefined,
-    valueFormatter: ["createdAt", "updatedAt"].includes(meta.key)
+    valueFormatter: ["createdBy", "updatedBy"].includes(meta.key)
+      ? ({ value }) => formatAuditUser(value, auditIdentityNames)
+      : ["createdAt", "updatedAt"].includes(meta.key)
       ? ({ value }) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—"
       : meta.kind === "date"
       ? ({ value }) => isDueDateLabel(meta.header) ? formatDueDate(value) : value ? dayjs(value).format("MM-DD") : ""
@@ -389,7 +394,7 @@ export function SalesSummaryDetails() {
           if (!colDef.field || newValue === oldValue) return;
           setRollingSaving(true);
           try {
-            await api(`/plans/orders/${row.id}`, { method: "PATCH", body: JSON.stringify({ [colDef.field]: newValue }) });
+            await api(`/plans/orders/${row.id}`, { method: "PATCH", body: JSON.stringify({ [colDef.field]: newValue, expectedVersion: row.version }) });
             setRollingLastSaved(dayjs().format("HH:mm:ss"));
             if (rollingSaveAndExit.current) {
               setEditMode(false);
@@ -405,7 +410,7 @@ export function SalesSummaryDetails() {
           }
         }}
         getRowClass={(params: RowClassParams) => `${params.node.rowIndex! % 2 ? "order-alt" : ""} ${statusClass(params.data.completionRate, params.data.reviewDueDate)}`}
-        defaultColDef={{ sortable: true, resizable: true, filter: false, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        defaultColDef={{ sortable: true, resizable: true, filter: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
         rowHeight={44} headerHeight={56} groupHeaderHeight={42} />
     </div>
     <Modal title="新增销售接单" width={880} open={addOpen} onCancel={() => setAddOpen(false)} onOk={() => addForm.validateFields().then(async (values) => {
@@ -451,11 +456,16 @@ type DailyProgressResponse = {
     division: string | null;
     productionQuantity: string;
     balanceQuantity: string;
+    createdBy: string | null;
+    createdAt: string;
+    updatedBy: string | null;
+    updatedAt: string;
     progress: Record<string, string | null>;
   }>;
 };
 
 export function DailyProgress() {
+  const auditIdentityNames = useAuditIdentityDirectory();
   const queryClient = useQueryClient();
   const [workDate, setWorkDate] = useState(dayjs());
   const [editMode, setEditMode] = useState(false);
@@ -517,8 +527,18 @@ export function DailyProgress() {
         { headerName: "客户", field: "customer", width: 120, editable: false },
         { headerName: "事业部", field: "division", width: 118, editable: false }
       ]
+    },
+    {
+      headerName: "审计信息",
+      marryChildren: true,
+      children: [
+        { headerName: "创建人", field: "createdBy", width: 150, editable: false, valueFormatter: ({ value }) => formatAuditUser(value, auditIdentityNames) },
+        { headerName: "创建时间", field: "createdAt", width: 175, editable: false, valueFormatter: ({ value }) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—" },
+        { headerName: "更新人", field: "updatedBy", width: 150, editable: false, valueFormatter: ({ value }) => formatAuditUser(value, auditIdentityNames) },
+        { headerName: "更新时间", field: "updatedAt", width: 175, editable: false, valueFormatter: ({ value }) => value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—" },
+      ]
     }
-  ], [date, editMode, processes]);
+  ], [auditIdentityNames, date, editMode, processes]);
 
   return <div>
     <div className="monthly-toolbar daily-progress-toolbar">
@@ -564,7 +584,7 @@ export function DailyProgress() {
           try {
             await api(`/plans/daily-progress/${row.id}`, {
               method: "PATCH",
-              body: JSON.stringify({ date, processCode, quantity: newValue })
+              body: JSON.stringify({ date, processCode, quantity: newValue, expectedVersion: row.progressVersions?.[processCode] ?? 0 })
             });
             setNotice({ type: "success", text: `${row.orderNumber} / ${row.itemNumber} / ${colDef.headerName} 已保存` });
             await queryClient.invalidateQueries({ queryKey: ["daily-progress", date] });
@@ -574,7 +594,7 @@ export function DailyProgress() {
           } finally { setSaving(false); }
         }}
         getRowClass={(params: RowClassParams) => params.node.rowIndex! % 2 ? "order-alt" : ""}
-        defaultColDef={{ sortable: true, resizable: true, filter: false, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        defaultColDef={{ sortable: true, resizable: true, filter: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
         rowHeight={42} headerHeight={58} groupHeaderHeight={42} />
     </div>
   </div>;

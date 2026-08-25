@@ -1,8 +1,16 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
+const buildId = `${Date.now()}`;
+
 export default defineConfig({
-  plugins: [react()],
+  define: { __BUILD_ID__: JSON.stringify(buildId) },
+  plugins: [react(), {
+    name: "kdos-build-version",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ buildId }) });
+    }
+  }],
   server: {
     port: 5173,
     allowedHosts: ["knplan.cuixiaoyuan.cn"],

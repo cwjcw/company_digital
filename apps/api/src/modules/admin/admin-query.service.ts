@@ -28,11 +28,17 @@ export class AdminQueryService {
     const roleMap = new Map(roles.map((role) => [role.id, role]));
     return users.map((user) => ({
       id: user.id, username: user.username, displayName: user.displayName, enabled: user.enabled,
-      division: user.division, employeeNo: user.employeeNo, wechatUserId: user.wechatUserId, position: user.position, departmentPaths: user.departmentPaths,
+      division: user.division, employeeNo: user.employeeNo, wechatUserId: user.wechatUserId, position: user.position,
+      alias: user.alias, gender: user.gender, mobile: user.mobile, email: user.email, departmentPaths: user.departmentPaths,
       mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt, updatedAt: user.updatedAt, updatedBy: user.updatedBy,
+      createdBy: user.createdBy, createdAt: user.createdAt, updatedBy: user.updatedBy, updatedAt: user.updatedAt, version: user.version,
       roleIds: links.filter((link) => link.userId === user.id).map((link) => link.roleId),
       roles: links.filter((link) => link.userId === user.id).map((link) => roleMap.get(link.roleId)?.name).filter(Boolean)
     }));
+  }
+
+  async listDirectoryUsers() {
+    const users = await this.users.find({ order: { displayName: "ASC", username: "ASC" } });
+    return users.map((user) => ({ id: user.id, username: user.username, displayName: user.displayName, enabled: user.enabled }));
   }
 }

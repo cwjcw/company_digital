@@ -24,6 +24,7 @@ import { StorageService } from "./storage.service";
 import { currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
+import { AdminApplicationService } from "./modules/admin/admin-application.service";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -98,6 +99,15 @@ export class ReferenceDataController {
   }
 }
 
+@ApiTags("用户目录")
+@ApiBearerAuth()
+@UseGuards(AuthGuard)
+@Controller("directory")
+export class DirectoryController {
+  constructor(private readonly queries: AdminQueryService) {}
+  @Get("users") users() { return this.queries.listDirectoryUsers(); }
+}
+
 @ApiTags("登录")
 @Controller("auth")
 export class AuthController {
@@ -138,7 +148,7 @@ export class PlanController {
   @Patch("daily-progress/:orderItemId")
   updateDailyProgress(
     @Param("orderItemId") orderItemId: string,
-    @Body() body: { date: string; processCode: string; quantity: unknown },
+    @Body() body: { date: string; processCode: string; quantity: unknown; expectedVersion: number },
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "daily-progress", "update");
@@ -285,6 +295,30 @@ export class MasterDataController {
     private readonly imports: ImportService,
     private readonly dataSource: DataSource
   ) {}
+  private async updateVersioned(
+    repository: Repository<any>, id: string, expectedVersion: unknown, patch: Record<string, unknown>, req: UserRequest, resource: string
+  ) {
+    const submittedVersion = Number(expectedVersion);
+    if (!Number.isInteger(submittedVersion) || submittedVersion < 1) throw new BadRequestException("修改记录必须提供有效的 expectedVersion");
+    return this.dataSource.transaction(async (manager) => {
+      const managed = manager.getRepository(repository.target);
+      const current = await managed.findOne({ where: { id }, lock: { mode: "pessimistic_write" } });
+      if (!current) throw new NotFoundException("记录不存在");
+      if (Number(current.version) !== submittedVersion) {
+        throw new ConflictException({ message: "记录已被其他用户修改，请刷新后重试", currentVersion: current.version, submittedVersion });
+      }
+      const before = { ...current };
+      const changedAt = new Date();
+      Object.assign(current, patch, { version: submittedVersion + 1 });
+      const saved = await managed.save(current);
+      await manager.save(AuditLog, {
+        actorId: req.user.sub, actorName: req.user.displayName ?? req.user.username, resource, recordId: id,
+        action: "update", beforeJson: before, afterJson: saved, requestId: req.requestId, source: req.user.apiKeyId ? "api" : "web",
+        createdAt: changedAt
+      });
+      return saved;
+    });
+  }
   private enabledValue(value: unknown) { return !["false", "0", "否", "停用", "禁用"].includes(String(value ?? "是").trim().toLowerCase()); }
   private csvRows(buffer: Buffer): Record<string, unknown>[] {
     const lines = buffer.toString("utf8").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
@@ -397,13 +431,14 @@ export class MasterDataController {
     if (await this.suppliers.findOneBy({ code })) throw new ConflictException("供应商编码已存在");
     return this.suppliers.save({ code, name: body.name.trim(), remark: body.remark ?? null, enabled: body.enabled ?? true });
   }
-  @Patch("suppliers/:id") async updateSupplier(@Param("id") id: string, @Body() body: { code?: string; name?: string; remark?: string; enabled?: boolean }, @Req() req: UserRequest) {
+  @Patch("suppliers/:id") async updateSupplier(@Param("id") id: string, @Body() body: { code?: string; name?: string; remark?: string; enabled?: boolean; expectedVersion: number }, @Req() req: UserRequest) {
     requireSystemAdmin(req);
     if (body.code !== undefined) {
       const code = body.code.trim(); if (!code) throw new BadRequestException("供应商编码不能为空");
       const duplicate = await this.suppliers.findOneBy({ code }); if (duplicate && duplicate.id !== id) throw new ConflictException("供应商编码已存在"); body.code = code;
     }
-    return this.suppliers.update(id, body);
+    const { expectedVersion, ...patch } = body;
+    return this.updateVersioned(this.suppliers, id, expectedVersion, patch, req, "suppliers");
   }
   @Post("suppliers/delete") async deleteSuppliers(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.suppliers.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Post("suppliers/import") async importSuppliers(@Body() body: { rows: Array<{ code?: string; name: string; remark?: string; enabled?: boolean }> }, @Req() req: UserRequest) {
@@ -460,12 +495,12 @@ export class MasterDataController {
     return this.importDictionaries({ rows: raw.map((row: any) => ({ code: row.code ?? row["字典编码"], name: row.name ?? row["字典名称"], value: row.value ?? row["字典值"], __row: row.__row })) as any }, req);
   }
   @Post("dictionaries") async addDictionaryValue(@Body() body: { code: string; name?: string; value: string }, @Req() req: UserRequest) { return this.importDictionaries({ rows: [body] }, req); }
-  @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string }, @Req() req: UserRequest) { requireSystemAdmin(req); return this.dictionaryTypes.update(id, body); }
-  @Patch("dictionary-values/:id") updateDictionaryValue(@Param("id") id: string, @Body() body: { value?: string; sortOrder?: number; enabled?: boolean }, @Req() req: UserRequest) { requireSystemAdmin(req); return this.dictionaryValues.update(id, body); }
+  @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string; expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.dictionaryTypes, id, expectedVersion, patch, req, "dictionary-types"); }
+  @Patch("dictionary-values/:id") updateDictionaryValue(@Param("id") id: string, @Body() body: { value?: string; sortOrder?: number; enabled?: boolean; expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.dictionaryValues, id, expectedVersion, patch, req, "dictionaries"); }
   @Post("dictionary-values/delete") async deleteDictionaryValues(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.dictionaryValues.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Get("processes") processesList(@Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.find({ order: { sortOrder: "ASC" } }); }
   @Post("processes") addProcess(@Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.save({ ...body, enabled: body.enabled ?? true }); }
-  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.update(id, body); }
+  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity> & { expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.processes, id, expectedVersion, patch, req, "processes"); }
   @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Post("processes/import") async importProcesses(@Body() body: { rows: Array<Partial<ProcessDefinitionEntity>> }, @Req() req: UserRequest) {
     requireSystemAdmin(req);
@@ -549,16 +584,16 @@ export class MasterDataController {
     return this.salesOrders.save(row as SalesOrder);
   }
   @Patch("sales-orders/:id")
-  async updateSalesOrder(@Param("id") id: string, @Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
+  async updateSalesOrder(@Param("id") id: string, @Body() body: Partial<SalesOrder> & { expectedVersion: number }, @Req() req: UserRequest) {
     requireTablePermission(req, "sales-orders", "update");
     const current = await this.salesOrders.findOneBy({ id });
     if (!current) throw new BadRequestException("销售订单不存在");
-    const next = this.salesOrderRow({ ...current, ...body } as Record<string, unknown>);
+    const { expectedVersion, ...submitted } = body;
+    const next = this.salesOrderRow({ ...current, ...submitted } as Record<string, unknown>);
     if (!next.orderNumber || !next.itemNumber) throw new BadRequestException("订单编号和品项编码为必填项");
     const duplicate = await this.salesOrders.createQueryBuilder("salesOrder").where("salesOrder.orderNumber=:orderNumber", { orderNumber: next.orderNumber }).andWhere("salesOrder.itemNumber=:itemNumber", { itemNumber: next.itemNumber }).andWhere(next.sequenceNumber === null ? "salesOrder.sequenceNumber IS NULL" : "salesOrder.sequenceNumber=:sequenceNumber", { sequenceNumber: next.sequenceNumber }).getOne();
     if (duplicate && duplicate.id !== id) throw new ConflictException("该订单号和品号已存在");
-    await this.salesOrders.update(id, next);
-    return this.salesOrders.findOneByOrFail({ id });
+    return this.updateVersioned(this.salesOrders, id, expectedVersion, next, req, "sales-orders");
   }
   @Post("sales-orders/import-file") @ApiConsumes("multipart/form-data")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
@@ -659,11 +694,12 @@ export class MasterDataController {
     return this.finishedGoodsInbound.save(row);
   }
   @Patch("finished-goods-inbound/:id")
-  async updateFinishedGoodsInbound(@Param("id") id: string, @Body() body: Partial<FinishedGoodsInbound>, @Req() req: UserRequest) {
+  async updateFinishedGoodsInbound(@Param("id") id: string, @Body() body: Partial<FinishedGoodsInbound> & { expectedVersion: number }, @Req() req: UserRequest) {
     requireTablePermission(req, "finished-goods-inbound", "update");
     const current = await this.finishedGoodsInbound.findOneBy({ id });
     if (!current) throw new BadRequestException("成品入库记录不存在");
-    const normalized = this.finishedGoodsRow({ ...current, ...body });
+    const { expectedVersion, ...submitted } = body;
+    const normalized = this.finishedGoodsRow({ ...current, ...submitted });
     if (!normalized.documentNumber || !normalized.inventoryCode || !normalized.relationInfo) {
       throw new BadRequestException("单据编号、存货编码和关联信息为必填项");
     }
@@ -673,8 +709,7 @@ export class MasterDataController {
       relationInfo: normalized.relationInfo
     });
     if (duplicate && duplicate.id !== id) throw new ConflictException("该成品入库记录已存在");
-    await this.finishedGoodsInbound.update(id, normalized);
-    return this.finishedGoodsInbound.findOneByOrFail({ id });
+    return this.updateVersioned(this.finishedGoodsInbound, id, expectedVersion, normalized, req, "finished-goods-inbound");
   }
   @Post("finished-goods-inbound/import-file") @ApiConsumes("multipart/form-data")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 100 * 1024 * 1024 } }))
@@ -709,7 +744,7 @@ export class MasterDataController {
     });
     return { imported: prepared.length, skipped: 0, message: `全部校验通过，成功导入 ${prepared.length} 行` };
   }
-  private finishedGoodsRow(row: Record<string, unknown>): Omit<FinishedGoodsInbound, "id" | "createdAt" | "updatedAt" | "updatedBy"> {
+  private finishedGoodsRow(row: Record<string, unknown>): Omit<FinishedGoodsInbound, "id" | "createdBy" | "createdAt" | "updatedAt" | "updatedBy" | "version"> {
     const lineNumberValue = this.numeric(row.lineNumber ?? row["序号"]);
     const workOrderNumber = this.text(row.workOrderNumber ?? row["工单单号"]);
     return {
@@ -779,7 +814,7 @@ export class ApiKeyController {
     return rows.map((row) => ({
       id: row.id, name: row.name, scopes: row.scopes, expiresAt: row.expiresAt,
       lastUsedAt: row.lastUsedAt, enabled: row.enabled, userId: row.userId, roleId: row.roleId,
-      createdAt: row.createdAt, updatedAt: row.updatedAt, updatedBy: row.updatedBy
+      createdBy: row.createdBy, createdAt: row.createdAt, updatedBy: row.updatedBy, updatedAt: row.updatedAt, version: row.version
     }));
   }
 
@@ -831,7 +866,8 @@ export class AdminController {
     @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
     private readonly imports: ImportService,
     private readonly dataSource: DataSource,
-    private readonly adminQueries: AdminQueryService
+    private readonly adminQueries: AdminQueryService,
+    private readonly adminApplication: AdminApplicationService
   ) {}
 
   private admin(req: UserRequest) {
@@ -849,6 +885,24 @@ export class AdminController {
     this.admin(req);
     const [roles, permissions, userRoles, organizationScopes] = await Promise.all([this.roles.find({ order: { name: "ASC" } }), this.permissions.find(), this.userRoles.find(), this.organizationScopes.find()]);
     return roles.map((role) => ({ ...role, permissions: permissions.filter((permission) => permission.roleId === role.id), userIds: userRoles.filter((link) => link.roleId === role.id).map((link) => link.userId), organizationUnitIds: organizationScopes.filter((scope) => scope.roleId === role.id).map((scope) => scope.organizationUnitId) }));
+  }
+
+  @Get("role-groups")
+  listRoleGroups(@Req() req: UserRequest) { this.admin(req); return this.adminApplication.listRoleGroups(); }
+
+  @Post("role-groups")
+  createRoleGroup(@Body() body: { name?: string; sortOrder?: number; userIds?: unknown }, @Req() req: UserRequest) {
+    this.admin(req); return this.adminApplication.createRoleGroup(body);
+  }
+
+  @Patch("role-groups/:id")
+  updateRoleGroup(@Param("id") id: string, @Body() body: { name?: string; sortOrder?: number; userIds?: unknown }, @Req() req: UserRequest) {
+    this.admin(req); return this.adminApplication.updateRoleGroup(id, body);
+  }
+
+  @Delete("role-groups/:id")
+  deleteRoleGroup(@Param("id") id: string, @Req() req: UserRequest) {
+    this.admin(req); return this.adminApplication.deleteRoleGroup(id);
   }
 
   @Get("organization-units")
@@ -943,7 +997,7 @@ export class AdminController {
   }
 
   @Post("users")
-  async createUser(@Body() body: { username: string; displayName: string; password?: string; division?: string; roleIds: string[] }, @Req() req: UserRequest) {
+  async createUser(@Body() body: { username: string; displayName: string; password?: string; division?: string; roleIds: string[]; alias?: string; gender?: string; mobile?: string; email?: string; employeeNo?: string; position?: string; departmentPaths?: string[][] }, @Req() req: UserRequest) {
     this.admin(req);
     const password = body.password || DEFAULT_USER_PASSWORD;
     if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(body.username) || !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) throw new ForbiddenException("用户名或密码不符合安全要求");
@@ -951,7 +1005,9 @@ export class AdminController {
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.save(User, {
         username: body.username, displayName: body.displayName.trim(), passwordHash: await bcrypt.hash(password, 12),
-        enabled: true, division: body.division || null, mustChangePassword: true, lastLoginAt: null
+        enabled: true, division: body.division || null, alias: body.alias?.trim() || null, gender: body.gender?.trim() || null,
+        mobile: body.mobile?.trim() || null, email: body.email?.trim() || null, employeeNo: body.employeeNo?.trim() || null,
+        position: body.position?.trim() || null, departmentPaths: body.departmentPaths ?? [], mustChangePassword: true, lastLoginAt: null
       });
       for (const roleId of [...new Set(body.roleIds ?? [])]) await manager.insert(UserRole, { userId: user.id, roleId });
       return { id: user.id, username: user.username };
@@ -972,7 +1028,7 @@ export class AdminController {
   }
 
   @Patch("users/:id")
-  async updateUser(@Param("id") id: string, @Body() body: { displayName?: string; division?: string | null; enabled?: boolean; roleIds?: string[]; password?: string }, @Req() req: UserRequest) {
+  async updateUser(@Param("id") id: string, @Body() body: { displayName?: string; division?: string | null; enabled?: boolean; roleIds?: string[]; password?: string; alias?: string | null; gender?: string | null; mobile?: string | null; email?: string | null; employeeNo?: string | null; position?: string | null; departmentPaths?: string[][] }, @Req() req: UserRequest) {
     this.admin(req);
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.findOneBy(User, { id });
@@ -980,6 +1036,13 @@ export class AdminController {
       if (body.displayName !== undefined) user.displayName = body.displayName.trim();
       if (body.division !== undefined) user.division = body.division;
       if (body.enabled !== undefined) user.enabled = body.enabled;
+      if (body.alias !== undefined) user.alias = body.alias?.trim() || null;
+      if (body.gender !== undefined) user.gender = body.gender?.trim() || null;
+      if (body.mobile !== undefined) user.mobile = body.mobile?.trim() || null;
+      if (body.email !== undefined) user.email = body.email?.trim() || null;
+      if (body.employeeNo !== undefined) user.employeeNo = body.employeeNo?.trim() || null;
+      if (body.position !== undefined) user.position = body.position?.trim() || null;
+      if (body.departmentPaths !== undefined) user.departmentPaths = body.departmentPaths;
       if (body.password) {
         if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(body.password)) throw new ForbiddenException("密码至少 8 位，且必须同时包含字母和数字");
         user.passwordHash = await bcrypt.hash(body.password, 12); user.mustChangePassword = true;
@@ -1008,42 +1071,26 @@ export class AdminController {
   @Post("users/delete")
   async deleteUsers(@Body() body: { ids: string[] }, @Req() req: UserRequest) { this.admin(req); await this.users.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
 
-  @Post("roles")
-  async createRole(@Body() body: { name: string; description?: string; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
+  @Post("users/:id/actions")
+  employeeAction(@Param("id") id: string, @Body() body: { action?: string; targetUserId?: string; departmentPaths?: string[][] }, @Req() req: UserRequest) {
     this.admin(req);
-    const name = body.name?.trim();
-    if (!name) throw new BadRequestException("角色名称不能为空");
-    if (await this.roles.findOneBy({ name })) throw new ConflictException("角色名称已存在");
-    return this.dataSource.transaction(async (manager) => {
-      const role = await manager.save(Role, { name, description: body.description?.trim() || null });
-      for (const permission of body.permissions ?? []) await manager.save(Permission, { ...permission, roleId: role.id, resource: permission.resource!, fieldKey: permission.fieldKey ?? "*" });
-      for (const userId of [...new Set(body.userIds ?? [])]) await manager.save(UserRole, { userId, roleId: role.id });
-      for (const organizationUnitId of [...new Set(body.organizationUnitIds ?? [])]) await manager.save(RoleOrganizationScope, { roleId: role.id, organizationUnitId });
-      return role;
-    });
+    return this.adminApplication.employeeAction(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  }
+
+  @Post("roles")
+  createRole(@Body() body: { name: string; description?: string; roleGroupId?: string | null; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
+    this.admin(req);
+    return this.adminApplication.createRole(body);
   }
 
   @Patch("roles/:id")
-  async updateRole(@Param("id") id: string, @Body() body: { name?: string; description?: string; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
+  updateRole(@Param("id") id: string, @Body() body: { name?: string; description?: string; roleGroupId?: string | null; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
     this.admin(req);
-    return this.dataSource.transaction(async (manager) => {
-      const role = await manager.findOneBy(Role, { id });
-      if (!role) throw new ForbiddenException("角色不存在");
-      if (body.name !== undefined) {
-        const name = body.name.trim();
-        if (!name) throw new BadRequestException("角色名称不能为空");
-        const duplicate = await manager.findOneBy(Role, { name });
-        if (duplicate && duplicate.id !== id) throw new ConflictException("角色名称已存在");
-        role.name = name;
-      }
-      if (body.description !== undefined) role.description = body.description || null;
-      await manager.save(role);
-      if (body.permissions) { await manager.delete(Permission, { roleId: id }); for (const p of body.permissions) await manager.save(Permission, { ...p, roleId: id, resource: p.resource!, fieldKey: p.fieldKey ?? "*" }); }
-      if (body.userIds) { await manager.delete(UserRole, { roleId: id }); for (const userId of [...new Set(body.userIds)]) await manager.save(UserRole, { userId, roleId: id }); }
-      if (body.organizationUnitIds) { await manager.delete(RoleOrganizationScope, { roleId: id }); for (const organizationUnitId of [...new Set(body.organizationUnitIds)]) await manager.save(RoleOrganizationScope, { roleId: id, organizationUnitId }); }
-      return role;
-    });
+    return this.adminApplication.updateRole(id, body);
   }
+
+  @Delete("roles/:id")
+  deleteRole(@Param("id") id: string, @Req() req: UserRequest) { this.admin(req); return this.adminApplication.deleteRole(id); }
 
   @Post("roles/import")
   async importRoles(@Body() body: { rows: Array<{ name: string; description?: string }> }, @Req() req: UserRequest) {

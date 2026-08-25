@@ -45,7 +45,7 @@ export const portalModules: PortalModule[] = [
   {
     id: "system", title: "系统管理", englishTitle: "SYSTEM ADMIN",
     description: "维护基础资料、系统审计、用户角色与接口账户。",
-    features: ["基础资料", "系统管理", "账户与接口"], path: "/master-data", tone: "blue"
+    features: ["员工与部门", "角色权限", "系统审计"], path: "/users", tone: "blue"
   },
   {
     id: "profile", title: "个人中心", englishTitle: "MY WORKSPACE",

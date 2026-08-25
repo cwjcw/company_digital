@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Input, message, Space, Table } from "antd";
+import { Button, DatePicker, Input, message, Space } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../../api";
 import { InlineText, PageHeader } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
+import { KdosDataTable } from "../../../shared/KdosDataTable";
 
 export function WeeklyPlanPage({ startDate }: { startDate: string }) {
   const queryClient = useQueryClient(); const [search, setSearch] = useState("");
@@ -24,7 +25,7 @@ export function WeeklyPlanPage({ startDate }: { startDate: string }) {
   ];
   return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${period.startDate} 至 ${period.endDate}；仅从订单排期同步完成比例小于 100% 的记录` : "正在加载周计划周期"} actions={<Space>
     <Input.Search allowClear placeholder="搜索客户、订单、品项、生产单位" onSearch={setSearch} style={{ width: 320 }} /><Button type="primary" disabled={!period} onClick={() => void sync()}>从订单排期同步</Button>
-  </Space>} /><Table rowKey="id" loading={periods.isLoading || rows.isLoading} dataSource={rows.data} columns={columns} pagination={{ pageSize: 50, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 250px)" }} /></div>;
+  </Space>} /><KdosDataTable resource="weekly-plan" editable rowKey="id" loading={periods.isLoading || rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }
 
 export function WorkReportsPage() {
@@ -42,5 +43,5 @@ export function WorkReportsPage() {
   ];
   return <div><PageHeader title="报工表" subtitle="日期显示为 YYMMDD；除报工数量外，其他字段均从主计划手工同步" actions={<Space>
     <DatePicker value={date} onChange={(value) => value && setDate(value)} allowClear={false} /><Input.Search allowClear placeholder="搜索客户、订单、品项" onSearch={setSearch} style={{ width: 280 }} /><Button type="primary" onClick={() => void sync()}>从主计划同步</Button>
-  </Space>} /><Table rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} pagination={{ pageSize: 50, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: "max-content", y: "calc(100vh - 250px)" }} /></div>;
+  </Space>} /><KdosDataTable resource="work-report" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }

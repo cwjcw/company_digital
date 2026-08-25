@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Switch, Tag, Typography, message } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
+import { KdosDataTable } from "../../shared/KdosDataTable";
 
 type FlowConfig = {
   flowKey: string; name: string; enabled: boolean; allowDraft: boolean; allowWithdraw: boolean;
@@ -61,7 +62,7 @@ export function ApprovalFlowSettingsPage() {
   return <div>
     <PageHeader title="审批流程配置" subtitle="统一管理流程启停、表单能力、退回拒绝规则、处理角色和节点名称" />
     <Alert type="info" showIcon message="系统保护规则" description="退回和拒绝原因始终必填；配置页权限固定为系统管理员/集团管理员，避免误配置导致流程无法管理。流程停用只禁止新建，已有单据仍可继续处理。" style={{ marginBottom: 16 }} />
-    <Card bordered={false}><Table rowKey="flowKey" loading={flows.isLoading} dataSource={flows.data ?? []} columns={columns} pagination={false} /></Card>
+    <Card bordered={false}><KdosDataTable resource="approval-flow-configs" rowKey="flowKey" loading={flows.isLoading} dataSource={flows.data ?? []} columns={columns} pagination={false} /></Card>
 
     <Modal title={editing ? `配置流程 · ${editing.name}` : "配置流程"} width={760} open={Boolean(editing)} confirmLoading={saving} okText="保存并立即生效" onCancel={() => setEditing(undefined)} onOk={() => void save()}>
       <Form form={form} layout="vertical">

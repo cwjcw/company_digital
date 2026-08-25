@@ -15,6 +15,10 @@ backups/
 *.sql
 !database/migrations/0003_data_marketing_centers.sql
 !database/migrations/0004_order_schedule_weekly_work_reports.sql
+!database/migrations/0005_kdos_system_audit_fields.sql
+!database/migrations/0006_business_customer_user_field.sql
+!database/migrations/0007_kdos_updated_by_consistency.sql
+!database/migrations/0008_creator_updater_audit_fields.sql
 !database/demo/seed_legacy_demo.sql
 !database/demo/seed_kdos_demo.sql
 playwright-report/
@@ -25,6 +29,8 @@ logs/
 tmp/
 *.tmp
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 *.xlsx
 *.xls
 !docs/*导入模板.xlsx

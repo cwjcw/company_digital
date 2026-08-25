@@ -244,3 +244,178 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .profile-security-note span { display: flex; flex-direction: column; }
 .profile-security-note small { margin-top: 3px; color: #6c8585; }
 .profile-password-card .ant-card-body { padding: 22px 26px; }
+
+/* Employee and role administration — mirrors the supplied organization screenshots. */
+.employee-admin-page {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  height: calc(100vh - 70px);
+  min-height: calc(100vh - 70px);
+  margin: -22px -24px;
+  overflow: hidden;
+  color: #172033;
+  background: #fff;
+}
+
+/* KDOS form-platform table: one visual and interaction contract for all record lists. */
+.kdos-data-table-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #e4eaed;
+  border-radius: 10px;
+  background: #fff;
+}
+.kdos-data-table-toolbar {
+  min-height: 54px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e7ecef;
+  background: #fbfcfd;
+}
+.kdos-data-table {
+  flex: 1;
+  min-height: 0;
+}
+.kdos-data-table .ant-table-wrapper,
+.kdos-data-table .ant-spin-nested-loading,
+.kdos-data-table .ant-spin-container,
+.kdos-data-table .ant-table,
+.kdos-data-table .ant-table-container {
+  min-height: 0;
+}
+.kdos-data-table .ant-table-thead > tr > th {
+  background: #f3f6f7;
+  color: #31444c;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.kdos-data-table .ant-table-tbody > tr:hover > td {
+  background: #eef7f8 !important;
+}
+.kdos-data-table .ant-table-cell {
+  border-color: #e8edef;
+}
+.kdos-data-table-filter-field {
+  display: grid;
+  gap: 6px;
+}
+.employee-admin-member-table-shell { height: auto; min-height: 0; flex: 1; margin: 0 26px; border-radius: 0; }
+.employee-admin-sidebar {
+  min-width: 0;
+  padding: 26px 22px;
+  overflow-y: auto;
+  border-right: 1px solid #e4e9ee;
+  background: #fff;
+}
+.employee-admin-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 22px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #eef1f4;
+}
+.employee-admin-switch button {
+  height: 42px;
+  color: #20293b;
+  font: inherit;
+  font-size: 16px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+.employee-admin-switch button.active { color: #08a99e; font-weight: 700; background: #fff; box-shadow: 0 1px 5px rgba(23, 43, 56, .1); }
+.sidebar-section-title { margin: 20px 0 10px; color: #5b6676; font-size: 14px; }
+.sidebar-member-item {
+  display: flex;
+  width: 100%;
+  height: 46px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+  padding: 0 14px;
+  color: #374255;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.sidebar-member-item .anticon { color: #8b98a6; font-size: 18px; }
+.sidebar-member-item.active { background: #e8f6f5; }
+.sidebar-member-item.active .anticon { color: #0bb1a5; }
+.employee-admin-sidebar > .ant-input-affix-wrapper { height: 42px; margin-bottom: 14px; }
+.employee-admin-sidebar .ant-tree { margin-top: 8px; font-size: 15px; }
+.employee-admin-sidebar .ant-tree-treenode { width: 100%; min-height: 38px; align-items: center; }
+.employee-admin-sidebar .ant-tree-node-content-wrapper { min-height: 34px; line-height: 34px; border-radius: 7px; }
+.employee-admin-sidebar .ant-tree-iconEle { color: #0bb1a5; }
+.employee-admin-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: #fff; }
+.employee-admin-title { min-height: 64px; padding: 0 26px; border-bottom: 1px solid #e4e9ee; }
+.employee-admin-title h3 { margin: 0 !important; color: #172033; font-size: 21px; line-height: 64px; }
+.employee-admin-toolbar { min-height: 80px; padding: 15px 26px; }
+.employee-admin-toolbar .ant-btn-primary { background: #06afa4; box-shadow: none; }
+.employee-admin-table { margin: 0 26px; border-radius: 0; box-shadow: none; }
+.employee-admin-table .ant-table { border-radius: 0; }
+.employee-admin-table .ant-table-thead > tr > th { height: 54px; color: #172033; font-size: 15px; font-weight: 600; background: #f5f7f9; }
+.employee-admin-table .ant-table-tbody > tr > td { height: 56px; color: #263145; border-bottom-color: #e9edf0; }
+.employee-admin-member-table { min-height: 0; flex: 1; margin-bottom: 0; }
+.employee-admin-member-table > .ant-spin-nested-loading,
+.employee-admin-member-table > .ant-spin-nested-loading > .ant-spin-container,
+.employee-admin-member-table .ant-table,
+.employee-admin-member-table .ant-table-container { height: 100%; min-height: 0; }
+.employee-admin-member-table .ant-table { display: flex; flex-direction: column; }
+.employee-admin-member-table .ant-table-container { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.employee-admin-member-table .ant-table-body { min-height: 0; max-height: none !important; flex: 1; overflow-y: auto !important; }
+.employee-table-avatar { color: #fff; background: #05aac7; }
+.danger-menu-label { color: #f04444; }
+.role-sidebar-heading { margin: 18px 0 12px; color: #667080; }
+.role-sidebar-heading .ant-btn { background: #05ada2; }
+.role-tree-list { margin-top: 4px; }
+.role-tree-group { margin-bottom: 10px; }
+.role-group-title { display: flex; height: 38px; align-items: center; gap: 8px; padding: 0 8px; }
+.role-group-title .anticon { color: #f2aa2a; font-size: 19px; }
+.role-tree-role {
+  display: flex;
+  height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 2px 0;
+  padding: 0 7px 0 40px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.role-tree-role > span { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+.role-tree-role > span .anticon { color: #2f7cf6; font-size: 18px; }
+.role-tree-role:hover, .role-tree-role.active { background: #e7f6f5; }
+.admin-role-actions { visibility: hidden; color: #06a99e !important; }
+.role-tree-role:hover .admin-role-actions, .role-tree-role.active .admin-role-actions { visibility: visible; }
+.role-title-divider { display: inline-block; width: 1px; height: 17px; background: #dfe5e8; }
+.admin-empty-role { display: grid; min-height: 520px; place-content: center; gap: 12px; color: #98a4ad; text-align: center; }
+.admin-empty-role .anticon { font-size: 44px; }
+.employee-edit-drawer .ant-drawer-header { padding: 25px 28px 18px; }
+.employee-edit-drawer .ant-drawer-body { padding: 0 28px 20px; }
+.employee-edit-drawer .ant-drawer-footer { padding: 16px 28px; }
+.employee-drawer-identity { display: flex; align-items: center; gap: 18px; }
+.employee-drawer-identity > .ant-avatar { width: 70px; height: 70px; line-height: 70px; color: #fff; font-size: 28px; background: #06a9c5; }
+.employee-drawer-identity > div { display: flex; flex-direction: column; gap: 8px; }
+.employee-drawer-identity strong { color: #172033; font-size: 21px; }
+.employee-edit-drawer .ant-tabs-nav { margin-bottom: 26px; }
+.employee-edit-drawer .ant-tabs-tab { min-width: 210px; justify-content: center; font-size: 16px; }
+.employee-edit-drawer .ant-tabs-tab-active .ant-tabs-tab-btn { color: #06a99e !important; font-weight: 700; }
+.employee-edit-drawer .ant-tabs-ink-bar { background: #06a99e; }
+.employee-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+.employee-form-wide { grid-column: 1 / -1; }
+.hidden-form-section { display: none; }
+.employee-edit-form .ant-form-item-label > label { color: #20293b; font-size: 15px; }
+.employee-edit-form .ant-input, .employee-edit-form .ant-select-selector, .employee-edit-form .ant-tree-select-selector { min-height: 42px !important; }
+.role-group-picker { min-height: 390px; margin-top: 18px; padding: 7px 0; border: 1px solid #d9e0e5; border-radius: 6px; }
+.role-group-picker button { display: flex; width: 100%; height: 48px; align-items: center; justify-content: space-between; padding: 0 24px; color: #263145; font: inherit; border: 0; background: transparent; cursor: pointer; }
+.role-group-picker button span { display: flex; align-items: center; gap: 12px; }
+.role-group-picker button .anticon { color: #2f7cf6; }
+.role-group-picker button.active { background: #e7f6f5; }
+.role-group-picker button.active > .anticon { color: #05aa9f; }
+.role-scope-row { margin-bottom: 16px; }

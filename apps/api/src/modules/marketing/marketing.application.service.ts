@@ -1,13 +1,17 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
 import { MARKETING_REPOSITORY, type MarketingRepository } from "./marketing.repository";
-import type { BusinessCustomerMappingInput, MarketingActor, OrderScheduleInput } from "./marketing.types";
+import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
+import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor, OrderScheduleInput } from "./marketing.types";
 
 type MarketingResource = "business-customer-mapping" | "order-schedule";
 type MarketingAction = "read" | "create" | "update" | "delete" | "import" | "export";
 
 @Injectable()
 export class MarketingApplicationService {
-  constructor(@Inject(MARKETING_REPOSITORY) private readonly repository: MarketingRepository) {}
+  constructor(
+    @Inject(MARKETING_REPOSITORY) private readonly repository: MarketingRepository,
+    private readonly directory: MarketingDirectoryQueryService
+  ) {}
 
   private assert(actor: MarketingActor, resource: MarketingResource, action: MarketingAction) {
     if (actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:${action}`)) return;
@@ -21,14 +25,23 @@ export class MarketingApplicationService {
   }
 
   private mapping(input: BusinessCustomerMappingInput): BusinessCustomerMappingInput {
-    const customerCodes = [...new Set(String(input.customerCodes ?? "").split(/[|、,，;；\s]+/).map((value) => value.trim()).filter(Boolean))];
-    if (!customerCodes.length) throw new BadRequestException("客户代码不能为空");
+    const salespersonUserIds = [...new Set(Array.isArray(input.salespersonUserIds) ? input.salespersonUserIds.map(String) : [])];
+    if (salespersonUserIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
+      throw new BadRequestException("业务员字段包含无效用户 ID");
+    }
     return {
       department: this.text(input.department, "部门"),
       section: String(input.section ?? "").trim(),
-      salesperson: this.text(input.salesperson, "业务"),
-      customerCodes: customerCodes.join("|")
+      customerCode: this.text(input.customerCode, "客户"),
+      salespersonUserIds
     };
+  }
+
+  private async assertEnabledUsers(ids: string[]) {
+    const users = await this.directory.findEnabledUsersByIds(ids);
+    const found = new Set(users.map((user) => user.id));
+    const invalid = ids.filter((id) => !found.has(id));
+    if (invalid.length) throw new BadRequestException({ message: "业务员必须选择通讯录内的启用用户", invalidUserIds: invalid });
   }
 
   private optionalDate(value: unknown, label: string) {
@@ -57,20 +70,47 @@ export class MarketingApplicationService {
 
   async listMappings(search: string | undefined, actor: MarketingActor, action: "read" | "export" = "read") {
     this.assert(actor, "business-customer-mapping", action);
-    return this.repository.listMappings(await this.tenant(actor), search);
+    type MappingReadRow = Record<string, unknown> & { department: string; section: string; customerCode: string; salespersonUserIds: string[] };
+    const rows = await this.repository.listMappings(await this.tenant(actor)) as MappingReadRow[];
+    const userIds = [...new Set(rows.flatMap((row) => row.salespersonUserIds ?? []))];
+    const users = await this.directory.findUsersByIds(userIds);
+    const names = new Map(users.map((user) => [user.id, user.displayName]));
+    const result = rows.map((row) => ({
+      ...row,
+      salespersonNames: (row.salespersonUserIds ?? []).map((id) => names.get(id)).filter((name): name is string => Boolean(name)),
+      salespersonUsers: (row.salespersonUserIds ?? []).map((id) => users.find((user) => user.id === id)).filter((user): user is NonNullable<typeof user> => Boolean(user))
+    }));
+    const value = String(search ?? "").trim().toLocaleLowerCase();
+    if (!value) return result;
+    return result.filter((row) => [row.department, row.section, row.customerCode, ...(row.salespersonNames as string[])]
+      .some((field) => String(field ?? "").toLocaleLowerCase().includes(value)));
+  }
+
+  async listDirectoryUsers(actor: MarketingActor) {
+    this.assert(actor, "business-customer-mapping", "read");
+    return this.directory.listEnabledUsers();
   }
 
   async saveMapping(id: string | null, input: BusinessCustomerMappingInput, expectedVersion: number | null, actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", id ? "update" : "create");
     if (id && (!Number.isInteger(expectedVersion) || Number(expectedVersion) < 1)) throw new BadRequestException("修改记录必须提供有效版本号");
-    return this.repository.saveMapping(await this.tenant(actor), id, this.mapping(input), expectedVersion, actor);
+    const normalized = this.mapping(input);
+    await this.assertEnabledUsers(normalized.salespersonUserIds);
+    return this.repository.saveMapping(await this.tenant(actor), id, normalized, expectedVersion, actor);
   }
 
-  async replaceMappings(rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, actor: MarketingActor) {
+  async replaceMappings(rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, summary: MappingImportSummary, actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", "import");
     const normalized = rows.map((row) => this.mapping(row));
     if (!normalized.length) throw new BadRequestException("文件中没有可导入的业务与客户对应关系");
-    return this.repository.replaceMappings(await this.tenant(actor), normalized, fileName, fileHash, actor);
+    const customerCodes = new Set<string>();
+    for (const row of normalized) {
+      const key = row.customerCode.toLocaleUpperCase();
+      if (customerCodes.has(key)) throw new BadRequestException(`客户 ${row.customerCode} 在导入结果中重复`);
+      customerCodes.add(key);
+    }
+    await this.assertEnabledUsers([...new Set(normalized.flatMap((row) => row.salespersonUserIds))]);
+    return this.repository.replaceMappings(await this.tenant(actor), normalized, fileName, fileHash, summary, actor);
   }
 
   async deleteMapping(id: string, expectedVersion: number, actor: MarketingActor) {

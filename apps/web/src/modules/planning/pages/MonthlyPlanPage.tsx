@@ -9,6 +9,7 @@ import { api, ApiError, containsText } from "../../../api";
 import { buildPlanningColumns, type DictionaryOptions, type RuntimePlanningField } from "../grid/column-builder";
 import { planningFieldRegistry } from "../grid/column-registry";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
+import { useAuditIdentityDirectory } from "../../../shared/audit-fields";
 
 const { Text } = Typography;
 type Notice = { type: "success" | "error" | "info"; text: string };
@@ -35,6 +36,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const gridApi = useRef<GridApi | null>(null);
   const saveAndExit = useRef(false);
   const dictionaryOptions = useDictionaryOptions();
+  const auditIdentityNames = useAuditIdentityDirectory();
   const userKey = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
   const [activeVersionId, setActiveVersionId] = useState<string>();
   const [editMode, setEditMode] = useState(false);
@@ -56,9 +58,10 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const [quickStatus, setQuickStatus] = useState<string>();
   const [addForm] = Form.useForm();
   const [bulkForm] = Form.useForm();
+  const bulkFieldCode = Form.useWatch<string>("field", bulkForm);
   const [hiddenFields, setHiddenFields] = useState<string[]>(() => {
-    try { const value = JSON.parse(localStorage.getItem(`kdos-planning-hidden:${userKey}`) ?? '["relationKey"]'); return Array.isArray(value) ? value : ["relationKey"]; }
-    catch { return ["relationKey"]; }
+    try { const value = JSON.parse(localStorage.getItem(`kdos-planning-hidden-v2:${userKey}`) ?? "[]"); return Array.isArray(value) ? value : []; }
+    catch { return []; }
   });
 
   const fieldsQuery = useQuery({ queryKey: ["planning-fields"], queryFn: () => api<RuntimePlanningField[]>("/planning/fields"), retry: false });
@@ -72,7 +75,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     setActiveVersionId(period.versions.find((entry) => entry.status === "DRAFT")?.id ?? period.currentVersionId ?? period.versions[0]?.id);
   }, [activeVersionId, period]);
   useEffect(() => { if (activeVersion?.status !== "DRAFT") setEditMode(false); }, [activeVersion?.status]);
-  useEffect(() => { localStorage.setItem(`kdos-planning-hidden:${userKey}`, JSON.stringify(hiddenFields)); }, [hiddenFields, userKey]);
+  useEffect(() => { localStorage.setItem(`kdos-planning-hidden-v2:${userKey}`, JSON.stringify(hiddenFields)); }, [hiddenFields, userKey]);
 
   const itemsQuery = useQuery({
     queryKey: ["planning-items", activeVersionId],
@@ -83,7 +86,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     queryFn: () => api<any>(`/planning/versions/${activeVersionId}/risks?days=7`), enabled: Boolean(activeVersionId), retry: false
   });
   const rows = useMemo(() => (itemsQuery.data ?? []).filter((row) => containsText(row.orderNumber, quickOrder) && containsText(row.itemNumber, quickItem) && (!quickStatus || row.itemStatus === quickStatus || row.planningStatus === quickStatus)), [itemsQuery.data, quickItem, quickOrder, quickStatus]);
-  const columnDefs = useMemo<Array<ColDef | ColGroupDef>>(() => buildPlanningColumns(fields, editMode && activeVersion?.status === "DRAFT", hiddenFields, dictionaryOptions), [activeVersion?.status, dictionaryOptions, editMode, fields, hiddenFields]);
+  const columnDefs = useMemo<Array<ColDef | ColGroupDef>>(() => buildPlanningColumns(fields, editMode && activeVersion?.status === "DRAFT", hiddenFields, dictionaryOptions, auditIdentityNames), [activeVersion?.status, auditIdentityNames, dictionaryOptions, editMode, fields, hiddenFields]);
 
   useEffect(() => {
     if (!period?.id || !activeVersionId) return;
@@ -152,7 +155,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const bulkUpdate = async () => {
     if (!activeVersionId) return;
     const values = await bulkForm.validateFields(); const field = values.field; let value = values.value;
-    if (field === "customerDueDate" && value) value = value.format("YYYY-MM-DD");
+    if (fields.find((entry) => entry.code === field)?.dataType === "date" && value) value = value.format("YYYY-MM-DD");
     const selected = (itemsQuery.data ?? []).filter((row) => selectedIds.includes(row.id));
     await api(`/planning/versions/${activeVersionId}/items/bulk`, { method: "POST", body: JSON.stringify({ updates: selected.map((row) => ({ id: row.id, field, value, expectedVersion: row.version })) }) });
     setBulkOpen(false); bulkForm.resetFields(); setNotice({ type: "success", text: `已批量修改 ${selected.length} 行` }); refresh();
@@ -171,6 +174,9 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   };
 
   const canEdit = activeVersion?.status === "DRAFT";
+  const bulkField = fields.find((field) => field.code === bulkFieldCode);
+  const bulkFieldOptions = fields.filter((field) => field.editable && field.access === "EDITABLE" && field.dataType !== "image")
+    .map((field) => ({ value: field.code, label: `${field.groupLabel} · ${field.label}` }));
   const risk = risksQuery.data ?? { overdue: [], dueSoon: [], processOverdue: [], openExceptions: [] };
   const versions = period?.versions ?? [];
   return <div>
@@ -245,12 +251,12 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
           finally { saveAndExit.current = false; }
         }}
         getRowClass={(params: RowClassParams) => params.node.rowIndex! % 2 ? "order-alt" : ""}
-        defaultColDef={{ sortable: true, resizable: true, filter: false, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        defaultColDef={{ sortable: true, resizable: true, filter: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
         overlayNoRowsTemplate="<span class='ag-overlay-no-rows-center'>本月暂无计划数据，字段结构已完整加载</span>"
         rowHeight={40} headerHeight={58} groupHeaderHeight={42} stopEditingWhenCellsLoseFocus />
     </div>
     <Modal title="字段显示" width={800} open={fieldOpen} onCancel={() => setFieldOpen(false)} footer={<Button type="primary" onClick={() => setFieldOpen(false)}>完成</Button>}>
-      <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.filter((field) => !hiddenFields.includes(field.code)).length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields(["relationKey"])}>恢复默认</Button></Space></Flex>
+      <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.filter((field) => !hiddenFields.includes(field.code)).length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields([])}>恢复默认</Button></Space></Flex>
       <Select mode="multiple" showSearch optionFilterProp="label" maxTagCount="responsive" value={fields.filter((field) => !hiddenFields.includes(field.code)).map((field) => field.code)} style={{ width: "100%" }} options={fields.map((field) => ({ value: field.code, label: `${field.groupLabel} · ${field.label}` }))} onChange={(visible) => setHiddenFields(fields.map((field) => field.code).filter((code) => !visible.includes(code)))} />
     </Modal>
     <Modal title="导入计划预览" open={Boolean(importPreview)} confirmLoading={importing} okText="确认写入" cancelText="取消"
@@ -274,10 +280,10 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       {!!importPreview?.warnings.length && <Alert style={{ marginTop: 12 }} type="warning" showIcon message={`${importPreview.warnings.length} 条数据质量提示`} description={<ul>{importPreview.warnings.slice(0, 20).map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul>} />}
     </Modal>
     <Modal title="新增计划行" open={addOpen} confirmLoading={creatingItem} onCancel={() => setAddOpen(false)} onOk={() => void createItem()}>
-      <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="计划生产数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item><Form.Item name="priority" label="优先级" initialValue={50}><InputNumber min={1} max={999} style={{ width: "100%" }} /></Form.Item></Form>
+      <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="订单需求数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="客户要求交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item></Form>
     </Modal>
     <Modal title={`批量修改 ${selectedIds.length} 行`} open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => void bulkUpdate()}>
-      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select options={[{ value: "priority", label: "优先级" }, { value: "responsibleOrgId", label: "责任组织 ID" }, { value: "ownerUserId", label: "负责人 ID" }, { value: "customerDueDate", label: "交期" }, { value: "planningStatus", label: "计划状态" }]} /></Form.Item><Form.Item noStyle shouldUpdate={(before, after) => before.field !== after.field}>{({ getFieldValue }) => <Form.Item name="value" label="新值" rules={[{ required: true }]}>{getFieldValue("field") === "customerDueDate" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : getFieldValue("field") === "priority" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>}</Form.Item></Form>
+      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={bulkFieldOptions} /></Form.Item><Form.Item name="value" label="新值" rules={[{ required: true }]}>{bulkField?.dataType === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : ["decimal", "integer"].includes(bulkField?.dataType ?? "") ? <InputNumber style={{ width: "100%" }} /> : bulkField?.editorType === "dictionary" ? <Select showSearch options={(dictionaryOptions[bulkField.dictionaryCode ?? ""] ?? []).map((value) => ({ value, label: value }))} /> : <Input />}</Form.Item></Form>
     </Modal>
     <Modal title={selectedItem ? `上传简图 · 品号 ${selectedItem.itemNumber}` : "上传简图"} open={imageOpen} onCancel={() => setImageOpen(false)} footer={<Button onClick={() => setImageOpen(false)}>关闭</Button>}>
       {!selectedItem ? <Alert type="info" showIcon message="请点击表格中的简图单元格" /> : <Space wrap>
