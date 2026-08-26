@@ -11,8 +11,8 @@ import { ModificationContextInterceptor } from "./modification-audit";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
-  app.use(json({ limit: "20mb" }));
-  app.use(urlencoded({ limit: "20mb", extended: true }));
+  app.use(json({ limit: "100mb" }));
+  app.use(urlencoded({ limit: "100mb", extended: true }));
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.enableCors({ origin: process.env.WEB_ORIGIN?.split(",") ?? ["http://localhost:5173"], credentials: true });
   app.use("/uploads", serveStatic(path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? "./data/uploads")));

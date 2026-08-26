@@ -33,4 +33,29 @@ describe("MarketingImportService", () => {
       actor
     );
   });
+
+  it("fills down merged department, section and salesperson cells", async () => {
+    const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("report");
+    sheet.addRow(["部门", "业务", "课室", "客户代码"]);
+    sheet.addRow(["业务一部", "张三/李四", "一课", "A001"]);
+    sheet.addRow([null, null, null, "A002"]);
+    sheet.addRow(["小计", null, null, null]);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const application = { replaceMappings: jest.fn().mockResolvedValue({ imported: 2, repeated: false }) } as unknown as jest.Mocked<MarketingApplicationService>;
+    const directory = { resolveEnabledUsersByNames: jest.fn().mockResolvedValue(new Map([
+      ["张三", [{ id: "00000000-0000-7000-8000-000000000003", displayName: "张三", departmentPaths: [], enabled: true }]],
+      ["李四", [{ id: "00000000-0000-7000-8000-000000000004", displayName: "李四", departmentPaths: [], enabled: true }]]
+    ])) } as unknown as jest.Mocked<MarketingDirectoryQueryService>;
+    const service = new MarketingImportService(application, directory);
+
+    await service.importMappings({ buffer: Buffer.from(buffer), originalname: "业务接单周报.xlsx" } as Express.Multer.File, actor);
+
+    expect(application.replaceMappings).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ department: "业务一部", section: "一课", customerCode: "A001", salespersonUserIds: expect.any(Array) }),
+        expect.objectContaining({ department: "业务一部", section: "一课", customerCode: "A002", salespersonUserIds: expect.any(Array) })
+      ]),
+      "业务接单周报.xlsx", expect.any(String), expect.objectContaining({ ignoredBlankCustomerRows: 1 }), actor
+    );
+  });
 });

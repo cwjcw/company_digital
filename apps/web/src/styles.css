@@ -149,6 +149,12 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
   width: 100%;
   justify-content: center;
 }
+.ag-theme-quartz .ag-paging-panel {
+  min-height: 48px;
+  padding: 0 14px;
+  border-top: 1px solid #e7ecef;
+  background: #fff;
+}
 .ag-theme-quartz .column-tone-a { background-color: #f0f8f6; }
 .ag-theme-quartz .column-tone-b { background-color: #eef5fb; }
 .ag-theme-quartz .column-tone-a-header { background-color: #dcefeb; }
@@ -297,10 +303,36 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .kdos-data-table .ant-table-cell {
   border-color: #e8edef;
 }
+.kdos-data-table .ant-table-pagination {
+  min-height: 42px;
+  margin: 12px 14px !important;
+}
 .kdos-data-table-filter-field {
   display: grid;
   gap: 6px;
 }
+.table-permissions-page { max-width: 1500px; margin: 0 auto; }
+.permission-page-guidance {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin-bottom: 18px;
+  padding: 15px 17px;
+  border: 1px solid #cfe5e4;
+  border-radius: 10px;
+  background: #f1faf8;
+}
+.permission-page-guidance > .anticon { margin-top: 3px; color: #167d79; font-size: 22px; }
+.permission-page-guidance .ant-typography { margin-bottom: 0; }
+.permission-page-guidance p { margin-top: 4px; }
+.permission-section { margin-bottom: 22px; }
+.permission-section h5 { margin: 0 0 12px !important; color: #173d49; }
+.permission-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); gap: 14px; }
+.permission-group-card { border-color: #dfe8ea; box-shadow: 0 5px 16px rgba(17, 52, 66, .06); }
+.permission-group-card.inherited { background: linear-gradient(145deg, #fffdf6, #fff); }
+.permission-group-card .ant-card-head-title { color: #173d49; font-weight: 700; }
+.permission-card-row { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: start; gap: 10px; margin-top: 13px; }
+.permission-card-row > .ant-typography { padding-top: 2px; }
 .employee-admin-member-table-shell { height: auto; min-height: 0; flex: 1; margin: 0 26px; border-radius: 0; }
 .employee-admin-sidebar {
   min-width: 0;
@@ -376,8 +408,14 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .role-sidebar-heading .ant-btn { background: #05ada2; }
 .role-tree-list { margin-top: 4px; }
 .role-tree-group { margin-bottom: 10px; }
-.role-group-title { display: flex; height: 38px; align-items: center; gap: 8px; padding: 0 8px; }
-.role-group-title .anticon { color: #f2aa2a; font-size: 19px; }
+.role-group-title { display: flex; height: 42px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 7px 0 8px; border-radius: 8px; }
+.role-group-title > span { display: flex; align-items: center; gap: 8px; }
+.role-group-title > span:first-child .anticon { color: #f2aa2a; font-size: 19px; }
+.role-group-title:hover { background: #f3f3f7; }
+.role-group-actions { visibility: hidden; color: #596474; }
+.role-group-title:hover .role-group-actions { visibility: visible; }
+.role-group-actions > .anticon { color: #596474; cursor: grab; font-size: 18px; }
+.role-group-actions .ant-btn { color: #263145; }
 .role-tree-role {
   display: flex;
   height: 46px;

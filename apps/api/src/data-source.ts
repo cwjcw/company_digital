@@ -18,7 +18,9 @@ const dataSource = new DataSource({
   migrations: [path.join(__dirname, "migrations/*.{ts,js}")],
   subscribers: [ModificationAuditSubscriber],
   synchronize: false,
-  logging: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"]
+  // Import failures can contain complete ERP rows in bound parameters. Never emit
+  // database queries/parameters to application logs; opt in to warnings only.
+  logging: process.env.TYPEORM_WARNINGS === "true" ? ["warn"] : false
 });
 
 export default dataSource;

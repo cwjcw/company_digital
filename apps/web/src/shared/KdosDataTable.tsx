@@ -1,8 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
-import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
+import { tableResourceRegistry } from "@kdos/contracts";
 import { useAuditColumns } from "./audit-fields";
 
 type DataRecord = Record<string, any>;
@@ -22,6 +23,25 @@ export function hasResourcePermission(resource: string, action: string) {
   } catch {
     return false;
   }
+}
+
+const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
+export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
+
+export function canManageTablePermissions() {
+  try {
+    const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+    return session.roles?.includes("系统管理员") || session.permissions?.includes("*");
+  } catch {
+    return false;
+  }
+}
+
+export function TablePermissionButton({ resource }: { resource: string }) {
+  if (!registeredTableResources.has(resource) || !canManageTablePermissions()) return null;
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  const href = `/permissions/${encodeURIComponent(resource)}?from=${encodeURIComponent(currentPath)}`;
+  return <Button href={href} icon={<SafetyCertificateOutlined />}>权限管理</Button>;
 }
 
 export const kdosSystemFieldDefinitions = [
@@ -104,13 +124,21 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const userKey = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const storageKey = `kdos-form-view:${userKey}:${resource}`;
+  const pageSizeStorageKey = `kdos-form-page-size:${userKey}:${resource}`;
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const requestedPagination = pagination && typeof pagination === "object" ? pagination : undefined;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = Number(localStorage.getItem(pageSizeStorageKey));
+    return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? 50);
+  });
   const canEdit = editable && hasResourcePermission(resource, "update");
-  useEffect(() => { setEditing(false); }, [resource]);
+  useEffect(() => { setEditing(false); setCurrentPage(1); }, [resource]);
+  useEffect(() => { setCurrentPage(1); }, [filters, search]);
   const allColumns = useMemo(() => {
     const business = decorate(columns);
     if (!systemFields) return business;
@@ -135,7 +163,29 @@ export function KdosDataTable<RecordType extends DataRecord>({
       return activeFilters.every(([key, value]) => String(valueAt(row, key) ?? "").toLocaleLowerCase().includes(value.trim().toLocaleLowerCase()));
     });
   }, [dataSource, filters, search, searchableKeys]);
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (currentPage > lastPage) setCurrentPage(lastPage);
+  }, [currentPage, pageSize, rows.length]);
   const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length;
+  const isRegisteredForm = registeredTableResources.has(resource);
+  const resolvedPagination = pagination === false && !isRegisteredForm ? false : {
+    ...requestedPagination,
+    current: currentPage,
+    pageSize,
+    pageSizeOptions: [...kdosPageSizeOptions],
+    showSizeChanger: true,
+    showQuickJumper: true,
+    showTotal: (total: number) => `共 ${total} 条`,
+    position: ["bottomRight" as const],
+    onChange: (page: number, nextPageSize: number) => {
+      const sizeChanged = nextPageSize !== pageSize;
+      setPageSize(nextPageSize);
+      setCurrentPage(sizeChanged ? 1 : page);
+      localStorage.setItem(pageSizeStorageKey, String(nextPageSize));
+      requestedPagination?.onChange?.(sizeChanged ? 1 : page, nextPageSize);
+    }
+  };
 
   return <KdosTableEditContext.Provider value={{ editing: editing && canEdit, canEdit }}><section className={["kdos-data-table-shell", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
@@ -150,6 +200,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />
         <Button type={activeFilterCount ? "primary" : "default"} icon={<FilterOutlined />} onClick={() => setFilterDrawerOpen(true)}>筛选{activeFilterCount ? `（${activeFilterCount}）` : ""}</Button>
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
+        <TablePermissionButton resource={resource} />
       </Space>
     </Flex>
     <Table<RecordType>
@@ -158,7 +209,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       rowKey={tableProps.rowKey ?? "id"}
       dataSource={rows}
       columns={renderedColumns}
-      pagination={pagination === false ? false : pagination ?? { pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+      pagination={resolvedPagination}
       scroll={scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }}
       sticky
     />

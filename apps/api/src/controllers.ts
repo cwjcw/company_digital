@@ -15,7 +15,7 @@ import { DataSource, Repository } from "typeorm";
 import { dictionarySeeds, monthlyPlanColumns } from "@tracker/shared";
 import { AuthGuard, AuthService } from "./auth";
 import {
-  ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, Permission,
+  ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, FinishedGoodsOutbound, Permission,
   Contact, OrganizationUnit, ProcessDefinitionEntity, Role, RoleOrganizationScope, SalesOrder, Supplier, User, UserRole
 } from "./entities";
 import { ImportService } from "./import.service";
@@ -89,13 +89,13 @@ export class ReferenceDataController {
   @Get("dictionaries")
   dictionaries() {
     return Object.entries(dictionarySeeds).map(([code, values]) => ({
-      code, name: code, values: values.map((value, index) => ({ id: `demo-${code}-${index + 1}`, value, sortOrder: index + 1, enabled: true }))
+      code, name: code, values: values.map((value, index) => ({ id: `reference-${code}-${index + 1}`, value, sortOrder: index + 1, enabled: true }))
     }));
   }
 
   @Get("suppliers")
   suppliers() {
-    return [{ id: "demo-supplier-1", code: "DEMO-SUPPLIER", name: "演示外协供应商", enabled: true }];
+    return [];
   }
 }
 
@@ -292,6 +292,7 @@ export class MasterDataController {
     @InjectRepository(ProcessDefinitionEntity) private readonly processes: Repository<ProcessDefinitionEntity>,
     @InjectRepository(SalesOrder) private readonly salesOrders: Repository<SalesOrder>,
     @InjectRepository(FinishedGoodsInbound) private readonly finishedGoodsInbound: Repository<FinishedGoodsInbound>,
+    @InjectRepository(FinishedGoodsOutbound) private readonly finishedGoodsOutbound: Repository<FinishedGoodsOutbound>,
     private readonly imports: ImportService,
     private readonly dataSource: DataSource
   ) {}
@@ -748,6 +749,9 @@ export class MasterDataController {
     const lineNumberValue = this.numeric(row.lineNumber ?? row["序号"]);
     const workOrderNumber = this.text(row.workOrderNumber ?? row["工单单号"]);
     return {
+      sourceSystem: this.text(row.sourceSystem ?? row["来源系统"]),
+      sourceDatabase: this.text(row.sourceDatabase ?? row["来源数据库"]),
+      sourceKey: this.text(row.sourceKey ?? row["来源主键"]),
       categoryNumber: this.text(row.categoryNumber ?? row["分类编号"]),
       salesOrderNumber: this.text(row.salesOrderNumber ?? row["销售单号"] ?? row["销售订单号"]),
       documentFullName: this.text(row.documentFullName ?? row["单据全称"]),
@@ -779,6 +783,88 @@ export class MasterDataController {
       totalAmount: this.numeric(row.totalAmount ?? row["总金额"]),
       voucherWord: this.text(row.voucherWord ?? row["凭证字号"]),
       category: this.text(row.category ?? row["类别"])
+    };
+  }
+
+  @Get("finished-goods-outbound")
+  listFinishedGoodsOutbound(@Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-outbound", "read");
+    return this.finishedGoodsOutbound.find({ order: { documentDate: "DESC", documentNumber: "ASC", itemNumber: "ASC" } });
+  }
+
+  @Post("finished-goods-outbound")
+  async addFinishedGoodsOutbound(@Body() body: Partial<FinishedGoodsOutbound>, @Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-outbound", "create");
+    const row = this.finishedGoodsOutboundRow(body as Record<string, unknown>);
+    if (!row.documentNumber || !row.itemNumber) throw new BadRequestException("出库单号和品项编码为必填项");
+    if (!row.sourceKey) row.sourceKey = `MANUAL:${row.documentNumber}:${row.itemNumber}:${Date.now()}`;
+    return this.finishedGoodsOutbound.save(row as FinishedGoodsOutbound);
+  }
+
+  @Patch("finished-goods-outbound/:id")
+  async updateFinishedGoodsOutbound(@Param("id") id: string, @Body() body: Partial<FinishedGoodsOutbound> & { expectedVersion: number }, @Req() req: UserRequest) {
+    requireTablePermission(req, "finished-goods-outbound", "update");
+    const current = await this.finishedGoodsOutbound.findOneBy({ id });
+    if (!current) throw new NotFoundException("出库记录不存在");
+    const { expectedVersion, ...submitted } = body;
+    const normalized = this.finishedGoodsOutboundRow({ ...current, ...submitted });
+    if (!normalized.documentNumber || !normalized.itemNumber) throw new BadRequestException("出库单号和品项编码为必填项");
+    return this.updateVersioned(this.finishedGoodsOutbound, id, expectedVersion, normalized, req, "finished-goods-outbound");
+  }
+
+  @Get("finished-goods-outbound/export")
+  async exportFinishedGoodsOutbound(@Req() req: UserRequest, @Res() response: Response) {
+    requireTablePermission(req, "finished-goods-outbound", "export");
+    const rows = await this.finishedGoodsOutbound.find({ order: { documentDate: "DESC", documentNumber: "ASC", itemNumber: "ASC" } });
+    const fields: Array<[keyof FinishedGoodsOutbound, string]> = [
+      ["documentDate", "单据日期"], ["documentNumber", "出库单号"], ["documentStatus", "单据状态"],
+      ["directionValue", "出入库方向值"], ["voucherType", "单据类型"], ["businessType", "业务类型"],
+      ["customerCode", "客户代码"], ["customerName", "客户名称"], ["salesOrderNumber", "销售订单号"],
+      ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["specification", "规格型号"],
+      ["quantity", "出库数量"], ["unit", "计量单位"], ["unitPrice", "单价"], ["totalAmount", "金额"],
+      ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
+      ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"],
+      ["createdBy", "创建人"], ["createdAt", "创建时间"], ["updatedBy", "更新人"], ["updatedAt", "更新时间"]
+    ];
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("出库数据", { views: [{ state: "frozen", ySplit: 1 }] });
+    sheet.addRow(fields.map(([, label]) => label));
+    for (const row of rows) sheet.addRow(fields.map(([field]) => {
+      const value = row[field];
+      if (field === "documentDate" && value) return new Date(`${value}T00:00:00`);
+      if (["quantity", "unitPrice", "totalAmount"].includes(String(field)) && value != null) return Number(value);
+      return value ?? null;
+    }));
+    sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(fields.length).letter}1` };
+    sheet.getRow(1).font = { name: "微软雅黑", bold: true };
+    sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF3F8" } };
+    sheet.getColumn(1).numFmt = "yyyy-mm-dd";
+    for (let index = 1; index <= fields.length; index++) sheet.getColumn(index).width = index === 11 ? 28 : 18;
+    response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent("出库数据.xlsx")}`);
+    await workbook.xlsx.write(response); response.end();
+  }
+
+  private finishedGoodsOutboundRow(row: Record<string, unknown>) {
+    return {
+      sourceSystem: this.text(row.sourceSystem ?? row["来源系统"]) ?? "MANUAL",
+      sourceDatabase: this.text(row.sourceDatabase ?? row["来源数据库"]) ?? "MANUAL",
+      sourceKey: this.text(row.sourceKey ?? row["来源主键"]) ?? "",
+      documentDate: this.date(row.documentDate ?? row["单据日期"]),
+      documentNumber: this.text(row.documentNumber ?? row["出库单号"] ?? row["单据编号"]) ?? "",
+      documentStatus: this.text(row.documentStatus ?? row["单据状态"]),
+      directionValue: this.numeric(row.directionValue ?? row["出入库方向值"]) === null ? null : Number(this.numeric(row.directionValue ?? row["出入库方向值"])),
+      voucherType: this.text(row.voucherType ?? row["单据类型"]),
+      businessType: this.text(row.businessType ?? row["业务类型"]),
+      customerCode: this.text(row.customerCode ?? row["客户代码"]), customerName: this.text(row.customerName ?? row["客户名称"]),
+      salesOrderNumber: this.text(row.salesOrderNumber ?? row["销售订单号"]),
+      itemNumber: this.text(row.itemNumber ?? row["品项编码"] ?? row["存货编码"]) ?? "",
+      itemName: this.text(row.itemName ?? row["品项名称"] ?? row["存货名称"]), specification: this.text(row.specification ?? row["规格型号"]),
+      quantity: this.numeric(row.quantity ?? row["出库数量"]), unit: this.text(row.unit ?? row["计量单位"]),
+      unitPrice: this.numeric(row.unitPrice ?? row["单价"]), totalAmount: this.numeric(row.totalAmount ?? row["金额"]),
+      warehouseCode: this.text(row.warehouseCode ?? row["仓库编码"]), warehouse: this.text(row.warehouse ?? row["仓库名称"]),
+      sourceDocumentNumber: this.text(row.sourceDocumentNumber ?? row["来源单号"]), creator: this.text(row.creator ?? row["制单人"]),
+      auditor: this.text(row.auditor ?? row["审核人"]), remark: this.text(row.remark ?? row["备注"])
     };
   }
 }
@@ -892,17 +978,17 @@ export class AdminController {
 
   @Post("role-groups")
   createRoleGroup(@Body() body: { name?: string; sortOrder?: number; userIds?: unknown }, @Req() req: UserRequest) {
-    this.admin(req); return this.adminApplication.createRoleGroup(body);
+    this.admin(req); return this.adminApplication.createRoleGroup(body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Patch("role-groups/:id")
   updateRoleGroup(@Param("id") id: string, @Body() body: { name?: string; sortOrder?: number; userIds?: unknown }, @Req() req: UserRequest) {
-    this.admin(req); return this.adminApplication.updateRoleGroup(id, body);
+    this.admin(req); return this.adminApplication.updateRoleGroup(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Delete("role-groups/:id")
   deleteRoleGroup(@Param("id") id: string, @Req() req: UserRequest) {
-    this.admin(req); return this.adminApplication.deleteRoleGroup(id);
+    this.admin(req); return this.adminApplication.deleteRoleGroup(id, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Get("organization-units")
@@ -1080,17 +1166,17 @@ export class AdminController {
   @Post("roles")
   createRole(@Body() body: { name: string; description?: string; roleGroupId?: string | null; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
     this.admin(req);
-    return this.adminApplication.createRole(body);
+    return this.adminApplication.createRole(body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Patch("roles/:id")
   updateRole(@Param("id") id: string, @Body() body: { name?: string; description?: string; roleGroupId?: string | null; permissions?: Array<Partial<Permission>>; userIds?: string[]; organizationUnitIds?: string[] }, @Req() req: UserRequest) {
     this.admin(req);
-    return this.adminApplication.updateRole(id, body);
+    return this.adminApplication.updateRole(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Delete("roles/:id")
-  deleteRole(@Param("id") id: string, @Req() req: UserRequest) { this.admin(req); return this.adminApplication.deleteRole(id); }
+  deleteRole(@Param("id") id: string, @Req() req: UserRequest) { this.admin(req); return this.adminApplication.deleteRole(id, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId }); }
 
   @Post("roles/import")
   async importRoles(@Body() body: { rows: Array<{ name: string; description?: string }> }, @Req() req: UserRequest) {

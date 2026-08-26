@@ -16,7 +16,7 @@ import {
   type ImportFeedback, type PlanFilter, type RollingQuickFilters
 } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate, isDueDateLabel } from "../../../shared/date-format";
-import { KdosDataTable } from "../../../shared/KdosDataTable";
+import { KdosDataTable, TablePermissionButton } from "../../../shared/KdosDataTable";
 
 const { Text } = Typography;
 
@@ -116,6 +116,7 @@ export function SalesSummaryDashboard() {
           onChange={setCustomer} style={{ width: 250 }} options={customerOptions} />
         <Button onClick={() => { setTimeDimension("month"); setPeriod(dayjs()); setDivision([]); setCustomer([]); }}>清空筛选</Button>
         <Button type="primary" loading={isLoading} onClick={() => void refetch()}>刷新数据</Button>
+        <TablePermissionButton resource="sales-summary-dashboard" />
       </Space>} />
     <div className="dashboard-kpi-grid">
       <Card><Statistic title="订单数" value={filtered.length} suffix="单" /></Card>
@@ -329,6 +330,7 @@ export function SalesSummaryDetails() {
         return false;
       }}><Button>导入销售接单明细 Excel</Button></Upload>
       <FieldVisibility all={rollingColumnsMeta.filter((column) => column.group !== "审计信息").map((column) => ({ key: column.key, label: column.header }))} visible={visibleFields} onChange={setVisibleFields} />
+      <TablePermissionButton resource="rolling-plan" />
       </Flex>
       <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
       <Flex className="monthly-toolbar-row rolling-filter-row" align="center" gap={8} wrap>
@@ -384,6 +386,7 @@ export function SalesSummaryDetails() {
       message={rollingSaveNotice.text} onClose={() => setRollingSaveNotice(undefined)} />}
     <div className="grid-card rolling-grid ag-theme-quartz">
       <AgGridReact rowData={filtered} columnDefs={columns} loading={isLoading} theme="legacy"
+        pagination paginationPageSize={50} paginationPageSizeSelector={[20, 50, 100, 200]}
         singleClickEdit={editMode} stopEditingWhenCellsLoseFocus enableCellTextSelection ensureDomOrder
         suppressMovableColumns suppressColumnVirtualisation
         getRowId={({ data: row }) => row.id}
@@ -569,12 +572,14 @@ export function DailyProgress() {
           }
           onChange={(value) => setFilters((current) => ({ ...current, division: value ?? "" }))} style={{ width: 130 }} />
         <Button onClick={() => setFilters({ orderNumber: "", itemNumber: "", month: "", division: "" })}>清空筛选</Button>
+        <TablePermissionButton resource="daily-progress" />
       </Flex>
     </div>
     {notice && <Alert className="save-notice" showIcon closable type={notice.type} message={notice.text}
       onClose={() => setNotice(undefined)} />}
     <div className="monthly-grid daily-progress-grid ag-theme-quartz">
       <AgGridReact rowData={rows} columnDefs={columns} loading={query.isLoading} theme="legacy"
+        pagination paginationPageSize={50} paginationPageSizeSelector={[20, 50, 100, 200]}
         singleClickEdit={editMode} stopEditingWhenCellsLoseFocus enableCellTextSelection ensureDomOrder
         suppressMovableColumns getRowId={({ data }) => data.id}
         onCellValueChanged={async ({ data: row, colDef, newValue, oldValue }) => {

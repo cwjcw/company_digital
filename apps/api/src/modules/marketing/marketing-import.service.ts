@@ -52,19 +52,28 @@ export class MarketingImportService {
     const customers = new Map<string, CustomerGroup>();
     let ignoredBlankCustomerRows = 0;
     let sourceRows = 0;
+    let carriedDepartment = "";
+    let carriedSection = "";
+    let carriedSalespeople = "";
     target.sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber <= target!.headerRow) return;
       sourceRows += 1;
       const get = (header: string): string => this.cellText(row.getCell(target!.headers.get(header)!));
-      const department = get("部门");
-      const section = get("课室");
+      const rawDepartment = get("部门");
+      const rawSection = get("课室");
+      const rawSalespeople = get("业务");
       const customerText = get("客户");
+      if (rawDepartment && !["小计", "合计"].includes(rawDepartment)) carriedDepartment = rawDepartment;
+      if (rawSection && !["小计", "合计"].includes(rawSection)) carriedSection = rawSection;
+      if (rawSalespeople && !["小计", "合计"].includes(rawSalespeople)) carriedSalespeople = rawSalespeople;
       if (!customerText) {
         ignoredBlankCustomerRows += 1;
         return;
       }
+      const department = rawDepartment || carriedDepartment;
+      const section = rawSection || carriedSection;
       if (!department) throw new BadRequestException(`第 ${rowNumber} 行客户 ${customerText} 缺少部门`);
-      const salespersonNames = get("业务").split(/[/|、,，;；\n]+/).map((name) => name.trim()).filter(Boolean);
+      const salespersonNames = (rawSalespeople || carriedSalespeople).split(/[/|、,，;；\n]+/).map((name) => name.trim()).filter(Boolean);
       const customerCodes = customerText.split(/[|、,，;；\n]+/).map((code) => code.trim()).filter(Boolean);
       for (const customerCode of customerCodes) {
         const key = customerCode.toLocaleUpperCase();

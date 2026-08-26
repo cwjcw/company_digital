@@ -150,6 +150,7 @@ export const tableResourceRegistry = [
   { code: "daily-progress", label: "日进度", module: "主计划" },
   { code: "sales-orders", label: "订单表", module: "数据中心" },
   { code: "finished-goods-inbound", label: "入库表", module: "数据中心" },
+  { code: "finished-goods-outbound", label: "出库表", module: "数据中心" },
   { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心" },
   { code: "order-schedule", label: "订单排期", module: "营销中心" },
   { code: "weekly-plan", label: "周计划", module: "主计划" },
@@ -166,7 +167,8 @@ export const tableResourceRegistry = [
   { code: "imports", label: "导入记录", module: "系统管理" },
   { code: "audit-logs", label: "审计日志", module: "系统管理" },
   { code: "api-keys", label: "API Key", module: "系统管理" },
-  { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理" }
+  { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理" },
+  { code: "customer-data-import", label: "客户数据导入", module: "系统管理" }
 ] as const;
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];

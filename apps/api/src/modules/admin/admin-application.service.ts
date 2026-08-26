@@ -9,6 +9,8 @@ type RoleInput = {
   permissions?: PermissionInput[]; userIds?: string[]; organizationUnitIds?: string[];
 };
 type EmployeeActor = { userId: string | null; name: string; requestId: string };
+type AdminActor = EmployeeActor;
+const systemActor: AdminActor = { userId: null, name: "system", requestId: "system" };
 
 @Injectable()
 export class AdminApplicationService {
@@ -24,18 +26,27 @@ export class AdminApplicationService {
     return this.roleGroups.find({ order: { sortOrder: "ASC", name: "ASC" } });
   }
 
-  async createRoleGroup(input: { name?: string; sortOrder?: number; userIds?: unknown }) {
+  async createRoleGroup(input: { name?: string; sortOrder?: number; userIds?: unknown }, actor: AdminActor = systemActor) {
     if (input.userIds !== undefined) throw new BadRequestException("角色组不能关联用户");
     const name = String(input.name ?? "").trim();
     if (!name) throw new BadRequestException("角色组名称不能为空");
     if (await this.roleGroups.findOneBy({ name })) throw new ConflictException("角色组名称已存在");
-    return this.roleGroups.save({ name, sortOrder: Number(input.sortOrder ?? 0) });
+    return this.dataSource.transaction(async (manager) => {
+      const group = await manager.save(RoleGroup, { name, sortOrder: Number(input.sortOrder ?? 0) });
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "role-groups", recordId: group.id,
+        action: "role_group.created", beforeJson: null, afterJson: { name: group.name, sortOrder: group.sortOrder },
+        requestId: actor.requestId, source: "web"
+      });
+      return group;
+    });
   }
 
-  async updateRoleGroup(id: string, input: { name?: string; sortOrder?: number; userIds?: unknown }) {
+  async updateRoleGroup(id: string, input: { name?: string; sortOrder?: number; userIds?: unknown }, actor: AdminActor = systemActor) {
     if (input.userIds !== undefined) throw new BadRequestException("角色组不能关联用户");
     const group = await this.roleGroups.findOneBy({ id });
     if (!group) throw new BadRequestException("角色组不存在");
+    const before = { name: group.name, sortOrder: group.sortOrder };
     if (input.name !== undefined) {
       const name = input.name.trim(); if (!name) throw new BadRequestException("角色组名称不能为空");
       const duplicate = await this.roleGroups.findOneBy({ name });
@@ -43,15 +54,31 @@ export class AdminApplicationService {
       group.name = name;
     }
     if (input.sortOrder !== undefined) group.sortOrder = Number(input.sortOrder);
-    return this.roleGroups.save(group);
+    return this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(RoleGroup, group);
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "role-groups", recordId: saved.id,
+        action: "role_group.updated", beforeJson: before, afterJson: { name: saved.name, sortOrder: saved.sortOrder },
+        requestId: actor.requestId, source: "web"
+      });
+      return saved;
+    });
   }
 
-  async deleteRoleGroup(id: string) {
+  async deleteRoleGroup(id: string, actor: AdminActor = systemActor) {
+    const group = await this.roleGroups.findOneBy({ id });
+    if (!group) throw new BadRequestException("角色组不存在");
     const count = await this.roles.countBy({ roleGroupId: id });
     if (count) throw new ConflictException("请先移动或删除组内角色，再删除角色组");
-    const result = await this.roleGroups.delete(id);
-    if (!result.affected) throw new BadRequestException("角色组不存在");
-    return { deleted: true };
+    return this.dataSource.transaction(async (manager) => {
+      await manager.delete(RoleGroup, { id });
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "role-groups", recordId: id,
+        action: "role_group.deleted", beforeJson: { name: group.name, sortOrder: group.sortOrder }, afterJson: null,
+        requestId: actor.requestId, source: "web"
+      });
+      return { deleted: true };
+    });
   }
 
   private async validateRoleGroup(manager: DataSource["manager"], roleGroupId: string | null | undefined) {
@@ -61,7 +88,7 @@ export class AdminApplicationService {
     return group.id;
   }
 
-  async createRole(input: RoleInput) {
+  async createRole(input: RoleInput, actor: AdminActor = systemActor) {
     const name = String(input.name ?? "").trim();
     if (!name) throw new BadRequestException("角色名称不能为空");
     if (await this.roles.findOneBy({ name })) throw new ConflictException("角色名称已存在");
@@ -74,14 +101,29 @@ export class AdminApplicationService {
       }
       for (const userId of [...new Set(input.userIds ?? [])]) await manager.save(UserRole, { userId, roleId: role.id });
       for (const organizationUnitId of [...new Set(input.organizationUnitIds ?? [])]) await manager.save(RoleOrganizationScope, { roleId: role.id, organizationUnitId });
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "permission-groups", recordId: role.id,
+        action: "permission_group.created", beforeJson: null,
+        afterJson: { name: role.name, permissions: input.permissions ?? [], userIds: input.userIds ?? [], organizationUnitIds: input.organizationUnitIds ?? [] },
+        requestId: actor.requestId, source: "web"
+      });
       return role;
     });
   }
 
-  async updateRole(id: string, input: RoleInput) {
+  async updateRole(id: string, input: RoleInput, actor: AdminActor = systemActor) {
     return this.dataSource.transaction(async (manager) => {
       const role = await manager.findOneBy(Role, { id });
       if (!role) throw new ForbiddenException("角色不存在");
+      const [beforePermissions, beforeUsers, beforeOrganizations] = await Promise.all([
+        manager.find(Permission, { where: { roleId: id } }), manager.find(UserRole, { where: { roleId: id } }),
+        manager.find(RoleOrganizationScope, { where: { roleId: id } })
+      ]);
+      const before = {
+        name: role.name, description: role.description, roleGroupId: role.roleGroupId,
+        permissions: beforePermissions, userIds: beforeUsers.map((link) => link.userId),
+        organizationUnitIds: beforeOrganizations.map((scope) => scope.organizationUnitId)
+      };
       if (input.name !== undefined) {
         const name = input.name.trim(); if (!name) throw new BadRequestException("角色名称不能为空");
         const duplicate = await manager.findOneBy(Role, { name });
@@ -106,16 +148,41 @@ export class AdminApplicationService {
         await manager.delete(RoleOrganizationScope, { roleId: id });
         for (const organizationUnitId of [...new Set(input.organizationUnitIds)]) await manager.save(RoleOrganizationScope, { roleId: id, organizationUnitId });
       }
+      const [afterPermissions, afterUsers, afterOrganizations] = await Promise.all([
+        manager.find(Permission, { where: { roleId: id } }), manager.find(UserRole, { where: { roleId: id } }),
+        manager.find(RoleOrganizationScope, { where: { roleId: id } })
+      ]);
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "permission-groups", recordId: role.id,
+        action: "permission_group.updated", beforeJson: before,
+        afterJson: {
+          name: role.name, description: role.description, roleGroupId: role.roleGroupId,
+          permissions: afterPermissions, userIds: afterUsers.map((link) => link.userId),
+          organizationUnitIds: afterOrganizations.map((scope) => scope.organizationUnitId)
+        }, requestId: actor.requestId, source: "web"
+      });
       return role;
     });
   }
 
-  async deleteRole(id: string) {
+  async deleteRole(id: string, actor: AdminActor = systemActor) {
     const role = await this.roles.findOneBy({ id });
     if (!role) throw new BadRequestException("角色不存在");
     if (["系统管理员", "集团管理员"].includes(role.name)) throw new ForbiddenException("系统内置管理角色不能删除");
-    await this.roles.delete(id);
-    return { deleted: true };
+    return this.dataSource.transaction(async (manager) => {
+      const [permissions, users, organizations] = await Promise.all([
+        manager.find(Permission, { where: { roleId: id } }), manager.find(UserRole, { where: { roleId: id } }),
+        manager.find(RoleOrganizationScope, { where: { roleId: id } })
+      ]);
+      await manager.delete(Role, { id });
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "permission-groups", recordId: id,
+        action: "permission_group.deleted",
+        beforeJson: { name: role.name, description: role.description, roleGroupId: role.roleGroupId, permissions, userIds: users.map((link) => link.userId), organizationUnitIds: organizations.map((scope) => scope.organizationUnitId) },
+        afterJson: null, requestId: actor.requestId, source: "web"
+      });
+      return { deleted: true };
+    });
   }
 
   async employeeAction(id: string, input: { action?: string; targetUserId?: string; departmentPaths?: string[][] }, actor: EmployeeActor) {
@@ -139,7 +206,7 @@ export class AdminApplicationService {
         actorId: actor.userId, actorName: actor.name, resource: "users", recordId: id,
         action: `employee.${action.toLowerCase()}`, beforeJson: before,
         afterJson: { enabled: user.enabled, departmentPaths: user.departmentPaths, targetUserId: input.targetUserId ?? null },
-        requestId: actor.requestId, source: "WEB"
+        requestId: actor.requestId, source: "web"
       });
       return { id, action, enabled: user.enabled, departmentPaths: user.departmentPaths };
     });

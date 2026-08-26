@@ -31,6 +31,9 @@ tmp/
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+.venv/
+__pycache__/
+*.py[cod]
 *.xlsx
 *.xls
 !docs/*导入模板.xlsx

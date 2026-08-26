@@ -13,16 +13,18 @@ import {
 import dayjs from "dayjs";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
 import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
-import { SalesOrdersPage } from "./modules/data-center/DataCenterPages";
+import { FinishedGoodsOutboundPage, SalesOrdersPage } from "./modules/data-center/DataCenterPages";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
+import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
@@ -61,6 +63,11 @@ function KdosMonthlyPlanRoute() {
   const year = Number(period.slice(0, 4)); const month = Number(period.slice(4, 6));
   if (year < 2000 || year > 2200 || month < 1 || month > 12) return <Navigate to="/monthly/202609" replace />;
   return <Suspense fallback={<Alert type="info" showIcon message="正在加载 Planning Center…" />}><KdosMonthlyPlanPage year={year} month={month} /></Suspense>;
+}
+
+function TablePermissionsRoute() {
+  const { resource = "" } = useParams();
+  return <TablePermissionsPage resourceCode={decodeURIComponent(resource)} />;
 }
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -117,9 +124,17 @@ function Shell({ logout }: { logout: () => void }) {
     { start: "2026-08-30", end: "2026-09-05" }, { start: "2026-09-06", end: "2026-09-12" }
   ].map((week) => ({ key: `/weekly/${week.start.replaceAll("-", "")}`, label: `${week.start.slice(5)} 至 ${week.end.slice(5)}` }));
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.path)} onLogout={logout} />;
-  if (systemPaths.includes(location.pathname) && !isSystemAdmin) return <Navigate to="/" replace />;
+  if ((systemPaths.includes(location.pathname) || location.pathname.startsWith("/permissions/")) && !isSystemAdmin) return <Navigate to="/" replace />;
 
-  const moduleId = location.pathname === "/sales-summary-dashboard" ? "cockpit"
+  const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
+  const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
+  const permissionModuleId = permissionResource?.module === "公司驾驶舱" ? "cockpit"
+    : permissionResource?.module === "主计划" ? "planning"
+    : permissionResource?.module === "数据中心" ? "data"
+    : permissionResource?.module === "营销中心" ? "marketing"
+    : permissionResource?.module === "流程审批" ? "workflow" : "system";
+
+  const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
     : ["/sales-summary-details", "/rolling", "/daily-progress", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
@@ -141,7 +156,8 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     data: [{ key: "data", label: "数据中心", type: "group", children: [
       { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
-      { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" }
+      { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" },
+      { key: "/data-center/outbound", icon: <DatabaseOutlined />, label: "出库表" }
     ] }],
     marketing: [{ key: "marketing", label: "营销中心", type: "group", children: [
       { key: "/marketing/business-customers", icon: <TeamOutlined />, label: "业务人员与客户对应表" },
@@ -168,14 +184,14 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/profile", icon: <UserOutlined />, label: "账户资料与安全" }
     ] }]
   };
-  const pageTitle = /^\/monthly\/\d{6}$/.test(location.pathname)
+  const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : /^\/monthly\/\d{6}$/.test(location.pathname)
     ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
       "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
       "/daily-progress": "日进度", "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
-      "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表",
+      "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/contacts": "通讯录",
       "/api-keys": "API Key", "/profile": "个人中心"
@@ -214,9 +230,11 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/finished-goods-inbound" element={<Navigate to="/data-center/inbound" replace />} />
           <Route path="/data-center/sales-orders" element={<SalesOrdersPage />} />
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
+          <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
+          <Route path="/permissions/:resource" element={<TablePermissionsRoute />} />
           <Route path="/audit" element={<AuditLogs />} />
           <Route path="/admin" element={<AdminWorkspace />} />
           <Route path="/users" element={<AdminWorkspace />} />

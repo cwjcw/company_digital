@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, type Key } from "react";
 import {
   ApartmentOutlined, CheckCircleFilled, EditOutlined, EllipsisOutlined, ExportOutlined,
-  FolderOutlined, ImportOutlined, MoreOutlined, PlusOutlined, SearchOutlined, StopOutlined,
+  FolderOutlined, HolderOutlined, ImportOutlined, MoreOutlined, PlusOutlined, SearchOutlined, StopOutlined,
   SwapOutlined, TeamOutlined, UserAddOutlined, UserDeleteOutlined, UserSwitchOutlined
 } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,9 +35,13 @@ export function AdminWorkspace() {
 
   const [selectedRoleId, setSelectedRoleId] = useState<string>(); const [roleSearch, setRoleSearch] = useState("");
   const [roleMemberSearch, setRoleMemberSearch] = useState("");
-  const [roleDialog, setRoleDialog] = useState<"group" | "role" | "rename">(); const [editingRole, setEditingRole] = useState<any>();
+  const [roleDialog, setRoleDialog] = useState<"group" | "role" | "rename" | "rename-group">(); const [editingRole, setEditingRole] = useState<any>();
+  const [editingRoleGroup, setEditingRoleGroup] = useState<any>(); const [roleSaving, setRoleSaving] = useState(false);
   const [moveRole, setMoveRole] = useState<any>(); const [moveGroupId, setMoveGroupId] = useState<string>();
+  const [moveSaving, setMoveSaving] = useState(false);
   const [permissionRole, setPermissionRole] = useState<any>(); const [permissionDraft, setPermissionDraft] = useState<Record<string, Record<string, boolean>>>({});
+  const [permissionSaving, setPermissionSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: "role" | "group"; item: any }>(); const [deleteSaving, setDeleteSaving] = useState(false);
   const [assignmentUsers, setAssignmentUsers] = useState<string[]>([]); const [assignmentOrganizations, setAssignmentOrganizations] = useState<string[]>([]);
   const [memberDialog, setMemberDialog] = useState(false); const [memberDraft, setMemberDraft] = useState<string[]>([]);
   const [roleForm] = Form.useForm();
@@ -127,27 +131,58 @@ export function AdminWorkspace() {
   const roleMembers = (users.data ?? []).filter((user) => selectedRoleId && user.roleIds?.includes(selectedRoleId))
     .filter((user) => !roleMemberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
       .some((value) => String(value ?? "").toLowerCase().includes(roleMemberKeyword)));
-  const openRoleDialog = (kind: "group" | "role" | "rename", role?: any) => {
-    setRoleDialog(kind); setEditingRole(role);
-    roleForm.setFieldsValue(kind === "rename" ? { name: role.name } : kind === "role" ? { roleGroupId: roleGroups.data?.[0]?.id } : {});
+  const openRoleDialog = (kind: "group" | "role" | "rename", role?: any, group?: any) => {
+    roleForm.resetFields(); setEditingRoleGroup(group); setEditingRole(role); setRoleDialog(kind);
+    roleForm.setFieldsValue(kind === "rename" ? { name: role.name } : kind === "role" ? { roleGroupId: group?.id ?? roleGroups.data?.[0]?.id } : {});
+  };
+  const openRoleGroupRename = (group: any) => {
+    roleForm.resetFields(); setEditingRole(undefined); setEditingRoleGroup(group); setRoleDialog("rename-group");
+    roleForm.setFieldsValue({ name: group.name });
   };
   const saveRoleDialog = async () => {
     try {
-      const values = await roleForm.validateFields();
+      const values = await roleForm.validateFields(); setRoleSaving(true);
       if (roleDialog === "group") await api("/admin/role-groups", { method: "POST", body: JSON.stringify(values) });
+      else if (roleDialog === "rename-group") await api(`/admin/role-groups/${editingRoleGroup.id}`, { method: "PATCH", body: JSON.stringify({ name: values.name }) });
       else if (roleDialog === "rename") await api(`/admin/roles/${editingRole.id}`, { method: "PATCH", body: JSON.stringify({ name: values.name }) });
       else await api("/admin/roles", { method: "POST", body: JSON.stringify(values) });
-      message.success(roleDialog === "group" ? "角色组已创建" : roleDialog === "rename" ? "角色名称已修改" : "角色已创建"); setRoleDialog(undefined); roleForm.resetFields(); refreshRoles();
+      message.success(roleDialog === "group" ? "角色组已创建" : roleDialog === "rename-group" ? "角色组名称已修改" : roleDialog === "rename" ? "角色名称已修改" : "角色已创建");
+      setRoleDialog(undefined); setEditingRole(undefined); setEditingRoleGroup(undefined); roleForm.resetFields(); refreshRoles();
     } catch (error) { if (!(error && typeof error === "object" && "errorFields" in error)) message.error((error as Error).message); }
+    finally { setRoleSaving(false); }
   };
   const saveMoveRole = async () => {
     if (!moveRole || !moveGroupId) return;
-    try { await api(`/admin/roles/${moveRole.id}`, { method: "PATCH", body: JSON.stringify({ roleGroupId: moveGroupId }) }); message.success("角色分组已调整"); setMoveRole(undefined); refreshRoles(); }
+    try { setMoveSaving(true); await api(`/admin/roles/${moveRole.id}`, { method: "PATCH", body: JSON.stringify({ roleGroupId: moveGroupId }) }); message.success("角色分组已调整"); setMoveRole(undefined); refreshRoles(); }
     catch (error) { message.error((error as Error).message); }
+    finally { setMoveSaving(false); }
   };
-  const deleteRole = (role: any) => Modal.confirm({ title: `删除角色“${role.name}”？`, content: "该角色与用户的关联及权限配置会一并删除。", okText: "删除", okButtonProps: { danger: true }, onOk: async () => {
-    try { await api(`/admin/roles/${role.id}`, { method: "DELETE" }); message.success("角色已删除"); if (selectedRoleId === role.id) setSelectedRoleId(undefined); refreshRoles(); refreshUsers(); }
-    catch (error) { message.error((error as Error).message); }
+  const deleteRole = (role: any) => setDeleteTarget({ kind: "role", item: role });
+  const deleteRoleGroup = (group: any) => setDeleteTarget({ kind: "group", item: group });
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleteSaving(true);
+      if (deleteTarget.kind === "role") {
+        await api(`/admin/roles/${deleteTarget.item.id}`, { method: "DELETE" });
+        message.success("角色已删除");
+        if (selectedRoleId === deleteTarget.item.id) setSelectedRoleId(undefined);
+        refreshUsers();
+      } else {
+        await api(`/admin/role-groups/${deleteTarget.item.id}`, { method: "DELETE" });
+        message.success("角色组已删除");
+      }
+      setDeleteTarget(undefined); refreshRoles();
+    } catch (error) { message.error((error as Error).message); }
+    finally { setDeleteSaving(false); }
+  };
+  const roleGroupMenu = (group: any) => ({ items: [
+    { key: "rename", label: "修改名称" }, { key: "add-role", label: "添加角色" },
+    { type: "divider" as const }, { key: "delete", label: <span className="danger-menu-label">删除</span> }
+  ], onClick: ({ key }: { key: string }) => {
+    if (key === "rename") openRoleGroupRename(group);
+    if (key === "add-role") openRoleDialog("role", undefined, group);
+    if (key === "delete") deleteRoleGroup(group);
   }});
   const roleMenu = (role: any) => ({ items: [
     { key: "rename", label: "修改名称" }, { key: "move", label: "调整分组" }, { key: "permissions", label: "配置权限" },
@@ -167,12 +202,14 @@ export function AdminWorkspace() {
   const savePermissions = async () => {
     if (!permissionRole) return;
     try {
+      setPermissionSaving(true);
       await api(`/admin/roles/${permissionRole.id}`, { method: "PATCH", body: JSON.stringify({
         userIds: assignmentUsers, organizationUnitIds: assignmentOrganizations,
         permissions: tableResourceRegistry.map((resource) => ({ resource: resource.code, fieldKey: "*", ...(permissionDraft[resource.code] ?? {}) }))
       }) });
       message.success("角色权限已保存"); setPermissionRole(undefined); refreshRoles(); refreshUsers();
     } catch (error) { message.error((error as Error).message); }
+    finally { setPermissionSaving(false); }
   };
   const saveRoleMembers = async () => {
     if (!selectedRole) return;
@@ -198,7 +235,7 @@ export function AdminWorkspace() {
         <Input prefix={<SearchOutlined />} allowClear placeholder="搜索" value={roleSearch} onChange={(event) => setRoleSearch(event.target.value)} />
         <Flex className="role-sidebar-heading" justify="space-between" align="center"><span>创建的角色</span><Dropdown trigger={["click"]} menu={{ items: [{ key: "group", icon: <FolderOutlined />, label: "创建角色组" }, { key: "role", icon: <UserAddOutlined />, label: "创建角色" }], onClick: ({ key }) => openRoleDialog(key as "group" | "role") }}><Button type="primary" shape="circle" aria-label="创建角色或角色组" icon={<PlusOutlined />} /></Dropdown></Flex>
         <div className="role-tree-list">{roleTree.map((group) => <div className="role-tree-group" key={group.id}>
-          <div className="role-group-title"><FolderOutlined /> <Text strong>{group.name}</Text></div>
+          <div className="role-group-title"><span><FolderOutlined /> <Text strong>{group.name}</Text></span><span className="role-group-actions"><HolderOutlined aria-hidden="true" /><Dropdown trigger={["click"]} menu={roleGroupMenu(group)}><Button type="text" aria-label={`编辑角色组-${group.name}`} icon={<MoreOutlined />} onClick={(event) => event.stopPropagation()} /></Dropdown></span></div>
           {group.roles.map((role: any) => <div key={role.id} className={`role-tree-role ${selectedRoleId === role.id ? "active" : ""}`} onClick={() => setSelectedRoleId(role.id)}>
             <span><UserSwitchOutlined />{role.name}</span><Dropdown trigger={["click"]} menu={roleMenu(role)}><Button className="admin-role-actions" type="text" aria-label={`编辑角色-${role.name}`} icon={<MoreOutlined />} onClick={(event) => event.stopPropagation()} /></Dropdown>
           </div>)}
@@ -248,14 +285,17 @@ export function AdminWorkspace() {
       <Form layout="vertical"><Form.Item label={action?.kind === "HANDOVER" ? "选择工作接收人" : "选择转入部门"}>{action?.kind === "HANDOVER" ? <Select showSearch optionFilterProp="label" value={actionValue} onChange={setActionValue} options={(users.data ?? []).filter((user) => user.enabled && user.id !== action?.user.id).map((user) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} /> : <TreeSelect treeData={organizationTree} treeDefaultExpandAll value={actionValue} onChange={setActionValue} />}</Form.Item></Form>
     </Modal>
 
-    <Modal forceRender title={roleDialog === "group" ? "创建角色组" : roleDialog === "rename" ? "修改角色名称" : "创建角色"} open={Boolean(roleDialog)} onCancel={() => setRoleDialog(undefined)} onOk={() => void saveRoleDialog()}>
-      <Form form={roleForm} layout="vertical"><Form.Item name="name" label={roleDialog === "group" ? "角色组名称" : "角色名称"} rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>{roleDialog === "role" && <Form.Item name="roleGroupId" label="所属分组" rules={[{ required: true }]}><Select options={(roleGroups.data ?? []).map((group) => ({ value: group.id, label: group.name }))} /></Form.Item>}</Form>
+    <Modal forceRender confirmLoading={roleSaving} title={roleDialog === "group" ? "创建角色组" : roleDialog === "rename-group" ? "修改角色组名称" : roleDialog === "rename" ? "修改角色名称" : "创建角色"} open={Boolean(roleDialog)} onCancel={() => { setRoleDialog(undefined); setEditingRole(undefined); setEditingRoleGroup(undefined); }} onOk={() => void saveRoleDialog()}>
+      <Form form={roleForm} layout="vertical"><Form.Item name="name" label={roleDialog === "group" || roleDialog === "rename-group" ? "角色组名称" : "角色名称"} rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>{roleDialog === "role" && <Form.Item name="roleGroupId" label="所属分组" rules={[{ required: true }]}><Select disabled={Boolean(editingRoleGroup)} options={(roleGroups.data ?? []).map((group) => ({ value: group.id, label: group.name }))} /></Form.Item>}</Form>
     </Modal>
-    <Modal title="调整分组" open={Boolean(moveRole)} onCancel={() => setMoveRole(undefined)} onOk={() => void saveMoveRole()}>
+    <Modal title="调整分组" open={Boolean(moveRole)} confirmLoading={moveSaving} onCancel={() => setMoveRole(undefined)} onOk={() => void saveMoveRole()} okButtonProps={{ disabled: !moveGroupId }}>
       <Text type="secondary">请选择目标分组</Text><div className="role-group-picker">{(roleGroups.data ?? []).map((group) => <button key={group.id} className={moveGroupId === group.id ? "active" : ""} onClick={() => setMoveGroupId(group.id)}><span><FolderOutlined />{group.name}</span>{moveGroupId === group.id && <CheckCircleFilled />}</button>)}</div>
     </Modal>
     <Modal title="添加角色成员" open={memberDialog} onCancel={() => setMemberDialog(false)} onOk={() => void saveRoleMembers()}><Select mode="multiple" showSearch optionFilterProp="label" value={memberDraft} onChange={setMemberDraft} style={{ width: "100%" }} options={(users.data ?? []).map((user) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} /></Modal>
-    <Modal title={`配置角色：${permissionRole?.name ?? ""}`} width={1120} open={Boolean(permissionRole)} onCancel={() => setPermissionRole(undefined)} onOk={() => void savePermissions()}>
+    <Modal title={deleteTarget?.kind === "role" ? `删除角色“${deleteTarget.item.name}”？` : `删除角色组“${deleteTarget?.item.name ?? ""}”？`} open={Boolean(deleteTarget)} confirmLoading={deleteSaving} okText="删除" okButtonProps={{ danger: true }} onCancel={() => setDeleteTarget(undefined)} onOk={() => void confirmDelete()}>
+      <Text>{deleteTarget?.kind === "role" ? "该角色与用户的关联及权限配置会一并删除。" : "只能删除不包含角色的空角色组；组内角色不会被自动删除。"}</Text>
+    </Modal>
+    <Modal title={`配置角色：${permissionRole?.name ?? ""}`} width={1120} open={Boolean(permissionRole)} confirmLoading={permissionSaving} onCancel={() => setPermissionRole(undefined)} onOk={() => void savePermissions()}>
       <Flex gap={12} className="role-scope-row"><Select mode="multiple" showSearch optionFilterProp="label" value={assignmentUsers} onChange={setAssignmentUsers} placeholder="关联用户（只有角色可以关联）" options={(users.data ?? []).map((user) => ({ value: user.id, label: user.displayName }))} style={{ flex: 1 }} /><TreeSelect treeData={organizationTree} treeCheckable multiple value={assignmentOrganizations} onChange={setAssignmentOrganizations} placeholder="分管部门" style={{ flex: 1 }} /></Flex>
       <KdosDataTable resource="role-permission-matrix" systemFields={false} size="small" rowKey="resource" pagination={false} dataSource={tableResourceRegistry.map((resource) => ({ ...resource, resource: resource.code }))} columns={[
         { title: "模块", dataIndex: "module", width: 130 }, { title: "表/报表", dataIndex: "label" },

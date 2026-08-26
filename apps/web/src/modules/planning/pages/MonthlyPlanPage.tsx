@@ -10,6 +10,7 @@ import { buildPlanningColumns, type DictionaryOptions, type RuntimePlanningField
 import { planningFieldRegistry } from "../grid/column-registry";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
 import { useAuditIdentityDirectory } from "../../../shared/audit-fields";
+import { TablePermissionButton } from "../../../shared/KdosDataTable";
 
 const { Text } = Typography;
 type Notice = { type: "success" | "error" | "info"; text: string };
@@ -216,6 +217,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         }}><Button loading={importing} disabled={periodQuery.isLoading}>导入 Excel</Button></Upload>
         <Button href={`/api/v1/planning/versions/${activeVersionId}/export`} target="_blank" disabled={!activeVersionId}>导出 Excel</Button>
         <Button onClick={() => setFieldOpen(true)}>字段显示</Button>
+        <TablePermissionButton resource="monthly-plan" />
       </Flex>
       <Flex className="monthly-toolbar-row" align="center" gap={8} wrap>
         <Text strong>快速筛选</Text>
@@ -236,6 +238,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         : !canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="当前版本为只读；直接导入或新增计划行时，系统会自动准备新的可编辑版本。" />}
     <div className="monthly-grid ag-theme-quartz">
       <AgGridReact rowData={rows} columnDefs={columnDefs} loading={itemsQuery.isLoading} theme="legacy" singleClickEdit={editMode}
+        pagination paginationPageSize={50} paginationPageSizeSelector={[20, 50, 100, 200]}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }} selectionColumnDef={{ pinned: "left", lockPosition: true, width: 48, resizable: false }}
         enableCellTextSelection ensureDomOrder suppressMovableColumns tooltipShowDelay={250} getRowId={({ data }) => data.id}
         onGridReady={({ api: instance }) => { gridApi.current = instance; }}

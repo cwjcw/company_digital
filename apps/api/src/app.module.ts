@@ -26,6 +26,7 @@ import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
 import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
+import { CustomerImportModule } from "./data-operations/customer-import/customer-import.module";
 
 @Module({
   imports: [
@@ -40,7 +41,8 @@ import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
     MarketingModule,
     PlanningOperationsModule,
     DevelopmentRequestModule,
-    ContactSyncModule
+    ContactSyncModule,
+    CustomerImportModule
   ],
   controllers: [
     SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController, ImportController,

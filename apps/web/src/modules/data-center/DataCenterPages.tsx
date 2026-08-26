@@ -62,3 +62,50 @@ export function SalesOrdersPage() {
     </Modal>
   </div>;
 }
+
+type OutboundField = { key: string; label: string; type?: "date" | "number"; width?: number; required?: boolean };
+const outboundFields: OutboundField[] = [
+  { key: "documentDate", label: "单据日期", type: "date" }, { key: "documentNumber", label: "出库单号", required: true, width: 190 },
+  { key: "documentStatus", label: "单据状态" }, { key: "directionValue", label: "出入库方向值", type: "number" },
+  { key: "voucherType", label: "单据类型" }, { key: "businessType", label: "业务类型" },
+  { key: "customerCode", label: "客户代码" }, { key: "customerName", label: "客户名称", width: 220 },
+  { key: "salesOrderNumber", label: "销售订单号", width: 190 }, { key: "itemNumber", label: "品项编码", required: true, width: 190 },
+  { key: "itemName", label: "品项名称", width: 260 }, { key: "specification", label: "规格型号", width: 200 },
+  { key: "quantity", label: "出库数量", type: "number" }, { key: "unit", label: "计量单位" },
+  { key: "unitPrice", label: "单价", type: "number" }, { key: "totalAmount", label: "金额", type: "number" },
+  { key: "warehouseCode", label: "仓库编码" }, { key: "warehouse", label: "仓库名称" },
+  { key: "sourceDocumentNumber", label: "来源单号", width: 190 }, { key: "creator", label: "制单人" },
+  { key: "auditor", label: "审核人" }, { key: "remark", label: "备注", width: 260 }
+];
+
+export function FinishedGoodsOutboundPage() {
+  const queryClient = useQueryClient();
+  const rows = useQuery({ queryKey: ["finished-goods-outbound"], queryFn: () => api<any[]>("/master-data/finished-goods-outbound") });
+  const [open, setOpen] = useState(false); const [form] = Form.useForm();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["finished-goods-outbound"] });
+  const update = async (row: any, field: string, value: unknown) => {
+    try { await api(`/master-data/finished-goods-outbound/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh(); }
+    catch (error) { message.error((error as Error).message); refresh(); throw error; }
+  };
+  const columns = outboundFields.map((field) => ({ title: field.label, dataIndex: field.key, width: field.width ?? 150,
+    render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={field.type === "date" ? DUE_DATE_DISPLAY_FORMAT : undefined}
+      value={value} onSave={(next) => update(row, field.key, next)} /> }));
+  return <div><PageHeader title="出库表" subtitle="首版字段按 T+ 实际出库流水设置；字段标题统一使用中文" actions={<Space>
+    <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增出库记录</Button>
+    <Button onClick={() => void downloadApiFile("/master-data/finished-goods-outbound/export", "出库数据.xlsx")}>导出 XLSX</Button>
+  </Space>} />
+    <KdosDataTable resource="finished-goods-outbound" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns}
+      scroll={{ x: "max-content", y: "calc(100vh - 300px)" }} />
+    <Modal title="新增出库记录" width={1080} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
+      const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
+      await api("/master-data/finished-goods-outbound", { method: "POST", body: JSON.stringify(payload) });
+      setOpen(false); form.resetFields(); message.success("出库记录新增成功"); refresh();
+    }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
+      <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>
+        {outboundFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} rules={field.required ? [{ required: true }] : undefined}>
+          {field.type === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : field.type === "number" ? <InputNumber precision={field.key === "directionValue" ? 0 : 6} style={{ width: "100%" }} /> : <Input />}
+        </Form.Item>)}
+      </Form>
+    </Modal>
+  </div>;
+}

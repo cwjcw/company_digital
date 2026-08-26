@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
@@ -38,5 +38,50 @@ describe("AdminWorkspace", () => {
     await waitFor(() => expect(screen.getAllByText("计划员").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "编辑角色-计划员" }));
     for (const label of ["修改名称", "调整分组", "配置权限", "删除"]) await waitFor(() => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
+  });
+
+  it("shows the screenshot-style role-group menu and creates a role inside that group", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "编辑角色组-系统角色" }));
+    const groupMenu = await screen.findByRole("menu");
+    for (const label of ["修改名称", "添加角色", "删除"]) expect(within(groupMenu).getByText(label)).toBeInTheDocument();
+    fireEvent.click(within(groupMenu).getByText("添加角色"));
+    const dialog = (await screen.findByText("创建角色")).closest(".ant-modal") as HTMLElement;
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("所属分组").closest(".ant-select")).toHaveClass("ant-select-disabled");
+  });
+
+  it("submits role rename instead of silently closing", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "编辑角色-计划员" }));
+    const roleMenu = await screen.findByRole("menu");
+    fireEvent.click(within(roleMenu).getByText("修改名称"));
+    const dialog = (await screen.findByText("修改角色名称")).closest(".ant-modal") as HTMLElement;
+    expect(dialog).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("角色名称"), { target: { value: "计划员（已修改）" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /OK|确 定/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/roles/role-1", expect.objectContaining({
+      method: "PATCH", body: JSON.stringify({ name: "计划员（已修改）" })
+    })));
+  });
+
+  it("uses a controlled confirmation dialog and submits role deletion", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "编辑角色-计划员" }));
+    const roleMenu = await screen.findByRole("menu");
+    fireEvent.click(within(roleMenu).getByText("删除"));
+    const dialog = (await screen.findByText("删除角色“计划员”？")).closest(".ant-modal") as HTMLElement;
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /删\s*除/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/roles/role-1", { method: "DELETE" }));
   });
 });

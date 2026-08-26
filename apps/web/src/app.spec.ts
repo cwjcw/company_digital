@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { excelMonthlyPlanColumns, monthlyPlanColumns, processDefinitions } from "@tracker/shared";
 import { containsText, getValue } from "./api";
-import { kdosSystemFieldDefinitions } from "./shared/KdosDataTable";
+import { kdosPageSizeOptions, kdosSystemFieldDefinitions } from "./shared/KdosDataTable";
 
 function tsxFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -59,5 +59,14 @@ describe("monthly plan configuration", () => {
       .filter((file) => !file.endsWith("KdosDataTable.tsx"))
       .filter((file) => /<Table(?:\s|>)/.test(fs.readFileSync(file, "utf8")));
     expect(directLegacyTables).toEqual([]);
+  });
+
+  it("standardizes form pagination and exposes one permission page route for every resource", () => {
+    expect(kdosPageSizeOptions).toEqual([20, 50, 100, 200]);
+    const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    const tableSource = fs.readFileSync(path.resolve(__dirname, "shared/KdosDataTable.tsx"), "utf8");
+    expect(appSource).toContain('path="/permissions/:resource"');
+    expect(tableSource).toContain('<TablePermissionButton resource={resource} />');
+    expect(tableSource).toContain('showQuickJumper: true');
   });
 });

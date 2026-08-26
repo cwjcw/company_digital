@@ -320,6 +320,9 @@ export class Supplier extends AuditedEntity {
 @Entity("sales_orders")
 export class SalesOrder extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index() @Column({ name: "source_system", type: "varchar", nullable: true }) sourceSystem!: string | null;
+  @Index() @Column({ name: "source_database", type: "varchar", nullable: true }) sourceDatabase!: string | null;
+  @Column({ name: "source_key", type: "varchar", nullable: true }) sourceKey!: string | null;
   @Column({ name: "document_date", type: "date", nullable: true }) documentDate!: string | null;
   @Index() @Column({ name: "order_number" }) orderNumber!: string;
   @Column({ name: "document_name", type: "varchar", nullable: true }) documentName!: string | null;
@@ -362,6 +365,9 @@ export class SalesOrder extends AuditedEntity {
 @Unique(["documentNumber", "inventoryCode", "relationInfo"])
 export class FinishedGoodsInbound extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index() @Column({ name: "source_system", type: "varchar", nullable: true }) sourceSystem!: string | null;
+  @Index() @Column({ name: "source_database", type: "varchar", nullable: true }) sourceDatabase!: string | null;
+  @Column({ name: "source_key", type: "varchar", nullable: true }) sourceKey!: string | null;
   @Column({ name: "category_number", type: "varchar", nullable: true }) categoryNumber!: string | null;
   @Index() @Column({ name: "sales_order_number", type: "varchar", nullable: true }) salesOrderNumber!: string | null;
   @Column({ name: "document_full_name", type: "varchar", nullable: true }) documentFullName!: string | null;
@@ -393,6 +399,37 @@ export class FinishedGoodsInbound extends AuditedEntity {
   @Column({ name: "total_amount", type: "numeric", precision: 18, scale: 6, nullable: true }) totalAmount!: string | null;
   @Column({ name: "voucher_word", type: "varchar", nullable: true }) voucherWord!: string | null;
   @Column({ type: "varchar", nullable: true }) category!: string | null;
+}
+
+@Entity("finished_goods_outbound")
+@Unique(["sourceSystem", "sourceDatabase", "sourceKey"])
+export class FinishedGoodsOutbound extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Index() @Column({ name: "source_system" }) sourceSystem!: string;
+  @Index() @Column({ name: "source_database" }) sourceDatabase!: string;
+  @Column({ name: "source_key" }) sourceKey!: string;
+  @Column({ name: "document_date", type: "date", nullable: true }) documentDate!: string | null;
+  @Index() @Column({ name: "document_number" }) documentNumber!: string;
+  @Column({ name: "document_status", type: "varchar", nullable: true }) documentStatus!: string | null;
+  @Column({ name: "direction_value", type: "smallint", nullable: true }) directionValue!: number | null;
+  @Column({ name: "voucher_type", type: "varchar", nullable: true }) voucherType!: string | null;
+  @Column({ name: "business_type", type: "varchar", nullable: true }) businessType!: string | null;
+  @Column({ name: "customer_code", type: "varchar", nullable: true }) customerCode!: string | null;
+  @Column({ name: "customer_name", type: "varchar", nullable: true }) customerName!: string | null;
+  @Index() @Column({ name: "sales_order_number", type: "varchar", nullable: true }) salesOrderNumber!: string | null;
+  @Index() @Column({ name: "item_number" }) itemNumber!: string;
+  @Column({ name: "item_name", type: "varchar", nullable: true }) itemName!: string | null;
+  @Column({ type: "varchar", nullable: true }) specification!: string | null;
+  @Column({ type: "numeric", precision: 18, scale: 4, nullable: true }) quantity!: string | null;
+  @Column({ type: "varchar", nullable: true }) unit!: string | null;
+  @Column({ name: "unit_price", type: "numeric", precision: 18, scale: 6, nullable: true }) unitPrice!: string | null;
+  @Column({ name: "total_amount", type: "numeric", precision: 20, scale: 6, nullable: true }) totalAmount!: string | null;
+  @Column({ name: "warehouse_code", type: "varchar", nullable: true }) warehouseCode!: string | null;
+  @Column({ type: "varchar", nullable: true }) warehouse!: string | null;
+  @Column({ name: "source_document_number", type: "varchar", nullable: true }) sourceDocumentNumber!: string | null;
+  @Column({ type: "varchar", nullable: true }) creator!: string | null;
+  @Column({ type: "varchar", nullable: true }) auditor!: string | null;
+  @Column({ type: "text", nullable: true }) remark!: string | null;
 }
 
 @Entity("audit_logs")
@@ -465,6 +502,6 @@ export const entities = [
   User, RoleGroup, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
-  DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, AuditLog, ApiKey,
+  DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
   RefreshToken, ImportJob, ImportJobError, IdempotencyRecord
 ];

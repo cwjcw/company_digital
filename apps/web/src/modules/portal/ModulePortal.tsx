@@ -30,7 +30,7 @@ export const portalModules: PortalModule[] = [
   {
     id: "data", title: "数据中心", englishTitle: "DATA CENTER",
     description: "集中管理订单与入库基础业务数据，为计划与分析提供统一来源。",
-    features: ["订单表", "入库表"], path: "/data-center/sales-orders", tone: "cyan"
+    features: ["订单表", "入库表", "出库表"], path: "/data-center/sales-orders", tone: "cyan"
   },
   {
     id: "marketing", title: "营销中心", englishTitle: "MARKETING CENTER",

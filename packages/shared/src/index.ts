@@ -6,6 +6,7 @@ export type ResourceKey =
   | "dictionaries"
   | "processes"
   | "finished-goods-inbound"
+  | "finished-goods-outbound"
   | "sales-orders"
   | "sales-summary-dashboard"
   | "organization"
