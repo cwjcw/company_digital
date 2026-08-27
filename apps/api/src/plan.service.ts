@@ -6,7 +6,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { milestoneProcessCodes, monthlyPlanColumns } from "@tracker/shared";
 import {
-  AuditLog, DailyProcessProgress, DictionaryType, DictionaryValue, IdempotencyRecord, ItemProcessProgress, Order, OrderItem,
+  AuditLog, DictionaryType, DictionaryValue, IdempotencyRecord, ItemProcessProgress, Order, OrderItem,
   OutsourcingDetail, PlanPeriod, ProcessDefinitionEntity, Supplier
 } from "./entities";
 import { DomainService } from "./domain.service";
@@ -43,7 +43,6 @@ export class PlanService {
     @InjectRepository(OutsourcingDetail) private readonly outsourcing: Repository<OutsourcingDetail>,
     @InjectRepository(ProcessDefinitionEntity) private readonly processDefs: Repository<ProcessDefinitionEntity>,
     @InjectRepository(ItemProcessProgress) private readonly progress: Repository<ItemProcessProgress>,
-    @InjectRepository(DailyProcessProgress) private readonly dailyProgress: Repository<DailyProcessProgress>,
     @InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>,
     @InjectRepository(IdempotencyRecord) private readonly idempotency: Repository<IdempotencyRecord>,
     private readonly domain: DomainService,
@@ -289,122 +288,6 @@ export class PlanService {
         };
       })
     };
-  }
-
-  private normalizeProgressDate(value: string) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? "")) throw new BadRequestException("日期格式必须为 YYYY-MM-DD");
-    const [year, month, day] = value.split("-").map(Number);
-    const date = new Date(Date.UTC(year!, month! - 1, day));
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
-      throw new BadRequestException("日期无效");
-    }
-    return value;
-  }
-
-  async dailyProgressList(dateInput: string, user: any) {
-    const date = this.normalizeProgressDate(dateInput);
-    const scope = this.scope(user, "i");
-    const items = await this.items.createQueryBuilder("i")
-      .innerJoinAndSelect("i.order", "o")
-      .innerJoinAndSelect("i.period", "period")
-      .where("i.active = true")
-      .andWhere(scope.clause, scope.params)
-      .orderBy("period.year", "ASC").addOrderBy("period.month", "ASC")
-      .addOrderBy("o.orderNumber", "ASC").addOrderBy("i.itemNumber", "ASC")
-      .getMany();
-    const unfinished = items.filter((item) => this.domain.hasOutstandingBalance(item));
-    const definitions = await this.processDefs.find({ where: { enabled: true }, order: { sortOrder: "ASC" } });
-    const entries = unfinished.length ? await this.dailyProgress.createQueryBuilder("d")
-      .where("d.workDate = :date", { date })
-      .andWhere("d.orderItemId IN (:...ids)", { ids: unfinished.map((item) => item.id) })
-      .getMany() : [];
-    const quantityMap = new Map(entries.map((entry) => [
-      `${entry.orderItemId}:${entry.processDefinitionId}`, entry.quantity
-    ]));
-    const versionMap = new Map(entries.map((entry) => [
-      `${entry.orderItemId}:${entry.processDefinitionId}`, entry.version
-    ]));
-    return {
-      date,
-      processes: definitions.map(({ id, code, name, sortOrder }) => ({ id, code, name, sortOrder })),
-      rows: unfinished.map((item, index) => {
-        const metrics = this.domain.itemMetrics(item);
-        const auditEntry = entries.filter((entry) => entry.orderItemId === item.id)
-          .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0];
-        return {
-          id: item.id,
-          sequence: index + 1,
-          month: `${item.period.year}-${String(item.period.month).padStart(2, "0")}`,
-          orderNumber: item.order.orderNumber,
-          orderType: item.order.orderType,
-          itemNumber: item.itemNumber,
-          itemName: item.itemName,
-          customer: item.customer,
-          division: item.division,
-          productionQuantity: metrics.productionQuantity,
-          balanceQuantity: metrics.balanceQuantity,
-          createdBy: auditEntry?.createdBy ?? item.createdBy,
-          createdAt: auditEntry?.createdAt ?? item.createdAt,
-          updatedBy: auditEntry?.updatedBy ?? item.updatedBy,
-          updatedAt: auditEntry?.updatedAt ?? item.updatedAt,
-          progressVersions: Object.fromEntries(definitions.map((definition) => [
-            definition.code, versionMap.get(`${item.id}:${definition.id}`) ?? 0
-          ])),
-          progress: Object.fromEntries(definitions.map((definition) => [
-            definition.code, quantityMap.get(`${item.id}:${definition.id}`) ?? null
-          ]))
-        };
-      })
-    };
-  }
-
-  async updateDailyProgress(
-    orderItemId: string,
-    body: { date: string; processCode: string; quantity: unknown; expectedVersion: number },
-    user: any,
-    requestId: string
-  ) {
-    if (!(user.permissions?.includes("*") || user.permissions?.includes("daily-progress:*:update") || user.permissions?.includes("monthly-plan:*:update"))) {
-      throw new ForbiddenException("没有录入日进度的权限");
-    }
-    const date = this.normalizeProgressDate(body.date);
-    const item = await this.items.findOne({ where: { id: orderItemId, active: true }, relations: { order: true } });
-    if (!item) throw new NotFoundException("月度计划品号不存在");
-    if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
-    if (!this.domain.hasOutstandingBalance(item)) throw new BadRequestException("该订单品号已完成，不再允许录入日进度");
-    const definition = await this.processDefs.findOneBy({ code: String(body.processCode ?? ""), enabled: true });
-    if (!definition) throw new BadRequestException("工序不存在或已停用");
-    const rawQuantity = body.quantity;
-    const quantity = rawQuantity === null || rawQuantity === undefined || rawQuantity === ""
-      ? null : Number(String(rawQuantity).replace(/,/g, ""));
-    if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0)) throw new BadRequestException("当日完成数量必须为大于等于 0 的数字");
-
-    const expectedVersion = Number(body.expectedVersion);
-    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new BadRequestException("expectedVersion 必填");
-    return this.dataSource.transaction(async (manager) => {
-      const where = { orderItemId, processDefinitionId: definition.id, workDate: date };
-      let entry = await manager.findOne(DailyProcessProgress, { where, lock: { mode: "pessimistic_write" } });
-      const currentVersion = entry?.version ?? 0;
-      if (currentVersion !== expectedVersion) throw new ConflictException({ message: "日进度已被其他用户修改，请刷新后重试", currentVersion, submittedVersion: expectedVersion });
-      const before = entry?.quantity ?? null;
-      if (quantity === null) {
-        if (entry) await manager.remove(entry);
-      } else {
-        entry = entry ?? manager.create(DailyProcessProgress, where);
-        entry.quantity = String(quantity);
-        entry.updatedBy = user.sub;
-        entry.version = currentVersion + 1;
-        entry = await manager.save(entry);
-      }
-      const changedAt = new Date();
-      await manager.save(AuditLog, {
-        actorId: user.sub, actorName: user.username, resource: "daily-progress", recordId: entry?.id ?? orderItemId,
-        action: "update", beforeJson: { date, processCode: definition.code, quantity: before, version: currentVersion },
-        afterJson: { date, processCode: definition.code, quantity, version: quantity === null ? null : currentVersion + 1 }, requestId, source: "web",
-        createdAt: changedAt
-      });
-      return { orderItemId, date, processCode: definition.code, quantity: quantity === null ? null : entry!.quantity, version: quantity === null ? 0 : entry!.version };
-    });
   }
 
   async rolling(user: any) {

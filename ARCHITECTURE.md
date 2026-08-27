@@ -61,7 +61,7 @@ T+ / future E10 / WMS / MES
 - `packages/ai-tool-sdk`: five read-only Planning tool definitions.
 - `integrations/tplus`: dual-account T+ to Canonical Sales Order adapter.
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
-- `apps/web/src/modules/planning`: metadata-driven grid, monthly plan, sales summary/details and daily-progress pages.
+- `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details and work-report pages.
 
 ## Planning state model
 
@@ -78,15 +78,15 @@ Creating a new version copies plan items and process progress within the same pe
 
 Schemas and principal tables:
 
-- `iam`: `tenants`, `organizations`, `departments`, `positions`, `employees`, `users`, `identities`, `roles`, `permissions`, `role_permissions`, `role_bindings`, `field_policies`.
-- `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `daily_progress`, `plan_snapshots`, `plan_changes`.
+- `iam`: `tenants`, `organizations`, `departments`, `positions`, `employees`, `users`, `identities`, `roles`, `permissions`, `role_permissions`, `role_bindings`, `field_policies`. The compatibility IAM also stores per-table permission groups on technical roles and keeps their dynamic `USER` / `ORGANIZATION` / `ROLE` grants in `permission_group_subjects`; technical roles are hidden from ordinary role management.
+- `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`.
 - `audit`: `audit_logs`.
 - `integration`: `import_jobs`.
 - `core`: migration ledger.
 
 All collaborative Planning and IAM tables carry `tenant_id`. PostgreSQL RLS checks `app.tenant_id`; application queries still filter tenant explicitly. IDs default to PostgreSQL 18 `uuidv7()`.
 
-Important uniqueness rules include tenant/year/month, period/version number, version/order/item, item/process, item/process/day and tenant/import-idempotency key. Quantity and money columns use `numeric`; `decimal.js` is the calculation authority in the domain layer.
+Important uniqueness rules include tenant/year/month, period/version number, version/order/item, item/process, work-report tenant/date/source-plan-item and tenant/import-idempotency key. Quantity and money columns use `numeric`; `decimal.js` is the calculation authority in the domain layer.
 
 ## Metadata-driven Planning grid
 

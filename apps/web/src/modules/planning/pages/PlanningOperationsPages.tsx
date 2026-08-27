@@ -5,15 +5,20 @@ import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../../api";
 import { InlineText, PageHeader } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
-import { KdosDataTable } from "../../../shared/KdosDataTable";
+import { hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../../shared/KdosDataTable";
 
 export function WeeklyPlanPage({ startDate }: { startDate: string }) {
-  const queryClient = useQueryClient(); const [search, setSearch] = useState("");
+  const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [syncing, setSyncing] = useState(false);
   const periods = useQuery({ queryKey: ["weekly-plan-periods"], queryFn: () => api<any[]>("/planning-operations/weekly-periods") });
-  const period = periods.data?.find((row) => row.startDate === startDate);
+  const period = periods.data?.find((row) => dayjs(row.startDate).format("YYYY-MM-DD") === startDate);
+  const currentPeriod = periods.data?.find((row) => row.isCurrent);
+  const isCurrentPeriod = Boolean(period && currentPeriod && period.id === currentPeriod.id);
   const rows = useQuery({ queryKey: ["weekly-plan-items", period?.id, search], enabled: Boolean(period?.id), queryFn: () => api<any[]>(`/planning-operations/weekly-periods/${period.id}/items?search=${encodeURIComponent(search)}`) });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["weekly-plan-items", period?.id] });
-  const sync = async () => { if (!period) return; const result = await api<{ synced: number }>(`/planning-operations/weekly-periods/${period.id}/sync-order-schedules`, { method: "POST" }); message.success(`已同步 ${result.synced} 条未完成订单`); refresh(); };
+  const sync = async () => { if (!isCurrentPeriod) return; setSyncing(true); try {
+    const result = await api<{ periodName: string; sourceCount: number; matched: number; created: number; updated: number; unchanged: number; removed: number; skippedCompleted: number }>("/planning-operations/weekly-periods/current/sync-order-schedules", { method: "POST" });
+    message.success(`${result.periodName}导入完成：匹配 ${result.matched} 条，新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条，移除 ${result.removed} 条`); refresh();
+  } catch (error) { message.error((error as Error).message); } finally { setSyncing(false); } };
   const update = async (row: any, field: string, value: unknown) => { try { await api(`/planning-operations/weekly-items/${row.id}`, { method: "PATCH", body: JSON.stringify({ field, value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const columns = [
     { title: "客户代码", dataIndex: "customerCode", width: 140 }, { title: "订单编号", dataIndex: "orderNumber", width: 170 },
@@ -23,25 +28,34 @@ export function WeeklyPlanPage({ startDate }: { startDate: string }) {
     { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "customerDueDate", next)} /> },
     { title: "评审交期", dataIndex: "reviewDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "reviewDueDate", next)} /> }
   ];
-  return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${period.startDate} 至 ${period.endDate}；仅从订单排期同步完成比例小于 100% 的记录` : "正在加载周计划周期"} actions={<Space>
-    <Input.Search allowClear placeholder="搜索客户、订单、品项、生产单位" onSearch={setSearch} style={{ width: 320 }} /><Button type="primary" disabled={!period} onClick={() => void sync()}>从订单排期同步</Button>
+  return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${dayjs(period.startDate).format("M月D日")} 至 ${dayjs(period.endDate).format("M月D日")}；手工导入时由系统日期确定周次，按订单号 + 品项编码匹配完成比例小于 100% 的订单` : "正在加载周计划周期"} actions={<Space>
+    <Input.Search allowClear placeholder="搜索客户、订单、品项、生产单位" onSearch={setSearch} style={{ width: 320 }} />{hasResourcePermission("weekly-plan", "import") && <Button type="primary" loading={syncing} disabled={!isCurrentPeriod} onClick={() => void sync()}>{isCurrentPeriod ? "从订单排期导入本周" : currentPeriod ? `请进入${currentPeriod.name}导入` : "当前日期无对应周计划"}</Button>}
   </Space>} /><KdosDataTable resource="weekly-plan" editable rowKey="id" loading={periods.isLoading || rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }
 
 export function WorkReportsPage() {
-  const queryClient = useQueryClient(); const [date, setDate] = useState<Dayjs>(dayjs()); const [search, setSearch] = useState("");
+  const queryClient = useQueryClient(); const [date, setDate] = useState<Dayjs>(dayjs()); const [syncing, setSyncing] = useState(false);
   const dateValue = date.format("YYYY-MM-DD");
-  const rows = useQuery({ queryKey: ["work-reports", dateValue, search], queryFn: () => api<any[]>(`/planning-operations/work-reports?date=${dateValue}&search=${encodeURIComponent(search)}`) });
+  const rows = useQuery({ queryKey: ["work-reports", dateValue], queryFn: () => api<any[]>(`/planning-operations/work-reports?date=${dateValue}`) });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["work-reports", dateValue] });
-  const sync = async () => { const result = await api<{ synced: number }>("/planning-operations/work-reports/sync", { method: "POST", body: JSON.stringify({ date: dateValue }) }); message.success(`已从主计划同步 ${result.synced} 条；原报工数量保持不变`); refresh(); };
+  const sync = async () => { setSyncing(true); try {
+    const result = await api<{ sourceCount: number; matched: number; created: number; updated: number; unchanged: number; removedStale: number; preservedReported: number }>("/planning-operations/work-reports/sync", { method: "POST", body: JSON.stringify({ date: dateValue }) });
+    message.success(`月度计划导入完成：匹配 ${result.matched} 条，新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条，清理无报工旧记录 ${result.removedStale} 条；已填报数量保持不变`); refresh();
+  } catch (error) { message.error((error as Error).message); } finally { setSyncing(false); } };
   const update = async (row: any, value: unknown) => { try { await api(`/planning-operations/work-reports/${row.id}`, { method: "PATCH", body: JSON.stringify({ reportedQuantity: value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const columns = [
-    { title: "日期", dataIndex: "displayDate", width: 110 }, { title: "客户", dataIndex: "customer", width: 180 },
+    { title: "日期", dataIndex: "workDate", width: 110, render: (value: unknown) => value ? dayjs(String(value)).format("M月D日") : "—" }, { title: "客户", dataIndex: "customer", width: 180 },
     { title: "订单编码", dataIndex: "orderNumber", width: 170 }, { title: "品项编码", dataIndex: "itemNumber", width: 170 },
     { title: "品名", dataIndex: "itemName", width: 260 }, { title: "需求数量", dataIndex: "requiredQuantity", width: 140 },
-    { title: "报工数量", dataIndex: "reportedQuantity", width: 150, render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(next) => update(row, next)} /> }
+    { title: "报工数量", dataIndex: "reportedQuantity", width: 150, render: (value: unknown, row: any) => <WorkReportQuantityCell value={value} onSave={(next) => update(row, next)} /> }
   ];
-  return <div><PageHeader title="报工表" subtitle="日期显示为 YYMMDD；除报工数量外，其他字段均从主计划手工同步" actions={<Space>
-    <DatePicker value={date} onChange={(value) => value && setDate(value)} allowClear={false} /><Input.Search allowClear placeholder="搜索客户、订单、品项" onSearch={setSearch} style={{ width: 280 }} /><Button type="primary" onClick={() => void sync()}>从主计划同步</Button>
-  </Space>} /><KdosDataTable resource="work-report" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
+  const toolbar = <Space><DatePicker value={date} format="M月D日" onChange={(value) => value && setDate(value)} allowClear={false} />
+    {hasResourcePermission("work-report", "import") && <Button type="primary" loading={syncing} onClick={() => void sync()}>从月度计划导入</Button>}</Space>;
+  return <div><PageHeader title="报工表" subtitle="按所选日期对应月份的月度计划手工导入，以订单号 + 品项编码匹配；重新导入不会覆盖已填报数量" />
+    <KdosDataTable resource="work-report" editable toolbar={toolbar} searchPlaceholder="搜索客户、订单、品项" rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
+}
+
+function WorkReportQuantityCell({ value, onSave }: { value: unknown; onSave: (value: unknown) => Promise<void> }) {
+  const { editing } = useKdosTableEditMode();
+  return editing ? <InlineText type="number" value={value} onSave={onSave} /> : <>{value == null || value === "" ? "—" : String(value)}</>;
 }

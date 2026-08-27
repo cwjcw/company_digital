@@ -5,7 +5,6 @@ import {
   SwapOutlined, TeamOutlined, UserAddOutlined, UserDeleteOutlined, UserSwitchOutlined
 } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { tableResourceRegistry } from "@kdos/contracts";
 import {
   Avatar, Button, Checkbox, Drawer, Dropdown, Flex, Form, Input, Modal, Select, Space, Tabs,
   Tag, Tree, TreeSelect, Typography, message
@@ -39,11 +38,10 @@ export function AdminWorkspace() {
   const [editingRoleGroup, setEditingRoleGroup] = useState<any>(); const [roleSaving, setRoleSaving] = useState(false);
   const [moveRole, setMoveRole] = useState<any>(); const [moveGroupId, setMoveGroupId] = useState<string>();
   const [moveSaving, setMoveSaving] = useState(false);
-  const [permissionRole, setPermissionRole] = useState<any>(); const [permissionDraft, setPermissionDraft] = useState<Record<string, Record<string, boolean>>>({});
-  const [permissionSaving, setPermissionSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "role" | "group"; item: any }>(); const [deleteSaving, setDeleteSaving] = useState(false);
-  const [assignmentUsers, setAssignmentUsers] = useState<string[]>([]); const [assignmentOrganizations, setAssignmentOrganizations] = useState<string[]>([]);
   const [memberDialog, setMemberDialog] = useState(false); const [memberDraft, setMemberDraft] = useState<string[]>([]);
+  const [memberMode, setMemberMode] = useState<"people" | "organization">("people");
+  const [memberSearch, setMemberSearch] = useState(""); const [memberOrganizationId, setMemberOrganizationId] = useState<string>();
   const [roleForm] = Form.useForm();
 
   const effectiveUserSearch = mode === "departments" ? deferredSearch : "";
@@ -185,37 +183,32 @@ export function AdminWorkspace() {
     if (key === "delete") deleteRoleGroup(group);
   }});
   const roleMenu = (role: any) => ({ items: [
-    { key: "rename", label: "修改名称" }, { key: "move", label: "调整分组" }, { key: "permissions", label: "配置权限" },
+    { key: "rename", label: "修改名称" }, { key: "move", label: "调整分组" },
     { type: "divider" as const }, { key: "delete", label: <span className="danger-menu-label">删除</span> }
   ], onClick: ({ key }: { key: string }) => {
     if (key === "rename") openRoleDialog("rename", role); if (key === "move") { setMoveRole(role); setMoveGroupId(role.roleGroupId); }
-    if (key === "permissions") openPermissions(role); if (key === "delete") deleteRole(role);
+    if (key === "delete") deleteRole(role);
   }});
-  const openPermissions = (role: any) => {
-    const next: Record<string, Record<string, boolean>> = {};
-    for (const resource of tableResourceRegistry) {
-      const saved = role.permissions?.find((permission: any) => permission.resource === resource.code && permission.fieldKey === "*") ?? {};
-      next[resource.code] = Object.fromEntries(["read", "create", "copy", "update", "delete", "batchPrint", "batchUpdate", "import", "export"].map((action) => [action, Boolean(saved[action])])) as Record<string, boolean>;
-    }
-    setPermissionRole(role); setPermissionDraft(next); setAssignmentUsers(role.userIds ?? []); setAssignmentOrganizations(role.organizationUnitIds ?? []);
-  };
-  const savePermissions = async () => {
-    if (!permissionRole) return;
-    try {
-      setPermissionSaving(true);
-      await api(`/admin/roles/${permissionRole.id}`, { method: "PATCH", body: JSON.stringify({
-        userIds: assignmentUsers, organizationUnitIds: assignmentOrganizations,
-        permissions: tableResourceRegistry.map((resource) => ({ resource: resource.code, fieldKey: "*", ...(permissionDraft[resource.code] ?? {}) }))
-      }) });
-      message.success("角色权限已保存"); setPermissionRole(undefined); refreshRoles(); refreshUsers();
-    } catch (error) { message.error((error as Error).message); }
-    finally { setPermissionSaving(false); }
-  };
   const saveRoleMembers = async () => {
     if (!selectedRole) return;
     try { await api(`/admin/roles/${selectedRole.id}`, { method: "PATCH", body: JSON.stringify({ userIds: memberDraft }) }); message.success("角色成员已更新"); setMemberDialog(false); refreshRoles(); refreshUsers(); }
     catch (error) { message.error((error as Error).message); }
   };
+  const openMemberDialog = () => {
+    setMemberDraft(selectedRole?.userIds ?? []); setMemberMode("people"); setMemberSearch(""); setMemberOrganizationId(undefined); setMemberDialog(true);
+  };
+  const toggleMember = (userId: string, selected: boolean) => setMemberDraft((current) => selected
+    ? [...new Set([...current, userId])] : current.filter((id) => id !== userId));
+  const memberKeyword = memberSearch.trim().toLocaleLowerCase();
+  const enabledMemberCandidates = (users.data ?? []).filter((user) => user.enabled !== false);
+  const searchedMemberCandidates = enabledMemberCandidates.filter((user) => !memberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
+    .some((value) => String(value ?? "").toLocaleLowerCase().includes(memberKeyword)));
+  const selectedOrganizationPath = memberOrganizationId ? unitPath(memberOrganizationId) : [];
+  const organizationMemberCandidates = searchedMemberCandidates.filter((user) => selectedOrganizationPath.length && (user.departmentPaths ?? [])
+    .some((path: string[]) => selectedOrganizationPath.every((part, index) => path[index] === part)));
+  const setCandidateSelection = (candidates: any[], selected: boolean) => setMemberDraft((current) => selected
+    ? [...new Set([...current, ...candidates.map((user) => user.id)])]
+    : current.filter((id) => !candidates.some((user) => user.id === id)));
   const exportMembers = () => {
     const header = "姓名,编号,所属部门,角色\n"; const csv = header + roleMembers.map((user) => [user.displayName, user.employeeNo || user.username, (user.departmentPaths ?? []).map((path: string[]) => path.at(-1)).join("|"), selectedRole?.name].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `${selectedRole?.name ?? "角色"}-成员.csv`; link.click(); URL.revokeObjectURL(url);
@@ -251,8 +244,8 @@ export function AdminWorkspace() {
       </Flex>
       <KdosDataTable resource="users" shellClassName="employee-admin-member-table-shell" className="employee-admin-table employee-admin-member-table" rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={visibleUsers} loading={users.isLoading} columns={userColumns} pagination={false} scroll={{ x: 1750, y: "100%" }} />
     </> : selectedRole ? <>
-      <Flex className="employee-admin-title" justify="space-between" align="center"><Title level={3}>{selectedRole.name}</Title><Space split={<span className="role-title-divider" />}><Button type="link" onClick={() => openRoleDialog("rename", selectedRole)}>修改名称</Button><Button type="link" onClick={() => { setMoveRole(selectedRole); setMoveGroupId(selectedRole.roleGroupId); }}>调整分组</Button><Button type="link" onClick={() => openPermissions(selectedRole)}>配置权限</Button></Space></Flex>
-      <Flex className="employee-admin-toolbar" justify="space-between"><Space><Button type="primary" onClick={() => { setMemberDraft(selectedRole.userIds ?? []); setMemberDialog(true); }}>添加成员</Button><Button icon={<ImportOutlined />} disabled>导入</Button><Button icon={<ExportOutlined />} onClick={exportMembers}>导出</Button></Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={roleMemberSearch} onChange={(event) => setRoleMemberSearch(event.target.value)} style={{ width: 310 }} /></Flex>
+      <Flex className="employee-admin-title" justify="space-between" align="center"><Title level={3}>{selectedRole.name}</Title><Space split={<span className="role-title-divider" />}><Button type="link" onClick={() => openRoleDialog("rename", selectedRole)}>修改名称</Button><Button type="link" onClick={() => { setMoveRole(selectedRole); setMoveGroupId(selectedRole.roleGroupId); }}>调整分组</Button></Space></Flex>
+      <Flex className="employee-admin-toolbar" justify="space-between"><Space><Button type="primary" onClick={openMemberDialog}>添加成员</Button><Button icon={<ImportOutlined />} disabled>导入</Button><Button icon={<ExportOutlined />} onClick={exportMembers}>导出</Button></Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={roleMemberSearch} onChange={(event) => setRoleMemberSearch(event.target.value)} style={{ width: 310 }} /></Flex>
       <KdosDataTable resource="roles" className="employee-admin-table" rowKey="id" dataSource={roleMembers} columns={[
         { title: "姓名", dataIndex: "displayName", render: (value: string) => <Space><Avatar className="employee-table-avatar">{initials(value)}</Avatar>{value}</Space> },
         { title: "所属部门", dataIndex: "departmentPaths", render: (paths: string[][]) => (paths ?? []).map((path) => path.at(-1)).join("、") || "—" },
@@ -291,16 +284,28 @@ export function AdminWorkspace() {
     <Modal title="调整分组" open={Boolean(moveRole)} confirmLoading={moveSaving} onCancel={() => setMoveRole(undefined)} onOk={() => void saveMoveRole()} okButtonProps={{ disabled: !moveGroupId }}>
       <Text type="secondary">请选择目标分组</Text><div className="role-group-picker">{(roleGroups.data ?? []).map((group) => <button key={group.id} className={moveGroupId === group.id ? "active" : ""} onClick={() => setMoveGroupId(group.id)}><span><FolderOutlined />{group.name}</span>{moveGroupId === group.id && <CheckCircleFilled />}</button>)}</div>
     </Modal>
-    <Modal title="添加角色成员" open={memberDialog} onCancel={() => setMemberDialog(false)} onOk={() => void saveRoleMembers()}><Select mode="multiple" showSearch optionFilterProp="label" value={memberDraft} onChange={setMemberDraft} style={{ width: "100%" }} options={(users.data ?? []).map((user) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} /></Modal>
+    <Modal className="role-member-modal" width={960} title="添加成员" open={memberDialog} okText="确定" onCancel={() => setMemberDialog(false)} onOk={() => void saveRoleMembers()}>
+      <div className="role-member-selected">{memberDraft.length ? memberDraft.map((id) => {
+        const user = enabledMemberCandidates.find((candidate) => candidate.id === id); if (!user) return null;
+        return <Tag key={id} closable onClose={() => toggleMember(id, false)} icon={<Avatar size={22}>{initials(user.displayName)}</Avatar>}>{user.displayName}</Tag>;
+      }) : <Text type="secondary">尚未选择成员</Text>}</div>
+      <Input className="role-member-search" allowClear prefix={<SearchOutlined />} placeholder="搜索（多个关键词用空格隔开）" value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} />
+      <Tabs activeKey={memberMode} onChange={(key) => setMemberMode(key as "people" | "organization")} items={[
+        { key: "people", label: "按人员添加", children: <div className="role-member-people-list">
+          <Flex justify="space-between" align="center"><Text strong>全部成员</Text><Checkbox indeterminate={searchedMemberCandidates.some((user) => memberDraft.includes(user.id)) && !searchedMemberCandidates.every((user) => memberDraft.includes(user.id))} checked={searchedMemberCandidates.length > 0 && searchedMemberCandidates.every((user) => memberDraft.includes(user.id))} onChange={(event) => setCandidateSelection(searchedMemberCandidates, event.target.checked)}>全选结果</Checkbox></Flex>
+          {searchedMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><span><Text strong>{user.displayName}（{user.employeeNo ?? user.username}）</Text><Text type="secondary">{(user.departmentPaths ?? []).map((path: string[]) => path.join(" / ")).join("、") || "未分配部门"}</Text></span></Space><Checkbox checked={memberDraft.includes(user.id)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
+        </div> },
+        { key: "organization", label: "按组织添加", children: <div className="role-member-organization">
+          <div className="role-member-organization-tree"><Text strong>组织架构</Text><Tree showIcon blockNode defaultExpandAll treeData={organizationTree} selectedKeys={memberOrganizationId ? [memberOrganizationId] : []} onSelect={(keys) => setMemberOrganizationId(String(keys[0] ?? "") || undefined)} /></div>
+          <div className="role-member-organization-users"><Flex justify="space-between" align="center"><Text strong>{memberOrganizationId ? `${organizationMap.get(memberOrganizationId)?.name ?? "所选部门"}成员` : "请选择左侧部门"}</Text>{memberOrganizationId && <Checkbox indeterminate={organizationMemberCandidates.some((user) => memberDraft.includes(user.id)) && !organizationMemberCandidates.every((user) => memberDraft.includes(user.id))} checked={organizationMemberCandidates.length > 0 && organizationMemberCandidates.every((user) => memberDraft.includes(user.id))} onChange={(event) => setCandidateSelection(organizationMemberCandidates, event.target.checked)}>全选本部门</Checkbox>}</Flex>
+            {organizationMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><Text strong>{user.displayName}</Text></Space><Checkbox checked={memberDraft.includes(user.id)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
+            {memberOrganizationId && !organizationMemberCandidates.length && <Text type="secondary">该部门没有符合条件的在职成员</Text>}
+          </div>
+        </div> }
+      ]} />
+    </Modal>
     <Modal title={deleteTarget?.kind === "role" ? `删除角色“${deleteTarget.item.name}”？` : `删除角色组“${deleteTarget?.item.name ?? ""}”？`} open={Boolean(deleteTarget)} confirmLoading={deleteSaving} okText="删除" okButtonProps={{ danger: true }} onCancel={() => setDeleteTarget(undefined)} onOk={() => void confirmDelete()}>
       <Text>{deleteTarget?.kind === "role" ? "该角色与用户的关联及权限配置会一并删除。" : "只能删除不包含角色的空角色组；组内角色不会被自动删除。"}</Text>
-    </Modal>
-    <Modal title={`配置角色：${permissionRole?.name ?? ""}`} width={1120} open={Boolean(permissionRole)} confirmLoading={permissionSaving} onCancel={() => setPermissionRole(undefined)} onOk={() => void savePermissions()}>
-      <Flex gap={12} className="role-scope-row"><Select mode="multiple" showSearch optionFilterProp="label" value={assignmentUsers} onChange={setAssignmentUsers} placeholder="关联用户（只有角色可以关联）" options={(users.data ?? []).map((user) => ({ value: user.id, label: user.displayName }))} style={{ flex: 1 }} /><TreeSelect treeData={organizationTree} treeCheckable multiple value={assignmentOrganizations} onChange={setAssignmentOrganizations} placeholder="分管部门" style={{ flex: 1 }} /></Flex>
-      <KdosDataTable resource="role-permission-matrix" systemFields={false} size="small" rowKey="resource" pagination={false} dataSource={tableResourceRegistry.map((resource) => ({ ...resource, resource: resource.code }))} columns={[
-        { title: "模块", dataIndex: "module", width: 130 }, { title: "表/报表", dataIndex: "label" },
-        ...(["read", "create", "copy", "update", "delete", "batchPrint", "batchUpdate", "import", "export"] as const).map((actionName) => ({ title: ({ read: "查看", create: "新增", copy: "复制", update: "编辑", delete: "删除/停用", batchPrint: "批量打印", batchUpdate: "批量修改", import: "导入", export: "导出" } as const)[actionName], width: 92, align: "center" as const, render: (_: unknown, row: any) => <Checkbox checked={Boolean(permissionDraft[row.resource]?.[actionName])} onChange={(event) => setPermissionDraft((current) => ({ ...current, [row.resource]: { ...(current[row.resource] ?? {}), [actionName]: event.target.checked } }))} /> }))
-      ]} scroll={{ y: 430 }} />
     </Modal>
   </div>;
 }

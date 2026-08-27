@@ -11,7 +11,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import ExcelJS from "exceljs";
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { DataSource, Repository } from "typeorm";
+import { DataSource, IsNull, Repository } from "typeorm";
 import { dictionarySeeds, monthlyPlanColumns } from "@tracker/shared";
 import { AuthGuard, AuthService } from "./auth";
 import {
@@ -25,6 +25,7 @@ import { currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
+import { TablePermissionGroupApplicationService, type TablePermissionGroupInput } from "./modules/admin/table-permission-group.application.service";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -139,20 +140,6 @@ export class PlanController {
   monthly(@Query("year", ParseIntPipe) year: number, @Query("month", ParseIntPipe) month: number, @Req() req: UserRequest) {
     requireTablePermission(req, "monthly-plan", "read");
     return this.plans.monthly(year, month, req.user);
-  }
-  @Get("daily-progress")
-  dailyProgress(@Query("date") date: string, @Req() req: UserRequest) {
-    requireTablePermission(req, "daily-progress", "read");
-    return this.plans.dailyProgressList(date, req.user);
-  }
-  @Patch("daily-progress/:orderItemId")
-  updateDailyProgress(
-    @Param("orderItemId") orderItemId: string,
-    @Body() body: { date: string; processCode: string; quantity: unknown; expectedVersion: number },
-    @Req() req: UserRequest
-  ) {
-    requireTablePermission(req, "daily-progress", "update");
-    return this.plans.updateDailyProgress(orderItemId, body, req.user, req.requestId);
   }
   @Get("rolling") rolling(@Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "read"); return this.plans.rolling(req.user); }
   @Get("sales-dashboard") dashboard(@Req() req: UserRequest) { requireTablePermission(req, "sales-summary-dashboard", "read"); return this.plans.rolling(req.user); }
@@ -953,7 +940,8 @@ export class AdminController {
     private readonly imports: ImportService,
     private readonly dataSource: DataSource,
     private readonly adminQueries: AdminQueryService,
-    private readonly adminApplication: AdminApplicationService
+    private readonly adminApplication: AdminApplicationService,
+    private readonly tablePermissionGroups: TablePermissionGroupApplicationService
   ) {}
 
   private admin(req: UserRequest) {
@@ -969,8 +957,28 @@ export class AdminController {
   @Get("roles")
   async listRoles(@Req() req: UserRequest) {
     this.admin(req);
-    const [roles, permissions, userRoles, organizationScopes] = await Promise.all([this.roles.find({ order: { name: "ASC" } }), this.permissions.find(), this.userRoles.find(), this.organizationScopes.find()]);
+    const [roles, permissions, userRoles, organizationScopes] = await Promise.all([this.roles.find({ where: { permissionGroupResource: IsNull() }, order: { name: "ASC" } }), this.permissions.find(), this.userRoles.find(), this.organizationScopes.find()]);
     return roles.map((role) => ({ ...role, permissions: permissions.filter((permission) => permission.roleId === role.id), userIds: userRoles.filter((link) => link.roleId === role.id).map((link) => link.userId), organizationUnitIds: organizationScopes.filter((scope) => scope.roleId === role.id).map((scope) => scope.organizationUnitId) }));
+  }
+
+  @Get("table-permission-groups")
+  listTablePermissionGroups(@Query("resource") resource: string, @Req() req: UserRequest) {
+    this.admin(req); return this.tablePermissionGroups.list(resource);
+  }
+
+  @Post("table-permission-groups")
+  createTablePermissionGroup(@Body() body: TablePermissionGroupInput, @Req() req: UserRequest) {
+    this.admin(req); return this.tablePermissionGroups.create(body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  }
+
+  @Patch("table-permission-groups/:id")
+  updateTablePermissionGroup(@Param("id") id: string, @Body() body: Partial<TablePermissionGroupInput> & { version?: number }, @Req() req: UserRequest) {
+    this.admin(req); return this.tablePermissionGroups.update(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  }
+
+  @Delete("table-permission-groups/:id")
+  deleteTablePermissionGroup(@Param("id") id: string, @Req() req: UserRequest) {
+    this.admin(req); return this.tablePermissionGroups.delete(id, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Get("role-groups")

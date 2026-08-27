@@ -12,6 +12,7 @@
 - Planning actions use explicit `planning.*` permissions; lock, unlock and publish are distinct grants.
 - Field access supports `HIDDEN`, `READONLY`, `EDITABLE`, and `MASKED`.
 - The API rechecks action and field permissions. UI visibility is not a security control.
+- Per-table permission groups retain stable subject IDs. Direct members, organization membership and ordinary-role membership are resolved again when issuing a token; disabled groups stop contributing claims without deleting other grants.
 - New IAM/Planning/Audit/Integration tables have `tenant_id` and RLS. Repository transactions set `app.tenant_id`, and SQL also includes tenant predicates.
 - Identity-provider `sub` values are stored in `iam.identities`; they never replace KDOS UUIDv7 business IDs.
 

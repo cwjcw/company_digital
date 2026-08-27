@@ -5,7 +5,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
-import { ApiKey, OrganizationUnit, Permission, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
+import { ApiKey, OrganizationUnit, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
 import { planningPermissions } from "@kdos/contracts";
 
 @Injectable()
@@ -17,6 +17,7 @@ export class AuthService {
     @InjectRepository(Permission) private readonly permissions: Repository<Permission>,
     @InjectRepository(RoleDataScope) private readonly scopes: Repository<RoleDataScope>,
     @InjectRepository(RoleOrganizationScope) private readonly organizationScopes: Repository<RoleOrganizationScope>,
+    @InjectRepository(PermissionGroupSubject) private readonly permissionGroupSubjects: Repository<PermissionGroupSubject>,
     @InjectRepository(OrganizationUnit) private readonly organizationUnits: Repository<OrganizationUnit>,
     @InjectRepository(RefreshToken) private readonly refreshTokens: Repository<RefreshToken>,
     private readonly jwt: JwtService
@@ -26,10 +27,30 @@ export class AuthService {
     const links = await this.userRoles.findBy({ userId: user.id });
     const roleIds = links.map((link) => link.roleId);
     const roles = roleIds.length ? await this.roles.createQueryBuilder("r").where("r.id IN (:...ids)", { ids: roleIds }).getMany() : [];
-    const permissions = roleIds.length ? await this.permissions.createQueryBuilder("p").where("p.roleId IN (:...ids)", { ids: roleIds }).getMany() : [];
+    const [permissionGroupRoles, permissionGroupSubjects, allOrganizationUnits] = await Promise.all([
+      this.roles.createQueryBuilder("r").where("r.permissionGroupResource IS NOT NULL").andWhere("r.permissionGroupEnabled = true").getMany(),
+      this.permissionGroupSubjects.find(), this.organizationUnits.find()
+    ]);
+    const organizationPath = (id: string) => {
+      const result: string[] = []; let current = allOrganizationUnits.find((unit) => unit.id === id); const visited = new Set<string>();
+      while (current && !visited.has(current.id)) { visited.add(current.id); result.unshift(current.name); current = current.parentId ? allOrganizationUnits.find((unit) => unit.id === current!.parentId) : undefined; }
+      return result;
+    };
+    const belongsToOrganization = (organizationId: string) => {
+      const selectedPath = organizationPath(organizationId);
+      return selectedPath.length > 0 && (user.departmentPaths ?? []).some((userPath) => selectedPath.every((name, index) => userPath[index] === name));
+    };
+    const matchingPermissionGroupIds = new Set(permissionGroupSubjects.filter((subject) =>
+      (subject.subjectType === "USER" && subject.subjectId === user.id)
+      || (subject.subjectType === "ROLE" && roleIds.includes(subject.subjectId))
+      || (subject.subjectType === "ORGANIZATION" && belongsToOrganization(subject.subjectId))
+    ).map((subject) => subject.roleId));
+    const effectivePermissionGroups = permissionGroupRoles.filter((role) => matchingPermissionGroupIds.has(role.id));
+    const effectiveRoleIds = [...new Set([...roleIds, ...effectivePermissionGroups.map((role) => role.id)])];
+    const permissions = effectiveRoleIds.length ? await this.permissions.createQueryBuilder("p").where("p.roleId IN (:...ids)", { ids: effectiveRoleIds }).getMany() : [];
     const scopes = roleIds.length ? await this.scopes.createQueryBuilder("s").where("s.roleId IN (:...ids)", { ids: roleIds }).getMany() : [];
     const organizationScopes = roleIds.length ? await this.organizationScopes.createQueryBuilder("s").where("s.roleId IN (:...ids)", { ids: roleIds }).getMany() : [];
-    const organizationUnits = organizationScopes.length ? await this.organizationUnits.find() : [];
+    const organizationUnits = organizationScopes.length ? allOrganizationUnits : [];
     const isSystemAdmin = roles.some((role) => role.name === "系统管理员");
     const isGroupAdmin = roles.some((role) => role.name === "集团管理员");
     const isDivisionPlanningGroup = roles.some((role) => role.name === "事业部计划组");
@@ -64,6 +85,7 @@ export class AuthService {
       username: user.username,
       displayName: user.displayName,
       roles: roles.map((role) => role.name),
+      tableDataScopes: effectivePermissionGroups.map((role) => ({ resource: role.permissionGroupResource, groupId: role.id, scope: role.permissionGroupScope, match: role.permissionGroupConditionMatch, rules: role.permissionGroupDataRules })),
       divisions: hasFullDataScope ? "*" : [...divisions],
       permissions: isSystemAdmin ? ["*"] : [...new Set([
         ...permissions.flatMap((permission) =>

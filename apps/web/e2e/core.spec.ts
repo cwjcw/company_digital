@@ -22,12 +22,11 @@ async function mockApp(page: Page) {
   await page.route("**/api/v1/planning/items/i1/images", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...planningItem, imageRefs: ["/uploads/test.png"], version: 2 }) }));
   await page.route("**/api/v1/reference-data/dictionaries", (route) => route.fulfill({ contentType: "application/json", body: "[]" }));
   await page.route("**/api/v1/reference-data/suppliers", (route) => route.fulfill({ contentType: "application/json", body: "[]" }));
-  await page.route("**/api/v1/plans/daily-progress?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({
-    date: "2026-08-18",
-    processes: [{ id: "p-machining", code: "machining", name: "机加", sortOrder: 5 }, { id: "p-welding", code: "welding", name: "焊接/点焊", sortOrder: 6 }],
-    rows: [{ id: "i1", sequence: 1, month: "2026-08", orderNumber: "2026C235004", orderType: null, itemNumber: "99996277-1/1", itemName: "双面主架", customer: "测试客户", division: "事业一部", productionQuantity: "30", balanceQuantity: "20", progress: { machining: null, welding: "3" } }]
-  }) }));
-  await page.route("**/api/v1/plans/daily-progress/*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ orderItemId: "i1", date: "2026-08-18", processCode: "machining", quantity: "5" }) }));
+  await page.route("**/api/v1/planning-operations/work-reports?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([
+    { id: "wr1", sourcePlanItemId: "i1", workDate: "2026-08-26", customer: "测试客户", orderNumber: "2026C235004", itemNumber: "99996277-1/1", itemName: "双面主架", requiredQuantity: "30", reportedQuantity: "0", version: 1, createdBy: "u-admin", createdAt: "2026-08-26T03:00:00Z", updatedBy: "u-admin", updatedAt: "2026-08-26T03:00:00Z" }
+  ]) }));
+  await page.route("**/api/v1/planning-operations/work-reports/sync", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ synced: 1 }) }));
+  await page.route("**/api/v1/planning-operations/work-reports/*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "wr1", reportedQuantity: "5", version: 2 }) }));
   await page.route("**/api/v1/plans/items/*/cell", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "i1", version: 2 }) }));
   await page.route("**/api/v1/plans/items/move", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ moved: 1, skipped: 0, target: { id: "p2", year: 2026, month: 9 } }) }));
   await page.route("**/api/v1/plans/orders/*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "o1", version: 2 }) }));
@@ -260,7 +259,7 @@ test("an empty month still renders the complete planning field grid", async ({ p
   expect({ periodCreated, versionCreated, itemCreated }).toEqual({ periodCreated: 1, versionCreated: 1, itemCreated: 1 });
 });
 
-test("monthly plan menu exposes the 2026 month pages and daily progress saves process quantity", async ({ page }) => {
+test("monthly plan menu exposes the 2026 month pages and work reports inherit plan items", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "主计划");
   await expect(page.getByText("2026年", { exact: true })).toBeVisible();
@@ -271,22 +270,19 @@ test("monthly plan menu exposes the 2026 month pages and daily progress saves pr
   await expect(page).toHaveURL(/\/monthly\/202609$/);
   await expect(page.locator(".topbar-page-title")).toHaveText("2026年9月计划");
 
-  await page.getByText("日进度", { exact: true }).click();
-  await expect(page).toHaveURL(/\/daily-progress$/);
-  await expect(page.getByText("仅显示订单欠数大于 0 的月度计划订单 + 品号，共 1 条")).toBeVisible();
-  await expect(page.locator('.daily-progress-grid .ag-header-cell[col-id="progress.machining"]')).toContainText("机加");
-  await expect(page.locator('.daily-progress-grid .ag-header-cell[col-id="progress.welding"]')).toContainText("焊接/点焊");
-  await page.getByRole("button", { name: "进入录入模式" }).click();
-  const machiningCell = page.locator('.daily-progress-grid .ag-cell[col-id="progress.machining"]').first();
-  await machiningCell.dblclick();
-  const input = machiningCell.locator("input");
-  await expect(input).toBeVisible();
-  await input.fill("5");
-  const saveRequest = page.waitForRequest((request) => request.url().includes("/api/v1/plans/daily-progress/i1") && request.method() === "PATCH");
-  await page.keyboard.press("Enter");
+  await expect(page.getByText("日进度", { exact: true })).toHaveCount(0);
+  await page.getByText("报工表", { exact: true }).click();
+  await expect(page).toHaveURL(/\/work-reports$/);
+  await expect(page.getByText("8月26日", { exact: true })).toBeVisible();
+  await expect(page.getByText("2026C235004", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "进入编辑模式" }).click();
+  const reportInput = page.getByRole("spinbutton").first();
+  await expect(reportInput).toBeVisible();
+  await reportInput.fill("5");
+  const saveRequest = page.waitForRequest((request) => request.url().includes("/api/v1/planning-operations/work-reports/wr1") && request.method() === "PATCH");
+  await reportInput.press("Enter");
   const request = await saveRequest;
-  expect(request.postDataJSON()).toMatchObject({ processCode: "machining", quantity: 5 });
-  await expect(page.getByText(/机加 已保存/)).toBeVisible();
+  expect(request.postDataJSON()).toMatchObject({ reportedQuantity: 5, expectedVersion: 1 });
 });
 
 test("monthly plan uses the exact process groups and keeps audit fields", async ({ page }) => {
@@ -348,7 +344,7 @@ test("selected monthly items support batch field updates and persisted order", a
   expect((await reorderRequest).postDataJSON()).toEqual({ itemIds: ["i1"] });
 });
 
-test("users and master data expose add, multi-select, inline edit and import", async ({ page }) => {
+test("users and master data expose add, multi-select, browse mode and import", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "系统管理");
   await page.getByRole("menu").getByText("用户与角色", { exact: true }).click();
@@ -363,7 +359,7 @@ test("users and master data expose add, multi-select, inline edit and import", a
   await expect(page.getByRole("button", { name: "导入供应商（CSV/XLSX）" })).toBeVisible();
   await expect(page.getByRole("button", { name: "下载 XLSX 模板" })).toBeVisible();
   await expect(page.getByRole("button", { name: "下载 CSV 模板" })).toBeVisible();
-  await expect(page.locator('input[value="测试供应商"]')).toBeVisible();
+  await expect(page.getByText("测试供应商", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "新增供应商" }).click();
   await expect(page.getByLabel("是否启用")).toBeChecked();
   await page.getByRole("dialog").getByRole("button", { name: "确 定" }).click();
@@ -371,7 +367,7 @@ test("users and master data expose add, multi-select, inline edit and import", a
   await page.getByRole("dialog").getByRole("button", { name: "取 消" }).click();
   await page.getByRole("tab", { name: /字典值/ }).click();
   await expect(page.getByRole("button", { name: "导入字典（CSV/XLSX）" })).toBeVisible();
-  await expect(page.locator('input[value="事业一部"]')).toBeVisible();
+  await expect(page.getByText("事业一部", { exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: /销售订单/ })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /成品入库/ })).toHaveCount(0);
   await page.getByRole("button", { name: "返回全部模块" }).click();
@@ -384,7 +380,7 @@ test("users and master data expose add, multi-select, inline edit and import", a
   await expect(page.getByRole("button", { name: "下载 CSV 模板" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导出 XLSX" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导出 CSV" })).toBeVisible();
-  await expect(page.locator('input[value="MC-2026-08-0001"]')).toBeVisible();
+  await expect(page.getByText("MC-2026-08-0001", { exact: true })).toBeVisible();
 });
 
 test("sales order details keep only controls and the reference table", async ({ page }) => {

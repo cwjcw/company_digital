@@ -24,6 +24,7 @@ import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approv
 import { MarketingModule } from "./modules/marketing/marketing.module";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
+import { TablePermissionGroupApplicationService } from "./modules/admin/table-permission-group.application.service";
 import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
 import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
 import { CustomerImportModule } from "./data-operations/customer-import/customer-import.module";
@@ -51,7 +52,8 @@ import { CustomerImportModule } from "./data-operations/customer-import/customer
   ],
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
-    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService
+    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService,
+    TablePermissionGroupApplicationService
   ]
 })
 export class AppModule {}

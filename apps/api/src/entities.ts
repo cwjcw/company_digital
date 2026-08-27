@@ -44,6 +44,22 @@ export class Role extends AuditedEntity {
   @Index({ unique: true }) @Column() name!: string;
   @Column({ type: "varchar", nullable: true }) description!: string | null;
   @Column({ name: "role_group_id", type: "uuid", nullable: true }) roleGroupId!: string | null;
+  @Column({ name: "permission_group_resource", type: "varchar", nullable: true }) permissionGroupResource!: string | null;
+  @Column({ name: "permission_group_type", type: "varchar", nullable: true }) permissionGroupType!: string | null;
+  @Column({ name: "permission_group_display_name", type: "varchar", nullable: true }) permissionGroupDisplayName!: string | null;
+  @Column({ name: "permission_group_enabled", default: true }) permissionGroupEnabled!: boolean;
+  @Column({ name: "permission_group_scope", type: "varchar", nullable: true }) permissionGroupScope!: string | null;
+  @Column({ name: "permission_group_condition_match", type: "varchar", default: "ALL" }) permissionGroupConditionMatch!: string;
+  @Column({ name: "permission_group_data_rules", type: "jsonb", default: () => "'[]'" }) permissionGroupDataRules!: Array<Record<string, unknown>>;
+}
+
+@Entity("permission_group_subjects")
+@Unique(["roleId", "subjectType", "subjectId"])
+export class PermissionGroupSubject extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "role_id", type: "uuid" }) roleId!: string;
+  @Column({ name: "subject_type", type: "varchar" }) subjectType!: "USER" | "ORGANIZATION" | "ROLE";
+  @Column({ name: "subject_id", type: "uuid" }) subjectId!: string;
 }
 
 @Entity("user_roles")
@@ -280,17 +296,6 @@ export class ItemProcessProgress extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) exception!: string | null;
 }
 
-@Entity("daily_process_progress")
-@Unique(["orderItemId", "processDefinitionId", "workDate"])
-@Index(["workDate"])
-export class DailyProcessProgress extends AuditedEntity {
-  @PrimaryGeneratedColumn("uuid") id!: string;
-  @Column({ name: "order_item_id", type: "uuid" }) orderItemId!: string;
-  @Column({ name: "process_definition_id", type: "uuid" }) processDefinitionId!: string;
-  @Column({ name: "work_date", type: "date" }) workDate!: string;
-  @Column({ type: "numeric", precision: 18, scale: 4 }) quantity!: string;
-}
-
 @Entity("dictionary_types")
 export class DictionaryType extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
@@ -499,9 +504,9 @@ export class IdempotencyRecord extends AuditedEntity {
 }
 
 export const entities = [
-  User, RoleGroup, Role, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
+  User, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
-  OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DailyProcessProgress, DictionaryType,
+  OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
   RefreshToken, ImportJob, ImportJobError, IdempotencyRecord
 ];

@@ -98,7 +98,6 @@ export class LegacyCustomerImportRepository implements CustomerImportRepository 
   }
 
   private async clearDemo(manager: EntityManager) {
-    await manager.query(`DELETE FROM daily_process_progress WHERE updated_by='demo-seed'`);
     await manager.query(`DELETE FROM item_process_progress WHERE updated_by='demo-seed'`);
     await manager.query(`DELETE FROM outsourcing_details WHERE updated_by='demo-seed'`);
     await manager.query(`DELETE FROM order_items WHERE updated_by='demo-seed' OR relation_key LIKE 'DEMO-%'`);
@@ -118,7 +117,6 @@ export class LegacyCustomerImportRepository implements CustomerImportRepository 
     const customerPredicate = snapshot.scope.mode === "all" ? "TRUE" : "customer=$3";
     await manager.query(`CREATE TEMP TABLE customer_import_orders ON COMMIT DROP AS
       SELECT id,order_number FROM orders WHERE source_system=$1 AND source_database=$2 AND (${customerPredicate})`, snapshot.scope.mode === "all" ? params.slice(0, 2) : params);
-    await manager.query(`DELETE FROM daily_process_progress WHERE order_item_id IN (SELECT item.id FROM order_items item JOIN customer_import_orders target ON target.id=item.order_id)`);
     await manager.query(`DELETE FROM item_process_progress WHERE order_item_id IN (SELECT item.id FROM order_items item JOIN customer_import_orders target ON target.id=item.order_id)`);
     await manager.query(`DELETE FROM outsourcing_details WHERE order_item_id IN (SELECT item.id FROM order_items item JOIN customer_import_orders target ON target.id=item.order_id)`);
     await manager.query(`DELETE FROM order_items WHERE order_id IN (SELECT id FROM customer_import_orders)`);

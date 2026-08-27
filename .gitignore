@@ -19,6 +19,7 @@ backups/
 !database/migrations/0006_business_customer_user_field.sql
 !database/migrations/0007_kdos_updated_by_consistency.sql
 !database/migrations/0008_creator_updater_audit_fields.sql
+!database/migrations/0009_remove_daily_progress.sql
 !database/demo/seed_legacy_demo.sql
 !database/demo/seed_kdos_demo.sql
 playwright-report/

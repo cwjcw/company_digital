@@ -1,13 +1,42 @@
 import type { PlanningActor } from "../planning/planning.types";
 
 export const PLANNING_OPERATIONS_REPOSITORY = Symbol("PLANNING_OPERATIONS_REPOSITORY");
+
+export interface WeeklyPlanSyncResult {
+  currentDate: string;
+  periodId: string;
+  periodName: string;
+  startDate: string;
+  endDate: string;
+  sourceCount: number;
+  matched: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
+  skippedCompleted: number;
+}
+
+export interface WorkReportSyncResult {
+  date: string;
+  planPeriodId: string;
+  planVersionId: string;
+  sourceCount: number;
+  matched: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  removedStale: number;
+  preservedReported: number;
+}
+
 export interface PlanningOperationsRepository {
   tenantId(code: string): Promise<string>;
-  listWeeklyPeriods(tenantId: string): Promise<unknown[]>;
+  listWeeklyPeriods(tenantId: string, currentDate: string): Promise<unknown[]>;
   listWeeklyItems(tenantId: string, periodId: string, search?: string): Promise<unknown[]>;
-  syncWeeklyItems(tenantId: string, periodId: string, actor: PlanningActor): Promise<{ synced: number }>;
+  syncWeeklyItemsForDate(tenantId: string, currentDate: string, actor: PlanningActor): Promise<WeeklyPlanSyncResult>;
   updateWeeklyDate(tenantId: string, id: string, field: "customer_due_date" | "review_due_date", value: string | null, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
   listWorkReports(tenantId: string, date: string, search?: string): Promise<unknown[]>;
-  syncWorkReports(tenantId: string, date: string, actor: PlanningActor): Promise<{ synced: number }>;
+  syncWorkReports(tenantId: string, date: string, actor: PlanningActor): Promise<WorkReportSyncResult>;
   updateReportedQuantity(tenantId: string, id: string, quantity: string, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
 }

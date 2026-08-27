@@ -15,7 +15,7 @@ import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
-import { DailyProgress, SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
+import { SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
@@ -135,7 +135,7 @@ function Shell({ logout }: { logout: () => void }) {
     : permissionResource?.module === "流程审批" ? "workflow" : "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/sales-summary-details", "/rolling", "/daily-progress", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
+    : ["/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
@@ -151,7 +151,6 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
       ] },
       { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: weeklyPages },
-      { key: "/daily-progress", icon: <ScheduleOutlined />, label: "日进度" },
       { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
     ] }],
     data: [{ key: "data", label: "数据中心", type: "group", children: [
@@ -189,7 +188,7 @@ function Shell({ logout }: { logout: () => void }) {
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
       "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
-      "/daily-progress": "日进度", "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
+      "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
@@ -217,7 +216,6 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/sales-summary-details" element={<SalesSummaryDetails />} />
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
-          <Route path="/daily-progress" element={<DailyProgress />} />
           <Route path="/weekly/20260816" element={<WeeklyPlanPage startDate="2026-08-16" />} />
           <Route path="/weekly/20260823" element={<WeeklyPlanPage startDate="2026-08-23" />} />
           <Route path="/weekly/20260830" element={<WeeklyPlanPage startDate="2026-08-30" />} />

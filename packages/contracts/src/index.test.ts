@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { legacyPlanningFieldRegistry, monthlyPlanningFieldRegistry, orchestrationFieldRegistry, planningAuditFieldRegistry, planningFieldRegistry, presetTablePermissionDataScope, presetTablePermissionMatrix, tablePermissionActions, tableResourceRegistry } from "./index";
+import { legacyPlanningFieldRegistry, monthlyPlanningFieldRegistry, orchestrationFieldRegistry, planningAuditFieldRegistry, planningFieldRegistry, presetTablePermissionDataScope, presetTablePermissionMatrix, tablePermissionActions, tablePermissionFieldRegistry, tablePermissionFieldsFor, tableResourceRegistry } from "./index";
 
 describe("Planning Field Registry", () => {
   it("preserves legacy fields while exposing only the exact active monthly fields", () => {
@@ -20,7 +20,7 @@ describe("Planning Field Registry", () => {
     const codes = tableResourceRegistry.map((resource) => resource.code);
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes).toEqual(expect.arrayContaining([
-      "rolling-plan", "monthly-plan", "daily-progress", "sales-orders", "finished-goods-inbound",
+      "rolling-plan", "monthly-plan", "sales-orders", "finished-goods-inbound",
       "business-customer-mapping", "order-schedule", "weekly-plan", "work-report"
     ]));
   });
@@ -34,5 +34,14 @@ describe("Planning Field Registry", () => {
     expect(presetTablePermissionMatrix.ADD_ONLY).toMatchObject({ read: false, create: true });
     expect(presetTablePermissionMatrix.ADD_MANAGE_OWN).toMatchObject({ read: true, update: true, export: true });
     expect(presetTablePermissionDataScope).toEqual({ ADD_ONLY: "NONE", ADD_MANAGE_OWN: "OWN", ADD_VIEW_ALL: "ALL", MANAGE_ALL: "ALL", VIEW_ALL: "ALL" });
+  });
+
+  it("registers the four immutable audit fields for every authorized table", () => {
+    for (const resource of tableResourceRegistry) {
+      expect(tablePermissionFieldRegistry[resource.code]).toBeDefined();
+      const fields = tablePermissionFieldsFor(resource.code);
+      expect(fields.slice(-4).map((field) => field.label)).toEqual(["创建人", "创建时间", "更新人", "更新时间"]);
+      expect(fields.slice(-4).every((field) => !field.editable)).toBe(true);
+    }
   });
 });

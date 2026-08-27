@@ -94,7 +94,6 @@ export class KdosCustomerImportRepository implements CustomerImportRepository {
     await client.query(`DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND order_number LIKE 'DEMO-%'`, [tenantId]);
     await client.query(`DELETE FROM marketing.business_customer_mappings WHERE tenant_id=$1 AND (customer_code LIKE 'DEMO-%' OR department LIKE '演示%')`, [tenantId]);
     await client.query(`DELETE FROM planning.process_progress WHERE tenant_id=$1 AND plan_item_id IN (SELECT id FROM planning.plan_items WHERE tenant_id=$1 AND (legacy_data->>'demo'='true' OR order_number LIKE 'DEMO-%'))`, [tenantId]);
-    await client.query(`DELETE FROM planning.daily_progress WHERE tenant_id=$1 AND plan_item_id IN (SELECT id FROM planning.plan_items WHERE tenant_id=$1 AND (legacy_data->>'demo'='true' OR order_number LIKE 'DEMO-%'))`, [tenantId]);
     await client.query(`DELETE FROM planning.plan_items WHERE tenant_id=$1 AND (legacy_data->>'demo'='true' OR order_number LIKE 'DEMO-%')`, [tenantId]);
     await client.query(`DELETE FROM planning.sales_order_lines WHERE tenant_id=$1 AND (source_payload->>'demo'='true' OR sales_order_id IN (SELECT id FROM planning.sales_orders WHERE tenant_id=$1 AND (source_system='DEMO' OR order_number LIKE 'DEMO-%')))`, [tenantId]);
     await client.query(`DELETE FROM planning.sales_orders WHERE tenant_id=$1 AND (source_system='DEMO' OR order_number LIKE 'DEMO-%')`, [tenantId]);

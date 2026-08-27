@@ -147,7 +147,6 @@ export const tableResourceRegistry = [
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱" },
   { code: "rolling-plan", label: "销售接单明细", module: "主计划" },
   { code: "monthly-plan", label: "月度计划", module: "主计划" },
-  { code: "daily-progress", label: "日进度", module: "主计划" },
   { code: "sales-orders", label: "订单表", module: "数据中心" },
   { code: "finished-goods-inbound", label: "入库表", module: "数据中心" },
   { code: "finished-goods-outbound", label: "出库表", module: "数据中心" },
@@ -172,6 +171,56 @@ export const tableResourceRegistry = [
 ] as const;
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
+
+export type TablePermissionFieldType = "text" | "number" | "date" | "dictionary" | "member" | "department" | "boolean";
+export interface TablePermissionFieldDefinition {
+  key: string;
+  label: string;
+  type: TablePermissionFieldType;
+  editable: boolean;
+  required?: boolean;
+}
+
+const auditPermissionFields: TablePermissionFieldDefinition[] = [
+  { key: "createdBy", label: "创建人", type: "member", editable: false },
+  { key: "createdAt", label: "创建时间", type: "date", editable: false },
+  { key: "updatedBy", label: "更新人", type: "member", editable: false },
+  { key: "updatedAt", label: "更新时间", type: "date", editable: false }
+];
+const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean?, boolean?]>) => [
+  ...items.map(([key, label, type = "text", editable = true, required = false]) => ({ key, label, type, editable, required })),
+  ...auditPermissionFields
+];
+
+/** Server-validated field identities used by the per-table permission editor. */
+export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
+  "monthly-plan": planningFieldRegistry.map((field) => ({ key: field.code, label: field.label, type: field.dataType === "decimal" || field.dataType === "integer" ? "number" : field.dataType === "uuid" ? "member" : field.dataType === "dictionary" ? "dictionary" : field.dataType === "date" ? "date" : "text", editable: field.editable, required: field.required })),
+  "rolling-plan": fields([["orderNumber", "订单号"], ["orderDate", "下单日期", "date"], ["customerDueDate", "客户要求交期", "date"], ["itemNumber", "品号"], ["itemName", "品名"], ["productionQuantity", "订单需求数量", "number"], ["balanceQuantity", "订单欠数", "number", false], ["customer", "客户"]]),
+  "sales-orders": fields([["customerCode", "客户代码"], ["customerName", "客户名称"], ["orderNumber", "订单编号"], ["orderDate", "订单日期", "date"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "订单数量", "number"], ["unit", "生产单位"], ["customerDueDate", "客户交期", "date"]]),
+  "finished-goods-inbound": fields([["inboundDate", "入库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "入库数量", "number"], ["warehouse", "仓库"]]),
+  "finished-goods-outbound": fields([["outboundDate", "出库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "出库数量", "number"], ["warehouse", "仓库"], ["deliveryNumber", "出库单号"]]),
+  "business-customer-mapping": fields([["department", "部门"], ["section", "课室"], ["customer", "客户"], ["salesUserIds", "业务员", "member"]]),
+  "order-schedule": fields([["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["totalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRate", "订单完成比例", "number", false]]),
+  "weekly-plan": fields([["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["reviewDueDate", "评审交期", "date"], ["completionRate", "完成比例", "number", false]]),
+  "work-report": fields([["workDate", "日期", "date"], ["customer", "客户"], ["orderNumber", "订单编码"], ["itemNumber", "品项编码"], ["itemName", "品名"], ["requiredQuantity", "需求数量", "number", false], ["reportedQuantity", "报工数量", "number"]]),
+  "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false]]),
+  "approval-flow-configs": fields([["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"]]),
+  "suppliers": fields([["code", "供应商编码"], ["name", "供应商名称"], ["enabled", "启用", "boolean"]]),
+  "dictionaries": fields([["typeCode", "字典类型编码"], ["typeName", "字典类型"], ["value", "字典值"], ["label", "显示名称"], ["enabled", "启用", "boolean"]]),
+  "processes": fields([["code", "工序编码"], ["name", "工序名称"], ["sortOrder", "排序", "number"], ["enabled", "启用", "boolean"]]),
+  "users": fields([["username", "账号"], ["displayName", "姓名"], ["employeeNo", "工号"], ["division", "部门"], ["position", "职位"], ["mobile", "手机"], ["email", "邮箱"], ["enabled", "状态", "boolean"]]),
+  "roles": fields([["name", "角色名称"], ["description", "角色描述"], ["roleGroupId", "角色组", "dictionary"]]),
+  "organization": fields([["name", "部门名称"], ["parentId", "上级部门", "department"], ["level", "层级", "number", false], ["enabled", "状态", "boolean"]]),
+  "contacts": fields([["employeeNo", "工号"], ["name", "姓名"], ["position", "职位"], ["telephone", "电话"], ["departmentPaths", "部门路径", "department", false], ["enabled", "状态", "boolean", false]]),
+  "imports": fields([["fileName", "文件名"], ["resource", "导入表单"], ["status", "状态", "dictionary", false], ["successCount", "成功数", "number", false], ["failureCount", "失败数", "number", false]]),
+  "audit-logs": fields([["actorName", "操作人", "member", false], ["resource", "表单", "text", false], ["action", "操作", "text", false], ["source", "来源", "text", false], ["requestId", "请求ID", "text", false]]),
+  "api-keys": fields([["name", "名称"], ["scopes", "权限范围"], ["enabled", "启用", "boolean"], ["expiresAt", "到期时间", "date"]]),
+  "tplus-sales-orders": fields([["source", "数据源", "dictionary", false], ["customerCode", "客户代码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderDate", "订单日期", "date", false]]),
+  "customer-data-import": fields([["source", "数据源", "dictionary"], ["customerCode", "客户代码"], ["status", "状态", "dictionary", false]])
+};
+
+export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePermissionFieldRegistry[resource] ?? auditPermissionFields;
 
 export interface PlanningPeriodContract {
   id: string;

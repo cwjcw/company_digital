@@ -37,7 +37,23 @@ describe("AdminWorkspace", () => {
     expect(await screen.findByText("系统角色")).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("计划员").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "编辑角色-计划员" }));
-    for (const label of ["修改名称", "调整分组", "配置权限", "删除"]) await waitFor(() => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
+    const menu = await screen.findByRole("menu");
+    for (const label of ["修改名称", "调整分组", "删除"]) expect(within(menu).getByText(label)).toBeInTheDocument();
+    expect(within(menu).queryByText("配置权限")).not.toBeInTheDocument();
+  });
+
+  it("adds role members by person or organization", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "添加成员" }));
+    await waitFor(() => expect(screen.getAllByText("添加成员").length).toBeGreaterThan(1));
+    const dialog = screen.getAllByText("添加成员").find((element) => element.classList.contains("ant-modal-title"))?.closest(".ant-modal") as HTMLElement;
+    expect(within(dialog).getByText("按人员添加")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText("按组织添加"));
+    expect(await within(dialog).findByText("组织架构")).toBeInTheDocument();
+    expect(within(dialog).getByText("凯南")).toBeInTheDocument();
   });
 
   it("shows the screenshot-style role-group menu and creates a role inside that group", async () => {

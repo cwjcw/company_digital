@@ -24,8 +24,8 @@ export const portalModules: PortalModule[] = [
   },
   {
     id: "planning", title: "主计划", englishTitle: "MASTER PLANNING",
-    description: "统一管理销售接单、月度排产与每日生产进度。",
-    features: ["销售接单明细", "月度计划", "日进度"], path: "/sales-summary-details", tone: "teal"
+    description: "统一管理销售接单、月度排产与生产报工。",
+    features: ["销售接单明细", "月度计划", "报工表"], path: "/sales-summary-details", tone: "teal"
   },
   {
     id: "data", title: "数据中心", englishTitle: "DATA CENTER",

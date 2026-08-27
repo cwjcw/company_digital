@@ -222,16 +222,6 @@ export const processProgress = planning.table("process_progress", {
   index("process_progress_tenant_date_idx").on(table.tenantId, table.plannedDate)
 ]);
 
-export const dailyProgress = planning.table("daily_progress", {
-  id: uuid("id").primaryKey().default(sql`uuidv7()`),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  planItemId: uuid("plan_item_id").notNull().references(() => planItems.id, { onDelete: "cascade" }),
-  processDefinitionId: uuid("process_definition_id").notNull().references(() => processDefinitions.id),
-  workDate: date("work_date").notNull(),
-  completedQuantity: numeric("completed_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
-  ...auditColumns
-}, (table) => [uniqueIndex("daily_progress_item_process_date_uq").on(table.planItemId, table.processDefinitionId, table.workDate)]);
-
 export const planSnapshots = planning.table("plan_snapshots", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
@@ -337,14 +327,18 @@ export const weeklyPlanItems = planning.table("weekly_plan_items", {
 }, (table) => [uniqueIndex("weekly_plan_items_period_order_item_uq").on(table.weeklyPlanPeriodId, table.orderNumber, table.itemNumber), index("weekly_plan_items_period_idx").on(table.tenantId, table.weeklyPlanPeriodId)]);
 
 export const workReports = planning.table("work_reports", {
-  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), workDate: date("work_date").notNull(), sourcePlanItemId: uuid("source_plan_item_id").notNull().references(() => planItems.id, { onDelete: "cascade" }),
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), workDate: date("work_date").notNull(), sourcePlanItemId: uuid("source_plan_item_id").references(() => planItems.id, { onDelete: "set null" }),
   customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), ...auditColumns
-}, (table) => [uniqueIndex("work_reports_tenant_date_source_uq").on(table.tenantId, table.workDate, table.sourcePlanItemId), index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate)]);
+}, (table) => [
+  uniqueIndex("work_reports_tenant_date_source_uq").on(table.tenantId, table.workDate, table.sourcePlanItemId),
+  uniqueIndex("work_reports_tenant_date_order_item_uq").on(table.tenantId, table.workDate, table.orderNumber, table.itemNumber),
+  index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate)
+]);
 
 export const schema = {
   tenants, organizations, departments, positions, employees, iamUsers, identities, roles, permissions, rolePermissions, roleBindings, fieldPolicies,
   planPeriods, planVersions, salesOrders, salesOrderLines, planItems,
-  processDefinitions, processProgress, dailyProgress, planSnapshots, planChanges,
+  processDefinitions, processProgress, planSnapshots, planChanges,
   auditLogs, importJobs, businessCustomerMappings, orderSchedules, weeklyPlanPeriods, weeklyPlanItems, workReports
 };
 
