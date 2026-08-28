@@ -17,6 +17,7 @@ export type WecomContactSnapshot = {
   alias: string | null;
   gender: string | null;
   directLeaders: string[];
+  departmentLeaderExternalIds?: string[];
   departmentPaths: string[][];
   enabled: boolean;
 };

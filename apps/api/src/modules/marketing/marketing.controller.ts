@@ -16,7 +16,7 @@ type MarketingRequest = Request & { user: any; requestId: string };
 export class MarketingController {
   constructor(private readonly application: MarketingApplicationService, private readonly imports: MarketingImportService) {}
   private actor(req: MarketingRequest, tenantCode: string | undefined, ip: string): MarketingActor {
-    return { userId: req.user?.sub ?? null, username: req.user?.displayName ?? req.user?.username ?? "unknown", tenantCode: tenantCode || process.env.KDOS_DEFAULT_TENANT_CODE || "KAINAN", permissions: req.user?.permissions ?? [], requestId: req.requestId, ip };
+    return { userId: req.user?.sub ?? null, username: req.user?.displayName ?? req.user?.username ?? "unknown", tenantCode: tenantCode || process.env.KDOS_DEFAULT_TENANT_CODE || "KAINAN", permissions: req.user?.permissions ?? [], managedOrganizationUnitIds: req.user?.managedOrganizationUnitIds ?? [], tableDataScopes: req.user?.tableDataScopes ?? [], requestId: req.requestId, ip };
   }
   private csv(response: Response, filename: string, headers: string[], rows: unknown[][]) {
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -27,6 +27,7 @@ export class MarketingController {
 
   @Get("business-customer-mappings") listMappings(@Query("search") search: string | undefined, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listMappings(search, this.actor(req, tenant, ip)); }
   @Get("directory-users") listDirectoryUsers(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listDirectoryUsers(this.actor(req, tenant, ip)); }
+  @Get("directory-organizations") listDirectoryOrganizations(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listDirectoryOrganizations(this.actor(req, tenant, ip)); }
   @Get("business-customer-mappings/export") async exportMappings(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string, @Res() response: Response) {
     const rows: any[] = await this.application.listMappings(undefined, this.actor(req, tenant, ip), "export") as any[];
     this.csv(response, "业务人员与客户对应表.csv", ["部门", "课室", "客户", "业务员"], rows.map((row) => [row.department, row.section, row.customerCode, (row.salespersonNames ?? []).join("|")]));
@@ -36,15 +37,18 @@ export class MarketingController {
   @Delete("business-customer-mappings/:id") deleteMapping(@Param("id") id: string, @Body() body: { expectedVersion: number }, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.deleteMapping(id, Number(body.expectedVersion), this.actor(req, tenant, ip)); }
   @Post("business-customer-mappings/import") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
   importMappings(@UploadedFile() file: Express.Multer.File, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.imports.importMappings(file, this.actor(req, tenant, ip)); }
+  @Post("business-customer-mappings/sync-departments-from-directory")
+  syncMappingDepartmentsFromDirectory(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.syncMappingDepartmentsFromDirectory(this.actor(req, tenant, ip)); }
 
   @Get("order-schedules") listSchedules(@Query("search") search: string | undefined, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listSchedules(search, this.actor(req, tenant, ip)); }
   @Get("order-schedules/export") async exportSchedules(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string, @Res() response: Response) {
     const rows: any[] = await this.application.listSchedules(undefined, this.actor(req, tenant, ip), "export") as any[];
-    this.csv(response, "订单排期.csv", ["客户代码", "订单编号", "品项编码", "品项名称", "客户交期", "订单总数量", "生产单位", "订单完成比例"], rows.map((row) => [row.customerCode, row.orderNumber, row.itemNumber, row.itemName, row.customerDueDate, row.orderTotalQuantity, row.productionUnit, row.completionRatio]));
+    this.csv(response, "订单排期.csv", ["客户代码", "部门", "课室", "业务员", "订单编号", "品项编码", "品项名称", "客户交期", "订单总数量", "生产单位", "订单完成比例"], rows.map((row) => [row.customerCode, row.department, row.section, (row.salespersonNames ?? []).join("|"), row.orderNumber, row.itemNumber, row.itemName, row.customerDueDate, row.orderTotalQuantity, row.productionUnit, row.completionRatio]));
   }
   @Post("order-schedules") saveSchedule(@Body() body: OrderScheduleInput, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.saveSchedule(null, body, null, this.actor(req, tenant, ip)); }
   @Patch("order-schedules/batch-due-date") batchDueDate(@Body() body: { rows: Array<{ id: string; expectedVersion: number }>; customerDueDate: string | null }, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.batchUpdateDueDate(body.rows ?? [], body.customerDueDate, this.actor(req, tenant, ip)); }
   @Post("order-schedules/sync-from-planning") syncFromPlanning(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.syncSchedulesFromPlanning(this.actor(req, tenant, ip)); }
+  @Post("order-schedules/sync-business-customer-mappings") syncBusinessCustomerMappings(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.syncScheduleBusinessFields(this.actor(req, tenant, ip)); }
   @Patch("order-schedules/:id") updateSchedule(@Param("id") id: string, @Body() body: OrderScheduleInput & { expectedVersion: number }, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.saveSchedule(id, body, Number(body.expectedVersion), this.actor(req, tenant, ip)); }
   @Delete("order-schedules/:id") deleteSchedule(@Param("id") id: string, @Body() body: { expectedVersion: number }, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.deleteSchedule(id, Number(body.expectedVersion), this.actor(req, tenant, ip)); }
 }

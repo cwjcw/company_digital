@@ -21,7 +21,7 @@ describe("Planning Field Registry", () => {
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes).toEqual(expect.arrayContaining([
       "rolling-plan", "monthly-plan", "sales-orders", "finished-goods-inbound",
-      "business-customer-mapping", "order-schedule", "weekly-plan", "work-report"
+      "business-customer-mapping", "order-schedule", "hr-departure-check", "weekly-plan", "work-report"
     ]));
   });
 
@@ -43,5 +43,18 @@ describe("Planning Field Registry", () => {
       expect(fields.slice(-4).map((field) => field.label)).toEqual(["创建人", "创建时间", "更新人", "更新时间"]);
       expect(fields.slice(-4).every((field) => !field.editable)).toBe(true);
     }
+  });
+
+  it("keeps synchronized order-schedule ownership fields read-only", () => {
+    const ownership = tablePermissionFieldsFor("order-schedule").filter((field) => ["departmentId", "section", "salespersonUserIds"].includes(field.key));
+    expect(ownership).toEqual([
+      { key: "departmentId", label: "部门", type: "department", editable: false, required: false },
+      { key: "section", label: "课室", type: "text", editable: false, required: false },
+      { key: "salespersonUserIds", label: "业务员", type: "member", editable: false, required: false }
+    ]);
+  });
+
+  it("models marketing sections as ordinary text instead of organization nodes", () => {
+    expect(tablePermissionFieldsFor("business-customer-mapping").find((field) => field.label === "课室")).toMatchObject({ key: "section", type: "text" });
   });
 });

@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseIntPipe, Patch, Post, Query, Req,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Ip, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
   Res, UploadedFile, UseGuards, UseInterceptors
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
@@ -118,10 +118,23 @@ export class AuthController {
   }
   @Post("refresh") refresh(@Body() body: { refreshToken: string }) { return this.auth.refresh(body.refreshToken); }
   @Post("logout") logout(@Body() body: { refreshToken: string }) { return this.auth.logout(body.refreshToken); }
+  @Put("preferences/portal-modules")
+  @UseGuards(AuthGuard)
+  updatePortalModuleOrder(@Body() body: { order: string[] }, @Req() req: UserRequest) {
+    return this.auth.updatePortalModuleOrder(req.user.sub, body.order, req.requestId);
+  }
   @Post("change-password")
   @UseGuards(AuthGuard)
   changePassword(@Body() body: { currentPassword: string; nextPassword: string }, @Req() req: UserRequest) {
     return this.auth.changePassword(req.user.sub, body.currentPassword, body.nextPassword);
+  }
+  @Post("password-reset/request")
+  requestPasswordReset(@Body() body: { mobile: string; email: string }, @Ip() ip: string, @Req() req: UserRequest) {
+    return this.auth.requestPasswordReset(body.mobile, body.email, ip, req.requestId);
+  }
+  @Post("password-reset/confirm")
+  resetPassword(@Body() body: { mobile: string; email: string; code: string; nextPassword: string }, @Req() req: UserRequest) {
+    return this.auth.resetPassword(body.mobile, body.email, body.code, body.nextPassword, req.requestId);
   }
 }
 
@@ -1002,7 +1015,7 @@ export class AdminController {
   @Get("organization-units")
   async listOrganizationUnits(@Req() req: UserRequest) {
     this.admin(req);
-    return this.organizationUnits.find({ order: { level: "ASC", sortOrder: "ASC", name: "ASC" } });
+    return this.adminQueries.listOrganizationUnits();
   }
 
   @Get("contacts")
@@ -1094,7 +1107,7 @@ export class AdminController {
   async createUser(@Body() body: { username: string; displayName: string; password?: string; division?: string; roleIds: string[]; alias?: string; gender?: string; mobile?: string; email?: string; employeeNo?: string; position?: string; departmentPaths?: string[][] }, @Req() req: UserRequest) {
     this.admin(req);
     const password = body.password || DEFAULT_USER_PASSWORD;
-    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(body.username) || !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) throw new ForbiddenException("用户名或密码不符合安全要求");
+    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(body.username) || !/^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/.test(password)) throw new ForbiddenException("用户名须为 3–64 位字母、数字或 ._-；密码须为 8–64 位、包含字母和数字且不能包含空格");
     if (isPrimaryAdminUsername(body.username) && password === DEFAULT_USER_PASSWORD) throw new ForbiddenException("admin 账户不能使用普通用户默认密码");
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.save(User, {
@@ -1138,7 +1151,7 @@ export class AdminController {
       if (body.position !== undefined) user.position = body.position?.trim() || null;
       if (body.departmentPaths !== undefined) user.departmentPaths = body.departmentPaths;
       if (body.password) {
-        if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(body.password)) throw new ForbiddenException("密码至少 8 位，且必须同时包含字母和数字");
+        if (!/^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/.test(body.password)) throw new ForbiddenException("密码须为 8–64 位、包含字母和数字且不能包含空格");
         user.passwordHash = await bcrypt.hash(body.password, 12); user.mustChangePassword = true;
       }
       await manager.save(user);

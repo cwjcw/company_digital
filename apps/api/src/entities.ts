@@ -27,6 +27,7 @@ export class User extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) mobile!: string | null;
   @Column({ type: "varchar", nullable: true }) email!: string | null;
   @Column({ name: "department_paths", type: "jsonb", default: () => "'[]'" }) departmentPaths!: string[][];
+  @Column({ name: "portal_module_order", type: "jsonb", default: () => "'[]'" }) portalModuleOrder!: string[];
   @Column({ name: "must_change_password", default: true }) mustChangePassword!: boolean;
   @Column({ name: "last_login_at", type: "timestamptz", nullable: true }) lastLoginAt!: Date | null;
 }
@@ -115,6 +116,7 @@ export class OrganizationUnit extends AuditedEntity {
   @Column({ name: "division", type: "varchar", nullable: true }) division!: string | null;
   @Column({ default: true }) enabled!: boolean;
   @Column({ name: "sort_order", type: "integer", default: 0 }) sortOrder!: number;
+  @Column({ name: "leader_user_ids", type: "jsonb", default: () => "'[]'" }) leaderUserIds!: string[];
 }
 
 @Entity("contacts")
@@ -474,6 +476,18 @@ export class RefreshToken extends AuditedEntity {
   @Column({ name: "revoked_at", type: "timestamptz", nullable: true }) revokedAt!: Date | null;
 }
 
+@Entity("password_reset_requests")
+@Index(["userId", "createdAt"])
+export class PasswordResetRequest extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "user_id", type: "uuid" }) userId!: string;
+  @Column({ name: "code_hash" }) codeHash!: string;
+  @Column({ name: "expires_at", type: "timestamptz" }) expiresAt!: Date;
+  @Column({ name: "consumed_at", type: "timestamptz", nullable: true }) consumedAt!: Date | null;
+  @Column({ type: "integer", default: 0 }) attempts!: number;
+  @Column({ name: "request_ip", type: "varchar", nullable: true }) requestIp!: string | null;
+}
+
 @Entity("import_jobs")
 export class ImportJob extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
@@ -508,5 +522,5 @@ export const entities = [
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
-  RefreshToken, ImportJob, ImportJobError, IdempotencyRecord
+  RefreshToken, PasswordResetRequest, ImportJob, ImportJobError, IdempotencyRecord
 ];

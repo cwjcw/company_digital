@@ -37,6 +37,8 @@
 - Access tokens and credentials must not appear in logs, audit JSON, WebSocket messages or error responses.
 - WebSocket events carry invalidation metadata only, not full plan rows.
 - Rotate any secret that is accidentally disclosed and remove it from history where required.
+- SMTP credentials live only in the ignored, mode-`600` server file `.env.smtp`; password-reset codes and user passwords are never logged or audited in plaintext. User passwords and reset verification codes are stored only as bcrypt hashes.
+- Password reset requires an enabled user whose mobile number and email both match the latest synchronized directory, emails a time-limited code, limits attempts, rejects reuse of the current password, and revokes existing refresh tokens after success.
 
 ## Operations
 

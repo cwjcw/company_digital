@@ -26,6 +26,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - .env.smtp
     environment:
       NODE_ENV: production
       API_PORT: 15173

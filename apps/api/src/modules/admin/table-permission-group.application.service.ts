@@ -93,6 +93,8 @@ export class TablePermissionGroupApplicationService {
       if (!definition) throw new BadRequestException(`数据权限包含未知字段：${rule.fieldKey}`);
       if (!operators.has(rule.operator)) throw new BadRequestException(`${definition.label}的数据权限运算符无效`);
       if (!["IS_EMPTY", "IS_NOT_EMPTY"].includes(rule.operator) && (rule.value === undefined || rule.value === null || rule.value === "")) throw new BadRequestException(`${definition.label}的数据权限条件值不能为空`);
+      if (rule.value === "CURRENT_USER_MANAGED_DEPARTMENTS" && definition.type !== "department") throw new BadRequestException("当前用户负责部门只能用于部门字段");
+      if (rule.value === "CURRENT_USER" && definition.type !== "member") throw new BadRequestException("当前用户只能用于成员字段");
       return { fieldKey: rule.fieldKey, operator: rule.operator, value: rule.value, fieldType: definition.type };
     });
   }

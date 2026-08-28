@@ -284,18 +284,24 @@ export const businessCustomerMappings = marketing.table("business_customer_mappi
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   department: varchar("department", { length: 200 }).notNull(),
   section: varchar("section", { length: 200 }).notNull(),
+  departmentId: uuid("department_id"),
   customerCode: varchar("customer_code", { length: 120 }).notNull(),
   salespersonUserIds: uuid("salesperson_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
   ...auditColumns
 }, (table) => [
   uniqueIndex("business_customer_mappings_tenant_customer_uq").on(table.tenantId, table.customerCode),
-  index("business_customer_mappings_tenant_department_idx").on(table.tenantId, table.department, table.section)
+  index("business_customer_mappings_tenant_department_idx").on(table.tenantId, table.department, table.section),
+  index("business_customer_mappings_tenant_department_id_idx").on(table.tenantId, table.departmentId)
 ]);
 
 export const orderSchedules = marketing.table("order_schedules", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   customerCode: varchar("customer_code", { length: 120 }).notNull(),
+  department: varchar("department", { length: 200 }),
+  section: varchar("section", { length: 200 }),
+  departmentId: uuid("department_id"),
+  salespersonUserIds: uuid("salesperson_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
   orderNumber: varchar("order_number", { length: 120 }).notNull(),
   itemNumber: varchar("item_number", { length: 160 }).notNull(),
   itemName: varchar("item_name", { length: 320 }).notNull(),
@@ -309,6 +315,8 @@ export const orderSchedules = marketing.table("order_schedules", {
 }, (table) => [
   uniqueIndex("two_week_schedules_tenant_order_item_uq").on(table.tenantId, table.orderNumber, table.itemNumber),
   index("order_schedules_tenant_order_idx").on(table.tenantId, table.orderNumber, table.itemNumber),
+  index("order_schedules_tenant_business_ownership_idx").on(table.tenantId, table.department, table.section),
+  index("order_schedules_tenant_department_id_idx").on(table.tenantId, table.departmentId),
   check("order_schedules_completion_ck", sql`${table.completionRatio} between 0 and 100`)
 ]);
 

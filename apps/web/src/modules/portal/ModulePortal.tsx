@@ -1,13 +1,15 @@
 import {
-  ApartmentOutlined, ArrowRightOutlined, CalendarOutlined, DashboardOutlined,
-  DatabaseOutlined, ShopOutlined, SettingOutlined, UserOutlined
+  ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, CalendarOutlined, DashboardOutlined,
+  DatabaseOutlined, HolderOutlined, ShopOutlined, SettingOutlined, UserOutlined
 } from "@ant-design/icons";
-import { Button, Tag, Typography } from "antd";
+import { App as AntApp, Button, Space, Tag, Typography } from "antd";
+import { useState } from "react";
+import { api } from "../../api";
 
 const { Text, Title } = Typography;
 
 export type PortalModule = {
-  id: "cockpit" | "planning" | "data" | "marketing" | "workflow" | "system" | "profile";
+  id: "cockpit" | "planning" | "data" | "marketing" | "hr" | "workflow" | "system" | "profile";
   title: string;
   englishTitle: string;
   description: string;
@@ -15,6 +17,7 @@ export type PortalModule = {
   path: string;
   tone: string;
 };
+export type PortalModuleId = PortalModule["id"];
 
 export const portalModules: PortalModule[] = [
   {
@@ -38,6 +41,11 @@ export const portalModules: PortalModule[] = [
     features: ["业务客户对应", "订单排期"], path: "/marketing/business-customers", tone: "rose"
   },
   {
+    id: "hr", title: "人力资源", englishTitle: "HUMAN RESOURCES",
+    description: "按人力资源六大模块组织员工全生命周期业务与文件。",
+    features: ["六大模块", "离职人员检查"], path: "/hr/employee-relations/departure-check", tone: "teal"
+  },
+  {
     id: "workflow", title: "流程审批", englishTitle: "WORKFLOW",
     description: "承载公司业务需求、审批流转与开发过程协同。",
     features: ["需求提报与审批", "审批流程配置"], path: "/development-requests", tone: "orange"
@@ -59,10 +67,21 @@ const moduleIcons = {
   planning: <CalendarOutlined />,
   data: <DatabaseOutlined />,
   marketing: <ShopOutlined />,
+  hr: <UserOutlined />,
   workflow: <ApartmentOutlined />,
   system: <SettingOutlined />,
   profile: <UserOutlined />
 };
+
+const defaultPortalModuleOrder = portalModules.map((module) => module.id);
+
+function normalizePortalModuleOrder(value: unknown): PortalModuleId[] {
+  const requested = Array.isArray(value) ? value : [];
+  const unique = requested.filter((id, index): id is PortalModuleId =>
+    typeof id === "string" && defaultPortalModuleOrder.includes(id as PortalModuleId) && requested.indexOf(id) === index
+  );
+  return [...unique, ...defaultPortalModuleOrder.filter((id) => !unique.includes(id))];
+}
 
 export function BrandLogo({ compact = false, inverse = false }: { compact?: boolean; inverse?: boolean }) {
   return <div className={`kn-brand${compact ? " kn-brand-compact" : ""}${inverse ? " kn-brand-inverse" : ""}`}>
@@ -76,9 +95,52 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   onOpen: (module: PortalModule) => void;
   onLogout: () => void;
 }) {
+  const { message } = AntApp.useApp();
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 18 ? "下午好" : "晚上好";
-  const visibleModules = portalModules.filter((module) => module.id !== "system" || user.roles?.includes("系统管理员"));
+  const [moduleOrder, setModuleOrder] = useState<PortalModuleId[]>(() => normalizePortalModuleOrder(user.portalModuleOrder));
+  const [draftOrder, setDraftOrder] = useState<PortalModuleId[]>(moduleOrder);
+  const [ordering, setOrdering] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
+  const canSee = (module: PortalModule) => module.id !== "system" || user.roles?.includes("系统管理员");
+  const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);
+  const visibleModules = orderedModules.filter(canSee);
+  const mergeVisibleOrder = (visibleOrder: PortalModuleId[]) => {
+    const visibleIds = new Set(visibleModules.map((module) => module.id));
+    let index = 0;
+    setDraftOrder((current) => current.map((id) => visibleIds.has(id) ? visibleOrder[index++]! : id));
+  };
+  const moveModule = (id: PortalModuleId, delta: number) => {
+    const ids = visibleModules.map((module) => module.id);
+    const from = ids.indexOf(id); const to = from + delta;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+    mergeVisibleOrder(ids);
+  };
+  const dropModule = (targetId: PortalModuleId) => {
+    if (!draggingId || draggingId === targetId) return;
+    const ids = visibleModules.map((module) => module.id).filter((id) => id !== draggingId);
+    const targetIndex = ids.indexOf(targetId);
+    ids.splice(targetIndex < 0 ? ids.length : targetIndex, 0, draggingId);
+    mergeVisibleOrder(ids);
+    setDraggingId(null);
+  };
+  const saveModuleOrder = async () => {
+    setSavingOrder(true);
+    try {
+      const result = await api<{ order: PortalModuleId[] }>("/auth/preferences/portal-modules", { method: "PUT", body: JSON.stringify({ order: draftOrder }) });
+      const savedOrder = normalizePortalModuleOrder(result.order);
+      setModuleOrder(savedOrder); setDraftOrder(savedOrder); setOrdering(false);
+      try {
+        const sessionUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+        localStorage.setItem("sessionUser", JSON.stringify({ ...sessionUser, portalModuleOrder: savedOrder }));
+      } catch { /* A malformed local session must not invalidate the server-side preference. */ }
+      message.success("模块顺序已保存");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "模块顺序保存失败");
+    } finally { setSavingOrder(false); }
+  };
   return <div className="module-portal">
     <header className="portal-header">
       <BrandLogo />
@@ -95,16 +157,34 @@ export function ModulePortal({ user, onOpen, onLogout }: {
           <Title level={1}>{greeting}，{user.displayName ?? user.username}</Title>
           <Text type="secondary">选择一个模块开始工作。所有模块统一呈现，后续新增能力将在这里持续扩展。</Text>
         </div>
-        <div className="portal-date"><strong>{new Date().getDate()}</strong><span>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", weekday: "long" }).format(new Date())}</span></div>
+        <div className="portal-intro-actions">
+          {ordering ? <Space wrap>
+            <Typography.Text className="portal-order-hint">拖动卡片或使用箭头调整顺序</Typography.Text>
+            <Button onClick={() => setDraftOrder(defaultPortalModuleOrder)}>恢复默认</Button>
+            <Button onClick={() => { setDraftOrder(moduleOrder); setOrdering(false); }}>取消</Button>
+            <Button type="primary" loading={savingOrder} onClick={() => void saveModuleOrder()}>保存顺序</Button>
+          </Space> : <Button icon={<HolderOutlined />} aria-label="调整顺序" onClick={() => { setDraftOrder(moduleOrder); setOrdering(true); }}>调整顺序</Button>}
+          <div className="portal-date"><strong>{new Date().getDate()}</strong><span>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", weekday: "long" }).format(new Date())}</span></div>
+        </div>
       </section>
       <section className="portal-module-grid" aria-label="工作模块">
-        {visibleModules.map((module) => <button type="button" key={module.id} className={`portal-module-card portal-tone-${module.tone}`} onClick={() => onOpen(module)} aria-label={`进入${module.title}`}>
-          <span className="portal-module-top"><span className="portal-module-icon">{moduleIcons[module.id]}</span><ArrowRightOutlined className="portal-module-arrow" /></span>
-          <span className="portal-module-name"><small>{module.englishTitle}</small><strong>{module.title}</strong></span>
-          <span className="portal-module-description">{module.description}</span>
-          <span className="portal-module-features">{module.features.map((feature) => <Tag key={feature}>{feature}</Tag>)}</span>
-        </button>)}
-        <div className="portal-module-placeholder" aria-label="预留模块位置"><span>+</span><strong>更多业务模块</strong><small>为后续扩展预留</small></div>
+        {visibleModules.map((module, index) => {
+          const content = <>
+            <span className="portal-module-top"><span className="portal-module-icon">{moduleIcons[module.id]}</span>{ordering ? <span className="portal-module-sort-controls">
+              <Button type="text" size="small" icon={<ArrowUpOutlined />} disabled={index === 0} aria-label={`上移${module.title}`} onClick={() => moveModule(module.id, -1)} />
+              <Button type="text" size="small" icon={<ArrowDownOutlined />} disabled={index === visibleModules.length - 1} aria-label={`下移${module.title}`} onClick={() => moveModule(module.id, 1)} />
+              <HolderOutlined className="portal-module-drag-handle" />
+            </span> : <ArrowRightOutlined className="portal-module-arrow" />}</span>
+            <span className="portal-module-name"><small>{module.englishTitle}</small><strong>{module.title}</strong></span>
+            <span className="portal-module-description">{module.description}</span>
+            <span className="portal-module-features">{module.features.map((feature) => <Tag key={feature}>{feature}</Tag>)}</span>
+          </>;
+          return ordering
+            ? <div key={module.id} draggable className={`portal-module-card portal-module-card-ordering portal-tone-${module.tone}${draggingId === module.id ? " dragging" : ""}`} aria-label={`排列${module.title}`}
+                onDragStart={() => setDraggingId(module.id)} onDragEnd={() => setDraggingId(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropModule(module.id)}>{content}</div>
+            : <button type="button" key={module.id} className={`portal-module-card portal-tone-${module.tone}`} onClick={() => onOpen(module)} aria-label={`进入${module.title}`}>{content}</button>;
+        })}
+        {!ordering && <div className="portal-module-placeholder" aria-label="预留模块位置"><span>+</span><strong>更多业务模块</strong><small>为后续扩展预留</small></div>}
       </section>
       <footer className="portal-footer"><span>KN · Digital Operating System</span><span>模块中心 V1.0</span></footer>
     </main>

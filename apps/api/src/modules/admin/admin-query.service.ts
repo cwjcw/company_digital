@@ -1,14 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, Repository } from "typeorm";
-import { Role, User, UserRole } from "../../entities";
+import { OrganizationUnit, Role, User, UserRole } from "../../entities";
 
 @Injectable()
 export class AdminQueryService {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(UserRole) private readonly userRoles: Repository<UserRole>,
-    @InjectRepository(Role) private readonly roles: Repository<Role>
+    @InjectRepository(Role) private readonly roles: Repository<Role>,
+    @InjectRepository(OrganizationUnit) private readonly organizationUnits: Repository<OrganizationUnit>
   ) {}
 
   async listUsers(search?: string) {
@@ -40,5 +41,34 @@ export class AdminQueryService {
   async listDirectoryUsers() {
     const users = await this.users.find({ order: { displayName: "ASC", username: "ASC" } });
     return users.map((user) => ({ id: user.id, username: user.username, displayName: user.displayName, enabled: user.enabled }));
+  }
+
+  async listOrganizationUnits() {
+    const [units, users] = await Promise.all([
+      this.organizationUnits.find({ order: { level: "ASC", sortOrder: "ASC", name: "ASC" } }),
+      this.users.find({ order: { displayName: "ASC", username: "ASC" } })
+    ]);
+    const byId = new Map(units.map((unit) => [unit.id, unit]));
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    const pathOf = (unit: OrganizationUnit) => {
+      const path: string[] = [];
+      const seen = new Set<string>();
+      let current: OrganizationUnit | undefined = unit;
+      while (current && !seen.has(current.id)) {
+        seen.add(current.id); path.unshift(current.name);
+        current = current.parentId ? byId.get(current.parentId) : undefined;
+      }
+      return path;
+    };
+    return units.map((unit) => {
+      const path = pathOf(unit);
+      const leaders = (unit.leaderUserIds ?? []).map((id) => usersById.get(id)).filter((user): user is User => Boolean(user));
+      const memberCount = users.filter((user) => user.enabled && (user.departmentPaths ?? []).some((candidate) => candidate.join("\u001f") === path.join("\u001f"))).length;
+      return {
+        ...unit, path, pathLabel: path.join(" / "), memberCount,
+        leaderUsers: leaders.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, enabled: user.enabled })),
+        leaderNames: leaders.map((user) => user.displayName)
+      };
+    });
   }
 }

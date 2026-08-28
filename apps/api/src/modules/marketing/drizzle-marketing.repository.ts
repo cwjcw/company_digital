@@ -3,7 +3,7 @@ import type { KdosDatabaseClient } from "@kdos/database";
 import type { PoolClient } from "pg";
 import { KDOS_DATABASE } from "../planning/drizzle-planning.repository";
 import type { MarketingRepository } from "./marketing.repository";
-import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor, OrderScheduleInput } from "./marketing.types";
+import type { MappingDepartmentDirectorySyncResult, MappingDepartmentDirectorySyncTarget, MappingImportSummary, MarketingActor, OrderScheduleBusinessSyncResult, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
 
 @Injectable()
 export class DrizzleMarketingRepository implements MarketingRepository {
@@ -40,7 +40,7 @@ export class DrizzleMarketingRepository implements MarketingRepository {
 
   async listMappings(tenantId: string) {
     return this.transaction(tenantId, async (client) => {
-      const result = await client.query(`SELECT mapping.id,mapping.department,mapping.section,mapping.customer_code AS "customerCode",
+      const result = await client.query(`SELECT mapping.id,mapping.department,mapping.section,mapping.department_id AS "departmentId",mapping.customer_code AS "customerCode",
           mapping.salesperson_user_ids AS "salespersonUserIds",mapping.version,
           mapping.created_by AS "createdBy",mapping.created_at AS "createdAt",mapping.updated_by AS "updatedBy",mapping.updated_at AS "updatedAt"
         FROM marketing.business_customer_mappings mapping
@@ -54,6 +54,7 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     return this.transaction(tenantId, async (client) => {
       const value = search.trim();
       const result = await client.query(`SELECT schedule.id,schedule.customer_code AS "customerCode",schedule.order_number AS "orderNumber",
+          schedule.department,schedule.section,schedule.department_id AS "departmentId",schedule.salesperson_user_ids AS "salespersonUserIds",
           schedule.item_number AS "itemNumber",schedule.item_name AS "itemName",schedule.customer_due_date AS "customerDueDate",
           schedule.order_total_quantity AS "orderTotalQuantity",schedule.production_unit AS "productionUnit",
           schedule.completion_ratio AS "completionRatio",schedule.source_plan_item_id AS "sourcePlanItemId",schedule.last_synced_at AS "lastSyncedAt",
@@ -65,13 +66,13 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     });
   }
 
-  async saveMapping(tenantId: string, id: string | null, input: BusinessCustomerMappingInput, expectedVersion: number | null, actor: MarketingActor) {
+  async saveMapping(tenantId: string, id: string | null, input: ResolvedBusinessCustomerMappingInput, expectedVersion: number | null, actor: MarketingActor) {
     try {
       return await this.transaction(tenantId, async (client) => {
         if (!id) {
           const result = await client.query(`INSERT INTO marketing.business_customer_mappings
-            (tenant_id,department,section,customer_code,salesperson_user_ids,created_by,updated_by)
-            VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING *`, [tenantId, input.department, input.section, input.customerCode, input.salespersonUserIds, actor.userId]);
+            (tenant_id,department,section,department_id,customer_code,salesperson_user_ids,created_by,updated_by)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *`, [tenantId, input.department, input.section, input.departmentId, input.customerCode, input.salespersonUserIds, actor.userId]);
           await this.audit(client, tenantId, actor, "marketing.mapping.created", "BusinessCustomerMapping", result.rows[0].id, null, result.rows[0]);
           return result.rows[0];
         }
@@ -79,8 +80,8 @@ export class DrizzleMarketingRepository implements MarketingRepository {
         if (!current.rowCount) throw new NotFoundException("业务与客户对应关系不存在");
         if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
         const result = await client.query(`UPDATE marketing.business_customer_mappings SET
-            department=$3,section=$4,customer_code=$5,salesperson_user_ids=$6,version=version+1,updated_at=now(),updated_by=$7
-          WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, id, input.department, input.section, input.customerCode, input.salespersonUserIds, actor.userId]);
+            department=$3,section=$4,department_id=$5,customer_code=$6,salesperson_user_ids=$7,version=version+1,updated_at=now(),updated_by=$8
+          WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, id, input.department, input.section, input.departmentId, input.customerCode, input.salespersonUserIds, actor.userId]);
         await this.audit(client, tenantId, actor, "marketing.mapping.updated", "BusinessCustomerMapping", id, current.rows[0], result.rows[0]);
         return result.rows[0];
       });
@@ -90,7 +91,7 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     }
   }
 
-  async replaceMappings(tenantId: string, rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, summary: MappingImportSummary, actor: MarketingActor) {
+  async replaceMappings(tenantId: string, rows: ResolvedBusinessCustomerMappingInput[], fileName: string, fileHash: string, summary: MappingImportSummary, actor: MarketingActor) {
     return this.transaction(tenantId, async (client) => {
       const idempotencyKey = `BUSINESS_CUSTOMER_MAPPING:${fileHash}`;
       const previous = await client.query("SELECT id,file_name,result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE", [tenantId, idempotencyKey]);
@@ -107,10 +108,10 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       const inserted = [];
       for (const row of rows) {
         const saved = await client.query(`INSERT INTO marketing.business_customer_mappings
-          (tenant_id,department,section,customer_code,salesperson_user_ids,created_by,updated_by)
-          VALUES($1,$2,$3,$4,$5,$6,$6)
-          RETURNING id,department,section,customer_code AS "customerCode",salesperson_user_ids AS "salespersonUserIds",version`,
-        [tenantId, row.department, row.section, row.customerCode, row.salespersonUserIds, actor.userId]);
+          (tenant_id,department,section,department_id,customer_code,salesperson_user_ids,created_by,updated_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$7)
+          RETURNING id,department,section,department_id AS "departmentId",customer_code AS "customerCode",salesperson_user_ids AS "salespersonUserIds",version`,
+        [tenantId, row.department, row.section, row.departmentId, row.customerCode, row.salespersonUserIds, actor.userId]);
         inserted.push(saved.rows[0]);
       }
       const result = { imported: rows.length, repeated: false, ...summary };
@@ -201,6 +202,108 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       const synced = result.rowCount ?? 0;
       await this.audit(client, tenantId, actor, "marketing.schedule.synced_from_planning", "OrderSchedule", null, null, { synced });
       return { synced };
+    });
+  }
+
+  async syncScheduleBusinessFields(tenantId: string, actor: MarketingActor): Promise<OrderScheduleBusinessSyncResult> {
+    return this.transaction(tenantId, async (client) => {
+      const result = await client.query(`WITH matched AS MATERIALIZED (
+          SELECT schedule.id,schedule.customer_code,
+            schedule.department AS before_department,schedule.section AS before_section,schedule.department_id AS before_department_id,
+            schedule.salesperson_user_ids AS before_salesperson_user_ids,
+            mapping.department,mapping.section,mapping.department_id,mapping.salesperson_user_ids
+          FROM marketing.order_schedules schedule
+          JOIN marketing.business_customer_mappings mapping
+            ON mapping.tenant_id=schedule.tenant_id AND mapping.customer_code=schedule.customer_code
+          WHERE schedule.tenant_id=$1
+        ), updated AS (
+          UPDATE marketing.order_schedules schedule SET
+            department=matched.department,section=matched.section,department_id=matched.department_id,salesperson_user_ids=matched.salesperson_user_ids,
+            version=schedule.version+1,updated_at=now(),updated_by=$2
+          FROM matched
+          WHERE schedule.tenant_id=$1 AND schedule.id=matched.id
+            AND (schedule.department IS DISTINCT FROM matched.department
+              OR schedule.section IS DISTINCT FROM matched.section
+              OR schedule.department_id IS DISTINCT FROM matched.department_id
+              OR schedule.salesperson_user_ids IS DISTINCT FROM matched.salesperson_user_ids)
+          RETURNING schedule.id,schedule.customer_code,
+            jsonb_build_object('department',matched.before_department,'section',matched.before_section,'departmentId',matched.before_department_id,'salespersonUserIds',matched.before_salesperson_user_ids) AS before,
+            jsonb_build_object('department',schedule.department,'section',schedule.section,'departmentId',schedule.department_id,'salespersonUserIds',schedule.salesperson_user_ids) AS after
+        )
+        SELECT
+          (SELECT count(*)::int FROM marketing.business_customer_mappings WHERE tenant_id=$1) AS "sourceCustomers",
+          (SELECT count(*)::int FROM marketing.order_schedules WHERE tenant_id=$1) AS "targetRows",
+          (SELECT count(*)::int FROM matched) AS matched,
+          (SELECT count(*)::int FROM updated) AS updated,
+          (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'customerCode',customer_code,'before',before,'after',after)), '[]'::jsonb) FROM updated) AS changes`,
+      [tenantId, actor.userId]);
+      const row = result.rows[0];
+      const matched = Number(row.matched);
+      const updated = Number(row.updated);
+      const targetRows = Number(row.targetRows);
+      const changes = Array.isArray(row.changes) ? row.changes as Array<{ id: string; before: unknown; after: unknown }> : [];
+      const summary: OrderScheduleBusinessSyncResult = {
+        sourceCustomers: Number(row.sourceCustomers), targetRows, matched, added: 0, updated,
+        unchanged: matched - updated, removed: 0, retained: targetRows - matched
+      };
+      await this.audit(client, tenantId, actor, "marketing.schedule.business_fields_synced", "OrderSchedule", null,
+        changes.map((change) => ({ id: change.id, before: change.before })),
+        { sourceTable: "marketing.business_customer_mappings", targetTable: "marketing.order_schedules", matchKey: "customer_code", ...summary, changes });
+      return summary;
+    });
+  }
+
+  async syncMappingDepartmentsFromDirectory(tenantId: string, targets: MappingDepartmentDirectorySyncTarget[], skipped: MappingDepartmentDirectorySyncResult["skipped"], actor: MarketingActor): Promise<MappingDepartmentDirectorySyncResult> {
+    return this.transaction(tenantId, async (client) => {
+      const mappingChanges: Array<{ id: string; before: unknown; after: unknown }> = [];
+      for (const target of targets) {
+        const current = await client.query(`SELECT department,department_id AS "departmentId"
+          FROM marketing.business_customer_mappings WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, target.id]);
+        if (!current.rowCount) continue;
+        if (current.rows[0].department === target.department && current.rows[0].departmentId === target.departmentId) continue;
+        const result = await client.query(`UPDATE marketing.business_customer_mappings SET
+            department=$3,department_id=$4,version=version+1,updated_at=now(),updated_by=$5
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING id,
+            jsonb_build_object('department',department,'departmentId',department_id) AS after`,
+        [tenantId, target.id, target.department, target.departmentId, actor.userId]);
+        if (result.rowCount) mappingChanges.push({
+          id: target.id,
+          before: current.rows[0],
+          after: result.rows[0].after
+        });
+      }
+      const scheduleResult = await client.query(`WITH matched AS MATERIALIZED (
+          SELECT schedule.id,schedule.customer_code,
+            schedule.department AS before_department,schedule.department_id AS before_department_id,
+            mapping.department,mapping.department_id
+          FROM marketing.order_schedules schedule
+          JOIN marketing.business_customer_mappings mapping
+            ON mapping.tenant_id=schedule.tenant_id AND mapping.customer_code=schedule.customer_code
+          WHERE schedule.tenant_id=$1
+        ), updated AS (
+          UPDATE marketing.order_schedules schedule SET
+            department=matched.department,department_id=matched.department_id,
+            version=schedule.version+1,updated_at=now(),updated_by=$2
+          FROM matched
+          WHERE schedule.tenant_id=$1 AND schedule.id=matched.id
+            AND (schedule.department IS DISTINCT FROM matched.department
+              OR schedule.department_id IS DISTINCT FROM matched.department_id)
+          RETURNING schedule.id
+        ) SELECT (SELECT count(*)::int FROM matched) AS matched,
+          (SELECT count(*)::int FROM updated) AS updated`, [tenantId, actor.userId]);
+      const summary: MappingDepartmentDirectorySyncResult = {
+        sourceCustomers: targets.length + skipped.length,
+        resolved: targets.length,
+        mappingsUpdated: mappingChanges.length,
+        schedulesMatched: Number(scheduleResult.rows[0].matched),
+        schedulesUpdated: Number(scheduleResult.rows[0].updated),
+        skipped
+      };
+      await this.audit(client, tenantId, actor, "marketing.mapping.departments_synced_from_directory", "BusinessCustomerMapping", null, null, {
+        source: "wechat-contact-directory", selectionRule: "first-enabled-salesperson-primary-department", ...summary, mappingChanges
+      });
+      return summary;
     });
   }
 }

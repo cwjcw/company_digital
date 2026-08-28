@@ -59,6 +59,7 @@ export class ContactSyncApplicationService {
       email: String(entry.email ?? "").trim() || null, alias: String(entry.alias ?? "").trim() || null,
       gender: String(entry.gender ?? "").trim() || null,
       directLeaders: [...new Set((entry.directLeaders ?? []).map(String).filter(Boolean))],
+      departmentLeaderExternalIds: [...new Set((entry.departmentLeaderExternalIds ?? []).map(String).filter((id) => departmentIds.has(String(id))))],
       departmentPaths: [...new Map((entry.departmentPaths ?? []).map((path) => {
         const normalized = path.map(String).map((part) => part.trim()).filter(Boolean);
         return [pathKey(normalized), normalized] as const;
@@ -169,13 +170,31 @@ export class ContactSyncApplicationService {
         if (wasNew && whiteboard) await manager.createQueryBuilder().insert().into(UserRole).values({ userId: user.id, roleId: whiteboard.id }).orIgnore().execute();
       }
 
+      const synchronizedUsers = await manager.find(User);
+      const synchronizedUserByWechatId = new Map(synchronizedUsers.filter((user) => user.wechatUserId).map((user) => [user.wechatUserId!, user]));
+      let organizationLeaderUpdates = 0;
+      for (const [externalId, organization] of desiredByExternalId) {
+        const leaderUserIds = normalized.contacts
+          .filter((contact) => contact.enabled && contact.departmentLeaderExternalIds.includes(externalId))
+          .map((contact) => synchronizedUserByWechatId.get(contact.wechatUserId)?.id)
+          .filter((id): id is string => Boolean(id))
+          .filter((id, index, ids) => ids.indexOf(id) === index)
+          .sort();
+        const currentLeaderUserIds = [...(organization.leaderUserIds ?? [])].sort();
+        if (!sameJson(currentLeaderUserIds, leaderUserIds)) {
+          organization.leaderUserIds = leaderUserIds;
+          await manager.save(organization);
+          organizationLeaderUpdates += 1;
+        }
+      }
+
       const departedContacts = localContacts.filter((entry) => entry.enabled && !incomingIds.has(entry.wechatUserId));
       for (const contact of departedContacts) { contact.enabled = false; await manager.save(contact); }
       const departedUsers = localUsers.filter((user) => user.enabled && !isPrimaryAdminUsername(user.username) && (user.wechatUserId || user.employeeNo) && !incomingIds.has(user.wechatUserId ?? "") && !incomingEmployeeNos.has(user.employeeNo));
       for (const user of departedUsers) { user.enabled = false; await manager.save(user); }
       if (departedUsers.length) await manager.update(RefreshToken, { userId: In(departedUsers.map((entry) => entry.id)), revokedAt: null }, { revokedAt: new Date() });
 
-      const result = { dryRun: false, ...preview, organizationAdds, organizationUpdates, organizationDeletes: obsoleteOrganizations.length, contactAdds, contactUpdates, contactDepartures: departedContacts.length, userAdds, userUpdates, userDepartures: departedUsers.length };
+      const result = { dryRun: false, ...preview, organizationAdds, organizationUpdates, organizationLeaderUpdates, organizationDeletes: obsoleteOrganizations.length, contactAdds, contactUpdates, contactDepartures: departedContacts.length, userAdds, userUpdates, userDepartures: departedUsers.length };
       await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: "contacts", recordId: null, action: "wecom.full_sync", beforeJson: { localContacts: localContacts.length, localUsers: localUsers.length, localOrganizations: existingOrganizations.length }, afterJson: { ...result, capturedAt: payload.capturedAt, sourceHash: payload.sourceHash }, requestId: actor.requestId, source: actor.source });
       return result;
     });

@@ -16,6 +16,8 @@ describe("KDOS Drizzle schema", () => {
     expect(getTableName(orderSchedules)).toBe("order_schedules");
     expect(getTableName(weeklyPlanItems)).toBe("weekly_plan_items");
     expect(getTableName(workReports)).toBe("work_reports");
+    expect(Object.keys(getTableColumns(orderSchedules))).toEqual(expect.arrayContaining(["department", "section", "departmentId", "salespersonUserIds"]));
+    expect(Object.keys(getTableColumns(orderSchedules))).not.toContain("sectionId");
   });
 
   it("gives every registered table the KDOS system fields and optimistic version", () => {

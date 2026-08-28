@@ -5,6 +5,7 @@ import {
   SwapOutlined, TeamOutlined, UserAddOutlined, UserDeleteOutlined, UserSwitchOutlined
 } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import {
   Avatar, Button, Checkbox, Drawer, Dropdown, Flex, Form, Input, Modal, Select, Space, Tabs,
   Tag, Tree, TreeSelect, Typography, message
@@ -17,8 +18,6 @@ type ViewMode = "departments" | "roles";
 type ActionKind = "HANDOVER" | "TRANSFER";
 
 function initials(name: string) { return String(name || "员").trim().slice(0, 1); }
-function pathKey(path: string[]) { return path.join(" / "); }
-
 export function AdminWorkspace() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<ViewMode>("departments");
@@ -40,6 +39,7 @@ export function AdminWorkspace() {
   const [moveSaving, setMoveSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "role" | "group"; item: any }>(); const [deleteSaving, setDeleteSaving] = useState(false);
   const [memberDialog, setMemberDialog] = useState(false); const [memberDraft, setMemberDraft] = useState<string[]>([]);
+  const [memberOrganizationDraft, setMemberOrganizationDraft] = useState<string[]>([]);
   const [memberMode, setMemberMode] = useState<"people" | "organization">("people");
   const [memberSearch, setMemberSearch] = useState(""); const [memberOrganizationId, setMemberOrganizationId] = useState<string>();
   const [roleForm] = Form.useForm();
@@ -53,12 +53,9 @@ export function AdminWorkspace() {
   const refreshUsers = () => void queryClient.invalidateQueries({ queryKey: ["admin-users"] });
   const refreshRoles = () => { void queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); void queryClient.invalidateQueries({ queryKey: ["admin-role-groups"] }); };
   const organizationMap = useMemo(() => new Map((organizations.data ?? []).map((unit) => [unit.id, unit])), [organizations.data]);
-  const unitPath = (id: string) => {
-    const names: string[] = []; let unit = organizationMap.get(id); const seen = new Set<string>();
-    while (unit && !seen.has(unit.id)) { seen.add(unit.id); names.unshift(unit.name); unit = unit.parentId ? organizationMap.get(unit.parentId) : undefined; }
-    return names;
-  };
-  const unitIdForPath = (path: string[]) => (organizations.data ?? []).find((unit) => pathKey(unitPath(unit.id)) === pathKey(path))?.id;
+  const organizationMembership = useMemo(() => createOrganizationMembershipIndex(organizations.data ?? []), [organizations.data]);
+  const unitPath = organizationMembership.pathFor;
+  const unitIdForPath = organizationMembership.unitIdForDepartmentPath;
   const organizationTree = (() => {
     const units = organizations.data ?? [];
     const keyword = departmentSearch.trim().toLowerCase();
@@ -76,8 +73,7 @@ export function AdminWorkspace() {
   const visibleUsers = (users.data ?? []).filter((user) => {
     if (status === "enabled" && !user.enabled) return false; if (status === "disabled" && user.enabled) return false;
     if (!selectedDepartment) return true;
-    const selectedPath = unitPath(selectedDepartment);
-    return (user.departmentPaths ?? []).some((path: string[]) => selectedPath.every((part, index) => path[index] === part));
+    return (user.departmentPaths ?? []).some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, selectedDepartment));
   });
 
   const openEmployee = (user?: any) => {
@@ -126,7 +122,10 @@ export function AdminWorkspace() {
   useEffect(() => { if (!selectedRoleId && roles.data?.length) setSelectedRoleId(roles.data[0].id); }, [roles.data, selectedRoleId]);
   const selectedRole = roles.data?.find((role) => role.id === selectedRoleId);
   const roleMemberKeyword = roleMemberSearch.trim().toLowerCase();
-  const roleMembers = (users.data ?? []).filter((user) => selectedRoleId && user.roleIds?.includes(selectedRoleId))
+  const userBelongsToAnyOrganization = (user: any, organizationIds: string[]) => organizationIds.some((organizationId) =>
+    (user.departmentPaths ?? []).some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, organizationId)));
+  const roleMembers = (users.data ?? []).filter((user) => user.enabled !== false && selectedRoleId && (user.roleIds?.includes(selectedRoleId)
+    || userBelongsToAnyOrganization(user, selectedRole?.organizationUnitIds ?? [])))
     .filter((user) => !roleMemberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
       .some((value) => String(value ?? "").toLowerCase().includes(roleMemberKeyword)));
   const openRoleDialog = (kind: "group" | "role" | "rename", role?: any, group?: any) => {
@@ -191,11 +190,11 @@ export function AdminWorkspace() {
   }});
   const saveRoleMembers = async () => {
     if (!selectedRole) return;
-    try { await api(`/admin/roles/${selectedRole.id}`, { method: "PATCH", body: JSON.stringify({ userIds: memberDraft }) }); message.success("角色成员已更新"); setMemberDialog(false); refreshRoles(); refreshUsers(); }
+    try { await api(`/admin/roles/${selectedRole.id}`, { method: "PATCH", body: JSON.stringify({ userIds: memberDraft, organizationUnitIds: memberOrganizationDraft }) }); message.success("角色成员已更新"); setMemberDialog(false); refreshRoles(); refreshUsers(); }
     catch (error) { message.error((error as Error).message); }
   };
   const openMemberDialog = () => {
-    setMemberDraft(selectedRole?.userIds ?? []); setMemberMode("people"); setMemberSearch(""); setMemberOrganizationId(undefined); setMemberDialog(true);
+    setMemberDraft(selectedRole?.userIds ?? []); setMemberOrganizationDraft(selectedRole?.organizationUnitIds ?? []); setMemberMode("people"); setMemberSearch(""); setMemberOrganizationId(undefined); setMemberDialog(true);
   };
   const toggleMember = (userId: string, selected: boolean) => setMemberDraft((current) => selected
     ? [...new Set([...current, userId])] : current.filter((id) => id !== userId));
@@ -203,9 +202,13 @@ export function AdminWorkspace() {
   const enabledMemberCandidates = (users.data ?? []).filter((user) => user.enabled !== false);
   const searchedMemberCandidates = enabledMemberCandidates.filter((user) => !memberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
     .some((value) => String(value ?? "").toLocaleLowerCase().includes(memberKeyword)));
-  const selectedOrganizationPath = memberOrganizationId ? unitPath(memberOrganizationId) : [];
-  const organizationMemberCandidates = searchedMemberCandidates.filter((user) => selectedOrganizationPath.length && (user.departmentPaths ?? [])
-    .some((path: string[]) => selectedOrganizationPath.every((part, index) => path[index] === part)));
+  const organizationMemberCandidates = searchedMemberCandidates.filter((user) => memberOrganizationId && (user.departmentPaths ?? [])
+    .some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, memberOrganizationId)));
+  const memberIsInherited = (user: any) => userBelongsToAnyOrganization(user, memberOrganizationDraft);
+  const memberIsSelected = (user: any) => memberDraft.includes(user.id) || memberIsInherited(user);
+  const toggleOrganizationMemberScope = (organizationId: string, selected: boolean) => setMemberOrganizationDraft((current) => selected
+    ? [...new Set([...current, organizationId])]
+    : current.filter((id) => id !== organizationId));
   const setCandidateSelection = (candidates: any[], selected: boolean) => setMemberDraft((current) => selected
     ? [...new Set([...current, ...candidates.map((user) => user.id)])]
     : current.filter((id) => !candidates.some((user) => user.id === id)));
@@ -250,7 +253,7 @@ export function AdminWorkspace() {
         { title: "姓名", dataIndex: "displayName", render: (value: string) => <Space><Avatar className="employee-table-avatar">{initials(value)}</Avatar>{value}</Space> },
         { title: "所属部门", dataIndex: "departmentPaths", render: (paths: string[][]) => (paths ?? []).map((path) => path.at(-1)).join("、") || "—" },
         { title: "分管部门", render: () => (selectedRole.organizationUnitIds ?? []).map((id: string) => organizationMap.get(id)?.name).filter(Boolean).join("、") || "—" },
-        { title: "操作", width: 120, render: (_: unknown, user: any) => <Button danger type="link" onClick={() => { setMemberDraft((selectedRole.userIds ?? []).filter((id: string) => id !== user.id)); setMemberDialog(true); }}>移除</Button> }
+        { title: "操作", width: 120, render: (_: unknown, user: any) => userBelongsToAnyOrganization(user, selectedRole.organizationUnitIds ?? []) ? <Tag color="blue">部门授权</Tag> : <Button danger type="link" onClick={() => { setMemberDraft((selectedRole.userIds ?? []).filter((id: string) => id !== user.id)); setMemberOrganizationDraft(selectedRole.organizationUnitIds ?? []); setMemberDialog(true); }}>移除</Button> }
       ]} pagination={false} />
     </> : <div className="admin-empty-role"><UserSwitchOutlined /><span>请先创建或选择一个角色</span></div>}</main>
 
@@ -268,7 +271,7 @@ export function AdminWorkspace() {
         </div>
         <div className={employeeTab === "more" ? "employee-form-grid" : "employee-form-grid hidden-form-section"}>
           <Form.Item name="position" label="职位"><Input /></Form.Item><Form.Item name="division" label="所属事业部"><Input disabled /></Form.Item>
-          {!editingUser && <Form.Item name="password" label="首次密码" rules={[{ required: true, min: 8 }]} className="employee-form-wide"><Input.Password /></Form.Item>}
+          {!editingUser && <Form.Item name="password" label="首次密码" rules={[{ required: true, pattern: /^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/, message: "8–64 位，包含字母和数字且不能包含空格" }]} className="employee-form-wide"><Input.Password /></Form.Item>}
           <Form.Item name="enabled" label="账号状态" className="employee-form-wide"><Select options={[{ value: true, label: "已启用" }, { value: false, label: "已停用" }]} /></Form.Item>
         </div>
       </Form>
@@ -285,20 +288,20 @@ export function AdminWorkspace() {
       <Text type="secondary">请选择目标分组</Text><div className="role-group-picker">{(roleGroups.data ?? []).map((group) => <button key={group.id} className={moveGroupId === group.id ? "active" : ""} onClick={() => setMoveGroupId(group.id)}><span><FolderOutlined />{group.name}</span>{moveGroupId === group.id && <CheckCircleFilled />}</button>)}</div>
     </Modal>
     <Modal className="role-member-modal" width={960} title="添加成员" open={memberDialog} okText="确定" onCancel={() => setMemberDialog(false)} onOk={() => void saveRoleMembers()}>
-      <div className="role-member-selected">{memberDraft.length ? memberDraft.map((id) => {
+      <div className="role-member-selected">{memberDraft.length || memberOrganizationDraft.length ? <>{memberOrganizationDraft.map((id) => <Tag color="blue" key={`organization-${id}`} closable onClose={() => toggleOrganizationMemberScope(id, false)} icon={<ApartmentOutlined />}>{organizationMap.get(id)?.name ?? "未知部门"}</Tag>)}{memberDraft.map((id) => {
         const user = enabledMemberCandidates.find((candidate) => candidate.id === id); if (!user) return null;
         return <Tag key={id} closable onClose={() => toggleMember(id, false)} icon={<Avatar size={22}>{initials(user.displayName)}</Avatar>}>{user.displayName}</Tag>;
-      }) : <Text type="secondary">尚未选择成员</Text>}</div>
+      })}</> : <Text type="secondary">尚未选择成员或部门</Text>}</div>
       <Input className="role-member-search" allowClear prefix={<SearchOutlined />} placeholder="搜索（多个关键词用空格隔开）" value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} />
       <Tabs activeKey={memberMode} onChange={(key) => setMemberMode(key as "people" | "organization")} items={[
         { key: "people", label: "按人员添加", children: <div className="role-member-people-list">
           <Flex justify="space-between" align="center"><Text strong>全部成员</Text><Checkbox indeterminate={searchedMemberCandidates.some((user) => memberDraft.includes(user.id)) && !searchedMemberCandidates.every((user) => memberDraft.includes(user.id))} checked={searchedMemberCandidates.length > 0 && searchedMemberCandidates.every((user) => memberDraft.includes(user.id))} onChange={(event) => setCandidateSelection(searchedMemberCandidates, event.target.checked)}>全选结果</Checkbox></Flex>
-          {searchedMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><span><Text strong>{user.displayName}（{user.employeeNo ?? user.username}）</Text><Text type="secondary">{(user.departmentPaths ?? []).map((path: string[]) => path.join(" / ")).join("、") || "未分配部门"}</Text></span></Space><Checkbox checked={memberDraft.includes(user.id)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
+          {searchedMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><span><Text strong>{user.displayName}（{user.employeeNo ?? user.username}）</Text><Text type="secondary">{(user.departmentPaths ?? []).map((path: string[]) => path.join(" / ")).join("、") || "未分配部门"}</Text></span></Space><Checkbox checked={memberIsSelected(user)} disabled={memberIsInherited(user)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
         </div> },
         { key: "organization", label: "按组织添加", children: <div className="role-member-organization">
           <div className="role-member-organization-tree"><Text strong>组织架构</Text><Tree showIcon blockNode defaultExpandAll treeData={organizationTree} selectedKeys={memberOrganizationId ? [memberOrganizationId] : []} onSelect={(keys) => setMemberOrganizationId(String(keys[0] ?? "") || undefined)} /></div>
-          <div className="role-member-organization-users"><Flex justify="space-between" align="center"><Text strong>{memberOrganizationId ? `${organizationMap.get(memberOrganizationId)?.name ?? "所选部门"}成员` : "请选择左侧部门"}</Text>{memberOrganizationId && <Checkbox indeterminate={organizationMemberCandidates.some((user) => memberDraft.includes(user.id)) && !organizationMemberCandidates.every((user) => memberDraft.includes(user.id))} checked={organizationMemberCandidates.length > 0 && organizationMemberCandidates.every((user) => memberDraft.includes(user.id))} onChange={(event) => setCandidateSelection(organizationMemberCandidates, event.target.checked)}>全选本部门</Checkbox>}</Flex>
-            {organizationMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><Text strong>{user.displayName}</Text></Space><Checkbox checked={memberDraft.includes(user.id)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
+          <div className="role-member-organization-users"><Flex justify="space-between" align="center"><Text strong>{memberOrganizationId ? `${organizationMap.get(memberOrganizationId)?.name ?? "所选部门"}成员` : "请选择左侧部门"}</Text>{memberOrganizationId && <Checkbox checked={memberOrganizationDraft.includes(memberOrganizationId)} onChange={(event) => toggleOrganizationMemberScope(memberOrganizationId, event.target.checked)}>按部门动态授权</Checkbox>}</Flex>
+            {organizationMemberCandidates.map((user) => <label key={user.id} className="role-member-person"><Space><Avatar>{initials(user.displayName)}</Avatar><Text strong>{user.displayName}</Text></Space><Checkbox checked={memberIsSelected(user)} disabled={memberIsInherited(user)} onChange={(event) => toggleMember(user.id, event.target.checked)} /></label>)}
             {memberOrganizationId && !organizationMemberCandidates.length && <Text type="secondary">该部门没有符合条件的在职成员</Text>}
           </div>
         </div> }

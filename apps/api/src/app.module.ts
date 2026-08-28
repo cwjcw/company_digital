@@ -28,6 +28,8 @@ import { TablePermissionGroupApplicationService } from "./modules/admin/table-pe
 import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
 import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
 import { CustomerImportModule } from "./data-operations/customer-import/customer-import.module";
+import { MailService } from "./mail.service";
+import { HrModule } from "./modules/hr/hr.module";
 
 @Module({
   imports: [
@@ -43,7 +45,8 @@ import { CustomerImportModule } from "./data-operations/customer-import/customer
     PlanningOperationsModule,
     DevelopmentRequestModule,
     ContactSyncModule,
-    CustomerImportModule
+    CustomerImportModule,
+    HrModule
   ],
   controllers: [
     SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController, ImportController,
@@ -53,7 +56,7 @@ import { CustomerImportModule } from "./data-operations/customer-import/customer
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
     MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService,
-    TablePermissionGroupApplicationService
+    TablePermissionGroupApplicationService, MailService
   ]
 })
 export class AppModule {}

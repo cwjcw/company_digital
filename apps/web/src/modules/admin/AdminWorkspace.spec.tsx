@@ -56,6 +56,56 @@ describe("AdminWorkspace", () => {
     expect(within(dialog).getByText("凯南")).toBeInTheDocument();
   });
 
+  it("finds members below a child department that has the same name as its parent", async () => {
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path.startsWith("/admin/users?")) return [
+        { id: "direct", username: "direct", displayName: "二级直属成员", enabled: true, departmentPaths: [["厦门凯南展示制品有限公司", "营销中心"]], roleIds: [] },
+        { id: "descendant", username: "descendant", displayName: "子部门成员", enabled: true, departmentPaths: [["厦门凯南展示制品有限公司", "营销中心", "业务部"]], roleIds: [] },
+        { id: "quotation", username: "quotation", displayName: "报价部成员", enabled: true, departmentPaths: [["厦门凯南展示制品有限公司", "营销中心", "报价部"]], roleIds: [] }
+      ] as never;
+      if (path === "/admin/roles") return [role] as never;
+      if (path === "/admin/role-groups") return [{ id: "group-1", name: "系统角色", sortOrder: 0 }] as never;
+      if (path === "/admin/organization-units") return [
+        { id: "company", name: "厦门凯南展示制品有限公司", parentId: null, enabled: true },
+        { id: "marketing-level-1", name: "营销中心", parentId: "company", enabled: true },
+        { id: "quotation", name: "报价部", parentId: "marketing-level-1", enabled: true },
+        { id: "marketing-level-2", name: "营销中心", parentId: "marketing-level-1", enabled: true },
+        { id: "sales", name: "业务部", parentId: "marketing-level-2", enabled: true }
+      ] as never;
+      return {} as never;
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "添加成员" }));
+    const dialog = screen.getAllByText("添加成员").find((element) => element.classList.contains("ant-modal-title"))?.closest(".ant-modal") as HTMLElement;
+    fireEvent.click(within(dialog).getByText("按组织添加"));
+    const sameNameDepartments = await within(dialog).findAllByText("营销中心");
+    fireEvent.click(sameNameDepartments[1]!);
+    expect(await within(dialog).findByText("二级直属成员")).toBeInTheDocument();
+    expect(within(dialog).getByText("子部门成员")).toBeInTheDocument();
+    expect(within(dialog).queryByText("报价部成员")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("该部门没有符合条件的在职成员")).not.toBeInTheDocument();
+  });
+
+  it("persists a department scope instead of freezing its current users into the role", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "切换到角色" }));
+    await screen.findByText("系统角色");
+    fireEvent.click(screen.getByRole("button", { name: "添加成员" }));
+    const dialog = screen.getAllByText("添加成员").find((element) => element.classList.contains("ant-modal-title"))?.closest(".ant-modal") as HTMLElement;
+    fireEvent.click(within(dialog).getByText("按组织添加"));
+    fireEvent.click(await within(dialog).findByText("计划中心"));
+    fireEvent.click(within(dialog).getByText("按部门动态授权"));
+    fireEvent.click(within(dialog).getByRole("button", { name: /OK|确 定/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/roles/role-1", {
+      method: "PATCH",
+      body: JSON.stringify({ userIds: ["user-1"], organizationUnitIds: ["org-2"] })
+    }));
+  });
+
   it("shows the screenshot-style role-group menu and creates a role inside that group", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);

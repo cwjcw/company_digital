@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import {
   presetPermissionGroupTypes, presetTablePermissionMatrix, tablePermissionActions, tablePermissionFieldsFor,
   tableResourceRegistry, type PresetPermissionGroupType, type TablePermissionAction,
@@ -26,7 +27,7 @@ type PermissionGroup = {
 type Role = { id: string; name: string; roleGroupId?: string | null; permissions?: PermissionRecord[] };
 type RoleGroup = { id: string; name: string };
 type User = { id: string; displayName: string; employeeNo?: string | null; username: string; enabled: boolean; departmentPaths?: string[][] };
-type Organization = { id: string; name: string; parentId?: string | null; enabled: boolean; level: number };
+type Organization = { id: string; name: string; parentId?: string | null; enabled: boolean; level: number; pathLabel?: string };
 
 const actionField: Record<TablePermissionAction, keyof PermissionRecord> = {
   read: "read", create: "create", copy: "copy", update: "update", delete: "delete",
@@ -79,10 +80,10 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
   const roleName = (role: Role) => role.roleGroupId && roleGroupMap.get(role.roleGroupId) ? `${roleGroupMap.get(role.roleGroupId)}-${role.name}` : role.name;
   const userMap = useMemo(() => new Map((users.data ?? []).map((user) => [user.id, user])), [users.data]);
   const organizationMap = useMemo(() => new Map((organizations.data ?? []).map((unit) => [unit.id, unit])), [organizations.data]);
+  const organizationMembership = useMemo(() => createOrganizationMembershipIndex(organizations.data ?? []), [organizations.data]);
   const roleMap = useMemo(() => new Map((roles.data ?? []).map((role) => [role.id, role])), [roles.data]);
   const fields = useMemo(() => resource ? tablePermissionFieldsFor(resource.code as TableResourceCode) : [], [resource]);
-  const organizationPath = (id: string) => { const path: string[] = []; let current = organizationMap.get(id); const visited = new Set<string>(); while (current && !visited.has(current.id)) { visited.add(current.id); path.unshift(current.name); current = current.parentId ? organizationMap.get(current.parentId) : undefined; } return path; };
-  const usersInOrganization = (organizationId: string | null) => { if (!organizationId) return (users.data ?? []).filter((user) => user.enabled); const path = organizationPath(organizationId); return (users.data ?? []).filter((user) => user.enabled && (user.departmentPaths ?? []).some((candidate) => path.every((name, index) => candidate[index] === name))); };
+  const usersInOrganization = (organizationId: string | null) => { if (!organizationId) return (users.data ?? []).filter((user) => user.enabled); return (users.data ?? []).filter((user) => user.enabled && (user.departmentPaths ?? []).some((candidate) => organizationMembership.departmentPathBelongsTo(candidate, organizationId))); };
   const treeData = useMemo(() => { const units = (organizations.data ?? []).filter((unit) => unit.enabled); const build = (parentId: string | null): any[] => units.filter((unit) => (unit.parentId ?? null) === parentId).map((unit) => ({ key: unit.id, title: unit.name, icon: <ApartmentOutlined />, children: build(unit.id) })); return build(null); }, [organizations.data]);
   const filteredUsers = usersInOrganization(activeOrganization).filter((user) => !selectorSearch.trim() || `${user.displayName} ${user.employeeNo ?? ""} ${user.username}`.toLowerCase().includes(selectorSearch.trim().toLowerCase()));
   const filteredRoles = (roles.data ?? []).filter((role) => !selectorSearch.trim() || roleName(role).toLowerCase().includes(selectorSearch.trim().toLowerCase()));
@@ -204,7 +205,7 @@ function RuleEditor({ rule, fields, users, organizations, onChange, onRemove }: 
   if (field?.type === "number") valueEditor = <InputNumber disabled={valueDisabled} value={typeof rule.value === "number" ? rule.value : null} onChange={(value) => onChange({ ...rule, value })} placeholder="请输入数值" /> as any;
   if (field?.type === "date") valueEditor = <Input type="date" disabled={valueDisabled} value={String(rule.value ?? "")} onChange={(event) => onChange({ ...rule, value: event.target.value })} />;
   if (field?.type === "member") valueEditor = <Select disabled={valueDisabled} value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: "CURRENT_USER", label: "当前用户" }, ...users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName }))]} placeholder="选择成员" />;
-  if (field?.type === "department") valueEditor = <Select disabled={valueDisabled} value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} options={organizations.filter((unit) => unit.enabled).map((unit) => ({ value: unit.id, label: unit.name }))} placeholder="选择部门" />;
+  if (field?.type === "department") valueEditor = <Select disabled={valueDisabled} showSearch optionFilterProp="label" value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: "CURRENT_USER_MANAGED_DEPARTMENTS", label: "当前用户负责的部门及子部门" }, ...organizations.filter((unit) => unit.enabled).map((unit) => ({ value: unit.id, label: unit.pathLabel ?? unit.name }))]} placeholder="选择部门或动态范围" />;
   if (field?.type === "boolean") valueEditor = <Select disabled={valueDisabled} value={rule.value as boolean | undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: true, label: "是" }, { value: false, label: "否" }]} />;
   return <div className="permission-rule-row"><Select value={rule.fieldKey || undefined} showSearch optionFilterProp="label" onChange={(fieldKey) => onChange({ fieldKey, operator: "EQ", value: "" })} options={fields.map((item) => ({ value: item.key, label: item.label }))} placeholder="请选择字段" /><Select value={rule.operator} onChange={(operator) => onChange({ ...rule, operator, value: ["IS_EMPTY", "IS_NOT_EMPTY"].includes(operator) ? null : rule.value })} options={operatorOptions} />{valueEditor}<Button danger type="text" icon={<DeleteOutlined />} onClick={onRemove} aria-label="删除过滤条件" /></div>;
 }

@@ -8,6 +8,7 @@ function contextFor(request: any) {
 
 describe("AuthGuard API Key actor", () => {
   const jwt = { verifyAsync: jest.fn() } as any;
+  const moduleRef = { get: jest.fn() } as any;
 
   it("uses the linked person's display name as the modification actor", async () => {
     const secret = "fdt_test_key";
@@ -24,7 +25,7 @@ describe("AuthGuard API Key actor", () => {
         id: "user-id", username: "zhangsan", displayName: "张三", enabled: true
       })
     } as any;
-    const guard = new AuthGuard(jwt, apiKeys, users);
+    const guard = new AuthGuard(jwt, apiKeys, users, moduleRef);
     const request: any = { headers: { "x-api-key": secret } };
 
     await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
@@ -39,7 +40,7 @@ describe("AuthGuard API Key actor", () => {
       update: jest.fn()
     } as any;
     const users = { findOneBy: jest.fn().mockResolvedValue({ id: "user-id", enabled: false }) } as any;
-    const guard = new AuthGuard(jwt, apiKeys, users);
+    const guard = new AuthGuard(jwt, apiKeys, users, moduleRef);
 
     await expect(guard.canActivate(contextFor({ headers: { "x-api-key": "fdt_test_key" } })))
       .rejects.toThrow(new UnauthorizedException("API Key 关联人员已停用"));
@@ -52,7 +53,7 @@ describe("AuthGuard API Key actor", () => {
       update: jest.fn().mockResolvedValue({ affected: 1 })
     } as any;
     const users = { findOneBy: jest.fn() } as any;
-    const guard = new AuthGuard(jwt, apiKeys, users);
+    const guard = new AuthGuard(jwt, apiKeys, users, moduleRef);
     const readRequest: any = { method: "GET", headers: { "x-api-key": "legacy-key" } };
     await expect(guard.canActivate(contextFor(readRequest))).resolves.toBe(true);
     expect(readRequest.user.actorName).toBe("API Key：legacy");
@@ -60,5 +61,17 @@ describe("AuthGuard API Key actor", () => {
     const writeRequest: any = { method: "POST", headers: { "x-api-key": "legacy-key" } };
     await expect(guard.canActivate(contextFor(writeRequest)))
       .rejects.toThrow("API Key 未关联人员，不能执行上传、新增或修改操作");
+  });
+
+  it("recomputes live roles for every bearer-token request", async () => {
+    const tokenJwt = { verifyAsync: jest.fn().mockResolvedValue({ sub: "user-id", exp: 123 }) } as any;
+    const liveAuth = { claimsForEnabledUser: jest.fn().mockResolvedValue({ sub: "user-id", roles: ["营销角色"], permissions: ["orders:*:read"] }) } as any;
+    const liveModuleRef = { get: jest.fn().mockReturnValue(liveAuth) } as any;
+    const guard = new AuthGuard(tokenJwt, {} as any, {} as any, liveModuleRef);
+    const request: any = { headers: { authorization: "Bearer token" } };
+
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+    expect(liveAuth.claimsForEnabledUser).toHaveBeenCalledWith("user-id");
+    expect(request.user).toMatchObject({ roles: ["营销角色"], permissions: ["orders:*:read"] });
   });
 });

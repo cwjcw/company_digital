@@ -79,6 +79,7 @@ Creating a new version copies plan items and process progress within the same pe
 Schemas and principal tables:
 
 - `iam`: `tenants`, `organizations`, `departments`, `positions`, `employees`, `users`, `identities`, `roles`, `permissions`, `role_permissions`, `role_bindings`, `field_policies`. The compatibility IAM also stores per-table permission groups on technical roles and keeps their dynamic `USER` / `ORGANIZATION` / `ROLE` grants in `permission_group_subjects`; technical roles are hidden from ordinary role management.
+- The compatibility `organization_units` directory is the current canonical bridge to WeCom: external department identity, topology and live leader user IDs are synchronized together. Business department fields store its stable UUID and retain names only as display snapshots; leader-based data scopes expand the live organization subtree per request.
 - `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`.
 - `audit`: `audit_logs`.
 - `integration`: `import_jobs`.

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
 import { MARKETING_REPOSITORY, type MarketingRepository } from "./marketing.repository";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
-import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor, OrderScheduleInput } from "./marketing.types";
+import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
 
 type MarketingResource = "business-customer-mapping" | "order-schedule";
 type MarketingAction = "read" | "create" | "update" | "delete" | "import" | "export";
@@ -24,17 +24,56 @@ export class MarketingApplicationService {
     return result;
   }
 
-  private mapping(input: BusinessCustomerMappingInput): BusinessCustomerMappingInput {
+  private mappingBase(input: BusinessCustomerMappingInput) {
     const salespersonUserIds = [...new Set(Array.isArray(input.salespersonUserIds) ? input.salespersonUserIds.map(String) : [])];
     if (salespersonUserIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
       throw new BadRequestException("业务员字段包含无效用户 ID");
     }
     return {
-      department: this.text(input.department, "部门"),
+      departmentId: input.departmentId ? String(input.departmentId) : null,
+      department: String(input.department ?? "").trim(),
       section: String(input.section ?? "").trim(),
       customerCode: this.text(input.customerCode, "客户"),
       salespersonUserIds
     };
+  }
+
+  private resolveMappings(inputs: BusinessCustomerMappingInput[], organizations: DirectoryOrganizationOption[]): ResolvedBusinessCustomerMappingInput[] {
+    const byId = new Map(organizations.map((organization) => [organization.id, organization]));
+    const byText = (value: string) => organizations.filter((organization) => organization.name === value || organization.pathLabel === value || organization.path.join("/") === value);
+    return inputs.map((input) => {
+      const base = this.mappingBase(input);
+      const departments = base.departmentId ? [byId.get(base.departmentId)].filter((value): value is DirectoryOrganizationOption => Boolean(value)) : byText(base.department);
+      if (!departments.length) throw new BadRequestException(`部门“${base.department || base.departmentId}”不在企业微信组织架构中`);
+      if (departments.length > 1) throw new BadRequestException({ message: "部门名称存在重名，请在界面选择完整组织路径", candidates: departments.map((department) => department.pathLabel) });
+      const selected = departments[0]!;
+      return { ...base, departmentId: selected.id, department: selected.name };
+    });
+  }
+
+  private applyDataScope<T extends Record<string, unknown>>(rows: T[], actor: MarketingActor, resource: MarketingResource, action = "read"): T[] {
+    if (actor.permissions.includes("*")) return rows;
+    const scopes = (actor.tableDataScopes ?? []).filter((scope) => scope.resource === resource && (!scope.actions || scope.actions.includes(action)));
+    if (!scopes.length || scopes.some((scope) => scope.scope === "ALL")) return rows;
+    const compare = (row: T, rule: { fieldKey: string; operator: string; value: unknown }) => {
+      const actual = row[rule.fieldKey];
+      const expected = rule.value === "CURRENT_USER_MANAGED_DEPARTMENTS" ? (actor.managedOrganizationUnitIds ?? [])
+        : rule.value === "CURRENT_USER" ? actor.userId : rule.value;
+      const values = Array.isArray(expected) ? expected.map(String) : [String(expected ?? "")];
+      const actualValues = Array.isArray(actual) ? actual.map(String) : null;
+      if (rule.operator === "IS_EMPTY") return actual === null || actual === undefined || actual === "";
+      if (rule.operator === "IS_NOT_EMPTY") return actual !== null && actual !== undefined && actual !== "";
+      if (rule.operator === "EQ" || rule.operator === "IN") return actualValues ? actualValues.some((value) => values.includes(value)) : values.includes(String(actual ?? ""));
+      if (rule.operator === "NE" || rule.operator === "NOT_IN") return actualValues ? actualValues.every((value) => !values.includes(value)) : !values.includes(String(actual ?? ""));
+      if (rule.operator === "CONTAINS") return actualValues ? values.some((value) => actualValues.includes(value)) : String(actual ?? "").includes(String(expected ?? ""));
+      if (rule.operator === "NOT_CONTAINS") return actualValues ? values.every((value) => !actualValues.includes(value)) : !String(actual ?? "").includes(String(expected ?? ""));
+      return false;
+    };
+    return rows.filter((row) => scopes.some((scope) => scope.scope === "CUSTOM" && scope.rules.length > 0 && (scope.match === "ANY" ? scope.rules.some((rule) => compare(row, rule)) : scope.rules.every((rule) => compare(row, rule)))));
+  }
+
+  private assertDataScope(row: Record<string, unknown>, actor: MarketingActor, resource: MarketingResource, action: string) {
+    if (!this.applyDataScope([row], actor, resource, action).length) throw new ForbiddenException("该记录不在当前用户的数据权限范围内");
   }
 
   private async assertEnabledUsers(ids: string[]) {
@@ -42,6 +81,13 @@ export class MarketingApplicationService {
     const found = new Set(users.map((user) => user.id));
     const invalid = ids.filter((id) => !found.has(id));
     if (invalid.length) throw new BadRequestException({ message: "业务员必须选择通讯录内的启用用户", invalidUserIds: invalid });
+  }
+
+  private async assertUsersBelongToDepartment(ids: string[], departmentId: string, grandfatheredIds: string[] = []) {
+    const users = await this.directory.findEnabledUsersInOrganization(departmentId);
+    const valid = new Set([...users.map((user) => user.id), ...grandfatheredIds]);
+    const invalid = ids.filter((id) => !valid.has(id));
+    if (invalid.length) throw new BadRequestException({ message: "业务员必须是在所选部门或其子部门内的在职用户", invalidUserIds: invalid });
   }
 
   private optionalDate(value: unknown, label: string) {
@@ -71,12 +117,14 @@ export class MarketingApplicationService {
   async listMappings(search: string | undefined, actor: MarketingActor, action: "read" | "export" = "read") {
     this.assert(actor, "business-customer-mapping", action);
     type MappingReadRow = Record<string, unknown> & { department: string; section: string; customerCode: string; salespersonUserIds: string[] };
-    const rows = await this.repository.listMappings(await this.tenant(actor)) as MappingReadRow[];
+    const rows = this.applyDataScope(await this.repository.listMappings(await this.tenant(actor)) as MappingReadRow[], actor, "business-customer-mapping", action);
     const userIds = [...new Set(rows.flatMap((row) => row.salespersonUserIds ?? []))];
-    const users = await this.directory.findUsersByIds(userIds);
+    const [users, organizations] = await Promise.all([this.directory.findUsersByIds(userIds), this.directory.listEnabledOrganizations()]);
     const names = new Map(users.map((user) => [user.id, user.displayName]));
+    const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
     const result = rows.map((row) => ({
       ...row,
+      departmentPath: organizationMap.get(String(row.departmentId ?? ""))?.pathLabel ?? row.department,
       salespersonNames: (row.salespersonUserIds ?? []).map((id) => names.get(id)).filter((name): name is string => Boolean(name)),
       salespersonUsers: (row.salespersonUserIds ?? []).map((id) => users.find((user) => user.id === id)).filter((user): user is NonNullable<typeof user> => Boolean(user))
     }));
@@ -91,17 +139,71 @@ export class MarketingApplicationService {
     return this.directory.listEnabledUsers();
   }
 
+  async listDirectoryOrganizations(actor: MarketingActor) {
+    this.assert(actor, "business-customer-mapping", "read");
+    return this.directory.listEnabledOrganizations();
+  }
+
+  async syncMappingDepartmentsFromDirectory(actor: MarketingActor) {
+    this.assert(actor, "business-customer-mapping", "import");
+    const tenantId = await this.tenant(actor);
+    type MappingRow = { id: string; customerCode: string; salespersonUserIds: string[] };
+    const rows = await this.repository.listMappings(tenantId) as MappingRow[];
+    const userIds = [...new Set(rows.flatMap((row) => row.salespersonUserIds ?? []))];
+    const [users, organizations] = await Promise.all([this.directory.findUsersByIds(userIds), this.directory.listEnabledOrganizations()]);
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    const organizationsByPath = new Map(organizations.map((organization) => [organization.path.join("/"), organization]));
+    const collapseConsecutiveNames = (path: string[]) => path.filter((name, index) => index === 0 || name !== path[index - 1]);
+    const organizationForPath = (path: string[]) => {
+      const exact = organizationsByPath.get(path.join("/"));
+      if (exact) return exact;
+      const normalized = collapseConsecutiveNames(path).join("/");
+      const candidates = organizations
+        .filter((organization) => collapseConsecutiveNames(organization.path).join("/") === normalized)
+        .sort((left, right) => right.path.length - left.path.length);
+      if (!candidates.length || (candidates[1] && candidates[1].path.length === candidates[0].path.length)) return undefined;
+      return candidates[0];
+    };
+    const targets = [];
+    const skipped: Array<{ customerCode: string; reason: string }> = [];
+    for (const row of rows) {
+      let selected: DirectoryOrganizationOption | undefined;
+      for (const userId of row.salespersonUserIds ?? []) {
+        const user = usersById.get(userId);
+        if (!user?.enabled) continue;
+        selected = (user.departmentPaths ?? []).map(organizationForPath).find(Boolean);
+        if (selected) break;
+      }
+      if (!selected) {
+        skipped.push({ customerCode: row.customerCode, reason: "没有可匹配最新组织架构的在职业务员" });
+        continue;
+      }
+      targets.push({ id: row.id, departmentId: selected.id, department: selected.name });
+    }
+    return this.repository.syncMappingDepartmentsFromDirectory(tenantId, targets, skipped, actor);
+  }
+
   async saveMapping(id: string | null, input: BusinessCustomerMappingInput, expectedVersion: number | null, actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", id ? "update" : "create");
     if (id && (!Number.isInteger(expectedVersion) || Number(expectedVersion) < 1)) throw new BadRequestException("修改记录必须提供有效版本号");
-    const normalized = this.mapping(input);
+    const normalized = this.resolveMappings([input], await this.directory.listEnabledOrganizations())[0]!;
+    const tenantId = await this.tenant(actor);
+    let current: Record<string, unknown> | undefined;
+    if (id) {
+      current = (await this.repository.listMappings(tenantId) as Array<Record<string, unknown>>).find((row) => row.id === id);
+      if (!current) throw new BadRequestException("业务与客户对应关系不存在");
+      this.assertDataScope(current, actor, "business-customer-mapping", "update");
+    }
+    this.assertDataScope(normalized as unknown as Record<string, unknown>, actor, "business-customer-mapping", id ? "update" : "create");
     await this.assertEnabledUsers(normalized.salespersonUserIds);
-    return this.repository.saveMapping(await this.tenant(actor), id, normalized, expectedVersion, actor);
+    const grandfatheredIds = current?.departmentId === normalized.departmentId && Array.isArray(current.salespersonUserIds) ? current.salespersonUserIds.map(String) : [];
+    await this.assertUsersBelongToDepartment(normalized.salespersonUserIds, normalized.departmentId, grandfatheredIds);
+    return this.repository.saveMapping(tenantId, id, normalized, expectedVersion, actor);
   }
 
   async replaceMappings(rows: BusinessCustomerMappingInput[], fileName: string, fileHash: string, summary: MappingImportSummary, actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", "import");
-    const normalized = rows.map((row) => this.mapping(row));
+    const normalized = this.resolveMappings(rows, await this.directory.listEnabledOrganizations());
     if (!normalized.length) throw new BadRequestException("文件中没有可导入的业务与客户对应关系");
     const customerCodes = new Set<string>();
     for (const row of normalized) {
@@ -110,39 +212,90 @@ export class MarketingApplicationService {
       customerCodes.add(key);
     }
     await this.assertEnabledUsers([...new Set(normalized.flatMap((row) => row.salespersonUserIds))]);
+    for (const row of normalized) await this.assertUsersBelongToDepartment(row.salespersonUserIds, row.departmentId);
     return this.repository.replaceMappings(await this.tenant(actor), normalized, fileName, fileHash, summary, actor);
   }
 
   async deleteMapping(id: string, expectedVersion: number, actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", "delete");
-    return this.repository.deleteMapping(await this.tenant(actor), id, Number(expectedVersion), actor);
+    const tenantId = await this.tenant(actor);
+    const current = (await this.repository.listMappings(tenantId) as Array<Record<string, unknown>>).find((row) => row.id === id);
+    if (!current) throw new BadRequestException("业务与客户对应关系不存在");
+    this.assertDataScope(current, actor, "business-customer-mapping", "delete");
+    return this.repository.deleteMapping(tenantId, id, Number(expectedVersion), actor);
   }
 
   async listSchedules(search: string | undefined, actor: MarketingActor, action: "read" | "export" = "read") {
     this.assert(actor, "order-schedule", action);
-    return this.repository.listSchedules(await this.tenant(actor), search);
+    type ScheduleReadRow = {
+      department: string | null;
+      section: string | null;
+      salespersonUserIds: string[];
+      customerCode: string;
+      orderNumber: string;
+      itemNumber: string;
+      itemName: string;
+      productionUnit: string | null;
+      [key: string]: unknown;
+    };
+    const rows = this.applyDataScope(await this.repository.listSchedules(await this.tenant(actor)) as ScheduleReadRow[], actor, "order-schedule", action);
+    const userIds = [...new Set(rows.flatMap((row) => row.salespersonUserIds ?? []))];
+    const [users, organizations] = await Promise.all([this.directory.findUsersByIds(userIds), this.directory.listEnabledOrganizations()]);
+    const names = new Map(users.map((user) => [user.id, user.displayName]));
+    const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
+    const result = rows.map((row) => ({
+      ...row,
+      departmentPath: organizationMap.get(String(row.departmentId ?? ""))?.pathLabel ?? row.department,
+      salespersonNames: (row.salespersonUserIds ?? []).map((id) => names.get(id)).filter((name): name is string => Boolean(name))
+    }));
+    const value = String(search ?? "").trim().toLocaleLowerCase();
+    if (!value) return result;
+    return result.filter((row) => [row.department, row.section, row.customerCode, row.orderNumber, row.itemNumber, row.itemName, row.productionUnit, ...(row.salespersonNames as string[])]
+      .some((field) => String(field ?? "").toLocaleLowerCase().includes(value)));
   }
 
   async saveSchedule(id: string | null, input: OrderScheduleInput, expectedVersion: number | null, actor: MarketingActor) {
     this.assert(actor, "order-schedule", id ? "update" : "create");
     if (id && (!Number.isInteger(expectedVersion) || Number(expectedVersion) < 1)) throw new BadRequestException("修改记录必须提供有效版本号");
-    return this.repository.saveSchedule(await this.tenant(actor), id, this.schedule(input), expectedVersion, actor);
+    const tenantId = await this.tenant(actor);
+    if (id) {
+      const current = (await this.repository.listSchedules(tenantId) as Array<Record<string, unknown>>).find((row) => row.id === id);
+      if (!current) throw new BadRequestException("订单排期不存在");
+      this.assertDataScope(current, actor, "order-schedule", "update");
+    }
+    return this.repository.saveSchedule(tenantId, id, this.schedule(input), expectedVersion, actor);
   }
 
   async deleteSchedule(id: string, expectedVersion: number, actor: MarketingActor) {
     this.assert(actor, "order-schedule", "delete");
-    return this.repository.deleteSchedule(await this.tenant(actor), id, Number(expectedVersion), actor);
+    const tenantId = await this.tenant(actor);
+    const current = (await this.repository.listSchedules(tenantId) as Array<Record<string, unknown>>).find((row) => row.id === id);
+    if (!current) throw new BadRequestException("订单排期不存在");
+    this.assertDataScope(current, actor, "order-schedule", "delete");
+    return this.repository.deleteSchedule(tenantId, id, Number(expectedVersion), actor);
   }
 
   async batchUpdateDueDate(rows: Array<{ id: string; expectedVersion: number }>, customerDueDate: string | null, actor: MarketingActor) {
     this.assert(actor, "order-schedule", "update");
     if (!rows.length || rows.length > 1000) throw new BadRequestException("请选择 1 至 1000 条订单排期");
     if (rows.some((row) => !row.id || !Number.isInteger(Number(row.expectedVersion)))) throw new BadRequestException("所选排期版本无效");
-    return this.repository.batchUpdateDueDate(await this.tenant(actor), rows, this.optionalDate(customerDueDate, "客户交期"), actor);
+    const tenantId = await this.tenant(actor);
+    const allRows = await this.repository.listSchedules(tenantId) as Array<Record<string, unknown>>;
+    for (const selected of rows) {
+      const current = allRows.find((row) => row.id === selected.id);
+      if (!current) throw new BadRequestException("所选排期不存在");
+      this.assertDataScope(current, actor, "order-schedule", "update");
+    }
+    return this.repository.batchUpdateDueDate(tenantId, rows, this.optionalDate(customerDueDate, "客户交期"), actor);
   }
 
   async syncSchedulesFromPlanning(actor: MarketingActor) {
     this.assert(actor, "order-schedule", "import");
     return this.repository.syncSchedulesFromPlanning(await this.tenant(actor), actor);
+  }
+
+  async syncScheduleBusinessFields(actor: MarketingActor) {
+    this.assert(actor, "order-schedule", "import");
+    return this.repository.syncScheduleBusinessFields(await this.tenant(actor), actor);
   }
 }

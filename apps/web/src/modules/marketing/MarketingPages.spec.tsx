@@ -13,16 +13,19 @@ afterEach(() => cleanup());
 
 const schedule = {
   id: "schedule-1", customerCode: "DEMO-C001", orderNumber: "DEMO-SO-001", itemNumber: "DEMO-P001",
+  department: "欧美业务一部", section: "一课", salespersonUserIds: ["00000000-0000-7000-8000-000000000003"], salespersonNames: ["张三"],
   itemName: "演示品项", customerDueDate: "2026-08-28", orderTotalQuantity: "100.0000", productionUnit: "演示一厂",
   completionRatio: "25.0000", sourcePlanItemId: "plan-item-1", version: 3
 };
 
 describe("OrderSchedulePage editing", () => {
   beforeEach(() => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["order-schedule:*:read", "order-schedule:*:update", "order-schedule:*:import"] }));
     vi.mocked(api).mockReset();
     vi.mocked(api).mockImplementation(async (path, init) => {
       if (path.startsWith("/marketing/order-schedules?") && !init?.method) return [schedule] as never;
       if (path === "/marketing/order-schedules/schedule-1" && init?.method === "PATCH") return { ...schedule, version: 4 } as never;
+      if (path === "/marketing/order-schedules/sync-business-customer-mappings" && init?.method === "POST") return { matched: 1, updated: 1, unchanged: 0, retained: 0 } as never;
       throw new Error(`unexpected API call: ${path}`);
     });
   });
@@ -46,6 +49,17 @@ describe("OrderSchedulePage editing", () => {
     const updateCall = vi.mocked(api).mock.calls.find(([path]) => path === "/marketing/order-schedules/schedule-1");
     expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({ itemName: "演示品项（已调整）", sourcePlanItemId: "plan-item-1", expectedVersion: 3 });
   });
+
+  it("shows read-only business ownership fields and manually synchronizes them from the mapping table", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><OrderSchedulePage /></QueryClientProvider>);
+
+    expect(await screen.findByText("欧美业务一部")).toBeInTheDocument();
+    expect(screen.getByText("一课")).toBeInTheDocument();
+    expect(screen.getByText("张三")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "从业务人员与客户对应表同步" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/marketing/order-schedules/sync-business-customer-mappings", { method: "POST" }));
+  });
 });
 
 describe("BusinessCustomerMappingsPage", () => {
@@ -60,6 +74,7 @@ describe("BusinessCustomerMappingsPage", () => {
         createdBy: "user-1", createdAt: "2026-08-25T00:00:00Z", updatedBy: "user-1", updatedAt: "2026-08-25T00:00:00Z", version: 1
       }] as never;
       if (path === "/marketing/directory-users") return [{ id: "00000000-0000-7000-8000-000000000003", displayName: "张三", departmentPaths: [], enabled: true }] as never;
+      if (path === "/marketing/directory-organizations") return [{ id: "org-1", name: "业务一部（欧美）", parentId: null, path: ["业务一部（欧美）"], pathLabel: "业务一部（欧美）", enabled: true }] as never;
       throw new Error(`unexpected API call: ${path}`);
     });
   });
@@ -85,6 +100,7 @@ describe("BusinessCustomerMappingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /进入编辑模式/ }));
     expect(await screen.findByDisplayValue("A001")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("一课")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除对应关系" })).toBeInTheDocument();
   });
 

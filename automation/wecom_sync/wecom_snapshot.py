@@ -29,6 +29,10 @@ def _enabled(row: dict[str, object]) -> bool:
     return enable not in {"0", "false", "否", "停用", "禁用"} and status not in {"2", "4", "5"}
 
 
+def _leader_in_department(value: object) -> bool:
+    return _text(value).lower() in {"1", "true", "yes", "y", "是", "负责人"}
+
+
 def _ignored(path: list[str]) -> bool:
     return (len(path) >= 1 and path[0] == "其他") or (len(path) >= 2 and path[1] == "其他")
 
@@ -74,12 +78,15 @@ def parse_snapshot(workbook_path: Path, department_paths: dict[str, str] | None 
             "alias": _text(row.get("alias")) or None,
             "gender": _text(row.get("gender")) or None,
             "directLeaders": [],
+            "departmentLeaderExternalIds": [],
             "departmentPaths": [],
             "enabled": _enabled(row),
         })
         if path not in entry["departmentPaths"]:
             entry["departmentPaths"].append(path)
         entry["directLeaders"] = sorted(set(entry["directLeaders"] + _json_list(row.get("direct_leader"))))
+        if department_id and _leader_in_department(row.get("is_leader_in_dept")) and department_id not in entry["departmentLeaderExternalIds"]:
+            entry["departmentLeaderExternalIds"].append(department_id)
 
     raw_paths = department_paths or {department_id: " / ".join(path) for department_id, path in discovered_paths.items()}
     normalized_paths: OrderedDict[str, list[str]] = OrderedDict()
