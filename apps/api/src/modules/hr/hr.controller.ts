@@ -1,4 +1,4 @@
-import { Controller, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
@@ -13,6 +13,11 @@ type HrRequest = Request & { user: any; requestId: string };
 @Controller("hr")
 export class HrController {
   constructor(private readonly application: HrDepartureCheckApplicationService) {}
+
+  @Post("departure-check/manual")
+  checkManual(@Body() body: { account: string; name: string }, @Req() request: HrRequest) {
+    return this.application.checkManual(body, { userId: request.user?.sub ?? null, username: request.user?.displayName ?? request.user?.username ?? "unknown", permissions: request.user?.permissions ?? [], requestId: request.requestId });
+  }
 
   @Post("departure-check")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))

@@ -17,4 +17,15 @@ describe("HrDepartureCheckApplicationService", () => {
     expect(result.summary).toEqual({ total: 2, active: 1, departed: 1 });
     expect(audits.save).toHaveBeenCalledWith(expect.objectContaining({ action: "hr.departure_check.completed", afterJson: expect.objectContaining({ rows: 2, active: 1, departed: 1 }) }));
   });
+
+  it("manually checks one account with create permission and records an audit", async () => {
+    const users = { find: jest.fn().mockResolvedValue([
+      { username: "05504", employeeNo: "05504", displayName: "李婷", enabled: true }
+    ]) };
+    const audits = { save: jest.fn().mockResolvedValue({}) };
+    const service = new HrDepartureCheckApplicationService(users as never, audits as never);
+    await expect(service.checkManual({ account: "05504", name: "李婷" }, { userId: "user-1", username: "HR", permissions: ["hr-departure-check:*:create"], requestId: "request-2" }))
+      .resolves.toEqual({ row: { account: "05504", name: "李婷", status: "入职" } });
+    expect(audits.save).toHaveBeenCalledWith(expect.objectContaining({ action: "hr.departure_check.manual_checked", recordId: "05504", requestId: "request-2" }));
+  });
 });

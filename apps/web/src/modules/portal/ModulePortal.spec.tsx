@@ -14,6 +14,7 @@ describe("ModulePortal system access", () => {
 
   it("hides system management from non-system administrators", () => {
     renderPortal({ username: "demo-manager", roles: ["集团管理员"] });
+    expect(screen.queryByText("选择一个模块开始工作。所有模块统一呈现，后续新增能力将在这里持续扩展。")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "进入系统管理" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "进入主计划" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "进入人力资源" })).toBeInTheDocument();

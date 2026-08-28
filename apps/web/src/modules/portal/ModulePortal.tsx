@@ -155,7 +155,6 @@ export function ModulePortal({ user, onOpen, onLogout }: {
         <div>
           <Text className="portal-eyebrow">WORKSPACE · 工作模块</Text>
           <Title level={1}>{greeting}，{user.displayName ?? user.username}</Title>
-          <Text type="secondary">选择一个模块开始工作。所有模块统一呈现，后续新增能力将在这里持续扩展。</Text>
         </div>
         <div className="portal-intro-actions">
           {ordering ? <Space wrap>

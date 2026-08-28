@@ -7,6 +7,8 @@ import { Repository } from "typeorm";
 import { AuditLog, User } from "../../entities";
 
 export type HrActor = { userId: string | null; username: string; permissions: string[]; requestId: string };
+type DepartureCheckSourceRow = { account: string; name: string };
+type DepartureCheckRow = DepartureCheckSourceRow & { status: "入职" | "离职" };
 
 @Injectable()
 export class HrDepartureCheckApplicationService {
@@ -35,7 +37,7 @@ export class HrDepartureCheckApplicationService {
       accountColumn = 0; nameColumn = 0;
     }
     if (!headerRow) throw new BadRequestException("文件必须包含“账号”和“姓名”两列");
-    const sourceRows: Array<{ account: string; name: string }> = [];
+    const sourceRows: DepartureCheckSourceRow[] = [];
     for (let rowNumber = headerRow + 1; rowNumber <= sheet.rowCount; rowNumber++) {
       const account = sheet.getRow(rowNumber).getCell(accountColumn).text.trim();
       const name = sheet.getRow(rowNumber).getCell(nameColumn).text.trim();
@@ -45,21 +47,39 @@ export class HrDepartureCheckApplicationService {
     }
     if (!sourceRows.length) throw new BadRequestException("文件中没有可检查的人员记录");
     if (sourceRows.length > 50_000) throw new BadRequestException("单次最多检查 50000 人");
+    const rows = await this.compare(sourceRows);
+    const active = rows.filter((row) => row.status === "入职").length;
+    const departed = rows.length - active;
+    await this.auditLogs.save({ actorId: actor.userId, actorName: actor.username, resource: "hr-departure-check", recordId: null, action: "hr.departure_check.completed", beforeJson: null, afterJson: { fileName: file.originalname, fileHash: createHash("sha256").update(file.buffer).digest("hex"), rows: rows.length, active, departed }, requestId: actor.requestId, source: "web" });
+    return { rows, summary: { total: rows.length, active, departed } };
+  }
+
+  async checkManual(input: DepartureCheckSourceRow, actor: HrActor) {
+    this.assert(actor, "create");
+    const account = String(input?.account ?? "").trim();
+    const name = String(input?.name ?? "").trim();
+    if (!account || !name) throw new BadRequestException("账号和姓名不能为空");
+    if (account.length > 100 || name.length > 100) throw new BadRequestException("账号和姓名不能超过 100 个字符");
+    const [row] = await this.compare([{ account, name }]);
+    await this.auditLogs.save({
+      actorId: actor.userId, actorName: actor.username, resource: "hr-departure-check", recordId: account,
+      action: "hr.departure_check.manual_checked", beforeJson: null, afterJson: row, requestId: actor.requestId, source: "web"
+    });
+    return { row };
+  }
+
+  private async compare(sourceRows: DepartureCheckSourceRow[]): Promise<DepartureCheckRow[]> {
     const directoryUsers = await this.users.find();
     const normalizedAccount = (value: string) => value.trim().toLowerCase();
     const withoutLeadingZeroes = (value: string) => value.replace(/^0+(?=\d)/, "");
-    const rows = sourceRows.map((row) => {
+    return sourceRows.map((row) => {
       const account = normalizedAccount(row.account);
       const user = directoryUsers.find((candidate) => {
         const identities = [candidate.username, candidate.employeeNo].filter(Boolean).map((value) => normalizedAccount(String(value)));
         return identities.some((identity) => identity === account || withoutLeadingZeroes(identity) === withoutLeadingZeroes(account));
       });
-      return { ...row, status: user?.enabled && user.displayName.trim() === row.name ? "入职" as const : "离职" as const };
+      return { ...row, status: user?.enabled && user.displayName.trim() === row.name ? "入职" : "离职" };
     });
-    const active = rows.filter((row) => row.status === "入职").length;
-    const departed = rows.length - active;
-    await this.auditLogs.save({ actorId: actor.userId, actorName: actor.username, resource: "hr-departure-check", recordId: null, action: "hr.departure_check.completed", beforeJson: null, afterJson: { fileName: file.originalname, fileHash: createHash("sha256").update(file.buffer).digest("hex"), rows: rows.length, active, departed }, requestId: actor.requestId, source: "web" });
-    return { rows, summary: { total: rows.length, active, departed } };
   }
 
   private assert(actor: HrActor, action: string) {
