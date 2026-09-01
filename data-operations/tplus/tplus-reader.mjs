@@ -14,6 +14,10 @@ export function prepareSql(source, beginDate) {
     .replace(diagnosticsDeclaration, "DECLARE @ShowDiagnostics bit = 1;");
 }
 
+export function useReadCommitted(source) {
+  return `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;\n${source}`;
+}
+
 const dateText = (value) => {
   if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -40,7 +44,7 @@ function hasColumn(recordset, name) {
 
 export async function readTplusOrders(config) {
   const source = await fs.readFile(config.sqlFile, "utf8");
-  const query = prepareSql(source, config.beginDate);
+  const query = useReadCommitted(prepareSql(source, config.beginDate));
   const pool = await new sql.ConnectionPool(config.sql).connect();
   try {
     const result = await pool.request().batch(query);

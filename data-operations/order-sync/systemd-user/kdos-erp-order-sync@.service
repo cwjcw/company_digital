@@ -1,0 +1,14 @@
+[Unit]
+Description=KDOS ERP order staging sync (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/automation/code/work/PMC/knweb
+Environment=PYTHONPATH=/data/automation/code/work/basci/basic_code
+ExecStart=/usr/bin/flock -n /tmp/kdos-erp-order-sync-%i.lock /data/automation/code/work/basci/basic_code/.venv/bin/python data-operations/order-sync/sync.py run --source %i
+Nice=10
+
+[Install]
+WantedBy=default.target

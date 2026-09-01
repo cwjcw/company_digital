@@ -1,0 +1,11 @@
+[Unit]
+Description=Run KDOS ERP order staging sync every 30 minutes (%i)
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1s
+Unit=kdos-erp-order-sync@%i.service
+
+[Install]
+WantedBy=timers.target

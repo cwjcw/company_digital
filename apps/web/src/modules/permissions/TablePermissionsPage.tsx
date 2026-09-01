@@ -28,6 +28,7 @@ type Role = { id: string; name: string; roleGroupId?: string | null; permissions
 type RoleGroup = { id: string; name: string };
 type User = { id: string; displayName: string; employeeNo?: string | null; username: string; enabled: boolean; departmentPaths?: string[][] };
 type Organization = { id: string; name: string; parentId?: string | null; enabled: boolean; level: number; pathLabel?: string };
+type PermissionContext = { roles: Role[]; roleGroups: RoleGroup[]; users: User[]; organizations: Organization[] };
 
 const actionField: Record<TablePermissionAction, keyof PermissionRecord> = {
   read: "read", create: "create", copy: "copy", update: "update", delete: "delete",
@@ -51,10 +52,11 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
   const queryClient = useQueryClient();
   const resource = tableResourceRegistry.find((entry) => entry.code === resourceCode);
   const groups = useQuery({ queryKey: ["table-permission-groups", resourceCode], queryFn: () => api<PermissionGroup[]>(`/admin/table-permission-groups?resource=${encodeURIComponent(resourceCode)}`), enabled: Boolean(resource), staleTime: 0 });
-  const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<Role[]>("/admin/roles"), enabled: Boolean(resource), staleTime: 0 });
-  const roleGroups = useQuery({ queryKey: ["admin-role-groups"], queryFn: () => api<RoleGroup[]>("/admin/role-groups"), enabled: Boolean(resource) });
-  const users = useQuery({ queryKey: ["admin-users", "permission-page"], queryFn: () => api<User[]>("/admin/users"), enabled: Boolean(resource) });
-  const organizations = useQuery({ queryKey: ["organization-units"], queryFn: () => api<Organization[]>("/admin/organization-units"), enabled: Boolean(resource) });
+  const context = useQuery({ queryKey: ["table-permission-context", resourceCode], queryFn: () => api<PermissionContext>(`/admin/table-permission-context?resource=${encodeURIComponent(resourceCode)}`), enabled: Boolean(resource), staleTime: 0 });
+  const roles = { data: context.data?.roles };
+  const roleGroups = { data: context.data?.roleGroups };
+  const users = { data: context.data?.users };
+  const organizations = { data: context.data?.organizations };
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectorFromEditor, setSelectorFromEditor] = useState(false);
   const [selectorTab, setSelectorTab] = useState<"organization" | "role" | "member">("organization");
@@ -133,7 +135,7 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
         const body = { resource: resourceCode, groupType, displayName: groupType === "CUSTOM" || editingGroup ? displayName : undefined, description: groupType === "CUSTOM" ? description : undefined, actions: customActions, fields: fields.map((field) => ({ fieldKey: field.key, ...(customFields[field.key] ?? { visible: false, editable: false }) })), dataMatch, dataRules: rules, subjects };
         if (editingGroup) await api(`/admin/table-permission-groups/${editingGroup.id}`, { method: "PATCH", body: JSON.stringify({ ...body, version: editingGroup.version }) }); else await api("/admin/table-permission-groups", { method: "POST", body: JSON.stringify(body) });
       }
-      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["admin-roles"] })]);
+      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["table-permission-context", resourceCode] })]);
       message.success(editingGroup ? "权限组已更新" : "成员权限已发布"); setEditorOpen(false); resetDraft();
     } catch (error) {
       const reason = error instanceof Error && error.message ? error.message : "权限保存失败，请稍后重试";

@@ -63,6 +63,10 @@ T+ / future E10 / WMS / MES
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
 - `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details and work-report pages.
 
+## Administrator authority
+
+Administrator authority is deliberately separate from ordinary roles and per-table permission groups. Tenant-scoped `administrator_grants` records define either a system administrator or one or more stable module codes. The built-in `admin` account is the default immutable system administrator and is the only account allowed to maintain the system-administrator list. Other system administrators may maintain module administrators; module administrators have read-only access to the two administrator lists. System administrators receive the explicit highest-level claim and exclusively operate the rest of System Management. Module administrators receive every supported action and full data scope only for resources registered to their module; they can manage those tables' permission groups through resource-scoped query and application services. Administrator changes are transactional, versioned and audited, and the runtime refreshes live claims on every protected request.
+
 ## Planning state model
 
 `PlanPeriod` owns numbered `PlanVersion` records.

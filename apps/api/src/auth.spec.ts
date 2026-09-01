@@ -11,7 +11,7 @@ function queryBuilder(result: unknown[]) {
 }
 
 describe("AuthService dynamic organization roles", () => {
-  function setup(enabled = true) {
+  function setup(enabled = true, administratorGrant: { systemAdmin: boolean; moduleCodes: string[] } | null = null) {
     const user = {
       id: "user-1", username: "member", displayName: "部门成员", enabled,
       departmentPaths: [["凯南", "营销中心", "业务部"]], division: null, mustChangePassword: false
@@ -31,10 +31,11 @@ describe("AuthService dynamic organization roles", () => {
       { id: "marketing", name: "营销中心", parentId: "company" },
       { id: "sales", name: "业务部", parentId: "marketing" }
     ]) };
+    const administratorGrants = { findOneBy: jest.fn().mockResolvedValue(administratorGrant) };
     const service = new AuthService(
       users as never, userRoles as never, roles as never, permissions as never, scopes as never,
       organizationScopes as never, permissionGroupSubjects as never, organizationUnits as never,
-      {} as never, {} as never, {} as never, {} as never, {} as never
+      administratorGrants as never, {} as never, {} as never, {} as never, {} as never, {} as never
     );
     return { service };
   }
@@ -48,6 +49,16 @@ describe("AuthService dynamic organization roles", () => {
   it("rejects a departed or disabled user before reusing token claims", async () => {
     await expect(setup(false).service.claimsForEnabledUser("user-1")).rejects.toBeInstanceOf(UnauthorizedException);
   });
+
+  it("grants every table action in only the assigned module without using an ordinary permission group", async () => {
+    const claims = await setup(true, { systemAdmin: false, moduleCodes: ["planning"] }).service.claimsForEnabledUser("user-1");
+    expect(claims.isSystemAdmin).toBe(false);
+    expect(claims.moduleAdminCodes).toEqual(["planning"]);
+    expect(claims.permissions).toContain("monthly-plan:*:update");
+    expect(claims.permissions).toContain("planning.admin.manage");
+    expect(claims.permissions).not.toContain("business-customer-mapping:*:update");
+    expect(claims.permissions).not.toContain("*");
+  });
 });
 
 describe("AuthService password rules", () => {
@@ -56,7 +67,7 @@ describe("AuthService password rules", () => {
     const users = { findOneBy: jest.fn().mockResolvedValue(user), save: jest.fn() };
     const service = new AuthService(
       users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, {} as never, {} as never, {} as never, {} as never
+      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never
     );
     await expect(service.changePassword("user-1", "Current123", "Current123")).rejects.toBeInstanceOf(BadRequestException);
     expect(users.save).not.toHaveBeenCalled();
@@ -72,7 +83,7 @@ describe("AuthService password rules", () => {
     const mail = { sendPasswordResetCode: jest.fn().mockResolvedValue(undefined) };
     const service = new AuthService(
       users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, resetRequests as never, audits as never, mail as never, {} as never
+      {} as never, {} as never, resetRequests as never, audits as never, mail as never, {} as never
     );
     await expect(service.requestPasswordReset("13800000000", "user@example.com", "127.0.0.1", "request-1")).resolves.toMatchObject({ phoneVerified: true, email: "us***@example.com" });
     const stored = resetRequests.save.mock.calls[0]![0];
@@ -89,7 +100,7 @@ describe("AuthService portal module preferences", () => {
     const audits = { save: jest.fn().mockResolvedValue({}) };
     const service = new AuthService(
       users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, {} as never, audits as never, {} as never, {} as never
+      {} as never, {} as never, {} as never, audits as never, {} as never, {} as never
     );
     return { service, user, users, audits };
   }

@@ -16,15 +16,20 @@ describe("ModulePortal system access", () => {
     renderPortal({ username: "demo-manager", roles: ["集团管理员"] });
     expect(screen.queryByText("选择一个模块开始工作。所有模块统一呈现，后续新增能力将在这里持续扩展。")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "进入系统管理" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "进入主计划" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "进入PMC中心" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "进入人力资源" })).toBeInTheDocument();
   });
 
   it("shows system management to system administrators", () => {
     const onOpen = vi.fn();
-    renderPortal({ username: "admin", roles: ["系统管理员"] }, onOpen);
+    renderPortal({ username: "admin", roles: ["系统管理员"], isSystemAdmin: true }, onOpen);
     screen.getByRole("button", { name: "进入系统管理" }).click();
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/users" }));
+  });
+
+  it("shows the administrator viewer entry to module administrators", () => {
+    renderPortal({ username: "module-manager", roles: [], isSystemAdmin: false, moduleAdminCodes: ["planning"] });
+    expect(screen.getByRole("button", { name: "进入系统管理" })).toBeInTheDocument();
   });
 
   it("loads and saves a personal module order without affecting module access", async () => {
@@ -34,7 +39,7 @@ describe("ModulePortal system access", () => {
     expect(screen.getAllByRole("button", { name: /^进入/ })[0]).toHaveAccessibleName("进入个人中心");
     fireEvent.click(screen.getByRole("button", { name: "调整顺序" }));
     fireEvent.click(screen.getByRole("button", { name: "下移个人中心" }));
-    expect(screen.getAllByLabelText(/^排列/)[0]).toHaveAccessibleName("排列主计划");
+    expect(screen.getAllByLabelText(/^排列/)[0]).toHaveAccessibleName("排列PMC中心");
     fireEvent.click(screen.getByRole("button", { name: "保存顺序" }));
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith("/auth/preferences/portal-modules", expect.objectContaining({ method: "PUT" })));
     await waitFor(() => expect(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").portalModuleOrder).toEqual(expect.any(Array)));

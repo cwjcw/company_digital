@@ -28,17 +28,19 @@ export function hasResourcePermission(resource: string, action: string) {
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
 
-export function canManageTablePermissions() {
+export function canManageTablePermissions(resource?: string) {
   try {
     const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
-    return session.roles?.includes("系统管理员") || session.permissions?.includes("*");
+    if (session.isSystemAdmin === true || session.permissions?.includes("*")) return true;
+    const definition = tableResourceRegistry.find((item) => item.code === resource);
+    return Boolean(definition && session.moduleAdminCodes?.includes(definition.moduleCode));
   } catch {
     return false;
   }
 }
 
 export function TablePermissionButton({ resource }: { resource: string }) {
-  if (!registeredTableResources.has(resource) || !canManageTablePermissions()) return null;
+  if (!registeredTableResources.has(resource) || !canManageTablePermissions(resource)) return null;
   const currentPath = `${window.location.pathname}${window.location.search}`;
   const href = `/permissions/${encodeURIComponent(resource)}?from=${encodeURIComponent(currentPath)}`;
   return <Button href={href} icon={<SafetyCertificateOutlined />}>权限管理</Button>;
@@ -113,12 +115,14 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   toolbar?: ReactNode;
   searchPlaceholder?: string;
   shellClassName?: string;
+  /** Minimal read-only list without search, filter or field-view controls. */
+  simple?: boolean;
   /** Tables always start in browse mode. When enabled, authorized users can explicitly enter edit mode. */
   editable?: boolean;
 };
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false,
+  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false,
   pagination, scroll, ...tableProps
 }: KdosDataTableProps<RecordType>) {
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
@@ -188,7 +192,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   };
 
   return <KdosTableEditContext.Provider value={{ editing: editing && canEdit, canEdit }}><section className={["kdos-data-table-shell", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
-    <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
+    {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
           {editing ? "退出编辑模式" : "进入编辑模式"}
@@ -202,7 +206,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>
-    </Flex>
+    </Flex>}
     <Table<RecordType>
       {...tableProps}
       className={["kdos-data-table", className].filter(Boolean).join(" ")}
@@ -213,20 +217,20 @@ export function KdosDataTable<RecordType extends DataRecord>({
       scroll={scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }}
       sticky
     />
-    <Drawer title="字段显示与个人视图" width={400} open={drawerOpen} onClose={() => setDrawerOpen(false)}
+    {!simple && <Drawer title="字段显示与个人视图" width={400} open={drawerOpen} onClose={() => setDrawerOpen(false)}
       extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys(fields.map((field) => field.key)); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
       <Typography.Paragraph type="secondary">字段设置只保存到当前账号；创建人、创建时间、更新人、更新时间可以隐藏，但不能编辑。</Typography.Paragraph>
       <Checkbox.Group value={effectiveVisible} onChange={(keys) => setVisibleKeys(keys.map(String))} style={{ width: "100%" }}>
         <Flex vertical gap={8}>{fields.map((field) => <Checkbox key={field.key} value={field.key}>{field.label}</Checkbox>)}</Flex>
       </Checkbox.Group>
-    </Drawer>
-    <Drawer title="按字段筛选" width={420} open={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)}
+    </Drawer>}
+    {!simple && <Drawer title="按字段筛选" width={420} open={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)}
       extra={<Button disabled={!activeFilterCount} onClick={() => setFilters({})}>清空筛选</Button>}>
       <Flex vertical gap={12}>{fields.map((field) => <label key={field.key} className="kdos-data-table-filter-field">
         <Typography.Text>{field.label}</Typography.Text>
         <Input allowClear value={filters[field.key] ?? ""} placeholder={`筛选${field.label}`}
           onChange={(event) => setFilters((current) => ({ ...current, [field.key]: event.target.value }))} />
       </label>)}</Flex>
-    </Drawer>
+    </Drawer>}
   </section></KdosTableEditContext.Provider>;
 }

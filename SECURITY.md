@@ -13,6 +13,8 @@
 - Field access supports `HIDDEN`, `READONLY`, `EDITABLE`, and `MASKED`.
 - The API rechecks action and field permissions. UI visibility is not a security control.
 - Per-table permission groups retain stable subject IDs. Direct members, organization membership and ordinary-role membership are resolved again when issuing a token; disabled groups stop contributing claims without deleting other grants.
+- System and module administrator grants are tenant-scoped and are not ordinary roles or permission groups. Only the built-in `admin` account can change system administrators; any system administrator can change module administrators; module administrators can only view both lists. The `admin` grant cannot be removed, transferred or disabled. Other System Management operations reject every non-system administrator. A module administrator can manage permission groups only when the requested table registry entry belongs to that exact module.
+- Administrator grants are re-resolved for every authenticated request. The browser refreshes its live session before rendering administrator-only navigation, while backend authorization remains authoritative.
 - New IAM/Planning/Audit/Integration tables have `tenant_id` and RLS. Repository transactions set `app.tenant_id`, and SQL also includes tenant predicates.
 - Identity-provider `sub` values are stored in `iam.identities`; they never replace KDOS UUIDv7 business IDs.
 

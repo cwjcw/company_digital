@@ -18,15 +18,15 @@ const rejectTargetLabels = { DRAFT: "拒绝后回到创建草稿", PREVIOUS: "�
 
 export function ApprovalFlowSettingsPage() {
   const currentUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
-  const canManage = currentUser.roles?.some((role: string) => ["系统管理员", "集团管理员"].includes(role));
+  const canManage = currentUser.isSystemAdmin === true || currentUser.moduleAdminCodes?.includes("workflow") || currentUser.roles?.includes("集团管理员");
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<FlowConfig>();
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const flows = useQuery({ queryKey: ["approval-flow-configs"], queryFn: () => api<FlowConfig[]>("/approval-flow-configs"), enabled: canManage });
-  const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<Role[]>("/admin/roles"), enabled: canManage });
+  const roles = useQuery({ queryKey: ["approval-flow-role-options"], queryFn: () => api<Role[]>("/approval-flow-configs/roles"), enabled: canManage });
 
-  if (!canManage) return <Alert type="error" showIcon message="无权访问审批流程配置" description="仅系统管理员或集团管理员可以调整流程规则。" />;
+  if (!canManage) return <Alert type="error" showIcon message="无权访问审批流程配置" description="仅系统管理员、流程审批模块管理员或集团管理员可以调整流程规则。" />;
 
   const openEdit = (flow: FlowConfig) => {
     setEditing(flow);

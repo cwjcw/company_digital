@@ -60,6 +60,12 @@ export class TablePermissionGroupApplicationService {
     }));
   }
 
+  async resourceForGroup(id: string) {
+    const role = await this.dataSource.getRepository(Role).findOneBy({ id });
+    if (!role?.permissionGroupResource) throw new NotFoundException("权限组不存在");
+    return this.resource(role.permissionGroupResource);
+  }
+
   private actions(input: TablePermissionGroupInput): TablePermissionAction[] {
     if (input.groupType !== "CUSTOM") {
       const presetType: PresetPermissionGroupType = input.groupType;

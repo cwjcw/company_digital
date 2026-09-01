@@ -26,7 +26,7 @@ export const portalModules: PortalModule[] = [
     features: ["销售接单汇总大屏", "经营指标"], path: "/sales-summary-dashboard", tone: "indigo"
   },
   {
-    id: "planning", title: "主计划", englishTitle: "MASTER PLANNING",
+    id: "planning", title: "PMC中心", englishTitle: "PMC CENTER",
     description: "统一管理销售接单、月度排产与生产报工。",
     features: ["销售接单明细", "月度计划", "报工表"], path: "/sales-summary-details", tone: "teal"
   },
@@ -103,7 +103,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   const [ordering, setOrdering] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
-  const canSee = (module: PortalModule) => module.id !== "system" || user.roles?.includes("系统管理员");
+  const canSee = (module: PortalModule) => module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
   const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);
   const visibleModules = orderedModules.filter(canSee);
   const mergeVisibleOrder = (visibleOrder: PortalModuleId[]) => {

@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
-import { AuditLog, Permission, Role, RoleGroup, RoleOrganizationScope, User, UserRole } from "../../entities";
+import { AdministratorGrant, AuditLog, Permission, Role, RoleGroup, RoleOrganizationScope, User, UserRole } from "../../entities";
+import { isPrimaryAdminUsername } from "../../user-defaults";
 
 type PermissionInput = Partial<Permission> & { resource?: string };
 type RoleInput = {
@@ -21,6 +22,33 @@ export class AdminApplicationService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(UserRole) private readonly userRoles: Repository<UserRole>
   ) {}
+
+  async assertCanDisableUser(userId: string, tenantId: string) {
+    const user = await this.users.findOneBy({ id: userId });
+    if (isPrimaryAdminUsername(user?.username)) throw new ConflictException("admin 是默认系统管理员，不能停用");
+    const target = await this.dataSource.getRepository(AdministratorGrant).findOneBy({ tenantId, userId, systemAdmin: true });
+    if (!target) return;
+    const enabledSystemAdministrators = await this.dataSource.getRepository(AdministratorGrant).createQueryBuilder("grant")
+      .innerJoin(User, "user", "user.id = grant.userId AND user.enabled = true")
+      .where("grant.tenantId = :tenantId", { tenantId }).andWhere("grant.systemAdmin = true").getCount();
+    if (enabledSystemAdministrators <= 1) throw new ConflictException("不能停用最后一名在职系统管理员");
+  }
+
+  async assertCanDisableUsers(userIds: string[], tenantId: string) {
+    const ids = [...new Set(userIds)];
+    if (!ids.length) return;
+    const selectedUsers = await this.users.find({ where: ids.map((id) => ({ id })) });
+    if (selectedUsers.some((user) => isPrimaryAdminUsername(user.username))) throw new ConflictException("admin 是默认系统管理员，不能停用");
+    const repository = this.dataSource.getRepository(AdministratorGrant);
+    const [enabledSystemAdministrators, selectedSystemAdministrators] = await Promise.all([
+      repository.createQueryBuilder("grant").innerJoin(User, "user", "user.id = grant.userId AND user.enabled = true")
+        .where("grant.tenantId = :tenantId", { tenantId }).andWhere("grant.systemAdmin = true").getCount(),
+      repository.createQueryBuilder("grant").innerJoin(User, "user", "user.id = grant.userId AND user.enabled = true")
+        .where("grant.tenantId = :tenantId", { tenantId }).andWhere("grant.systemAdmin = true")
+        .andWhere("grant.userId IN (:...ids)", { ids }).getCount()
+    ]);
+    if (enabledSystemAdministrators - selectedSystemAdministrators < 1) throw new ConflictException("不能停用最后一名在职系统管理员");
+  }
 
   listRoleGroups() {
     return this.roleGroups.find({ order: { sortOrder: "ASC", name: "ASC" } });
@@ -91,6 +119,7 @@ export class AdminApplicationService {
   async createRole(input: RoleInput, actor: AdminActor = systemActor) {
     const name = String(input.name ?? "").trim();
     if (!name) throw new BadRequestException("角色名称不能为空");
+    if (name === "系统管理员") throw new ForbiddenException("系统管理员只能在“管理员”页面调整");
     if (await this.roles.findOneBy({ name })) throw new ConflictException("角色名称已存在");
     return this.dataSource.transaction(async (manager) => {
       const roleGroupId = await this.validateRoleGroup(manager, input.roleGroupId);
@@ -126,6 +155,7 @@ export class AdminApplicationService {
       };
       if (input.name !== undefined) {
         const name = input.name.trim(); if (!name) throw new BadRequestException("角色名称不能为空");
+        if (role.name === "系统管理员" || name === "系统管理员") throw new ForbiddenException("系统管理员只能在“管理员”页面调整");
         const duplicate = await manager.findOneBy(Role, { name });
         if (duplicate && duplicate.id !== id) throw new ConflictException("角色名称已存在");
         role.name = name;
@@ -188,6 +218,7 @@ export class AdminApplicationService {
   async employeeAction(id: string, input: { action?: string; targetUserId?: string; departmentPaths?: string[][] }, actor: EmployeeActor) {
     const action = String(input.action ?? "").toUpperCase();
     if (!["HANDOVER", "DISABLE", "TRANSFER", "DEPARTURE"].includes(action)) throw new BadRequestException("员工操作类型无效");
+    if (["DISABLE", "DEPARTURE"].includes(action)) await this.assertCanDisableUser(id, process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.findOneBy(User, { id });
       if (!user) throw new BadRequestException("员工不存在");

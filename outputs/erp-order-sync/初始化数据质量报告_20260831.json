@@ -1,0 +1,200 @@
+{
+  "counts": [
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "recordType": "DELIVERY_PLAN",
+      "count": 92279
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "recordType": "INVENTORY",
+      "count": 459200
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "recordType": "ORDER_HEADER",
+      "count": 12671
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "recordType": "ORDER_LINE",
+      "count": 92281
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "recordType": "OUTBOUND_LINE",
+      "count": 265836
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "recordType": "INBOUND_LINE",
+      "count": 38810
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "recordType": "INVENTORY",
+      "count": 92569
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "recordType": "ORDER_HEADER",
+      "count": 1205
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "recordType": "ORDER_LINE",
+      "count": 17506
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "recordType": "OUTBOUND_LINE",
+      "count": 56404
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "recordType": "INBOUND_LINE",
+      "count": 34287
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "recordType": "INVENTORY",
+      "count": 63269
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "recordType": "ORDER_HEADER",
+      "count": 1271
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "recordType": "ORDER_LINE",
+      "count": 7143
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "recordType": "OUTBOUND_LINE",
+      "count": 88520
+    }
+  ],
+  "orderLineMissing": [
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "missingOrderCount": 22
+    }
+  ],
+  "deliveryPlanDuplicates": [],
+  "e10Outbound": {
+    "total_count": 265836,
+    "total_quantity": "21278877.730325",
+    "linked_count": 265834,
+    "linked_quantity": "21277497.730325",
+    "unlinked_count": 2,
+    "unlinked_quantity": "1380.000000",
+    "unlinkedRatio": 7.523435501587445e-06,
+    "linkRule": "E10订单交付计划直接关联，或销售交货明细回溯订单"
+  },
+  "unlinkedSamples": [
+    {
+      "sourceId": "012d55ff-686d-414c-bc40-1d7ab1db9722",
+      "orderNumber": null,
+      "itemCode": "304030006",
+      "quantity": "180.000000",
+      "modifiedAt": "2026-04-17T19:04:23.000Z",
+      "linkRule": "E10_ORDER_SOURCE_SCHEDULE_OR_DELIVERY"
+    },
+    {
+      "sourceId": "406aad2d-334a-41f9-4fcc-1d6e91e2cac3",
+      "orderNumber": null,
+      "itemCode": "801051699",
+      "quantity": "1200.000000",
+      "modifiedAt": "2026-04-02T08:45:17.000Z",
+      "linkRule": "E10_ORDER_SOURCE_SCHEDULE_OR_DELIVERY"
+    }
+  ],
+  "statusDictionaryUnconfirmed": [
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "statusCode": "N",
+      "count": 88
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "statusCode": "V",
+      "count": 92
+    },
+    {
+      "sourceSystem": "E10",
+      "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+      "statusCode": "Y",
+      "count": 12491
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "statusCode": "181",
+      "count": 3
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "statusCode": "189",
+      "count": 1173
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData418971_000003",
+      "statusCode": "231",
+      "count": 29
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "statusCode": "181",
+      "count": 3
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "statusCode": "189",
+      "count": 1259
+    },
+    {
+      "sourceSystem": "T+",
+      "sourceDatabase": "UFTData741219_000012",
+      "statusCode": "231",
+      "count": 9
+    }
+  ],
+  "duplicates": [
+    {
+      "duplicateLevel": "HIGH_CONFIDENCE_DUPLICATE",
+      "count": 521
+    },
+    {
+      "duplicateLevel": "NEEDS_REVIEW",
+      "count": 190
+    },
+    {
+      "duplicateLevel": "SAME_NUMBER_CONFLICT",
+      "count": 51
+    }
+  ]
+}

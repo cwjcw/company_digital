@@ -13,6 +13,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { DataSource, IsNull, Repository } from "typeorm";
 import { dictionarySeeds, monthlyPlanColumns } from "@tracker/shared";
+import { tableResourceRegistry } from "@kdos/contracts";
 import { AuthGuard, AuthService } from "./auth";
 import {
   ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, FinishedGoodsOutbound, Permission,
@@ -26,6 +27,7 @@ import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { TablePermissionGroupApplicationService, type TablePermissionGroupInput } from "./modules/admin/table-permission-group.application.service";
+import { AdministratorGrantApplicationService } from "./modules/admin/administrator-grant.application.service";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -72,8 +74,20 @@ function requireTablePermission(req: UserRequest, resource: string, action: stri
 }
 
 function requireSystemAdmin(req: UserRequest) {
-  if (req.user.roles?.includes("系统管理员")) return;
+  if (req.user.isSystemAdmin === true) return;
   throw new ForbiddenException("仅系统管理员可以访问系统管理模块");
+}
+
+function requireTableAdministrator(req: UserRequest, resourceCode: string) {
+  const resource = tableResourceRegistry.find((item) => item.code === resourceCode);
+  if (!resource) throw new BadRequestException("表单资源不存在");
+  if (req.user.isSystemAdmin === true || req.user.moduleAdminCodes?.includes(resource.moduleCode)) return;
+  throw new ForbiddenException("仅当前模块管理员可以管理此表权限");
+}
+
+function requireAdministratorViewer(req: UserRequest) {
+  if (req.user.isSystemAdmin === true || (req.user.moduleAdminCodes?.length ?? 0) > 0) return;
+  throw new ForbiddenException("仅管理员可以查看管理员名单");
 }
 
 @ApiTags("系统")
@@ -113,6 +127,9 @@ export class DirectoryController {
 @Controller("auth")
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+  @Get("me")
+  @UseGuards(AuthGuard)
+  me(@Req() req: UserRequest) { return this.auth.claimsForEnabledUser(req.user.sub); }
   @Post("login") login(@Body() body: { username: string; password: string }) {
     return this.auth.login(body.username, body.password);
   }
@@ -954,7 +971,8 @@ export class AdminController {
     private readonly dataSource: DataSource,
     private readonly adminQueries: AdminQueryService,
     private readonly adminApplication: AdminApplicationService,
-    private readonly tablePermissionGroups: TablePermissionGroupApplicationService
+    private readonly tablePermissionGroups: TablePermissionGroupApplicationService,
+    private readonly administratorGrants: AdministratorGrantApplicationService
   ) {}
 
   private admin(req: UserRequest) {
@@ -971,27 +989,57 @@ export class AdminController {
   async listRoles(@Req() req: UserRequest) {
     this.admin(req);
     const [roles, permissions, userRoles, organizationScopes] = await Promise.all([this.roles.find({ where: { permissionGroupResource: IsNull() }, order: { name: "ASC" } }), this.permissions.find(), this.userRoles.find(), this.organizationScopes.find()]);
-    return roles.map((role) => ({ ...role, permissions: permissions.filter((permission) => permission.roleId === role.id), userIds: userRoles.filter((link) => link.roleId === role.id).map((link) => link.userId), organizationUnitIds: organizationScopes.filter((scope) => scope.roleId === role.id).map((scope) => scope.organizationUnitId) }));
+    const ordinaryRoles = roles.filter((role) => role.name !== "系统管理员");
+    return ordinaryRoles.map((role) => ({ ...role, permissions: permissions.filter((permission) => permission.roleId === role.id), userIds: userRoles.filter((link) => link.roleId === role.id).map((link) => link.userId), organizationUnitIds: organizationScopes.filter((scope) => scope.roleId === role.id).map((scope) => scope.organizationUnitId) }));
   }
 
   @Get("table-permission-groups")
   listTablePermissionGroups(@Query("resource") resource: string, @Req() req: UserRequest) {
-    this.admin(req); return this.tablePermissionGroups.list(resource);
+    requireTableAdministrator(req, resource); return this.tablePermissionGroups.list(resource);
+  }
+
+  @Get("table-permission-context")
+  tablePermissionContext(@Query("resource") resource: string, @Req() req: UserRequest) {
+    requireTableAdministrator(req, resource); return this.adminQueries.tablePermissionContext();
   }
 
   @Post("table-permission-groups")
   createTablePermissionGroup(@Body() body: TablePermissionGroupInput, @Req() req: UserRequest) {
-    this.admin(req); return this.tablePermissionGroups.create(body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+    requireTableAdministrator(req, body.resource); return this.tablePermissionGroups.create(body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Patch("table-permission-groups/:id")
-  updateTablePermissionGroup(@Param("id") id: string, @Body() body: Partial<TablePermissionGroupInput> & { version?: number }, @Req() req: UserRequest) {
-    this.admin(req); return this.tablePermissionGroups.update(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  async updateTablePermissionGroup(@Param("id") id: string, @Body() body: Partial<TablePermissionGroupInput> & { version?: number }, @Req() req: UserRequest) {
+    requireTableAdministrator(req, await this.tablePermissionGroups.resourceForGroup(id));
+    return this.tablePermissionGroups.update(id, body, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
   }
 
   @Delete("table-permission-groups/:id")
-  deleteTablePermissionGroup(@Param("id") id: string, @Req() req: UserRequest) {
-    this.admin(req); return this.tablePermissionGroups.delete(id, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  async deleteTablePermissionGroup(@Param("id") id: string, @Req() req: UserRequest) {
+    requireTableAdministrator(req, await this.tablePermissionGroups.resourceForGroup(id));
+    return this.tablePermissionGroups.delete(id, { userId: req.user?.sub ?? null, name: req.user?.displayName ?? req.user?.username ?? "system", requestId: req.requestId });
+  }
+
+  @Get("administrators")
+  async listAdministrators(@Req() req: UserRequest) {
+    requireAdministratorViewer(req);
+    const result = await this.administratorGrants.list(process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
+    return {
+      ...result,
+      capabilities: {
+        canManageSystemAdministrators: req.user.isSystemAdmin === true && isPrimaryAdminUsername(req.user.username),
+        canManageModuleAdministrators: req.user.isSystemAdmin === true
+      }
+    };
+  }
+
+  @Put("administrators/:userId")
+  replaceAdministrator(@Param("userId") userId: string, @Body() body: { systemAdmin?: boolean; moduleCodes?: string[]; expectedVersion?: number | null; targetUserId?: string }, @Req() req: UserRequest) {
+    requireAdministratorViewer(req);
+    return this.administratorGrants.replace(process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", userId, body, {
+      userId: req.user?.sub ?? null, username: req.user?.username ?? "", name: req.user?.displayName ?? req.user?.username ?? "system",
+      requestId: req.requestId, isSystemAdmin: req.user?.isSystemAdmin === true
+    });
   }
 
   @Get("role-groups")
@@ -1137,6 +1185,7 @@ export class AdminController {
   @Patch("users/:id")
   async updateUser(@Param("id") id: string, @Body() body: { displayName?: string; division?: string | null; enabled?: boolean; roleIds?: string[]; password?: string; alias?: string | null; gender?: string | null; mobile?: string | null; email?: string | null; employeeNo?: string | null; position?: string | null; departmentPaths?: string[][] }, @Req() req: UserRequest) {
     this.admin(req);
+    if (body.enabled === false) await this.adminApplication.assertCanDisableUser(id, process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.findOneBy(User, { id });
       if (!user) throw new ForbiddenException("用户不存在");
@@ -1176,7 +1225,11 @@ export class AdminController {
   }
 
   @Post("users/delete")
-  async deleteUsers(@Body() body: { ids: string[] }, @Req() req: UserRequest) { this.admin(req); await this.users.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
+  async deleteUsers(@Body() body: { ids: string[] }, @Req() req: UserRequest) {
+    this.admin(req);
+    await this.adminApplication.assertCanDisableUsers(body.ids ?? [], process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
+    await this.users.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 };
+  }
 
   @Post("users/:id/actions")
   employeeAction(@Param("id") id: string, @Body() body: { action?: string; targetUserId?: string; departmentPaths?: string[][] }, @Req() req: UserRequest) {

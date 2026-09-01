@@ -6,8 +6,9 @@ async function mockApp(page: Page) {
     const body = route.request().postDataJSON() as { username?: string; password?: string };
     if (body.username !== "admin") return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "用户名不存在" }) });
     if (body.password !== "test") return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "密码错误" }) });
-    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "test-token", refreshToken: "refresh", user: { sub: "u-admin", username: "admin", displayName: "测试管理员", roles: ["系统管理员"], permissions: ["*"], divisions: "*", mustChangePassword: false } }) });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "test-token", refreshToken: "refresh", user: { sub: "u-admin", username: "admin", displayName: "测试管理员", roles: ["系统管理员"], isSystemAdmin: true, moduleAdminCodes: [], permissions: ["*"], divisions: "*", mustChangePassword: false } }) });
   });
+  await page.route("**/api/v1/auth/me", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sub: "u-admin", username: "admin", displayName: "测试管理员", roles: ["系统管理员"], isSystemAdmin: true, moduleAdminCodes: [], permissions: ["*"], divisions: "*", mustChangePassword: false }) }));
   await page.route("**/api/v1/plans/rolling", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderType: null, orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
   await page.route("**/api/v1/plans/sales-dashboard", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "o1", orderNumber: "2026C235004", month: "2026-08", months: ["2026-08"], orderDate: "2026-08-01", customerDueDate: "2026-08-20", reviewDueDate: "2026-08-22", exceptionDueDate: "2026-08-25", customer: "测试客户", salesperson: "测试业务员", exceptionDeliveryMethod: "送货", orderAmount: "12800.75", totalQuantity: "64.5", completedQuantity: "0", pendingQuantity: "64.5", completionRate: 0, division: "事业一部", actualCompletionDate: null, shippingDate: null, deliveryScore: "95", qualityScore: "98" }]) }));
   await page.route("**/api/v1/plans/monthly?*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ period: { id: "p1", year: 2026, month: 8 }, rows: [{ id: "i1", version: 1, relationKey: "2026C235004-99996277-1/1", orderNumber: "2026C235004", orderDate: "2026-08-01", customerDueDate: "2026-08-20", exceptionDueDate: "2026-08-25", itemNumber: "99996277-1/1", itemName: "双面主架", itemStatus: "进行中", month: "2026-08", productAttribute: "五金", productionQuantity: "30", historicalInboundQuantity: "0", todayInboundQuantity: "0", processes: { blank: { dueDate: "2026-08-20", quantity: "30", status: "已完成" }, bakingPlating: { dueDate: "2026-08-25", quantity: "10", status: "进行中" }, assemblyPacking: { dueDate: "2026-08-28", quantity: "0", status: "进行中" } } }] }) }));
@@ -73,12 +74,12 @@ async function login(page: Page) {
   await expect(page.locator(".portal-module-grid")).toBeVisible();
 }
 
-async function openModule(page: Page, name: "公司驾驶舱" | "主计划" | "流程审批" | "系统管理" | "个人中心") {
+async function openModule(page: Page, name: "公司驾驶舱" | "PMC中心" | "流程审批" | "系统管理" | "个人中心") {
   if (await page.locator(".module-portal").isVisible()) await page.getByRole("button", { name: `进入${name}` }).click();
 }
 
 async function openAugustMonthlyPlan(page: Page) {
-  await openModule(page, "主计划");
+  await openModule(page, "PMC中心");
   await page.getByText("202608", { exact: true }).click();
 }
 
@@ -98,21 +99,29 @@ test("login reports username and password errors separately", async ({ page }) =
 test("ordinary users enter the business portals without system management", async ({ page }) => {
   await mockApp(page);
   await page.unroute("**/api/v1/auth/login");
+  await page.unroute("**/api/v1/auth/me");
+  const ordinaryUser = {
+    sub: "u-staff",
+    username: "staff",
+    displayName: "普通员工",
+    roles: ["普通用户"],
+    isSystemAdmin: false,
+    moduleAdminCodes: [],
+    permissions: [],
+    divisions: ["事业一部"],
+    mustChangePassword: false
+  };
   await page.route("**/api/v1/auth/login", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
       accessToken: "staff-token",
       refreshToken: "refresh",
-      user: {
-        sub: "u-staff",
-        username: "staff",
-        displayName: "普通员工",
-        roles: ["普通用户"],
-        permissions: [],
-        divisions: ["事业一部"],
-        mustChangePassword: false
-      }
+      user: ordinaryUser
     })
+  }));
+  await page.route("**/api/v1/auth/me", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(ordinaryUser)
   }));
 
   await page.goto("/");
@@ -120,7 +129,7 @@ test("ordinary users enter the business portals without system management", asyn
   await page.getByLabel("密码").fill("test");
   await page.locator("button[type=submit]").click();
 
-  const moduleNames = ["公司驾驶舱", "主计划", "数据中心", "营销中心", "流程审批", "个人中心"] as const;
+  const moduleNames = ["公司驾驶舱", "PMC中心", "数据中心", "营销中心", "流程审批", "个人中心"] as const;
   await expect(page.locator(".module-portal")).toBeVisible();
   for (const moduleName of moduleNames) {
     await expect(page.getByRole("button", { name: `进入${moduleName}` })).toBeVisible();
@@ -135,7 +144,7 @@ test("ordinary users enter the business portals without system management", asyn
   await expect(page.getByText("月度计划", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "返回全部模块" }).click();
-  await page.getByRole("button", { name: "进入主计划" }).click();
+  await page.getByRole("button", { name: "进入PMC中心" }).click();
   await expect(page).toHaveURL(/\/sales-summary-details$/);
   await expect(page.getByText("销售接单明细", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("月度计划", { exact: true })).toBeVisible();
@@ -155,7 +164,7 @@ test("ordinary users enter the business portals without system management", asyn
 
 test("monthly plan selection is the first fixed column and field state is per user", async ({ page }) => {
   await mockApp(page); await login(page);
-  await openModule(page, "主计划");
+  await openModule(page, "PMC中心");
   await page.screenshot({ path: "../../docs/migration/screenshots/master-plan-after.png", fullPage: true });
   await openAugustMonthlyPlan(page);
   const title = page.locator(".topbar-page-title", { hasText: "2026年8月计划" });
@@ -261,7 +270,7 @@ test("an empty month still renders the complete planning field grid", async ({ p
 
 test("monthly plan menu exposes the 2026 month pages and work reports inherit plan items", async ({ page }) => {
   await mockApp(page); await login(page);
-  await openModule(page, "主计划");
+  await openModule(page, "PMC中心");
   await expect(page.getByText("2026年", { exact: true })).toBeVisible();
   for (const period of ["202608", "202609", "202610", "202611", "202612"]) {
     await expect(page.getByText(period, { exact: true })).toBeVisible();
@@ -385,7 +394,7 @@ test("users and master data expose add, multi-select, browse mode and import", a
 
 test("sales order details keep only controls and the reference table", async ({ page }) => {
   await mockApp(page); await login(page);
-  await openModule(page, "主计划");
+  await openModule(page, "PMC中心");
   const orderCell = page.locator('.grid-card .ag-cell[col-id="orderNumber"]').first();
   await expect(page.getByText("跨月订单实时汇总，不维护重复汇总数据", { exact: true })).toHaveCount(0);
   await expect(page.getByText("销售接单明细", { exact: true })).toBeVisible();

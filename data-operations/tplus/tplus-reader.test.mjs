@@ -1,12 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mapOrder, prepareSql } from "./tplus-reader.mjs";
+import { mapOrder, prepareSql, useReadCommitted } from "./tplus-reader.mjs";
 
 test("prepareSql fixes the begin date and enables diagnostics", () => {
   const source = "DECLARE @BeginDate date = NULL;\nDECLARE @ShowDiagnostics bit = 0;";
   const result = prepareSql(source, "2026-01-01");
   assert.match(result, /@BeginDate date = '20260101'/);
   assert.match(result, /@ShowDiagnostics bit = 1/);
+});
+
+test("production source reads explicitly use READ COMMITTED", () => {
+  const result = useReadCommitted("SELECT 1;");
+  assert.match(result, /^SET TRANSACTION ISOLATION LEVEL READ COMMITTED;/);
+  assert.doesNotMatch(result, /READ UNCOMMITTED/i);
 });
 
 test("mapOrder maps the Chinese report columns to the API contract", () => {

@@ -13,7 +13,7 @@ export type DevelopmentRequestStatus = typeof developmentRequestStages[number]["
 export type DevelopmentRequestAction =
   | "EDIT_DRAFT" | "SUBMIT" | "WITHDRAW" | "RETURN" | "REJECT"
   | "REQUESTER_APPROVE" | "ASSIGN" | "SUBMIT_PLAN" | "HANDLER_APPROVE";
-export type DevelopmentActor = { id: string; name: string; roles: string[] };
+export type DevelopmentActor = { id: string; name: string; roles: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[] };
 export type DevelopmentWorkflowEvent = { actorId: string; action: string; fromStatus: string | null; toStatus: string };
 export type DevelopmentWorkflowPolicy = {
   allowWithdraw: boolean;
@@ -37,7 +37,7 @@ export function configuredDevelopmentStages(policy: Partial<DevelopmentWorkflowP
 }
 
 export function isDevelopmentAdmin(actor: DevelopmentActor, adminRoleNames = defaultDevelopmentWorkflowPolicy.adminRoleNames) {
-  return actor.roles.some((role) => adminRoleNames.includes(role));
+  return actor.isSystemAdmin === true || actor.moduleAdminCodes?.includes("workflow") === true || actor.roles.some((role) => adminRoleNames.includes(role));
 }
 
 function isCurrentNodeActor(request: {

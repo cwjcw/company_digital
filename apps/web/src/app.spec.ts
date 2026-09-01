@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { excelMonthlyPlanColumns, monthlyPlanColumns, processDefinitions } from "@tracker/shared";
 import { containsText, getValue } from "./api";
-import { kdosPageSizeOptions, kdosSystemFieldDefinitions } from "./shared/KdosDataTable";
+import { canManageTablePermissions, kdosPageSizeOptions, kdosSystemFieldDefinitions } from "./shared/KdosDataTable";
 
 function tsxFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -68,5 +68,12 @@ describe("monthly plan configuration", () => {
     expect(appSource).toContain('path="/permissions/:resource"');
     expect(tableSource).toContain('<TablePermissionButton resource={resource} />');
     expect(tableSource).toContain('showQuickJumper: true');
+  });
+
+  it("limits permission management to the matching module administrator", () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ moduleAdminCodes: ["planning"], permissions: [] }));
+    expect(canManageTablePermissions("monthly-plan")).toBe(true);
+    expect(canManageTablePermissions("order-schedule")).toBe(false);
+    expect(canManageTablePermissions("users")).toBe(false);
   });
 });

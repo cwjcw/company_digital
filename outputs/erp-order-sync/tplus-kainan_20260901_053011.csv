@@ -1,0 +1,16 @@
+﻿sourceKey,runType,stream,sourceTable,batchCount,recordCount,insertedCount,updatedCount,overlapReplayCount,trueDuplicateCount,averageDurationMs,maxDurationMs,retryCount
+tplus-kainan,COMPENSATION,inbound_detail,ST_RDRecord_b,1,1,0,1,0,0,1273.224,1273.224,0
+tplus-kainan,COMPENSATION,inventory,ST_NewCurrentStock,1,0,0,0,0,0,1044.321,1044.321,0
+tplus-kainan,COMPENSATION,order_detail,SA_SaleOrder_b,1,5,0,5,4,0,1047.181,1047.181,0
+tplus-kainan,COMPENSATION,order_header,SA_SaleOrder,1,2,0,2,1,0,752.455,752.455,0
+tplus-kainan,COMPENSATION,outbound_detail,ST_RDRecord_b,1,5,0,5,4,0,1069.225,1069.225,0
+tplus-kainan,INCREMENTAL,inbound_detail,ST_RDRecord_b,24,26,23,3,1,0,1222.180,1822.592,0
+tplus-kainan,INCREMENTAL,inventory,ST_NewCurrentStock,24,0,0,0,0,0,1275.210,2485.799,0
+tplus-kainan,INCREMENTAL,order_detail,SA_SaleOrder_b,24,5,0,5,1,0,1310.063,3805.782,0
+tplus-kainan,INCREMENTAL,order_header,SA_SaleOrder,24,5,0,5,1,0,639.964,1563.351,0
+tplus-kainan,INCREMENTAL,outbound_detail,ST_RDRecord_b,24,194,46,148,40,0,1272.495,2523.364,0
+tplus-kainan,INITIALIZATION,inbound_detail,ST_RDRecord_b,35,34281,34281,0,0,0,1505.746,2080.401,0
+tplus-kainan,INITIALIZATION,inventory,ST_NewCurrentStock,64,63269,63269,0,0,0,1423.035,1911.428,0
+tplus-kainan,INITIALIZATION,order_detail,SA_SaleOrder_b,8,7143,7143,0,0,0,1256.226,1469.000,0
+tplus-kainan,INITIALIZATION,order_header,SA_SaleOrder,2,1271,1271,0,0,0,969.018,1105.688,0
+tplus-kainan,INITIALIZATION,outbound_detail,ST_RDRecord_b,89,88511,88511,0,0,0,1616.859,2795.158,0

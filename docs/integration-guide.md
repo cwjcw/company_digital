@@ -26,6 +26,10 @@ All Planning routes use `/api/v1/planning`, bearer JWT/API identity and tenant c
 | `POST .../:v/lock` / `unlock` | state transition with reason | lock/unlock permission |
 | `GET /versions/:id/risks?days=7` | overdue/due-soon/process/exception risks | `planning.plan.read` |
 
+## Administrator and permission-management routes
+
+Administrator grants are not roles or table permission groups. `GET /api/v1/admin/administrators` is available read-only to system and module administrators and returns server-derived management capabilities. `PUT /api/v1/admin/administrators/:userId` accepts `systemAdmin`, stable `moduleCodes`, `expectedVersion`, and an optional `targetUserId` for an audited account replacement. Only `admin` may change system administrators; any system administrator may change module administrators; module administrators cannot write. `GET /api/v1/admin/table-permission-context?resource=...` and all table-permission-group writes validate that the caller is a system administrator or the administrator of the registry module owning that exact resource. Clients must not infer authority from Chinese labels or ordinary role names.
+
 Optimistic update body:
 
 ```json

@@ -139,36 +139,48 @@ export const presetTablePermissionDataScope: Record<PresetPermissionGroupType, "
   ADD_ONLY: "NONE", ADD_MANAGE_OWN: "OWN", ADD_VIEW_ALL: "ALL", MANAGE_ALL: "ALL", VIEW_ALL: "ALL"
 };
 
+/** Stable module identities used by administrator grants. Labels are display-only. */
+export const administrableModuleRegistry = [
+  { code: "cockpit", label: "公司驾驶舱" },
+  { code: "planning", label: "PMC中心" },
+  { code: "data", label: "数据中心" },
+  { code: "marketing", label: "营销中心" },
+  { code: "hr", label: "人力资源" },
+  { code: "workflow", label: "流程审批" }
+] as const;
+export type AdministrableModuleCode = typeof administrableModuleRegistry[number]["code"];
+
 /**
  * Single registry for every independently authorized table/report in KDOS.
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
-  { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱" },
-  { code: "rolling-plan", label: "销售接单明细", module: "主计划" },
-  { code: "monthly-plan", label: "月度计划", module: "主计划" },
-  { code: "sales-orders", label: "订单表", module: "数据中心" },
-  { code: "finished-goods-inbound", label: "入库表", module: "数据中心" },
-  { code: "finished-goods-outbound", label: "出库表", module: "数据中心" },
-  { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心" },
-  { code: "order-schedule", label: "订单排期", module: "营销中心" },
-  { code: "hr-departure-check", label: "离职人员检查", module: "人力资源" },
-  { code: "weekly-plan", label: "周计划", module: "主计划" },
-  { code: "work-report", label: "报工表", module: "主计划" },
-  { code: "development-requests", label: "需求提报与审批", module: "流程审批" },
-  { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批" },
-  { code: "suppliers", label: "供应商", module: "系统管理" },
-  { code: "dictionaries", label: "字典", module: "系统管理" },
-  { code: "processes", label: "工序", module: "系统管理" },
-  { code: "users", label: "用户", module: "系统管理" },
-  { code: "roles", label: "角色与权限", module: "系统管理" },
-  { code: "organization", label: "组织架构", module: "系统管理" },
-  { code: "contacts", label: "通讯录", module: "系统管理" },
-  { code: "imports", label: "导入记录", module: "系统管理" },
-  { code: "audit-logs", label: "审计日志", module: "系统管理" },
-  { code: "api-keys", label: "API Key", module: "系统管理" },
-  { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理" },
-  { code: "customer-data-import", label: "客户数据导入", module: "系统管理" }
+  { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
+  { code: "rolling-plan", label: "销售接单明细", module: "PMC中心", moduleCode: "planning" },
+  { code: "monthly-plan", label: "月度计划", module: "PMC中心", moduleCode: "planning" },
+  { code: "sales-orders", label: "订单表", module: "数据中心", moduleCode: "data" },
+  { code: "finished-goods-inbound", label: "入库表", module: "数据中心", moduleCode: "data" },
+  { code: "finished-goods-outbound", label: "出库表", module: "数据中心", moduleCode: "data" },
+  { code: "duplicate-order-review", label: "重复订单业务复核", module: "数据中心", moduleCode: "data" },
+  { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心", moduleCode: "marketing" },
+  { code: "order-schedule", label: "订单排期", module: "营销中心", moduleCode: "marketing" },
+  { code: "hr-departure-check", label: "离职人员检查", module: "人力资源", moduleCode: "hr" },
+  { code: "weekly-plan", label: "周计划", module: "PMC中心", moduleCode: "planning" },
+  { code: "work-report", label: "报工表", module: "PMC中心", moduleCode: "planning" },
+  { code: "development-requests", label: "需求提报与审批", module: "流程审批", moduleCode: "workflow" },
+  { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批", moduleCode: "workflow" },
+  { code: "suppliers", label: "供应商", module: "系统管理", moduleCode: "system" },
+  { code: "dictionaries", label: "字典", module: "系统管理", moduleCode: "system" },
+  { code: "processes", label: "工序", module: "系统管理", moduleCode: "system" },
+  { code: "users", label: "用户", module: "系统管理", moduleCode: "system" },
+  { code: "roles", label: "角色与权限", module: "系统管理", moduleCode: "system" },
+  { code: "organization", label: "组织架构", module: "系统管理", moduleCode: "system" },
+  { code: "contacts", label: "通讯录", module: "系统管理", moduleCode: "system" },
+  { code: "imports", label: "导入记录", module: "系统管理", moduleCode: "system" },
+  { code: "audit-logs", label: "审计日志", module: "系统管理", moduleCode: "system" },
+  { code: "api-keys", label: "API Key", module: "系统管理", moduleCode: "system" },
+  { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理", moduleCode: "system" },
+  { code: "customer-data-import", label: "客户数据导入", module: "系统管理", moduleCode: "system" }
 ] as const;
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
@@ -201,6 +213,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "sales-orders": fields([["customerCode", "客户代码"], ["customerName", "客户名称"], ["orderNumber", "订单编号"], ["orderDate", "订单日期", "date"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "订单数量", "number"], ["unit", "生产单位"], ["customerDueDate", "客户交期", "date"]]),
   "finished-goods-inbound": fields([["inboundDate", "入库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "入库数量", "number"], ["warehouse", "仓库"]]),
   "finished-goods-outbound": fields([["outboundDate", "出库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "出库数量", "number"], ["warehouse", "仓库"], ["deliveryNumber", "出库单号"]]),
+  "duplicate-order-review": fields([["duplicateLevel", "重复等级"], ["suggestedAction", "建议动作"], ["e10OrderNumber", "E10订单号"], ["tplusOrderNumber", "T+订单号"], ["sourceAccountName", "来源账套"], ["customerSummary", "客户"], ["e10ItemQuantitySummary", "E10品项及数量摘要"], ["tplusItemQuantitySummary", "T+品项及数量摘要"], ["totalQuantityConsistent", "总数量是否一致", "boolean"], ["deliveryDateConsistent", "交期是否一致", "boolean"], ["matchingRule", "匹配规则"], ["matchingReason", "匹配理由"], ["systemSuggestion", "系统建议"], ["businessConfirmationStatus", "业务确认状态"], ["businessConfirmedBy", "业务确认人"], ["businessConfirmedAt", "业务确认日期", "date"], ["businessRemark", "备注"]]),
   "business-customer-mapping": fields([["departmentId", "部门", "department"], ["section", "课室"], ["customerCode", "客户"], ["salespersonUserIds", "业务员", "member"]]),
   "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["totalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRate", "订单完成比例", "number", false]]),
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),

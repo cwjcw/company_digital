@@ -6,8 +6,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
-import { ApiKey, AuditLog, OrganizationUnit, PasswordResetRequest, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
-import { planningPermissions } from "@kdos/contracts";
+import { AdministratorGrant, ApiKey, AuditLog, OrganizationUnit, PasswordResetRequest, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
+import { administrableModuleRegistry, planningPermissions, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { MailService } from "./mail.service";
 
@@ -26,6 +26,7 @@ export class AuthService {
     @InjectRepository(RoleOrganizationScope) private readonly organizationScopes: Repository<RoleOrganizationScope>,
     @InjectRepository(PermissionGroupSubject) private readonly permissionGroupSubjects: Repository<PermissionGroupSubject>,
     @InjectRepository(OrganizationUnit) private readonly organizationUnits: Repository<OrganizationUnit>,
+    @InjectRepository(AdministratorGrant) private readonly administratorGrants: Repository<AdministratorGrant>,
     @InjectRepository(RefreshToken) private readonly refreshTokens: Repository<RefreshToken>,
     @InjectRepository(PasswordResetRequest) private readonly passwordResetRequests: Repository<PasswordResetRequest>,
     @InjectRepository(AuditLog) private readonly auditLogs: Repository<AuditLog>,
@@ -34,6 +35,7 @@ export class AuthService {
   ) {}
 
   private async claimsFor(user: User) {
+    const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
     const links = await this.userRoles.findBy({ userId: user.id });
     const directRoleIds = links.map((link) => link.roleId);
     const [permissionGroupRoles, permissionGroupSubjects, allOrganizationUnits, allOrganizationScopes] = await Promise.all([
@@ -65,7 +67,10 @@ export class AuthService {
     const scopes = roleIds.length ? await this.scopes.createQueryBuilder("s").where("s.roleId IN (:...ids)", { ids: roleIds }).getMany() : [];
     const organizationScopes = allOrganizationScopes.filter((scope) => roleIds.includes(scope.roleId));
     const organizationUnits = organizationScopes.length ? allOrganizationUnits : [];
-    const isSystemAdmin = roles.some((role) => role.name === "系统管理员");
+    const administratorGrant = await this.administratorGrants.findOneBy({ tenantId, userId: user.id });
+    const isSystemAdmin = Boolean(administratorGrant?.systemAdmin);
+    const administrableCodes = new Set<string>(administrableModuleRegistry.map((module) => module.code));
+    const moduleAdminCodes = isSystemAdmin ? [] : (administratorGrant?.moduleCodes ?? []).filter((code) => administrableCodes.has(code));
     const isGroupAdmin = roles.some((role) => role.name === "集团管理员");
     const isDivisionPlanningGroup = roles.some((role) => role.name === "事业部计划组");
     const divisions = new Set(scopes.map((scope) => scope.division));
@@ -94,18 +99,25 @@ export class AuthService {
       : isDivisionPlanningGroup
         ? planningPermissions.filter((permission) => !["planning.plan.delete", "planning.plan.unlock", "planning.admin.manage"].includes(permission))
         : hasLegacyPlanRead ? ["planning.plan.read", "planning.process.read", "planning.progress.read"] : [];
+    const moduleAdminResources = tableResourceRegistry.filter((resource) => moduleAdminCodes.includes(resource.moduleCode));
+    const moduleAdminPermissions = moduleAdminResources.flatMap((resource) => tablePermissionActions.map((action) => `${resource.code}:*:${action}`));
+    const moduleAdminTableScopes = moduleAdminResources.map((resource) => ({
+      resource: resource.code, groupId: `module-admin:${resource.moduleCode}`, scope: "ALL", match: "ALL", rules: [], actions: [...tablePermissionActions]
+    }));
     return {
       sub: user.id,
       username: user.username,
       displayName: user.displayName,
       portalModuleOrder: user.portalModuleOrder ?? [],
       roles: roles.map((role) => role.name),
-      tableDataScopes: effectivePermissionGroups.map((role) => {
+      isSystemAdmin,
+      moduleAdminCodes,
+      tableDataScopes: [...effectivePermissionGroups.map((role) => {
         const operation = permissions.find((permission) => permission.roleId === role.id && permission.fieldKey === "*");
         const actions = operation ? ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"]
           .filter((action) => Boolean(operation[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])) : [];
         return { resource: role.permissionGroupResource, groupId: role.id, scope: role.permissionGroupScope, match: role.permissionGroupConditionMatch, rules: role.permissionGroupDataRules, actions };
-      }),
+      }), ...moduleAdminTableScopes],
       managedOrganizationUnitIds: [...managedOrganizationUnitIds],
       divisions: hasFullDataScope ? "*" : [...divisions],
       permissions: isSystemAdmin ? ["*"] : [...new Set([
@@ -114,7 +126,9 @@ export class AuthService {
             .filter((action) => permission[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])
             .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
         ),
-        ...rolePlanningPermissions
+        ...rolePlanningPermissions,
+        ...moduleAdminPermissions,
+        ...(moduleAdminCodes.includes("planning") ? planningPermissions : [])
       ])],
       mustChangePassword: user.mustChangePassword
     };

@@ -9,6 +9,7 @@ export type ApprovalFlowRuntimeConfig = Pick<ApprovalFlowConfig,
 >;
 
 export const FLOW_CONFIG_ADMIN_ROLES = ["系统管理员", "集团管理员"];
+type FlowAdministrator = { roles: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[] };
 
 @Injectable()
 export class ApprovalFlowConfigService {
@@ -17,13 +18,20 @@ export class ApprovalFlowConfigService {
     @InjectRepository(Role) private readonly roles: Repository<Role>
   ) {}
 
-  assertCanManage(roles: string[]) {
-    if (!roles.some((role) => FLOW_CONFIG_ADMIN_ROLES.includes(role))) throw new ForbiddenException("仅系统管理员或集团管理员可以配置审批流程");
+  assertCanManage(actor: FlowAdministrator) {
+    if (actor.isSystemAdmin || actor.moduleAdminCodes?.includes("workflow") || actor.roles.some((role) => FLOW_CONFIG_ADMIN_ROLES.includes(role))) return;
+    throw new ForbiddenException("仅系统管理员、流程审批模块管理员或集团管理员可以配置审批流程");
   }
 
-  async list(roles: string[]) {
-    this.assertCanManage(roles);
+  async list(actor: FlowAdministrator) {
+    this.assertCanManage(actor);
     return this.configs.find({ order: { name: "ASC" } });
+  }
+
+  async listRoleOptions(actor: FlowAdministrator) {
+    this.assertCanManage(actor);
+    const roles = await this.roles.find({ order: { name: "ASC" } });
+    return roles.filter((role) => role.permissionGroupResource === null && role.name !== "系统管理员").map((role) => ({ id: role.id, name: role.name }));
   }
 
   async get(flowKey: string): Promise<ApprovalFlowConfig> {
@@ -32,8 +40,8 @@ export class ApprovalFlowConfigService {
     return config;
   }
 
-  async update(flowKey: string, input: Partial<ApprovalFlowConfig>, actor: { name: string; roles: string[] }) {
-    this.assertCanManage(actor.roles);
+  async update(flowKey: string, input: Partial<ApprovalFlowConfig>, actor: { name: string } & FlowAdministrator) {
+    this.assertCanManage(actor);
     const config = await this.get(flowKey);
     for (const key of ["enabled", "allowDraft", "allowWithdraw", "approvalCommentRequired"] as const) {
       if (input[key] !== undefined && typeof input[key] !== "boolean") throw new BadRequestException(`${key} 必须是布尔值`);

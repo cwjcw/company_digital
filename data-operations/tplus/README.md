@@ -6,6 +6,7 @@
 同步链路：
 
 1. `tplus-reader.mjs` 经 SSH 隧道的本地 SQL Server 端口读取两个账套；
+   每次读取显式使用 `READ COMMITTED`，不使用 `READ UNCOMMITTED`；
 2. 源 SQL 的有效性判断保持不变，只在运行时注入开始日期并打开诊断结果；
 3. `api-writer.mjs` 使用 `X-API-Key` 调用 knweb API；
 4. API 以“源数据库 + 订单号”为业务键事务更新完整快照，并停用已不再有效的源订单。

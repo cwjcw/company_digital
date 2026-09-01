@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "key": "e10-main",
+      "source_system": "E10",
+      "account_name": "厦门凯南展示制品有限公司",
+      "adapter": "e10",
+      "credential_store": "/data/automation/code/work/basci/basic_code/.env",
+      "credential_env": { "server": "e10_server", "port": "e10_port", "database": "e10_database", "user": "e10_id", "password": "e10_password" },
+      "field_mapping": { "businessDate": "SALES_ORDER_DOC.ORDER_DATE", "modifiedAt": "LastModifiedDate", "primaryKey": "各表UUID主键", "status": "ApproveStatus+CLOSE" }
+    },
+    {
+      "key": "tplus-kainan",
+      "source_system": "T+",
+      "source_database": "UFTData741219_000012",
+      "account_name": "凯南智能",
+      "adapter": "tplus",
+      "credential_store": "project:.env:TPLUS_SQL_*",
+      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+isCancel+CloseDate+line IsClose/IsCCClose", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
+    },
+    {
+      "key": "tplus-kejia",
+      "source_system": "T+",
+      "source_database": "UFTData418971_000003",
+      "account_name": "科加智能",
+      "adapter": "tplus",
+      "credential_store": "project:.env:TPLUS_SQL_*",
+      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+isCancel+CloseDate+line IsClose/IsCCClose", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
+    }
+  ]
+}

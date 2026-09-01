@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { dictionarySeeds, processDefinitions } from "@tracker/shared";
 import dataSource from "./data-source";
 import {
-  DictionaryType, DictionaryValue, Permission, PlanPeriod, ProcessDefinitionEntity,
+  AdministratorGrant, DictionaryType, DictionaryValue, Permission, PlanPeriod, ProcessDefinitionEntity,
   Role, User, UserRole
 } from "./entities";
 import { DEFAULT_USER_PASSWORD } from "./user-defaults";
@@ -47,6 +47,10 @@ async function seed() {
     console.log(generated ? `管理员一次性初始密码（仅显示本次）：${password}` : "管理员已使用环境变量中的初始密码创建");
   }
   await userRoles.createQueryBuilder().insert().values({ userId: admin.id, roleId: adminRole.id }).orIgnore().execute();
+  await dataSource.getRepository(AdministratorGrant).createQueryBuilder().insert().values({
+    tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", userId: admin.id,
+    systemAdmin: true, moduleCodes: [], createdBy: admin.id, updatedBy: admin.id
+  }).orIgnore().execute();
   const managerRole = roleMap.get("集团管理员")!;
   for (const [username, displayName] of [["01382", "吴志琴"], ["09432", "周志明"]]) {
     let user = await users.findOneBy({ username });

@@ -14,7 +14,7 @@ type DevelopmentRequestHttpRequest = Request & { user: any };
 export class DevelopmentRequestController {
   constructor(private readonly service: DevelopmentRequestService) {}
   private actor(req: DevelopmentRequestHttpRequest): DevelopmentActor {
-    return { id: req.user.sub, name: req.user.displayName ?? req.user.username, roles: req.user.roles ?? [] };
+    return { id: req.user.sub, name: req.user.displayName ?? req.user.username, roles: req.user.roles ?? [], isSystemAdmin: req.user.isSystemAdmin === true, moduleAdminCodes: req.user.moduleAdminCodes ?? [] };
   }
 
   @Get() list(@Query("scope") scope: string | undefined, @Query("search") search: string | undefined, @Req() req: DevelopmentRequestHttpRequest) { return this.service.list(this.actor(req), scope, search); }

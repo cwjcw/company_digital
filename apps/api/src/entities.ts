@@ -32,6 +32,16 @@ export class User extends AuditedEntity {
   @Column({ name: "last_login_at", type: "timestamptz", nullable: true }) lastLoginAt!: Date | null;
 }
 
+@Entity("administrator_grants")
+@Unique(["tenantId", "userId"])
+export class AdministratorGrant extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "user_id", type: "uuid" }) userId!: string;
+  @Column({ name: "system_admin", default: false }) systemAdmin!: boolean;
+  @Column({ name: "module_codes", type: "jsonb", default: () => "'[]'" }) moduleCodes!: string[];
+}
+
 @Entity("role_groups")
 export class RoleGroup extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
@@ -518,7 +528,7 @@ export class IdempotencyRecord extends AuditedEntity {
 }
 
 export const entities = [
-  User, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
+  User, AdministratorGrant, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,

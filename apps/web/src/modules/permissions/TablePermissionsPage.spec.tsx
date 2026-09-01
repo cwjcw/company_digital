@@ -6,6 +6,13 @@ import { TablePermissionsPage } from "./TablePermissionsPage";
 
 vi.mock("../../api", () => ({ api: vi.fn() }));
 
+const permissionContext = () => ({
+  roles: [{ id: "role-1", name: "所有员工", roleGroupId: "group-1", permissions: [] }],
+  roleGroups: [{ id: "group-1", name: "销售" }],
+  users: [{ id: "user-1", displayName: "张三", username: "zhangsan", employeeNo: "001", enabled: true, departmentPaths: [["凯南", "销售部"]] }],
+  organizations: [{ id: "org-1", name: "凯南", parentId: null, enabled: true }, { id: "org-2", name: "销售部", parentId: "org-1", enabled: true }]
+});
+
 describe("TablePermissionsPage", () => {
   const renderPage = () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -38,10 +45,7 @@ describe("TablePermissionsPage", () => {
     vi.mocked(api).mockReset();
     vi.mocked(api).mockImplementation(async (path) => {
       if (path.startsWith("/admin/table-permission-groups?")) return [] as never;
-      if (path === "/admin/roles") return [{ id: "role-1", name: "所有员工", roleGroupId: "group-1", permissions: [] }] as never;
-      if (path === "/admin/role-groups") return [{ id: "group-1", name: "销售" }] as never;
-      if (path === "/admin/users") return [{ id: "user-1", displayName: "张三", username: "zhangsan", employeeNo: "001", enabled: true, departmentPaths: [["凯南", "销售部"]] }] as never;
-      if (path === "/admin/organization-units") return [{ id: "org-1", name: "凯南", parentId: null, enabled: true }, { id: "org-2", name: "销售部", parentId: "org-1", enabled: true }] as never;
+      if (path.startsWith("/admin/table-permission-context?")) return permissionContext() as never;
       return {} as never;
     });
   });
@@ -68,10 +72,7 @@ describe("TablePermissionsPage", () => {
     const saveResponse = new Promise((resolve) => { resolveSave = resolve; });
     vi.mocked(api).mockImplementation(async (path, init) => {
       if (path.startsWith("/admin/table-permission-groups?") && !init?.method) return [] as never;
-      if (path === "/admin/roles") return [{ id: "role-1", name: "所有员工", roleGroupId: "group-1", permissions: [] }] as never;
-      if (path === "/admin/role-groups") return [{ id: "group-1", name: "销售" }] as never;
-      if (path === "/admin/users") return [{ id: "user-1", displayName: "张三", username: "zhangsan", employeeNo: "001", enabled: true, departmentPaths: [["凯南", "销售部"]] }] as never;
-      if (path === "/admin/organization-units") return [{ id: "org-1", name: "凯南", parentId: null, enabled: true }, { id: "org-2", name: "销售部", parentId: "org-1", enabled: true }] as never;
+      if (path.startsWith("/admin/table-permission-context?")) return permissionContext() as never;
       if (path === "/admin/table-permission-groups" && init?.method === "POST") return await saveResponse as never;
       return {} as never;
     });
@@ -90,10 +91,7 @@ describe("TablePermissionsPage", () => {
   it("keeps the editor and draft open with an inline error when saving fails", async () => {
     vi.mocked(api).mockImplementation(async (path, init) => {
       if (path.startsWith("/admin/table-permission-groups?") && !init?.method) return [] as never;
-      if (path === "/admin/roles") return [{ id: "role-1", name: "所有员工", roleGroupId: "group-1", permissions: [] }] as never;
-      if (path === "/admin/role-groups") return [{ id: "group-1", name: "销售" }] as never;
-      if (path === "/admin/users") return [{ id: "user-1", displayName: "张三", username: "zhangsan", employeeNo: "001", enabled: true, departmentPaths: [["凯南", "销售部"]] }] as never;
-      if (path === "/admin/organization-units") return [{ id: "org-1", name: "凯南", parentId: null, enabled: true }, { id: "org-2", name: "销售部", parentId: "org-1", enabled: true }] as never;
+      if (path.startsWith("/admin/table-permission-context?")) return permissionContext() as never;
       if (path === "/admin/table-permission-groups" && init?.method === "POST") throw new Error("数据库保存失败");
       return {} as never;
     });

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, Repository } from "typeorm";
-import { OrganizationUnit, Role, User, UserRole } from "../../entities";
+import { Brackets, IsNull, Not, Repository } from "typeorm";
+import { OrganizationUnit, Permission, Role, RoleGroup, User, UserRole } from "../../entities";
 
 @Injectable()
 export class AdminQueryService {
@@ -9,6 +9,8 @@ export class AdminQueryService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(UserRole) private readonly userRoles: Repository<UserRole>,
     @InjectRepository(Role) private readonly roles: Repository<Role>,
+    @InjectRepository(RoleGroup) private readonly roleGroups: Repository<RoleGroup>,
+    @InjectRepository(Permission) private readonly permissions: Repository<Permission>,
     @InjectRepository(OrganizationUnit) private readonly organizationUnits: Repository<OrganizationUnit>
   ) {}
 
@@ -70,5 +72,22 @@ export class AdminQueryService {
         leaderNames: leaders.map((user) => user.displayName)
       };
     });
+  }
+
+  async tablePermissionContext() {
+    const [users, roles, roleGroups, organizations] = await Promise.all([
+      this.users.find({ order: { displayName: "ASC", username: "ASC" } }),
+      this.roles.find({ where: { permissionGroupResource: IsNull(), name: Not("系统管理员") }, order: { name: "ASC" } }),
+      this.roleGroups.find({ order: { sortOrder: "ASC", name: "ASC" } }),
+      this.listOrganizationUnits()
+    ]);
+    const roleIds = roles.map((role) => role.id);
+    const permissions = roleIds.length ? await this.permissions.createQueryBuilder("permission").where("permission.roleId IN (:...roleIds)", { roleIds }).getMany() : [];
+    return {
+      users: users.map((user) => ({ id: user.id, username: user.username, displayName: user.displayName, employeeNo: user.employeeNo, enabled: user.enabled, departmentPaths: user.departmentPaths })),
+      roles: roles.map((role) => ({ id: role.id, name: role.name, roleGroupId: role.roleGroupId, permissions: permissions.filter((permission) => permission.roleId === role.id) })),
+      roleGroups: roleGroups.map((group) => ({ id: group.id, name: group.name })),
+      organizations
+    };
   }
 }

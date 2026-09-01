@@ -1,0 +1,1313 @@
+{
+  "generatedAt": "2026-08-31T19:02:20.705449",
+  "sourceKey": "tplus-kejia",
+  "sync": {
+    "sources": [
+      {
+        "sourceKey": "e10-main",
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "sourceAccountName": "厦门凯南展示制品有限公司",
+        "status": "ACTIVE",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "initializationStartedAt": "2026-08-31T09:49:43.298Z",
+        "initializationCompletedAt": null,
+        "incrementalEnabled": false,
+        "lastSyncAt": "2026-08-31T10:47:24.454Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "sourceAccountName": "凯南智能",
+        "status": "ACTIVE",
+        "sourceSnapshotAt": "2026-08-31T18:47:43.327Z",
+        "initializationStartedAt": "2026-08-31T10:47:43.781Z",
+        "initializationCompletedAt": null,
+        "incrementalEnabled": false,
+        "lastSyncAt": "2026-08-31T10:53:33.300Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "sourceAccountName": "科加智能",
+        "status": "ACTIVE",
+        "sourceSnapshotAt": "2026-08-31T18:54:46.943Z",
+        "initializationStartedAt": "2026-08-31T10:54:47.399Z",
+        "initializationCompletedAt": null,
+        "incrementalEnabled": false,
+        "lastSyncAt": "2026-08-31T11:02:19.596Z"
+      }
+    ],
+    "runs": [
+      {
+        "sourceKey": "e10-main",
+        "id": "01a05739-880b-7ff0-8b0a-02b35b8f8be3",
+        "runType": "INITIALIZATION",
+        "status": "FAILED",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "scanUpperBound": null,
+        "startedAt": "2026-08-31T09:49:43.298Z",
+        "completedAt": "2026-08-31T09:49:47.231Z",
+        "metrics": {},
+        "errorMessage": "KDOS API 500: {\"statusCode\":500,\"message\":\"Internal server error\"}",
+        "retryCount": 3
+      },
+      {
+        "sourceKey": "e10-main",
+        "id": "01a0575b-a7ae-7a5c-8e45-126ae52bb67e",
+        "runType": "INITIALIZATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "scanUpperBound": null,
+        "startedAt": "2026-08-31T10:26:59.621Z",
+        "completedAt": "2026-08-31T10:43:36.181Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 460,
+              "records": 459144
+            },
+            "order_detail": {
+              "batches": 94,
+              "records": 0
+            },
+            "order_header": {
+              "batches": 14,
+              "records": 0
+            },
+            "delivery_plan": {
+              "batches": 94,
+              "records": 0
+            },
+            "outbound_initial": {
+              "batches": 266,
+              "records": 265821
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "id": "01a0576a-dc8f-7ee8-b33a-545250cd2125",
+        "runType": "COMPENSATION",
+        "status": "FAILED",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "scanUpperBound": "2026-08-31T18:43:25.597Z",
+        "startedAt": "2026-08-31T10:43:36.203Z",
+        "completedAt": "2026-08-31T10:43:36.286Z",
+        "metrics": {},
+        "errorMessage": "can't compare offset-naive and offset-aware datetimes",
+        "retryCount": 3
+      },
+      {
+        "sourceKey": "e10-main",
+        "id": "01a0576c-4560-72b8-ac6a-da2558f8f358",
+        "runType": "COMPENSATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "scanUpperBound": "2026-08-31T18:44:57.960Z",
+        "startedAt": "2026-08-31T10:45:08.567Z",
+        "completedAt": "2026-08-31T10:45:09.570Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 1,
+              "records": 103
+            },
+            "order_detail": {
+              "batches": 1,
+              "records": 22
+            },
+            "order_header": {
+              "batches": 1,
+              "records": 15
+            },
+            "delivery_plan": {
+              "batches": 1,
+              "records": 22
+            },
+            "outbound_detail": {
+              "batches": 1,
+              "records": 1
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "id": "01a0576e-54c9-78a4-b044-27cfc628c161",
+        "runType": "COMPENSATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T17:49:32.790Z",
+        "scanUpperBound": "2026-08-31T18:47:12.940Z",
+        "startedAt": "2026-08-31T10:47:23.584Z",
+        "completedAt": "2026-08-31T10:47:24.454Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 1,
+              "records": 16
+            },
+            "order_detail": {
+              "batches": 1,
+              "records": 3
+            },
+            "order_header": {
+              "batches": 1,
+              "records": 1
+            },
+            "delivery_plan": {
+              "batches": 1,
+              "records": 3
+            },
+            "outbound_detail": {
+              "batches": 1,
+              "records": 0
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "id": "01a0576e-a3ad-7f2d-b54b-77d368c1bc16",
+        "runType": "INITIALIZATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T18:47:43.327Z",
+        "scanUpperBound": null,
+        "startedAt": "2026-08-31T10:47:43.781Z",
+        "completedAt": "2026-08-31T10:53:26.907Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 64,
+              "records": 63269
+            },
+            "order_detail": {
+              "batches": 8,
+              "records": 7143
+            },
+            "order_header": {
+              "batches": 2,
+              "records": 1271
+            },
+            "inbound_detail": {
+              "batches": 35,
+              "records": 34281
+            },
+            "outbound_detail": {
+              "batches": 89,
+              "records": 88511
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "id": "01a05773-e40b-7a09-a598-c157e5c62d14",
+        "runType": "COMPENSATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T18:47:43.327Z",
+        "scanUpperBound": "2026-08-31T18:53:27.490Z",
+        "startedAt": "2026-08-31T10:53:27.942Z",
+        "completedAt": "2026-08-31T10:53:33.300Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 1,
+              "records": 0
+            },
+            "order_detail": {
+              "batches": 1,
+              "records": 5
+            },
+            "order_header": {
+              "batches": 1,
+              "records": 2
+            },
+            "inbound_detail": {
+              "batches": 1,
+              "records": 1
+            },
+            "outbound_detail": {
+              "batches": 1,
+              "records": 5
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "id": "01a05775-1a6e-7146-a48c-dfac39054a4e",
+        "runType": "INITIALIZATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T18:54:46.943Z",
+        "scanUpperBound": null,
+        "startedAt": "2026-08-31T10:54:47.399Z",
+        "completedAt": "2026-08-31T11:02:12.456Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 93,
+              "records": 92569
+            },
+            "order_detail": {
+              "batches": 18,
+              "records": 17506
+            },
+            "order_header": {
+              "batches": 2,
+              "records": 1205
+            },
+            "inbound_detail": {
+              "batches": 39,
+              "records": 38810
+            },
+            "outbound_detail": {
+              "batches": 57,
+              "records": 56404
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "id": "01a0577b-ea4f-7837-8841-02379dec2c13",
+        "runType": "COMPENSATION",
+        "status": "COMPLETED",
+        "sourceSnapshotAt": "2026-08-31T18:54:46.943Z",
+        "scanUpperBound": "2026-08-31T19:02:13.373Z",
+        "startedAt": "2026-08-31T11:02:13.834Z",
+        "completedAt": "2026-08-31T11:02:19.596Z",
+        "metrics": {
+          "streams": {
+            "inventory": {
+              "batches": 1,
+              "records": 0
+            },
+            "order_detail": {
+              "batches": 1,
+              "records": 0
+            },
+            "order_header": {
+              "batches": 1,
+              "records": 0
+            },
+            "inbound_detail": {
+              "batches": 1,
+              "records": 0
+            },
+            "outbound_detail": {
+              "batches": 1,
+              "records": 0
+            }
+          }
+        },
+        "errorMessage": null,
+        "retryCount": 0
+      }
+    ],
+    "batches": [
+      {
+        "sourceKey": "e10-main",
+        "runType": "COMPENSATION",
+        "stream": "delivery_plan",
+        "sourceTable": "SALES_ORDER_DOC_SD",
+        "batchCount": 2,
+        "recordCount": 25,
+        "insertedCount": 0,
+        "updatedCount": 25,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "95.072",
+        "maxDurationMs": "110.841",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "COMPENSATION",
+        "stream": "inventory",
+        "sourceTable": "ITEM_WAREHOUSE",
+        "batchCount": 2,
+        "recordCount": 119,
+        "insertedCount": 4,
+        "updatedCount": 115,
+        "overlapReplayCount": 22,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "141.288",
+        "maxDurationMs": "145.652",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "COMPENSATION",
+        "stream": "order_detail",
+        "sourceTable": "SALES_ORDER_DOC_D",
+        "batchCount": 2,
+        "recordCount": 25,
+        "insertedCount": 0,
+        "updatedCount": 25,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "135.609",
+        "maxDurationMs": "149.244",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "COMPENSATION",
+        "stream": "order_header",
+        "sourceTable": "SALES_ORDER_DOC",
+        "batchCount": 2,
+        "recordCount": 16,
+        "insertedCount": 0,
+        "updatedCount": 16,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "37.091",
+        "maxDurationMs": "43.004",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "COMPENSATION",
+        "stream": "outbound_detail",
+        "sourceTable": "SALES_ISSUE_D",
+        "batchCount": 2,
+        "recordCount": 1,
+        "insertedCount": 0,
+        "updatedCount": 1,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "287.938",
+        "maxDurationMs": "311.236",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "delivery_plan",
+        "sourceTable": "SALES_ORDER_DOC_SD",
+        "batchCount": 94,
+        "recordCount": 92279,
+        "insertedCount": 92279,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1467.846",
+        "maxDurationMs": "3637.839",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ITEM_WAREHOUSE",
+        "batchCount": 460,
+        "recordCount": 459144,
+        "insertedCount": 459144,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "133.759",
+        "maxDurationMs": "381.251",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SALES_ORDER_DOC_D",
+        "batchCount": 94,
+        "recordCount": 92281,
+        "insertedCount": 92281,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "722.116",
+        "maxDurationMs": "2445.570",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SALES_ORDER_DOC",
+        "batchCount": 14,
+        "recordCount": 12671,
+        "insertedCount": 12671,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "248.922",
+        "maxDurationMs": "306.109",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "SALES_ISSUE_D",
+        "batchCount": 11,
+        "recordCount": 11000,
+        "insertedCount": 11000,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "28866.377",
+        "maxDurationMs": "55919.120",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "e10-main",
+        "runType": "INITIALIZATION",
+        "stream": "outbound_initial",
+        "sourceTable": "SALES_ISSUE_D",
+        "batchCount": 266,
+        "recordCount": 265821,
+        "insertedCount": 254821,
+        "updatedCount": 11000,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "229.692",
+        "maxDurationMs": "1093.549",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "COMPENSATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 1,
+        "recordCount": 1,
+        "insertedCount": 0,
+        "updatedCount": 1,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1273.224",
+        "maxDurationMs": "1273.224",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "COMPENSATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1044.321",
+        "maxDurationMs": "1044.321",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "COMPENSATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "batchCount": 1,
+        "recordCount": 5,
+        "insertedCount": 0,
+        "updatedCount": 5,
+        "overlapReplayCount": 4,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1047.181",
+        "maxDurationMs": "1047.181",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "COMPENSATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "batchCount": 1,
+        "recordCount": 2,
+        "insertedCount": 0,
+        "updatedCount": 2,
+        "overlapReplayCount": 1,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "752.455",
+        "maxDurationMs": "752.455",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "COMPENSATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 1,
+        "recordCount": 5,
+        "insertedCount": 0,
+        "updatedCount": 5,
+        "overlapReplayCount": 4,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1069.225",
+        "maxDurationMs": "1069.225",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 35,
+        "recordCount": 34281,
+        "insertedCount": 34281,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1505.746",
+        "maxDurationMs": "2080.401",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "batchCount": 64,
+        "recordCount": 63269,
+        "insertedCount": 63269,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1423.035",
+        "maxDurationMs": "1911.428",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "batchCount": 8,
+        "recordCount": 7143,
+        "insertedCount": 7143,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1256.226",
+        "maxDurationMs": "1469.000",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "batchCount": 2,
+        "recordCount": 1271,
+        "insertedCount": 1271,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "969.018",
+        "maxDurationMs": "1105.688",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "runType": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 89,
+        "recordCount": 88511,
+        "insertedCount": 88511,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1616.859",
+        "maxDurationMs": "2795.158",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "COMPENSATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1157.405",
+        "maxDurationMs": "1157.405",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "COMPENSATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1142.457",
+        "maxDurationMs": "1142.457",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "COMPENSATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1145.253",
+        "maxDurationMs": "1145.253",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "COMPENSATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "570.986",
+        "maxDurationMs": "570.986",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "COMPENSATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 1,
+        "recordCount": 0,
+        "insertedCount": 0,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1603.300",
+        "maxDurationMs": "1603.300",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 39,
+        "recordCount": 38810,
+        "insertedCount": 38810,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1990.011",
+        "maxDurationMs": "2534.922",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "batchCount": 93,
+        "recordCount": 92569,
+        "insertedCount": 92569,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1838.372",
+        "maxDurationMs": "3388.410",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "batchCount": 18,
+        "recordCount": 17506,
+        "insertedCount": 17506,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "2061.236",
+        "maxDurationMs": "3053.929",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "batchCount": 2,
+        "recordCount": 1205,
+        "insertedCount": 1205,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1556.228",
+        "maxDurationMs": "1879.930",
+        "retryCount": 0
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "runType": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "batchCount": 57,
+        "recordCount": 56404,
+        "insertedCount": 56404,
+        "updatedCount": 0,
+        "overlapReplayCount": 0,
+        "trueDuplicateCount": 0,
+        "averageDurationMs": "1956.867",
+        "maxDurationMs": "2741.447",
+        "retryCount": 0
+      }
+    ],
+    "cursors": [
+      {
+        "sourceKey": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "delivery_plan",
+        "sourceTable": "SALES_ORDER_DOC_SD",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:46:31.981Z",
+        "lastProcessedSourcePk": "db62e168-f92d-4c17-efc3-1dbbc8eefb23",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:47:12.940Z"
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "sourceTable": "ITEM_WAREHOUSE",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:46:23.860Z",
+        "lastProcessedSourcePk": "2f581bd0-ec1e-43a6-08ad-1de58de029e6",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:47:12.940Z"
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "sourceTable": "SALES_ORDER_DOC_D",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:46:32.008Z",
+        "lastProcessedSourcePk": "5a29368d-b8ed-46c6-efd1-1dbbc8eefb23",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:47:12.940Z"
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "sourceTable": "SALES_ORDER_DOC",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:46:32.040Z",
+        "lastProcessedSourcePk": "1cb28ae8-35c7-4a8d-4429-1dbbc7a5eb9f",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:47:12.940Z"
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "sourceTable": "SALES_ISSUE_D",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:42:57.960Z",
+        "lastProcessedSourcePk": "00000000-0000-0000-0000-000000000000",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:47:12.940Z"
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "delivery_plan",
+        "sourceTable": "SALES_ORDER_DOC_SD",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "1098e1e0-9097-4242-ab09-f49420e452c5",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ITEM_WAREHOUSE",
+        "initializationBusinessDate": "1900-01-01T00:00:00.000Z",
+        "initializationSourcePk": "dec84979-c88c-4551-5cb9-1de58d693a6b",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SALES_ORDER_DOC_D",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "27911605-9e4e-4352-87e6-f9abf3aed1c8",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SALES_ORDER_DOC",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "77106770-d381-4511-aeaa-d0e5e765cf40",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "SALES_ISSUE_D",
+        "initializationBusinessDate": "2022-02-21T00:00:00.000Z",
+        "initializationSourcePk": "3c9f8c7c-4dbc-4a54-b172-19efbc27e25a",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_initial",
+        "sourceTable": "SALES_ISSUE_D",
+        "initializationBusinessDate": "1900-01-01T00:00:00.000Z",
+        "initializationSourcePk": "441bbf02-c7d4-48f2-aeee-ffeaa0df917b",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:49:03.143Z",
+        "lastProcessedSourcePk": "193900",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:53:27.490Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:45:43.327Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:53:27.490Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:49:25.533Z",
+        "lastProcessedSourcePk": "7471",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:53:27.490Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:49:25.000Z",
+        "lastProcessedSourcePk": "1362",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:53:27.490Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:49:26.700Z",
+        "lastProcessedSourcePk": "193901",
+        "lastSuccessfulScanUpperBound": "2026-08-31T18:53:27.490Z"
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "193619",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "initializationBusinessDate": "1900-01-01T00:00:00.000Z",
+        "initializationSourcePk": "212537",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "8569",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "1527",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "193899",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:52:46.943Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T19:02:13.373Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:52:46.943Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T19:02:13.373Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:52:46.943Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T19:02:13.373Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:52:46.943Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T19:02:13.373Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": null,
+        "initializationSourcePk": null,
+        "lastProcessedModifiedAt": "2026-08-31T18:52:46.943Z",
+        "lastProcessedSourcePk": "-2147483648",
+        "lastSuccessfulScanUpperBound": "2026-08-31T19:02:13.373Z"
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "119453",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "sourceTable": "ST_NewCurrentStock",
+        "initializationBusinessDate": "1900-01-01T00:00:00.000Z",
+        "initializationSourcePk": "200594",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "sourceTable": "SA_SaleOrder_b",
+        "initializationBusinessDate": "2026-08-29T00:00:00.000Z",
+        "initializationSourcePk": "20649",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "sourceTable": "SA_SaleOrder",
+        "initializationBusinessDate": "2026-08-29T00:00:00.000Z",
+        "initializationSourcePk": "1365",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      },
+      {
+        "sourceKey": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "sourceTable": "ST_RDRecord_b",
+        "initializationBusinessDate": "2026-08-31T00:00:00.000Z",
+        "initializationSourcePk": "119454",
+        "lastProcessedModifiedAt": null,
+        "lastProcessedSourcePk": null,
+        "lastSuccessfulScanUpperBound": null
+      }
+    ]
+  },
+  "quality": {
+    "counts": [
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "recordType": "DELIVERY_PLAN",
+        "count": 92279
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "recordType": "INVENTORY",
+        "count": 459148
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "recordType": "ORDER_HEADER",
+        "count": 12671
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "recordType": "ORDER_LINE",
+        "count": 92281
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "recordType": "OUTBOUND_LINE",
+        "count": 265821
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "recordType": "INBOUND_LINE",
+        "count": 38810
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "recordType": "INVENTORY",
+        "count": 92569
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "recordType": "ORDER_HEADER",
+        "count": 1205
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "recordType": "ORDER_LINE",
+        "count": 17506
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "recordType": "OUTBOUND_LINE",
+        "count": 56404
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "recordType": "INBOUND_LINE",
+        "count": 34281
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "recordType": "INVENTORY",
+        "count": 63269
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "recordType": "ORDER_HEADER",
+        "count": 1271
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "recordType": "ORDER_LINE",
+        "count": 7143
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "recordType": "OUTBOUND_LINE",
+        "count": 88511
+      }
+    ],
+    "e10Outbound": {
+      "total_count": 265821,
+      "total_quantity": "21255548.730325",
+      "linked_count": 265819,
+      "linked_quantity": "21254168.730325",
+      "unlinked_count": 2,
+      "unlinked_quantity": "1380.000000",
+      "unlinkedRatio": 7.523860041155515e-06,
+      "linkRule": "E10订单交付计划直接关联，或销售交货明细回溯订单"
+    },
+    "unlinkedSamples": [
+      {
+        "sourceId": "012d55ff-686d-414c-bc40-1d7ab1db9722",
+        "orderNumber": null,
+        "itemCode": "304030006",
+        "quantity": "180.000000",
+        "modifiedAt": "2026-04-17T19:04:23.000Z",
+        "linkRule": "E10_ORDER_SOURCE_SCHEDULE_OR_DELIVERY"
+      },
+      {
+        "sourceId": "406aad2d-334a-41f9-4fcc-1d6e91e2cac3",
+        "orderNumber": null,
+        "itemCode": "801051699",
+        "quantity": "1200.000000",
+        "modifiedAt": "2026-04-02T08:45:17.000Z",
+        "linkRule": "E10_ORDER_SOURCE_SCHEDULE_OR_DELIVERY"
+      }
+    ],
+    "statuses": [
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "statusCode": "N",
+        "count": 88
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "statusCode": "V",
+        "count": 92
+      },
+      {
+        "sourceSystem": "E10",
+        "sourceDatabase": "E10_6.0.0.1.NEW.CHS",
+        "statusCode": "Y",
+        "count": 12491
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "statusCode": "181",
+        "count": 3
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "statusCode": "189",
+        "count": 1173
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData418971_000003",
+        "statusCode": "231",
+        "count": 29
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "statusCode": "181",
+        "count": 3
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "statusCode": "189",
+        "count": 1259
+      },
+      {
+        "sourceSystem": "T+",
+        "sourceDatabase": "UFTData741219_000012",
+        "statusCode": "231",
+        "count": 9
+      }
+    ],
+    "duplicates": []
+  }
+}

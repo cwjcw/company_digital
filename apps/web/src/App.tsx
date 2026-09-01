@@ -1,8 +1,8 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
-  SettingOutlined, TeamOutlined, UserOutlined
+  SafetyCertificateOutlined, SettingOutlined, TeamOutlined, UserOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,9 +21,11 @@ import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSetting
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import { FinishedGoodsOutboundPage, SalesOrdersPage } from "./modules/data-center/DataCenterPages";
+import { DuplicateOrderReviewPage } from "./modules/data-center/DuplicateOrderReviewPage";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
+import { AdministratorsPage } from "./modules/admin/AdministratorsPage";
 import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
@@ -161,9 +163,13 @@ function Shell({ logout }: { logout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
-  const isSystemAdmin = user.roles?.includes("系统管理员");
-  const systemPaths = ["/master-data", "/data-operations", "/organization", "/audit", "/admin", "/users", "/contacts", "/api-keys"];
+  const storedUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+  const liveSession = useQuery({ queryKey: ["auth-session"], queryFn: () => api<any>("/auth/me"), retry: false, staleTime: 30_000 });
+  const user = liveSession.data ?? storedUser;
+  useEffect(() => { if (liveSession.data) localStorage.setItem("sessionUser", JSON.stringify(liveSession.data)); }, [liveSession.data]);
+  const isSystemAdmin = user.isSystemAdmin === true;
+  const isAnyAdministrator = isSystemAdmin || (user.moduleAdminCodes?.length ?? 0) > 0;
+  const systemPaths = ["/master-data", "/data-operations", "/organization", "/audit", "/admin", "/users", "/administrators", "/contacts", "/api-keys"];
   const monthlyPages = Array.from({ length: 5 }, (_, index) => 8 + index).map((month) => {
     const period = `2026${String(month).padStart(2, "0")}`;
     return { key: `/monthly/${period}`, label: period };
@@ -172,17 +178,13 @@ function Shell({ logout }: { logout: () => void }) {
     { start: "2026-08-16", end: "2026-08-22" }, { start: "2026-08-23", end: "2026-08-29" },
     { start: "2026-08-30", end: "2026-09-05" }, { start: "2026-09-06", end: "2026-09-12" }
   ].map((week) => ({ key: `/weekly/${week.start.replaceAll("-", "")}`, label: `${week.start.slice(5)} 至 ${week.end.slice(5)}` }));
-  if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.path)} onLogout={logout} />;
-  if ((systemPaths.includes(location.pathname) || location.pathname.startsWith("/permissions/")) && !isSystemAdmin) return <Navigate to="/" replace />;
-
   const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
   const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
-  const permissionModuleId = permissionResource?.module === "公司驾驶舱" ? "cockpit"
-    : permissionResource?.module === "主计划" ? "planning"
-    : permissionResource?.module === "数据中心" ? "data"
-    : permissionResource?.module === "营销中心" ? "marketing"
-    : permissionResource?.module === "人力资源" ? "hr"
-    : permissionResource?.module === "流程审批" ? "workflow" : "system";
+  const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
+  if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
+  if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(location.pathname === "/administrators" && isAnyAdministrator)) return <Navigate to="/" replace />;
+  if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
+  const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
     : ["/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
@@ -196,7 +198,7 @@ function Shell({ logout }: { logout: () => void }) {
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
-    planning: [{ key: "planning-root", label: "主计划", children: [
+    planning: [{ key: "planning-root", label: "生产主计划", children: [
       { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
       { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
         { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
@@ -207,7 +209,8 @@ function Shell({ logout }: { logout: () => void }) {
     data: [{ key: "data-root", label: "数据中心", children: [
       { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
       { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" },
-      { key: "/data-center/outbound", icon: <DatabaseOutlined />, label: "出库表" }
+      { key: "/data-center/outbound", icon: <DatabaseOutlined />, label: "出库表" },
+      { key: "/data-center/duplicate-order-review", icon: <AuditOutlined />, label: "重复订单业务复核" }
     ] }],
     marketing: [{ key: "marketing-root", label: "营销中心", children: [
       { key: "/marketing/business-customers", icon: <TeamOutlined />, label: "业务人员与客户对应表" },
@@ -227,7 +230,7 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
       { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }
     ] }],
-    system: [{ key: "system-root", label: "系统管理", children: [
+    system: [{ key: "system-root", label: "系统管理", children: isSystemAdmin ? [
       { key: "system-master", label: "基础资料", children: [
         { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" }
       ] },
@@ -237,10 +240,11 @@ function Shell({ logout }: { logout: () => void }) {
       ] },
       { key: "system-accounts", label: "账户与接口", children: [
         { key: "/users", icon: <TeamOutlined />, label: "用户与角色" },
+        { key: "/administrators", icon: <SafetyCertificateOutlined />, label: "管理员" },
         { key: "/contacts", icon: <ContactsOutlined />, label: "通讯录" },
         { key: "/api-keys", icon: <ApiOutlined />, label: "API Key" }
       ] }
-    ] }],
+    ] : [{ key: "/administrators", icon: <SafetyCertificateOutlined />, label: "管理员" }] }],
     profile: [{ key: "profile-root", label: "个人中心", children: [
       { key: "/profile", icon: <UserOutlined />, label: "账户资料与安全" }
     ] }]
@@ -253,10 +257,11 @@ function Shell({ logout }: { logout: () => void }) {
       "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
+      "/data-center/duplicate-order-review": "重复订单业务复核",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
-      "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/contacts": "通讯录",
+      "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
       "/api-keys": "API Key", "/profile": "个人中心"
     } as Record<string, string>)[location.pathname] ?? activeModule.title;
   return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}`}>
@@ -293,6 +298,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/sales-orders" element={<SalesOrdersPage />} />
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
+          <Route path="/data-center/duplicate-order-review" element={<DuplicateOrderReviewPage />} />
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
@@ -307,6 +313,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/admin" element={<AdminWorkspace />} />
           <Route path="/users" element={<AdminWorkspace />} />
+          <Route path="/administrators" element={<AdministratorsPage />} />
           <Route path="/contacts" element={<ContactDirectory />} />
           <Route path="/api-keys" element={<ApiKeyCenter />} />
           <Route path="/profile" element={<ProfileCenterPage />} />

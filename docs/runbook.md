@@ -60,6 +60,7 @@ Run `./scripts/backup.sh` before upgrades and preserve SHA256 output. Back up th
 - migration connection failure: check `KDOS_DATABASE_HOST`, Compose network and `kdos` database existence.
 - image upload failure: verify MIME/size, upload volume permissions and `MAX_IMAGE_BYTES`.
 - WebSocket updates absent: verify `/socket.io` upgrade proxy, token and period subscription; REST refetch remains authoritative.
+- administrator access missing after upgrade: verify migration `AdministratorGrants1722920035000` backfilled the enabled users linked to the legacy `系统管理员` role, then confirm `administrator_grants.tenant_id` matches `KDOS_DEFAULT_TENANT_CODE`. Do not restore access by adding an ordinary role or table permission group.
 
 ## Password reset mail
 

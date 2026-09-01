@@ -502,6 +502,10 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .role-title-divider { display: inline-block; width: 1px; height: 17px; background: #dfe5e8; }
 .admin-empty-role { display: grid; min-height: 520px; place-content: center; gap: 12px; color: #98a4ad; text-align: center; }
 .admin-empty-role .anticon { font-size: 44px; }
+.administrator-page { display: flex; min-height: 100%; flex-direction: column; gap: 16px; }
+.administrator-page > .ant-alert, .administrator-page > .ant-table-wrapper, .administrator-page > .ant-tabs { margin: 0 24px; }
+.administrator-toolbar { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
+.administrator-toolbar .ant-input-affix-wrapper { width: 360px; }
 .employee-edit-drawer .ant-drawer-header { padding: 25px 28px 18px; }
 .employee-edit-drawer .ant-drawer-body { padding: 0 28px 20px; }
 .employee-edit-drawer .ant-drawer-footer { padding: 16px 28px; }

@@ -50,8 +50,13 @@ export class PlanService {
     private readonly gateway: PlanGateway
   ) {}
 
+  private hasUnrestrictedPlanningScope(user: any) {
+    return user.divisions === "*" || user.isSystemAdmin === true
+      || user.moduleAdminCodes?.some((code: string) => code === "planning" || code === "cockpit");
+  }
+
   private scope(user: any, alias = "o") {
-    if (user.divisions === "*") return { clause: "1=1", params: {} };
+    if (this.hasUnrestrictedPlanningScope(user)) return { clause: "1=1", params: {} };
     if (!Array.isArray(user.divisions) || user.divisions.length === 0) return { clause: "1=0", params: {} };
     return { clause: `${alias}.division IN (:...divisions)`, params: { divisions: user.divisions } };
   }
@@ -117,7 +122,7 @@ export class PlanService {
   private async updateNestedCell(id: string, body: { field: string; value: unknown; expectedVersion: number }, user: any, requestId: string) {
     const item = await this.items.findOne({ where: { id }, relations: { order: true } });
     if (!item) throw new NotFoundException("Item does not exist");
-    if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
+    if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
     if (item.version !== body.expectedVersion) throw new ConflictException({ message: "Record has changed", currentVersion: item.version, submittedVersion: body.expectedVersion, field: body.field });
     let before: Record<string, unknown> = {};
     await this.dataSource.transaction(async (manager) => {
@@ -156,7 +161,7 @@ export class PlanService {
     if (!ids.length) throw new BadRequestException("No rows selected");
     const rows = await this.items.find({ where: ids.map((id) => ({ id })), relations: { order: true } });
     for (const item of rows) {
-      if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
+      if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
       item.active = false; item.version += 1; await this.items.save(item);
       await this.audits.save({ actorId: user.sub, actorName: user.username, resource: "monthly-plan", recordId: item.id, action: "delete", beforeJson: { active: true }, afterJson: { active: false }, requestId, source: "web" });
     }
@@ -191,7 +196,7 @@ export class PlanService {
       const changes: Array<{ id: string; oldPeriodId: string; division: string | null; version: number }> = [];
       let skipped = 0;
       for (const item of rows) {
-        if (user.divisions !== "*" && !user.divisions.includes(item.division)) {
+        if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) {
           throw new ForbiddenException("超出事业部数据范围");
         }
         if (item.periodId === target.id) {
@@ -382,7 +387,7 @@ export class PlanService {
     return this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(Order, { where: { id }, lock: { mode: "pessimistic_write" } });
       if (!order) throw new NotFoundException("订单不存在");
-      if (user.divisions !== "*" && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
+      if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
       if (order.version !== expectedVersion) throw new ConflictException({ message: "销售接单已被其他用户修改，请刷新后重试", currentVersion: order.version, submittedVersion: expectedVersion });
       const before: Record<string, unknown> = {};
       for (const field of allowed) if (field in normalized) { before[field] = order[field]; (order as any)[field] = normalized[field]; }
@@ -478,7 +483,7 @@ export class PlanService {
     for (const id of ids ?? []) {
       const order = await this.orders.findOneBy({ id });
       if (!order) continue;
-      if (user.divisions !== "*" && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
+      if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(order.division)) throw new ForbiddenException("超出事业部数据范围");
       await this.items.update({ orderId: id }, { active: false });
       await this.audits.save({ actorId: user.sub, actorName: user.username, resource: "rolling-plan", recordId: id, action: "delete", beforeJson: { active: true }, afterJson: { active: false }, requestId, source: "web" });
     }
@@ -491,7 +496,7 @@ export class PlanService {
     }
     const item = await this.items.findOne({ where: { id }, relations: { order: true } });
     if (!item) throw new NotFoundException("品号不存在");
-    if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
+    if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
     if (this.isNestedField(body.field)) return this.updateNestedCell(id, body, user, requestId);
     if (item.version !== body.expectedVersion) {
       throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: item.version, submittedVersion: body.expectedVersion, field: body.field });
@@ -534,7 +539,7 @@ export class PlanService {
         const item = await manager.findOne(OrderItem, { where: { id: update.id }, relations: { order: true } });
         if (this.isNestedField(update.field)) {
           if (!item) throw new NotFoundException(`Item does not exist: ${update.id}`);
-          if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
+          if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) throw new ForbiddenException("Division is out of scope");
           if (item.version !== update.expectedVersion) throw new ConflictException({ message: "Record has changed", currentVersion: item.version, submittedVersion: update.expectedVersion, field: update.field });
           const before = await this.applyNestedChange(manager, item, update.field, update.value);
           item.version += 1;
@@ -548,7 +553,7 @@ export class PlanService {
         }
         if (!itemFieldMap[update.field]) throw new BadRequestException(`字段不可编辑：${update.field}`);
         if (!item) throw new NotFoundException(`品号不存在：${update.id}`);
-        if (user.divisions !== "*" && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
+        if (!this.hasUnrestrictedPlanningScope(user) && !user.divisions.includes(item.division)) throw new ForbiddenException("超出事业部数据范围");
         if (item.version !== update.expectedVersion) {
           throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: item.version, submittedVersion: update.expectedVersion, field: update.field });
         }
