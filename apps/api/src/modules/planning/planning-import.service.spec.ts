@@ -23,4 +23,16 @@ describe("PlanningImportService", () => {
     const row = commands.previewImport.mock.calls[0][3][0];
     expect(row.legacyData.processes).toMatchObject({ drawingBom: { requiredDays: 1.5, dueDate: "2026-09-10" }, machining: { requiredDays: 2.5, dueDate: "2026-09-12" } });
   });
+  it("maps inbound quantities, unit price and order exception to core import fields", async () => {
+    const commands = { previewImport: jest.fn().mockResolvedValue({ jobId: "job-3", summary: { total: 1, warnings: 0 }, warnings: [] }) } as any;
+    const csv = [
+      "订单号,品号,订单需求数量,历史入库数据,当天入库数,单价,订单异常信息",
+      "SO-2,I-2,25,8,3,12.50,缺材料",
+    ].join("\n");
+    const file = { originalname: "plan.csv", buffer: Buffer.from(csv), mimetype: "text/csv" } as Express.Multer.File;
+    await new PlanningImportService(commands).preview("version-1", file, actor);
+    expect(commands.previewImport.mock.calls[0][3][0]).toMatchObject({
+      historicalInboundQuantity: 8, currentInboundQuantity: 3, unitPrice: 12.5, exception: "缺材料",
+    });
+  });
 });

@@ -18,7 +18,9 @@ export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
 
   onModuleInit() {
     this.unsubscribe = this.events.subscribe((event) => {
-      this.server.to(`period:${event.periodId}`).emit("plan.changed", {
+      // CLI application contexts (imports/maintenance) do not create a WebSocket server.
+      // The business transaction must remain successful even when there is no live gateway.
+      this.server?.to(`period:${event.periodId}`).emit("plan.changed", {
         entityId: event.entityId, version: event.version, changeType: event.changeType, event: event.name
       });
     });
@@ -40,6 +42,7 @@ export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
     if (period) client.join(`period:${period}`);
   }
   broadcast(periodId: string, division: string | null, payload: unknown) {
+    if (!this.server) return;
     const room = division ? this.server.to(`period:${periodId}`).to(`division:${division}`) : this.server.to(`period:${periodId}`);
     room.emit("plan.changed", payload);
   }

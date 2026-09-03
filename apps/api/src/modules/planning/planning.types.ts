@@ -44,7 +44,9 @@ export interface PlanItemView extends PlanItemRecord { processes: Record<string,
 
 export interface CreatePlanItemInput {
   orderNumber: string; itemNumber: string; itemName?: string; customerName?: string;
-  orderQuantity?: string | number; productionQuantity?: string | number; deliveryDate?: string;
+  orderQuantity?: string | number; productionQuantity?: string | number;
+  historicalInboundQuantity?: string | number; currentInboundQuantity?: string | number; unitPrice?: string | number;
+  deliveryDate?: string; exception?: string;
   priority?: number; sequence?: number; responsibleOrgId?: string; ownerUserId?: string; remark?: string;
   legacyData?: Record<string, unknown>;
 }

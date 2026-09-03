@@ -290,23 +290,30 @@ export class DrizzlePlanningRepository implements PlanningRepository {
         nextSequence += 10;
         if (existing.rowCount) {
           await client.query(`UPDATE planning.plan_items SET item_name=coalesce($1,item_name),customer_name=coalesce($2,customer_name),
-            order_quantity=$3,production_quantity=$4,delivery_date=coalesce($5,delivery_date),priority=$6,
-            responsible_org_id=coalesce($7,responsible_org_id),owner_user_id=coalesce($8,owner_user_id),remark=coalesce($9,remark),
-            legacy_data=legacy_data || $10::jsonb,version=version+1,updated_at=now(),updated_by=$11 WHERE id=$12`, [
+            order_quantity=$3,production_quantity=$4,historical_inbound_quantity=coalesce($5,historical_inbound_quantity),
+            current_inbound_quantity=coalesce($6,current_inbound_quantity),unit_price=coalesce($7,unit_price),
+            delivery_date=coalesce($8,delivery_date),priority=$9,responsible_org_id=coalesce($10,responsible_org_id),
+            owner_user_id=coalesce($11,owner_user_id),exception=coalesce($12,exception),remark=coalesce($13,remark),
+            legacy_data=legacy_data || $14::jsonb,version=version+1,updated_at=now(),updated_by=$15 WHERE id=$16`, [
             row.itemName ?? null, row.customerName ?? null, String(row.orderQuantity ?? row.productionQuantity ?? 0), String(row.productionQuantity ?? row.orderQuantity ?? 0),
-            row.deliveryDate ?? null, row.priority ?? 50, row.responsibleOrgId ?? null, row.ownerUserId ?? null, row.remark ?? null,
+            row.historicalInboundQuantity == null ? null : String(row.historicalInboundQuantity),
+            row.currentInboundQuantity == null ? null : String(row.currentInboundQuantity),
+            row.unitPrice == null ? null : String(row.unitPrice), row.deliveryDate ?? null, row.priority ?? 50,
+            row.responsibleOrgId ?? null, row.ownerUserId ?? null, row.exception ?? null, row.remark ?? null,
             JSON.stringify(row.legacyData ?? {}), actor.userId, existing.rows[0].id
           ]);
           await this.upsertImportedProcesses(client, tenantId, String(existing.rows[0].id), row.legacyData, actor); updated++;
         } else {
           const inserted = await client.query(`INSERT INTO planning.plan_items
-            (tenant_id,plan_version_id,order_number,item_number,item_name,customer_name,order_quantity,production_quantity,delivery_date,
-             priority,sequence,responsible_org_id,owner_user_id,remark,legacy_data,created_by,updated_by)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16) RETURNING id`, [
+            (tenant_id,plan_version_id,order_number,item_number,item_name,customer_name,order_quantity,production_quantity,
+             historical_inbound_quantity,current_inbound_quantity,unit_price,delivery_date,priority,sequence,responsible_org_id,
+             owner_user_id,exception,remark,legacy_data,created_by,updated_by)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20) RETURNING id`, [
             tenantId, preview.versionId, row.orderNumber, row.itemNumber, row.itemName ?? null, row.customerName ?? null,
-            String(row.orderQuantity ?? row.productionQuantity ?? 0), String(row.productionQuantity ?? row.orderQuantity ?? 0), row.deliveryDate ?? null,
-            row.priority ?? 50, row.sequence ?? nextSequence, row.responsibleOrgId ?? null, row.ownerUserId ?? null, row.remark ?? null,
-            JSON.stringify(row.legacyData ?? {}), actor.userId
+            String(row.orderQuantity ?? row.productionQuantity ?? 0), String(row.productionQuantity ?? row.orderQuantity ?? 0),
+            String(row.historicalInboundQuantity ?? 0), String(row.currentInboundQuantity ?? 0), String(row.unitPrice ?? 0), row.deliveryDate ?? null,
+            row.priority ?? 50, row.sequence ?? nextSequence, row.responsibleOrgId ?? null, row.ownerUserId ?? null,
+            row.exception ?? null, row.remark ?? null, JSON.stringify(row.legacyData ?? {}), actor.userId
           ]);
           await this.upsertImportedProcesses(client, tenantId, String(inserted.rows[0].id), row.legacyData, actor); created++;
         }
