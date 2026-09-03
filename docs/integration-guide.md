@@ -48,6 +48,10 @@ The file SHA256 and target version are the idempotency identity. Repeating confi
 
 ## T+ and future ERP
 
+E10、T+凯南和T+科加分别使用独立只读连接、任务、游标、日志和失败重试；SQL Server 查询固定为 READ COMMITTED，禁止 NOLOCK 和任何源端写入/DDL。日常增量使用修改时间加源主键、2分钟重叠窗口、每批1000条，并只在目标 PostgreSQL 当前批次幂等提交后推进实际处理游标。
+
+面向多个目标表的扩展使用事务型变更事件与独立投影消费者。消费者必须先在目标资源内幂等写入并提交，再确认事件批次；目标幂等键保持 `source_system + source_database + source_table + source_id`。新增目标表只新增消费者和明确的 Canonical Model 映射，不增加 SQL Server 读取任务，不按订单号自动归并，也不复制现有业务表。
+
 Implement `SalesOrderProvider` from `packages/integration-sdk`, map source rows to `packages/canonical-model`, then call a protected application/API ingestion command. `integrations/tplus` demonstrates dual-account mapping and per-read deduplication. Source SQL and connection details stay outside Planning.
 
 Phase-one legacy T+ snapshot route remains `/api/v1/data-operations/tplus/sales-orders/snapshot` for compatibility while its write side is migrated to canonical Planning commands.
@@ -55,3 +59,9 @@ Phase-one legacy T+ snapshot route remains `/api/v1/data-operations/tplus/sales-
 ## Events
 
 Connect to Socket.IO namespace `/plans` with the access token and period. Treat events as cache invalidations. Payloads contain IDs/version/change type only; consumers refetch through authorized query routes and process each event idempotently.
+
+## Equipment management routes
+
+Equipment management is a native PMC function, not an ERP projection. `GET/POST/PATCH/DELETE /api/v1/equipment/assets` uses resource `equipment-register`; `GET/POST/PATCH/DELETE /api/v1/equipment/status-reports` uses `equipment-status-report`; and `GET /api/v1/equipment/dashboard` uses `equipment-dashboard`. All three apply independent permission-group scopes using the stable `divisionId` department field. Status durations are integer minutes on the wire and render as `X小时X分钟`; status dates must fall between the current Asia/Shanghai date and six days earlier. The target tables are tenant-scoped, optimistic-versioned, audited, and never accept browser-supplied system audit fields.
+
+设备状态表的 Excel/CSV 导入采用预览确认流程：`POST /api/v1/equipment/status-reports/import-preview` 只解析、匹配和校验文件，`POST /api/v1/equipment/status-reports/import-confirm` 验证服务端签名后以“事业部稳定组织 + 设备编号 + 填报日期”幂等新增或更新。`GET /api/v1/equipment/status-reports/import-template` 下载模板，`GET /api/v1/equipment/status-reports/export` 按当前用户的数据权限、搜索和字段筛选范围导出 Excel。导入和导出分别要求该表的 `import`、`export` 权限并记录审计；五种系统预置权限仍不授予导入能力。

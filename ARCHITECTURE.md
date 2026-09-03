@@ -55,6 +55,7 @@ T+ / future E10 / WMS / MES
 - `packages/permissions`: action and field-access engine.
 - `packages/auth`: `AuthProvider`, local-development and Keycloak provider boundaries.
 - `packages/canonical-model`: ERP-neutral customers, suppliers, items and sales orders.
+- 高频 ERP 采集先进入唯一的 `erp_staging_raw_records` 原始层；真实内容变化与 `erp_change_events` 在同一事务提交。订单、入库、出库及未来投影通过 `erp_projection_consumers` 使用独立游标、租约和重试消费，不直接耦合 SQL Server，也不重复创建同义业务表。
 - `packages/integration-sdk`: provider and idempotent integration contracts.
 - `packages/workflow-sdk`: approval gateway and phase-one no-op implementation.
 - `packages/plugin-sdk`: module manifest contracts.
@@ -62,6 +63,7 @@ T+ / future E10 / WMS / MES
 - `integrations/tplus`: dual-account T+ to Canonical Sales Order adapter.
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
 - `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details and work-report pages.
+- `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
 
 ## Administrator authority
 
@@ -84,7 +86,7 @@ Schemas and principal tables:
 
 - `iam`: `tenants`, `organizations`, `departments`, `positions`, `employees`, `users`, `identities`, `roles`, `permissions`, `role_permissions`, `role_bindings`, `field_policies`. The compatibility IAM also stores per-table permission groups on technical roles and keeps their dynamic `USER` / `ORGANIZATION` / `ROLE` grants in `permission_group_subjects`; technical roles are hidden from ordinary role management.
 - The compatibility `organization_units` directory is the current canonical bridge to WeCom: external department identity, topology and live leader user IDs are synchronized together. Business department fields store its stable UUID and retain names only as display snapshots; leader-based data scopes expand the live organization subtree per request.
-- `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`.
+- `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`; compatibility equipment tables are `equipment_assets`, `equipment_responsibles`, and `equipment_status_reports`.
 - `audit`: `audit_logs`.
 - `integration`: `import_jobs`.
 - `core`: migration ledger.

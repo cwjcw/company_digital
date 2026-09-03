@@ -25,3 +25,17 @@ export type CommitSyncBatch = {
   cursorBefore?: Record<string, unknown> | null; cursorAfter?: Record<string, unknown> | null;
   scanUpperBound?: string | null; batchFull: boolean; durationMs: number; records: RawStagingRecord[];
 };
+
+export type ConfigureProjectionConsumer = {
+  targetResource: string;
+  recordTypes: RawStagingRecord["recordType"][];
+  enabled: boolean;
+  batchSize?: number;
+  expectedVersion?: number;
+};
+
+export type ProjectionRecord = {
+  eventId: string; eventCreatedAt: string; operation: "UPSERT" | "DELETE"; recordVersion: number;
+  sourceSystem: string; sourceDatabase: string; sourceTable: string; sourceId: string; recordType: RawStagingRecord["recordType"];
+  sourceOrderId?: string | null; sourceOrderLineId?: string | null; orderNumber?: string | null;
+};

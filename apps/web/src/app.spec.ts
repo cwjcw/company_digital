@@ -76,4 +76,42 @@ describe("monthly plan configuration", () => {
     expect(canManageTablePermissions("order-schedule")).toBe(false);
     expect(canManageTablePermissions("users")).toBe(false);
   });
+
+  it("uses the compact server-aggregated cockpit without the customer TOP 8 carousel", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "modules/planning/pages/OperationalPlanningPages.tsx"), "utf8");
+    expect(source).not.toContain("客户订单金额 TOP 8");
+    expect(source).toContain('api<any>(`/plans/sales-dashboard?');
+    expect(source).toContain('className="dashboard-warning-list"');
+    expect(source).not.toContain('title="交期预警" auditColumns');
+  });
+
+  it("keeps equipment navigation typography aligned and gives the status table real import/export actions", () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    const equipmentSource = fs.readFileSync(path.resolve(__dirname, "modules/equipment/EquipmentPages.tsx"), "utf8");
+    expect(appSource).toContain('{ key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划"');
+    expect(equipmentSource).toContain('/equipment/status-reports/import-preview');
+    expect(equipmentSource).toContain('/equipment/status-reports/import-confirm');
+    expect(equipmentSource).toContain('/equipment/status-reports/export');
+    expect(equipmentSource).toContain('title="按部门设备运行分析"');
+    expect(equipmentSource).toContain('mode="multiple"');
+    expect(equipmentSource).toContain('query.append("departmentId", departmentId)');
+    expect(equipmentSource).not.toContain("设备状态按每台设备最近一次填报");
+    expect(equipmentSource).not.toContain("每台受监控设备至少每7天填报一次");
+  });
+
+  it("requires account and saved email, warns about lockout, and keeps reset failures visible", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    const profileSource = fs.readFileSync(path.resolve(__dirname, "modules/profile/ProfileCenterPage.tsx"), "utf8");
+    expect(source).toContain('name="username" label="账号"');
+    expect(source).toContain('name="email" label="邮箱"');
+    expect(source).toContain("发送随机密码");
+    expect(source).toContain("邮箱连续错误 10 次后");
+    expect(source).toContain('label="找回密码邮箱" name="email"');
+    expect(source).toContain("该邮箱将保存为忘记密码申请时的验证邮箱");
+    expect(profileSource).toContain('name="email" label="找回密码邮箱"');
+    expect(profileSource).toContain("每次修改密码时以本次填写为准");
+    expect(source).toContain('message="临时密码发送失败"');
+    expect(source).not.toContain("mainlandMobileRule");
+    expect(source).not.toContain('/auth/password-reset/confirm');
+  });
 });

@@ -6,6 +6,16 @@ import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImp
 import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 
+type ServerTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string> };
+type ServerTablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
+const initialTableQuery: ServerTableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const pageUrl = (path: string, query: ServerTableQuery) => {
+  const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
+  if (query.search) params.set("search", query.search);
+  if (Object.values(query.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(query.filters));
+  return `${path}?${params}`;
+};
+
 type SalesField = { key: string; label: string; type?: "date" | "number"; width?: number; required?: boolean };
 const salesFields: SalesField[] = [
   { key: "documentDate", label: "单据日期", type: "date" }, { key: "orderDate", label: "订单日期", type: "date" },
@@ -24,7 +34,12 @@ const salesFields: SalesField[] = [
 
 export function SalesOrdersPage() {
   const queryClient = useQueryClient();
-  const rows = useQuery({ queryKey: ["data-center-sales-orders"], queryFn: () => api<any[]>("/master-data/sales-orders") });
+  const [tableQuery, setTableQuery] = useState<ServerTableQuery>(initialTableQuery);
+  const rows = useQuery({
+    queryKey: ["data-center-sales-orders", tableQuery],
+    queryFn: () => api<ServerTablePage<any>>(pageUrl("/master-data/sales-orders", tableQuery)),
+    placeholderData: (previous) => previous
+  });
   const [open, setOpen] = useState(false); const [importing, setImporting] = useState(false);
   const [feedback, setFeedback] = useState<ImportFeedback>(); const [form] = Form.useForm();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["data-center-sales-orders"] });
@@ -38,17 +53,24 @@ export function SalesOrdersPage() {
     catch (error) { setFeedback(failedImport(error)); } finally { setImporting(false); }
     return false;
   };
-  const columns = salesFields.map((field) => ({
+  const columns = [
+    { title: "来源系统", dataIndex: "sourceSystem", width: 120 },
+    { title: "来源数据库/账套", dataIndex: "sourceDatabase", width: 220 },
+    { title: "来源主键", dataIndex: "sourceKey", width: 240 },
+    ...salesFields.map((field) => ({
     title: field.label, dataIndex: field.key, width: field.width ?? 150,
     render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={isDueDateLabel(field.label) ? DUE_DATE_DISPLAY_FORMAT : undefined} value={value} onSave={(next) => update(row, field.key, next)} />
-  }));
-  return <div><PageHeader title="订单表" subtitle="字段与 E10 sales_order.sql 的 33 个查询结果一致；支持直接维护及 Excel/CSV 导入" actions={<Space>
+    }))
+  ];
+  return <div><PageHeader title="订单表" subtitle="统一展示 E10、T+凯南智能、T+科加智能的全部客户订单；来源字段只读可追溯" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增订单</Button>
     <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入订单</Button></Upload>
     <Button onClick={() => void downloadApiFile("/master-data/templates/sales-orders?format=xlsx", "订单表导入模板.xlsx")}>下载模板</Button>
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
-    <KdosDataTable resource="sales-orders" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 315px)" }} />
+    <KdosDataTable resource="sales-orders" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns}
+      serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
+      scroll={{ x: "max-content", y: "calc(100vh - 315px)" }} />
     <Modal title="新增订单" width={1000} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
       await api("/master-data/sales-orders", { method: "POST", body: JSON.stringify(payload) });
@@ -80,21 +102,32 @@ const outboundFields: OutboundField[] = [
 
 export function FinishedGoodsOutboundPage() {
   const queryClient = useQueryClient();
-  const rows = useQuery({ queryKey: ["finished-goods-outbound"], queryFn: () => api<any[]>("/master-data/finished-goods-outbound") });
+  const [tableQuery, setTableQuery] = useState<ServerTableQuery>(initialTableQuery);
+  const rows = useQuery({
+    queryKey: ["finished-goods-outbound", tableQuery],
+    queryFn: () => api<ServerTablePage<any>>(pageUrl("/master-data/finished-goods-outbound", tableQuery)),
+    placeholderData: (previous) => previous
+  });
   const [open, setOpen] = useState(false); const [form] = Form.useForm();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["finished-goods-outbound"] });
   const update = async (row: any, field: string, value: unknown) => {
     try { await api(`/master-data/finished-goods-outbound/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh(); }
     catch (error) { message.error((error as Error).message); refresh(); throw error; }
   };
-  const columns = outboundFields.map((field) => ({ title: field.label, dataIndex: field.key, width: field.width ?? 150,
+  const columns = [
+    { title: "来源系统", dataIndex: "sourceSystem", width: 120 },
+    { title: "来源数据库/账套", dataIndex: "sourceDatabase", width: 220 },
+    { title: "来源主键", dataIndex: "sourceKey", width: 240 },
+    ...outboundFields.map((field) => ({ title: field.label, dataIndex: field.key, width: field.width ?? 150,
     render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={field.type === "date" ? DUE_DATE_DISPLAY_FORMAT : undefined}
-      value={value} onSave={(next) => update(row, field.key, next)} /> }));
-  return <div><PageHeader title="出库表" subtitle="首版字段按 T+ 实际出库流水设置；字段标题统一使用中文" actions={<Space>
+      value={value} onSave={(next) => update(row, field.key, next)} /> }))
+  ];
+  return <div><PageHeader title="出库表" subtitle="统一展示三个来源的出库明细；保留来源账套和源主键，不稳定关联不自动冲减订单欠数" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增出库记录</Button>
     <Button onClick={() => void downloadApiFile("/master-data/finished-goods-outbound/export", "出库数据.xlsx")}>导出 XLSX</Button>
   </Space>} />
-    <KdosDataTable resource="finished-goods-outbound" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns}
+    <KdosDataTable resource="finished-goods-outbound" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns}
+      serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       scroll={{ x: "max-content", y: "calc(100vh - 300px)" }} />
     <Modal title="新增出库记录" width={1080} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));

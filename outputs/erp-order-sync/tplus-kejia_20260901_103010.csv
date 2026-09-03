@@ -1,0 +1,16 @@
+﻿sourceKey,runType,stream,sourceTable,batchCount,recordCount,insertedCount,updatedCount,overlapReplayCount,trueDuplicateCount,averageDurationMs,maxDurationMs,retryCount
+tplus-kejia,COMPENSATION,inbound_detail,ST_RDRecord_b,1,0,0,0,0,0,1157.405,1157.405,0
+tplus-kejia,COMPENSATION,inventory,ST_NewCurrentStock,1,0,0,0,0,0,1142.457,1142.457,0
+tplus-kejia,COMPENSATION,order_detail,SA_SaleOrder_b,1,0,0,0,0,0,1145.253,1145.253,0
+tplus-kejia,COMPENSATION,order_header,SA_SaleOrder,1,0,0,0,0,0,570.986,570.986,0
+tplus-kejia,COMPENSATION,outbound_detail,ST_RDRecord_b,1,0,0,0,0,0,1603.300,1603.300,0
+tplus-kejia,INCREMENTAL,inbound_detail,ST_RDRecord_b,34,194,139,55,2,0,1205.755,1832.107,0
+tplus-kejia,INCREMENTAL,inventory,ST_NewCurrentStock,34,169,51,118,8,0,1230.727,1670.612,0
+tplus-kejia,INCREMENTAL,order_detail,SA_SaleOrder_b,34,2,1,1,0,0,1228.432,3165.461,0
+tplus-kejia,INCREMENTAL,order_header,SA_SaleOrder,34,2,1,1,0,0,577.028,1060.704,0
+tplus-kejia,INCREMENTAL,outbound_detail,ST_RDRecord_b,34,236,229,7,7,0,1195.443,1678.146,0
+tplus-kejia,INITIALIZATION,inbound_detail,ST_RDRecord_b,39,38810,38810,0,0,0,1990.011,2534.922,0
+tplus-kejia,INITIALIZATION,inventory,ST_NewCurrentStock,93,92569,92569,0,0,0,1838.372,3388.410,0
+tplus-kejia,INITIALIZATION,order_detail,SA_SaleOrder_b,18,17506,17506,0,0,0,2061.236,3053.929,0
+tplus-kejia,INITIALIZATION,order_header,SA_SaleOrder,2,1205,1205,0,0,0,1556.228,1879.930,0
+tplus-kejia,INITIALIZATION,outbound_detail,ST_RDRecord_b,57,56404,56404,0,0,0,1956.867,2741.447,0

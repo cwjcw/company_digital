@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
-import type { CommitSyncBatch, StartSyncRun, SyncActor } from "./order-sync.types";
+import type { CommitSyncBatch, ConfigureProjectionConsumer, StartSyncRun, SyncActor } from "./order-sync.types";
 
 const tenant = () => process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
 
@@ -73,7 +73,7 @@ export class OrderSyncRepository {
             "deliveredQuantity" numeric,"outstandingQuantity" numeric,"deliveryDate" date,"statusCode" varchar,"statusLabel" varchar,
             "isCancelled" boolean,"isClosed" boolean,"isCompleted" boolean,"orderLinkStable" boolean,"linkRule" varchar,
             "rawPayload" jsonb,"contentHash" varchar,"actorId" uuid,"actorName" varchar)
-        ) INSERT INTO erp_staging_raw_records(
+        ), upserted AS (INSERT INTO erp_staging_raw_records(
           tenant_id,source_system,source_database,source_table,source_id,record_type,source_order_id,source_order_line_id,order_number,
           business_date,modified_at,customer_code,customer_name,item_code,item_name,quantity,delivered_quantity,outstanding_quantity,
           delivery_date,status_code,status_label,is_cancelled,is_closed,is_completed,order_link_stable,link_rule,raw_payload,content_hash,created_by,updated_by)
@@ -88,9 +88,14 @@ export class OrderSyncRepository {
           delivery_date=EXCLUDED.delivery_date,status_code=EXCLUDED.status_code,status_label=EXCLUDED.status_label,is_cancelled=EXCLUDED.is_cancelled,
           is_closed=EXCLUDED.is_closed,is_completed=EXCLUDED.is_completed,order_link_stable=EXCLUDED.order_link_stable,link_rule=EXCLUDED.link_rule,
           raw_payload=EXCLUDED.raw_payload,content_hash=EXCLUDED.content_hash,source_active=true,
-          version=CASE WHEN erp_staging_raw_records.content_hash<>EXCLUDED.content_hash THEN erp_staging_raw_records.version+1 ELSE erp_staging_raw_records.version END,
-          updated_by=EXCLUDED.updated_by,updated_at=CASE WHEN erp_staging_raw_records.content_hash<>EXCLUDED.content_hash THEN now() ELSE erp_staging_raw_records.updated_at END
-        RETURNING (xmax=0) AS inserted`, [JSON.stringify(rows)]);
+          version=erp_staging_raw_records.version+1,updated_by=EXCLUDED.updated_by,updated_at=now()
+        WHERE erp_staging_raw_records.content_hash<>EXCLUDED.content_hash
+        RETURNING id,tenant_id,source_system,source_database,source_table,source_id,record_type,version,content_hash,modified_at,(xmax=0) AS inserted
+        ), outboxed AS (
+          INSERT INTO erp_change_events(tenant_id,raw_record_id,source_system,source_database,source_table,source_id,record_type,operation,record_version,content_hash,source_modified_at)
+          SELECT tenant_id,id,source_system,source_database,source_table,source_id,record_type,'UPSERT',version,content_hash,modified_at FROM upserted
+          ON CONFLICT(tenant_id,raw_record_id,record_version) DO NOTHING
+        ) SELECT inserted FROM upserted`, [JSON.stringify(rows)]);
         inserted = result.filter((row: any) => row.inserted).length; updated = result.length - inserted;
       }
       const overlap = rows.filter((row) => row.overlapReplay).length;
@@ -167,6 +172,101 @@ export class OrderSyncRepository {
         await manager.query(`UPDATE erp_sync_sources SET status='FAILED',updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2`,[tenant(),source.id,actor.displayName]);
       }
       return run ?? null;
+    });
+  }
+
+  async projectionConsumers() {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      return manager.query(`SELECT consumer_key "consumerKey",target_resource "targetResource",record_types "recordTypes",enabled,status,
+        batch_size "batchSize",last_event_created_at "lastEventCreatedAt",last_event_id "lastEventId",lease_expires_at "leaseExpiresAt",
+        retry_count "retryCount",next_retry_at "nextRetryAt",last_error "lastError",last_success_at "lastSuccessAt",version,updated_at "updatedAt"
+        FROM erp_projection_consumers WHERE tenant_id=$1 ORDER BY consumer_key`, [tenant()]);
+    });
+  }
+
+  async configureProjectionConsumer(consumerKey: string, input: ConfigureProjectionConsumer, actor: SyncActor) {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      const rows = await manager.query(`SELECT * FROM erp_projection_consumers WHERE tenant_id=$1 AND consumer_key=$2 FOR UPDATE`, [tenant(), consumerKey]);
+      const before = rows[0] ?? null;
+      if (before && before.version !== input.expectedVersion) throw new Error("投影订阅已被其他管理员修改，请刷新后重试");
+      if (before) {
+        await manager.query(`UPDATE erp_projection_consumers SET target_resource=$3,record_types=$4::varchar[],enabled=$5,
+          status=CASE WHEN $5 THEN 'IDLE' ELSE 'DISABLED' END,batch_size=$6,updated_by=$7,updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND consumer_key=$2`, [tenant(),consumerKey,input.targetResource,input.recordTypes,input.enabled,input.batchSize ?? 1000,actor.displayName]);
+      } else {
+        await manager.query(`INSERT INTO erp_projection_consumers(tenant_id,consumer_key,target_resource,record_types,enabled,status,batch_size,created_by,updated_by)
+          VALUES($1,$2,$3,$4::varchar[],$5,CASE WHEN $5 THEN 'IDLE' ELSE 'DISABLED' END,$6,$7,$8)`,
+          [tenant(),consumerKey,input.targetResource,input.recordTypes,input.enabled,input.batchSize ?? 1000,actor.userId,actor.displayName]);
+      }
+      const [after] = await manager.query(`SELECT * FROM erp_projection_consumers WHERE tenant_id=$1 AND consumer_key=$2`, [tenant(), consumerKey]);
+      await manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
+        VALUES($1::uuid,$2,'erp-projection-consumer',$3,'projection.configured',$4::jsonb,$5::jsonb,$6,$7,$1::uuid,$1::text)`,
+        [actor.userId,actor.displayName,consumerKey,JSON.stringify(before),JSON.stringify(after),actor.requestId,actor.source.toLowerCase()]);
+      return after;
+    });
+  }
+
+  async claimProjectionBatch(consumerKey: string, actor: SyncActor) {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      const rows = await manager.query(`SELECT *,last_event_created_at::text last_event_created_at_exact
+        FROM erp_projection_consumers WHERE tenant_id=$1 AND consumer_key=$2 FOR UPDATE`, [tenant(), consumerKey]);
+      const consumer = rows[0];
+      if (!consumer || !consumer.enabled) throw new Error("投影订阅不存在或未启用");
+      if (consumer.next_retry_at && new Date(consumer.next_retry_at).getTime() > Date.now()) throw new Error("投影订阅仍在失败退避期");
+      if (consumer.lease_token && consumer.lease_expires_at && new Date(consumer.lease_expires_at).getTime() > Date.now()) throw new Error("投影订阅已有运行中的租约");
+      const events = await manager.query(`SELECT e.id "eventId",e.created_at::text "eventCreatedAt",e.operation,e.record_version "recordVersion",
+        e.source_system "sourceSystem",e.source_database "sourceDatabase",e.source_table "sourceTable",e.source_id "sourceId",e.record_type "recordType",
+        r.source_order_id "sourceOrderId",r.source_order_line_id "sourceOrderLineId",r.order_number "orderNumber",r.business_date "businessDate",
+        r.modified_at "modifiedAt",r.customer_code "customerCode",r.customer_name "customerName",r.item_code "itemCode",r.item_name "itemName",
+        r.quantity,r.delivered_quantity "deliveredQuantity",r.outstanding_quantity "outstandingQuantity",r.delivery_date "deliveryDate",
+        r.status_code "statusCode",r.is_cancelled "isCancelled",r.is_closed "isClosed",r.is_completed "isCompleted",r.order_link_stable "orderLinkStable",
+        r.link_rule "linkRule",r.raw_payload "rawPayload",r.version "recordVersionCurrent"
+        FROM erp_change_events e JOIN erp_staging_raw_records r ON r.id=e.raw_record_id AND r.tenant_id=e.tenant_id
+        WHERE e.tenant_id=$1 AND e.record_type=ANY($2::varchar[])
+          AND (e.created_at>COALESCE($3::timestamptz,'epoch'::timestamptz)
+            OR (e.created_at=COALESCE($3::timestamptz,'epoch'::timestamptz) AND e.id>COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000'::uuid)))
+        ORDER BY e.created_at,e.id LIMIT $5`, [tenant(),consumer.record_types,consumer.last_event_created_at_exact,consumer.last_event_id,consumer.batch_size]);
+      if (!events.length) {
+        await manager.query(`UPDATE erp_projection_consumers SET status='IDLE',lease_token=NULL,lease_expires_at=NULL,
+          in_flight_event_created_at=NULL,in_flight_event_id=NULL,updated_by=$3,updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND consumer_key=$2`, [tenant(),consumerKey,actor.displayName]);
+        return { consumerKey, leaseToken: null, records: [] };
+      }
+      const [lease] = await manager.query(`SELECT uuidv7() token`);
+      const last = events.at(-1)!;
+      await manager.query(`UPDATE erp_projection_consumers SET status='RUNNING',lease_token=$3,lease_expires_at=now()+interval '10 minutes',
+        in_flight_event_created_at=$4,in_flight_event_id=$5,updated_by=$6,updated_at=now(),version=version+1
+        WHERE tenant_id=$1 AND consumer_key=$2`, [tenant(),consumerKey,lease.token,last.eventCreatedAt,last.eventId,actor.displayName]);
+      return { consumerKey, targetResource: consumer.target_resource, leaseToken: lease.token, records: events };
+    });
+  }
+
+  async completeProjectionBatch(consumerKey: string, leaseToken: string, actor: SyncActor) {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      const [consumer] = await manager.query(`SELECT * FROM erp_projection_consumers WHERE tenant_id=$1 AND consumer_key=$2 FOR UPDATE`, [tenant(),consumerKey]);
+      if (!consumer || String(consumer.lease_token) !== leaseToken || !consumer.in_flight_event_id) throw new Error("投影租约无效或已经完成");
+      await manager.query(`UPDATE erp_projection_consumers SET status='IDLE',last_event_created_at=in_flight_event_created_at,last_event_id=in_flight_event_id,
+        lease_token=NULL,lease_expires_at=NULL,in_flight_event_created_at=NULL,in_flight_event_id=NULL,retry_count=0,next_retry_at=NULL,last_error=NULL,
+        last_success_at=now(),updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND consumer_key=$2`, [tenant(),consumerKey,actor.displayName]);
+      return { consumerKey, completed: true };
+    });
+  }
+
+  async failProjectionBatch(consumerKey: string, leaseToken: string, errorMessage: string, actor: SyncActor) {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      const [consumer] = await manager.query(`SELECT * FROM erp_projection_consumers WHERE tenant_id=$1 AND consumer_key=$2 FOR UPDATE`, [tenant(),consumerKey]);
+      if (!consumer || String(consumer.lease_token) !== leaseToken) return { consumerKey, failed: false };
+      await manager.query(`UPDATE erp_projection_consumers SET status='FAILED',lease_token=NULL,lease_expires_at=NULL,
+        in_flight_event_created_at=NULL,in_flight_event_id=NULL,retry_count=retry_count+1,
+        next_retry_at=now()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(retry_count,7))::integer)),last_error=$3,
+        updated_by=$4,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND consumer_key=$2`,
+        [tenant(),consumerKey,errorMessage.slice(0,2000),actor.displayName]);
+      return { consumerKey, failed: true };
     });
   }
 

@@ -1,5 +1,5 @@
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from "@ant-design/icons";
-import { Button, Card, Descriptions, Form, Input, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Descriptions, Form, Input, Space, Tag, Typography, message } from "antd";
 import { useState } from "react";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
@@ -12,7 +12,7 @@ export function ProfileCenterPage() {
   const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const changePassword = async (values: { currentPassword: string; nextPassword: string }) => {
+  const changePassword = async (values: { currentPassword: string; nextPassword: string; email: string }) => {
     setSaving(true);
     try {
       const result = await api<any>("/auth/change-password", { method: "POST", body: JSON.stringify(values) });
@@ -42,7 +42,9 @@ export function ProfileCenterPage() {
       <Card bordered={false} className="profile-password-card" title={<Space><LockOutlined />修改登录密码</Space>}>
         <Paragraph type="secondary">{passwordRuleText}</Paragraph>
         <Form form={form} layout="vertical" onFinish={changePassword} requiredMark={false}>
+          <Alert type="warning" showIcon message="请填写本人常用邮箱" description="该邮箱将保存为忘记密码申请时的验证邮箱，并用于接收随机临时密码。每次修改密码时以本次填写为准。" style={{ marginBottom: 16 }} />
           <Form.Item name="currentPassword" label="当前密码" rules={[{ required: true, message: "请输入当前密码" }]}><Input.Password autoComplete="current-password" /></Form.Item>
+          <Form.Item name="email" label="找回密码邮箱" rules={[{ required: true, type: "email", message: "请输入本人有效邮箱" }]}><Input autoComplete="email" /></Form.Item>
           <Form.Item name="nextPassword" label="新密码" dependencies={["currentPassword"]} rules={[{ required: true, pattern: passwordRule, message: passwordRuleText }, ({ getFieldValue }) => ({ validator(_, value) { return !value || value !== getFieldValue("currentPassword") ? Promise.resolve() : Promise.reject(new Error("新密码不能与当前密码相同")); } })]}><Input.Password autoComplete="new-password" /></Form.Item>
           <Form.Item name="confirmPassword" label="确认新密码" dependencies={["nextPassword"]} rules={[{ required: true, message: "请再次输入新密码" }, ({ getFieldValue }) => ({ validator(_, value) { return !value || getFieldValue("nextPassword") === value ? Promise.resolve() : Promise.reject(new Error("两次输入的密码不一致")); } })]}><Input.Password autoComplete="new-password" /></Form.Item>
           <Button type="primary" htmlType="submit" loading={saving} block>确认修改密码</Button>

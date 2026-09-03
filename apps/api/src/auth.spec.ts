@@ -1,6 +1,7 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { AuthService } from "./auth";
+import { AuditLog, PasswordResetRequest, RefreshToken, User } from "./entities";
 
 function queryBuilder(result: unknown[]) {
   return {
@@ -62,34 +63,131 @@ describe("AuthService dynamic organization roles", () => {
 });
 
 describe("AuthService password rules", () => {
-  it("rejects a new password that is the same as the current password before storing anything", async () => {
-    const user = { id: "user-1", displayName: "测试用户", passwordHash: await bcrypt.hash("Current123", 4), mustChangePassword: false };
-    const users = { findOneBy: jest.fn().mockResolvedValue(user), save: jest.fn() };
+  function setupTransactionalAuth(user: Record<string, any>, latestReset: Record<string, any> | null = null) {
+    const userQuery = { setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(user) };
+    const userRepository = { createQueryBuilder: jest.fn().mockReturnValue(userQuery) };
+    const latestQuery = { where: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(latestReset) };
+    const resetRepository = { createQueryBuilder: jest.fn().mockReturnValue(latestQuery), save: jest.fn(async (value) => ({ id: "reset-1", createdAt: new Date(), ...value })) };
+    const refreshUpdate = { update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), execute: jest.fn().mockResolvedValue({}) };
+    const refreshRepository = { createQueryBuilder: jest.fn().mockReturnValue(refreshUpdate) };
+    const manager = {
+      getRepository: jest.fn((entity) => entity === User ? userRepository : entity === PasswordResetRequest ? resetRepository : entity === RefreshToken ? refreshRepository : {}),
+      save: jest.fn(async (_entity, value) => value)
+    };
+    const users = { manager: { transaction: jest.fn(async (callback: (value: typeof manager) => unknown) => callback(manager)) } };
+    const mail = { sendTemporaryPassword: jest.fn().mockResolvedValue(undefined) };
     const service = new AuthService(
       users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never
+      {} as never, {} as never, {} as never, {} as never, mail as never, {} as never
     );
-    await expect(service.changePassword("user-1", "Current123", "Current123")).rejects.toBeInstanceOf(BadRequestException);
-    expect(users.save).not.toHaveBeenCalled();
+    return { service, users, userQuery, resetRepository, refreshUpdate, manager, mail };
+  }
+
+  it("requires an account before querying users or sending mail", async () => {
+    const users = { manager: { transaction: jest.fn() } };
+    const mail = { sendTemporaryPassword: jest.fn() };
+    const service = new AuthService(
+      users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never, mail as never, {} as never
+    );
+    await expect(service.requestPasswordReset("", "user@example.com", "127.0.0.1", "request-1")).rejects.toBeInstanceOf(BadRequestException);
+    expect(users.manager.transaction).not.toHaveBeenCalled();
+    expect(mail.sendTemporaryPassword).not.toHaveBeenCalled();
   });
 
-  it("stores only a bcrypt hash of the emailed reset code", async () => {
-    const user = { id: "user-1", displayName: "测试用户", enabled: true, email: "user@example.com", mobile: "13800000000" };
-    const userQuery = { where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(user) };
-    const users = { createQueryBuilder: jest.fn().mockReturnValue(userQuery) };
-    const latestQuery = { where: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null) };
-    const resetRequests = { createQueryBuilder: jest.fn().mockReturnValue(latestQuery), save: jest.fn(async (value) => ({ id: "reset-1", createdAt: new Date(), ...value })), remove: jest.fn() };
-    const audits = { save: jest.fn().mockResolvedValue({}) };
-    const mail = { sendPasswordResetCode: jest.fn().mockResolvedValue(undefined) };
-    const service = new AuthService(
-      users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, {} as never, resetRequests as never, audits as never, mail as never, {} as never
-    );
-    await expect(service.requestPasswordReset("13800000000", "user@example.com", "127.0.0.1", "request-1")).resolves.toMatchObject({ phoneVerified: true, email: "us***@example.com" });
-    const stored = resetRequests.save.mock.calls[0]![0];
-    expect(stored.codeHash).toMatch(/^\$2[aby]\$/);
-    expect(stored.codeHash).not.toMatch(/^\d{6}$/);
-    expect(mail.sendPasswordResetCode).toHaveBeenCalledWith("user@example.com", "测试用户", expect.stringMatching(/^\d{6}$/));
+  it("rejects a new password that is the same as the current password before storing anything", async () => {
+    const user = { id: "user-1", username: "member", displayName: "测试用户", passwordHash: await bcrypt.hash("Current123", 4), mustChangePassword: false };
+    const { service, manager } = setupTransactionalAuth(user);
+    await expect(service.changePassword("user-1", "Current123", "Current123", "user@example.com")).rejects.toBeInstanceOf(BadRequestException);
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
+  it("requires and stores the latest recovery email when an authenticated user changes password", async () => {
+    const user = {
+      id: "user-1", username: "member", displayName: "测试用户", email: "old@example.com",
+      passwordHash: await bcrypt.hash("Current123", 4), mustChangePassword: true,
+      passwordResetFailures: 10, passwordResetLockedAt: new Date(), version: 3
+    };
+    const { service, manager, refreshUpdate } = setupTransactionalAuth(user);
+    jest.spyOn(service as any, "issueTokens").mockResolvedValue({ accessToken: "access", refreshToken: "refresh", user: {} });
+    await expect(service.changePassword("user-1", "Current123", "NextPassword456", " NEW@example.com ")).resolves.toMatchObject({ accessToken: "access" });
+    expect(user.email).toBe("new@example.com");
+    expect(user.passwordResetFailures).toBe(0);
+    expect(user.passwordResetLockedAt).toBeNull();
+    expect(user.mustChangePassword).toBe(false);
+    expect(refreshUpdate.execute).toHaveBeenCalled();
+    expect(manager.save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({
+      action: "password.changed",
+      beforeJson: { recoveryEmail: "ol***@example.com" },
+      afterJson: expect.objectContaining({ recoveryEmail: "ne***@example.com", passwordResetLockCleared: true })
+    }));
+  });
+
+  it("sends an exact 8-character compliant password and stores only bcrypt hashes", async () => {
+    const currentPasswordHash = await bcrypt.hash("Current123", 4);
+    const user = { id: "user-1", username: "member", displayName: "测试用户", enabled: true, email: "user@example.com", passwordHash: currentPasswordHash, mustChangePassword: false, passwordResetFailures: 3, passwordResetLockedAt: null, version: 2 };
+    const { service, userQuery, resetRepository, manager, mail } = setupTransactionalAuth(user);
+    await expect(service.requestPasswordReset(" member ", "USER@example.com", "127.0.0.1", "request-1"))
+      .resolves.toMatchObject({ status: "ok", email: "us***@example.com", temporaryPasswordLength: 8, mustChangePassword: true });
+    const mailedPassword = mail.sendTemporaryPassword.mock.calls[0]![2];
+    expect(mailedPassword).toMatch(/^(?=.{8}$)(?=.*[A-Za-z])(?=.*\d)\S+$/);
+    expect(userQuery.andWhere).toHaveBeenCalledWith("user.username = :username", { username: "member" });
+    expect(await bcrypt.compare(mailedPassword, user.passwordHash)).toBe(true);
+    expect(user.passwordHash).not.toBe(mailedPassword);
+    expect(user.mustChangePassword).toBe(true);
+    expect(user.passwordResetFailures).toBe(0);
+    expect(user.passwordResetLockedAt).toBeNull();
+    const resetRecord = resetRepository.save.mock.calls[0]![0];
+    expect(resetRecord.codeHash).not.toBe(mailedPassword);
+    expect(await bcrypt.compare(mailedPassword, resetRecord.codeHash)).toBe(true);
+    expect(manager.save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({
+      action: "password_reset.temporary_password_sent",
+      afterJson: expect.objectContaining({ temporaryPasswordLength: 8, mustChangePassword: true, refreshTokensRevoked: true })
+    }));
+  });
+
+  it("counts a wrong recovery email and reports the remaining attempts", async () => {
+    const user = {
+      id: "user-1", username: "member", displayName: "测试用户", enabled: true, email: "correct@example.com",
+      passwordHash: await bcrypt.hash("Current123", 4), passwordResetFailures: 3, passwordResetLockedAt: null, version: 1
+    };
+    const { service, manager, mail } = setupTransactionalAuth(user);
+    await expect(service.requestPasswordReset("member", "wrong@example.com", "127.0.0.1", "request-2"))
+      .rejects.toThrow("邮箱与账号不一致，还剩 6 次尝试");
+    expect(user.passwordResetFailures).toBe(4);
+    expect(user.passwordResetLockedAt).toBeNull();
+    expect(mail.sendTemporaryPassword).not.toHaveBeenCalled();
+    expect(manager.save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({
+      action: "password_reset.email_verification_failed",
+      afterJson: expect.objectContaining({ failedAttempts: 4, remainingAttempts: 6, locked: false })
+    }));
+  });
+
+  it("counts an invalid email format and reports the remaining attempts", async () => {
+    const user = {
+      id: "user-1", username: "member", displayName: "测试用户", enabled: true, email: "correct@example.com",
+      passwordHash: await bcrypt.hash("Current123", 4), passwordResetFailures: 0, passwordResetLockedAt: null, version: 1
+    };
+    const { service, mail } = setupTransactionalAuth(user);
+    await expect(service.requestPasswordReset("member", "not-an-email", "127.0.0.1", "request-invalid-format"))
+      .rejects.toThrow("邮箱格式无效，还剩 9 次尝试");
+    expect(user.passwordResetFailures).toBe(1);
+    expect(mail.sendTemporaryPassword).not.toHaveBeenCalled();
+  });
+
+  it("locks password reset on the tenth wrong email and keeps the lock for later attempts", async () => {
+    const user = {
+      id: "user-1", username: "member", displayName: "测试用户", enabled: true, email: "correct@example.com",
+      passwordHash: await bcrypt.hash("Current123", 4), passwordResetFailures: 9, passwordResetLockedAt: null, version: 1
+    };
+    const { service, mail } = setupTransactionalAuth(user);
+    await expect(service.requestPasswordReset("member", "wrong@example.com", "127.0.0.1", "request-3"))
+      .rejects.toThrow("邮箱验证已连续错误 10 次");
+    expect(user.passwordResetFailures).toBe(10);
+    expect(user.passwordResetLockedAt).toBeInstanceOf(Date);
+    await expect(service.requestPasswordReset("member", "correct@example.com", "127.0.0.1", "request-4"))
+      .rejects.toThrow("该账号找回密码功能已锁定");
+    expect(mail.sendTemporaryPassword).not.toHaveBeenCalled();
   });
 });
 

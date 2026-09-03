@@ -32,6 +32,8 @@ import { MailService } from "./mail.service";
 import { HrModule } from "./modules/hr/hr.module";
 import { AdministratorGrantApplicationService } from "./modules/admin/administrator-grant.application.service";
 import { OrderSyncModule } from "./data-operations/order-sync/order-sync.module";
+import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
+import { EquipmentModule } from "./modules/equipment/equipment.module";
 
 @Module({
   imports: [
@@ -49,6 +51,7 @@ import { OrderSyncModule } from "./data-operations/order-sync/order-sync.module"
     ContactSyncModule,
     CustomerImportModule,
     HrModule,
+    EquipmentModule,
     OrderSyncModule
   ],
   controllers: [
@@ -59,7 +62,7 @@ import { OrderSyncModule } from "./data-operations/order-sync/order-sync.module"
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
     MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService,
-    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService
+    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService
   ]
 })
 export class AppModule {}

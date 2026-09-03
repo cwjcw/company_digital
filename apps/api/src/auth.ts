@@ -218,86 +218,136 @@ export class AuthService {
     return { order: normalized };
   }
 
-  async changePassword(userId: string, currentPassword: string, nextPassword: string) {
+  async changePassword(userId: string, currentPassword: string, nextPassword: string, email: string) {
     this.assertPasswordRule(nextPassword);
-    const user = await this.users.findOneBy({ id: userId });
-    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) throw new UnauthorizedException("当前密码错误");
-    if (await bcrypt.compare(nextPassword, user.passwordHash)) throw new BadRequestException("新密码不能与当前密码相同");
-    user.passwordHash = await bcrypt.hash(nextPassword, 12);
-    user.mustChangePassword = false;
-    await this.users.save(user);
-    await this.refreshTokens.createQueryBuilder().update().set({ revokedAt: new Date() }).where("user_id = :userId AND revoked_at IS NULL", { userId }).execute();
-    await this.auditLogs.save({ actorId: user.id, actorName: user.displayName, resource: "auth", recordId: user.id, action: "password.changed", beforeJson: null, afterJson: { passwordStorage: "bcrypt", previousRefreshTokensRevoked: true }, requestId: `password-change:${randomUUID()}`, source: "web" });
+    const normalizedEmail = this.normalizeEmail(email);
+    const user = await this.users.manager.transaction(async (manager) => {
+      const lockedUser = await manager.getRepository(User).createQueryBuilder("user")
+        .setLock("pessimistic_write").where("user.id = :userId", { userId }).getOne();
+      if (!lockedUser || !(await bcrypt.compare(currentPassword, lockedUser.passwordHash))) throw new UnauthorizedException("当前密码错误");
+      if (await bcrypt.compare(nextPassword, lockedUser.passwordHash)) throw new BadRequestException("新密码不能与当前密码相同");
+      const previousEmail = lockedUser.email ? this.maskEmail(lockedUser.email) : null;
+      lockedUser.passwordHash = await bcrypt.hash(nextPassword, 12);
+      lockedUser.email = normalizedEmail;
+      lockedUser.mustChangePassword = false;
+      lockedUser.passwordResetFailures = 0;
+      lockedUser.passwordResetLockedAt = null;
+      lockedUser.updatedBy = lockedUser.username;
+      lockedUser.version = (lockedUser.version ?? 0) + 1;
+      await manager.save(User, lockedUser);
+      await manager.getRepository(RefreshToken).createQueryBuilder().update().set({ revokedAt: new Date() })
+        .where("user_id = :userId AND revoked_at IS NULL", { userId }).execute();
+      await manager.save(AuditLog, {
+        actorId: lockedUser.id, actorName: lockedUser.displayName, resource: "auth", recordId: lockedUser.id,
+        action: "password.changed", beforeJson: { recoveryEmail: previousEmail },
+        afterJson: { passwordStorage: "bcrypt", recoveryEmail: this.maskEmail(normalizedEmail), passwordResetLockCleared: true, previousRefreshTokensRevoked: true },
+        requestId: `password-change:${randomUUID()}`, source: "web", updatedBy: lockedUser.username
+      });
+      return lockedUser;
+    });
     return this.issueTokens(user);
   }
 
-  async requestPasswordReset(mobile: string, email: string, ip: string | undefined, requestId: string) {
-    const normalizedMobile = String(mobile ?? "").replace(/[^\d+]/g, "");
+  async requestPasswordReset(username: string, email: string, ip: string | undefined, requestId: string) {
+    const normalizedUsername = String(username ?? "").trim();
+    if (!normalizedUsername) throw new BadRequestException("请输入账号");
     const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    if (normalizedMobile.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new BadRequestException("请输入有效的手机号码和邮箱");
-    const user = await this.users.createQueryBuilder("user")
-      .where("user.enabled = true")
-      .andWhere("LOWER(COALESCE(user.email, '')) = :email", { email: normalizedEmail })
-      .andWhere("regexp_replace(COALESCE(user.mobile, ''), '[^0-9+]', '', 'g') = :mobile", { mobile: normalizedMobile })
-      .getOne();
-    if (!user) throw new BadRequestException("手机号码或邮箱与最新通讯录不一致");
-    const latest = await this.passwordResetRequests.createQueryBuilder("request")
-      .where("request.userId = :userId", { userId: user.id }).orderBy("request.createdAt", "DESC").getOne();
-    if (latest && latest.createdAt.getTime() > Date.now() - 60_000) throw new HttpException("验证码发送过于频繁，请 60 秒后再试", HttpStatus.TOO_MANY_REQUESTS);
-    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    const request = await this.passwordResetRequests.save({
-      userId: user.id, codeHash: await bcrypt.hash(code, 12), expiresAt: new Date(Date.now() + 10 * 60_000), consumedAt: null, attempts: 0, requestIp: ip ?? null
-    });
-    try {
-      await this.mail.sendPasswordResetCode(normalizedEmail, user.displayName, code);
-    } catch (error) {
-      await this.passwordResetRequests.remove(request);
-      throw error;
-    }
-    const maskedEmail = this.maskEmail(normalizedEmail);
-    await this.auditLogs.save({ actorId: user.id, actorName: user.displayName, resource: "auth", recordId: user.id, action: "password_reset.requested", beforeJson: null, afterJson: { phoneVerified: true, email: maskedEmail, expiresInMinutes: 10 }, requestId, source: "web" });
-    return { phoneVerified: true, email: maskedEmail, expiresInMinutes: 10 };
-  }
+    const emailFormatValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
+    const outcome = await this.users.manager.transaction(async (manager) => {
+      const user = await manager.getRepository(User).createQueryBuilder("user")
+        .setLock("pessimistic_write")
+        .where("user.enabled = true")
+        .andWhere("user.username = :username", { username: normalizedUsername })
+        .getOne();
+      if (!user) throw new BadRequestException("账号或邮箱与系统记录不一致");
+      if (user.passwordResetLockedAt) return { kind: "locked" as const };
+      if (!emailFormatValid || String(user.email ?? "").trim().toLowerCase() !== normalizedEmail) {
+        const failedAttempts = Math.min((user.passwordResetFailures ?? 0) + 1, 10);
+        const remainingAttempts = Math.max(10 - failedAttempts, 0);
+        user.passwordResetFailures = failedAttempts;
+        user.passwordResetLockedAt = failedAttempts >= 10 ? new Date() : null;
+        user.updatedBy = "password-reset";
+        user.version = (user.version ?? 0) + 1;
+        await manager.save(User, user);
+        await manager.save(AuditLog, {
+          actorId: null, actorName: "匿名找回密码", resource: "auth", recordId: user.id,
+          action: "password_reset.email_verification_failed",
+          beforeJson: { failedAttempts: failedAttempts - 1 },
+          afterJson: { submittedEmail: this.maskEmail(normalizedEmail), failedAttempts, remainingAttempts, locked: failedAttempts >= 10, requestIp: ip ?? null },
+          requestId, source: "web", updatedBy: "password-reset"
+        });
+        return { kind: "invalid-email" as const, remainingAttempts, locked: failedAttempts >= 10, formatInvalid: !emailFormatValid };
+      }
 
-  async resetPassword(mobile: string, email: string, code: string, nextPassword: string, requestId: string) {
-    this.assertPasswordRule(nextPassword);
-    const normalizedMobile = String(mobile ?? "").replace(/[^\d+]/g, "");
-    const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    const user = await this.users.createQueryBuilder("user")
-      .where("user.enabled = true")
-      .andWhere("LOWER(COALESCE(user.email, '')) = :email", { email: normalizedEmail })
-      .andWhere("regexp_replace(COALESCE(user.mobile, ''), '[^0-9+]', '', 'g') = :mobile", { mobile: normalizedMobile })
-      .getOne();
-    if (!user) throw new BadRequestException("手机号码或邮箱与最新通讯录不一致");
-    const reset = await this.passwordResetRequests.createQueryBuilder("request")
-      .where("request.userId = :userId", { userId: user.id })
-      .andWhere("request.consumedAt IS NULL").andWhere("request.expiresAt > now()")
-      .orderBy("request.createdAt", "DESC").getOne();
-    if (!reset) throw new BadRequestException("验证码已失效，请重新获取");
-    if (reset.attempts >= 5) throw new BadRequestException("验证码尝试次数已达上限，请重新获取");
-    if (!(await bcrypt.compare(String(code ?? "").trim(), reset.codeHash))) {
-      reset.attempts += 1;
-      if (reset.attempts >= 5) reset.consumedAt = new Date();
-      await this.passwordResetRequests.save(reset);
-      throw new BadRequestException(reset.attempts >= 5 ? "验证码尝试次数已达上限，请重新获取" : "验证码错误");
+      const resetRepository = manager.getRepository(PasswordResetRequest);
+      const latest = await resetRepository.createQueryBuilder("request")
+        .where("request.userId = :userId", { userId: user.id }).orderBy("request.createdAt", "DESC").getOne();
+      if (latest && latest.createdAt.getTime() > Date.now() - 60_000) {
+        throw new HttpException("临时密码发送过于频繁，请 60 秒后再试", HttpStatus.TOO_MANY_REQUESTS);
+      }
+
+      let temporaryPassword = this.randomTemporaryPassword();
+      while (await bcrypt.compare(temporaryPassword, user.passwordHash)) temporaryPassword = this.randomTemporaryPassword();
+      const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+      const requestHash = await bcrypt.hash(temporaryPassword, 12);
+      const now = new Date();
+      await resetRepository.save({
+        userId: user.id, codeHash: requestHash, expiresAt: now, consumedAt: now,
+        attempts: 0, requestIp: ip ?? null, updatedBy: "password-reset"
+      });
+      await this.mail.sendTemporaryPassword(normalizedEmail, user.displayName, temporaryPassword);
+
+      user.passwordHash = passwordHash;
+      user.mustChangePassword = true;
+      user.passwordResetFailures = 0;
+      user.passwordResetLockedAt = null;
+      user.updatedBy = "password-reset";
+      user.version = (user.version ?? 0) + 1;
+      await manager.save(User, user);
+      await manager.getRepository(RefreshToken).createQueryBuilder().update().set({ revokedAt: now })
+        .where("user_id = :userId AND revoked_at IS NULL", { userId: user.id }).execute();
+      await manager.save(AuditLog, {
+        actorId: user.id, actorName: user.displayName, resource: "auth", recordId: user.id,
+        action: "password_reset.temporary_password_sent", beforeJson: null,
+        afterJson: { passwordStorage: "bcrypt", email: this.maskEmail(normalizedEmail), emailVerified: true, failedAttemptsCleared: true, temporaryPasswordLength: 8, mustChangePassword: true, refreshTokensRevoked: true },
+        requestId, source: "web", updatedBy: "password-reset"
+      });
+      return { kind: "sent" as const, response: { status: "ok", email: this.maskEmail(normalizedEmail), temporaryPasswordLength: 8, mustChangePassword: true } };
+    });
+    if (outcome.kind === "locked") throw new HttpException("该账号找回密码功能已锁定，请登录后修改密码或联系系统管理员解除", 423);
+    if (outcome.kind === "invalid-email") {
+      if (outcome.locked) throw new HttpException("邮箱验证已连续错误 10 次，该账号找回密码功能已锁定，请联系系统管理员", 423);
+      throw new BadRequestException(`${outcome.formatInvalid ? "邮箱格式无效" : "邮箱与账号不一致"}，还剩 ${outcome.remainingAttempts} 次尝试`);
     }
-    if (await bcrypt.compare(nextPassword, user.passwordHash)) throw new BadRequestException("新密码不能与当前密码相同");
-    user.passwordHash = await bcrypt.hash(nextPassword, 12);
-    user.mustChangePassword = false;
-    await this.users.save(user);
-    await this.passwordResetRequests.createQueryBuilder().update().set({ consumedAt: new Date() }).where("user_id = :userId AND consumed_at IS NULL", { userId: user.id }).execute();
-    await this.refreshTokens.createQueryBuilder().update().set({ revokedAt: new Date() }).where("user_id = :userId AND revoked_at IS NULL", { userId: user.id }).execute();
-    await this.auditLogs.save({ actorId: user.id, actorName: user.displayName, resource: "auth", recordId: user.id, action: "password.reset", beforeJson: null, afterJson: { passwordStorage: "bcrypt", refreshTokensRevoked: true }, requestId, source: "web" });
-    return { status: "ok" };
+    return outcome.response;
   }
 
   private assertPasswordRule(password: string) {
     if (!PASSWORD_PATTERN.test(String(password ?? ""))) throw new BadRequestException(PASSWORD_RULE_TEXT);
   }
 
+  private normalizeEmail(value: unknown) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new BadRequestException("请输入有效的邮箱地址");
+    return normalized;
+  }
+
+  private randomTemporaryPassword() {
+    const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    const digits = "23456789";
+    const all = `${letters}${digits}`;
+    const characters = [letters[randomInt(letters.length)]!, digits[randomInt(digits.length)]!];
+    while (characters.length < 8) characters.push(all[randomInt(all.length)]!);
+    for (let index = characters.length - 1; index > 0; index--) {
+      const swapIndex = randomInt(index + 1);
+      [characters[index], characters[swapIndex]] = [characters[swapIndex]!, characters[index]!];
+    }
+    return characters.join("");
+  }
+
   private maskEmail(email: string) {
     const [local, domain] = email.split("@");
-    return `${(local ?? "").slice(0, 2)}***@${domain}`;
+    return domain ? `${(local ?? "").slice(0, 2)}***@${domain}` : `${(local ?? "").slice(0, 2)}***`;
   }
 }
 

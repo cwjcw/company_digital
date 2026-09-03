@@ -30,6 +30,8 @@ export class User extends AuditedEntity {
   @Column({ name: "portal_module_order", type: "jsonb", default: () => "'[]'" }) portalModuleOrder!: string[];
   @Column({ name: "must_change_password", default: true }) mustChangePassword!: boolean;
   @Column({ name: "last_login_at", type: "timestamptz", nullable: true }) lastLoginAt!: Date | null;
+  @Column({ name: "password_reset_failures", type: "integer", default: 0 }) passwordResetFailures!: number;
+  @Column({ name: "password_reset_locked_at", type: "timestamptz", nullable: true }) passwordResetLockedAt!: Date | null;
 }
 
 @Entity("administrator_grants")
@@ -498,6 +500,55 @@ export class PasswordResetRequest extends AuditedEntity {
   @Column({ name: "request_ip", type: "varchar", nullable: true }) requestIp!: string | null;
 }
 
+@Entity("equipment_assets")
+@Unique(["tenantId", "divisionOrganizationUnitId", "equipmentCode"])
+@Index(["tenantId", "divisionOrganizationUnitId"])
+export class EquipmentAsset extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "division_organization_unit_id", type: "uuid" }) divisionOrganizationUnitId!: string;
+  @Column({ name: "division_name_snapshot", type: "varchar" }) divisionNameSnapshot!: string;
+  @Column({ name: "usage_department_organization_unit_id", type: "uuid", nullable: true }) usageDepartmentOrganizationUnitId!: string | null;
+  @Column({ name: "usage_department_name_snapshot", type: "varchar" }) usageDepartmentNameSnapshot!: string;
+  @Column({ name: "equipment_code", type: "varchar" }) equipmentCode!: string;
+  @Column({ name: "equipment_name", type: "varchar" }) equipmentName!: string;
+  @Column({ name: "purchase_date", type: "date", nullable: true }) purchaseDate!: string | null;
+  @Column({ default: true }) monitored!: boolean;
+  @Column({ default: true }) active!: boolean;
+  @Column({ name: "source_sheet_row", type: "integer", nullable: true }) sourceSheetRow!: number | null;
+}
+
+@Entity("equipment_responsibles")
+@Unique(["tenantId", "equipmentId", "userId"])
+@Index(["tenantId", "userId"])
+export class EquipmentResponsible extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "equipment_id", type: "uuid" }) equipmentId!: string;
+  @Column({ name: "user_id", type: "uuid" }) userId!: string;
+}
+
+@Entity("equipment_status_reports")
+@Unique(["tenantId", "equipmentId", "reportDate"])
+@Index(["tenantId", "reportDate"])
+@Index(["tenantId", "equipmentId"])
+export class EquipmentStatusReport extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "equipment_id", type: "uuid" }) equipmentId!: string;
+  @Column({ name: "division_organization_unit_id", type: "uuid" }) divisionOrganizationUnitId!: string;
+  @Column({ name: "usage_department_organization_unit_id", type: "uuid", nullable: true }) usageDepartmentOrganizationUnitId!: string | null;
+  @Column({ name: "equipment_code_snapshot", type: "varchar" }) equipmentCodeSnapshot!: string;
+  @Column({ name: "equipment_name_snapshot", type: "varchar" }) equipmentNameSnapshot!: string;
+  @Column({ name: "division_name_snapshot", type: "varchar" }) divisionNameSnapshot!: string;
+  @Column({ name: "usage_department_name_snapshot", type: "varchar" }) usageDepartmentNameSnapshot!: string;
+  @Column({ name: "report_date", type: "date" }) reportDate!: string;
+  @Column({ name: "runtime_minutes", type: "integer", default: 0 }) runtimeMinutes!: number;
+  @Column({ name: "fault_minutes", type: "integer", default: 0 }) faultMinutes!: number;
+  @Column({ name: "fault_reason", type: "varchar", nullable: true }) faultReason!: string | null;
+  @Column({ default: true }) active!: boolean;
+}
+
 @Entity("import_jobs")
 export class ImportJob extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
@@ -532,5 +583,6 @@ export const entities = [
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
   DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
-  RefreshToken, PasswordResetRequest, ImportJob, ImportJobError, IdempotencyRecord
+  RefreshToken, PasswordResetRequest, EquipmentAsset, EquipmentResponsible, EquipmentStatusReport,
+  ImportJob, ImportJobError, IdempotencyRecord
 ];

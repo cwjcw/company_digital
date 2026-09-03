@@ -202,13 +202,14 @@ def save_reports(api:Api,source:Source):
         writer=csv.DictWriter(handle,fieldnames=fields,extrasaction="ignore");writer.writeheader();writer.writerows(rows)
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument("command",choices=["initialize","incremental","run"]);p.add_argument("--source",required=True,choices=[x["key"] for x in json.loads(CONFIG.read_text())["sources"]]);a=p.parse_args();source=load_source(a.source);api=Api()
+    p=argparse.ArgumentParser();p.add_argument("command",choices=["initialize","incremental","run"]);p.add_argument("--source",required=True,choices=[x["key"] for x in json.loads(CONFIG.read_text())["sources"]]);p.add_argument("--save-report",action="store_true",help="仅在人工验收时生成完整JSON/CSV，例行定时任务不生成");a=p.parse_args();source=load_source(a.source);api=Api();began=time.perf_counter()
     try:
         state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}")
         if a.command=="initialize" or (a.command=="run" and not state):initialize(source,api)
         elif a.command=="run" and state.get("status")!="ACTIVE":initialize(source,api)
         else:incremental(source,api)
-        save_reports(api,source)
+        if a.save_report:save_reports(api,source)
+        print(json.dumps({"event":"erp_sync_completed","source":source.key,"durationMs":round((time.perf_counter()-began)*1000,3),"fullReportSaved":a.save_report},ensure_ascii=False))
     except Exception as error:
         if api.last_run and api.last_run.get("status")=="RUNNING":
             try:api.call("POST",f"/data-operations/order-sync/runs/{api.last_run['id']}/fail",{"sourceKey":source.key,"errorMessage":str(error),"retryCount":3})

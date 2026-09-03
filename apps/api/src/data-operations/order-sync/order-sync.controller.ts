@@ -1,10 +1,10 @@
-import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { AuthGuard } from "../../auth";
 import { OrderSyncApplicationService } from "./order-sync.application.service";
 import { OrderSyncRepository } from "./order-sync.repository";
-import type { CommitSyncBatch, StartSyncRun, SyncActor } from "./order-sync.types";
+import type { CommitSyncBatch, ConfigureProjectionConsumer, StartSyncRun, SyncActor } from "./order-sync.types";
 import { OrderReviewService } from "./order-review.service";
 
 type UserRequest = Request & { user: any; requestId: string };
@@ -45,4 +45,25 @@ export class OrderSyncController {
     response.setHeader("Content-Disposition",`attachment; filename*=UTF-8''${encodeURIComponent("重复订单业务复核.xlsx")}`); response.send(data);
   }
   @Get("quality-report") quality(@Req() req:UserRequest) { if (!canImportSync(req)) assertReview(req,"read"); return this.reviews.qualityReport(); }
+  @Get("projection-consumers") projectionConsumers(@Req() req:UserRequest) { assertImport(req); return this.repository.projectionConsumers(); }
+  @Put("projection-consumers/:consumerKey") configureProjection(@Param("consumerKey") consumerKey:string,@Body() body:ConfigureProjectionConsumer,@Req() req:UserRequest) {
+    if (req.user.isSystemAdmin !== true && !(req.user.permissions ?? []).includes("*")) throw new ForbiddenException("仅系统管理员可配置数据分发订阅");
+    return this.application.configureProjection(consumerKey,body,actor(req));
+  }
+  @Post("projection-consumers/:consumerKey/claim") claimProjection(@Param("consumerKey") consumerKey:string,@Req() req:UserRequest) {
+    assertImport(req); return this.application.claimProjection(consumerKey,actor(req));
+  }
+  @Post("projection-consumers/:consumerKey/complete") completeProjection(@Param("consumerKey") consumerKey:string,@Body() body:{leaseToken:string},@Req() req:UserRequest) {
+    assertImport(req); return this.application.completeProjection(consumerKey,body.leaseToken,actor(req));
+  }
+  @Post("projection-consumers/:consumerKey/fail") failProjection(@Param("consumerKey") consumerKey:string,@Body() body:{leaseToken:string;errorMessage:string},@Req() req:UserRequest) {
+    assertImport(req); return this.application.failProjection(consumerKey,body.leaseToken,body.errorMessage,actor(req));
+  }
+  @Post("projection-consumers/initialize-formal") initializeFormal(@Req() req:UserRequest) {
+    if (req.user.isSystemAdmin !== true && !(req.user.permissions ?? []).includes("*")) throw new ForbiddenException("仅系统管理员可初始化正式业务表投影");
+    return this.application.initializeFormalProjections(actor(req));
+  }
+  @Post("projection-consumers/:consumerKey/project") projectFormal(@Param("consumerKey") consumerKey:string,@Req() req:UserRequest) {
+    assertImport(req); return this.application.projectFormalBatch(consumerKey,actor(req));
+  }
 }

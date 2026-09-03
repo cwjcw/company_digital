@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
 import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
@@ -119,11 +119,16 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   simple?: boolean;
   /** Tables always start in browse mode. When enabled, authorized users can explicitly enter edit mode. */
   editable?: boolean;
+  /** Server-backed paging/search/filtering for ERP-sized tables. */
+  serverData?: {
+    total: number;
+    onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string> }) => void;
+  };
 };
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false,
-  pagination, scroll, ...tableProps
+  pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const userKey = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
@@ -159,7 +164,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
   const renderedColumns = useMemo(() => filterColumns(allColumns, visible), [allColumns, visible]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
-  const rows = useMemo(() => {
+  const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
     const activeFilters = Object.entries(filters).filter(([, value]) => value.trim());
     return (dataSource ?? []).filter((row) => {
@@ -167,16 +172,26 @@ export function KdosDataTable<RecordType extends DataRecord>({
       return activeFilters.every(([key, value]) => String(valueAt(row, key) ?? "").toLocaleLowerCase().includes(value.trim().toLocaleLowerCase()));
     });
   }, [dataSource, filters, search, searchableKeys]);
+  const rows = serverData ? (dataSource ?? []) : clientRows;
+  const serverMode = Boolean(serverData);
+  const serverQueryCallback = useRef(serverData?.onQueryChange);
+  useEffect(() => { serverQueryCallback.current = serverData?.onQueryChange; }, [serverData?.onQueryChange]);
   useEffect(() => {
-    const lastPage = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (!serverMode) return;
+    const timer = window.setTimeout(() => serverQueryCallback.current?.({ page: currentPage, pageSize, search: search.trim(), filters }), 250);
+    return () => window.clearTimeout(timer);
+  }, [serverMode, currentPage, filters, pageSize, search]);
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil((serverData?.total ?? rows.length) / pageSize));
     if (currentPage > lastPage) setCurrentPage(lastPage);
-  }, [currentPage, pageSize, rows.length]);
+  }, [currentPage, pageSize, rows.length, serverData?.total]);
   const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length;
   const isRegisteredForm = registeredTableResources.has(resource);
   const resolvedPagination = pagination === false && !isRegisteredForm ? false : {
     ...requestedPagination,
     current: currentPage,
     pageSize,
+    total: serverData?.total ?? requestedPagination?.total,
     pageSizeOptions: [...kdosPageSizeOptions],
     showSizeChanger: true,
     showQuickJumper: true,

@@ -23,8 +23,8 @@ export function statusClass(rate: number | null, dueDate?: string | null) {
   return "";
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle: string; actions?: React.ReactNode }) {
-  return <Flex justify="space-between" align="flex-start" className="page-header">
+export function PageHeader({ title, subtitle, actions, showTitle = false }: { title: string; subtitle: string; actions?: React.ReactNode; showTitle?: boolean }) {
+  return <Flex justify="space-between" align="flex-start" className={`page-header${showTitle ? " page-header-show-title" : ""}`}>
     <div className="page-header-title"><Title level={3}>{title}</Title>{subtitle && <Text type="secondary">{subtitle}</Text>}</div>
     {actions && <div className="page-header-actions">{actions}</div>}
   </Flex>;
@@ -220,6 +220,7 @@ export const emptyRollingQuickFilters = (): RollingQuickFilters => ({
 });
 
 export const inboundFieldLabels: Record<string, string> = {
+  sourceSystem: "来源系统", sourceDatabase: "来源数据库/账套", sourceKey: "来源主键",
   categoryNumber: "分类编号", documentNumber: "入库单单号", documentFullName: "单据全称",
   documentDate: "单据日期", inboundDate: "入库日期", lineNumber: "序号",
   workOrderNumber: "工单单号", salesOrderNumber: "销售单号", inventoryCode: "产品品号",
@@ -228,4 +229,5 @@ export const inboundFieldLabels: Record<string, string> = {
   createdBy: "创建人", createdAt: "创建时间", updatedBy: "更新人", updatedAt: "更新时间"
 };
 export const inboundFields = Object.keys(inboundFieldLabels);
-export const inboundBusinessFields = inboundFields.filter((field) => !isAuditField(field));
+const inboundSourceFields = new Set(["sourceSystem", "sourceDatabase", "sourceKey"]);
+export const inboundBusinessFields = inboundFields.filter((field) => !isAuditField(field) && !inboundSourceFields.has(field));

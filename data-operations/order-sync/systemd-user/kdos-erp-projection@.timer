@@ -1,0 +1,11 @@
+[Unit]
+Description=Project KDOS ERP changes to formal tables every 30 minutes (%i)
+
+[Timer]
+OnCalendar=*-*-* *:05,35:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1s
+Unit=kdos-erp-projection@%i.service
+
+[Install]
+WantedBy=timers.target

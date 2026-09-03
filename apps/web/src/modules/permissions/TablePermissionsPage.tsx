@@ -162,7 +162,7 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
   ];
 
   return <div className="table-permissions-page permission-publish-page">
-    <PageHeader title={`对成员发布 · ${resource.label}`} subtitle={`${resource.module} / ${resource.label}`} actions={<Button href={safeReturnPath()} icon={<ArrowLeftOutlined />}>返回原表</Button>} />
+    <PageHeader title={`对成员发布 · ${resource.label}`} subtitle={`${resource.module} / ${resource.label}`} showTitle actions={<Button href={safeReturnPath()} icon={<ArrowLeftOutlined />}>返回原表</Button>} />
     <div className="permission-publish-toolbar"><Button type="primary" size="large" icon={<PlusOutlined />} onClick={startAdd}>添加成员</Button>{(groups.data?.length ?? 0) > 0 && <Button danger type="text" onClick={() => Modal.confirm({ title: "停用全部权限组？", content: "只停用当前表单的权限组，不影响其他表单。", onOk: async () => { for (const group of groups.data ?? []) if (group.enabled) await toggleEnabled(group, false); } })}>停用全部</Button>}</div>
     {(groups.data?.length ?? 0) > 0 ? <div className="permission-publish-list">{groups.data!.map((group) => { const operation = group.permissions.find((permission) => permission.fieldKey === "*"); return <section className={`permission-publish-card ${group.enabled ? "" : "disabled"}`} key={group.id}>
       <div className="permission-publish-card-head"><div><Title level={5}>{group.displayName}</Title><Text type="secondary">{group.description || `${scopeLabel[group.dataScope] ?? group.dataScope}；${actionsFromPermission(operation).map((action) => actionLabel[action]).join("、")}`}</Text></div><Space split={<span className="permission-card-divider" />}>

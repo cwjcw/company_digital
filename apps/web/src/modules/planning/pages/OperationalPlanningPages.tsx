@@ -10,88 +10,37 @@ import { AgGridReact } from "ag-grid-react";
 import { type ColumnDefinition } from "@tracker/shared";
 import { api, ApiError, containsText } from "../../../api";
 import {
-  FieldVisibility, ImportFeedbackAlert, PageHeader, PlanFilterDrawer,
+  FieldVisibility, ImportFeedbackAlert, PlanFilterDrawer,
   emptyRollingQuickFilters, failedImport, filterPlanRows, matchesDateRange, rollingColumnsMeta,
-  formatAuditUser, statusClass, useAuditColumns, useAuditIdentityDirectory, useDictionaryOptions,
+  formatAuditUser, statusClass, useAuditIdentityDirectory, useDictionaryOptions,
   type ImportFeedback, type PlanFilter, type RollingQuickFilters
 } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate, isDueDateLabel } from "../../../shared/date-format";
-import { KdosDataTable, TablePermissionButton } from "../../../shared/KdosDataTable";
+import { TablePermissionButton } from "../../../shared/KdosDataTable";
 
 const { Text } = Typography;
 
-function salesSummaryStatus(row: any) {
-  if (Number(row.completionRate ?? 0) >= 1) return "已完成";
-  const dueDate = row.exceptionDueDate || row.reviewDueDate || row.customerDueDate;
-  if (!dueDate) return "进行中";
-  const today = dayjs().startOf("day");
-  const due = dayjs(dueDate).startOf("day");
-  if (due.isBefore(today)) return "延期";
-  if (due.isSame(today, "day")) return "即将延期";
-  return "进行中";
-}
-
 export function SalesSummaryDashboard() {
-  const auditColumns = useAuditColumns();
   const dictionaryOptions = useDictionaryOptions();
   const [timeDimension, setTimeDimension] = useState<"year" | "month" | "day">("month");
   const [period, setPeriod] = useState<dayjs.Dayjs>(dayjs());
   const [division, setDivision] = useState<string[]>([]);
   const [customer, setCustomer] = useState<string[]>([]);
-  const { data = [], isLoading, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["sales-dashboard"], queryFn: () => api<any[]>("/plans/sales-dashboard")
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["sales-dashboard",timeDimension,period.format("YYYY-MM-DD"),division,customer], queryFn: () => {
+      const query=new URLSearchParams({dimension:timeDimension,period:period.format("YYYY-MM-DD")});
+      division.forEach(value=>query.append("division",value));customer.forEach(value=>query.append("customer",value));
+      return api<any>(`/plans/sales-dashboard?${query.toString()}`);
+    }, staleTime:60_000,refetchInterval:30*60_000
   });
-  const filtered = useMemo(() => data.filter((row: any) => {
-    const orderDate = row.orderDate ? dayjs(row.orderDate) : null;
-    const matchesPeriod = Boolean(orderDate?.isValid() && orderDate.isSame(period, timeDimension));
-    return matchesPeriod
-      && (!division.length || division.includes(row.division ?? ""))
-      && (!customer.length || customer.includes(row.customer ?? ""));
-  }), [customer, data, division, period, timeDimension]);
+  const dashboard=data??{metrics:{orderCount:0,orderAmount:"0",totalQuantity:"0",completedQuantity:"0",pendingQuantity:"0",completionRate:0},statusCounts:{已完成:0,进行中:0,即将延期:0,延期:0},divisionRows:[],warningRows:[],filters:{divisions:[],customers:[]}};
   const divisionOptions = useMemo(() => [...new Set([
     ...(dictionaryOptions.division ?? []),
-    ...data.map((row: any) => row.division).filter(Boolean)
-  ])].map((value) => ({ value, label: value })), [data, dictionaryOptions.division]);
-  const customerOptions = useMemo(() => [...new Set(data.map((row: any) => row.customer).filter(Boolean))]
-    .sort().map((value) => ({ value, label: value })), [data]);
-  const metrics = useMemo(() => {
-    const totalQuantity = filtered.reduce((sum, row) => sum + Number(row.totalQuantity || 0), 0);
-    const completedQuantity = filtered.reduce((sum, row) => sum + Number(row.completedQuantity || 0), 0);
-    const pendingQuantity = filtered.reduce((sum, row) => sum + Number(row.pendingQuantity || 0), 0);
-    const orderAmount = filtered.reduce((sum, row) => sum + Number(row.orderAmount || 0), 0);
-    const statusCounts = { 已完成: 0, 进行中: 0, 即将延期: 0, 延期: 0 };
-    for (const row of filtered) statusCounts[salesSummaryStatus(row) as keyof typeof statusCounts] += 1;
-    return {
-      totalQuantity, completedQuantity, pendingQuantity, orderAmount, statusCounts,
-      completionRate: totalQuantity ? completedQuantity / totalQuantity * 100 : 0
-    };
-  }, [filtered]);
-  const divisionRows = useMemo(() => {
-    const grouped = new Map<string, { division: string; orders: number; amount: number; total: number; completed: number }>();
-    for (const row of filtered) {
-      const key = row.division || "未指定";
-      const current = grouped.get(key) ?? { division: key, orders: 0, amount: 0, total: 0, completed: 0 };
-      current.orders += 1; current.amount += Number(row.orderAmount || 0);
-      current.total += Number(row.totalQuantity || 0); current.completed += Number(row.completedQuantity || 0);
-      grouped.set(key, current);
-    }
-    return [...grouped.values()].map((row) => ({ ...row, rate: row.total ? row.completed / row.total * 100 : 0 }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [filtered]);
-  const customerRows = useMemo(() => {
-    const grouped = new Map<string, { customer: string; orders: number; amount: number }>();
-    for (const row of filtered) {
-      const key = row.customer || "未指定";
-      const current = grouped.get(key) ?? { customer: key, orders: 0, amount: 0 };
-      current.orders += 1; current.amount += Number(row.orderAmount || 0); grouped.set(key, current);
-    }
-    return [...grouped.values()].sort((a, b) => b.amount - a.amount).slice(0, 8);
-  }, [filtered]);
-  const warningRows = useMemo(() => filtered.map((row: any) => {
-    const dueDate = row.exceptionDueDate || row.reviewDueDate || row.customerDueDate;
-    return { ...row, dueDate, status: salesSummaryStatus(row), remainingDays: dueDate ? dayjs(dueDate).startOf("day").diff(dayjs().startOf("day"), "day") : null };
-  }).filter((row: any) => row.status !== "已完成" && row.dueDate && row.remainingDays <= 3)
-    .sort((a: any, b: any) => a.remainingDays - b.remainingDays).slice(0, 10), [filtered]);
+    ...(dashboard.filters?.divisions??[])
+  ])].map((value) => ({ value, label: value })), [dashboard.filters?.divisions, dictionaryOptions.division]);
+  const customerOptions = useMemo(() => [...new Set(dashboard.filters?.customers??[])]
+    .sort().map((value) => ({ value, label: value })), [dashboard.filters?.customers]);
+  const metrics=dashboard.metrics;const divisionRows=dashboard.divisionRows??[];const warningRows=dashboard.warningRows??[];
   const statusConfig = [
     { key: "已完成", color: "#3fa06a" }, { key: "进行中", color: "#26718f" },
     { key: "即将延期", color: "#c99332" }, { key: "延期", color: "#bb4d50" }
@@ -99,8 +48,8 @@ export function SalesSummaryDashboard() {
   const integer = (value: number) => Math.round(value).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 
   return <div className="sales-dashboard">
-    <PageHeader title="销售接单汇总大屏" subtitle={`数据更新时间：${dataUpdatedAt ? dayjs(dataUpdatedAt).format("YYYY-MM-DD HH:mm:ss") : "加载中"}`}
-      actions={<Space wrap>
+    <Flex justify="flex-end" className="dashboard-toolbar">
+      <Space wrap>
         <Select aria-label="大屏时间维度" value={timeDimension}
           onChange={(value) => setTimeDimension(value)} style={{ width: 92 }}
           options={[{ value: "year", label: "按年" }, { value: "month", label: "按月" }, { value: "day", label: "按日" }]} />
@@ -117,9 +66,10 @@ export function SalesSummaryDashboard() {
         <Button onClick={() => { setTimeDimension("month"); setPeriod(dayjs()); setDivision([]); setCustomer([]); }}>清空筛选</Button>
         <Button type="primary" loading={isLoading} onClick={() => void refetch()}>刷新数据</Button>
         <TablePermissionButton resource="sales-summary-dashboard" />
-      </Space>} />
+      </Space>
+    </Flex>
     <div className="dashboard-kpi-grid">
-      <Card><Statistic title="订单数" value={filtered.length} suffix="单" /></Card>
+      <Card><Statistic title="订单数" value={metrics.orderCount} suffix="单" /></Card>
       <Card><Statistic title="订单金额" value={Math.round(metrics.orderAmount)} precision={0} /></Card>
       <Card><Statistic title="订单总数量" value={Math.round(metrics.totalQuantity)} precision={0} /></Card>
       <Card><Statistic title="已完成数量" value={Math.round(metrics.completedQuantity)} precision={0} valueStyle={{ color: "#238657" }} /></Card>
@@ -130,10 +80,10 @@ export function SalesSummaryDashboard() {
       <Card title="订单执行状态" loading={isLoading}>
         <div className="dashboard-status-list">
           {statusConfig.map((item) => {
-            const count = metrics.statusCounts[item.key];
+            const count = dashboard.statusCounts[item.key];
             return <div className="dashboard-status-item" key={item.key}>
               <Flex justify="space-between"><Text>{item.key}</Text><Text strong>{count} 单</Text></Flex>
-              <Progress percent={filtered.length ? Math.round(count / filtered.length * 100) : 0} strokeColor={item.color} showInfo={false} />
+              <Progress percent={metrics.orderCount ? Math.round(count / metrics.orderCount * 100) : 0} strokeColor={item.color} showInfo={false} />
             </div>;
           })}
         </div>
@@ -146,43 +96,36 @@ export function SalesSummaryDashboard() {
           <Text>待完成 {integer(metrics.pendingQuantity)}</Text>
         </Flex>
       </Card>
-      <Card title="客户订单金额 TOP 8" loading={isLoading}>
-        <KdosDataTable resource="sales-summary-dashboard-customers" systemFields={false} size="small" rowKey="customer" pagination={false} dataSource={customerRows}
-          columns={[
-            { title: "客户", dataIndex: "customer", ellipsis: true },
-            { title: "订单数", dataIndex: "orders", width: 72, align: "center" as const },
-            { title: "订单金额", dataIndex: "amount", width: 120, align: "center" as const, render: (value: number) => integer(value) }
-          ]} />
-      </Card>
     </div>
     <div className="dashboard-panel-grid dashboard-panel-grid-bottom">
       <Card title="承产单位执行情况" loading={isLoading}>
         <div className="division-overview-grid">
-          {divisionRows.map((row) => <div className="division-overview-item" key={row.division}>
+          {divisionRows.map((row:any) => <div className="division-overview-item" key={row.division}>
             <Flex justify="space-between" align="center">
               <Text strong className="division-overview-name">{row.division}</Text>
               <Tag color="blue">{row.orders} 单</Tag>
             </Flex>
             <div className="division-overview-metrics">
-              <span><Text type="secondary">订单金额</Text><Text strong>{integer(row.amount)}</Text></span>
               <span><Text type="secondary">总数量</Text><Text strong>{integer(row.total)}</Text></span>
               <span><Text type="secondary">已完成</Text><Text strong>{integer(row.completed)}</Text></span>
+              <span><Text type="secondary">待完成</Text><Text strong type={Number(row.pending)>0?"warning":undefined}>{integer(row.pending)}</Text></span>
             </div>
-            <Progress percent={Math.round(row.rate)} size="small" />
+            <Flex justify="space-between" align="center"><Text type="secondary">完成率</Text><Text strong>{Number(row.rate).toFixed(1)}%</Text></Flex>
+            <Progress percent={Math.round(Number(row.rate))} size="small" strokeColor={Number(row.rate)>=90?"#3fa06a":Number(row.rate)>=60?"#26718f":"#c99332"} />
           </div>)}
           {!divisionRows.length && <div className="division-overview-empty">暂无承产单位数据</div>}
         </div>
       </Card>
       <Card title="交期预警（延期及未来 3 天）" loading={isLoading}>
-        <KdosDataTable resource="sales-summary-dashboard-warnings" systemFields={false} size="small" rowKey="id" pagination={false} dataSource={warningRows}
-          locale={{ emptyText: "暂无交期预警" }} columns={[
-            { title: "订单号", dataIndex: "orderNumber", width: 140 },
-            { title: "客户", dataIndex: "customer", ellipsis: true },
-            { title: "承产单位", dataIndex: "division", width: 110 },
-            { title: "有效交期", dataIndex: "dueDate", width: 100, render: formatDueDate },
-            { title: "状态", dataIndex: "status", width: 90, render: (value: string) => <Tag color={value === "延期" ? "red" : value === "即将延期" ? "orange" : "blue"}>{value}</Tag> },
-            ...auditColumns
-          ]} />
+        <div className="dashboard-warning-list">
+          {warningRows.map((row:any)=><div className="dashboard-warning-item" key={row.id}>
+            <div className="dashboard-warning-order"><Text strong>{row.orderNumber}</Text><Text type="secondary" ellipsis={{tooltip:row.customer}}>{row.customer||"未指定客户"}</Text></div>
+            <Text className="dashboard-warning-division">{row.division}</Text>
+            <Text className="dashboard-warning-date">{formatDueDate(row.dueDate)}</Text>
+            <Tag color={row.status==="延期"?"red":row.status==="即将延期"?"orange":"blue"}>{row.remainingDays<0?`延期 ${Math.abs(row.remainingDays)} 天`:row.remainingDays===0?"今日到期":`${row.remainingDays} 天后到期`}</Tag>
+          </div>)}
+          {!warningRows.length&&<div className="dashboard-warning-empty">暂无交期预警</div>}
+        </div>
       </Card>
     </div>
   </div>;

@@ -19,6 +19,7 @@ import {
   ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, FinishedGoodsOutbound, Permission,
   Contact, OrganizationUnit, ProcessDefinitionEntity, Role, RoleOrganizationScope, SalesOrder, Supplier, User, UserRole
 } from "./entities";
+import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { ImportService } from "./import.service";
 import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
@@ -142,16 +143,12 @@ export class AuthController {
   }
   @Post("change-password")
   @UseGuards(AuthGuard)
-  changePassword(@Body() body: { currentPassword: string; nextPassword: string }, @Req() req: UserRequest) {
-    return this.auth.changePassword(req.user.sub, body.currentPassword, body.nextPassword);
+  changePassword(@Body() body: { currentPassword: string; nextPassword: string; email: string }, @Req() req: UserRequest) {
+    return this.auth.changePassword(req.user.sub, body.currentPassword, body.nextPassword, body.email);
   }
   @Post("password-reset/request")
-  requestPasswordReset(@Body() body: { mobile: string; email: string }, @Ip() ip: string, @Req() req: UserRequest) {
-    return this.auth.requestPasswordReset(body.mobile, body.email, ip, req.requestId);
-  }
-  @Post("password-reset/confirm")
-  resetPassword(@Body() body: { mobile: string; email: string; code: string; nextPassword: string }, @Req() req: UserRequest) {
-    return this.auth.resetPassword(body.mobile, body.email, body.code, body.nextPassword, req.requestId);
+  requestPasswordReset(@Body() body: { username: string; email: string }, @Ip() ip: string, @Req() req: UserRequest) {
+    return this.auth.requestPasswordReset(body.username, body.email, ip, req.requestId);
   }
 }
 
@@ -172,7 +169,13 @@ export class PlanController {
     return this.plans.monthly(year, month, req.user);
   }
   @Get("rolling") rolling(@Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "read"); return this.plans.rolling(req.user); }
-  @Get("sales-dashboard") dashboard(@Req() req: UserRequest) { requireTablePermission(req, "sales-summary-dashboard", "read"); return this.plans.rolling(req.user); }
+  @Get("sales-dashboard") dashboard(@Query("dimension") dimension:string|undefined,@Query("period") period:string|undefined,
+    @Query("division") division:string|string[]|undefined,@Query("customer") customer:string|string[]|undefined,@Req() req: UserRequest) {
+    requireTablePermission(req, "sales-summary-dashboard", "read");
+    const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+    const values=(value:string|string[]|undefined)=>value===undefined?[]:Array.isArray(value)?value:[value];
+    return this.plans.salesDashboard({dimension:(dimension??"month") as "year"|"month"|"day",period:period??today,divisions:values(division),customers:values(customer)},req.user);
+  }
   @Post("orders") createOrder(@Body() body: Record<string, unknown>, @Req() req: UserRequest) {
     requireTablePermission(req, "rolling-plan", "create");
     return this.plans.createOrder(body, req.user, req.requestId);
@@ -311,7 +314,8 @@ export class MasterDataController {
     @InjectRepository(FinishedGoodsInbound) private readonly finishedGoodsInbound: Repository<FinishedGoodsInbound>,
     @InjectRepository(FinishedGoodsOutbound) private readonly finishedGoodsOutbound: Repository<FinishedGoodsOutbound>,
     private readonly imports: ImportService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly masterDataQueries: MasterDataQueryService
   ) {}
   private async updateVersioned(
     repository: Repository<any>, id: string, expectedVersion: unknown, patch: Record<string, unknown>, req: UserRequest, resource: string
@@ -588,9 +592,12 @@ export class MasterDataController {
   }
 
   @Get("sales-orders")
-  listSalesOrders(@Req() req: UserRequest) {
+  listSalesOrders(
+    @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Req() req: UserRequest
+  ) {
     requireTablePermission(req, "sales-orders", "read");
-    return this.salesOrders.find({ order: { orderDate: "DESC", orderNumber: "ASC", itemNumber: "ASC" } });
+    return this.masterDataQueries.salesOrderPage({ page, pageSize, search, filters });
   }
   @Post("sales-orders")
   async addSalesOrder(@Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
@@ -644,9 +651,12 @@ export class MasterDataController {
   }
 
   @Get("finished-goods-inbound")
-  listFinishedGoodsInbound(@Req() req: UserRequest) {
+  listFinishedGoodsInbound(
+    @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Req() req: UserRequest
+  ) {
     requireTablePermission(req, "finished-goods-inbound", "read");
-    return this.finishedGoodsInbound.find({ order: { inboundDate: "DESC", documentNumber: "ASC", lineNumber: "ASC" } });
+    return this.masterDataQueries.finishedGoodsInboundPage({ page, pageSize, search, filters });
   }
   @Get("finished-goods-inbound/export")
   async exportFinishedGoodsInbound(@Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
@@ -804,9 +814,12 @@ export class MasterDataController {
   }
 
   @Get("finished-goods-outbound")
-  listFinishedGoodsOutbound(@Req() req: UserRequest) {
+  listFinishedGoodsOutbound(
+    @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Req() req: UserRequest
+  ) {
     requireTablePermission(req, "finished-goods-outbound", "read");
-    return this.finishedGoodsOutbound.find({ order: { documentDate: "DESC", documentNumber: "ASC", itemNumber: "ASC" } });
+    return this.masterDataQueries.finishedGoodsOutboundPage({ page, pageSize, search, filters });
   }
 
   @Post("finished-goods-outbound")
@@ -1189,6 +1202,7 @@ export class AdminController {
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.findOneBy(User, { id });
       if (!user) throw new ForbiddenException("用户不存在");
+      const passwordResetBefore = { failures: user.passwordResetFailures ?? 0, locked: Boolean(user.passwordResetLockedAt), emailConfigured: Boolean(user.email) };
       if (body.displayName !== undefined) user.displayName = body.displayName.trim();
       if (body.division !== undefined) user.division = body.division;
       if (body.enabled !== undefined) user.enabled = body.enabled;
@@ -1203,7 +1217,19 @@ export class AdminController {
         if (!/^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/.test(body.password)) throw new ForbiddenException("密码须为 8–64 位、包含字母和数字且不能包含空格");
         user.passwordHash = await bcrypt.hash(body.password, 12); user.mustChangePassword = true;
       }
+      if (body.email !== undefined || body.password) {
+        user.passwordResetFailures = 0;
+        user.passwordResetLockedAt = null;
+      }
       await manager.save(user);
+      if (body.email !== undefined || body.password) {
+        await manager.save(AuditLog, {
+          actorId: req.user.sub, actorName: req.user.displayName ?? req.user.username, resource: "auth", recordId: user.id,
+          action: "password_reset.recovery_updated_by_admin", beforeJson: passwordResetBefore,
+          afterJson: { failures: 0, locked: false, emailConfigured: Boolean(user.email), passwordUpdated: Boolean(body.password) },
+          requestId: req.requestId, source: "web", updatedBy: req.user.username
+        });
+      }
       if (body.roleIds) {
         await manager.delete(UserRole, { userId: id });
         for (const roleId of [...new Set(body.roleIds)]) await manager.insert(UserRole, { userId: id, roleId });
@@ -1215,13 +1241,26 @@ export class AdminController {
   @Post("users/:id/reset-password")
   async resetUserPassword(@Param("id") id: string, @Req() req: UserRequest) {
     this.admin(req);
-    const user = await this.users.findOneBy({ id });
-    if (!user) throw new BadRequestException("用户不存在");
-    if (isPrimaryAdminUsername(user.username)) throw new BadRequestException("admin 账户不能重置为普通用户默认密码");
-    user.passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 12);
-    user.mustChangePassword = true;
-    await this.users.save(user);
-    return { id, reset: true, mustChangePassword: true };
+    return this.dataSource.transaction(async (manager) => {
+      const user = await manager.findOneBy(User, { id });
+      if (!user) throw new BadRequestException("用户不存在");
+      if (isPrimaryAdminUsername(user.username)) throw new BadRequestException("admin 账户不能重置为普通用户默认密码");
+      const beforeJson = { failures: user.passwordResetFailures ?? 0, locked: Boolean(user.passwordResetLockedAt) };
+      user.passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 12);
+      user.mustChangePassword = true;
+      user.passwordResetFailures = 0;
+      user.passwordResetLockedAt = null;
+      user.updatedBy = req.user.username;
+      user.version = (user.version ?? 0) + 1;
+      await manager.save(User, user);
+      await manager.save(AuditLog, {
+        actorId: req.user.sub, actorName: req.user.displayName ?? req.user.username, resource: "auth", recordId: user.id,
+        action: "password_reset.reset_by_admin", beforeJson,
+        afterJson: { failures: 0, locked: false, mustChangePassword: true },
+        requestId: req.requestId, source: "web", updatedBy: req.user.username
+      });
+      return { id, reset: true, mustChangePassword: true };
+    });
   }
 
   @Post("users/delete")

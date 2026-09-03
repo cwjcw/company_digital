@@ -25,6 +25,7 @@
 - Import confirmation locks the job/version, writes in one transaction and is idempotent.
 - Quantities and amounts use exact decimals and PostgreSQL `numeric`.
 - Critical changes capture actor, action, resource, before/after values, reason, source, request/trace IDs and IP where available.
+- Equipment APIs enforce independent table actions and stable-UUID division scopes on reads and writes. Status dates are server-validated against the current Asia/Shanghai day and its preceding six days; browser date controls are convenience only. Equipment/status deletes are soft deletes and all changes use optimistic versions plus audit records.
 
 ## Files
 
@@ -39,8 +40,8 @@
 - Access tokens and credentials must not appear in logs, audit JSON, WebSocket messages or error responses.
 - WebSocket events carry invalidation metadata only, not full plan rows.
 - Rotate any secret that is accidentally disclosed and remove it from history where required.
-- SMTP credentials live only in the ignored, mode-`600` server file `.env.smtp`; password-reset codes and user passwords are never logged or audited in plaintext. User passwords and reset verification codes are stored only as bcrypt hashes.
-- Password reset requires an enabled user whose mobile number and email both match the latest synchronized directory, emails a time-limited code, limits attempts, rejects reuse of the current password, and revokes existing refresh tokens after success.
+- SMTP credentials live only in the ignored, mode-`600` server file `.env.smtp`; temporary passwords and user passwords are never logged or audited in plaintext. User passwords and password-reset request material are stored only as bcrypt hashes.
+- Authenticated password changes require a valid recovery email and save the latest submitted address on the user account. Password reset requires that exact username/email pair; it never overwrites the recovery email. Each wrong email attempt is transactionally counted and audited, the response reports the remaining attempts, and the reset function is locked on the tenth failure. A successful verification clears the counter, generates an exact eight-character temporary password containing letters and digits, sends it only to the saved email, stores only bcrypt hashes, revokes existing refresh tokens, and requires an immediate password change after login. An authenticated password change or an administrator email/password update clears the reset lock.
 
 ## Operations
 

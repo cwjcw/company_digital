@@ -19,14 +19,14 @@ export class MailService {
     });
   }
 
-  async sendPasswordResetCode(email: string, displayName: string, code: string) {
+  async sendTemporaryPassword(email: string, displayName: string, temporaryPassword: string) {
     const sender = process.env.SMTP_USER!.trim();
     await this.transporter().sendMail({
       from: `"凯南数字化工作台" <${sender}>`,
       to: email,
-      subject: "凯南数字化工作台密码重置验证码",
-      text: `${displayName}，您好：\n\n您的密码重置验证码是：${code}\n验证码 10 分钟内有效，最多允许尝试 5 次。\n如非本人操作，请忽略本邮件。`,
-      html: `<p>${this.escape(displayName)}，您好：</p><p>您的密码重置验证码是：</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>验证码 10 分钟内有效，最多允许尝试 5 次。</p><p>如非本人操作，请忽略本邮件。</p>`
+      subject: "凯南数字化工作台临时密码",
+      text: `${displayName}，您好：\n\n您的 8 位临时密码是：${temporaryPassword}\n请使用该密码登录，并按系统提示立即修改密码。\n如非本人操作，请立即联系系统管理员。`,
+      html: `<p>${this.escape(displayName)}，您好：</p><p>您的 8 位临时密码是：</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${temporaryPassword}</p><p>请使用该密码登录，并按系统提示立即修改密码。</p><p>如非本人操作，请立即联系系统管理员。</p>`
     });
   }
 

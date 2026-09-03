@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import {
   ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
-  SafetyCertificateOutlined, SettingOutlined, TeamOutlined, UserOutlined
+  SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -29,6 +29,7 @@ import { AdministratorsPage } from "./modules/admin/AdministratorsPage";
 import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
+import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
 import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
@@ -120,41 +121,36 @@ const passwordRuleText = "密码须为 8–64 位，至少包含一个字母和�
 
 function ForgotPasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [form] = Form.useForm();
-  const [requested, setRequested] = useState(false);
   const [sending, setSending] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [verifiedEmail, setVerifiedEmail] = useState("");
-  const close = () => { form.resetFields(); setRequested(false); setVerifiedEmail(""); onClose(); };
-  const requestCode = async () => {
-    const values = await form.validateFields(["mobile", "email"]);
-    setSending(true);
+  const [sentEmail, setSentEmail] = useState("");
+  const [requestError, setRequestError] = useState("");
+  const close = () => { form.resetFields(); setSentEmail(""); setRequestError(""); onClose(); };
+  const sendTemporaryPassword = async () => {
+    setRequestError("");
     try {
-      const result = await api<{ phoneVerified: boolean; email: string }>("/auth/password-reset/request", { method: "POST", body: JSON.stringify(values) });
-      setRequested(true); setVerifiedEmail(result.email);
-      message.success("手机号码验证通过，验证码已发送至邮箱");
-    } catch (error) { message.error((error as Error).message); } finally { setSending(false); }
+      const values = await form.validateFields(["username", "email"]);
+      setSending(true);
+      const result = await api<{ status: string; email: string; temporaryPasswordLength: number; mustChangePassword: boolean }>("/auth/password-reset/request", { method: "POST", body: JSON.stringify(values) });
+      setSentEmail(result.email);
+      message.success("8 位临时密码已发送至邮箱");
+    } catch (error: any) {
+      if (Array.isArray(error?.errorFields)) return;
+      const text = error instanceof Error ? error.message : "临时密码发送失败，请稍后重试";
+      setRequestError(text); message.error(text);
+    } finally { setSending(false); }
   };
-  const reset = async () => {
-    const values = await form.validateFields();
-    setResetting(true);
-    try {
-      await api("/auth/password-reset/confirm", { method: "POST", body: JSON.stringify(values) });
-      message.success("密码已重置，请使用新密码登录"); close();
-    } catch (error) { message.error((error as Error).message); } finally { setResetting(false); }
-  };
-  return <Modal title="忘记密码" open={open} onCancel={close} footer={requested
-    ? [<Button key="back" onClick={() => setRequested(false)}>返回</Button>, <Button key="reset" type="primary" loading={resetting} onClick={() => void reset()}>重置密码</Button>]
-    : [<Button key="cancel" onClick={close}>取消</Button>, <Button key="send" type="primary" loading={sending} onClick={() => void requestCode()}>发送邮箱验证码</Button>]}>
-    <Alert type="info" showIcon message="密码规则" description={passwordRuleText} style={{ marginBottom: 16 }} />
+  return <Modal title="忘记密码" open={open} onCancel={close} footer={sentEmail
+    ? [<Button key="close" type="primary" onClick={close}>我知道了</Button>]
+    : [<Button key="cancel" onClick={close}>取消</Button>, <Button key="send" type="primary" loading={sending} onClick={() => void sendTemporaryPassword()}>发送随机密码</Button>]}>
+    <Alert type="info" showIcon message="邮箱找回密码" description="请输入最近一次修改密码时保存的邮箱。邮箱连续错误 10 次后，该账号的找回密码功能将被锁定；验证成功后系统发送 8 位临时密码。" style={{ marginBottom: 16 }} />
+    {requestError && <Alert type="error" showIcon message="临时密码发送失败" description={requestError} style={{ marginBottom: 16 }} />}
     <Form form={form} layout="vertical" requiredMark={false}>
-      <Form.Item name="mobile" label="手机号码" rules={[{ required: true, message: "请输入通讯录中的手机号码" }]}><Input disabled={requested} autoComplete="tel" /></Form.Item>
-      <Form.Item name="email" label="邮箱" rules={[{ required: true, type: "email", message: "请输入通讯录中的有效邮箱" }]}><Input disabled={requested} autoComplete="email" /></Form.Item>
-      {requested && <>
-        <Alert type="success" showIcon message="手机号码验证通过" description={`验证码已发送至 ${verifiedEmail}`} style={{ marginBottom: 16 }} />
-        <Form.Item name="code" label="邮箱验证码" rules={[{ required: true, pattern: /^\d{6}$/, message: "请输入 6 位验证码" }]}><Input inputMode="numeric" maxLength={6} /></Form.Item>
-        <Form.Item name="nextPassword" label="新密码" rules={[{ required: true, pattern: passwordRule, message: passwordRuleText }]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Form.Item name="confirmPassword" label="确认新密码" dependencies={["nextPassword"]} rules={[{ required: true, message: "请再次输入新密码" }, ({ getFieldValue }) => ({ validator(_, value) { return !value || value === getFieldValue("nextPassword") ? Promise.resolve() : Promise.reject(new Error("两次输入的密码不一致")); } })]}><Input.Password autoComplete="new-password" /></Form.Item>
-      </>}
+      <Form.Item name="username" label="账号" rules={[{ required: true, whitespace: true, message: "请输入账号" }]}>
+        <Input disabled={Boolean(sentEmail)} autoComplete="username" placeholder="请输入登录账号" />
+      </Form.Item>
+      <Form.Item name="email" label="邮箱" extra="必须与最近一次修改密码时保存的邮箱一致。"
+        rules={[{ required: true, type: "email", message: "请输入修改密码时保存的有效邮箱" }]}><Input disabled={Boolean(sentEmail)} autoComplete="email" /></Form.Item>
+      {sentEmail && <Alert type="success" showIcon message="临时密码已发送" description={`8 位临时密码已发送至 ${sentEmail}，请查收邮件后登录。`} />}
     </Form>
   </Modal>;
 }
@@ -186,8 +182,8 @@ function Shell({ logout }: { logout: () => void }) {
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
-  const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") ? "planning"
+  const moduleId = permissionResource ? permissionModuleId : ["/sales-summary-dashboard", "/equipment-dashboard"].includes(location.pathname) ? "cockpit"
+    : ["/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -196,16 +192,23 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
-      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
+      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" },
+      { key: "/equipment-dashboard", icon: <ToolOutlined />, label: "设备管理驾驶舱" }
     ] }],
-    planning: [{ key: "planning-root", label: "生产主计划", children: [
-      { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
-      { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
-        { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
+    planning: [
+      { key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划", children: [
+        { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
+        { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
+          { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
+        ] },
+        { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: weeklyPages },
+        { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
       ] },
-      { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: weeklyPages },
-      { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
-    ] }],
+      { key: "equipment-management", icon: <ToolOutlined />, label: "设备管理", children: [
+        { key: "/equipment-register", icon: <DatabaseOutlined />, label: "设备总台账" },
+        { key: "/equipment-status-report", icon: <FileExcelOutlined />, label: "设备状态填报" }
+      ] }
+    ],
     data: [{ key: "data-root", label: "数据中心", children: [
       { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
       { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" },
@@ -254,6 +257,7 @@ function Shell({ logout }: { logout: () => void }) {
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
       "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
+      "/equipment-dashboard": "设备管理驾驶舱", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
@@ -269,12 +273,12 @@ function Shell({ logout }: { logout: () => void }) {
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
       {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
-      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[`${moduleId}-root`, "/monthly", "/monthly/2026", "/weekly", "hr-employee-relations", "system-master", "system-governance", "system-accounts"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
+      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[`${moduleId}-root`, "/monthly", "/monthly/2026", "/weekly", "equipment-management", "hr-employee-relations", "system-master", "system-governance", "system-accounts"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>
     <Layout>
       <Header className="topbar">
-        <div className="topbar-context"><Text type="secondary">{activeModule.title}</Text><div className="topbar-page-title">{pageTitle}</div></div>
+        <div className="topbar-context"><Text type="secondary">{activeModule.title}</Text><h1 className="topbar-page-title">{pageTitle}</h1></div>
         <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text><br /><Text type="secondary">{user.roles?.join(" / ")}</Text></div>
           <Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></div>
       </Header>
@@ -282,6 +286,7 @@ function Shell({ logout }: { logout: () => void }) {
         <Routes>
           <Route path="/rolling" element={<Navigate to="/sales-summary-details" replace />} />
           <Route path="/sales-summary-dashboard" element={<SalesSummaryDashboard />} />
+          <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/sales-summary-details" element={<SalesSummaryDetails />} />
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
@@ -290,6 +295,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/weekly/20260830" element={<WeeklyPlanPage startDate="2026-08-30" />} />
           <Route path="/weekly/20260906" element={<WeeklyPlanPage startDate="2026-09-06" />} />
           <Route path="/work-reports" element={<WorkReportsPage />} />
+          <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
+          <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
@@ -470,11 +477,21 @@ function DataOperations() {
   </div>;
 }
 
+type InboundTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string> };
+type InboundTablePage = { rows: any[]; total: number; page: number; pageSize: number };
+
 function FinishedGoodsInboundPage() {
   const queryClient = useQueryClient();
+  const [tableQuery, setTableQuery] = useState<InboundTableQuery>({ page: 1, pageSize: 50, search: "", filters: {} });
   const records = useQuery({
-    queryKey: ["finished-goods-inbound"],
-    queryFn: () => api<any[]>("/master-data/finished-goods-inbound")
+    queryKey: ["finished-goods-inbound", tableQuery],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(tableQuery.page), pageSize: String(tableQuery.pageSize) });
+      if (tableQuery.search) params.set("search", tableQuery.search);
+      if (Object.values(tableQuery.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(tableQuery.filters));
+      return api<InboundTablePage>(`/master-data/finished-goods-inbound?${params}`);
+    },
+    placeholderData: (previous) => previous
   });
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
   const [open, setOpen] = useState(false);
@@ -538,7 +555,7 @@ function FinishedGoodsInboundPage() {
   }));
 
   return <div>
-    <PageHeader title="入库表" subtitle="字段来自 25年-现在入库明细.xlsx；已导入 2026 年以来数据" />
+    <PageHeader title="入库表" subtitle="统一展示三个来源的入库明细；来源系统、账套和源主键只读可追溯" />
     <Space wrap className="master-data-toolbar">
       <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增入库记录</Button>
       <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}>
@@ -553,7 +570,8 @@ function FinishedGoodsInboundPage() {
     <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
     <KdosDataTable resource="finished-goods-inbound" editable className="editable-master-table" rowKey="id"
       rowSelection={{ selectedRowKeys: selectedIds, onChange: setSelectedIds }}
-      dataSource={records.data} loading={records.isLoading}
+      dataSource={records.data?.rows} loading={records.isLoading}
+      serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }}
       pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
       scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} columns={columns} />
     <Modal title="新增入库记录" width={1080} open={open} onCancel={() => setOpen(false)}
@@ -693,8 +711,11 @@ function ForcePasswordChange({ done }: { done: () => void }) {
   };
   return <div className="login-shell"><Card className="login-card"><div className="login-title">首次登录，请修改密码</div><Text type="secondary">{passwordRuleText}</Text>
     <Form form={form} layout="vertical" onFinish={submit} style={{ marginTop: 20 }}>
+      <Alert type="warning" showIcon message="请填写本人常用邮箱" description="该邮箱将保存为忘记密码申请时的验证邮箱，并用于接收随机临时密码。" style={{ marginBottom: 16 }} />
       <Form.Item label="当前密码" name="currentPassword" rules={[{ required: true }]}><Input.Password /></Form.Item>
+      <Form.Item label="找回密码邮箱" name="email" rules={[{ required: true, type: "email", message: "请输入本人有效邮箱" }]}><Input autoComplete="email" /></Form.Item>
       <Form.Item label="新密码" name="nextPassword" dependencies={["currentPassword"]} rules={[{ required: true, pattern: passwordRule, message: passwordRuleText }, ({ getFieldValue }) => ({ validator(_, value) { return !value || value !== getFieldValue("currentPassword") ? Promise.resolve() : Promise.reject(new Error("新密码不能与当前密码相同")); } })]}><Input.Password /></Form.Item>
+      <Form.Item label="确认新密码" name="confirmPassword" dependencies={["nextPassword"]} rules={[{ required: true, message: "请再次输入新密码" }, ({ getFieldValue }) => ({ validator(_, value) { return !value || value === getFieldValue("nextPassword") ? Promise.resolve() : Promise.reject(new Error("两次输入的密码不一致")); } })]}><Input.Password /></Form.Item>
       <Button htmlType="submit" type="primary" loading={loading} block>确认修改</Button>
     </Form>
   </Card></div>;

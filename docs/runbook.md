@@ -41,6 +41,8 @@ curl -fsS http://127.0.0.1:15172/api/v1/health
 
 除非用户明确要求暂不部署，否则完成改动后默认直接上线。若企业微信、ERP、凭据、网络或权限等外部条件阻止完整上线，必须保留已完成部分的准确状态，并明确报告阻塞项、影响范围和恢复条件。
 
+ERP订单 staging 同步由三个 user systemd timer 每30分钟独立运行。检查 `systemctl --user list-timers 'kdos-erp-order-sync@*'`、`loginctl show-user "$USER" -p Linger` 和对应 journal；日常运行不生成 CSV/JSON，人工验收时才使用 `sync.py run --source <key> --save-report`。投影消费者默认禁用，只有正式业务表字段映射、旧关系迁移和幂等验证通过后才可启用。
+
 Check applied migrations and RLS with a privileged maintenance connection:
 
 ```sql
@@ -65,3 +67,15 @@ Run `./scripts/backup.sh` before upgrades and preserve SHA256 output. Back up th
 ## Password reset mail
 
 Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER` and `SMTP_PASSWORD` in the ignored server file `.env.smtp`, keep it at mode `600`, and include it only in the API service `env_file` list. After deployment, verify the SMTP TLS login from inside the API container without printing credentials. Never place the password in source, documentation, audit JSON or frontend configuration.
+
+Authenticated password changes require the user to enter a valid recovery email; the latest submitted address is saved for future password-reset applications. Reset requires the exact username/email pair and never changes the saved email. Wrong emails are counted per account, each response reports the remaining attempts, and the reset function is persistently locked on the tenth failure. A successful verification clears the counter. An authenticated password change or an administrator email/password update clears the lock. The server sends an exact eight-character letter-and-digit temporary password to the verified email, revokes existing refresh tokens, and forces a password change after login.
+
+## Equipment ledger initialization
+
+After migration `EquipmentManagement1722920041000`, initialize the retained workbook once through the application service; never copy names directly with SQL. The command is idempotent on tenant + division UUID + equipment code and reads the workbook from stdin so the business file is not copied into the repository or image:
+
+```bash
+docker compose exec -T api node dist/modules/equipment/import-equipment.js < "/home/Jerry/下载/设备使用管理表.xlsx"
+```
+
+The importer maps workbook “研发” to the stable “研发中心” organization, resolves known legacy department aliases, derives the monitoring flag from the `设备监控` sheet, and intentionally leaves blank source responsibility unassigned. Verify totals by division and the rolling-seven-day dashboard after import. Re-running updates changed source fields without duplicating equipment or clearing responsibility maintained in KDOS.
