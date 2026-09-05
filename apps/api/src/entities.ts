@@ -513,7 +513,7 @@ export class EquipmentAsset extends AuditedEntity {
   @Column({ name: "equipment_code", type: "varchar" }) equipmentCode!: string;
   @Column({ name: "equipment_name", type: "varchar" }) equipmentName!: string;
   @Column({ name: "purchase_date", type: "date", nullable: true }) purchaseDate!: string | null;
-  @Column({ default: true }) monitored!: boolean;
+  @Column({ default: false }) monitored!: boolean;
   @Column({ default: true }) active!: boolean;
   @Column({ name: "source_sheet_row", type: "integer", nullable: true }) sourceSheetRow!: number | null;
 }

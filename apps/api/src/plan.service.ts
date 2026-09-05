@@ -309,12 +309,7 @@ export class PlanService {
     };
   }
 
-  async rolling(user: any) {
-    const scope = this.scope(user);
-    const orders = await this.orders.createQueryBuilder("o")
-      .where(scope.clause, scope.params)
-      .andWhere("o.sourceActive = true")
-      .orderBy("o.orderNumber", "ASC").getMany();
+  private async rollingRows(orders: Order[]) {
     if (!orders.length) return [];
     const records = await this.items.createQueryBuilder("i")
       .innerJoinAndSelect("i.order", "o")
@@ -339,6 +334,79 @@ export class PlanService {
         version: order.version, createdBy: order.createdBy, createdAt: order.createdAt, updatedBy: order.updatedBy, updatedAt: order.updatedAt,
         ...this.domain.orderMetrics(items, order.sourceTotalQuantity) };
     });
+  }
+
+  async rolling(user: any) {
+    const scope = this.scope(user);
+    const orders = await this.orders.createQueryBuilder("o")
+      .where(scope.clause, scope.params)
+      .andWhere("o.sourceActive = true")
+      .orderBy("o.orderNumber", "ASC").getMany();
+    return this.rollingRows(orders);
+  }
+
+  async rollingPage(input: { page?: number; pageSize?: number; search?: string; filters?: Array<{ field: string; value: string }>; quickFilters?: Record<string, unknown>; sortField?: string; sortOrder?: "asc" | "desc" }, user: any) {
+    const page = Math.max(Number(input.page) || 1, 1);
+    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 50;
+    const filters = Array.isArray(input.filters) ? input.filters.filter((entry) => entry?.field && String(entry.value ?? "").trim()) : [];
+    const quick = input.quickFilters ?? {};
+    const directFields: Record<string, { column: string; dictionary?: boolean }> = {
+      sourceAccountName: { column: "source_account_name" }, orderType: { column: "order_type", dictionary: true },
+      customer: { column: "customer" }, salesperson: { column: "salesperson" }, orderNumber: { column: "order_number" },
+      orderDate: { column: "order_date" }, customerDueDate: { column: "customer_due_date" }, reviewDueDate: { column: "review_due_date" },
+      exceptionDueDate: { column: "exception_due_date" }, exceptionDeliveryMethod: { column: "exception_delivery_method", dictionary: true },
+      orderAmount: { column: "order_amount" }, division: { column: "division", dictionary: true },
+      actualCompletionDate: { column: "actual_completion_date" }, shippingDate: { column: "shipping_date" },
+      deliveryScore: { column: "delivery_score" }, qualityScore: { column: "quality_score" }, createdBy: { column: "created_by" }, updatedBy: { column: "updated_by" }
+    };
+    const sortField = String(input.sortField ?? "");
+    const requiresDerivedFilter = filters.some((entry) => !directFields[entry.field])
+      || quick.completionRateStart != null || quick.completionRateEnd != null || Boolean(sortField && !directFields[sortField]);
+    const valueAt = (row: Record<string, unknown>, path: string) => path.split(".").reduce<unknown>((value, key) => value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined, row);
+    const matches = (row: Record<string, unknown>) => {
+      for (const filter of filters) {
+        const actual = String(valueAt(row, filter.field) ?? ""); const expected = String(filter.value).trim();
+        if (directFields[filter.field]?.dictionary ? actual !== expected : !actual.toLocaleLowerCase().includes(expected.toLocaleLowerCase())) return false;
+      }
+      const dateMatches = (value: unknown, start: unknown, end: unknown) => Boolean(value) && (!start || String(value) >= String(start)) && (!end || String(value) <= String(end));
+      const completion = row.completionRate == null ? null : Number(row.completionRate) * 100;
+      return (!quick.orderNumber || String(row.orderNumber ?? "").toLocaleLowerCase().includes(String(quick.orderNumber).toLocaleLowerCase()))
+        && (!quick.month || String(row.month ?? "").includes(String(quick.month)))
+        && (!quick.customerDueDateStart && !quick.customerDueDateEnd || dateMatches(row.customerDueDate, quick.customerDueDateStart, quick.customerDueDateEnd))
+        && (!quick.reviewDueDateStart && !quick.reviewDueDateEnd || dateMatches(row.reviewDueDate, quick.reviewDueDateStart, quick.reviewDueDateEnd))
+        && (!quick.exceptionDueDateStart && !quick.exceptionDueDateEnd || dateMatches(row.exceptionDueDate, quick.exceptionDueDateStart, quick.exceptionDueDateEnd))
+        && (quick.completionRateStart == null || completion != null && completion >= Number(quick.completionRateStart))
+        && (quick.completionRateEnd == null || completion != null && completion <= Number(quick.completionRateEnd))
+        && (!quick.customer || String(row.customer ?? "").toLocaleLowerCase().includes(String(quick.customer).toLocaleLowerCase()))
+        && (!quick.division || row.division === quick.division);
+    };
+    if (requiresDerivedFilter) {
+      const all = (await this.rolling(user)).filter((row) => matches(row as Record<string, unknown>));
+      if (sortField) all.sort((left, right) => {
+        const compared = String(valueAt(left as Record<string, unknown>, sortField) ?? "").localeCompare(String(valueAt(right as Record<string, unknown>, sortField) ?? ""), "zh-CN", { numeric: true });
+        return input.sortOrder === "desc" ? -compared : compared;
+      });
+      return { rows: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize };
+    }
+    const scope = this.scope(user);
+    const query = this.orders.createQueryBuilder("o").where(scope.clause, scope.params).andWhere("o.sourceActive = true");
+    if (input.search?.trim()) query.andWhere("concat_ws(' ',o.order_number,o.customer,o.salesperson,o.division,o.source_account_name) ILIKE :rollingSearch", { rollingSearch: `%${input.search.trim()}%` });
+    for (const [index, filter] of filters.entries()) {
+      const config = directFields[filter.field]!; const key = `rollingFilter${index}`;
+      query.andWhere(config.dictionary ? `o.${config.column} = :${key}` : `CAST(o.${config.column} AS text) ILIKE :${key}`, { [key]: config.dictionary ? filter.value : `%${filter.value.trim()}%` });
+    }
+    const contains = (property: string, value: unknown, key: string) => { if (value) query.andWhere(`o.${property} ILIKE :${key}`, { [key]: `%${String(value).trim()}%` }); };
+    contains("order_number", quick.orderNumber, "quickOrderNumber"); contains("customer", quick.customer, "quickCustomer");
+    if (quick.division) query.andWhere("o.division = :quickDivision", { quickDivision: quick.division });
+    const range = (property: string, start: unknown, end: unknown, key: string) => { if (start) query.andWhere(`o.${property} >= :${key}Start`, { [`${key}Start`]: start }); if (end) query.andWhere(`o.${property} <= :${key}End`, { [`${key}End`]: end }); };
+    range("customer_due_date", quick.customerDueDateStart, quick.customerDueDateEnd, "customerDue");
+    range("review_due_date", quick.reviewDueDateStart, quick.reviewDueDateEnd, "reviewDue");
+    range("exception_due_date", quick.exceptionDueDateStart, quick.exceptionDueDateEnd, "exceptionDue");
+    if (quick.month) query.andWhere(`EXISTS (SELECT 1 FROM order_items ri JOIN plan_periods rp ON rp.id=ri.period_id WHERE ri.order_id=o.id AND ri.active=true AND concat(rp.year,'-',lpad(rp.month::text,2,'0'))=:quickMonth)`, { quickMonth: quick.month });
+    const total = await query.getCount();
+    const directSort = directFields[sortField];
+    const orders = await query.orderBy(directSort ? `o.${directSort.column}` : "o.orderNumber", input.sortOrder === "desc" ? "DESC" : "ASC", "NULLS LAST").skip((page - 1) * pageSize).take(pageSize).getMany();
+    return { rows: await this.rollingRows(orders), total, page, pageSize };
   }
 
   private dashboardDateRange(dimension: "year" | "month" | "day", period: string) {

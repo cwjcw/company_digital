@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dictionarySeeds, legacyMonthlyPlanColumns, monthlyPlanColumns } from "./index";
 
 const ordinaryStart = [
-  "序号", "订单号", "下单日期", "客户要求交期", "产前评审交期", "异常后二次交期", "异常交期交货方式", "装柜日期",
+  "序号", "事业部", "订单号", "下单日期", "客户要求交期", "产前评审交期", "异常后二次交期", "异常交期交货方式", "装柜日期",
   "新旧款", "品号", "关联信息", "品名", "简图", "产品属性", "表面性质", "特别项", "订单需求数量", "历史入库数据",
   "当天入库数", "订单欠数", "制作方式"
 ];
@@ -17,10 +17,11 @@ const expectedQualifiedHeaders = [
 ];
 
 describe("monthly plan column definitions", () => {
-  it("matches the requested 84 business fields exactly and in order", () => {
+  it("places the department-backed division field immediately after sequence", () => {
     expect(monthlyPlanColumns.map((column) => column.group ? `${column.group}.${column.header}` : column.header))
       .toEqual(expectedQualifiedHeaders);
-    expect(monthlyPlanColumns).toHaveLength(84);
+    expect(monthlyPlanColumns).toHaveLength(85);
+    expect(monthlyPlanColumns[1]).toMatchObject({ key: "responsibleOrgId", header: "事业部", kind: "department" });
   });
 
   it("keeps the legacy 97-column contract only for historical compatibility", () => {

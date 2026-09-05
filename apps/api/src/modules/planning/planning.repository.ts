@@ -13,6 +13,11 @@ export interface PlanSearchInput {
   status?: string;
   ownerUserId?: string;
   responsibleOrgId?: string;
+  responsibleOrgIds?: string[];
+  search?: string;
+  filters?: Record<string, string>;
+  sortField?: string;
+  sortOrder?: "asc" | "desc";
   limit?: number;
   offset?: number;
 }
@@ -26,6 +31,7 @@ export interface PlanningRepository {
   createPeriod(tenantId: string, year: number, month: number, actor: PlanningActor): Promise<PlanPeriodRecord>;
   createVersion(tenantId: string, periodId: string, basedOnVersionId: string | null, actor: PlanningActor): Promise<PlanVersionRecord>;
   searchItems(tenantId: string, input: PlanSearchInput): Promise<PlanItemView[]>;
+  countItems(tenantId: string, input: PlanSearchInput): Promise<number>;
   getItem(tenantId: string, itemId: string): Promise<PlanItemView | null>;
   createItem(tenantId: string, versionId: string, input: CreatePlanItemInput, actor: PlanningActor): Promise<PlanItemRecord>;
   createImportPreview(tenantId: string, versionId: string, fileName: string, fileHash: string, rows: CreatePlanItemInput[], warnings: string[], actor: PlanningActor): Promise<{ jobId: string; summary: { total: number; warnings: number }; warnings: string[] }>;

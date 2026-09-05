@@ -10,7 +10,7 @@ import { api } from "../../api";
 import { KdosDataTable, TablePermissionButton, hasResourcePermission } from "../../shared/KdosDataTable";
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
 
-type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string> };
+type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type PageResult<T> = { rows: T[]; total: number; page: number; pageSize: number };
 type EquipmentAsset = {
   id: string; divisionId: string; divisionName: string; usageDepartmentId: string | null;
@@ -22,6 +22,7 @@ type EquipmentStatus = {
   id: string; equipmentId: string; equipmentCode: string; equipmentName: string; divisionId: string;
   divisionName: string; usageDepartmentId: string | null; usageDepartmentName: string; reportDate: string;
   runtimeMinutes: number; faultMinutes: number; faultReason: string | null; version: number;
+  responsibleUserIds: string[]; responsibleUsers: Array<{ id: string; displayName: string }>;
 };
 type StatusImportPreview = {
   fileHash: string; signature: string; total: number; createCount: number; updateCount: number; unchangedCount: number;
@@ -44,6 +45,8 @@ function tableUrl(path: string, query: TableQuery) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search) params.set("search", query.search);
   for (const [key, value] of Object.entries(query.filters)) if (value.trim()) params.set(key, value.trim());
+  if (query.sortField) params.set("sortField", query.sortField);
+  if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   return `${path}?${params}`;
 }
 
@@ -96,7 +99,7 @@ export function EquipmentRegisterPage() {
   const memberOptions = (options.data?.users ?? []).map((item) => ({ value: item.id, label: item.displayName }));
 
   const openCreate = () => {
-    setEditing(undefined); form.resetFields(); form.setFieldsValue({ monitored: true, responsibleUserIds: [] }); setOpen(true);
+    setEditing(undefined); form.resetFields(); form.setFieldsValue({ monitored: false, responsibleUserIds: [] }); setOpen(true);
   };
   const openEdit = (row: EquipmentAsset) => {
     setEditing(row); form.setFieldsValue({
@@ -247,6 +250,9 @@ export function EquipmentStatusReportPage() {
   const columns: any[] = [
     { title: "设备编号", dataIndex: "equipmentCode", width: 150, fixed: "left" }, { title: "设备名称", dataIndex: "equipmentName", width: 210 },
     { title: "使用部门", dataIndex: "usageDepartmentName", width: 130 }, { title: "事业部", dataIndex: "divisionName", width: 110 },
+    { title: "责任人", dataIndex: "responsibleUserIds", width: 220, render: (_ids: string[], row: EquipmentStatus) => row.responsibleUsers?.length
+      ? row.responsibleUsers.map((user) => <Tag key={user.id}>{user.displayName}</Tag>)
+      : <Typography.Text type="warning">未指定</Typography.Text> },
     { title: "填报日期", dataIndex: "reportDate", width: 120, render: (value: string) => dayjs(value).format("YYYY-MM-DD") },
     { title: "运行时长", dataIndex: "runtimeMinutes", width: 130, render: durationText },
     { title: "故障时长", dataIndex: "faultMinutes", width: 130, render: (value: number) => <Typography.Text type={value > 0 ? "danger" : undefined}>{durationText(value)}</Typography.Text> },
@@ -258,7 +264,7 @@ export function EquipmentStatusReportPage() {
   ];
 
   return <div>
-    <KdosDataTable resource="equipment-status-report" rowKey="id" columns={columns} dataSource={records.data?.rows}
+    <KdosDataTable resource="equipment-status-report" rowKey="id" columns={columns} dataSource={records.data?.rows} defaultHiddenFields={["responsibleUserIds"]}
       toolbar={<>
         {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setInitial(); }}>填报设备状态</Button>}
         {canImport && <Upload accept=".xlsx,.csv" showUploadList={false} beforeUpload={(file) => previewImport(file as File)}><Button icon={<UploadOutlined />} loading={importing}>导入</Button></Upload>}

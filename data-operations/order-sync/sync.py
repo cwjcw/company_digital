@@ -130,6 +130,35 @@ def params_for_init(source:Source,stream:str,snapshot:datetime,cursor_date:datet
     if stream in ("outbound_detail","inbound_detail"):return base+(START,snapshot,cursor_date,cursor_date,cursor_pk)
     return base+(cursor_date,cursor_date,cursor_pk)
 
+def incremental_sql(source:Source,stream:str)->tuple[str,str,str]:
+    """Build a keyset query whose timestamp precision matches the Python cursor.
+
+    E10 stores ``datetime2(7)`` values, while Python's ``datetime`` and pytds only
+    retain six fractional digits. Comparing the raw seven-digit value with the
+    truncated cursor can therefore return the final row of the previous page
+    forever. Normalize E10 timestamps to ``datetime2(6)`` consistently in the
+    projection, predicate and ordering so the returned cursor is exact.
+    """
+    table,minimum,base=init_sql(source,stream)
+    marker=" WHERE ";projection=base.split(marker,1)[0]
+    alias={"order_header":"h","order_detail":"d","delivery_plan":"s","outbound_detail":"x" if source.adapter=="e10" else "d","inbound_detail":"d","inventory":"s"}[stream]
+    modified="LastModifiedDate" if source.adapter=="e10" else "updated"
+    raw_modified=f"{alias}.{modified}"
+    cursor_modified=f"CAST({raw_modified} AS datetime2(6))" if source.adapter=="e10" else raw_modified
+    if source.adapter=="e10":projection=projection.replace(f"{raw_modified} modified_at",f"{cursor_modified} modified_at",1)
+    pk_expr={"order_header":"h.SALES_ORDER_DOC_ID" if source.adapter=="e10" else "h.ID","order_detail":"d.SALES_ORDER_DOC_D_ID" if source.adapter=="e10" else "d.id","delivery_plan":"s.SALES_ORDER_DOC_SD_ID","outbound_detail":"x.SALES_ISSUE_D_ID" if source.adapter=="e10" else "d.ID","inbound_detail":"d.ID","inventory":"s.ITEM_WAREHOUSE_ID" if source.adapter=="e10" else "s.id"}[stream]
+    direction_filter=" AND r.rdDirectionFlag=0" if source.adapter=="tplus" and stream=="outbound_detail" else " AND r.rdDirectionFlag=1" if stream=="inbound_detail" else ""
+    sql=projection+f" WHERE {cursor_modified} IS NOT NULL{direction_filter} AND ({cursor_modified}>%s OR ({cursor_modified}=%s AND {pk_expr}>{'CONVERT(uniqueidentifier,%s)' if source.adapter=='e10' else '%s'})) AND {cursor_modified}<=%s ORDER BY {cursor_modified},{pk_expr}"
+    return table,minimum,sql
+
+def assert_cursor_progress(stream:str,before:dict,after:dict|None,row_count:int)->None:
+    if row_count and after==before:raise RuntimeError(f"{stream} 分页游标未推进，已停止同步以避免重复读取")
+
+def needs_initialization(command:str,state:dict|None)->bool:
+    if command=="initialize":return True
+    if command!="run":return False
+    return not state or not state.get("initialization_completed_at")
+
 def record(source:Source,stream:str,table:str,row:dict,overlap=False)->dict:
     sid=str(row["source_id"]);qty=dec(row.get("quantity"));delivered=dec(row.get("delivered_quantity"));out=None
     if qty is not None and delivered is not None:out=str(max(Decimal(qty)-Decimal(delivered),Decimal(0)))
@@ -169,23 +198,20 @@ def incremental(source:Source,api:Api,run_type="INCREMENTAL",snapshot:datetime|N
     upper=source_time(run.get("scan_upper_bound") or proposed_upper); state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}"); cursors={(x["phase"],x["stream"]):x for x in (state or {}).get("cursors",[])}
     metrics={"streams":{}};streams=["order_header","order_detail"]+(["delivery_plan"] if source.adapter=="e10" else [])+["outbound_detail"]+(["inbound_detail"] if source.adapter=="tplus" else [])+["inventory"]
     for stream in streams:
-        table,minimum,base=init_sql(source,stream); cur=cursors.get(("INCREMENTAL",stream),{}); overlap_boundary=source_time(cur.get("last_successful_scan_upper_bound") or snapshot or state.get("source_snapshot_at") or upper); anchor=overlap_boundary-OVERLAP
+        table,minimum,sql=incremental_sql(source,stream); cur=cursors.get(("INCREMENTAL",stream),{}); overlap_boundary=source_time(cur.get("last_successful_scan_upper_bound") or snapshot or state.get("source_snapshot_at") or upper); anchor=overlap_boundary-OVERLAP
         resumed=bool(cur.get("active_run_id") and str(cur.get("active_run_id"))==str(run["id"]))
         page_time=source_time(cur.get("active_page_modified_at")) if resumed and cur.get("active_page_modified_at") else anchor
         page_pk=cur.get("active_page_source_pk") if resumed and cur.get("active_page_source_pk") is not None else minimum
         last_actual_time=source_time(cur.get("last_processed_modified_at")) if cur.get("last_processed_modified_at") else None
         last_actual_pk=cur.get("last_processed_source_pk")
         page_pk=int(page_pk) if source.adapter=="tplus" else page_pk;batch=int(start.get("lastBatchByStream",{}).get(stream,0));total=0
-        # Reuse the canonical initialization projection, replacing its WHERE with a table-specific incremental query is deliberate and tested below.
-        marker=" WHERE "; projection=base.split(marker,1)[0]; alias={"order_header":"h","order_detail":"d","delivery_plan":"s","outbound_detail":"x" if source.adapter=="e10" else "d","inbound_detail":"d","inventory":"s"}[stream]; modified="LastModifiedDate" if source.adapter=="e10" else "updated"; pk_expr={"order_header":"h.SALES_ORDER_DOC_ID" if source.adapter=="e10" else "h.ID","order_detail":"d.SALES_ORDER_DOC_D_ID" if source.adapter=="e10" else "d.id","delivery_plan":"s.SALES_ORDER_DOC_SD_ID","outbound_detail":"x.SALES_ISSUE_D_ID" if source.adapter=="e10" else "d.ID","inbound_detail":"d.ID","inventory":"s.ITEM_WAREHOUSE_ID" if source.adapter=="e10" else "s.id"}[stream]
-        direction_filter=" AND r.rdDirectionFlag=0" if source.adapter=="tplus" and stream=="outbound_detail" else " AND r.rdDirectionFlag=1" if stream=="inbound_detail" else ""
-        sql=projection+f" WHERE {alias}.{modified} IS NOT NULL{direction_filter} AND ({alias}.{modified}>%s OR ({alias}.{modified}=%s AND {pk_expr}>{'CONVERT(uniqueidentifier,%s)' if source.adapter=='e10' else '%s'})) AND {alias}.{modified}<=%s"+f" ORDER BY {alias}.{modified},{pk_expr}"
         while True:
             before={"modifiedAt":iso(page_time),"sourcePk":str(page_pk)}
             began=time.perf_counter();rows=source.query(sql,(page_time,page_time,page_pk,upper));batch+=1;records=[record(source,stream,table,x, bool(x.get("modified_at") and x["modified_at"]<=overlap_boundary)) for x in rows]
             if rows:
                 page_time=rows[-1]["modified_at"];page_pk=str(rows[-1]["source_id"]);last_actual_time=page_time;last_actual_pk=page_pk
             after={"modifiedAt":iso(last_actual_time),"sourcePk":str(last_actual_pk)} if last_actual_time is not None and last_actual_pk is not None else None
+            assert_cursor_progress(stream,before,after,len(rows))
             api.call("POST","/data-operations/order-sync/batches",{"sourceKey":source.key,"runId":run["id"],"phase":"INCREMENTAL","stream":stream,"sourceTable":table,"batchNumber":batch,"idempotencyKey":f"{source.key}:{run_type}:{stream}:{iso(upper)}:{batch}","cursorBefore":before,"cursorAfter":after,"scanUpperBound":iso(upper),"batchFull":len(rows)==LIMIT,"durationMs":round((time.perf_counter()-began)*1000,3),"records":records});total+=len(rows)
             if len(rows)<LIMIT:break
         metrics["streams"][stream]={"records":total,"batches":batch}
@@ -205,8 +231,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument("command",choices=["initialize","incremental","run"]);p.add_argument("--source",required=True,choices=[x["key"] for x in json.loads(CONFIG.read_text())["sources"]]);p.add_argument("--save-report",action="store_true",help="仅在人工验收时生成完整JSON/CSV，例行定时任务不生成");a=p.parse_args();source=load_source(a.source);api=Api();began=time.perf_counter()
     try:
         state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}")
-        if a.command=="initialize" or (a.command=="run" and not state):initialize(source,api)
-        elif a.command=="run" and state.get("status")!="ACTIVE":initialize(source,api)
+        if needs_initialization(a.command,state):initialize(source,api)
         else:incremental(source,api)
         if a.save_report:save_reports(api,source)
         print(json.dumps({"event":"erp_sync_completed","source":source.key,"durationMs":round((time.perf_counter()-began)*1000,3),"fullReportSaved":a.save_report},ensure_ascii=False))

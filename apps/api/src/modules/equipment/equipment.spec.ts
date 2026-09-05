@@ -68,6 +68,31 @@ describe("equipment permissions and validation", () => {
     expect(() => service.minutes(1.5, "运行时长")).toThrow(BadRequestException);
   });
 
+  it("resets every monitored asset through the audited application command", async () => {
+    const assets = [
+      { id: "asset-1", tenantId: "KAINAN", divisionOrganizationUnitId: "d1", monitored: true, version: 2, equipmentCode: "A1", equipmentName: "设备甲", purchaseDate: null, usageDepartmentOrganizationUnitId: null, active: true },
+      { id: "asset-2", tenantId: "KAINAN", divisionOrganizationUnitId: "d2", monitored: false, version: 1, equipmentCode: "A2", equipmentName: "设备乙", purchaseDate: null, usageDepartmentOrganizationUnitId: null, active: true }
+    ];
+    const queryBuilder = {
+      setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(assets)
+    };
+    const manager = {
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      save: jest.fn().mockImplementation((_entity: unknown, value: unknown) => Promise.resolve(value))
+    };
+    const dataSource = { transaction: jest.fn((work: (value: unknown) => unknown) => work(manager)) } as any;
+    const service = new EquipmentApplicationService(dataSource);
+
+    const result = await service.resetAllMonitoring(actor({ permissions: ["*"] }));
+
+    expect(result).toEqual({ total: 2, updated: 1, unchanged: 1 });
+    expect(assets[0]).toMatchObject({ monitored: false, version: 3 });
+    const auditWrites = manager.save.mock.calls.filter(([entity]) => entity?.name === "AuditLog");
+    expect(auditWrites).toHaveLength(2);
+    expect(auditWrites[0][1]).toMatchObject({ action: "equipment.asset.monitoring_reset", beforeJson: expect.objectContaining({ monitored: true }), afterJson: expect.objectContaining({ monitored: false }) });
+  });
+
   it("uses server-validated calendar bounds for dashboard filters", () => {
     const service = new EquipmentQueryService({} as never) as any;
     expect(service.dashboardInput({ periodType: "month", period: "2026-09" })).toMatchObject({ windowStart: "2026-09-01", windowEnd: "2026-09-30", windowDays: 30 });

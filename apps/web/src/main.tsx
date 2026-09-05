@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
@@ -10,6 +10,7 @@ import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import "./styles.css";
 import App from "./App";
+import { queryClient } from "./query-client";
 
 declare const __BUILD_ID__: string;
 
@@ -30,8 +31,6 @@ if (import.meta.env.PROD) {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void checkForNewBuild(); });
   window.setInterval(() => void checkForNewBuild(), 60_000);
 }
-
-const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

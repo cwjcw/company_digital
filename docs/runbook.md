@@ -43,6 +43,8 @@ curl -fsS http://127.0.0.1:15172/api/v1/health
 
 ERP订单 staging 同步由三个 user systemd timer 每30分钟独立运行。检查 `systemctl --user list-timers 'kdos-erp-order-sync@*'`、`loginctl show-user "$USER" -p Linger` 和对应 journal；日常运行不生成 CSV/JSON，人工验收时才使用 `sync.py run --source <key> --save-report`。投影消费者默认禁用，只有正式业务表字段映射、旧关系迁移和幂等验证通过后才可启用。
 
+若 E10 批次持续满 1000 条且 `cursor_before = cursor_after`，必须立即停止 E10 timer/service；这表示 `datetime2(7)` 与 Python 微秒游标未统一或其他分页键失效。修复后先用真实源库连续验证至少两页游标推进，再将旧运行通过 fail Application Command 结束，手工执行一次增量恢复；确认所有流 `stalled_pages = 0` 且运行完成后才重新启用 timer。不得删除失败运行和批次审计记录。
+
 Check applied migrations and RLS with a privileged maintenance connection:
 
 ```sql
@@ -62,6 +64,7 @@ Run `./scripts/backup.sh` before upgrades and preserve SHA256 output. Back up th
 - migration connection failure: check `KDOS_DATABASE_HOST`, Compose network and `kdos` database existence.
 - image upload failure: verify MIME/size, upload volume permissions and `MAX_IMAGE_BYTES`.
 - WebSocket updates absent: verify `/socket.io` upgrade proxy, token and period subscription; REST refetch remains authoritative.
+- 表格重复进入仍长时间加载：先确认查询键包含页码和筛选条件、全局五分钟缓存未被页面覆盖，再检查是否有写入或 WebSocket 正常触发失效。普通页面往返应直接读取缓存；强制刷新、缓存到期、权限变化和数据写入后重新查询属于正常行为。
 - administrator access missing after upgrade: verify migration `AdministratorGrants1722920035000` backfilled the enabled users linked to the legacy `系统管理员` role, then confirm `administrator_grants.tenant_id` matches `KDOS_DEFAULT_TENANT_CODE`. Do not restore access by adding an ordinary role or table permission group.
 
 ## Password reset mail
@@ -78,4 +81,6 @@ After migration `EquipmentManagement1722920041000`, initialize the retained work
 docker compose exec -T api node dist/modules/equipment/import-equipment.js < "/home/Jerry/下载/设备使用管理表.xlsx"
 ```
 
-The importer maps workbook “研发” to the stable “研发中心” organization, resolves known legacy department aliases, derives the monitoring flag from the `设备监控` sheet, and intentionally leaves blank source responsibility unassigned. Verify totals by division and the rolling-seven-day dashboard after import. Re-running updates changed source fields without duplicating equipment or clearing responsibility maintained in KDOS.
+The importer maps workbook “研发” to the stable “研发中心” organization, resolves known legacy department aliases, defaults every imported device to “无需填报”, and intentionally leaves blank source responsibility unassigned. The workbook only needs the `设备总台账` sheet; legacy `设备监控` selections are no longer imported. Verify totals by division and the rolling-seven-day dashboard after import. Re-running updates changed source fields without duplicating equipment or clearing responsibility maintained in KDOS.
+
+新增企业微信推送任务统一放在 `automation/wechat_push_projects/<任务名>/`，每个任务独立保存配置、业务状态文本、测试和运行说明，不得在项目中保存企业微信密钥或通讯录导出。设备治理日报位于 `equipment-governance-daily`；默认命令只生成图片，`--send-test` 仅发送给崔玮杰，正式群发必须同时使用 `--send-production --confirm-production`。在业务方明确每日发送时间前不得安装周期定时器。

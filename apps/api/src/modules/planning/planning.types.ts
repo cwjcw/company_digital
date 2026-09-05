@@ -5,6 +5,15 @@ export interface PlanningActor {
   userId: string | null;
   permissions: string[];
   roles: string[];
+  tableDataScopes?: Array<{
+    resource: string;
+    groupId?: string;
+    scope: string;
+    match?: "ALL" | "ANY" | string;
+    actions?: string[];
+    rules?: Array<{ fieldKey?: string; operator?: string; value?: unknown }>;
+  }>;
+  managedOrganizationUnitIds?: string[];
   requestId: string;
   traceId?: string;
   ip?: string;

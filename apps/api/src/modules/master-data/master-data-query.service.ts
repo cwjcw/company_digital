@@ -8,6 +8,8 @@ export type MasterDataPageQuery = {
   pageSize?: unknown;
   search?: unknown;
   filters?: unknown;
+  sortField?: unknown;
+  sortOrder?: unknown;
 };
 
 export type MasterDataPage<T> = {
@@ -80,7 +82,9 @@ export class MasterDataQueryService {
       builder.andWhere(`CAST(${column} AS text) ILIKE :${parameter}`, { [parameter]: `%${value}%` });
     }
 
-    order(builder);
+    const sortColumn = this.textColumn(repository, String(query.sortField ?? ""));
+    if (sortColumn) builder.orderBy(sortColumn, String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC", "NULLS LAST");
+    else order(builder);
     builder.skip((page - 1) * pageSize).take(pageSize);
     const [rows, total] = await builder.getManyAndCount();
     return { rows, total, page, pageSize };

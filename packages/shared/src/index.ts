@@ -70,7 +70,7 @@ export const processDefinitions: ProcessDefinition[] = [
   fields: fields as ProcessDefinition["fields"]
 }));
 
-export type ColumnKind = "text" | "date" | "decimal" | "image" | "dictionary";
+export type ColumnKind = "text" | "date" | "decimal" | "image" | "dictionary" | "department";
 export type ColumnDefinition = {
   key: string;
   header: string;
@@ -191,7 +191,7 @@ const legacyOrdinaryEnd: ColumnDefinition[] = ordinaryEndBase.map((column) =>
 
 /**
  * Retained for backward compatibility and historical data migration only.
- * The active monthly-plan UI/export contract is the exact 84-column list below.
+ * The active monthly-plan UI/export contract is maintained independently from the legacy 97-column contract.
  */
 export const legacyMonthlyPlanColumns: ColumnDefinition[] = [
   ...ordinaryStart, ...legacyOutsourcing, ...legacyProcessColumns, ...legacyOrdinaryEnd
@@ -234,9 +234,14 @@ const monthlyProcessColumns: ColumnDefinition[] = monthlyProcessGroups.flatMap((
 ]);
 
 const monthlyOrdinaryEnd = ordinaryEndBase.filter((column) => column.key !== "division");
+const monthlyStartColumns: ColumnDefinition[] = [
+  ordinaryStartBase[0]!,
+  { key: "responsibleOrgId", header: "事业部", kind: "department", editable: true, pinned: true },
+  ...ordinaryStartBase.slice(1)
+];
 
 export const monthlyPlanColumns: ColumnDefinition[] = [
-  ...ordinaryStartBase,
+  ...monthlyStartColumns,
   ...monthlyOutsourcingColumns,
   ...monthlyProcessColumns,
   ...monthlyOrdinaryEnd
@@ -247,6 +252,6 @@ export const excelMonthlyPlanColumns: ColumnDefinition[] = monthlyPlanColumns;
 if (legacyExcelMonthlyPlanColumns.length !== 93 || legacyMonthlyPlanColumns.length !== 97) {
   throw new Error(`Legacy plan column counts must remain Excel=93 and Web=97, got Excel=${legacyExcelMonthlyPlanColumns.length}, Web=${legacyMonthlyPlanColumns.length}`);
 }
-if (excelMonthlyPlanColumns.length !== 84 || monthlyPlanColumns.length !== 84) {
-  throw new Error(`Active monthly plan must contain exactly 84 columns, got Excel=${excelMonthlyPlanColumns.length}, Web=${monthlyPlanColumns.length}`);
+if (excelMonthlyPlanColumns.length !== 85 || monthlyPlanColumns.length !== 85) {
+  throw new Error(`Active monthly plan must contain exactly 85 columns, got Excel=${excelMonthlyPlanColumns.length}, Web=${monthlyPlanColumns.length}`);
 }

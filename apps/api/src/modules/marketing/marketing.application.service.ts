@@ -5,6 +5,7 @@ import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, Mapping
 
 type MarketingResource = "business-customer-mapping" | "order-schedule";
 type MarketingAction = "read" | "create" | "update" | "delete" | "import" | "export";
+type MarketingPageInput = { page?: number; pageSize?: number; search?: string; filters?: Record<string, string>; sortField?: string; sortOrder?: string; completion?: string; dueStart?: string; dueEnd?: string; exactOrderNumber?: string };
 
 @Injectable()
 export class MarketingApplicationService {
@@ -134,6 +135,31 @@ export class MarketingApplicationService {
       .some((field) => String(field ?? "").toLocaleLowerCase().includes(value)));
   }
 
+  private pageRows<T extends Record<string, unknown>>(rows: T[], input: MarketingPageInput, allowedFields: string[]) {
+    const page = Math.max(Number(input.page) || 1, 1);
+    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 50;
+    const allowed = new Set(allowedFields);
+    const filtered = rows.filter((row) => Object.entries(input.filters ?? {}).every(([key, raw]) => {
+      const value = raw.trim().toLocaleLowerCase();
+      if (!value || !allowed.has(key)) return true;
+      const actual = key === "salespersonUserIds" || key === "salespersonNames" ? row.salespersonNames : row[key];
+      return (Array.isArray(actual) ? actual.join(" ") : String(actual ?? "")).toLocaleLowerCase().includes(value);
+    }));
+    const sortField = allowed.has(String(input.sortField ?? "")) ? String(input.sortField) : "";
+    if (sortField) filtered.sort((left, right) => {
+      const leftValue = sortField === "salespersonUserIds" || sortField === "salespersonNames" ? left.salespersonNames : left[sortField];
+      const rightValue = sortField === "salespersonUserIds" || sortField === "salespersonNames" ? right.salespersonNames : right[sortField];
+      const compared = String(Array.isArray(leftValue) ? leftValue.join(" ") : leftValue ?? "").localeCompare(String(Array.isArray(rightValue) ? rightValue.join(" ") : rightValue ?? ""), "zh-CN", { numeric: true });
+      return input.sortOrder === "desc" ? -compared : compared;
+    });
+    return { rows: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize };
+  }
+
+  async listMappingsPage(input: MarketingPageInput, actor: MarketingActor) {
+    const rows = await this.listMappings(input.search, actor) as Array<Record<string, unknown>>;
+    return this.pageRows(rows, input, ["department", "section", "customerCode", "salespersonUserIds", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
+  }
+
   async listDirectoryUsers(actor: MarketingActor) {
     this.assert(actor, "business-customer-mapping", "read");
     return this.directory.listEnabledUsers();
@@ -252,6 +278,16 @@ export class MarketingApplicationService {
     if (!value) return result;
     return result.filter((row) => [row.department, row.section, row.customerCode, row.orderNumber, row.itemNumber, row.itemName, row.productionUnit, ...(row.salespersonNames as string[])]
       .some((field) => String(field ?? "").toLocaleLowerCase().includes(value)));
+  }
+
+  async listSchedulesPage(input: MarketingPageInput, actor: MarketingActor) {
+    let rows = await this.listSchedules(input.search, actor) as Array<Record<string, unknown>>;
+    if (input.exactOrderNumber) rows = rows.filter((row) => row.orderNumber === input.exactOrderNumber);
+    if (input.completion === "unfinished") rows = rows.filter((row) => Number(row.completionRatio ?? 0) < 100);
+    if (input.completion === "completed") rows = rows.filter((row) => Number(row.completionRatio ?? 0) >= 100);
+    if (input.dueStart) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) >= input.dueStart!);
+    if (input.dueEnd) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) <= input.dueEnd!);
+    return this.pageRows(rows, input, ["customerCode", "department", "section", "salespersonNames", "orderNumber", "itemNumber", "itemName", "customerDueDate", "orderTotalQuantity", "productionUnit", "completionRatio", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
   }
 
   async saveSchedule(id: string | null, input: OrderScheduleInput, expectedVersion: number | null, actor: MarketingActor) {

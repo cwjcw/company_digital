@@ -5,12 +5,14 @@ import { PlanningConflictError, PlanningNotFoundError, PlanningStateError, Plann
 import { PLANNING_REPOSITORY, type PlanningRepository } from "./planning.repository";
 import { PlanningDomainEventBus } from "./domain-event-bus";
 import type { CreatePlanItemInput, PlanItemPatch, PlanningActor } from "./planning.types";
+import { PlanningOrganizationDirectoryService, type PlanningOrganizationOption } from "./planning-organization-directory.service";
 
 @Injectable()
 export class PlanningApplicationService {
   constructor(
     @Inject(PLANNING_REPOSITORY) private readonly repository: PlanningRepository,
-    private readonly events: PlanningDomainEventBus
+    private readonly events: PlanningDomainEventBus,
+    private readonly directory: PlanningOrganizationDirectoryService
   ) {}
 
   private require(actor: PlanningActor, permission: string) {
@@ -21,6 +23,11 @@ export class PlanningApplicationService {
     if (!field || fieldAccess(actor, field) !== "EDITABLE") throw new ForbiddenException(`字段不可编辑：${fieldCode}`);
   }
   private async tenant(actor: PlanningActor) { return this.repository.tenantId(actor.tenantCode); }
+  private async normalizePatch<T extends PlanItemPatch>(patch: T, organizations?: PlanningOrganizationOption[]): Promise<T> {
+    if (patch.field !== "responsibleOrgId" || patch.value == null || patch.value === "") return patch;
+    const organization = this.directory.resolve(patch.value, organizations ?? await this.directory.listEnabled());
+    return { ...patch, value: organization!.id } as T;
+  }
   private async invoke<T>(work: () => Promise<T>) {
     try { return await work(); }
     catch (error) {
@@ -42,7 +49,14 @@ export class PlanningApplicationService {
   }
   createItem(versionId: string, input: CreatePlanItemInput, actor: PlanningActor) {
     this.require(actor, "planning.plan.create");
-    return this.invoke(async () => this.repository.createItem(await this.tenant(actor), versionId, input, actor));
+    return this.invoke(async () => {
+      const organization = input.responsibleOrgId
+        ? this.directory.resolve(input.responsibleOrgId, await this.directory.listEnabled())
+        : null;
+      return this.repository.createItem(await this.tenant(actor), versionId, {
+        ...input, responsibleOrgId: organization?.id
+      }, actor);
+    });
   }
   previewImport(versionId: string, fileName: string, fileHash: string, rows: CreatePlanItemInput[], warnings: string[], actor: PlanningActor) {
     this.require(actor, "planning.plan.import");
@@ -63,7 +77,7 @@ export class PlanningApplicationService {
     this.requireField(actor, patch.field);
     return this.invoke(async () => {
       const tenantId = await this.tenant(actor);
-      const updated = await this.repository.updateItem(tenantId, itemId, patch, actor);
+      const updated = await this.repository.updateItem(tenantId, itemId, await this.normalizePatch(patch), actor);
       const version = await this.repository.getVersion(tenantId, updated.planVersionId);
       this.events.publish({ name: "planning.plan_item.updated", tenantId, periodId: version!.periodId, versionId: updated.planVersionId, entityId: updated.id, version: updated.version, changeType: "updated" });
       return updated;
@@ -85,7 +99,13 @@ export class PlanningApplicationService {
   bulkUpdate(versionId: string, patches: Array<{ id: string } & PlanItemPatch>, actor: PlanningActor) {
     this.require(actor, "planning.plan.update");
     for (const patch of patches) this.requireField(actor, patch.field);
-    return this.invoke(async () => this.repository.bulkUpdate(await this.tenant(actor), versionId, patches, actor));
+    return this.invoke(async () => {
+      const organizations = patches.some((patch) => patch.field === "responsibleOrgId" && patch.value != null && patch.value !== "")
+        ? await this.directory.listEnabled() : undefined;
+      return this.repository.bulkUpdate(
+        await this.tenant(actor), versionId, await Promise.all(patches.map((patch) => this.normalizePatch(patch, organizations))), actor
+      );
+    });
   }
   reorder(versionId: string, itemIds: string[], actor: PlanningActor) {
     this.require(actor, "planning.plan.move");

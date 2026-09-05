@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
-  ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DatabaseOutlined, FileExcelOutlined,
+  ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
   SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined
 } from "@ant-design/icons";
@@ -30,6 +30,7 @@ import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
+import { OnHandSummaryDashboard } from "./modules/planning/pages/OnHandSummaryDashboard";
 import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
@@ -67,7 +68,7 @@ function KdosMonthlyPlanRoute() {
   if (!/^\d{6}$/.test(period)) return <Navigate to="/monthly/202609" replace />;
   const year = Number(period.slice(0, 4)); const month = Number(period.slice(4, 6));
   if (year < 2000 || year > 2200 || month < 1 || month > 12) return <Navigate to="/monthly/202609" replace />;
-  return <Suspense fallback={<Alert type="info" showIcon message="正在加载 Planning Center…" />}><KdosMonthlyPlanPage year={year} month={month} /></Suspense>;
+  return <Suspense fallback={<Alert type="info" showIcon message="正在加载月计划…" />}><KdosMonthlyPlanPage year={year} month={month} /></Suspense>;
 }
 
 function TablePermissionsRoute() {
@@ -183,7 +184,7 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : ["/sales-summary-dashboard", "/equipment-dashboard"].includes(location.pathname) ? "cockpit"
-    : ["/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
+    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -196,6 +197,9 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/equipment-dashboard", icon: <ToolOutlined />, label: "设备管理驾驶舱" }
     ] }],
     planning: [
+      { key: "on-hand-summary", icon: <DashboardOutlined />, label: "在手汇总", children: [
+        { key: "/on-hand-summary-dashboard", icon: <DashboardOutlined />, label: "大屏报表" }
+      ] },
       { key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划", children: [
         { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
         { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
@@ -256,7 +260,7 @@ function Shell({ logout }: { logout: () => void }) {
     ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
-      "/sales-summary-dashboard": "销售接单汇总大屏", "/sales-summary-details": "销售接单明细",
+      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "在手汇总大屏", "/sales-summary-details": "销售接单明细",
       "/equipment-dashboard": "设备管理驾驶舱", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
@@ -273,7 +277,7 @@ function Shell({ logout }: { logout: () => void }) {
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
       {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
-      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[`${moduleId}-root`, "/monthly", "/monthly/2026", "/weekly", "equipment-management", "hr-employee-relations", "system-master", "system-governance", "system-accounts"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
+      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[`${moduleId}-root`, "on-hand-summary", "/monthly", "/monthly/2026", "/weekly", "equipment-management", "hr-employee-relations", "system-master", "system-governance", "system-accounts"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>
     <Layout>
@@ -286,6 +290,7 @@ function Shell({ logout }: { logout: () => void }) {
         <Routes>
           <Route path="/rolling" element={<Navigate to="/sales-summary-details" replace />} />
           <Route path="/sales-summary-dashboard" element={<SalesSummaryDashboard />} />
+          <Route path="/on-hand-summary-dashboard" element={<OnHandSummaryDashboard />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/sales-summary-details" element={<SalesSummaryDetails />} />
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
@@ -477,7 +482,7 @@ function DataOperations() {
   </div>;
 }
 
-type InboundTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string> };
+type InboundTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type InboundTablePage = { rows: any[]; total: number; page: number; pageSize: number };
 
 function FinishedGoodsInboundPage() {
@@ -489,6 +494,8 @@ function FinishedGoodsInboundPage() {
       const params = new URLSearchParams({ page: String(tableQuery.page), pageSize: String(tableQuery.pageSize) });
       if (tableQuery.search) params.set("search", tableQuery.search);
       if (Object.values(tableQuery.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(tableQuery.filters));
+      if (tableQuery.sortField) params.set("sortField", tableQuery.sortField);
+      if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder);
       return api<InboundTablePage>(`/master-data/finished-goods-inbound?${params}`);
     },
     placeholderData: (previous) => previous
@@ -605,9 +612,10 @@ function FinishedGoodsInboundPage() {
 }
 
 function AuditLogs() {
-  const logs = useQuery({ queryKey: ["audit"], queryFn: () => api<any[]>("/audit-logs") });
+  const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:50,search:"",filters:{}});
+  const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
   return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
-    <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data} columns={[
+    <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data?.rows} serverData={{total:logs.data?.total??0,onQueryChange:setTableQuery}} columns={[
       { title: "用户", dataIndex: "actorName", width: 120 }, { title: "资源", dataIndex: "resource", width: 130 },
       { title: "动作", dataIndex: "action", width: 90 }, { title: "记录 ID", dataIndex: "recordId", ellipsis: true },
       { title: "来源", dataIndex: "source", width: 90 }, { title: "requestId", dataIndex: "requestId", ellipsis: true },
@@ -722,9 +730,11 @@ function ForcePasswordChange({ done }: { done: () => void }) {
 }
 
 export default function App() {
+  const queryClient = useQueryClient();
   const [authenticated, setAuthenticated] = useState(Boolean(localStorage.getItem("accessToken")));
   const [mustChange, setMustChange] = useState(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword));
   const logout = () => {
+    queryClient.clear();
     localStorage.removeItem("accessToken"); localStorage.removeItem("refreshToken"); localStorage.removeItem("sessionUser");
     window.location.assign("/");
   };

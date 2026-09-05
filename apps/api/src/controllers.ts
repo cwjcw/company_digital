@@ -29,6 +29,7 @@ import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { TablePermissionGroupApplicationService, type TablePermissionGroupInput } from "./modules/admin/table-permission-group.application.service";
 import { AdministratorGrantApplicationService } from "./modules/admin/administrator-grant.application.service";
+import { AuditQueryService } from "./modules/audit/audit-query.service";
 
 type UserRequest = Request & { user: any; requestId: string };
 
@@ -168,7 +169,14 @@ export class PlanController {
     requireTablePermission(req, "monthly-plan", "read");
     return this.plans.monthly(year, month, req.user);
   }
-  @Get("rolling") rolling(@Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "read"); return this.plans.rolling(req.user); }
+  @Get("rolling") rolling(@Query() query: Record<string, string | undefined>, @Req() req: UserRequest) {
+    requireTablePermission(req, "rolling-plan", "read");
+    if (!query.page && !query.pageSize) return this.plans.rolling(req.user);
+    let filters = [], quickFilters = {};
+    try { filters = JSON.parse(query.filters ?? "[]"); } catch { filters = []; }
+    try { quickFilters = JSON.parse(query.quickFilters ?? "{}"); } catch { quickFilters = {}; }
+    return this.plans.rollingPage({ page: Number(query.page), pageSize: Number(query.pageSize), search: query.search, filters, quickFilters, sortField: query.sortField, sortOrder: query.sortOrder === "desc" ? "desc" : "asc" }, req.user);
+  }
   @Get("sales-dashboard") dashboard(@Query("dimension") dimension:string|undefined,@Query("period") period:string|undefined,
     @Query("division") division:string|string[]|undefined,@Query("customer") customer:string|string[]|undefined,@Req() req: UserRequest) {
     requireTablePermission(req, "sales-summary-dashboard", "read");
@@ -594,10 +602,11 @@ export class MasterDataController {
   @Get("sales-orders")
   listSalesOrders(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "sales-orders", "read");
-    return this.masterDataQueries.salesOrderPage({ page, pageSize, search, filters });
+    return this.masterDataQueries.salesOrderPage({ page, pageSize, search, filters, sortField, sortOrder });
   }
   @Post("sales-orders")
   async addSalesOrder(@Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
@@ -653,10 +662,11 @@ export class MasterDataController {
   @Get("finished-goods-inbound")
   listFinishedGoodsInbound(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-inbound", "read");
-    return this.masterDataQueries.finishedGoodsInboundPage({ page, pageSize, search, filters });
+    return this.masterDataQueries.finishedGoodsInboundPage({ page, pageSize, search, filters, sortField, sortOrder });
   }
   @Get("finished-goods-inbound/export")
   async exportFinishedGoodsInbound(@Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
@@ -816,10 +826,11 @@ export class MasterDataController {
   @Get("finished-goods-outbound")
   listFinishedGoodsOutbound(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-outbound", "read");
-    return this.masterDataQueries.finishedGoodsOutboundPage({ page, pageSize, search, filters });
+    return this.masterDataQueries.finishedGoodsOutboundPage({ page, pageSize, search, filters, sortField, sortOrder });
   }
 
   @Post("finished-goods-outbound")
@@ -904,15 +915,12 @@ export class MasterDataController {
 @UseGuards(AuthGuard)
 @Controller("audit-logs")
 export class AuditController {
-  constructor(@InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>) {}
+  constructor(private readonly audits: AuditQueryService) {}
   @Get()
-  list(@Query("user") user: string | undefined, @Query("action") action: string | undefined, @Query("order") order: string | undefined, @Req() req: UserRequest) {
+  list(@Query() input: Record<string,string|undefined>, @Req() req: UserRequest) {
     requireSystemAdmin(req);
-    const query = this.audits.createQueryBuilder("a").orderBy("a.createdAt", "DESC").take(500);
-    if (user) query.andWhere("a.actorName ILIKE :user", { user: `%${user}%` });
-    if (action) query.andWhere("a.action = :action", { action });
-    if (order) query.andWhere("a.afterJson::text ILIKE :order", { order: `%${order}%` });
-    return query.getMany();
+    let filters={};try{filters=JSON.parse(input.filters??"{}");}catch{filters={};}
+    return this.audits.list({page:Number(input.page),pageSize:Number(input.pageSize),search:input.search,filters,sortField:input.sortField,sortOrder:input.sortOrder});
   }
 }
 

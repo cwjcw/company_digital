@@ -25,6 +25,14 @@ All Planning routes use `/api/v1/planning`, bearer JWT/API identity and tenant c
 | `POST /periods/:p/versions/:v/publish` | publish and snapshot | `planning.plan.publish` |
 | `POST .../:v/lock` / `unlock` | state transition with reason | lock/unlock permission |
 | `GET /versions/:id/risks?days=7` | overdue/due-soon/process/exception risks | `planning.plan.read` |
+| `GET /on-hand-summary?year=2026&month=9` | 指定月计划的在手数量、事业部、客户、状态、工序风险与交期预警聚合；当前页面固定读取 2026 年 9 月 | `on-hand-summary-dashboard:*:read`，并应用该报表的数据与字段权限 |
+| `GET /organization-options` | 月计划事业部部门字段可选的企业微信组织节点（稳定 UUID + 完整路径） | `monthly-plan:*:read` |
+
+月计划“事业部”字段位于“序号”后，字段键为 `responsibleOrgId`，数据库保存 `organization_units.id`。直接导入 `事业一部.xlsx` 至 `事业四部.xlsx` 时以文件名确定整份文件归属；四份异构源表经 `sync-september-division-plans.cjs` 标准化合并时，每行继续携带其原始文件名对应的事业部名称，再由预览服务唯一解析为稳定 UUID。文件名与行内事业部冲突、组织重名或无法匹配时拒绝导入，不作猜测。
+
+月计划表格只显示事业部末级名称，编辑器仍显示完整组织路径以避免同名部门误选；客户列固定在订单号之前。单价、订单入库金额和订单欠数金额保留在导入导出及历史兼容契约中，但不在月计划网页表格、字段显示或批量修改中出现。
+
+月计划不提供手工上移、下移、置顶或置底操作。筛选区复用 KDOS 标准表格的“搜索当前表格 + 按字段筛选”控件；关键词与字段条件均在当前权限范围内的数据上生效，条件变化后分页回到第一页。
 
 ## Administrator and permission-management routes
 
@@ -63,5 +71,9 @@ Connect to Socket.IO namespace `/plans` with the access token and period. Treat 
 ## Equipment management routes
 
 Equipment management is a native PMC function, not an ERP projection. `GET/POST/PATCH/DELETE /api/v1/equipment/assets` uses resource `equipment-register`; `GET/POST/PATCH/DELETE /api/v1/equipment/status-reports` uses `equipment-status-report`; and `GET /api/v1/equipment/dashboard` uses `equipment-dashboard`. All three apply independent permission-group scopes using the stable `divisionId` department field. Status durations are integer minutes on the wire and render as `X小时X分钟`; status dates must fall between the current Asia/Shanghai date and six days earlier. The target tables are tenant-scoped, optimistic-versioned, audited, and never accept browser-supplied system audit fields.
+
+设备总台账的新建设备和工作簿导入设备均默认“无需填报”。存量批量重置只能由系统身份调用 `EquipmentApplicationService.resetAllMonitoring`，每台发生变化的设备均递增乐观版本并记录变更前后审计。设备治理企业微信日报通过 `EquipmentQueryService.governanceSummary` 读取事业部、监测数量和责任人设备数量，不直接访问数据库，也不复制企业微信密钥。
+
+设备状态列表通过状态行的稳定 `equipmentId` 实时关联设备总台账的 `equipment_responsibles`，响应中的 `responsibleUserIds` 和 `responsibleUsers` 始终反映总台账当前责任人，不在状态记录中复制快照。该字段已注册为只读成员字段，网页默认隐藏，用户可通过“字段显示”主动开启；搜索和字段筛选可按责任人姓名命中。
 
 设备状态表的 Excel/CSV 导入采用预览确认流程：`POST /api/v1/equipment/status-reports/import-preview` 只解析、匹配和校验文件，`POST /api/v1/equipment/status-reports/import-confirm` 验证服务端签名后以“事业部稳定组织 + 设备编号 + 填报日期”幂等新增或更新。`GET /api/v1/equipment/status-reports/import-template` 下载模板，`GET /api/v1/equipment/status-reports/export` 按当前用户的数据权限、搜索和字段筛选范围导出 Excel。导入和导出分别要求该表的 `import`、`export` 权限并记录审计；五种系统预置权限仍不授予导入能力。

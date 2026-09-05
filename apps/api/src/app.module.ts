@@ -34,6 +34,7 @@ import { AdministratorGrantApplicationService } from "./modules/admin/administra
 import { OrderSyncModule } from "./data-operations/order-sync/order-sync.module";
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { EquipmentModule } from "./modules/equipment/equipment.module";
+import { AuditQueryService } from "./modules/audit/audit-query.service";
 
 @Module({
   imports: [
@@ -62,7 +63,7 @@ import { EquipmentModule } from "./modules/equipment/equipment.module";
   providers: [
     AuthService, AuthGuard, DomainService, PlanService, ImportService,
     MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService,
-    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService
+    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService, AuditQueryService
   ]
 })
 export class AppModule {}

@@ -4,6 +4,7 @@ import { monthlyPlanningFieldRegistry, type PlanningFieldDefinition } from "@kdo
 import ExcelJS from "exceljs";
 import type { CreatePlanItemInput, PlanningActor } from "./planning.types";
 import { PlanningApplicationService } from "./planning.application.service";
+import { PlanningOrganizationDirectoryService } from "./planning-organization-directory.service";
 
 function setNested(target: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split("."); let cursor = target;
@@ -23,7 +24,10 @@ function numberValue(value: unknown) {
 
 @Injectable()
 export class PlanningImportService {
-  constructor(private readonly commands: PlanningApplicationService) {}
+  constructor(
+    private readonly commands: PlanningApplicationService,
+    private readonly directory: PlanningOrganizationDirectoryService
+  ) {}
 
   private csv(buffer: Buffer) {
     const lines = buffer.toString("utf8").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
@@ -69,6 +73,8 @@ export class PlanningImportService {
     const lower = file.originalname.toLowerCase();
     if (!lower.endsWith(".xlsx") && !lower.endsWith(".csv")) throw new BadRequestException("仅支持标准 .xlsx 或 .csv 文件");
     const sourceRows = lower.endsWith(".csv") ? this.csv(file.buffer) : await this.excel(file.buffer);
+    const organizationOptions = await this.directory.listEnabled();
+    const fileDivision = this.directory.divisionFromFileName(file.originalname, organizationOptions);
     const codeMap = new Map(monthlyPlanningFieldRegistry.map((field) => [field.code, field]));
     const compositeMap = new Map(monthlyPlanningFieldRegistry.map((field) => [`${field.groupLabel}::${field.label}`, field]));
     const labelGroups = new Map<string, PlanningFieldDefinition[]>();
@@ -79,8 +85,18 @@ export class PlanningImportService {
       const legacyData: Record<string, unknown> = {}; const mapped = new Map<string, unknown>();
       for (const [label, value] of Object.entries(source)) {
         const field = fieldFor(label); if (!field || value == null || value === "") continue;
-        const normalized = field.dataType === "date" ? dateValue(value) : ["decimal", "integer"].includes(field.dataType) ? numberValue(value) : String(value).trim();
+        const normalized = field.dataType === "department"
+          ? this.directory.resolve(value, organizationOptions, `第 ${index + 2} 行事业部`)?.id
+          : field.dataType === "date" ? dateValue(value) : ["decimal", "integer"].includes(field.dataType) ? numberValue(value) : String(value).trim();
         if (normalized !== undefined) { setNested(legacyData, field.code, normalized); mapped.set(field.code, normalized); }
+      }
+      const rowDivisionId = String(mapped.get("responsibleOrgId") ?? "").trim();
+      if (fileDivision && rowDivisionId && rowDivisionId !== fileDivision.id) {
+        throw new BadRequestException(`第 ${index + 2} 行事业部与文件名“${file.originalname}”不一致`);
+      }
+      if (fileDivision && !rowDivisionId) {
+        mapped.set("responsibleOrgId", fileDivision.id);
+        setNested(legacyData, "responsibleOrgId", fileDivision.id);
       }
       const orderNumber = String(mapped.get("orderNumber") ?? "").trim(); const itemNumber = String(mapped.get("itemNumber") ?? "").trim();
       if (!orderNumber || !itemNumber) { warnings.push(`第 ${index + 2} 行缺少订单号或品号，已跳过`); return; }

@@ -1,7 +1,7 @@
 import { legacyMonthlyPlanColumns, monthlyPlanColumns, type ColumnDefinition } from "@tracker/shared";
 
 export type PlanVersionStatus = "DRAFT" | "PUBLISHED" | "LOCKED" | "ARCHIVED";
-export type PlanningFieldDataType = "text" | "date" | "decimal" | "image" | "dictionary" | "uuid" | "integer";
+export type PlanningFieldDataType = "text" | "date" | "decimal" | "image" | "dictionary" | "department" | "uuid" | "integer";
 export type PlanningFieldSource = "CORE" | "PROCESS" | "CALCULATED" | "DISPLAY" | "INTEGRATION" | "EXTENSION";
 export type FieldAccess = "HIDDEN" | "READONLY" | "EDITABLE" | "MASKED";
 
@@ -20,14 +20,14 @@ export interface PlanningFieldDefinition {
   required: boolean;
   permissionCode: string;
   rendererType?: "image" | "date" | "datetime" | "status" | "decimal";
-  editorType?: "text" | "date" | "decimal" | "dictionary";
+  editorType?: "text" | "date" | "decimal" | "dictionary" | "department";
   sourceType: PlanningFieldSource;
   dictionaryCode?: string;
   pinned?: boolean;
 }
 
 const widths: Record<string, number> = {
-  sequence: 52, orderNumber: 104, orderDate: 72, customerDueDate: 76, reviewDueDate: 76,
+  sequence: 52, responsibleOrgId: 88, customer: 110, orderNumber: 104, orderDate: 72, customerDueDate: 76, reviewDueDate: 76,
   exceptionDueDate: 76, exceptionDeliveryMethod: 76, containerDate: 72, modelAge: 52,
   itemNumber: 90, relationKey: 132, itemName: 100, image: 54, productAttribute: 60,
   surfaceNature: 60, specialItem: 52, productionQuantity: 72, historicalInboundQuantity: 72,
@@ -63,7 +63,7 @@ function fieldRegistry(columns: ColumnDefinition[], hideRelationKey = false): Pl
   required: ["orderNumber", "itemNumber", "productionQuantity"].includes(column.key),
   permissionCode: `planning.plan.field.${column.key}`,
   rendererType: column.kind === "image" ? "image" : column.kind === "date" ? "date" : column.key.endsWith("status") || column.key === "itemStatus" ? "status" : column.kind === "decimal" ? "decimal" : undefined,
-  editorType: column.kind === "dictionary" ? "dictionary" : column.kind === "date" ? "date" : column.kind === "decimal" ? "decimal" : column.kind === "image" ? undefined : "text",
+  editorType: column.kind === "department" ? "department" : column.kind === "dictionary" ? "dictionary" : column.kind === "date" ? "date" : column.kind === "decimal" ? "decimal" : column.kind === "image" ? undefined : "text",
   sourceType: sourceType(column),
   dictionaryCode: column.dictionaryCode,
   pinned: Boolean(column.pinned) || column.key === "relationKey"
@@ -156,6 +156,7 @@ export type AdministrableModuleCode = typeof administrableModuleRegistry[number]
  */
 export const tableResourceRegistry = [
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
+  { code: "on-hand-summary-dashboard", label: "在手汇总大屏", module: "PMC中心", moduleCode: "planning" },
   { code: "rolling-plan", label: "销售接单明细", module: "PMC中心", moduleCode: "planning" },
   { code: "monthly-plan", label: "月度计划", module: "PMC中心", moduleCode: "planning" },
   { code: "sales-orders", label: "订单表", module: "数据中心", moduleCode: "data" },
@@ -188,6 +189,71 @@ export const tableResourceRegistry = [
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
 
+export interface OnHandSummaryContract {
+  source: {
+    year: number;
+    month: number;
+    periodId: string | null;
+    versionId: string | null;
+    versionName: string | null;
+    versionStatus: PlanVersionStatus | null;
+  };
+  visibleFields: string[];
+  metrics: Partial<{
+    itemCount: number;
+    orderCount: number;
+    customerCount: number;
+    productionQuantity: string;
+    historicalInboundQuantity: string;
+    todayInboundQuantity: string;
+    inboundQuantity: string;
+    balanceQuantity: string;
+    completionRate: number;
+  }>;
+  statusCounts: Partial<Record<"完成" | "进行中" | "即将延期" | "延期", number>>;
+  divisionRows: Array<Partial<{
+    divisionId: string | null;
+    divisionName: string;
+    divisionPath: string;
+    itemCount: number;
+    orderCount: number;
+    productionQuantity: string;
+    inboundQuantity: string;
+    balanceQuantity: string;
+    completionRate: number;
+  }>>;
+  customerRows: Array<Partial<{
+    customer: string;
+    itemCount: number;
+    orderCount: number;
+    productionQuantity: string;
+    inboundQuantity: string;
+    balanceQuantity: string;
+    completionRate: number;
+  }>>;
+  processRows: Array<Partial<{
+    processCode: string;
+    processName: string;
+    itemCount: number;
+    completedCount: number;
+    overdueCount: number;
+    exceptionCount: number;
+    completionRate: number;
+  }>>;
+  warningRows: Array<Partial<{
+    id: string;
+    orderNumber: string;
+    itemNumber: string;
+    itemName: string | null;
+    customer: string;
+    divisionName: string;
+    customerDueDate: string | null;
+    itemStatus: string;
+    balanceQuantity: string;
+    remainingDays: number | null;
+  }>>;
+}
+
 export type TablePermissionFieldType = "text" | "number" | "date" | "dictionary" | "member" | "department" | "boolean";
 export interface TablePermissionFieldDefinition {
   key: string;
@@ -211,7 +277,18 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
   "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
-  "monthly-plan": planningFieldRegistry.map((field) => ({ key: field.code, label: field.label, type: field.dataType === "decimal" || field.dataType === "integer" ? "number" : field.dataType === "uuid" ? "member" : field.dataType === "dictionary" ? "dictionary" : field.dataType === "date" ? "date" : "text", editable: field.editable, required: field.required })),
+  "on-hand-summary-dashboard": fields([
+    ["orderNumber", "订单号", "text", false], ["itemNumber", "品号", "text", false], ["itemName", "品名", "text", false],
+    ["customer", "客户", "text", false], ["customerDueDate", "客户要求交期", "date", false], ["itemStatus", "品号状态", "text", false],
+    ["itemCount", "品号数", "number", false], ["orderCount", "订单数", "number", false], ["customerCount", "客户数", "number", false],
+    ["productionQuantity", "订单需求数量", "number", false], ["historicalInboundQuantity", "历史入库数量", "number", false],
+    ["todayInboundQuantity", "当天入库数量", "number", false], ["inboundQuantity", "累计入库数量", "number", false],
+    ["balanceQuantity", "在手欠数", "number", false], ["completionRate", "完成比例", "number", false],
+    ["processName", "工序", "text", false], ["completedCount", "完成项数", "number", false],
+    ["overdueCount", "延期项数", "number", false], ["exceptionCount", "异常项数", "number", false],
+    ["responsibleOrgId", "事业部", "department", false], ["ownerUserId", "负责人", "member", false]
+  ]),
+  "monthly-plan": planningFieldRegistry.map((field) => ({ key: field.code, label: field.label, type: field.dataType === "decimal" || field.dataType === "integer" ? "number" : field.dataType === "department" ? "department" : field.dataType === "uuid" ? "member" : field.dataType === "dictionary" ? "dictionary" : field.dataType === "date" ? "date" : "text", editable: field.editable, required: field.required })),
   "rolling-plan": fields([["orderNumber", "订单号"], ["orderDate", "下单日期", "date"], ["customerDueDate", "客户要求交期", "date"], ["itemNumber", "品号"], ["itemName", "品名"], ["productionQuantity", "订单需求数量", "number"], ["balanceQuantity", "订单欠数", "number", false], ["customer", "客户"]]),
   "sales-orders": fields([["customerCode", "客户代码"], ["customerName", "客户名称"], ["orderNumber", "订单编号"], ["orderDate", "订单日期", "date"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "订单数量", "number"], ["unit", "生产单位"], ["customerDueDate", "客户交期", "date"]]),
   "finished-goods-inbound": fields([["inboundDate", "入库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "入库数量", "number"], ["warehouse", "仓库"]]),
@@ -223,7 +300,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "weekly-plan": fields([["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["reviewDueDate", "评审交期", "date"], ["completionRate", "完成比例", "number", false]]),
   "work-report": fields([["workDate", "日期", "date"], ["customer", "客户"], ["orderNumber", "订单编码"], ["itemNumber", "品项编码"], ["itemName", "品名"], ["requiredQuantity", "需求数量", "number", false], ["reportedQuantity", "报工数量", "number"]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member"]]),
-  "equipment-status-report": fields([["equipmentId", "设备编号"], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number"], ["faultMinutes", "故障时长", "number"], ["faultReason", "故障原因", "dictionary"]]),
+  "equipment-status-report": fields([["equipmentId", "设备编号"], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number"], ["faultMinutes", "故障时长", "number"], ["faultReason", "故障原因", "dictionary"]]),
   "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["reportingRate", "录入率", "number", false], ["runtimeMinutes", "运行时长", "number", false], ["faultMinutes", "故障时长", "number", false]]),
   "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false]]),
   "approval-flow-configs": fields([["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"]]),

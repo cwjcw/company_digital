@@ -4,7 +4,8 @@ import { legacyPlanningFieldRegistry, monthlyPlanningFieldRegistry, orchestratio
 describe("Planning Field Registry", () => {
   it("preserves legacy fields while exposing only the exact active monthly fields", () => {
     expect(legacyPlanningFieldRegistry).toHaveLength(97);
-    expect(monthlyPlanningFieldRegistry).toHaveLength(84);
+    expect(monthlyPlanningFieldRegistry).toHaveLength(85);
+    expect(monthlyPlanningFieldRegistry[1]).toMatchObject({ code: "responsibleOrgId", label: "事业部", dataType: "department", order: 11 });
     expect(orchestrationFieldRegistry.map((field) => field.code)).toEqual(["priority", "planSequence", "responsibleOrgId", "ownerUserId", "planningStatus"]);
     expect(planningAuditFieldRegistry.map((field) => field.label)).toEqual(["创建人", "创建时间", "更新人", "更新时间"]);
     expect(planningFieldRegistry).toEqual([...monthlyPlanningFieldRegistry, ...planningAuditFieldRegistry]);
@@ -20,8 +21,18 @@ describe("Planning Field Registry", () => {
     const codes = tableResourceRegistry.map((resource) => resource.code);
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes).toEqual(expect.arrayContaining([
-      "rolling-plan", "monthly-plan", "sales-orders", "finished-goods-inbound",
+      "on-hand-summary-dashboard", "rolling-plan", "monthly-plan", "sales-orders", "finished-goods-inbound",
       "business-customer-mapping", "order-schedule", "hr-departure-check", "weekly-plan", "work-report"
+    ]));
+  });
+
+  it("registers the on-hand dashboard as a read-only independently governed report", () => {
+    expect(tableResourceRegistry.find((resource) => resource.code === "on-hand-summary-dashboard")).toMatchObject({ moduleCode: "planning", label: "在手汇总大屏" });
+    const fields = tablePermissionFieldsFor("on-hand-summary-dashboard");
+    expect(fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "balanceQuantity", editable: false }),
+      expect.objectContaining({ key: "customer", editable: false }),
+      expect.objectContaining({ key: "processName", editable: false })
     ]));
   });
 

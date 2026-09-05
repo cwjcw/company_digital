@@ -69,18 +69,19 @@ function comparable(value: unknown) {
   return String(value).toLocaleLowerCase();
 }
 
-function decorate<RecordType extends DataRecord>(columns: ColumnsType<RecordType>): ColumnsType<RecordType> {
+function decorate<RecordType extends DataRecord>(columns: ColumnsType<RecordType>, serverMode = false, sortField = "", sortOrder?: "ascend" | "descend"): ColumnsType<RecordType> {
   return columns.map((raw) => {
     const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
-    if (column.children?.length) return { ...column, children: decorate(column.children) };
+    if (column.children?.length) return { ...column, children: decorate(column.children, serverMode, sortField, sortOrder) };
     const key = columnKey(column);
     return {
       ...column,
       key: column.key ?? key,
-      sorter: column.sorter ?? (key ? ((left: RecordType, right: RecordType) => {
+      sorter: serverMode && column.dataIndex != null ? true : column.sorter ?? (key ? ((left: RecordType, right: RecordType) => {
         const a = comparable(valueAt(left, key)); const b = comparable(valueAt(right, key));
         return typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "zh-CN", { numeric: true });
       }) : undefined),
+      sortOrder: serverMode && key === sortField ? sortOrder : column.sortOrder,
       showSorterTooltip: false
     };
   });
@@ -107,6 +108,71 @@ function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Se
   });
 }
 
+export type KdosFilterField = { key: string; label: string };
+
+export function KdosTableSearchFilter({ search, onSearchChange, filters, onFiltersChange, fields, searchPlaceholder = "搜索当前表格" }: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  filters: Record<string, string>;
+  onFiltersChange: (value: Record<string, string>) => void;
+  fields: KdosFilterField[];
+  searchPlaceholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length;
+  return <>
+    <Space wrap={false}>
+      <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />
+      <Button type={activeFilterCount ? "primary" : "default"} icon={<FilterOutlined />} onClick={() => setOpen(true)}>筛选{activeFilterCount ? `（${activeFilterCount}）` : ""}</Button>
+    </Space>
+    <Drawer title="按字段筛选" width={420} open={open} onClose={() => setOpen(false)}
+      extra={<Button disabled={!activeFilterCount} onClick={() => onFiltersChange({})}>清空筛选</Button>}>
+      <Flex vertical gap={12}>{fields.map((field) => <label key={field.key} className="kdos-data-table-filter-field">
+        <Typography.Text>{field.label}</Typography.Text>
+        <Input allowClear value={filters[field.key] ?? ""} placeholder={`筛选${field.label}`}
+          onChange={(event) => onFiltersChange({ ...filters, [field.key]: event.target.value })} />
+      </label>)}</Flex>
+    </Drawer>
+  </>;
+}
+
+function ColumnFilterPanel({ label, value, onApply, onClear, close }: {
+  label: string; value: string; onApply: (value: string) => void; onClear: () => void; close: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const apply = () => { onApply(draft.trim()); close(); };
+  return <div className="kdos-column-filter-panel" onKeyDown={(event) => event.stopPropagation()}>
+    <Typography.Text strong>{label}</Typography.Text>
+    <Typography.Text type="secondary">文本筛选：包含</Typography.Text>
+    <Input autoFocus allowClear value={draft} placeholder={`输入要查找的${label}`} onChange={(event) => setDraft(event.target.value)} onPressEnter={apply} />
+    <Flex justify="space-between" gap={8}>
+      <Button onClick={() => { setDraft(""); onClear(); close(); }}>清除</Button>
+      <Button type="primary" onClick={apply}>筛选</Button>
+    </Flex>
+  </div>;
+}
+
+function addColumnHeaderFilters<RecordType extends DataRecord>(
+  columns: ColumnsType<RecordType>, filters: Record<string, string>, onFiltersChange: (filters: Record<string, string>) => void
+): ColumnsType<RecordType> {
+  return columns.map((raw) => {
+    const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
+    if (column.children?.length) return { ...column, children: addColumnHeaderFilters(column.children, filters, onFiltersChange) };
+    const key = columnKey(column);
+    if (!key || column.dataIndex == null || column.filterDropdown) return column;
+    const label = typeof column.title === "string" ? column.title : key;
+    return {
+      ...column,
+      filteredValue: filters[key] ? [filters[key]] : null,
+      filterIcon: (filtered: boolean) => <span title="筛选" aria-label={`${label}筛选`}><FilterOutlined style={{ color: filtered ? "#176B87" : undefined }} /></span>,
+      filterDropdown: ({ close }) => <ColumnFilterPanel label={label} value={filters[key] ?? ""} close={close}
+        onApply={(value) => onFiltersChange({ ...filters, [key]: value })}
+        onClear={() => { const next = { ...filters }; delete next[key]; onFiltersChange(next); }} />
+    };
+  });
+}
+
 export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<RecordType>, "columns" | "dataSource"> & {
   resource: string;
   columns: ColumnsType<RecordType>;
@@ -119,15 +185,18 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   simple?: boolean;
   /** Tables always start in browse mode. When enabled, authorized users can explicitly enter edit mode. */
   editable?: boolean;
+  /** Fields hidden for users who have not saved a personal column view yet. */
+  defaultHiddenFields?: string[];
   /** Server-backed paging/search/filtering for ERP-sized tables. */
   serverData?: {
     total: number;
-    onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string> }) => void;
+    onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" }) => void;
   };
 };
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false,
+  defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
@@ -136,9 +205,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const pageSizeStorageKey = `kdos-form-page-size:${userKey}:${resource}`;
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sortField, setSortField] = useState("");
+  const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
+  const serverMode = Boolean(serverData);
   const requestedPagination = pagination && typeof pagination === "object" ? pagination : undefined;
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
@@ -146,23 +217,26 @@ export function KdosDataTable<RecordType extends DataRecord>({
     return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? 50);
   });
   const canEdit = editable && hasResourcePermission(resource, "update");
-  useEffect(() => { setEditing(false); setCurrentPage(1); }, [resource]);
+  useEffect(() => { setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined); }, [resource]);
   useEffect(() => { setCurrentPage(1); }, [filters, search]);
   const allColumns = useMemo(() => {
-    const business = decorate(columns);
+    const business = decorate(columns, serverMode, sortField, sortOrder);
     if (!systemFields) return business;
     const systemKeys = new Set(kdosSystemFieldDefinitions.map((field) => field.key as string));
     const withoutClientAuditColumns = business.filter((column) => !systemKeys.has(columnKey(column)));
     return [...withoutClientAuditColumns, ...systemAuditColumns] as ColumnsType<RecordType>;
-  }, [columns, systemFields, systemAuditColumns]);
+  }, [columns, serverMode, sortField, sortOrder, systemFields, systemAuditColumns]);
   const fields = useMemo(() => flatten(allColumns), [allColumns]);
   const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
     try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); return Array.isArray(saved) ? saved : []; } catch { return []; }
   });
-  const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key);
+  const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key).filter((key) => !defaultHiddenFields.includes(key));
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
-  const renderedColumns = useMemo(() => filterColumns(allColumns, visible), [allColumns, visible]);
+  const renderedColumns = useMemo(
+    () => addColumnHeaderFilters(filterColumns(allColumns, visible), filters, setFilters),
+    [allColumns, filters, visible]
+  );
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -173,19 +247,20 @@ export function KdosDataTable<RecordType extends DataRecord>({
     });
   }, [dataSource, filters, search, searchableKeys]);
   const rows = serverData ? (dataSource ?? []) : clientRows;
-  const serverMode = Boolean(serverData);
   const serverQueryCallback = useRef(serverData?.onQueryChange);
   useEffect(() => { serverQueryCallback.current = serverData?.onQueryChange; }, [serverData?.onQueryChange]);
   useEffect(() => {
     if (!serverMode) return;
-    const timer = window.setTimeout(() => serverQueryCallback.current?.({ page: currentPage, pageSize, search: search.trim(), filters }), 250);
+    const timer = window.setTimeout(() => serverQueryCallback.current?.({
+      page: currentPage, pageSize, search: search.trim(), filters, sortField: sortField || undefined,
+      sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
+    }), 250);
     return () => window.clearTimeout(timer);
-  }, [serverMode, currentPage, filters, pageSize, search]);
+  }, [serverMode, currentPage, filters, pageSize, search, sortField, sortOrder]);
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil((serverData?.total ?? rows.length) / pageSize));
     if (currentPage > lastPage) setCurrentPage(lastPage);
   }, [currentPage, pageSize, rows.length, serverData?.total]);
-  const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length;
   const isRegisteredForm = registeredTableResources.has(resource);
   const resolvedPagination = pagination === false && !isRegisteredForm ? false : {
     ...requestedPagination,
@@ -216,8 +291,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         {toolbar}
       </Space>
       <Space wrap>
-        <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />
-        <Button type={activeFilterCount ? "primary" : "default"} icon={<FilterOutlined />} onClick={() => setFilterDrawerOpen(true)}>筛选{activeFilterCount ? `（${activeFilterCount}）` : ""}</Button>
+        <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={fields} searchPlaceholder={searchPlaceholder} />
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>
@@ -231,21 +305,22 @@ export function KdosDataTable<RecordType extends DataRecord>({
       pagination={resolvedPagination}
       scroll={scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }}
       sticky
+      onChange={(paginationState, tableFilters, sorter, extra) => {
+        if (serverMode) {
+          const active = (Array.isArray(sorter) ? sorter[0] : sorter) as { field?: React.Key; columnKey?: React.Key; order?: "ascend" | "descend" };
+          setSortField(String(active?.field ?? active?.columnKey ?? ""));
+          setSortOrder(active?.order);
+          setCurrentPage(1);
+        }
+        tableProps.onChange?.(paginationState, tableFilters, sorter, extra);
+      }}
     />
     {!simple && <Drawer title="字段显示与个人视图" width={400} open={drawerOpen} onClose={() => setDrawerOpen(false)}
-      extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys(fields.map((field) => field.key)); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
+      extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys([]); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
       <Typography.Paragraph type="secondary">字段设置只保存到当前账号；创建人、创建时间、更新人、更新时间可以隐藏，但不能编辑。</Typography.Paragraph>
       <Checkbox.Group value={effectiveVisible} onChange={(keys) => setVisibleKeys(keys.map(String))} style={{ width: "100%" }}>
         <Flex vertical gap={8}>{fields.map((field) => <Checkbox key={field.key} value={field.key}>{field.label}</Checkbox>)}</Flex>
       </Checkbox.Group>
-    </Drawer>}
-    {!simple && <Drawer title="按字段筛选" width={420} open={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)}
-      extra={<Button disabled={!activeFilterCount} onClick={() => setFilters({})}>清空筛选</Button>}>
-      <Flex vertical gap={12}>{fields.map((field) => <label key={field.key} className="kdos-data-table-filter-field">
-        <Typography.Text>{field.label}</Typography.Text>
-        <Input allowClear value={filters[field.key] ?? ""} placeholder={`筛选${field.label}`}
-          onChange={(event) => setFilters((current) => ({ ...current, [field.key]: event.target.value }))} />
-      </label>)}</Flex>
     </Drawer>}
   </section></KdosTableEditContext.Provider>;
 }

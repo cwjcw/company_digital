@@ -14,6 +14,8 @@ automation/customer_import/.venv/bin/python data-operations/order-sync/sync.py r
 
 SQL Server查询由代码级只读守卫限制为单条SELECT，显式使用READ COMMITTED并拒绝NOLOCK。目标端只通过KDOS批次Application Command写入 `erp_staging_*` / `erp_sync_*`，满1000条时游标停在最后实际记录；扫描上界单独保存。
 
+E10 的 `LastModifiedDate` 为 `datetime2(7)`，增量分页必须在投影、比较和排序中统一转换为 `datetime2(6)`，与 Python/pytds 游标精度保持一致。任何非空分页返回后游标未推进时必须立即失败并停止，禁止继续提交重复批次；已经完成初始化的来源在增量失败后只能从上一成功扫描边界恢复增量，不得重新执行全量初始化。
+
 生产使用 `systemd-user/kdos-erp-order-sync@.service` 与 `.timer`，分别启用 `e10-main`、`tplus-kainan`、`tplus-kejia` 三个 timer。模板为每个来源使用独立进程和独立锁，任一来源失败不会阻塞另外两个；服务器用户必须保持 linger，以保证未登录时和重启后仍能调度。
 
 staging 的每次真实新增或内容变化会在同一 PostgreSQL 事务写入 `erp_change_events`。`erp_projection_consumers` 为订单、入库、出库和未来目标表保存彼此独立的事件游标、1000条批次上限、10分钟租约和指数退避状态。下游只有完成自身幂等事务后才能调用 complete 推进游标；失败调用 fail，不推进游标。重叠窗口内内容未变化的记录不会产生物理 UPDATE 或重复事件。

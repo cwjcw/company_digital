@@ -12,6 +12,6 @@ import { EquipmentQueryService } from "./equipment.query.service";
   imports: [TypeOrmModule.forFeature([ApiKey, User])],
   controllers: [EquipmentController],
   providers: [AuthGuard, EquipmentApplicationService, EquipmentQueryService, EquipmentImportService, EquipmentExportService],
-  exports: [EquipmentApplicationService]
+  exports: [EquipmentApplicationService, EquipmentQueryService]
 })
 export class EquipmentModule {}

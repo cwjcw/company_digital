@@ -1,22 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, Button, Card, DatePicker, Flex, Form, Input, InputNumber, Modal, Progress,
-  Select, Space, Statistic, Tag, Typography, Upload, message
+  Pagination, Select, Space, Statistic, Tag, Typography, Upload, message
 } from "antd";
 import dayjs from "dayjs";
 import { type ColDef, type ColGroupDef, type GridApi, type RowClassParams } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import { type ColumnDefinition } from "@tracker/shared";
-import { api, ApiError, containsText } from "../../../api";
+import { api, ApiError } from "../../../api";
 import {
   FieldVisibility, ImportFeedbackAlert, PlanFilterDrawer,
-  emptyRollingQuickFilters, failedImport, filterPlanRows, matchesDateRange, rollingColumnsMeta,
+  emptyRollingQuickFilters, failedImport, rollingColumnsMeta,
   formatAuditUser, statusClass, useAuditIdentityDirectory, useDictionaryOptions,
   type ImportFeedback, type PlanFilter, type RollingQuickFilters
 } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate, isDueDateLabel } from "../../../shared/date-format";
 import { TablePermissionButton } from "../../../shared/KdosDataTable";
+import { AG_GRID_LOCALE_ZH_CN } from "../../../shared/ag-grid-locale-zh";
 
 const { Text } = Typography;
 
@@ -144,10 +145,16 @@ export function SalesSummaryDetails() {
   const rollingSaveAndExit = useRef(false);
   const [filters, setFilters] = useState<PlanFilter[]>([]);
   const [quickFilters, setQuickFilters] = useState<RollingQuickFilters>(emptyRollingQuickFilters);
+  const [settledFilters, setSettledFilters] = useState<PlanFilter[]>([]);
+  const [settledQuickFilters, setSettledQuickFilters] = useState<RollingQuickFilters>(emptyRollingQuickFilters);
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm] = Form.useForm();
   const rollingUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
+  const rollingPageSizeKey = `kdos-form-page-size:${rollingUser}:rolling-plan`;
+  const [pageSize, setPageSize] = useState(() => { const value=Number(localStorage.getItem(rollingPageSizeKey));return [20,50,100,200].includes(value)?value:50; });
   const dictionaryOptions = useDictionaryOptions();
   const rollingFieldOptions = rollingColumnsMeta.filter((column) => column.group !== "审计信息").map((column) => column.key);
   const rollingVisibilityKey = `sales-summary-visible-fields:${rollingUser}`;
@@ -163,20 +170,28 @@ export function SalesSummaryDetails() {
     }
   });
   useEffect(() => localStorage.setItem(rollingVisibilityKey, JSON.stringify(visibleFields)), [rollingVisibilityKey, visibleFields]);
-  const { data = [], isLoading } = useQuery({ queryKey: ["rolling"], queryFn: () => api<any[]>("/plans/rolling") });
-  const filtered = useMemo(() => filterPlanRows(data, filters, rollingColumnsMeta).filter((row: any) => {
-    const completionRate = row.completionRate === null || row.completionRate === undefined
-      ? null : Number(row.completionRate) * 100;
-    return containsText(row.orderNumber, quickFilters.orderNumber)
-      && (!quickFilters.month || String(row.month ?? "").includes(quickFilters.month))
-      && matchesDateRange(row.customerDueDate, quickFilters.customerDueDateStart, quickFilters.customerDueDateEnd)
-      && matchesDateRange(row.reviewDueDate, quickFilters.reviewDueDateStart, quickFilters.reviewDueDateEnd)
-      && matchesDateRange(row.exceptionDueDate, quickFilters.exceptionDueDateStart, quickFilters.exceptionDueDateEnd)
-      && (quickFilters.completionRateStart === null || (completionRate !== null && completionRate >= quickFilters.completionRateStart))
-      && (quickFilters.completionRateEnd === null || (completionRate !== null && completionRate <= quickFilters.completionRateEnd))
-      && containsText(row.customer, quickFilters.customer)
-      && (!quickFilters.division || row.division === quickFilters.division);
-  }), [data, filters, quickFilters]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setSettledFilters(filters); setSettledQuickFilters(quickFilters); setPage(1); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [filters, quickFilters]);
+  const rollingQuery = useQuery({
+    queryKey: ["rolling", { page, pageSize, filters: settledFilters, quickFilters: settledQuickFilters, sort }],
+    queryFn: () => {
+      const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize), filters: JSON.stringify(settledFilters), quickFilters: JSON.stringify(settledQuickFilters) });
+      if(sort.field)query.set("sortField",sort.field);if(sort.order)query.set("sortOrder",sort.order);
+      return api<{ rows: any[]; total: number; page: number; pageSize: number }|any[]>(`/plans/rolling?${query}`);
+    }
+  });
+  const data = Array.isArray(rollingQuery.data) ? rollingQuery.data : rollingQuery.data?.rows ?? [];
+  const isLoading = rollingQuery.isLoading;
+  const applyRollingGridFilterModel = useCallback((apiInstance: GridApi) => {
+    const target = Object.fromEntries(filters.filter((filter) => filter.field && filter.value.trim())
+      .map((filter) => [filter.field, { filterType: "text", type: "contains", filter: filter.value }]));
+    const current = Object.fromEntries(Object.entries(apiInstance.getFilterModel()).map(([field, model]: [string, any]) => [field, String(model?.filter ?? "")]));
+    const targetValues = Object.fromEntries(filters.filter((filter) => filter.field && filter.value.trim()).map((filter) => [filter.field, filter.value]));
+    if (JSON.stringify(current) !== JSON.stringify(targetValues)) apiInstance.setFilterModel(target);
+  }, [filters]);
+  useEffect(() => { if (rollingGridApi.current) applyRollingGridFilterModel(rollingGridApi.current); }, [applyRollingGridFilterModel]);
   const saveRolling = () => {
     const editing = (rollingGridApi.current?.getEditingCells().length ?? 0) > 0;
     if (editing) {
@@ -205,6 +220,8 @@ export function SalesSummaryDetails() {
     headerName: meta.header,
     width: rollingWidths[meta.key] ?? 100,
     editable: editMode && Boolean(meta.editable),
+    filter: "agTextColumnFilter",
+    filterParams: { filterOptions: ["contains"], maxNumConditions: 1, buttons: ["apply", "clear"], closeOnApply: true },
     type: meta.kind === "decimal" ? "numericColumn" : undefined,
     cellEditor: meta.kind === "dictionary"
       ? "agSelectCellEditor"
@@ -233,7 +250,7 @@ export function SalesSummaryDetails() {
     marryChildren: true,
     headerClass: className,
     children: [
-      ...(includeSequence ? [{ headerName: "序号", valueGetter: "node.rowIndex + 1", width: 68, editable: false } as ColDef] : []),
+      ...(includeSequence ? [{ headerName: "序号", valueGetter: ({ node }: any) => (page - 1) * pageSize + Number(node.rowIndex ?? 0) + 1, width: 68, editable: false } as ColDef] : []),
       ...rollingColumnsMeta.filter((meta) => meta.group === group && (group === "审计信息" || visibleFields.includes(meta.key))).map(makeRollingColumn)
     ]
   });
@@ -328,12 +345,20 @@ export function SalesSummaryDetails() {
     {rollingSaveNotice && <Alert className="save-notice" showIcon closable type={rollingSaveNotice.type}
       message={rollingSaveNotice.text} onClose={() => setRollingSaveNotice(undefined)} />}
     <div className="grid-card rolling-grid ag-theme-quartz">
-      <AgGridReact rowData={filtered} columnDefs={columns} loading={isLoading} theme="legacy"
-        pagination paginationPageSize={50} paginationPageSizeSelector={[20, 50, 100, 200]}
+      <AgGridReact rowData={data} columnDefs={columns} loading={isLoading} theme="legacy" localeText={AG_GRID_LOCALE_ZH_CN}
         singleClickEdit={editMode} stopEditingWhenCellsLoseFocus enableCellTextSelection ensureDomOrder
         suppressMovableColumns suppressColumnVirtualisation
         getRowId={({ data: row }) => row.id}
-        onGridReady={({ api: instance }) => { rollingGridApi.current = instance; }}
+        onGridReady={({ api: instance }) => { rollingGridApi.current = instance; applyRollingGridFilterModel(instance); }}
+        onFilterChanged={({ api: instance }) => {
+          const next = Object.entries(instance.getFilterModel()).map(([field, model]: [string, any]) => ({ field, value: String(model?.filter ?? "") })).filter((filter) => filter.value);
+          if (JSON.stringify(next) !== JSON.stringify(filters)) setFilters(next);
+        }}
+        onSortChanged={({ api: instance }) => {
+          const active=instance.getColumnState().find((column)=>column.sort);
+          const next=active?{field:active.colId,order:active.sort as "asc"|"desc"}:{};
+          setSort((current)=>current.field===next.field&&current.order===next.order?current:next);setPage(1);
+        }}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }} selectionColumnDef={{ pinned: "left", lockPosition: true, width: 48, resizable: false }}
         onSelectionChanged={({ api: grid }) => setSelectedIds(grid.getSelectedRows().map((row: any) => row.id))}
         onCellValueChanged={async ({ data: row, colDef, newValue, oldValue }) => {
@@ -356,9 +381,12 @@ export function SalesSummaryDetails() {
           }
         }}
         getRowClass={(params: RowClassParams) => `${params.node.rowIndex! % 2 ? "order-alt" : ""} ${statusClass(params.data.completionRate, params.data.reviewDueDate)}`}
-        defaultColDef={{ sortable: true, resizable: true, filter: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        defaultColDef={{ sortable: true, resizable: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
         rowHeight={44} headerHeight={56} groupHeaderHeight={42} />
     </div>
+    <div className="monthly-grid-pagination"><Pagination current={page} pageSize={pageSize} total={Array.isArray(rollingQuery.data) ? rollingQuery.data.length : rollingQuery.data?.total ?? 0}
+      pageSizeOptions={[20, 50, 100, 200]} showSizeChanger showQuickJumper showTotal={(total) => `共 ${total} 条`}
+      onChange={(nextPage, nextPageSize) => { const changed=nextPageSize!==pageSize;setPageSize(nextPageSize);setPage(changed?1:nextPage);localStorage.setItem(rollingPageSizeKey,String(nextPageSize)); }} /></div>
     <Modal title="新增销售接单" width={880} open={addOpen} onCancel={() => setAddOpen(false)} onOk={() => addForm.validateFields().then(async (values) => {
       const dateFields = ["orderDate", "customerDueDate", "reviewDueDate", "exceptionDueDate", "actualCompletionDate", "shippingDate"];
       const payload = { ...values };

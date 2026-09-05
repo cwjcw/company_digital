@@ -174,10 +174,13 @@ export class DrizzlePlanningRepository implements PlanningRepository {
       FROM planning.process_progress pp JOIN planning.process_definitions pd ON pd.id=pp.process_definition_id
       WHERE pp.tenant_id=$1 AND pp.plan_item_id=ANY($2::uuid[]) ORDER BY pd.sequence`, [tenantId, rows.map((row) => row.id)]);
     const allProgress = progressResult.rows.map(progress);
+    const progressByItem = new Map<string, ProcessProgressRecord[]>();
+    for (const entry of allProgress) progressByItem.set(entry.planItemId, [...(progressByItem.get(entry.planItemId) ?? []), entry]);
     return rows.map((row): PlanItemView => {
       const mapped = item(row);
       const processes: Record<string, Record<string, unknown>> = {};
-      for (const entry of allProgress.filter((candidate) => candidate.planItemId === mapped.id)) processes[entry.processCode] = {
+      for (const entry of progressByItem.get(mapped.id) ?? []) processes[entry.processCode] = {
+        processName: entry.processName,
         requiredDays: entry.requiredDays, dueDate: entry.plannedDate, actualDate: entry.actualDate,
         plannedQuantity: entry.plannedQuantity, quantity: entry.completedQuantity, status: entry.status, exception: entry.exception,
         version: entry.version
@@ -187,18 +190,60 @@ export class DrizzlePlanningRepository implements PlanningRepository {
   }
 
   async searchItems(tenantId: string, input: PlanSearchInput) {
+    const { values, where } = this.itemSearchWhere(tenantId, input);
+    const sortColumns: Record<string, string> = {
+      sequence: "sequence", planSequence: "sequence", responsibleOrgId: "responsible_org_id", customer: "customer_name",
+      orderNumber: "order_number", itemNumber: "item_number", itemName: "item_name", specification: "specification",
+      orderQuantity: "order_quantity", productionQuantity: "production_quantity", customerDueDate: "delivery_date",
+      createdAt: "created_at", updatedAt: "updated_at"
+    };
+    const sortColumn = sortColumns[input.sortField ?? ""] ?? "priority";
+    const sortOrder = input.sortOrder === "desc" ? "DESC" : "ASC";
+    values.push(Math.min(Math.max(input.limit ?? 5000, 1), 10000), Math.max(input.offset ?? 0, 0));
+    const result = await this.database.pool.query(`SELECT planning.plan_items.* FROM planning.plan_items WHERE ${where.join(" AND ")}
+      ORDER BY ${sortColumn} ${sortOrder},sequence ASC,created_at ASC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+    return this.itemViews(result.rows, tenantId);
+  }
+
+  async countItems(tenantId: string, input: PlanSearchInput) {
+    const { values, where } = this.itemSearchWhere(tenantId, input);
+    const result = await this.database.pool.query(`SELECT count(*)::int total FROM planning.plan_items WHERE ${where.join(" AND ")}`, values);
+    return Number(result.rows[0]?.total ?? 0);
+  }
+
+  private itemSearchWhere(tenantId: string, input: PlanSearchInput) {
     const values: unknown[] = [tenantId, input.versionId];
     const where = ["tenant_id=$1", "plan_version_id=$2"];
-    const add = (sql: string, value: unknown) => { values.push(value); where.push(sql.replace("?", `$${values.length}`)); };
+    const add = (sql: string, value: unknown) => { values.push(value); where.push(sql.replaceAll("?", `$${values.length}`)); };
     if (input.orderNumber) add("order_number ILIKE '%' || ? || '%'", input.orderNumber);
     if (input.itemNumber) add("item_number ILIKE '%' || ? || '%'", input.itemNumber);
     if (input.status) add("status=?", input.status);
     if (input.ownerUserId) add("owner_user_id=?", input.ownerUserId);
     if (input.responsibleOrgId) add("responsible_org_id=?", input.responsibleOrgId);
-    values.push(Math.min(Math.max(input.limit ?? 5000, 1), 10000), Math.max(input.offset ?? 0, 0));
-    const result = await this.database.pool.query(`SELECT planning.plan_items.* FROM planning.plan_items WHERE ${where.join(" AND ")}
-      ORDER BY priority ASC, sequence ASC, created_at ASC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
-    return this.itemViews(result.rows, tenantId);
+    if (input.responsibleOrgIds) {
+      if (!input.responsibleOrgIds.length) where.push("false");
+      else add("responsible_org_id=ANY(?::uuid[])", input.responsibleOrgIds);
+    }
+    if (input.search?.trim()) add(`concat_ws(' ',order_number,item_number,customer_name,item_name,specification,status,legacy_data::text) ILIKE '%' || ? || '%'`, input.search.trim());
+    const filterColumns: Record<string, string> = {
+      sequence: "sequence::text", planSequence: "sequence::text", responsibleOrgId: "responsible_org_id::text",
+      customer: "customer_name", orderNumber: "order_number", itemNumber: "item_number", itemName: "item_name",
+      specification: "specification", orderQuantity: "order_quantity::text", productionQuantity: "production_quantity::text",
+      customerDueDate: "delivery_date::text", historicalInboundQuantity: "historical_inbound_quantity::text",
+      todayInboundQuantity: "current_inbound_quantity::text", planningStatus: "status", orderException: "exception", remark: "remark",
+      createdBy: "created_by::text", createdAt: "created_at::text", updatedBy: "updated_by::text", updatedAt: "updated_at::text"
+    };
+    for (const [field, raw] of Object.entries(input.filters ?? {})) {
+      const value = raw.trim();
+      if (!value) continue;
+      const column = filterColumns[field];
+      if (column) add(`coalesce(${column},'') ILIKE '%' || ? || '%'`, value);
+      else if (/^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$/.test(field)) {
+        values.push(field.split("."), value);
+        where.push(`coalesce(legacy_data #>> $${values.length - 1}::text[],'') ILIKE '%' || $${values.length} || '%'`);
+      }
+    }
+    return { values, where };
   }
 
   async getItem(tenantId: string, itemId: string) {

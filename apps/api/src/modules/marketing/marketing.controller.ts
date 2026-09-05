@@ -25,7 +25,7 @@ export class MarketingController {
     response.send(`\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(",")).join("\r\n")}`);
   }
 
-  @Get("business-customer-mappings") listMappings(@Query("search") search: string | undefined, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listMappings(search, this.actor(req, tenant, ip)); }
+  @Get("business-customer-mappings") listMappings(@Query() query: Record<string,string|undefined>, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { if(!query.page&&!query.pageSize)return this.application.listMappings(query.search,this.actor(req,tenant,ip));let filters={};try{filters=JSON.parse(query.filters??"{}");}catch{filters={};}return this.application.listMappingsPage({...query,page:Number(query.page),pageSize:Number(query.pageSize),filters},this.actor(req,tenant,ip)); }
   @Get("directory-users") listDirectoryUsers(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listDirectoryUsers(this.actor(req, tenant, ip)); }
   @Get("directory-organizations") listDirectoryOrganizations(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listDirectoryOrganizations(this.actor(req, tenant, ip)); }
   @Get("business-customer-mappings/export") async exportMappings(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string, @Res() response: Response) {
@@ -40,7 +40,7 @@ export class MarketingController {
   @Post("business-customer-mappings/sync-departments-from-directory")
   syncMappingDepartmentsFromDirectory(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.syncMappingDepartmentsFromDirectory(this.actor(req, tenant, ip)); }
 
-  @Get("order-schedules") listSchedules(@Query("search") search: string | undefined, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { return this.application.listSchedules(search, this.actor(req, tenant, ip)); }
+  @Get("order-schedules") listSchedules(@Query() query: Record<string,string|undefined>, @Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string) { if(!query.page&&!query.pageSize)return this.application.listSchedules(query.search,this.actor(req,tenant,ip));let filters={};try{filters=JSON.parse(query.filters??"{}");}catch{filters={};}return this.application.listSchedulesPage({...query,page:Number(query.page),pageSize:Number(query.pageSize),filters},this.actor(req,tenant,ip)); }
   @Get("order-schedules/export") async exportSchedules(@Req() req: MarketingRequest, @Headers("x-tenant-code") tenant: string | undefined, @Ip() ip: string, @Res() response: Response) {
     const rows: any[] = await this.application.listSchedules(undefined, this.actor(req, tenant, ip), "export") as any[];
     this.csv(response, "订单排期.csv", ["客户代码", "部门", "课室", "业务员", "订单编号", "品项编码", "品项名称", "客户交期", "订单总数量", "生产单位", "订单完成比例"], rows.map((row) => [row.customerCode, row.department, row.section, (row.salespersonNames ?? []).join("|"), row.orderNumber, row.itemNumber, row.itemName, row.customerDueDate, row.orderTotalQuantity, row.productionUnit, row.completionRatio]));

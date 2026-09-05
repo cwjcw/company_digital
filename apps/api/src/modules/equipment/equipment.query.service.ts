@@ -5,8 +5,9 @@ import { EquipmentActor, equipmentScope, hasEquipmentPermission } from "./equipm
 type PageInput = {
   page?: number; pageSize?: number; search?: string; divisionId?: string; equipmentId?: string;
   divisionName?: string; usageDepartmentName?: string; equipmentCode?: string; equipmentName?: string;
-  reportDate?: string; runtimeMinutes?: string; faultMinutes?: string; faultReason?: string;
+  reportDate?: string; runtimeMinutes?: string; faultMinutes?: string; faultReason?: string; responsibleUserIds?: string;
   createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
+  sortField?: string; sortOrder?: string;
 };
 type DashboardInput = { periodType?: string; period?: string; startDate?: string; endDate?: string; divisionId?: string; departmentId?: string | string[] };
 
@@ -27,6 +28,9 @@ export class EquipmentQueryService {
       createdBy: "asset.created_by::text", createdAt: "asset.created_at::text", updatedBy: "asset.updated_by::text", updatedAt: "asset.updated_at::text"
     });
     const where = clauses.join(" AND ");
+    const sortColumns: Record<string, string> = { divisionName:"asset.division_name_snapshot",usageDepartmentName:"asset.usage_department_name_snapshot",equipmentCode:"asset.equipment_code",equipmentName:"asset.equipment_name",purchaseDate:"asset.purchase_date",monitored:"asset.monitored",createdBy:"asset.created_by",createdAt:"asset.created_at",updatedBy:"asset.updated_by",updatedAt:"asset.updated_at" };
+    const sortColumn = sortColumns[input.sortField ?? ""];
+    const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "asset.division_name_snapshot,asset.usage_department_name_snapshot,asset.equipment_code";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_assets asset WHERE ${where}`, params);
     params.push(pageSize, offset);
     const rows = await this.dataSource.query(`
@@ -44,7 +48,7 @@ export class EquipmentQueryService {
         WHERE er.tenant_id=asset.tenant_id AND er.equipment_id=asset.id
       ) resp ON true
       WHERE ${where}
-      ORDER BY asset.division_name_snapshot,asset.usage_department_name_snapshot,asset.equipment_code
+      ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
     return { rows, total: Number(count), page, pageSize };
@@ -54,17 +58,21 @@ export class EquipmentQueryService {
     this.assert(actor, "equipment-status-report", "read");
     const { page, pageSize, offset } = this.page(input); const params: unknown[] = [actor.tenantId];
     const clauses = ["report.tenant_id=$1", "report.active=true", this.scopeClause(actor, "equipment-status-report", "read", "report", params)];
+    const responsibleNames = `COALESCE((SELECT string_agg(u.display_name,' ') FROM equipment_responsibles er JOIN users u ON u.id=er.user_id WHERE er.tenant_id=report.tenant_id AND er.equipment_id=report.equipment_id),'')`;
     const search = String(input.search ?? "").trim();
-    if (search) { params.push(`%${search}%`); clauses.push(`(report.equipment_code_snapshot ILIKE $${params.length} OR report.equipment_name_snapshot ILIKE $${params.length} OR report.division_name_snapshot ILIKE $${params.length} OR report.usage_department_name_snapshot ILIKE $${params.length} OR COALESCE(report.fault_reason,'') ILIKE $${params.length})`); }
+    if (search) { params.push(`%${search}%`); clauses.push(`(report.equipment_code_snapshot ILIKE $${params.length} OR report.equipment_name_snapshot ILIKE $${params.length} OR report.division_name_snapshot ILIKE $${params.length} OR report.usage_department_name_snapshot ILIKE $${params.length} OR COALESCE(report.fault_reason,'') ILIKE $${params.length} OR ${responsibleNames} ILIKE $${params.length})`); }
     if (input.divisionId) { params.push(input.divisionId); clauses.push(`report.division_organization_unit_id=$${params.length}::uuid`); }
     if (input.equipmentId) { params.push(input.equipmentId); clauses.push(`report.equipment_id=$${params.length}::uuid`); }
     this.textFilters(input, params, clauses, {
       divisionName: "report.division_name_snapshot", usageDepartmentName: "report.usage_department_name_snapshot",
       equipmentCode: "report.equipment_code_snapshot", equipmentName: "report.equipment_name_snapshot", reportDate: "report.report_date::text",
-      runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')",
+      runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')", responsibleUserIds: responsibleNames,
       createdBy: "report.created_by::text", createdAt: "report.created_at::text", updatedBy: "report.updated_by::text", updatedAt: "report.updated_at::text"
     });
     const where = clauses.join(" AND ");
+    const sortColumns: Record<string, string> = { equipmentCode:"report.equipment_code_snapshot",equipmentName:"report.equipment_name_snapshot",divisionName:"report.division_name_snapshot",usageDepartmentName:"report.usage_department_name_snapshot",responsibleUserIds:responsibleNames,reportDate:"report.report_date",runtimeMinutes:"report.runtime_minutes",faultMinutes:"report.fault_minutes",faultReason:"report.fault_reason",createdBy:"report.created_by",createdAt:"report.created_at",updatedBy:"report.updated_by",updatedAt:"report.updated_at" };
+    const sortColumn = sortColumns[input.sortField ?? ""];
+    const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_status_reports report WHERE ${where}`, params);
     params.push(pageSize, offset);
     const rows = await this.dataSource.query(`
@@ -73,9 +81,17 @@ export class EquipmentQueryService {
         report.division_name_snapshot "divisionName",report.usage_department_organization_unit_id "usageDepartmentId",
         report.usage_department_name_snapshot "usageDepartmentName",report.report_date "reportDate",
         report.runtime_minutes "runtimeMinutes",report.fault_minutes "faultMinutes",report.fault_reason "faultReason",
-        report.version,report.created_by "createdBy",report.created_at "createdAt",report.updated_by "updatedBy",report.updated_at "updatedAt"
-      FROM equipment_status_reports report WHERE ${where}
-      ORDER BY report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot
+        report.version,report.created_by "createdBy",report.created_at "createdAt",report.updated_by "updatedBy",report.updated_at "updatedAt",
+        COALESCE(resp.ids,'[]'::jsonb) "responsibleUserIds",COALESCE(resp.users,'[]'::jsonb) "responsibleUsers"
+      FROM equipment_status_reports report
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(u.id ORDER BY u.display_name) ids,
+          jsonb_agg(jsonb_build_object('id',u.id,'displayName',u.display_name,'enabled',u.enabled) ORDER BY u.display_name) users
+        FROM equipment_responsibles er JOIN users u ON u.id=er.user_id
+        WHERE er.tenant_id=report.tenant_id AND er.equipment_id=report.equipment_id
+      ) resp ON true
+      WHERE ${where}
+      ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
     return { rows, total: Number(count), page, pageSize };
@@ -111,6 +127,35 @@ export class EquipmentQueryService {
       this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
     ]);
     return { equipment, users, organizations, faultReasons: faultReasons.map((row: any) => row.value) };
+  }
+
+  async governanceSummary(actor: EquipmentActor) {
+    this.assert(actor, "equipment-dashboard", "read");
+    const params: unknown[] = [actor.tenantId];
+    const scope = this.scopeClause(actor, "equipment-dashboard", "read", "asset", params);
+    const rows = await this.dataSource.query(`
+      SELECT asset.division_organization_unit_id "divisionId",
+        asset.division_name_snapshot "divisionName",
+        count(*)::integer "totalEquipment",
+        count(*) FILTER (WHERE asset.monitored=true)::integer "monitoredEquipment",
+        count(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM equipment_responsibles responsible
+          WHERE responsible.tenant_id=asset.tenant_id AND responsible.equipment_id=asset.id
+        ))::integer "responsibleEquipment"
+      FROM equipment_assets asset
+      WHERE asset.tenant_id=$1 AND asset.active=true AND ${scope}
+      GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot
+      ORDER BY asset.division_name_snapshot
+    `, params);
+    return {
+      generatedAt: new Date().toISOString(),
+      rows: rows.map((row: Record<string, unknown>) => ({
+        ...row,
+        totalEquipment: Number(row.totalEquipment ?? 0),
+        monitoredEquipment: Number(row.monitoredEquipment ?? 0),
+        responsibleEquipment: Number(row.responsibleEquipment ?? 0)
+      }))
+    };
   }
 
   async dashboard(input: DashboardInput, actor: EquipmentActor) {

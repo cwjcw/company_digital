@@ -9,11 +9,12 @@ const actor = (permissions = ["*"]): PlanningActor => ({ tenantCode: "KAINAN", u
 describe("PlanningApplicationService", () => {
   const repository = {
     tenantId: jest.fn().mockResolvedValue("tenant-1"),
-    createVersion: jest.fn(), updateItem: jest.fn(), publishVersion: jest.fn(), lockVersion: jest.fn(), unlockVersion: jest.fn(), confirmImport: jest.fn(),
+    createVersion: jest.fn(), createItem: jest.fn(), updateItem: jest.fn(), publishVersion: jest.fn(), lockVersion: jest.fn(), unlockVersion: jest.fn(), confirmImport: jest.fn(),
     getVersion: jest.fn().mockResolvedValue({ periodId: "period-1" })
   } as unknown as jest.Mocked<PlanningRepository>;
   const events = new PlanningDomainEventBus();
-  const service = new PlanningApplicationService(repository, events);
+  const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() } as any;
+  const service = new PlanningApplicationService(repository, events, directory);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -21,6 +22,22 @@ describe("PlanningApplicationService", () => {
     repository.createVersion.mockResolvedValue({ id: "version-2", status: "DRAFT" } as any);
     await expect(service.createVersion("period-1", "version-1", actor())).resolves.toMatchObject({ status: "DRAFT" });
     expect(repository.createVersion).toHaveBeenCalledWith("tenant-1", "period-1", "version-1", expect.anything());
+  });
+
+  it("resolves a new item's department to its stable organization id", async () => {
+    const organization = { id: "org-division-one", name: "事业一部", path: "厦门凯南展示制品有限公司 / 事业一部" };
+    directory.listEnabled.mockResolvedValueOnce([organization]);
+    directory.resolve.mockReturnValueOnce(organization);
+    repository.createItem.mockResolvedValue({ id: "item-1" } as any);
+
+    await service.createItem("version-1", {
+      orderNumber: "SO-001", itemNumber: "ITEM-001", responsibleOrgId: "事业一部"
+    }, actor());
+
+    expect(directory.resolve).toHaveBeenCalledWith("事业一部", [organization]);
+    expect(repository.createItem).toHaveBeenCalledWith("tenant-1", "version-1", expect.objectContaining({
+      responsibleOrgId: "org-division-one"
+    }), expect.anything());
   });
 
   it("publishes and emits a minimal domain event", async () => {

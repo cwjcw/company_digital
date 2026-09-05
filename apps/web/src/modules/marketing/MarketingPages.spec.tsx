@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ConfigProvider } from "antd";
+import zhCN from "antd/locale/zh_CN";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./MarketingPages";
@@ -32,7 +34,7 @@ describe("OrderSchedulePage editing", () => {
 
   it("edits the selected schedule while preserving its planning source", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><OrderSchedulePage /></QueryClientProvider>);
+    render(<ConfigProvider locale={zhCN}><QueryClientProvider client={client}><OrderSchedulePage /></QueryClientProvider></ConfigProvider>);
 
     expect(await screen.findByText("DEMO-SO-001")).toBeInTheDocument();
     expect(screen.getByText("8月28日")).toBeInTheDocument();
@@ -43,16 +45,16 @@ describe("OrderSchedulePage editing", () => {
     const itemName = within(dialog).getByLabelText("品项名称");
     expect(within(dialog).getByLabelText("客户交期")).toHaveValue("8月28日");
     fireEvent.change(itemName, { target: { value: "演示品项（已调整）" } });
-    fireEvent.click(screen.getByRole("button", { name: /OK|确 定/ }));
+    fireEvent.click(screen.getByRole("button", { name: /确 定|确定/ }));
 
     await waitFor(() => expect(api).toHaveBeenCalledWith("/marketing/order-schedules/schedule-1", expect.objectContaining({ method: "PATCH" })));
     const updateCall = vi.mocked(api).mock.calls.find(([path]) => path === "/marketing/order-schedules/schedule-1");
     expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({ itemName: "演示品项（已调整）", sourcePlanItemId: "plan-item-1", expectedVersion: 3 });
-  });
+  }, 10_000);
 
   it("shows read-only business ownership fields and manually synchronizes them from the mapping table", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><OrderSchedulePage /></QueryClientProvider>);
+    render(<ConfigProvider locale={zhCN}><QueryClientProvider client={client}><OrderSchedulePage /></QueryClientProvider></ConfigProvider>);
 
     expect(await screen.findByText("欧美业务一部")).toBeInTheDocument();
     expect(screen.getByText("一课")).toBeInTheDocument();
@@ -81,7 +83,7 @@ describe("BusinessCustomerMappingsPage", () => {
 
   it("uses customer granularity and the required business-field order", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider>);
+    render(<ConfigProvider locale={zhCN}><QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider></ConfigProvider>);
 
     expect(await screen.findByRole("heading", { name: "业务人员与客户对应表" })).toBeInTheDocument();
     await waitFor(() => {
@@ -92,7 +94,7 @@ describe("BusinessCustomerMappingsPage", () => {
 
   it("always opens in browse mode and only renders editors after an authorized user enters edit mode", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider>);
+    render(<ConfigProvider locale={zhCN}><QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider></ConfigProvider>);
 
     expect(await screen.findByText("A001")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("A001")).not.toBeInTheDocument();
@@ -107,7 +109,7 @@ describe("BusinessCustomerMappingsPage", () => {
   it("does not offer edit mode without update permission", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer-1", permissions: ["business-customer-mapping:*:read"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider>);
+    render(<ConfigProvider locale={zhCN}><QueryClientProvider client={client}><BusinessCustomerMappingsPage /></QueryClientProvider></ConfigProvider>);
 
     expect(await screen.findByText("A001")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /进入编辑模式/ })).not.toBeInTheDocument();

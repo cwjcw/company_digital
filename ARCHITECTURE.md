@@ -50,7 +50,7 @@ T+ / future E10 / WMS / MES
 
 ## Workspace map
 
-- `packages/contracts`: permissions, events, API contracts and 102-field Planning Registry (97 preserved + 5 orchestration fields).
+- `packages/contracts`: permissions, events and API contracts. The active monthly-plan import/export registry contains 85 business fields plus four audit fields; the web table presents 82 business fields by omitting the three monetary fields, displays the department-backed `responsibleOrgId` after sequence, and moves customer before order number. The historical 97-field registry and five orchestration fields remain separately preserved for compatibility.
 - `packages/database`: Drizzle schema and PostgreSQL client.
 - `packages/permissions`: action and field-access engine.
 - `packages/auth`: `AuthProvider`, local-development and Keycloak provider boundaries.
@@ -62,8 +62,8 @@ T+ / future E10 / WMS / MES
 - `packages/ai-tool-sdk`: five read-only Planning tool definitions.
 - `integrations/tplus`: dual-account T+ to Canonical Sales Order adapter.
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
-- `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details and work-report pages.
-- `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
+- `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details, September on-hand summary dashboard and work-report pages.
+- `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. Status pages resolve responsibility live through `equipment_responsibles` by stable equipment ID, so ledger changes appear without copying stale responsibility into status rows; the status-table responsibility field is available but hidden in the default personal view. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
 
 ## Administrator authority
 
@@ -86,6 +86,7 @@ Schemas and principal tables:
 
 - `iam`: `tenants`, `organizations`, `departments`, `positions`, `employees`, `users`, `identities`, `roles`, `permissions`, `role_permissions`, `role_bindings`, `field_policies`. The compatibility IAM also stores per-table permission groups on technical roles and keeps their dynamic `USER` / `ORGANIZATION` / `ROLE` grants in `permission_group_subjects`; technical roles are hidden from ordinary role management.
 - The compatibility `organization_units` directory is the current canonical bridge to WeCom: external department identity, topology and live leader user IDs are synchronized together. Business department fields store its stable UUID and retain names only as display snapshots; leader-based data scopes expand the live organization subtree per request.
+- Monthly-plan “事业部” uses `responsible_org_id` and resolves to the stable `organization_units.id`. September source adapters derive the display name from each original division workbook filename, and import resolution rejects missing or ambiguous organization matches rather than storing the name as identity.
 - `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`; compatibility equipment tables are `equipment_assets`, `equipment_responsibles`, and `equipment_status_reports`.
 - `audit`: `audit_logs`.
 - `integration`: `import_jobs`.
@@ -100,6 +101,8 @@ Important uniqueness rules include tenant/year/month, period/version number, ver
 The registry is the source for label, group, order, width, pinning, type, editor, renderer, visibility, editability, permission and process source. The API adds field access (`HIDDEN`, `READONLY`, `EDITABLE`, `MASKED`); the web column builder converts metadata into AG Grid definitions. The backend repeats field authorization before any write.
 
 The preserved UI includes grouped headers, 14 configurable processes, horizontal virtualization, pinned identification columns, sorting, quick filtering, field visibility, cell editing, image upload, batch update and persisted sequence.
+
+All business-table queries use a shared five-minute in-memory freshness window and are cleared on logout. Growing record tables return `{ rows, total, page, pageSize }` after authorized server-side search/filter/paging; ordinary page re-entry uses the cached result until it expires or a write/realtime invalidation occurs. Ant Design and AG Grid share Chinese pagination and menu text. Header filters and the top filter panel operate on the same conditions and return to page one when changed.
 
 ## Integration and jobs
 

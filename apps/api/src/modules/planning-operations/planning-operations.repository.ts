@@ -30,13 +30,16 @@ export interface WorkReportSyncResult {
   preservedReported: number;
 }
 
+export interface OperationsPageInput { page: number; pageSize: number; search?: string; filters?: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc"; }
+export interface OperationsPageResult { rows: unknown[]; total: number; page: number; pageSize: number; }
+
 export interface PlanningOperationsRepository {
   tenantId(code: string): Promise<string>;
   listWeeklyPeriods(tenantId: string, currentDate: string): Promise<unknown[]>;
-  listWeeklyItems(tenantId: string, periodId: string, search?: string): Promise<unknown[]>;
+  listWeeklyItems(tenantId: string, periodId: string, input: OperationsPageInput): Promise<OperationsPageResult>;
   syncWeeklyItemsForDate(tenantId: string, currentDate: string, actor: PlanningActor): Promise<WeeklyPlanSyncResult>;
   updateWeeklyDate(tenantId: string, id: string, field: "customer_due_date" | "review_due_date", value: string | null, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
-  listWorkReports(tenantId: string, date: string, search?: string): Promise<unknown[]>;
+  listWorkReports(tenantId: string, date: string, input: OperationsPageInput): Promise<OperationsPageResult>;
   syncWorkReports(tenantId: string, date: string, actor: PlanningActor): Promise<WorkReportSyncResult>;
   updateReportedQuantity(tenantId: string, id: string, quantity: string, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
 }

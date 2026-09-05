@@ -1,21 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, DatePicker, Descriptions, Flex, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, Upload } from "antd";
+import { Alert, Button, DatePicker, Descriptions, Flex, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Typography, Upload } from "antd";
+import { EyeOutlined } from "@ant-design/icons";
 import type { ColDef, ColGroupDef, GridApi, RowClassParams } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import { io } from "socket.io-client";
 import type { PlanningVersionContract } from "@kdos/contracts";
-import { api, ApiError, containsText } from "../../../api";
-import { buildPlanningColumns, type DictionaryOptions, type RuntimePlanningField } from "../grid/column-builder";
+import { api, ApiError } from "../../../api";
+import { buildPlanningColumns, monthlyPlanDisplayFields, type DepartmentOption, type DictionaryOptions, type RuntimePlanningField } from "../grid/column-builder";
 import { planningFieldRegistry } from "../grid/column-registry";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
 import { useAuditIdentityDirectory } from "../../../shared/audit-fields";
-import { TablePermissionButton } from "../../../shared/KdosDataTable";
+import { KdosTableSearchFilter, TablePermissionButton } from "../../../shared/KdosDataTable";
+import { AG_GRID_LOCALE_ZH_CN } from "../../../shared/ag-grid-locale-zh";
 
 const { Text } = Typography;
 type Notice = { type: "success" | "error" | "info"; text: string };
 type PeriodResponse = { id: string; year: number; month: number; currentVersionId: string | null; versions: PlanningVersionContract[] } | null;
 type ImportPreview = { jobId: string; summary: { total: number; warnings: number }; warnings: string[] };
+type PlanPage = { rows: any[]; total: number; page: number; pageSize: number };
+const planPageSizes = [20, 50, 100, 200];
 
 function useDictionaryOptions() {
   const dictionaries = useQuery({ queryKey: ["reference-dictionaries"], queryFn: () => api<any[]>("/reference-data/dictionaries") });
@@ -26,10 +30,6 @@ function useDictionaryOptions() {
     options.supplier = (suppliers.data ?? []).filter((entry: any) => entry.enabled).map((entry: any) => entry.name);
     return options;
   }, [dictionaries.data, suppliers.data]);
-}
-
-function versionColor(status?: string) {
-  return status === "DRAFT" ? "processing" : status === "PUBLISHED" ? "success" : status === "LOCKED" ? "red" : "default";
 }
 
 export function MonthlyPlanPage({ year, month }: { year: number; month: number }) {
@@ -54,9 +54,17 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const [reason, setReason] = useState("");
   const [selectedItem, setSelectedItem] = useState<any>();
   const [imageOpen, setImageOpen] = useState(false);
-  const [quickOrder, setQuickOrder] = useState("");
-  const [quickItem, setQuickItem] = useState("");
-  const [quickStatus, setQuickStatus] = useState<string>();
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = Number(localStorage.getItem(`kdos-form-page-size:${userKey}:monthly-plan`));
+    return planPageSizes.includes(saved) ? saved : 50;
+  });
+  const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
+  const [settledSearch, setSettledSearch] = useState("");
+  const [settledFilters, setSettledFilters] = useState<Record<string, string>>({});
+  const selectedRows = useRef(new Map<string, any>());
   const [addForm] = Form.useForm();
   const [bulkForm] = Form.useForm();
   const bulkFieldCode = Form.useWatch<string>("field", bulkForm);
@@ -66,7 +74,9 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   });
 
   const fieldsQuery = useQuery({ queryKey: ["planning-fields"], queryFn: () => api<RuntimePlanningField[]>("/planning/fields"), retry: false });
-  const fields = fieldsQuery.data ?? planningFieldRegistry.map((field) => ({ ...field, access: field.editable ? "EDITABLE" as const : "READONLY" as const }));
+  const organizationsQuery = useQuery({ queryKey: ["planning-organization-options"], queryFn: () => api<DepartmentOption[]>("/planning/organization-options"), retry: false });
+  const fields = useMemo(() => monthlyPlanDisplayFields(fieldsQuery.data ?? planningFieldRegistry.map((field) => ({ ...field, access: field.editable ? "EDITABLE" as const : "READONLY" as const }))), [fieldsQuery.data]);
+  const filterFields = useMemo(() => fields.filter((field) => field.visible && field.access !== "HIDDEN").map((field) => ({ key: field.code, label: field.label })), [fields]);
   const periodQuery = useQuery({ queryKey: ["planning-period", year, month], queryFn: () => api<PeriodResponse>(`/planning/periods/by-month?year=${year}&month=${month}`), retry: false });
   const period = periodQuery.data;
   const activeVersion = period?.versions.find((entry) => entry.id === activeVersionId);
@@ -77,17 +87,37 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   }, [activeVersionId, period]);
   useEffect(() => { if (activeVersion?.status !== "DRAFT") setEditMode(false); }, [activeVersion?.status]);
   useEffect(() => { localStorage.setItem(`kdos-planning-hidden-v2:${userKey}`, JSON.stringify(hiddenFields)); }, [hiddenFields, userKey]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setSettledSearch(search.trim()); setSettledFilters(filters); setPage(1); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [filters, search]);
+  useEffect(() => { setPage(1); selectedRows.current.clear(); setSelectedIds([]); }, [activeVersionId]);
 
   const itemsQuery = useQuery({
-    queryKey: ["planning-items", activeVersionId],
-    queryFn: () => api<any[]>(`/planning/versions/${activeVersionId}/items`), enabled: Boolean(activeVersionId), retry: false
+    queryKey: ["planning-items", activeVersionId, { page, pageSize, search: settledSearch, filters: settledFilters, sort }],
+    queryFn: () => {
+      const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (settledSearch) query.set("search", settledSearch);
+      if (Object.values(settledFilters).some((value) => value.trim())) query.set("filters", JSON.stringify(settledFilters));
+      if (sort.field) query.set("sortField", sort.field);
+      if (sort.order) query.set("sortOrder", sort.order);
+      return api<PlanPage | any[]>(`/planning/versions/${activeVersionId}/items?${query}`);
+    }, enabled: Boolean(activeVersionId), retry: false
   });
   const risksQuery = useQuery({
     queryKey: ["planning-risks", activeVersionId],
     queryFn: () => api<any>(`/planning/versions/${activeVersionId}/risks?days=7`), enabled: Boolean(activeVersionId), retry: false
   });
-  const rows = useMemo(() => (itemsQuery.data ?? []).filter((row) => containsText(row.orderNumber, quickOrder) && containsText(row.itemNumber, quickItem) && (!quickStatus || row.itemStatus === quickStatus || row.planningStatus === quickStatus)), [itemsQuery.data, quickItem, quickOrder, quickStatus]);
-  const columnDefs = useMemo<Array<ColDef | ColGroupDef>>(() => buildPlanningColumns(fields, editMode && activeVersion?.status === "DRAFT", hiddenFields, dictionaryOptions, auditIdentityNames), [activeVersion?.status, auditIdentityNames, dictionaryOptions, editMode, fields, hiddenFields]);
+  const rows = Array.isArray(itemsQuery.data) ? itemsQuery.data : itemsQuery.data?.rows ?? [];
+  const columnDefs = useMemo<Array<ColDef | ColGroupDef>>(() => buildPlanningColumns(fields, editMode && activeVersion?.status === "DRAFT", hiddenFields, dictionaryOptions, auditIdentityNames, organizationsQuery.data ?? []), [activeVersion?.status, auditIdentityNames, dictionaryOptions, editMode, fields, hiddenFields, organizationsQuery.data]);
+
+  const applyGridFilterModel = useCallback((apiInstance: GridApi) => {
+    const target = Object.fromEntries(Object.entries(filters).filter(([, value]) => value.trim()).map(([field, value]) => [field, { filterType: "text", type: "contains", filter: value }]));
+    const current = Object.fromEntries(Object.entries(apiInstance.getFilterModel()).map(([field, model]: [string, any]) => [field, String(model?.filter ?? "")]));
+    const targetValues = Object.fromEntries(Object.entries(target).map(([field, model]: [string, any]) => [field, String(model.filter)]));
+    if (JSON.stringify(current) !== JSON.stringify(targetValues)) apiInstance.setFilterModel(target);
+  }, [filters]);
+  useEffect(() => { if (gridApi.current) applyGridFilterModel(gridApi.current); }, [applyGridFilterModel]);
 
   useEffect(() => {
     if (!period?.id || !activeVersionId) return;
@@ -157,40 +187,18 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
     if (!activeVersionId) return;
     const values = await bulkForm.validateFields(); const field = values.field; let value = values.value;
     if (fields.find((entry) => entry.code === field)?.dataType === "date" && value) value = value.format("YYYY-MM-DD");
-    const selected = (itemsQuery.data ?? []).filter((row) => selectedIds.includes(row.id));
+    const selected = [...selectedRows.current.values()];
     await api(`/planning/versions/${activeVersionId}/items/bulk`, { method: "POST", body: JSON.stringify({ updates: selected.map((row) => ({ id: row.id, field, value, expectedVersion: row.version })) }) });
+    selectedRows.current.clear(); setSelectedIds([]); gridApi.current?.deselectAll();
     setBulkOpen(false); bulkForm.resetFields(); setNotice({ type: "success", text: `已批量修改 ${selected.length} 行` }); refresh();
   };
-  const reorder = async (direction: "top" | "up" | "down" | "bottom") => {
-    if (!activeVersionId || !selectedIds.length) return;
-    const ordered = [...(itemsQuery.data ?? [])].sort((a, b) => a.planSequence - b.planSequence);
-    const selected = new Set(selectedIds); const picked = ordered.filter((row) => selected.has(row.id)); const rest = ordered.filter((row) => !selected.has(row.id));
-    let next = ordered;
-    if (direction === "top") next = [...picked, ...rest];
-    if (direction === "bottom") next = [...rest, ...picked];
-    if (direction === "up") for (let index = 1; index < next.length; index++) if (selected.has(next[index].id) && !selected.has(next[index - 1].id)) [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    if (direction === "down") for (let index = next.length - 2; index >= 0; index--) if (selected.has(next[index].id) && !selected.has(next[index + 1].id)) [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    await api(`/planning/versions/${activeVersionId}/reorder`, { method: "POST", body: JSON.stringify({ itemIds: next.map((row) => row.id) }) });
-    setNotice({ type: "success", text: "计划顺序已保存" }); refresh();
-  };
-
   const canEdit = activeVersion?.status === "DRAFT";
   const bulkField = fields.find((field) => field.code === bulkFieldCode);
   const bulkFieldOptions = fields.filter((field) => field.editable && field.access === "EDITABLE" && field.dataType !== "image")
     .map((field) => ({ value: field.code, label: `${field.groupLabel} · ${field.label}` }));
   const risk = risksQuery.data ?? { overdue: [], dueSoon: [], processOverdue: [], openExceptions: [] };
-  const versions = period?.versions ?? [];
   return <div>
     <div className="monthly-toolbar planning-version-toolbar">
-      <Flex className="monthly-toolbar-row" align="center" gap={8} wrap>
-        <Text strong>Planning Center</Text>
-        <Tag color="blue">{year}年{String(month).padStart(2, "0")}月</Tag>
-        <Select aria-label="计划版本" placeholder="尚未建立版本" value={activeVersionId} disabled={!versions.length} onChange={setActiveVersionId} style={{ width: 180 }} options={versions.map((entry) => ({ value: entry.id, label: `${entry.name} ${entry.status}` }))} />
-        <Tag color={versionColor(activeVersion?.status)}>{activeVersion ? `${activeVersion.status === "LOCKED" ? "🔒 " : ""}${activeVersion.name} ${activeVersion.status}` : "暂无计划数据"}</Tag>
-        <Button type="primary" disabled={!canEdit || !(itemsQuery.data?.length)} onClick={() => Modal.confirm({ title: `发布 ${activeVersion?.name}？`, content: "发布将创建不可变快照，其他部门默认读取该正式版本。", onOk: publish })}>发布</Button>
-        <Button disabled={activeVersion?.status !== "PUBLISHED"} onClick={() => setReasonAction("lock")}>锁定</Button>
-        <Button danger disabled={activeVersion?.status !== "LOCKED"} onClick={() => setReasonAction("unlock")}>解锁</Button>
-      </Flex>
       <Flex className="monthly-toolbar-row" align="center" gap={8} wrap>
         <Text strong>编排操作</Text>
         <Button type={editMode ? "primary" : "default"} disabled={!canEdit} onClick={() => setEditMode((value) => !value)}>{editMode ? "退出编辑模式" : "进入编辑模式"}</Button>
@@ -199,12 +207,11 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
           else { setEditMode(false); setNotice({ type: "success", text: "保存成功；所有单元格修改均已实时提交" }); }
         }}>保存</Button>}
         {editMode && <Tag color={write.isPending ? "processing" : "success"}>{write.isPending ? "保存中" : "失焦自动保存"}</Tag>}
+        <Button type="primary" disabled={!canEdit || !(Array.isArray(itemsQuery.data) ? itemsQuery.data.length : itemsQuery.data?.total)} onClick={() => Modal.confirm({ title: `发布 ${activeVersion?.name}？`, content: "发布将创建不可变快照，其他部门默认读取该正式版本。", onOk: publish })}>发布</Button>
+        <Button disabled={activeVersion?.status !== "PUBLISHED"} onClick={() => setReasonAction("lock")}>锁定</Button>
+        <Button danger disabled={activeVersion?.status !== "LOCKED"} onClick={() => setReasonAction("unlock")}>解锁</Button>
         <Button disabled={periodQuery.isLoading} onClick={() => setAddOpen(true)}>新增计划行</Button>
         <Button disabled={!canEdit || !selectedIds.length} onClick={() => setBulkOpen(true)}>批量修改（{selectedIds.length}）</Button>
-        <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("top")}>移到顶部</Button>
-        <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("up")}>上移</Button>
-        <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("down")}>下移</Button>
-        <Button disabled={!canEdit || !selectedIds.length} onClick={() => void reorder("bottom")}>移到底部</Button>
         <Upload accept=".xlsx,.csv" showUploadList={false} disabled={periodQuery.isLoading} beforeUpload={async (file) => {
           const form = new FormData(); form.append("file", file as File); setImporting(true);
           try {
@@ -216,18 +223,20 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
           return false;
         }}><Button loading={importing} disabled={periodQuery.isLoading}>导入 Excel</Button></Upload>
         <Button href={`/api/v1/planning/versions/${activeVersionId}/export`} target="_blank" disabled={!activeVersionId}>导出 Excel</Button>
-        <Button onClick={() => setFieldOpen(true)}>字段显示</Button>
-        <TablePermissionButton resource="monthly-plan" />
       </Flex>
-      <Flex className="monthly-toolbar-row" align="center" gap={8} wrap>
-        <Text strong>快速筛选</Text>
-        <Input aria-label="筛选订单号" allowClear placeholder="订单号" value={quickOrder} onChange={(event) => setQuickOrder(event.target.value)} style={{ width: 150 }} />
-        <Input aria-label="筛选品号" allowClear placeholder="品号" value={quickItem} onChange={(event) => setQuickItem(event.target.value)} style={{ width: 150 }} />
-        <Select aria-label="筛选品号状态" allowClear placeholder="状态" value={quickStatus} onChange={setQuickStatus} style={{ width: 130 }} options={["完成", "进行中", "即将延期", "延期", "PENDING"].map((value) => ({ value, label: value }))} />
-        <Tag color={risk.overdue.length ? "red" : "default"}>交期逾期 {risk.overdue.length}</Tag>
-        <Tag color={risk.dueSoon.length ? "orange" : "default"}>7天内到期 {risk.dueSoon.length}</Tag>
-        <Tag color={risk.processOverdue.length ? "red" : "default"}>工序逾期 {risk.processOverdue.length}</Tag>
-        <Tag color={risk.openExceptions.length ? "volcano" : "default"}>未关闭异常 {risk.openExceptions.length}</Tag>
+      <Flex className="monthly-toolbar-row" align="center" justify="space-between" gap={16} wrap>
+        <Space wrap={false}>
+          <Text strong>风险概览</Text>
+          <Tag color={risk.overdue.length ? "red" : "default"}>交期逾期 {risk.overdue.length}</Tag>
+          <Tag color={risk.dueSoon.length ? "orange" : "default"}>7天内到期 {risk.dueSoon.length}</Tag>
+          <Tag color={risk.processOverdue.length ? "red" : "default"}>工序逾期 {risk.processOverdue.length}</Tag>
+          <Tag color={risk.openExceptions.length ? "volcano" : "default"}>未关闭异常 {risk.openExceptions.length}</Tag>
+        </Space>
+        <Space wrap={false}>
+          <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={filterFields} />
+          <Button icon={<EyeOutlined />} onClick={() => setFieldOpen(true)}>字段显示</Button>
+          <TablePermissionButton resource="monthly-plan" />
+        </Space>
       </Flex>
     </div>
     {notice && <Alert className="save-notice" type={notice.type} showIcon closable message={notice.text} onClose={() => setNotice(undefined)} />}
@@ -237,12 +246,26 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         ? <Alert style={{ marginBottom: 10 }} type="info" showIcon message={`${year}年${month}月暂无计划数据；可直接导入 Excel 或新增计划行，系统会在首次写入时自动准备。`} />
         : !canEdit && <Alert style={{ marginBottom: 10 }} type="info" showIcon message="当前版本为只读；直接导入或新增计划行时，系统会自动准备新的可编辑版本。" />}
     <div className="monthly-grid ag-theme-quartz">
-      <AgGridReact rowData={rows} columnDefs={columnDefs} loading={itemsQuery.isLoading} theme="legacy" singleClickEdit={editMode}
-        pagination paginationPageSize={50} paginationPageSizeSelector={[20, 50, 100, 200]}
+      <AgGridReact rowData={rows} columnDefs={columnDefs} loading={itemsQuery.isLoading} theme="legacy" localeText={AG_GRID_LOCALE_ZH_CN} singleClickEdit={editMode}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true, enableClickSelection: false }} selectionColumnDef={{ pinned: "left", lockPosition: true, width: 48, resizable: false }}
         enableCellTextSelection ensureDomOrder suppressMovableColumns tooltipShowDelay={250} getRowId={({ data }) => data.id}
-        onGridReady={({ api: instance }) => { gridApi.current = instance; }}
-        onSelectionChanged={({ api: instance }) => setSelectedIds(instance.getSelectedRows().map((row: any) => row.id))}
+        onGridReady={({ api: instance }) => { gridApi.current = instance; applyGridFilterModel(instance); }}
+        onFilterChanged={({ api: instance }) => {
+          const next = Object.fromEntries(Object.entries(instance.getFilterModel()).map(([field, model]: [string, any]) => [field, String(model?.filter ?? "")]).filter(([, value]) => value));
+          if (JSON.stringify(next) !== JSON.stringify(filters)) setFilters(next);
+        }}
+        onRowDataUpdated={({ api: instance }) => instance.forEachNode((node) => { if (node.data?.id && selectedRows.current.has(node.data.id)) node.setSelected(true); })}
+        onSortChanged={({ api: instance }) => {
+          const state = instance.getColumnState().find((column) => column.sort);
+          const next = state ? { field: state.colId, order: state.sort as "asc" | "desc" } : {};
+          setSort((current) => current.field === next.field && current.order === next.order ? current : next); setPage(1);
+        }}
+        onSelectionChanged={({ api: instance }) => {
+          const pageIds = new Set(rows.map((row) => row.id));
+          for (const id of pageIds) selectedRows.current.delete(id);
+          for (const row of instance.getSelectedRows()) selectedRows.current.set(row.id, row);
+          setSelectedIds([...selectedRows.current.keys()]);
+        }}
         onCellClicked={({ column, data }) => { if (column.getColId() === "image") { setSelectedItem(data); setImageOpen(true); } }}
         onCellValueChanged={async ({ data, colDef, newValue, oldValue }) => {
           if (newValue === oldValue || !colDef.field) return;
@@ -254,9 +277,17 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
           finally { saveAndExit.current = false; }
         }}
         getRowClass={(params: RowClassParams) => params.node.rowIndex! % 2 ? "order-alt" : ""}
-        defaultColDef={{ sortable: true, resizable: true, filter: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
+        defaultColDef={{ sortable: true, resizable: true, wrapHeaderText: true, autoHeaderHeight: true, minWidth: 68 }}
         overlayNoRowsTemplate="<span class='ag-overlay-no-rows-center'>本月暂无计划数据，字段结构已完整加载</span>"
         rowHeight={40} headerHeight={58} groupHeaderHeight={42} stopEditingWhenCellsLoseFocus />
+    </div>
+    <div className="monthly-grid-pagination"><Pagination current={page} pageSize={pageSize} total={Array.isArray(itemsQuery.data) ? itemsQuery.data.length : itemsQuery.data?.total ?? 0}
+      pageSizeOptions={planPageSizes} showSizeChanger showQuickJumper showTotal={(total) => `共 ${total} 条`}
+      onChange={(nextPage, nextPageSize) => {
+        const sizeChanged = nextPageSize !== pageSize;
+        setPageSize(nextPageSize); setPage(sizeChanged ? 1 : nextPage);
+        localStorage.setItem(`kdos-form-page-size:${userKey}:monthly-plan`, String(nextPageSize));
+      }} />
     </div>
     <Modal title="字段显示" width={800} open={fieldOpen} onCancel={() => setFieldOpen(false)} footer={<Button type="primary" onClick={() => setFieldOpen(false)}>完成</Button>}>
       <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.filter((field) => !hiddenFields.includes(field.code)).length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields([])}>恢复默认</Button></Space></Flex>
@@ -286,7 +317,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="订单需求数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="客户要求交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item></Form>
     </Modal>
     <Modal title={`批量修改 ${selectedIds.length} 行`} open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => void bulkUpdate()}>
-      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={bulkFieldOptions} /></Form.Item><Form.Item name="value" label="新值" rules={[{ required: true }]}>{bulkField?.dataType === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : ["decimal", "integer"].includes(bulkField?.dataType ?? "") ? <InputNumber style={{ width: "100%" }} /> : bulkField?.editorType === "dictionary" ? <Select showSearch options={(dictionaryOptions[bulkField.dictionaryCode ?? ""] ?? []).map((value) => ({ value, label: value }))} /> : <Input />}</Form.Item></Form>
+      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={bulkFieldOptions} /></Form.Item><Form.Item name="value" label="新值" rules={[{ required: true }]}>{bulkField?.dataType === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : ["decimal", "integer"].includes(bulkField?.dataType ?? "") ? <InputNumber style={{ width: "100%" }} /> : bulkField?.editorType === "department" ? <Select showSearch optionFilterProp="label" options={(organizationsQuery.data ?? []).map((entry) => ({ value: entry.id, label: entry.pathLabel }))} /> : bulkField?.editorType === "dictionary" ? <Select showSearch options={(dictionaryOptions[bulkField.dictionaryCode ?? ""] ?? []).map((value) => ({ value, label: value }))} /> : <Input />}</Form.Item></Form>
     </Modal>
     <Modal title={selectedItem ? `上传简图 · 品号 ${selectedItem.itemNumber}` : "上传简图"} open={imageOpen} onCancel={() => setImageOpen(false)} footer={<Button onClick={() => setImageOpen(false)}>关闭</Button>}>
       {!selectedItem ? <Alert type="info" showIcon message="请点击表格中的简图单元格" /> : <Space wrap>

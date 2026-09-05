@@ -115,6 +115,9 @@ function provenance(division, sheet, rowNumber, ...remarks) {
 function baseRecord(division, sheet, rowNumber, orderNumber, itemNumber) {
   return {
     sequence: null,
+    // The source specification is keyed by the original workbook filename. The API resolves
+    // this display name to the canonical WeCom organization UUID during import.
+    responsibleOrgId: division,
     orderNumber,
     itemNumber,
     relationKey: `${orderNumber}${itemNumber}`,

@@ -30,13 +30,8 @@ async function stdin() {
 async function run() {
   const buffer = await stdin(); if (!buffer.length) throw new Error("请通过标准输入提供设备使用管理表.xlsx");
   const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
-  const assets = workbook.getWorksheet("设备总台账"); const monitor = workbook.getWorksheet("设备监控");
-  if (!assets || !monitor) throw new Error("文件必须包含“设备总台账”和“设备监控”工作表");
-  const monitoredKeys = new Set<string>();
-  for (let row = 2; row <= monitor.rowCount; row++) {
-    const division = cellText(monitor.getCell(row, 1)); const code = cellText(monitor.getCell(row, 3));
-    if (division && code) monitoredKeys.add(`${division}|${code}`);
-  }
+  const assets = workbook.getWorksheet("设备总台账");
+  if (!assets) throw new Error("文件必须包含“设备总台账”工作表");
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
     const dataSource = app.get(DataSource); const application = app.get(EquipmentApplicationService);
@@ -67,7 +62,7 @@ async function run() {
       rows.push({
         sourceSheetRow: row, divisionId: division.id, usageDepartmentId: department?.id ?? null,
         usageDepartmentName: departmentSource, equipmentCode, equipmentName,
-        purchaseDate: excelDate(assets.getCell(row, 5).value), monitored: monitoredKeys.has(`${divisionSource}|${equipmentCode}`),
+        purchaseDate: excelDate(assets.getCell(row, 5).value), monitored: false,
         responsibleUserIds: undefined
       });
     }

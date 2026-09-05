@@ -13,11 +13,12 @@ function tsxFiles(directory: string): string[] {
 }
 
 describe("monthly plan configuration", () => {
-  it("uses the exact 84-column monthly-plan contract", () => {
-    expect(excelMonthlyPlanColumns).toHaveLength(84);
-    expect(monthlyPlanColumns).toHaveLength(84);
+  it("uses the 85-column monthly-plan contract with division after sequence", () => {
+    expect(excelMonthlyPlanColumns).toHaveLength(85);
+    expect(monthlyPlanColumns).toHaveLength(85);
     expect(processDefinitions).toHaveLength(14);
     expect(monthlyPlanColumns[0]?.header).toBe("序号");
+    expect(monthlyPlanColumns[1]).toMatchObject({ key: "responsibleOrgId", header: "事业部", kind: "department" });
     expect(monthlyPlanColumns.at(-1)?.header).toBe("客户");
   });
 
@@ -87,8 +88,13 @@ describe("monthly plan configuration", () => {
 
   it("keeps equipment navigation typography aligned and gives the status table real import/export actions", () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    const styles = fs.readFileSync(path.resolve(__dirname, "styles.css"), "utf8");
     const equipmentSource = fs.readFileSync(path.resolve(__dirname, "modules/equipment/EquipmentPages.tsx"), "utf8");
+    expect(appSource).toContain('{ key: "on-hand-summary", icon: <DashboardOutlined />, label: "在手汇总"');
     expect(appSource).toContain('{ key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划"');
+    expect(appSource).toContain('{ key: "equipment-management", icon: <ToolOutlined />, label: "设备管理"');
+    expect(styles).toContain('.sidebar .ant-menu-root > .ant-menu-submenu-open > .ant-menu-submenu-title');
+    expect(styles).toContain('font-weight: 500 !important;');
     expect(equipmentSource).toContain('/equipment/status-reports/import-preview');
     expect(equipmentSource).toContain('/equipment/status-reports/import-confirm');
     expect(equipmentSource).toContain('/equipment/status-reports/export');
@@ -97,6 +103,17 @@ describe("monthly plan configuration", () => {
     expect(equipmentSource).toContain('query.append("departmentId", departmentId)');
     expect(equipmentSource).not.toContain("设备状态按每台设备最近一次填报");
     expect(equipmentSource).not.toContain("每台受监控设备至少每7天填报一次");
+  });
+
+  it("renders the September on-hand dashboard from the server aggregate", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "modules/planning/pages/OnHandSummaryDashboard.tsx"), "utf8");
+    expect(source).toContain("/planning/on-hand-summary?year=${SOURCE_YEAR}&month=${SOURCE_MONTH}");
+    expect(source).not.toContain("数据来源：{SOURCE_YEAR}年{SOURCE_MONTH}月计划");
+    expect(source).not.toContain("每 5 分钟自动刷新");
+    expect(source).toContain('resource="on-hand-summary-dashboard"');
+    expect(source).toContain("客户在手欠数 TOP 12");
+    expect(source).toContain("事业部在手执行情况");
+    expect(source).toContain("工序风险概览");
   });
 
   it("requires account and saved email, warns about lockout, and keeps reset failures visible", () => {

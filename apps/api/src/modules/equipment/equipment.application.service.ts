@@ -40,6 +40,36 @@ export class EquipmentApplicationService {
     return this.dataSource.transaction((manager) => this.saveAsset(manager, id, input as AssetInput, actor));
   }
 
+  async resetAllMonitoring(actor: EquipmentActor) {
+    this.assert(actor, "equipment-register", "update");
+    if (!actor.permissions.includes("*")) throw new ForbiddenException("仅系统管理员可以重置全部设备填报状态");
+    return this.dataSource.transaction(async (manager) => {
+      const assets = await manager.createQueryBuilder(EquipmentAsset, "asset")
+        .setLock("pessimistic_write")
+        .where("asset.tenantId=:tenantId", { tenantId: actor.tenantId })
+        .orderBy("asset.id", "ASC")
+        .getMany();
+      let updated = 0;
+      for (const asset of assets) {
+        if (!asset.monitored) continue;
+        const before = this.assetAudit(asset);
+        asset.monitored = false;
+        asset.version += 1;
+        asset.updatedBy = actor.userId ?? actor.username;
+        await manager.save(EquipmentAsset, asset);
+        await this.audit(
+          manager, actor, "equipment-register", asset.id, "equipment.asset.monitoring_reset",
+          before, this.assetAudit(asset)
+        );
+        updated += 1;
+      }
+      await this.audit(manager, actor, "equipment-register", null, "equipment.asset.monitoring_reset_completed", null, {
+        total: assets.length, updated, unchanged: assets.length - updated
+      });
+      return { total: assets.length, updated, unchanged: assets.length - updated };
+    });
+  }
+
   async disableAsset(id: string, expectedVersion: number, actor: EquipmentActor) {
     this.assert(actor, "equipment-register", "delete");
     return this.dataSource.transaction(async (manager) => {
@@ -225,7 +255,7 @@ export class EquipmentApplicationService {
     asset.usageDepartmentOrganizationUnitId = usageDepartment?.id ?? null;
     asset.usageDepartmentNameSnapshot = String(input.usageDepartmentName ?? usageDepartment?.name ?? "").trim();
     asset.equipmentCode = code; asset.equipmentName = name; asset.purchaseDate = purchaseDate;
-    asset.monitored = input.monitored === undefined ? true : Boolean(input.monitored); asset.active = true;
+    asset.monitored = input.monitored === undefined ? false : Boolean(input.monitored); asset.active = true;
     if (!asset.createdBy && actor.userId) asset.createdBy = actor.userId;
     asset.sourceSheetRow = sourceSheetRow ?? asset.sourceSheetRow ?? null; asset.updatedBy = actor.userId ?? actor.username;
     try { asset = await manager.save(EquipmentAsset, asset); }

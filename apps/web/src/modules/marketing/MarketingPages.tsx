@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Upload } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
@@ -11,6 +11,17 @@ import { createOrganizationMembershipIndex } from "@kdos/permissions";
 
 type DirectoryUser = { id: string; displayName: string; departmentPaths: string[][]; enabled: boolean };
 type DirectoryOrganization = { id: string; name: string; parentId: string | null; path: string[]; pathLabel: string; enabled: boolean };
+type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
+type TablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
+const blankQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const tableUrl = (path: string, query: TableQuery, extra: Record<string,string> = {}) => {
+  const params=new URLSearchParams({...extra,page:String(query.page),pageSize:String(query.pageSize)});
+  if(query.search)params.set("search",query.search);if(Object.values(query.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(query.filters));
+  if(query.sortField)params.set("sortField",query.sortField);if(query.sortOrder)params.set("sortOrder",query.sortOrder);
+  return `${path}?${params}`;
+};
+const pageRows = <T,>(data?: TablePage<T> | T[]) => Array.isArray(data) ? data : data?.rows ?? [];
+const pageTotal = <T,>(data?: TablePage<T> | T[]) => Array.isArray(data) ? data.length : data?.total ?? 0;
 
 function DepartmentSelectCell({ value, display, organizations, onSave, allowClear = false }: { value?: string | null; display?: string | null; organizations: DirectoryOrganization[]; onSave: (id: string | null) => Promise<void>; allowClear?: boolean }) {
   const { editing } = useKdosTableEditMode();
@@ -49,9 +60,9 @@ function MappingDeleteAction({ row, onRemove }: { row: any; onRemove: (row: any)
 }
 
 export function BusinessCustomerMappingsPage() {
-  const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient(); const [tableQuery,setTableQuery]=useState<TableQuery>(blankQuery); const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false); const [syncingDirectory, setSyncingDirectory] = useState(false); const [feedback, setFeedback] = useState<ImportFeedback>(); const [form] = Form.useForm();
-  const rows = useQuery({ queryKey: ["business-customer-mappings", search], queryFn: () => api<any[]>(`/marketing/business-customer-mappings?search=${encodeURIComponent(search)}`) });
+  const rows = useQuery({ queryKey: ["business-customer-mappings",tableQuery], queryFn: () => api<TablePage<any>|any[]>(tableUrl("/marketing/business-customer-mappings",tableQuery)) });
   const directory = useQuery({ queryKey: ["marketing-directory-users"], queryFn: () => api<DirectoryUser[]>("/marketing/directory-users") });
   const organizations = useQuery({ queryKey: ["marketing-directory-organizations"], queryFn: () => api<DirectoryOrganization[]>("/marketing/directory-organizations") });
   const organizationMembership = useMemo(() => createOrganizationMembershipIndex(organizations.data ?? []), [organizations.data]);
@@ -90,14 +101,14 @@ export function BusinessCustomerMappingsPage() {
     { title: "操作", width: 80, render: (_: unknown, row: any) => <MappingDeleteAction row={row} onRemove={remove} /> }
   ];
   return <div><PageHeader title="业务人员与客户对应表" subtitle="每个客户一行；业务员从通讯录中多选" actions={<Space wrap>
-    <Input.Search allowClear placeholder="搜索部门、课室、客户或业务员" onSearch={setSearch} style={{ width: 320 }} />
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增对应关系</Button>
     <Upload accept=".xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入业务接单周报</Button></Upload>
     {hasResourcePermission("business-customer-mapping", "import") ? <Button loading={syncingDirectory} onClick={() => void syncDepartments()}>按通讯录更新部门</Button> : null}
     <Button onClick={() => void downloadApiFile("/marketing/business-customer-mappings/export", "业务人员与客户对应表.csv")}>导出 CSV</Button>
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
-    <KdosDataTable resource="business-customer-mapping" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 325px)" }} />
+    <KdosDataTable resource="business-customer-mapping" editable rowKey="id" loading={rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
+      serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、客户或业务员" scroll={{ x: "max-content", y: "calc(100vh - 325px)" }} />
     <Modal title="新增业务与客户对应关系" open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => { await api("/marketing/business-customer-mappings", { method: "POST", body: JSON.stringify({ ...values, salespersonUserIds: values.salespersonUserIds ?? [] }) }); setOpen(false); form.resetFields(); refresh(); }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
       <Form form={form} layout="vertical"><Form.Item name="departmentId" label="部门" rules={[{ required: true, message: "请选择部门" }]}><Select showSearch optionFilterProp="label" placeholder="选择完整组织路径" onChange={() => form.setFieldValue("salespersonUserIds", [])} options={(organizations.data ?? []).map((organization) => ({ value: organization.id, label: organization.pathLabel }))} /></Form.Item><Form.Item name="section" label="课室"><Input placeholder="普通文本，例如：一课" /></Form.Item><Form.Item name="customerCode" label="客户" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="salespersonUserIds" label="业务员"><Select disabled={!newDepartmentId} mode="multiple" showSearch optionFilterProp="label" placeholder={newDepartmentId ? "仅显示所选部门及子部门内的在职用户" : "请先选择部门"} options={usersInDepartment(newDepartmentId).map((user) => ({ value: user.id, label: user.displayName }))} /></Form.Item></Form>
     </Modal>
@@ -105,22 +116,21 @@ export function BusinessCustomerMappingsPage() {
 }
 
 export function OrderSchedulePage() {
-  const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<string[]>([]);
+  const queryClient = useQueryClient(); const [tableQuery,setTableQuery]=useState<TableQuery>(blankQuery); const [selected, setSelected] = useState<string[]>([]);
+  const selectedRows=useRef(new Map<string,any>());
   const [completion, setCompletion] = useState("all"); const [dueRange, setDueRange] = useState<[Dayjs | null, Dayjs | null] | null>(null); const [batchDate, setBatchDate] = useState<Dayjs | null>(null);
   const [editing, setEditing] = useState<any>(); const [saving, setSaving] = useState(false); const [editForm] = Form.useForm();
   const [syncingPlanning, setSyncingPlanning] = useState(false); const [syncingBusinessFields, setSyncingBusinessFields] = useState(false);
-  const rows = useQuery({ queryKey: ["order-schedules", search], queryFn: () => api<any[]>(`/marketing/order-schedules?search=${encodeURIComponent(search)}`) });
-  const refresh = () => { setSelected([]); void queryClient.invalidateQueries({ queryKey: ["order-schedules"] }); };
-  const data = (rows.data ?? []).filter((row) => {
-    const ratio = Number(row.completionRatio ?? 0); if (completion === "unfinished" && ratio >= 100) return false; if (completion === "completed" && ratio < 100) return false;
-    if (!dueRange?.[0] && !dueRange?.[1]) return true; if (!row.customerDueDate) return false;
-    const due = dayjs(row.customerDueDate); return (!dueRange[0] || !due.isBefore(dueRange[0], "day")) && (!dueRange[1] || !due.isAfter(dueRange[1], "day"));
-  });
+  const scheduleExtra={completion,dueStart:dueRange?.[0]?.format("YYYY-MM-DD")??"",dueEnd:dueRange?.[1]?.format("YYYY-MM-DD")??""};
+  const rows = useQuery({ queryKey: ["order-schedules",tableQuery,scheduleExtra], queryFn: () => api<TablePage<any>|any[]>(tableUrl("/marketing/order-schedules",tableQuery,scheduleExtra)) });
+  const refresh = () => { setSelected([]);selectedRows.current.clear(); void queryClient.invalidateQueries({ queryKey: ["order-schedules"] }); };
+  const data = pageRows(rows.data);
+  useEffect(()=>{for(const row of data)if(selected.includes(row.id))selectedRows.current.set(row.id,row);},[data,selected]);
   const applyBatch = async () => {
     if (!selected.length) return message.warning("请先选择排期记录");
-    const selectedRows = (rows.data ?? []).filter((row) => selected.includes(row.id));
-    await api("/marketing/order-schedules/batch-due-date", { method: "PATCH", body: JSON.stringify({ rows: selectedRows.map((row) => ({ id: row.id, expectedVersion: row.version })), customerDueDate: batchDate?.format("YYYY-MM-DD") ?? null }) });
-    message.success(`已批量更新 ${selectedRows.length} 条客户交期`); setBatchDate(null); refresh();
+    const snapshots = [...selectedRows.current.values()];
+    await api("/marketing/order-schedules/batch-due-date", { method: "PATCH", body: JSON.stringify({ rows: snapshots.map((row) => ({ id: row.id, expectedVersion: row.version })), customerDueDate: batchDate?.format("YYYY-MM-DD") ?? null }) });
+    message.success(`已批量更新 ${snapshots.length} 条客户交期`); setBatchDate(null); refresh();
   };
   const sync = async () => {
     setSyncingPlanning(true);
@@ -134,9 +144,9 @@ export function OrderSchedulePage() {
       message.success(`业务归属同步完成：匹配 ${result.matched} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条，未匹配保留 ${result.retained} 条`); refresh();
     } catch (error) { message.error((error as Error).message); } finally { setSyncingBusinessFields(false); }
   };
-  const selectWholeOrders = () => { const orders = new Set((rows.data ?? []).filter((row) => selected.includes(row.id)).map((row) => row.orderNumber)); setSelected((rows.data ?? []).filter((row) => orders.has(row.orderNumber)).map((row) => row.id)); };
+  const selectWholeOrders = async () => { const orders=[...new Set([...selectedRows.current.values()].map((row)=>row.orderNumber).filter(Boolean))];for(const orderNumber of orders){const result=await api<TablePage<any>>(tableUrl("/marketing/order-schedules",{...blankQuery,pageSize:200},{exactOrderNumber:orderNumber}));for(const row of result.rows)selectedRows.current.set(row.id,row);}setSelected([...selectedRows.current.keys()]); };
   const openEditor = () => {
-    const row = (rows.data ?? []).find((item) => item.id === selected[0]); if (!row) return;
+    const row = selected.length === 1 ? selectedRows.current.get(selected[0]!) : undefined; if (!row) return;
     setEditing(row); editForm.setFieldsValue({ ...row, customerDueDate: row.customerDueDate ? dayjs(row.customerDueDate) : null, orderTotalQuantity: Number(row.orderTotalQuantity), completionRatio: Number(row.completionRatio) });
   };
   const saveEditing = async () => {
@@ -160,13 +170,13 @@ export function OrderSchedulePage() {
     { title: "生产单位", dataIndex: "productionUnit", width: 160 }, { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` }
   ];
   return <div><PageHeader title="订单排期" subtitle="部门、课室、业务员由业务人员与客户对应表手工同步；主计划同步不会覆盖客户交期" actions={<Space wrap>
-    <Input.Search allowClear placeholder="搜索部门、课室、业务员、客户或订单" onSearch={setSearch} style={{ width: 320 }} />
     <Select value={completion} onChange={setCompletion} style={{ width: 130 }} options={[{ value: "all", label: "全部完成度" }, { value: "unfinished", label: "未完成" }, { value: "completed", label: "已完成" }]} />
     <DatePicker.RangePicker format={DUE_DATE_DISPLAY_FORMAT} value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
     <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>
   </Space>} />
-    <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button><Button disabled={!selected.length} onClick={selectWholeOrders}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => setSelected([])}>清空选择</Button></Space>
-    <KdosDataTable resource="order-schedule" rowKey="id" rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }} loading={rows.isLoading} dataSource={data} columns={columns}
+    <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button><Button disabled={!selected.length} onClick={() => void selectWholeOrders()}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => {setSelected([]);selectedRows.current.clear();}}>清空选择</Button></Space>
+    <KdosDataTable resource="order-schedule" rowKey="id" rowSelection={{ selectedRowKeys: selected,preserveSelectedRowKeys:true,onChange:(keys,currentRows)=>{const pageIds=new Set(data.map((row)=>row.id));for(const id of pageIds)selectedRows.current.delete(id);for(const row of currentRows)selectedRows.current.set(row.id,row);setSelected(keys.map(String));} }} loading={rows.isLoading} dataSource={data} columns={columns}
+      serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、业务员、客户或订单"
       toolbar={hasResourcePermission("order-schedule", "import") ? <Space wrap>
         <Button type="primary" loading={syncingPlanning} onClick={() => void sync()}>从主计划同步</Button>
         <Button loading={syncingBusinessFields} onClick={() => void syncBusinessFields()}>从业务人员与客户对应表同步</Button>
