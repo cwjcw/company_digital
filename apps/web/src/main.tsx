@@ -16,6 +16,8 @@ declare const __BUILD_ID__: string;
 
 dayjs.locale("zh-cn");
 
+if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+
 if (import.meta.env.PROD) {
   const checkForNewBuild = async () => {
     try {

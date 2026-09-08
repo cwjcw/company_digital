@@ -85,12 +85,25 @@ async function login(page: Page) {
   await expect(page.locator(".portal-module-grid")).toBeVisible();
 }
 
-async function openModule(page: Page, name: "公司驾驶舱" | "PMC中心" | "流程审批" | "系统管理" | "个人中心") {
+type ModuleName = "公司驾驶舱" | "PMC中心" | "数据中心" | "营销中心" | "人力资源" | "流程审批" | "系统管理" | "个人中心";
+
+async function openModule(page: Page, name: ModuleName) {
   if (await page.locator(".module-portal").isVisible()) await page.getByRole("button", { name: `进入${name}` }).click();
+}
+
+async function expandSidebarGroup(page: Page, name: string) {
+  await page.locator(".sidebar .ant-menu-submenu-title", { hasText: name }).first().click();
+}
+
+async function expandProductionMenu(page: Page) {
+  await expandSidebarGroup(page, "生产主计划");
 }
 
 async function openAugustMonthlyPlan(page: Page) {
   await openModule(page, "PMC中心");
+  await expandProductionMenu(page);
+  await expandSidebarGroup(page, "月度计划");
+  await expandSidebarGroup(page, "2026年");
   await page.getByText("202608", { exact: true }).click();
 }
 
@@ -105,6 +118,17 @@ test("login reports username and password errors separately", async ({ page }) =
   await page.getByLabel("密码").fill("wrong-password");
   await page.locator("button[type=submit]").click();
   await expect(page.getByText("密码错误")).toBeVisible();
+});
+
+test("every module starts with all first-level navigation groups collapsed", async ({ page }) => {
+  await mockApp(page); await login(page);
+  const moduleNames: ModuleName[] = ["公司驾驶舱", "PMC中心", "数据中心", "营销中心", "人力资源", "流程审批", "系统管理", "个人中心"];
+  for (const moduleName of moduleNames) {
+    await openModule(page, moduleName);
+    await expect(page.locator(".sidebar .ant-menu-submenu-open")).toHaveCount(0);
+    await page.getByRole("button", { name: "返回全部模块" }).click();
+    await expect(page.locator(".module-portal")).toBeVisible();
+  }
 });
 
 test("ordinary users enter the business portals without system management", async ({ page }) => {
@@ -151,18 +175,24 @@ test("ordinary users enter the business portals without system management", asyn
 
   await page.getByRole("button", { name: "进入公司驾驶舱" }).click();
   await expect(page).toHaveURL(/\/sales-summary-dashboard$/);
+  await expect(page.locator(".sidebar .ant-menu-submenu-open")).toHaveCount(0);
+  await expandSidebarGroup(page, "公司驾驶舱");
   await expect(page.getByText("销售接单汇总大屏", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("月度计划", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "返回全部模块" }).click();
   await page.getByRole("button", { name: "进入PMC中心" }).click();
   await expect(page).toHaveURL(/\/sales-summary-details$/);
+  await expect(page.locator(".sidebar .ant-menu-submenu-open")).toHaveCount(0);
+  await expandProductionMenu(page);
   await expect(page.getByText("销售接单明细", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("月度计划", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "返回全部模块" }).click();
   await page.getByRole("button", { name: "进入流程审批" }).click();
   await expect(page).toHaveURL(/\/development-requests$/);
+  await expect(page.locator(".sidebar .ant-menu-submenu-open")).toHaveCount(0);
+  await expandSidebarGroup(page, "流程审批");
   await expect(page.getByText("需求提报与审批", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("审批流程配置", { exact: true })).toBeVisible();
 
@@ -288,6 +318,9 @@ test("an empty month still renders the complete planning field grid", async ({ p
 test("monthly plan menu exposes the 2026 month pages and work reports inherit plan items", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "PMC中心");
+  await expandProductionMenu(page);
+  await expandSidebarGroup(page, "月度计划");
+  await expandSidebarGroup(page, "2026年");
   await expect(page.getByText("2026年", { exact: true })).toBeVisible();
   for (const period of ["202608", "202609", "202610", "202611", "202612"]) {
     await expect(page.getByText(period, { exact: true })).toBeVisible();
@@ -311,22 +344,22 @@ test("monthly plan menu exposes the 2026 month pages and work reports inherit pl
   expect(request.postDataJSON()).toMatchObject({ reportedQuantity: 5, expectedVersion: 1 });
 });
 
-test("PMC exposes the September on-hand dashboard with uniform first-level navigation typography", async ({ page }) => {
+test("PMC exposes three first-level groups and nests both dashboards below the big-screen reports group", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "PMC中心");
-  const topLevelLabels = ["在手汇总", "生产主计划", "设备管理"];
-  const typography = [];
-  for (const label of topLevelLabels) {
-    typography.push(await page.getByText(label, { exact: true }).first().evaluate((element) => {
-      const style = getComputedStyle(element);
-      return [style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight];
-    }));
-  }
-  expect(typography[1]).toEqual(typography[0]);
-  expect(typography[2]).toEqual(typography[0]);
-  await page.getByText("大屏报表", { exact: true }).click();
+  await expect(page.locator(".sidebar .ant-menu-submenu-open")).toHaveCount(0);
+  await expect(page.getByText("大屏报表", { exact: true })).toBeVisible();
+  await expect(page.getByText("生产主计划", { exact: true })).toBeVisible();
+  await expect(page.getByText("设备管理", { exact: true })).toBeVisible();
+  await expect(page.getByText("主计划大屏", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("设备管理大屏", { exact: true })).toHaveCount(0);
+  await expandSidebarGroup(page, "大屏报表");
+  await expect(page.getByText("主计划大屏", { exact: true })).toBeVisible();
+  await expect(page.getByText("设备管理大屏", { exact: true })).toBeVisible();
+  await expandSidebarGroup(page, "主计划大屏");
+  await page.getByText("集团主计划", { exact: true }).click();
   await expect(page).toHaveURL(/\/on-hand-summary-dashboard$/);
-  await expect(page.locator(".topbar-page-title")).toHaveText("在手汇总大屏");
+  await expect(page.locator(".topbar-page-title")).toHaveText("集团主计划");
   await expect(page.getByText("数据来源：2026年9月计划", { exact: true })).toHaveCount(0);
   await expect(page.getByText("每 5 分钟自动刷新", { exact: true })).toHaveCount(0);
   await expect(page.locator(".on-hand-kpi-grid .ant-card")).toHaveCount(7);
@@ -334,6 +367,10 @@ test("PMC exposes the September on-hand dashboard with uniform first-level navig
   await expect(page.getByText("事业部在手执行情况", { exact: true })).toBeVisible();
   await expect(page.getByText("工序风险概览", { exact: true })).toBeVisible();
   await expect(page.getByText("重点在手订单（延期及未来 7 天）", { exact: true })).toBeVisible();
+  await expandSidebarGroup(page, "设备管理大屏");
+  await page.getByText("集团设备大屏", { exact: true }).click();
+  await expect(page).toHaveURL(/\/equipment-dashboard$/);
+  await expect(page.locator(".topbar-page-title")).toHaveText("集团设备大屏");
 });
 
 test("monthly plan uses the exact process groups and keeps audit fields", async ({ page }) => {
@@ -410,6 +447,8 @@ test("selected monthly items support batch field updates without manual ordering
 test("users and master data expose add, multi-select, browse mode and import", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "系统管理");
+  await expandSidebarGroup(page, "系统管理");
+  await expandSidebarGroup(page, "账户与接口");
   await page.getByRole("menu").getByText("用户与角色", { exact: true }).click();
   await expect(page.getByRole("button", { name: "邀请成员" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导出" })).toBeVisible();
@@ -417,6 +456,7 @@ test("users and master data expose add, multi-select, browse mode and import", a
   await expect(page.locator(".ant-table-selection-column").first()).toBeVisible();
   await expect(page.getByText("吴志琴", { exact: true })).toBeVisible();
   await expect(page.locator('input[value="吴志琴"]')).toHaveCount(0);
+  await expandSidebarGroup(page, "基础资料");
   await page.getByText("基础资料维护", { exact: true }).click();
   await expect(page.getByRole("button", { name: "新增供应商" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导入供应商（CSV/XLSX）" })).toBeVisible();
@@ -435,6 +475,7 @@ test("users and master data expose add, multi-select, browse mode and import", a
   await expect(page.getByRole("tab", { name: /成品入库/ })).toHaveCount(0);
   await page.getByRole("button", { name: "返回全部模块" }).click();
   await page.getByRole("button", { name: "进入数据中心" }).click();
+  await expandSidebarGroup(page, "数据中心");
   await page.getByRole("menu").getByText("入库表", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "入库表" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新增入库记录" })).toBeVisible();
@@ -510,6 +551,7 @@ test("sales order details keep only controls and the reference table", async ({ 
 test("sales order dashboard shows the first-version management overview", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "公司驾驶舱");
+  await expandSidebarGroup(page, "公司驾驶舱");
   await page.locator(".ant-menu-item").getByText("销售接单汇总大屏", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "销售接单汇总大屏" })).toBeVisible();
   await expect(page.locator(".dashboard-kpi-grid .ant-card")).toHaveCount(6);
@@ -533,6 +575,8 @@ test("sales order dashboard shows the first-version management overview", async 
 test("api key list can regenerate, reveal and copy a key", async ({ page }) => {
   await mockApp(page); await login(page);
   await openModule(page, "系统管理");
+  await expandSidebarGroup(page, "系统管理");
+  await expandSidebarGroup(page, "账户与接口");
   await page.getByText("API Key", { exact: true }).click();
   await expect(page.getByRole("columnheader", { name: "API KEY" })).toBeVisible();
   await expect(page.getByText("已隐藏，请重新生成后查看")).toBeVisible();
@@ -764,6 +808,7 @@ test("authorized administrators can configure approval flow behavior and node la
 
   await login(page);
   await openModule(page, "流程审批");
+  await expandSidebarGroup(page, "流程审批");
   await page.getByRole("menuitem", { name: "审批流程配置" }).click();
   await expect(page.getByRole("heading", { name: "审批流程配置" })).toBeVisible();
   await expect(page.getByRole("row", { name: /需求提报与审批 development-request/ })).toBeVisible();

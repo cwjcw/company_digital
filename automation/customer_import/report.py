@@ -11,7 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 TABLE_LABELS = {
     "orders": "销售接单明细（订单头）", "activePlanItems": "月度计划（旧库）", "salesOrderLines": "数据中心-订单表",
     "inboundRows": "数据中心-入库表", "outboundRows": "数据中心-出库表", "salesOrders": "Planning 销售订单",
-    "planItems": "月度计划（KDOS）", "orderSchedules": "营销中心-订单排期", "weeklyPlanItems": "主计划-周计划",
+    "planItems": "月度计划（KDOS）", "weeklyPlanItems": "主计划-周计划",
     "processProgressRows": "主计划-工序关联", "workReports": "主计划-报工表",
 }
 
@@ -46,9 +46,9 @@ def create_report(output_dir: Path, customer_label: str, snapshots: list[dict[st
     notes = workbook.create_sheet("口径与例外")
     notes.append(["项目", "说明"])
     notes.append(["T+ 出入库方向", "已按实际账套核验：方向值1=入库，方向值0=出库。"])
-    notes.append(["计划范围", "订单表保留全部源明细；月度计划和订单排期只纳入已审核、未取消、未关闭且数量大于0的明细。"])
+    notes.append(["计划范围", "订单表保留全部源明细；月度计划只纳入已审核、未取消、未关闭且数量大于0的明细。订单排期不参与本导入链路。"])
     notes.append(["客户要求交期", "T+ 当前没有可靠字段，未伪造；T+ 明细 deliveryDate 写入产前评审交期。"])
-    notes.append(["周计划/报工表", "客户数据导入本身不伪造周排期或报工；需要时由业务人员通过系统的手工同步命令生成。"])
+    notes.append(["周计划/报工表", "客户数据导入本身不伪造周排期或报工；报工表仍由其独立业务入口处理。"])
     notes.append(["业务人员对应表", "保留现有通讯录映射；A027 已存在对应关系，本次没有覆盖人工维护结果。"])
     for current in workbook.worksheets:
         current.freeze_panes = "A2"; current.auto_filter.ref = current.dimensions

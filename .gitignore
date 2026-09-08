@@ -23,6 +23,8 @@ backups/
 !database/migrations/0011_order_schedule_business_ownership.sql
 !database/migrations/0012_department_fields.sql
 !database/migrations/0013_section_is_text.sql
+!database/migrations/0014_rolling_plan_table.sql
+!database/migrations/0015_division_order_review_confirmation.sql
 !database/demo/seed_legacy_demo.sql
 !database/demo/seed_kdos_demo.sql
 playwright-report/

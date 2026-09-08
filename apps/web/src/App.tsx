@@ -1,3 +1,4 @@
+import { PageScrollReset } from "./shared/PageScrollReset";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
@@ -22,8 +23,9 @@ import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModuleP
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import { FinishedGoodsOutboundPage, SalesOrdersPage } from "./modules/data-center/DataCenterPages";
 import { DuplicateOrderReviewPage } from "./modules/data-center/DuplicateOrderReviewPage";
-import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
+import { BusinessCustomerMappingsPage, DivisionOrderReviewPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
+import { RollingPlanPage } from "./modules/planning/pages/RollingPlanPage";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
 import { AdministratorsPage } from "./modules/admin/AdministratorsPage";
 import { OrganizationPage } from "./modules/admin/OrganizationPage";
@@ -183,8 +185,8 @@ function Shell({ logout }: { logout: () => void }) {
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
-  const moduleId = permissionResource ? permissionModuleId : ["/sales-summary-dashboard", "/equipment-dashboard"].includes(location.pathname) ? "cockpit"
-    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
+  const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
+    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports", "/division-order-review"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -193,19 +195,29 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
-      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" },
-      { key: "/equipment-dashboard", icon: <ToolOutlined />, label: "设备管理驾驶舱" }
+      { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
     planning: [
-      { key: "on-hand-summary", icon: <DashboardOutlined />, label: "在手汇总", children: [
-        { key: "/on-hand-summary-dashboard", icon: <DashboardOutlined />, label: "大屏报表" }
+      { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
+        { key: "master-plan-dashboards", icon: <DashboardOutlined />, label: "主计划大屏", children: [
+          { key: "/on-hand-summary-dashboard", icon: <DashboardOutlined />, label: "集团主计划" }
+        ] },
+        { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
+          { key: "/equipment-dashboard", icon: <DashboardOutlined />, label: "集团设备大屏" }
+        ] }
       ] },
       { key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划", children: [
         { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
         { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
           { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
         ] },
-        { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: weeklyPages },
+        { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: [
+          { key: "/weekly/rolling-plan", icon: <FileExcelOutlined />, label: "滚动计划表" },
+          ...weeklyPages
+        ] },
+        { key: "order-review", icon: <AuditOutlined />, label: "订单评审", children: [
+          { key: "/division-order-review", icon: <FileExcelOutlined />, label: "事业部订单评审" }
+        ] },
         { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
       ] },
       { key: "equipment-management", icon: <ToolOutlined />, label: "设备管理", children: [
@@ -258,14 +270,16 @@ function Shell({ logout }: { logout: () => void }) {
   };
   const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : /^\/monthly\/\d{6}$/.test(location.pathname)
     ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
+    : location.pathname === "/weekly/rolling-plan" ? "滚动计划表"
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
     : ({
-      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "在手汇总大屏", "/sales-summary-details": "销售接单明细",
-      "/equipment-dashboard": "设备管理驾驶舱", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
+      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "集团主计划", "/sales-summary-details": "销售接单明细",
+      "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/duplicate-order-review": "重复订单业务复核",
+      "/division-order-review": "事业部订单评审",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
@@ -277,7 +291,7 @@ function Shell({ logout }: { logout: () => void }) {
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
       {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
-      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[`${moduleId}-root`, "on-hand-summary", "/monthly", "/monthly/2026", "/weekly", "equipment-management", "hr-employee-relations", "system-master", "system-governance", "system-accounts"]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
+      <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>
     <Layout>
@@ -295,11 +309,13 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/sales-summary-details" element={<SalesSummaryDetails />} />
           <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
           <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
+          <Route path="/weekly/rolling-plan" element={<RollingPlanPage />} />
           <Route path="/weekly/20260816" element={<WeeklyPlanPage startDate="2026-08-16" />} />
           <Route path="/weekly/20260823" element={<WeeklyPlanPage startDate="2026-08-23" />} />
           <Route path="/weekly/20260830" element={<WeeklyPlanPage startDate="2026-08-30" />} />
           <Route path="/weekly/20260906" element={<WeeklyPlanPage startDate="2026-09-06" />} />
           <Route path="/work-reports" element={<WorkReportsPage />} />
+          <Route path="/division-order-review" element={<DivisionOrderReviewPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
@@ -738,5 +754,5 @@ export default function App() {
     localStorage.removeItem("accessToken"); localStorage.removeItem("refreshToken"); localStorage.removeItem("sessionUser");
     window.location.assign("/");
   };
-  return <AntApp><BrowserRouter>{authenticated ? (mustChange ? <ForcePasswordChange done={() => setMustChange(false)} /> : <Shell logout={logout} />) : <Login onLogin={() => { setAuthenticated(true); setMustChange(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword)); }} />}</BrowserRouter></AntApp>;
+  return <AntApp><BrowserRouter><PageScrollReset />{authenticated ? (mustChange ? <ForcePasswordChange done={() => setMustChange(false)} /> : <Shell logout={logout} />) : <Login onLogin={() => { setAuthenticated(true); setMustChange(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword)); }} />}</BrowserRouter></AntApp>;
 }

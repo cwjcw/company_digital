@@ -15,6 +15,7 @@
 - Per-table permission groups retain stable subject IDs. Direct members, organization membership and ordinary-role membership are resolved again when issuing a token; disabled groups stop contributing claims without deleting other grants.
 - System and module administrator grants are tenant-scoped and are not ordinary roles or permission groups. Only the built-in `admin` account can change system administrators; any system administrator can change module administrators; module administrators can only view both lists. The `admin` grant cannot be removed, transferred or disabled. Other System Management operations reject every non-system administrator. A module administrator can manage permission groups only when the requested table registry entry belongs to that exact module.
 - Administrator grants are re-resolved for every authenticated request. The browser refreshes its live session before rendering administrator-only navigation, while backend authorization remains authoritative.
+- Access JWTs contain only the stable user subject and token metadata. Roles, administrator grants, table operations, field permissions and data scopes are never embedded in the bearer header; the API resolves them from current database state on every protected request. This keeps permission growth independent of proxy header limits and makes revocation effective immediately.
 - New IAM/Planning/Audit/Integration tables have `tenant_id` and RLS. Repository transactions set `app.tenant_id`, and SQL also includes tenant predicates.
 - Identity-provider `sub` values are stored in `iam.identities`; they never replace KDOS UUIDv7 business IDs.
 
@@ -26,6 +27,7 @@
 - Quantities and amounts use exact decimals and PostgreSQL `numeric`.
 - Critical changes capture actor, action, resource, before/after values, reason, source, request/trace IDs and IP where available.
 - Equipment APIs enforce independent table actions and stable-UUID division scopes on reads and writes. Status dates are server-validated against the current Asia/Shanghai day and its preceding six days; browser date controls are convenience only. Equipment/status deletes are soft deletes and all changes use optimistic versions plus audit records.
+- 事业部订单评审的交期编辑同时校验表更新、字段编辑和源数据范围；单条/批量交期确认还校验滚动计划表的导入或更新权限及目标数据范围。确认命令使用客户端 UUID 幂等、逐行乐观版本、租户事务和源/目标审计；WebSocket 只发送两张表的失效元数据。
 
 ## Files
 

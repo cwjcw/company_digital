@@ -2,21 +2,6 @@ import type { PlanningActor } from "../planning/planning.types";
 
 export const PLANNING_OPERATIONS_REPOSITORY = Symbol("PLANNING_OPERATIONS_REPOSITORY");
 
-export interface WeeklyPlanSyncResult {
-  currentDate: string;
-  periodId: string;
-  periodName: string;
-  startDate: string;
-  endDate: string;
-  sourceCount: number;
-  matched: number;
-  created: number;
-  updated: number;
-  unchanged: number;
-  removed: number;
-  skippedCompleted: number;
-}
-
 export interface WorkReportSyncResult {
   date: string;
   planPeriodId: string;
@@ -36,8 +21,8 @@ export interface OperationsPageResult { rows: unknown[]; total: number; page: nu
 export interface PlanningOperationsRepository {
   tenantId(code: string): Promise<string>;
   listWeeklyPeriods(tenantId: string, currentDate: string): Promise<unknown[]>;
+  listRollingPlanItems(tenantId: string): Promise<Array<Record<string, unknown>>>;
   listWeeklyItems(tenantId: string, periodId: string, input: OperationsPageInput): Promise<OperationsPageResult>;
-  syncWeeklyItemsForDate(tenantId: string, currentDate: string, actor: PlanningActor): Promise<WeeklyPlanSyncResult>;
   updateWeeklyDate(tenantId: string, id: string, field: "customer_due_date" | "review_due_date", value: string | null, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
   listWorkReports(tenantId: string, date: string, input: OperationsPageInput): Promise<OperationsPageResult>;
   syncWorkReports(tenantId: string, date: string, actor: PlanningActor): Promise<WorkReportSyncResult>;

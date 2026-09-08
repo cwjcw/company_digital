@@ -4,7 +4,9 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public details?: unknown) { super(message); }
 }
 
-async function refreshAccessToken() {
+let accessTokenRefresh: Promise<boolean> | null = null;
+
+async function performAccessTokenRefresh() {
   const refreshToken = localStorage.getItem("refreshToken");
   if (!refreshToken) return false;
   const response = await fetch(`${API_ROOT}/auth/refresh`, {
@@ -16,6 +18,13 @@ async function refreshAccessToken() {
   localStorage.setItem("refreshToken", result.refreshToken);
   localStorage.setItem("sessionUser", JSON.stringify(result.user));
   return true;
+}
+
+function refreshAccessToken() {
+  if (!accessTokenRefresh) {
+    accessTokenRefresh = performAccessTokenRefresh().finally(() => { accessTokenRefresh = null; });
+  }
+  return accessTokenRefresh;
 }
 
 export async function api<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {

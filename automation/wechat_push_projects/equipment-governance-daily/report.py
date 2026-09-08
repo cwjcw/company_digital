@@ -7,6 +7,8 @@ import argparse
 import json
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -92,6 +94,11 @@ def daily_title(title: str, now: datetime) -> str:
     return f"{title}  截至{reporting_date:%Y年%m月%d日}"
 
 
+def notification_text(title: str, now: datetime) -> str:
+    reporting_date = now.astimezone(SHANGHAI) - timedelta(days=1)
+    return f"{title} 截至{reporting_date:%Y年%m月%d日}"
+
+
 def render_report(results: list[DivisionResult], output: Path, title: str, now: datetime | None = None) -> Path:
     now = now or datetime.now(SHANGHAI)
     image = Image.new("RGB", (1440, 1120), "#071426")
@@ -157,6 +164,38 @@ def send_image(image_path: Path, recipient_names: list[str], pusher: Any | None 
     return {"errcode": response.get("errcode"), "errmsg": response.get("errmsg"), "recipientCount": len(recipient_names)}
 
 
+def send_report(
+    image_path: Path,
+    text: str,
+    recipient_names: list[str],
+    pusher: Any | None = None,
+    delay_seconds: float = 15,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    if delay_seconds < 0:
+        raise ValueError("图片与文字之间的等待时间不能小于 0 秒")
+    if pusher is None:
+        sys.path.insert(0, str(BASIC_CODE_ROOT))
+        from wechat import WeChatPusher
+        pusher = WeChatPusher()
+    user_ids = resolve_user_ids(pusher, recipient_names)
+    recipients = "|".join(user_ids)
+    image_response = pusher.send_app_image(str(image_path), touser=recipients)
+    if int(image_response.get("errcode", -1)) != 0:
+        raise RuntimeError(f"企业微信图片发送失败：{image_response.get('errmsg', '未知错误')}")
+    sleeper(delay_seconds)
+    text_response = pusher.send_app_text(text, touser=recipients)
+    return {
+        "imageErrcode": image_response.get("errcode"),
+        "imageErrmsg": image_response.get("errmsg"),
+        "textErrcode": text_response.get("errcode"),
+        "textErrmsg": text_response.get("errmsg"),
+        "recipientCount": len(recipient_names),
+        "textDelaySeconds": delay_seconds,
+        "message": text,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="生成设备管理上线进度图片日报；默认不发送")
     mode = parser.add_mutually_exclusive_group()
@@ -175,12 +214,15 @@ def main() -> int:
     config = read_config()
     summary = json.loads(args.data_json.read_text(encoding="utf-8")) if args.data_json else load_live_summary()
     results = evaluate(summary, config["divisions"], read_training_status())
-    output = render_report(results, args.output, config["title"])
+    now = datetime.now(SHANGHAI)
+    output = render_report(results, args.output, config["title"], now)
+    text = notification_text(config["message_title"], now)
+    text_delay_seconds = float(config.get("text_delay_seconds", 15))
     result: dict[str, Any] = {"image": str(output), "sent": False}
     if args.send_test:
-        result.update(send_image(output, config["test_recipients"])); result["sent"] = True; result["mode"] = "test"
+        result.update(send_report(output, text, config["test_recipients"], delay_seconds=text_delay_seconds)); result["sent"] = True; result["mode"] = "test"
     elif args.send_production:
-        result.update(send_image(output, config["production_recipients"])); result["sent"] = True; result["mode"] = "production"
+        result.update(send_report(output, text, config["production_recipients"], delay_seconds=text_delay_seconds)); result["sent"] = True; result["mode"] = "production"
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

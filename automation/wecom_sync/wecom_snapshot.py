@@ -8,8 +8,18 @@ from basic_code import WeChatPusher, export_contacts
 from openpyxl import load_workbook
 
 
+_ORGANIZATION_DISPLAY_NAME_OVERRIDES = {
+    "厦门凯南展示制品有限公司": "凯南",
+    "凯南展示制品有限公司": "凯南",
+}
+
+
 def _text(value: object) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _normalize_organization_path(path: list[str]) -> list[str]:
+    return [_ORGANIZATION_DISPLAY_NAME_OVERRIDES.get(part, part) for part in path]
 
 
 def _json_list(value: object) -> list[str]:
@@ -62,6 +72,7 @@ def parse_snapshot(workbook_path: Path, department_paths: dict[str, str] | None 
                 continue
             if not path or path[-1] != part:
                 path.append(part)
+        path = _normalize_organization_path(path)
         if not path or _ignored(path):
             continue
         department_id = _text(row.get("department_id"))
@@ -91,7 +102,7 @@ def parse_snapshot(workbook_path: Path, department_paths: dict[str, str] | None 
     raw_paths = department_paths or {department_id: " / ".join(path) for department_id, path in discovered_paths.items()}
     normalized_paths: OrderedDict[str, list[str]] = OrderedDict()
     for department_id, raw_path in raw_paths.items():
-        path = [part.strip() for part in raw_path.split(" / ") if part.strip()]
+        path = _normalize_organization_path([part.strip() for part in raw_path.split(" / ") if part.strip()])
         if path and not _ignored(path):
             normalized_paths[str(department_id)] = path
     path_ids = {" / ".join(path): department_id for department_id, path in normalized_paths.items()}

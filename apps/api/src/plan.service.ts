@@ -69,8 +69,17 @@ export class PlanService {
     );
   }
 
-  private scope(user: any, alias = "o") {
-    if (this.hasUnrestrictedPlanningScope(user)) return { clause: "1=1", params: {} };
+  private hasUnrestrictedTableReadScope(user: any, resource: string) {
+    if (this.hasUnrestrictedPlanningScope(user)) return true;
+    return Array.isArray(user.tableDataScopes) && user.tableDataScopes.some((scope: any) =>
+      scope?.resource === resource
+      && scope?.scope === "ALL"
+      && (!Array.isArray(scope.actions) || scope.actions.includes("read"))
+    );
+  }
+
+  private scope(user: any, alias = "o", readResource?: string) {
+    if (readResource ? this.hasUnrestrictedTableReadScope(user, readResource) : this.hasUnrestrictedPlanningScope(user)) return { clause: "1=1", params: {} };
     if (!Array.isArray(user.divisions) || user.divisions.length === 0) return { clause: "1=0", params: {} };
     return { clause: `${alias}.division IN (:...divisions)`, params: { divisions: user.divisions } };
   }
@@ -337,7 +346,7 @@ export class PlanService {
   }
 
   async rolling(user: any) {
-    const scope = this.scope(user);
+    const scope = this.scope(user, "o", "rolling-plan");
     const orders = await this.orders.createQueryBuilder("o")
       .where(scope.clause, scope.params)
       .andWhere("o.sourceActive = true")
@@ -388,7 +397,7 @@ export class PlanService {
       });
       return { rows: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize };
     }
-    const scope = this.scope(user);
+    const scope = this.scope(user, "o", "rolling-plan");
     const query = this.orders.createQueryBuilder("o").where(scope.clause, scope.params).andWhere("o.sourceActive = true");
     if (input.search?.trim()) query.andWhere("concat_ws(' ',o.order_number,o.customer,o.salesperson,o.division,o.source_account_name) ILIKE :rollingSearch", { rollingSearch: `%${input.search.trim()}%` });
     for (const [index, filter] of filters.entries()) {

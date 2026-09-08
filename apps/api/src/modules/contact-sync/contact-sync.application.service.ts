@@ -6,9 +6,10 @@ import { DataSource, In, Repository } from "typeorm";
 import { ApiKey, AuditLog, Contact, OrganizationUnit, RefreshToken, Role, RoleOrganizationScope, User, UserRole } from "../../entities";
 import { currentModificationActor, currentModificationActorId } from "../../modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "../../user-defaults";
+import { normalizeOrganizationDisplayName, normalizeOrganizationPath } from "./contact-sync.normalization";
 import type { WecomContactSnapshot, WecomDepartmentSnapshot, WecomSyncPayload } from "./contact-sync.types";
 
-type SyncActor = { userId: string; name: string; requestId: string; source: string };
+type SyncActor = { userId: string | null; name: string; requestId: string; source: "web" | "api" | "import" };
 
 const pathKey = (path: string[]) => path.map((part) => part.trim()).filter(Boolean).join("\u001f");
 const sameJson = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -43,11 +44,14 @@ export class ContactSyncApplicationService {
   private normalize(payload: WecomSyncPayload) {
     if (!payload || !Array.isArray(payload.departments) || !Array.isArray(payload.contacts)) throw new BadRequestException("企业微信同步快照格式无效");
     const departments = payload.departments
-      .map((entry, index) => ({
-        externalId: String(entry.externalId ?? "").trim(), name: String(entry.name ?? "").trim(),
-        parentExternalId: entry.parentExternalId == null ? null : String(entry.parentExternalId).trim() || null,
-        path: (entry.path ?? []).map(String).map((part) => part.trim()).filter(Boolean), sortOrder: Number(entry.sortOrder ?? index)
-      }))
+      .map((entry, index) => {
+        const path = normalizeOrganizationPath(entry.path ?? []);
+        return {
+          externalId: String(entry.externalId ?? "").trim(), name: path.at(-1) ?? normalizeOrganizationDisplayName(entry.name),
+          parentExternalId: entry.parentExternalId == null ? null : String(entry.parentExternalId).trim() || null,
+          path, sortOrder: Number(entry.sortOrder ?? index)
+        };
+      })
       .filter((entry) => entry.externalId && entry.name && entry.path.length && !ignoredPath(entry.path));
     const departmentIds = new Set(departments.map((entry) => entry.externalId));
     for (const department of departments) if (department.parentExternalId && !departmentIds.has(department.parentExternalId)) department.parentExternalId = null;
@@ -61,7 +65,7 @@ export class ContactSyncApplicationService {
       directLeaders: [...new Set((entry.directLeaders ?? []).map(String).filter(Boolean))],
       departmentLeaderExternalIds: [...new Set((entry.departmentLeaderExternalIds ?? []).map(String).filter((id) => departmentIds.has(String(id))))],
       departmentPaths: [...new Map((entry.departmentPaths ?? []).map((path) => {
-        const normalized = path.map(String).map((part) => part.trim()).filter(Boolean);
+        const normalized = normalizeOrganizationPath(path);
         return [pathKey(normalized), normalized] as const;
       })).values()].filter((path) => path.length && !ignoredPath(path)),
       enabled: Boolean(entry.enabled)
@@ -196,6 +200,43 @@ export class ContactSyncApplicationService {
 
       const result = { dryRun: false, ...preview, organizationAdds, organizationUpdates, organizationLeaderUpdates, organizationDeletes: obsoleteOrganizations.length, contactAdds, contactUpdates, contactDepartures: departedContacts.length, userAdds, userUpdates, userDepartures: departedUsers.length };
       await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: "contacts", recordId: null, action: "wecom.full_sync", beforeJson: { localContacts: localContacts.length, localUsers: localUsers.length, localOrganizations: existingOrganizations.length }, afterJson: { ...result, capturedAt: payload.capturedAt, sourceHash: payload.sourceHash }, requestId: actor.requestId, source: actor.source });
+      return result;
+    });
+  }
+
+  async normalizeExistingOrganizationDisplayNames(actor: SyncActor) {
+    return this.dataSource.transaction(async (manager) => {
+      const organizations = await manager.find(OrganizationUnit);
+      const contacts = await manager.find(Contact);
+      const users = await manager.find(User);
+      let organizationUpdates = 0; let contactUpdates = 0; let userUpdates = 0;
+      for (const organization of organizations) {
+        const name = normalizeOrganizationDisplayName(organization.name);
+        if (name === organization.name) continue;
+        organization.name = name;
+        await manager.save(OrganizationUnit, organization);
+        organizationUpdates += 1;
+      }
+      for (const contact of contacts) {
+        const departmentPaths = (contact.departmentPaths ?? []).map(normalizeOrganizationPath);
+        if (sameJson(contact.departmentPaths, departmentPaths)) continue;
+        contact.departmentPaths = departmentPaths;
+        await manager.save(Contact, contact);
+        contactUpdates += 1;
+      }
+      for (const user of users) {
+        const departmentPaths = (user.departmentPaths ?? []).map(normalizeOrganizationPath);
+        if (sameJson(user.departmentPaths, departmentPaths)) continue;
+        user.departmentPaths = departmentPaths;
+        await manager.save(User, user);
+        userUpdates += 1;
+      }
+      const result = { organizationUpdates, contactUpdates, userUpdates, displayName: "凯南" };
+      await manager.save(AuditLog, {
+        actorId: actor.userId, actorName: actor.name, resource: "contacts", recordId: null,
+        action: "wecom.organization_display_names_normalized", beforeJson: { aliases: ["厦门凯南展示制品有限公司", "凯南展示制品有限公司"] },
+        afterJson: result, requestId: actor.requestId, source: actor.source
+      });
       return result;
     });
   }

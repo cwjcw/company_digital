@@ -27,7 +27,11 @@ describe("Planning Field Registry", () => {
   });
 
   it("registers the on-hand dashboard as a read-only independently governed report", () => {
-    expect(tableResourceRegistry.find((resource) => resource.code === "on-hand-summary-dashboard")).toMatchObject({ moduleCode: "planning", label: "在手汇总大屏" });
+    expect(tableResourceRegistry.find((resource) => resource.code === "on-hand-summary-dashboard")).toMatchObject({ moduleCode: "planning", label: "集团主计划" });
+    expect(tableResourceRegistry.find((resource) => resource.code === "equipment-dashboard")).toMatchObject({ moduleCode: "planning", label: "集团设备大屏" });
+    expect(tablePermissionFieldsFor("equipment-register")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "plannedStartupMinutes", label: "设备计划开机时间", type: "number", editable: true })
+    ]));
     const fields = tablePermissionFieldsFor("on-hand-summary-dashboard");
     expect(fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "balanceQuantity", editable: false }),
@@ -56,13 +60,20 @@ describe("Planning Field Registry", () => {
     }
   });
 
-  it("keeps synchronized order-schedule ownership fields read-only", () => {
+  it("keeps order-schedule ownership fields read-only", () => {
     const ownership = tablePermissionFieldsFor("order-schedule").filter((field) => ["departmentId", "section", "salespersonUserIds"].includes(field.key));
     expect(ownership).toEqual([
       { key: "departmentId", label: "部门", type: "department", editable: false, required: false },
       { key: "section", label: "课室", type: "text", editable: false, required: false },
       { key: "salespersonUserIds", label: "业务员", type: "member", editable: false, required: false }
     ]);
+  });
+
+  it("exposes only the review date as editable while keeping confirmation as an action field", () => {
+    expect(tablePermissionFieldsFor("division-order-review")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "divisionReviewDueDate", label: "事业部评审交期", type: "date", editable: true }),
+      expect.objectContaining({ key: "deliveryConfirmation", label: "交期确认", editable: false })
+    ]));
   });
 
   it("models marketing sections as ordinary text instead of organization nodes", () => {

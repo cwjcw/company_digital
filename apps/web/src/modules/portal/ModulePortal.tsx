@@ -23,12 +23,12 @@ export const portalModules: PortalModule[] = [
   {
     id: "cockpit", title: "公司驾驶舱", englishTitle: "COMPANY COCKPIT",
     description: "聚合经营与交付关键指标，快速掌握公司运行状态。",
-    features: ["销售接单汇总大屏", "设备管理驾驶舱", "经营指标"], path: "/sales-summary-dashboard", tone: "indigo"
+    features: ["销售接单汇总大屏", "经营指标"], path: "/sales-summary-dashboard", tone: "indigo"
   },
   {
     id: "planning", title: "PMC中心", englishTitle: "PMC CENTER",
     description: "统一管理销售接单、月度排产、生产报工与设备运行。",
-    features: ["销售接单明细", "月度计划", "设备管理", "报工表"], path: "/sales-summary-details", tone: "teal"
+    features: ["集团主计划", "月度计划", "集团设备大屏", "设备管理"], path: "/sales-summary-details", tone: "teal"
   },
   {
     id: "data", title: "数据中心", englishTitle: "DATA CENTER",

@@ -3,7 +3,7 @@ import type { KdosDatabaseClient } from "@kdos/database";
 import type { PoolClient } from "pg";
 import { KDOS_DATABASE } from "../planning/drizzle-planning.repository";
 import type { MarketingRepository } from "./marketing.repository";
-import type { MappingDepartmentDirectorySyncResult, MappingDepartmentDirectorySyncTarget, MappingImportSummary, MarketingActor, OrderScheduleBusinessSyncResult, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
+import type { DivisionReviewConfirmResult, DivisionReviewConfirmRow, MappingDepartmentDirectorySyncResult, MappingDepartmentDirectorySyncTarget, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput, RollingPlanSyncFailure, RollingPlanSyncResult, RollingPlanSyncRow } from "./marketing.types";
 
 @Injectable()
 export class DrizzleMarketingRepository implements MarketingRepository {
@@ -38,6 +38,51 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     ]);
   }
 
+  private async projectSchedule(client: PoolClient, tenantId: string, source: Record<string, any>, actor: MarketingActor) {
+    const current = await client.query(`SELECT * FROM planning.division_order_reviews
+      WHERE tenant_id=$1 AND (source_order_schedule_id=$2 OR (order_number=$3 AND item_number=$4))
+      ORDER BY CASE WHEN source_order_schedule_id=$2 THEN 0 ELSE 1 END LIMIT 1 FOR UPDATE`,
+    [tenantId, source.id, source.order_number, source.item_number]);
+    const before = current.rows[0];
+    if (!before) {
+      const created = await client.query(`INSERT INTO planning.division_order_reviews(
+          tenant_id,source_order_schedule_id,customer_code,department,section,department_id,salesperson_user_ids,
+          order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status,
+          created_by,updated_by
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16) RETURNING *`, [
+        tenantId, source.id, source.customer_code, source.department, source.section, source.department_id,
+        source.salesperson_user_ids ?? [], source.order_number, source.item_number, source.item_name,
+        source.customer_due_date, source.order_total_quantity, source.production_unit, source.completion_ratio,
+        source.status ?? "NORMAL", actor.userId
+      ]);
+      await this.audit(client, tenantId, actor, "planning.division_order_review.projected_created", "DivisionOrderReview", created.rows[0].id, null, created.rows[0]);
+      return;
+    }
+    const updated = await client.query(`UPDATE planning.division_order_reviews SET
+        source_order_schedule_id=$3,customer_code=$4,department=$5,section=$6,department_id=$7,salesperson_user_ids=$8,
+        order_number=$9,item_number=$10,item_name=$11,customer_due_date=$12,order_total_quantity=$13,production_unit=$14,
+        completion_ratio=$15,status=$16,delivery_confirmed_at=NULL,delivery_confirmed_by=NULL,
+        version=version+1,updated_at=now(),updated_by=$17
+      WHERE tenant_id=$1 AND id=$2 AND ROW(source_order_schedule_id,customer_code,department,section,department_id,salesperson_user_ids,
+        order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status)
+        IS DISTINCT FROM ROW($3::uuid,$4,$5,$6,$7::uuid,$8::uuid[],$9,$10,$11,$12::date,$13::numeric,$14,$15::numeric,$16)
+      RETURNING *`, [
+      tenantId, before.id, source.id, source.customer_code, source.department, source.section, source.department_id,
+      source.salesperson_user_ids ?? [], source.order_number, source.item_number, source.item_name,
+      source.customer_due_date, source.order_total_quantity, source.production_unit, source.completion_ratio,
+      source.status ?? "NORMAL", actor.userId
+    ]);
+    if (updated.rowCount) await this.audit(client, tenantId, actor, "planning.division_order_review.projected_updated", "DivisionOrderReview", before.id, before, updated.rows[0]);
+  }
+
+  private async voidProjectedSchedule(client: PoolClient, tenantId: string, source: Record<string, any>, actor: MarketingActor) {
+    const current = await client.query("SELECT * FROM planning.division_order_reviews WHERE tenant_id=$1 AND source_order_schedule_id=$2 FOR UPDATE", [tenantId, source.id]);
+    if (!current.rowCount) return;
+    const result = await client.query(`UPDATE planning.division_order_reviews SET source_order_schedule_id=NULL,status='VOID',delivery_confirmed_at=NULL,delivery_confirmed_by=NULL,version=version+1,updated_at=now(),updated_by=$3
+      WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, current.rows[0].id, actor.userId]);
+    await this.audit(client, tenantId, actor, "planning.division_order_review.projected_voided", "DivisionOrderReview", current.rows[0].id, current.rows[0], result.rows[0]);
+  }
+
   async listMappings(tenantId: string) {
     return this.transaction(tenantId, async (client) => {
       const result = await client.query(`SELECT mapping.id,mapping.department,mapping.section,mapping.department_id AS "departmentId",mapping.customer_code AS "customerCode",
@@ -57,11 +102,72 @@ export class DrizzleMarketingRepository implements MarketingRepository {
           schedule.department,schedule.section,schedule.department_id AS "departmentId",schedule.salesperson_user_ids AS "salespersonUserIds",
           schedule.item_number AS "itemNumber",schedule.item_name AS "itemName",schedule.customer_due_date AS "customerDueDate",
           schedule.order_total_quantity AS "orderTotalQuantity",schedule.production_unit AS "productionUnit",
-          schedule.completion_ratio AS "completionRatio",schedule.source_plan_item_id AS "sourcePlanItemId",schedule.last_synced_at AS "lastSyncedAt",
+          schedule.completion_ratio AS "completionRatio",schedule.status,schedule.source_plan_item_id AS "sourcePlanItemId",schedule.last_synced_at AS "lastSyncedAt",
           schedule.version,schedule.created_by AS "createdBy",schedule.created_at AS "createdAt",schedule.updated_by AS "updatedBy",schedule.updated_at AS "updatedAt"
         FROM marketing.order_schedules schedule
         WHERE schedule.tenant_id=$1 AND ($2='' OR concat_ws(' ',schedule.customer_code,schedule.order_number,schedule.item_number,schedule.item_name,schedule.production_unit) ILIKE '%' || $2 || '%')
         ORDER BY customer_due_date NULLS LAST,order_number,item_number`, [tenantId, value]);
+      return result.rows;
+    });
+  }
+
+  async listDivisionOrderReviews(tenantId: string, search = "") {
+    return this.transaction(tenantId, async (client) => {
+      const value = search.trim();
+      const result = await client.query(`SELECT review.id,review.source_order_schedule_id AS "sourceOrderScheduleId",
+          review.customer_code AS "customerCode",review.department,review.section,review.department_id AS "departmentId",
+          review.salesperson_user_ids AS "salespersonUserIds",review.order_number AS "orderNumber",review.item_number AS "itemNumber",
+          review.item_name AS "itemName",review.customer_due_date AS "customerDueDate",review.division_review_due_date AS "divisionReviewDueDate",
+          review.delivery_confirmed_at AS "deliveryConfirmedAt",review.delivery_confirmed_by AS "deliveryConfirmedBy",
+          review.order_total_quantity AS "orderTotalQuantity",
+          review.production_unit AS "productionUnit",review.completion_ratio AS "completionRatio",review.status,review.version,
+          review.created_by AS "createdBy",review.created_at AS "createdAt",review.updated_by AS "updatedBy",review.updated_at AS "updatedAt"
+        FROM planning.division_order_reviews review
+        WHERE review.tenant_id=$1 AND ($2='' OR concat_ws(' ',review.customer_code,review.department,review.section,review.order_number,
+          review.item_number,review.item_name,review.production_unit,review.status) ILIKE '%' || $2 || '%')
+        ORDER BY review.customer_due_date NULLS LAST,review.order_number,review.item_number`, [tenantId, value]);
+      return result.rows;
+    });
+  }
+
+  async findDivisionOrderReviewsByIds(tenantId: string, ids: string[]) {
+    if (!ids.length) return [];
+    return this.transaction(tenantId, async (client) => {
+      const result = await client.query(`SELECT review.id,review.source_order_schedule_id AS "sourceOrderScheduleId",
+          review.customer_code AS "customerCode",review.department,review.section,review.department_id AS "departmentId",
+          review.salesperson_user_ids AS "salespersonUserIds",review.order_number AS "orderNumber",review.item_number AS "itemNumber",
+          review.item_name AS "itemName",review.customer_due_date AS "customerDueDate",review.division_review_due_date AS "divisionReviewDueDate",
+          review.delivery_confirmed_at AS "deliveryConfirmedAt",review.delivery_confirmed_by AS "deliveryConfirmedBy",
+          review.order_total_quantity AS "orderTotalQuantity",review.production_unit AS "productionUnit",review.completion_ratio AS "completionRatio",
+          review.status,review.version,review.created_by AS "createdBy",review.updated_by AS "updatedBy"
+        FROM planning.division_order_reviews review WHERE review.tenant_id=$1 AND review.id=ANY($2::uuid[])`, [tenantId, ids]);
+      return result.rows;
+    });
+  }
+
+  async findSchedulesByIds(tenantId: string, ids: string[]) {
+    return this.transaction(tenantId, async (client) => {
+      const result = await client.query(`SELECT schedule.id,schedule.customer_code AS "customerCode",schedule.order_number AS "orderNumber",
+          schedule.department,schedule.section,schedule.department_id AS "departmentId",schedule.salesperson_user_ids AS "salespersonUserIds",
+          schedule.item_number AS "itemNumber",schedule.item_name AS "itemName",schedule.customer_due_date AS "customerDueDate",
+          schedule.order_total_quantity AS "orderTotalQuantity",schedule.production_unit AS "productionUnit",
+          schedule.completion_ratio AS "completionRatio",schedule.version,schedule.created_by AS "createdBy"
+        FROM marketing.order_schedules schedule
+        WHERE schedule.tenant_id=$1 AND schedule.id=ANY($2::uuid[])`, [tenantId, ids]);
+      return result.rows;
+    });
+  }
+
+  async findRollingPlanItemsByBusinessKeys(tenantId: string, keys: Array<{ orderNumber: string; itemNumber: string }>) {
+    if (!keys.length) return [];
+    return this.transaction(tenantId, async (client) => {
+      const result = await client.query(`SELECT item.id,item.order_number AS "orderNumber",item.item_number AS "itemNumber",
+          item.customer_name AS customer,item.delivery_date AS "customerDueDate",item.production_quantity AS "productionQuantity",
+          item.responsible_org_id AS "responsibleOrgId",item.created_by AS "createdBy",item.updated_by AS "updatedBy",item.version
+        FROM planning.rolling_plan_items item
+        WHERE item.tenant_id=$1 AND (item.order_number,item.item_number) IN (
+          SELECT value->>'orderNumber',value->>'itemNumber' FROM jsonb_array_elements($2::jsonb) value
+        )`, [tenantId, JSON.stringify(keys)]);
       return result.rows;
     });
   }
@@ -134,23 +240,63 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     });
   }
 
+  async clearSchedules(tenantId: string, actor: MarketingActor) {
+    return this.transaction(tenantId, async (client) => {
+      const before = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 FOR UPDATE", [tenantId]);
+      for (const source of before.rows) await this.voidProjectedSchedule(client, tenantId, source, actor);
+      await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1", [tenantId]);
+      await this.audit(client, tenantId, actor, "marketing.schedule.cleared", "OrderSchedule", null, before.rows, { deleted: before.rowCount });
+      return { deleted: before.rowCount ?? 0 };
+    });
+  }
+
+  async importSchedules(tenantId: string, rows: import("./marketing.types").ScheduleImportRow[], hash: string, actor: MarketingActor) {
+    return this.transaction(tenantId, async (client) => {
+      const key = `order-schedule:${hash}`;
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId + key]);
+      const previous = await client.query("SELECT result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2", [tenantId, key]);
+      if (previous.rowCount) return { ...previous.rows[0].result, repeated: true };
+      for (const entry of rows) {
+        const input = entry.input;
+        const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND order_number=$2 AND item_number=$3 FOR UPDATE", [tenantId, input.orderNumber, input.itemNumber]);
+        const before = current.rows[0];
+        if ((before?.id ?? null) !== entry.id || (before ? Number(before.version) : null) !== entry.expectedVersion) throw new ConflictException(`第 ${entry.row} 行数据已变化，请重新上传预览`);
+        const values = [tenantId, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.status ?? "NORMAL", actor.userId];
+        let saved;
+        if (before) {
+          saved = await client.query(`UPDATE marketing.order_schedules SET customer_code=$2,item_name=$5,customer_due_date=$6,order_total_quantity=$7,production_unit=$8,completion_ratio=$9,status=$10,updated_by=$11,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND order_number=$3 AND item_number=$4 RETURNING *`, values);
+        } else {
+          saved = await client.query(`INSERT INTO marketing.order_schedules(tenant_id,customer_code,order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) ON CONFLICT(tenant_id,order_number,item_number) DO NOTHING RETURNING *`, values);
+          if (!saved.rowCount) throw new ConflictException(`第 ${entry.row} 行已被其他用户新增，请重新上传预览`);
+        }
+        await this.audit(client, tenantId, actor, "marketing.schedule.imported", "OrderSchedule", saved.rows[0].id, before ?? null, saved.rows[0]);
+        await this.projectSchedule(client, tenantId, saved.rows[0], actor);
+      }
+      const result = { imported: rows.length, repeated: false };
+      await client.query(`INSERT INTO integration.import_jobs(tenant_id,type,idempotency_key,file_name,file_hash,status,result,confirmed_at,created_by,updated_by) VALUES($1,'ORDER_SCHEDULE',$2,'订单排期.xlsx',$3,'CONFIRMED',$4,now(),$5,$5)`, [tenantId, key, hash, JSON.stringify(result), actor.userId]);
+      return result;
+    });
+  }
+
   async saveSchedule(tenantId: string, id: string | null, input: OrderScheduleInput, expectedVersion: number | null, actor: MarketingActor) {
     return this.transaction(tenantId, async (client) => {
       if (!id) {
         const result = await client.query(`INSERT INTO marketing.order_schedules
-          (tenant_id,customer_code,order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,source_plan_item_id,created_by,updated_by)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING *`, [tenantId, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.sourcePlanItemId ?? null, actor.userId]);
+          (tenant_id,customer_code,order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status,source_plan_item_id,created_by,updated_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12) RETURNING *`, [tenantId, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.status ?? "NORMAL", input.sourcePlanItemId ?? null, actor.userId]);
         await this.audit(client, tenantId, actor, "marketing.schedule.created", "OrderSchedule", result.rows[0].id, null, result.rows[0]);
+        await this.projectSchedule(client, tenantId, result.rows[0], actor);
         return result.rows[0];
       }
       const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
       if (!current.rowCount) throw new NotFoundException("订单排期不存在");
       if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
       const result = await client.query(`UPDATE marketing.order_schedules SET customer_code=$3,order_number=$4,item_number=$5,
-          item_name=$6,customer_due_date=$7,order_total_quantity=$8,production_unit=$9,completion_ratio=$10,source_plan_item_id=$11,
-          version=version+1,updated_at=now(),updated_by=$12 WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-      [tenantId, id, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.sourcePlanItemId ?? null, actor.userId]);
+          item_name=$6,customer_due_date=$7,order_total_quantity=$8,production_unit=$9,completion_ratio=$10,status=$11,source_plan_item_id=$12,
+          version=version+1,updated_at=now(),updated_by=$13 WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+      [tenantId, id, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.status ?? "NORMAL", input.sourcePlanItemId ?? null, actor.userId]);
       await this.audit(client, tenantId, actor, "marketing.schedule.updated", "OrderSchedule", id, current.rows[0], result.rows[0]);
+      await this.projectSchedule(client, tenantId, result.rows[0], actor);
       return result.rows[0];
     });
   }
@@ -160,6 +306,7 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
       if (!current.rowCount) throw new NotFoundException("订单排期不存在");
       if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
+      await this.voidProjectedSchedule(client, tenantId, current.rows[0], actor);
       await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2", [tenantId, id]);
       await this.audit(client, tenantId, actor, "marketing.schedule.deleted", "OrderSchedule", id, current.rows[0], null);
     });
@@ -170,8 +317,9 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       let updated = 0;
       for (const row of rows) {
         const result = await client.query(`UPDATE marketing.order_schedules SET customer_due_date=$4,version=version+1,updated_at=now(),updated_by=$5
-          WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING id`, [tenantId, row.id, row.expectedVersion, customerDueDate, actor.userId]);
+          WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING *`, [tenantId, row.id, row.expectedVersion, customerDueDate, actor.userId]);
         if (!result.rowCount) throw new ConflictException("所选排期已被其他用户修改，请刷新后重试");
+        await this.projectSchedule(client, tenantId, result.rows[0], actor);
         updated += 1;
       }
       await this.audit(client, tenantId, actor, "marketing.schedule.due_date_batch_updated", "OrderSchedule", null, null, { ids: rows.map((row) => row.id), customerDueDate, updated });
@@ -179,77 +327,175 @@ export class DrizzleMarketingRepository implements MarketingRepository {
     });
   }
 
-  async syncSchedulesFromPlanning(tenantId: string, actor: MarketingActor) {
+  async batchDeleteSchedules(tenantId: string, rows: Array<{ id: string; expectedVersion: number }>, actor: MarketingActor) {
     return this.transaction(tenantId, async (client) => {
-      const result = await client.query(`WITH selected_versions AS (
-          SELECT DISTINCT ON (period_id) id FROM planning.plan_versions
-          WHERE tenant_id=$1 AND status IN ('DRAFT','PUBLISHED','LOCKED')
-          ORDER BY period_id, CASE status WHEN 'DRAFT' THEN 0 WHEN 'PUBLISHED' THEN 1 ELSE 2 END, version_number DESC
-        ), source AS (
-          SELECT DISTINCT ON (item.order_number,item.item_number) item.*,
-            COALESCE(org.name,item.legacy_data->>'division') AS production_unit_name,
-            CASE WHEN item.order_quantity=0 THEN 0 ELSE LEAST(100,ROUND(((item.historical_inbound_quantity+item.current_inbound_quantity)/item.order_quantity*100)::numeric,4)) END AS completion
-          FROM planning.plan_items item JOIN selected_versions selected ON selected.id=item.plan_version_id
-          LEFT JOIN iam.organizations org ON org.tenant_id=item.tenant_id AND org.id=item.responsible_org_id
-          WHERE item.tenant_id=$1 ORDER BY item.order_number,item.item_number,item.updated_at DESC
-        )
-        INSERT INTO marketing.order_schedules(tenant_id,customer_code,order_number,item_number,item_name,order_total_quantity,production_unit,completion_ratio,source_plan_item_id,last_synced_at,created_by,updated_by)
-        SELECT $1,source.customer_code,source.order_number,source.item_number,source.item_name,source.order_quantity,source.production_unit_name,source.completion,source.id,now(),$2,$2 FROM source
-        ON CONFLICT(tenant_id,order_number,item_number) DO UPDATE SET customer_code=EXCLUDED.customer_code,item_name=EXCLUDED.item_name,
-          order_total_quantity=EXCLUDED.order_total_quantity,production_unit=EXCLUDED.production_unit,completion_ratio=EXCLUDED.completion_ratio,
-          source_plan_item_id=EXCLUDED.source_plan_item_id,last_synced_at=now(),version=marketing.order_schedules.version+1,updated_at=now(),updated_by=$2
-        RETURNING id`, [tenantId, actor.userId]);
-      const synced = result.rowCount ?? 0;
-      await this.audit(client, tenantId, actor, "marketing.schedule.synced_from_planning", "OrderSchedule", null, null, { synced });
-      return { synced };
+      for (const row of rows) {
+        const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, row.id]);
+        if (!current.rowCount) throw new NotFoundException("所选排期不存在");
+        if (Number(current.rows[0].version) !== row.expectedVersion) throw new ConflictException({ message: "所选排期已被其他用户修改，请刷新后重试", id: row.id, currentVersion: current.rows[0].version });
+        await this.voidProjectedSchedule(client, tenantId, current.rows[0], actor);
+        await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2", [tenantId, row.id]);
+        await this.audit(client, tenantId, actor, "marketing.schedule.deleted", "OrderSchedule", row.id, current.rows[0], null);
+      }
+      const result = { deleted: rows.length };
+      await this.audit(client, tenantId, actor, "marketing.schedule.batch_deleted", "OrderSchedule", null, null, { ids: rows.map((row) => row.id), ...result });
+      return result;
     });
   }
 
-  async syncScheduleBusinessFields(tenantId: string, actor: MarketingActor): Promise<OrderScheduleBusinessSyncResult> {
+  async syncSchedulesToRollingPlan(tenantId: string, rows: RollingPlanSyncRow[], selected: number, validationFailures: RollingPlanSyncFailure[], idempotencyKey: string, actor: MarketingActor): Promise<RollingPlanSyncResult> {
     return this.transaction(tenantId, async (client) => {
-      const result = await client.query(`WITH matched AS MATERIALIZED (
-          SELECT schedule.id,schedule.customer_code,
-            schedule.department AS before_department,schedule.section AS before_section,schedule.department_id AS before_department_id,
-            schedule.salesperson_user_ids AS before_salesperson_user_ids,
-            mapping.department,mapping.section,mapping.department_id,mapping.salesperson_user_ids
-          FROM marketing.order_schedules schedule
-          JOIN marketing.business_customer_mappings mapping
-            ON mapping.tenant_id=schedule.tenant_id AND mapping.customer_code=schedule.customer_code
-          WHERE schedule.tenant_id=$1
-        ), updated AS (
-          UPDATE marketing.order_schedules schedule SET
-            department=matched.department,section=matched.section,department_id=matched.department_id,salesperson_user_ids=matched.salesperson_user_ids,
-            version=schedule.version+1,updated_at=now(),updated_by=$2
-          FROM matched
-          WHERE schedule.tenant_id=$1 AND schedule.id=matched.id
-            AND (schedule.department IS DISTINCT FROM matched.department
-              OR schedule.section IS DISTINCT FROM matched.section
-              OR schedule.department_id IS DISTINCT FROM matched.department_id
-              OR schedule.salesperson_user_ids IS DISTINCT FROM matched.salesperson_user_ids)
-          RETURNING schedule.id,schedule.customer_code,
-            jsonb_build_object('department',matched.before_department,'section',matched.before_section,'departmentId',matched.before_department_id,'salespersonUserIds',matched.before_salesperson_user_ids) AS before,
-            jsonb_build_object('department',schedule.department,'section',schedule.section,'departmentId',schedule.department_id,'salespersonUserIds',schedule.salesperson_user_ids) AS after
-        )
-        SELECT
-          (SELECT count(*)::int FROM marketing.business_customer_mappings WHERE tenant_id=$1) AS "sourceCustomers",
-          (SELECT count(*)::int FROM marketing.order_schedules WHERE tenant_id=$1) AS "targetRows",
-          (SELECT count(*)::int FROM matched) AS matched,
-          (SELECT count(*)::int FROM updated) AS updated,
-          (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'customerCode',customer_code,'before',before,'after',after)), '[]'::jsonb) FROM updated) AS changes`,
-      [tenantId, actor.userId]);
-      const row = result.rows[0];
-      const matched = Number(row.matched);
-      const updated = Number(row.updated);
-      const targetRows = Number(row.targetRows);
-      const changes = Array.isArray(row.changes) ? row.changes as Array<{ id: string; before: unknown; after: unknown }> : [];
-      const summary: OrderScheduleBusinessSyncResult = {
-        sourceCustomers: Number(row.sourceCustomers), targetRows, matched, added: 0, updated,
-        unchanged: matched - updated, removed: 0, retained: targetRows - matched
+      const key = `rolling-plan-table:${idempotencyKey}`;
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId + key]);
+      const previous = await client.query("SELECT result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2", [tenantId, key]);
+      if (previous.rowCount) return { ...(previous.rows[0].result as RollingPlanSyncResult), repeated: true };
+      let matched = 0; let created = 0; let updated = 0; let unchanged = 0;
+      const failed = [...validationFailures];
+      const touched = new Set<string>();
+      for (const requested of rows) {
+        const sourceResult = await client.query(`SELECT id,customer_code,order_number,item_number,customer_due_date,order_total_quantity,production_unit,version
+          FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, requested.id]);
+        const source = sourceResult.rows[0];
+        if (!source || Number(source.version) !== requested.expectedVersion) {
+          failed.push({ id: requested.id, orderNumber: String(source?.order_number ?? ""), itemNumber: String(source?.item_number ?? ""), reason: source ? "同步时记录已被其他用户修改" : "同步时记录已不存在" });
+          continue;
+        }
+        const businessKey = JSON.stringify([source.order_number, source.item_number]);
+        const current = await client.query(`SELECT * FROM planning.rolling_plan_items
+          WHERE tenant_id=$1 AND order_number=$2 AND item_number=$3 FOR UPDATE`, [tenantId, source.order_number, source.item_number]);
+        const before = current.rows[0];
+        touched.add(businessKey);
+        if (!before) {
+          const sequence = Number((await client.query("SELECT coalesce(max(sequence),0)+10 AS value FROM planning.rolling_plan_items WHERE tenant_id=$1", [tenantId])).rows[0].value);
+          const saved = await client.query(`INSERT INTO planning.rolling_plan_items
+            (tenant_id,source_order_schedule_id,order_number,item_number,customer_name,order_quantity,production_quantity,delivery_date,responsible_org_id,sequence,created_by,updated_by)
+            VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$10) RETURNING *`, [tenantId, source.id, source.order_number, source.item_number, source.customer_code, source.order_total_quantity, source.customer_due_date, requested.responsibleOrgId, sequence, actor.userId]);
+          await this.audit(client, tenantId, actor, "planning.rolling_plan.created_from_order_schedule", "RollingPlanItem", saved.rows[0].id, null, saved.rows[0]);
+          created += 1;
+          continue;
+        }
+        matched += 1;
+        const changed = before.source_order_schedule_id !== source.id || before.customer_name !== source.customer_code
+          || String(before.order_quantity) !== String(source.order_total_quantity) || String(before.production_quantity) !== String(source.order_total_quantity)
+          || String(before.delivery_date ?? "") !== String(source.customer_due_date ?? "") || before.responsible_org_id !== requested.responsibleOrgId;
+        if (!changed) { unchanged += 1; continue; }
+        const saved = await client.query(`UPDATE planning.rolling_plan_items SET source_order_schedule_id=$4,customer_name=$5,
+            order_quantity=$6,production_quantity=$6,delivery_date=$7,responsible_org_id=$8,version=version+1,updated_at=now(),updated_by=$9
+          WHERE tenant_id=$1 AND order_number=$2 AND item_number=$3 RETURNING *`, [tenantId, source.order_number, source.item_number, source.id, source.customer_code, source.order_total_quantity, source.customer_due_date, requested.responsibleOrgId, actor.userId]);
+        await this.audit(client, tenantId, actor, "planning.rolling_plan.updated_from_order_schedule", "RollingPlanItem", saved.rows[0].id, before, saved.rows[0]);
+        updated += 1;
+      }
+      const targetCount = Number((await client.query("SELECT count(*)::integer AS count FROM planning.rolling_plan_items WHERE tenant_id=$1", [tenantId])).rows[0].count);
+      const result: RollingPlanSyncResult = { selected, eligible: rows.length, matched, created, updated, unchanged, retained: Math.max(targetCount - touched.size, 0), failed, repeated: false };
+      await client.query(`INSERT INTO integration.import_jobs(tenant_id,type,idempotency_key,status,result,confirmed_at,created_by,updated_by)
+        VALUES($1,'ROLLING_PLAN_TABLE_SYNC',$2,'CONFIRMED',$3,now(),$4,$4)`, [tenantId, key, JSON.stringify(result), actor.userId]);
+      await this.audit(client, tenantId, actor, "planning.rolling_plan.synced_from_order_schedule", "RollingPlanItem", null, null, { ...result, matchKey: ["orderNumber", "itemNumber"], mappedFields: ["customer", "orderNumber", "itemNumber", "customerDueDate", "responsibleOrgId", "productionQuantity"] });
+      return result;
+    });
+  }
+
+  async updateDivisionReviewDueDate(tenantId: string, id: string, divisionReviewDueDate: string | null, expectedVersion: number, actor: MarketingActor) {
+    return this.transaction(tenantId, async (client) => {
+      const current = await client.query("SELECT * FROM planning.division_order_reviews WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
+      if (!current.rowCount) throw new NotFoundException("事业部订单评审不存在");
+      if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改，请刷新后重试", currentVersion: current.rows[0].version });
+      const saved = await client.query(`UPDATE planning.division_order_reviews SET
+          division_review_due_date=$3,delivery_confirmed_at=NULL,delivery_confirmed_by=NULL,
+          version=version+1,updated_at=now(),updated_by=$4
+        WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, id, divisionReviewDueDate, actor.userId]);
+      await this.audit(client, tenantId, actor, "planning.division_order_review.due_date_updated", "DivisionOrderReview", id, current.rows[0], saved.rows[0]);
+      return saved.rows[0];
+    });
+  }
+
+  async confirmDivisionOrderReviews(tenantId: string, rows: DivisionReviewConfirmRow[], selected: number, validationFailures: RollingPlanSyncFailure[], idempotencyKey: string, actor: MarketingActor): Promise<DivisionReviewConfirmResult> {
+    return this.transaction(tenantId, async (client) => {
+      const key = `division-order-review-confirm:${idempotencyKey}`;
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId + key]);
+      const previous = await client.query("SELECT result FROM integration.import_jobs WHERE tenant_id=$1 AND idempotency_key=$2", [tenantId, key]);
+      if (previous.rowCount) return { ...(previous.rows[0].result as DivisionReviewConfirmResult), repeated: true };
+
+      let matched = 0; let created = 0; let updated = 0; let unchanged = 0; let confirmed = 0;
+      const failed = [...validationFailures];
+      const touched = new Set<string>();
+      for (const requested of rows) {
+        const sourceResult = await client.query(`SELECT * FROM planning.division_order_reviews
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, requested.id]);
+        const source = sourceResult.rows[0];
+        if (!source || Number(source.version) !== requested.expectedVersion) {
+          failed.push({ id: requested.id, orderNumber: String(source?.order_number ?? ""), itemNumber: String(source?.item_number ?? ""), reason: source ? "确认时记录已被其他用户修改，请刷新后重试" : "确认时记录已不存在" });
+          continue;
+        }
+        if (source.status === "VOID") {
+          failed.push({ id: requested.id, orderNumber: source.order_number, itemNumber: source.item_number, reason: "作废订单不能确认交期" });
+          continue;
+        }
+        if (!source.division_review_due_date) {
+          failed.push({ id: requested.id, orderNumber: source.order_number, itemNumber: source.item_number, reason: "请先填写事业部评审交期" });
+          continue;
+        }
+        const reviewDueDate = source.division_review_due_date instanceof Date
+          ? source.division_review_due_date.toISOString().slice(0, 10)
+          : String(source.division_review_due_date).slice(0, 10);
+
+        const businessKey = JSON.stringify([source.order_number, source.item_number]);
+        const current = await client.query(`SELECT * FROM planning.rolling_plan_items
+          WHERE tenant_id=$1 AND order_number=$2 AND item_number=$3 FOR UPDATE`, [tenantId, source.order_number, source.item_number]);
+        const before = current.rows[0];
+        if (!before) {
+          if (!requested.responsibleOrgId) {
+            failed.push({ id: requested.id, orderNumber: source.order_number, itemNumber: source.item_number, reason: "生产单位无法映射事业部" });
+            continue;
+          }
+          touched.add(businessKey);
+          const sequence = Number((await client.query("SELECT coalesce(max(sequence),0)+10 AS value FROM planning.rolling_plan_items WHERE tenant_id=$1", [tenantId])).rows[0].value);
+          const legacyData = { itemName: source.item_name, reviewDueDate };
+          const saved = await client.query(`INSERT INTO planning.rolling_plan_items
+            (tenant_id,source_order_schedule_id,order_number,item_number,customer_name,order_quantity,production_quantity,
+             delivery_date,responsible_org_id,sequence,legacy_data,created_by,updated_by)
+            VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10::jsonb,$11,$11) RETURNING *`, [
+            tenantId, source.source_order_schedule_id, source.order_number, source.item_number, source.customer_code,
+            source.order_total_quantity, source.customer_due_date, requested.responsibleOrgId, sequence, JSON.stringify(legacyData), actor.userId
+          ]);
+          await this.audit(client, tenantId, actor, "planning.rolling_plan.created_from_division_review", "RollingPlanItem", saved.rows[0].id, null, saved.rows[0]);
+          created += 1;
+        } else {
+          touched.add(businessKey);
+          matched += 1;
+          const saved = await client.query(`UPDATE planning.rolling_plan_items SET
+              production_quantity=$4,delivery_date=$5,
+              legacy_data=coalesce(legacy_data,'{}'::jsonb)||jsonb_build_object('reviewDueDate',$6::text),
+              version=version+1,updated_at=now(),updated_by=$7
+            WHERE tenant_id=$1 AND order_number=$2 AND item_number=$3
+              AND ROW(production_quantity,delivery_date,legacy_data->>'reviewDueDate')
+                IS DISTINCT FROM ROW($4::numeric,$5::date,$6::text)
+            RETURNING *`, [tenantId, source.order_number, source.item_number, source.order_total_quantity, source.customer_due_date, reviewDueDate, actor.userId]);
+          if (saved.rowCount) {
+            await this.audit(client, tenantId, actor, "planning.rolling_plan.updated_from_division_review", "RollingPlanItem", saved.rows[0].id, before, saved.rows[0]);
+            updated += 1;
+          } else unchanged += 1;
+        }
+
+        const confirmation = await client.query(`UPDATE planning.division_order_reviews SET
+            delivery_confirmed_at=now(),delivery_confirmed_by=$4,version=version+1,updated_at=now(),updated_by=$4
+          WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING *`, [tenantId, requested.id, requested.expectedVersion, actor.userId]);
+        await this.audit(client, tenantId, actor, "planning.division_order_review.delivery_confirmed", "DivisionOrderReview", requested.id, source, confirmation.rows[0]);
+        confirmed += 1;
+      }
+
+      const targetCount = Number((await client.query("SELECT count(*)::integer AS count FROM planning.rolling_plan_items WHERE tenant_id=$1", [tenantId])).rows[0].count);
+      const result: DivisionReviewConfirmResult = {
+        selected, eligible: rows.length, matched, created, updated, unchanged, confirmed,
+        retained: Math.max(targetCount - touched.size, 0), failed, repeated: false
       };
-      await this.audit(client, tenantId, actor, "marketing.schedule.business_fields_synced", "OrderSchedule", null,
-        changes.map((change) => ({ id: change.id, before: change.before })),
-        { sourceTable: "marketing.business_customer_mappings", targetTable: "marketing.order_schedules", matchKey: "customer_code", ...summary, changes });
-      return summary;
+      await client.query(`INSERT INTO integration.import_jobs(tenant_id,type,idempotency_key,status,result,confirmed_at,created_by,updated_by)
+        VALUES($1,'DIVISION_ORDER_REVIEW_CONFIRM',$2,'CONFIRMED',$3,now(),$4,$4)`, [tenantId, key, JSON.stringify(result), actor.userId]);
+      await this.audit(client, tenantId, actor, "planning.rolling_plan.confirmed_from_division_review", "RollingPlanItem", null, null, {
+        ...result, matchKey: ["orderNumber", "itemNumber"],
+        createMappedFields: ["customer", "responsibleOrgId", "orderNumber", "itemNumber", "itemName", "productionQuantity", "customerDueDate", "reviewDueDate"],
+        updateMappedFields: ["productionQuantity", "customerDueDate", "reviewDueDate"]
+      });
+      return result;
     });
   }
 
@@ -273,31 +519,10 @@ export class DrizzleMarketingRepository implements MarketingRepository {
           after: result.rows[0].after
         });
       }
-      const scheduleResult = await client.query(`WITH matched AS MATERIALIZED (
-          SELECT schedule.id,schedule.customer_code,
-            schedule.department AS before_department,schedule.department_id AS before_department_id,
-            mapping.department,mapping.department_id
-          FROM marketing.order_schedules schedule
-          JOIN marketing.business_customer_mappings mapping
-            ON mapping.tenant_id=schedule.tenant_id AND mapping.customer_code=schedule.customer_code
-          WHERE schedule.tenant_id=$1
-        ), updated AS (
-          UPDATE marketing.order_schedules schedule SET
-            department=matched.department,department_id=matched.department_id,
-            version=schedule.version+1,updated_at=now(),updated_by=$2
-          FROM matched
-          WHERE schedule.tenant_id=$1 AND schedule.id=matched.id
-            AND (schedule.department IS DISTINCT FROM matched.department
-              OR schedule.department_id IS DISTINCT FROM matched.department_id)
-          RETURNING schedule.id
-        ) SELECT (SELECT count(*)::int FROM matched) AS matched,
-          (SELECT count(*)::int FROM updated) AS updated`, [tenantId, actor.userId]);
       const summary: MappingDepartmentDirectorySyncResult = {
         sourceCustomers: targets.length + skipped.length,
         resolved: targets.length,
         mappingsUpdated: mappingChanges.length,
-        schedulesMatched: Number(scheduleResult.rows[0].matched),
-        schedulesUpdated: Number(scheduleResult.rows[0].updated),
         skipped
       };
       await this.audit(client, tenantId, actor, "marketing.mapping.departments_synced_from_directory", "BusinessCustomerMapping", null, null, {

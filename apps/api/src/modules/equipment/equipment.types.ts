@@ -2,6 +2,7 @@ export type EquipmentActor = {
   tenantId: string;
   userId: string | null;
   username: string;
+  isSystemAdmin?: boolean;
   permissions: string[];
   tableDataScopes: Array<{
     resource: string;
@@ -14,7 +15,7 @@ export type EquipmentActor = {
   source?: "web" | "import";
 };
 
-export type EquipmentScope = { unrestricted: boolean; divisionIds: string[] };
+export type EquipmentScope = { unrestricted: boolean; divisionIds: string[]; own?: true };
 
 export type EquipmentStatusImportSourceRow = {
   rowNumber: number;
@@ -33,15 +34,16 @@ export type EquipmentStatusImportRow = EquipmentStatusImportSourceRow & {
 };
 
 export function hasEquipmentPermission(actor: EquipmentActor, resource: string, action: string) {
-  return actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:${action}`);
+  return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:${action}`);
 }
 
 export function equipmentScope(actor: EquipmentActor, resource: string, action: string): EquipmentScope {
-  if (actor.permissions.includes("*")) return { unrestricted: true, divisionIds: [] };
+  if (actor.isSystemAdmin === true || actor.permissions.includes("*")) return { unrestricted: true, divisionIds: [] };
   const scopes = (actor.tableDataScopes ?? []).filter((scope) =>
     scope.resource === resource && (!Array.isArray(scope.actions) || scope.actions.includes(action))
   );
   if (scopes.some((scope) => scope.scope === "ALL")) return { unrestricted: true, divisionIds: [] };
+  const own = scopes.some((scope) => scope.scope === "OWN");
   const divisionIds = new Set<string>();
   for (const scope of scopes) {
     const rules = scope.rules ?? [];
@@ -59,5 +61,7 @@ export function equipmentScope(actor: EquipmentActor, resource: string, action: 
       : new Set([...sets[0]!].filter((value) => sets.every((set) => set.has(value))));
     for (const value of allowed) divisionIds.add(value);
   }
-  return { unrestricted: false, divisionIds: [...divisionIds] };
+  return own
+    ? { unrestricted: false, divisionIds: [...divisionIds], own: true }
+    : { unrestricted: false, divisionIds: [...divisionIds] };
 }

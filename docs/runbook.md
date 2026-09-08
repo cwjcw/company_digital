@@ -66,6 +66,7 @@ Run `./scripts/backup.sh` before upgrades and preserve SHA256 output. Back up th
 - WebSocket updates absent: verify `/socket.io` upgrade proxy, token and period subscription; REST refetch remains authoritative.
 - 表格重复进入仍长时间加载：先确认查询键包含页码和筛选条件、全局五分钟缓存未被页面覆盖，再检查是否有写入或 WebSocket 正常触发失效。普通页面往返应直接读取缓存；强制刷新、缓存到期、权限变化和数据写入后重新查询属于正常行为。
 - administrator access missing after upgrade: verify migration `AdministratorGrants1722920035000` backfilled the enabled users linked to the legacy `系统管理员` role, then confirm `administrator_grants.tenant_id` matches `KDOS_DEFAULT_TENANT_CODE`. Do not restore access by adding an ordinary role or table permission group.
+- 登录后所有业务接口同时返回 Nginx `400` 且响应体约 233 字节：检查是否仍在使用旧版包含完整权限矩阵的超大 access token。当前版本只签发包含用户 UUID 的短令牌，并由 `AuthGuard` 每次实时解析权限；Nginx 的 32 KiB 兼容缓冲仅用于让已打开的旧会话完成刷新，不得再次把角色、字段权限或数据范围写回 JWT。
 
 ## Password reset mail
 
@@ -81,6 +82,27 @@ After migration `EquipmentManagement1722920041000`, initialize the retained work
 docker compose exec -T api node dist/modules/equipment/import-equipment.js < "/home/Jerry/下载/设备使用管理表.xlsx"
 ```
 
-The importer maps workbook “研发” to the stable “研发中心” organization, resolves known legacy department aliases, defaults every imported device to “无需填报”, and intentionally leaves blank source responsibility unassigned. The workbook only needs the `设备总台账` sheet; legacy `设备监控` selections are no longer imported. Verify totals by division and the rolling-seven-day dashboard after import. Re-running updates changed source fields without duplicating equipment or clearing responsibility maintained in KDOS.
+The importer maps workbook “研发” to the stable “研发中心” organization, resolves known legacy department aliases, reads “是否填报”, and resolves responsibility names to stable enabled-user IDs. A row whose “是否填报” value is exactly “不需要” is a valid skipped row: it is neither written nor included in the exception report. Blank source responsibility is imported as unassigned; ambiguous or missing users and invalid rows are reported rather than guessed. The workbook only needs the `设备总台账` sheet. Use `--division <事业部>` to limit a supplier workbook to its owning division and `--error-report <path.xlsx>` to retain a row-level exception report; valid rows continue when other rows fail. Verify totals by division and the rolling-seven-day dashboard after import. Re-running updates changed source fields without duplicating equipment.
 
 新增企业微信推送任务统一放在 `automation/wechat_push_projects/<任务名>/`，每个任务独立保存配置、业务状态文本、测试和运行说明，不得在项目中保存企业微信密钥或通讯录导出。设备治理日报位于 `equipment-governance-daily`；默认命令只生成图片，`--send-test` 仅发送给崔玮杰，正式群发必须同时使用 `--send-production --confirm-production`。在业务方明确每日发送时间前不得安装周期定时器。
+
+
+## 2026-09-07 订单排期与月度计划交付核验
+
+上线前备份时间标记为 20260907_100016（data/backups 中的 legacy、KDOS、uploads，已生成 SHA256）；两套迁移均无待运行项目。订单排期经 Application Command 清空原有8139条并记录原值审计，线上列表核验为0。9月月度计划 pageSize=0 实际返回4371条，与总数一致。线上验证模板下载、Excel新增、重复确认幂等、前导零保留和错误日期逐行提示；验证数据已移除。浏览器核验保存列显示偏好后错误行号和原因仍可见、错误预览不可确认；最终健康检查通过。
+
+## 2026-09-07 订单排期独立维护与批量删除交付核验
+
+上线前备份时间标记为 20260907_220327，legacy、KDOS 与 uploads 三份备份均已生成并校验 SHA256；TypeORM 与 KDOS SQL 均无待运行迁移。订单排期页面已在表格上方增加“删除所选”操作，后端按租户、删除权限、逐行数据范围和乐观版本校验后在同一事务内删除，并记录逐行审计和批次审计。主计划、业务人员与客户对应表、客户数据导入和周计划四条订单排期同步链路均已移除；线上三个旧同步路由均返回 404，新批量删除路由在未认证时返回 401，前后端与数据库服务健康。
+
+## 2026-09-08 公司管理层读取范围与事业部订单评审交付核验
+
+上线前备份时间标记为 20260908_093505；legacy、KDOS、uploads 的 SHA256 分别为 `7125450d049b874af0f2e9aed96d94b758f124b6e3bf36de68a7e8b7252114bd`、`50ba0967c0e10d695828dfa5f9fded36f07fbf278b5287577363fd37e72c749c`、`b75e2aadfe86923fd5913ea450ced182805a2a0c6539df3ef64d6c5ff5d967d2`。迁移 0014 先在备份恢复的临时库完成结构、回填与投影写入验证，再应用正式库。订单排期新增正常/作废状态；事业部订单评审作为只读事务投影上线，临时库验证新增→修改为作废→删除后保留作废评审记录，来源引用清空且产生3条目标审计。线上健康检查通过，评审接口返回正常状态回填记录。公司管理层所有当前有效成员的销售接单明细均返回8841条；09757 的实时声明为 `rolling-plan` 查看全部，线上响应200且返回8841条。
+
+## 2026-09-08 事业部评审交期确认交付核验
+
+上线前备份时间标记为 20260908_141742；legacy、KDOS、uploads 的 SHA256 分别为 `38e30debc156432ca42fc8155aab2f22132575b30657d6d34abb67940ccf70cc`、`2234a2daf1b7e332c3eb2eb4e1b173450c59615620509a997719d309c2e3c6a3`、`b75e2aadfe86923fd5913ea450ced182805a2a0c6539df3ef64d6c5ff5d967d2`。TypeORM 迁移 `DivisionOrderReviewConfirmationFields1722920045000` 与 KDOS SQL 迁移 `0015_division_order_review_confirmation.sql` 均先在备份恢复的临时库通过，再应用正式库。临时库真实链路验证首次确认新增1条、再次确认命中并更新1条；客户、事业部、品名及额外人工字段保持不变，仅订单需求数量、客户要求交期和评审交期更新为预期值。全量类型检查通过；API 135项、Web 56项测试通过，新增前后端定向测试通过；生产构建、OpenAPI 路由、线上字段读取、未认证401、空批次400及最终健康检查均通过。未使用正式业务记录执行确认。
+
+## 2026-09-08 公司管理层网页登录权限故障修复
+
+现场访问日志显示同一浏览器的 `/auth/me`、参考数据和公司驾驶舱请求均由 Nginx 在进入 API 前返回 `400`/233字节。复算发现08134、09757的旧版登录 JWT 分别达到8312和13220字节；两者直连 API 为200、经过默认请求头限制的网页入口为400。Access JWT 已改为只携带用户 UUID、令牌类型和 `jti`，动态角色、管理员权限、表权限、字段权限与数据范围继续由 `AuthGuard` 每次读取当前数据库解析；Nginx 暂保留32 KiB兼容缓冲，使已经登录的旧令牌可立即访问并在刷新后轮换成短令牌。浏览器内并发401请求共享同一次刷新，避免一个页面重复轮换刷新令牌。前端相关查询键加入用户ID，且驾驶舱和销售接单明细不再静默吞掉读取异常。上线前备份标记为20260908_100153；Chrome线上复验两个账号均显示驾驶舱191单，销售接单明细接口总数8843，页面已渲染数据且无读取错误。数量为验证时实时值。

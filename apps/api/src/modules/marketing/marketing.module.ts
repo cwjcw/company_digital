@@ -1,3 +1,4 @@
+import { OrderScheduleImportService } from "./order-schedule-import.service";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthGuard } from "../../auth";
@@ -13,6 +14,6 @@ import { MARKETING_REPOSITORY } from "./marketing.repository";
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), PlanningModule],
   controllers: [MarketingController],
-  providers: [AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
+  providers: [OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
 })
 export class MarketingModule {}

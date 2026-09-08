@@ -40,10 +40,15 @@ export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
     }
     const period = String(client.handshake.auth?.period ?? "");
     if (period) client.join(`period:${period}`);
+    const tenantCode = String(client.handshake.auth?.tenantCode ?? process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
+    client.join(`tenant:${tenantCode}`);
   }
   broadcast(periodId: string, division: string | null, payload: unknown) {
     if (!this.server) return;
     const room = division ? this.server.to(`period:${periodId}`).to(`division:${division}`) : this.server.to(`period:${periodId}`);
     room.emit("plan.changed", payload);
+  }
+  broadcastTable(tenantCode: string, resource: string, changeType: "created" | "updated" | "deleted" | "batch") {
+    this.server?.to(`tenant:${tenantCode}`).emit("table.changed", { resource, changeType });
   }
 }

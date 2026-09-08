@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { excelMonthlyPlanColumns, monthlyPlanColumns, processDefinitions } from "@tracker/shared";
 import { containsText, getValue } from "./api";
-import { canManageTablePermissions, kdosPageSizeOptions, kdosSystemFieldDefinitions } from "./shared/KdosDataTable";
+import {
+  canManageTablePermissions, hasSessionResourcePermission, kdosPageSizeOptions,
+  kdosSystemFieldDefinitions, shouldResetServerTablePage
+} from "./shared/KdosDataTable";
 
 function tsxFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -64,6 +67,9 @@ describe("monthly plan configuration", () => {
 
   it("standardizes form pagination and exposes one permission page route for every resource", () => {
     expect(kdosPageSizeOptions).toEqual([20, 50, 100, 200]);
+    expect(shouldResetServerTablePage("paginate")).toBe(false);
+    expect(shouldResetServerTablePage("sort")).toBe(true);
+    expect(shouldResetServerTablePage("filter")).toBe(true);
     const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
     const tableSource = fs.readFileSync(path.resolve(__dirname, "shared/KdosDataTable.tsx"), "utf8");
     expect(appSource).toContain('path="/permissions/:resource"');
@@ -78,21 +84,44 @@ describe("monthly plan configuration", () => {
     expect(canManageTablePermissions("users")).toBe(false);
   });
 
+  it("uses only wildcard operation permissions for table action buttons", () => {
+    expect(hasSessionResourcePermission({ permissions: ["equipment-status-report:*:create"] }, "equipment-status-report", "create")).toBe(true);
+    expect(hasSessionResourcePermission({ permissions: ["equipment-status-report:equipmentId:create"] }, "equipment-status-report", "create")).toBe(false);
+    expect(hasSessionResourcePermission({ permissions: ["equipment-status-report:*:read"] }, "equipment-status-report", "create")).toBe(false);
+    expect(hasSessionResourcePermission({ isSystemAdmin: true, permissions: [] }, "equipment-status-report", "delete")).toBe(true);
+  });
+
   it("uses the compact server-aggregated cockpit without the customer TOP 8 carousel", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "modules/planning/pages/OperationalPlanningPages.tsx"), "utf8");
     expect(source).not.toContain("客户订单金额 TOP 8");
     expect(source).toContain('api<any>(`/plans/sales-dashboard?');
     expect(source).toContain('className="dashboard-warning-list"');
+    expect(source).toContain('["sales-dashboard",sessionSubject,');
+    expect(source).toContain('message="公司驾驶舱数据读取失败"');
+    expect(source).toContain('["rolling", rollingUserId,');
+    expect(source).toContain('message="销售接单明细读取失败"');
     expect(source).not.toContain('title="交期预警" auditColumns');
+  });
+
+  it("keeps legacy oversized login headers readable only during token rotation", () => {
+    const nginx = fs.readFileSync(path.resolve(__dirname, "../nginx.conf"), "utf8");
+    expect(nginx).toContain("large_client_header_buffers 4 32k;");
   });
 
   it("keeps equipment navigation typography aligned and gives the status table real import/export actions", () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
     const styles = fs.readFileSync(path.resolve(__dirname, "styles.css"), "utf8");
     const equipmentSource = fs.readFileSync(path.resolve(__dirname, "modules/equipment/EquipmentPages.tsx"), "utf8");
-    expect(appSource).toContain('{ key: "on-hand-summary", icon: <DashboardOutlined />, label: "在手汇总"');
+    expect(appSource).toContain('{ key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表"');
+    expect(appSource).toContain('{ key: "master-plan-dashboards", icon: <DashboardOutlined />, label: "主计划大屏"');
+    expect(appSource).toContain('{ key: "/on-hand-summary-dashboard", icon: <DashboardOutlined />, label: "集团主计划" }');
+    expect(appSource).toContain('{ key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏"');
+    expect(appSource).toContain('{ key: "/equipment-dashboard", icon: <DashboardOutlined />, label: "集团设备大屏" }');
     expect(appSource).toContain('{ key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划"');
     expect(appSource).toContain('{ key: "equipment-management", icon: <ToolOutlined />, label: "设备管理"');
+    expect(appSource).not.toContain('label: "设备管理驾驶舱"');
+    expect(appSource).toContain('defaultOpenKeys={[]}');
+    expect(appSource).not.toContain('defaultOpenKeys={[`${moduleId}-root`');
     expect(styles).toContain('.sidebar .ant-menu-root > .ant-menu-submenu-open > .ant-menu-submenu-title');
     expect(styles).toContain('font-weight: 500 !important;');
     expect(equipmentSource).toContain('/equipment/status-reports/import-preview');

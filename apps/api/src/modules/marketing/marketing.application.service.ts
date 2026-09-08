@@ -1,9 +1,10 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Optional } from "@nestjs/common";
+import { PlanGateway } from "../../gateway";
 import { MARKETING_REPOSITORY, type MarketingRepository } from "./marketing.repository";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
-import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
+import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, DivisionReviewConfirmRow, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput, RollingPlanSyncFailure, RollingPlanSyncRow } from "./marketing.types";
 
-type MarketingResource = "business-customer-mapping" | "order-schedule";
+type MarketingResource = "business-customer-mapping" | "order-schedule" | "rolling-plan-table" | "division-order-review";
 type MarketingAction = "read" | "create" | "update" | "delete" | "import" | "export";
 type MarketingPageInput = { page?: number; pageSize?: number; search?: string; filters?: Record<string, string>; sortField?: string; sortOrder?: string; completion?: string; dueStart?: string; dueEnd?: string; exactOrderNumber?: string };
 
@@ -11,12 +12,31 @@ type MarketingPageInput = { page?: number; pageSize?: number; search?: string; f
 export class MarketingApplicationService {
   constructor(
     @Inject(MARKETING_REPOSITORY) private readonly repository: MarketingRepository,
-    private readonly directory: MarketingDirectoryQueryService
+    private readonly directory: MarketingDirectoryQueryService,
+    @Optional() private readonly gateway?: PlanGateway
   ) {}
 
+  private notifyDivisionOrderReview(actor: MarketingActor, changeType: "created" | "updated" | "deleted" | "batch") {
+    this.gateway?.broadcastTable(actor.tenantCode, "division-order-review", changeType);
+  }
+
+  private notifyRollingPlan(actor: MarketingActor) {
+    this.gateway?.broadcastTable(actor.tenantCode, "rolling-plan-table", "batch");
+  }
+
+  private hasAction(actor: MarketingActor, resource: MarketingResource, action: MarketingAction) {
+    return actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:${action}`);
+  }
+
   private assert(actor: MarketingActor, resource: MarketingResource, action: MarketingAction) {
-    if (actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:${action}`)) return;
+    if (this.hasAction(actor, resource, action)) return;
     throw new ForbiddenException("当前权限组没有此表的操作权限");
+  }
+
+  private assertFieldUpdate(actor: MarketingActor, resource: MarketingResource, field: string) {
+    const moduleAdministrator = actor.tableDataScopes?.some((scope) => scope.resource === resource && scope.groupId.startsWith("module-admin:"));
+    if (actor.permissions.includes("*") || moduleAdministrator || actor.permissions.includes(`${resource}:${field}:update`)) return;
+    throw new ForbiddenException(`当前权限组没有“${field}”字段的编辑权限`);
   }
 
   private text(value: unknown, label: string) {
@@ -70,11 +90,16 @@ export class MarketingApplicationService {
       if (rule.operator === "NOT_CONTAINS") return actualValues ? values.every((value) => !actualValues.includes(value)) : !String(actual ?? "").includes(String(expected ?? ""));
       return false;
     };
-    return rows.filter((row) => scopes.some((scope) => scope.scope === "CUSTOM" && scope.rules.length > 0 && (scope.match === "ANY" ? scope.rules.some((rule) => compare(row, rule)) : scope.rules.every((rule) => compare(row, rule)))));
+    return rows.filter((row) => scopes.some((scope) => scope.scope === "OWN" ? Boolean(actor.userId && row.createdBy === actor.userId) : scope.scope === "CUSTOM" && scope.rules.length > 0 && (scope.match === "ANY" ? scope.rules.some((rule) => compare(row, rule)) : scope.rules.every((rule) => compare(row, rule)))));
   }
 
   private assertDataScope(row: Record<string, unknown>, actor: MarketingActor, resource: MarketingResource, action: string) {
     if (!this.applyDataScope([row], actor, resource, action).length) throw new ForbiddenException("该记录不在当前用户的数据权限范围内");
+  }
+
+  private visibleFields(actor: MarketingActor, resource: MarketingResource, fields: string[]) {
+    const all = actor.permissions.includes("*") || actor.tableDataScopes?.some((scope) => scope.resource === resource && scope.groupId.startsWith("module-admin:"));
+    return new Set(all ? fields : fields.filter((field) => actor.permissions.includes(`${resource}:${field}:read`) || actor.permissions.includes(`${resource}:${field}:update`)));
   }
 
   private async assertEnabledUsers(ids: string[]) {
@@ -100,16 +125,18 @@ export class MarketingApplicationService {
   private decimal(value: unknown, label: string, min = 0, max?: number) {
     const normalized = String(value ?? "").replaceAll(",", "").trim();
     if (!/^-?\d+(\.\d+)?$/.test(normalized)) throw new BadRequestException(`${label}必须为数字`);
-    const numeric = Number(normalized); if (numeric < min || (max !== undefined && numeric > max)) throw new BadRequestException(`${label}必须在 ${min} 至 ${max ?? "正无穷"} 之间`);
+    const numeric = Number(normalized); if (!Number.isFinite(numeric)) throw new BadRequestException(`${label}超出数值范围`); if (numeric < min || (max !== undefined && numeric > max)) throw new BadRequestException(`${label}必须在 ${min} 至 ${max ?? "正无穷"} 之间`);
     return normalized;
   }
   private schedule(input: OrderScheduleInput): OrderScheduleInput {
+    const status = String(input.status ?? "NORMAL").trim().toUpperCase();
+    if (status !== "NORMAL" && status !== "VOID") throw new BadRequestException("状态只能选择正常或作废");
     return {
       customerCode: this.text(input.customerCode, "客户代码"), orderNumber: this.text(input.orderNumber, "订单编号"),
       itemNumber: this.text(input.itemNumber, "品项编码"), itemName: this.text(input.itemName, "品项名称"),
       customerDueDate: this.optionalDate(input.customerDueDate, "客户交期"),
       orderTotalQuantity: this.decimal(input.orderTotalQuantity, "订单总数量"), productionUnit: String(input.productionUnit ?? "").trim() || null,
-      completionRatio: this.decimal(input.completionRatio, "订单完成比例", 0, 100), sourcePlanItemId: input.sourcePlanItemId ?? null
+      completionRatio: this.decimal(input.completionRatio, "订单完成比例", 0, 100), status, sourcePlanItemId: input.sourcePlanItemId ?? null
     };
   }
 
@@ -287,7 +314,83 @@ export class MarketingApplicationService {
     if (input.completion === "completed") rows = rows.filter((row) => Number(row.completionRatio ?? 0) >= 100);
     if (input.dueStart) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) >= input.dueStart!);
     if (input.dueEnd) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) <= input.dueEnd!);
-    return this.pageRows(rows, input, ["customerCode", "department", "section", "salespersonNames", "orderNumber", "itemNumber", "itemName", "customerDueDate", "orderTotalQuantity", "productionUnit", "completionRatio", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
+    return this.pageRows(rows, input, ["customerCode", "department", "section", "salespersonNames", "orderNumber", "itemNumber", "itemName", "customerDueDate", "orderTotalQuantity", "productionUnit", "completionRatio", "status", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
+  }
+
+  async listDivisionOrderReviews(input: MarketingPageInput, actor: MarketingActor, action: "read" | "export" = "read") {
+    this.assert(actor, "division-order-review", action);
+    type ReviewReadRow = Record<string, unknown> & { salespersonUserIds: string[] };
+    const scoped = this.applyDataScope(await this.repository.listDivisionOrderReviews(await this.tenant(actor)) as ReviewReadRow[], actor, "division-order-review", action);
+    const userIds = [...new Set(scoped.flatMap((row) => row.salespersonUserIds ?? []))];
+    const [users, organizations] = await Promise.all([this.directory.findUsersByIds(userIds), this.directory.listEnabledOrganizations()]);
+    const names = new Map(users.map((user) => [user.id, user.displayName]));
+    const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
+    let rows: Array<Record<string, unknown>> = scoped.map((row) => ({
+      ...row,
+      departmentPath: organizationMap.get(String(row.departmentId ?? ""))?.pathLabel ?? row.department,
+      salespersonNames: (row.salespersonUserIds ?? []).map((id) => names.get(id)).filter((name): name is string => Boolean(name)),
+      deliveryConfirmation: row.deliveryConfirmedAt ? "已确认" : "待确认"
+    }));
+    const businessFields = ["customerCode", "departmentId", "section", "salespersonUserIds", "orderNumber", "itemNumber", "itemName", "customerDueDate", "divisionReviewDueDate", "deliveryConfirmation", "orderTotalQuantity", "productionUnit", "completionRatio", "status", "createdBy", "createdAt", "updatedBy", "updatedAt"];
+    const visible = this.visibleFields(actor, "division-order-review", businessFields);
+    const searchKeys = businessFields.filter((field) => visible.has(field));
+    if (visible.has("departmentId")) searchKeys.push("departmentPath");
+    if (visible.has("salespersonUserIds")) searchKeys.push("salespersonNames");
+    const search = String(input.search ?? "").trim().toLocaleLowerCase();
+    if (search) rows = rows.filter((row) => searchKeys.some((field) => String(Array.isArray(row[field]) ? row[field].join(" ") : row[field] ?? "").toLocaleLowerCase().includes(search)));
+    const allowed = [...visible];
+    if (visible.has("departmentId")) allowed.push("department", "departmentPath");
+    if (visible.has("salespersonUserIds")) allowed.push("salespersonNames");
+    const redacted = rows.map((row) => Object.fromEntries(Object.entries(row).filter(([field]) => field === "id" || field === "version" || allowed.includes(field))));
+    return action === "export" ? redacted : this.pageRows(redacted, input, allowed);
+  }
+
+  assertScheduleImport(actor: MarketingActor) { this.assert(actor, "order-schedule", "import"); }
+
+  async validateScheduleImport(inputs: Array<{ row: number; input: OrderScheduleInput }>, actor: MarketingActor) {
+    this.assertScheduleImport(actor);
+    const existing = await this.repository.listSchedules(await this.tenant(actor)) as Array<Record<string, unknown>>;
+    const byKey = new Map(existing.map((row) => [JSON.stringify([row.orderNumber, row.itemNumber]), row]));
+    const keys = new Set<string>();
+    const rows: import("./marketing.types").ScheduleImportRow[] = [];
+    const errors: Array<{ row: number; reason: string }> = [];
+    for (const entry of inputs) {
+      try {
+        const input = this.schedule(entry.input);
+        for (const [key, max] of Object.entries({ customerCode: 120, orderNumber: 120, itemNumber: 160, itemName: 320, productionUnit: 200 })) {
+          if (String(input[key as keyof OrderScheduleInput] ?? "").length > max) throw new BadRequestException(`${key}长度不能超过${max}`);
+        }
+        if (!/^\d{1,14}(\.\d{1,4})?$/.test(String(input.orderTotalQuantity))) throw new BadRequestException("订单总数量最多14位整数、4位小数");
+        if (!/^\d{1,3}(\.\d{1,4})?$/.test(String(input.completionRatio))) throw new BadRequestException("订单完成比例最多4位小数");
+        const key = JSON.stringify([input.orderNumber, input.itemNumber]);
+        if (keys.has(key)) throw new BadRequestException("订单编号 + 品项编码在文件内重复");
+        keys.add(key);
+        const current = byKey.get(key);
+        this.assertDataScope(current ?? { ...input, createdBy: actor.userId }, actor, "order-schedule", "import");
+        this.assertDataScope({ ...current, ...input, createdBy: current?.createdBy ?? actor.userId }, actor, "order-schedule", "import");
+        const administrator = actor.permissions.includes("*") || actor.tableDataScopes?.some((scope) => scope.resource === "order-schedule" && scope.groupId.startsWith("module-admin:"));
+        if (!administrator) for (const field of Object.keys(input).filter((field) => field !== "sourcePlanItemId")) {
+          if (!actor.permissions.includes(`order-schedule:${field}:update`)) throw new ForbiddenException(`字段 ${field} 没有编辑权限`);
+        }
+        rows.push({ row: entry.row, input, id: current ? String(current.id) : null, expectedVersion: current ? Number(current.version) : null });
+      } catch (error) { errors.push({ row: entry.row, reason: (error as Error).message }); }
+    }
+    return { rows, errors };
+  }
+
+  async importSchedules(rows: import("./marketing.types").ScheduleImportRow[], hash: string, actor: MarketingActor) {
+    const validated = await this.validateScheduleImport(rows, actor);
+    if (validated.errors.length) throw new BadRequestException({ message: "导入失败，请修正后重新预览", errors: validated.errors });
+    const result = await this.repository.importSchedules(await this.tenant(actor), rows, hash, actor);
+    if (!result.repeated) this.notifyDivisionOrderReview(actor, "batch");
+    return result;
+  }
+
+  async clearSchedules(actor: MarketingActor) {
+    if (!actor.permissions.includes("*") || actor.username !== "order-schedule-reset") throw new ForbiddenException("仅限已授权的一次性维护命令");
+    const result = await this.repository.clearSchedules(await this.tenant(actor), actor);
+    if (result.deleted) this.notifyDivisionOrderReview(actor, "batch");
+    return result;
   }
 
   async saveSchedule(id: string | null, input: OrderScheduleInput, expectedVersion: number | null, actor: MarketingActor) {
@@ -299,7 +402,9 @@ export class MarketingApplicationService {
       if (!current) throw new BadRequestException("订单排期不存在");
       this.assertDataScope(current, actor, "order-schedule", "update");
     }
-    return this.repository.saveSchedule(tenantId, id, this.schedule(input), expectedVersion, actor);
+    const result = await this.repository.saveSchedule(tenantId, id, this.schedule(input), expectedVersion, actor);
+    this.notifyDivisionOrderReview(actor, id ? "updated" : "created");
+    return result;
   }
 
   async deleteSchedule(id: string, expectedVersion: number, actor: MarketingActor) {
@@ -308,7 +413,9 @@ export class MarketingApplicationService {
     const current = (await this.repository.listSchedules(tenantId) as Array<Record<string, unknown>>).find((row) => row.id === id);
     if (!current) throw new BadRequestException("订单排期不存在");
     this.assertDataScope(current, actor, "order-schedule", "delete");
-    return this.repository.deleteSchedule(tenantId, id, Number(expectedVersion), actor);
+    const result = await this.repository.deleteSchedule(tenantId, id, Number(expectedVersion), actor);
+    this.notifyDivisionOrderReview(actor, "deleted");
+    return result;
   }
 
   async batchUpdateDueDate(rows: Array<{ id: string; expectedVersion: number }>, customerDueDate: string | null, actor: MarketingActor) {
@@ -322,16 +429,140 @@ export class MarketingApplicationService {
       if (!current) throw new BadRequestException("所选排期不存在");
       this.assertDataScope(current, actor, "order-schedule", "update");
     }
-    return this.repository.batchUpdateDueDate(tenantId, rows, this.optionalDate(customerDueDate, "客户交期"), actor);
+    const result = await this.repository.batchUpdateDueDate(tenantId, rows, this.optionalDate(customerDueDate, "客户交期"), actor);
+    this.notifyDivisionOrderReview(actor, "batch");
+    return result;
   }
 
-  async syncSchedulesFromPlanning(actor: MarketingActor) {
-    this.assert(actor, "order-schedule", "import");
-    return this.repository.syncSchedulesFromPlanning(await this.tenant(actor), actor);
+  async batchDeleteSchedules(rows: Array<{ id: string; expectedVersion: number }>, actor: MarketingActor) {
+    this.assert(actor, "order-schedule", "delete");
+    if (!rows.length || rows.length > 1000) throw new BadRequestException("请选择 1 至 1000 条订单排期");
+    if (rows.some((row) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) || !Number.isInteger(Number(row.expectedVersion)) || Number(row.expectedVersion) < 1)) throw new BadRequestException("所选排期标识或版本无效");
+    if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new BadRequestException("所选排期包含重复记录");
+    const tenantId = await this.tenant(actor);
+    const selectedRows = await this.repository.findSchedulesByIds(tenantId, rows.map((row) => row.id)) as Array<Record<string, unknown>>;
+    for (const selected of rows) {
+      const current = selectedRows.find((row) => row.id === selected.id);
+      if (!current) throw new BadRequestException("所选排期不存在");
+      this.assertDataScope(current, actor, "order-schedule", "delete");
+    }
+    const result = await this.repository.batchDeleteSchedules(tenantId, rows, actor);
+    this.notifyDivisionOrderReview(actor, "batch");
+    return result;
   }
 
-  async syncScheduleBusinessFields(actor: MarketingActor) {
-    this.assert(actor, "order-schedule", "import");
-    return this.repository.syncScheduleBusinessFields(await this.tenant(actor), actor);
+  async syncSchedulesToRollingPlan(rows: Array<{ id: string; expectedVersion: number }>, idempotencyKey: string, actor: MarketingActor) {
+    this.assert(actor, "order-schedule", "read");
+    this.assert(actor, "rolling-plan-table", "import");
+    if (!rows.length || rows.length > 1000) throw new BadRequestException("请选择 1 至 1000 条订单排期");
+    if (!/^[0-9a-f-]{36}$/i.test(String(idempotencyKey ?? ""))) throw new BadRequestException("同步请求标识无效");
+    if (rows.some((row) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) || !Number.isInteger(Number(row.expectedVersion)) || Number(row.expectedVersion) < 1)) throw new BadRequestException("所选排期标识或版本无效");
+    if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new BadRequestException("所选排期包含重复记录");
+    const tenantId = await this.tenant(actor);
+    const selectedRows = await this.repository.findSchedulesByIds(tenantId, rows.map((row) => row.id)) as Array<Record<string, unknown>>;
+    const organizations = await this.directory.listEnabledOrganizations();
+    const resolved: RollingPlanSyncRow[] = [];
+    const failed: RollingPlanSyncFailure[] = [];
+    const keys: Array<{ orderNumber: string; itemNumber: string }> = [];
+    for (const selected of rows) {
+      const current = selectedRows.find((row) => row.id === selected.id);
+      if (!current) throw new BadRequestException("所选排期不存在");
+      this.assertDataScope(current, actor, "order-schedule", "read");
+      const orderNumber = String(current.orderNumber ?? "");
+      const itemNumber = String(current.itemNumber ?? "");
+      if (Number(current.version) !== Number(selected.expectedVersion)) {
+        failed.push({ id: selected.id, orderNumber, itemNumber, reason: "记录已被其他用户修改，请刷新后重试" });
+        continue;
+      }
+      const productionUnit = String(current.productionUnit ?? "").trim();
+      const matches = organizations.filter((organization) => organization.name === productionUnit || organization.pathLabel === productionUnit || organization.path.join("/") === productionUnit);
+      if (!productionUnit || matches.length !== 1) {
+        const reason = !productionUnit ? "生产单位为空，无法映射事业部" : matches.length ? "生产单位存在重名，请填写完整组织路径" : `生产单位“${productionUnit}”不在组织架构中`;
+        failed.push({ id: selected.id, orderNumber, itemNumber, reason });
+        continue;
+      }
+      resolved.push({ id: selected.id, expectedVersion: Number(selected.expectedVersion), responsibleOrgId: matches[0]!.id });
+      keys.push({ orderNumber, itemNumber });
+    }
+    const existing = await this.repository.findRollingPlanItemsByBusinessKeys(tenantId, keys) as Array<Record<string, unknown>>;
+    for (const candidate of selectedRows.filter((row) => resolved.some((entry) => entry.id === row.id))) {
+      const target = existing.find((row) => row.orderNumber === candidate.orderNumber && row.itemNumber === candidate.itemNumber);
+      const responsibleOrgId = resolved.find((entry) => entry.id === candidate.id)!.responsibleOrgId;
+      this.assertDataScope(target ?? { ...candidate, customer: candidate.customerCode, responsibleOrgId, createdBy: actor.userId }, actor, "rolling-plan-table", "import");
+    }
+    return this.repository.syncSchedulesToRollingPlan(tenantId, resolved, rows.length, failed, idempotencyKey, actor);
+  }
+
+  async updateDivisionReviewDueDate(id: string, divisionReviewDueDate: string | null, expectedVersion: number, actor: MarketingActor) {
+    this.assert(actor, "division-order-review", "update");
+    this.assertFieldUpdate(actor, "division-order-review", "divisionReviewDueDate");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new BadRequestException("事业部订单评审标识无效");
+    if (!Number.isInteger(Number(expectedVersion)) || Number(expectedVersion) < 1) throw new BadRequestException("修改记录必须提供有效版本号");
+    const tenantId = await this.tenant(actor);
+    const current = (await this.repository.findDivisionOrderReviewsByIds(tenantId, [id]) as Array<Record<string, unknown>>)[0];
+    if (!current) throw new BadRequestException("事业部订单评审不存在");
+    this.assertDataScope(current, actor, "division-order-review", "update");
+    const result = await this.repository.updateDivisionReviewDueDate(tenantId, id, this.optionalDate(divisionReviewDueDate, "事业部评审交期"), Number(expectedVersion), actor);
+    this.notifyDivisionOrderReview(actor, "updated");
+    return result;
+  }
+
+  async confirmDivisionOrderReviews(rows: Array<{ id: string; expectedVersion: number }>, idempotencyKey: string, actor: MarketingActor) {
+    this.assert(actor, "division-order-review", "update");
+    const targetAction: MarketingAction = this.hasAction(actor, "rolling-plan-table", "import") ? "import" : "update";
+    this.assert(actor, "rolling-plan-table", targetAction);
+    if (!rows.length || rows.length > 1000) throw new BadRequestException("请选择 1 至 1000 条事业部订单评审");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(idempotencyKey ?? ""))) throw new BadRequestException("确认请求标识无效");
+    if (rows.some((row) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) || !Number.isInteger(Number(row.expectedVersion)) || Number(row.expectedVersion) < 1)) throw new BadRequestException("所选评审标识或版本无效");
+    if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new BadRequestException("所选评审包含重复记录");
+
+    const tenantId = await this.tenant(actor);
+    const selectedRows = await this.repository.findDivisionOrderReviewsByIds(tenantId, rows.map((row) => row.id)) as Array<Record<string, unknown>>;
+    const keys = selectedRows.map((row) => ({ orderNumber: String(row.orderNumber ?? ""), itemNumber: String(row.itemNumber ?? "") }));
+    const [existing, organizations] = await Promise.all([
+      this.repository.findRollingPlanItemsByBusinessKeys(tenantId, keys) as Promise<Array<Record<string, unknown>>>,
+      this.directory.listEnabledOrganizations()
+    ]);
+    const resolved: DivisionReviewConfirmRow[] = [];
+    const failed: RollingPlanSyncFailure[] = [];
+    for (const selected of rows) {
+      const current = selectedRows.find((row) => row.id === selected.id);
+      if (!current) throw new BadRequestException("所选事业部订单评审不存在");
+      this.assertDataScope(current, actor, "division-order-review", "update");
+      const orderNumber = String(current.orderNumber ?? "");
+      const itemNumber = String(current.itemNumber ?? "");
+      if (Number(current.version) !== Number(selected.expectedVersion)) {
+        failed.push({ id: selected.id, orderNumber, itemNumber, reason: "记录已被其他用户修改，请刷新后重试" });
+        continue;
+      }
+      if (current.status === "VOID") {
+        failed.push({ id: selected.id, orderNumber, itemNumber, reason: "作废订单不能确认交期" });
+        continue;
+      }
+      if (!current.divisionReviewDueDate) {
+        failed.push({ id: selected.id, orderNumber, itemNumber, reason: "请先填写事业部评审交期" });
+        continue;
+      }
+      const target = existing.find((row) => row.orderNumber === orderNumber && row.itemNumber === itemNumber);
+      let responsibleOrgId: string | null = null;
+      if (!target) {
+        const productionUnit = String(current.productionUnit ?? "").trim();
+        const matches = organizations.filter((organization) => organization.name === productionUnit || organization.pathLabel === productionUnit || organization.path.join("/") === productionUnit);
+        if (!productionUnit || matches.length !== 1) {
+          const reason = !productionUnit ? "生产单位为空，无法映射事业部" : matches.length ? "生产单位存在重名，请填写完整组织路径" : `生产单位“${productionUnit}”不在组织架构中`;
+          failed.push({ id: selected.id, orderNumber, itemNumber, reason });
+          continue;
+        }
+        responsibleOrgId = matches[0]!.id;
+      }
+      this.assertDataScope(target ?? { ...current, customer: current.customerCode, responsibleOrgId, createdBy: actor.userId }, actor, "rolling-plan-table", targetAction);
+      resolved.push({ id: selected.id, expectedVersion: Number(selected.expectedVersion), responsibleOrgId });
+    }
+    const result = await this.repository.confirmDivisionOrderReviews(tenantId, resolved, rows.length, failed, idempotencyKey, actor);
+    if (!result.repeated) {
+      this.notifyDivisionOrderReview(actor, "batch");
+      this.notifyRollingPlan(actor);
+    }
+    return result;
   }
 }

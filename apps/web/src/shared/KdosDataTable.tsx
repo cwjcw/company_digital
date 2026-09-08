@@ -15,11 +15,27 @@ export function useKdosTableEditMode() {
   return useContext(KdosTableEditContext);
 }
 
+export function hasSessionResourcePermission(session: { permissions?: string[]; isSystemAdmin?: boolean } | null | undefined, resource: string, action: string) {
+  const permissions = session?.permissions ?? [];
+  return session?.isSystemAdmin === true || permissions.includes("*") || permissions.includes(`${resource}:*:${action}`);
+}
+
 export function hasResourcePermission(resource: string, action: string) {
   try {
-    const permissions: string[] = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").permissions ?? [];
-    return permissions.includes("*") || permissions.includes(`${resource}:*:${action}`)
-      || permissions.some((permission) => permission.startsWith(`${resource}:`) && permission.endsWith(`:${action}`));
+    return hasSessionResourcePermission(JSON.parse(localStorage.getItem("sessionUser") ?? "{}"), resource, action);
+  } catch {
+    return false;
+  }
+}
+
+export function hasFieldPermission(resource: string, field: string, action: "read" | "update") {
+  try {
+    const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+    const definition = tableResourceRegistry.find((item) => item.code === resource);
+    return session.isSystemAdmin === true || session.permissions?.includes("*")
+      || (definition && session.moduleAdminCodes?.includes(definition.moduleCode))
+      || session.permissions?.includes(`${resource}:${field}:${action}`)
+      || (action === "read" && session.permissions?.includes(`${resource}:${field}:update`));
   } catch {
     return false;
   }
@@ -27,6 +43,10 @@ export function hasResourcePermission(resource: string, action: string) {
 
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
+
+export function shouldResetServerTablePage(action: "paginate" | "sort" | "filter") {
+  return action === "sort" || action === "filter";
+}
 
 export function canManageTablePermissions(resource?: string) {
   try {
@@ -306,10 +326,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
       scroll={scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }}
       sticky
       onChange={(paginationState, tableFilters, sorter, extra) => {
-        if (serverMode) {
+        if (serverMode && extra.action === "sort") {
           const active = (Array.isArray(sorter) ? sorter[0] : sorter) as { field?: React.Key; columnKey?: React.Key; order?: "ascend" | "descend" };
           setSortField(String(active?.field ?? active?.columnKey ?? ""));
           setSortOrder(active?.order);
+        }
+        if (serverMode && shouldResetServerTablePage(extra.action)) {
           setCurrentPage(1);
         }
         tableProps.onChange?.(paginationState, tableFilters, sorter, extra);

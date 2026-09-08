@@ -142,7 +142,11 @@ export class AuthService {
 
   private async issueTokens(user: User) {
     const payload = await this.claimsFor(user);
-    const accessToken = await this.jwt.signAsync({ ...payload, jti: randomUUID() }, {
+    // Authorization is deliberately resolved from the database by AuthGuard on
+    // every protected request. Keeping the permission/field matrix out of the
+    // bearer token prevents large roles from exceeding HTTP header limits and
+    // avoids treating a stale token snapshot as an authorization source.
+    const accessToken = await this.jwt.signAsync({ sub: user.id, type: "access", jti: randomUUID() }, {
       secret: process.env.JWT_ACCESS_SECRET,
       expiresIn: (process.env.JWT_ACCESS_TTL ?? "15m") as any
     });

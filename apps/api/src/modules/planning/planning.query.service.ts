@@ -176,8 +176,8 @@ export class PlanQueryService {
   }
 
   async searchPlanItemsPage(input: PlanSearchInput & { page: number; pageSize: number }, actor: PlanningActor) {
-    const pageSize = [20, 50, 100, 200].includes(input.pageSize) ? input.pageSize : 50;
-    const page = Math.max(Number.isInteger(input.page) ? input.page : 1, 1);
+    const pageSize = [0, 20, 50, 100, 200].includes(input.pageSize) ? input.pageSize : 50;
+    const page = pageSize === 0 ? 1 : Math.max(Number.isInteger(input.page) ? input.page : 1, 1);
     const filters = { ...(input.filters ?? {}) };
     const responsibleOrgFilter = String(filters.responsibleOrgId ?? "").trim().toLocaleLowerCase();
     let responsibleOrgIds: string[] | undefined;
@@ -194,6 +194,31 @@ export class PlanQueryService {
       this.searchPlanItems(query, actor),
       this.repository.countItems(tenantId, query)
     ]);
+    if (pageSize === 0) {
+      if (!actor.permissions.includes("*") && !actor.permissions.includes("planning.plan.read") && !actor.permissions.includes("monthly-plan:*:read")) throw new ForbiddenException("没有月度计划查看权限");
+      const scopes = (actor.tableDataScopes ?? []).filter((scope) => scope.resource === "monthly-plan" && (!scope.actions || scope.actions.includes("read")));
+      const allowed = actor.permissions.includes("*") ? rows : rows.filter((row) => scopes.some((scope) => {
+        if (scope.scope === "ALL") return true;
+        if (scope.scope === "OWN") return Boolean(actor.userId && row.createdBy === actor.userId);
+        const rules = scope.rules ?? [];
+        if (scope.scope !== "CUSTOM" || !rules.length) return false;
+        const matches = rules.map((rule) => {
+          const actual = row[rule.fieldKey as keyof typeof row];
+          const expected = rule.value === "CURRENT_USER" ? actor.userId : rule.value === "CURRENT_USER_MANAGED_DEPARTMENTS" ? actor.managedOrganizationUnitIds ?? [] : rule.value;
+          const values = Array.isArray(expected) ? expected.map(String) : [String(expected ?? "")];
+          if (rule.operator === "EQ" || rule.operator === "IN") return values.includes(String(actual ?? ""));
+          if (rule.operator === "NE" || rule.operator === "NOT_IN") return !values.includes(String(actual ?? ""));
+          if (rule.operator === "CONTAINS") return String(actual ?? "").includes(String(expected ?? ""));
+          if (rule.operator === "IS_EMPTY") return actual == null || actual === "";
+          if (rule.operator === "IS_NOT_EMPTY") return actual != null && actual !== "";
+          return false;
+        });
+        return scope.match === "ANY" ? matches.some(Boolean) : matches.every(Boolean);
+      }));
+      const administrator = actor.permissions.includes("*") || scopes.some((scope) => scope.groupId?.startsWith("module-admin:"));
+      const visible = administrator ? allowed : allowed.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => ["id", "version", "planVersionId"].includes(key) || actor.permissions.includes(`monthly-plan:${key}:read`) || actor.permissions.includes(`monthly-plan:${key}:update`))));
+      return { rows: visible, total: visible.length, page: 1, pageSize: 0 };
+    }
     return { rows, total, page, pageSize };
   }
 

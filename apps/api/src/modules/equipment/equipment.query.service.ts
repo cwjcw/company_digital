@@ -5,6 +5,7 @@ import { EquipmentActor, equipmentScope, hasEquipmentPermission } from "./equipm
 type PageInput = {
   page?: number; pageSize?: number; search?: string; divisionId?: string; equipmentId?: string;
   divisionName?: string; usageDepartmentName?: string; equipmentCode?: string; equipmentName?: string;
+  purchaseDate?: string; plannedStartupMinutes?: string; monitored?: string;
   reportDate?: string; runtimeMinutes?: string; faultMinutes?: string; faultReason?: string; responsibleUserIds?: string;
   createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
   sortField?: string; sortOrder?: string;
@@ -19,16 +20,20 @@ export class EquipmentQueryService {
     this.assert(actor, "equipment-register", "read");
     const { page, pageSize, offset } = this.page(input); const params: unknown[] = [actor.tenantId];
     const clauses = ["asset.tenant_id=$1", "asset.active=true", this.scopeClause(actor, "equipment-register", "read", "asset", params)];
+    const responsibleNames = `COALESCE((SELECT string_agg(u.display_name,' ') FROM equipment_responsibles er JOIN users u ON u.id=er.user_id WHERE er.tenant_id=asset.tenant_id AND er.equipment_id=asset.id),'')`;
+    const plannedStartupDuration = `(asset.planned_startup_minutes / 60)::text || '小时' || (asset.planned_startup_minutes % 60)::text || '分钟'`;
     const search = String(input.search ?? "").trim();
-    if (search) { params.push(`%${search}%`); clauses.push(`(asset.equipment_code ILIKE $${params.length} OR asset.equipment_name ILIKE $${params.length} OR asset.division_name_snapshot ILIKE $${params.length} OR asset.usage_department_name_snapshot ILIKE $${params.length})`); }
+    if (search) { params.push(`%${search}%`); clauses.push(`(asset.equipment_code ILIKE $${params.length} OR asset.equipment_name ILIKE $${params.length} OR asset.division_name_snapshot ILIKE $${params.length} OR asset.usage_department_name_snapshot ILIKE $${params.length} OR ${plannedStartupDuration} ILIKE $${params.length} OR ${responsibleNames} ILIKE $${params.length})`); }
     if (input.divisionId) { params.push(input.divisionId); clauses.push(`asset.division_organization_unit_id=$${params.length}::uuid`); }
     this.textFilters(input, params, clauses, {
       divisionName: "asset.division_name_snapshot", usageDepartmentName: "asset.usage_department_name_snapshot",
       equipmentCode: "asset.equipment_code", equipmentName: "asset.equipment_name",
+      purchaseDate: "asset.purchase_date::text", plannedStartupMinutes: plannedStartupDuration, responsibleUserIds: responsibleNames,
       createdBy: "asset.created_by::text", createdAt: "asset.created_at::text", updatedBy: "asset.updated_by::text", updatedAt: "asset.updated_at::text"
     });
+    this.booleanLabelFilter(input.monitored, params, clauses, "asset.monitored", "需要填报", "无需填报");
     const where = clauses.join(" AND ");
-    const sortColumns: Record<string, string> = { divisionName:"asset.division_name_snapshot",usageDepartmentName:"asset.usage_department_name_snapshot",equipmentCode:"asset.equipment_code",equipmentName:"asset.equipment_name",purchaseDate:"asset.purchase_date",monitored:"asset.monitored",createdBy:"asset.created_by",createdAt:"asset.created_at",updatedBy:"asset.updated_by",updatedAt:"asset.updated_at" };
+    const sortColumns: Record<string, string> = { divisionName:"asset.division_name_snapshot",usageDepartmentName:"asset.usage_department_name_snapshot",equipmentCode:"asset.equipment_code",equipmentName:"asset.equipment_name",purchaseDate:"asset.purchase_date",plannedStartupMinutes:"asset.planned_startup_minutes",monitored:"asset.monitored",createdBy:"asset.created_by",createdAt:"asset.created_at",updatedBy:"asset.updated_by",updatedAt:"asset.updated_at" };
     const sortColumn = sortColumns[input.sortField ?? ""];
     const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "asset.division_name_snapshot,asset.usage_department_name_snapshot,asset.equipment_code";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_assets asset WHERE ${where}`, params);
@@ -37,6 +42,7 @@ export class EquipmentQueryService {
       SELECT asset.id,asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",
         asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName",
         asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.purchase_date "purchaseDate",
+        asset.planned_startup_minutes "plannedStartupMinutes",
         asset.monitored,asset.active,asset.version,asset.created_by "createdBy",asset.created_at "createdAt",
         asset.updated_by "updatedBy",asset.updated_at "updatedAt",
         COALESCE(resp.ids,'[]'::jsonb) "responsibleUserIds",COALESCE(resp.users,'[]'::jsonb) "responsibleUsers"
@@ -115,18 +121,27 @@ export class EquipmentQueryService {
       ORDER BY report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot`, params);
   }
 
-  async formOptions(actor: EquipmentActor) {
-    if (!["equipment-register", "equipment-status-report"].some((resource) => ["read", "create", "update"].some((action) => hasEquipmentPermission(actor, resource, action)))) throw new ForbiddenException("没有设备管理权限");
-    const resource = hasEquipmentPermission(actor, "equipment-status-report", "create") || hasEquipmentPermission(actor, "equipment-status-report", "read") ? "equipment-status-report" : "equipment-register";
-    const action = hasEquipmentPermission(actor, resource, "create") ? "create" : "read";
-    const params: unknown[] = [actor.tenantId]; const scope = this.scopeClause(actor, resource, action, "asset", params);
-    const [equipment, users, organizations, faultReasons] = await Promise.all([
-      this.dataSource.query(`SELECT asset.id,asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName" FROM equipment_assets asset WHERE asset.tenant_id=$1 AND asset.active=true AND asset.monitored=true AND ${scope} ORDER BY asset.equipment_code,asset.division_name_snapshot`, params),
+  async assetFormOptions(actor: EquipmentActor) {
+    if (!["read", "create", "update"].some((action) => hasEquipmentPermission(actor, "equipment-register", action))) throw new ForbiddenException("没有设备总台账权限");
+    const [users, organizations, faultReasons] = await Promise.all([
       this.dataSource.query(`SELECT id,display_name "displayName",enabled FROM users WHERE enabled=true ORDER BY display_name`),
       this.organizationOptions(),
       this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
     ]);
-    return { equipment, users, organizations, faultReasons: faultReasons.map((row: any) => row.value) };
+    return { equipment: [], users, organizations, faultReasons: faultReasons.map((row: any) => row.value) };
+  }
+
+  async statusFormOptions(actor: EquipmentActor) {
+    const canCreate = hasEquipmentPermission(actor, "equipment-status-report", "create");
+    const canUpdate = hasEquipmentPermission(actor, "equipment-status-report", "update");
+    if (!canCreate && !canUpdate) throw new ForbiddenException("没有设备状态填报的新增或编辑权限");
+    const params: unknown[] = [actor.tenantId];
+    const referenceScope = canCreate ? this.referenceCreationScopeClause(actor, "equipment-status-report", "asset", params) : "1=0";
+    const [equipment, faultReasons] = await Promise.all([
+      this.dataSource.query(`SELECT asset.id,asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName" FROM equipment_assets asset WHERE asset.tenant_id=$1 AND asset.active=true AND asset.monitored=true AND ${referenceScope} ORDER BY asset.equipment_code,asset.division_name_snapshot`, params),
+      this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
+    ]);
+    return { equipment, users: [], organizations: [], faultReasons: faultReasons.map((row: any) => row.value) };
   }
 
   async governanceSummary(actor: EquipmentActor) {
@@ -319,8 +334,25 @@ export class EquipmentQueryService {
   private scopeClause(actor: EquipmentActor, resource: string, action: string, alias: string, params: unknown[]) {
     const scope = equipmentScope(actor, resource, action);
     if (scope.unrestricted) return "1=1";
-    if (!scope.divisionIds.length) return "1=0";
-    params.push(scope.divisionIds); return `${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`;
+    const clauses: string[] = [];
+    if (scope.divisionIds.length) {
+      params.push(scope.divisionIds); clauses.push(`${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`);
+    }
+    if (scope.own && actor.userId) {
+      params.push(actor.userId); clauses.push(`${alias}.created_by=$${params.length}::uuid`);
+    }
+    return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
+  }
+
+  private referenceCreationScopeClause(actor: EquipmentActor, resource: string, alias: string, params: unknown[]) {
+    if (actor.isSystemAdmin === true || actor.permissions.includes("*")) return "1=1";
+    const scopes = (actor.tableDataScopes ?? []).filter((scope) =>
+      scope.resource === resource && (!Array.isArray(scope.actions) || scope.actions.includes("create"))
+    );
+    if (scopes.some((scope) => ["ALL", "OWN", "NONE"].includes(scope.scope))) return "1=1";
+    const divisionIds = equipmentScope(actor, resource, "create").divisionIds;
+    if (!divisionIds.length) return "1=0";
+    params.push(divisionIds); return `${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`;
   }
 
   private page(input: PageInput) {
@@ -342,5 +374,15 @@ export class EquipmentQueryService {
       SELECT id,name,parent_id,ARRAY[name]::varchar[] path,enabled FROM organization_units WHERE parent_id IS NULL
       UNION ALL SELECT child.id,child.name,child.parent_id,parent.path||child.name,child.enabled FROM organization_units child JOIN org parent ON parent.id=child.parent_id
     ) SELECT id,name,"parent_id" "parentId",path,array_to_string(path,' / ') "pathLabel" FROM org WHERE enabled=true ORDER BY path`);
+  }
+
+  private booleanLabelFilter(raw: unknown, params: unknown[], clauses: string[], column: string, trueLabel: string, falseLabel: string) {
+    const value = String(raw ?? "").trim().toLocaleLowerCase();
+    if (!value) return;
+    const matchesTrue = trueLabel.toLocaleLowerCase().includes(value) || ["true", "1", "是"].includes(value);
+    const matchesFalse = falseLabel.toLocaleLowerCase().includes(value) || ["false", "0", "否"].includes(value);
+    if (matchesTrue && matchesFalse) return;
+    if (!matchesTrue && !matchesFalse) { clauses.push("1=0"); return; }
+    params.push(matchesTrue); clauses.push(`${column}=$${params.length}`);
   }
 }

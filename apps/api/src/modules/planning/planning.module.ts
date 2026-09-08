@@ -24,6 +24,6 @@ import { PlanningOrganizationDirectoryService } from "./planning-organization-di
     { provide: KDOS_DATABASE, useFactory: () => createKdosDatabase() },
     { provide: PLANNING_REPOSITORY, useClass: DrizzlePlanningRepository }
   ],
-  exports: [PlanningApplicationService, PlanQueryService, PlanGateway, PlanningDomainEventBus, KDOS_DATABASE]
+  exports: [PlanningApplicationService, PlanQueryService, PlanningOrganizationDirectoryService, PlanGateway, PlanningDomainEventBus, KDOS_DATABASE]
 })
 export class PlanningModule {}

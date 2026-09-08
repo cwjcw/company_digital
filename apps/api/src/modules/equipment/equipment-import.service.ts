@@ -98,6 +98,8 @@ export class EquipmentImportService {
     if (/^\d+$/.test(text)) return Number(text);
     const chinese = /^(\d+)小时(?:(\d{1,2})分钟)?$/.exec(text);
     if (chinese && Number(chinese[2] ?? 0) < 60) return Number(chinese[1]) * 60 + Number(chinese[2] ?? 0);
+    const minutes = /^(\d+)分钟$/.exec(text);
+    if (minutes) return Number(minutes[1]);
     const clock = /^(\d+):(\d{1,2})$/.exec(text);
     if (clock && Number(clock[2]) < 60) return Number(clock[1]) * 60 + Number(clock[2]);
     return Number.NaN;

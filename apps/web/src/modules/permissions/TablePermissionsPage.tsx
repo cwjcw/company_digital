@@ -10,6 +10,7 @@ import { ApartmentOutlined, ArrowLeftOutlined, CopyOutlined, DeleteOutlined, Edi
 import { Alert, Avatar, Button, Card, Checkbox, Dropdown, Empty, Flex, Input, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, Tree, Typography, message } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
+import { OrganizationSelect } from "../../shared/OrganizationSelect";
 
 const { Paragraph, Text, Title } = Typography;
 type SubjectType = "USER" | "ORGANIZATION" | "ROLE";
@@ -207,7 +208,7 @@ function RuleEditor({ rule, fields, users, organizations, onChange, onRemove }: 
   if (field?.type === "number") valueEditor = <InputNumber disabled={valueDisabled} value={typeof rule.value === "number" ? rule.value : null} onChange={(value) => onChange({ ...rule, value })} placeholder="请输入数值" /> as any;
   if (field?.type === "date") valueEditor = <Input type="date" disabled={valueDisabled} value={String(rule.value ?? "")} onChange={(event) => onChange({ ...rule, value: event.target.value })} />;
   if (field?.type === "member") valueEditor = <Select disabled={valueDisabled} value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: "CURRENT_USER", label: "当前用户" }, ...users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName }))]} placeholder="选择成员" />;
-  if (field?.type === "department") valueEditor = <Select disabled={valueDisabled} showSearch optionFilterProp="label" value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: "CURRENT_USER_MANAGED_DEPARTMENTS", label: "当前用户负责的部门及子部门" }, ...organizations.filter((unit) => unit.enabled).map((unit) => ({ value: unit.id, label: unit.pathLabel ?? unit.name }))]} placeholder="选择部门或动态范围" />;
+  if (field?.type === "department") valueEditor = <OrganizationSelect disabled={valueDisabled} value={rule.value as string || undefined} onChange={(value) => onChange({ ...rule, value })} organizations={organizations.filter((unit) => unit.enabled)} extraOptions={[{ value: "CURRENT_USER_MANAGED_DEPARTMENTS", label: "当前用户负责的部门及子部门" }]} placeholder="选择部门或动态范围" />;
   if (field?.type === "boolean") valueEditor = <Select disabled={valueDisabled} value={rule.value as boolean | undefined} onChange={(value) => onChange({ ...rule, value })} options={[{ value: true, label: "是" }, { value: false, label: "否" }]} />;
   return <div className="permission-rule-row"><Select value={rule.fieldKey || undefined} showSearch optionFilterProp="label" onChange={(fieldKey) => onChange({ fieldKey, operator: "EQ", value: "" })} options={fields.map((item) => ({ value: item.key, label: item.label }))} placeholder="请选择字段" /><Select value={rule.operator} onChange={(operator) => onChange({ ...rule, operator, value: ["IS_EMPTY", "IS_NOT_EMPTY"].includes(operator) ? null : rule.value })} options={operatorOptions} />{valueEditor}<Button danger type="text" icon={<DeleteOutlined />} onClick={onRemove} aria-label="删除过滤条件" /></div>;
 }

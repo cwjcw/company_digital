@@ -13,13 +13,14 @@ import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
 import { useAuditIdentityDirectory } from "../../../shared/audit-fields";
 import { KdosTableSearchFilter, TablePermissionButton } from "../../../shared/KdosDataTable";
 import { AG_GRID_LOCALE_ZH_CN } from "../../../shared/ag-grid-locale-zh";
+import { OrganizationSelect } from "../../../shared/OrganizationSelect";
 
 const { Text } = Typography;
 type Notice = { type: "success" | "error" | "info"; text: string };
 type PeriodResponse = { id: string; year: number; month: number; currentVersionId: string | null; versions: PlanningVersionContract[] } | null;
 type ImportPreview = { jobId: string; summary: { total: number; warnings: number }; warnings: string[] };
 type PlanPage = { rows: any[]; total: number; page: number; pageSize: number };
-const planPageSizes = [20, 50, 100, 200];
+const planPageSizes = [20, 50, 100, 200, 0];
 
 function useDictionaryOptions() {
   const dictionaries = useQuery({ queryKey: ["reference-dictionaries"], queryFn: () => api<any[]>("/reference-data/dictionaries") });
@@ -58,7 +59,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
-    const saved = Number(localStorage.getItem(`kdos-form-page-size:${userKey}:monthly-plan`));
+    const saved = Number(localStorage.getItem(`kdos-form-page-size:${userKey}:monthly-plan`) ?? 50);
     return planPageSizes.includes(saved) ? saved : 50;
   });
   const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
@@ -281,13 +282,14 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
         overlayNoRowsTemplate="<span class='ag-overlay-no-rows-center'>本月暂无计划数据，字段结构已完整加载</span>"
         rowHeight={40} headerHeight={58} groupHeaderHeight={42} stopEditingWhenCellsLoseFocus />
     </div>
-    <div className="monthly-grid-pagination"><Pagination current={page} pageSize={pageSize} total={Array.isArray(itemsQuery.data) ? itemsQuery.data.length : itemsQuery.data?.total ?? 0}
-      pageSizeOptions={planPageSizes} showSizeChanger showQuickJumper showTotal={(total) => `共 ${total} 条`}
+    <div className="monthly-grid-pagination"><Pagination current={page} pageSize={pageSize || Math.max(rows.length, 1)} total={Array.isArray(itemsQuery.data) ? itemsQuery.data.length : itemsQuery.data?.total ?? 0}
+      showSizeChanger={false} showQuickJumper={pageSize !== 0} showTotal={(total) => `共 ${total} 条`}
       onChange={(nextPage, nextPageSize) => {
         const sizeChanged = nextPageSize !== pageSize;
         setPageSize(nextPageSize); setPage(sizeChanged ? 1 : nextPage);
         localStorage.setItem(`kdos-form-page-size:${userKey}:monthly-plan`, String(nextPageSize));
       }} />
+      <Select aria-label="每页显示条数" value={pageSize} options={planPageSizes.map((value) => ({ value, label: value === 0 ? "显示所有" : `${value} 条/页` }))} onChange={(value) => { setPageSize(value); setPage(1); localStorage.setItem(`kdos-form-page-size:${userKey}:monthly-plan`, String(value)); }} />
     </div>
     <Modal title="字段显示" width={800} open={fieldOpen} onCancel={() => setFieldOpen(false)} footer={<Button type="primary" onClick={() => setFieldOpen(false)}>完成</Button>}>
       <Flex justify="space-between" style={{ marginBottom: 12 }}><Text type="secondary">Metadata Registry：当前显示 {fields.filter((field) => !hiddenFields.includes(field.code)).length} / {fields.length} 个字段</Text><Space><Button onClick={() => setHiddenFields([])}>全部显示</Button><Button onClick={() => setHiddenFields([])}>恢复默认</Button></Space></Flex>
@@ -317,7 +319,7 @@ export function MonthlyPlanPage({ year, month }: { year: number; month: number }
       <Form form={addForm} layout="vertical"><Form.Item name="orderNumber" label="订单号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemNumber" label="品号" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="itemName" label="品名"><Input /></Form.Item><Form.Item name="productionQuantity" label="订单需求数量" rules={[{ required: true }]}><InputNumber min={0} precision={4} style={{ width: "100%" }} /></Form.Item><Form.Item name="deliveryDate" label="客户要求交期"><DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /></Form.Item></Form>
     </Modal>
     <Modal title={`批量修改 ${selectedIds.length} 行`} open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => void bulkUpdate()}>
-      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={bulkFieldOptions} /></Form.Item><Form.Item name="value" label="新值" rules={[{ required: true }]}>{bulkField?.dataType === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : ["decimal", "integer"].includes(bulkField?.dataType ?? "") ? <InputNumber style={{ width: "100%" }} /> : bulkField?.editorType === "department" ? <Select showSearch optionFilterProp="label" options={(organizationsQuery.data ?? []).map((entry) => ({ value: entry.id, label: entry.pathLabel }))} /> : bulkField?.editorType === "dictionary" ? <Select showSearch options={(dictionaryOptions[bulkField.dictionaryCode ?? ""] ?? []).map((value) => ({ value, label: value }))} /> : <Input />}</Form.Item></Form>
+      <Form form={bulkForm} layout="vertical"><Form.Item name="field" label="字段" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={bulkFieldOptions} /></Form.Item><Form.Item name="value" label="新值" rules={[{ required: true }]}>{bulkField?.dataType === "date" ? <DatePicker format={DUE_DATE_DISPLAY_FORMAT} style={{ width: "100%" }} /> : ["decimal", "integer"].includes(bulkField?.dataType ?? "") ? <InputNumber style={{ width: "100%" }} /> : bulkField?.editorType === "department" ? <OrganizationSelect organizations={organizationsQuery.data ?? []} placeholder="选择完整组织路径" /> : bulkField?.editorType === "dictionary" ? <Select showSearch options={(dictionaryOptions[bulkField.dictionaryCode ?? ""] ?? []).map((value) => ({ value, label: value }))} /> : <Input />}</Form.Item></Form>
     </Modal>
     <Modal title={selectedItem ? `上传简图 · 品号 ${selectedItem.itemNumber}` : "上传简图"} open={imageOpen} onCancel={() => setImageOpen(false)} footer={<Button onClick={() => setImageOpen(false)}>关闭</Button>}>
       {!selectedItem ? <Alert type="info" showIcon message="请点击表格中的简图单元格" /> : <Space wrap>

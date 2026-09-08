@@ -7,14 +7,16 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import { api } from "../../api";
-import { KdosDataTable, TablePermissionButton, hasResourcePermission } from "../../shared/KdosDataTable";
+import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission } from "../../shared/KdosDataTable";
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
+import { OrganizationSelect } from "../../shared/OrganizationSelect";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type PageResult<T> = { rows: T[]; total: number; page: number; pageSize: number };
 type EquipmentAsset = {
   id: string; divisionId: string; divisionName: string; usageDepartmentId: string | null;
   usageDepartmentName: string; equipmentCode: string; equipmentName: string; purchaseDate: string | null;
+  plannedStartupMinutes: number;
   monitored: boolean; responsibleUserIds: string[]; responsibleUsers: Array<{ id: string; displayName: string }>;
   version: number; createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
 };
@@ -59,7 +61,7 @@ function durationText(value: unknown) {
   return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
 }
 
-function DurationFields({ prefix, label }: { prefix: "runtime" | "fault"; label: string }) {
+function DurationFields({ prefix, label }: { prefix: "plannedStartup" | "runtime" | "fault"; label: string }) {
   return <Form.Item label={label} required>
     <Space.Compact block>
       <Form.Item name={`${prefix}Hours`} noStyle rules={[{ required: true, message: `请输入${label}` }]}>
@@ -72,8 +74,15 @@ function DurationFields({ prefix, label }: { prefix: "runtime" | "fault"; label:
   </Form.Item>;
 }
 
-function useEquipmentOptions() {
-  return useQuery({ queryKey: ["equipment-options"], queryFn: () => api<EquipmentOptions>("/equipment/options"), staleTime: 60_000 });
+function useEquipmentPermissions(resource: "equipment-register" | "equipment-status-report") {
+  const session = useQuery({ queryKey: ["auth-session"], queryFn: () => api<{ permissions?: string[] }>("/auth/me"), retry: false, staleTime: 0, refetchOnMount: "always" });
+  const allows = (action: string) => hasSessionResourcePermission(session.data, resource, action);
+  return { canRead: allows("read"), canCreate: allows("create"), canUpdate: allows("update"), canDelete: allows("delete"), canImport: allows("import"), canExport: allows("export") };
+}
+
+function useEquipmentOptions(kind: "asset" | "status", enabled: boolean) {
+  const path = kind === "status" ? "/equipment/status-options" : "/equipment/options";
+  return useQuery({ queryKey: ["equipment-options", kind], queryFn: () => api<EquipmentOptions>(path), staleTime: 60_000, enabled });
 }
 
 export function EquipmentRegisterPage() {
@@ -83,35 +92,38 @@ export function EquipmentRegisterPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
-  const options = useEquipmentOptions();
+  const permissions = useEquipmentPermissions("equipment-register");
+  const { canRead, canCreate, canUpdate, canDelete } = permissions;
+  const options = useEquipmentOptions("asset", canCreate || canUpdate);
   const records = useQuery({
     queryKey: ["equipment-assets", tableQuery],
     queryFn: () => api<PageResult<EquipmentAsset>>(tableUrl("/equipment/assets", tableQuery)),
-    placeholderData: (previous) => previous
+    placeholderData: (previous) => previous,
+    enabled: canRead
   });
-  const canCreate = hasResourcePermission("equipment-register", "create");
-  const canUpdate = hasResourcePermission("equipment-register", "update");
-  const canDelete = hasResourcePermission("equipment-register", "delete");
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["equipment-assets"] });
-  const organizationOptions = (options.data?.organizations ?? []).map((item) => ({ value: item.id, label: item.pathLabel }));
-  const divisionOptions = (options.data?.organizations ?? []).filter((item) => divisionNames.has(item.name))
-    .map((item) => ({ value: item.id, label: item.pathLabel }));
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["equipment-assets"] });
+  const organizationOptions = options.data?.organizations ?? [];
+  const divisionOptions = organizationOptions.filter((item) => divisionNames.has(item.name));
   const memberOptions = (options.data?.users ?? []).map((item) => ({ value: item.id, label: item.displayName }));
 
   const openCreate = () => {
-    setEditing(undefined); form.resetFields(); form.setFieldsValue({ monitored: false, responsibleUserIds: [] }); setOpen(true);
+    setEditing(undefined); form.resetFields(); form.setFieldsValue({ plannedStartupHours: 0, plannedStartupMinutePart: 0, monitored: false, responsibleUserIds: [] }); setOpen(true);
   };
   const openEdit = (row: EquipmentAsset) => {
+    const plannedStartup = Number(row.plannedStartupMinutes ?? 0);
     setEditing(row); form.setFieldsValue({
       divisionId: row.divisionId, usageDepartmentId: row.usageDepartmentId, equipmentCode: row.equipmentCode,
       equipmentName: row.equipmentName, purchaseDate: row.purchaseDate ? dayjs(row.purchaseDate) : null,
+      plannedStartupHours: Math.floor(plannedStartup / 60), plannedStartupMinutePart: plannedStartup % 60,
       monitored: row.monitored, responsibleUserIds: row.responsibleUserIds ?? []
     }); setOpen(true);
   };
   const save = async () => {
     try {
       const values = await form.validateFields(); setSaving(true);
-      const payload = { ...values, purchaseDate: values.purchaseDate?.format("YYYY-MM-DD") ?? null, expectedVersion: editing?.version };
+      const { plannedStartupHours, plannedStartupMinutePart, ...assetValues } = values;
+      const plannedStartupMinutes = Number(plannedStartupHours ?? 0) * 60 + Number(plannedStartupMinutePart ?? 0);
+      const payload = { ...assetValues, plannedStartupMinutes, purchaseDate: values.purchaseDate?.format("YYYY-MM-DD") ?? null, expectedVersion: editing?.version };
       await api(editing ? `/equipment/assets/${editing.id}` : "/equipment/assets", {
         method: editing ? "PATCH" : "POST", body: JSON.stringify(payload)
       });
@@ -126,9 +138,10 @@ export function EquipmentRegisterPage() {
     title: `停用设备 ${row.equipmentCode}？`, content: "历史状态填报会保留，停用后不再出现在新填报设备列表中。", okText: "确认停用", okButtonProps: { danger: true },
     onOk: async () => {
       try {
-        await api(`/equipment/assets/${row.id}`, { method: "DELETE", body: JSON.stringify({ expectedVersion: row.version }) });
-        message.success("设备已停用"); refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-options"] });
-      } catch (error) { message.error(errorText(error)); }
+        await api(`/equipment/assets/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" });
+        await refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-options"] });
+        message.success("设备已停用");
+      } catch (error) { message.error(errorText(error)); throw error; }
     }
   });
 
@@ -138,8 +151,9 @@ export function EquipmentRegisterPage() {
     { title: "设备编号", dataIndex: "equipmentCode", width: 150, fixed: "left" },
     { title: "设备名称", dataIndex: "equipmentName", width: 220 },
     { title: "购买日期", dataIndex: "purchaseDate", width: 115, render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD") : "—" },
+    { title: "设备计划开机时间", dataIndex: "plannedStartupMinutes", width: 170, render: durationText },
     { title: "状态填报", dataIndex: "monitored", width: 110, render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "需要填报" : "无需填报"}</Tag> },
-    { title: "责任人（可多选）", dataIndex: "responsibleUsers", width: 240, render: (users: EquipmentAsset["responsibleUsers"]) => users?.length ? users.map((user) => <Tag key={user.id}>{user.displayName}</Tag>) : <Typography.Text type="warning">未指定</Typography.Text> },
+    { title: "责任人（可多选）", dataIndex: "responsibleUserIds", width: 240, render: (_ids: string[], row: EquipmentAsset) => row.responsibleUsers?.length ? row.responsibleUsers.map((user) => <Tag key={user.id}>{user.displayName}</Tag>) : <Typography.Text type="warning">未指定</Typography.Text> },
     ...(canUpdate || canDelete ? [{ title: "操作", key: "actions", width: 150, fixed: "right", render: (_: unknown, row: EquipmentAsset) => <Space>
       {canUpdate && <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>}
       {canDelete && <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(row)}>停用</Button>}
@@ -150,17 +164,18 @@ export function EquipmentRegisterPage() {
     <PageHeader title="设备总台账" subtitle=""
       actions={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} />
     <KdosDataTable resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
-      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1500, y: "calc(100vh - 310px)" }} />
+      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1670, y: "calc(100vh - 310px)" }} />
     <Modal title={editing ? "编辑设备" : "新增设备"} width={760} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
         <div className="equipment-form-grid">
           <Form.Item name="divisionId" label="事业部（部门字段）" rules={[{ required: true, message: "请选择事业部" }]}>
-            <Select showSearch optionFilterProp="label" options={divisionOptions} placeholder="研发请选择“研发中心”" />
+            <OrganizationSelect organizations={divisionOptions} placeholder="研发请选择“研发中心”" />
           </Form.Item>
-          <Form.Item name="usageDepartmentId" label="使用部门"><Select allowClear showSearch optionFilterProp="label" options={organizationOptions} /></Form.Item>
+          <Form.Item name="usageDepartmentId" label="使用部门"><OrganizationSelect allowClear organizations={organizationOptions} placeholder="选择完整组织路径" /></Form.Item>
           <Form.Item name="equipmentCode" label="设备编号" rules={[{ required: true, whitespace: true, message: "请输入设备编号" }]}><Input /></Form.Item>
           <Form.Item name="equipmentName" label="设备名称" rules={[{ required: true, whitespace: true, message: "请输入设备名称" }]}><Input /></Form.Item>
           <Form.Item name="purchaseDate" label="购买日期"><DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" /></Form.Item>
+          <DurationFields prefix="plannedStartup" label="设备计划开机时间" />
           <Form.Item name="monitored" label="纳入每周状态填报" valuePropName="checked"><Switch checkedChildren="需要" unCheckedChildren="无需" /></Form.Item>
           <Form.Item className="equipment-form-wide" name="responsibleUserIds" label="责任人（允许多选）"><Select mode="multiple" allowClear showSearch optionFilterProp="label" maxTagCount="responsive" options={memberOptions} /></Form.Item>
         </div>
@@ -177,18 +192,17 @@ export function EquipmentStatusReportPage() {
   const [open, setOpen] = useState(false); const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false); const [confirmingImport, setConfirmingImport] = useState(false);
   const [exporting, setExporting] = useState(false); const [importPreview, setImportPreview] = useState<StatusImportPreview>();
-  const [form] = Form.useForm(); const options = useEquipmentOptions();
+  const [form] = Form.useForm();
+  const permissions = useEquipmentPermissions("equipment-status-report");
+  const { canRead, canCreate, canUpdate, canDelete, canImport, canExport } = permissions;
+  const options = useEquipmentOptions("status", canCreate || canUpdate);
   const records = useQuery({
     queryKey: ["equipment-status", tableQuery], queryFn: () => api<PageResult<EquipmentStatus>>(tableUrl("/equipment/status-reports", tableQuery)),
-    placeholderData: (previous) => previous
+    placeholderData: (previous) => previous,
+    enabled: canRead
   });
-  const canCreate = hasResourcePermission("equipment-status-report", "create");
-  const canUpdate = hasResourcePermission("equipment-status-report", "update");
-  const canDelete = hasResourcePermission("equipment-status-report", "delete");
-  const canImport = hasResourcePermission("equipment-status-report", "import");
-  const canExport = hasResourcePermission("equipment-status-report", "export");
   const selectedEquipment = useMemo(() => options.data?.equipment.find((item) => item.id === selectedEquipmentId), [options.data?.equipment, selectedEquipmentId]);
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["equipment-status"] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["equipment-status"] });
   const equipmentOptions = (options.data?.equipment ?? []).map((item) => ({ value: item.id, label: `${item.equipmentCode}｜${item.equipmentName}｜${item.divisionName}` }));
   const previewImport = async (file: File) => {
     const body = new FormData(); body.append("file", file); setImporting(true);
@@ -220,13 +234,22 @@ export function EquipmentStatusReportPage() {
     } catch (error) { message.error(errorText(error)); }
     finally { setExporting(false); }
   };
+  const [exportingTemplate, setExportingTemplate] = useState(false);
+  const exportTemplate = async () => {
+    setExportingTemplate(true);
+    try { await downloadApiFile("/equipment/status-reports/import-template", "设备状态填报导入模板.xlsx"); }
+    catch (error) { message.error(errorText(error)); }
+    finally { setExportingTemplate(false); }
+  };
   const setInitial = (row?: EquipmentStatus) => {
+    if ((row && !canUpdate) || (!row && !canCreate)) { message.error("当前权限不允许此操作"); return; }
     setEditing(row); const runtime = Number(row?.runtimeMinutes ?? 0); const fault = Number(row?.faultMinutes ?? 0);
     const equipmentId = row?.equipmentId; setSelectedEquipmentId(equipmentId);
     form.setFieldsValue({ equipmentId, reportDate: row?.reportDate ? dayjs(row.reportDate) : dayjs(), runtimeHours: Math.floor(runtime / 60), runtimeMinutePart: runtime % 60, faultHours: Math.floor(fault / 60), faultMinutePart: fault % 60, faultReason: row?.faultReason ?? undefined });
     setOpen(true);
   };
   const save = async () => {
+    if ((editing && !canUpdate) || (!editing && !canCreate)) { message.error("当前权限不允许此操作"); setOpen(false); return; }
     try {
       const values = await form.validateFields(); setSaving(true);
       const runtimeMinutes = Number(values.runtimeHours ?? 0) * 60 + Number(values.runtimeMinutePart ?? 0);
@@ -243,8 +266,11 @@ export function EquipmentStatusReportPage() {
   const remove = (row: EquipmentStatus) => Modal.confirm({
     title: `删除 ${row.equipmentCode} 在 ${row.reportDate} 的填报？`, okText: "确认删除", okButtonProps: { danger: true },
     onOk: async () => {
-      try { await api(`/equipment/status-reports/${row.id}`, { method: "DELETE", body: JSON.stringify({ expectedVersion: row.version }) }); message.success("填报记录已删除"); refresh(); }
-      catch (error) { message.error(errorText(error)); }
+      try {
+        await api(`/equipment/status-reports/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" });
+        await refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
+        message.success("填报记录已删除");
+      } catch (error) { message.error(errorText(error)); throw error; }
     }
   });
   const columns: any[] = [
@@ -268,15 +294,19 @@ export function EquipmentStatusReportPage() {
       toolbar={<>
         {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setInitial(); }}>填报设备状态</Button>}
         {canImport && <Upload accept=".xlsx,.csv" showUploadList={false} beforeUpload={(file) => previewImport(file as File)}><Button icon={<UploadOutlined />} loading={importing}>导入</Button></Upload>}
-        {canImport && <Button icon={<DownloadOutlined />} onClick={() => void downloadApiFile("/equipment/status-reports/import-template", "设备状态填报导入模板.xlsx")}>下载模板</Button>}
+        {(canCreate || canImport || canExport) && <Button icon={<DownloadOutlined />} loading={exportingTemplate} onClick={() => void exportTemplate()}>导出模板</Button>}
         {canExport && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportRows()}>导出</Button>}
         <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
       </>}
       loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1450, y: "calc(100vh - 310px)" }} />
     <Modal title={editing ? "编辑设备状态" : "填报设备状态"} width={700} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
+        {!editing && options.isSuccess && equipmentOptions.length === 0 && <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+          message="暂无可以填报的设备"
+          description="设备总台账中尚未将任何设备标记为“需要填报”。请先由有权限的人员在设备总台账中确认需要监测的设备。" />}
         <Form.Item name="equipmentId" label="设备编号" rules={[{ required: true, message: "请选择设备编号" }]}>
-          <Select autoFocus showSearch optionFilterProp="label" options={equipmentOptions} onChange={setSelectedEquipmentId} disabled={Boolean(editing)} placeholder="先选择设备编号" />
+          <Select autoFocus showSearch optionFilterProp="label" options={equipmentOptions} onChange={setSelectedEquipmentId} disabled={Boolean(editing)}
+            loading={options.isLoading} notFoundContent="暂无标记为需要填报的设备" placeholder="先选择设备编号" />
         </Form.Item>
         <div className="equipment-form-grid equipment-auto-fields">
           <Form.Item label="设备名称"><Input readOnly value={selectedEquipment?.equipmentName ?? editing?.equipmentName ?? ""} /></Form.Item>

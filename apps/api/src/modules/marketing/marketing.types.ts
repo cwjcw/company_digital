@@ -35,8 +35,6 @@ export type MappingDepartmentDirectorySyncResult = {
   sourceCustomers: number;
   resolved: number;
   mappingsUpdated: number;
-  schedulesMatched: number;
-  schedulesUpdated: number;
   skipped: Array<{ customerCode: string; reason: string }>;
 };
 
@@ -78,16 +76,43 @@ export type OrderScheduleInput = {
   orderTotalQuantity: string | number;
   productionUnit?: string | null;
   completionRatio: string | number;
+  status?: "NORMAL" | "VOID";
   sourcePlanItemId?: string | null;
 };
 
-export type OrderScheduleBusinessSyncResult = {
-  sourceCustomers: number;
-  targetRows: number;
+export type ScheduleImportRow = { row: number; input: OrderScheduleInput; id: string | null; expectedVersion: number | null };
+
+export type RollingPlanSyncRow = {
+  id: string;
+  expectedVersion: number;
+  responsibleOrgId: string;
+};
+
+export type RollingPlanSyncFailure = {
+  id: string;
+  orderNumber: string;
+  itemNumber: string;
+  reason: string;
+};
+
+export type RollingPlanSyncResult = {
+  selected: number;
+  eligible: number;
   matched: number;
-  added: 0;
+  created: number;
   updated: number;
   unchanged: number;
-  removed: 0;
   retained: number;
+  failed: RollingPlanSyncFailure[];
+  repeated: boolean;
+};
+
+export type DivisionReviewConfirmRow = {
+  id: string;
+  expectedVersion: number;
+  responsibleOrgId: string | null;
+};
+
+export type DivisionReviewConfirmResult = RollingPlanSyncResult & {
+  confirmed: number;
 };

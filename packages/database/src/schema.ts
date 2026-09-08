@@ -189,6 +189,27 @@ export const planItems = planning.table("plan_items", {
   index("plan_items_tenant_delivery_idx").on(table.tenantId, table.deliveryDate)
 ]);
 
+export const rollingPlanItems = planning.table("rolling_plan_items", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  sourceOrderScheduleId: uuid("source_order_schedule_id"),
+  orderNumber: varchar("order_number", { length: 120 }).notNull(),
+  itemNumber: varchar("item_number", { length: 160 }).notNull(),
+  customerName: varchar("customer_name", { length: 240 }),
+  orderQuantity: numeric("order_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
+  productionQuantity: numeric("production_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
+  deliveryDate: date("delivery_date"),
+  responsibleOrgId: uuid("responsible_org_id"),
+  sequence: integer("sequence").notNull().default(0),
+  legacyData: jsonb("legacy_data").notNull().default({}),
+  ...auditColumns
+}, (table) => [
+  uniqueIndex("rolling_plan_items_tenant_order_item_uq").on(table.tenantId, table.orderNumber, table.itemNumber),
+  index("rolling_plan_items_tenant_sequence_idx").on(table.tenantId, table.sequence),
+  index("rolling_plan_items_tenant_delivery_idx").on(table.tenantId, table.deliveryDate),
+  index("rolling_plan_items_responsible_org_idx").on(table.tenantId, table.responsibleOrgId)
+]);
+
 export const processDefinitions = planning.table("process_definitions", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
@@ -309,6 +330,7 @@ export const orderSchedules = marketing.table("order_schedules", {
   orderTotalQuantity: numeric("order_total_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
   productionUnit: varchar("production_unit", { length: 200 }),
   completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
+  status: varchar("status", { length: 16 }).notNull().default("NORMAL"),
   sourcePlanItemId: uuid("source_plan_item_id"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   ...auditColumns
@@ -317,7 +339,32 @@ export const orderSchedules = marketing.table("order_schedules", {
   index("order_schedules_tenant_order_idx").on(table.tenantId, table.orderNumber, table.itemNumber),
   index("order_schedules_tenant_business_ownership_idx").on(table.tenantId, table.department, table.section),
   index("order_schedules_tenant_department_id_idx").on(table.tenantId, table.departmentId),
-  check("order_schedules_completion_ck", sql`${table.completionRatio} between 0 and 100`)
+  check("order_schedules_completion_ck", sql`${table.completionRatio} between 0 and 100`),
+  check("order_schedules_status_ck", sql`${table.status} in ('NORMAL','VOID')`)
+]);
+
+export const divisionOrderReviews = planning.table("division_order_reviews", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  sourceOrderScheduleId: uuid("source_order_schedule_id").references(() => orderSchedules.id, { onDelete: "set null" }),
+  customerCode: varchar("customer_code", { length: 120 }).notNull(), department: varchar("department", { length: 200 }),
+  section: varchar("section", { length: 200 }), departmentId: uuid("department_id"),
+  salespersonUserIds: uuid("salesperson_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(),
+  itemName: varchar("item_name", { length: 320 }).notNull(), customerDueDate: date("customer_due_date"),
+  divisionReviewDueDate: date("division_review_due_date"),
+  orderTotalQuantity: numeric("order_total_quantity", { precision: 18, scale: 4 }).notNull().default("0"),
+  productionUnit: varchar("production_unit", { length: 200 }), completionRatio: numeric("completion_ratio", { precision: 7, scale: 4 }).notNull().default("0"),
+  status: varchar("status", { length: 16 }).notNull().default("NORMAL"),
+  deliveryConfirmedAt: timestamp("delivery_confirmed_at", { withTimezone: true }), deliveryConfirmedBy: uuid("delivery_confirmed_by"),
+  ...auditColumns
+}, (table) => [
+  uniqueIndex("division_order_reviews_source_uq").on(table.tenantId, table.sourceOrderScheduleId),
+  uniqueIndex("division_order_reviews_business_uq").on(table.tenantId, table.orderNumber, table.itemNumber),
+  index("division_order_reviews_tenant_order_idx").on(table.tenantId, table.orderNumber, table.itemNumber),
+  index("division_order_reviews_department_idx").on(table.tenantId, table.departmentId),
+  index("division_order_reviews_status_idx").on(table.tenantId, table.status),
+  index("division_order_reviews_due_idx").on(table.tenantId, table.customerDueDate),
+  index("division_order_reviews_review_due_idx").on(table.tenantId, table.divisionReviewDueDate)
 ]);
 
 export const weeklyPlanPeriods = planning.table("weekly_plan_periods", {
@@ -345,7 +392,7 @@ export const workReports = planning.table("work_reports", {
 
 export const schema = {
   tenants, organizations, departments, positions, employees, iamUsers, identities, roles, permissions, rolePermissions, roleBindings, fieldPolicies,
-  planPeriods, planVersions, salesOrders, salesOrderLines, planItems,
+  planPeriods, planVersions, salesOrders, salesOrderLines, planItems, rollingPlanItems, divisionOrderReviews,
   processDefinitions, processProgress, planSnapshots, planChanges,
   auditLogs, importJobs, businessCustomerMappings, orderSchedules, weeklyPlanPeriods, weeklyPlanItems, workReports
 };

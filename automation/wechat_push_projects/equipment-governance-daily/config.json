@@ -1,5 +1,7 @@
 {
   "title": "设备管理上线进度日报",
+  "message_title": "设备管理上线进度表",
+  "text_delay_seconds": 15,
   "divisions": ["事业一部", "事业二部", "事业三部", "事业四部"],
   "test_recipients": ["崔玮杰"],
   "production_recipients": [

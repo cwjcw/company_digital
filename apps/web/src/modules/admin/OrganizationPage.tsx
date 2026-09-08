@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApartmentOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, Button, Space, Tag } from "antd";
+import { Alert, Button, Space, Tag, Tooltip } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
 import { KdosDataTable } from "../../shared/KdosDataTable";
@@ -14,7 +14,7 @@ export function OrganizationPage() {
   const queryClient = useQueryClient();
   const rows = useQuery({ queryKey: ["organization-units"], queryFn: () => api<OrganizationRow[]>("/admin/organization-units") });
   const columns = [
-    { title: "组织路径", dataIndex: "pathLabel", width: 360 },
+    { title: "组织路径", dataIndex: "pathLabel", width: 360, render: (value: string) => <Tooltip title={value}><span>{value}</span></Tooltip> },
     { title: "部门名称", dataIndex: "name", width: 180 },
     { title: "企业微信部门 ID", dataIndex: "wechatDepartmentId", width: 180, render: (value: string | null) => value || "—" },
     { title: "层级", dataIndex: "level", width: 90 },

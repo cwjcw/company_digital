@@ -199,7 +199,7 @@ export class DrizzlePlanningRepository implements PlanningRepository {
     };
     const sortColumn = sortColumns[input.sortField ?? ""] ?? "priority";
     const sortOrder = input.sortOrder === "desc" ? "DESC" : "ASC";
-    values.push(Math.min(Math.max(input.limit ?? 5000, 1), 10000), Math.max(input.offset ?? 0, 0));
+    values.push(input.limit === 0 ? null : Math.min(Math.max(input.limit ?? 5000, 1), 10000), Math.max(input.offset ?? 0, 0));
     const result = await this.database.pool.query(`SELECT planning.plan_items.* FROM planning.plan_items WHERE ${where.join(" AND ")}
       ORDER BY ${sortColumn} ${sortOrder},sequence ASC,created_at ASC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
     return this.itemViews(result.rows, tenantId);

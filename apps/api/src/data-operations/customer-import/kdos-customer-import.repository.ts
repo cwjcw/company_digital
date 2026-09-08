@@ -91,7 +91,6 @@ export class KdosCustomerImportRepository implements CustomerImportRepository {
   private async clearDemo(client: PoolClient, tenantId: string) {
     await client.query(`DELETE FROM planning.weekly_plan_items WHERE tenant_id=$1 AND order_number LIKE 'DEMO-%'`, [tenantId]);
     await client.query(`DELETE FROM planning.work_reports WHERE tenant_id=$1 AND order_number LIKE 'DEMO-%'`, [tenantId]);
-    await client.query(`DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND order_number LIKE 'DEMO-%'`, [tenantId]);
     await client.query(`DELETE FROM marketing.business_customer_mappings WHERE tenant_id=$1 AND (customer_code LIKE 'DEMO-%' OR department LIKE '演示%')`, [tenantId]);
     await client.query(`DELETE FROM planning.process_progress WHERE tenant_id=$1 AND plan_item_id IN (SELECT id FROM planning.plan_items WHERE tenant_id=$1 AND (legacy_data->>'demo'='true' OR order_number LIKE 'DEMO-%'))`, [tenantId]);
     await client.query(`DELETE FROM planning.plan_items WHERE tenant_id=$1 AND (legacy_data->>'demo'='true' OR order_number LIKE 'DEMO-%')`, [tenantId]);
@@ -220,28 +219,8 @@ export class KdosCustomerImportRepository implements CustomerImportRepository {
       stage = "process-progress";
       const processProgressRows = await this.ensureProcessProgress(client, tenantId, snapshot, actor);
 
-      await client.query(`DELETE FROM marketing.order_schedules schedule WHERE schedule.tenant_id=$1 AND schedule.customer_code=$2
-        AND schedule.source_plan_item_id IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM planning.plan_items item WHERE item.id=schedule.source_plan_item_id AND item.tenant_id=$1
-        )`, [tenantId, snapshot.customerCode]);
-      stage = "order-schedules";
-      const schedules = await client.query(`WITH selected AS (
-          SELECT DISTINCT ON(item.order_number,item.item_number) item.* FROM planning.plan_items item
-          WHERE item.tenant_id=$1 AND item.order_number IN (SELECT "orderNumber" FROM jsonb_to_recordset($3::jsonb) AS row("orderNumber" text))
-          ORDER BY item.order_number,item.item_number,item.updated_at DESC
-        )
-        INSERT INTO marketing.order_schedules(tenant_id,customer_code,order_number,item_number,item_name,order_total_quantity,production_unit,completion_ratio,
-          source_plan_item_id,last_synced_at,created_by,updated_by)
-        SELECT $1::uuid,COALESCE(item.customer_code,''),item.order_number,item.item_number,COALESCE(item.item_name,''),item.order_quantity,$4,
-          CASE WHEN item.order_quantity=0 THEN 0 ELSE LEAST(100,ROUND((COALESCE((item.legacy_data->>'completedQuantity')::numeric,0)/item.order_quantity*100)::numeric,4)) END,
-          item.id,now(),$2::uuid,$2::uuid FROM selected item
-        ON CONFLICT(tenant_id,order_number,item_number) DO UPDATE SET customer_code=EXCLUDED.customer_code,item_name=EXCLUDED.item_name,
-          order_total_quantity=EXCLUDED.order_total_quantity,production_unit=EXCLUDED.production_unit,completion_ratio=EXCLUDED.completion_ratio,
-          source_plan_item_id=EXCLUDED.source_plan_item_id,last_synced_at=now(),version=marketing.order_schedules.version+1,updated_at=now(),updated_by=$2::uuid
-        RETURNING id`, [tenantId, actor.userId, JSON.stringify(summarized.lines), snapshot.division ?? snapshot.sourceAccountName]);
-
       const result = { salesOrders: summarized.headers.length, salesOrderLines: summarized.lines.length, planItems: summarized.lines.length,
-        processProgressRows, orderSchedules: schedules.rowCount ?? 0, weeklyPlanItems: 0, workReports: 0,
+        processProgressRows, weeklyPlanItems: 0, workReports: 0,
         demoDataCleared: Boolean(snapshot.replaceDemoData), repeated: false };
       await client.query(`UPDATE integration.import_jobs SET status='CONFIRMED',result=$3,confirmed_at=now(),updated_at=now(),updated_by=$4::uuid,version=version+1
         WHERE tenant_id=$1 AND idempotency_key=$2`, [tenantId, snapshot.idempotencyKey, JSON.stringify(result), actor.userId]);

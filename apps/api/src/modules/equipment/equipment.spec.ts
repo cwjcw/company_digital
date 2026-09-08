@@ -1,5 +1,6 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { EquipmentApplicationService } from "./equipment.application.service";
+import { EquipmentController } from "./equipment.controller";
 import { EquipmentImportService } from "./equipment-import.service";
 import { EquipmentQueryService } from "./equipment.query.service";
 import { equipmentScope, hasEquipmentPermission, type EquipmentActor } from "./equipment.types";
@@ -10,10 +11,39 @@ const actor = (overrides: Partial<EquipmentActor> = {}): EquipmentActor => ({
 });
 
 describe("equipment permissions and validation", () => {
+  it("accepts optimistic versions from DELETE query parameters", async () => {
+    const application = { disableStatus: jest.fn().mockResolvedValue({ id: "status-1", active: false, version: 4 }) };
+    const controller = new EquipmentController(application as never, {} as never, {} as never, {} as never);
+    const request = { user: { sub: actor().userId, username: actor().username, permissions: ["*"] }, requestId: "delete-request" } as never;
+
+    await controller.disableStatus("status-1", "3", undefined, request);
+
+    expect(application.disableStatus).toHaveBeenCalledWith("status-1", 3, expect.objectContaining({ requestId: "delete-request" }));
+  });
+
+  it("lets an explicit system administrator soft-delete and audit a status record", async () => {
+    const report = {
+      id: "status-1", tenantId: "KAINAN", divisionOrganizationUnitId: "division-1", createdBy: "another-user",
+      equipmentId: "asset-1", reportDate: "2026-09-07", runtimeMinutes: 60, faultMinutes: 0, faultReason: null,
+      active: true, version: 3, updatedBy: "creator"
+    };
+    const queryBuilder = { setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(report) };
+    const manager = {
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      save: jest.fn().mockImplementation((_entity: unknown, value: unknown) => Promise.resolve(value))
+    };
+    const service = new EquipmentApplicationService({ transaction: jest.fn((work: (value: unknown) => unknown) => work(manager)) } as never);
+
+    await expect(service.disableStatus("status-1", 3, actor({ permissions: [], isSystemAdmin: true }))).resolves.toEqual({ id: "status-1", active: false, version: 4 });
+    expect(report).toMatchObject({ active: false, version: 4, updatedBy: actor().userId });
+    expect(manager.save).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ action: "equipment.status.disabled", resource: "equipment-status-report" }));
+  });
+
   it("recognizes explicit and wildcard resource permissions", () => {
     expect(hasEquipmentPermission(actor(), "equipment-status-report", "read")).toBe(true);
     expect(hasEquipmentPermission(actor(), "equipment-status-report", "update")).toBe(false);
     expect(hasEquipmentPermission(actor({ permissions: ["*"] }), "equipment-register", "delete")).toBe(true);
+    expect(hasEquipmentPermission(actor({ permissions: [], isSystemAdmin: true }), "equipment-status-report", "delete")).toBe(true);
   });
 
   it("extracts division IDs from EQ and IN rules without widening scope", () => {
@@ -46,6 +76,26 @@ describe("equipment permissions and validation", () => {
     expect(none).toEqual({ unrestricted: false, divisionIds: [] });
   });
 
+  it("preserves OWN scope and allows a creator to reference equipment before the new row exists", () => {
+    const own = equipmentScope(actor({ tableDataScopes: [{
+      resource: "equipment-status-report", scope: "OWN", actions: ["read", "create", "update"]
+    }] }), "equipment-status-report", "read");
+    expect(own).toEqual({ unrestricted: false, divisionIds: [], own: true });
+    const service = new EquipmentApplicationService({} as never) as any;
+    expect(service.referenceCreationAllowed(actor({
+      permissions: ["equipment-status-report:*:create"],
+      tableDataScopes: [{ resource: "equipment-status-report", scope: "OWN", actions: ["create"] }]
+    }), "equipment-status-report", "division-1")).toBe(true);
+    expect(() => service.assertRecordAccess(actor({
+      permissions: ["equipment-status-report:*:update"],
+      tableDataScopes: [{ resource: "equipment-status-report", scope: "OWN", actions: ["update"] }]
+    }), "equipment-status-report", "update", "division-1", actor().userId)).not.toThrow();
+    expect(() => service.assertRecordAccess(actor({
+      permissions: ["equipment-status-report:*:update"],
+      tableDataScopes: [{ resource: "equipment-status-report", scope: "OWN", actions: ["update"] }]
+    }), "equipment-status-report", "update", "division-1", "another-user")).toThrow(ForbiddenException);
+  });
+
   it("accepts today and the previous six days but rejects dates outside the rolling week", () => {
     const service = new EquipmentApplicationService({} as never) as any;
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -66,6 +116,42 @@ describe("equipment permissions and validation", () => {
     expect(service.minutes(125, "运行时长")).toBe(125);
     expect(() => service.minutes(-1, "运行时长")).toThrow(BadRequestException);
     expect(() => service.minutes(1.5, "运行时长")).toThrow(BadRequestException);
+  });
+
+  it("parses supported duration formats during import", () => {
+    const service = new EquipmentImportService({} as never) as any;
+    expect(service.duration("10小时")).toBe(600);
+    expect(service.duration("10小时10分钟")).toBe(610);
+    expect(service.duration("10分钟")).toBe(10);
+    expect(service.duration("")).toBe(0);
+  });
+
+  it("updates an otherwise unchanged workbook row when its responsible members changed", async () => {
+    const existing = {
+      id: "asset-1", tenantId: "KAINAN", divisionOrganizationUnitId: "division-1", divisionNameSnapshot: "事业三部",
+      usageDepartmentOrganizationUnitId: null, usageDepartmentNameSnapshot: "事业三部", equipmentCode: "A1", equipmentName: "设备甲",
+      purchaseDate: null, plannedStartupMinutes: 0, monitored: false, active: true, createdBy: actor().userId, version: 1
+    };
+    const current = { ...existing };
+    const queryBuilder = { setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(current) };
+    const manager = {
+      findOneBy: jest.fn()
+        .mockResolvedValueOnce(existing)
+        .mockResolvedValueOnce({ id: "division-1", name: "事业三部", enabled: true }),
+      findBy: jest.fn().mockResolvedValue([{ userId: "old-user" }]),
+      count: jest.fn().mockResolvedValue(1), createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      save: jest.fn().mockImplementation((_entity: unknown, value: unknown) => Promise.resolve(value)), delete: jest.fn().mockResolvedValue({})
+    };
+    const service = new EquipmentApplicationService({ transaction: jest.fn((work: (value: unknown) => unknown) => work(manager)) } as never);
+
+    const result = await service.importWorkbookRows([{
+      sourceSheetRow: 2, divisionId: "division-1", usageDepartmentId: null, usageDepartmentName: "事业三部",
+      equipmentCode: "A1", equipmentName: "设备甲", purchaseDate: null, monitored: false, responsibleUserIds: ["new-user"]
+    }], actor({ permissions: ["*"] }));
+
+    expect(result).toEqual({ rows: 1, created: 0, updated: 1, unchanged: 0 });
+    expect(manager.delete).toHaveBeenCalledWith(expect.any(Function), { tenantId: "KAINAN", equipmentId: "asset-1" });
+    expect(manager.save).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ equipmentId: "asset-1", userId: "new-user" }));
   });
 
   it("resets every monitored asset through the audited application command", async () => {

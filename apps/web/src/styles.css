@@ -644,6 +644,31 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .equipment-form-wide { grid-column: 1 / -1; }
 .equipment-auto-fields .ant-input[readonly] { background: #f5f7f8; color: #45515a; }
 
+.kdos-organization-select-popup {
+  min-width: min(680px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px);
+}
+
+.kdos-organization-select-popup .ant-select-item-option-content {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.kdos-organization-option {
+  padding: 2px 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.kdos-organization-selected-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .equipment-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));

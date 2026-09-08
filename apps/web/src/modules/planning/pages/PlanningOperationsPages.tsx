@@ -22,17 +22,11 @@ const pageRows = <T,>(data?: TablePage<T> | T[]) => Array.isArray(data) ? data :
 const pageTotal = <T,>(data?: TablePage<T> | T[]) => Array.isArray(data) ? data.length : data?.total ?? 0;
 
 export function WeeklyPlanPage({ startDate }: { startDate: string }) {
-  const queryClient = useQueryClient(); const [tableQuery, setTableQuery] = useState<TableQuery>(blankQuery); const [syncing, setSyncing] = useState(false);
+  const queryClient = useQueryClient(); const [tableQuery, setTableQuery] = useState<TableQuery>(blankQuery);
   const periods = useQuery({ queryKey: ["weekly-plan-periods"], queryFn: () => api<any[]>("/planning-operations/weekly-periods") });
   const period = periods.data?.find((row) => dayjs(row.startDate).format("YYYY-MM-DD") === startDate);
-  const currentPeriod = periods.data?.find((row) => row.isCurrent);
-  const isCurrentPeriod = Boolean(period && currentPeriod && period.id === currentPeriod.id);
   const rows = useQuery({ queryKey: ["weekly-plan-items", period?.id, tableQuery], enabled: Boolean(period?.id), queryFn: () => api<TablePage<any>|any[]>(tableUrl(`/planning-operations/weekly-periods/${period.id}/items`, tableQuery)) });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["weekly-plan-items", period?.id] });
-  const sync = async () => { if (!isCurrentPeriod) return; setSyncing(true); try {
-    const result = await api<{ periodName: string; sourceCount: number; matched: number; created: number; updated: number; unchanged: number; removed: number; skippedCompleted: number }>("/planning-operations/weekly-periods/current/sync-order-schedules", { method: "POST" });
-    message.success(`${result.periodName}导入完成：匹配 ${result.matched} 条，新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条，移除 ${result.removed} 条`); refresh();
-  } catch (error) { message.error((error as Error).message); } finally { setSyncing(false); } };
   const update = async (row: any, field: string, value: unknown) => { try { await api(`/planning-operations/weekly-items/${row.id}`, { method: "PATCH", body: JSON.stringify({ field, value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const columns = [
     { title: "客户代码", dataIndex: "customerCode", width: 140 }, { title: "订单编号", dataIndex: "orderNumber", width: 170 },
@@ -42,9 +36,7 @@ export function WeeklyPlanPage({ startDate }: { startDate: string }) {
     { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "customerDueDate", next)} /> },
     { title: "评审交期", dataIndex: "reviewDueDate", width: 140, render: (value: unknown, row: any) => <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => update(row, "reviewDueDate", next)} /> }
   ];
-  return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${dayjs(period.startDate).format("M月D日")} 至 ${dayjs(period.endDate).format("M月D日")}；手工导入时由系统日期确定周次，按订单号 + 品项编码匹配完成比例小于 100% 的订单` : "正在加载周计划周期"} actions={<Space>
-    {hasResourcePermission("weekly-plan", "import") && <Button type="primary" loading={syncing} disabled={!isCurrentPeriod} onClick={() => void sync()}>{isCurrentPeriod ? "从订单排期导入本周" : currentPeriod ? `请进入${currentPeriod.name}导入` : "当前日期无对应周计划"}</Button>}
-  </Space>} /><KdosDataTable resource="weekly-plan" editable rowKey="id" loading={periods.isLoading || rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
+  return <div><PageHeader title={`${period?.name ?? "周计划"}（${startDate}）`} subtitle={period ? `${dayjs(period.startDate).format("M月D日")} 至 ${dayjs(period.endDate).format("M月D日")}` : "正在加载周计划周期"} /><KdosDataTable resource="weekly-plan" editable rowKey="id" loading={periods.isLoading || rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
     serverData={{ total: pageTotal(rows.data), onQueryChange: setTableQuery }} searchPlaceholder="搜索客户、订单、品项、生产单位" scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }
 

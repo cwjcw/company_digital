@@ -22,13 +22,14 @@ import { AG_GRID_LOCALE_ZH_CN } from "../../../shared/ag-grid-locale-zh";
 const { Text } = Typography;
 
 export function SalesSummaryDashboard() {
+  const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const dictionaryOptions = useDictionaryOptions();
   const [timeDimension, setTimeDimension] = useState<"year" | "month" | "day">("month");
   const [period, setPeriod] = useState<dayjs.Dayjs>(dayjs());
   const [division, setDivision] = useState<string[]>([]);
   const [customer, setCustomer] = useState<string[]>([]);
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["sales-dashboard",timeDimension,period.format("YYYY-MM-DD"),division,customer], queryFn: () => {
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["sales-dashboard",sessionSubject,timeDimension,period.format("YYYY-MM-DD"),division,customer], queryFn: () => {
       const query=new URLSearchParams({dimension:timeDimension,period:period.format("YYYY-MM-DD")});
       division.forEach(value=>query.append("division",value));customer.forEach(value=>query.append("customer",value));
       return api<any>(`/plans/sales-dashboard?${query.toString()}`);
@@ -69,6 +70,7 @@ export function SalesSummaryDashboard() {
         <TablePermissionButton resource="sales-summary-dashboard" />
       </Space>
     </Flex>
+    {isError && <Alert showIcon type="error" message="公司驾驶舱数据读取失败" description={(error as Error).message} style={{ marginBottom: 16 }} />}
     <div className="dashboard-kpi-grid">
       <Card><Statistic title="订单数" value={metrics.orderCount} suffix="单" /></Card>
       <Card><Statistic title="订单金额" value={Math.round(metrics.orderAmount)} precision={0} /></Card>
@@ -153,6 +155,7 @@ export function SalesSummaryDetails() {
   const [addOpen, setAddOpen] = useState(false);
   const [addForm] = Form.useForm();
   const rollingUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").username ?? "anonymous";
+  const rollingUserId = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous";
   const rollingPageSizeKey = `kdos-form-page-size:${rollingUser}:rolling-plan`;
   const [pageSize, setPageSize] = useState(() => { const value=Number(localStorage.getItem(rollingPageSizeKey));return [20,50,100,200].includes(value)?value:50; });
   const dictionaryOptions = useDictionaryOptions();
@@ -175,7 +178,7 @@ export function SalesSummaryDetails() {
     return () => window.clearTimeout(timer);
   }, [filters, quickFilters]);
   const rollingQuery = useQuery({
-    queryKey: ["rolling", { page, pageSize, filters: settledFilters, quickFilters: settledQuickFilters, sort }],
+    queryKey: ["rolling", rollingUserId, { page, pageSize, filters: settledFilters, quickFilters: settledQuickFilters, sort }],
     queryFn: () => {
       const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize), filters: JSON.stringify(settledFilters), quickFilters: JSON.stringify(settledQuickFilters) });
       if(sort.field)query.set("sortField",sort.field);if(sort.order)query.set("sortOrder",sort.order);
@@ -344,6 +347,7 @@ export function SalesSummaryDetails() {
     </div>
     {rollingSaveNotice && <Alert className="save-notice" showIcon closable type={rollingSaveNotice.type}
       message={rollingSaveNotice.text} onClose={() => setRollingSaveNotice(undefined)} />}
+    {rollingQuery.isError && <Alert showIcon type="error" message="销售接单明细读取失败" description={(rollingQuery.error as Error).message} style={{ marginBottom: 16 }} />}
     <div className="grid-card rolling-grid ag-theme-quartz">
       <AgGridReact rowData={data} columnDefs={columns} loading={isLoading} theme="legacy" localeText={AG_GRID_LOCALE_ZH_CN}
         singleClickEdit={editMode} stopEditingWhenCellsLoseFocus enableCellTextSelection ensureDomOrder

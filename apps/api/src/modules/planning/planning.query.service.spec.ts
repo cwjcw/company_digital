@@ -61,4 +61,16 @@ describe("PlanQueryService on-hand dashboard", () => {
     }));
     expect(repository.countItems).toHaveBeenCalledWith("tenant-1", expect.objectContaining({ responsibleOrgIds: ["org-1"] }));
   });
+  it("shows all authorized monthly rows on one page and retains filters", async () => {
+    const service = new PlanQueryService(repository, new PlanningDomainService(), directory);
+    const result = await service.searchPlanItemsPage({ versionId: "version-draft", page: 3, pageSize: 0, filters: { responsibleOrgId: "事业一部" } }, {
+      tenantCode: "KAINAN", userId: "user-1", permissions: ["monthly-plan:*:read", "monthly-plan:orderNumber:read"], roles: [], requestId: "request", source: "WEB",
+      tableDataScopes: [{ resource: "monthly-plan", groupId: "own", scope: "OWN", actions: ["read"] }]
+    });
+    expect(result).toMatchObject({ page: 1, pageSize: 0, total: 1 });
+    expect(result.rows[0]).toMatchObject({ orderNumber: "SO-1" });
+    expect(result.rows[0]).not.toHaveProperty("unitPrice");
+    expect(repository.searchItems).toHaveBeenCalledWith("tenant-1", expect.objectContaining({ limit: 0, offset: 0, responsibleOrgIds: ["org-1"] }));
+  });
+
 });

@@ -33,12 +33,17 @@ describe("AuthService dynamic organization roles", () => {
       { id: "sales", name: "业务部", parentId: "marketing" }
     ]) };
     const administratorGrants = { findOneBy: jest.fn().mockResolvedValue(administratorGrant) };
+    const refreshTokens = { save: jest.fn().mockResolvedValue({}) };
+    const jwt = {
+      signAsync: jest.fn().mockResolvedValueOnce("short-access-token").mockResolvedValueOnce("refresh-token"),
+      decode: jest.fn().mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 3600 })
+    };
     const service = new AuthService(
       users as never, userRoles as never, roles as never, permissions as never, scopes as never,
       organizationScopes as never, permissionGroupSubjects as never, organizationUnits as never,
-      administratorGrants as never, {} as never, {} as never, {} as never, {} as never, {} as never
+      administratorGrants as never, refreshTokens as never, {} as never, {} as never, {} as never, jwt as never
     );
-    return { service };
+    return { service, user, jwt, refreshTokens };
   }
 
   it("grants a role from the user's current department without a static user-role row", async () => {
@@ -59,6 +64,19 @@ describe("AuthService dynamic organization roles", () => {
     expect(claims.permissions).toContain("planning.admin.manage");
     expect(claims.permissions).not.toContain("business-customer-mapping:*:update");
     expect(claims.permissions).not.toContain("*");
+  });
+
+  it("keeps the bearer token small and returns authorization only in the session body", async () => {
+    const { service, user, jwt, refreshTokens } = setup(true, { systemAdmin: false, moduleCodes: ["planning"] });
+    const result = await (service as any).issueTokens(user);
+    expect(result.accessToken).toBe("short-access-token");
+    expect(result.user.permissions).toContain("monthly-plan:*:update");
+    expect(jwt.signAsync.mock.calls[0]![0]).toEqual({
+      sub: "user-1", type: "access", jti: expect.any(String)
+    });
+    expect(jwt.signAsync.mock.calls[0]![0]).not.toHaveProperty("permissions");
+    expect(jwt.signAsync.mock.calls[0]![0]).not.toHaveProperty("tableDataScopes");
+    expect(refreshTokens.save).toHaveBeenCalledTimes(1);
   });
 });
 

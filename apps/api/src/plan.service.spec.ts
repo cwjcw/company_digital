@@ -27,6 +27,12 @@ describe("PlanService administrator data scope", () => {
     })).toBe(false);
   });
 
+  it("uses the sales-detail table's VIEW_ALL scope even when the user has no legacy divisions", () => {
+    const scope = (service as any).scope.bind(service);
+    expect(scope({ divisions: [], tableDataScopes: [{ resource: "rolling-plan", scope: "ALL", actions: ["read"] }] }, "o", "rolling-plan")).toEqual({ clause: "1=1", params: {} });
+    expect(scope({ divisions: [], tableDataScopes: [{ resource: "sales-summary-dashboard", scope: "ALL", actions: ["read"] }] }, "o", "rolling-plan").clause).toBe("1=0");
+  });
+
   it("does not return an empty dashboard for a VIEW_ALL role without division scopes", async () => {
     const dashboardService = Object.create(PlanService.prototype) as any;
     const payload = { metrics: { orderCount: 77 }, divisionRows: [], warningRows: [] };
