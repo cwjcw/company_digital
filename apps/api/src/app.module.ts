@@ -35,6 +35,8 @@ import { OrderSyncModule } from "./data-operations/order-sync/order-sync.module"
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { EquipmentModule } from "./modules/equipment/equipment.module";
 import { AuditQueryService } from "./modules/audit/audit-query.service";
+import { SupplyChainModule } from "./modules/supply-chain/supply-chain.module";
+import { MasterPlanSystemModule } from "./modules/master-plan-system/master-plan.module";
 
 @Module({
   imports: [
@@ -53,7 +55,9 @@ import { AuditQueryService } from "./modules/audit/audit-query.service";
     CustomerImportModule,
     HrModule,
     EquipmentModule,
-    OrderSyncModule
+    OrderSyncModule,
+    SupplyChainModule,
+    MasterPlanSystemModule
   ],
   controllers: [
     SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController, ImportController,

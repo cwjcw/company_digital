@@ -14,6 +14,7 @@
 - `PUBLISHED` and `LOCKED` transitions must pass the Planning state machine.
 - Quantity and money calculations use exact decimal arithmetic and PostgreSQL `numeric`.
 - External writes and event consumers must be idempotent.
+- 所有表格文件导入必须在解析内容前调用统一的加密文件检测；检测到加密容器时停止导入并原样提示“该文件被加密,请解密后再导入.”，不得将其混同为文件损坏、模板错误或服务端异常。
 - WebSocket events contain only invalidation metadata, never complete sensitive rows.
 - Use UUIDv7 business IDs; identity-provider subjects belong in `iam.identities`.
 - Keep `four_department_tracker` read-only/retained until the user authorizes retirement.

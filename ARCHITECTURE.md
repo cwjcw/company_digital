@@ -64,6 +64,7 @@ T+ / future E10 / WMS / MES
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
 - `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details, September on-hand summary dashboard and work-report pages.
 - `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. Status pages resolve responsibility live through `equipment_responsibles` by stable equipment ID, so ledger changes appear without copying stale responsibility into status rows; the status-table responsibility field is available but hidden in the default personal view. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
+- `apps/api/src/modules/supply-chain` and `apps/web/src/modules/data-center`: the independently governed, read-only `supplier-list` resource. T+ extraction is isolated in `automation/tplus_supplier_import`; its canonical rows enter the tenant-scoped `supply_chain_suppliers` table only through `SupplyChainApplicationService`, with source-account keys, idempotency and audit.
 
 ## Administrator authority
 
@@ -90,6 +91,7 @@ Schemas and principal tables:
 - `planning`: `plan_periods`, `plan_versions`, `sales_orders`, `sales_order_lines`, `plan_items`, `rolling_plan_items`, `division_order_reviews`, `process_definitions`, `process_progress`, `plan_snapshots`, `plan_changes`, `weekly_plan_periods`, `weekly_plan_items`, `work_reports`; compatibility equipment tables are `equipment_assets`, `equipment_responsibles`, and `equipment_status_reports`. `rolling_plan_items`复用月度计划的85字段展示契约，以订单号+品号为稳定业务键。`division_order_reviews` 是订单排期的事务投影：源字段随订单排期在同一事务中更新，事业部评审交期由获权用户维护；确认命令按订单号+品号写入滚动计划。首次写入映射客户、事业部、订单/品项、品名、需求数量、客户交期和评审交期，已有目标只更新需求数量、客户交期和评审交期，其他人工字段保留。源记录变更会清除旧确认状态，源记录硬删除时评审记录保留并转为作废。
 - `audit`: `audit_logs`.
 - `integration`: `import_jobs`.
+- Data Center supply-chain projection: `supply_chain_suppliers`, uniquely keyed by tenant, source system, source database and source ID. It intentionally excludes supplier bank accounts and tax-registration fields.
 - `core`: migration ledger.
 
 All collaborative Planning and IAM tables carry `tenant_id`. PostgreSQL RLS checks `app.tenant_id`; application queries still filter tenant explicitly. IDs default to PostgreSQL 18 `uuidv7()`.
@@ -108,7 +110,7 @@ All business-table queries use a shared five-minute in-memory freshness window a
 
 Excel follows upload → parse → normalize → validate → preview → confirm → application command → transaction. File hash plus version forms the import idempotency key; repeated confirmation returns the prior result.
 
-T+ source SQL remains isolated in `data-operations/tplus`; the reusable adapter in `integrations/tplus` maps both accounts to the canonical model. Planning never imports a T+ SQL reader.
+T+ source SQL remains isolated in integration adapters; sales-order reads stay in `data-operations/tplus` / `integrations/tplus`, while supplier-master reads stay in `automation/tplus_supplier_import`. Both map external rows to canonical models before invoking application commands. Planning and supply-chain business modules never import a T+ SQL reader.
 
 Monthly rollover runs with a `SYSTEM` actor and calls Planning query/application services. It creates a period and draft idempotently and carries previous outstanding items through normal commands.
 

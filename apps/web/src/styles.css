@@ -678,6 +678,11 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 
 .equipment-kpi-grid .ant-card-body { padding: 17px; }
 .equipment-kpi-grid .ant-statistic-content { font-size: 23px; }
+.equipment-kpi-card { border-top: 3px solid #d9e1ea; }
+.equipment-kpi-card-total { border-top-color: #1677ff; }
+.equipment-kpi-card-monitoring { border-top-color: #4f8bff; }
+.equipment-kpi-card-pending { border-top-color: #d48806; }
+.equipment-kpi-card-recorded { border-top-color: #2e9363; }
 
 .equipment-dashboard-grid {
   display: grid;
@@ -690,7 +695,7 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .equipment-entry-title { margin-top: 8px !important; }
 .equipment-state-list { display: grid; gap: 15px; }
 .equipment-dashboard .kdos-data-table-shell { min-height: 0; }
-.equipment-dashboard .kdos-data-table .ant-table-body { max-height: 360px !important; }
+.equipment-dashboard .equipment-analysis-card .ant-table-body { max-height: none !important; }
 .equipment-analysis-card + .equipment-analysis-card { margin-top: 16px; }
 
 @media (max-width: 1350px) {

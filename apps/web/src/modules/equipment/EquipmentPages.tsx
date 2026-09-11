@@ -341,7 +341,7 @@ type DashboardData = {
     runtimeMinutes: number; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
   }>;
   departmentRows: Array<{
-    departmentId: string | null; department: string; equipmentCount: number; normalCount: number; faultCount: number; idleCount: number; unreportedCount: number;
+    division: string; departmentId: string | null; department: string; equipmentCount: number; normalCount: number; faultCount: number; idleCount: number; unreportedCount: number;
     runtimeMinutes: number; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
   }>;
   filters: {
@@ -374,7 +374,7 @@ export function EquipmentDashboardPage() {
   });
   const data = dashboard.data;
   const metrics = data?.metrics ?? {};
-  const monitored = Number(metrics.monitoredEquipment ?? 0);
+  const firstBatchMonitoring = Number(metrics.firstBatchMonitoringEquipment ?? 0);
   const divisionOptions = (data?.filters.divisions ?? []).map((item) => ({ value: item.id, label: item.name }));
   const departmentOptions = (data?.filters.departments ?? []).map((item) => ({ value: item.id, label: item.name }));
   const resetFilters = () => { setPeriodType("month"); setPeriod(dayjs()); setCustomRange([dayjs().startOf("month"), dayjs()]); setDivisionId(undefined); setDepartmentIds([]); };
@@ -400,8 +400,10 @@ export function EquipmentDashboardPage() {
     </Flex>
     <Typography.Title level={4}>设备情况统计</Typography.Title>
     <div className="equipment-kpi-grid">
-      <Card><Statistic title="设备总数" value={metrics.totalEquipment ?? 0} suffix="台" /></Card>
-      <Card><Statistic title="纳入监控" value={monitored} suffix="台" /></Card>
+      <Card className="equipment-kpi-card equipment-kpi-card-total"><Statistic title="设备总数量" value={metrics.totalEquipment ?? 0} suffix="台" /></Card>
+      <Card className="equipment-kpi-card equipment-kpi-card-monitoring"><Statistic title="首批监控数量" value={firstBatchMonitoring} suffix="台" /></Card>
+      <Card className="equipment-kpi-card equipment-kpi-card-pending"><Statistic title="待上线数量" value={metrics.pendingGoLiveEquipment ?? 0} suffix="台" /></Card>
+      <Card className="equipment-kpi-card equipment-kpi-card-recorded"><Statistic title="当天有数据" value={metrics.dailyRecordedEquipment ?? 0} suffix="台" /></Card>
       <Card><Statistic title="正常运行" value={metrics.normalEquipment ?? 0} suffix="台" valueStyle={{ color: "#2e9363" }} /></Card>
       <Card><Statistic title="存在故障" value={metrics.faultEquipment ?? 0} suffix="台" valueStyle={{ color: "#cf3f3f" }} /></Card>
       <Card><Statistic title="运行总时长" value={durationText(metrics.runtimeMinutes)} /></Card>
@@ -422,8 +424,8 @@ export function EquipmentDashboardPage() {
     </Card>
     <Card className="equipment-analysis-card" title="按部门设备运行分析" loading={dashboard.isLoading}>
       <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
-        rowKey={(row) => row.departmentId ?? `unassigned-${row.department}`} dataSource={data?.departmentRows} scroll={{ x: 1300 }} columns={[
-          { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
+        rowKey={(row) => `${row.division}-${row.departmentId ?? `unassigned-${row.department}`}`} dataSource={data?.departmentRows} scroll={{ x: 1450 }} columns={[
+          { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
           { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
           { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
           { title: "未运行", dataIndex: "idleCount", width: 90 }, { title: "未填报", dataIndex: "unreportedCount", width: 90 },

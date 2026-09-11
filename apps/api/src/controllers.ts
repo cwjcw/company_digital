@@ -21,6 +21,7 @@ import {
 } from "./entities";
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { ImportService } from "./import.service";
+import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
 import { PlanService } from "./plan.service";
 import { StorageService } from "./storage.service";
 import { currentModificationActor } from "./modification-audit";
@@ -360,6 +361,7 @@ export class MasterDataController {
   }
   private async uploadedRows(file: Express.Multer.File): Promise<Record<string, unknown>[]> {
     if (!file?.buffer) throw new BadRequestException("请选择 CSV 或 XLSX 文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     if (file.originalname.toLowerCase().endsWith(".csv")) return this.csvRows(file.buffer);
     const workbook = await this.imports.loadWorkbook(file);
     const sheet = workbook.worksheets[0];

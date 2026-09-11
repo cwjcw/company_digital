@@ -14,14 +14,14 @@ import {
 import dayjs from "dayjs";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { tableResourceRegistry } from "@kdos/contracts";
+import { masterPlanResourceDefinitions, tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
 import { SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
-import { FinishedGoodsOutboundPage, SalesOrdersPage } from "./modules/data-center/DataCenterPages";
+import { FinishedGoodsOutboundPage, SalesOrdersPage, SupplierListPage } from "./modules/data-center/DataCenterPages";
 import { DuplicateOrderReviewPage } from "./modules/data-center/DuplicateOrderReviewPage";
 import { BusinessCustomerMappingsPage, DivisionOrderReviewPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
@@ -34,6 +34,7 @@ import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesP
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
 import { OnHandSummaryDashboard } from "./modules/planning/pages/OnHandSummaryDashboard";
 import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
+import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -76,6 +77,11 @@ function KdosMonthlyPlanRoute() {
 function TablePermissionsRoute() {
   const { resource = "" } = useParams();
   return <TablePermissionsPage resourceCode={decodeURIComponent(resource)} />;
+}
+
+function MasterPlanResourceRoute() {
+  const { resource = "" } = useParams();
+  return <MasterPlanResourcePage resource={resource} />;
 }
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -186,7 +192,7 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports", "/division-order-review"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") ? "planning"
+    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports", "/division-order-review"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -220,6 +226,14 @@ function Shell({ logout }: { logout: () => void }) {
         ] },
         { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
       ] },
+      { key: "master-plan-system", icon: <ScheduleOutlined />, label: "主计划系统", children: ["数据准备", "计划管理", "生产执行", "系统运维"].map((area) => ({
+        key: `mps-${area}`,
+        icon: <FolderOpenOutlined />,
+        label: area,
+        children: masterPlanResourceDefinitions.filter((entry) => entry.area === area).map((entry) => ({
+          key: `/master-plan-system/${entry.code}`, icon: <FileExcelOutlined />, label: entry.label
+        }))
+      })) },
       { key: "equipment-management", icon: <ToolOutlined />, label: "设备管理", children: [
         { key: "/equipment-register", icon: <DatabaseOutlined />, label: "设备总台账" },
         { key: "/equipment-status-report", icon: <FileExcelOutlined />, label: "设备状态填报" }
@@ -229,7 +243,10 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
       { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" },
       { key: "/data-center/outbound", icon: <DatabaseOutlined />, label: "出库表" },
-      { key: "/data-center/duplicate-order-review", icon: <AuditOutlined />, label: "重复订单业务复核" }
+      { key: "/data-center/duplicate-order-review", icon: <AuditOutlined />, label: "重复订单业务复核" },
+      { key: "data-supply-chain", icon: <FolderOpenOutlined />, label: "供应链", children: [
+        { key: "/data-center/supply-chain/suppliers", icon: <DatabaseOutlined />, label: "供应商清单" }
+      ] }
     ] }],
     marketing: [{ key: "marketing-root", label: "营销中心", children: [
       { key: "/marketing/business-customers", icon: <TeamOutlined />, label: "业务人员与客户对应表" },
@@ -268,7 +285,8 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/profile", icon: <UserOutlined />, label: "账户资料与安全" }
     ] }]
   };
-  const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : /^\/monthly\/\d{6}$/.test(location.pathname)
+  const masterPlanPage = masterPlanResourceDefinitions.find((entry) => location.pathname === `/master-plan-system/${entry.code}`);
+  const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : /^\/monthly\/\d{6}$/.test(location.pathname)
     ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
     : location.pathname === "/weekly/rolling-plan" ? "滚动计划表"
     : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
@@ -279,6 +297,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/duplicate-order-review": "重复订单业务复核",
+      "/data-center/supply-chain/suppliers": "供应商清单",
       "/division-order-review": "事业部订单评审",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
@@ -318,6 +337,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/division-order-review" element={<DivisionOrderReviewPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
+          <Route path="/master-plan-system/:resource" element={<MasterPlanResourceRoute />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
@@ -327,6 +347,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
           <Route path="/data-center/duplicate-order-review" element={<DuplicateOrderReviewPage />} />
+          <Route path="/data-center/supply-chain/suppliers" element={<SupplierListPage />} />
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />

@@ -336,6 +336,36 @@ export class Supplier extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) remark!: string | null;
 }
 
+@Entity("supply_chain_suppliers")
+@Unique(["tenantId", "sourceSystem", "sourceDatabase", "sourceId"])
+@Index(["tenantId", "code"])
+@Index(["tenantId", "name"])
+export class SupplyChainSupplier extends AuditedEntity {
+  @PrimaryGeneratedColumn("uuid") id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "source_system", type: "varchar", length: 32 }) sourceSystem!: string;
+  @Column({ name: "source_database", type: "varchar", length: 128 }) sourceDatabase!: string;
+  @Column({ name: "source_account_name", type: "varchar", length: 128 }) sourceAccountName!: string;
+  @Column({ name: "source_id", type: "varchar", length: 128 }) sourceId!: string;
+  @Column({ type: "varchar", length: 128 }) code!: string;
+  @Column({ type: "varchar", length: 500 }) name!: string;
+  @Column({ type: "varchar", length: 500, nullable: true }) abbreviation!: string | null;
+  @Column({ type: "varchar", length: 255, nullable: true }) shorthand!: string | null;
+  @Column({ name: "category_code", type: "varchar", length: 128, nullable: true }) categoryCode!: string | null;
+  @Column({ name: "category_name", type: "varchar", length: 500, nullable: true }) categoryName!: string | null;
+  @Column({ name: "partner_type", type: "integer" }) partnerType!: number;
+  @Column({ name: "partner_type_label", type: "varchar", length: 64 }) partnerTypeLabel!: string;
+  @Column({ type: "varchar", length: 255, nullable: true }) representative!: string | null;
+  @Column({ type: "varchar", length: 255, nullable: true }) contact!: string | null;
+  @Column({ name: "mobile_phone", type: "varchar", length: 255, nullable: true }) mobilePhone!: string | null;
+  @Column({ type: "varchar", length: 255, nullable: true }) telephone!: string | null;
+  @Column({ type: "varchar", length: 255, nullable: true }) fax!: string | null;
+  @Column({ type: "varchar", length: 500, nullable: true }) email!: string | null;
+  @Column({ type: "text", nullable: true }) address!: string | null;
+  @Column({ default: true }) enabled!: boolean;
+  @Column({ name: "source_updated_at", type: "varchar", length: 40, nullable: true }) sourceUpdatedAt!: string | null;
+}
+
 @Entity("sales_orders")
 export class SalesOrder extends AuditedEntity {
   @PrimaryGeneratedColumn("uuid") id!: string;
@@ -583,7 +613,7 @@ export const entities = [
   User, AdministratorGrant, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
-  DictionaryValue, Supplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
+  DictionaryValue, Supplier, SupplyChainSupplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
   RefreshToken, PasswordResetRequest, EquipmentAsset, EquipmentResponsible, EquipmentStatusReport,
   ImportJob, ImportJobError, IdempotencyRecord
 ];

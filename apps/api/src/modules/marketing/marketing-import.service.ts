@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { MarketingApplicationService } from "./marketing.application.service";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
 import type { BusinessCustomerMappingInput, MappingImportSummary, MarketingActor } from "./marketing.types";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 
 @Injectable()
 export class MarketingImportService {
@@ -27,6 +28,7 @@ export class MarketingImportService {
 
   async importMappings(file: Express.Multer.File, actor: MarketingActor) {
     if (!file?.buffer?.length) throw new BadRequestException("请选择业务接单周报 Excel 文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
     const aliases = new Map([["部门", "部门"], ["课室", "课室"], ["业务", "业务"], ["业务员", "业务"], ["客户代码", "客户"], ["客户", "客户"]]);

@@ -203,14 +203,16 @@ export class EquipmentQueryService {
       ), window_reports AS MATERIALIZED (
         SELECT report.* FROM equipment_status_reports report JOIN monitored asset ON asset.id=report.equipment_id CROSS JOIN bounds
         WHERE report.tenant_id=$1 AND report.active=true AND report.report_date BETWEEN bounds.window_start AND bounds.window_end
-      ), latest AS MATERIALIZED (
-        SELECT DISTINCT ON (report.equipment_id) report.* FROM window_reports report ORDER BY report.equipment_id,report.report_date DESC,report.updated_at DESC
+      ), daily_reports AS MATERIALIZED (
+        SELECT DISTINCT ON (report.equipment_id) report.* FROM window_reports report CROSS JOIN bounds
+        WHERE report.report_date=bounds.window_end
+        ORDER BY report.equipment_id,report.updated_at DESC
       ), asset_state AS (
         SELECT asset.id,asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
           asset.usage_department_organization_unit_id department_id,
           COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门') department,
-          CASE WHEN latest.id IS NULL THEN '未填报' WHEN latest.fault_minutes>0 THEN '存在故障' WHEN latest.runtime_minutes>0 THEN '正常运行' ELSE '未运行' END state
-        FROM monitored asset LEFT JOIN latest ON latest.equipment_id=asset.id
+          CASE WHEN daily.id IS NULL THEN '未填报' WHEN daily.fault_minutes>0 THEN '存在故障' WHEN daily.runtime_minutes>0 THEN '正常运行' ELSE '未运行' END state
+        FROM monitored asset LEFT JOIN daily_reports daily ON daily.equipment_id=asset.id
       ), division_state AS (
         SELECT division_id,division,count(*)::integer equipment_count,
           count(*) FILTER (WHERE state='正常运行')::integer normal_count,
@@ -226,37 +228,41 @@ export class EquipmentQueryService {
       ), division_analysis AS (
         SELECT state.division,state.equipment_count,state.normal_count,state.fault_count,state.idle_count,state.unreported_count,
           duration.runtime_minutes,duration.fault_minutes,
-          round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds),2) runtime_daily_average_minutes,
-          round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds),2) fault_daily_average_minutes
+          round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds))::integer runtime_daily_average_minutes,
+          round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds))::integer fault_daily_average_minutes
         FROM division_state state JOIN division_duration duration ON duration.division_id=state.division_id
       ), department_state AS (
-        SELECT department_id,department,count(*)::integer equipment_count,
+        SELECT division_id,division,department_id,department,count(*)::integer equipment_count,
           count(*) FILTER (WHERE state='正常运行')::integer normal_count,
           count(*) FILTER (WHERE state='存在故障')::integer fault_count,
           count(*) FILTER (WHERE state='未运行')::integer idle_count,
           count(*) FILTER (WHERE state='未填报')::integer unreported_count
-        FROM asset_state GROUP BY department_id,department
+        FROM asset_state GROUP BY division_id,division,department_id,department
       ), department_duration AS (
-        SELECT asset.usage_department_organization_unit_id department_id,
+        SELECT asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
+          asset.usage_department_organization_unit_id department_id,
           COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门') department,
           COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,COALESCE(sum(report.fault_minutes),0)::integer fault_minutes
         FROM monitored asset LEFT JOIN window_reports report ON report.equipment_id=asset.id
-        GROUP BY asset.usage_department_organization_unit_id,COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门')
+        GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot,asset.usage_department_organization_unit_id,COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门')
       ), department_analysis AS (
-        SELECT state.department_id,state.department,state.equipment_count,state.normal_count,state.fault_count,state.idle_count,state.unreported_count,
+        SELECT state.division,state.department_id,state.department,state.equipment_count,state.normal_count,state.fault_count,state.idle_count,state.unreported_count,
           duration.runtime_minutes,duration.fault_minutes,
-          round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds),2) runtime_daily_average_minutes,
-          round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds),2) fault_daily_average_minutes
+          round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds))::integer runtime_daily_average_minutes,
+          round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds))::integer fault_daily_average_minutes
         FROM department_state state JOIN department_duration duration
-          ON duration.department_id IS NOT DISTINCT FROM state.department_id AND duration.department=state.department
+          ON duration.division_id=state.division_id
+          AND duration.department_id IS NOT DISTINCT FROM state.department_id AND duration.department=state.department
       )
       SELECT jsonb_build_object(
         'windowStart',(SELECT window_start FROM bounds),'windowEnd',(SELECT window_end FROM bounds),'windowDays',(SELECT window_days FROM bounds),
         'metrics',jsonb_build_object(
-          'totalEquipment',(SELECT count(*) FROM eligible),'monitoredEquipment',(SELECT count(*) FROM monitored),
+          'totalEquipment',(SELECT count(*) FROM eligible),'firstBatchMonitoringEquipment',(SELECT count(*) FROM monitored),
+          'pendingGoLiveEquipment',(SELECT count(*) FROM eligible WHERE monitored=false),
+          'dailyRecordedEquipment',(SELECT count(*) FROM asset_state WHERE state<>'未填报'),
           'runtimeMinutes',(SELECT COALESCE(sum(runtime_minutes),0) FROM window_reports),'faultMinutes',(SELECT COALESCE(sum(fault_minutes),0) FROM window_reports),
-          'runtimeDailyAverageMinutes',round((SELECT COALESCE(sum(runtime_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds),2),
-          'faultDailyAverageMinutes',round((SELECT COALESCE(sum(fault_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds),2),
+          'runtimeDailyAverageMinutes',round((SELECT COALESCE(sum(runtime_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds))::integer,
+          'faultDailyAverageMinutes',round((SELECT COALESCE(sum(fault_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds))::integer,
           'normalEquipment',(SELECT count(*) FROM asset_state WHERE state='正常运行'),'faultEquipment',(SELECT count(*) FROM asset_state WHERE state='存在故障'),
           'idleEquipment',(SELECT count(*) FROM asset_state WHERE state='未运行')
         ),
@@ -266,10 +272,10 @@ export class EquipmentQueryService {
           'runtimeDailyAverageMinutes',runtime_daily_average_minutes,'faultDailyAverageMinutes',fault_daily_average_minutes
         ) ORDER BY division) FROM division_analysis),'[]'::jsonb),
         'departmentRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
-          'departmentId',department_id,'department',department,'equipmentCount',equipment_count,'normalCount',normal_count,'faultCount',fault_count,
+          'division',division,'departmentId',department_id,'department',department,'equipmentCount',equipment_count,'normalCount',normal_count,'faultCount',fault_count,
           'idleCount',idle_count,'unreportedCount',unreported_count,'runtimeMinutes',runtime_minutes,'faultMinutes',fault_minutes,
           'runtimeDailyAverageMinutes',runtime_daily_average_minutes,'faultDailyAverageMinutes',fault_daily_average_minutes
-        ) ORDER BY department) FROM department_analysis),'[]'::jsonb),
+        ) ORDER BY division,department) FROM department_analysis),'[]'::jsonb),
         'filters',jsonb_build_object(
           'divisions',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',division_id,'name',division) ORDER BY division)
             FROM (SELECT DISTINCT division_organization_unit_id division_id,division_name_snapshot division FROM scoped_assets) divisions),'[]'::jsonb),

@@ -3,6 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import ExcelJS from "exceljs";
 import { MarketingApplicationService } from "./marketing.application.service";
 import type { MarketingActor, OrderScheduleInput } from "./marketing.types";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 
 export const scheduleColumns = [
   ["客户代码", "customerCode"], ["订单编号", "orderNumber"], ["品项编码", "itemNumber"],
@@ -31,8 +32,9 @@ export class OrderScheduleImportService {
   async preview(file: Express.Multer.File, actor: MarketingActor) {
     this.application.assertScheduleImport(actor);
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     const workbook = new ExcelJS.Workbook();
-    try { await workbook.xlsx.load(file.buffer as any); } catch { throw new BadRequestException("Excel 文件损坏、加密或格式不正确，请使用导出的模板"); }
+    try { await workbook.xlsx.load(file.buffer as any); } catch { throw new BadRequestException("Excel 文件损坏或格式不正确，请使用导出的模板"); }
     const sheet = workbook.getWorksheet("订单排期") ?? workbook.worksheets[0];
     if (!sheet) throw new BadRequestException("Excel 文件没有工作表");
     const headers = new Map<string, number>();

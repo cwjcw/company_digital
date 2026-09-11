@@ -23,6 +23,7 @@ describe("Planning Field Registry", () => {
     expect(codes).toEqual(expect.arrayContaining([
       "on-hand-summary-dashboard", "rolling-plan", "monthly-plan", "sales-orders", "finished-goods-inbound",
       "business-customer-mapping", "order-schedule", "hr-departure-check", "weekly-plan", "work-report"
+      , "supplier-list"
     ]));
   });
 
@@ -37,6 +38,16 @@ describe("Planning Field Registry", () => {
       expect.objectContaining({ key: "balanceQuantity", editable: false }),
       expect.objectContaining({ key: "customer", editable: false }),
       expect.objectContaining({ key: "processName", editable: false })
+    ]));
+  });
+
+  it("registers the T+ supplier list as a read-only data-center table", () => {
+    expect(tableResourceRegistry.find((resource) => resource.code === "supplier-list")).toMatchObject({ moduleCode: "data", label: "供应商清单" });
+    expect(tablePermissionFieldsFor("supplier-list")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "code", label: "供应商编码", editable: false, required: true }),
+      expect.objectContaining({ key: "name", label: "供应商名称", editable: false, required: true }),
+      expect.objectContaining({ key: "sourceDatabase", editable: false }),
+      expect.objectContaining({ key: "enabled", type: "boolean", editable: false })
     ]));
   });
 

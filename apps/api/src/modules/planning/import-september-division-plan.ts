@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import ExcelJS from "exceljs";
 import { DataSource } from "typeorm";
 import { AppModule } from "../../app.module";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 import { PlanningApplicationService } from "./planning.application.service";
 import { PlanningImportService } from "./planning-import.service";
 import { PlanQueryService } from "./planning.query.service";
@@ -34,6 +35,7 @@ async function chunkWorkbook(topHeader: ExcelJS.CellValue[], secondHeader: Excel
 async function run() {
   const input = await stdin();
   if (!input.length) throw new Error("请通过标准输入提供标准化计划 Excel");
+  assertSpreadsheetNotEncrypted(input);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(input as unknown as ArrayBuffer);
   const sheet = workbook.getWorksheet("主计划") ?? workbook.worksheets[0];

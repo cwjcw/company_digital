@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import type { CreatePlanItemInput, PlanningActor } from "./planning.types";
 import { PlanningApplicationService } from "./planning.application.service";
 import { PlanningOrganizationDirectoryService } from "./planning-organization-directory.service";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 
 function setNested(target: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split("."); let cursor = target;
@@ -70,6 +71,7 @@ export class PlanningImportService {
 
   async preview(versionId: string, file: Express.Multer.File, actor: PlanningActor) {
     if (!file?.buffer?.length) throw new BadRequestException("请选择导入文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     const lower = file.originalname.toLowerCase();
     if (!lower.endsWith(".xlsx") && !lower.endsWith(".csv")) throw new BadRequestException("仅支持标准 .xlsx 或 .csv 文件");
     const sourceRows = lower.endsWith(".csv") ? this.csv(file.buffer) : await this.excel(file.buffer);

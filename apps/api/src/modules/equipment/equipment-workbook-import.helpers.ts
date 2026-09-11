@@ -20,3 +20,23 @@ export function monitoringValue(value: string) {
 export function shouldSkipEquipmentImport(value: string) {
   return value.trim() === "不需要";
 }
+
+export function plannedStartupMinutes(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return 0;
+  if (typeof value === "number") {
+    if (!Number.isInteger(value) || value < 0) throw new Error(`每天开机时间目标“${value}”不是有效时长`);
+    return value;
+  }
+  const text = String(value).replace(/\s+/g, "").trim();
+  const hours = /^(\d+)小时(?:(\d{1,2})分钟)?$/.exec(text);
+  if (hours) {
+    const minutePart = Number(hours[2] ?? 0);
+    if (minutePart < 60) return Number(hours[1]) * 60 + minutePart;
+  }
+  const minutes = /^(\d+)分钟$/.exec(text);
+  if (minutes) return Number(minutes[1]);
+  const clock = /^(\d+):(\d{1,2})$/.exec(text);
+  if (clock && Number(clock[2]) < 60) return Number(clock[1]) * 60 + Number(clock[2]);
+  if (/^\d+$/.test(text)) return Number(text);
+  throw new Error(`每天开机时间目标“${value}”不是有效时长`);
+}

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Upload } from "antd";
+import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Tag, Upload } from "antd";
 import { api, ApiError } from "../../api";
 import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
-import { KdosDataTable } from "../../shared/KdosDataTable";
+import { hasFieldPermission, KdosDataTable } from "../../shared/KdosDataTable";
+import { useAuditColumns } from "../../shared/audit-fields";
 
 type ServerTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type ServerTablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
@@ -142,5 +143,48 @@ export function FinishedGoodsOutboundPage() {
         </Form.Item>)}
       </Form>
     </Modal>
+  </div>;
+}
+
+const supplierColumns = [
+  { title: "来源系统", dataIndex: "sourceSystem", width: 100 },
+  { title: "来源数据库", dataIndex: "sourceDatabase", width: 190 },
+  { title: "来源账套", dataIndex: "sourceAccountName", width: 120 },
+  { title: "来源主键", dataIndex: "sourceId", width: 150 },
+  { title: "供应商编码", dataIndex: "code", width: 150, fixed: "left" as const },
+  { title: "供应商名称", dataIndex: "name", width: 260, fixed: "left" as const },
+  { title: "供应商简称", dataIndex: "abbreviation", width: 220 },
+  { title: "助记码", dataIndex: "shorthand", width: 140 },
+  { title: "分类编码", dataIndex: "categoryCode", width: 130 },
+  { title: "供应商分类", dataIndex: "categoryName", width: 180 },
+  { title: "往来单位类型", dataIndex: "partnerTypeLabel", width: 140 },
+  { title: "法人代表", dataIndex: "representative", width: 140 },
+  { title: "联系人", dataIndex: "contact", width: 140 },
+  { title: "手机", dataIndex: "mobilePhone", width: 150 },
+  { title: "电话", dataIndex: "telephone", width: 170 },
+  { title: "传真", dataIndex: "fax", width: 170 },
+  { title: "邮箱", dataIndex: "email", width: 220 },
+  { title: "地址", dataIndex: "address", width: 320 },
+  { title: "状态", dataIndex: "enabled", width: 90, render: (value: boolean) => <Tag color={value ? "success" : "default"}>{value ? "启用" : "停用"}</Tag> },
+  { title: "T+更新时间", dataIndex: "sourceUpdatedAt", width: 180 }
+];
+
+export function SupplierListPage() {
+  const [tableQuery, setTableQuery] = useState<ServerTableQuery>(initialTableQuery);
+  const auditColumns = useAuditColumns();
+  const rows = useQuery({
+    queryKey: ["supplier-list", tableQuery],
+    queryFn: () => api<ServerTablePage<any>>(pageUrl("/supply-chain/suppliers", tableQuery)),
+    placeholderData: (previous) => previous
+  });
+  const visibleColumns = [...supplierColumns, ...auditColumns].filter((column) =>
+    hasFieldPermission("supplier-list", String(column.dataIndex), "read")
+  );
+  return <div>
+    <PageHeader title="供应商清单" subtitle="来源于 T+ 凯南智能、科加智能账套；清单只读并保留来源追溯信息" />
+    <KdosDataTable resource="supplier-list" systemFields={false} rowKey="id" loading={rows.isLoading}
+      dataSource={rows.data?.rows} columns={visibleColumns}
+      serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
+      scroll={{ x: "max-content", y: "calc(100vh - 300px)" }} />
   </div>;
 }

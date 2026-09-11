@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { Repository } from "typeorm";
 import { AuditLog, User } from "../../entities";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 
 export type HrActor = { userId: string | null; username: string; permissions: string[]; requestId: string };
 type DepartureCheckSourceRow = { account: string; name: string };
@@ -20,6 +21,7 @@ export class HrDepartureCheckApplicationService {
   async check(file: Express.Multer.File, actor: HrActor) {
     this.assert(actor, "import");
     if (!file?.buffer?.length) throw new BadRequestException("请选择包含账号和姓名的文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     if (!/\.(xlsx|csv)$/i.test(file.originalname)) throw new BadRequestException("仅支持 .xlsx 或 .csv 文件");
     const workbook = new ExcelJS.Workbook();
     if (/\.csv$/i.test(file.originalname)) await workbook.csv.read(Readable.from([file.buffer]));

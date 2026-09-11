@@ -9,6 +9,7 @@ import {
   DictionaryType, DictionaryValue, ImportJob, ImportJobError, ItemProcessProgress,
   Order, OrderItem, OutsourcingDetail, PlanPeriod, ProcessDefinitionEntity, Supplier
 } from "./entities";
+import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
 
 const epoch = Date.UTC(1899, 11, 30);
 const dateKeys = new Set(excelMonthlyPlanColumns.filter((column) => column.kind === "date").map((column) => column.key));
@@ -82,7 +83,8 @@ export class ImportService {
   async loadWorkbook(file: Express.Multer.File) {
     if (!file?.buffer) throw new BadRequestException("请选择 Excel 文件");
     let importBuffer = file.buffer;
-    if (!isStandardXlsx(importBuffer)) throw new BadRequestException("该文件仍受企业加密保护，请先在本机转换为非加密 XLSX 或 CSV 后再导入");
+    assertSpreadsheetNotEncrypted(importBuffer);
+    if (!isStandardXlsx(importBuffer)) throw new BadRequestException("文件不是标准 XLSX 格式或已损坏");
     try {
       importBuffer = await normalizeSpreadsheetMlPrefixes(importBuffer);
     } catch {

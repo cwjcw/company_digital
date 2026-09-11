@@ -213,13 +213,17 @@ export class EquipmentApplicationService {
           tenantId: actor.tenantId, equipmentId: existing.id
         })).map((responsible) => responsible.userId).sort();
         const incomingResponsibleIds = [...new Set((row.responsibleUserIds ?? []).map(String).filter(Boolean))].sort();
+        const responsibleChanged = row.responsibleUserIds !== undefined && (
+          existingResponsibleIds.length !== incomingResponsibleIds.length
+          || existingResponsibleIds.some((userId, index) => userId !== incomingResponsibleIds[index])
+        );
         const changed = existing.equipmentName !== row.equipmentName
           || existing.purchaseDate !== (row.purchaseDate ?? null)
           || existing.usageDepartmentOrganizationUnitId !== (row.usageDepartmentId ?? null)
           || existing.usageDepartmentNameSnapshot !== String(row.usageDepartmentName ?? "").trim()
+          || (row.plannedStartupMinutes !== undefined && existing.plannedStartupMinutes !== row.plannedStartupMinutes)
           || existing.monitored !== Boolean(row.monitored)
-          || existingResponsibleIds.length !== incomingResponsibleIds.length
-          || existingResponsibleIds.some((userId, index) => userId !== incomingResponsibleIds[index])
+          || responsibleChanged
           || (!existing.createdBy && Boolean(actor.userId));
         if (!changed) { unchanged += 1; continue; }
         await this.saveAsset(manager, existing.id, { ...row, expectedVersion: existing.version } as AssetInput & { expectedVersion: number }, actor, row.sourceSheetRow, false);

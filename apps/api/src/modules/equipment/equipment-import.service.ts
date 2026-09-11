@@ -3,6 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import ExcelJS from "exceljs";
 import { EquipmentApplicationService } from "./equipment.application.service";
 import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, hasEquipmentPermission } from "./equipment.types";
+import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 
 type ConfirmInput = { fileHash: string; signature: string; rows: EquipmentStatusImportRow[] };
 
@@ -13,6 +14,7 @@ export class EquipmentImportService {
   async previewStatus(file: Express.Multer.File, actor: EquipmentActor) {
     if (!hasEquipmentPermission(actor, "equipment-status-report", "import")) throw new ForbiddenException("当前权限组没有此表的导入权限");
     if (!file?.buffer?.length) throw new BadRequestException("请选择设备状态 Excel 或 CSV 文件");
+    assertSpreadsheetNotEncrypted(file.buffer);
     if (!/\.(xlsx|csv)$/i.test(file.originalname)) throw new BadRequestException("仅支持 .xlsx 或 .csv 文件");
     const sourceRows = file.originalname.toLowerCase().endsWith(".csv") ? this.csvRows(file.buffer) : await this.xlsxRows(file.buffer);
     if (!sourceRows.length) throw new BadRequestException("文件中没有可导入的数据");

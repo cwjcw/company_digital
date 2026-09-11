@@ -65,6 +65,12 @@ Implement `SalesOrderProvider` from `packages/integration-sdk`, map source rows 
 
 Phase-one legacy T+ snapshot route remains `/api/v1/data-operations/tplus/sales-orders/snapshot` for compatibility while its write side is migrated to canonical Planning commands.
 
+### T+ 供应商清单
+
+“数据中心 → 供应链 → 供应商清单”使用独立资源码 `supplier-list`，页面和 `GET /api/v1/supply-chain/suppliers` 默认只读。查询端按租户、表操作权限、字段可见权限和数据范围执行服务端搜索、筛选、排序与分页；默认50条，可选20/50/100/200条。
+
+源适配器 `automation/tplus_supplier_import/extract.py` 使用统一 `basic_code.MSSQLDatabase` 读取凯南智能、科加智能两个 T+ 账套的 `dbo.AA_PartnerEntity`，仅选择 `partnerType IN (226, 228)`，以 `AA_PartnerClass` 补充分类。读取固定为 `READ COMMITTED`，不修改源库，不导出银行账号或税号。规范模型通过受保护的 `POST /api/v1/supply-chain/suppliers/import` 或同一 Application Command 导入；目标唯一键为 `tenant_id + source_system + source_database + source_id`，相同有效载荷可安全重放，新增、变化行和批次结果均记录审计。
+
 ## Events
 
 Connect to Socket.IO namespace `/plans` with the access token and period. Treat events as cache invalidations. Payloads contain IDs/version/change type only; consumers refetch through authorized query routes and process each event idempotently.

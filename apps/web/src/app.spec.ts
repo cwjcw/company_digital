@@ -77,6 +77,16 @@ describe("monthly plan configuration", () => {
     expect(tableSource).toContain('showQuickJumper: true');
   });
 
+  it("adds the supplier list under the data-center supply-chain folder", () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    const pageSource = fs.readFileSync(path.resolve(__dirname, "modules/data-center/DataCenterPages.tsx"), "utf8");
+    expect(appSource).toContain('label: "供应链", children: [');
+    expect(appSource).toContain('path="/data-center/supply-chain/suppliers" element={<SupplierListPage />}');
+    expect(pageSource).toContain('resource="supplier-list"');
+    expect(pageSource).toContain('systemFields={false}');
+    expect(pageSource).not.toContain('resource="supplier-list" editable');
+  });
+
   it("limits permission management to the matching module administrator", () => {
     localStorage.setItem("sessionUser", JSON.stringify({ moduleAdminCodes: ["planning"], permissions: [] }));
     expect(canManageTablePermissions("monthly-plan")).toBe(true);
@@ -124,10 +134,17 @@ describe("monthly plan configuration", () => {
     expect(appSource).not.toContain('defaultOpenKeys={[`${moduleId}-root`');
     expect(styles).toContain('.sidebar .ant-menu-root > .ant-menu-submenu-open > .ant-menu-submenu-title');
     expect(styles).toContain('font-weight: 500 !important;');
+    expect(styles).not.toContain('.equipment-dashboard .kdos-data-table .ant-table-body { max-height: 360px !important; }');
+    expect(styles).toContain('.equipment-dashboard .equipment-analysis-card .ant-table-body { max-height: none !important; }');
     expect(equipmentSource).toContain('/equipment/status-reports/import-preview');
     expect(equipmentSource).toContain('/equipment/status-reports/import-confirm');
     expect(equipmentSource).toContain('/equipment/status-reports/export');
     expect(equipmentSource).toContain('title="按部门设备运行分析"');
+    expect(equipmentSource).toContain('title="设备总数量"');
+    expect(equipmentSource).toContain('title="首批监控数量"');
+    expect(equipmentSource).toContain('title="待上线数量"');
+    expect(equipmentSource).toContain('title="当天有数据"');
+    expect(equipmentSource).toContain('{ title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门"');
     expect(equipmentSource).toContain('mode="multiple"');
     expect(equipmentSource).toContain('query.append("departmentId", departmentId)');
     expect(equipmentSource).not.toContain("设备状态按每台设备最近一次填报");
