@@ -43,6 +43,8 @@ curl -fsS http://127.0.0.1:15172/api/v1/health
 
 ERP订单 staging 同步由三个 user systemd timer 每30分钟独立运行。检查 `systemctl --user list-timers 'kdos-erp-order-sync@*'`、`loginctl show-user "$USER" -p Linger` 和对应 journal；日常运行不生成 CSV/JSON，人工验收时才使用 `sync.py run --source <key> --save-report`。投影消费者默认禁用，只有正式业务表字段映射、旧关系迁移和幂等验证通过后才可启用。
 
+N8N 每日 SSH 同步科加智能订单统一调用 `data-operations/order-sync/sync-kejia-orders.sh`。该入口固定使用科加账套、复用 2026-01-01 初始化/增量游标和只读 SQL 守卫，并在采集成功后排空销售订单正式投影；不得在 N8N Command 中展开数据库密码、API Key 或 SQL。
+
 若 E10 批次持续满 1000 条且 `cursor_before = cursor_after`，必须立即停止 E10 timer/service；这表示 `datetime2(7)` 与 Python 微秒游标未统一或其他分页键失效。修复后先用真实源库连续验证至少两页游标推进，再将旧运行通过 fail Application Command 结束，手工执行一次增量恢复；确认所有流 `stalled_pages = 0` 且运行完成后才重新启用 timer。不得删除失败运行和批次审计记录。
 
 Check applied migrations and RLS with a privileged maintenance connection:

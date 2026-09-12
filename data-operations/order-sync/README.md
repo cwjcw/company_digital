@@ -8,6 +8,14 @@ automation/customer_import/.venv/bin/python data-operations/order-sync/sync.py r
 automation/customer_import/.venv/bin/python data-operations/order-sync/sync.py run --source tplus-kejia
 ```
 
+N8N 每日同步科加智能订单时，使用仓库内的单入口脚本：
+
+```bash
+/data/automation/code/work/PMC/knweb/data-operations/order-sync/sync-kejia-orders.sh
+```
+
+脚本固定读取科加智能账套 `UFTData418971_000003`，首次运行通过现有同步状态判断执行 2026-01-01 起全量初始化（并保留 2026 年以前仍未结订单），以后执行带 2 分钟重叠窗口的增量同步；采集成功后立即排空 `sales-orders-v1` 正式订单投影。它使用独立 `flock` 防止 N8N 重复并发，不打印密钥，也不在仓库保存 SQL Server 凭据。返回 `already_running` 时代表上一轮仍在执行，本轮安全跳过且退出码为 0。
+
 日常任务只把单行结构化摘要写入 journal，避免每30分钟重复生成百万行 CSV/JSON。需要人工验收文件时显式增加 `--save-report`；历史报告按运维保留策略清理，不由同步任务自动删除。
 
 首次 `run` 执行2026-01-01起全量及遗留未结订单初始化，自动按1000条循环，随后执行 `source_snapshot_at-2分钟` 补偿。初始化成功后，同一命令执行增量。生产调度每30分钟分别调用三条命令；任一来源失败不影响其他来源。
