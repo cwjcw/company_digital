@@ -5,13 +5,13 @@ import { ApiKey, User } from "../../entities";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanController } from "./master-plan.controller";
 import { MasterPlanQueryService } from "./master-plan.query.service";
+import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User])],
   controllers: [MasterPlanController],
-  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService],
+  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}
-

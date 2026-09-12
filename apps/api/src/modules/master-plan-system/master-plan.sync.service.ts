@@ -2,10 +2,11 @@ import { ConflictException, ForbiddenException, Injectable, Logger } from "@nest
 import { Interval } from "@nestjs/schedule";
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
-import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday, STANDARD_PROCESSES } from "./master-plan.domain";
+import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday } from "./master-plan.domain";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
+export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
 
 @Injectable()
 export class MasterPlanSyncService {
@@ -23,8 +24,31 @@ export class MasterPlanSyncService {
     const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
     try {
       const configs = await this.dataSource.query(`SELECT sync_key FROM mps_sync_configs WHERE tenant_id=$1 AND enabled=true AND status<>'RUNNING' AND (last_started_at IS NULL OR last_started_at + interval_minutes * interval '1 minute' <= now()) ORDER BY sync_key`, [tenantId]);
-      for (const config of configs) await this.run(tenantId, config.sync_key, "SCHEDULED", null, "system", `scheduled:${config.sync_key}:${new Date().toISOString().slice(0, 16)}`);
+      for (const config of configs) await this.run(tenantId, config.sync_key, "SCHEDULED", MASTER_PLAN_SYSTEM_USER_ID, "KDOS系统任务", `scheduled:${config.sync_key}:${new Date().toISOString().slice(0, 16)}`);
+      await this.processOutbox();
     } catch (error) { this.logger.error(`主计划定时同步检查失败: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
+  async processOutbox() {
+    const events = await this.dataSource.transaction(async (manager) => {
+      const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,updated_at=now(),version=version+1
+      WHERE id IN (
+        SELECT id FROM mps_reconciliation_outbox
+        WHERE status IN ('PENDING','FAILED') AND next_attempt_at<=now()
+        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20
+      ) RETURNING *`);
+      return Array.isArray(result[0]) ? result[0] : result;
+    });
+    for (const event of events) {
+      try {
+        await this.run(event.tenant_id, event.sync_key, "EVENT", event.actor_id, event.actor_name, event.idempotency_key);
+        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now(),last_error=NULL,updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=$1`, [event.id, event.actor_id]);
+      } catch (error) {
+        const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
+        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error=$2,next_attempt_at=now() + least(attempts,30) * interval '1 minute',updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1`, [event.id, message, event.actor_id]);
+      }
+    }
+    return events.length;
   }
 
   async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`) {

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
 import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
@@ -15,9 +15,12 @@ export function useKdosTableEditMode() {
   return useContext(KdosTableEditContext);
 }
 
-export function hasSessionResourcePermission(session: { permissions?: string[]; isSystemAdmin?: boolean } | null | undefined, resource: string, action: string) {
+export function hasSessionResourcePermission(session: { permissions?: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[] } | null | undefined, resource: string, action: string) {
   const permissions = session?.permissions ?? [];
-  return session?.isSystemAdmin === true || permissions.includes("*") || permissions.includes(`${resource}:*:${action}`);
+  const definition = tableResourceRegistry.find((item) => item.code === resource);
+  return session?.isSystemAdmin === true || permissions.includes("*")
+    || Boolean(definition && session?.moduleAdminCodes?.includes(definition.moduleCode))
+    || permissions.includes(`${resource}:*:${action}`);
 }
 
 export function hasResourcePermission(resource: string, action: string) {
@@ -112,7 +115,7 @@ function flatten<RecordType>(columns: ColumnsType<RecordType>): Array<{ key: str
     const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
     if (column.children?.length) return flatten(column.children);
     const key = columnKey(column);
-    return key ? [{ key, label: typeof column.title === "string" ? column.title : key }] : [];
+    return key && !key.startsWith("__") ? [{ key, label: typeof column.title === "string" ? column.title : key }] : [];
   });
 }
 
@@ -124,7 +127,7 @@ function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Se
       return children.length ? [{ ...column, children }] : [];
     }
     const key = columnKey(column);
-    return !key || visible.has(key) ? [column] : [];
+    return !key || key.startsWith("__") || visible.has(key) ? [column] : [];
   });
 }
 
@@ -207,6 +210,10 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   editable?: boolean;
   /** Fields hidden for users who have not saved a personal column view yet. */
   defaultHiddenFields?: string[];
+  /** Standard record selection is enabled by default for registered business tables. */
+  selectable?: boolean;
+  /** Optional actions that consume the table's stable, cross-page selection. */
+  selectionActions?: (selection: KdosTableSelection<RecordType>) => ReactNode;
   /** Server-backed paging/search/filtering for ERP-sized tables. */
   serverData?: {
     total: number;
@@ -214,8 +221,23 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   };
 };
 
+export type KdosTableSelection<RecordType extends DataRecord> = {
+  selectedRowKeys: Key[];
+  selectedRows: RecordType[];
+  total: number;
+  editing: boolean;
+  canEdit: boolean;
+  clearSelection: () => void;
+};
+
+function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: TableProps<RecordType>["rowKey"]): Key {
+  if (typeof rowKey === "function") return rowKey(row);
+  return row[String(rowKey ?? "id")] as Key;
+}
+
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false,
+  selectable, selectionActions,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -229,6 +251,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
+  const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
   const requestedPagination = pagination && typeof pagination === "object" ? pagination : undefined;
   const [currentPage, setCurrentPage] = useState(1);
@@ -237,7 +261,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
     return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? 50);
   });
   const canEdit = editable && hasResourcePermission(resource, "update");
-  useEffect(() => { setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined); }, [resource]);
+  useEffect(() => {
+    setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
+    setSelectedRowKeys([]); selectedRecords.current.clear();
+  }, [resource]);
   useEffect(() => { setCurrentPage(1); }, [filters, search]);
   const allColumns = useMemo(() => {
     const business = decorate(columns, serverMode, sortField, sortOrder);
@@ -282,6 +309,40 @@ export function KdosDataTable<RecordType extends DataRecord>({
     if (currentPage > lastPage) setCurrentPage(lastPage);
   }, [currentPage, pageSize, rows.length, serverData?.total]);
   const isRegisteredForm = registeredTableResources.has(resource);
+  const selectionEnabled = selectable ?? (isRegisteredForm && !simple);
+  const clearSelection = () => { setSelectedRowKeys([]); selectedRecords.current.clear(); };
+  const selectionState: KdosTableSelection<RecordType> = {
+    selectedRowKeys,
+    selectedRows: selectedRowKeys.flatMap((key) => {
+      const row = selectedRecords.current.get(key);
+      return row ? [row] : [];
+    }),
+    total: serverData?.total ?? clientRows.length,
+    editing: editing && canEdit,
+    canEdit,
+    clearSelection
+  };
+  const internalRowSelection: TableProps<RecordType>["rowSelection"] = selectionEnabled ? {
+    selectedRowKeys,
+    preserveSelectedRowKeys: true,
+    fixed: true,
+    columnWidth: 48,
+    onSelect: (record, selected) => {
+      const key = recordKey(record, tableProps.rowKey);
+      if (selected) selectedRecords.current.set(key, record); else selectedRecords.current.delete(key);
+      setSelectedRowKeys((current) => selected ? (current.includes(key) ? current : [...current, key]) : current.filter((item) => item !== key));
+    },
+    onSelectAll: (selected, _selectedRows, changedRows) => {
+      const changedKeys = new Set(changedRows.map((row) => recordKey(row, tableProps.rowKey)));
+      for (const row of changedRows) {
+        const key = recordKey(row, tableProps.rowKey);
+        if (selected) selectedRecords.current.set(key, row); else selectedRecords.current.delete(key);
+      }
+      setSelectedRowKeys((current) => selected
+        ? [...current, ...[...changedKeys].filter((key) => !current.includes(key))]
+        : current.filter((key) => !changedKeys.has(key)));
+    }
+  } : undefined;
   const resolvedPagination = pagination === false && !isRegisteredForm ? false : {
     ...requestedPagination,
     current: currentPage,
@@ -316,10 +377,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
         <TablePermissionButton resource={resource} />
       </Space>
     </Flex>}
+    {!simple && selectedRowKeys.length > 0 && <Flex className="kdos-data-table-selection-toolbar" justify="space-between" align="center" gap={12} wrap>
+      <Space wrap>
+        <Typography.Text strong>已选 {selectedRowKeys.length}/{selectionState.total}</Typography.Text>
+        <Button type="link" onClick={clearSelection}>清空选择</Button>
+      </Space>
+      {selectionActions?.(selectionState)}
+    </Flex>}
     <Table<RecordType>
       {...tableProps}
       className={["kdos-data-table", className].filter(Boolean).join(" ")}
       rowKey={tableProps.rowKey ?? "id"}
+      rowSelection={tableProps.rowSelection ?? internalRowSelection}
       dataSource={rows}
       columns={renderedColumns}
       pagination={resolvedPagination}

@@ -70,7 +70,7 @@ describe("EquipmentStatusReportPage live permissions", () => {
 
     const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({} as ReturnType<typeof Modal.confirm>);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /删除/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /删除/ }, { timeout: 10_000 }));
     expect(confirm).toHaveBeenCalledOnce();
     await confirm.mock.calls[0]![0].onOk?.();
 

@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { STANDARD_PROCESSES } from "./master-plan.domain";
-import { MasterPlanSyncService } from "./master-plan.sync.service";
+import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -22,12 +23,14 @@ export class MasterPlanApplicationService {
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource); const entries = Object.entries(values);
       if (!entries.length) throw new BadRequestException("没有可写入的业务字段");
-      const params = [actor.tenantId, actor.userId, actor.userId ?? actor.username, ...entries.map(([, value]) => value)];
+      const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+      const params = [actor.tenantId, actorId, actorId, ...entries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$3,${entries.map((_, index) => `$${index + 4}`).join(",")}) RETURNING *`, params);
       await this.audit(manager, actor, code, inserted[0].id, `${code}.created`, null, inserted[0]);
+      await this.enqueueReconciliation(manager, resource, actor);
       return inserted[0];
     }));
-    await this.reconcileAfter(resource, actor);
+    void this.sync.processOutbox().catch(() => undefined);
     return result;
   }
 
@@ -45,17 +48,147 @@ export class MasterPlanApplicationService {
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
       if (Number(current.version) !== expectedVersion) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
+      if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
+        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
+        values.monthlyPlanId = monthly?.id ?? null;
+      }
       if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
-      const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? actor.username, ...entries.map(([, value]) => value)];
+      const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, ...entries.map(([, value]) => value)];
       const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
       // TypeORM/pg returns UPDATE ... RETURNING as [rows, affectedCount], unlike INSERT/SELECT.
       const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
       if (!updatedRow) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await this.audit(manager, actor, code, id, `${code}.updated`, current, updatedRow);
+      await this.enqueueReconciliation(manager, resource, actor);
       return updatedRow;
     }));
-    await this.reconcileAfter(resource, actor);
+    void this.sync.processOutbox().catch(() => undefined);
     return result;
+  }
+
+  async batchUpdate(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "batch_update")) throw new ForbiddenException("当前权限组没有该表批量修改权限");
+    await this.enforceShippingWindow(resource, actor);
+    const records = Array.isArray(body.records) ? body.records as Array<{ id?: unknown; expectedVersion?: unknown }> : [];
+    if (!records.length) throw new BadRequestException("请至少选择一条记录");
+    if (records.length > 50_000) throw new BadRequestException("单次最多修改50000条数据");
+    const duplicateIds = records.map((record) => String(record.id ?? "")).filter((id, index, all) => all.indexOf(id) !== index);
+    if (duplicateIds.length) throw new BadRequestException("选择记录中存在重复ID");
+    const fieldKey = String(body.fieldKey ?? "");
+    const field = fieldsFor(resource).find((candidate) => candidate.key === fieldKey && candidate.editable);
+    if (!field || ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(fieldKey)) throw new BadRequestException("所选字段不支持批量修改");
+    if (!hasMasterPlanFieldPermission(actor, code, fieldKey, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${field.label}`);
+    const value = this.normalize(field.type, body.value, field.label);
+    const idempotencyKey = String(body.idempotencyKey ?? "");
+    if (!uuidPattern.test(idempotencyKey)) throw new BadRequestException("idempotencyKey 必须使用UUID");
+    const storageKey = `mps-batch:${actor.tenantId}:${code}:${actor.userId ?? "system"}:${idempotencyKey}`;
+    const requestHash = createHash("sha256").update(JSON.stringify({ records, fieldKey, value })).digest("hex");
+    const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
+      const [existing] = await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
+      if (existing) {
+        if (existing.request_hash !== requestHash) throw new ConflictException("相同幂等键不能用于不同的批量修改请求");
+        return { ...existing.response_json, repeated: true };
+      }
+      const validIds = records.map((record) => String(record.id ?? "")).filter((id) => uuidPattern.test(id));
+      const currentRows = validIds.length
+        ? await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE`, [actor.tenantId, validIds])
+        : [];
+      const currentById = new Map<string, Record<string, unknown>>(currentRows.map((row: Record<string, unknown>) => [String(row.id), row]));
+      const columns = columnsFor(resource); const column = columns[fieldKey]!;
+      const items: Array<{ id: string; success: boolean; version?: number; reason?: string }> = [];
+      for (const requested of records) {
+        const id = String(requested.id ?? ""); const expectedVersion = Number(requested.expectedVersion);
+        if (!uuidPattern.test(id)) { items.push({ id, success: false, reason: "记录ID格式无效" }); continue; }
+        const current = currentById.get(id);
+        if (!current) { items.push({ id, success: false, reason: "记录不存在或已超出当前租户" }); continue; }
+        if (!this.recordAllowed(resource, current, actor, "batch_update")) { items.push({ id, success: false, reason: "当前数据范围不允许修改该记录" }); continue; }
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1 || Number(current.version) !== expectedVersion) { items.push({ id, success: false, reason: "记录版本已变化，请刷新后重试" }); continue; }
+        try {
+          if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, [column]: value });
+        } catch (error) {
+          items.push({ id, success: false, reason: error instanceof Error ? error.message : "字段值不符合业务规则" }); continue;
+        }
+        const updated = await manager.query(`UPDATE ${resource.table} SET ${column}=$4,updated_at=now(),updated_by=$5::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, [actor.tenantId, id, expectedVersion, value, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
+        const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
+        if (!updatedRow) { items.push({ id, success: false, reason: "记录版本已变化，请刷新后重试" }); continue; }
+        await this.audit(manager, actor, code, id, `${code}.batch_item_updated`, current, updatedRow);
+        items.push({ id, success: true, version: Number(updatedRow.version) });
+      }
+      const response = { batchId: idempotencyKey, submitted: records.length, succeeded: items.filter((item) => item.success).length, failed: items.filter((item) => !item.success).length, fieldKey, items, repeated: false };
+      await this.audit(manager, actor, code, null, `${code}.batch_updated`, null, { ...response, idempotencyKey });
+      await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$5)", [storageKey, requestHash, JSON.stringify(response), actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
+      if (response.succeeded > 0) await this.enqueueReconciliation(manager, resource, actor);
+      return response;
+    }));
+    if (!result.repeated && result.succeeded > 0) void this.sync.processOutbox().catch(() => undefined);
+    return result;
+  }
+
+  async importUpdates(code: string, rows: Array<{ id: string; expectedVersion: number; values: Record<string, unknown> }>, fileHash: string, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    if (!rows.length || rows.length > 50_000) throw new BadRequestException("导入数据必须为1至50000行");
+    const storageKey = `mps-import:${actor.tenantId}:${code}:${actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID}:${fileHash}`;
+    const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
+      const [existing] = await manager.query("SELECT response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
+      if (existing) return { ...existing.response_json, repeated: true };
+      const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+      let updatedCount = 0;
+      for (const input of rows) {
+        if (!uuidPattern.test(input.id) || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw new BadRequestException("导入文件包含无效的记录ID或版本");
+        const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, input.id]);
+        if (!current) throw new BadRequestException(`记录不存在或已超出当前租户：${input.id}`);
+        if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
+        if (Number(current.version) !== input.expectedVersion) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
+        const values = this.writable(resource, input.values, actor);
+        if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
+          const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
+          values.monthlyPlanId = monthly?.id ?? null;
+        }
+        if (!Object.keys(values).length) continue;
+        const columns = columnsFor(resource); const entries = Object.entries(values);
+        const databaseValues = this.toDatabaseRecord(resource, values);
+        if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...databaseValues });
+        const params: unknown[] = [actor.tenantId, input.id, input.expectedVersion, actorId, ...entries.map(([, value]) => value)];
+        const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
+        const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
+        if (!updatedRow) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
+        await this.audit(manager, actor, code, input.id, `${code}.import_updated`, current, updatedRow);
+        updatedCount++;
+      }
+      const response = { total: rows.length, updated: updatedCount, repeated: false };
+      await this.audit(manager, actor, code, null, `${code}.import_confirmed`, null, { ...response, fileHash });
+      await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
+      if (updatedCount) await this.enqueueReconciliation(manager, resource, actor);
+      return response;
+    }));
+    if (!result.repeated && result.updated > 0) void this.sync.processOutbox().catch(() => undefined);
+    return result;
+  }
+
+  async validateImportUpdates(code: string, rows: Array<{ row: number; id: string; expectedVersion: number; values: Record<string, unknown> }>, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    const errors: Array<{ row: number; reason: string }> = [];
+    const seen = new Set<string>();
+    for (const input of rows) {
+      try {
+        if (!uuidPattern.test(input.id)) throw new BadRequestException("记录ID格式无效");
+        if (seen.has(input.id)) throw new BadRequestException("记录ID重复");
+        seen.add(input.id);
+        if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw new BadRequestException("版本必须为正整数");
+        const [current] = await this.dataSource.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, input.id]);
+        if (!current) throw new BadRequestException("记录不存在或已超出当前租户");
+        if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
+        if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
+        const values = this.writable(resource, input.values, actor);
+        if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
+      } catch (error) { errors.push({ row: input.row, reason: error instanceof Error ? error.message : "数据校验失败" }); }
+    }
+    return errors;
   }
 
   async remove(code: string, id: string, expectedVersion: unknown, actor: MasterPlanActor) {
@@ -70,9 +203,10 @@ export class MasterPlanApplicationService {
       if (Number(current.version) !== version) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
       await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
+      await this.enqueueReconciliation(manager, resource, actor);
       return { id, deleted: true };
     }));
-    await this.reconcileAfter(resource, actor);
+    void this.sync.processOutbox().catch(() => undefined);
     return result;
   }
 
@@ -114,6 +248,10 @@ export class MasterPlanApplicationService {
   }
 
   private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string) {
+    if (resource.code === "mps-shipping-plans") {
+      const [monthly] = await this.dataSource.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
+      values.monthlyPlanId = monthly?.id ?? null;
+    }
     if (!["mps-material-reports", "mps-process-reports"].includes(resource.code)) return;
     const weeklyPlanId = String(values.weeklyPlanId ?? ""); if (!uuidPattern.test(weeklyPlanId)) throw new BadRequestException("请选择有效的周计划");
     const [weekly] = await this.dataSource.query(`SELECT order_number,item_code,item_name,delivery_number,planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
@@ -165,14 +303,19 @@ export class MasterPlanApplicationService {
     return false;
   }
 
-  private async reconcileAfter(resource: MasterPlanResource, actor: MasterPlanActor) {
+  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor) {
     const jobs: Partial<Record<string, string[]>> = {
       "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
       "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
       "mps-base-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
       "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
     };
-    for (const syncKey of jobs[resource.code] ?? []) await this.sync.run(actor.tenantId, syncKey, "EVENT", actor.userId, actor.username, `event:${actor.requestId}:${resource.code}:${syncKey}`);
+    const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+    for (const syncKey of jobs[resource.code] ?? []) await manager.query(`
+      INSERT INTO mps_reconciliation_outbox(tenant_id,resource,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
+      VALUES($1,$2,$3,$4,$5::uuid,$6,$5::uuid,$5::uuid)
+      ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
+    [actor.tenantId, resource.code, syncKey, `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
   }
 
   private async enforceShippingWindow(resource: MasterPlanResource, actor: MasterPlanActor) {
@@ -187,6 +330,7 @@ export class MasterPlanApplicationService {
   }
 
   private audit(manager: EntityManager, actor: MasterPlanActor, resource: string, recordId: string | null, action: string, before: unknown, after: unknown) {
-    return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$1::uuid,$10)`, [actor.userId, actor.username, resource, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.source, actor.userId ?? actor.username]);
+    const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+    return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$1::uuid,$1::uuid)`, [actorId, actor.username, resource, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.source]);
   }
 }

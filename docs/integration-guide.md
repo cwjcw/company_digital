@@ -35,6 +35,10 @@ All Planning routes use `/api/v1/planning`, bearer JWT/API identity and tenant c
 
 月计划不提供手工上移、下移、置顶或置底操作。筛选区复用 KDOS 标准表格的“搜索当前表格 + 按字段筛选”控件；关键词与字段条件均在当前权限范围内的数据上生效，条件变化后分页回到第一页。
 
+主计划系统各资源的受控 Excel 更新统一使用 `GET /api/v1/master-plan-system/resources/:resource/export` 导出当前查询范围，再通过 `POST .../:resource/import-preview` 和 `POST .../:resource/import-confirm` 两阶段导入；`GET .../:resource/import-template` 仅用于查看列结构和填写说明。工作簿必须携带不可编辑的“记录ID”和“版本”，导入只更新已有记录，不新增投影来源数据。预览和确认均重新校验租户、表操作权限、字段权限、数据范围和乐观版本；确认令牌绑定用户、租户、资源、文件内容并有有效期，整批更新在一个事务中提交并记录逐行及批次审计。所有入口只接受 xlsx，解析前调用统一加密容器检测，检测到加密文件时原样返回“该文件被加密,请解密后再导入.”。
+
+主计划业务写入与重投影使用事务型 `mps_reconciliation_outbox`：业务行和待处理任务在同一数据库事务内提交，提交后立即尝试消费，失败由定时消费者重试。接口不会因提交后的投影失败而把已成功的业务写入报告成失败。任务记录保存稳定用户 UUID；系统定时任务使用禁用登录的 `__kdos_system__` 主体（`0199e000-0000-7000-8000-000000000001`），不得使用用户名、临时字符串或空值冒充审计身份。
+
 ## Administrator and permission-management routes
 
 Administrator grants are not roles or table permission groups. `GET /api/v1/admin/administrators` is available read-only to system and module administrators and returns server-derived management capabilities. `PUT /api/v1/admin/administrators/:userId` accepts `systemAdmin`, stable `moduleCodes`, `expectedVersion`, and an optional `targetUserId` for an audited account replacement. Only `admin` may change system administrators; any system administrator may change module administrators; module administrators cannot write. `GET /api/v1/admin/table-permission-context?resource=...` and all table-permission-group writes validate that the caller is a system administrator or the administrator of the registry module owning that exact resource. Clients must not infer authority from Chinese labels or ordinary role names.

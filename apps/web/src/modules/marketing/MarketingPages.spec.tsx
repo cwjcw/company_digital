@@ -103,7 +103,7 @@ describe("BusinessCustomerMappingsPage", () => {
 
     expect(await screen.findByRole("heading", { name: "业务人员与客户对应表" })).toBeInTheDocument();
     await waitFor(() => {
-      const headers = screen.getAllByRole("columnheader").map((header) => header.textContent?.trim());
+      const headers = screen.getAllByRole("columnheader").map((header) => header.textContent?.trim()).filter(Boolean);
       expect(headers.slice(0, 4)).toEqual(["部门", "课室", "客户", "业务员"]);
     });
   });

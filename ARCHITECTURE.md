@@ -62,6 +62,7 @@ T+ / future E10 / WMS / MES
 - `packages/ai-tool-sdk`: five read-only Planning tool definitions.
 - `integrations/tplus`: dual-account T+ to Canonical Sales Order adapter.
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
+- `apps/api/src/modules/master-plan-system`: metadata-driven主计划查询与命令、受控 Excel 更新和事务型重投影 outbox。业务写入与 `mps_reconciliation_outbox` 同事务提交；消费者独立重试，不把提交后的投影失败伪装成业务写入失败。
 - `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details, September on-hand summary dashboard and work-report pages.
 - `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. Status pages resolve responsibility live through `equipment_responsibles` by stable equipment ID, so ledger changes appear without copying stale responsibility into status rows; the status-table responsibility field is available but hidden in the default personal view. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
 - `apps/api/src/modules/supply-chain` and `apps/web/src/modules/data-center`: the independently governed, read-only `supplier-list` resource. T+ extraction is isolated in `automation/tplus_supplier_import`; its canonical rows enter the tenant-scoped `supply_chain_suppliers` table only through `SupplyChainApplicationService`, with source-account keys, idempotency and audit.
@@ -97,6 +98,8 @@ Schemas and principal tables:
 All collaborative Planning and IAM tables carry `tenant_id`. PostgreSQL RLS checks `app.tenant_id`; application queries still filter tenant explicitly. IDs default to PostgreSQL 18 `uuidv7()`.
 
 Important uniqueness rules include tenant/year/month, period/version number, version/order/item, item/process, work-report tenant/date/source-plan-item and tenant/import-idempotency key. Quantity and money columns use `numeric`; `decimal.js` is the calculation authority in the domain layer.
+
+主计划月计划与订单分配以租户、订单号、品号建立复合引用；出货计划通过可空 `monthly_plan_id` 建立租户内稳定 UUID 引用。无法自动匹配的历史测试数据保留为空引用并单独登记，不以猜测或删除方式修复。主计划业务表审计操作者使用 `users.id` UUID；系统任务使用禁用登录的固定系统用户。
 
 ## Metadata-driven Planning grid
 

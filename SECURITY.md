@@ -28,6 +28,8 @@
 - Critical changes capture actor, action, resource, before/after values, reason, source, request/trace IDs and IP where available.
 - Equipment APIs enforce independent table actions and stable-UUID division scopes on reads and writes. Status dates are server-validated against the current Asia/Shanghai day and its preceding six days; browser date controls are convenience only. Equipment/status deletes are soft deletes and all changes use optimistic versions plus audit records.
 - 事业部订单评审的交期编辑同时校验表更新、字段编辑和源数据范围；单条/批量交期确认还校验滚动计划表的导入或更新权限及目标数据范围。确认命令使用客户端 UUID 幂等、逐行乐观版本、租户事务和源/目标审计；WebSocket 只发送两张表的失效元数据。
+- 主计划系统 18 张业务表的 `updated_by` 和 outbox `actor_user_id` 使用 `users.id` 稳定 UUID 外键；系统任务使用禁用登录的固定系统主体。业务写入与 `mps_reconciliation_outbox` 入队处于同一租户事务，消费者以 `FOR UPDATE SKIP LOCKED` 领取任务并重试。
+- 主计划 Excel 导入是仅更新已有记录的两阶段流程。预览与确认均校验表权限、字段权限、数据范围和乐观版本，确认令牌绑定租户、用户、资源、文件摘要和有效期；解析前必须执行统一加密文件检测，整批写入及审计必须原子提交。
 
 ## Files
 

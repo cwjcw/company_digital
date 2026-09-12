@@ -15,7 +15,14 @@ export class MasterPlanQueryService {
     return {
       resource: resource.code,
       fields: fieldsFor(resource).filter((field) => this.visible(actor, code, field.key)),
-      actions: { create: resource.create && hasMasterPlanPermission(actor, code, "create"), update: hasMasterPlanPermission(actor, code, "update"), delete: resource.remove && hasMasterPlanPermission(actor, code, "delete") }
+      actions: {
+        create: resource.create && hasMasterPlanPermission(actor, code, "create"),
+        update: hasMasterPlanPermission(actor, code, "update"),
+        delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),
+        import: hasMasterPlanPermission(actor, code, "import"),
+        export: hasMasterPlanPermission(actor, code, "export"),
+        batchUpdate: hasMasterPlanPermission(actor, code, "batch_update") && fieldsFor(resource).some((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"))
+      }
     };
   }
 
@@ -58,6 +65,18 @@ export class MasterPlanQueryService {
     params.push(pageSize, (page - 1) * pageSize);
     const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${divisionJoin} WHERE ${where} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { rows, total: Number(count), page, pageSize, visibleFields };
+  }
+
+  async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {
+    if (!hasMasterPlanPermission(actor, code, "export")) throw new ForbiddenException("当前权限组没有该表导出权限");
+    const first = await this.list(code, { ...input, page: 1, pageSize: 200 }, actor);
+    const rows = [...first.rows];
+    for (let page = 2; rows.length < first.total; page++) {
+      const next = await this.list(code, { ...input, page, pageSize: 200 }, actor);
+      rows.push(...next.rows);
+      if (!next.rows.length) break;
+    }
+    return { rows, visibleFields: first.visibleFields };
   }
 
   private resource(code: string) {

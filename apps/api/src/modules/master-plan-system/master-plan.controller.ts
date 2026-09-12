@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { AuthGuard } from "../../auth";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
+import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import type { MasterPlanActor } from "./master-plan.types";
 
@@ -14,7 +16,7 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService) {}
 
   @Get("resources/:resource/meta")
   metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.metadata(resource, this.actor(request)); }
@@ -22,8 +24,23 @@ export class MasterPlanController {
   @Get("resources/:resource")
   list(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.queries.list(resource, query, this.actor(request)); }
 
+  @Get("resources/:resource/import-template")
+  async importTemplate(@Param("resource") resource: string, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, `${resource}-导入模板.xlsx`, await this.spreadsheets.template(resource, this.actor(request))); }
+
+  @Post("resources/:resource/import-preview") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 20 * 1024 * 1024 } }))
+  importPreview(@Param("resource") resource: string, @UploadedFile() file: Express.Multer.File, @Req() request: MasterPlanRequest) { return this.spreadsheets.preview(resource, file, this.actor(request)); }
+
+  @Post("resources/:resource/import-confirm")
+  importConfirm(@Param("resource") resource: string, @Body("token") token: string, @Req() request: MasterPlanRequest) { return this.spreadsheets.confirm(resource, token, this.actor(request)); }
+
+  @Get("resources/:resource/export")
+  async export(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, `${resource}.xlsx`, await this.spreadsheets.export(resource, query, this.actor(request))); }
+
   @Post("resources/:resource")
   create(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.create(resource, body, this.actor(request)); }
+
+  @Patch("resources/:resource/batch")
+  batchUpdate(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.batchUpdate(resource, body, this.actor(request)); }
 
   @Patch("resources/:resource/:id")
   update(@Param("resource") resource: string, @Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.update(resource, id, body, this.actor(request)); }
@@ -43,5 +60,9 @@ export class MasterPlanController {
       source: request.user?.apiKeyId ? "system" : "web"
     };
   }
-}
 
+  private sendWorkbook(response: Response, filename: string, buffer: Buffer) {
+    response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`); response.send(buffer);
+  }
+}
