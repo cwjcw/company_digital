@@ -159,136 +159,13 @@ export class AuthController {
 @UseGuards(AuthGuard)
 @Controller("plans")
 export class PlanController {
-  constructor(
-    private readonly plans: PlanService,
-    private readonly storage: StorageService,
-    private readonly imports: ImportService
-  ) {}
-  @Get("periods") periods(@Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "read"); return this.plans.periodsList(); }
-  @Get("monthly")
-  monthly(@Query("year", ParseIntPipe) year: number, @Query("month", ParseIntPipe) month: number, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "read");
-    return this.plans.monthly(year, month, req.user);
-  }
-  @Get("rolling") rolling(@Query() query: Record<string, string | undefined>, @Req() req: UserRequest) {
-    requireTablePermission(req, "rolling-plan", "read");
-    if (!query.page && !query.pageSize) return this.plans.rolling(req.user);
-    let filters = [], quickFilters = {};
-    try { filters = JSON.parse(query.filters ?? "[]"); } catch { filters = []; }
-    try { quickFilters = JSON.parse(query.quickFilters ?? "{}"); } catch { quickFilters = {}; }
-    return this.plans.rollingPage({ page: Number(query.page), pageSize: Number(query.pageSize), search: query.search, filters, quickFilters, sortField: query.sortField, sortOrder: query.sortOrder === "desc" ? "desc" : "asc" }, req.user);
-  }
+  constructor(private readonly plans: PlanService) {}
   @Get("sales-dashboard") dashboard(@Query("dimension") dimension:string|undefined,@Query("period") period:string|undefined,
     @Query("division") division:string|string[]|undefined,@Query("customer") customer:string|string[]|undefined,@Req() req: UserRequest) {
     requireTablePermission(req, "sales-summary-dashboard", "read");
     const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
     const values=(value:string|string[]|undefined)=>value===undefined?[]:Array.isArray(value)?value:[value];
     return this.plans.salesDashboard({dimension:(dimension??"month") as "year"|"month"|"day",period:period??today,divisions:values(division),customers:values(customer)},req.user);
-  }
-  @Post("orders") createOrder(@Body() body: Record<string, unknown>, @Req() req: UserRequest) {
-    requireTablePermission(req, "rolling-plan", "create");
-    return this.plans.createOrder(body, req.user, req.requestId);
-  }
-  @Post("orders/import-file") @ApiConsumes("multipart/form-data")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 200 * 1024 * 1024 } }))
-  async importOrders(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
-    requireTablePermission(req, "rolling-plan", "import");
-    const workbook = await this.imports.loadWorkbook(file);
-    const sheet = workbook.getWorksheet("接单汇总") ?? workbook.worksheets[0];
-    if (!sheet) throw new BadRequestException("Excel 中没有工作表");
-    const fieldMap: Record<string, string> = {
-      客户: "customer", 业务员: "salesperson", 订单号: "orderNumber", 下单日期: "orderDate",
-      客户要求交期: "customerDueDate", 产前评审交期: "reviewDueDate",
-      异常后二次交期: "exceptionDueDate", 异常交货方式: "exceptionDeliveryMethod",
-      订单金额: "orderAmount", 承产单位: "division", 订单实际完成日期: "actualCompletionDate",
-      出货日期: "shippingDate", 交期评分: "deliveryScore", 品质评分: "qualityScore"
-    };
-    const headers = new Map<number, string>();
-    sheet.getRow(2).eachCell((cell, column) => {
-      const key = fieldMap[cell.text.replace(/\s+/g, "").trim()];
-      if (key) headers.set(column, key);
-    });
-    if (![...headers.values()].includes("orderNumber")) throw new BadRequestException("接单汇总缺少订单号字段");
-    const rows: Record<string, unknown>[] = [];
-    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber <= 3) return;
-      const record: Record<string, unknown> = {};
-      for (const [column, field] of headers) {
-        const cell = row.getCell(column);
-        const cellValue: any = cell.value;
-        record[field] = cellValue && typeof cellValue === "object" && "result" in cellValue
-          ? cellValue.result
-          : cellValue && typeof cellValue === "object" && "richText" in cellValue
-            ? cellValue.richText.map((part: { text?: string }) => part.text ?? "").join("")
-            : cellValue && typeof cellValue === "object" && "text" in cellValue
-              ? cellValue.text
-              : cellValue;
-      }
-      if (Object.values(record).some((value) => value !== null && value !== undefined && value !== "")) rows.push(record);
-      record.__row = rowNumber;
-    });
-    return this.plans.importOrders(rows, req.user, req.requestId);
-  }
-  @Patch("orders/:id") updateOrder(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: UserRequest) { requireTablePermission(req, "rolling-plan", "update"); return this.plans.updateOrder(id, body, req.user, req.requestId); }
-  @Post("orders/delete") deleteOrders() { throw new ForbiddenException("销售接单汇总不允许手工删除"); }
-  @Post("rows/import") importRows(@Body() body: { rows: Array<{ year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }> }, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "import"); return this.plans.importPlanRows(body.rows, req.user, req.requestId); }
-  @Post("items") createItem(@Body() body: { year: number; month: number; orderNumber: string; itemNumber: string; itemName?: string; customer?: string; division?: string }, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "create"); return this.plans.createItem(body, req.user, req.requestId); }
-  @Post("items/delete") deleteItems() { throw new ForbiddenException("月度计划不允许手工删除"); }
-  @Post("items/move")
-  moveItems(
-    @Body() body: { ids: string[]; targetYear: number; targetMonth: number },
-    @Req() req: UserRequest
-  ) {
-    requireTablePermission(req, "monthly-plan", "update");
-    return this.plans.moveItems(body.ids, body.targetYear, body.targetMonth, req.user, req.requestId);
-  }
-  @Patch("items/:id/cell")
-  update(@Param("id") id: string, @Body() body: { field: string; value: unknown; expectedVersion: number }, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "update");
-    return this.plans.updateCell(id, body, req.user, req.requestId);
-  }
-  @Post("items/bulk")
-  bulkUpdate(@Body() body: { updates: Array<{ id: string; field: string; value: unknown; expectedVersion: number }> }, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "update");
-    const idempotencyKey = req.headers["idempotency-key"];
-    return this.plans.bulkUpdate(body.updates, req.user, req.requestId, typeof idempotencyKey === "string" ? idempotencyKey : "");
-  }
-  @Post("items/:id/images")
-  @UseInterceptors(FileInterceptor("image", { limits: { fileSize: 15 * 1024 * 1024 } }))
-  uploadImage(@Param("id") id: string, @UploadedFile() image: Express.Multer.File, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "update");
-    return this.storage.addImages(id, image ? [image] : [], req.user, req.requestId);
-  }
-  @Get("monthly/export")
-  async exportMonthly(
-    @Query("year", ParseIntPipe) year: number, @Query("month", ParseIntPipe) month: number,
-    @Req() req: UserRequest, @Res() response: Response
-  ) {
-    requireTablePermission(req, "monthly-plan", "export");
-    const result = await this.plans.monthly(year, month, req.user);
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet(`${month}月计划`, { views: [{ state: "frozen", xSplit: 12, ySplit: 2 }] });
-    sheet.addRow(monthlyPlanColumns.map((column) => column.group ?? column.header));
-    sheet.addRow(monthlyPlanColumns.map((column) => column.group ? column.header : ""));
-    for (const row of result.rows) sheet.addRow(monthlyPlanColumns.map((column) => {
-      const parts = column.key.split(".");
-      return parts.reduce((value: any, part) => value?.[part], row as any) ?? null;
-    }));
-    let groupStart = 1;
-    for (let col = 2; col <= monthlyPlanColumns.length + 1; col++) {
-      const previous = monthlyPlanColumns[col - 2]?.group ?? null;
-      const current = monthlyPlanColumns[col - 1]?.group ?? null;
-      if (current !== previous) {
-        if (previous && col - groupStart > 1) sheet.mergeCells(1, groupStart, 1, col - 1);
-        groupStart = col;
-      }
-    }
-    if (monthlyPlanColumns.at(-1)?.group && monthlyPlanColumns.length + 1 - groupStart > 0) sheet.mergeCells(1, groupStart, 1, monthlyPlanColumns.length);
-    sheet.getRows(1, 2)?.forEach((row) => { row.font = { bold: true, color: { argb: "FFFFFFFF" } }; row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4B70" } }; });
-    response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${year}-${month}月计划.xlsx`)}`);
-    await workbook.xlsx.write(response);
-    response.end();
   }
 }
 

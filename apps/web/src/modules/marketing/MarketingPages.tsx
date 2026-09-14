@@ -3,11 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Upload } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { io } from "socket.io-client";
 import { api, ApiError } from "../../api";
 import { downloadApiFile, ImportFeedbackAlert, InlineText, PageHeader, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate } from "../../shared/date-format";
-import { hasFieldPermission, hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../shared/KdosDataTable";
+import { hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../shared/KdosDataTable";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
 
@@ -142,7 +141,7 @@ export function OrderSchedulePage() {
   const queryClient = useQueryClient(); const [tableQuery,setTableQuery]=useState<TableQuery>(blankQuery); const [selected, setSelected] = useState<string[]>([]);
   const selectedRows=useRef(new Map<string,any>());
   const [completion, setCompletion] = useState("all"); const [dueRange, setDueRange] = useState<[Dayjs | null, Dayjs | null] | null>(null); const [batchDate, setBatchDate] = useState<Dayjs | null>(null);
-  const [editing, setEditing] = useState<any>(); const [saving, setSaving] = useState(false); const [deleting, setDeleting] = useState(false); const [syncingRolling, setSyncingRolling] = useState(false); const syncRollingLock = useRef(false); const [editForm] = Form.useForm();
+  const [editing, setEditing] = useState<any>(); const [saving, setSaving] = useState(false); const [deleting, setDeleting] = useState(false); const [editForm] = Form.useForm();
   const scheduleExtra={completion,dueStart:dueRange?.[0]?.format("YYYY-MM-DD")??"",dueEnd:dueRange?.[1]?.format("YYYY-MM-DD")??""};
   const rows = useQuery({ queryKey: ["order-schedules",tableQuery,scheduleExtra], queryFn: () => api<TablePage<any>|any[]>(tableUrl("/marketing/order-schedules",tableQuery,scheduleExtra)) });
   const refresh = () => { setSelected([]);selectedRows.current.clear(); void queryClient.invalidateQueries({ queryKey: ["order-schedules"] }); };
@@ -170,30 +169,6 @@ export function OrderSchedulePage() {
       }
     });
   };
-  const syncToRollingPlan = async () => {
-    if (!selected.length) return message.warning("请先选择要同步的排期记录");
-    if (syncRollingLock.current) return;
-    const snapshots = selected.map((id) => selectedRows.current.get(id) ?? data.find((row) => row.id === id)).filter(Boolean);
-    if (snapshots.length !== selected.length) return message.error("所选排期数据已失效，请刷新后重新选择");
-    syncRollingLock.current = true; setSyncingRolling(true);
-    try {
-      const result = await api<{ selected: number; eligible: number; matched: number; created: number; updated: number; unchanged: number; retained: number; repeated: boolean; failed: Array<{ id: string; orderNumber: string; itemNumber: string; reason: string }> }>("/marketing/order-schedules/sync-to-rolling-plan", {
-        method: "POST", body: JSON.stringify({ rows: snapshots.map((row) => ({ id: row.id, expectedVersion: row.version })), idempotencyKey: crypto.randomUUID() })
-      });
-      await queryClient.invalidateQueries({ queryKey: ["rolling-plan-items"] });
-      Modal.info({
-        title: result.failed.length ? "同步完成（部分记录未写入）" : "同步完成",
-        width: 760,
-        content: <Space direction="vertical" style={{ width: "100%" }}>
-          <div>选择 {result.selected} 条；新增 {result.created} 条，更新 {result.updated} 条，未变化 {result.unchanged} 条，滚动计划中保留未选记录 {result.retained} 条。</div>
-          {result.failed.length ? <KdosDataTable resource="rolling-plan-sync-errors" systemFields={false} simple rowKey={(row) => row.id} dataSource={result.failed} columns={[
-            { title: "订单号", dataIndex: "orderNumber", width: 160 }, { title: "品号", dataIndex: "itemNumber", width: 160 }, { title: "未写入原因", dataIndex: "reason" }
-          ]} size="small" scroll={{ x: 680 }} /> : null}
-        </Space>
-      });
-    } catch (error) { message.error((error as Error).message); }
-    finally { syncRollingLock.current = false; setSyncingRolling(false); }
-  };
   const selectWholeOrders = async () => { const orders=[...new Set([...selectedRows.current.values()].map((row)=>row.orderNumber).filter(Boolean))];for(const orderNumber of orders){const result=await api<TablePage<any>>(tableUrl("/marketing/order-schedules",{...blankQuery,pageSize:200},{exactOrderNumber:orderNumber}));for(const row of result.rows)selectedRows.current.set(row.id,row);}setSelected([...selectedRows.current.keys()]); };
   const openEditor = () => {
     const row = selected.length === 1 ? selectedRows.current.get(selected[0]!) : undefined; if (!row) return;
@@ -220,12 +195,12 @@ export function OrderSchedulePage() {
     { title: "生产单位", dataIndex: "productionUnit", width: 160 }, { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` },
     { title: "状态", dataIndex: "status", width: 100, render: (value: unknown) => value === "VOID" ? <Tag color="red">作废</Tag> : <Tag color="green">正常</Tag> }
   ];
-  return <div><PageHeader title="订单排期" subtitle="新增、修改和作废会立即同步到事业部订单评审；可将所选记录手工同步到滚动计划表" actions={<Space wrap>
+  return <div><PageHeader title="订单排期" subtitle="维护客户订单的品项、交期、数量、生产单位和完成状态" actions={<Space wrap>
     <Select value={completion} onChange={setCompletion} style={{ width: 130 }} options={[{ value: "all", label: "全部完成度" }, { value: "unfinished", label: "未完成" }, { value: "completed", label: "已完成" }]} />
     <DatePicker.RangePicker format={DUE_DATE_DISPLAY_FORMAT} value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
     <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>
   </Space>} />
-    <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button>{hasResourcePermission("order-schedule", "delete") ? <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={!selected.length} onClick={removeSelected}>删除所选 {selected.length} 条</Button> : null}{hasResourcePermission("rolling-plan-table", "import") ? <Button type="primary" loading={syncingRolling} disabled={!selected.length} onClick={() => void syncToRollingPlan()}>同步到滚动计划表（{selected.length}）</Button> : null}<Button disabled={!selected.length} onClick={() => void selectWholeOrders()}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => {setSelected([]);selectedRows.current.clear();}}>清空选择</Button></Space>
+    <Space style={{ marginBottom: 12 }} wrap><Button disabled={selected.length !== 1} onClick={openEditor}>编辑所选</Button>{hasResourcePermission("order-schedule", "delete") ? <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={!selected.length} onClick={removeSelected}>删除所选 {selected.length} 条</Button> : null}<Button disabled={!selected.length} onClick={() => void selectWholeOrders()}>选中同订单全部记录</Button><DatePicker format={DUE_DATE_DISPLAY_FORMAT} value={batchDate} onChange={setBatchDate} placeholder="批量客户交期" /><Button type="primary" disabled={!selected.length} onClick={() => void applyBatch()}>应用到所选 {selected.length} 条</Button><Button disabled={!selected.length} onClick={() => {setSelected([]);selectedRows.current.clear();}}>清空选择</Button></Space>
     <KdosDataTable resource="order-schedule" rowKey="id" rowSelection={{ selectedRowKeys: selected,preserveSelectedRowKeys:true,onChange:(keys,currentRows)=>{const pageIds=new Set(data.map((row)=>row.id));for(const id of pageIds)selectedRows.current.delete(id);for(const row of currentRows)selectedRows.current.set(row.id,row);setSelected(keys.map(String));} }} loading={rows.isLoading} dataSource={data} columns={columns}
       serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、业务员、客户或订单"
       toolbar={hasResourcePermission("order-schedule", "import") ? <Space wrap>
@@ -252,80 +227,5 @@ export function OrderSchedulePage() {
         <Form.Item name="status" label="状态" rules={[{ required: true, message: "请选择状态" }]}><Select options={[{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }]} /></Form.Item>
       </Form>
     </Modal>
-  </div>;
-}
-
-export function DivisionOrderReviewPage() {
-  const queryClient = useQueryClient();
-  const [tableQuery, setTableQuery] = useState<TableQuery>(blankQuery);
-  const [selected, setSelected] = useState<string[]>([]);
-  const selectedRows = useRef(new Map<string, any>());
-  const [confirming, setConfirming] = useState(false);
-  const sessionUserId = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
-  const canViewReviewDueDate = hasFieldPermission("division-order-review", "divisionReviewDueDate", "read");
-  const canViewDeliveryConfirmation = hasFieldPermission("division-order-review", "deliveryConfirmation", "read");
-  const canEditReviewDueDate = hasFieldPermission("division-order-review", "divisionReviewDueDate", "update");
-  const canConfirm = hasResourcePermission("division-order-review", "update")
-    && (hasResourcePermission("rolling-plan-table", "import") || hasResourcePermission("rolling-plan-table", "update"));
-  const reviews = useQuery({
-    queryKey: ["division-order-reviews", sessionUserId, tableQuery],
-    queryFn: () => api<TablePage<any>>(tableUrl("/marketing/division-order-reviews", tableQuery)),
-    retry: false
-  });
-  useEffect(() => {
-    const token = localStorage.getItem("accessToken");
-    if (!token) return;
-    const socket = io("/plans", { auth: { token }, transports: ["websocket"] });
-    socket.on("table.changed", (event: { resource?: string }) => {
-      if (event.resource === "division-order-review") void queryClient.invalidateQueries({ queryKey: ["division-order-reviews"] });
-    });
-    return () => { socket.close(); };
-  }, [queryClient]);
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["division-order-reviews"] });
-  const updateReviewDueDate = async (row: any, value: unknown) => {
-    try {
-      await api(`/marketing/division-order-reviews/${row.id}/review-due-date`, { method: "PATCH", body: JSON.stringify({ divisionReviewDueDate: value || null, expectedVersion: row.version }) });
-      setSelected([]); selectedRows.current.clear(); refresh();
-    } catch (error) { message.error((error as Error).message); refresh(); throw error; }
-  };
-  const confirmRows = async (rows: any[]) => {
-    if (!rows.length || confirming) return;
-    setConfirming(true);
-    try {
-      const result = await api<{ selected: number; eligible: number; matched: number; created: number; updated: number; unchanged: number; confirmed: number; failed: Array<{ orderNumber: string; itemNumber: string; reason: string }> }>("/marketing/division-order-reviews/confirm", {
-        method: "POST", body: JSON.stringify({ rows: rows.map((row) => ({ id: row.id, expectedVersion: row.version })), idempotencyKey: crypto.randomUUID() })
-      });
-      const summary = `确认 ${result.confirmed} 条；新增 ${result.created} 条，更新 ${result.updated} 条，无变化 ${result.unchanged} 条`;
-      if (result.failed.length) Modal.warning({ title: "交期确认已完成，部分记录未写入", width: 720, content: <Space direction="vertical" style={{ width: "100%" }}><div>{summary}</div>{result.failed.map((item, index) => <div key={`${item.orderNumber}:${item.itemNumber}:${index}`}>{item.orderNumber} / {item.itemNumber}：{item.reason}</div>)}</Space> });
-      else message.success(summary);
-      setSelected([]); selectedRows.current.clear(); refresh();
-      void queryClient.invalidateQueries({ queryKey: ["rolling-plan-items"] });
-    } catch (error) { message.error((error as Error).message); refresh(); }
-    finally { setConfirming(false); }
-  };
-  const columns = [
-    { title: "客户代码", dataIndex: "customerCode", width: 140 },
-    { title: "部门", dataIndex: "departmentPath", key: "department", width: 220, render: (value: unknown, row: any) => String(value ?? row.department ?? "").trim() || "—" },
-    { title: "课室", dataIndex: "section", width: 160, render: (value: unknown) => String(value ?? "").trim() || "—" },
-    { title: "业务员", dataIndex: "salespersonNames", width: 180, render: (value: string[]) => value?.join("、") || "—" },
-    { title: "订单编号", dataIndex: "orderNumber", width: 170 },
-    { title: "品项编码", dataIndex: "itemNumber", width: 170 },
-    { title: "品项名称", dataIndex: "itemName", width: 260 },
-    { title: "客户交期", dataIndex: "customerDueDate", width: 140, render: (value: unknown) => formatDueDate(value) },
-    ...(canViewReviewDueDate ? [{ title: "事业部评审交期", dataIndex: "divisionReviewDueDate", width: 170, render: (value: unknown, row: any) => canEditReviewDueDate ? <InlineText type="date" dateDisplayFormat={DUE_DATE_DISPLAY_FORMAT} value={value} onSave={(next) => updateReviewDueDate(row, next)} /> : formatDueDate(value) }] : []),
-    ...(canViewDeliveryConfirmation ? [{ title: "交期确认", dataIndex: "deliveryConfirmation", width: 190, render: (value: unknown, row: any) => <Space><Tag color={value === "已确认" ? "green" : "default"}>{String(value ?? "待确认")}</Tag>{canConfirm ? <Button size="small" type="link" loading={confirming} disabled={row.status === "VOID" || !row.divisionReviewDueDate} onClick={() => void confirmRows([row])}>{value === "已确认" ? "再次确认" : "确认"}</Button> : null}</Space> }] : []),
-    { title: "订单总数量", dataIndex: "orderTotalQuantity", width: 140 },
-    { title: "生产单位", dataIndex: "productionUnit", width: 160 },
-    { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` },
-    { title: "状态", dataIndex: "status", width: 100, render: (value: unknown) => value === "VOID" ? <Tag color="red">作废</Tag> : <Tag color="green">正常</Tag> }
-  ];
-  return <div>
-    <PageHeader title="事业部订单评审" subtitle="订单排期实时同步；填写事业部评审交期后，可单条或批量确认写入滚动计划表" actions={<Button onClick={() => void downloadApiFile("/marketing/division-order-reviews/export", "事业部订单评审.csv")}>导出 CSV</Button>} />
-    {reviews.isError && <Alert showIcon type="error" message="事业部订单评审读取失败" description={(reviews.error as Error).message} style={{ marginBottom: 12 }} />}
-    <KdosDataTable resource="division-order-review" editable rowKey="id" rowSelection={{ selectedRowKeys: selected, preserveSelectedRowKeys: true, onChange: (keys, currentRows) => { const pageIds = new Set((reviews.data?.rows ?? []).map((row: any) => row.id)); for (const id of pageIds) selectedRows.current.delete(id); for (const row of currentRows) selectedRows.current.set(row.id, row); setSelected(keys.map(String)); } }}
-      toolbar={canConfirm ? <Space><Button type="primary" loading={confirming} disabled={!selected.length} onClick={() => void confirmRows(selected.map((id) => selectedRows.current.get(id)).filter(Boolean))}>批量交期确认（{selected.length}）</Button><Button disabled={!selected.length} onClick={() => { setSelected([]); selectedRows.current.clear(); }}>清空选择</Button></Space> : undefined}
-      loading={reviews.isLoading} dataSource={reviews.data?.rows ?? []} columns={columns}
-      serverData={{ total: reviews.data?.total ?? 0, onQueryChange: setTableQuery }} searchPlaceholder="搜索部门、客户、订单或品项"
-      scroll={{ x: "max-content", y: "calc(100vh - 285px)" }} />
   </div>;
 }

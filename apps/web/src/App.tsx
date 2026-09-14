@@ -1,7 +1,7 @@
 import { PageScrollReset } from "./shared/PageScrollReset";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, CalendarOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
+  ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
   SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined
 } from "@ant-design/icons";
@@ -16,16 +16,14 @@ import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { masterPlanResourceDefinitions, tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
-import { SalesSummaryDashboard, SalesSummaryDetails } from "./modules/planning/pages/OperationalPlanningPages";
+import { SalesSummaryDashboard } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import { FinishedGoodsOutboundPage, SalesOrdersPage, SupplierListPage } from "./modules/data-center/DataCenterPages";
 import { DuplicateOrderReviewPage } from "./modules/data-center/DuplicateOrderReviewPage";
-import { BusinessCustomerMappingsPage, DivisionOrderReviewPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
-import { WeeklyPlanPage, WorkReportsPage } from "./modules/planning/pages/PlanningOperationsPages";
-import { RollingPlanPage } from "./modules/planning/pages/RollingPlanPage";
+import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
 import { AdministratorsPage } from "./modules/admin/AdministratorsPage";
 import { OrganizationPage } from "./modules/admin/OrganizationPage";
@@ -44,36 +42,11 @@ import {
 ModuleRegistry.registerModules([AllCommunityModule]);
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
-const MONTHLY_CHUNK_RELOAD_KEY = "kdos:monthly-plan-chunk-reload";
 
 function EditableSwitchCell({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   const { editing } = useKdosTableEditMode();
   return editing ? <Switch checked={checked} onChange={onChange} /> : <span className="kdos-readonly-cell">{checked ? "启用" : "停用"}</span>;
 }
-const KdosMonthlyPlanPage = lazy(async () => {
-  try {
-    const module = await import("./modules/planning/pages/MonthlyPlanPage");
-    sessionStorage.removeItem(MONTHLY_CHUNK_RELOAD_KEY);
-    return { default: module.MonthlyPlanPage };
-  } catch (error) {
-    if (!sessionStorage.getItem(MONTHLY_CHUNK_RELOAD_KEY)) {
-      sessionStorage.setItem(MONTHLY_CHUNK_RELOAD_KEY, "1");
-      window.location.reload();
-      return await new Promise<never>(() => undefined);
-    }
-    sessionStorage.removeItem(MONTHLY_CHUNK_RELOAD_KEY);
-    throw error;
-  }
-});
-
-function KdosMonthlyPlanRoute() {
-  const { period = "" } = useParams();
-  if (!/^\d{6}$/.test(period)) return <Navigate to="/monthly/202609" replace />;
-  const year = Number(period.slice(0, 4)); const month = Number(period.slice(4, 6));
-  if (year < 2000 || year > 2200 || month < 1 || month > 12) return <Navigate to="/monthly/202609" replace />;
-  return <Suspense fallback={<Alert type="info" showIcon message="正在加载月计划…" />}><KdosMonthlyPlanPage year={year} month={month} /></Suspense>;
-}
-
 function TablePermissionsRoute() {
   const { resource = "" } = useParams();
   return <TablePermissionsPage resourceCode={decodeURIComponent(resource)} />;
@@ -175,14 +148,6 @@ function Shell({ logout }: { logout: () => void }) {
   const isSystemAdmin = user.isSystemAdmin === true;
   const isAnyAdministrator = isSystemAdmin || (user.moduleAdminCodes?.length ?? 0) > 0;
   const systemPaths = ["/master-data", "/data-operations", "/organization", "/audit", "/admin", "/users", "/administrators", "/contacts", "/api-keys"];
-  const monthlyPages = Array.from({ length: 5 }, (_, index) => 8 + index).map((month) => {
-    const period = `2026${String(month).padStart(2, "0")}`;
-    return { key: `/monthly/${period}`, label: period };
-  });
-  const weeklyPages = [
-    { start: "2026-08-16", end: "2026-08-22" }, { start: "2026-08-23", end: "2026-08-29" },
-    { start: "2026-08-30", end: "2026-09-05" }, { start: "2026-09-06", end: "2026-09-12" }
-  ].map((week) => ({ key: `/weekly/${week.start.replaceAll("-", "")}`, label: `${week.start.slice(5)} 至 ${week.end.slice(5)}` }));
   const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
   const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
@@ -192,7 +157,7 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/on-hand-summary-dashboard", "/sales-summary-details", "/rolling", "/work-reports", "/division-order-review"].includes(location.pathname) || location.pathname.startsWith("/monthly") || location.pathname.startsWith("/weekly") || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
+    : ["/on-hand-summary-dashboard"].includes(location.pathname) || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -211,20 +176,6 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
           { key: "/equipment-dashboard", icon: <DashboardOutlined />, label: "集团设备大屏" }
         ] }
-      ] },
-      { key: "planning-root", icon: <ScheduleOutlined />, label: "生产主计划", children: [
-        { key: "/sales-summary-details", icon: <FileExcelOutlined />, label: "销售接单明细" },
-        { key: "/monthly", icon: <CalendarOutlined />, label: "月度计划", children: [
-          { key: "/monthly/2026", icon: <FolderOpenOutlined />, label: "2026年", children: monthlyPages }
-        ] },
-        { key: "/weekly", icon: <CalendarOutlined />, label: "周计划", children: [
-          { key: "/weekly/rolling-plan", icon: <FileExcelOutlined />, label: "滚动计划表" },
-          ...weeklyPages
-        ] },
-        { key: "order-review", icon: <AuditOutlined />, label: "订单评审", children: [
-          { key: "/division-order-review", icon: <FileExcelOutlined />, label: "事业部订单评审" }
-        ] },
-        { key: "/work-reports", icon: <FileExcelOutlined />, label: "报工表" }
       ] },
       { key: "master-plan-system", icon: <ScheduleOutlined />, label: "主计划系统", children: ["数据准备", "计划管理", "生产执行", "系统运维"].map((area) => ({
         key: `mps-${area}`,
@@ -286,19 +237,14 @@ function Shell({ logout }: { logout: () => void }) {
     ] }]
   };
   const masterPlanPage = masterPlanResourceDefinitions.find((entry) => location.pathname === `/master-plan-system/${entry.code}`);
-  const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : /^\/monthly\/\d{6}$/.test(location.pathname)
-    ? `${location.pathname.slice(-6, -2)}年${Number(location.pathname.slice(-2))}月计划`
-    : location.pathname === "/weekly/rolling-plan" ? "滚动计划表"
-    : /^\/weekly\/\d{8}$/.test(location.pathname) ? `周计划 ${location.pathname.slice(-8)}`
-    : ({
-      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "集团主计划", "/sales-summary-details": "销售接单明细",
+  const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : ({
+      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "集团主计划",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
-      "/work-reports": "报工表", "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
+      "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/duplicate-order-review": "重复订单业务复核",
       "/data-center/supply-chain/suppliers": "供应商清单",
-      "/division-order-review": "事业部订单评审",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
@@ -321,20 +267,9 @@ function Shell({ logout }: { logout: () => void }) {
       </Header>
       <Content className="content">
         <Routes>
-          <Route path="/rolling" element={<Navigate to="/sales-summary-details" replace />} />
           <Route path="/sales-summary-dashboard" element={<SalesSummaryDashboard />} />
           <Route path="/on-hand-summary-dashboard" element={<OnHandSummaryDashboard />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
-          <Route path="/sales-summary-details" element={<SalesSummaryDetails />} />
-          <Route path="/monthly" element={<Navigate to="/monthly/202608" replace />} />
-          <Route path="/monthly/:period" element={<KdosMonthlyPlanRoute />} />
-          <Route path="/weekly/rolling-plan" element={<RollingPlanPage />} />
-          <Route path="/weekly/20260816" element={<WeeklyPlanPage startDate="2026-08-16" />} />
-          <Route path="/weekly/20260823" element={<WeeklyPlanPage startDate="2026-08-23" />} />
-          <Route path="/weekly/20260830" element={<WeeklyPlanPage startDate="2026-08-30" />} />
-          <Route path="/weekly/20260906" element={<WeeklyPlanPage startDate="2026-09-06" />} />
-          <Route path="/work-reports" element={<WorkReportsPage />} />
-          <Route path="/division-order-review" element={<DivisionOrderReviewPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
           <Route path="/master-plan-system/:resource" element={<MasterPlanResourceRoute />} />
