@@ -5,7 +5,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../../api";
 import { InlineText, PageHeader } from "../../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT } from "../../../shared/date-format";
-import { hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../../shared/KdosDataTable";
+import { hasFieldPermission, hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../../shared/KdosDataTable";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type TablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
@@ -49,16 +49,17 @@ export function WorkReportsPage() {
     const result = await api<{ sourceCount: number; matched: number; created: number; updated: number; unchanged: number; removedStale: number; preservedReported: number }>("/planning-operations/work-reports/sync", { method: "POST", body: JSON.stringify({ date: dateValue }) });
     message.success(`月度计划导入完成：匹配 ${result.matched} 条，新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条，清理无报工旧记录 ${result.removedStale} 条；已填报数量保持不变`); refresh();
   } catch (error) { message.error((error as Error).message); } finally { setSyncing(false); } };
+  const download = async () => { try { const blob=await api<Blob>(tableUrl("/planning-operations/work-reports-export",tableQuery,{date:dateValue}));const url=URL.createObjectURL(blob),anchor=document.createElement("a");anchor.href=url;anchor.download=`报工表-${dateValue}.xlsx`;anchor.click();URL.revokeObjectURL(url); } catch(error) { message.error((error as Error).message); } };
   const update = async (row: any, value: unknown) => { try { await api(`/planning-operations/work-reports/${row.id}`, { method: "PATCH", body: JSON.stringify({ reportedQuantity: value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const columns = [
     { title: "日期", dataIndex: "workDate", width: 110, render: (value: unknown) => value ? dayjs(String(value)).format("M月D日") : "—" },
-    { title: "事业部", dataIndex: "divisionName", width: 140 }, { title: "客户", dataIndex: "customer", width: 180 },
+    { title: "事业部", dataIndex: "divisionId", width: 180, render: (_value: unknown, row: any) => row.divisionName ?? "—" }, { title: "客户", dataIndex: "customer", width: 180 },
     { title: "订单编码", dataIndex: "orderNumber", width: 170 }, { title: "品项编码", dataIndex: "itemNumber", width: 170 },
     { title: "品名", dataIndex: "itemName", width: 260 }, { title: "需求数量", dataIndex: "requiredQuantity", width: 140 },
     { title: "报工数量", dataIndex: "reportedQuantity", width: 150, render: (value: unknown, row: any) => <WorkReportQuantityCell value={value} onSave={(next) => update(row, next)} /> }
-  ];
+  ].filter((column) => hasFieldPermission("work-report", String(column.dataIndex), "read") || hasFieldPermission("work-report", String(column.dataIndex), "update"));
   const toolbar = <Space><DatePicker value={date} format="M月D日" onChange={(value) => value && setDate(value)} allowClear={false} />
-    {hasResourcePermission("work-report", "import") && <Button type="primary" loading={syncing} onClick={() => void sync()}>从月度计划导入</Button>}</Space>;
+    {hasResourcePermission("work-report", "import") && <Button type="primary" loading={syncing} onClick={() => void sync()}>从月度计划导入</Button>}{hasResourcePermission("work-report","export")&&<Button onClick={()=>void download()}>导出</Button>}</Space>;
   return <div><PageHeader title="报工表" subtitle="按所选日期对应月份的月度计划手工导入，以订单号 + 品项编码匹配；重新导入不会覆盖已填报数量" />
     <KdosDataTable resource="work-report" editable toolbar={toolbar} searchPlaceholder="搜索客户、订单、品项" rowKey="id" loading={rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
       serverData={{ total: pageTotal(rows.data), onQueryChange: setTableQuery }} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;

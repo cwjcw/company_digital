@@ -13,8 +13,8 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-process-cycles", table: "mps_process_cycles", create: true, remove: true, defaultOrder: "item_code", requiredOnCreate: ["itemCode"], uniqueKeyFields: ["itemCode"] },
   { code: "mps-group-plans", table: "mps_group_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number", divisionField: "primaryDivisionId" },
   { code: "mps-monthly-plans", table: "mps_monthly_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId" },
-  { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "itemName", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "divisionId", "modelAge"], requiredAlways: ["itemName", "divisionId", "modelAge"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], allowedValues: { modelAge: ["新", "旧"] }, extraColumns: { monthlyPlanId: "monthly_plan_id" } },
-  { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "modelAge", "surfaceNature", "manufacturingMethod"], requiredAlways: ["latestReviewDueDate", "productAttribute", "modelAge", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], allowedValues: { productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"], modelAge: ["新", "旧"], manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"] } },
+  { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "itemName", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "divisionId"], requiredAlways: ["itemName", "divisionId"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], allowedValues: { modelAge: ["新", "旧"] }, extraColumns: { monthlyPlanId: "monthly_plan_id" } },
+  { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], requiredAlways: ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], allowedValues: { productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"], modelAge: ["新", "旧"], manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"] } },
   { code: "mps-weekly-plans", table: "mps_weekly_plans", create: true, remove: false, defaultOrder: "latest_review_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "latestReviewDueDate", "plannedQuantity"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
   { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: true, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", requiredOnCreate: ["weeklyPlanId", "processCode"], uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
@@ -28,6 +28,17 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
 ];
 
 export const MASTER_PLAN_RESOURCE_MAP = new Map(MASTER_PLAN_RESOURCES.map((resource) => [resource.code, resource]));
+const commonOptions: Record<string, Array<{ value: string; label: string }>> = {
+  manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"].map((value) => ({ value, label: value })),
+  materialName: ["五金", "木作"].map((value) => ({ value, label: value })), outsourcingMethod: ["成品", "毛坯", "部件"].map((value) => ({ value, label: value })),
+  modelAge: ["新", "旧"].map((value) => ({ value, label: value })), productAttribute: ["五金", "木作", "亚克力", "五金+木作"].map((value) => ({ value, label: value })), surfaceNature: ["烤漆", "电镀"].map((value) => ({ value, label: value })),
+  processCode: [["cutting","下料"],["machining","机加"],["bending","折弯"],["spotWelding","点焊"],["welding","焊接"],["woodworking","木作"],["grinding","研磨"],["surfaceTreatment","表面处理"],["packaging","包装"]].map(([value,label]) => ({ value, label }))
+};
+function optionsFor(resource: TableResourceCode, fieldKey: string) {
+  if (fieldKey === "status" && resource === "mps-technical-reports") return ["已完成", "未完成", "延期"].map((value) => ({ value, label: value }));
+  if (fieldKey === "status" && resource === "mps-outsourcing-reports") return ["未开始", "进行中", "延期", "已入库"].map((value) => ({ value, label: value }));
+  return commonOptions[fieldKey] ?? [];
+}
 const camelToSnake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 const processes = ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "surfaceTreatment", "packaging"] as const;
 
@@ -90,7 +101,12 @@ function virtualColumns(resource: MasterPlanResource) {
   }
   return output;
 }
-export function fieldsFor(resource: MasterPlanResource): TablePermissionFieldDefinition[] { return tablePermissionFieldsFor(resource.code); }
+export function fieldsFor(resource: MasterPlanResource): TablePermissionFieldDefinition[] {
+  return tablePermissionFieldsFor(resource.code).map((field) => {
+    const options = optionsFor(resource.code, field.key);
+    return options.length ? { ...field, options } : field;
+  });
+}
 export function columnsFor(resource: MasterPlanResource): Record<string, string> {
   return { ...Object.fromEntries(fieldsFor(resource).map((field) => [field.key, camelToSnake(field.key)])), ...virtualColumns(resource), ...(resource.extraColumns ?? {}) };
 }

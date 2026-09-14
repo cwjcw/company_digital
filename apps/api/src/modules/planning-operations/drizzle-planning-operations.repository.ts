@@ -37,13 +37,40 @@ export class DrizzlePlanningOperationsRepository implements PlanningOperationsRe
     return {rows,total,page:input.page,pageSize:input.pageSize};
   }); }
   async updateWeeklyDate(tenantId: string, id: string, field: "customer_due_date" | "review_due_date", value: string | null, expectedVersion: number, actor: PlanningActor) { return this.transaction(tenantId, async (client) => { const result = await client.query(`UPDATE planning.weekly_plan_items SET ${field}=$4,version=version+1,updated_at=now(),updated_by=$5 WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING *`, [tenantId, id, expectedVersion, value, actor.userId]); if (!result.rowCount) throw new ConflictException("周计划已被其他用户修改，请刷新后重试"); await this.audit(client, tenantId, actor, "planning.weekly.updated", "WeeklyPlanItem", id, { field, value }); return result.rows[0]; }); }
-  async listWorkReports(tenantId: string, date: string, input: OperationsPageInput) { return this.transaction(tenantId, async (client) => {
-    const values:unknown[]=[tenantId,date,input.search?.trim()??""];const where=["report.tenant_id=$1","report.work_date=$2","($3='' OR concat_ws(' ',report.customer,report.order_number,report.item_number,report.item_name) ILIKE '%'||$3||'%')"];
-    const columns:Record<string,string>={workDate:"report.work_date::text",customer:"report.customer",orderNumber:"report.order_number",itemNumber:"report.item_number",itemName:"report.item_name",requiredQuantity:"report.required_quantity::text",reportedQuantity:"report.reported_quantity::text",createdBy:"report.created_by::text",createdAt:"report.created_at::text",updatedBy:"report.updated_by::text",updatedAt:"report.updated_at::text"};
+  private workReportScope(actor: PlanningActor, action: string, values: unknown[], alias = "report") {
+    if (actor.permissions.includes("*")) return "true";
+    const scopes = (actor.tableDataScopes ?? []).filter((scope) => scope.resource === "work-report" && (!scope.actions || scope.actions.includes(action)));
+    if (scopes.some((scope) => scope.scope === "ALL")) return "true";
+    const columns: Record<string,string> = { divisionId: `${alias}.division_id`, workDate: `${alias}.work_date`, customer: `${alias}.customer`, orderNumber: `${alias}.order_number`, itemNumber: `${alias}.item_number`, itemName: `${alias}.item_name`, requiredQuantity: `${alias}.required_quantity`, reportedQuantity: `${alias}.reported_quantity`, createdBy: `${alias}.created_by` };
+    const alternatives: string[] = [];
+    if (actor.userId && scopes.some((scope) => scope.scope === "OWN")) { values.push(actor.userId); alternatives.push(`${alias}.created_by=$${values.length}::uuid`); }
+    for (const scope of scopes.filter((entry) => entry.scope === "CUSTOM")) {
+      const rules: string[] = [];
+      for (const rule of scope.rules ?? []) {
+        const column = columns[String(rule.fieldKey ?? "")]; if (!column) continue;
+        const expected = rule.value === "CURRENT_USER" ? actor.userId : rule.value === "CURRENT_USER_MANAGED_DEPARTMENTS" ? actor.managedOrganizationUnitIds ?? [] : rule.value;
+        const operator = String(rule.operator ?? "");
+        if (operator === "IS_EMPTY") { rules.push(`(${column} IS NULL OR btrim(${column}::text)='')`); continue; }
+        if (operator === "IS_NOT_EMPTY") { rules.push(`(${column} IS NOT NULL AND btrim(${column}::text)<>'')`); continue; }
+        if (["IN","NOT_IN"].includes(operator)) { const entries = Array.isArray(expected) ? expected.map(String) : [String(expected ?? "")]; values.push(entries); rules.push(`${column}::text ${operator === "IN" ? "= ANY" : "<> ALL"}($${values.length}::text[])`); continue; }
+        if (expected == null) continue;
+        const comparison: Record<string,string> = { EQ:"=",NE:"<>",GT:">",GTE:">=",LT:"<",LTE:"<=" };
+        if (comparison[operator]) { values.push(String(expected)); rules.push(`${column}::text ${comparison[operator]} $${values.length}`); continue; }
+        if (["CONTAINS","NOT_CONTAINS","STARTS_WITH"].includes(operator)) { values.push(operator === "STARTS_WITH" ? `${expected}%` : `%${expected}%`); rules.push(`COALESCE(${column}::text,'') ${operator === "NOT_CONTAINS" ? "NOT ILIKE" : "ILIKE"} $${values.length}`); }
+      }
+      if (rules.length) alternatives.push(`(${rules.join(scope.match === "ANY" ? " OR " : " AND ")})`);
+    }
+    return alternatives.length ? `(${alternatives.join(" OR ")})` : "false";
+  }
+  async listWorkReports(tenantId: string, date: string, input: OperationsPageInput, actor: PlanningActor) { return this.transaction(tenantId, async (client) => {
+    const values:unknown[]=[tenantId,date,input.search?.trim()??"",input.divisionIds??[]];const where=["report.tenant_id=$1","report.work_date=$2","($3='' OR concat_ws(' ',report.customer,report.order_number,report.item_number,report.item_name) ILIKE '%'||$3||'%' OR report.division_id=ANY($4::uuid[]))"];
+    if (input.divisionFilterActive) where.push("report.division_id=ANY($4::uuid[])");
+    where.push(this.workReportScope(actor,"read",values));
+    const columns:Record<string,string>={workDate:"report.work_date::text",divisionId:"report.division_id::text",customer:"report.customer",orderNumber:"report.order_number",itemNumber:"report.item_number",itemName:"report.item_name",requiredQuantity:"report.required_quantity::text",reportedQuantity:"report.reported_quantity::text",createdBy:"report.created_by::text",createdAt:"report.created_at::text",updatedBy:"report.updated_by::text",updatedAt:"report.updated_at::text"};
     for(const [key,raw] of Object.entries(input.filters??{})){const value=raw.trim(),column=columns[key];if(!value||!column)continue;values.push(value);where.push(`coalesce(${column},'') ILIKE '%'||$${values.length}||'%'`);}
     const sortColumn=columns[input.sortField??""];const orderBy=sortColumn?`${sortColumn} ${input.sortOrder==="desc"?"DESC":"ASC"} NULLS LAST`:"report.order_number,report.item_number";
     const total=Number((await client.query(`SELECT count(*)::int total FROM planning.work_reports report WHERE ${where.join(" AND ")}`,values)).rows[0]?.total??0);values.push(input.pageSize,(input.page-1)*input.pageSize);
-    const rows=(await client.query(`SELECT report.id,report.source_plan_item_id AS "sourcePlanItemId",report.work_date AS "workDate",report.customer,report.order_number AS "orderNumber",report.item_number AS "itemNumber",report.item_name AS "itemName",report.required_quantity AS "requiredQuantity",report.reported_quantity AS "reportedQuantity",report.version,report.created_by AS "createdBy",report.created_at AS "createdAt",report.updated_by AS "updatedBy",report.updated_at AS "updatedAt" FROM planning.work_reports report WHERE ${where.join(" AND ")} ORDER BY ${orderBy} LIMIT $${values.length-1} OFFSET $${values.length}`,values)).rows;
+    const rows=(await client.query(`SELECT report.id,report.source_plan_item_id AS "sourcePlanItemId",report.work_date AS "workDate",report.division_id AS "divisionId",report.customer,report.order_number AS "orderNumber",report.item_number AS "itemNumber",report.item_name AS "itemName",report.required_quantity AS "requiredQuantity",report.reported_quantity AS "reportedQuantity",report.version,report.created_by AS "createdBy",report.created_at AS "createdAt",report.updated_by AS "updatedBy",report.updated_at AS "updatedAt" FROM planning.work_reports report WHERE ${where.join(" AND ")} ORDER BY ${orderBy} LIMIT $${values.length-1} OFFSET $${values.length}`,values)).rows;
     return {rows,total,page:input.page,pageSize:input.pageSize};
   }); }
   async syncWorkReports(tenantId: string, date: string, actor: PlanningActor) { return this.transaction(tenantId, async (client) => {
@@ -58,7 +85,7 @@ export class DrizzlePlanningOperationsRepository implements PlanningOperationsRe
     const itemCountResult = await client.query("SELECT count(*)::integer AS count FROM planning.plan_items WHERE tenant_id=$1 AND plan_version_id=$2", [tenantId, target.planVersionId]);
     if (Number(itemCountResult.rows[0]?.count ?? 0) === 0) throw new NotFoundException(`${date.slice(0, 7)} 的月度计划没有可导入数据`);
     const result = await client.query(`WITH source AS MATERIALIZED (
-        SELECT item.id AS source_plan_item_id,COALESCE(item.customer_name,item.customer_code) AS customer,
+        SELECT item.id AS source_plan_item_id,item.responsible_org_id AS division_id,COALESCE(item.customer_name,item.customer_code) AS customer,
           item.order_number,item.item_number,item.item_name,item.order_quantity AS required_quantity
         FROM planning.plan_items item WHERE item.tenant_id=$1 AND item.plan_version_id=$3
       ), matched AS (
@@ -75,17 +102,17 @@ export class DrizzlePlanningOperationsRepository implements PlanningOperationsRe
             SELECT 1 FROM source WHERE source.order_number=report.order_number AND source.item_number=report.item_number
           )
       ), updated AS (
-        UPDATE planning.work_reports report SET source_plan_item_id=source.source_plan_item_id,customer=source.customer,
+        UPDATE planning.work_reports report SET source_plan_item_id=source.source_plan_item_id,division_id=source.division_id,customer=source.customer,
           item_name=source.item_name,required_quantity=source.required_quantity,version=report.version+1,updated_at=now(),updated_by=$4
         FROM source WHERE report.tenant_id=$1 AND report.work_date=$2
           AND report.order_number=source.order_number AND report.item_number=source.item_number
-          AND ROW(report.source_plan_item_id,report.customer,report.item_name,report.required_quantity)
-            IS DISTINCT FROM ROW(source.source_plan_item_id,source.customer,source.item_name,source.required_quantity)
+          AND ROW(report.source_plan_item_id,report.division_id,report.customer,report.item_name,report.required_quantity)
+            IS DISTINCT FROM ROW(source.source_plan_item_id,source.division_id,source.customer,source.item_name,source.required_quantity)
         RETURNING report.id
       ), inserted AS (
         INSERT INTO planning.work_reports(
-          tenant_id,work_date,source_plan_item_id,customer,order_number,item_number,item_name,required_quantity,created_by,updated_by
-        ) SELECT $1,$2,source.source_plan_item_id,source.customer,source.order_number,source.item_number,
+          tenant_id,work_date,source_plan_item_id,division_id,customer,order_number,item_number,item_name,required_quantity,created_by,updated_by
+        ) SELECT $1,$2,source.source_plan_item_id,source.division_id,source.customer,source.order_number,source.item_number,
           source.item_name,source.required_quantity,$4,$4 FROM source
         WHERE NOT EXISTS (
           SELECT 1 FROM planning.work_reports report WHERE report.tenant_id=$1 AND report.work_date=$2
@@ -108,7 +135,8 @@ export class DrizzlePlanningOperationsRepository implements PlanningOperationsRe
     return summary;
   }); }
   async updateReportedQuantity(tenantId: string, id: string, quantity: string, expectedVersion: number, actor: PlanningActor) { return this.transaction(tenantId, async (client) => {
-    const current = await client.query(`SELECT id,reported_quantity AS "reportedQuantity",version FROM planning.work_reports WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId,id]);
+    const scopeValues: unknown[] = [tenantId,id]; const scope = this.workReportScope(actor,"update",scopeValues,"report");
+    const current = await client.query(`SELECT id,reported_quantity AS "reportedQuantity",version FROM planning.work_reports report WHERE tenant_id=$1 AND id=$2 AND ${scope} FOR UPDATE`, scopeValues);
     if (!current.rowCount) throw new NotFoundException("报工记录不存在");
     if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException("报工记录已被其他用户修改，请刷新后重试");
     const result=await client.query(`UPDATE planning.work_reports SET reported_quantity=$3,version=version+1,updated_at=now(),updated_by=$4 WHERE tenant_id=$1 AND id=$2 RETURNING *`,[tenantId,id,quantity,actor.userId]);

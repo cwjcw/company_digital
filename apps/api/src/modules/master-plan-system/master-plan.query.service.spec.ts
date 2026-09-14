@@ -8,7 +8,8 @@ const actor = (permissions: string[]): MasterPlanActor => ({
 });
 
 describe("MasterPlanQueryService metadata", () => {
-  const service = new MasterPlanQueryService({} as never);
+  const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: "org-1", name: "事业一部", pathLabel: "凯南 / 事业一部" }]) };
+  const service = new MasterPlanQueryService({} as never, directory as never);
 
   it("shows creation only when the resource create permission is present", () => {
     const allowed = service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:read", "mps-weekly-plans:*:create", "mps-weekly-plans:orderNumber:read"]));
@@ -22,5 +23,11 @@ describe("MasterPlanQueryService metadata", () => {
 
   it("still requires read permission to open a table", () => {
     expect(() => service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:create"]))).toThrow(ForbiddenException);
+  });
+
+  it("authorizes organization references against the actual resource and department field", async () => {
+    await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read", "mps-shipping-plans:divisionId:read"]))).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "org-1" })]));
+    await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-monthly-plans:*:read", "mps-monthly-plans:divisionId:read"]))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read"]))).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

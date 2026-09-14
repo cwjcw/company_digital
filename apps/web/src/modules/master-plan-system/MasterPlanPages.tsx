@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload } from "antd";
 import { DownloadOutlined, MoreOutlined, UploadOutlined } from "@ant-design/icons";
@@ -16,13 +16,6 @@ const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
 
-const dictionaryOptions: Record<string, string[]> = {
-  manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"], materialName: ["五金", "木作"],
-  outsourcingMethod: ["成品", "毛坯", "部件"], status: ["已完成", "未完成", "延期"],
-  modelAge: ["新", "旧"],
-  productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"],
-  processCode: ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "surfaceTreatment", "packaging"]
-};
 const dictionaryLabels: Record<string, Record<string, string>> = {
   processCode: { cutting: "下料", machining: "机加", bending: "折弯", spotWelding: "点焊", welding: "焊接", woodworking: "木作", grinding: "研磨", surfaceTreatment: "表面处理", packaging: "包装" }
 };
@@ -41,7 +34,7 @@ function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], .
   if (field.type === "number") return <InputNumber {...control} min={0} precision={field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker {...control} style={{ width: "100%" }} />;
   if (field.key === "weeklyPlanId") return <Select {...control} showSearch optionFilterProp="label" placeholder="按订单编号、品项或交期编码选择" options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} />;
-  if (field.type === "dictionary" && dictionaryOptions[field.key]) return <Select {...control} options={dictionaryOptions[field.key]!.map((value) => ({ label: dictionaryLabels[field.key]?.[value] ?? value, value }))} />;
+  if (field.type === "dictionary" && field.options?.length) return <Select {...control} options={field.options} />;
   if (field.type === "department") return <OrganizationSelect {...control} organizations={organizations} placeholder="选择完整组织路径" />;
   if (field.type === "member") return <Select {...control} showSearch optionFilterProp="label" allowClear placeholder="选择成员" options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} />;
   return <Input.TextArea {...control} autoSize={{ minRows: 1, maxRows: 4 }} />;
@@ -63,12 +56,40 @@ const processGroups = [
   ["woodworking", "木作"], ["grinding", "研磨"], ["surfaceTreatment", "表面处理"], ["packaging", "包装"]
 ] as const;
 
-function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[]) {
+function InlineMasterPlanCell({ resource, field, row, value, organizations, users, weeklyPlans, onSave }: {
+  resource: string; field: TablePermissionFieldDefinition; row: any; value: unknown;
+  organizations: OrganizationSelectOption[]; users: AuditDirectoryUser[]; weeklyPlans: Array<{ id: string; label: string }>;
+  onSave: (row: any, field: TablePermissionFieldDefinition, value: unknown) => Promise<void>;
+}) {
+  const { editing } = useKdosTableEditMode(); const [draft, setDraft] = useState<any>(value); const [saving, setSaving] = useState(false); const lock = useRef(false);
+  useEffect(() => setDraft(value), [value]);
+  const editable = editing && row.canUpdate !== false && field.editable && hasFieldPermission(resource, field.key, "update");
+  if (!editable) return <>{display(value, field, row)}</>;
+  const commit = async (next = draft) => {
+    const normalized = next?.format ? next.format("YYYY-MM-DD") : next;
+    const previous = value == null ? null : String(value); const comparable = normalized == null || normalized === "" ? null : String(normalized);
+    if (lock.current || previous === comparable) return;
+    lock.current = true; setSaving(true);
+    try { await onSave(row, field, normalized); }
+    catch { setDraft(value); }
+    finally { lock.current = false; setSaving(false); }
+  };
+  if (field.type === "boolean") return <Switch size="small" checked={Boolean(draft)} loading={saving} onChange={(next) => { setDraft(next); void commit(next); }} />;
+  if (field.type === "date") return <DatePicker size="small" value={draft ? dayjs(draft) : null} disabled={saving} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
+  if (field.type === "dictionary") return <Select size="small" value={draft || undefined} allowClear disabled={saving} onChange={(next) => { setDraft(next); void commit(next); }} options={field.options ?? []} style={{ width: "100%" }} />;
+  if (field.type === "department") return <OrganizationSelect size="small" value={draft || undefined} disabled={saving} organizations={organizations} onChange={(next) => { setDraft(next); void commit(next); }} />;
+  if (field.type === "member") return <Select size="small" value={draft || undefined} allowClear showSearch optionFilterProp="label" disabled={saving} options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
+  if (field.key === "weeklyPlanId") return <Select size="small" value={draft || undefined} showSearch optionFilterProp="label" disabled={saving} options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
+  if (field.type === "number") return <InputNumber size="small" value={draft as any} min={0} disabled={saving} onChange={setDraft} onBlur={() => void commit()} onPressEnter={(event) => { event.currentTarget.blur(); }} style={{ width: "100%" }} />;
+  return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commit()} onPressEnter={(event) => event.currentTarget.blur()} />;
+}
+
+function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
     dataIndex: field.key,
     width: Math.max(105, Math.min(240, field.label.length * 18 + 54)),
-    render: (value: unknown, row: any) => display(value, field, row)
+    render: (value: unknown, row: any) => renderCell ? renderCell(value, field, row) : display(value, field, row)
   });
   if (!["mps-monthly-plans", "mps-weekly-plans"].includes(resource)) return fields.map(column);
   const grouped = new Set<string>(); const groups: any[] = [];
@@ -91,13 +112,14 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
   return [...fields.filter((field) => !grouped.has(field.key)).map(column), ...groups];
 }
 
-function RowActions({ metadata, onEdit, onDelete, onSync }: { metadata: Metadata; onEdit: () => void; onDelete: () => void; onSync?: () => void }) {
+function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void }) {
   const { editing } = useKdosTableEditMode();
   if (!editing) return null;
   const items = [
-    metadata.actions.update ? { key: "edit", label: "编辑", onClick: onEdit } : null,
+    metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
+    row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
     onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
-    metadata.actions.delete ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
+    metadata.actions.delete && !row.pendingTask ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
   ].filter(Boolean) as Array<{ key: string; label: string; danger?: boolean; onClick: () => void }>;
   if (!items.length) return null;
   return <Dropdown trigger={["click"]} menu={{ items }} placement="bottomRight">
@@ -117,15 +139,23 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSaving, setBatchSaving] = useState(false);
   const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; token: string | null } | null>(null);
   const [importing, setImporting] = useState(false);
-  const organizations = useQuery({ queryKey: ["planning-organization-options"], queryFn: () => api<OrganizationSelectOption[]>("/planning/organization-options"), staleTime: 300_000 });
-  const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
-  const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: resource === "mps-weekly-process-plans" && Boolean(metadata.data) });
+  const organizations = useQuery({ queryKey: ["mps-organization-options", sessionSubject, resource], queryFn: () => api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${encodeURIComponent(resource)}`), staleTime: 300_000, enabled: Boolean(metadata.data?.fields.some((field) => field.type === "department")) });
+  const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
+  const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: ["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource) && Boolean(metadata.data) });
   const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
+  const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
+    try {
+      const updated = await api<{ version: number }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
+      queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: value, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === value)?.pathLabel ?? null } : {}) } : entry) } : current);
+      message.success(`${field.label}已保存`);
+    } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
+  }, [organizations.data, queryClient, resource, sessionSubject]);
   const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
+  const openReport = (row: any) => { form.resetFields(); setSaveError(null); form.setFieldsValue({ weeklyPlanId: row.weeklyPlanId, processCode: row.processCode, productionDate: dayjs() }); setModal({ mode: "create", row }); };
   const openEdit = (row: any) => {
     form.resetFields();
     setSaveError(null);
@@ -189,15 +219,17 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     } finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const columns = useMemo(() => groupedColumns(resource, businessFields), [businessFields, resource]);
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
   if (!info) return null;
-  const withActions = metadata.data && (metadata.data.actions.update || metadata.data.actions.delete) ? [...columns, {
+  const withActions = metadata.data && (metadata.data.actions.update || metadata.data.actions.delete || (resource === "mps-process-reports" && metadata.data.actions.create)) ? [...columns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const,
-    render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} onEdit={() => openEdit(row)}
+    render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
       onDelete={async () => { try { await api(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); message.success("删除成功"); refresh(); } catch (error) { message.error((error as Error).message); } }}
+      onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => syncMutation.mutate(row.syncKey) : undefined} />
   }] : columns;
-  const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} /> : undefined;
+  const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
+    : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
   return <div>
     <PageHeader title={info.label} subtitle={`${info.area} · 新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段`} actions={<Space>
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template`, `${info.label}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}

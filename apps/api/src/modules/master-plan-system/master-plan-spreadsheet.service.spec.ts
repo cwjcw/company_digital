@@ -8,7 +8,8 @@ const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-11111111111
 describe("MasterPlanSpreadsheetService", () => {
   const queries = { exportRows: jest.fn() };
   const application = { validateImportUpdates: jest.fn(), importUpdates: jest.fn() };
-  const service = new MasterPlanSpreadsheetService(queries as never, application as never);
+  const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() };
+  const service = new MasterPlanSpreadsheetService(queries as never, application as never, directory as never);
 
   beforeEach(() => { jest.clearAllMocks(); process.env.JWT_ACCESS_SECRET = "test-secret"; });
 
@@ -71,5 +72,34 @@ describe("MasterPlanSpreadsheetService", () => {
     const preview = await service.preview("mps-process-cycles", file, actor);
 
     await expect(service.confirm("mps-process-cycles", preview.token!, actor)).resolves.toEqual(expect.objectContaining({ created: 1, updated: 0 }));
+  });
+
+  it("writes stable field keys and authoritative dropdowns into new templates", async () => {
+    directory.listEnabled.mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 事业一部", path: ["凯南", "事业一部"] }]);
+    const buffer = await service.template("mps-shipping-plans", actor);
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const schema = workbook.getWorksheet("_字段定义")!; const options = workbook.getWorksheet("_选项")!;
+    expect(schema.state).toBe("veryHidden"); expect(options.state).toBe("veryHidden");
+    expect(schema.getColumn(1).values).toEqual(expect.arrayContaining(["id", "version", "divisionId", "modelAge"]));
+    const sheet = workbook.getWorksheet("mps-shipping-plans")!;
+    const divisionColumn = (sheet.getRow(1).values as unknown[]).findIndex((value) => value === "承接事业部");
+    expect(sheet.getCell(2, divisionColumn).dataValidation.type).toBe("list");
+    expect(options.getColumn(1).values.flat()).toEqual(expect.arrayContaining(["凯南 / 事业一部"]));
+  });
+
+  it("uses hidden field keys after a display label changes and resolves department paths to UUID", async () => {
+    const organization = { id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 事业一部", path: ["凯南", "事业一部"] };
+    directory.listEnabled.mockResolvedValue([organization]); directory.resolve.mockImplementation((value: unknown) => value === organization.pathLabel ? organization : null);
+    application.validateImportUpdates.mockResolvedValue([]);
+    const buffer = await service.template("mps-shipping-plans", actor);
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never); const sheet = workbook.getWorksheet("mps-shipping-plans")!;
+    const schema = workbook.getWorksheet("_字段定义")!; const keyColumns = new Map<string, number>();
+    for (let row = 3; row <= schema.rowCount; row++) keyColumns.set(schema.getCell(row, 1).text, Number(schema.getCell(row, 2).value));
+    sheet.getCell(1, keyColumns.get("itemCode")!).value = "后来改过的品项标题";
+    sheet.getCell(2, keyColumns.get("itemCode")!).value = "ITEM-1"; sheet.getCell(2, keyColumns.get("divisionId")!).value = organization.pathLabel;
+    const file = { originalname: "template.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()) } as Express.Multer.File;
+    const result = await service.preview("mps-shipping-plans", file, actor);
+    expect(result.errors).toEqual([]);
+    expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-shipping-plans", [expect.objectContaining({ values: expect.objectContaining({ itemCode: "ITEM-1", divisionId: organization.id }) })], actor);
   });
 });

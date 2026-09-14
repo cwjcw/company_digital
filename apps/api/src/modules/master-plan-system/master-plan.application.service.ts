@@ -52,6 +52,7 @@ export class MasterPlanApplicationService {
         const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
         values.monthlyPlanId = monthly?.id ?? null;
       }
+      if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
       if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
       this.validateRequiredOnUpdate(resource, values, current);
       const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, ...entries.map(([, value]) => value)];
@@ -81,7 +82,7 @@ export class MasterPlanApplicationService {
     if (!field || ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(fieldKey)) throw new BadRequestException("所选字段不支持批量修改");
     if (!hasMasterPlanFieldPermission(actor, code, fieldKey, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${field.label}`);
     const value = this.normalize(field.type, body.value, field.label);
-    const allowedValues = resource.allowedValues?.[fieldKey];
+    const allowedValues = field.options?.map((option) => option.value) ?? resource.allowedValues?.[fieldKey];
     if (value != null && allowedValues && !allowedValues.includes(String(value))) throw new BadRequestException(`${field.label}只能选择：${allowedValues.join("、")}`);
     const idempotencyKey = String(body.idempotencyKey ?? "");
     if (!uuidPattern.test(idempotencyKey)) throw new BadRequestException("idempotencyKey 必须使用UUID");
@@ -164,6 +165,7 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
         const values = this.writable(resource, input.values, actor);
+        if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
         if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
           const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
           values.monthlyPlanId = monthly?.id ?? null;
@@ -261,7 +263,7 @@ export class MasterPlanApplicationService {
         || (action === "create" && (hasMasterPlanFieldPermission(actor, resource.code, field, "read") || !hasMasterPlanPermission(actor, resource.code, "read")));
       if (!canWrite) throw new ForbiddenException(`当前权限组不能填写字段：${definition.label}`);
       output[field] = this.normalize(definition.type, raw, definition.label);
-      const allowedValues = resource.allowedValues?.[field];
+      const allowedValues = definition.options?.map((option) => option.value) ?? resource.allowedValues?.[field];
       if (output[field] != null && allowedValues && !allowedValues.includes(String(output[field]))) throw new BadRequestException(`${definition.label}只能选择：${allowedValues.join("、")}`);
     }
     return output;
@@ -325,8 +327,9 @@ export class MasterPlanApplicationService {
     if (resource.code === "mps-weekly-plans") values.pendingQuantity = values.plannedQuantity;
     if (!["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code)) return;
     const weeklyPlanId = String(values.weeklyPlanId ?? ""); if (!uuidPattern.test(weeklyPlanId)) throw new BadRequestException("请选择有效的周计划");
-    const [weekly] = await manager.query(`SELECT order_number,item_code,item_name,delivery_number,planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
+    const [weekly] = await manager.query(`SELECT division_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) throw new BadRequestException("周计划不存在");
+    if (["mps-weekly-process-plans", "mps-process-reports"].includes(resource.code) && !["自制", "自制+外协"].includes(weekly.manufacturing_method)) throw new BadRequestException("当前生产方式不允许创建工序任务或工序报工");
     if (resource.code === "mps-weekly-process-plans") {
       const index = STANDARD_PROCESSES.findIndex(([code]) => code === values.processCode);
       if (index < 0) throw new BadRequestException("工序必须是系统标准工序");
@@ -335,7 +338,7 @@ export class MasterPlanApplicationService {
       values.reportDate ??= shanghaiToday();
       return;
     }
-    Object.assign(values, { orderNumber: weekly.order_number, itemCode: weekly.item_code, itemName: weekly.item_name, deliveryNumber: weekly.delivery_number });
+    Object.assign(values, { divisionId: weekly.division_id, orderNumber: weekly.order_number, itemCode: weekly.item_code, itemName: weekly.item_name, deliveryNumber: weekly.delivery_number });
     if (resource.code === "mps-process-reports") {
       values.plannedQuantity = weekly.planned_quantity;
       const process = STANDARD_PROCESSES.find(([code]) => code === values.processCode);

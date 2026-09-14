@@ -1,5 +1,5 @@
 import { tablePermissionFieldsFor } from "@kdos/contracts";
-import { MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
+import { fieldsFor, MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
 
 describe("master plan manual-entry configuration", () => {
   it.each([
@@ -20,18 +20,21 @@ describe("master plan manual-entry configuration", () => {
     expect(fields.find((field) => field.key === "itemName")?.label).toBe("品项名称");
     expect(fields.find((field) => field.key === "deliveryNumber")?.label).toBe("交期编码");
     expect(fields.find((field) => field.key === "modelAge")?.label).toBe("新旧款");
-    expect(fields.filter((field) => ["itemName", "divisionId", "modelAge"].includes(field.key)).every((field) => field.required)).toBe(true);
+    expect(fields.filter((field) => ["itemName", "divisionId"].includes(field.key)).every((field) => field.required)).toBe(true);
+    expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
   });
 
   it("makes the requested base-plan fields required dictionaries with fixed options", () => {
     const fields = tablePermissionFieldsFor("mps-base-plans");
-    const requiredKeys = ["latestReviewDueDate", "productAttribute", "modelAge", "surfaceNature", "manufacturingMethod"];
+    const requiredKeys = ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"];
     expect(fields.filter((field) => requiredKeys.includes(field.key)).every((field) => field.required)).toBe(true);
     expect(fields.find((field) => field.key === "productAttribute")?.type).toBe("dictionary");
     expect(fields.find((field) => field.key === "surfaceNature")?.type).toBe("dictionary");
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")?.allowedValues).toMatchObject({
       productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"]
     });
+    expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
+    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "manufacturingMethod")?.options?.map((option) => option.value)).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
   });
 
   it("removes unapproved base/weekly fields and exposes daily reporting fields", () => {
@@ -46,5 +49,14 @@ describe("master plan manual-entry configuration", () => {
       expect.objectContaining({ key: "reportDate", label: "报工日期", type: "date" }),
       expect.objectContaining({ key: "dailyReportedQuantity", label: "当日报工" })
     ]));
+  });
+
+  it("uses 下单日期 everywhere in the master plan UI and hides customer name outside raw ERP", () => {
+    for (const [code, resource] of MASTER_PLAN_RESOURCE_MAP) {
+      const fields = tablePermissionFieldsFor(code);
+      const orderDate = fields.find((field) => field.key === "orderDate"); if (orderDate) expect(orderDate.label).toBe("下单日期");
+      if (code !== "mps-erp-orders") expect(fields.map((field) => field.key)).not.toContain("customerName");
+      expect(resource.code).toBe(code);
+    }
   });
 });

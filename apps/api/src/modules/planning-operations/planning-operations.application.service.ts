@@ -13,7 +13,8 @@ export function shanghaiDate(now = new Date()) {
 @Injectable()
 export class PlanningOperationsApplicationService {
   constructor(@Inject(PLANNING_OPERATIONS_REPOSITORY) private readonly repository: PlanningOperationsRepository, private readonly directory: PlanningOrganizationDirectoryService) {}
-  private assert(actor: PlanningActor, resource: "weekly-plan" | "work-report" | "rolling-plan-table", action: "read" | "update" | "import") { if (!actor.permissions.includes("*") && !actor.permissions.includes(`${resource}:*:${action}`)) throw new ForbiddenException("当前权限组没有此表的操作权限"); }
+  private assert(actor: PlanningActor, resource: "weekly-plan" | "work-report" | "rolling-plan-table", action: "read" | "update" | "import" | "export") { if (!actor.permissions.includes("*") && !actor.permissions.includes(`${resource}:*:${action}`)) throw new ForbiddenException("当前权限组没有此表的操作权限"); }
+  private assertField(actor: PlanningActor, resource: string, field: string, action: "read" | "update") { if (!actor.permissions.includes("*") && !actor.permissions.includes(`${resource}:*:${action}`) && !actor.permissions.includes(`${resource}:${field}:${action}`)) throw new ForbiddenException("当前权限组没有此字段的操作权限"); }
   private date(value: unknown, label: string) { const date=String(value??"").slice(0,10), parsed=new Date(`${date}T00:00:00Z`); if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(parsed.getTime())||parsed.toISOString().slice(0,10)!==date) throw new BadRequestException(`${label}格式无效`); return date; }
   private async tenant(actor: PlanningActor) { return this.repository.tenantId(actor.tenantCode); }
   async weeklyPeriods(actor: PlanningActor) { this.assert(actor,"weekly-plan","read"); return this.repository.listWeeklyPeriods(await this.tenant(actor),shanghaiDate()); }
@@ -61,7 +62,25 @@ export class PlanningOperationsApplicationService {
   private page(input: Partial<OperationsPageInput>): OperationsPageInput { const pageSize=[20,50,100,200].includes(Number(input.pageSize))?Number(input.pageSize):50; return {page:Math.max(Number(input.page)||1,1),pageSize,search:String(input.search??"").trim(),filters:input.filters??{},sortField:String(input.sortField??"")||undefined,sortOrder:input.sortOrder==="desc"?"desc":"asc"}; }
   async weeklyItems(periodId: string, input: Partial<OperationsPageInput>, actor: PlanningActor) { this.assert(actor,"weekly-plan","read"); return this.repository.listWeeklyItems(await this.tenant(actor),periodId,this.page(input)); }
   async updateWeekly(id: string, input: { field: string; value: string|null; expectedVersion: number }, actor: PlanningActor) { this.assert(actor,"weekly-plan","update"); const fields={customerDueDate:"customer_due_date",reviewDueDate:"review_due_date"} as const; const field=fields[input.field as keyof typeof fields]; if(!field) throw new BadRequestException("只能修改客户交期或评审交期"); const value=input.value?this.date(input.value,input.field):null; return this.repository.updateWeeklyDate(await this.tenant(actor),id,field,value,Number(input.expectedVersion),actor); }
-  async workReports(date: string, input: Partial<OperationsPageInput>, actor: PlanningActor) { this.assert(actor,"work-report","read"); return this.repository.listWorkReports(await this.tenant(actor),this.date(date,"日期"),this.page(input)); }
+  async workReports(date: string, input: Partial<OperationsPageInput>, actor: PlanningActor) {
+    this.assert(actor,"work-report","read");
+    const organizations = await this.directory.listEnabled(); const labels = new Map(organizations.map((option) => [option.id, option.pathLabel]));
+    const normalized = this.page(input); const divisionFilter = String(normalized.filters?.divisionId ?? "").trim().toLocaleLowerCase();
+    const organizationNeedle = divisionFilter || normalized.search?.toLocaleLowerCase() || "";
+    const divisionIds = organizationNeedle ? organizations.filter((option) => option.id === organizationNeedle || option.name.toLocaleLowerCase().includes(organizationNeedle) || option.pathLabel.toLocaleLowerCase().includes(organizationNeedle)).map((option) => option.id) : [];
+    if (normalized.filters) delete normalized.filters.divisionId;
+    normalized.divisionIds = divisionIds; normalized.divisionFilterActive = Boolean(divisionFilter);
+    const result = await this.repository.listWorkReports(await this.tenant(actor),this.date(date,"日期"),normalized,actor);
+    const keys = ["workDate","divisionId","customer","orderNumber","itemNumber","itemName","requiredQuantity","reportedQuantity","createdBy","createdAt","updatedBy","updatedAt"];
+    const visible = new Set(keys.filter((key) => actor.permissions.includes("*") || actor.permissions.includes("work-report:*:read") || actor.permissions.includes(`work-report:${key}:read`) || actor.permissions.includes(`work-report:${key}:update`)));
+    result.rows = (result.rows as Array<Record<string, unknown>>).map((row) => ({ id: row.id, version: row.version, ...Object.fromEntries(Object.entries(row).filter(([key]) => visible.has(key))), ...(visible.has("divisionId") ? { divisionName: labels.get(String(row.divisionId ?? "")) ?? null } : {}) }));
+    return result;
+  }
   async syncWorkReports(date: string, actor: PlanningActor) { this.assert(actor,"work-report","import"); return this.repository.syncWorkReports(await this.tenant(actor),this.date(date,"日期"),actor); }
-  async updateReported(id: string, quantity: unknown, expectedVersion: number, actor: PlanningActor) { this.assert(actor,"work-report","update"); const value=String(quantity??"").replaceAll(",","").trim(); if(!/^\d+(\.\d+)?$/.test(value)) throw new BadRequestException("报工数量必须为大于等于 0 的数字"); return this.repository.updateReportedQuantity(await this.tenant(actor),id,value,Number(expectedVersion),actor); }
+  async exportWorkReports(date: string, input: Partial<OperationsPageInput>, actor: PlanningActor) {
+    this.assert(actor,"work-report","export"); this.assert(actor,"work-report","read"); const rows: Array<Record<string,unknown>> = [];
+    for (let page = 1; ; page++) { const result = await this.workReports(date,{...input,page,pageSize:200},actor); rows.push(...result.rows as Array<Record<string,unknown>>); if (rows.length >= result.total || !result.rows.length) break; }
+    return rows;
+  }
+  async updateReported(id: string, quantity: unknown, expectedVersion: number, actor: PlanningActor) { this.assert(actor,"work-report","update"); this.assertField(actor,"work-report","reportedQuantity","update"); const value=String(quantity??"").replaceAll(",","").trim(); if(!/^\d+(\.\d+)?$/.test(value)) throw new BadRequestException("报工数量必须为大于等于 0 的数字"); return this.repository.updateReportedQuantity(await this.tenant(actor),id,value,Number(expectedVersion),actor); }
 }

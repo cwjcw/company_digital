@@ -24,6 +24,9 @@ export class MasterPlanController {
   @Get("references/weekly-plans")
   weeklyPlanOptions(@Query("search") search: string, @Req() request: MasterPlanRequest) { return this.queries.weeklyPlanOptions(search, this.actor(request)); }
 
+  @Get("references/organizations")
+  organizationOptions(@Query("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.organizationOptions(resource, this.actor(request)); }
+
   @Get("resources/:resource")
   list(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.queries.list(resource, query, this.actor(request)); }
 

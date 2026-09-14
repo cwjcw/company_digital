@@ -15,7 +15,7 @@ export interface WorkReportSyncResult {
   preservedReported: number;
 }
 
-export interface OperationsPageInput { page: number; pageSize: number; search?: string; filters?: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc"; }
+export interface OperationsPageInput { page: number; pageSize: number; search?: string; filters?: Record<string, string>; divisionIds?: string[]; divisionFilterActive?: boolean; sortField?: string; sortOrder?: "asc" | "desc"; }
 export interface OperationsPageResult { rows: unknown[]; total: number; page: number; pageSize: number; }
 
 export interface PlanningOperationsRepository {
@@ -24,7 +24,7 @@ export interface PlanningOperationsRepository {
   listRollingPlanItems(tenantId: string): Promise<Array<Record<string, unknown>>>;
   listWeeklyItems(tenantId: string, periodId: string, input: OperationsPageInput): Promise<OperationsPageResult>;
   updateWeeklyDate(tenantId: string, id: string, field: "customer_due_date" | "review_due_date", value: string | null, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
-  listWorkReports(tenantId: string, date: string, input: OperationsPageInput): Promise<OperationsPageResult>;
+  listWorkReports(tenantId: string, date: string, input: OperationsPageInput, actor: PlanningActor): Promise<OperationsPageResult>;
   syncWorkReports(tenantId: string, date: string, actor: PlanningActor): Promise<WorkReportSyncResult>;
   updateReportedQuantity(tenantId: string, id: string, quantity: string, expectedVersion: number, actor: PlanningActor): Promise<unknown>;
 }

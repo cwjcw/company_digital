@@ -2,12 +2,13 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { DataSource } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
+import { PlanningOrganizationDirectoryService } from "../planning/planning-organization-directory.service";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown };
 
 @Injectable()
 export class MasterPlanQueryService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly dataSource: DataSource, private readonly directory: PlanningOrganizationDirectoryService) {}
 
   metadata(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
@@ -31,6 +32,7 @@ export class MasterPlanQueryService {
   async list(code: string, input: ListInput, actor: MasterPlanActor) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
+    if (code === "mps-process-reports" && String(input.view ?? "").toUpperCase() === "PENDING") return this.processReportTasks(input, actor);
     const allColumns = columnsFor(resource);
     const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
@@ -39,16 +41,24 @@ export class MasterPlanQueryService {
     const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
+    if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
+    const organizationOptions = resource.divisionField && visibleFields.includes(resource.divisionField) ? await this.directory.listEnabled() : [];
     const search = String(input.search ?? "").trim();
     if (search) {
-      const searchableFields = visibleFields.filter((field) => !allColumns[field]!.startsWith("("));
+      const searchableFields = visibleFields.filter((field) => field !== resource.divisionField && !allColumns[field]!.startsWith("("));
       params.push(`%${search}%`);
-      clauses.push(`(${searchableFields.map((field) => `COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`).join(" OR ") || "1=0"})`);
+      const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`);
+      const organizationIds = organizationOptions.filter((option) => option.name.includes(search) || option.pathLabel.includes(search)).map((option) => option.id);
+      if (organizationIds.length && resource.divisionField) { params.push(organizationIds); alternatives.push(`${this.expression(allColumns[resource.divisionField]!)}=ANY($${params.length}::uuid[])`); }
+      clauses.push(`(${alternatives.join(" OR ") || "1=0"})`);
     }
     for (const [field, raw] of Object.entries(this.filters(input.filters))) {
       if (!visibleFields.includes(field)) continue;
       const value = String(raw ?? "").trim(); if (!value) continue;
-      params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`);
+      if (field === resource.divisionField) {
+        const ids = organizationOptions.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);
+        params.push(ids); clauses.push(`${this.expression(allColumns[field]!)}=ANY($${params.length}::uuid[])`);
+      } else { params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`); }
     }
     const view = String(input.view ?? "ALL").toUpperCase();
     if (["mps-group-plans", "mps-monthly-plans"].includes(code)) {
@@ -60,7 +70,12 @@ export class MasterPlanQueryService {
     const requestedSort = String(input.sortField ?? "");
     const sortColumn = visibleFields.includes(requestedSort) ? allColumns[requestedSort] : "";
     const orderBy = sortColumn ? `${this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
+    const dataParams = [...params];
+    const updateAllowed = hasMasterPlanPermission(actor, code, "update")
+      ? this.scopeClause(resource, actor, "update", allColumns, dataParams)
+      : "false";
     const selected = visibleFields.map((field) => `${this.expression(allColumns[field]!)} "${field}"`);
+    selected.push(`(${updateAllowed}) "canUpdate"`);
     const joins: string[] = [];
     if (resource.divisionField && visibleFields.includes(resource.divisionField)) {
       joins.push(`LEFT JOIN organization_units division ON division.id=record.${allColumns[resource.divisionField]}`);
@@ -70,9 +85,20 @@ export class MasterPlanQueryService {
       joins.push("LEFT JOIN mps_weekly_plans weekly_reference ON weekly_reference.tenant_id=record.tenant_id AND weekly_reference.id=record.weekly_plan_id");
       selected.push(`concat_ws(' / ',weekly_reference.order_number,weekly_reference.item_code,weekly_reference.item_name,'交期编码'||weekly_reference.delivery_number::text) "weeklyPlanLabel"`);
     }
-    params.push(pageSize, (page - 1) * pageSize);
-    const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    dataParams.push(pageSize, (page - 1) * pageSize);
+    const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const paths = new Map(organizationOptions.map((option) => [option.id, option.pathLabel]));
+    if (resource.divisionField) for (const row of rows) row.divisionName = paths.get(String(row[resource.divisionField] ?? "")) ?? row.divisionName ?? null;
     return { rows, total: Number(count), page, pageSize, visibleFields };
+  }
+
+  async organizationOptions(code: string, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    const departmentFields = fieldsFor(resource).filter((field) => field.type === "department");
+    const hasTableAccess = ["read", "create", "update", "import"].some((action) => hasMasterPlanPermission(actor, code, action));
+    const hasFieldAccess = departmentFields.some((field) => this.visible(actor, code, field.key));
+    if (!hasTableAccess || !hasFieldAccess) throw new ForbiddenException("当前权限组不能访问该表事业部选项");
+    return this.directory.listEnabled();
   }
 
   async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {
@@ -95,6 +121,41 @@ export class MasterPlanQueryService {
     const search = String(searchInput ?? "").trim();
     if (search) { params.push(`%${search}%`); clauses.push(`concat_ws('/',record.order_number,record.item_code,record.item_name,record.delivery_number::text) ILIKE $${params.length}`); }
     return this.dataSource.query(`SELECT record.id,concat_ws(' / ',record.order_number,record.item_code,record.item_name,'交期编码'||record.delivery_number::text) label FROM mps_weekly_plans record WHERE ${clauses.join(" AND ")} ORDER BY record.latest_review_due_date DESC,record.order_number,record.item_code,record.delivery_number LIMIT 100`, params);
+  }
+
+  private async processReportTasks(input: ListInput, actor: MasterPlanActor) {
+    const resource = this.resource("mps-process-reports"); const columns = columnsFor(resource);
+    const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
+    if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
+    const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 50); const pageSize = [20,50,100,200].includes(requested) ? requested : 50;
+    const source = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id,weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,task.process_code,task.process_name,NULL::date production_date,weekly.planned_quantity,NULL::numeric production_quantity,task.created_by,task.created_at,task.updated_by,task.updated_at FROM mps_weekly_process_plans task JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id WHERE task.execution_enabled=true AND task.status<>'已完成'`;
+    const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
+    const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];
+    const search = String(input.search ?? "").trim();
+    if (search) {
+      const searchableFields = visibleFields.filter((field) => field !== "divisionId" && columns[field] && !columns[field]!.startsWith("("));
+      params.push(`%${search}%`);
+      const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
+      const organizationIds = organizations.filter((option) => option.name.includes(search) || option.pathLabel.includes(search)).map((option) => option.id);
+      if (organizationIds.length) { params.push(organizationIds); alternatives.push(`record.division_id=ANY($${params.length}::uuid[])`); }
+      clauses.push(`(${alternatives.join(" OR ") || "1=0"})`);
+    }
+    for (const [field, raw] of Object.entries(this.filters(input.filters))) {
+      if (!visibleFields.includes(field) || !columns[field]) continue; const value = String(raw ?? "").trim(); if (!value) continue;
+      if (field === "divisionId") {
+        const ids = organizations.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);
+        params.push(ids); clauses.push(`record.division_id=ANY($${params.length}::uuid[])`);
+      } else { params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`); }
+    }
+    const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
+    const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
+    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,false "canUpdate",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.production_date DESC NULLS LAST,record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const paths = new Map(organizations.map((option) => [option.id, option.pathLabel]));
+    for (const row of rows) {
+      if (visibleFields.includes("divisionId")) row.divisionName = paths.get(String(row.divisionId ?? "")) ?? null;
+      if (visibleFields.includes("weeklyPlanId")) row.weeklyPlanLabel = `${row.orderNumber ?? ""} / ${row.itemCode ?? ""} / ${row.itemName ?? ""} / 交期编码${row.deliveryNumber ?? ""}`;
+    }
+    return { rows, total: Number(count), page, pageSize, visibleFields };
   }
 
   private resource(code: string) {

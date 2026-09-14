@@ -27,11 +27,10 @@ async function openResource(page: Page, resource: string, title: string) {
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
 }
 
-async function createCustomerMapping(page: Page, code: string, name: string, divisionName: string) {
+async function createCustomerMapping(page: Page, code: string, divisionName: string) {
   await page.getByRole("button", { name: /新\s*增/ }).click();
   const dialog = page.getByRole("dialog");
   await dialog.locator(".ant-form-item", { hasText: "客户编码" }).locator("textarea:visible").fill(code);
-  await dialog.locator(".ant-form-item", { hasText: "客户名称" }).locator("textarea:visible").fill(name);
   await selectOrganization(dialog, "主责事业部", divisionName);
   await dialog.getByRole("button", { name: /确\s*定/ }).click();
 }
@@ -48,17 +47,17 @@ test.describe("主计划系统真实业务页面", () => {
     await openResource(page, "mps-customer-divisions", "客户事业部映射");
     const customerA = `${prefix}UI_${runId}_C001`;
     const customerB = `${prefix}UI_${runId}_C002`;
-    await createCustomerMapping(page, customerA, "测试客户A", "事业一部");
+    await createCustomerMapping(page, customerA, "事业一部");
     await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 30_000 });
     await page.getByPlaceholder("搜索当前表格").fill(customerA);
     await expect(page.getByText(customerA, { exact: true })).toBeVisible();
 
-    await createCustomerMapping(page, customerA, "重复测试客户", "事业二部");
+    await createCustomerMapping(page, customerA, "事业二部");
     await expect(page.getByText(/重复|已存在|唯一/)).toBeVisible();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.getByRole("button", { name: /取\s*消/ }).click();
 
-    await createCustomerMapping(page, customerB, "测试客户B", "事业二部");
+    await createCustomerMapping(page, customerB, "事业二部");
     await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 30_000 });
   });
 
@@ -106,7 +105,7 @@ test.describe("主计划系统真实业务页面", () => {
     await textarea("品项编码").fill(item);
     await textarea("品项名称").fill("测试缺周期页面品项");
     await dialog.locator(".ant-form-item", { hasText: "交期编码" }).locator("input").fill("1");
-    await dialog.locator(".ant-form-item", { hasText: "订单日期" }).locator("input").fill("2026-09-11");
+    await dialog.locator(".ant-form-item", { hasText: "下单日期" }).locator("input").fill("2026-09-11");
     await dialog.locator(".ant-form-item", { hasText: "最迟客户交期" }).locator("input").fill("2026-10-20");
     await dialog.locator(".ant-form-item", { hasText: "计划数量" }).locator("input").fill("120");
     await selectOrganization(dialog, "承接事业部", "事业一部");
