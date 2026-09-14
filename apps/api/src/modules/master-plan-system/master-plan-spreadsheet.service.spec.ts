@@ -83,8 +83,21 @@ describe("MasterPlanSpreadsheetService", () => {
     expect(schema.getColumn(1).values).toEqual(expect.arrayContaining(["id", "version", "divisionId", "modelAge"]));
     const sheet = workbook.getWorksheet("mps-shipping-plans")!;
     const divisionColumn = (sheet.getRow(1).values as unknown[]).findIndex((value) => value === "承接事业部");
+    const modelAgeColumn = (sheet.getRow(1).values as unknown[]).findIndex((value) => value === "新旧款");
     expect(sheet.getCell(2, divisionColumn).dataValidation.type).toBe("list");
+    expect(sheet.getCell(2, modelAgeColumn).dataValidation.type).toBe("list");
     expect(options.getColumn(1).values.flat()).toEqual(expect.arrayContaining(["凯南 / 事业一部"]));
+  });
+
+  it("adds boolean and department Excel validation from metadata", async () => {
+    directory.listEnabled.mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 事业一部", path: ["凯南", "事业一部"] }]);
+    const buffer = await service.template("mps-customer-divisions", actor);
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("mps-customer-divisions")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    expect(sheet.getCell(2, headers.findIndex((value) => value === "主责事业部")).dataValidation.type).toBe("list");
+    expect(sheet.getCell(2, headers.findIndex((value) => value === "启用")).dataValidation.type).toBe("list");
+    expect(workbook.getWorksheet("_选项")!.getRows(1, 10)?.flatMap((row) => row.values as unknown[])).toEqual(expect.arrayContaining(["是", "否", "凯南 / 事业一部"]));
   });
 
   it("uses hidden field keys after a display label changes and resolves department paths to UUID", async () => {
@@ -101,5 +114,25 @@ describe("MasterPlanSpreadsheetService", () => {
     const result = await service.preview("mps-shipping-plans", file, actor);
     expect(result.errors).toEqual([]);
     expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-shipping-plans", [expect.objectContaining({ values: expect.objectContaining({ itemCode: "ITEM-1", divisionId: organization.id }) })], actor);
+  });
+
+  it("exports a department full path that imports back to the same UUID", async () => {
+    const organization = { id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 制造中心 / 事业一部", path: ["凯南", "制造中心", "事业一部"] };
+    directory.listEnabled.mockResolvedValue([organization]);
+    directory.resolve.mockImplementation((value: unknown) => value === organization.pathLabel ? organization : null);
+    queries.exportRows.mockResolvedValue({ visibleFields: ["divisionId", "itemName"], rows: [{ id: "11111111-1111-4111-8111-111111111111", version: 3, divisionId: organization.id, itemName: "品项A" }] });
+    application.validateImportUpdates.mockResolvedValue([]);
+    const buffer = await service.export("mps-shipping-plans", {}, actor);
+    const exported = new ExcelJS.Workbook(); await exported.xlsx.load(buffer as never);
+    const sheet = exported.getWorksheet("mps-shipping-plans")!;
+    const divisionColumn = (sheet.getRow(1).values as unknown[]).findIndex((value) => value === "承接事业部");
+    expect(sheet.getRow(2).getCell(divisionColumn).text).toBe(organization.pathLabel);
+
+    const result = await service.preview("mps-shipping-plans", { originalname: "export.xlsx", buffer } as Express.Multer.File, actor);
+    expect(result.errors).toEqual([]);
+    expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-shipping-plans", [expect.objectContaining({
+      id: "11111111-1111-4111-8111-111111111111", expectedVersion: 3,
+      values: expect.objectContaining({ divisionId: organization.id })
+    })], actor);
   });
 });

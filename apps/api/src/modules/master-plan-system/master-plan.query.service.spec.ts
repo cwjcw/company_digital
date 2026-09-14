@@ -31,3 +31,34 @@ describe("MasterPlanQueryService metadata", () => {
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read"]))).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe("MasterPlanQueryService report divisions", () => {
+  const organization = { id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 制造中心 / 事业一部" };
+
+  it.each(["mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports"])("applies division field permission, path filter, data scope and export to %s", async (resource) => {
+    const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 1 }] : [{ id: "row-1", version: 1, divisionId: organization.id, canUpdate: false }]);
+    const service = new MasterPlanQueryService({ query } as never, { listEnabled: jest.fn().mockResolvedValue([organization]) } as never);
+    const scopedActor: MasterPlanActor = {
+      ...actor([`${resource}:*:read`, `${resource}:*:export`, `${resource}:divisionId:read`]),
+      tableDataScopes: [{ resource, scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: organization.id }] }]
+    };
+
+    expect(service.metadata(resource, scopedActor).fields).toEqual(expect.arrayContaining([expect.objectContaining({ key: "divisionId", editable: false })]));
+    const result = await service.exportRows(resource, { filters: JSON.stringify({ divisionId: organization.pathLabel }) }, scopedActor);
+
+    expect(result.rows).toEqual([expect.objectContaining({ divisionId: organization.id, divisionName: organization.pathLabel })]);
+    expect(query.mock.calls.every(([, params]) => JSON.stringify(params).includes(organization.id))).toBe(true);
+    expect(query.mock.calls.map(([sql]) => sql).join(" ")).toContain("division_id");
+  });
+
+  it("builds pending process rows from eligible tasks without inserting fake process reports", async () => {
+    const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 0 }] : []);
+    const resource = "mps-process-reports";
+    const service = new MasterPlanQueryService({ query } as never, { listEnabled: jest.fn().mockResolvedValue([]) } as never);
+    const result = await service.list(resource, { view: "PENDING" }, actor([`${resource}:*:read`, `${resource}:divisionId:read`]));
+    const sql = query.mock.calls.map(([statement]) => String(statement)).join(" ");
+    expect(result.rows).toEqual([]);
+    expect(sql).toContain("FROM mps_weekly_process_plans task");
+    expect(sql).not.toContain("INSERT INTO mps_process_reports");
+  });
+});

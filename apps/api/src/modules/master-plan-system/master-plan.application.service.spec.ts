@@ -17,7 +17,7 @@ describe("MasterPlanApplicationService imports", () => {
   it("validates a blank-identity row as a create and rejects duplicate business keys", async () => {
     const query = jest.fn().mockResolvedValue([]);
     const dataSource = { query, manager: { query } };
-    const service = new MasterPlanApplicationService(dataSource as never, { processOutbox: jest.fn() } as never);
+    const service = new MasterPlanApplicationService(dataSource as never, { processOutbox: jest.fn().mockResolvedValue(undefined) } as never);
     const rows = [
       { row: 2, id: null, expectedVersion: null, values: { itemCode: "ITEM-001", technicalDays: "1" } },
       { row: 3, id: null, expectedVersion: null, values: { itemCode: "ITEM-001", technicalDays: "2" } }
@@ -60,5 +60,42 @@ describe("MasterPlanApplicationService imports", () => {
     expect(result).toEqual({ total: 1, created: 1, updated: 0, repeated: false });
     expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.import_created"))).toBe(true);
     expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.import_confirmed"))).toBe(true);
+  });
+
+  it("returns server-confirmed normalized field values and latest version from update", async () => {
+    const current = { id: "22222222-2222-4222-8222-222222222222", version: 4, item_code: "旧编码" };
+    const updated = { ...current, version: 5, item_code: "服务端确认编码" };
+    const query = jest.fn(async (...args: [string, unknown[]?]) => {
+      const [sql] = args;
+      if (sql.startsWith("SELECT * FROM mps_process_cycles")) return [current];
+      if (sql.startsWith("UPDATE mps_process_cycles")) return [[updated], 1];
+      return [];
+    });
+    const manager = { query }; const dataSource = { transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query };
+    const service = new MasterPlanApplicationService(dataSource as never, { processOutbox: jest.fn().mockResolvedValue(undefined) } as never);
+
+    await expect(service.update("mps-process-cycles", current.id, { itemCode: "  客户端编码  ", expectedVersion: 4 }, actor)).resolves.toEqual({
+      id: current.id, version: 5, values: { itemCode: "服务端确认编码" }
+    });
+  });
+
+  it("keeps batch update operational with expected versions, idempotency and audit", async () => {
+    const id = "22222222-2222-4222-8222-222222222222"; const current = { id, version: 2, item_code: "旧编码", created_by: actor.userId };
+    const query = jest.fn(async (...args: [string, unknown[]?]) => {
+      const [sql] = args;
+      if (sql.includes("SELECT request_hash,response_json")) return [];
+      if (sql.startsWith("SELECT * FROM mps_process_cycles")) return [current];
+      if (sql.startsWith("UPDATE mps_process_cycles")) return [[{ ...current, version: 3, item_code: "批量新编码" }], 1];
+      return [];
+    });
+    const manager = { query }; const dataSource = { transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query };
+    const service = new MasterPlanApplicationService(dataSource as never, { processOutbox: jest.fn().mockResolvedValue(undefined) } as never);
+    const result = await service.batchUpdate("mps-process-cycles", {
+      records: [{ id, expectedVersion: 2 }], fieldKey: "itemCode", value: "批量新编码", idempotencyKey: "33333333-3333-4333-8333-333333333333"
+    }, actor);
+
+    expect(result).toEqual(expect.objectContaining({ submitted: 1, succeeded: 1, failed: 0 }));
+    expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.batch_item_updated"))).toBe(true);
+    expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.batch_updated"))).toBe(true);
   });
 });

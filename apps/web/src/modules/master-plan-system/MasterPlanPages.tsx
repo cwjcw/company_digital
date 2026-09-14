@@ -16,10 +16,6 @@ const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
 
-const dictionaryLabels: Record<string, Record<string, string>> = {
-  processCode: { cutting: "下料", machining: "机加", bending: "折弯", spotWelding: "点焊", welding: "焊接", woodworking: "木作", grinding: "研磨", surfaceTreatment: "表面处理", packaging: "包装" }
-};
-
 function pageUrl(resource: string, query: TableQuery, view: string) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
   if (query.search) params.set("search", query.search);
@@ -44,7 +40,7 @@ function display(value: unknown, field: TablePermissionFieldDefinition, row: any
   if (field.type === "boolean") return <Tag color={value ? "success" : "default"}>{value ? "是" : "否"}</Tag>;
   if (field.type === "department" && row.divisionName) return row.divisionName;
   if (field.key === "weeklyPlanId" && row.weeklyPlanLabel) return row.weeklyPlanLabel;
-  if (field.type === "dictionary" && value != null && dictionaryLabels[field.key]?.[String(value)]) return dictionaryLabels[field.key]![String(value)];
+  if (field.type === "dictionary" && value != null) return field.options?.find((option) => option.value === String(value))?.label ?? String(value);
   if (field.type === "date" && value) return dayjs(String(value)).format("YYYY-MM-DD");
   if (field.key === "completionRate") return `${Math.round(Number(value || 0) * 100)}%`;
   if (value && typeof value === "object") return JSON.stringify(value);
@@ -147,8 +143,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
     try {
-      const updated = await api<{ version: number }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
-      queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: value, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === value)?.pathLabel ?? null } : {}) } : entry) } : current);
+      const updated = await api<{ version: number; values: Record<string, unknown> }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
+      const confirmedValue = updated.values[field.key];
+      queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === confirmedValue)?.pathLabel ?? null } : {}) } : entry) } : current);
       message.success(`${field.label}已保存`);
     } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
   }, [organizations.data, queryClient, resource, sessionSubject]);

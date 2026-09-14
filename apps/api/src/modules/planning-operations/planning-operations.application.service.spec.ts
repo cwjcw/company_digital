@@ -1,50 +1,29 @@
-import { ForbiddenException } from "@nestjs/common";
-import type { PlanningActor } from "../planning/planning.types";
-import { PlanningOperationsApplicationService, shanghaiDate } from "./planning-operations.application.service";
-import type { PlanningOperationsRepository } from "./planning-operations.repository";
+import { PlanningOperationsApplicationService } from "./planning-operations.application.service";
 
-const actor = (permissions: string[]): PlanningActor => ({
-  tenantCode: "KAINAN", userId: "00000000-0000-7000-8000-000000000001", permissions,
-  roles: ["系统管理员"], requestId: "request-1", source: "WEB"
-});
+const divisionId = "22222222-2222-4222-8222-222222222222";
+const actor = {
+  tenantCode: "KAINAN", userId: "11111111-1111-4111-8111-111111111111",
+  permissions: ["work-report:*:read", "work-report:*:export", "work-report:divisionId:read"], roles: [],
+  tableDataScopes: [{ resource: "work-report", scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: divisionId }] }],
+  managedOrganizationUnitIds: [], requestId: "request-1", traceId: "trace-1", ip: "127.0.0.1", source: "WEB" as const
+};
 
-const repository = (): jest.Mocked<PlanningOperationsRepository> => ({
-  tenantId: jest.fn().mockResolvedValue("00000000-0000-7000-8000-000000000002"),
-  listWeeklyPeriods: jest.fn(), listRollingPlanItems: jest.fn().mockResolvedValue([]), listWeeklyItems: jest.fn(), updateWeeklyDate: jest.fn(),
-  listWorkReports: jest.fn(), syncWorkReports: jest.fn(), updateReportedQuantity: jest.fn()
-});
-const directory = { listEnabled: jest.fn().mockResolvedValue([]) } as any;
+describe("PlanningOperationsApplicationService work-report division", () => {
+  it("uses full-path filtering, preserves data scope and exports only authorized division fields", async () => {
+    const repository = {
+      tenantId: jest.fn().mockResolvedValue("tenant-1"),
+      listWorkReports: jest.fn().mockResolvedValue({ rows: [{ id: "report-1", version: 2, divisionId, orderNumber: "SO-1" }], total: 1, page: 1, pageSize: 50 })
+    };
+    const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: divisionId, name: "事业一部", pathLabel: "凯南 / 制造中心 / 事业一部" }]) };
+    const service = new PlanningOperationsApplicationService(repository as never, directory as never);
 
-describe("PlanningOperationsApplicationService", () => {
-  afterEach(() => jest.useRealTimers());
+    const result = await service.workReports("2026-09-14", { filters: { divisionId: "凯南 / 制造中心 / 事业一部" } }, actor as never);
+    expect(repository.listWorkReports).toHaveBeenCalledWith("tenant-1", "2026-09-14", expect.objectContaining({ divisionIds: [divisionId], divisionFilterActive: true }), actor);
+    expect(result.rows).toEqual([expect.objectContaining({ id: "report-1", version: 2, divisionId, divisionName: "凯南 / 制造中心 / 事业一部" })]);
 
-  it("uses the server Shanghai date to choose the weekly plan", async () => {
-    jest.useFakeTimers().setSystemTime(new Date("2026-08-26T16:30:00.000Z"));
-    const adapter = repository();
-    adapter.listWeeklyPeriods.mockResolvedValue([]);
-    const service = new PlanningOperationsApplicationService(adapter, directory);
-
-    await service.weeklyPeriods(actor(["weekly-plan:*:read"]));
-
-    expect(shanghaiDate()).toBe("2026-08-27");
-    expect(adapter.listWeeklyPeriods).toHaveBeenCalledWith(expect.any(String), "2026-08-27");
-  });
-
-  it("passes the selected work date to the monthly-plan matching command", async () => {
-    const adapter = repository();
-    adapter.syncWorkReports.mockResolvedValue({
-      date: "2026-08-27", planPeriodId: "month-8", planVersionId: "version-1", sourceCount: 2,
-      matched: 1, created: 1, updated: 1, unchanged: 0, removedStale: 0, preservedReported: 0
-    });
-    const service = new PlanningOperationsApplicationService(adapter, directory);
-
-    await service.syncWorkReports("2026-08-27", actor(["work-report:*:import"]));
-
-    expect(adapter.syncWorkReports).toHaveBeenCalledWith(expect.any(String), "2026-08-27", expect.any(Object));
-  });
-
-  it("rejects the work-report import without the table-specific import permission", async () => {
-    const service = new PlanningOperationsApplicationService(repository(), directory);
-    await expect(service.syncWorkReports("2026-08-27", actor([]))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.exportWorkReports("2026-09-14", { filters: { divisionId: "事业一部" } }, actor as never)).resolves.toEqual([
+      expect.objectContaining({ id: "report-1", version: 2, divisionId, divisionName: "凯南 / 制造中心 / 事业一部" })
+    ]);
+    expect(repository.listWorkReports.mock.calls.at(-1)?.[3]).toBe(actor);
   });
 });

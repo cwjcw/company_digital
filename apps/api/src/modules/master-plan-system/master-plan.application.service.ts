@@ -62,7 +62,11 @@ export class MasterPlanApplicationService {
       if (!updatedRow) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await this.audit(manager, actor, code, id, `${code}.updated`, current, updatedRow);
       await this.enqueueReconciliation(manager, resource, actor);
-      return updatedRow;
+      return {
+        id: updatedRow.id,
+        version: Number(updatedRow.version),
+        values: Object.fromEntries(entries.map(([field]) => [field, updatedRow[columns[field]!]]))
+      };
     }));
     void this.sync.processOutbox().catch(() => undefined);
     return result;
@@ -82,7 +86,7 @@ export class MasterPlanApplicationService {
     if (!field || ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(fieldKey)) throw new BadRequestException("所选字段不支持批量修改");
     if (!hasMasterPlanFieldPermission(actor, code, fieldKey, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${field.label}`);
     const value = this.normalize(field.type, body.value, field.label);
-    const allowedValues = field.options?.map((option) => option.value) ?? resource.allowedValues?.[fieldKey];
+    const allowedValues = field.options?.map((option) => option.value);
     if (value != null && allowedValues && !allowedValues.includes(String(value))) throw new BadRequestException(`${field.label}只能选择：${allowedValues.join("、")}`);
     const idempotencyKey = String(body.idempotencyKey ?? "");
     if (!uuidPattern.test(idempotencyKey)) throw new BadRequestException("idempotencyKey 必须使用UUID");
@@ -263,7 +267,7 @@ export class MasterPlanApplicationService {
         || (action === "create" && (hasMasterPlanFieldPermission(actor, resource.code, field, "read") || !hasMasterPlanPermission(actor, resource.code, "read")));
       if (!canWrite) throw new ForbiddenException(`当前权限组不能填写字段：${definition.label}`);
       output[field] = this.normalize(definition.type, raw, definition.label);
-      const allowedValues = definition.options?.map((option) => option.value) ?? resource.allowedValues?.[field];
+      const allowedValues = definition.options?.map((option) => option.value);
       if (output[field] != null && allowedValues && !allowedValues.includes(String(output[field]))) throw new BadRequestException(`${definition.label}只能选择：${allowedValues.join("、")}`);
     }
     return output;

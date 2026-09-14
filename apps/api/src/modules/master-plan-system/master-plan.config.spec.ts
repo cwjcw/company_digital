@@ -30,9 +30,8 @@ describe("master plan manual-entry configuration", () => {
     expect(fields.filter((field) => requiredKeys.includes(field.key)).every((field) => field.required)).toBe(true);
     expect(fields.find((field) => field.key === "productAttribute")?.type).toBe("dictionary");
     expect(fields.find((field) => field.key === "surfaceNature")?.type).toBe("dictionary");
-    expect(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")?.allowedValues).toMatchObject({
-      productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"]
-    });
+    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "productAttribute")?.options?.map((option) => option.value)).toEqual(["五金", "木作", "亚克力", "五金+木作"]);
+    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "surfaceNature")?.options?.map((option) => option.value)).toEqual(["烤漆", "电镀"]);
     expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
     expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "manufacturingMethod")?.options?.map((option) => option.value)).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
   });
@@ -55,7 +54,7 @@ describe("master plan manual-entry configuration", () => {
     for (const [code, resource] of MASTER_PLAN_RESOURCE_MAP) {
       const fields = tablePermissionFieldsFor(code);
       const orderDate = fields.find((field) => field.key === "orderDate"); if (orderDate) expect(orderDate.label).toBe("下单日期");
-      if (code !== "mps-erp-orders") expect(fields.map((field) => field.key)).not.toContain("customerName");
+      expect(fields.map((field) => field.key)).not.toContain("customerName");
       expect(resource.code).toBe(code);
     }
   });
