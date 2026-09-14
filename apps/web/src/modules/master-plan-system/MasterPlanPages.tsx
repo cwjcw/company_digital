@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload } from "antd";
+import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload } from "antd";
 import { DownloadOutlined, MoreOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
@@ -11,7 +11,7 @@ import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/
 import type { AuditDirectoryUser } from "../../shared/audit-fields";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
-type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean } };
+type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean } };
 const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
@@ -19,7 +19,12 @@ const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entr
 const dictionaryOptions: Record<string, string[]> = {
   manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"], materialName: ["五金", "木作"],
   outsourcingMethod: ["成品", "毛坯", "部件"], status: ["已完成", "未完成", "延期"],
+  modelAge: ["新", "旧"],
+  productAttribute: ["五金", "木作", "亚克力", "五金+木作"], surfaceNature: ["烤漆", "电镀"],
   processCode: ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "surfaceTreatment", "packaging"]
+};
+const dictionaryLabels: Record<string, Record<string, string>> = {
+  processCode: { cutting: "下料", machining: "机加", bending: "折弯", spotWelding: "点焊", welding: "焊接", woodworking: "木作", grinding: "研磨", surfaceTreatment: "表面处理", packaging: "包装" }
 };
 
 function pageUrl(resource: string, query: TableQuery, view: string) {
@@ -31,11 +36,12 @@ function pageUrl(resource: string, query: TableQuery, view: string) {
   return `/master-plan-system/resources/${resource}?${params}`;
 }
 
-function FieldInput({ field, organizations = [], users = [], ...control }: { field: TablePermissionFieldDefinition; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[] } & Record<string, any>) {
+function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], ...control }: { field: TablePermissionFieldDefinition; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[]; weeklyPlans?: Array<{ id: string; label: string }> } & Record<string, any>) {
   if (field.type === "boolean") return <Switch {...control} />;
   if (field.type === "number") return <InputNumber {...control} min={0} precision={field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker {...control} style={{ width: "100%" }} />;
-  if (field.type === "dictionary" && dictionaryOptions[field.key]) return <Select {...control} options={dictionaryOptions[field.key]!.map((value) => ({ label: value, value }))} />;
+  if (field.key === "weeklyPlanId") return <Select {...control} showSearch optionFilterProp="label" placeholder="按订单编号、品项或交期编码选择" options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} />;
+  if (field.type === "dictionary" && dictionaryOptions[field.key]) return <Select {...control} options={dictionaryOptions[field.key]!.map((value) => ({ label: dictionaryLabels[field.key]?.[value] ?? value, value }))} />;
   if (field.type === "department") return <OrganizationSelect {...control} organizations={organizations} placeholder="选择完整组织路径" />;
   if (field.type === "member") return <Select {...control} showSearch optionFilterProp="label" allowClear placeholder="选择成员" options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} />;
   return <Input.TextArea {...control} autoSize={{ minRows: 1, maxRows: 4 }} />;
@@ -44,6 +50,8 @@ function FieldInput({ field, organizations = [], users = [], ...control }: { fie
 function display(value: unknown, field: TablePermissionFieldDefinition, row: any) {
   if (field.type === "boolean") return <Tag color={value ? "success" : "default"}>{value ? "是" : "否"}</Tag>;
   if (field.type === "department" && row.divisionName) return row.divisionName;
+  if (field.key === "weeklyPlanId" && row.weeklyPlanLabel) return row.weeklyPlanLabel;
+  if (field.type === "dictionary" && value != null && dictionaryLabels[field.key]?.[String(value)]) return dictionaryLabels[field.key]![String(value)];
   if (field.type === "date" && value) return dayjs(String(value)).format("YYYY-MM-DD");
   if (field.key === "completionRate") return `${Math.round(Number(value || 0) * 100)}%`;
   if (value && typeof value === "object") return JSON.stringify(value);
@@ -102,6 +110,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const queryClient = useQueryClient(); const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
+  const saveLock = useRef(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState<string | null>(null);
   const [batchForm] = Form.useForm();
   const [batchSelection, setBatchSelection] = useState<KdosTableSelection<any> | null>(null);
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
@@ -111,21 +120,35 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const organizations = useQuery({ queryKey: ["planning-organization-options"], queryFn: () => api<OrganizationSelectOption[]>("/planning/organization-options"), staleTime: 300_000 });
   const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
+  const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: resource === "mps-weekly-process-plans" && Boolean(metadata.data) });
   const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
   const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
-  const openCreate = () => { form.resetFields(); setModal({ mode: "create" }); };
+  const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
+  const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
   const openEdit = (row: any) => {
     form.resetFields();
+    setSaveError(null);
     form.setFieldsValue(Object.fromEntries(editableFields.map((field) => [field.key, field.type === "date" && row[field.key] ? dayjs(row[field.key]) : row[field.key]])));
     setModal({ mode: "edit", row });
   };
   const save = async () => {
-    const values = await form.validateFields();
-    const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
-    if (modal?.mode === "edit") await api(`/master-plan-system/resources/${resource}/${modal.row.id}`, { method: "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal.row.version }) });
-    else await api(`/master-plan-system/resources/${resource}`, { method: "POST", body: JSON.stringify(payload) });
-    message.success(modal?.mode === "edit" ? "修改成功" : "新增成功"); setModal(null); refresh();
+    if (saveLock.current) return;
+    saveLock.current = true; setSaving(true); setSaveError(null);
+    try {
+      const values = await form.validateFields();
+      const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
+      if (modal?.mode === "edit") await api(`/master-plan-system/resources/${resource}/${modal.row.id}`, { method: "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal.row.version }) });
+      else await api(`/master-plan-system/resources/${resource}`, { method: "POST", body: JSON.stringify(payload) });
+      message.success(modal?.mode === "edit" ? "修改成功" : "新增成功"); setModal(null); refresh();
+    } catch (error) {
+      const validation = error as { errorFields?: Array<{ name: Array<string | number>; errors: string[] }>; message?: string };
+      const reason = validation.errorFields?.[0]?.errors?.[0] ?? validation.message ?? "保存失败，请检查填写内容后重试";
+      if (validation.errorFields?.[0]?.name) form.scrollToField(validation.errorFields[0].name, { behavior: "smooth", block: "center" });
+      setSaveError(reason); message.error(reason);
+    } finally {
+      saveLock.current = false; setSaving(false);
+    }
   };
   const saveBatch = async () => {
     if (!batchSelection || !batchField) return;
@@ -161,8 +184,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const confirmImport = async () => {
     if (!importPreview?.token) return; setImporting(true);
     try {
-      const result = await api<{ updated: number }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ token: importPreview.token }) });
-      message.success(`导入完成，更新 ${result.updated} 条`); setImportPreview(null); refresh();
+      const result = await api<{ created: number; updated: number }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ token: importPreview.token }) });
+      message.success(`导入完成，新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条`); setImportPreview(null); refresh();
     } finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
@@ -189,9 +212,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}
       scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
-    <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => setModal(null)} onOk={() => void save().catch((error) => message.error((error as Error).message))} width={760} destroyOnHidden>
+    <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>
-        {editableFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput field={field} organizations={organizations.data ?? []} users={users.data ?? []} /></Form.Item>)}
+        {saveError && <Alert type="error" showIcon message={saveError} style={{ gridColumn: "1 / -1" }} />}
+        {formFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput field={field} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} /></Form.Item>)}
       </Form>
     </Modal>
     <Modal title="导入预览" open={Boolean(importPreview)} onCancel={() => setImportPreview(null)} onOk={() => void confirmImport().catch((error) => message.error((error as Error).message))}

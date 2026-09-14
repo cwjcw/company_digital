@@ -12,11 +12,13 @@ export class MasterPlanQueryService {
   metadata(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
+    const canCreate = resource.create && hasMasterPlanPermission(actor, code, "create");
     return {
       resource: resource.code,
       fields: fieldsFor(resource).filter((field) => this.visible(actor, code, field.key)),
+      createFields: canCreate ? fieldsFor(resource).filter((field) => field.editable && this.visible(actor, code, field.key)) : [],
       actions: {
-        create: resource.create && hasMasterPlanPermission(actor, code, "create"),
+        create: canCreate,
         update: hasMasterPlanPermission(actor, code, "update"),
         delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),
         import: hasMasterPlanPermission(actor, code, "import"),
@@ -30,7 +32,7 @@ export class MasterPlanQueryService {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
     const allColumns = columnsFor(resource);
-    const visibleFields = Object.keys(allColumns).filter((field) => this.visible(actor, code, field));
+    const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const requestedPageSize = Math.floor(Number(input.pageSize) || 50);
@@ -59,11 +61,17 @@ export class MasterPlanQueryService {
     const sortColumn = visibleFields.includes(requestedSort) ? allColumns[requestedSort] : "";
     const orderBy = sortColumn ? `${this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
     const selected = visibleFields.map((field) => `${this.expression(allColumns[field]!)} "${field}"`);
-    const divisionJoin = resource.divisionField && visibleFields.includes(resource.divisionField)
-      ? `LEFT JOIN organization_units division ON division.id=record.${allColumns[resource.divisionField]}` : "";
-    if (divisionJoin) selected.push(`division.name "divisionName"`);
+    const joins: string[] = [];
+    if (resource.divisionField && visibleFields.includes(resource.divisionField)) {
+      joins.push(`LEFT JOIN organization_units division ON division.id=record.${allColumns[resource.divisionField]}`);
+      selected.push(`division.name "divisionName"`);
+    }
+    if (resource.code === "mps-weekly-process-plans" && visibleFields.includes("weeklyPlanId")) {
+      joins.push("LEFT JOIN mps_weekly_plans weekly_reference ON weekly_reference.tenant_id=record.tenant_id AND weekly_reference.id=record.weekly_plan_id");
+      selected.push(`concat_ws(' / ',weekly_reference.order_number,weekly_reference.item_code,weekly_reference.item_name,'交期编码'||weekly_reference.delivery_number::text) "weeklyPlanLabel"`);
+    }
     params.push(pageSize, (page - 1) * pageSize);
-    const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${divisionJoin} WHERE ${where} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { rows, total: Number(count), page, pageSize, visibleFields };
   }
 
@@ -77,6 +85,16 @@ export class MasterPlanQueryService {
       if (!next.rows.length) break;
     }
     return { rows, visibleFields: first.visibleFields };
+  }
+
+  async weeklyPlanOptions(searchInput: unknown, actor: MasterPlanActor) {
+    const resource = this.resource("mps-weekly-plans");
+    if (!hasMasterPlanPermission(actor, resource.code, "read")) throw new ForbiddenException("当前权限组没有事业部周计划查看权限");
+    const columns = columnsFor(resource); const params: unknown[] = [actor.tenantId];
+    const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", columns, params)];
+    const search = String(searchInput ?? "").trim();
+    if (search) { params.push(`%${search}%`); clauses.push(`concat_ws('/',record.order_number,record.item_code,record.item_name,record.delivery_number::text) ILIKE $${params.length}`); }
+    return this.dataSource.query(`SELECT record.id,concat_ws(' / ',record.order_number,record.item_code,record.item_name,'交期编码'||record.delivery_number::text) label FROM mps_weekly_plans record WHERE ${clauses.join(" AND ")} ORDER BY record.latest_review_due_date DESC,record.order_number,record.item_code,record.delivery_number LIMIT 100`, params);
   }
 
   private resource(code: string) {

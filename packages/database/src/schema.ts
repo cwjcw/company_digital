@@ -383,11 +383,12 @@ export const weeklyPlanItems = planning.table("weekly_plan_items", {
 
 export const workReports = planning.table("work_reports", {
   id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id), workDate: date("work_date").notNull(), sourcePlanItemId: uuid("source_plan_item_id").references(() => planItems.id, { onDelete: "set null" }),
-  customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), ...auditColumns
+  divisionId: uuid("division_id"), customer: varchar("customer", { length: 240 }), orderNumber: varchar("order_number", { length: 120 }).notNull(), itemNumber: varchar("item_number", { length: 160 }).notNull(), itemName: varchar("item_name", { length: 320 }), requiredQuantity: numeric("required_quantity", { precision: 18, scale: 4 }).notNull().default("0"), reportedQuantity: numeric("reported_quantity", { precision: 18, scale: 4 }).notNull().default("0"), ...auditColumns
 }, (table) => [
   uniqueIndex("work_reports_tenant_date_source_uq").on(table.tenantId, table.workDate, table.sourcePlanItemId),
   uniqueIndex("work_reports_tenant_date_order_item_uq").on(table.tenantId, table.workDate, table.orderNumber, table.itemNumber),
-  index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate)
+  index("work_reports_tenant_date_idx").on(table.tenantId, table.workDate),
+  index("work_reports_tenant_division_idx").on(table.tenantId, table.divisionId)
 ]);
 
 export const schema = {

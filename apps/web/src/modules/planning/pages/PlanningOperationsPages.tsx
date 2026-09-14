@@ -51,7 +51,8 @@ export function WorkReportsPage() {
   } catch (error) { message.error((error as Error).message); } finally { setSyncing(false); } };
   const update = async (row: any, value: unknown) => { try { await api(`/planning-operations/work-reports/${row.id}`, { method: "PATCH", body: JSON.stringify({ reportedQuantity: value, expectedVersion: row.version }) }); refresh(); } catch (error) { message.error((error as Error).message); refresh(); throw error; } };
   const columns = [
-    { title: "日期", dataIndex: "workDate", width: 110, render: (value: unknown) => value ? dayjs(String(value)).format("M月D日") : "—" }, { title: "客户", dataIndex: "customer", width: 180 },
+    { title: "日期", dataIndex: "workDate", width: 110, render: (value: unknown) => value ? dayjs(String(value)).format("M月D日") : "—" },
+    { title: "事业部", dataIndex: "divisionName", width: 140 }, { title: "客户", dataIndex: "customer", width: 180 },
     { title: "订单编码", dataIndex: "orderNumber", width: 170 }, { title: "品项编码", dataIndex: "itemNumber", width: 170 },
     { title: "品名", dataIndex: "itemName", width: 260 }, { title: "需求数量", dataIndex: "requiredQuantity", width: 140 },
     { title: "报工数量", dataIndex: "reportedQuantity", width: 150, render: (value: unknown, row: any) => <WorkReportQuantityCell value={value} onSave={(next) => update(row, next)} /> }

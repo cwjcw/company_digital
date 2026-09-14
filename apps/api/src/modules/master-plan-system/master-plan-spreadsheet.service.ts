@@ -7,7 +7,7 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
-type ImportRow = { row: number; id: string; expectedVersion: number; values: Record<string, unknown> };
+type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
@@ -28,7 +28,7 @@ export class MasterPlanSpreadsheetService {
   async template(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new BadRequestException("当前权限组没有该表导入权限");
-    const fields = fieldsFor(resource).filter((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"));
+    const fields = this.importFields(resource, code, actor);
     return this.workbook(resource.code, fields, []);
   }
 
@@ -50,22 +50,24 @@ export class MasterPlanSpreadsheetService {
     const headers = new Map<string, number>();
     sheet.getRow(1).eachCell((cell, column) => { const label = cell.text.trim(); if (headers.has(label)) throw new BadRequestException(`表头重复：${label}`); headers.set(label, column); });
     if (!headers.has("记录ID") || !headers.has("版本")) throw new BadRequestException("缺少记录ID或版本列，请使用系统导出的文件");
-    const editableFields = fieldsFor(resource).filter((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"));
+    const editableFields = this.importFields(resource, code, actor);
     const includedFields = editableFields.filter((field) => headers.has(field.label));
     if (!includedFields.length) throw new BadRequestException("文件中没有可导入的可编辑字段");
     if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多导入50000行");
     const rows: ImportRow[] = []; const parseErrors: Array<{ row: number; reason: string }> = [];
     sheet.eachRow((row, number) => {
       if (number === 1) return;
-      const id = row.getCell(headers.get("记录ID")!).text.trim();
-      if (!id && !includedFields.some((field) => row.getCell(headers.get(field.label)!).text.trim())) return;
+      const idText = row.getCell(headers.get("记录ID")!).text.trim();
+      const versionText = row.getCell(headers.get("版本")!).text.trim();
+      if (!idText && !versionText && !includedFields.some((field) => row.getCell(headers.get(field.label)!).text.trim())) return;
+      if (Boolean(idText) !== Boolean(versionText)) parseErrors.push({ row: number, reason: "新增时记录ID和版本都应留空；更新时必须同时填写" });
       const values: Record<string, unknown> = {};
       for (const field of includedFields) {
         const cell = row.getCell(headers.get(field.label)!);
         if (cell.type === ExcelJS.ValueType.Formula || cell.type === ExcelJS.ValueType.Error) parseErrors.push({ row: number, reason: `${field.label}不能包含公式或错误值` });
         values[field.key] = cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : cell.text.trim();
       }
-      rows.push({ row: number, id, expectedVersion: Number(row.getCell(headers.get("版本")!).value), values });
+      rows.push({ row: number, id: idText || null, expectedVersion: versionText ? Number(versionText) : null, values });
     });
     if (!rows.length) parseErrors.push({ row: 2, reason: "文件中没有可导入的数据" });
     const errors = [...parseErrors, ...await this.application.validateImportUpdates(code, rows, actor)];
@@ -90,7 +92,23 @@ export class MasterPlanSpreadsheetService {
     for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, row[field.key] ?? null])) });
     sheet.getRow(1).font = { bold: true }; sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }]; sheet.autoFilter = { from: "A1", to: sheet.getRow(1).getCell(sheet.columnCount).address };
     const notes = workbook.addWorksheet("填写说明"); notes.getColumn(1).width = 120;
-    notes.addRows([["记录ID和版本不可修改；系统按稳定记录ID更新，版本冲突时整批拒绝。"], ["仅可修改有字段编辑权限的业务字段；空白单元格表示清空该字段。"], ["上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"], ["创建人、创建时间、更新人、更新时间不参与导入。"]]);
+    notes.addRows([
+      ["记录ID：系统为每条记录自动生成的唯一标识。新增导入时留空，由系统生成；更新已导出记录时必须原样保留且不得修改。"],
+      ["版本：系统自动维护的正整数，用于防止多人同时修改时覆盖新数据。新增导入时留空；更新导入时必须保留导出时的版本，版本已变化时整批拒绝并提示刷新后重试。"],
+      ["新增规则：记录ID和版本必须同时留空；更新规则：记录ID和版本必须同时填写。只填写其中一个会校验失败。"],
+      ["仅可修改有字段编辑权限的业务字段；空白单元格表示清空该字段。"],
+      ["上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"],
+      ["创建人、创建时间、更新人、更新时间不参与导入。"]
+    ]);
     return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  private importFields(resource: ReturnType<MasterPlanSpreadsheetService["resource"]>, code: string, actor: MasterPlanActor) {
+    const canCreate = resource.create && hasMasterPlanPermission(actor, code, "create");
+    const canReadTable = hasMasterPlanPermission(actor, code, "read");
+    return fieldsFor(resource).filter((field) => field.editable && (
+      hasMasterPlanFieldPermission(actor, code, field.key, "update")
+      || (canCreate && (hasMasterPlanFieldPermission(actor, code, field.key, "read") || !canReadTable))
+    ));
   }
 }

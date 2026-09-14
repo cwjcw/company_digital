@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
-import { STANDARD_PROCESSES } from "./master-plan.domain";
+import { shanghaiToday, STANDARD_PROCESSES } from "./master-plan.domain";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -17,8 +17,8 @@ export class MasterPlanApplicationService {
     const resource = this.resource(code);
     if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限");
     await this.enforceShippingWindow(resource, actor);
-    const values = this.writable(resource, body, actor);
-    for (const field of resource.requiredOnCreate ?? []) if (values[field] == null || values[field] === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
+    const values = this.writable(resource, body, actor, "create");
+    this.validateRequiredOnCreate(resource, values);
     await this.fillReportSource(resource, values, actor.tenantId);
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource); const entries = Object.entries(values);
@@ -53,6 +53,7 @@ export class MasterPlanApplicationService {
         values.monthlyPlanId = monthly?.id ?? null;
       }
       if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
+      this.validateRequiredOnUpdate(resource, values, current);
       const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, ...entries.map(([, value]) => value)];
       const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
       // TypeORM/pg returns UPDATE ... RETURNING as [rows, affectedCount], unlike INSERT/SELECT.
@@ -80,6 +81,8 @@ export class MasterPlanApplicationService {
     if (!field || ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(fieldKey)) throw new BadRequestException("所选字段不支持批量修改");
     if (!hasMasterPlanFieldPermission(actor, code, fieldKey, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${field.label}`);
     const value = this.normalize(field.type, body.value, field.label);
+    const allowedValues = resource.allowedValues?.[fieldKey];
+    if (value != null && allowedValues && !allowedValues.includes(String(value))) throw new BadRequestException(`${field.label}只能选择：${allowedValues.join("、")}`);
     const idempotencyKey = String(body.idempotencyKey ?? "");
     if (!uuidPattern.test(idempotencyKey)) throw new BadRequestException("idempotencyKey 必须使用UUID");
     const storageKey = `mps-batch:${actor.tenantId}:${code}:${actor.userId ?? "system"}:${idempotencyKey}`;
@@ -106,6 +109,7 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "batch_update")) { items.push({ id, success: false, reason: "当前数据范围不允许修改该记录" }); continue; }
         if (!Number.isInteger(expectedVersion) || expectedVersion < 1 || Number(current.version) !== expectedVersion) { items.push({ id, success: false, reason: "记录版本已变化，请刷新后重试" }); continue; }
         try {
+          this.validateRequiredOnUpdate(resource, { [fieldKey]: value }, current);
           if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, [column]: value });
         } catch (error) {
           items.push({ id, success: false, reason: error instanceof Error ? error.message : "字段值不符合业务规则" }); continue;
@@ -126,9 +130,10 @@ export class MasterPlanApplicationService {
     return result;
   }
 
-  async importUpdates(code: string, rows: Array<{ id: string; expectedVersion: number; values: Record<string, unknown> }>, fileHash: string, actor: MasterPlanActor) {
+  async importUpdates(code: string, rows: Array<{ id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, fileHash: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    await this.enforceShippingWindow(resource, actor);
     if (!rows.length || rows.length > 50_000) throw new BadRequestException("导入数据必须为1至50000行");
     const storageKey = `mps-import:${actor.tenantId}:${code}:${actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID}:${fileHash}`;
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
@@ -136,9 +141,24 @@ export class MasterPlanApplicationService {
       const [existing] = await manager.query("SELECT response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
       if (existing) return { ...existing.response_json, repeated: true };
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
-      let updatedCount = 0;
+      let createdCount = 0; let updatedCount = 0;
       for (const input of rows) {
-        if (!uuidPattern.test(input.id) || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw new BadRequestException("导入文件包含无效的记录ID或版本");
+        const creating = input.id == null && input.expectedVersion == null;
+        if ((input.id == null) !== (input.expectedVersion == null)) throw new BadRequestException("新增时记录ID和版本都应留空；更新时必须同时填写");
+        if (creating) {
+          if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
+          const values = this.writable(resource, input.values, actor, "create");
+          this.validateRequiredOnCreate(resource, values);
+          await this.fillReportSource(resource, values, actor.tenantId, manager);
+          const columns = columnsFor(resource); const entries = Object.entries(values);
+          if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
+          const params: unknown[] = [actor.tenantId, actorId, ...entries.map(([, value]) => value)];
+          const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$2::uuid,${entries.map((_, index) => `$${index + 3}`).join(",")}) RETURNING *`, params);
+          await this.audit(manager, actor, code, inserted[0].id, `${code}.import_created`, null, inserted[0]);
+          createdCount++;
+          continue;
+        }
+        if (!uuidPattern.test(input.id!) || !Number.isInteger(input.expectedVersion) || input.expectedVersion! < 1) throw new BadRequestException("导入文件包含无效的记录ID或版本");
         const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, input.id]);
         if (!current) throw new BadRequestException(`记录不存在或已超出当前租户：${input.id}`);
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
@@ -151,6 +171,7 @@ export class MasterPlanApplicationService {
         if (!Object.keys(values).length) continue;
         const columns = columnsFor(resource); const entries = Object.entries(values);
         const databaseValues = this.toDatabaseRecord(resource, values);
+        this.validateRequiredOnUpdate(resource, values, current);
         if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...databaseValues });
         const params: unknown[] = [actor.tenantId, input.id, input.expectedVersion, actorId, ...entries.map(([, value]) => value)];
         const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
@@ -159,32 +180,49 @@ export class MasterPlanApplicationService {
         await this.audit(manager, actor, code, input.id, `${code}.import_updated`, current, updatedRow);
         updatedCount++;
       }
-      const response = { total: rows.length, updated: updatedCount, repeated: false };
+      const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false };
       await this.audit(manager, actor, code, null, `${code}.import_confirmed`, null, { ...response, fileHash });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
-      if (updatedCount) await this.enqueueReconciliation(manager, resource, actor);
+      if (createdCount || updatedCount) await this.enqueueReconciliation(manager, resource, actor);
       return response;
     }));
-    if (!result.repeated && result.updated > 0) void this.sync.processOutbox().catch(() => undefined);
+    if (!result.repeated && result.created + result.updated > 0) void this.sync.processOutbox().catch(() => undefined);
     return result;
   }
 
-  async validateImportUpdates(code: string, rows: Array<{ row: number; id: string; expectedVersion: number; values: Record<string, unknown> }>, actor: MasterPlanActor) {
+  async validateImportUpdates(code: string, rows: Array<{ row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, actor: MasterPlanActor) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     const errors: Array<{ row: number; reason: string }> = [];
-    const seen = new Set<string>();
+    const seen = new Set<string>(); const seenBusinessKeys = new Set<string>();
     for (const input of rows) {
       try {
-        if (!uuidPattern.test(input.id)) throw new BadRequestException("记录ID格式无效");
-        if (seen.has(input.id)) throw new BadRequestException("记录ID重复");
-        seen.add(input.id);
-        if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw new BadRequestException("版本必须为正整数");
+        const creating = input.id == null && input.expectedVersion == null;
+        if ((input.id == null) !== (input.expectedVersion == null)) throw new BadRequestException("新增时记录ID和版本都应留空；更新时必须同时填写");
+        if (creating) {
+          if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
+          const values = this.writable(resource, input.values, actor, "create");
+          this.validateRequiredOnCreate(resource, values);
+          await this.fillReportSource(resource, values, actor.tenantId);
+          const businessKey = this.businessKey(resource, values);
+          if (businessKey && seenBusinessKeys.has(businessKey)) throw new BadRequestException("文件中存在重复业务记录");
+          if (businessKey) {
+            seenBusinessKeys.add(businessKey);
+            if (await this.businessRecordExists(resource, values, actor.tenantId)) throw new ConflictException("相同业务记录已存在；如需更新，请先导出并保留记录ID和版本");
+          }
+          if (resource.code === "mps-material-reports") this.validateMaterial(this.toDatabaseRecord(resource, values));
+          continue;
+        }
+        if (!uuidPattern.test(input.id!)) throw new BadRequestException("记录ID格式无效");
+        if (seen.has(input.id!)) throw new BadRequestException("记录ID重复");
+        seen.add(input.id!);
+        if (!Number.isInteger(input.expectedVersion) || input.expectedVersion! < 1) throw new BadRequestException("版本必须为正整数");
         const [current] = await this.dataSource.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, input.id]);
         if (!current) throw new BadRequestException("记录不存在或已超出当前租户");
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
         const values = this.writable(resource, input.values, actor);
+        this.validateRequiredOnUpdate(resource, values, current);
         if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
       } catch (error) { errors.push({ row: input.row, reason: error instanceof Error ? error.message : "数据校验失败" }); }
     }
@@ -213,16 +251,48 @@ export class MasterPlanApplicationService {
   private resource(code: string) { const resource = MASTER_PLAN_RESOURCE_MAP.get(code as any); if (!resource) throw new NotFoundException("主计划表不存在"); return resource; }
   private label(resource: MasterPlanResource, key: string) { return fieldsFor(resource).find((field) => field.key === key)?.label ?? key; }
 
-  private writable(resource: MasterPlanResource, body: Record<string, unknown>, actor: MasterPlanActor) {
+  private writable(resource: MasterPlanResource, body: Record<string, unknown>, actor: MasterPlanActor, action: "create" | "update" = "update") {
     const allowed = new Map(fieldsFor(resource).filter((field) => field.editable).map((field) => [field.key, field]));
     const output: Record<string, unknown> = {};
     for (const [field, raw] of Object.entries(body)) {
       if (["expectedVersion", "id", "version", "createdBy", "createdAt", "updatedBy", "updatedAt", "tenantId"].includes(field)) continue;
       const definition = allowed.get(field); if (!definition) throw new BadRequestException(`字段 ${field} 不允许写入`);
-      if (!hasMasterPlanFieldPermission(actor, resource.code, field, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${definition.label}`);
+      const canWrite = hasMasterPlanFieldPermission(actor, resource.code, field, "update")
+        || (action === "create" && (hasMasterPlanFieldPermission(actor, resource.code, field, "read") || !hasMasterPlanPermission(actor, resource.code, "read")));
+      if (!canWrite) throw new ForbiddenException(`当前权限组不能填写字段：${definition.label}`);
       output[field] = this.normalize(definition.type, raw, definition.label);
+      const allowedValues = resource.allowedValues?.[field];
+      if (output[field] != null && allowedValues && !allowedValues.includes(String(output[field]))) throw new BadRequestException(`${definition.label}只能选择：${allowedValues.join("、")}`);
     }
     return output;
+  }
+
+  private validateRequiredOnCreate(resource: MasterPlanResource, values: Record<string, unknown>) {
+    for (const field of resource.requiredOnCreate ?? []) {
+      if (values[field] == null || values[field] === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
+    }
+  }
+
+  private validateRequiredOnUpdate(resource: MasterPlanResource, values: Record<string, unknown>, current: Record<string, unknown>) {
+    const columns = columnsFor(resource);
+    for (const field of resource.requiredAlways ?? []) {
+      const value = Object.prototype.hasOwnProperty.call(values, field) ? values[field] : current[columns[field]];
+      if (value == null || value === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
+    }
+  }
+
+  private businessKey(resource: MasterPlanResource, values: Record<string, unknown>) {
+    if (!resource.uniqueKeyFields?.length) return null;
+    return resource.uniqueKeyFields.map((field) => `${field}:${String(values[field] ?? "")}`).join("\u0000");
+  }
+
+  private async businessRecordExists(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager) {
+    if (!resource.uniqueKeyFields?.length) return false;
+    const columns = columnsFor(resource);
+    const params: unknown[] = [tenantId, ...resource.uniqueKeyFields.map((field) => values[field] ?? null)];
+    const predicates = resource.uniqueKeyFields.map((field, index) => `${columns[field]} IS NOT DISTINCT FROM $${index + 2}`);
+    const [existing] = await manager.query(`SELECT id FROM ${resource.table} WHERE tenant_id=$1 AND ${predicates.join(" AND ")} LIMIT 1`, params);
+    return Boolean(existing);
   }
 
   private normalize(type: string, value: unknown, label: string) {
@@ -247,15 +317,24 @@ export class MasterPlanApplicationService {
     const normalized = String(value).trim(); if (normalized.length > 4000) throw new BadRequestException(`${label}内容过长`); return normalized || null;
   }
 
-  private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string) {
+  private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager) {
     if (resource.code === "mps-shipping-plans") {
-      const [monthly] = await this.dataSource.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
+      const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
       values.monthlyPlanId = monthly?.id ?? null;
     }
-    if (!["mps-material-reports", "mps-process-reports"].includes(resource.code)) return;
+    if (resource.code === "mps-weekly-plans") values.pendingQuantity = values.plannedQuantity;
+    if (!["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code)) return;
     const weeklyPlanId = String(values.weeklyPlanId ?? ""); if (!uuidPattern.test(weeklyPlanId)) throw new BadRequestException("请选择有效的周计划");
-    const [weekly] = await this.dataSource.query(`SELECT order_number,item_code,item_name,delivery_number,planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
+    const [weekly] = await manager.query(`SELECT order_number,item_code,item_name,delivery_number,planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) throw new BadRequestException("周计划不存在");
+    if (resource.code === "mps-weekly-process-plans") {
+      const index = STANDARD_PROCESSES.findIndex(([code]) => code === values.processCode);
+      if (index < 0) throw new BadRequestException("工序必须是系统标准工序");
+      values.processName = STANDARD_PROCESSES[index]![1];
+      values.sequence = index + 1;
+      values.reportDate ??= shanghaiToday();
+      return;
+    }
     Object.assign(values, { orderNumber: weekly.order_number, itemCode: weekly.item_code, itemName: weekly.item_name, deliveryNumber: weekly.delivery_number });
     if (resource.code === "mps-process-reports") {
       values.plannedQuantity = weekly.planned_quantity;
@@ -307,7 +386,8 @@ export class MasterPlanApplicationService {
     const jobs: Partial<Record<string, string[]>> = {
       "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
       "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
-      "mps-base-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
+      "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
+      "mps-weekly-process-plans": ["execution-rollup"],
       "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
     };
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
