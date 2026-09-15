@@ -15,6 +15,7 @@ export class MasterPlanApplicationService {
 
   async create(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     const resource = this.resource(code);
+    this.assertDirectCreateAllowed(resource);
     if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限");
     await this.enforceShippingWindow(resource, actor);
     const values = this.writable(resource, body, actor, "create");
@@ -152,6 +153,7 @@ export class MasterPlanApplicationService {
         const creating = input.id == null && input.expectedVersion == null;
         if ((input.id == null) !== (input.expectedVersion == null)) throw new BadRequestException("新增时记录ID和版本都应留空；更新时必须同时填写");
         if (creating) {
+          this.assertDirectCreateAllowed(resource);
           if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
@@ -207,6 +209,7 @@ export class MasterPlanApplicationService {
         const creating = input.id == null && input.expectedVersion == null;
         if ((input.id == null) !== (input.expectedVersion == null)) throw new BadRequestException("新增时记录ID和版本都应留空；更新时必须同时填写");
         if (creating) {
+          this.assertDirectCreateAllowed(resource);
           if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
@@ -259,6 +262,9 @@ export class MasterPlanApplicationService {
   }
 
   private resource(code: string) { const resource = MASTER_PLAN_RESOURCE_MAP.get(code as any); if (!resource) throw new NotFoundException("主计划表不存在"); return resource; }
+  private assertDirectCreateAllowed(resource: MasterPlanResource) {
+    if (resource.code === "mps-weekly-plans") throw new BadRequestException("事业部周计划只能由事业部基础计划生成。");
+  }
   private label(resource: MasterPlanResource, key: string) { return fieldsFor(resource).find((field) => field.key === key)?.label ?? key; }
 
   private writable(resource: MasterPlanResource, body: Record<string, unknown>, actor: MasterPlanActor, action: "create" | "update" = "update") {

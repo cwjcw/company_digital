@@ -5,13 +5,16 @@ describe("master plan manual-entry configuration", () => {
   it.each([
     "mps-shipping-plans",
     "mps-base-plans",
-    "mps-weekly-plans",
     "mps-weekly-process-plans",
     "mps-customer-divisions",
     "mps-order-allocations",
     "mps-process-cycles"
   ])("enables manual creation for %s", (code) => {
     expect(MASTER_PLAN_RESOURCE_MAP.get(code as never)?.create).toBe(true);
+  });
+
+  it("only allows base-to-weekly to create division weekly plans", () => {
+    expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")?.create).toBe(false);
   });
 
   it("uses the approved full field names and new/old product meaning", () => {

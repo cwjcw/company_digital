@@ -3,6 +3,26 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-111111111111", username: "tester", permissions: ["*"], isSystemAdmin: true, moduleAdminCodes: [], tableDataScopes: [], requestId: "request-import", source: "web" as const };
 
 describe("MasterPlanApplicationService imports", () => {
+  it("rejects direct POST and Excel creation of a division weekly plan", async () => {
+    const query = jest.fn().mockResolvedValue([]); const manager = { query };
+    const service = new MasterPlanApplicationService({ query, manager, transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never, { processOutbox: jest.fn() } as never);
+    const values = {
+      orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1,
+      latestCustomerDueDate: "2026-10-01", latestReviewDueDate: "2026-09-20", plannedQuantity: 1
+    };
+
+    await expect(service.create("mps-weekly-plans", values, actor)).rejects.toThrow("事业部周计划只能由事业部基础计划生成。");
+    await expect(service.validateImportUpdates("mps-weekly-plans", [
+      { row: 2, id: null, expectedVersion: null, values }
+    ], actor)).resolves.toEqual([
+      { row: 2, reason: "事业部周计划只能由事业部基础计划生成。" }
+    ]);
+    await expect(service.importUpdates("mps-weekly-plans", [
+      { id: null, expectedVersion: null, values }
+    ], "weekly-create-file", actor)).rejects.toThrow("事业部周计划只能由事业部基础计划生成。");
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO mps_weekly_plans"))).toBe(false);
+  });
+
   it("accepts zero business quantities but still rejects negative values and version zero", async () => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 0, planned_quantity: 0, manufacturing_method: "自制" };
     const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : []);

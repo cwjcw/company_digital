@@ -15,7 +15,7 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-monthly-plans", table: "mps_monthly_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId" },
   { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "itemName", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "divisionId"], requiredAlways: ["itemName", "divisionId"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], extraColumns: { monthlyPlanId: "monthly_plan_id" } },
   { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], requiredOnUpdate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity"], weeklyAdmissionRequiredFields: ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
-  { code: "mps-weekly-plans", table: "mps_weekly_plans", create: true, remove: false, defaultOrder: "latest_review_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "latestReviewDueDate", "plannedQuantity"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
+  { code: "mps-weekly-plans", table: "mps_weekly_plans", create: false, remove: false, defaultOrder: "latest_review_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "latestReviewDueDate", "plannedQuantity"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
   { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: true, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", requiredOnCreate: ["weeklyPlanId", "processCode"], uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
   { code: "mps-material-reports", table: "mps_material_reports", create: true, remove: true, defaultOrder: "order_number,item_code,delivery_number,material_name", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "materialName"], uniqueKeyFields: ["weeklyPlanId", "materialName"] },
@@ -47,10 +47,10 @@ function virtualColumns(resource: MasterPlanResource) {
   for (const code of processes) {
     if (resource.code === "mps-weekly-plans") {
       const base = `FROM mps_weekly_process_plans process WHERE process.tenant_id=record.tenant_id AND process.weekly_plan_id=record.id AND process.process_code='${code}'`;
-      output[`${code}CycleDays`] = `(SELECT process.cycle_days ${base})`;
-      output[`${code}DueDate`] = `(SELECT process.due_date ${base})`;
-      output[`${code}Status`] = `(SELECT process.status ${base})`;
-      output[`${code}Exception`] = `(SELECT process.exception_text ${base})`;
+      output[`${code}CycleDays`] = `(SELECT max(process.cycle_days) ${base})`;
+      output[`${code}DueDate`] = `(SELECT min(process.due_date) ${base})`;
+      output[`${code}Status`] = `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(process.status='延期') THEN '延期' WHEN bool_and(process.status='已完成') THEN '已完成' WHEN bool_or(process.status='进行中') THEN '进行中' ELSE '未开始' END ${base})`;
+      output[`${code}Exception`] = `(SELECT string_agg(DISTINCT process.exception_text,'；' ORDER BY process.exception_text) ${base} AND btrim(COALESCE(process.exception_text,''))<>'')`;
     }
     if (resource.code === "mps-monthly-plans") {
       const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND process.process_code='${code}'`;
@@ -61,17 +61,17 @@ function virtualColumns(resource: MasterPlanResource) {
     }
   }
   if (resource.code === "mps-weekly-plans") Object.assign(output, {
-    technicalStatus: `(SELECT status FROM mps_technical_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    technicalException: `(SELECT exception_text FROM mps_technical_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    hardwareStatus: `(SELECT CASE WHEN received OR actual_inbound_date IS NOT NULL THEN '已完成' WHEN record.hardware_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='五金')`,
-    hardwareException: `(SELECT exception_text FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='五金')`,
-    woodStatus: `(SELECT CASE WHEN received OR actual_inbound_date IS NOT NULL THEN '已完成' WHEN record.wood_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='木作')`,
-    woodException: `(SELECT exception_text FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='木作')`,
-    outsourcingStatus: `(SELECT status FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    outsourcingException: `(SELECT exception_text FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    outsourcingCycleDays: `(SELECT cycle_days FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    outsourcingDueDate: `(SELECT outsourcing_due_date FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
-    outsourcingActualInboundDate: `(SELECT actual_inbound_date FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`
+    technicalStatus: `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(report.status='延期') THEN '延期' WHEN bool_and(report.status='已完成') THEN '已完成' ELSE '未完成' END FROM mps_technical_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
+    technicalException: `(SELECT string_agg(DISTINCT report.exception_text,'；' ORDER BY report.exception_text) FROM mps_technical_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND btrim(COALESCE(report.exception_text,''))<>'')`,
+    hardwareStatus: `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(report.received OR report.actual_inbound_date IS NOT NULL) THEN '已完成' WHEN record.hardware_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='五金')`,
+    hardwareException: `(SELECT string_agg(DISTINCT report.exception_text,'；' ORDER BY report.exception_text) FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='五金' AND btrim(COALESCE(report.exception_text,''))<>'')`,
+    woodStatus: `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(report.received OR report.actual_inbound_date IS NOT NULL) THEN '已完成' WHEN record.wood_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='木作')`,
+    woodException: `(SELECT string_agg(DISTINCT report.exception_text,'；' ORDER BY report.exception_text) FROM mps_material_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.material_name='木作' AND btrim(COALESCE(report.exception_text,''))<>'')`,
+    outsourcingStatus: `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(report.status='延期') THEN '延期' WHEN bool_and(report.status='已入库') THEN '已入库' WHEN bool_or(report.status='进行中') THEN '进行中' ELSE '未开始' END FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
+    outsourcingException: `(SELECT string_agg(DISTINCT report.exception_text,'；' ORDER BY report.exception_text) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND btrim(COALESCE(report.exception_text,''))<>'')`,
+    outsourcingCycleDays: `(SELECT max(report.cycle_days) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
+    outsourcingDueDate: `(SELECT min(report.outsourcing_due_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
+    outsourcingActualInboundDate: `(SELECT max(report.actual_inbound_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`
   });
   if (resource.code === "mps-monthly-plans") {
     const weeklyFrom = `FROM mps_weekly_plans weekly`;

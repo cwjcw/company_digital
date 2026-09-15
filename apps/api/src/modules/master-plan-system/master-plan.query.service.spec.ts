@@ -11,14 +11,26 @@ describe("MasterPlanQueryService metadata", () => {
   const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: "org-1", name: "事业一部", pathLabel: "凯南 / 事业一部" }]) };
   const service = new MasterPlanQueryService({} as never, directory as never);
 
-  it("shows creation only when the resource create permission is present", () => {
+  it("never exposes direct weekly-plan creation even when a create claim exists", () => {
     const allowed = service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:read", "mps-weekly-plans:*:create", "mps-weekly-plans:orderNumber:read"]));
-    expect(allowed.actions.create).toBe(true);
-    expect(allowed.createFields.map((field) => field.key)).toContain("orderNumber");
+    expect(allowed.actions.create).toBe(false);
+    expect(allowed.createFields).toEqual([]);
 
     const denied = service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:read", "mps-weekly-plans:orderNumber:read"]));
     expect(denied.actions.create).toBe(false);
     expect(denied.createFields).toEqual([]);
+  });
+
+  it("uses deterministic aggregates so duplicate historical children cannot crash weekly list", async () => {
+    const query = jest.fn(async (sql: string) => sql.includes("count(*)::integer count") ? [{ count: 1 }] : [{ id: "weekly-1", version: 1 }]);
+    const weeklyActor = { ...actor(["*"]), isSystemAdmin: true };
+    const result = await new MasterPlanQueryService({ query } as never, directory as never).list("mps-weekly-plans", {}, weeklyActor);
+    const dataSql = query.mock.calls.map(([sql]) => sql).find((sql) => sql.startsWith("SELECT record.id")) ?? "";
+    expect(result.total).toBe(1);
+    expect(dataSql).toContain("string_agg(DISTINCT report.exception_text");
+    expect(dataSql).toContain("bool_or(report.status='延期')");
+    expect(dataSql).toContain("bool_or(report.received OR report.actual_inbound_date IS NOT NULL)");
+    expect(dataSql).not.toContain("(SELECT status FROM mps_technical_reports");
   });
 
   it("still requires read permission to open a table", () => {
