@@ -132,7 +132,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSelection, setBatchSelection] = useState<KdosTableSelection<any> | null>(null);
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
-  const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; token: string | null; blockedReason?: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
   const organizations = useQuery({ queryKey: ["mps-organization-options", sessionSubject, resource], queryFn: () => api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${encodeURIComponent(resource)}`), staleTime: 300_000, enabled: Boolean(metadata.data?.fields.some((field) => field.type === "department")) });
@@ -201,18 +202,19 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
   };
   const previewImport = async (file: File) => {
-    const body = new FormData(); body.append("file", file); setImporting(true);
+    const body = new FormData(); body.append("file", file); setImporting(true); setImportError(null); setImportPreview(null);
     try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview`, { method: "POST", body })); }
-    catch (error) { message.error((error as Error).message); }
+    catch (error) { setImportError(`导入失败\n\n${(error as Error).message}`); }
     finally { setImporting(false); }
     return false;
   };
   const confirmImport = async () => {
-    if (!importPreview?.token) return; setImporting(true);
+    if (!importPreview?.previewId) return; setImporting(true); setImportError(null);
     try {
-      const result = await api<{ created: number; updated: number }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ token: importPreview.token }) });
+      const result = await api<{ created: number; updated: number }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ previewId: importPreview.previewId }) });
       message.success(`导入完成，新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条`); setImportPreview(null); refresh();
-    } finally { setImporting(false); }
+    } catch (error) { setImportError(`导入失败，本次数据未提交。\n\n失败原因：\n${(error as Error).message}\n\n本次整批数据均未写入。`); }
+    finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
   const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
@@ -246,11 +248,14 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         {formFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput field={field} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} /></Form.Item>)}
       </Form>
     </Modal>
-    <Modal title="导入预览" open={Boolean(importPreview)} onCancel={() => setImportPreview(null)} onOk={() => void confirmImport().catch((error) => message.error((error as Error).message))}
-      okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.token || Boolean(importPreview?.errors.length) }}>
+    <Modal title={importPreview ? "导入预览" : "导入失败"} open={Boolean(importPreview || importError)} onCancel={() => { setImportPreview(null); setImportError(null); }} onOk={() => void confirmImport()}
+      okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.previewId || Boolean(importPreview?.errors.length) }}>
+      {importError && <Alert type="error" showIcon message="导入失败" description={<span style={{ whiteSpace: "pre-line" }}>{importError.replace(/^导入失败\n\n/, "")}</span>} style={{ marginBottom: 12 }} />}
+      {importPreview && <>
       <p>共解析 {importPreview?.total ?? 0} 条。确认后整批事务提交。</p>
       {importPreview?.blockedReason && <Alert type="warning" showIcon message={importPreview.blockedReason} />}
-      {importPreview?.errors.length ? <div style={{ maxHeight: 320, overflow: "auto" }}>{importPreview.errors.slice(0, 100).map((error) => <div key={`${error.row}-${error.reason}`}>第 {error.row} 行：{error.reason}</div>)}</div> : !importPreview?.blockedReason && <Tag color="success">校验通过，可以确认导入</Tag>}
+      {importPreview?.errors.length ? <><Alert type="error" showIcon message="导入校验失败" description={importPreview.errors.length > 100 ? `共发现 ${importPreview.errors.length} 条错误，当前显示前 100 条。` : `发现 ${importPreview.errors.length} 条错误`} style={{ marginBottom: 12 }} /><div style={{ maxHeight: 320, overflow: "auto" }}>{importPreview.errors.slice(0, 100).map((error) => <div key={`${error.row}-${error.reason}`}>第 {error.row} 行：{error.reason}</div>)}</div></> : !importPreview?.blockedReason && <Tag color="success">校验通过，可以确认导入</Tag>}
+      </>}
     </Modal>
     <Modal title={<Space><span>批量修改</span><Tag>本次操作将修改 {batchSelection?.selectedRowKeys.length ?? 0} 条数据</Tag></Space>}
       open={Boolean(batchSelection)} onCancel={() => { setBatchSelection(null); batchForm.resetFields(); setBatchField(null); }}

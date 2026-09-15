@@ -152,4 +152,25 @@ describe("MasterPlanResourcePage create feedback", () => {
     expect(await screen.findByRole("dialog", { name: /批量修改/ })).toBeInTheDocument();
     expect(screen.getByText(/本次操作将修改 1 条数据/)).toBeInTheDocument();
   }, 15_000);
+
+  it("keeps preview and confirm failures visible instead of closing the import dialog", async () => {
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-shipping-plans", fields: [], createFields: [], actions: { create: false, update: false, delete: false, import: true, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-shipping-plans?")) return { rows: [], total: 0 } as never;
+      if (path.endsWith("/import-preview")) return { total: 1255, errors: [], previewId: "22222222-2222-4222-8222-222222222222" } as never;
+      if (path.endsWith("/import-confirm") && init?.method === "POST") throw new Error("记录版本已变化，请重新导出后导入");
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(<QueryClientProvider client={client}><MasterPlanResourcePage resource="mps-shipping-plans" /></QueryClientProvider>);
+    await screen.findByText("导入");
+    const input = container.querySelector('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [new File(["test"], "import.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] } });
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("共解析 1255 条。确认后整批事务提交。")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /确认导入|OK/ }));
+    await waitFor(() => expect(within(dialog).getByText(/本次整批数据均未写入/)).toBeInTheDocument());
+    expect(dialog).toBeInTheDocument();
+  }, 15_000);
 });

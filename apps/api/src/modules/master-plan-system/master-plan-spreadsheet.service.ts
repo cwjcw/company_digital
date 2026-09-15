@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import ExcelJS from "exceljs";
+import { DataSource } from "typeorm";
 import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
@@ -14,18 +15,12 @@ const unreadableSpreadsheetMessage = "Excel 未解密或文件损坏，请解密
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService) {}
+  constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService) {}
 
   private resource(code: string) {
     const resource = MASTER_PLAN_RESOURCE_MAP.get(code as never);
     if (!resource) throw new BadRequestException("主计划表不存在");
     return resource;
-  }
-
-  private signature(value: string) {
-    const secret = process.env.JWT_ACCESS_SECRET;
-    if (!secret) throw new BadRequestException("导入签名配置缺失，请联系管理员");
-    return createHmac("sha256", secret).update(value).digest("hex");
   }
 
   async template(code: string, actor: MasterPlanActor) {
@@ -103,20 +98,31 @@ export class MasterPlanSpreadsheetService {
       }
     }
     const errors = parseErrors.length ? parseErrors : await this.application.validateImportUpdates(code, rows, actor);
-    if (errors.length) return { total: rows.length, errors, token: null, rows: [] };
+    if (errors.length) return { total: rows.length, errors, previewId: null, rows: [] };
     const blockedReason = await this.application.importBlockedReason(code, actor);
-    if (blockedReason) return { total: rows.length, errors: [], token: null, rows: rows.slice(0, 20), blockedReason };
+    if (blockedReason) return { total: rows.length, errors: [], previewId: null, rows: rows.slice(0, 20), blockedReason };
+    if (!actor.userId) throw new ForbiddenException("当前用户身份无效，无法创建导入预览");
     const hash = createHash("sha256").update(file.buffer).digest("hex");
-    const payload = Buffer.from(JSON.stringify({ tenant: actor.tenantId, user: actor.userId, resource: code, expires: Date.now() + 30 * 60 * 1000, hash, rows })).toString("base64url");
-    return { total: rows.length, errors: [], token: `${payload}.${this.signature(payload)}`, rows: rows.slice(0, 20) };
+    const [preview] = await this.dataSource.transaction(async (manager) => {
+      await manager.query("DELETE FROM mps_import_previews WHERE expires_at<=now()");
+      return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
+        VALUES($1,$2::uuid,$3,$4,$5::jsonb,now() + interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`, [actor.tenantId, actor.userId, code, hash, JSON.stringify({ rows })]);
+    });
+    return { total: rows.length, errors: [], previewId: preview.id, rows: rows.slice(0, 20) };
   }
 
-  async confirm(code: string, token: string, actor: MasterPlanActor) {
-    const [payload, signature] = String(token ?? "").split("."); const expected = this.signature(payload ?? "");
-    if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new BadRequestException("导入预览已失效，请重新上传");
-    const data = JSON.parse(Buffer.from(payload!, "base64url").toString());
-    if (data.tenant !== actor.tenantId || data.user !== actor.userId || data.resource !== code || data.expires < Date.now()) throw new BadRequestException("导入预览已过期或不属于当前用户，请重新上传");
-    return this.application.importUpdates(code, data.rows, data.hash, actor);
+  async confirm(code: string, previewId: string, actor: MasterPlanActor) {
+    if (!actor.userId) throw new ForbiddenException("当前用户身份无效，无法确认导入预览");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(previewId))) throw new BadRequestException("导入预览不存在，请重新上传");
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("DELETE FROM mps_import_previews WHERE expires_at<=now()");
+      const [preview] = await manager.query(`SELECT * FROM mps_import_previews WHERE id=$1::uuid AND tenant_id=$2 AND user_id=$3::uuid AND resource=$4 FOR UPDATE`, [previewId, actor.tenantId, actor.userId, code]);
+      if (!preview) throw new BadRequestException("导入预览已过期、无权访问或不存在，请重新上传。");
+      if (preview.confirmed_at) return { ...preview.confirmation_result, repeated: true };
+      const result = await this.application.importUpdates(code, preview.payload_json.rows, preview.file_hash, actor);
+      await manager.query("UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid", [previewId, JSON.stringify(result), actor.userId]);
+      return result;
+    });
   }
 
   private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>) {

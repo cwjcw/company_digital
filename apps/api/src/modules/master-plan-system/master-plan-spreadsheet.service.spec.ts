@@ -6,12 +6,18 @@ import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service"
 const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-111111111111", username: "tester", permissions: ["*"], isSystemAdmin: true, moduleAdminCodes: [], tableDataScopes: [], requestId: "request-1", source: "web" as const };
 
 describe("MasterPlanSpreadsheetService", () => {
+  const previewId = "22222222-2222-4222-8222-222222222222";
+  const previewManager = { query: jest.fn() };
+  const dataSource = { transaction: jest.fn(async (work: (manager: typeof previewManager) => unknown) => work(previewManager)) };
   const queries = { exportRows: jest.fn() };
   const application = { validateImportUpdates: jest.fn(), importUpdates: jest.fn(), importBlockedReason: jest.fn().mockResolvedValue(null) };
   const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() };
-  const service = new MasterPlanSpreadsheetService(queries as never, application as never, directory as never);
+  const service = new MasterPlanSpreadsheetService(dataSource as never, queries as never, application as never, directory as never);
 
-  beforeEach(() => { jest.clearAllMocks(); application.importBlockedReason.mockResolvedValue(null); process.env.JWT_ACCESS_SECRET = "test-secret"; });
+  beforeEach(() => {
+    jest.clearAllMocks(); application.importBlockedReason.mockResolvedValue(null);
+    previewManager.query.mockImplementation((sql: string) => sql.startsWith("INSERT") ? [{ id: previewId }] : []);
+  });
 
   async function workbookFile(headers: string[], rows: unknown[][]) {
     const workbook = new ExcelJS.Workbook();
@@ -58,7 +64,7 @@ describe("MasterPlanSpreadsheetService", () => {
 
     expect(result.total).toBe(3);
     expect(result.errors).toEqual([]);
-    expect(result.token).toEqual(expect.any(String));
+    expect(result.previewId).toBe(previewId);
     expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-process-cycles", expect.arrayContaining([
       expect.objectContaining({ row: 2, id: null, expectedVersion: null, values: expect.objectContaining({ itemCode: "ITEM-001" }) })
     ]), actor);
@@ -70,7 +76,7 @@ describe("MasterPlanSpreadsheetService", () => {
 
     const result = await service.preview("mps-process-cycles", file, actor);
 
-    expect(result.token).toBeNull();
+    expect(result.previewId).toBeNull();
     expect(result.errors).toContainEqual({ row: 2, reason: "新增时记录ID和版本都应留空；更新时必须同时填写" });
   });
 
@@ -80,7 +86,39 @@ describe("MasterPlanSpreadsheetService", () => {
     const file = await workbookFile(["记录ID", "版本", "品项编码"], [["", "", "ITEM-001"]]);
     const preview = await service.preview("mps-process-cycles", file, actor);
 
-    await expect(service.confirm("mps-process-cycles", preview.token!, actor)).resolves.toEqual(expect.objectContaining({ created: 1, updated: 0 }));
+    previewManager.query.mockImplementation((sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_import_previews")) return [{ id: previewId, file_hash: "hash", payload_json: { rows: [{ id: null, expectedVersion: null, values: { itemCode: "ITEM-001" } }] }, confirmed_at: null }];
+      return sql.startsWith("INSERT") ? [{ id: previewId }] : [];
+    });
+    await expect(service.confirm("mps-process-cycles", preview.previewId!, actor)).resolves.toEqual(expect.objectContaining({ created: 1, updated: 0 }));
+  });
+
+  it("binds preview confirmation to its tenant, user and resource", async () => {
+    previewManager.query.mockResolvedValue([]);
+    await expect(service.confirm("mps-process-cycles", previewId, { ...actor, tenantId: "OTHER" })).rejects.toThrow("导入预览已过期、无权访问或不存在");
+    await expect(service.confirm("mps-shipping-plans", previewId, actor)).rejects.toThrow("导入预览已过期、无权访问或不存在");
+    await expect(service.confirm("mps-process-cycles", previewId, { ...actor, userId: "33333333-3333-4333-8333-333333333333" })).rejects.toThrow("导入预览已过期、无权访问或不存在");
+  });
+
+  it("returns a clear expiry message when the short-lived preview no longer exists", async () => {
+    previewManager.query.mockResolvedValue([]);
+    await expect(service.confirm("mps-process-cycles", previewId, actor)).rejects.toThrow("导入预览已过期、无权访问或不存在，请重新上传。");
+  });
+
+  it("returns the persisted result instead of executing a confirmed preview twice", async () => {
+    previewManager.query.mockImplementation((sql: string) => sql.startsWith("SELECT * FROM mps_import_previews")
+      ? [{ confirmed_at: new Date(), confirmation_result: { total: 1, created: 1, updated: 0 } }] : []);
+    await expect(service.confirm("mps-process-cycles", previewId, actor)).resolves.toEqual({ total: 1, created: 1, updated: 0, repeated: true });
+    expect(application.importUpdates).not.toHaveBeenCalled();
+  });
+
+  it("keeps a 1255-row preview server-side and returns only a short preview identifier", async () => {
+    application.validateImportUpdates.mockResolvedValue([]);
+    const file = await workbookFile(["记录ID", "版本", "品项编码"], Array.from({ length: 1255 }, (_, index) => ["", "", `ITEM-${index}`]));
+    const result = await service.preview("mps-process-cycles", file, actor);
+    expect(result).toEqual(expect.objectContaining({ total: 1255, previewId }));
+    expect(JSON.stringify(result)).not.toContain("ITEM-1254");
+    expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-process-cycles", expect.arrayContaining([expect.objectContaining({ values: { itemCode: "ITEM-1254" } })]), actor);
   });
 
   it("writes stable field keys and authoritative dropdowns into new templates", async () => {
@@ -119,7 +157,7 @@ describe("MasterPlanSpreadsheetService", () => {
     application.importBlockedReason.mockResolvedValue("数据校验通过，但当前不在出货计划开放修改时间，暂不能确认导入。");
     const file = await workbookFile(["记录ID", "版本", "品项编码"], [["", "", "ITEM-001"]]);
     const result = await service.preview("mps-shipping-plans", file, actor);
-    expect(result).toEqual(expect.objectContaining({ token: null, blockedReason: expect.stringContaining("暂不能确认导入") }));
+    expect(result).toEqual(expect.objectContaining({ previewId: null, blockedReason: expect.stringContaining("暂不能确认导入") }));
   });
 
   it("adds boolean and department Excel validation from metadata", async () => {

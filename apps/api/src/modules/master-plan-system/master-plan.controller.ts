@@ -37,7 +37,7 @@ export class MasterPlanController {
   importPreview(@Param("resource") resource: string, @UploadedFile() file: Express.Multer.File, @Req() request: MasterPlanRequest) { return this.spreadsheets.preview(resource, file, this.actor(request)); }
 
   @Post("resources/:resource/import-confirm")
-  importConfirm(@Param("resource") resource: string, @Body("token") token: string, @Req() request: MasterPlanRequest) { return this.spreadsheets.confirm(resource, token, this.actor(request)); }
+  importConfirm(@Param("resource") resource: string, @Body("previewId") previewId: string, @Req() request: MasterPlanRequest) { return this.spreadsheets.confirm(resource, previewId, this.actor(request)); }
 
   @Get("resources/:resource/export")
   async export(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, `${resource}.xlsx`, await this.spreadsheets.export(resource, query, this.actor(request))); }

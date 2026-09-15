@@ -42,4 +42,14 @@ describe("api response parsing", () => {
     expect(localStorage.getItem("accessToken")).toBe("fresh-access");
     expect(localStorage.getItem("refreshToken")).toBe("fresh-refresh");
   });
+
+  it.each([[400, "请求数据不正确"], [403, "当前权限不足"], [409, "数据已发生变化"], [413, "上传文件过大"], [500, "服务暂时异常"]])("maps HTTP %s without a business message", async (status, expected) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({}, { status }));
+    await expect(api("/master-plan-system/resources/mps-shipping-plans/import-preview")).rejects.toThrow(expected);
+  });
+
+  it("maps network failures to a user-readable message", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(api("/master-plan-system/resources/mps-shipping-plans/import-preview")).rejects.toThrow("网络连接失败，请检查网络后重试");
+  });
 });

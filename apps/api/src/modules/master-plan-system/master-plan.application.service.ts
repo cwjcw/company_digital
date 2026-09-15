@@ -146,6 +146,7 @@ export class MasterPlanApplicationService {
       const [existing] = await manager.query("SELECT response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
       if (existing) return { ...existing.response_json, repeated: true };
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+      const shippingMonthlyPlanIds = await this.shippingMonthlyPlanIds(resource, rows, actor.tenantId, manager);
       let createdCount = 0; let updatedCount = 0;
       for (const input of rows) {
         const creating = input.id == null && input.expectedVersion == null;
@@ -154,7 +155,7 @@ export class MasterPlanApplicationService {
           if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
-          await this.fillReportSource(resource, values, actor.tenantId, manager);
+          await this.fillReportSource(resource, values, actor.tenantId, manager, shippingMonthlyPlanIds);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
           const columns = columnsFor(resource); const entries = Object.entries(values);
           if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
@@ -172,8 +173,7 @@ export class MasterPlanApplicationService {
         const values = this.writable(resource, input.values, actor);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
         if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
-          const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
-          values.monthlyPlanId = monthly?.id ?? null;
+          values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code)) ?? null;
         }
         if (!Object.keys(values).length) continue;
         const columns = columnsFor(resource); const entries = Object.entries(values);
@@ -333,10 +333,27 @@ export class MasterPlanApplicationService {
     const normalized = String(value).trim(); if (normalized.length > 4000) throw new BadRequestException(`${label}内容过长`); return normalized || null;
   }
 
-  private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager) {
+  private monthlyPlanKey(orderNumber: unknown, itemCode: unknown) { return `${String(orderNumber ?? "")}\u0000${String(itemCode ?? "")}`; }
+
+  private async shippingMonthlyPlanIds(resource: MasterPlanResource, rows: Array<{ values: Record<string, unknown> }>, tenantId: string, manager: Pick<EntityManager, "query">) {
+    const result = new Map<string, string>();
+    if (resource.code !== "mps-shipping-plans") return result;
+    const pairs = rows.map((row) => ({ orderNumber: row.values.orderNumber, itemCode: row.values.itemCode }))
+      .filter((pair) => pair.orderNumber != null && pair.itemCode != null);
+    if (!pairs.length) return result;
+    const monthlyRows = await manager.query(`SELECT id,order_number,item_code FROM mps_monthly_plans
+      WHERE tenant_id=$1 AND (order_number,item_code) IN (SELECT * FROM unnest($2::text[],$3::text[]))`, [tenantId, pairs.map((pair) => String(pair.orderNumber)), pairs.map((pair) => String(pair.itemCode))]);
+    for (const row of monthlyRows) result.set(this.monthlyPlanKey(row.order_number, row.item_code), row.id);
+    return result;
+  }
+
+  private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager, shippingMonthlyPlanIds?: Map<string, string>) {
     if (resource.code === "mps-shipping-plans") {
-      const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
-      values.monthlyPlanId = monthly?.id ?? null;
+      if (shippingMonthlyPlanIds) values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber, values.itemCode)) ?? null;
+      else {
+        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
+        values.monthlyPlanId = monthly?.id ?? null;
+      }
     }
     if (resource.code === "mps-weekly-plans") values.pendingQuantity = values.plannedQuantity;
     if (!["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code)) return;

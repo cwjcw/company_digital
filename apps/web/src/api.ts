@@ -4,6 +4,21 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public details?: unknown) { super(message); }
 }
 
+function fallbackMessage(status: number) {
+  if (status === 400) return "请求数据不正确，请检查后重试";
+  if (status === 403) return "当前权限不足，无法执行此操作";
+  if (status === 409) return "数据已发生变化，请刷新后重试";
+  if (status === 413) return "上传文件过大，请缩小文件后重试";
+  if (status >= 500) return "服务暂时异常，请稍后重试";
+  return `请求失败（${status}）`;
+}
+
+function readableMessage(value: unknown, status: number) {
+  if (typeof value === "string" && value.trim()) return value;
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string").join("；") || fallbackMessage(status);
+  return fallbackMessage(status);
+}
+
 let accessTokenRefresh: Promise<boolean> | null = null;
 
 async function performAccessTokenRefresh() {
@@ -32,12 +47,17 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_ROOT}${path}`, { ...init, headers });
+  let response: Response;
+  try { response = await fetch(`${API_ROOT}${path}`, { ...init, headers }); }
+  catch (error) {
+    const aborted = (error as { name?: string }).name === "AbortError";
+    throw new ApiError(aborted ? "请求超时，请稍后重试" : "网络连接失败，请检查网络后重试", 0, error);
+  }
   if (response.status === 401 && !retried && await refreshAccessToken()) return api<T>(path, init, true);
   if (!response.ok) {
     let details: any;
     try { details = await response.json(); } catch { details = null; }
-    throw new ApiError(details?.message ?? `请求失败 (${response.status})`, response.status, details);
+    throw new ApiError(readableMessage(details?.message, response.status), response.status, details);
   }
   const type = response.headers.get("content-type") ?? "";
   if (type.includes("json")) {
