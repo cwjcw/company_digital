@@ -1,8 +1,6 @@
 import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
-import { OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Server, Socket } from "socket.io";
-import { PlanningDomainEventBus } from "./modules/planning/domain-event-bus";
 
 @WebSocketGateway({
   namespace: "/plans",
@@ -11,21 +9,9 @@ import { PlanningDomainEventBus } from "./modules/planning/domain-event-bus";
     credentials: true
   }
 })
-export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
+export class PlanGateway implements OnGatewayConnection {
   @WebSocketServer() server!: Server;
-  private unsubscribe?: () => void;
-  constructor(private readonly jwt: JwtService, private readonly events: PlanningDomainEventBus) {}
-
-  onModuleInit() {
-    this.unsubscribe = this.events.subscribe((event) => {
-      // CLI application contexts (imports/maintenance) do not create a WebSocket server.
-      // The business transaction must remain successful even when there is no live gateway.
-      this.server?.to(`period:${event.periodId}`).emit("plan.changed", {
-        entityId: event.entityId, version: event.version, changeType: event.changeType, event: event.name
-      });
-    });
-  }
-  onModuleDestroy() { this.unsubscribe?.(); }
+  constructor(private readonly jwt: JwtService) {}
 
   async handleConnection(client: Socket) {
     const token = String(client.handshake.auth?.token ?? "");
@@ -42,11 +28,6 @@ export class PlanGateway implements OnGatewayConnection, OnModuleInit, OnModuleD
     if (period) client.join(`period:${period}`);
     const tenantCode = String(client.handshake.auth?.tenantCode ?? process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN");
     client.join(`tenant:${tenantCode}`);
-  }
-  broadcast(periodId: string, division: string | null, payload: unknown) {
-    if (!this.server) return;
-    const room = division ? this.server.to(`period:${periodId}`).to(`division:${division}`) : this.server.to(`period:${periodId}`);
-    room.emit("plan.changed", payload);
   }
   broadcastTable(tenantCode: string, resource: string, changeType: "created" | "updated" | "deleted" | "batch") {
     this.server?.to(`tenant:${tenantCode}`).emit("table.changed", { resource, changeType });

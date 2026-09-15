@@ -1,18 +1,18 @@
 import {
-  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Ip, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Ip, NotFoundException, Param, Patch, Post, Put, Query, Req,
   Res, UploadedFile, UseGuards, UseInterceptors
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiConsumes, ApiTags } from "@nestjs/swagger";
 import { InjectRepository } from "@nestjs/typeorm";
 import ExcelJS from "exceljs";
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { DataSource, IsNull, Repository } from "typeorm";
-import { dictionarySeeds, monthlyPlanColumns } from "@tracker/shared";
+import { dictionarySeeds } from "@tracker/shared";
 import { tableResourceRegistry } from "@kdos/contracts";
 import { AuthGuard, AuthService } from "./auth";
 import {
@@ -22,8 +22,7 @@ import {
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { ImportService } from "./import.service";
 import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
-import { PlanService } from "./plan.service";
-import { StorageService } from "./storage.service";
+import { SalesDashboardService } from "./sales-dashboard.service";
 import { currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
@@ -159,7 +158,7 @@ export class AuthController {
 @UseGuards(AuthGuard)
 @Controller("plans")
 export class PlanController {
-  constructor(private readonly plans: PlanService) {}
+  constructor(private readonly plans: SalesDashboardService) {}
   @Get("sales-dashboard") dashboard(@Query("dimension") dimension:string|undefined,@Query("period") period:string|undefined,
     @Query("division") division:string|string[]|undefined,@Query("customer") customer:string|string[]|undefined,@Req() req: UserRequest) {
     requireTablePermission(req, "sales-summary-dashboard", "read");
@@ -167,23 +166,6 @@ export class PlanController {
     const values=(value:string|string[]|undefined)=>value===undefined?[]:Array.isArray(value)?value:[value];
     return this.plans.salesDashboard({dimension:(dimension??"month") as "year"|"month"|"day",period:period??today,divisions:values(division),customers:values(customer)},req.user);
   }
-}
-
-@ApiTags("导入")
-@ApiBearerAuth()
-@UseGuards(AuthGuard)
-@Controller("imports")
-export class ImportController {
-  constructor(private readonly imports: ImportService) {}
-  @Post("preview")
-  @ApiConsumes("multipart/form-data")
-  @ApiBody({ schema: { type: "object", properties: { file: { type: "string", format: "binary" }, year: { type: "integer" }, month: { type: "integer" } } } })
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 200 * 1024 * 1024 } }))
-  preview(@UploadedFile() file: Express.Multer.File, @Body() body: { year: string; month: string }, @Req() req: UserRequest) {
-    requireTablePermission(req, "monthly-plan", "import");
-    return this.imports.preview(file, Number(body.year), Number(body.month), req.user.sub);
-  }
-  @Post(":id/confirm") confirm(@Param("id") id: string, @Req() req: UserRequest) { requireTablePermission(req, "monthly-plan", "import"); return this.imports.confirm(id); }
 }
 
 @ApiTags("基础资料")
@@ -827,7 +809,7 @@ export class ApiKeyController {
     const secret = `fdt_${randomBytes(32).toString("base64url")}`;
     const apiKey = await this.apiKeys.save({
       name: body.name.trim(), keyHash: createHash("sha256").update(secret).digest("hex"),
-      scopes: body.scopes?.length ? body.scopes : ["monthly-plan:*:read"],
+      scopes: body.scopes?.length ? body.scopes : ["mps-orders:*:read"],
       expiresAt: body.expiresAt ? new Date(body.expiresAt) : null, lastUsedAt: null, enabled: true, userId: body.userId ?? null, roleId: body.roleId ?? null
     });
     return { id: apiKey.id, name: apiKey.name, apiKey: secret, message: "请立即保存该 API Key；系统不会再次显示。" };

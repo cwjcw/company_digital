@@ -2,13 +2,13 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { DataSource } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
-import { PlanningOrganizationDirectoryService } from "../planning/planning-organization-directory.service";
+import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown };
 
 @Injectable()
 export class MasterPlanQueryService {
-  constructor(private readonly dataSource: DataSource, private readonly directory: PlanningOrganizationDirectoryService) {}
+  constructor(private readonly dataSource: DataSource, private readonly directory: OrganizationDirectoryService) {}
 
   metadata(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);

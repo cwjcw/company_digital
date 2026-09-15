@@ -56,12 +56,12 @@ describe("AuthService dynamic organization roles", () => {
     await expect(setup(false).service.claimsForEnabledUser("user-1")).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("grants every table action in only the assigned module without using an ordinary permission group", async () => {
+  it("does not revive retired planning resources for an old module grant", async () => {
     const claims = await setup(true, { systemAdmin: false, moduleCodes: ["planning"] }).service.claimsForEnabledUser("user-1");
     expect(claims.isSystemAdmin).toBe(false);
     expect(claims.moduleAdminCodes).toEqual(["planning"]);
-    expect(claims.permissions).toContain("monthly-plan:*:update");
-    expect(claims.permissions).toContain("planning.admin.manage");
+    expect(claims.permissions).not.toContain("monthly-plan:*:update");
+    expect(claims.permissions).not.toContain("planning.admin.manage");
     expect(claims.permissions).not.toContain("business-customer-mapping:*:update");
     expect(claims.permissions).not.toContain("*");
   });
@@ -70,7 +70,7 @@ describe("AuthService dynamic organization roles", () => {
     const { service, user, jwt, refreshTokens } = setup(true, { systemAdmin: false, moduleCodes: ["planning"] });
     const result = await (service as any).issueTokens(user);
     expect(result.accessToken).toBe("short-access-token");
-    expect(result.user.permissions).toContain("monthly-plan:*:update");
+    expect(result.user.permissions).not.toContain("monthly-plan:*:update");
     expect(jwt.signAsync.mock.calls[0]![0]).toEqual({
       sub: "user-1", type: "access", jti: expect.any(String)
     });

@@ -17,7 +17,7 @@ describe("TablePermissionGroupApplicationService", () => {
   });
 
   it("never permits audit fields to become editable", () => {
-    expect(() => service.fields("work-report", { groupType: "CUSTOM", fields: [{ fieldKey: "createdBy", visible: true, editable: true }] }, ["read", "update"]))
+    expect(() => service.fields("mps-process-reports", { groupType: "CUSTOM", fields: [{ fieldKey: "createdBy", visible: true, editable: true }] }, ["read", "update"]))
       .toThrow(BadRequestException);
   });
 
@@ -45,7 +45,7 @@ describe("TablePermissionGroupApplicationService", () => {
     const application = new TablePermissionGroupApplicationService(dataSource as never);
 
     await application.create({
-      resource: "work-report",
+      resource: "mps-process-reports",
       groupType: "CUSTOM",
       displayName: "测试自定义权限",
       actions: ["read"],
@@ -54,7 +54,7 @@ describe("TablePermissionGroupApplicationService", () => {
     }, { userId: "admin-1", name: "管理员", requestId: "request-1" });
 
     expect(save).toHaveBeenCalledWith(Role, expect.objectContaining({ id: "permission-role-1", version: 1 }));
-    expect(save).toHaveBeenCalledWith(Permission, expect.objectContaining({ roleId: "permission-role-1", resource: "work-report", fieldKey: "*", read: true }));
+    expect(save).toHaveBeenCalledWith(Permission, expect.objectContaining({ roleId: "permission-role-1", resource: "mps-process-reports", fieldKey: "*", read: true }));
     expect(save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({ action: "table_permission_group.created_or_members_added" }));
     expect(queryBuilder.into).toHaveBeenCalledWith(PermissionGroupSubject);
     expect(save.mock.calls.every((call) => call.length === 2)).toBe(true);

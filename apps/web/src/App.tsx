@@ -30,7 +30,6 @@ import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
-import { OnHandSummaryDashboard } from "./modules/planning/pages/OnHandSummaryDashboard";
 import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import {
@@ -157,7 +156,7 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
-    : ["/on-hand-summary-dashboard"].includes(location.pathname) || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
+    : location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -170,9 +169,6 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     planning: [
       { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
-        { key: "master-plan-dashboards", icon: <DashboardOutlined />, label: "主计划大屏", children: [
-          { key: "/on-hand-summary-dashboard", icon: <DashboardOutlined />, label: "集团主计划" }
-        ] },
         { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
           { key: "/equipment-dashboard", icon: <DashboardOutlined />, label: "集团设备大屏" }
         ] }
@@ -238,7 +234,7 @@ function Shell({ logout }: { logout: () => void }) {
   };
   const masterPlanPage = masterPlanResourceDefinitions.find((entry) => location.pathname === `/master-plan-system/${entry.code}`);
   const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : ({
-      "/sales-summary-dashboard": "销售接单汇总大屏", "/on-hand-summary-dashboard": "集团主计划",
+      "/sales-summary-dashboard": "销售接单汇总大屏",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
@@ -268,7 +264,6 @@ function Shell({ logout }: { logout: () => void }) {
       <Content className="content">
         <Routes>
           <Route path="/sales-summary-dashboard" element={<SalesSummaryDashboard />} />
-          <Route path="/on-hand-summary-dashboard" element={<OnHandSummaryDashboard />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
@@ -611,8 +606,8 @@ function ApiKeyCenter() {
       const scopes = values.access === "tplus-sync"
         ? ["tplus-sales-orders:*:import"]
         : values.access === "readwrite"
-        ? ["rolling-plan:*:read", "monthly-plan:*:read", "monthly-plan:*:update", "suppliers:*:read", "suppliers:*:update", "dictionaries:*:read", "dictionaries:*:update"]
-        : ["rolling-plan:*:read", "monthly-plan:*:read", "suppliers:*:read", "dictionaries:*:read"];
+        ? ["mps-orders:*:read", "mps-orders:*:update", "suppliers:*:read", "suppliers:*:update", "dictionaries:*:read", "dictionaries:*:update"]
+        : ["mps-orders:*:read", "suppliers:*:read", "dictionaries:*:read"];
       return api<any>("/api-keys", { method: "POST", body: JSON.stringify({ ...values, scopes }) });
     },
     onSuccess: (result) => {

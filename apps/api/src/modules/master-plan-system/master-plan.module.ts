@@ -7,10 +7,10 @@ import { MasterPlanController } from "./master-plan.controller";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
-import { PlanningModule } from "../planning/planning.module";
+import { OrganizationDirectoryModule } from "../organization-directory/organization-directory.module";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ApiKey, User]), PlanningModule],
+  imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule],
   controllers: [MasterPlanController],
   providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]

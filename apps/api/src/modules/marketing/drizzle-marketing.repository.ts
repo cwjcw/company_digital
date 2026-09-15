@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { KdosDatabaseClient } from "@kdos/database";
 import type { PoolClient } from "pg";
-import { KDOS_DATABASE } from "../planning/drizzle-planning.repository";
+import { KDOS_DATABASE } from "../organization-directory/kdos-database.provider";
 import type { MarketingRepository } from "./marketing.repository";
 import type { DivisionReviewConfirmResult, DivisionReviewConfirmRow, MappingDepartmentDirectorySyncResult, MappingDepartmentDirectorySyncTarget, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput, RollingPlanSyncFailure, RollingPlanSyncResult, RollingPlanSyncRow } from "./marketing.types";
 
@@ -36,51 +36,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       tenantId, actor.userId, action, resourceType, resourceId,
       before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.ip ?? null
     ]);
-  }
-
-  private async projectSchedule(client: PoolClient, tenantId: string, source: Record<string, any>, actor: MarketingActor) {
-    const current = await client.query(`SELECT * FROM planning.division_order_reviews
-      WHERE tenant_id=$1 AND (source_order_schedule_id=$2 OR (order_number=$3 AND item_number=$4))
-      ORDER BY CASE WHEN source_order_schedule_id=$2 THEN 0 ELSE 1 END LIMIT 1 FOR UPDATE`,
-    [tenantId, source.id, source.order_number, source.item_number]);
-    const before = current.rows[0];
-    if (!before) {
-      const created = await client.query(`INSERT INTO planning.division_order_reviews(
-          tenant_id,source_order_schedule_id,customer_code,department,section,department_id,salesperson_user_ids,
-          order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status,
-          created_by,updated_by
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16) RETURNING *`, [
-        tenantId, source.id, source.customer_code, source.department, source.section, source.department_id,
-        source.salesperson_user_ids ?? [], source.order_number, source.item_number, source.item_name,
-        source.customer_due_date, source.order_total_quantity, source.production_unit, source.completion_ratio,
-        source.status ?? "NORMAL", actor.userId
-      ]);
-      await this.audit(client, tenantId, actor, "planning.division_order_review.projected_created", "DivisionOrderReview", created.rows[0].id, null, created.rows[0]);
-      return;
-    }
-    const updated = await client.query(`UPDATE planning.division_order_reviews SET
-        source_order_schedule_id=$3,customer_code=$4,department=$5,section=$6,department_id=$7,salesperson_user_ids=$8,
-        order_number=$9,item_number=$10,item_name=$11,customer_due_date=$12,order_total_quantity=$13,production_unit=$14,
-        completion_ratio=$15,status=$16,delivery_confirmed_at=NULL,delivery_confirmed_by=NULL,
-        version=version+1,updated_at=now(),updated_by=$17
-      WHERE tenant_id=$1 AND id=$2 AND ROW(source_order_schedule_id,customer_code,department,section,department_id,salesperson_user_ids,
-        order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status)
-        IS DISTINCT FROM ROW($3::uuid,$4,$5,$6,$7::uuid,$8::uuid[],$9,$10,$11,$12::date,$13::numeric,$14,$15::numeric,$16)
-      RETURNING *`, [
-      tenantId, before.id, source.id, source.customer_code, source.department, source.section, source.department_id,
-      source.salesperson_user_ids ?? [], source.order_number, source.item_number, source.item_name,
-      source.customer_due_date, source.order_total_quantity, source.production_unit, source.completion_ratio,
-      source.status ?? "NORMAL", actor.userId
-    ]);
-    if (updated.rowCount) await this.audit(client, tenantId, actor, "planning.division_order_review.projected_updated", "DivisionOrderReview", before.id, before, updated.rows[0]);
-  }
-
-  private async voidProjectedSchedule(client: PoolClient, tenantId: string, source: Record<string, any>, actor: MarketingActor) {
-    const current = await client.query("SELECT * FROM planning.division_order_reviews WHERE tenant_id=$1 AND source_order_schedule_id=$2 FOR UPDATE", [tenantId, source.id]);
-    if (!current.rowCount) return;
-    const result = await client.query(`UPDATE planning.division_order_reviews SET source_order_schedule_id=NULL,status='VOID',delivery_confirmed_at=NULL,delivery_confirmed_by=NULL,version=version+1,updated_at=now(),updated_by=$3
-      WHERE tenant_id=$1 AND id=$2 RETURNING *`, [tenantId, current.rows[0].id, actor.userId]);
-    await this.audit(client, tenantId, actor, "planning.division_order_review.projected_voided", "DivisionOrderReview", current.rows[0].id, current.rows[0], result.rows[0]);
   }
 
   async listMappings(tenantId: string) {
@@ -243,7 +198,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
   async clearSchedules(tenantId: string, actor: MarketingActor) {
     return this.transaction(tenantId, async (client) => {
       const before = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 FOR UPDATE", [tenantId]);
-      for (const source of before.rows) await this.voidProjectedSchedule(client, tenantId, source, actor);
       await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1", [tenantId]);
       await this.audit(client, tenantId, actor, "marketing.schedule.cleared", "OrderSchedule", null, before.rows, { deleted: before.rowCount });
       return { deleted: before.rowCount ?? 0 };
@@ -270,7 +224,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
           if (!saved.rowCount) throw new ConflictException(`第 ${entry.row} 行已被其他用户新增，请重新上传预览`);
         }
         await this.audit(client, tenantId, actor, "marketing.schedule.imported", "OrderSchedule", saved.rows[0].id, before ?? null, saved.rows[0]);
-        await this.projectSchedule(client, tenantId, saved.rows[0], actor);
       }
       const result = { imported: rows.length, repeated: false };
       await client.query(`INSERT INTO integration.import_jobs(tenant_id,type,idempotency_key,file_name,file_hash,status,result,confirmed_at,created_by,updated_by) VALUES($1,'ORDER_SCHEDULE',$2,'订单排期.xlsx',$3,'CONFIRMED',$4,now(),$5,$5)`, [tenantId, key, hash, JSON.stringify(result), actor.userId]);
@@ -285,7 +238,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
           (tenant_id,customer_code,order_number,item_number,item_name,customer_due_date,order_total_quantity,production_unit,completion_ratio,status,source_plan_item_id,created_by,updated_by)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12) RETURNING *`, [tenantId, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.status ?? "NORMAL", input.sourcePlanItemId ?? null, actor.userId]);
         await this.audit(client, tenantId, actor, "marketing.schedule.created", "OrderSchedule", result.rows[0].id, null, result.rows[0]);
-        await this.projectSchedule(client, tenantId, result.rows[0], actor);
         return result.rows[0];
       }
       const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
@@ -296,7 +248,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
           version=version+1,updated_at=now(),updated_by=$13 WHERE tenant_id=$1 AND id=$2 RETURNING *`,
       [tenantId, id, input.customerCode, input.orderNumber, input.itemNumber, input.itemName, input.customerDueDate ?? null, input.orderTotalQuantity, input.productionUnit ?? null, input.completionRatio, input.status ?? "NORMAL", input.sourcePlanItemId ?? null, actor.userId]);
       await this.audit(client, tenantId, actor, "marketing.schedule.updated", "OrderSchedule", id, current.rows[0], result.rows[0]);
-      await this.projectSchedule(client, tenantId, result.rows[0], actor);
       return result.rows[0];
     });
   }
@@ -306,7 +257,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
       const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, id]);
       if (!current.rowCount) throw new NotFoundException("订单排期不存在");
       if (Number(current.rows[0].version) !== expectedVersion) throw new ConflictException({ message: "记录已被其他用户修改", currentVersion: current.rows[0].version });
-      await this.voidProjectedSchedule(client, tenantId, current.rows[0], actor);
       await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2", [tenantId, id]);
       await this.audit(client, tenantId, actor, "marketing.schedule.deleted", "OrderSchedule", id, current.rows[0], null);
     });
@@ -319,7 +269,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
         const result = await client.query(`UPDATE marketing.order_schedules SET customer_due_date=$4,version=version+1,updated_at=now(),updated_by=$5
           WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING *`, [tenantId, row.id, row.expectedVersion, customerDueDate, actor.userId]);
         if (!result.rowCount) throw new ConflictException("所选排期已被其他用户修改，请刷新后重试");
-        await this.projectSchedule(client, tenantId, result.rows[0], actor);
         updated += 1;
       }
       await this.audit(client, tenantId, actor, "marketing.schedule.due_date_batch_updated", "OrderSchedule", null, null, { ids: rows.map((row) => row.id), customerDueDate, updated });
@@ -333,7 +282,6 @@ export class DrizzleMarketingRepository implements MarketingRepository {
         const current = await client.query("SELECT * FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenantId, row.id]);
         if (!current.rowCount) throw new NotFoundException("所选排期不存在");
         if (Number(current.rows[0].version) !== row.expectedVersion) throw new ConflictException({ message: "所选排期已被其他用户修改，请刷新后重试", id: row.id, currentVersion: current.rows[0].version });
-        await this.voidProjectedSchedule(client, tenantId, current.rows[0], actor);
         await client.query("DELETE FROM marketing.order_schedules WHERE tenant_id=$1 AND id=$2", [tenantId, row.id]);
         await this.audit(client, tenantId, actor, "marketing.schedule.deleted", "OrderSchedule", row.id, current.rows[0], null);
       }

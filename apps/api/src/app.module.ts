@@ -6,18 +6,14 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import dataSource from "./data-source";
 import { AuthGuard, AuthService } from "./auth";
 import {
-  AuditController, AuthController, ImportController, MasterDataController,
+  AuditController, AuthController, MasterDataController,
   PlanController, SystemController, ReferenceDataController, DirectoryController, ApiKeyController, AdminController
 } from "./controllers";
-import { DomainService } from "./domain.service";
 import { entities } from "./entities";
 import { ImportService } from "./import.service";
-import { MonthlyRolloverService } from "./monthly-rollover.service";
-import { PlanService } from "./plan.service";
-import { StorageService } from "./storage.service";
+import { SalesDashboardService } from "./sales-dashboard.service";
 import { TplusOrderSyncController } from "./data-operations/tplus/tplus-order-sync.controller";
 import { TplusOrderSyncService } from "./data-operations/tplus/tplus-order-sync.service";
-import { PlanningModule } from "./modules/planning/planning.module";
 import { DevelopmentRequestModule } from "./modules/development-requests/development-request.module";
 import { StorageModule } from "./storage/storage.module";
 import { ApprovalFlowConfigModule } from "./modules/approval-flow-configs/approval-flow-config.module";
@@ -25,7 +21,6 @@ import { MarketingModule } from "./modules/marketing/marketing.module";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { TablePermissionGroupApplicationService } from "./modules/admin/table-permission-group.application.service";
-import { PlanningOperationsModule } from "./modules/planning-operations/planning-operations.module";
 import { ContactSyncModule } from "./modules/contact-sync/contact-sync.module";
 import { CustomerImportModule } from "./data-operations/customer-import/customer-import.module";
 import { MailService } from "./mail.service";
@@ -37,6 +32,7 @@ import { EquipmentModule } from "./modules/equipment/equipment.module";
 import { AuditQueryService } from "./modules/audit/audit-query.service";
 import { SupplyChainModule } from "./modules/supply-chain/supply-chain.module";
 import { MasterPlanSystemModule } from "./modules/master-plan-system/master-plan.module";
+import { OrganizationDirectoryModule } from "./modules/organization-directory/organization-directory.module";
 
 @Module({
   imports: [
@@ -47,9 +43,8 @@ import { MasterPlanSystemModule } from "./modules/master-plan-system/master-plan
     ScheduleModule.forRoot(),
     StorageModule,
     ApprovalFlowConfigModule,
-    PlanningModule,
     MarketingModule,
-    PlanningOperationsModule,
+    OrganizationDirectoryModule,
     DevelopmentRequestModule,
     ContactSyncModule,
     CustomerImportModule,
@@ -60,13 +55,13 @@ import { MasterPlanSystemModule } from "./modules/master-plan-system/master-plan
     MasterPlanSystemModule
   ],
   controllers: [
-    SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController, ImportController,
+    SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController,
     MasterDataController, AuditController, ApiKeyController, AdminController,
     TplusOrderSyncController
   ],
   providers: [
-    AuthService, AuthGuard, DomainService, PlanService, ImportService,
-    MonthlyRolloverService, StorageService, TplusOrderSyncService, AdminQueryService, AdminApplicationService,
+    AuthService, AuthGuard, SalesDashboardService, ImportService,
+    TplusOrderSyncService, AdminQueryService, AdminApplicationService,
     TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService, AuditQueryService
   ]
 })

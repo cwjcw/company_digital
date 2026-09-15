@@ -1,5 +1,3 @@
-export type PlanVersionStatus = "DRAFT" | "PUBLISHED" | "LOCKED" | "ARCHIVED";
-
 export const tablePermissionActions = ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"] as const;
 export type TablePermissionAction = typeof tablePermissionActions[number];
 
@@ -58,7 +56,6 @@ export const masterPlanResourceDefinitions = [
  */
 export const tableResourceRegistry = [
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
-  { code: "on-hand-summary-dashboard", label: "集团主计划", module: "PMC中心", moduleCode: "planning" },
   { code: "sales-orders", label: "订单表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-inbound", label: "入库表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-outbound", label: "出库表", module: "数据中心", moduleCode: "data" },
@@ -89,71 +86,6 @@ export const tableResourceRegistry = [
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
 
-export interface OnHandSummaryContract {
-  source: {
-    year: number;
-    month: number;
-    periodId: string | null;
-    versionId: string | null;
-    versionName: string | null;
-    versionStatus: PlanVersionStatus | null;
-  };
-  visibleFields: string[];
-  metrics: Partial<{
-    itemCount: number;
-    orderCount: number;
-    customerCount: number;
-    productionQuantity: string;
-    historicalInboundQuantity: string;
-    todayInboundQuantity: string;
-    inboundQuantity: string;
-    balanceQuantity: string;
-    completionRate: number;
-  }>;
-  statusCounts: Partial<Record<"完成" | "进行中" | "即将延期" | "延期", number>>;
-  divisionRows: Array<Partial<{
-    divisionId: string | null;
-    divisionName: string;
-    divisionPath: string;
-    itemCount: number;
-    orderCount: number;
-    productionQuantity: string;
-    inboundQuantity: string;
-    balanceQuantity: string;
-    completionRate: number;
-  }>>;
-  customerRows: Array<Partial<{
-    customer: string;
-    itemCount: number;
-    orderCount: number;
-    productionQuantity: string;
-    inboundQuantity: string;
-    balanceQuantity: string;
-    completionRate: number;
-  }>>;
-  processRows: Array<Partial<{
-    processCode: string;
-    processName: string;
-    itemCount: number;
-    completedCount: number;
-    overdueCount: number;
-    exceptionCount: number;
-    completionRate: number;
-  }>>;
-  warningRows: Array<Partial<{
-    id: string;
-    orderNumber: string;
-    itemNumber: string;
-    itemName: string | null;
-    customer: string;
-    divisionName: string;
-    customerDueDate: string | null;
-    itemStatus: string;
-    balanceQuantity: string;
-    remainingDays: number | null;
-  }>>;
-}
-
 export type TablePermissionFieldType = "text" | "number" | "date" | "dictionary" | "member" | "department" | "boolean";
 export interface TablePermissionFieldDefinition {
   key: string;
@@ -178,17 +110,6 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
   "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
-  "on-hand-summary-dashboard": fields([
-    ["orderNumber", "订单号", "text", false], ["itemNumber", "品号", "text", false], ["itemName", "品名", "text", false],
-    ["customer", "客户", "text", false], ["customerDueDate", "客户要求交期", "date", false], ["itemStatus", "品号状态", "text", false],
-    ["itemCount", "品号数", "number", false], ["orderCount", "订单数", "number", false], ["customerCount", "客户数", "number", false],
-    ["productionQuantity", "订单需求数量", "number", false], ["historicalInboundQuantity", "历史入库数量", "number", false],
-    ["todayInboundQuantity", "当天入库数量", "number", false], ["inboundQuantity", "累计入库数量", "number", false],
-    ["balanceQuantity", "在手欠数", "number", false], ["completionRate", "完成比例", "number", false],
-    ["processName", "工序", "text", false], ["completedCount", "完成项数", "number", false],
-    ["overdueCount", "延期项数", "number", false], ["exceptionCount", "异常项数", "number", false],
-    ["responsibleOrgId", "事业部", "department", false], ["ownerUserId", "负责人", "member", false]
-  ]),
   "sales-orders": fields([["customerCode", "客户代码"], ["customerName", "客户名称"], ["orderNumber", "订单编号"], ["orderDate", "订单日期", "date"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "订单数量", "number"], ["unit", "生产单位"], ["customerDueDate", "客户交期", "date"]]),
   "finished-goods-inbound": fields([["inboundDate", "入库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "入库数量", "number"], ["warehouse", "仓库"]]),
   "finished-goods-outbound": fields([["outboundDate", "出库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "出库数量", "number"], ["warehouse", "仓库"], ["deliveryNumber", "出库单号"]]),
@@ -295,30 +216,3 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
 }
 
 export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePermissionFieldRegistry[resource] ?? auditPermissionFields;
-
-export interface PlanningPeriodContract {
-  id: string;
-  year: number;
-  month: number;
-  status: string;
-  currentVersionId: string | null;
-  versions: PlanningVersionContract[];
-}
-
-export interface PlanningVersionContract {
-  id: string;
-  periodId: string;
-  versionNumber: number;
-  name: string;
-  status: PlanVersionStatus;
-  basedOnVersionId: string | null;
-  publishedAt: string | null;
-  lockedAt: string | null;
-}
-
-export interface PlanningRiskSummary {
-  overdue: Array<{ id: string; orderNumber: string; itemNumber: string; deliveryDate: string }>;
-  dueSoon: Array<{ id: string; orderNumber: string; itemNumber: string; deliveryDate: string }>;
-  processOverdue: Array<{ planItemId: string; processCode: string; plannedDate: string }>;
-  openExceptions: Array<{ planItemId: string; processCode?: string; exception: string }>;
-}

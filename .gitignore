@@ -25,6 +25,8 @@ backups/
 !database/migrations/0013_section_is_text.sql
 !database/migrations/0014_rolling_plan_table.sql
 !database/migrations/0015_division_order_review_confirmation.sql
+!database/migrations/0016_work_report_division.sql
+!database/migrations/0017_retire_legacy_production_planning.sql
 !database/demo/seed_legacy_demo.sql
 !database/demo/seed_kdos_demo.sql
 playwright-report/

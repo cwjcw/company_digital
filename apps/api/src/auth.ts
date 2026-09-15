@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
 import { AdministratorGrant, ApiKey, AuditLog, OrganizationUnit, PasswordResetRequest, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
-import { administrableModuleRegistry, planningPermissions, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
+import { administrableModuleRegistry, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { MailService } from "./mail.service";
 
@@ -93,12 +93,6 @@ export class AuthService {
     // 事业部计划组不需要逐张订单配置范围：它的范围就是本人所属事业部。
     if (isDivisionPlanningGroup && user.division) divisions.add(user.division);
     const hasFullDataScope = isSystemAdmin || isGroupAdmin;
-    const hasLegacyPlanRead = permissions.some((permission) => permission.resource === "monthly-plan" && permission.read);
-    const rolePlanningPermissions = isGroupAdmin
-      ? [...planningPermissions]
-      : isDivisionPlanningGroup
-        ? planningPermissions.filter((permission) => !["planning.plan.delete", "planning.plan.unlock", "planning.admin.manage"].includes(permission))
-        : hasLegacyPlanRead ? ["planning.plan.read", "planning.process.read", "planning.progress.read"] : [];
     const moduleAdminResources = tableResourceRegistry.filter((resource) => moduleAdminCodes.includes(resource.moduleCode));
     const moduleAdminPermissions = moduleAdminResources.flatMap((resource) => tablePermissionActions.map((action) => `${resource.code}:*:${action}`));
     const moduleAdminTableScopes = moduleAdminResources.map((resource) => ({
@@ -126,9 +120,7 @@ export class AuthService {
             .filter((action) => permission[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])
             .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
         ),
-        ...rolePlanningPermissions,
-        ...moduleAdminPermissions,
-        ...(moduleAdminCodes.includes("planning") ? planningPermissions : [])
+        ...moduleAdminPermissions
       ])],
       mustChangePassword: user.mustChangePassword
     };

@@ -3,7 +3,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthGuard } from "../../auth";
 import { ApiKey, OrganizationUnit, User } from "../../entities";
-import { PlanningModule } from "../planning/planning.module";
+import { OrganizationDirectoryModule } from "../organization-directory/organization-directory.module";
 import { DrizzleMarketingRepository } from "./drizzle-marketing.repository";
 import { MarketingApplicationService } from "./marketing.application.service";
 import { MarketingController } from "./marketing.controller";
@@ -12,7 +12,7 @@ import { MarketingImportService } from "./marketing-import.service";
 import { MARKETING_REPOSITORY } from "./marketing.repository";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), PlanningModule],
+  imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), OrganizationDirectoryModule],
   controllers: [MarketingController],
   providers: [OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
 })

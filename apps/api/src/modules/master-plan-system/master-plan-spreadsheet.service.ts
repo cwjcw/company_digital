@@ -6,13 +6,13 @@ import { fieldsFor, MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
-import { PlanningOrganizationDirectoryService } from "../planning/planning-organization-directory.service";
+import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
 type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: PlanningOrganizationDirectoryService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService) {}
 
   private resource(code: string) {
     const resource = MASTER_PLAN_RESOURCE_MAP.get(code as never);
