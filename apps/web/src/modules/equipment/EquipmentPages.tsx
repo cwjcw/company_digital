@@ -61,6 +61,12 @@ function durationText(value: unknown) {
   return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
 }
 
+function shanghaiYesterday() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  return dayjs(`${value("year")}-${value("month")}-${value("day")}`).subtract(1, "day");
+}
+
 function DurationFields({ prefix, label }: { prefix: "plannedStartup" | "runtime" | "fault"; label: string }) {
   return <Form.Item label={label} required>
     <Space.Compact block>
@@ -350,19 +356,23 @@ type DashboardData = {
   };
 };
 
-type DashboardPeriodType = "month" | "year" | "custom";
+type DashboardPeriodType = "day" | "month" | "year" | "custom";
 const { RangePicker } = DatePicker;
 
 export function EquipmentDashboardPage() {
-  const [periodType, setPeriodType] = useState<DashboardPeriodType>("month");
-  const [period, setPeriod] = useState(dayjs());
-  const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf("month"), dayjs()]);
+  const [periodType, setPeriodType] = useState<DashboardPeriodType>("day");
+  const [period, setPeriod] = useState(() => shanghaiYesterday());
+  const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>(() => {
+    const yesterday = shanghaiYesterday();
+    return [yesterday.startOf("month"), yesterday];
+  });
   const [divisionId, setDivisionId] = useState<string>();
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const dashboard = useQuery({
     queryKey: ["equipment-dashboard", periodType, period.format("YYYY-MM-DD"), customRange[0].format("YYYY-MM-DD"), customRange[1].format("YYYY-MM-DD"), divisionId, departmentIds.join("|")],
     queryFn: () => {
       const query = new URLSearchParams({ periodType });
+      if (periodType === "day") query.set("period", period.format("YYYY-MM-DD"));
       if (periodType === "month") query.set("period", period.format("YYYY-MM"));
       if (periodType === "year") query.set("period", period.format("YYYY"));
       if (periodType === "custom") { query.set("startDate", customRange[0].format("YYYY-MM-DD")); query.set("endDate", customRange[1].format("YYYY-MM-DD")); }
@@ -377,7 +387,10 @@ export function EquipmentDashboardPage() {
   const firstBatchMonitoring = Number(metrics.firstBatchMonitoringEquipment ?? 0);
   const divisionOptions = (data?.filters.divisions ?? []).map((item) => ({ value: item.id, label: item.name }));
   const departmentOptions = (data?.filters.departments ?? []).map((item) => ({ value: item.id, label: item.name }));
-  const resetFilters = () => { setPeriodType("month"); setPeriod(dayjs()); setCustomRange([dayjs().startOf("month"), dayjs()]); setDivisionId(undefined); setDepartmentIds([]); };
+  const resetFilters = () => {
+    const yesterday = shanghaiYesterday();
+    setPeriodType("day"); setPeriod(yesterday); setCustomRange([yesterday.startOf("month"), yesterday]); setDivisionId(undefined); setDepartmentIds([]);
+  };
   const updateCustomRange = (value: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null) => {
     if (!value?.[0] || !value[1]) return;
     if (value[1].isAfter(value[0].add(24, "month"))) { message.error("自定义日期跨度不能超过24个月"); return; }
@@ -386,8 +399,8 @@ export function EquipmentDashboardPage() {
   return <div className="equipment-dashboard">
     <Flex justify="flex-end" className="equipment-dashboard-toolbar">
       <Space wrap>
-        <Select aria-label="设备驾驶舱统计周期" value={periodType} onChange={setPeriodType} style={{ width: 112 }} options={[{ value: "year", label: "按年" }, { value: "month", label: "按月" }, { value: "custom", label: "自定义日期" }]} />
-        {periodType !== "custom" ? <DatePicker aria-label="设备驾驶舱统计日期" allowClear={false} picker={periodType} value={period} onChange={(value) => value && setPeriod(value)} format={periodType === "year" ? "YYYY年" : "YYYY年M月"} style={{ width: 150 }} />
+        <Select aria-label="设备驾驶舱统计周期" value={periodType} onChange={setPeriodType} style={{ width: 112 }} options={[{ value: "day", label: "按日" }, { value: "month", label: "按月" }, { value: "year", label: "按年" }, { value: "custom", label: "自定义日期" }]} />
+        {periodType !== "custom" ? <DatePicker aria-label="设备驾驶舱统计日期" allowClear={false} picker={periodType === "day" ? "date" : periodType} value={period} onChange={(value) => value && setPeriod(value)} format={periodType === "day" ? "YYYY-MM-DD" : periodType === "year" ? "YYYY年" : "YYYY年M月"} style={{ width: 150 }} />
           : <RangePicker aria-label="设备驾驶舱自定义日期" allowClear={false} value={customRange} onChange={updateCustomRange} format="YYYY-MM-DD" />}
         <Select aria-label="设备驾驶舱事业部筛选" allowClear showSearch optionFilterProp="label" placeholder="事业部" value={divisionId}
           onChange={(value) => { setDivisionId(value); setDepartmentIds([]); }} style={{ width: 170 }} options={divisionOptions} />
@@ -403,7 +416,7 @@ export function EquipmentDashboardPage() {
       <Card className="equipment-kpi-card equipment-kpi-card-total"><Statistic title="设备总数量" value={metrics.totalEquipment ?? 0} suffix="台" /></Card>
       <Card className="equipment-kpi-card equipment-kpi-card-monitoring"><Statistic title="首批监控数量" value={firstBatchMonitoring} suffix="台" /></Card>
       <Card className="equipment-kpi-card equipment-kpi-card-pending"><Statistic title="待上线数量" value={metrics.pendingGoLiveEquipment ?? 0} suffix="台" /></Card>
-      <Card className="equipment-kpi-card equipment-kpi-card-recorded"><Statistic title="当天有数据" value={metrics.dailyRecordedEquipment ?? 0} suffix="台" /></Card>
+      <Card className="equipment-kpi-card equipment-kpi-card-recorded"><Statistic title="有数据设备" value={metrics.dailyRecordedEquipment ?? 0} suffix="台" /></Card>
       <Card><Statistic title="正常运行" value={metrics.normalEquipment ?? 0} suffix="台" valueStyle={{ color: "#2e9363" }} /></Card>
       <Card><Statistic title="存在故障" value={metrics.faultEquipment ?? 0} suffix="台" valueStyle={{ color: "#cf3f3f" }} /></Card>
       <Card><Statistic title="运行总时长" value={durationText(metrics.runtimeMinutes)} /></Card>

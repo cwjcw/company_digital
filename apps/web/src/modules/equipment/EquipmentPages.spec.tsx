@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Modal } from "antd";
 import { api } from "../../api";
-import { EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
+import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
 
 vi.mock("../../api", () => ({
   api: vi.fn(),
@@ -11,12 +11,28 @@ vi.mock("../../api", () => ({
   containsText: vi.fn()
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><EquipmentStatusReportPage /></QueryClientProvider>);
 }
+
+function renderDashboard() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><EquipmentDashboardPage /></QueryClientProvider>);
+}
+
+function shanghaiYesterday() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  return new Date(Date.UTC(Number(value("year")), Number(value("month")) - 1, Number(value("day")) - 1)).toISOString().slice(0, 10);
+}
+
+const dashboardResponse = {
+  windowStart: "2026-09-14", windowEnd: "2026-09-14", windowDays: 1,
+  metrics: { dailyRecordedEquipment: 1 }, divisionRows: [], departmentRows: [], filters: { divisions: [], departments: [] }
+};
 
 describe("EquipmentStatusReportPage live permissions", () => {
   beforeEach(() => {
@@ -120,4 +136,47 @@ describe("EquipmentRegisterPage server filters", () => {
 
     expect(await screen.findByText("8小时30分钟")).toBeInTheDocument();
   });
+});
+
+describe("EquipmentDashboardPage date filters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/equipment/dashboard?")) return dashboardResponse as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+  });
+
+  const dashboardPaths = () => vi.mocked(api).mock.calls.map(([path]) => String(path)).filter((path) => path.startsWith("/equipment/dashboard?"));
+  const selectPeriod = async (label: string) => {
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "设备驾驶舱统计周期" }));
+    const option = await screen.findByText(label, { selector: ".ant-select-item-option-content" });
+    fireEvent.click(option.parentElement!);
+  };
+
+  it("defaults to Shanghai yesterday in day mode and requests the matching daily window", async () => {
+    renderDashboard();
+    const expected = shanghaiYesterday();
+    await waitFor(() => expect(dashboardPaths()).toContain(`/equipment/dashboard?periodType=day&period=${expected}`));
+    expect(screen.getByText("按日", { selector: ".ant-select-selection-item" })).toBeInTheDocument();
+    expect(screen.getByLabelText("设备驾驶舱统计日期")).toHaveValue(expected);
+    expect(screen.getByText("有数据设备")).toBeInTheDocument();
+  });
+
+  it("restores Shanghai yesterday on clear and retains month, year, and custom filters", async () => {
+    renderDashboard();
+    const expected = shanghaiYesterday();
+    await waitFor(() => expect(dashboardPaths()).toContain(`/equipment/dashboard?periodType=day&period=${expected}`));
+
+    await selectPeriod("按月");
+    await waitFor(() => expect(dashboardPaths().some((path) => new URL(path, "http://kdos.local").searchParams.get("periodType") === "month")).toBe(true));
+    await selectPeriod("按年");
+    await waitFor(() => expect(dashboardPaths().some((path) => new URL(path, "http://kdos.local").searchParams.get("periodType") === "year")).toBe(true));
+    await selectPeriod("自定义日期");
+    await waitFor(() => expect(dashboardPaths().some((path) => new URL(path, "http://kdos.local").searchParams.get("periodType") === "custom")).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "清空筛选" }));
+    await waitFor(() => expect(dashboardPaths().at(-1)).toBe(`/equipment/dashboard?periodType=day&period=${expected}`));
+  }, 15_000);
 });

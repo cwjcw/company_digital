@@ -181,6 +181,10 @@ describe("equipment permissions and validation", () => {
 
   it("uses server-validated calendar bounds for dashboard filters", () => {
     const service = new EquipmentQueryService({} as never) as any;
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-15T00:30:00.000Z"));
+    expect(service.dashboardInput({})).toMatchObject({ windowStart: "2026-09-14", windowEnd: "2026-09-14", windowDays: 1 });
+    expect(service.dashboardInput({ periodType: "day", period: "2026-09-14" })).toMatchObject({ windowStart: "2026-09-14", windowEnd: "2026-09-14", windowDays: 1 });
+    jest.useRealTimers();
     expect(service.dashboardInput({ periodType: "month", period: "2026-09" })).toMatchObject({ windowStart: "2026-09-01", windowEnd: "2026-09-30", windowDays: 30 });
     expect(service.dashboardInput({ periodType: "year", period: "2024" })).toMatchObject({ windowStart: "2024-01-01", windowEnd: "2024-12-31", windowDays: 366 });
     expect(service.dashboardInput({ periodType: "custom", startDate: "2024-09-03", endDate: "2026-09-03" })).toMatchObject({ windowDays: 731 });

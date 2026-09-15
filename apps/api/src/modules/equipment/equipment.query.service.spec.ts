@@ -96,18 +96,19 @@ describe("EquipmentQueryService status responsibility", () => {
     expect(dataSource.query.mock.calls[0][1].slice(0, 4)).toEqual(["KAINAN", "%2026-09%", "%8小时30分钟%", "%张%"]);
   });
 
-  it("uses the selected end date for daily reporting, including zero-duration reports", async () => {
+  it("uses a report record rather than duration values to identify daily data", async () => {
     const dataSource = { query: jest.fn().mockResolvedValueOnce([{ payload: { metrics: { dailyRecordedEquipment: 1 } } }]) } as any;
     const service = new EquipmentQueryService(dataSource);
 
-    const result = await service.dashboard({ periodType: "custom", startDate: "2026-09-08", endDate: "2026-09-09" }, {
+    const result = await service.dashboard({ periodType: "day", period: "2026-09-09" }, {
       tenantId: "KAINAN", userId: null, username: "系统管理员", permissions: ["*"], tableDataScopes: [], requestId: "request-dashboard"
     });
 
     expect(result).toEqual({ metrics: { dailyRecordedEquipment: 1 } });
     const sql = String(dataSource.query.mock.calls[0][0]);
     expect(sql).toContain("report.report_date=bounds.window_end");
-    expect(sql).toContain("CASE WHEN daily.id IS NULL THEN '未填报'");
+    expect(sql).toContain("CASE WHEN daily.id IS NULL THEN '未填报' WHEN daily.fault_minutes>0 THEN '存在故障' WHEN daily.runtime_minutes>0 THEN '正常运行' ELSE '未运行' END state");
+    expect(sql).toContain("'dailyRecordedEquipment',(SELECT count(*) FROM asset_state WHERE state<>'未填报')");
     expect(sql).toContain("'firstBatchMonitoringEquipment'");
     expect(sql).toContain("'pendingGoLiveEquipment'");
     expect(sql).toContain("'dailyRecordedEquipment'");

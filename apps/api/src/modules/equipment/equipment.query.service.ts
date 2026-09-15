@@ -289,10 +289,13 @@ export class EquipmentQueryService {
   }
 
   private dashboardInput(input: DashboardInput) {
-    const periodType = input.periodType ?? "month";
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const periodType = input.periodType ?? "day";
+    const today = this.shanghaiDate();
     let windowStart: string; let windowEnd: string;
-    if (periodType === "month") {
+    if (periodType === "day") {
+      const period = input.period ?? this.addDays(today, -1);
+      windowStart = this.isoDate(period, "按日筛选日期"); windowEnd = windowStart;
+    } else if (periodType === "month") {
       const period = input.period ?? today.slice(0, 7);
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new BadRequestException("按月筛选必须提供 YYYY-MM");
       windowStart = `${period}-01`; windowEnd = this.monthEnd(windowStart);
@@ -320,6 +323,17 @@ export class EquipmentQueryService {
   private isoDate(value: string | undefined, label: string) {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) throw new BadRequestException(`${label}必须为 YYYY-MM-DD`);
     return value;
+  }
+
+  private shanghaiDate() {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+    return `${value("year")}-${value("month")}-${value("day")}`;
+  }
+
+  private addDays(value: string, days: number) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
   }
 
   private monthEnd(monthStart: string) {
