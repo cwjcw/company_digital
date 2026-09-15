@@ -1,5 +1,5 @@
 import { tablePermissionFieldsFor } from "@kdos/contracts";
-import { fieldsFor, MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
+import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionMissingFields, weeklyAdmissionSql } from "./master-plan.config";
 
 describe("master plan manual-entry configuration", () => {
   it.each([
@@ -34,6 +34,14 @@ describe("master plan manual-entry configuration", () => {
     expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "surfaceNature")?.options?.map((option) => option.value)).toEqual(["烤漆", "电镀"]);
     expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
     expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "manufacturingMethod")?.options?.map((option) => option.value)).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
+  });
+
+  it("separates weekly admission fields from ordinary update required fields", () => {
+    const base = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
+    expect(base.requiredAlways).toBeUndefined();
+    expect(base.weeklyAdmissionRequiredFields).toEqual(["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
+    expect(weeklyAdmissionMissingFields(base, { latestReviewDueDate: "2026-09-20", productAttribute: "五金" })).toEqual(["surfaceNature", "manufacturingMethod"]);
+    expect(weeklyAdmissionSql(base)).toBe("latest_review_due_date IS NOT NULL AND product_attribute IS NOT NULL AND surface_nature IS NOT NULL AND manufacturing_method IS NOT NULL");
   });
 
   it("removes unapproved base/weekly fields and exposes daily reporting fields", () => {

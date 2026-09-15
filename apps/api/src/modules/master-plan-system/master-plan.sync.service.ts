@@ -3,6 +3,7 @@ import { Interval } from "@nestjs/schedule";
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday } from "./master-plan.domain";
+import { MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql } from "./master-plan.config";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
@@ -189,6 +190,8 @@ export class MasterPlanSyncService {
   }
 
   private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string) {
+    const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
+    const admission = weeklyAdmissionSql(basePlan);
     return this.dataSource.transaction(async (manager) => {
       const detached = await manager.query(`
         UPDATE mps_weekly_plans linked SET base_plan_id=NULL,updated_at=now(),updated_by=$2,version=linked.version+1
@@ -205,7 +208,7 @@ export class MasterPlanSyncService {
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
         SELECT tenant_id,id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,planned_quantity,manufacturing_method,NULL,false,NULL,NULL,CASE WHEN order_date IS NULL THEN NULL ELSE greatest(0,floor((CURRENT_DATE-order_date)/7.0))::integer END,$2::uuid,$3
-        FROM mps_base_plans WHERE tenant_id=$1 AND latest_review_due_date IS NOT NULL
+        FROM mps_base_plans WHERE tenant_id=$1 AND ${admission}
         ON CONFLICT(tenant_id,order_number,item_code,delivery_number) DO UPDATE SET base_plan_id=excluded.base_plan_id,division_id=excluded.division_id,customer_code=excluded.customer_code,item_name=excluded.item_name,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.base_plan_id,mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.item_name,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.base_plan_id,excluded.division_id,excluded.customer_code,excluded.item_name,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)

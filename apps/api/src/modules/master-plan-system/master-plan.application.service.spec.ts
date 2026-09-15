@@ -76,6 +76,21 @@ describe("MasterPlanApplicationService imports", () => {
     }, actor)).rejects.toThrow("产品属性只能选择：五金、木作、亚克力、五金+木作");
   });
 
+  it("allows a base plan to save one weekly-admission field while the other three are blank", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 3, order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", planned_quantity: "10", latest_review_due_date: null, product_attribute: null, surface_nature: null, manufacturing_method: null };
+    const updated = { ...current, version: 4, latest_review_due_date: "2026-09-20" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_base_plans")) return [current];
+      if (sql.startsWith("UPDATE mps_base_plans")) return [[updated], 1];
+      return [];
+    });
+    const manager = { query }; const sync = { processOutbox: jest.fn().mockResolvedValue(undefined) };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
+    await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({ id, version: 4, values: { latestReviewDueDate: "2026-09-20" } });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("mps_reconciliation_outbox"))).toBe(true);
+  });
+
   it("validates a blank-identity row as a create and rejects duplicate business keys", async () => {
     const query = jest.fn().mockResolvedValue([]);
     const dataSource = { query, manager: { query } };

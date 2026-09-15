@@ -285,7 +285,7 @@ export class MasterPlanApplicationService {
 
   private validateRequiredOnUpdate(resource: MasterPlanResource, values: Record<string, unknown>, current: Record<string, unknown>) {
     const columns = columnsFor(resource);
-    for (const field of new Set([...(resource.requiredOnCreate ?? []), ...(resource.requiredAlways ?? [])])) {
+    for (const field of new Set(resource.requiredOnUpdate ?? [...(resource.requiredOnCreate ?? []), ...(resource.requiredAlways ?? [])])) {
       const value = Object.prototype.hasOwnProperty.call(values, field) ? values[field] : current[columns[field]];
       if (value == null || value === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
     }

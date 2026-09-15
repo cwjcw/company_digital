@@ -2,7 +2,7 @@ import { tablePermissionFieldsFor, type TablePermissionFieldDefinition, type Tab
 
 export type MasterPlanResource = {
   code: TableResourceCode; table: string; create: boolean; remove: boolean; defaultOrder: string;
-  divisionField?: string; requiredOnCreate?: string[]; requiredAlways?: string[]; uniqueKeyFields?: string[];
+  divisionField?: string; requiredOnCreate?: string[]; requiredOnUpdate?: string[]; requiredAlways?: string[]; weeklyAdmissionRequiredFields?: string[]; uniqueKeyFields?: string[];
   extraColumns?: Record<string, string>;
 };
 
@@ -14,7 +14,7 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-group-plans", table: "mps_group_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number", divisionField: "primaryDivisionId" },
   { code: "mps-monthly-plans", table: "mps_monthly_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId" },
   { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "itemName", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "divisionId"], requiredAlways: ["itemName", "divisionId"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], extraColumns: { monthlyPlanId: "monthly_plan_id" } },
-  { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], requiredAlways: ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
+  { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], requiredOnUpdate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity"], weeklyAdmissionRequiredFields: ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
   { code: "mps-weekly-plans", table: "mps_weekly_plans", create: true, remove: false, defaultOrder: "latest_review_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "latestReviewDueDate", "plannedQuantity"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
   { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: true, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", requiredOnCreate: ["weeklyPlanId", "processCode"], uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
@@ -109,4 +109,15 @@ export function fieldsFor(resource: MasterPlanResource): TablePermissionFieldDef
 }
 export function columnsFor(resource: MasterPlanResource): Record<string, string> {
   return { ...Object.fromEntries(fieldsFor(resource).map((field) => [field.key, camelToSnake(field.key)])), ...virtualColumns(resource), ...(resource.extraColumns ?? {}) };
+}
+
+/** The only definition of fields required to progress a base plan into a weekly plan. */
+export function weeklyAdmissionSql(resource: MasterPlanResource, tableAlias = "") {
+  const prefix = tableAlias ? `${tableAlias}.` : "";
+  const columns = columnsFor(resource);
+  return (resource.weeklyAdmissionRequiredFields ?? []).map((field) => `${prefix}${columns[field]} IS NOT NULL`).join(" AND ") || "true";
+}
+
+export function weeklyAdmissionMissingFields(resource: MasterPlanResource, values: Record<string, unknown>) {
+  return (resource.weeklyAdmissionRequiredFields ?? []).filter((field) => values[field] == null || String(values[field]).trim() === "");
 }

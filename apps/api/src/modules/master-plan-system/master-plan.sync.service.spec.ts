@@ -32,5 +32,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql[0]).toContain("SET base_plan_id=NULL");
     expect(sql[1]).toContain("weekly.base_plan_id=base.id");
     expect(sql[2]).toContain("ON CONFLICT(tenant_id,order_number,item_code,delivery_number)");
+    expect(sql[2]).toContain("latest_review_due_date IS NOT NULL AND product_attribute IS NOT NULL AND surface_nature IS NOT NULL AND manufacturing_method IS NOT NULL");
+    expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
   });
 });
