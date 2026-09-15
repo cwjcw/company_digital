@@ -32,6 +32,17 @@ describe("ModulePortal system access", () => {
     expect(screen.getByRole("button", { name: "进入系统管理" })).toBeInTheDocument();
   });
 
+  it("opens PMC at the current master-plan system without retired UI labels", () => {
+    const onOpen = vi.fn();
+    renderPortal({ username: "planner", roles: [] }, onOpen);
+    expect(screen.queryByText("生产主计划", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("月度计划", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("集团主计划大屏", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText("主计划系统", { exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "进入PMC中心" }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/master-plan-system/mps-erp-orders" }));
+  });
+
   it("loads and saves a personal module order without affecting module access", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", username: "member" }));
     mockedApi.mockResolvedValue({ order: ["profile", "planning", "cockpit", "data", "marketing", "hr", "workflow", "system"] });

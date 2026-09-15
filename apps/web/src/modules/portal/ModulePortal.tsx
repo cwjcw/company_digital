@@ -27,8 +27,8 @@ export const portalModules: PortalModule[] = [
   },
   {
     id: "planning", title: "PMC中心", englishTitle: "PMC CENTER",
-    description: "统一管理销售接单、月度排产、生产报工与设备运行。",
-    features: ["集团主计划", "月度计划", "集团设备大屏", "设备管理"], path: "/sales-summary-details", tone: "teal"
+    description: "统一管理主计划、生产执行与设备运行。",
+    features: ["主计划系统", "集团设备大屏", "设备管理"], path: "/master-plan-system/mps-erp-orders", tone: "teal"
   },
   {
     id: "data", title: "数据中心", englishTitle: "DATA CENTER",
