@@ -132,7 +132,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSelection, setBatchSelection] = useState<KdosTableSelection<any> | null>(null);
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
-  const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; token: string | null } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; token: string | null; blockedReason?: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
   const organizations = useQuery({ queryKey: ["mps-organization-options", sessionSubject, resource], queryFn: () => api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${encodeURIComponent(resource)}`), staleTime: 300_000, enabled: Boolean(metadata.data?.fields.some((field) => field.type === "department")) });
@@ -249,7 +249,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     <Modal title="导入预览" open={Boolean(importPreview)} onCancel={() => setImportPreview(null)} onOk={() => void confirmImport().catch((error) => message.error((error as Error).message))}
       okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.token || Boolean(importPreview?.errors.length) }}>
       <p>共解析 {importPreview?.total ?? 0} 条。确认后整批事务提交。</p>
-      {importPreview?.errors.length ? <div style={{ maxHeight: 320, overflow: "auto" }}>{importPreview.errors.slice(0, 100).map((error) => <div key={`${error.row}-${error.reason}`}>第 {error.row} 行：{error.reason}</div>)}</div> : <Tag color="success">校验通过，可以确认导入</Tag>}
+      {importPreview?.blockedReason && <Alert type="warning" showIcon message={importPreview.blockedReason} />}
+      {importPreview?.errors.length ? <div style={{ maxHeight: 320, overflow: "auto" }}>{importPreview.errors.slice(0, 100).map((error) => <div key={`${error.row}-${error.reason}`}>第 {error.row} 行：{error.reason}</div>)}</div> : !importPreview?.blockedReason && <Tag color="success">校验通过，可以确认导入</Tag>}
     </Modal>
     <Modal title={<Space><span>批量修改</span><Tag>本次操作将修改 {batchSelection?.selectedRowKeys.length ?? 0} 条数据</Tag></Space>}
       open={Boolean(batchSelection)} onCancel={() => { setBatchSelection(null); batchForm.resetFields(); setBatchField(null); }}

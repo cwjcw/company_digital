@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import ExcelJS from "exceljs";
 import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
@@ -9,6 +9,8 @@ import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanA
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
 type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
+const legacyFieldAliases: Record<string, string[]> = { orderDate: ["订单日期"] };
+const unreadableSpreadsheetMessage = "Excel 未解密或文件损坏，请解密或检查确保文件正确后导入。";
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
@@ -42,10 +44,11 @@ export class MasterPlanSpreadsheetService {
 
   async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor) {
     const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
     assertSpreadsheetNotEncrypted(file.buffer);
     const workbook = new ExcelJS.Workbook();
-    try { await workbook.xlsx.load(file.buffer as never); } catch { throw new BadRequestException("Excel 文件损坏或格式不正确，请使用导出的模板"); }
+    try { await workbook.xlsx.load(file.buffer as never); } catch { throw new BadRequestException(unreadableSpreadsheetMessage); }
     const sheet = workbook.getWorksheet(resource.code) ?? workbook.worksheets[0];
     if (!sheet) throw new BadRequestException("Excel 文件没有工作表");
     const headers = new Map<string, number>();
@@ -64,8 +67,9 @@ export class MasterPlanSpreadsheetService {
     }
     if (!columnsByKey.has("id") || !columnsByKey.has("version")) throw new BadRequestException("缺少记录ID或版本字段定义，请使用系统导出的文件");
     const editableFields = this.importFields(resource, code, actor);
-    const includedFields = editableFields.filter((field) => schema ? columnsByKey.has(field.key) : headers.has(field.label));
-    if (!schema) for (const field of includedFields) columnsByKey.set(field.key, headers.get(field.label)!);
+    const headerFor = (field: (typeof editableFields)[number]) => [field.label, ...(legacyFieldAliases[field.key] ?? [])].find((label) => headers.has(label));
+    const includedFields = editableFields.filter((field) => schema ? columnsByKey.has(field.key) : Boolean(headerFor(field)));
+    if (!schema) for (const field of includedFields) columnsByKey.set(field.key, headers.get(headerFor(field)!)!);
     if (!includedFields.length) throw new BadRequestException("文件中没有可导入的可编辑字段");
     if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多导入50000行");
     const rows: ImportRow[] = []; const parseErrors: Array<{ row: number; reason: string }> = [];
@@ -100,6 +104,8 @@ export class MasterPlanSpreadsheetService {
     }
     const errors = parseErrors.length ? parseErrors : await this.application.validateImportUpdates(code, rows, actor);
     if (errors.length) return { total: rows.length, errors, token: null, rows: [] };
+    const blockedReason = await this.application.importBlockedReason(code, actor);
+    if (blockedReason) return { total: rows.length, errors: [], token: null, rows: rows.slice(0, 20), blockedReason };
     const hash = createHash("sha256").update(file.buffer).digest("hex");
     const payload = Buffer.from(JSON.stringify({ tenant: actor.tenantId, user: actor.userId, resource: code, expires: Date.now() + 30 * 60 * 1000, hash, rows })).toString("base64url");
     return { total: rows.length, errors: [], token: `${payload}.${this.signature(payload)}`, rows: rows.slice(0, 20) };

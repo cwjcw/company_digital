@@ -2,7 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { assertSpreadsheetNotEncrypted, ENCRYPTED_SPREADSHEET_MESSAGE, isEncryptedSpreadsheet } from "./spreadsheet-upload";
 
 describe("spreadsheet upload encryption detection", () => {
-  it.each([0xe4, 0xe0, 0x98])("recognizes the observed WPS encrypted header variant %s", (fourthByte) => {
+  it.each([0xd6, 0xe4, 0xe0, 0x98])("recognizes the observed WPS encrypted header variant %s", (fourthByte) => {
     expect(isEncryptedSpreadsheet(Buffer.from([0x88, 0x7d, 0x1c, fourthByte, 0x56, 0x02]))).toBe(true);
   });
 

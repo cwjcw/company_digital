@@ -20,6 +20,7 @@ export class MasterPlanApplicationService {
     const values = this.writable(resource, body, actor, "create");
     this.validateRequiredOnCreate(resource, values);
     await this.fillReportSource(resource, values, actor.tenantId);
+    this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource); const entries = Object.entries(values);
       if (!entries.length) throw new BadRequestException("没有可写入的业务字段");
@@ -42,7 +43,6 @@ export class MasterPlanApplicationService {
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw new BadRequestException("expectedVersion 必须是正整数");
     const values = this.writable(resource, body, actor);
     if (!Object.keys(values).length) throw new BadRequestException("没有可修改的业务字段");
-    if (resource.code === "mps-system-settings" && !actor.isSystemAdmin) throw new ForbiddenException("只有系统管理员可以修改主计划系统参数");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
@@ -53,8 +53,8 @@ export class MasterPlanApplicationService {
         values.monthlyPlanId = monthly?.id ?? null;
       }
       if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
-      if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
       this.validateRequiredOnUpdate(resource, values, current);
+      this.validateCrossFields(resource, { ...current, ...this.toDatabaseRecord(resource, values) });
       const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, ...entries.map(([, value]) => value)];
       const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
       // TypeORM/pg returns UPDATE ... RETURNING as [rows, affectedCount], unlike INSERT/SELECT.
@@ -115,7 +115,7 @@ export class MasterPlanApplicationService {
         if (!Number.isInteger(expectedVersion) || expectedVersion < 1 || Number(current.version) !== expectedVersion) { items.push({ id, success: false, reason: "记录版本已变化，请刷新后重试" }); continue; }
         try {
           this.validateRequiredOnUpdate(resource, { [fieldKey]: value }, current);
-          if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, [column]: value });
+          this.validateCrossFields(resource, { ...current, [column]: value });
         } catch (error) {
           items.push({ id, success: false, reason: error instanceof Error ? error.message : "字段值不符合业务规则" }); continue;
         }
@@ -155,6 +155,7 @@ export class MasterPlanApplicationService {
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
           await this.fillReportSource(resource, values, actor.tenantId, manager);
+          this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
           const columns = columnsFor(resource); const entries = Object.entries(values);
           if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
           const params: unknown[] = [actor.tenantId, actorId, ...entries.map(([, value]) => value)];
@@ -178,7 +179,7 @@ export class MasterPlanApplicationService {
         const columns = columnsFor(resource); const entries = Object.entries(values);
         const databaseValues = this.toDatabaseRecord(resource, values);
         this.validateRequiredOnUpdate(resource, values, current);
-        if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...databaseValues });
+        this.validateCrossFields(resource, { ...current, ...databaseValues });
         const params: unknown[] = [actor.tenantId, input.id, input.expectedVersion, actorId, ...entries.map(([, value]) => value)];
         const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
         const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
@@ -210,13 +211,13 @@ export class MasterPlanApplicationService {
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
           await this.fillReportSource(resource, values, actor.tenantId);
+          this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
           const businessKey = this.businessKey(resource, values);
           if (businessKey && seenBusinessKeys.has(businessKey)) throw new BadRequestException("文件中存在重复业务记录");
           if (businessKey) {
             seenBusinessKeys.add(businessKey);
             if (await this.businessRecordExists(resource, values, actor.tenantId)) throw new ConflictException("相同业务记录已存在；如需更新，请先导出并保留记录ID和版本");
           }
-          if (resource.code === "mps-material-reports") this.validateMaterial(this.toDatabaseRecord(resource, values));
           continue;
         }
         if (!uuidPattern.test(input.id!)) throw new BadRequestException("记录ID格式无效");
@@ -228,8 +229,11 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
         const values = this.writable(resource, input.values, actor);
+        if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId);
         this.validateRequiredOnUpdate(resource, values, current);
-        if (resource.code === "mps-material-reports") this.validateMaterial({ ...current, ...this.toDatabaseRecord(resource, values) });
+        const mergedValues = this.completeValues(resource, current, values);
+        this.validateCrossFields(resource, { ...current, ...this.toDatabaseRecord(resource, values) });
+        if (resource.uniqueKeyFields?.some((field) => field in values) && await this.businessRecordExists(resource, mergedValues, actor.tenantId, this.dataSource.manager, input.id!)) throw new ConflictException("修改后的业务唯一键与现有记录重复");
       } catch (error) { errors.push({ row: input.row, reason: error instanceof Error ? error.message : "数据校验失败" }); }
     }
     return errors;
@@ -281,10 +285,15 @@ export class MasterPlanApplicationService {
 
   private validateRequiredOnUpdate(resource: MasterPlanResource, values: Record<string, unknown>, current: Record<string, unknown>) {
     const columns = columnsFor(resource);
-    for (const field of resource.requiredAlways ?? []) {
+    for (const field of new Set([...(resource.requiredOnCreate ?? []), ...(resource.requiredAlways ?? [])])) {
       const value = Object.prototype.hasOwnProperty.call(values, field) ? values[field] : current[columns[field]];
       if (value == null || value === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
     }
+  }
+
+  private completeValues(resource: MasterPlanResource, current: Record<string, unknown>, values: Record<string, unknown>) {
+    const columns = columnsFor(resource);
+    return Object.fromEntries(fieldsFor(resource).map((field) => [field.key, Object.prototype.hasOwnProperty.call(values, field.key) ? values[field.key] : current[columns[field.key]]]));
   }
 
   private businessKey(resource: MasterPlanResource, values: Record<string, unknown>) {
@@ -292,11 +301,12 @@ export class MasterPlanApplicationService {
     return resource.uniqueKeyFields.map((field) => `${field}:${String(values[field] ?? "")}`).join("\u0000");
   }
 
-  private async businessRecordExists(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager) {
+  private async businessRecordExists(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager, excludeId?: string) {
     if (!resource.uniqueKeyFields?.length) return false;
     const columns = columnsFor(resource);
     const params: unknown[] = [tenantId, ...resource.uniqueKeyFields.map((field) => values[field] ?? null)];
     const predicates = resource.uniqueKeyFields.map((field, index) => `${columns[field]} IS NOT DISTINCT FROM $${index + 2}`);
+    if (excludeId) { params.push(excludeId); predicates.push(`id<>$${params.length}::uuid`); }
     const [existing] = await manager.query(`SELECT id FROM ${resource.table} WHERE tenant_id=$1 AND ${predicates.join(" AND ")} LIMIT 1`, params);
     return Boolean(existing);
   }
@@ -349,7 +359,7 @@ export class MasterPlanApplicationService {
       if (!process) throw new BadRequestException("工序必须是系统标准工序");
       values.processName = process[1];
     }
-    if (resource.code === "mps-material-reports") this.validateMaterial(this.toDatabaseRecord(resource, values));
+    this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
   }
 
   private async translateDatabaseError<T>(operation: () => Promise<T>): Promise<T> {
@@ -359,13 +369,30 @@ export class MasterPlanApplicationService {
       if (code === "23505") throw new ConflictException("相同业务唯一键的记录已存在，请修改原记录");
       if (code === "23503") throw new BadRequestException("关联的上游记录不存在或已失效");
       if (code === "23001") throw new ConflictException("该记录已被下游业务引用，不能直接删除");
-      if (code === "23514" || code === "23502" || code === "22P02") throw new BadRequestException("字段值不符合业务规则，请检查必填项、数量、日期和选项");
+      if (code === "23502") throw new BadRequestException(`必填字段${(error as { column?: string }).column ? ` ${(error as { column?: string }).column}` : ""}不能为空`);
+      if (code === "23514") throw new BadRequestException("字段值不符合业务约束，请检查数量范围、选项及跨字段条件");
+      if (code === "22003") throw new BadRequestException("数值超出数据库允许范围，请检查数字大小或小数格式");
+      if (code === "22001") throw new BadRequestException("文本内容超过字段允许长度");
+      if (["22P02", "22007", "22008"].includes(String(code))) throw new BadRequestException("字段类型或日期格式无效，请检查输入值");
       throw error;
     }
   }
 
   private toDatabaseRecord(resource: MasterPlanResource, values: Record<string, unknown>) { const columns = columnsFor(resource); return Object.fromEntries(Object.entries(values).map(([key, value]) => [columns[key], value])); }
-  private validateMaterial(row: Record<string, unknown>) { if (row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记主材已入库时必须填写实际入库日期"); }
+  private validateCrossFields(resource: MasterPlanResource, row: Record<string, unknown>) {
+    if (resource.code === "mps-material-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记主材已入库时必须填写实际入库日期");
+    if (resource.code === "mps-outsourcing-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记外协已入库时必须填写实际入库日期");
+  }
+
+  async importBlockedReason(code: string, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    try { await this.enforceShippingWindow(resource, actor); return null; }
+    catch (error) {
+      if (resource.code === "mps-shipping-plans" && error instanceof ForbiddenException) return "数据校验通过，但当前不在出货计划开放修改时间，暂不能确认导入。";
+      throw error;
+    }
+  }
 
   private recordAllowed(resource: MasterPlanResource, row: Record<string, unknown>, actor: MasterPlanActor, action: string) {
     if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return true;
