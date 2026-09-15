@@ -110,12 +110,11 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
 
 function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void }) {
   const { editing } = useKdosTableEditMode();
-  if (!editing) return null;
   const items = [
-    metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
-    row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
-    onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
-    metadata.actions.delete && !row.pendingTask ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
+    editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
+    editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
+    editing && onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
+    metadata.actions.delete && row.canDelete !== false && !row.pendingTask ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", content: "删除后不可恢复。", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
   ].filter(Boolean) as Array<{ key: string; label: string; danger?: boolean; onClick: () => void }>;
   if (!items.length) return null;
   return <Dropdown trigger={["click"]} menu={{ items }} placement="bottomRight">

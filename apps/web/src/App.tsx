@@ -258,7 +258,7 @@ function Shell({ logout }: { logout: () => void }) {
     <Layout>
       <Header className="topbar">
         <div className="topbar-context"><Text type="secondary">{activeModule.title}</Text><h1 className="topbar-page-title">{pageTitle}</h1></div>
-        <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text><br /><Text type="secondary">{user.roles?.join(" / ")}</Text></div>
+        <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text></div>
           <Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></div>
       </Header>
       <Content className="content">

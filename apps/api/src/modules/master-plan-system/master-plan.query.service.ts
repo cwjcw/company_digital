@@ -74,8 +74,12 @@ export class MasterPlanQueryService {
     const updateAllowed = hasMasterPlanPermission(actor, code, "update")
       ? this.scopeClause(resource, actor, "update", allColumns, dataParams)
       : "false";
+    const deleteAllowed = resource.remove && hasMasterPlanPermission(actor, code, "delete")
+      ? this.scopeClause(resource, actor, "delete", allColumns, dataParams)
+      : "false";
     const selected = visibleFields.map((field) => `${this.expression(allColumns[field]!)} "${field}"`);
     selected.push(`(${updateAllowed}) "canUpdate"`);
+    selected.push(`(${deleteAllowed}) "canDelete"`);
     const joins: string[] = [];
     if (resource.divisionField && visibleFields.includes(resource.divisionField)) {
       joins.push(`LEFT JOIN organization_units division ON division.id=record.${allColumns[resource.divisionField]}`);
@@ -149,7 +153,7 @@ export class MasterPlanQueryService {
     }
     const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
     const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
-    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,false "canUpdate",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.production_date DESC NULLS LAST,record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,false "canUpdate",false "canDelete",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.production_date DESC NULLS LAST,record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
     const paths = new Map(organizations.map((option) => [option.id, option.pathLabel]));
     for (const row of rows) {
       if (visibleFields.includes("divisionId")) row.divisionName = paths.get(String(row.divisionId ?? "")) ?? null;
