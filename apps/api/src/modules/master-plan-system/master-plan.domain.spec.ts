@@ -30,17 +30,36 @@ describe("master plan domain", () => {
     });
   });
 
-  it("reverse schedules all nine processes by natural days from the review anchor", () => {
+  it("reverse schedules the ten canonical processes by natural days from the review anchor", () => {
     const rows = reverseSchedule("2026-10-20", {
       cuttingDays: 1, machiningDays: 2, bendingDays: 1, spotWeldingDays: 1,
-      weldingDays: 2, woodworkingDays: 0, grindingDays: 1,
+      weldingDays: 2, woodworkingDays: 0, grindingDays: 1, blankDays: 2,
       surfaceTreatmentDays: 3, packagingDays: 1
     });
+    /* 毛坯（blank）位于研磨之后、表面处理之前：正向顺序即 sequence 1..10。 */
+    expect(rows.map((row) => [row.code, row.sequence])).toEqual([
+      ["cutting", 1], ["machining", 2], ["bending", 3], ["spotWelding", 4], ["welding", 5],
+      ["woodworking", 6], ["grinding", 7], ["blank", 8], ["surfaceTreatment", 9], ["packaging", 10]
+    ]);
     expect(Object.fromEntries(rows.map((row) => [row.code, row.dueDate]))).toEqual({
-      cutting: "2026-10-09", machining: "2026-10-11", bending: "2026-10-12",
-      spotWelding: "2026-10-13", welding: "2026-10-15", woodworking: "2026-10-15",
-      grinding: "2026-10-16", surfaceTreatment: "2026-10-19", packaging: "2026-10-20"
+      cutting: "2026-10-07", machining: "2026-10-09", bending: "2026-10-10",
+      spotWelding: "2026-10-11", welding: "2026-10-13", woodworking: "2026-10-13",
+      grinding: "2026-10-14", blank: "2026-10-16", surfaceTreatment: "2026-10-19", packaging: "2026-10-20"
     });
+  });
+
+  it("keeps 毛坯 in the reverse chain when blankDays is null without breaking the schedule", () => {
+    const rows = reverseSchedule("2026-10-20", { grindingDays: 1, surfaceTreatmentDays: 1, packagingDays: 1 });
+    const blank = rows.find((row) => row.code === "blank")!;
+    expect(blank).toMatchObject({ name: "毛坯", sequence: 8, cycleDays: null, dueDate: null });
+    /* 未维护毛坯周期时不得阻止其它工序生成计划。 */
+    expect(rows.filter((row) => row.dueDate).map((row) => row.code)).toEqual(["grinding", "surfaceTreatment", "packaging"]);
+  });
+
+  it("carries 毛坯 days through the reverse chain when configured", () => {
+    const rows = reverseSchedule("2026-10-20", { blankDays: 5, surfaceTreatmentDays: 1, packagingDays: 1 });
+    expect(rows.find((row) => row.code === "blank")).toMatchObject({ cycleDays: 5, dueDate: "2026-10-18" });
+    expect(rows.find((row) => row.code === "surfaceTreatment")?.dueDate).toBe("2026-10-19");
   });
 
   it("keeps FIFO allocations capped while preserving excess inbound outside deliveries", () => {

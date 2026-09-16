@@ -41,217 +41,43 @@ export const dictionarySeeds = {
   deliveryMethod: ["空运", "海运", "汽运", "火车", "内河船运", "其他"]
 } as const;
 
-export type ProcessDefinition = {
-  code: string;
-  name: string;
-  order: number;
-  fields: readonly ("requiredDays" | "dueDate" | "status" | "exception")[];
-};
-
-export const processDefinitions: ProcessDefinition[] = [
-  ["drawingBom", "图纸&BOM", ["requiredDays", "dueDate", "status", "exception"]],
-  ["metalMain", "五金主材", ["requiredDays", "dueDate", "status", "exception"]],
-  ["woodMain", "木作主材", ["requiredDays", "dueDate", "status", "exception"]],
-  ["frontParts", "前道配件", ["requiredDays", "dueDate", "status", "exception"]],
-  ["machining", "机加", ["requiredDays", "dueDate", "status", "exception"]],
-  ["welding", "焊接/点焊", ["requiredDays", "dueDate", "status", "exception"]],
-  ["grinding", "研磨", ["requiredDays", "dueDate", "status", "exception"]],
-  ["blank", "毛坯", ["requiredDays", "dueDate", "status", "exception"]],
-  ["woodwork", "木作", ["requiredDays", "dueDate", "status", "exception"]],
-  ["painting", "油漆", ["requiredDays", "dueDate", "status", "exception"]],
-  ["acrylic", "亚克力", ["requiredDays", "dueDate", "status", "exception"]],
-  ["bakingPlating", "烤漆/电镀", ["requiredDays", "dueDate", "status", "exception"]],
-  ["rearPackingParts", "后道包材&配件", ["requiredDays", "dueDate", "status", "exception"]],
-  ["assemblyPacking", "组装&包装", ["requiredDays", "dueDate", "status", "exception"]]
-].map(([code, name, fields], index) => ({
-  code: code as string,
-  name: name as string,
-  order: index + 1,
-  fields: fields as ProcessDefinition["fields"]
-}));
-
-export type ColumnKind = "text" | "date" | "decimal" | "image" | "dictionary" | "department";
-export type ColumnDefinition = {
-  key: string;
-  header: string;
-  group?: string;
-  kind: ColumnKind;
-  editable?: boolean;
-  pinned?: boolean;
-  dictionaryCode?: keyof typeof dictionarySeeds | "supplier";
-};
-
-const dictionaryColumnCodes: Partial<Record<string, ColumnDefinition["dictionaryCode"]>> = {
-  exceptionDeliveryMethod: "deliveryMethod",
-  modelAge: "modelAge",
-  productAttribute: "productAttribute",
-  surfaceNature: "surfaceNature",
-  specialItem: "specialItem",
-  handlingMethod: "handlingMethod"
-};
-
-const ordinaryStartBase: ColumnDefinition[] = [
-  ["sequence", "序号", "decimal", false, true],
-  ["orderNumber", "订单号", "text", false, true],
-  ["orderDate", "下单日期", "date", false],
-  ["customerDueDate", "客户要求交期", "date", true],
-  ["reviewDueDate", "产前评审交期", "date", true],
-  ["exceptionDueDate", "异常后二次交期", "date", true],
-  ["exceptionDeliveryMethod", "异常交期交货方式", "dictionary", true],
-  ["containerDate", "装柜日期", "date", true],
-  ["modelAge", "新旧款", "dictionary", true],
-  ["itemNumber", "品号", "text", false, true],
-  ["relationKey", "关联信息", "text", false],
-  ["itemName", "品名", "text", false, true],
-  ["image", "简图", "image", true],
-  ["productAttribute", "产品属性", "dictionary", true],
-  ["surfaceNature", "表面性质", "dictionary", true],
-  ["specialItem", "特别项", "dictionary", true],
-  ["productionQuantity", "订单需求数量", "decimal", true],
-  ["historicalInboundQuantity", "历史入库数据", "decimal", true],
-  ["todayInboundQuantity", "当天入库数", "decimal", true],
-  ["balanceQuantity", "订单欠数", "decimal", false],
-  ["handlingMethod", "制作方式", "dictionary", true]
-].map(([key, header, kind, editable, pinned]) => ({
-  key: key as string, header: header as string, kind: kind as ColumnKind,
-  editable: Boolean(editable), pinned: Boolean(pinned), dictionaryCode: dictionaryColumnCodes[key as string]
-}));
-
-const ordinaryStart: ColumnDefinition[] = [
-  ...ordinaryStartBase,
-  { key: "itemStatus", header: "品号状态", kind: "text", editable: false }
-];
-
-const legacyOutsourcing: ColumnDefinition[] = [
-  { key: "outsourcing.method", header: "外协方式", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "outsourcingMethod" },
-  { key: "outsourcing.supplier", header: "外协供应商", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "supplier" },
-  { key: "outsourcing.dueDate", header: "外协交期", group: "外协相关", kind: "date", editable: true },
-  { key: "outsourcing.exceptionDueDate", header: "外协实际交期", group: "外协相关", kind: "date", editable: true }
-];
-
-export const milestoneProcessCodes = ["blank", "bakingPlating", "assemblyPacking"] as const;
-const standardizedProcessCodes = ["frontParts", "machining", "welding", "grinding", "woodwork", "painting", "acrylic", "rearPackingParts"];
-
-function processFieldHeader(processCode: string, field: "requiredDays" | "dueDate" | "status" | "exception") {
-  if (field === "status" && standardizedProcessCodes.includes(processCode)) return "状态";
-  return { requiredDays: "所需天数", dueDate: "交期", status: "状态/数量", exception: "异常" }[field];
-}
-
-const sourceProcessColumns: ColumnDefinition[] = processDefinitions.flatMap((process) =>
-  process.fields.map((field) => ({
-    key: `processes.${process.code}.${field}`,
-    header: processFieldHeader(process.code, field),
-    group: process.name,
-    kind: field === "dueDate" ? "date" : field === "requiredDays" ? "decimal" : "text",
-    editable: true
-  }))
-);
-
-const legacyProcessColumns: ColumnDefinition[] = processDefinitions.flatMap((process) =>
-  process.fields.flatMap<ColumnDefinition>((field): ColumnDefinition[] => {
-    if (field === "status" && milestoneProcessCodes.includes(process.code as typeof milestoneProcessCodes[number])) {
-      return [
-        { key: `processes.${process.code}.quantity`, header: "数量", group: process.name, kind: "decimal", editable: true },
-        { key: `processes.${process.code}.status`, header: "状态", group: process.name, kind: "text", editable: false }
-      ];
-    }
-    return [{
-      key: `processes.${process.code}.${field}`,
-      header: processFieldHeader(process.code, field),
-      group: process.name,
-      kind: field === "dueDate" ? "date" : field === "requiredDays" ? "decimal" : "text",
-      editable: true
-    }];
-  })
-);
-
-const ordinaryEndBase: ColumnDefinition[] = [
-  ["planPage", "对应计划页数", "decimal"],
-  ["orderException", "订单异常信息", "text"],
-  ["inspection", "验货", "text"],
-  ["inspectionQuantity", "验货数量", "decimal"],
-  ["remark", "备注", "text"],
-  ["orderWeeks", "订单周数", "decimal"],
-  ["month", "月", "decimal"],
-  ["unitPrice", "单价", "decimal"],
-  ["inboundAmount", "订单入库金额", "decimal", false],
-  ["balanceAmount", "订单欠数金额", "decimal", false],
-  ["customer", "客户", "text"],
-  ["division", "所属事业部", "dictionary"]
-].map(([key, header, kind, editable = true]) => ({
-  key: key as string, header: header as string, kind: kind as ColumnKind, editable: Boolean(editable),
-  dictionaryCode: key === "division" ? "division" : undefined
-}));
-
-const legacyOrdinaryEnd: ColumnDefinition[] = ordinaryEndBase.map((column) =>
-  column.key === "month"
-    ? { ...column, header: "年月", kind: "text", editable: false }
-    : column
-);
-
 /**
- * Retained for backward compatibility and historical data migration only.
- * The active monthly-plan UI/export contract is maintained independently from the legacy 97-column contract.
+ * KDOS 唯一正式标准工序 registry（KN-PROC-001）。
+ * 旧 Planning 的 14 个 legacy process definitions 已彻底退役：工序下拉、字段权限、周期字段、
+ * 倒排计划、工序报工、周计划/月度计划展示、seed 与 process_definitions 主数据都必须从这一份定义派生，
+ * 不得再维护第二份工序名单，也不得重新引入 legacy code（woodwork / bakingPlating / assemblyPacking 等）。
  */
-export const legacyMonthlyPlanColumns: ColumnDefinition[] = [
-  ...ordinaryStart, ...legacyOutsourcing, ...legacyProcessColumns, ...legacyOrdinaryEnd
+export type ProcessDefinition = {
+  /** 数据库与接口使用的稳定 code。 */
+  code: string;
+  /** 界面展示名称。 */
+  name: string;
+  /** 1-based 正式顺序：下料→机加→折弯→点焊→焊接→木作→研磨→毛坯→表面处理→包装。 */
+  order: number;
+  /** 工序周期字段名（mps_process_cycles 列由 camelCase 转 snake_case，例如 blank → blank_days）。 */
+  cycleField: string;
+};
+
+export const standardProcesses: ProcessDefinition[] = [
+  { code: "cutting", name: "下料", order: 1, cycleField: "cuttingDays" },
+  { code: "machining", name: "机加", order: 2, cycleField: "machiningDays" },
+  { code: "bending", name: "折弯", order: 3, cycleField: "bendingDays" },
+  { code: "spotWelding", name: "点焊", order: 4, cycleField: "spotWeldingDays" },
+  { code: "welding", name: "焊接", order: 5, cycleField: "weldingDays" },
+  { code: "woodworking", name: "木作", order: 6, cycleField: "woodworkingDays" },
+  { code: "grinding", name: "研磨", order: 7, cycleField: "grindingDays" },
+  { code: "blank", name: "毛坯", order: 8, cycleField: "blankDays" },
+  { code: "surfaceTreatment", name: "表面处理", order: 9, cycleField: "surfaceTreatmentDays" },
+  { code: "packaging", name: "包装", order: 10, cycleField: "packagingDays" }
 ];
 
-export const legacyExcelMonthlyPlanColumns: ColumnDefinition[] = [
-  ...ordinaryStartBase, ...legacyOutsourcing, ...sourceProcessColumns, ...ordinaryEndBase
-];
+/** 兼容导出：`processDefinitions` 就是这份唯一正式工序 registry，不再存在 legacy 14 工序表。 */
+export const processDefinitions: ProcessDefinition[] = standardProcesses;
 
-const monthlyOutsourcingColumns: ColumnDefinition[] = [
-  { key: "outsourcing.supplier", header: "供应商", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "supplier" },
-  { key: "outsourcing.method", header: "外协方式", group: "外协相关", kind: "dictionary", editable: true, dictionaryCode: "outsourcingMethod" },
-  { key: "outsourcing.dueDate", header: "外协交期", group: "外协相关", kind: "date", editable: true },
-  { key: "outsourcing.exceptionDueDate", header: "外协实际交期", group: "外协相关", kind: "date", editable: true },
-  { key: "outsourcing.requiredDays", header: "所需周期", group: "外协相关", kind: "decimal", editable: true },
-  { key: "outsourcing.processDueDate", header: "交期", group: "外协相关", kind: "date", editable: true },
-  { key: "outsourcing.status", header: "状态", group: "外协相关", kind: "text", editable: true },
-  { key: "outsourcing.exception", header: "异常", group: "外协相关", kind: "text", editable: true }
-];
+export const standardProcessCodes: readonly string[] = standardProcesses.map((process) => process.code);
+export const standardProcessLabels: ReadonlyMap<string, string> = new Map(standardProcesses.map((process) => [process.code, process.name]));
+export type StandardProcessCode = string;
 
-const monthlyProcessGroups = [
-  ["drawingBom", "图纸&BOM"],
-  ["metalMain", "五金主材"],
-  ["woodMain", "木作主材"],
-  ["machining", "机加"],
-  ["welding", "焊接"],
-  ["blank", "毛坯"],
-  ["bakingPlating", "电镀"],
-  ["acrylic", "亚克力"],
-  ["painting", "烤漆"],
-  ["assemblyPacking", "组装&包装"],
-  ["rearPackingParts", "包装打托"]
-] as const;
-
-const monthlyProcessColumns: ColumnDefinition[] = monthlyProcessGroups.flatMap(([code, group]) => [
-  { key: `processes.${code}.requiredDays`, header: "所需周期", group, kind: "decimal", editable: true },
-  { key: `processes.${code}.dueDate`, header: "交期", group, kind: "date", editable: true },
-  { key: `processes.${code}.status`, header: "状态", group, kind: "text", editable: true },
-  { key: `processes.${code}.exception`, header: "异常", group, kind: "text", editable: true }
-]);
-
-const monthlyOrdinaryEnd = ordinaryEndBase.filter((column) => column.key !== "division");
-const monthlyStartColumns: ColumnDefinition[] = [
-  ordinaryStartBase[0]!,
-  { key: "responsibleOrgId", header: "事业部", kind: "department", editable: true, pinned: true },
-  ...ordinaryStartBase.slice(1)
-];
-
-export const monthlyPlanColumns: ColumnDefinition[] = [
-  ...monthlyStartColumns,
-  ...monthlyOutsourcingColumns,
-  ...monthlyProcessColumns,
-  ...monthlyOrdinaryEnd
-];
-
-export const excelMonthlyPlanColumns: ColumnDefinition[] = monthlyPlanColumns;
-
-if (legacyExcelMonthlyPlanColumns.length !== 93 || legacyMonthlyPlanColumns.length !== 97) {
-  throw new Error(`Legacy plan column counts must remain Excel=93 and Web=97, got Excel=${legacyExcelMonthlyPlanColumns.length}, Web=${legacyMonthlyPlanColumns.length}`);
-}
-if (excelMonthlyPlanColumns.length !== 85 || monthlyPlanColumns.length !== 85) {
-  throw new Error(`Active monthly plan must contain exactly 85 columns, got Excel=${excelMonthlyPlanColumns.length}, Web=${monthlyPlanColumns.length}`);
-}
+if (standardProcesses.length !== 10) throw new Error(`KDOS must define exactly 10 standard processes, got ${standardProcesses.length}`);
+if (standardProcesses.some((process, index) => process.order !== index + 1)) throw new Error("Standard process order must be 1..10 without gaps");
+if (standardProcesses.some((process) => !process.code || !process.name || !process.cycleField)) throw new Error("Standard process entries require code, name and cycleField");

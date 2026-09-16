@@ -3,6 +3,7 @@ import { DataSource } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
+import { standardProcesses } from "@tracker/shared";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,7 +34,9 @@ export class MasterPlanQueryService {
         batchUpdate: hasMasterPlanPermission(actor, code, "batch_update") && fieldsFor(resource).some((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"))
       },
       /* 待报工视图字段与 Excel 模板共用同一份权威定义；累计/剩余由实际报工汇总，只读。 */
-      pendingFields: code === "mps-process-reports" ? processReportPendingFields().filter((field) => this.visible(actor, code, field.key)) : undefined
+      pendingFields: code === "mps-process-reports" ? processReportPendingFields().filter((field) => this.visible(actor, code, field.key)) : undefined,
+      /* 工序顺序唯一来源：@tracker/shared canonical registry（含毛坯），前端据此生成周计划工序分组与顺序。 */
+      processes: standardProcesses.map((process) => ({ code: process.code, name: process.name, order: process.order }))
     };
   }
 

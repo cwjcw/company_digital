@@ -37,7 +37,10 @@ describe("KN-PR-001 pending process reporting view", () => {
     expect(fields.filter((field) => field.input).map((field) => field.key)).toEqual(["productionQuantity", "productionDate"]);
     expect(fields.filter((field) => !field.input).every((field) => field.editable === false)).toBe(true);
     /* 工序字典 options 与正式字段定义同源。 */
-    expect(fields.find((field) => field.key === "processCode")?.options?.map((option) => option.value)).toEqual(["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "surfaceTreatment", "packaging"]);
+    /* KN-PROC-001：工序 options 只有正式 10 工序，毛坯在研磨之后、表面处理之前。 */
+    expect(fields.find((field) => field.key === "processCode")?.options?.map((option) => option.value)).toEqual([
+      "cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"
+    ]);
   });
 
   it("projects pending tasks from weekly process tasks and sums actual reports for cumulative and remaining", async () => {

@@ -12,7 +12,6 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @tracker/web test:e2e",
-    "templates:generate": "pnpm --filter @tracker/shared build && node apps/api/scripts/generate-import-templates.cjs",
     "sync:tplus": "node data-operations/tplus/sync.mjs",
     "sync:tplus:dry-run": "node data-operations/tplus/sync.mjs --dry-run",
     "test:tplus-sync": "node --test data-operations/tplus/*.test.mjs",

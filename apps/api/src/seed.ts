@@ -59,14 +59,15 @@ async function seed() {
   }
 
   const processRepo = dataSource.getRepository(ProcessDefinitionEntity);
+  /* KN-PROC-001：唯一正式工序 registry（10 个标准工序），重复执行 seed 幂等，且不会重新启用已退役的 legacy 工序。 */
   for (const process of processDefinitions) {
     await processRepo.createQueryBuilder().insert().values({
       code: process.code, name: process.name, sortOrder: process.order,
-      enableRequiredDays: process.fields.includes("requiredDays"),
-      enableDueDate: process.fields.includes("dueDate"), enableStatus: process.fields.includes("status"),
-      enableException: process.fields.includes("exception"), enabled: true
+      enableRequiredDays: true, enableDueDate: true, enableStatus: true, enableException: true, enabled: true
     }).orUpdate(["name", "sort_order", "enable_required_days", "enable_due_date", "enable_status", "enable_exception"], ["code"]).execute();
   }
+  await processRepo.createQueryBuilder().update().set({ enabled: false })
+    .where("code NOT IN (:...codes)", { codes: processDefinitions.map((process) => process.code) }).execute();
   const typeRepo = dataSource.getRepository(DictionaryType);
   const valueRepo = dataSource.getRepository(DictionaryValue);
   const dictionaryTypeNames: Record<string, string> = {

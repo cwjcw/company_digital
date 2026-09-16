@@ -1,34 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { dictionarySeeds, legacyMonthlyPlanColumns, monthlyPlanColumns } from "./index";
+import { dictionarySeeds, processDefinitions, standardProcessCodes, standardProcesses } from "./index";
 
-const ordinaryStart = [
-  "序号", "事业部", "订单号", "下单日期", "客户要求交期", "产前评审交期", "异常后二次交期", "异常交期交货方式", "装柜日期",
-  "新旧款", "品号", "关联信息", "品名", "简图", "产品属性", "表面性质", "特别项", "订单需求数量", "历史入库数据",
-  "当天入库数", "订单欠数", "制作方式"
-];
-const outsourcing = ["供应商", "外协方式", "外协交期", "外协实际交期", "所需周期", "交期", "状态", "异常"];
-const processGroups = ["图纸&BOM", "五金主材", "木作主材", "机加", "焊接", "毛坯", "电镀", "亚克力", "烤漆", "组装&包装", "包装打托"];
-const ordinaryEnd = ["对应计划页数", "订单异常信息", "验货", "验货数量", "备注", "订单周数", "月", "单价", "订单入库金额", "订单欠数金额", "客户"];
-const expectedQualifiedHeaders = [
-  ...ordinaryStart,
-  ...outsourcing.map((header) => `外协相关.${header}`),
-  ...processGroups.flatMap((group) => ["所需周期", "交期", "状态", "异常"].map((header) => `${group}.${header}`)),
-  ...ordinaryEnd
-];
-
-describe("monthly plan column definitions", () => {
-  it("places the department-backed division field immediately after sequence", () => {
-    expect(monthlyPlanColumns.map((column) => column.group ? `${column.group}.${column.header}` : column.header))
-      .toEqual(expectedQualifiedHeaders);
-    expect(monthlyPlanColumns).toHaveLength(85);
-    expect(monthlyPlanColumns[1]).toMatchObject({ key: "responsibleOrgId", header: "事业部", kind: "department" });
+describe("canonical KDOS process registry", () => {
+  it("defines exactly the ten approved standard processes in order", () => {
+    expect(standardProcesses.map((process) => process.code)).toEqual([
+      "cutting", "machining", "bending", "spotWelding", "welding",
+      "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"
+    ]);
+    expect(standardProcesses.map((process) => process.name)).toEqual([
+      "下料", "机加", "折弯", "点焊", "焊接", "木作", "研磨", "毛坯", "表面处理", "包装"
+    ]);
+    expect(standardProcesses.map((process) => process.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  it("keeps the legacy 97-column contract only for historical compatibility", () => {
-    expect(legacyMonthlyPlanColumns).toHaveLength(97);
+  it("places 毛坯 after 研磨 and before 表面处理 with order 8 and cycleField blankDays", () => {
+    const order = standardProcessCodes as readonly string[];
+    expect(order.indexOf("blank")).toBe(7);
+    expect(order.indexOf("blank")).toBeGreaterThan(order.indexOf("grinding"));
+    expect(order.indexOf("blank")).toBeLessThan(order.indexOf("surfaceTreatment"));
+    expect(standardProcesses.find((process) => process.code === "blank")).toMatchObject({ name: "毛坯", order: 8, cycleField: "blankDays" });
   });
 
-  it("uses the requested production and outsourcing dictionaries", () => {
+  it("exposes one registry through both exports and never re-introduces the retired legacy codes", () => {
+    expect(processDefinitions).toBe(standardProcesses);
+    for (const retired of ["drawingBom", "metalMain", "woodMain", "frontParts", "woodwork", "painting", "acrylic", "bakingPlating", "rearPackingParts", "assemblyPacking"]) {
+      expect(standardProcessCodes).not.toContain(retired);
+    }
+  });
+
+  it("keeps every cycle field unique", () => {
+    const cycleFields = standardProcesses.map((process) => process.cycleField);
+    expect(new Set(cycleFields).size).toBe(cycleFields.length);
+    expect(cycleFields).toContain("blankDays");
+  });
+
+  it("keeps the shared dictionary seeds used by templates, seeds and reference data", () => {
     expect(dictionarySeeds.handlingMethod).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
     expect(dictionarySeeds.outsourcingMethod).toEqual(["成品", "毛坯", "部件"]);
   });

@@ -1,4 +1,5 @@
 import { tablePermissionFieldsFor, type TablePermissionFieldDefinition, type TableResourceCode } from "@kdos/contracts";
+import { standardProcesses } from "@tracker/shared";
 
 export type MasterPlanResource = {
   code: TableResourceCode; table: string; create: boolean; remove: boolean; defaultOrder: string;
@@ -34,7 +35,8 @@ const commonOptions: Record<string, Array<{ value: string; label: string }>> = {
   manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"].map((value) => ({ value, label: value })),
   materialName: ["五金", "木作"].map((value) => ({ value, label: value })), outsourcingMethod: ["成品", "毛坯", "部件"].map((value) => ({ value, label: value })),
   modelAge: ["新", "旧"].map((value) => ({ value, label: value })), productAttribute: ["五金", "木作", "亚克力", "五金+木作"].map((value) => ({ value, label: value })), surfaceNature: ["烤漆", "电镀"].map((value) => ({ value, label: value })),
-  processCode: [["cutting","下料"],["machining","机加"],["bending","折弯"],["spotWelding","点焊"],["welding","焊接"],["woodworking","木作"],["grinding","研磨"],["surfaceTreatment","表面处理"],["packaging","包装"]].map(([value,label]) => ({ value, label }))
+  /* 工序选项唯一来源：@tracker/shared canonical registry（含毛坯，顺序与正式工序一致）。 */
+  processCode: standardProcesses.map((process) => ({ value: process.code, label: process.name }))
 };
 function optionsFor(resource: TableResourceCode, fieldKey: string) {
   if (fieldKey === "status" && resource === "mps-technical-reports") return ["已完成", "未完成", "延期"].map((value) => ({ value, label: value }));
@@ -42,9 +44,9 @@ function optionsFor(resource: TableResourceCode, fieldKey: string) {
   return commonOptions[fieldKey] ?? [];
 }
 const camelToSnake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-const processes = ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "surfaceTreatment", "packaging"] as const;
+const processes = standardProcesses.map((process) => process.code);
 
-function virtualColumns(resource: MasterPlanResource) {
+export function virtualColumns(resource: MasterPlanResource) {
   const output: Record<string, string> = {};
   for (const code of processes) {
     if (resource.code === "mps-weekly-plans") {

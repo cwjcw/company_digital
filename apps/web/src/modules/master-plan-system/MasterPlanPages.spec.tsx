@@ -371,3 +371,53 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? [])).some((key) => key.includes("mps-weekly-plans"))).toBe(true));
   }, 25_000);
 });
+
+describe("MasterPlanResourcePage weekly plan process groups", () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["*"], isSystemAdmin: true }));
+  });
+  afterEach(() => cleanup());
+
+  it("renders the 毛坯 field group between 研磨 and 表面处理 from the canonical process registry", async () => {
+    const processField = (code: string, label: string, suffix: string, suffixLabel: string, type: string) =>
+      ({ key: `${code}${suffix}`, label: `${label}·${suffixLabel}`, type, editable: false, required: false });
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text", editable: true, required: true },
+      processField("grinding", "研磨", "CycleDays", "所需周期", "number"),
+      processField("grinding", "研磨", "Status", "状态", "dictionary"),
+      processField("blank", "毛坯", "CycleDays", "所需周期", "number"),
+      processField("blank", "毛坯", "DueDate", "交期", "date"),
+      processField("blank", "毛坯", "Status", "状态", "dictionary"),
+      processField("blank", "毛坯", "Exception", "异常", "text"),
+      processField("surfaceTreatment", "表面处理", "Status", "状态", "dictionary"),
+      { key: "packagingStatus", label: "包装·状态", type: "dictionary", editable: false, required: false }
+    ];
+    const processes = [
+      { code: "cutting", name: "下料", order: 1 }, { code: "machining", name: "机加", order: 2 }, { code: "bending", name: "折弯", order: 3 },
+      { code: "spotWelding", name: "点焊", order: 4 }, { code: "welding", name: "焊接", order: 5 }, { code: "woodworking", name: "木作", order: 6 },
+      { code: "grinding", name: "研磨", order: 7 }, { code: "blank", name: "毛坯", order: 8 },
+      { code: "surfaceTreatment", name: "表面处理", order: 9 }, { code: "packaging", name: "包装", order: 10 }
+    ];
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-weekly-plans", fields, createFields: [], processes, actions: { create: false, update: false, delete: false, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-weekly-plans?")) return { rows: [{ id: "w1", version: 1, orderNumber: "2026A027192" }], total: 1 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const { container } = renderPage("mps-weekly-plans");
+    await screen.findByDisplayValue("") .catch(() => undefined);
+    await waitFor(() => expect(container.querySelectorAll(".ant-table-thead").length).toBeGreaterThan(0));
+
+    const headerRows = Array.from(container.querySelectorAll(".ant-table-thead tr"));
+    const headers = Array.from(container.querySelectorAll(".ant-table-thead th")).map((cell) => cell.textContent?.trim() ?? "");
+    const groupTitles = headers.filter((header) => ["研磨", "毛坯", "表面处理", "包装"].includes(header));
+    expect(groupTitles).toEqual(["研磨", "毛坯", "表面处理", "包装"]);
+    /* 第一行是工序分组标题（顺序即 registry），第二行是组内字段标题：毛坯组包含周期/交期/状态/异常。 */
+    expect(headers.indexOf("研磨")).toBeLessThan(headers.indexOf("毛坯"));
+    expect(headers.indexOf("毛坯")).toBeLessThan(headers.indexOf("表面处理"));
+    const childHeaders = Array.from((headerRows.at(-1) ?? headerRows[0]!).querySelectorAll("th")).map((cell) => cell.textContent?.trim() ?? "");
+    expect(childHeaders.join("|")).toContain(["所需周期", "交期", "状态", "异常"].join("|"));
+    expect(childHeaders.indexOf("毛坯")).toBe(-1);
+  }, 20_000);
+});

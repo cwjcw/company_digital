@@ -14,7 +14,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type PendingField = TablePermissionFieldDefinition & { input: boolean };
-type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
+type ProcessOption = { code: string; name: string; order: number };
+type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
 type Reconciliation = { status: string; message: string | null };
 /** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
 const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
@@ -58,10 +59,13 @@ function display(value: unknown, field: TablePermissionFieldDefinition, row: any
   return value == null || value === "" ? "—" : String(value);
 }
 
-const processGroups = [
-  ["cutting", "下料"], ["machining", "机加"], ["bending", "折弯"], ["spotWelding", "点焊"], ["welding", "焊接"],
-  ["woodworking", "木作"], ["grinding", "研磨"], ["surfaceTreatment", "表面处理"], ["packaging", "包装"]
-] as const;
+/** 未取到服务端工序定义时的兜底顺序（唯一权威定义在 @tracker/shared，服务端通过 metadata.processes 下发）。 */
+const fallbackProcessGroups: ProcessOption[] = [
+  { code: "cutting", name: "下料", order: 1 }, { code: "machining", name: "机加", order: 2 }, { code: "bending", name: "折弯", order: 3 },
+  { code: "spotWelding", name: "点焊", order: 4 }, { code: "welding", name: "焊接", order: 5 }, { code: "woodworking", name: "木作", order: 6 },
+  { code: "grinding", name: "研磨", order: 7 }, { code: "blank", name: "毛坯", order: 8 },
+  { code: "surfaceTreatment", name: "表面处理", order: 9 }, { code: "packaging", name: "包装", order: 10 }
+];
 
 function InlineMasterPlanCell({ resource, field, row, value, organizations, users, weeklyPlans, onSave }: {
   resource: string; field: TablePermissionFieldDefinition; row: any; value: unknown;
@@ -106,7 +110,7 @@ function PendingReportSubmit({ count, submitting, onSubmit }: { count: number; s
   return <Button type="primary" loading={submitting} disabled={!count} onClick={onSubmit}>提交报工{count ? `（${count}）` : ""}</Button>;
 }
 
-function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode) {
+function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
     dataIndex: field.key,
@@ -127,9 +131,10 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
       if (children.length) groups.push({ title, children: children.map(column) });
     }
   }
-  for (const [prefix, title] of processGroups) {
-    const children = fields.filter((field) => ["CycleDays", "DueDate", "Status", "Exception"].some((suffix) => field.key === `${prefix}${suffix}`));
-    children.forEach((field) => grouped.add(field.key)); if (children.length) groups.push({ title, children: children.map(column) });
+  /* 工序分组顺序完全按服务端下发的 canonical registry（毛坯位于研磨与表面处理之间）。 */
+  for (const process of [...processes].sort((left, right) => left.order - right.order)) {
+    const children = fields.filter((field) => ["CycleDays", "DueDate", "Status", "Exception"].some((suffix) => field.key === `${process.code}${suffix}`));
+    children.forEach((field) => grouped.add(field.key)); if (children.length) groups.push({ title: process.name, children: children.map(column) });
   }
   return [...fields.filter((field) => !grouped.has(field.key)).map(column), ...groups];
 }
@@ -295,7 +300,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, metadata.data?.processes]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
   const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);

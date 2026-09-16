@@ -565,6 +565,8 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 有限枚举选项必须只有一个服务端权威定义，后端校验、metadata、UI 和 Excel 下拉共同消费；不得分别维护 `allowedValues`、前端字典和模板选项等多套值。
 - 主计划默认只读。用户显式进入编辑模式后，拥有当前字段编辑权限且当前记录位于其更新数据范围内时，单元格才可编辑；失焦、Enter 或 Tab 只 PATCH 已变化字段并携带 `expectedVersion`。成功使用服务端确认值及最新版本更新缓存，失败恢复旧值并显示明确错误。表内编辑与批量修改必须同时保留。
 - 报工类资源必须包含只读事业部字段并继承来源计划的事业部；查询、筛选、导出、字段权限和数据权限使用该稳定事业部 ID。同步不得用空值或旧来源覆盖人工报工内容。
+- KDOS 正式工序只有唯一一份 10 工序 registry（KN-PROC-001）：`cutting 下料、machining 机加、bending 折弯、spotWelding 点焊、welding 焊接、woodworking 木作、grinding 研磨、blank 毛坯、surfaceTreatment 表面处理、packaging 包装`，顺序固定，毛坯位于研磨之后、表面处理之前（order 8，周期字段 `blankDays` / 数据库列 `blank_days`）。工序下拉、字段权限、工序周期表、倒排计划、周计划/月度计划工序分组、待报工与实际报工都必须从 `@tracker/shared` 的这份定义派生，不得再维护第二份工序名单或顺序。
+- 旧 Planning 的 14 个 legacy process definitions（drawingBom、metalMain、woodMain、frontParts、woodwork、painting、acrylic、bakingPlating、rearPackingParts、assemblyPacking 等）已彻底退役：不得再作为新功能依据、不得出现在任何下拉或模板中、不得因为历史 Planning 而保留两套工序定义；`mps_process_cycles` 等正式表只保留 10 工序周期列，历史表数据按原样留存但不再正式读取。
 - 生产执行报工闭环必须遵守以下固定规则（KN-PR-001 确认）：
   - 工序报工表的“待报工任务”（PENDING）来自 `mps_weekly_process_plans`（待执行工序任务），不是 `mps_process_reports`；PENDING 行的 `id` 是工序任务 ID，实际报工记录的 `id` 是报工记录 ID，两者不得混用。禁止为了“让实际报工有数据”预先插入空白报工或伪造零数量报工。
   - PENDING 字段顺序固定为：订单编号、品项编码、品项名称、工序、计划数量、累计报工、剩余数量、本次报工数量、生产日期；只有“本次报工数量”“生产日期”可填写，其余为任务上下文只读；页面与待报工 Excel 模板必须共用同一份权威字段定义，不得各写一份。

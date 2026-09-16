@@ -5,13 +5,16 @@ import { FilterOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Card, DatePicker, Drawer, Flex, Input, Modal, Select, Space, Typography } from "antd";
 import dayjs from "dayjs";
-import { type ColumnDefinition } from "@tracker/shared";
 import { api, ApiError, getValue } from "../api";
 import { useKdosTableEditMode } from "./KdosDataTable";
 export { auditLabels, isAuditField, useAuditColumns, useAuditIdentityDirectory, formatAuditUser } from "./audit-fields";
 import { auditLabels, isAuditField } from "./audit-fields";
 
 const { Title, Text } = Typography;
+
+/** 本文件保留的旧表格辅助类型的本地定义：不再依赖已退役的 shared legacy Planning 列契约（KN-PROC-001）。 */
+type ColumnKind = "text" | "date" | "decimal" | "image" | "dictionary" | "department";
+type ColumnDefinition = { key: string; header: string; group?: string; kind: ColumnKind; editable?: boolean; pinned?: boolean; dictionaryCode?: string };
 
 export function statusClass(rate: number | null, dueDate?: string | null) {
   if (rate !== null && rate >= 1) return "status-complete";

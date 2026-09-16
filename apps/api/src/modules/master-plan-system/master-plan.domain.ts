@@ -1,15 +1,14 @@
 import Decimal from "decimal.js";
+import { standardProcesses } from "@tracker/shared";
 
-export const STANDARD_PROCESSES = [
-  ["cutting", "下料", "cuttingDays"], ["machining", "机加", "machiningDays"],
-  ["bending", "折弯", "bendingDays"], ["spotWelding", "点焊", "spotWeldingDays"],
-  ["welding", "焊接", "weldingDays"], ["woodworking", "木作", "woodworkingDays"],
-  ["grinding", "研磨", "grindingDays"], ["surfaceTreatment", "表面处理", "surfaceTreatmentDays"],
-  ["packaging", "包装", "packagingDays"]
-] as const;
+/**
+ * 工序唯一来源：@tracker/shared 的 canonical registry（KN-PROC-001）。
+ * 这里只做形状派生（[code, name, cycleField]），不得再单独维护工序名单或顺序。
+ */
+export const STANDARD_PROCESSES = standardProcesses.map((process) => [process.code, process.name, process.cycleField] as const);
 
-export type ProcessCode = typeof STANDARD_PROCESSES[number][0];
-export type ProcessCycleInput = Partial<Record<typeof STANDARD_PROCESSES[number][2], number | null>>;
+export type ProcessCode = string;
+export type ProcessCycleInput = Partial<Record<string, number | null>>;
 
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -77,4 +76,3 @@ export function aggregateGroup(items: Array<{ requiredQuantity: string | number;
 export function shanghaiToday(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
-

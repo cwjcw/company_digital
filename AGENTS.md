@@ -22,6 +22,7 @@
 - SQL Server、企业微信和通讯录导出统一使用 `/data/automation/code/work/basci/basic_code` 的 `MSSQLDatabase`、`WeChatPusher` 和 `export_contacts`；密钥只保存在该工具包自己的 `.env`，不得复制到本项目。
 - `WeChatPusher()` 使用计划中心默认自建应用；指定业务应用时使用 `WeChatPusher(app="...")`。群机器人只能显式调用 `send_robot_*()`，不得作为自建应用消息的自动回退。
 - Do not introduce Kafka, Kubernetes, microservices, extra databases, or infrastructure without a proven requirement.
-- Preserve AG Grid Community, the 97 legacy Planning fields, 14 process definitions, and migration tests.
+- Preserve AG Grid Community, the migration tests, and exactly one canonical set of 10 standard processes (cutting 下料, machining 机加, bending 折弯, spotWelding 点焊, welding 焊接, woodworking 木作, grinding 研磨, blank 毛坯, surfaceTreatment 表面处理, packaging 包装; 毛坯 sits between 研磨 and 表面处理). The registry lives in `@tracker/shared`; every dropdown, cycle field, reverse schedule, report and master-plan display derives from it.
+- The retired legacy Planning module (97-field / 93-field monthly-plan columns, 14 legacy process definitions such as drawingBom, metalMain, woodMain, frontParts, woodwork, painting, acrylic, bakingPlating, rearPackingParts, assemblyPacking) must not be reintroduced as a formal business contract. Keep only historical migrations and retained read-only data.
 
 See `ARCHITECTURE.md`, `SECURITY.md`, `docs/runbook.md`, and `docs/integration-guide.md` before changing a boundary.

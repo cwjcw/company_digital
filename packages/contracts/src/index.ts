@@ -1,3 +1,5 @@
+import { standardProcesses } from "@tracker/shared";
+
 export const tablePermissionActions = ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"] as const;
 export type TablePermissionAction = typeof tablePermissionActions[number];
 
@@ -132,7 +134,8 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "mps-erp-orders": fields([["sourceAccountName", "来源账套", "text", false], ["salespersonName", "业务员", "text", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["expectedShippingDate", "预计出货日期", "date", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["unit", "单位", "text", false], ["orderQuantity", "订单数量", "number", false], ["taxIncludedUnitPrice", "含税单价", "number", false], ["taxIncludedAmount", "含税金额", "number", false], ["orderStatus", "订单状态", "text", false]]),
   "mps-customer-divisions": fields([["customerCode", "客户编码", "text", true, true], ["primaryDivisionId", "主责事业部", "department", true, true], ["enabled", "启用", "boolean"], ["remark", "备注"]]),
   "mps-order-allocations": fields([["salespersonName", "业务员"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["orderDate", "下单日期", "date"], ["expectedShippingDate", "预计出货日期", "date"], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["unit", "单位"], ["orderQuantity", "订单数量", "number"], ["allocatedQuantity", "分配数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["remark", "备注"]]),
-  "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"], ["cuttingDays", "下料周期", "number"], ["machiningDays", "机加周期", "number"], ["bendingDays", "折弯周期", "number"], ["spotWeldingDays", "点焊周期", "number"], ["weldingDays", "焊接周期", "number"], ["woodworkingDays", "木作周期", "number"], ["grindingDays", "研磨周期", "number"], ["surfaceTreatmentDays", "表面处理周期", "number"], ["packagingDays", "包装周期", "number"]]),
+  /* 工序周期列顺序与 canonical registry 完全一致（毛坯位于研磨之后、表面处理之前）。 */
+  "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"], ...standardProcesses.map((process) => [process.cycleField, `${process.name}周期`, "number"] as [string, string, "number"])]),
   "mps-group-plans": fields([["sourceAccounts", "来源账套", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["customerCode", "客户编码", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["orderAmount", "订单金额", "number", false], ["requiredQuantity", "需求数量", "number", false], ["primaryDivisionId", "主责事业部", "department", false], ["completedQuantity", "完成数量", "number", false], ["pendingQuantity", "待完成数量", "number", false], ["completionRate", "完成比例", "number", false]]),
   "mps-monthly-plans": fields([["divisionId", "承接事业部", "department", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["latestCustomerDueDate", "最迟客户交期", "date"], ["modelAge", "新旧款", "dictionary"], ["productAttribute", "产品属性"], ["surfaceNature", "表面性质"], ["specialItem", "特殊事项"], ["requiredQuantity", "需求数量", "number", false], ["cumulativeInboundQuantity", "累计入库数量", "number", false], ["pendingQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["plannedPageCount", "计划页数", "number"], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"], ["orderWeekCount", "下单周数", "number", false]]),
   "mps-shipping-plans": fields([["customerCode", "客户编码", "text", true, true], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称", "text", true, true], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["modelAge", "新旧款", "dictionary", true], ["enteredWeeklyPlan", "已进入周计划", "boolean", false]]),
@@ -163,10 +166,8 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "customer-data-import": fields([["source", "数据源", "dictionary"], ["customerCode", "客户代码"], ["status", "状态", "dictionary", false]])
 };
 
-const standardMpsProcesses = [
-  ["cutting", "下料"], ["machining", "机加"], ["bending", "折弯"], ["spotWelding", "点焊"], ["welding", "焊接"],
-  ["woodworking", "木作"], ["grinding", "研磨"], ["surfaceTreatment", "表面处理"], ["packaging", "包装"]
-] as const;
+/* 工序定义唯一来源：@tracker/shared 的 canonical registry（KN-PROC-001），本文件不再维护第二份名单。 */
+const standardMpsProcesses = standardProcesses.map((process) => [process.code, process.name] as const);
 
 const mpsProcessPermissionFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
   { key: `${code}CycleDays`, label: `${label}·所需周期`, type: "number" as const, editable: false },

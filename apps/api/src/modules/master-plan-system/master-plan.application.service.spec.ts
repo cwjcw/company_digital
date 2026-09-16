@@ -145,7 +145,7 @@ describe("MasterPlanApplicationService imports", () => {
 
       /* processCode 的 label（折弯）与 value（bending）不同：label 不得被直接持久化。 */
       const processActor = { ...actor, isSystemAdmin: false, permissions: ["*"] };
-      const codes = "cutting、machining、bending、spotWelding、welding、woodworking、grinding、surfaceTreatment、packaging";
+      const codes = "cutting、machining、bending、spotWelding、welding、woodworking、grinding、blank、surfaceTreatment、packaging";
       await expect(instance.validateImportUpdates("mps-weekly-process-plans", [
         { row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "折弯" } }
       ], processActor)).resolves.toEqual([{ row: 2, reason: `工序只能选择：${codes}` }]);
