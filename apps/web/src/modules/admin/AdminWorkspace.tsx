@@ -146,7 +146,6 @@ export function AdminWorkspace() {
 
   useEffect(() => { if (!selectedRoleId && roles.data?.length) setSelectedRoleId(roles.data[0].id); }, [roles.data, selectedRoleId]);
   const selectedRole = roles.data?.find((role) => role.id === selectedRoleId);
-  const roleMemberKeyword = roleMemberSearch.trim().toLowerCase();
   const userBelongsToAnyOrganization = (user: any, organizationIds: string[]) => organizationIds.some((organizationId) =>
     (user.departmentPaths ?? []).some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, organizationId)));
   /* 角色成员由服务端按 selectedRoleId（角色关系 ∪ 角色授权组织范围）强制约束，客户端无法移除该条件。 */
