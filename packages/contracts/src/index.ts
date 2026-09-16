@@ -376,6 +376,20 @@ export function isTableFieldFilterable(field: TablePermissionFieldDefinition) {
 }
 
 /**
+ * 关联候选标签的唯一来源：按目标资源声明标签列（逗号分隔可多列）。
+ * 关联字段必须显式声明 labelField 或命中此表，缺失时 metadata 审计直接失败，禁止猜测字段。
+ */
+export const tableReferenceLabelFields: Record<string, string> = {
+  "mps-weekly-plans": "order_number,item_code,delivery_number",
+  suppliers: "name",
+  "equipment-register": "equipment_code,equipment_name"
+};
+
+export function referenceLabelFieldsFor(referenceResource: string, labelField?: string) {
+  return (labelField ?? tableReferenceLabelFields[referenceResource] ?? "").split(",").map((column) => column.trim()).filter(Boolean);
+}
+
+/**
  * Phase 0 审计闸门：每个正式字段都必须声明可判定的语义类型；reference 必须给出候选来源；
  * structured 必须显式声明筛选策略。新增字段遗漏 metadata 时模块加载即失败，避免未来按名称猜类型。
  */
@@ -397,6 +411,10 @@ export function auditTableFieldMetadata(): { resources: number; fields: number; 
       if (!field.label) errors.push(`缺少显示名：${where}`);
       if (field.type === "reference" && !field.filterBinding?.referenceResource) errors.push(`reference 缺少候选来源：${where}`);
       if (field.filterBinding?.referenceResource && !knownResources.has(field.filterBinding.referenceResource)) errors.push(`reference 指向未知资源：${where} → ${field.filterBinding.referenceResource}`);
+      /* 关联候选必须能确定标签：显式 labelField 或按目标资源声明的标签定义，禁止按资源猜字段。 */
+      if (field.type === "reference" && field.filterBinding?.referenceResource && !referenceLabelFieldsFor(field.filterBinding.referenceResource, field.filterBinding.labelField).length) {
+        errors.push(`reference 缺少标签定义：${where} → ${field.filterBinding.referenceResource}`);
+      }
       if (field.type === "structured" && field.filterable === undefined) errors.push(`structured 必须声明 filterable：${where}`);
       if (field.multiple !== undefined && typeof field.multiple !== "boolean") errors.push(`multiple 必须为布尔：${where}`);
     }

@@ -5,6 +5,8 @@ import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertif
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
 import {
   HeaderFilterEditor, KdosAdvancedFilter, emptyFilterGroup, visibleOperators,
@@ -281,6 +283,15 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
   /* 类型化高级筛选：草稿在面板内维护，只有点击“筛选/清空”才写入 applied 并触发服务端查询。 */
   const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>(emptyFilterGroup());
+  /* KN-FILTER-001 capability：只有已接入平台筛选的资源才显示正式高级筛选，避免“可填写但服务端忽略”。 */
+  const filterCapabilities = useQuery({
+    queryKey: ["table-filter-resources"],
+    queryFn: () => api<Array<{ code: string; filterableFields: string[] }>>("/table-filters/resources"),
+    staleTime: 300_000,
+    enabled: Boolean(filterFields?.length) && !simple
+  });
+  const typedFilteringSupported = Boolean(filterFields?.length) && (filterCapabilities.data ?? []).some((entry: { code: string }) => entry.code === resource);
+  const supportedFilterFields = typedFilteringSupported ? filterFields : undefined;
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -312,8 +323,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
   const renderedColumns = useMemo(
-    () => addColumnHeaderFilters(filterColumns(allColumns, visible), resource, filterFields, filterGroup, (group) => { setFilters({}); setFilterGroup(group); }, filters, setFilters),
-    [allColumns, filterFields, filterGroup, filters, resource, visible]
+    () => addColumnHeaderFilters(filterColumns(allColumns, visible), resource, supportedFilterFields, filterGroup, (group) => { setFilters({}); setFilterGroup(group); }, filters, setFilters),
+    [allColumns, supportedFilterFields, filterGroup, filters, resource, visible]
   );
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
@@ -404,8 +415,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
       </Space>
       <Space wrap>
         <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={fields} searchPlaceholder={searchPlaceholder} />
-        {filterFields?.length ? <KdosAdvancedFilter resource={resource} fields={filterFields} value={filterGroup}
-          onApply={(group) => { setFilters({}); setFilterGroup(group); }} /> : null}
+        {typedFilteringSupported ? <KdosAdvancedFilter resource={resource} fields={supportedFilterFields ?? []} value={filterGroup}
+          onApply={(group) => { setFilters({}); setFilterGroup(group); }} />
+          : filterFields?.length && !filterCapabilities.isLoading
+            ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索或列头筛选">高级筛选（暂不支持）</Button>
+            : null}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>

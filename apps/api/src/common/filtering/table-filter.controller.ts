@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { AuthGuard } from "../../auth";
@@ -6,6 +6,7 @@ import { FieldCandidateService } from "./field-candidate.service";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
+import { isTableFieldFilterable, referenceLabelFieldsFor } from "@kdos/contracts";
 
 type FilterRequest = Request & { user: any; requestId: string };
 
@@ -49,6 +50,21 @@ export class TableFilterController {
     });
   }
 
+  /**
+   * 平台已接入筛选的资源清单（含可筛选字段）：前端据此判断是否展示正式高级筛选，
+   * 未接入资源不得出现“条件可填写但服务端忽略”的假筛选。
+   */
+  @Get("resources")
+  registeredResources() {
+    return this.registry.codes().sort().map((code) => {
+      const source = this.registry.get(code);
+      return {
+        code,
+        filterableFields: source.fields.filter((field) => isTableFieldFilterable(field)).map((field) => field.key)
+      };
+    });
+  }
+
   private actor(request: FilterRequest): TableFilterActor {
     return {
       tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN",
@@ -69,10 +85,9 @@ export class TableFilterController {
     const target = this.registry.get(referenceResource);
     const params: unknown[] = [actor.tenantId];
     let clause = `record.tenant_id=$1 AND ${target.buildScope(actor, params)}`;
-    /* 标签列优先取字段 metadata 的 labelField；未声明时回退到目标资源的前两个文本列，保证候选可读。 */
-    const fallbackLabelColumns = target.fields.filter((field) => field.type === "text" && target.columns[field.key]).slice(0, 2).map((field) => target.columns[field.key]!);
-    const labelColumns = (binding?.labelField ? String(binding.labelField).split(",").map((column) => column.trim()) : fallbackLabelColumns).filter(Boolean);
-    if (!labelColumns.length) labelColumns.push("id");
+    /* 标签列来自字段显式 labelField 或目标资源的标签定义；缺失时直接拒绝，不允许猜测。 */
+    const labelColumns = referenceLabelFieldsFor(referenceResource, binding?.labelField);
+    if (!labelColumns.length) throw new BadRequestException(`关联字段缺少标签定义：${referenceResource}`);
     const labelExpression = labelColumns.length > 1
       ? `concat_ws(' / ',${labelColumns.map((column) => `record.${column}`).join(",")})`
       : `record.${labelColumns[0] ?? "id"}::text`;
