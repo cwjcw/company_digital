@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type K
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
 import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
-import { tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
+import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
@@ -299,7 +299,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   });
   const registeredFilterCodes = Array.isArray(filterCapabilities.data) ? filterCapabilities.data : [];
   const typedFilteringSupported = Boolean(resolvedFilterFields?.length) && registeredFilterCodes.some((entry: { code: string }) => entry.code === resource);
-  const supportedFilterFields = typedFilteringSupported ? resolvedFilterFields : undefined;
+  /* 只有真正可筛选（filterable 且类型支持操作符）的字段才进入高级筛选，structure/attachment 等不会出现假筛选项。 */
+  const supportedFilterFields = typedFilteringSupported ? resolvedFilterFields.filter((field) => isTableFieldFilterable(field)) : undefined;
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);

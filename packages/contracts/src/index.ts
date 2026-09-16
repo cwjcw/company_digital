@@ -199,9 +199,18 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["fax", "传真", "text", false], ["email", "邮箱", "text", false], ["address", "地址", "text", false],
     ["enabled", "状态", "boolean", false], ["sourceUpdatedAt", "T+更新时间", "date", false]
   ]),
-  "business-customer-mapping": fields([["departmentId", "部门", "department"], ["section", "课室"], ["customerCode", "客户"], ["salespersonUserIds", "业务员", "member", true, false, { multiple: true }]]),
+  "business-customer-mapping": fields([
+    ["departmentId", "部门", "department"], ["department", "部门（文本，历史兼容）", "text", false],
+    ["departmentPath", "组织路径", "text", false, false, { filterable: false, filterBinding: { kind: "virtual", note: "由组织架构解析的完整路径，仅展示" } }],
+    ["section", "课室"], ["customerCode", "客户"],
+    ["salespersonUserIds", "业务员", "member", true, false, { multiple: true }],
+    ["salespersonNames", "业务员姓名", "text", false, false, { filterable: false, filterBinding: { kind: "aggregate", note: "由成员姓名解析，仅展示" } }]
+  ]),
   /* completion_ratio 在 KDOS 有 CHECK 0..100（导入校验 0..100），因此明确按 percent 尺度声明。 */
-  "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false, false, { multiple: true }], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number", true, false, { format: "percentage", percentageScale: "percent" }], ["status", "状态", "dictionary", true, false, { options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] }]]),
+  "order-schedule": fields([
+    ["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["department", "部门（文本，历史兼容）", "text", false],
+    ["departmentPath", "组织路径", "text", false, false, { filterable: false, filterBinding: { kind: "virtual", note: "由组织架构解析的完整路径，仅展示" } }],
+    ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false, false, { multiple: true }], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number", true, false, { format: "percentage", percentageScale: "percent" }], ["status", "状态", "dictionary", true, false, { options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] }]]),
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
   "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number", true, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
