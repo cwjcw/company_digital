@@ -4,7 +4,9 @@ import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResourc
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
-type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown };
+type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const basePlanDerivedFields = new Set(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]);
 
 @Injectable()
 export class MasterPlanQueryService {
@@ -24,6 +26,7 @@ export class MasterPlanQueryService {
         delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),
         import: hasMasterPlanPermission(actor, code, "import"),
         export: hasMasterPlanPermission(actor, code, "export"),
+        viewWeekly: code === "mps-base-plans" && hasMasterPlanPermission(actor, "mps-weekly-plans", "read"),
         batchUpdate: hasMasterPlanPermission(actor, code, "batch_update") && fieldsFor(resource).some((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"))
       }
     };
@@ -42,6 +45,11 @@ export class MasterPlanQueryService {
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
+    if (code === "mps-weekly-plans" && input.basePlanId != null && String(input.basePlanId).trim() !== "") {
+      const basePlanId = String(input.basePlanId).trim();
+      if (!uuidPattern.test(basePlanId)) throw new BadRequestException("基础计划定位参数无效");
+      params.push(basePlanId); clauses.push(`record.base_plan_id=$${params.length}::uuid`);
+    }
     const organizationOptions = resource.divisionField && visibleFields.includes(resource.divisionField) ? await this.directory.listEnabled() : [];
     const search = String(input.search ?? "").trim();
     if (search) {
@@ -88,6 +96,9 @@ export class MasterPlanQueryService {
     if (resource.code === "mps-weekly-process-plans" && visibleFields.includes("weeklyPlanId")) {
       joins.push("LEFT JOIN mps_weekly_plans weekly_reference ON weekly_reference.tenant_id=record.tenant_id AND weekly_reference.id=record.weekly_plan_id");
       selected.push(`concat_ws(' / ',weekly_reference.order_number,weekly_reference.item_code,weekly_reference.item_name,'交期编码'||weekly_reference.delivery_number::text) "weeklyPlanLabel"`);
+    }
+    if (resource.code === "mps-base-plans") {
+      selected.push(`(SELECT weekly.id FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.base_plan_id=record.id) "weeklyPlanId"`);
     }
     dataParams.push(pageSize, (page - 1) * pageSize);
     const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
@@ -171,6 +182,7 @@ export class MasterPlanQueryService {
   private expression(column: string) { return column.startsWith("(") ? column : `record.${column}`; }
 
   private visible(actor: MasterPlanActor, resource: string, field: string) {
+    if (resource === "mps-base-plans" && basePlanDerivedFields.has(field)) return hasMasterPlanPermission(actor, resource, "read");
     return hasMasterPlanFieldPermission(actor, resource, field, "read") || hasMasterPlanFieldPermission(actor, resource, field, "update");
   }
 

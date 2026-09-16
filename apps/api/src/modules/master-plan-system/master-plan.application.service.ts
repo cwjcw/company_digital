@@ -29,11 +29,11 @@ export class MasterPlanApplicationService {
       const params = [actor.tenantId, actorId, actorId, ...entries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$3,${entries.map((_, index) => `$${index + 4}`).join(",")}) RETURNING *`, params);
       await this.audit(manager, actor, code, inserted[0].id, `${code}.created`, null, inserted[0]);
-      await this.enqueueReconciliation(manager, resource, actor);
+      await this.enqueueReconciliation(manager, resource, actor, inserted[0].id);
       return inserted[0];
     }));
-    void this.sync.processOutbox().catch(() => undefined);
-    return result;
+    const reconciliation = await this.completeReconciliation(resource, result.id, actor);
+    return reconciliation ? { ...result, reconciliation } : result;
   }
 
   async update(code: string, id: string, body: Record<string, unknown>, actor: MasterPlanActor) {
@@ -62,15 +62,15 @@ export class MasterPlanApplicationService {
       const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
       if (!updatedRow) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await this.audit(manager, actor, code, id, `${code}.updated`, current, updatedRow);
-      await this.enqueueReconciliation(manager, resource, actor);
+      await this.enqueueReconciliation(manager, resource, actor, id);
       return {
         id: updatedRow.id,
         version: Number(updatedRow.version),
         values: Object.fromEntries(entries.map(([field]) => [field, updatedRow[columns[field]!]]))
       };
     }));
-    void this.sync.processOutbox().catch(() => undefined);
-    return result;
+    const reconciliation = await this.completeReconciliation(resource, id, actor);
+    return reconciliation ? { ...result, reconciliation } : result;
   }
 
   async batchUpdate(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
@@ -254,7 +254,7 @@ export class MasterPlanApplicationService {
       if (Number(current.version) !== version) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
       await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
-      await this.enqueueReconciliation(manager, resource, actor);
+      await this.enqueueReconciliation(manager, resource, actor, id);
       return { id, deleted: true };
     }));
     void this.sync.processOutbox().catch(() => undefined);
@@ -439,7 +439,7 @@ export class MasterPlanApplicationService {
     return false;
   }
 
-  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor) {
+  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null) {
     const jobs: Partial<Record<string, string[]>> = {
       "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
       "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
@@ -449,10 +449,20 @@ export class MasterPlanApplicationService {
     };
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
     for (const syncKey of jobs[resource.code] ?? []) await manager.query(`
-      INSERT INTO mps_reconciliation_outbox(tenant_id,resource,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
-      VALUES($1,$2,$3,$4,$5::uuid,$6,$5::uuid,$5::uuid)
+      INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
+      VALUES($1,$2,$3::uuid,$4,$5,$6::uuid,$7,$6::uuid,$6::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
-    [actor.tenantId, resource.code, syncKey, `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+    [actor.tenantId, resource.code, recordId, syncKey, `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+  }
+
+  private async completeReconciliation(resource: MasterPlanResource, recordId: string, actor: MasterPlanActor) {
+    if (resource.code !== "mps-base-plans") { void this.sync.processOutbox().catch(() => undefined); return undefined; }
+    try { await this.sync.processOutbox(); } catch { /* The committed business write remains successful; the outbox will retry. */ }
+    const [event] = await this.dataSource.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource=$2 AND record_id=$3::uuid AND sync_key='base-to-weekly' AND idempotency_key=$4`, [actor.tenantId, resource.code, recordId, `outbox:${actor.requestId}:${resource.code}:base-to-weekly`]);
+    if (!event) return undefined;
+    return event.status === "FAILED"
+      ? { status: "FAILED", message: `基础计划已保存，但周计划生成失败：${event.last_error || "系统将自动重试"}` }
+      : { status: String(event.status), message: null };
   }
 
   private async enforceShippingWindow(resource: MasterPlanResource, actor: MasterPlanActor) {

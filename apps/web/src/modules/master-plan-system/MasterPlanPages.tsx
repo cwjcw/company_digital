@@ -9,19 +9,22 @@ import { hasFieldPermission, hasResourcePermission, KdosDataTable, useKdosTableE
 import { PageHeader } from "../../shared/legacy-ui";
 import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/OrganizationSelect";
 import type { AuditDirectoryUser } from "../../shared/audit-fields";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
-type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean } };
+type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean } };
+type Reconciliation = { status: string; message: string | null };
 const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
 
-function pageUrl(resource: string, query: TableQuery, view: string) {
+function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?: string) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
   if (query.search) params.set("search", query.search);
   if (Object.values(query.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(query.filters));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
+  if (basePlanId) params.set("basePlanId", basePlanId);
   return `/master-plan-system/resources/${resource}?${params}`;
 }
 
@@ -37,6 +40,9 @@ function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], .
 }
 
 function display(value: unknown, field: TablePermissionFieldDefinition, row: any) {
+  if (field.key === "weeklyPlanState") return <Tag color={({ "待完善": "default", "已具备条件": "processing", "已进入周计划": "success" } as Record<string, string>)[String(value)]}>{value || "—"}</Tag>;
+  if (field.key === "weeklyPlanMissingFields") return value ? `缺少：${String(value)}` : "—";
+  if (field.key === "weeklyPlanGenerationIssue") return value ? <Tag color="error">生成失败：{String(value)}</Tag> : "—";
   if (field.type === "boolean") return <Tag color={value ? "success" : "default"}>{value ? "是" : "否"}</Tag>;
   if (field.type === "department" && row.divisionName) return row.divisionName;
   if (field.key === "weeklyPlanId" && row.weeklyPlanLabel) return row.weeklyPlanLabel;
@@ -108,9 +114,10 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
   return [...fields.filter((field) => !grouped.has(field.key)).map(column), ...groups];
 }
 
-function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void }) {
+function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
   const { editing } = useKdosTableEditMode();
   const items = [
+    onViewWeekly ? { key: "viewWeekly", label: "查看周计划", onClick: onViewWeekly } : null,
     editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
     editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
     editing && onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
@@ -124,7 +131,8 @@ function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport }: { met
 
 export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const info = definitionMap.get(resource as any);
-  const queryClient = useQueryClient(); const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
+  const queryClient = useQueryClient(); const navigate = useNavigate(); const [searchParams] = useSearchParams(); const basePlanId = resource === "mps-weekly-plans" ? searchParams.get("basePlanId") ?? undefined : undefined;
+  const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
   const saveLock = useRef(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState<string | null>(null);
@@ -139,16 +147,25 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const organizations = useQuery({ queryKey: ["mps-organization-options", sessionSubject, resource], queryFn: () => api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${encodeURIComponent(resource)}`), staleTime: 300_000, enabled: Boolean(metadata.data?.fields.some((field) => field.type === "department")) });
   const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: ["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource) && Boolean(metadata.data) });
-  const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
+  const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view, basePlanId], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view, basePlanId)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
+  const refreshRelatedPlans = useCallback(async () => {
+    await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
+  }, [queryClient, sessionSubject]);
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
     try {
-      const updated = await api<{ version: number; values: Record<string, unknown> }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
+      const updated = await api<{ version: number; values: Record<string, unknown>; reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
       const confirmedValue = updated.values[field.key];
-      queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === confirmedValue)?.pathLabel ?? null } : {}) } : entry) } : current);
-      message.success(`${field.label}已保存`);
+      if (resource === "mps-base-plans") {
+        await refreshRelatedPlans();
+        if (updated.reconciliation?.status === "FAILED") message.warning(updated.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
+        else message.success(`${field.label}已保存；周计划状态已刷新`);
+      } else {
+        queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === confirmedValue)?.pathLabel ?? null } : {}) } : entry) } : current);
+        message.success(`${field.label}已保存`);
+      }
     } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
-  }, [organizations.data, queryClient, resource, sessionSubject]);
+  }, [organizations.data, queryClient, refreshRelatedPlans, resource, sessionSubject]);
   const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };

@@ -73,6 +73,16 @@ function virtualColumns(resource: MasterPlanResource) {
     outsourcingDueDate: `(SELECT min(report.outsourcing_due_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
     outsourcingActualInboundDate: `(SELECT max(report.actual_inbound_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`
   });
+  if (resource.code === "mps-base-plans") {
+    const admission = weeklyAdmissionSql(resource, "record");
+    const missing = weeklyAdmissionMissingSql(resource, "record");
+    const linkedWeekly = "EXISTS(SELECT 1 FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.base_plan_id=record.id)";
+    Object.assign(output, {
+      weeklyPlanState: `(CASE WHEN ${linkedWeekly} THEN '已进入周计划' WHEN ${admission} THEN '已具备条件' ELSE '待完善' END)`,
+      weeklyPlanMissingFields: `(CASE WHEN ${linkedWeekly} OR ${admission} THEN NULL ELSE ${missing} END)`,
+      weeklyPlanGenerationIssue: `(SELECT event.last_error FROM mps_reconciliation_outbox event WHERE event.tenant_id=record.tenant_id AND event.resource='mps-base-plans' AND event.record_id=record.id AND event.sync_key='base-to-weekly' ORDER BY event.created_at DESC LIMIT 1)`
+    });
+  }
   if (resource.code === "mps-monthly-plans") {
     const weeklyFrom = `FROM mps_weekly_plans weekly`;
     const weeklyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
@@ -113,9 +123,20 @@ export function columnsFor(resource: MasterPlanResource): Record<string, string>
 
 /** The only definition of fields required to progress a base plan into a weekly plan. */
 export function weeklyAdmissionSql(resource: MasterPlanResource, tableAlias = "") {
+  return (resource.weeklyAdmissionRequiredFields ?? []).map((field) => weeklyAdmissionPresentSql(camelToSnake(field), tableAlias)).join(" AND ") || "true";
+}
+
+function weeklyAdmissionPresentSql(column: string, tableAlias = "") {
   const prefix = tableAlias ? `${tableAlias}.` : "";
-  const columns = columnsFor(resource);
-  return (resource.weeklyAdmissionRequiredFields ?? []).map((field) => `${prefix}${columns[field]} IS NOT NULL`).join(" AND ") || "true";
+  return `NULLIF(btrim(${prefix}${column}::text),'') IS NOT NULL`;
+}
+
+/** Labels and predicates intentionally derive from weeklyAdmissionRequiredFields, not a second UI list. */
+export function weeklyAdmissionMissingSql(resource: MasterPlanResource, tableAlias = "") {
+  const labels = new Map(fieldsFor(resource).map((field) => [field.key, field.label]));
+  return `concat_ws('、',${(resource.weeklyAdmissionRequiredFields ?? []).map((field) =>
+    `CASE WHEN NOT (${weeklyAdmissionPresentSql(camelToSnake(field), tableAlias)}) THEN '${String(labels.get(field) ?? field).replace(/'/g, "''")}' END`
+  ).join(",")})`;
 }
 
 export function weeklyAdmissionMissingFields(resource: MasterPlanResource, values: Record<string, unknown>) {
