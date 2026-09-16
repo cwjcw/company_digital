@@ -116,3 +116,52 @@ describe("EquipmentQueryService status responsibility", () => {
     expect(sql).toContain("'division',division,'departmentId'");
   });
 });
+
+describe("EquipmentQueryService typed filtering (KN-FILTER-001)", () => {
+  const actor = {
+    tenantId: "KAINAN", userId: null, username: "系统管理员", isSystemAdmin: true,
+    permissions: ["*"], tableDataScopes: [], requestId: "request-filter"
+  } as any;
+
+  it("applies typed filterGroup to the asset list/count with the real column binding", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValueOnce([{ count: 3 }]).mockResolvedValueOnce([]) } as any;
+    const service = new EquipmentQueryService(dataSource);
+    const result = await service.listAssets({
+      page: 1, pageSize: 50,
+      filterGroup: { logic: "AND", rules: [{ field: "plannedStartupMinutes", operator: "gte", value: 480 }] }
+    }, actor);
+    expect(result.total).toBe(3);
+    const countSql = String(dataSource.query.mock.calls[0][0]);
+    expect(countSql).toContain("asset.planned_startup_minutes");
+    expect(dataSource.query.mock.calls[0][1]).toContain("480");
+  });
+
+  it("resolves the faultReason dictionary against dictionary_values without assuming a label column", async () => {
+    const dataSource = { query: jest.fn()
+      .mockResolvedValueOnce([{ value: "机械故障" }])
+      .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([]) } as any;
+    const service = new EquipmentQueryService(dataSource);
+    await service.listStatus({
+      page: 1, pageSize: 50,
+      filterGroup: { logic: "AND", rules: [{ field: "faultReason", operator: "eq", value: "机械故障" }] }
+    }, actor);
+    const dictionarySql = String(dataSource.query.mock.calls[0][0]);
+    expect(dictionarySql).toContain("dictionary_values");
+    expect(dictionarySql).not.toContain("dv.label");
+    expect(String(dataSource.query.mock.calls[1][0])).toContain("report.fault_reason");
+  });
+
+  it("拒绝未知字段与不匹配的操作符，不把条件静默丢掉", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValue([{ count: 0 }, []]) } as any;
+    const service = new EquipmentQueryService(dataSource);
+    await expect(service.listAssets({
+      page: 1, pageSize: 50,
+      filterGroup: { logic: "AND", rules: [{ field: "notAColumn", operator: "eq", value: 1 }] }
+    }, actor)).rejects.toThrow(/不允许筛选/);
+    await expect(service.listAssets({
+      page: 1, pageSize: 50,
+      filterGroup: { logic: "AND", rules: [{ field: "monitored", operator: "contains", value: "是" }] }
+    }, actor)).rejects.toThrow(/不支持该筛选方式/);
+  });
+});

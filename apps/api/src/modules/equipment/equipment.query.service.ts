@@ -397,14 +397,17 @@ export class EquipmentQueryService {
     };
   }
 
-  /** 设备故障原因字典：label 与 value 都可命中，未命中返回 null（由编译器按原值处理）。 */
+  /**
+   * 设备故障原因字典：`dictionary_values` 只存 `value`（中文选项即 value，没有独立 label 列），
+   * 因此按 value 精确命中；未命中返回 null（由编译器按原值处理）。
+   */
   private async faultReasonDictionary() {
-    const rows: Array<{ value: string; label: string | null }> = await this.dataSource.query(
-      `SELECT dv.value, dv.label FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true`
+    const rows: Array<{ value: string }> = await this.dataSource.query(
+      `SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true`
     );
     return {
       match: (raw: string) => {
-        const matched = rows.filter((row) => row.value === raw || row.label === raw).map((row) => row.value);
+        const matched = rows.filter((row) => row.value === raw).map((row) => row.value);
         return matched.length ? matched : null;
       }
     };
