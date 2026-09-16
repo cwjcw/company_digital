@@ -22,7 +22,7 @@ async function seed() {
     role ??= await roles.save({ name, description: `${name}初始角色` });
     roleMap.set(name, role);
   }
-  const resources = ["sales-summary-dashboard", "sales-orders", "finished-goods-inbound", "finished-goods-outbound", "business-customer-mapping", "order-schedule", "suppliers", "dictionaries", "processes", "users", "roles", "organization", "audit-logs", "imports"];
+  const resources = ["sales-summary-dashboard", "sales-orders", "finished-goods-inbound", "finished-goods-outbound", "business-customer-mapping", "order-schedule", "dictionaries", "processes", "users", "roles", "organization", "audit-logs", "imports"];
   for (const name of roleNames.filter((name) => name !== "系统管理员")) {
     const role = roleMap.get(name)!;
     for (const resource of resources) {

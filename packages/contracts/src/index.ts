@@ -61,7 +61,6 @@ export const tableResourceRegistry = [
   { code: "sales-orders", label: "订单表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-inbound", label: "入库表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-outbound", label: "出库表", module: "数据中心", moduleCode: "data" },
-  { code: "duplicate-order-review", label: "重复订单业务复核", module: "数据中心", moduleCode: "data" },
   { code: "supplier-list", label: "供应商清单", module: "数据中心", moduleCode: "data" },
   { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心", moduleCode: "marketing" },
   { code: "order-schedule", label: "订单排期", module: "营销中心", moduleCode: "marketing" },
@@ -72,7 +71,6 @@ export const tableResourceRegistry = [
   ...masterPlanResourceDefinitions.map(({ code, label }) => ({ code, label, module: "PMC中心" as const, moduleCode: "planning" as const })),
   { code: "development-requests", label: "需求提报与审批", module: "流程审批", moduleCode: "workflow" },
   { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批", moduleCode: "workflow" },
-  { code: "suppliers", label: "供应商", module: "系统管理", moduleCode: "system" },
   { code: "dictionaries", label: "字典", module: "系统管理", moduleCode: "system" },
   { code: "processes", label: "工序", module: "系统管理", moduleCode: "system" },
   { code: "users", label: "用户", module: "系统管理", moduleCode: "system" },
@@ -186,7 +184,6 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
     ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"]
   ]),
-  "duplicate-order-review": fields([["duplicateLevel", "重复等级"], ["suggestedAction", "建议动作"], ["e10OrderNumber", "E10订单号"], ["tplusOrderNumber", "T+订单号"], ["sourceAccountName", "来源账套"], ["customerSummary", "客户"], ["e10ItemQuantitySummary", "E10品项及数量摘要"], ["tplusItemQuantitySummary", "T+品项及数量摘要"], ["totalQuantityConsistent", "总数量是否一致", "boolean"], ["deliveryDateConsistent", "交期是否一致", "boolean"], ["matchingRule", "匹配规则"], ["matchingReason", "匹配理由"], ["systemSuggestion", "系统建议"], ["businessConfirmationStatus", "业务确认状态"], ["businessConfirmedBy", "业务确认人"], ["businessConfirmedAt", "业务确认日期", "date"], ["businessRemark", "备注"]]),
   "supplier-list": fields([
     ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库", "text", false], ["sourceAccountName", "来源账套", "text", false],
     ["sourceId", "来源主键", "text", false], ["code", "供应商编码", "text", false, true], ["name", "供应商名称", "text", false, true],
@@ -215,7 +212,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
   "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常说明"]]),
   "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常说明"]]),
-  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "suppliers", valueField: "id", labelField: "name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
+  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "supplier-list", valueField: "id", labelField: "code,name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
   "mps-process-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["processCode", "工序", "dictionary", true, true], ["productionDate", "生产日期", "date", true, true], ["plannedQuantity", "计划数量", "number", false], ["productionQuantity", "报工数量", "number", true, true]]),
   "mps-sync-configs": fields([["syncKey", "同步编码", "text", false], ["name", "同步任务", "text", false], ["enabled", "启用", "boolean"], ["intervalMinutes", "间隔分钟", "number"], ["lastStartedAt", "最近开始", "date", false], ["lastSuccessAt", "最近成功", "date", false], ["lastFailureAt", "最近失败", "date", false], ["lastSyncCount", "最近同步数量", "number", false], ["status", "状态", "dictionary", false], ["errorMessage", "错误信息", "text", false]]),
   "mps-sync-logs": fields([["syncKey", "同步编码", "text", false], ["runType", "运行类型", "dictionary", false], ["status", "状态", "dictionary", false], ["startedAt", "开始时间", "datetime", false], ["completedAt", "完成时间", "datetime", false], ["syncCount", "同步数量", "number", false], ["errorMessage", "错误信息", "text", false], ["idempotencyKey", "幂等标识", "text", false]]),
@@ -223,7 +220,6 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "mps-system-settings": fields([["settingKey", "参数编码", "text", false], ["name", "参数名称", "text", false], ["valueJson", "参数值", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "jsonb 参数值只按原样展示/写入，不参与结构化筛选" } }], ["description", "说明", "text", false]]),
   "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false]]),
   "approval-flow-configs": fields([["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"]]),
-  "suppliers": fields([["code", "供应商编码"], ["name", "供应商名称"], ["enabled", "启用", "boolean"]]),
   "dictionaries": fields([["typeCode", "字典类型编码"], ["typeName", "字典类型"], ["value", "字典值"], ["label", "显示名称"], ["enabled", "启用", "boolean"]]),
   "processes": fields([["code", "工序编码"], ["name", "工序名称"], ["sortOrder", "排序", "number"], ["enabled", "启用", "boolean"]]),
   "users": fields([["username", "账号"], ["displayName", "姓名"], ["employeeNo", "工号"], ["division", "部门"], ["position", "职位"], ["mobile", "手机"], ["email", "邮箱"], ["enabled", "状态", "boolean"]]),
@@ -450,7 +446,7 @@ export function tableFilterUiOperatorsFor(field: TablePermissionFieldDefinition)
  */
 export const tableReferenceLabelFields: Record<string, string> = {
   "mps-weekly-plans": "order_number,item_code,delivery_number",
-  suppliers: "name",
+  "supplier-list": "code,name",
   "equipment-register": "equipment_code,equipment_name"
 };
 
@@ -506,12 +502,10 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "tplus-sales-orders": { status: "NOT_APPLICABLE", reason: "T+ 销售订单同步为集成任务视图，源数据语义由集成适配器维护，不作为可筛选业务记录表。" },
   "customer-data-import": { status: "NOT_APPLICABLE", reason: "客户数据导入为一次性导入任务，结果写入客户主数据，没有独立可筛选记录表。" },
   /* 本轮尚未接入：真实业务表，但需要按资源核实数据范围语义后再接入平台编译器。 */
-  "duplicate-order-review": { status: "BLOCKED", reason: "重复订单复核为复核结果表，需先核实其数据范围语义再接入平台编译器。" },
   "business-customer-mapping": { status: "BLOCKED", reason: "营销映射表当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
   "order-schedule": { status: "BLOCKED", reason: "订单排期当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
   "development-requests": { status: "BLOCKED", reason: "需求提报按流程策略在服务层裁剪行权限，需先确认数据范围绑定再接入平台编译器。" },
   "approval-flow-configs": { status: "BLOCKED", reason: "审批流程配置为系统管理配置项，需按系统管理数据范围核实后接入。" },
-  suppliers: { status: "BLOCKED", reason: "供应商主数据为系统管理配置项，需按系统管理数据范围核实后接入。" },
   dictionaries: { status: "BLOCKED", reason: "字典由类型+值两张表组合展示，需确认平台绑定后再接入。" },
   processes: { status: "BLOCKED", reason: "工序主数据为系统管理配置项，需按系统管理数据范围核实后接入。" },
   users: { status: "BLOCKED", reason: "用户目录为管理员聚合视图，需按管理员范围核实后接入。" },

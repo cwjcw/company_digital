@@ -98,15 +98,13 @@ export type DictionaryOptions = Record<string, string[]>;
 
 export function useDictionaryOptions() {
   const dictionaries = useQuery({ queryKey: ["reference-dictionaries"], queryFn: () => api<any[]>("/reference-data/dictionaries") });
-  const suppliers = useQuery({ queryKey: ["reference-suppliers"], queryFn: () => api<any[]>("/reference-data/suppliers") });
   return useMemo<DictionaryOptions>(() => {
     const options: DictionaryOptions = {};
     for (const type of dictionaries.data ?? []) {
       options[type.code] = (type.values ?? []).filter((entry: any) => entry.enabled).map((entry: any) => entry.value);
     }
-    options.supplier = (suppliers.data ?? []).filter((supplier: any) => supplier.enabled).map((supplier: any) => supplier.name);
     return options;
-  }, [dictionaries.data, suppliers.data]);
+  }, [dictionaries.data]);
 }
 
 export function filterPlanRows(rows: any[], filters: PlanFilter[], columns: ColumnDefinition[]) {

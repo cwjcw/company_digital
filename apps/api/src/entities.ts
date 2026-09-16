@@ -327,15 +327,6 @@ export class DictionaryValue extends AuditedEntity {
   @Column({ default: true }) enabled!: boolean;
 }
 
-@Entity("suppliers")
-export class Supplier extends AuditedEntity {
-  @PrimaryGeneratedColumn("uuid") id!: string;
-  @Index({ unique: true }) @Column({ type: "varchar", nullable: true }) code!: string | null;
-  @Index({ unique: true }) @Column() name!: string;
-  @Column({ default: true }) enabled!: boolean;
-  @Column({ type: "varchar", nullable: true }) remark!: string | null;
-}
-
 @Entity("supply_chain_suppliers")
 @Unique(["tenantId", "sourceSystem", "sourceDatabase", "sourceId"])
 @Index(["tenantId", "code"])
@@ -613,7 +604,7 @@ export const entities = [
   User, AdministratorGrant, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
-  DictionaryValue, Supplier, SupplyChainSupplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
+  DictionaryValue, SupplyChainSupplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
   RefreshToken, PasswordResetRequest, EquipmentAsset, EquipmentResponsible, EquipmentStatusReport,
   ImportJob, ImportJobError, IdempotencyRecord
 ];

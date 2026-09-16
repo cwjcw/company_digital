@@ -17,7 +17,7 @@ import { tableResourceRegistry } from "@kdos/contracts";
 import { AuthGuard, AuthService } from "./auth";
 import {
   ApiKey, AuditLog, DictionaryType, DictionaryValue, FinishedGoodsInbound, FinishedGoodsOutbound, Permission,
-  Contact, OrganizationUnit, ProcessDefinitionEntity, Role, RoleOrganizationScope, SalesOrder, Supplier, User, UserRole
+  Contact, OrganizationUnit, ProcessDefinitionEntity, Role, RoleOrganizationScope, SalesOrder, User, UserRole
 } from "./entities";
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
 import { ImportService } from "./import.service";
@@ -109,11 +109,6 @@ export class ReferenceDataController {
       code, name: code, values: values.map((value, index) => ({ id: `reference-${code}-${index + 1}`, value, sortOrder: index + 1, enabled: true }))
     }));
   }
-
-  @Get("suppliers")
-  suppliers() {
-    return [];
-  }
 }
 
 @ApiTags("用户目录")
@@ -174,7 +169,6 @@ export class PlanController {
 @Controller("master-data")
 export class MasterDataController {
   constructor(
-    @InjectRepository(Supplier) private readonly suppliers: Repository<Supplier>,
     @InjectRepository(DictionaryType) private readonly dictionaryTypes: Repository<DictionaryType>,
     @InjectRepository(DictionaryValue) private readonly dictionaryValues: Repository<DictionaryValue>,
     @InjectRepository(ProcessDefinitionEntity) private readonly processes: Repository<ProcessDefinitionEntity>,
@@ -238,15 +232,14 @@ export class MasterDataController {
   @Get("templates/:kind")
   async downloadTemplate(@Param("kind") kind: string, @Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
     const names: Record<string, string> = {
-      suppliers: "供应商导入模板",
       dictionaries: "字典导入模板",
       "sales-orders": "销售订单导入模板",
       "finished-goods-inbound": "成品入库导入模板"
     };
     const baseName = names[kind];
     if (!baseName) throw new BadRequestException("未知模板类型");
-    const resourceByKind: Record<string, string> = { suppliers: "suppliers", dictionaries: "dictionaries", "sales-orders": "sales-orders", "finished-goods-inbound": "finished-goods-inbound" };
-    if (["suppliers", "dictionaries", "processes"].includes(kind)) requireSystemAdmin(req);
+    const resourceByKind: Record<string, string> = { dictionaries: "dictionaries", "sales-orders": "sales-orders", "finished-goods-inbound": "finished-goods-inbound" };
+    if (["dictionaries", "processes"].includes(kind)) requireSystemAdmin(req);
     else requireTablePermission(req, resourceByKind[kind]!, "import");
     const extension = format === "csv" ? "csv" : "xlsx";
     const dynamicHeaders: Record<string, string[]> = {
@@ -313,45 +306,6 @@ export class MasterDataController {
     response.setHeader("Content-Type", extension === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${baseName}.${extension}`)}`);
     response.send(content);
-  }
-  @Get("suppliers") listSuppliers(@Req() req: UserRequest) { requireSystemAdmin(req); return this.suppliers.find({ order: { name: "ASC" } }); }
-  @Post("suppliers") async addSupplier(@Body() body: { code: string; name: string; remark?: string; enabled?: boolean }, @Req() req: UserRequest) {
-    requireSystemAdmin(req);
-    const code = body.code?.trim();
-    if (!code || !body.name?.trim()) throw new BadRequestException("供应商编码和名称为必填项");
-    if (await this.suppliers.findOneBy({ code })) throw new ConflictException("供应商编码已存在");
-    return this.suppliers.save({ code, name: body.name.trim(), remark: body.remark ?? null, enabled: body.enabled ?? true });
-  }
-  @Patch("suppliers/:id") async updateSupplier(@Param("id") id: string, @Body() body: { code?: string; name?: string; remark?: string; enabled?: boolean; expectedVersion: number }, @Req() req: UserRequest) {
-    requireSystemAdmin(req);
-    if (body.code !== undefined) {
-      const code = body.code.trim(); if (!code) throw new BadRequestException("供应商编码不能为空");
-      const duplicate = await this.suppliers.findOneBy({ code }); if (duplicate && duplicate.id !== id) throw new ConflictException("供应商编码已存在"); body.code = code;
-    }
-    const { expectedVersion, ...patch } = body;
-    return this.updateVersioned(this.suppliers, id, expectedVersion, patch, req, "suppliers");
-  }
-  @Post("suppliers/delete") async deleteSuppliers(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.suppliers.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
-  @Post("suppliers/import") async importSuppliers(@Body() body: { rows: Array<{ code?: string; name: string; remark?: string; enabled?: boolean }> }, @Req() req: UserRequest) {
-    requireSystemAdmin(req);
-    const errors: string[] = []; const seen = new Set<string>();
-    for (const [index, row] of (body.rows ?? []).entries()) {
-      const code = row.code?.trim(); const line = Number((row as any).__row) || index + 2;
-      if (!code || !row.name?.trim()) errors.push(`第 ${line} 行：供应商编码和名称不能为空`);
-      else if (seen.has(code)) errors.push(`第 ${line} 行：供应商编码“${code}”在文件内重复`); else seen.add(code);
-    }
-    if (!body.rows?.length) errors.push("文件中没有可导入的数据行");
-    if (errors.length) throw new BadRequestException({ message: `导入校验失败，共 ${errors.length} 处错误，未写入任何数据`, errors });
-    await this.dataSource.transaction(async (manager) => {
-      for (const row of body.rows) await manager.createQueryBuilder().insert().into(Supplier).values({ code: row.code!.trim(), name: row.name.trim(), remark: row.remark?.trim() || null, enabled: row.enabled ?? true, updatedBy: currentModificationActor() }).orUpdate(["name", "remark", "enabled", "updated_by"], ["code"]).execute();
-    });
-    return { imported: body.rows.length, skipped: 0, message: `全部校验通过，成功导入 ${body.rows.length} 行` };
-  }
-  @Post("suppliers/import-file") @ApiConsumes("multipart/form-data") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 50 * 1024 * 1024 } }))
-  async importSupplierFile(@UploadedFile() file: Express.Multer.File, @Req() req: UserRequest) {
-    requireSystemAdmin(req);
-    const raw = await this.uploadedRows(file);
-    return this.importSuppliers({ rows: raw.map((row: any) => ({ code: row.code ?? row["编码"], name: row.name ?? row["名称"], remark: row.remark ?? row["备注"], enabled: this.enabledValue(row.enabled ?? row["是否启用"]), __row: row.__row })) as any }, req);
   }
   @Get("dictionaries") async dictionaries(@Req() req: UserRequest) {
     requireSystemAdmin(req);

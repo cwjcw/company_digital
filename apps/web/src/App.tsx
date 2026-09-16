@@ -23,7 +23,6 @@ import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSetting
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
 import { FinishedGoodsOutboundPage, SalesOrdersPage, SupplierListPage } from "./modules/data-center/DataCenterPages";
-import { DuplicateOrderReviewPage } from "./modules/data-center/DuplicateOrderReviewPage";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
 import { AdministratorsPage } from "./modules/admin/AdministratorsPage";
@@ -191,7 +190,6 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/data-center/sales-orders", icon: <FileExcelOutlined />, label: "订单表" },
       { key: "/data-center/inbound", icon: <DatabaseOutlined />, label: "入库表" },
       { key: "/data-center/outbound", icon: <DatabaseOutlined />, label: "出库表" },
-      { key: "/data-center/duplicate-order-review", icon: <AuditOutlined />, label: "重复订单业务复核" },
       { key: "data-supply-chain", icon: <FolderOpenOutlined />, label: "供应链", children: [
         { key: "/data-center/supply-chain/suppliers", icon: <DatabaseOutlined />, label: "供应商清单" }
       ] }
@@ -240,7 +238,6 @@ function Shell({ logout }: { logout: () => void }) {
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
-      "/data-center/duplicate-order-review": "重复订单业务复核",
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
@@ -277,7 +274,6 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/sales-orders" element={<SalesOrdersPage />} />
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
-          <Route path="/data-center/duplicate-order-review" element={<DuplicateOrderReviewPage />} />
           <Route path="/data-center/supply-chain/suppliers" element={<SupplierListPage />} />
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
@@ -306,36 +302,22 @@ function Shell({ logout }: { logout: () => void }) {
 
 function DataOperations() {
   const queryClient = useQueryClient();
-  const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => api<any[]>("/master-data/suppliers") });
   const dictionaries = useQuery({ queryKey: ["dictionaries"], queryFn: () => api<any[]>("/master-data/dictionaries") });
   const processes = useQuery({ queryKey: ["processes"], queryFn: () => api<any[]>("/master-data/processes") });
-  const [supplierIds, setSupplierIds] = useState<React.Key[]>([]);
   const [dictionaryIds, setDictionaryIds] = useState<React.Key[]>([]);
   const [processIds, setProcessIds] = useState<React.Key[]>([]);
-  const [supplierOpen, setSupplierOpen] = useState(false);
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [processOpen, setProcessOpen] = useState(false);
   const [importing, setImporting] = useState<string>();
   const [importFeedback, setImportFeedback] = useState<ImportFeedback>();
-  const [supplierForm] = Form.useForm();
   const [dictionaryForm] = Form.useForm();
   const [processForm] = Form.useForm();
   const refresh = (key: string) => void queryClient.invalidateQueries({ queryKey: [key] });
   const dictionaryRows = (dictionaries.data ?? []).flatMap((type: any) => type.values.map((value: any) => ({ ...value, typeId: type.id, typeVersion: type.version, code: type.code, typeName: type.name })));
-  const updateSupplier = async (row: any, field: string, value: unknown) => {
-    try {
-      await api(`/master-data/suppliers/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
-      refresh("suppliers");
-    } catch (error) {
-      message.error((error as Error).message);
-      refresh("suppliers");
-      throw error;
-    }
-  };
   const updateDictionaryType = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-types/${row.typeId}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.typeVersion }) }); refresh("dictionaries"); };
   const updateDictionaryValue = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-values/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("dictionaries"); };
   const updateProcess = async (row: any, field: string, value: unknown) => { await api(`/master-data/processes/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("processes"); };
-  const importMasterFile = async (file: File, kind: "suppliers" | "dictionaries") => {
+  const importMasterFile = async (file: File, kind: "dictionaries") => {
     const form = new FormData();
     form.append("file", file);
     setImporting(kind);
@@ -350,24 +332,14 @@ function DataOperations() {
     }
     return false;
   };
-  const downloadTemplate = async (kind: "suppliers" | "dictionaries", format: "xlsx" | "csv") => {
-    const name = ({
-      suppliers: "供应商导入模板",
-      dictionaries: "字典导入模板",
-    } as const)[kind];
+  const downloadTemplate = async (kind: "dictionaries", format: "xlsx" | "csv") => {
+    const name = ({ dictionaries: "字典导入模板" } as const)[kind];
     try {
       await downloadApiFile(`/master-data/templates/${kind}?format=${format}`, `${name}.${format}`);
     } catch (error) {
       message.error((error as Error).message);
     }
   };
-  const supplierColumns = [
-    { title: "编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "code", v)} /> },
-    { title: "名称", dataIndex: "name", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "name", v)} /> },
-    { title: "备注", dataIndex: "remark", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateSupplier(row, "remark", v)} /> },
-    { title: "启用", dataIndex: "enabled", render: (value: boolean, row: any) => <EditableSwitchCell checked={value} onChange={(v) => void updateSupplier(row, "enabled", v)} /> },
-    ...auditColumns
-  ];
   const dictionaryColumns = [
     { title: "字典编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "code", v)} /> },
     { title: "字典名称", dataIndex: "typeName", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "name", v)} /> },
@@ -385,23 +357,11 @@ function DataOperations() {
   ];
 
   return <div><PageHeader title="基础数据维护" subtitle="表格内容可直接编辑；复选框支持多选" actions={<Space>
-    <Button onClick={() => { supplierForm.resetFields(); supplierForm.setFieldsValue({ enabled: true }); setSupplierOpen(true); }}>新增供应商</Button>
     <Button onClick={() => setDictionaryOpen(true)}>新增字典值</Button>
     <Button onClick={() => setProcessOpen(true)}>新增工序</Button>
   </Space>} />
     <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
     <Tabs items={[
-      { key: "suppliers", label: `供应商（${suppliers.data?.length ?? 0}）`, children: <>
-        <Space wrap className="master-data-toolbar">
-          <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importMasterFile(file as File, "suppliers")}>
-            <Button loading={importing === "suppliers"}>导入供应商（CSV/XLSX）</Button>
-          </Upload>
-          <Button onClick={() => void downloadTemplate("suppliers", "xlsx")}>下载 XLSX 模板</Button>
-          <Button onClick={() => void downloadTemplate("suppliers", "csv")}>下载 CSV 模板</Button>
-          <Button danger disabled={!supplierIds.length} onClick={async () => { await api("/master-data/suppliers/delete", { method: "POST", body: JSON.stringify({ ids: supplierIds }) }); setSupplierIds([]); refresh("suppliers"); }}>停用选中（{supplierIds.length}）</Button>
-        </Space>
-        <KdosDataTable resource="suppliers" editable rowKey="id" rowSelection={{ selectedRowKeys: supplierIds, onChange: setSupplierIds }} dataSource={suppliers.data} pagination={{ pageSize: 50 }} columns={supplierColumns} scroll={{ x: "max-content", y: 480 }} />
-      </> },
       { key: "dictionaries", label: `字典值（${dictionaryRows.length}）`, children: <>
         <Space wrap className="master-data-toolbar">
           <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importMasterFile(file as File, "dictionaries")}>
@@ -428,23 +388,6 @@ function DataOperations() {
         <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data} pagination={false} columns={processColumns} scroll={{ x: "max-content", y: 480 }} />
       </> }
     ]} />
-    <Modal title="新增供应商" open={supplierOpen} onCancel={() => setSupplierOpen(false)} onOk={async () => {
-      try {
-        const values = await supplierForm.validateFields();
-        await api("/master-data/suppliers", { method: "POST", body: JSON.stringify(values) });
-        message.success("供应商新增成功");
-        setSupplierOpen(false);
-        supplierForm.resetFields();
-        refresh("suppliers");
-      } catch (error) {
-        if (error instanceof ApiError) message.error(error.message);
-      }
-    }}><Form form={supplierForm} layout="vertical" initialValues={{ enabled: true }}>
-      <Form.Item name="code" label="编码" rules={[{ required: true, whitespace: true, message: "请输入供应商编码" }]}><Input placeholder="编码全表唯一" /></Form.Item>
-      <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: "请输入供应商名称" }]}><Input /></Form.Item>
-      <Form.Item name="remark" label="备注"><Input /></Form.Item>
-      <Form.Item name="enabled" label="是否启用" valuePropName="checked"><Switch checkedChildren="启用" unCheckedChildren="停用" /></Form.Item>
-    </Form></Modal>
     <Modal title="新增字典值" open={dictionaryOpen} onCancel={() => setDictionaryOpen(false)} onOk={() => dictionaryForm.validateFields().then(async (values) => { await api("/master-data/dictionaries", { method: "POST", body: JSON.stringify(values) }); setDictionaryOpen(false); dictionaryForm.resetFields(); refresh("dictionaries"); })}><Form form={dictionaryForm} layout="vertical"><Form.Item name="code" label="编码" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="name" label="名称"><Input /></Form.Item><Form.Item name="value" label="值" rules={[{ required: true }]}><Input /></Form.Item></Form></Modal>
     <Modal title="新增工序" open={processOpen} onCancel={() => setProcessOpen(false)} onOk={() => processForm.validateFields().then(async (values) => { await api("/master-data/processes", { method: "POST", body: JSON.stringify(values) }); setProcessOpen(false); processForm.resetFields(); refresh("processes"); })}><Form form={processForm} layout="vertical" initialValues={{ sortOrder: 1, enableDueDate: true, enableStatus: true, enabled: true }}><Form.Item name="sortOrder" label="顺序"><InputNumber /></Form.Item><Form.Item name="code" label="代码" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="enableRequiredDays" label="所需天数" valuePropName="checked"><Switch /></Form.Item><Form.Item name="enableDueDate" label="交期" valuePropName="checked"><Switch /></Form.Item><Form.Item name="enableStatus" label="状态" valuePropName="checked"><Switch /></Form.Item><Form.Item name="enableException" label="异常" valuePropName="checked"><Switch /></Form.Item></Form></Modal>
   </div>;
@@ -608,8 +551,8 @@ function ApiKeyCenter() {
       const scopes = values.access === "tplus-sync"
         ? ["tplus-sales-orders:*:import"]
         : values.access === "readwrite"
-        ? ["mps-orders:*:read", "mps-orders:*:update", "suppliers:*:read", "suppliers:*:update", "dictionaries:*:read", "dictionaries:*:update"]
-        : ["mps-orders:*:read", "suppliers:*:read", "dictionaries:*:read"];
+        ? ["mps-orders:*:read", "mps-orders:*:update", "supplier-list:*:read", "dictionaries:*:read", "dictionaries:*:update"]
+        : ["mps-orders:*:read", "supplier-list:*:read", "dictionaries:*:read"];
       return api<any>("/api-keys", { method: "POST", body: JSON.stringify({ ...values, scopes }) });
     },
     onSuccess: (result) => {
