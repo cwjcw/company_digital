@@ -13,7 +13,6 @@ type ImportRow = { row: number; id: string | null; expectedVersion: number | nul
 const legacyFieldAliases: Record<string, string[]> = { orderDate: ["订单日期"] };
 const unreadableSpreadsheetMessage = "Excel 未解密或文件损坏，请解密或检查确保文件正确后导入。";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const pendingContextFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
 const pendingTemplateNotes = [
   "待报工任务导入：一行表示对一条待报工任务进行一次新的实际报工（CREATE 报工记录），不会覆盖历史报工。",
   "本次报工数量、生产日期由用户填写；订单编号、品项编码、品项名称、工序、计划数量、累计报工、剩余数量仅用于核对，请勿修改。",

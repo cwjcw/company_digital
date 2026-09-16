@@ -171,7 +171,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: ["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource) && Boolean(metadata.data) });
   const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view, basePlanId], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view, basePlanId)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
+  const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] }), [queryClient, resource, sessionSubject]);
   /* 报工保存后事业部周计划/月度计划展示的执行汇总必须立即失效，不能等 60 秒缓存过期。 */
   const refreshExecutionPlans = useCallback(async () => {
     await Promise.all(reportDependentResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
@@ -298,7 +298,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
-  const pendingFields = metadata.data?.pendingFields ?? [];
+  const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);
   const pendingColumns = useMemo(() => pendingFields.map((field) => field.input
     ? { title: field.label, key: field.key, width: 150, render: (_: unknown, row: any) => <PendingReportCell field={field} draft={pendingDrafts[row.id]} onChange={(patch) => setPendingDrafts((current) => ({ ...current, [row.id]: { ...current[row.id], ...patch } }))} /> }
     : { title: field.label, key: field.key, dataIndex: field.key, width: Math.max(105, Math.min(240, field.label.length * 18 + 54)), render: (value: unknown, row: any) => display(value, field, row) }

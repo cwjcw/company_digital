@@ -1,4 +1,3 @@
-import { ForbiddenException } from "@nestjs/common";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
