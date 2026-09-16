@@ -456,7 +456,11 @@ function FinishedGoodsInboundPage() {
   const exportData = async (format: "xlsx" | "csv") => {
     setExporting(format);
     try {
-      await downloadApiFile(`/master-data/finished-goods-inbound/export?format=${format}`, `成品入库数据.${format}`);
+      /* KN-FILTER-001：导出与列表共用 search + FilterGroup，保证跨页导出与筛选一致。 */
+      const exportParams = new URLSearchParams({ format });
+      if (tableQuery.search) exportParams.set("search", tableQuery.search);
+      if (tableQuery.filterGroup?.rules?.length) exportParams.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
+      await downloadApiFile(`/master-data/finished-goods-inbound/export?${exportParams}`, `成品入库数据.${format}`);
       message.success(`成品入库 ${format.toUpperCase()} 已导出`);
     } catch (error) { message.error((error as Error).message); }
     finally { setExporting(undefined); }

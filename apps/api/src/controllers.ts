@@ -20,6 +20,8 @@ import {
   Contact, OrganizationUnit, ProcessDefinitionEntity, Role, RoleOrganizationScope, SalesOrder, User, UserRole
 } from "./entities";
 import { MasterDataQueryService } from "./modules/master-data/master-data-query.service";
+import { applyTypedFilterToQueryBuilder } from "./common/filtering/typeorm-filter";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { ImportService } from "./import.service";
 import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
 import { SalesDashboardService } from "./sales-dashboard.service";
@@ -203,6 +205,15 @@ export class MasterDataController {
       return saved;
     });
   }
+  /** 字段 key → 真实数据库列（导出与列表使用同一绑定）。 */
+  private masterDataColumns(repository: { metadata: { columns: Array<{ propertyName: string; databaseName: string; relationMetadata?: unknown }> } }) {
+    const columns: Record<string, string> = {};
+    for (const column of repository.metadata.columns) {
+      if (column.relationMetadata) continue;
+      columns[column.propertyName] = column.databaseName;
+    }
+    return columns;
+  }
   private enabledValue(value: unknown) { return !["false", "0", "否", "停用", "禁用"].includes(String(value ?? "是").trim().toLowerCase()); }
   private csvRows(buffer: Buffer): Record<string, unknown>[] {
     const lines = buffer.toString("utf8").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
@@ -343,10 +354,10 @@ export class MasterDataController {
   @Patch("dictionary-types/:id") updateDictionaryType(@Param("id") id: string, @Body() body: { code?: string; name?: string; expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.dictionaryTypes, id, expectedVersion, patch, req, "dictionary-types"); }
   @Patch("dictionary-values/:id") updateDictionaryValue(@Param("id") id: string, @Body() body: { value?: string; sortOrder?: number; enabled?: boolean; expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.dictionaryValues, id, expectedVersion, patch, req, "dictionaries"); }
   @Post("dictionary-values/delete") async deleteDictionaryValues(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.dictionaryValues.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
-  @Get("processes") processesList(@Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.find({ order: { sortOrder: "ASC" } }); }
-  @Post("processes") addProcess(@Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireSystemAdmin(req); return this.processes.save({ ...body, enabled: body.enabled ?? true }); }
-  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity> & { expectedVersion: number }, @Req() req: UserRequest) { requireSystemAdmin(req); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.processes, id, expectedVersion, patch, req, "processes"); }
-  @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireSystemAdmin(req); await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
+  @Get("processes") processesList(@Req() req: UserRequest) { requireTableAdministrator(req, "processes"); return this.processes.find({ order: { sortOrder: "ASC" } }); }
+  @Post("processes") addProcess(@Body() body: Partial<ProcessDefinitionEntity>, @Req() req: UserRequest) { requireTableAdministrator(req, "processes"); return this.processes.save({ ...body, enabled: body.enabled ?? true }); }
+  @Patch("processes/:id") updateProcess(@Param("id") id: string, @Body() body: Partial<ProcessDefinitionEntity> & { expectedVersion: number }, @Req() req: UserRequest) { requireTableAdministrator(req, "processes"); const { expectedVersion, ...patch } = body; return this.updateVersioned(this.processes, id, expectedVersion, patch, req, "processes"); }
+  @Post("processes/delete") async deleteProcesses(@Body() body: { ids: string[] }, @Req() req: UserRequest) { requireTableAdministrator(req, "processes"); await this.processes.update(body.ids, { enabled: false }); return { affected: body.ids?.length ?? 0 }; }
   @Post("processes/import") async importProcesses(@Body() body: { rows: Array<Partial<ProcessDefinitionEntity>> }, @Req() req: UserRequest) {
     requireSystemAdmin(req);
     const errors: string[] = []; const seen = new Set<string>();
@@ -484,11 +495,19 @@ export class MasterDataController {
     return this.masterDataQueries.finishedGoodsInboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
   }
   @Get("finished-goods-inbound/export")
-  async exportFinishedGoodsInbound(@Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
+  async exportFinishedGoodsInbound(@Query("format") format: string, @Query("filterGroup") filterGroup: string, @Query("search") search: string, @Req() req: UserRequest, @Res() response: Response) {
     requireTablePermission(req, "finished-goods-inbound", "export");
-    const rows = await this.finishedGoodsInbound.find({
-      order: { inboundDate: "DESC", documentNumber: "ASC", lineNumber: "ASC" }
+    /* KN-FILTER-001：导出必须与列表共用 quick search + FilterGroup（同一条 where），禁止页面 typed、导出 legacy。 */
+    const builder = this.finishedGoodsInbound.createQueryBuilder("row")
+      .orderBy("row.inboundDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.lineNumber", "ASC");
+    if (String(search ?? "").trim()) builder.andWhere("(row.document_number ILIKE :search OR row.sales_order_number ILIKE :search OR row.work_order_number ILIKE :search OR row.inventory_code ILIKE :search OR row.inventory_name ILIKE :search)", { search: `%${String(search).trim()}%` });
+    applyTypedFilterToQueryBuilder({
+      builder, alias: "row", fields: tablePermissionFieldsFor("finished-goods-inbound"),
+      columns: this.masterDataColumns(this.finishedGoodsInbound), filterGroup,
+      canFilterField: (key) => req.user.isSystemAdmin === true || (req.user.permissions ?? []).includes("*")
+        || (req.user.permissions ?? []).includes(`finished-goods-inbound:${key}:read`) || (req.user.permissions ?? []).includes("finished-goods-inbound:*:read")
     });
+    const rows = await builder.getMany();
     const fields: Array<[keyof FinishedGoodsInbound, string]> = [
       ["categoryNumber", "分类编号"], ["documentNumber", "入库单单号"], ["documentFullName", "单据全称"],
       ["documentDate", "单据日期"], ["inboundDate", "入库日期"], ["lineNumber", "序号"],
@@ -669,9 +688,19 @@ export class MasterDataController {
   }
 
   @Get("finished-goods-outbound/export")
-  async exportFinishedGoodsOutbound(@Req() req: UserRequest, @Res() response: Response) {
+  async exportFinishedGoodsOutbound(@Query("filterGroup") filterGroup: string, @Query("search") search: string, @Req() req: UserRequest, @Res() response: Response) {
     requireTablePermission(req, "finished-goods-outbound", "export");
-    const rows = await this.finishedGoodsOutbound.find({ order: { documentDate: "DESC", documentNumber: "ASC", itemNumber: "ASC" } });
+    /* KN-FILTER-001：导出与列表共用同一条 where（quick search + FilterGroup），禁止页面 typed、导出 legacy。 */
+    const builder = this.finishedGoodsOutbound.createQueryBuilder("row")
+      .orderBy("row.documentDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.itemNumber", "ASC");
+    if (String(search ?? "").trim()) builder.andWhere("(row.document_number ILIKE :search OR row.sales_order_number ILIKE :search OR row.customer_code ILIKE :search OR row.customer_name ILIKE :search OR row.item_number ILIKE :search OR row.item_name ILIKE :search)", { search: `%${String(search).trim()}%` });
+    applyTypedFilterToQueryBuilder({
+      builder, alias: "row", fields: tablePermissionFieldsFor("finished-goods-outbound"),
+      columns: this.masterDataColumns(this.finishedGoodsOutbound), filterGroup,
+      canFilterField: (key) => req.user.isSystemAdmin === true || (req.user.permissions ?? []).includes("*")
+        || (req.user.permissions ?? []).includes(`finished-goods-outbound:${key}:read`) || (req.user.permissions ?? []).includes("finished-goods-outbound:*:read")
+    });
+    const rows = await builder.getMany();
     const fields: Array<[keyof FinishedGoodsOutbound, string]> = [
       ["documentDate", "单据日期"], ["documentNumber", "出库单号"], ["documentStatus", "单据状态"],
       ["directionValue", "出入库方向值"], ["voucherType", "单据类型"], ["businessType", "业务类型"],
