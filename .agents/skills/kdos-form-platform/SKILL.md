@@ -60,6 +60,11 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - **Header 与 Advanced 是同一个 FilterGroup**：两者必须读写同一 `filterGroup`，草稿与应用态分离，只有点击“筛选/清空”才写 applied 并请求；条件变化回到 `page=1`。
 - **时长与百分比必须类型化输入**：`durationMinutes` 让用户填“小时 + 分钟”（10 小时 30 分钟 = 630，BETWEEN 480~630），`percentage` 界面为 0..100、提交前换算（80% → 0.8），数据库仍比较整数分钟/小数，不得让用户直接输入分钟或 0.8。
 - **字典解析不得引用不存在的列**：`dictionary_values` 只有 `value`（无独立 label 列）时按 value 精确命中；动态字典应优先提升为平台共享解析服务。
+- **平台统一读取入口**：已注册资源统一使用 `GET /api/v1/table-filters/rows?resource&page&pageSize&search&sortField&sortOrder&filterGroup`，语义固定为 permission → tenant → data scope → quick search → FilterGroup → sort → `COUNT`/`LIMIT`/`OFFSET`，并且只返回调用者有字段读权限的列（例如 API Key 永远不返回 `key_hash`）；页面不要再用“整表取回 + 前端过滤/分页”。
+- **跨库资源**：资源物理表与平台默认 DataSource 不同（如 KDOS 库 `marketing.*`）时，在注册源上提供 `runQuery` / `memberCandidates` / `departmentCandidates`，仍然复用同一协议与编译器。
+- **无租户列的全局配置表**（`process_ded*` 等系统表、审计日志、营销表用自己的 tenant 解析）必须显式声明 `tenantColumn: null`，隔离由资源与管理权限承担，不伪造租户条件；参数 $1 仍需显式类型以避免 “could not determine data type of parameter $1”。
+- **字典 label→value**：静态 options 由平台编译器直接解析（输入 label 或 value 都命中）；动态字典（设备故障原因等）由资源的 resolver 解析；禁止各模块自建第二份映射。
+- **百分比尺度必须按真实 schema**：`percentageScale: "ratio"`（0..1，界面 80% → 0.8）或 `"percent"`（0..100，界面原样）；禁止全局假设。
 - **审计字段按真实 schema 登记**：`updated_by` 多数表是 varchar（可存 system/迁移标识）→ `text`；`created_by` 通常是 member；`created_at/updated_at` 是 `datetime`。允许 resource 级 override，禁止只按字段名统一语义。
 
 #### 3.1.0 行选择与行级操作（强制）
