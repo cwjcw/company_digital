@@ -158,7 +158,10 @@ export class SystemFilterSourceProvider implements OnModuleInit {
         ? async (fieldKey: string, search: string, limit: number) => {
           if (fieldKey !== "roleIds") return [];
           const rows: Array<{ value: string; label: string }> = await this.dataSource.query(
-            `SELECT id AS value, name AS label FROM roles WHERE ($1='' OR name ILIKE $2) ORDER BY name LIMIT $3`,
+            /* 只提供普通角色（排除权限组专用角色与系统管理员），与 /admin/roles 的可分配角色一致。 */
+            `SELECT id AS value, name AS label FROM roles
+              WHERE permission_group_resource IS NULL AND name <> '系统管理员' AND ($1='' OR name ILIKE $2)
+              ORDER BY name LIMIT $3`,
             [search, `%${search}%`, limit]
           );
           return rows.map((row) => ({ value: String(row.value), label: String(row.label) }));
