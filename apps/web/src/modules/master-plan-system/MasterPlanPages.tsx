@@ -154,9 +154,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   }, [queryClient, sessionSubject]);
   /* 基础计划 -> 周计划必须通过稳定 base_plan_id 定位，禁止按订单号/品项/交期模糊搜索。 */
   const viewWeeklyPlan = useCallback((row: any) => {
-    const weeklyPlanId = row?.weeklyPlanId ? String(row.weeklyPlanId) : "";
-    if (!weeklyPlanId) { message.info("该基础计划尚未生成周计划"); return; }
-    navigate(`/master-plan-system/resources/mps-weekly-plans?basePlanId=${encodeURIComponent(weeklyPlanId)}`);
+    const basePlanId = row?.id ? String(row.id) : "";
+    if (!basePlanId || !(row?.weeklyPlanId || row?.weeklyPlanState === "已进入周计划")) { message.info("该基础计划尚未生成周计划"); return; }
+    navigate(`/master-plan-system/resources/mps-weekly-plans?basePlanId=${encodeURIComponent(basePlanId)}`);
   }, [navigate]);
   const clearWeeklyPlanFilter = useCallback(() => navigate("/master-plan-system/resources/mps-weekly-plans"), [navigate]);
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {

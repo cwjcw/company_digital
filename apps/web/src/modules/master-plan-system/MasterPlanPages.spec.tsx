@@ -244,7 +244,8 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
     fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "查看周计划" }));
 
-    await waitFor(() => expect(currentLocation).toBe(`/master-plan-system/resources/mps-weekly-plans?basePlanId=${basePlanId}`));
+    /* 定位参数必须是基础计划自身的稳定 ID（上游关系），不是周计划 ID 或订单业务键。 */
+    await waitFor(() => expect(currentLocation).toBe("/master-plan-system/resources/mps-weekly-plans?basePlanId=row-1"));
   }, 20_000);
 
   it("shows the located base-plan notice on the weekly plan page and can clear the locator", async () => {
