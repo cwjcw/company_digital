@@ -48,6 +48,20 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 类型化高级筛选（KN-FILTER-001）：正式筛选协议是 `FilterGroup { logic: "AND" | "OR"; rules: FilterRule[] }`，`FilterRule` 只包含 `field` + `operator` + 操作数（`value`/`values`/`min`/`max`/`dynamic`）；客户端不得提交字段类型、列名、SQL、table、join、cast 或表达式，类型永远由服务端字段 metadata 决定（`@kdos/contracts` 的 `TablePermissionFieldType`：text/number/date/datetime/boolean/dictionary/member/department/reference/structured/attachment）。时间戳必须用 `datetime`（不得当 `date`），关联字段必须用 `reference` 并声明候选来源资源，数组/多值字段必须显式 `multiple: true`，数值必须声明 `format`（integer/decimal/percentage/durationMinutes/currency），JSON 字段必须显式声明 `filterable` 策略。
 - 服务端筛选编译器（`master-plan.filter.ts` 的 `MasterPlanFilterCompiler`，后续模块复用同一实现与 `tableFilterOperatorsFor` 操作符 registry）必须做到：字段 allowlist（未知字段拒绝）、操作符必须属于该字段类型（不匹配拒绝）、操作数类型化校验（数字/日期/关键字）、全部值参数化（禁止拼接用户输入）、字段读权限校验（无 read 权限的字段不得筛选，防止隐藏字段侧信道推断）、`tenant_id` 与数据范围在筛选之前生效、动态日期（today/yesterday/this_week/last_week/this_month/last_month/last_7_days/last_30_days/this_year）由服务端按 Asia/Shanghai 计算。类型化筛选与既有自由文本筛选必须共用同一条件入口，列表、总数、分页、导出与 PENDING 视图必须使用同一个编译器，保证页面筛选与导出结果一致。
 
+#### 3.1.0.1 平台筛选能力登记与接入（KN-FILTER-001 第四轮，强制）
+
+- **唯一编译器**：平台实现只有 `apps/api/src/common/filtering/sql-filter.compiler.ts`（`SqlFilterCompiler`）与 `filter.contract.ts`；任何模块不得再写第二套筛选/字典/日期逻辑。TypeORM 模块通过 `applyTypedFilterToQueryBuilder()` 复用同一编译器（`:filter_n` 命名参数），原生 SQL 模块直接用 `$n` 占位符。
+- **能力登记唯一来源**：`@kdos/contracts` 的 `tableFilterResourceCapabilities` 必须覆盖全部正式 resource，状态只能是 `REGISTERED_AND_FILTERABLE` / `REGISTERED_NOT_FILTERABLE` / `NOT_APPLICABLE` / `BLOCKED`，禁止 UNKNOWN 或“暂未处理”；`NOT_APPLICABLE` 与 `BLOCKED` 必须写明原因。`TableFilterBootstrapCheck` 在启动时断言声明集合与运行时 `TableFilterRegistry` **完全一致**，少注册或多注册都让应用启动失败。
+- **新增 resource 必须注册筛选能力**：新表上线时同时完成（1）契约字段 metadata，（2）`TableFilterRegistry` 注册（表、列绑定、`tenantColumn`、数据范围构造），（3）服务端 list 真正接收并应用 `filterGroup`。未完成前 `KdosDataTable` 只能显示禁用按钮“高级筛选（暂不支持）”，不得出现“可填写但服务端忽略”的假筛选。
+- **不许伪造租户条件**：`tenantColumn` 默认 `tenant_id`；ERP 镜像表与审计日志等确实没有租户列的资源必须显式声明 `tenantColumn: null`，隔离由资源权限与数据范围承担。
+- **data scope 不得全局假定 `created_by`**：`OWN` 的含义必须服从该资源既有正式语义（示例：设备按事业部/本人，供应商按范围规则，主计划按事业部）。平台 `buildScope` 必须与该模块列表未筛选时的权限完全一致，candidate 与 list 必须共用同一构造。
+- **reference 禁止猜 label**：关联候选标签只能来自字段 `filterBinding.labelField` 或 `tableReferenceLabelFields` 的显式声明；缺失即 metadata 审计失败并在 candidate 接口返回 400，禁止“回退目标资源前两个文本字段”。
+- **正式 UI 操作符白名单**：界面只暴露 `tableFilterUiOperatorsFor()` 的结果——文本/字典/成员/部门/关联/多值各有固定集合；`starts_with`、`count_eq/count_gte/count_lte`、数值 `in/not_in` 等内部能力不得出现在正式界面。文本字段默认条件为“包含”，与列头筛选一致。
+- **Header 与 Advanced 是同一个 FilterGroup**：两者必须读写同一 `filterGroup`，草稿与应用态分离，只有点击“筛选/清空”才写 applied 并请求；条件变化回到 `page=1`。
+- **时长与百分比必须类型化输入**：`durationMinutes` 让用户填“小时 + 分钟”（10 小时 30 分钟 = 630，BETWEEN 480~630），`percentage` 界面为 0..100、提交前换算（80% → 0.8），数据库仍比较整数分钟/小数，不得让用户直接输入分钟或 0.8。
+- **字典解析不得引用不存在的列**：`dictionary_values` 只有 `value`（无独立 label 列）时按 value 精确命中；动态字典应优先提升为平台共享解析服务。
+- **审计字段按真实 schema 登记**：`updated_by` 多数表是 varchar（可存 system/迁移标识）→ `text`；`created_by` 通常是 member；`created_at/updated_at` 是 `datetime`。允许 resource 级 override，禁止只按字段名统一语义。
+
 #### 3.1.0 行选择与行级操作（强制）
 
 - 所有标准业务记录表默认支持记录选择。记录选择与“进入编辑模式”必须彻底分离：表格处于只读浏览模式时也允许用户选择其有权查看的记录；选择记录本身不代表拥有编辑、删除、批量修改、导出或其他写入权限。任何后续操作仍须根据操作权限、字段权限、数据范围和业务状态重新校验。
