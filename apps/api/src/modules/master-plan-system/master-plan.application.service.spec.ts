@@ -96,6 +96,68 @@ describe("MasterPlanApplicationService imports", () => {
     }, actor)).rejects.toThrow("产品属性只能选择：五金、木作、亚克力、五金+木作");
   });
 
+  describe("dictionary values outside the field options", () => {
+    const dictionaryActor = { ...actor, isSystemAdmin: false, permissions: ["*"], tableDataScopes: [{ resource: "mps-base-plans", scope: "ALL" as const }] };
+    const buildService = () => {
+      const query = jest.fn().mockResolvedValue([]);
+      return { instance: new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never), query };
+    };
+    const basePlanValues = { orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1, latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+
+    it.each([
+      ["productAttribute", "1", "产品属性只能选择：五金、木作、亚克力、五金+木作"],
+      ["productAttribute", "塑料", "产品属性只能选择：五金、木作、亚克力、五金+木作"],
+      ["surfaceNature", "1", "表面性质只能选择：烤漆、电镀"],
+      ["surfaceNature", "喷粉", "表面性质只能选择：烤漆、电镀"],
+      ["manufacturingMethod", "自制+喷漆", "生产方式只能选择：自制、中心外购、外协、自制+外协"]
+    ])("rejects illegal dictionary value %s=%s on base-plan create", async (field, value, reason) => {
+      const { instance, query } = buildService();
+      await expect(instance.create("mps-base-plans", { ...basePlanValues, [field]: value }, dictionaryActor)).rejects.toThrow(reason);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO mps_base_plans"))).toBe(false);
+    });
+
+    it.each([["productAttribute", "1"], ["surfaceNature", "1"]])("rejects illegal dictionary value %s=%s on base-plan single update and batch update", async (field, value) => {
+      const { instance, query } = buildService();
+      const id = "22222222-2222-4222-8222-222222222222";
+      await expect(instance.update("mps-base-plans", id, { [field]: value, expectedVersion: 1 }, dictionaryActor)).rejects.toThrow("只能选择");
+      await expect(instance.batchUpdate("mps-base-plans", { records: [{ id, expectedVersion: 1 }], fieldKey: field, value, idempotencyKey: "33333333-3333-4333-8333-333333333333" }, dictionaryActor)).rejects.toThrow("只能选择");
+      expect(query.mock.calls.some(([sql]) => /UPDATE mps_base_plans|INSERT INTO mps_base_plans/.test(String(sql)))).toBe(false);
+    });
+
+    it("reports illegal dictionary values per row during Excel preview instead of writing them", async () => {
+      const { instance } = buildService();
+      const importActor = dictionaryActor;
+      await expect(instance.validateImportUpdates("mps-base-plans", [
+        { row: 2, id: null, expectedVersion: null, values: { ...basePlanValues, productAttribute: "1" } },
+        { row: 3, id: null, expectedVersion: null, values: { ...basePlanValues, surfaceNature: "1" } }
+      ], importActor)).resolves.toEqual([
+        { row: 2, reason: "产品属性只能选择：五金、木作、亚克力、五金+木作" },
+        { row: 3, reason: "表面性质只能选择：烤漆、电镀" }
+      ]);
+    });
+
+    it("accepts legal dictionary values and never persists a display label in place of its stable value", async () => {
+      const { instance } = buildService();
+      const importActor = dictionaryActor;
+      await expect(instance.validateImportUpdates("mps-base-plans", [
+        { row: 2, id: null, expectedVersion: null, values: { ...basePlanValues, productAttribute: "亚克力", surfaceNature: "电镀" } }
+      ], importActor)).resolves.toEqual([]);
+
+      /* processCode 的 label（折弯）与 value（bending）不同：label 不得被直接持久化。 */
+      const processActor = { ...actor, isSystemAdmin: false, permissions: ["*"] };
+      const codes = "cutting、machining、bending、spotWelding、welding、woodworking、grinding、surfaceTreatment、packaging";
+      await expect(instance.validateImportUpdates("mps-weekly-process-plans", [
+        { row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "折弯" } }
+      ], processActor)).resolves.toEqual([{ row: 2, reason: `工序只能选择：${codes}` }]);
+      const weeklyRow = [{ division_id: "44444444-4444-4444-8444-444444444444", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "1", manufacturing_method: "自制" }];
+      const weeklyQuery = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? weeklyRow : []);
+      const weeklyAware = new MasterPlanApplicationService({ query: weeklyQuery, manager: { query: weeklyQuery } } as never, { processOutbox: jest.fn() } as never);
+      await expect(weeklyAware.validateImportUpdates("mps-weekly-process-plans", [
+        { row: 3, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "bending" } }
+      ], processActor)).resolves.toEqual([]);
+    });
+  });
+
   it("allows a base plan to save one weekly-admission field while the other three are blank", async () => {
     const id = "22222222-2222-4222-8222-222222222222";
     const current = { id, version: 3, order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", planned_quantity: "10", latest_review_due_date: null, product_attribute: null, surface_nature: null, manufacturing_method: null };

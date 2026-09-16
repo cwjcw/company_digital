@@ -35,10 +35,39 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql[0]).toContain("order_number=excluded.order_number");
     expect(sql[0]).toContain("item_code=excluded.item_code");
     expect(sql[0]).toContain("delivery_number=excluded.delivery_number");
-    expect(sql[0]).toContain(weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!));
+    expect(sql[0]).toContain(weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!, "base"));
     expect(sql.join(" ")).not.toContain("SET base_plan_id=NULL");
     expect(sql.join(" ")).not.toContain("ON CONFLICT(tenant_id,order_number,item_code,delivery_number)");
     expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
+  });
+
+  it("never copies an illegal dictionary value from the base plan into the weekly plan", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const insert = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.includes("INSERT INTO mps_weekly_plans"))!;
+
+    expect(insert).toContain("WHEN base.product_attribute::text IN ('五金','木作','亚克力','五金+木作') THEN base.product_attribute::text ELSE weekly.product_attribute END");
+    expect(insert).toContain("WHEN base.surface_nature::text IN ('烤漆','电镀') THEN base.surface_nature::text ELSE weekly.surface_nature END");
+    expect(insert).toContain("WHEN base.manufacturing_method::text IN ('自制','中心外购','外协','自制+外协') THEN base.manufacturing_method::text ELSE weekly.manufacturing_method END");
+    expect(insert).toContain("LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id");
+    expect(insert).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE");
+    expect(insert).toContain("WHERE base.tenant_id=$1");
+  });
+
+  it("never copies an illegal dictionary value from the monthly plan into the base plan", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const service = new MasterPlanSyncService({ query } as never);
+    await (service as any).shippingToBase("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const insert = String(query.mock.calls[0][0]);
+
+    expect(insert).toContain("WHEN m.product_attribute::text IN ('五金','木作','亚克力','五金+木作') THEN m.product_attribute::text ELSE existing.product_attribute END");
+    expect(insert).toContain("WHEN m.surface_nature::text IN ('烤漆','电镀') THEN m.surface_nature::text ELSE existing.surface_nature END");
+    expect(insert).toContain("WHEN m.manufacturing_method::text IN ('自制','中心外购','外协','自制+外协') THEN m.manufacturing_method::text ELSE existing.manufacturing_method END");
+    expect(insert).toContain("WHEN s.model_age::text IN ('新','旧') THEN s.model_age::text ELSE existing.model_age END");
+    expect(insert).toContain("LEFT JOIN mps_base_plans existing ON existing.tenant_id=s.tenant_id AND existing.order_number=s.order_number AND existing.item_code=s.item_code AND existing.delivery_number=s.delivery_number");
+    expect(insert).toContain("WHERE s.tenant_id=$1");
   });
 
   it("uses weekly-plan identity for every generated child and keeps manual execution fields", async () => {

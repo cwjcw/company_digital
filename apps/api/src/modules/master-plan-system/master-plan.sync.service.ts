@@ -3,7 +3,7 @@ import { Interval } from "@nestjs/schedule";
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday } from "./master-plan.domain";
-import { MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql } from "./master-plan.config";
+import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
@@ -183,10 +183,22 @@ export class MasterPlanSyncService {
   }
 
   private async shippingToBase(tenantId: string, userId: string | null, updatedBy: string) {
+    const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
+    const dictionaryColumn = (field: string, column: string, source: string, existing: string) =>
+      this.dictionaryCopySql(basePlan, field, column, source, existing);
     const rows = await this.dataSource.query(`
       INSERT INTO mps_base_plans(tenant_id,shipping_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,planned_quantity,model_age,image_refs,product_attribute,surface_nature,manufacturing_method,created_by,updated_by)
-      SELECT s.tenant_id,s.id,s.division_id,s.customer_code,s.order_number,s.item_code,s.item_name,s.delivery_number,s.order_date,s.latest_customer_due_date,s.planned_quantity,s.model_age,COALESCE(m.image_refs,'[]'::jsonb),m.product_attribute,m.surface_nature,m.manufacturing_method,$2::uuid,$3
-      FROM mps_shipping_plans s LEFT JOIN mps_monthly_plans m ON m.tenant_id=s.tenant_id AND m.order_number=s.order_number AND m.item_code=s.item_code WHERE s.tenant_id=$1
+      SELECT s.tenant_id,s.id,s.division_id,s.customer_code,s.order_number,s.item_code,s.item_name,s.delivery_number,s.order_date,s.latest_customer_due_date,s.planned_quantity,
+        ${dictionaryColumn("modelAge", "model_age", "s.model_age", "existing.model_age")},
+        COALESCE(m.image_refs,'[]'::jsonb),
+        ${dictionaryColumn("productAttribute", "product_attribute", "m.product_attribute", "existing.product_attribute")},
+        ${dictionaryColumn("surfaceNature", "surface_nature", "m.surface_nature", "existing.surface_nature")},
+        ${dictionaryColumn("manufacturingMethod", "manufacturing_method", "m.manufacturing_method", "existing.manufacturing_method")},
+        $2::uuid,$3
+      FROM mps_shipping_plans s
+      LEFT JOIN mps_monthly_plans m ON m.tenant_id=s.tenant_id AND m.order_number=s.order_number AND m.item_code=s.item_code
+      LEFT JOIN mps_base_plans existing ON existing.tenant_id=s.tenant_id AND existing.order_number=s.order_number AND existing.item_code=s.item_code AND existing.delivery_number=s.delivery_number
+      WHERE s.tenant_id=$1
       ON CONFLICT(tenant_id,order_number,item_code,delivery_number) DO UPDATE SET shipping_plan_id=excluded.shipping_plan_id,division_id=excluded.division_id,customer_code=excluded.customer_code,item_name=excluded.item_name,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,planned_quantity=excluded.planned_quantity,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_base_plans.version+1
       WHERE (mps_base_plans.shipping_plan_id,mps_base_plans.division_id,mps_base_plans.customer_code,mps_base_plans.item_name,mps_base_plans.order_date,mps_base_plans.latest_customer_due_date,mps_base_plans.planned_quantity,mps_base_plans.model_age,mps_base_plans.image_refs,mps_base_plans.product_attribute,mps_base_plans.surface_nature,mps_base_plans.manufacturing_method)
         IS DISTINCT FROM (excluded.shipping_plan_id,excluded.division_id,excluded.customer_code,excluded.item_name,excluded.order_date,excluded.latest_customer_due_date,excluded.planned_quantity,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.manufacturing_method)
@@ -196,12 +208,22 @@ export class MasterPlanSyncService {
 
   private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string) {
     const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
-    const admission = weeklyAdmissionSql(basePlan);
+    const admission = weeklyAdmissionSql(basePlan, "base");
+    const dictionaryColumn = (field: string, column: string) =>
+      this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
     return this.dataSource.transaction(async (manager) => {
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
-        SELECT tenant_id,id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,planned_quantity,manufacturing_method,NULL,false,NULL,NULL,CASE WHEN order_date IS NULL THEN NULL ELSE greatest(0,floor((CURRENT_DATE-order_date)/7.0))::integer END,$2::uuid,$3
-        FROM mps_base_plans WHERE tenant_id=$1 AND ${admission}
+        SELECT base.tenant_id,base.id,base.division_id,base.customer_code,base.order_number,base.item_code,base.item_name,base.delivery_number,base.order_date,base.latest_customer_due_date,base.latest_review_due_date,
+          ${dictionaryColumn("modelAge", "model_age")},base.image_refs,
+          ${dictionaryColumn("productAttribute", "product_attribute")},
+          ${dictionaryColumn("surfaceNature", "surface_nature")},
+          base.planned_quantity,base.planned_quantity,
+          ${dictionaryColumn("manufacturingMethod", "manufacturing_method")},
+          NULL,false,NULL,NULL,CASE WHEN base.order_date IS NULL THEN NULL ELSE greatest(0,floor((CURRENT_DATE-base.order_date)/7.0))::integer END,$2::uuid,$3
+        FROM mps_base_plans base
+        LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
+        WHERE base.tenant_id=$1 AND ${admission}
         ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
@@ -290,6 +312,19 @@ export class MasterPlanSyncService {
   }
 
   private nullableNumber(value: unknown) { return value == null ? null : Number(value); }
+
+  /**
+   * 同步复制字典字段时同样只能写当前 field options 中的真实 value：
+   * 来源为空 → NULL（保持既有可清空语义）；来源为合法 value → 复制；来源是历史非法值 → 保留目标表当前值，绝不向下游扩散。
+   * 允许值统一来自 fieldsFor(resource) 的 options，不新增第二份字典。
+   */
+  private dictionaryCopySql(resource: MasterPlanResource, field: string, column: string, source: string, existing: string) {
+    const options = fieldsFor(resource).find((entry) => entry.key === field)?.options ?? [];
+    if (!options.length) return source;
+    const allowed = options.map((option) => `'${String(option.value).replace(/'/g, "''")}'`).join(",");
+    return `CASE WHEN ${source} IS NULL OR btrim(${source}::text)='' THEN NULL WHEN ${source}::text IN (${allowed}) THEN ${source}::text ELSE ${existing} END AS ${column}`;
+  }
+
   private changedCount(result: unknown[]) { return Array.isArray(result[0]) ? result[0].length : result.length; }
   private dateOnly(value: unknown) {
     if (value == null || value === "") return null;
