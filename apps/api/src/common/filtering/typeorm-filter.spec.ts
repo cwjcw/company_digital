@@ -87,3 +87,20 @@ describe("平台 QueryBuilder 类型化筛选", () => {
     expect(applied).toHaveLength(0);
   });
 });
+
+describe("平台字典选项解析（静态 options）", () => {
+  const { SqlFilterCompiler } = require("./sql-filter.compiler");
+  const field = { key: "status", label: "状态", type: "dictionary", editable: true, options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] };
+  const compile = (value: string) => {
+    const params: unknown[] = [];
+    const clause = new SqlFilterCompiler([field], { status: "record.status" }, () => true, (column: string) => column).compile({ logic: "AND", rules: [{ field: "status", operator: "eq", value }] }, params);
+    return { clause, params };
+  };
+  it("输入中文 label 会解析成稳定 value", () => {
+    expect(compile("正常").params).toEqual([["NORMAL"]]);
+    expect(compile("NORMAL").params).toEqual([["NORMAL"]]);
+  });
+  it("未命中的输入回落为原值（结果为空而不是报错）", () => {
+    expect(compile("不存在").params).toEqual([["不存在"]]);
+  });
+});

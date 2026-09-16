@@ -157,7 +157,18 @@ export class SqlFilterCompiler {
     throw new BadRequestException(`字段“${field.label}”不支持该筛选方式`);
   }
 
+  /**
+   * 字典/选项类字段的 label→value 解析：优先使用字段自带的正式 options（输入 value 或 label 都命中），
+   * 动态字典（如设备故障原因）再由调用方注入 resolver。两者都没有时按原值处理。
+   */
   private resolveValues(field: TablePermissionFieldDefinition, raw: string[]) {
+    if (field.options?.length) {
+      const resolved = raw.map((value) => {
+        const matched = field.options!.filter((option) => option.value === value || option.label === value).map((option) => option.value);
+        return matched.length ? matched : (this.resolveOptionValues(field.key, value) ?? [value]);
+      });
+      return [...new Set(resolved.flat())];
+    }
     if (!field.options?.length) return raw;
     const resolved = raw.map((value) => {
       const matched = this.resolveOptionValues(field.key, value);

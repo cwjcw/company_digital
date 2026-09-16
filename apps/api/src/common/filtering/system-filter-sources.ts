@@ -141,6 +141,8 @@ export class SystemFilterSourceProvider implements OnModuleInit {
         expressions: source.expressions,
         fields: tablePermissionFieldsFor(source.code),
         authorize: source.authorize,
+        /* 系统管理/流程配置表没有 tenant_id 列：隔离由资源与管理权限承担，平台不伪造租户条件。 */
+        tenantColumn: null,
         searchColumns: source.searchColumns,
         buildScope: () => "1=1"
       });
