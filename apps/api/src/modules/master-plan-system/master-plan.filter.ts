@@ -141,12 +141,15 @@ export class MasterPlanFilterCompiler {
       const values = operator === "in" || operator === "not_in"
         ? this.listOperands(rule, field.label).map((entry) => this.numberOperand(entry, field.label))
         : [this.numberOperand(rule.value, field.label)];
-      params.push(values);
-      const index = `$${params.length}::numeric[]`;
-      if (operator === "in") return `${asNumber} =ANY(${index})`;
-      if (operator === "not_in") return `(${asNumber} IS NULL OR ${asNumber} <>ALL(${index}))`;
+      if (operator === "in" || operator === "not_in") {
+        params.push(values);
+        const index = `$${params.length}::numeric[]`;
+        return operator === "in" ? `${asNumber} =ANY(${index})` : `(${asNumber} IS NULL OR ${asNumber} <>ALL(${index}))`;
+      }
+      params.push(values[0]);
+      const single = `$${params.length}::numeric`;
       const compare = { eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[operator]!;
-      return `${asNumber} ${compare} ${index}[1]`;
+      return `${asNumber} ${compare} ${single}`;
     }
 
     if (operator === "contains" || operator === "not_contains" || operator === "starts_with") {

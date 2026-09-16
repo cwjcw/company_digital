@@ -86,6 +86,19 @@ describe("KN-FILTER-001 server filter compiler", () => {
     expect(notEmpty).toContain("<>''");
   });
 
+  it("binds single numeric comparisons with a scalar cast (no array subscript in SQL)", () => {
+    const params: unknown[] = [];
+    const clause = compilerFor("mps-process-reports").compile({ rules: [{ field: "productionQuantity", operator: "gt", value: "0" }] }, params);
+    expect(clause).toContain("::numeric > $");
+    expect(clause).not.toContain("[1]");
+    expect(params).toEqual(["0"]);
+
+    const listParams: unknown[] = [];
+    const listClause = compilerFor("mps-process-reports").compile({ rules: [{ field: "productionQuantity", operator: "in", values: [1, 2] }] }, listParams);
+    expect(listClause).toContain("=ANY($");
+    expect(listParams).toEqual([["1", "2"]]);
+  });
+
   it("rejects unknown fields, operators for the wrong type, unreadable fields and malformed operands", () => {
     const compiler = compilerFor("mps-process-reports");
     expect(() => compiler.compile({ rules: [{ field: "rawPayload", operator: "eq", value: "1" }] }, [])).toThrow("不允许筛选");

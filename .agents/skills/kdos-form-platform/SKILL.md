@@ -45,6 +45,8 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 每个可筛选字段的字段名旁必须提供统一的筛选按钮；按钮、悬浮提示、弹层标题、条件名称和操作按钮全部使用中文。字段筛选至少提供“包含”的即时文本查找、回车应用、“筛选”和“清除”，并与顶部标准筛选面板共享同一筛选状态，不得形成两套互相冲突的条件。
 - 字典/选项类字段（数据库保存稳定 `value`，界面显示中文 `label`）的筛选必须在服务端先按字段自身的 `options` 定义把输入解析成真实 `value` 再查询：输入 `value` 或 `label` 都必须命中，模糊输入按 label/value 解析成全部匹配项后使用 `= ANY(...)`，匹配不到任何选项时返回 0 行；禁止直接把显示名称送给数据库 `value` 列做模糊匹配，也禁止在控制器、服务或前端另写第二份字典映射。列表、待办视图、全局搜索与导出必须共用同一解析逻辑，保证同一筛选条件得到同一数据集。
 - 顶部快速搜索对应 Excel 的“查找”，字段名旁筛选对应 Excel 的“自动筛选”。筛选弹层应自动聚焦输入框、允许清空、支持回车应用、突出显示已生效条件，并在条件变化后返回第一页；日期、数字、字典、成员和部门字段应逐步使用匹配其类型的条件与候选值，不得长期把所有字段退化成不可解释的自由文本。
+- 类型化高级筛选（KN-FILTER-001）：正式筛选协议是 `FilterGroup { logic: "AND" | "OR"; rules: FilterRule[] }`，`FilterRule` 只包含 `field` + `operator` + 操作数（`value`/`values`/`min`/`max`/`dynamic`）；客户端不得提交字段类型、列名、SQL、table、join、cast 或表达式，类型永远由服务端字段 metadata 决定（`@kdos/contracts` 的 `TablePermissionFieldType`：text/number/date/datetime/boolean/dictionary/member/department/reference/structured/attachment）。时间戳必须用 `datetime`（不得当 `date`），关联字段必须用 `reference` 并声明候选来源资源，数组/多值字段必须显式 `multiple: true`，数值必须声明 `format`（integer/decimal/percentage/durationMinutes/currency），JSON 字段必须显式声明 `filterable` 策略。
+- 服务端筛选编译器（`master-plan.filter.ts` 的 `MasterPlanFilterCompiler`，后续模块复用同一实现与 `tableFilterOperatorsFor` 操作符 registry）必须做到：字段 allowlist（未知字段拒绝）、操作符必须属于该字段类型（不匹配拒绝）、操作数类型化校验（数字/日期/关键字）、全部值参数化（禁止拼接用户输入）、字段读权限校验（无 read 权限的字段不得筛选，防止隐藏字段侧信道推断）、`tenant_id` 与数据范围在筛选之前生效、动态日期（today/yesterday/this_week/last_week/this_month/last_month/last_7_days/last_30_days/this_year）由服务端按 Asia/Shanghai 计算。类型化筛选与既有自由文本筛选必须共用同一条件入口，列表、总数、分页、导出与 PENDING 视图必须使用同一个编译器，保证页面筛选与导出结果一致。
 
 #### 3.1.0 行选择与行级操作（强制）
 
