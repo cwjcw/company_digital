@@ -3,7 +3,7 @@ import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
 export type TableFilterActor = {
-  tenantId: string; userId: string | null; permissions: string[];
+  tenantId: string; userId: string | null; permissions: string[]; roles?: string[];
   isSystemAdmin?: boolean; moduleAdminCodes?: string[];
   tableDataScopes?: Array<{ resource: string; scope: string; match?: string; actions?: string[]; rules?: Array<{ fieldKey?: string; operator?: string; value?: unknown }> }>;
   hasPermission?: (resource: string, action: string) => boolean;
@@ -24,6 +24,22 @@ export type TableFilterSource = {
   tenantColumn?: string | null;
   /** field key → 完整 SQL 表达式（用于虚拟列/关联列）；优先于 columns。 */
   expressions?: Record<string, string>;
+  /**
+   * 可选查询执行器：资源所在的物理库与平台默认 DataSource 不同时使用
+   * （例如 KDOS 库 `marketing.*` 的营销资源）。不提供时使用平台默认 DataSource。
+   */
+  runQuery?: (sql: string, params: unknown[]) => Promise<any[]>;
+  /** 该资源自己的成员候选来源（跨库资源必须提供，例如 KDOS 营销表的业务员）。 */
+  memberCandidates?: (search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
+  /** 该资源自己的部门候选来源（跨库资源必须提供）。 */
+  departmentCandidates?: (search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
+  /**
+   * 资源级授权：平台 rows/candidate 入口在读取前必须调用（例如系统管理资源仅系统管理员 + 模块管理员）。
+   * 未提供时按字段读权限判定，与各模块现有 read 权限保持一致。
+   */
+  authorize?: (actor: TableFilterActor) => void;
+  /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
+  searchColumns?: string[];
   /** 该资源的字段定义（默认取 tablePermissionFieldsFor）。 */
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */

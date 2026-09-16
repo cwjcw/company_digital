@@ -6,6 +6,8 @@ import {
   availableDevelopmentActions, configuredDevelopmentStages, developmentApprovalCapabilities, developmentRequestStages,
   type DevelopmentActor, type DevelopmentWorkflowPolicy, isDevelopmentAdmin
 } from "./development-request.workflow";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { applyTypedFilterToQueryBuilder } from "../../common/filtering/typeorm-filter";
 import { ApprovalFlowConfigService, type ApprovalFlowRuntimeConfig } from "../approval-flow-configs/approval-flow-config.service";
 
 type RequestInput = {
@@ -16,6 +18,15 @@ type RequestInput = {
   urgency?: string;
   desiredDate?: string | null;
   requesterManagerId?: string | null;
+};
+
+/** KN-FILTER-001：需求表列绑定（字段 key → 真实数据库列）。 */
+const DEVELOPMENT_REQUEST_COLUMNS: Record<string, string> = {
+  requestNumber: "request_number", title: "title", category: "category", description: "description",
+  businessValue: "business_value", urgency: "urgency", desiredDate: "desired_date", status: "status",
+  requesterId: "requester_id", requesterManagerId: "requester_manager_id", handlerId: "handler_id",
+  handlerManagerId: "handler_manager_id", estimatedWorkdays: "estimated_workdays", plannedCompletionDate: "planned_completion_date",
+  createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
 };
 
 @Injectable()
@@ -104,6 +115,12 @@ export class DevelopmentRequestService {
   }
 
   private canView(request: DevelopmentRequest, actor: DevelopmentActor, policy: DevelopmentWorkflowPolicy) {
+    /* KN-FILTER-001 第五轮（用户最终确认）：需求提报与审批数据只对系统管理员/流程审批模块管理员可见，
+       不再设计“本人/主管/处理人可看”的行级规则；普通用户连列表都不可见（见 list/detail 的 403）。 */
+    return isDevelopmentAdmin(actor, policy.adminRoleNames);
+  }
+
+  private canViewLegacy(request: DevelopmentRequest, actor: DevelopmentActor, policy: DevelopmentWorkflowPolicy) {
     if (request.status === "DRAFT") return isDevelopmentAdmin(actor, policy.adminRoleNames) || request.requesterId === actor.id;
     return isDevelopmentAdmin(actor, policy.adminRoleNames) || [request.requesterId, request.requesterManagerId, request.handlerId, request.handlerManagerId].includes(actor.id);
   }
@@ -169,10 +186,17 @@ export class DevelopmentRequestService {
     });
   }
 
-  async list(actor: DevelopmentActor, scope?: string, search?: string) {
+  async list(actor: DevelopmentActor, scope?: string, search?: string, filterGroup?: unknown) {
     const config = await this.config();
     const policy = this.policy(config);
-    let rows = await this.requests.find({ order: { updatedAt: "DESC" }, take: 1000 });
+    /* 用户最终确认：普通用户（含仅能读取相关业务数据的用户）一律不可查看需求提报与审批数据。 */
+    if (!isDevelopmentAdmin(actor, policy.adminRoleNames)) throw new ForbiddenException("需求提报与审批数据仅系统管理员或流程审批模块管理员可以查看");
+    const builder = this.requests.createQueryBuilder("row").orderBy("row.updatedAt", "DESC").take(1000);
+    applyTypedFilterToQueryBuilder({
+      builder, alias: "row", fields: tablePermissionFieldsFor("development-requests"),
+      columns: DEVELOPMENT_REQUEST_COLUMNS, filterGroup, canFilterField: () => true
+    });
+    let rows = await builder.getMany();
     rows = rows.filter((request) => this.canView(request, actor, policy));
     const keyword = String(search ?? "").trim().toLocaleLowerCase();
     if (keyword) rows = rows.filter((request) => [request.requestNumber, request.title, request.description, request.category].some((value) => String(value ?? "").toLocaleLowerCase().includes(keyword)));

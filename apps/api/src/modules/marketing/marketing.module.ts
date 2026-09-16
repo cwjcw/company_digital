@@ -10,10 +10,12 @@ import { MarketingController } from "./marketing.controller";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
 import { MarketingImportService } from "./marketing-import.service";
 import { MARKETING_REPOSITORY } from "./marketing.repository";
+import { MarketingFilterSourceProvider } from "./marketing.filter-sources";
+import { TableFilterModule } from "../../common/filtering/table-filter.module";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), OrganizationDirectoryModule],
+  imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), OrganizationDirectoryModule, TableFilterModule],
   controllers: [MarketingController],
-  providers: [OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
+  providers: [OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, MarketingFilterSourceProvider, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
 })
 export class MarketingModule {}

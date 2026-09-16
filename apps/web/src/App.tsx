@@ -17,6 +17,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, usePa
 import { masterPlanResourceDefinitions, tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
 import type { AdvancedFilterGroup } from "./shared/advanced-filter";
+import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from "./shared/platform-table";
 import { SalesSummaryDashboard } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
@@ -302,8 +303,11 @@ function Shell({ logout }: { logout: () => void }) {
 
 function DataOperations() {
   const queryClient = useQueryClient();
-  const dictionaries = useQuery({ queryKey: ["dictionaries"], queryFn: () => api<any[]>("/master-data/dictionaries") });
-  const processes = useQuery({ queryKey: ["processes"], queryFn: () => api<any[]>("/master-data/processes") });
+  /* KN-FILTER-001：字典与工序通过平台统一读取入口（服务端筛选/排序/分页），写操作仍走原有接口。 */
+  const [dictionaryQuery, setDictionaryQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
+  const [processQuery, setProcessQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
+  const dictionaries = useQuery({ queryKey: platformRowsKey("dictionaries", dictionaryQuery), queryFn: () => api<PlatformTablePage<any>>(platformRowsUrl("dictionaries", dictionaryQuery)), placeholderData: (previous) => previous });
+  const processes = useQuery({ queryKey: platformRowsKey("processes", processQuery), queryFn: () => api<PlatformTablePage<any>>(platformRowsUrl("processes", processQuery)), placeholderData: (previous) => previous });
   const [dictionaryIds, setDictionaryIds] = useState<React.Key[]>([]);
   const [processIds, setProcessIds] = useState<React.Key[]>([]);
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
@@ -313,7 +317,7 @@ function DataOperations() {
   const [dictionaryForm] = Form.useForm();
   const [processForm] = Form.useForm();
   const refresh = (key: string) => void queryClient.invalidateQueries({ queryKey: [key] });
-  const dictionaryRows = (dictionaries.data ?? []).flatMap((type: any) => type.values.map((value: any) => ({ ...value, typeId: type.id, typeVersion: type.version, code: type.code, typeName: type.name })));
+  const dictionaryRows = dictionaries.data?.rows ?? [];
   const updateDictionaryType = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-types/${row.typeId}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.typeVersion }) }); refresh("dictionaries"); };
   const updateDictionaryValue = async (row: any, field: string, value: unknown) => { await api(`/master-data/dictionary-values/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("dictionaries"); };
   const updateProcess = async (row: any, field: string, value: unknown) => { await api(`/master-data/processes/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) }); refresh("processes"); };
@@ -341,7 +345,7 @@ function DataOperations() {
     }
   };
   const dictionaryColumns = [
-    { title: "字典编码", dataIndex: "code", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "code", v)} /> },
+    { title: "字典编码", dataIndex: "typeCode", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "code", v)} /> },
     { title: "字典名称", dataIndex: "typeName", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryType(row, "name", v)} /> },
     { title: "值", dataIndex: "value", render: (value: unknown, row: any) => <InlineText value={value} onSave={(v) => updateDictionaryValue(row, "value", v)} /> },
     { title: "顺序", dataIndex: "sortOrder", render: (value: unknown, row: any) => <InlineText type="number" value={value} onSave={(v) => updateDictionaryValue(row, "sortOrder", v)} /> },
@@ -362,7 +366,7 @@ function DataOperations() {
   </Space>} />
     <ImportFeedbackAlert value={importFeedback} onClose={() => setImportFeedback(undefined)} />
     <Tabs items={[
-      { key: "dictionaries", label: `字典值（${dictionaryRows.length}）`, children: <>
+      { key: "dictionaries", label: `字典值（${dictionaries.data?.total ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
           <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importMasterFile(file as File, "dictionaries")}>
             <Button loading={importing === "dictionaries"}>导入字典（CSV/XLSX）</Button>
@@ -371,9 +375,9 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("dictionaries", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!dictionaryIds.length} onClick={async () => { await api("/master-data/dictionary-values/delete", { method: "POST", body: JSON.stringify({ ids: dictionaryIds }) }); setDictionaryIds([]); refresh("dictionaries"); }}>停用选中（{dictionaryIds.length}）</Button>
         </Space>
-        <KdosDataTable resource="dictionaries" editable rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} pagination={{ pageSize: 50 }} columns={dictionaryColumns} scroll={{ x: "max-content", y: 480 }} />
+        <KdosDataTable resource="dictionaries" editable rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} serverData={{ total: dictionaries.data?.total ?? 0, onQueryChange: setDictionaryQuery }} columns={dictionaryColumns} scroll={{ x: "max-content", y: 480 }} />
       </> },
-      { key: "processes", label: `工序（${processes.data?.length ?? 0}）`, children: <>
+      { key: "processes", label: `工序（${processes.data?.total ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
           <Upload accept=".csv" showUploadList={false} beforeUpload={async (file) => {
             try {
@@ -385,7 +389,7 @@ function DataOperations() {
           }}><Button>导入工序 CSV</Button></Upload>
           <Button danger disabled={!processIds.length} onClick={async () => { await api("/master-data/processes/delete", { method: "POST", body: JSON.stringify({ ids: processIds }) }); setProcessIds([]); refresh("processes"); }}>停用选中（{processIds.length}）</Button>
         </Space>
-        <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data} pagination={false} columns={processColumns} scroll={{ x: "max-content", y: 480 }} />
+        <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data?.rows} serverData={{ total: processes.data?.total ?? 0, onQueryChange: setProcessQuery }} columns={processColumns} scroll={{ x: "max-content", y: 480 }} />
       </> }
     ]} />
     <Modal title="新增字典值" open={dictionaryOpen} onCancel={() => setDictionaryOpen(false)} onOk={() => dictionaryForm.validateFields().then(async (values) => { await api("/master-data/dictionaries", { method: "POST", body: JSON.stringify(values) }); setDictionaryOpen(false); dictionaryForm.resetFields(); refresh("dictionaries"); })}><Form form={dictionaryForm} layout="vertical"><Form.Item name="code" label="编码" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="name" label="名称"><Input /></Form.Item><Form.Item name="value" label="值" rules={[{ required: true }]}><Input /></Form.Item></Form></Modal>
@@ -543,7 +547,9 @@ function ApiKeyCenter() {
   const [regenerateTarget, setRegenerateTarget] = useState<any>();
   const [regenerating, setRegenerating] = useState(false);
   const [form] = Form.useForm();
-  const keys = useQuery({ queryKey: ["api-keys"], queryFn: () => api<any[]>("/api-keys") });
+  /* KN-FILTER-001：API Key 列表接入平台统一读取入口；完整 Key 永不通过列表或候选返回。 */
+  const [keyQuery, setKeyQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
+  const keys = useQuery({ queryKey: platformRowsKey("api-keys", keyQuery), queryFn: () => api<PlatformTablePage<any>>(platformRowsUrl("api-keys", keyQuery)), placeholderData: (previous) => previous });
   const users = useQuery({ queryKey: ["admin-users"], queryFn: () => api<any[]>("/admin/users") });
   const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<any[]>("/admin/roles") });
   const create = useMutation({
@@ -561,6 +567,7 @@ function ApiKeyCenter() {
       setRevealedKeys((current) => ({ ...current, [result.id]: result.apiKey }));
       Modal.info({ title: "请立即复制并保存 API Key", content: <Typography.Paragraph copyable code>{result.apiKey}</Typography.Paragraph> });
       void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      void queryClient.invalidateQueries({ queryKey: ["table-filters/rows"] });
     },
     onError: (error: Error) => message.error(error.message)
   });
@@ -580,7 +587,7 @@ function ApiKeyCenter() {
   };
   return <div><PageHeader title="API Key 管理" subtitle="仅系统管理员可创建、关联用户并设置只读或读写权限" actions={<Button type="primary" onClick={() => setOpen(true)}>新增 API Key</Button>} />
     <Alert type="info" showIcon style={{ marginBottom: 12 }} message="完整 API KEY 仅在新建或重新生成后显示；刷新页面后将自动隐藏，请及时复制保存。" />
-    <KdosDataTable resource="api-keys" rowKey="id" dataSource={keys.data} loading={keys.isLoading} columns={[
+    <KdosDataTable resource="api-keys" rowKey="id" dataSource={keys.data?.rows} loading={keys.isLoading} serverData={{ total: keys.data?.total ?? 0, onQueryChange: setKeyQuery }} columns={[
       { title: "名称", dataIndex: "name" },
       { title: "API KEY", dataIndex: "apiKey", width: 430, render: (_value: unknown, row: any) => revealedKeys[row.id]
         ? <Typography.Text code copyable={{ text: revealedKeys[row.id] }}>{revealedKeys[row.id]}</Typography.Text>
@@ -607,7 +614,9 @@ function ApiKeyCenter() {
 
 
 function ContactDirectory() {
-  const contacts = useQuery({ queryKey: ["contacts"], queryFn: () => api<any[]>("/admin/contacts") });
+  /* KN-FILTER-001：通讯录接入平台统一读取入口（服务端筛选/分页），只读、不允许编辑。 */
+  const [contactQuery, setContactQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
+  const contacts = useQuery({ queryKey: platformRowsKey("contacts", contactQuery), queryFn: () => api<PlatformTablePage<any>>(platformRowsUrl("contacts", contactQuery)), placeholderData: (previous) => previous });
   const columns = [
     { title: "姓名", dataIndex: "name" }, { title: "工号", dataIndex: "employeeNo" }, { title: "职位", dataIndex: "position" },
     { title: "所属组织", dataIndex: "departmentPaths", render: (paths: string[][]) => <Space direction="vertical" size={0}>{(paths ?? []).map((path, index) => <span key={index}>{path.join(" / ")}</span>)}</Space> },
@@ -615,7 +624,7 @@ function ContactDirectory() {
     { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> },
     ...auditColumns
   ];
-  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.length ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data} loading={contacts.isLoading} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
+  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.total ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data?.rows} loading={contacts.isLoading} columns={columns} serverData={{ total: contacts.data?.total ?? 0, onQueryChange: setContactQuery }} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
 }
 
 function ForcePasswordChange({ done }: { done: () => void }) {

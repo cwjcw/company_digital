@@ -2,8 +2,22 @@ import { ConflictException, Inject, Injectable, NotFoundException } from "@nestj
 import type { KdosDatabaseClient } from "@kdos/database";
 import type { PoolClient } from "pg";
 import { KDOS_DATABASE } from "../organization-directory/kdos-database.provider";
-import type { MarketingRepository } from "./marketing.repository";
+import type { MarketingPageQuery, MarketingPageResult, MarketingRepository } from "./marketing.repository";
 import type { DivisionReviewConfirmResult, DivisionReviewConfirmRow, MappingDepartmentDirectorySyncResult, MappingDepartmentDirectorySyncTarget, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput, RollingPlanSyncFailure, RollingPlanSyncResult, RollingPlanSyncRow } from "./marketing.types";
+
+/** KN-FILTER-001 共享 SELECT：列表、分页与导出必须使用同一列集合与别名。 */
+const MAPPING_SELECT = `SELECT mapping.id,mapping.department,mapping.section,mapping.department_id AS "departmentId",mapping.customer_code AS "customerCode",
+  mapping.salesperson_user_ids AS "salespersonUserIds",mapping.version,
+  mapping.created_by AS "createdBy",mapping.created_at AS "createdAt",mapping.updated_by AS "updatedBy",mapping.updated_at AS "updatedAt"
+  FROM marketing.business_customer_mappings mapping`;
+
+const SCHEDULE_SELECT = `SELECT schedule.id,schedule.customer_code AS "customerCode",schedule.order_number AS "orderNumber",
+  schedule.department,schedule.section,schedule.department_id AS "departmentId",schedule.salesperson_user_ids AS "salespersonUserIds",
+  schedule.item_number AS "itemNumber",schedule.item_name AS "itemName",schedule.customer_due_date AS "customerDueDate",
+  schedule.order_total_quantity AS "orderTotalQuantity",schedule.production_unit AS "productionUnit",
+  schedule.completion_ratio AS "completionRatio",schedule.status,schedule.source_plan_item_id AS "sourcePlanItemId",schedule.last_synced_at AS "lastSyncedAt",
+  schedule.version,schedule.created_by AS "createdBy",schedule.created_at AS "createdAt",schedule.updated_by AS "updatedBy",schedule.updated_at AS "updatedAt"
+  FROM marketing.order_schedules schedule`;
 
 @Injectable()
 export class DrizzleMarketingRepository implements MarketingRepository {
@@ -48,6 +62,35 @@ export class DrizzleMarketingRepository implements MarketingRepository {
         ORDER BY department,section,customer_code`, [tenantId]);
       return result.rows;
     });
+  }
+
+  /** KN-FILTER-001：READ=ALL，权限/租户/搜索/FilterGroup 全部下沉 SQL，服务端分页与计数共用同一 WHERE。 */
+  async pageMappings(tenantId: string, query: MarketingPageQuery): Promise<MarketingPageResult> {
+    return this.transaction(tenantId, async (client) => {
+      const [{ count }] = (await client.query(`SELECT count(*)::integer count FROM marketing.business_customer_mappings mapping WHERE ${query.whereSql}`, query.params)).rows as Array<{ count: number }>;
+      const paged = [...query.params, query.pageSize, (query.page - 1) * query.pageSize];
+      const rows = (await client.query(`${MAPPING_SELECT} WHERE ${query.whereSql} ORDER BY ${query.orderBy} LIMIT $${paged.length - 1} OFFSET $${paged.length}`, paged)).rows as Array<Record<string, unknown>>;
+      return { rows, total: Number(count), page: query.page, pageSize: query.pageSize };
+    });
+  }
+
+  async listMappingsByQuery(tenantId: string, query: Omit<MarketingPageQuery, "page" | "pageSize">) {
+    return this.transaction(tenantId, async (client) =>
+      (await client.query(`${MAPPING_SELECT} WHERE ${query.whereSql} ORDER BY ${query.orderBy}`, query.params)).rows as Array<Record<string, unknown>>);
+  }
+
+  async pageSchedules(tenantId: string, query: MarketingPageQuery): Promise<MarketingPageResult> {
+    return this.transaction(tenantId, async (client) => {
+      const [{ count }] = (await client.query(`SELECT count(*)::integer count FROM marketing.order_schedules schedule WHERE ${query.whereSql}`, query.params)).rows as Array<{ count: number }>;
+      const paged = [...query.params, query.pageSize, (query.page - 1) * query.pageSize];
+      const rows = (await client.query(`${SCHEDULE_SELECT} WHERE ${query.whereSql} ORDER BY ${query.orderBy} LIMIT $${paged.length - 1} OFFSET $${paged.length}`, paged)).rows as Array<Record<string, unknown>>;
+      return { rows, total: Number(count), page: query.page, pageSize: query.pageSize };
+    });
+  }
+
+  async listSchedulesByQuery(tenantId: string, query: Omit<MarketingPageQuery, "page" | "pageSize">) {
+    return this.transaction(tenantId, async (client) =>
+      (await client.query(`${SCHEDULE_SELECT} WHERE ${query.whereSql} ORDER BY ${query.orderBy}`, query.params)).rows as Array<Record<string, unknown>>);
   }
 
   async listSchedules(tenantId: string, search = "") {

@@ -119,6 +119,12 @@ export interface TablePermissionFieldDefinition {
   /** 多值字段（数组/多选）必须显式声明，不能用类型推断。 */
   multiple?: boolean;
   format?: TableFieldFormat;
+  /**
+   * 百分比字段的真实存储尺度（必须按数据库实际 CHECK/写入语义声明，禁止全局假设）：
+   * - `ratio`（默认）：存储 0..1，界面按 0..100 输入并 /100 后提交（例：80% → 0.8）；
+   * - `percent`：存储 0..100，界面原样输入（例：80 → 80）。
+   */
+  percentageScale?: "ratio" | "percent";
   /** 是否允许作为筛选条件；structured/attachment 默认不可筛选。 */
   filterable?: boolean;
   filterBinding?: TableFilterBinding;
@@ -132,7 +138,7 @@ const auditPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "updatedBy", label: "更新人", type: "text", editable: false },
   { key: "updatedAt", label: "更新时间", type: "datetime", editable: false, format: "plain" }
 ];
-type FieldExtra = Pick<TablePermissionFieldDefinition, "multiple" | "format" | "filterable" | "filterBinding">;
+type FieldExtra = Pick<TablePermissionFieldDefinition, "multiple" | "format" | "percentageScale" | "filterable" | "filterBinding" | "options">;
 const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean?, boolean?, FieldExtra?]>) => [
   ...items.map(([key, label, type = "text", editable = true, required = false, extra]) => ({ key, label, type, editable, required, ...(extra ?? {}) })),
   ...auditPermissionFields
@@ -193,8 +199,9 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["fax", "传真", "text", false], ["email", "邮箱", "text", false], ["address", "地址", "text", false],
     ["enabled", "状态", "boolean", false], ["sourceUpdatedAt", "T+更新时间", "date", false]
   ]),
-  "business-customer-mapping": fields([["departmentId", "部门", "department"], ["section", "课室"], ["customerCode", "客户"], ["salespersonUserIds", "业务员", "member"]]),
-  "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number"], ["status", "状态", "dictionary"]]),
+  "business-customer-mapping": fields([["departmentId", "部门", "department"], ["section", "课室"], ["customerCode", "客户"], ["salespersonUserIds", "业务员", "member", true, false, { multiple: true }]]),
+  /* completion_ratio 在 KDOS 有 CHECK 0..100（导入校验 0..100），因此明确按 percent 尺度声明。 */
+  "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false, false, { multiple: true }], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number", true, false, { format: "percentage", percentageScale: "percent" }], ["status", "状态", "dictionary", true, false, { options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] }]]),
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
   "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number", true, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
@@ -218,19 +225,51 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "mps-sync-logs": fields([["syncKey", "同步编码", "text", false], ["runType", "运行类型", "dictionary", false], ["status", "状态", "dictionary", false], ["startedAt", "开始时间", "datetime", false], ["completedAt", "完成时间", "datetime", false], ["syncCount", "同步数量", "number", false], ["errorMessage", "错误信息", "text", false], ["idempotencyKey", "幂等标识", "text", false]]),
   "mps-data-exceptions": fields([["resource", "来源表", "text", false], ["businessKey", "业务键", "text", false], ["exceptionType", "异常类型", "dictionary", false], ["severity", "级别", "dictionary", false], ["message", "异常说明", "text", false], ["active", "未解决", "boolean", false], ["resolvedAt", "解决时间", "date", false]]),
   "mps-system-settings": fields([["settingKey", "参数编码", "text", false], ["name", "参数名称", "text", false], ["valueJson", "参数值", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "jsonb 参数值只按原样展示/写入，不参与结构化筛选" } }], ["description", "说明", "text", false]]),
-  "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false]]),
-  "approval-flow-configs": fields([["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"]]),
-  "dictionaries": fields([["typeCode", "字典类型编码"], ["typeName", "字典类型"], ["value", "字典值"], ["label", "显示名称"], ["enabled", "启用", "boolean"]]),
-  "processes": fields([["code", "工序编码"], ["name", "工序名称"], ["sortOrder", "排序", "number"], ["enabled", "启用", "boolean"]]),
+  "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["businessValue", "业务价值"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false], ["requesterManagerId", "申请主管", "member", false], ["handlerId", "处理人", "member", false], ["handlerManagerId", "处理主管", "member", false], ["estimatedWorkdays", "预计工作日", "number", true, false, { format: "decimal" }], ["plannedCompletionDate", "计划完成日期", "date", false]]),
+  "approval-flow-configs": fields([
+    ["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"],
+    ["allowDraft", "允许保存草稿", "boolean"], ["allowWithdraw", "允许撤回", "boolean"],
+    ["returnMode", "退回方式", "dictionary", true, false, { options: [{ value: "ANY_PREVIOUS", label: "可退回任一前序环节" }, { value: "PREVIOUS_ONLY", label: "只能退回紧邻上一环节" }] }],
+    ["rejectTargetMode", "拒绝后去向", "dictionary", true, false, { options: [{ value: "DRAFT", label: "拒绝后回到创建草稿" }, { value: "PREVIOUS", label: "拒绝后回到紧邻上一环节" }] }],
+    ["approvalCommentRequired", "审批意见必填", "boolean"],
+    /* 角色名快照/节点文案为 jsonb，没有确定的结构化筛选语义：显式 filterable=false，禁止 CAST JSON 万能筛选。 */
+    ["adminRoleNames", "管理角色", "structured", false, false, { filterable: false, filterBinding: { kind: "custom", note: "jsonb 角色名数组，仅原样展示" } }],
+    ["nodeLabels", "节点文案", "structured", false, false, { filterable: false, filterBinding: { kind: "custom", note: "jsonb 节点文案映射，仅原样展示" } }]
+  ]),
+  /* dictionary_values 只有 value（中文选项即显示文本，没有独立 label 列），因此按真实 schema 登记。 */
+  "dictionaries": fields([["typeCode", "字典类型编码"], ["typeName", "字典类型"], ["value", "字典值"], ["sortOrder", "排序", "number"], ["enabled", "启用", "boolean"]]),
+  "processes": fields([["code", "工序编码"], ["name", "工序名称"], ["sortOrder", "排序", "number"], ["enableRequiredDays", "所需天数", "boolean"], ["enableDueDate", "交期", "boolean"], ["enableStatus", "状态", "boolean"], ["enableException", "异常", "boolean"], ["enabled", "启用", "boolean"]]),
   "users": fields([["username", "账号"], ["displayName", "姓名"], ["employeeNo", "工号"], ["division", "部门"], ["position", "职位"], ["mobile", "手机"], ["email", "邮箱"], ["enabled", "状态", "boolean"]]),
   "roles": fields([["name", "角色名称"], ["description", "角色描述"], ["roleGroupId", "角色组", "dictionary"]]),
-  "organization": fields([["name", "部门名称"], ["parentId", "上级部门", "department"], ["leaderUserIds", "部门负责人", "member", false], ["level", "层级", "number", false], ["enabled", "状态", "boolean"]]),
-  "contacts": fields([["employeeNo", "工号"], ["name", "姓名"], ["position", "职位"], ["telephone", "电话"], ["departmentPaths", "部门路径", "department", false], ["enabled", "状态", "boolean", false]]),
+  "organization": fields([
+    ["name", "部门名称"], ["parentId", "上级部门", "department"],
+    ["pathLabel", "组织路径", "text", false, false, { filterBinding: { kind: "virtual", note: "按组织树拼出的完整路径（只读计算列）" } }],
+    ["wechatDepartmentId", "企业微信部门 ID", "text", false],
+    ["level", "层级", "number", false], ["division", "所属事业部", "text", false],
+    ["leaderUserIds", "部门负责人", "member", false, false, { multiple: true }],
+    ["leaderNames", "部门负责人姓名", "text", false, false, { filterBinding: { kind: "aggregate", note: "由负责人成员姓名聚合拼接，按包含匹配筛选" } }],
+    ["memberCount", "直属在职成员数", "number", false, false, { format: "integer", filterBinding: { kind: "aggregate", note: "按在职成员统计的聚合值（虚拟列）" } }],
+    ["enabled", "状态", "boolean"]
+  ]),
+  "contacts": fields([
+    ["employeeNo", "工号"], ["name", "姓名"], ["position", "职位"], ["telephone", "电话"],
+    ["wechatUserId", "企业微信成员 ID", "text", false],
+    /* 多路径 jsonb 结构：不做模糊 CAST 筛选，显式 filterable=false（不影响整表其他字段筛选）。 */
+    ["departmentPaths", "部门路径", "structured", false, false, { filterable: false, filterBinding: { kind: "custom", note: "企业微信多路径 jsonb 数组，仅原样展示" } }],
+    ["directLeaders", "直属上级", "structured", false, false, { filterable: false, filterBinding: { kind: "custom", note: "企业微信直属上级 jsonb 数组，仅原样展示" } }],
+    ["importedAt", "同步时间", "datetime", false],
+    ["enabled", "状态", "boolean", false]
+  ]),
   "imports": fields([["fileName", "文件名"], ["resource", "导入表单"], ["status", "状态", "dictionary", false], ["successCount", "成功数", "number", false], ["failureCount", "失败数", "number", false]]),
   /* 审计日志的 actorName 是写入时的操作者快照文本，不是可解析成员关系，按真实语义登记为 text。 */
   "audit-logs": fields([["actorName", "操作人", "text", false], ["resource", "表单", "text", false], ["action", "操作", "text", false], ["recordId", "记录 ID", "text", false], ["source", "来源", "text", false], ["requestId", "请求ID", "text", false]]),
   /* scopes 是 jsonb 权限范围数组，只按原样展示/写入，不参与结构化筛选（禁止 CAST JSON 模糊匹配）。 */
-  "api-keys": fields([["name", "名称"], ["scopes", "权限范围", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "API Key 权限范围为 jsonb 数组，只按原样展示" } }], ["enabled", "启用", "boolean"], ["expiresAt", "到期时间", "datetime"]]),
+  "api-keys": fields([
+    ["name", "名称"],
+    ["userId", "绑定用户 ID", "text", false], ["roleId", "绑定角色 ID", "text", false],
+    ["scopes", "权限范围", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "API Key 权限范围为 jsonb 数组，只按原样展示" } }],
+    ["enabled", "启用", "boolean"], ["expiresAt", "到期时间", "datetime"], ["lastUsedAt", "最近使用", "datetime", false]
+  ]),
   "tplus-sales-orders": fields([["source", "数据源", "dictionary", false], ["customerCode", "客户代码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderDate", "订单日期", "date", false]]),
   "customer-data-import": fields([["source", "数据源", "dictionary"], ["customerCode", "客户代码"], ["status", "状态", "dictionary", false]])
 };
@@ -502,17 +541,17 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "tplus-sales-orders": { status: "NOT_APPLICABLE", reason: "T+ 销售订单同步为集成任务视图，源数据语义由集成适配器维护，不作为可筛选业务记录表。" },
   "customer-data-import": { status: "NOT_APPLICABLE", reason: "客户数据导入为一次性导入任务，结果写入客户主数据，没有独立可筛选记录表。" },
   /* 本轮尚未接入：真实业务表，但需要按资源核实数据范围语义后再接入平台编译器。 */
-  "business-customer-mapping": { status: "BLOCKED", reason: "营销映射表当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
-  "order-schedule": { status: "BLOCKED", reason: "订单排期当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
-  "development-requests": { status: "BLOCKED", reason: "需求提报按流程策略在服务层裁剪行权限，需先确认数据范围绑定再接入平台编译器。" },
-  "approval-flow-configs": { status: "BLOCKED", reason: "审批流程配置为系统管理配置项，需按系统管理数据范围核实后接入。" },
-  dictionaries: { status: "BLOCKED", reason: "字典由类型+值两张表组合展示，需确认平台绑定后再接入。" },
-  processes: { status: "BLOCKED", reason: "工序主数据为系统管理配置项，需按系统管理数据范围核实后接入。" },
-  users: { status: "BLOCKED", reason: "用户目录为管理员聚合视图，需按管理员范围核实后接入。" },
-  roles: { status: "BLOCKED", reason: "角色列表为管理员聚合视图（含权限与成员关联），需按管理员范围核实后接入。" },
-  organization: { status: "BLOCKED", reason: "组织架构为企业微信权威目录，需按组织目录范围核实后接入。" },
-  contacts: { status: "BLOCKED", reason: "通讯录为外部同步目录，需确认数据范围绑定后接入。" },
-  "api-keys": { status: "BLOCKED", reason: "API Key 为管理员配置项，需按管理员范围核实后接入。" }
+    "business-customer-mapping": { status: "REGISTERED_AND_FILTERABLE" },
+    "order-schedule": { status: "REGISTERED_AND_FILTERABLE" },
+    "development-requests": { status: "REGISTERED_AND_FILTERABLE" },
+    "approval-flow-configs": { status: "REGISTERED_AND_FILTERABLE" },
+  dictionaries: { status: "REGISTERED_AND_FILTERABLE" },
+  processes: { status: "REGISTERED_AND_FILTERABLE" },
+  users: { status: "BLOCKED", reason: "用户管理页面当前是成员+部门树+角色成员弹窗的管理员聚合视图（前端整表、客户端部门/状态筛选、分页关闭）；接入服务端筛选必须先按产品要求重构该页面为服务端分页，本轮不强行切换以免破坏既有管理交互。" },
+  roles: { status: "BLOCKED", reason: "角色与权限页面当前展示的是所选角色的成员列表（行数据是用户，不是角色记录），与角色表 metadata 不一致；直接注册会出现筛选字段与页面行不匹配的假筛选，需先确认页面语义。" },
+  organization: { status: "REGISTERED_AND_FILTERABLE" },
+  contacts: { status: "REGISTERED_AND_FILTERABLE" },
+  "api-keys": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
 export function tableFilterResourceCapabilityOf(code: string): TableFilterResourceCapability {

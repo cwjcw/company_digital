@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApartmentOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Space, Tag, Tooltip } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
 import { KdosDataTable } from "../../shared/KdosDataTable";
+import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage } from "../../shared/platform-table";
 
 type OrganizationRow = {
   id: string; wechatDepartmentId: string | null; name: string; pathLabel: string; level: number;
@@ -12,7 +14,13 @@ type OrganizationRow = {
 
 export function OrganizationPage() {
   const queryClient = useQueryClient();
-  const rows = useQuery({ queryKey: ["organization-units"], queryFn: () => api<OrganizationRow[]>("/admin/organization-units") });
+  /* KN-FILTER-001：组织架构通过平台统一读取入口，服务端完成权限→租户→搜索→FilterGroup→排序→分页。 */
+  const [tableQuery, setTableQuery] = useState(blankPlatformQuery());
+  const rows = useQuery({
+    queryKey: platformRowsKey("organization", tableQuery),
+    queryFn: () => api<PlatformTablePage<OrganizationRow>>(platformRowsUrl("organization", tableQuery)),
+    placeholderData: (previous) => previous
+  });
   const columns = [
     { title: "组织路径", dataIndex: "pathLabel", width: 360, render: (value: string) => <Tooltip title={value}><span>{value}</span></Tooltip> },
     { title: "部门名称", dataIndex: "name", width: 180 },
@@ -24,8 +32,8 @@ export function OrganizationPage() {
     { title: "最近更新", dataIndex: "updatedAt", width: 190, render: (value: string) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—" }
   ];
   return <div>
-    <PageHeader title="组织架构表" subtitle="企业微信是组织、成员归属和部门负责人的权威来源" actions={<Button icon={<ReloadOutlined />} loading={rows.isFetching} onClick={() => void queryClient.invalidateQueries({ queryKey: ["organization-units"] })}>刷新同步结果</Button>} />
+    <PageHeader title="组织架构表" subtitle="企业微信是组织、成员归属和部门负责人的权威来源" actions={<Button icon={<ReloadOutlined />} loading={rows.isFetching} onClick={() => void queryClient.invalidateQueries({ queryKey: ["organization"] })}>刷新同步结果</Button>} />
     <Alert showIcon icon={<ApartmentOutlined />} type="info" message="组织架构随企业微信通讯录全量同步，当前计划每天 03:00 自动更新；部门字段始终保存稳定部门 ID。" style={{ marginBottom: 12 }} />
-    <KdosDataTable resource="organization" rowKey="id" loading={rows.isLoading} dataSource={rows.data} columns={columns} scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
+    <KdosDataTable resource="organization" rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
   </div>;
 }

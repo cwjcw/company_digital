@@ -17,7 +17,7 @@ export class DevelopmentRequestController {
     return { id: req.user.sub, name: req.user.displayName ?? req.user.username, roles: req.user.roles ?? [], isSystemAdmin: req.user.isSystemAdmin === true, moduleAdminCodes: req.user.moduleAdminCodes ?? [] };
   }
 
-  @Get() list(@Query("scope") scope: string | undefined, @Query("search") search: string | undefined, @Req() req: DevelopmentRequestHttpRequest) { return this.service.list(this.actor(req), scope, search); }
+  @Get() list(@Query("scope") scope: string | undefined, @Query("search") search: string | undefined, @Query("filterGroup") filterGroup: string | undefined, @Req() req: DevelopmentRequestHttpRequest) { return this.service.list(this.actor(req), scope, search, filterGroup); }
   @Get("people") people() { return this.service.people(); }
   @Get("config") config() { return this.service.runtimeConfig(); }
   @Get(":id") detail(@Param("id") id: string, @Req() req: DevelopmentRequestHttpRequest) { return this.service.detail(id, this.actor(req)); }

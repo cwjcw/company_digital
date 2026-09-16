@@ -4,6 +4,7 @@ import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, S
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
 import { KdosDataTable } from "../../shared/KdosDataTable";
+import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage } from "../../shared/platform-table";
 
 type FlowConfig = {
   flowKey: string; name: string; enabled: boolean; allowDraft: boolean; allowWithdraw: boolean;
@@ -23,7 +24,14 @@ export function ApprovalFlowSettingsPage() {
   const [editing, setEditing] = useState<FlowConfig>();
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
-  const flows = useQuery({ queryKey: ["approval-flow-configs"], queryFn: () => api<FlowConfig[]>("/approval-flow-configs"), enabled: canManage });
+  /* KN-FILTER-001：审批流程配置接入平台统一读取入口（服务端筛选/分页），权限仍由后端二次校验。 */
+  const [tableQuery, setTableQuery] = useState(blankPlatformQuery(20));
+  const flows = useQuery({
+    queryKey: platformRowsKey("approval-flow-configs", tableQuery),
+    queryFn: () => api<PlatformTablePage<FlowConfig>>(platformRowsUrl("approval-flow-configs", tableQuery)),
+    enabled: canManage,
+    placeholderData: (previous) => previous
+  });
   const roles = useQuery({ queryKey: ["approval-flow-role-options"], queryFn: () => api<Role[]>("/approval-flow-configs/roles"), enabled: canManage });
 
   if (!canManage) return <Alert type="error" showIcon message="无权访问审批流程配置" description="仅系统管理员、流程审批模块管理员或集团管理员可以调整流程规则。" />;
@@ -62,7 +70,7 @@ export function ApprovalFlowSettingsPage() {
   return <div>
     <PageHeader title="审批流程配置" subtitle="统一管理流程启停、表单能力、退回拒绝规则、处理角色和节点名称" />
     <Alert type="info" showIcon message="系统保护规则" description="退回和拒绝原因始终必填；配置页权限固定为系统管理员/集团管理员，避免误配置导致流程无法管理。流程停用只禁止新建，已有单据仍可继续处理。" style={{ marginBottom: 16 }} />
-    <Card bordered={false}><KdosDataTable resource="approval-flow-configs" rowKey="flowKey" loading={flows.isLoading} dataSource={flows.data ?? []} columns={columns} pagination={false} /></Card>
+    <Card bordered={false}><KdosDataTable resource="approval-flow-configs" rowKey="flowKey" loading={flows.isLoading} dataSource={flows.data?.rows ?? []} columns={columns} serverData={{ total: flows.data?.total ?? 0, onQueryChange: setTableQuery }} /></Card>
 
     <Modal title={editing ? `配置流程 · ${editing.name}` : "配置流程"} width={760} open={Boolean(editing)} confirmLoading={saving} okText="保存并立即生效" onCancel={() => setEditing(undefined)} onOk={() => void save()}>
       <Form form={form} layout="vertical">

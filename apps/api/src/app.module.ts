@@ -36,6 +36,7 @@ import { OrganizationDirectoryModule } from "./modules/organization-directory/or
 import { TableFilterModule } from "./common/filtering/table-filter.module";
 import { MasterDataFilterSourceProvider } from "./modules/master-data/master-data.filter-sources";
 import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources";
+import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sources";
 
 @Module({
   imports: [
@@ -67,7 +68,7 @@ import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources"
     AuthService, AuthGuard, SalesDashboardService, ImportService,
     TplusOrderSyncService, AdminQueryService, AdminApplicationService,
     TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService, AuditQueryService,
-    MasterDataFilterSourceProvider, AuditFilterSourceProvider
+    MasterDataFilterSourceProvider, AuditFilterSourceProvider, SystemFilterSourceProvider
   ]
 })
 export class AppModule {}

@@ -8,6 +8,7 @@ import dayjs from "dayjs";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
 import { KdosDataTable } from "../../shared/KdosDataTable";
+import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 
 const { Text, Paragraph } = Typography;
 
@@ -80,7 +81,12 @@ export function DevelopmentRequestsPage() {
   const [movementForm] = Form.useForm();
   const people = useQuery({ queryKey: ["development-people"], queryFn: () => api<Person[]>("/development-requests/people") });
   const flowConfig = useQuery({ queryKey: ["development-flow-config"], queryFn: () => api<FlowConfig>("/development-requests/config") });
-  const requests = useQuery({ queryKey: ["development-requests", scope, search], queryFn: () => api<RequestRow[]>(`/development-requests?scope=${scope}&search=${encodeURIComponent(search)}`) });
+  /* KN-FILTER-001：筛选条件（FilterGroup）由服务端应用；普通用户请求会被后端 403。 */
+  const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>();
+  const requests = useQuery({
+    queryKey: ["development-requests", scope, search, filterGroup],
+    queryFn: () => api<RequestRow[]>(`/development-requests?scope=${scope}&search=${encodeURIComponent(search)}${filterGroup?.rules?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(filterGroup))}` : ""}`)
+  });
   const detail = useQuery({ queryKey: ["development-request", detailId], queryFn: () => api<RequestRow>(`/development-requests/${detailId}`), enabled: Boolean(detailId) });
   const rows = useMemo(() => requests.data ?? [], [requests.data]);
   const personOptions = (people.data ?? []).map((person) => ({ value: person.id, label: personLabel(person) }));
@@ -171,7 +177,7 @@ export function DevelopmentRequestsPage() {
         <Select value={scope} onChange={setScope} style={{ width: 170 }} options={[{ value: "all", label: "全部可见需求" }, { value: "todo", label: "待我处理" }, { value: "mine", label: "我提报的需求" }]} />
         <Input.Search allowClear placeholder="搜索编号、标题、类型或需求说明" onSearch={setSearch} style={{ width: 360 }} />
       </Flex>
-      <KdosDataTable resource="development-requests" style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 2260, y: "calc(100vh - 465px)" }} />
+      <KdosDataTable resource="development-requests" style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} onFilterGroupChange={setFilterGroup} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 2260, y: "calc(100vh - 465px)" }} />
     </Card>
 
     <Modal title={editingDraft ? `编辑需求草稿 · ${editingDraft.requestNumber}` : "提报新需求"} width={720} open={requestOpen} onCancel={() => { setRequestOpen(false); setEditingDraft(undefined); }} footer={<Space>

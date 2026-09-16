@@ -1,4 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { tablePermissionFieldsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
 import { MARKETING_REPOSITORY, type MarketingRepository } from "./marketing.repository";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
 import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
@@ -6,6 +8,37 @@ import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, Mapping
 type MarketingResource = "business-customer-mapping" | "order-schedule";
 type MarketingAction = "read" | "create" | "update" | "delete" | "import" | "export";
 type MarketingPageInput = { page?: number; pageSize?: number; search?: string; filters?: Record<string, string>; sortField?: string; sortOrder?: string; completion?: string; dueStart?: string; dueEnd?: string; exactOrderNumber?: string };
+type MarketingFilterInput = MarketingPageInput & { filterGroup?: unknown };
+
+/**
+ * KN-FILTER-001 营销资源列绑定：READ 语义为“有 read 权限即全部可读”，
+ * 因此 WHERE = 租户 + （quick search）+ （FilterGroup），不再追加本人/部门范围。
+ */
+const MARKETING_COLUMNS: Record<MarketingResource, Record<string, string>> = {
+  "business-customer-mapping": {
+    departmentId: "mapping.department_id", department: "mapping.department", section: "mapping.section",
+    customerCode: "mapping.customer_code", salespersonUserIds: "mapping.salesperson_user_ids",
+    createdBy: "mapping.created_by", createdAt: "mapping.created_at", updatedBy: "mapping.updated_by", updatedAt: "mapping.updated_at"
+  },
+  "order-schedule": {
+    customerCode: "schedule.customer_code", orderNumber: "schedule.order_number", departmentId: "schedule.department_id",
+    department: "schedule.department", section: "schedule.section", salespersonUserIds: "schedule.salesperson_user_ids",
+    itemNumber: "schedule.item_number", itemName: "schedule.item_name", customerDueDate: "schedule.customer_due_date",
+    orderTotalQuantity: "schedule.order_total_quantity", productionUnit: "schedule.production_unit",
+    completionRatio: "schedule.completion_ratio", status: "schedule.status",
+    createdBy: "schedule.created_by", createdAt: "schedule.created_at", updatedBy: "schedule.updated_by", updatedAt: "schedule.updated_at"
+  }
+};
+
+const MARKETING_SORTS: Record<MarketingResource, Record<string, string>> = {
+  "business-customer-mapping": { customerCode: "mapping.customer_code", department: "mapping.department", section: "mapping.section", createdAt: "mapping.created_at", updatedAt: "mapping.updated_at" },
+  "order-schedule": {
+    customerCode: "schedule.customer_code", orderNumber: "schedule.order_number", itemNumber: "schedule.item_number",
+    itemName: "schedule.item_name", customerDueDate: "schedule.customer_due_date", orderTotalQuantity: "schedule.order_total_quantity",
+    productionUnit: "schedule.production_unit", completionRatio: "schedule.completion_ratio", status: "schedule.status",
+    department: "schedule.department", section: "schedule.section", createdAt: "schedule.created_at", updatedAt: "schedule.updated_at"
+  }
+};
 
 @Injectable()
 export class MarketingApplicationService {
@@ -166,9 +199,16 @@ export class MarketingApplicationService {
     return { rows: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize };
   }
 
-  async listMappingsPage(input: MarketingPageInput, actor: MarketingActor) {
-    const rows = await this.listMappings(input.search, actor) as Array<Record<string, unknown>>;
-    return this.pageRows(rows, input, ["department", "section", "customerCode", "salespersonUserIds", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
+  async listMappingsPage(input: MarketingFilterInput, actor: MarketingActor) {
+    const query = await this.marketingQuery("business-customer-mapping", "read", input, actor);
+    const result = await this.repository.pageMappings(await this.tenant(actor), query);
+    return { ...result, rows: await this.decorate(result.rows) };
+  }
+
+  /** 导出复用与列表完全相同的 WHERE/ORDER BY（无分页），保证“页面筛选=导出结果”。 */
+  async exportMappings(input: MarketingFilterInput, actor: MarketingActor) {
+    const query = await this.marketingQuery("business-customer-mapping", "export", input, actor);
+    return this.decorate(await this.repository.listMappingsByQuery(await this.tenant(actor), query));
   }
 
   async listDirectoryUsers(actor: MarketingActor) {
@@ -291,14 +331,75 @@ export class MarketingApplicationService {
       .some((field) => String(field ?? "").toLocaleLowerCase().includes(value)));
   }
 
-  async listSchedulesPage(input: MarketingPageInput, actor: MarketingActor) {
-    let rows = await this.listSchedules(input.search, actor) as Array<Record<string, unknown>>;
-    if (input.exactOrderNumber) rows = rows.filter((row) => row.orderNumber === input.exactOrderNumber);
-    if (input.completion === "unfinished") rows = rows.filter((row) => Number(row.completionRatio ?? 0) < 100);
-    if (input.completion === "completed") rows = rows.filter((row) => Number(row.completionRatio ?? 0) >= 100);
-    if (input.dueStart) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) >= input.dueStart!);
-    if (input.dueEnd) rows = rows.filter((row) => Boolean(row.customerDueDate) && String(row.customerDueDate) <= input.dueEnd!);
-    return this.pageRows(rows, input, ["customerCode", "department", "section", "salespersonNames", "orderNumber", "itemNumber", "itemName", "customerDueDate", "orderTotalQuantity", "productionUnit", "completionRatio", "status", "createdBy", "createdAt", "updatedBy", "updatedAt"]);
+  async listSchedulesPage(input: MarketingFilterInput, actor: MarketingActor) {
+    const query = await this.marketingQuery("order-schedule", "read", input, actor);
+    const result = await this.repository.pageSchedules(await this.tenant(actor), query);
+    return { ...result, rows: await this.decorate(result.rows) };
+  }
+
+  async exportSchedules(input: MarketingFilterInput, actor: MarketingActor) {
+    const query = await this.marketingQuery("order-schedule", "export", input, actor);
+    return this.decorate(await this.repository.listSchedulesByQuery(await this.tenant(actor), query));
+  }
+
+  /**
+   * KN-FILTER-001 营销服务端筛选：权限 → 租户 → 快速搜索 → FilterGroup → 排序 → 分页。
+   * FilterGroup 复用平台 `SqlFilterCompiler`（字段 allowlist、类型/操作符校验、字段读权限、全参数化），
+   * 不复制第二套编译器；列表、计数、导出使用同一 WHERE。
+   */
+  private async marketingQuery(resource: MarketingResource, action: "read" | "export", input: MarketingFilterInput, actor: MarketingActor) {
+    this.assert(actor, resource, action);
+    const tenantId = await this.tenant(actor);
+    const alias = resource === "business-customer-mapping" ? "mapping" : "schedule";
+    const params: unknown[] = [tenantId];
+    const clauses = [`${alias}.tenant_id=$1`];
+    const search = String(input.search ?? "").trim();
+    if (search) {
+      params.push(`%${search}%`);
+      const searchable = resource === "business-customer-mapping"
+        ? ["department", "section", "customer_code"]
+        : ["customer_code", "order_number", "item_number", "item_name", "production_unit"];
+      clauses.push(`(${searchable.map((column) => `COALESCE(${alias}.${column}::text,'') ILIKE $${params.length}`).join(" OR ")})`);
+    }
+    if (resource === "order-schedule") {
+      if (input.exactOrderNumber) { params.push(String(input.exactOrderNumber)); clauses.push(`${alias}.order_number=$${params.length}`); }
+      if (input.completion === "unfinished") clauses.push(`${alias}.completion_ratio<100`);
+      if (input.completion === "completed") clauses.push(`${alias}.completion_ratio>=100`);
+      if (input.dueStart) { params.push(String(input.dueStart)); clauses.push(`${alias}.customer_due_date>=$${params.length}::date`); }
+      if (input.dueEnd) { params.push(String(input.dueEnd)); clauses.push(`${alias}.customer_due_date<=$${params.length}::date`); }
+    }
+    if (input.filterGroup != null && String(input.filterGroup).trim() !== "") {
+      const fields: TablePermissionFieldDefinition[] = tablePermissionFieldsFor(resource);
+      const compiler = new SqlFilterCompiler(
+        fields, MARKETING_COLUMNS[resource],
+        (key) => actor.permissions.includes("*") || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`),
+        (column) => column
+      );
+      clauses.push(compiler.compile(input.filterGroup, params));
+    }
+    const sortField = String(input.sortField ?? "");
+    const sortColumn = MARKETING_SORTS[resource][sortField];
+    const orderBy = sortColumn
+      ? `${sortColumn} ${String(input.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`
+      : (resource === "business-customer-mapping" ? "mapping.department,mapping.section,mapping.customer_code" : "schedule.customer_due_date NULLS LAST,schedule.order_number,schedule.item_number");
+    const page = Math.max(Number(input.page) || 1, 1);
+    const requested = Number(input.pageSize);
+    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 50;
+    return { whereSql: clauses.join(" AND "), params, orderBy, page, pageSize };
+  }
+
+  /** 仅对当前页（≤200 行）补齐展示用的部门路径与业务员姓名，不做任何筛选/排序。 */
+  private async decorate(rows: Array<Record<string, unknown>>) {
+    const userIds = [...new Set(rows.flatMap((row) => (row.salespersonUserIds as string[] | undefined) ?? []))];
+    const [users, organizations] = await Promise.all([this.directory.findUsersByIds(userIds), this.directory.listEnabledOrganizations()]);
+    const names = new Map(users.map((user) => [user.id, user.displayName]));
+    const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
+    return rows.map((row) => ({
+      ...row,
+      departmentPath: organizationMap.get(String(row.departmentId ?? ""))?.pathLabel ?? row.department,
+      salespersonNames: ((row.salespersonUserIds as string[] | undefined) ?? []).map((id) => names.get(id)).filter((name): name is string => Boolean(name)),
+      salespersonUsers: ((row.salespersonUserIds as string[] | undefined) ?? []).map((id) => users.find((user) => user.id === id)).filter((user): user is NonNullable<typeof user> => Boolean(user))
+    }));
   }
 
   assertScheduleImport(actor: MarketingActor) { this.assert(actor, "order-schedule", "import"); }

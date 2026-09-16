@@ -17,6 +17,8 @@ export type CandidateContext = {
   scopedParams: unknown[];
   /** 关联字段候选解析器：reference 字段的候选来源资源。 */
   referenceCandidates?: (referenceResource: string, search: string, limit: number, binding?: TablePermissionFieldDefinition["filterBinding"]) => Promise<FieldCandidate[]>;
+  /** 资源所在库的查询执行器；缺省使用平台默认 DataSource（KDOS 库资源必须提供）。 */
+  executor?: (sql: string, params: unknown[]) => Promise<any[]>;
   /** 部门与成员候选解析器（平台通用目录）。 */
   departmentCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
   memberCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
@@ -71,7 +73,8 @@ export class FieldCandidateService {
     let clause = `${context.scopedWhere} AND COALESCE(${expression}::text,'') <> ''`;
     if (search) { params.push(`%${search}%`); clause += ` AND ${expression}::text ILIKE $${params.length}`; }
     params.push(limit);
-    const rows = await this.dataSource.query(`SELECT DISTINCT ${expression}::text value FROM ${context.scopedSource} WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
+    const run = context.executor ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
+    const rows = await run(`SELECT DISTINCT ${expression}::text value FROM ${context.scopedSource} WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
     return rows.map((row: { value: string }) => ({ value: String(row.value), label: String(row.value) }));
   }
 }

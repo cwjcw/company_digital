@@ -1,12 +1,13 @@
-import { BadRequestException, Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, ForbiddenException, Get, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { AuthGuard } from "../../auth";
 import { FieldCandidateService } from "./field-candidate.service";
+import { SqlFilterCompiler } from "./sql-filter.compiler";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
-import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf } from "@kdos/contracts";
+import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf, type TablePermissionFieldDefinition } from "@kdos/contracts";
 
 type FilterRequest = Request & { user: any; requestId: string };
 
@@ -39,15 +40,77 @@ export class TableFilterController {
       scopedSource: `${source.table} record`,
       scopedWhere: this.scopedWhere(source, scope),
       scopedParams: params,
+      executor: source.runQuery,
       referenceCandidates: (referenceResource, term, size, binding) => this.referenceCandidates(referenceResource, binding, term, size, actor),
-      departmentCandidates: async (term, size) => (await this.directory.listEnabled())
+      departmentCandidates: source.departmentCandidates ?? (async (term, size) => (await this.directory.listEnabled())
         .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))
-        .slice(0, size).map((option) => ({ value: option.id, label: option.pathLabel })),
-      memberCandidates: async (term, size) => (await this.dataSource.query(
+        .slice(0, size).map((option) => ({ value: option.id, label: option.pathLabel }))),
+      memberCandidates: source.memberCandidates ?? (async (term, size) => (await this.dataSource.query(
         `SELECT id, COALESCE(NULLIF(display_name,''),username) label FROM users WHERE enabled=true${term ? " AND (COALESCE(display_name,'') ILIKE $1 OR username ILIKE $1)" : ""} ORDER BY label LIMIT $${term ? 2 : 1}`,
         term ? [`%${term}%`, size] : [size]
-      )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label }))
+      )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label })))
     });
+  }
+
+  /**
+   * KN-FILTER-001 平台统一读取入口：任意已注册资源都可以用同一套
+   * 权限 → 租户 → 数据范围 → 快速搜索 → FilterGroup → 排序 → 分页 的语义读取当前页与总数。
+   * 只返回调用者拥有字段读权限的列，绝不返回整表列（例如用户口令哈希）。
+   */
+  @Get("rows")
+  async rows(@Query() query: Record<string, string | undefined>, @Req() request: FilterRequest) {
+    const actor = this.actor(request);
+    const source = this.registry.get(String(query.resource ?? ""));
+    source.authorize?.(actor);
+    const params: unknown[] = [actor.tenantId];
+    const clauses = [this.scopedWhere(source, source.buildScope(actor, params))];
+    const search = String(query.search ?? "").trim();
+    if (search) {
+      params.push(`%${search}%`);
+      const columns = (source.searchColumns ?? this.defaultSearchColumns(source)).map((key) => source.columns[key] ?? source.expressions?.[key]).filter(Boolean) as string[];
+      clauses.push(columns.length
+        ? `(${columns.map((column) => `COALESCE(record.${column}::text,'') ILIKE $${params.length}`).join(" OR ")})`
+        : "1=0");
+    }
+    if (query.filterGroup != null && String(query.filterGroup).trim() !== "") {
+      const compiler = new SqlFilterCompiler(
+        source.fields,
+        this.expressions(source),
+        (key: string) => this.canReadField(actor, source.code, key),
+        (column: string) => column
+      );
+      clauses.push(compiler.compile(query.filterGroup, params));
+    }
+    const where = clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
+    const sortKey = String(query.sortField ?? "");
+    const sortColumn = source.columns[sortKey] ?? source.expressions?.[sortKey];
+    const requestedPageSize = Number(query.pageSize);
+    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const page = Math.max(Number(query.page) || 1, 1);
+    const selected = [
+      ...Object.entries(source.columns).filter(([key]) => this.canReadField(actor, source.code, key)).map(([key, column]) => `record.${column} AS "${key}"`),
+      ...Object.entries(source.expressions ?? {}).filter(([key]) => !source.columns[key] && this.canReadField(actor, source.code, key)).map(([key, expression]) => `${expression} AS "${key}"`)
+    ];
+    if (!selected.length) throw new ForbiddenException("当前权限组没有可读字段");
+    const run = source.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
+    const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;
+    const paged = [...params, pageSize, (page - 1) * pageSize];
+    const rows = await run(
+      `SELECT ${selected.join(",")} FROM ${source.table} record WHERE ${where} ORDER BY ${sortColumn ? `record.${sortColumn}` : source.columns.id ? "record.id" : "record.ctid"} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST LIMIT $${paged.length - 1} OFFSET $${paged.length}`,
+      paged
+    );
+    return { rows, total: Number(count), page, pageSize };
+  }
+
+  private defaultSearchColumns(source: { fields: TablePermissionFieldDefinition[]; columns: Record<string, string> }) {
+    const searchable = new Set(["text", "number", "dictionary", "reference", "member", "department"]);
+    return source.fields.filter((field) => searchable.has(field.type)).map((field) => field.key).filter((key) => Boolean(source.columns[key]));
+  }
+
+  private canReadField(actor: TableFilterActor, resource: string, key: string) {
+    return actor.isSystemAdmin === true || actor.permissions.includes("*")
+      || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
+      || actor.permissions.includes(`${resource}:*:read`);
   }
 
   /**
@@ -89,6 +152,7 @@ export class TableFilterController {
       tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN",
       userId: request.user?.sub ?? null,
       permissions: request.user?.permissions ?? [],
+      roles: request.user?.roles ?? [],
       isSystemAdmin: request.user?.isSystemAdmin === true,
       moduleAdminCodes: request.user?.moduleAdminCodes ?? [],
       tableDataScopes: request.user?.tableDataScopes ?? []
@@ -116,7 +180,8 @@ export class TableFilterController {
       clause += ` AND COALESCE(${labelExpression},'') ILIKE $${params.length}`;
     }
     params.push(size);
-    const rows = await this.dataSource.query(`SELECT ${valueExpression} value, COALESCE(${labelExpression},${valueExpression}::text) label FROM ${target.table} record WHERE ${clause} ORDER BY label LIMIT $${params.length}`, params);
+    const run = target.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
+    const rows = await run(`SELECT ${valueExpression} value, COALESCE(${labelExpression},${valueExpression}::text) label FROM ${target.table} record WHERE ${clause} ORDER BY label LIMIT $${params.length}`, params);
     return rows.map((row: { value: string; label: string }) => ({ value: row.value, label: row.label }));
   }
 }

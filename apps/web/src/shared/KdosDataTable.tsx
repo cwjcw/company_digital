@@ -239,6 +239,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   viewKey?: string;
   /** 正式字段 metadata：提供后启用类型化高级筛选（操作符与值控件全部由 metadata 决定）。 */
   filterFields?: TablePermissionFieldDefinition[];
+  /** KN-FILTER-001：页面自带列表接口时，把已应用的 FilterGroup 交给页面自行下发到后端。 */
+  onFilterGroupChange?: (group: AdvancedFilterGroup) => void;
   /** Standard record selection is enabled by default for registered business tables. */
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
@@ -266,7 +268,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
-  filterFields, selectable, selectionActions,
+  filterFields, onFilterGroupChange, selectable, selectionActions,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -314,6 +316,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
   }, [resource]);
   useEffect(() => { setCurrentPage(1); }, [filters, search, filterGroup]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); }, [resource, viewKey]);
+  const filterGroupCallback = useRef(onFilterGroupChange);
+  useEffect(() => { filterGroupCallback.current = onFilterGroupChange; }, [onFilterGroupChange]);
+  useEffect(() => { filterGroupCallback.current?.(filterGroup); }, [filterGroup]);
   const allColumns = useMemo(() => {
     const business = decorate(columns, serverMode, sortField, sortOrder);
     if (!systemFields) return business;

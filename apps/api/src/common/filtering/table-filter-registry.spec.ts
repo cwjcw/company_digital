@@ -5,6 +5,8 @@ import { MasterDataFilterSourceProvider } from "../../modules/master-data/master
 import { EquipmentFilterSourceProvider } from "../../modules/equipment/equipment.filter-sources";
 import { SupplyChainFilterSourceProvider } from "../../modules/supply-chain/supply-chain.filter-sources";
 import { AuditFilterSourceProvider } from "../../modules/audit/audit.filter-sources";
+import { MarketingFilterSourceProvider } from "../../modules/marketing/marketing.filter-sources";
+import { SystemFilterSourceProvider } from "./system-filter-sources";
 
 /**
  * KN-FILTER-001 第四轮跨模块测试：契约声明的“已注册且可筛选”资源必须由各模块 provider 真正注册，
@@ -17,6 +19,11 @@ function buildRegistry() {
   new EquipmentFilterSourceProvider(registry).onModuleInit();
   new SupplyChainFilterSourceProvider(registry).onModuleInit();
   new AuditFilterSourceProvider(registry).onModuleInit();
+  new SystemFilterSourceProvider(registry).onModuleInit();
+  /* 营销资源位于 KDOS 库：这里只验证注册（连接池在使用时才需要）。 */
+  new MarketingFilterSourceProvider(registry, { pool: { query: async () => ({ rows: [] }) } } as never, {
+    listEnabledUsers: async () => [], listEnabledOrganizations: async () => []
+  } as never).onModuleInit();
   return registry;
 }
 
@@ -35,20 +42,23 @@ describe("平台筛选资源注册表（KN-FILTER-001）", () => {
   it("每个已注册资源都有真实表、列绑定与至少一个可筛选字段", () => {
     for (const code of registry.codes()) {
       const source = registry.get(code);
-      expect(source.table).toMatch(/^[a-z_][a-z0-9_]*$/);
+      /* 允许真实表名或受控子查询来源（组合键资源用 relation/custom binding）。 */
+      expect(source.table.length).toBeGreaterThan(0);
       const filterable = source.fields.filter((field) => isTableFieldFilterable(field));
       expect(filterable.length).toBeGreaterThan(0);
       for (const field of filterable) {
         /* reference/成员/部门候选按类型解析，其余可筛选字段必须能在注册表中找到列绑定。 */
         if (["member", "department", "reference", "dictionary", "boolean", "date", "datetime"].includes(field.type)) continue;
+        /* structured 字段按定义不参与筛选（filterable=false），无需列绑定。 */
+        if (field.type === "structured") continue;
         expect(source.columns[field.key] ?? source.expressions?.[field.key]).toBeTruthy();
       }
     }
   });
 
   it("未注册资源返回明确 404 语义而不是静默忽略", () => {
-    expect(registry.has("users")).toBe(false);
-    expect(() => registry.get("users")).toThrow(/暂未接入/);
+    expect(registry.has("sales-summary-dashboard")).toBe(false);
+    expect(() => registry.get("sales-summary-dashboard")).toThrow(/暂未接入/);
   });
 
   it("数据范围构造必须返回确定的谓词（true 或带租户/范围的条件）", () => {
