@@ -294,3 +294,80 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
     expect(invalidatedKeys.some((key) => key.includes("mps-weekly-plans"))).toBe(true);
   }, 20_000);
 });
+
+describe("MasterPlanResourcePage pending process reporting", () => {
+  const weeklyPlanId = "33333333-3333-4333-8333-333333333333";
+  const pendingRow = {
+    id: "44444444-4444-4444-8444-444444444444", version: 2, weeklyPlanId, processCode: "bending",
+    orderNumber: "2026A027192", itemCode: "TGG919BDP-1/1", itemName: "品项", plannedQuantity: "100.0000",
+    cumulativeReportedQuantity: "40.0000", remainingQuantity: "60.0000", canUpdate: false, canDelete: false, pendingTask: true
+  };
+  const pendingFields = [
+    { key: "orderNumber", label: "订单编号", type: "text", editable: false, required: false, input: false },
+    { key: "itemCode", label: "品项编码", type: "text", editable: false, required: false, input: false },
+    { key: "itemName", label: "品项名称", type: "text", editable: false, required: false, input: false },
+    { key: "processCode", label: "工序", type: "dictionary", editable: false, required: false, input: false, options: [{ value: "bending", label: "折弯" }] },
+    { key: "plannedQuantity", label: "计划数量", type: "number", editable: false, required: false, input: false },
+    { key: "cumulativeReportedQuantity", label: "累计报工", type: "number", editable: false, required: false, input: false },
+    { key: "remainingQuantity", label: "剩余数量", type: "number", editable: false, required: false, input: false },
+    { key: "productionQuantity", label: "本次报工数量", type: "number", editable: true, required: true, input: true },
+    { key: "productionDate", label: "生产日期", type: "date", editable: true, required: true, input: true }
+  ];
+  const meta = { resource: "mps-process-reports", fields: [{ key: "productionQuantity", label: "报工数量", type: "number", editable: true }], createFields: [], pendingFields, actions: { create: true, update: true, delete: true, import: true, export: false, batchUpdate: false, reportProcess: true } };
+
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["*"], isSystemAdmin: true }));
+  });
+
+  afterEach(() => cleanup());
+
+  const mockPending = (onReport?: (body: any) => void) => {
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return meta as never;
+      if (path === "/master-plan-system/resources/mps-process-reports" && init?.method === "POST") { onReport?.(JSON.parse(String(init.body))); return { id: "report-1", reconciliation: { status: "SUCCESS", message: null } } as never; }
+      if (path.includes("view=PENDING")) return { rows: [pendingRow], total: 1 } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-process-reports?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+  };
+
+  it("renders the approved pending columns in order with no action column and read-only tasks", async () => {
+    mockPending();
+    const { container } = renderPage("mps-process-reports", "/master-plan-system/mps-process-reports");
+    fireEvent.click(await screen.findByRole("tab", { name: "待报工任务" }));
+
+    await waitFor(() => expect(screen.getByText("2026A027192")).toBeInTheDocument());
+    const headers = Array.from(container.querySelectorAll(".ant-table-thead th")).map((cell) => cell.textContent?.trim() ?? "");
+    for (const label of ["订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"]) expect(headers).toContain(label);
+    expect(headers.indexOf("品项编码")).toBeGreaterThan(headers.indexOf("订单编号"));
+    expect(headers.indexOf("品项名称")).toBeGreaterThan(headers.indexOf("品项编码"));
+    expect(headers).not.toContain("操作");
+    expect(headers).not.toContain("更多操作");
+    expect(screen.getByText("40.0000")).toBeInTheDocument();
+    expect(screen.getByText("60.0000")).toBeInTheDocument();
+    /* 只读浏览模式下没有可填写的报工控件。 */
+    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+  }, 20_000);
+
+  it("creates an actual report from the pending row and refreshes the weekly plan", async () => {
+    const bodies: any[] = []; mockPending((body) => bodies.push(body));
+    const client = newClient(); const invalidated = vi.spyOn(client, "invalidateQueries");
+    renderPage("mps-process-reports", "/master-plan-system/mps-process-reports", client);
+    fireEvent.click(await screen.findByRole("tab", { name: "待报工任务" }));
+    await screen.findByText("2026A027192", {}, { timeout: 10_000 });
+
+    fireEvent.click(await screen.findByRole("button", { name: /进入\s*编辑模式/ }));
+    const quantity = await screen.findByPlaceholderText("本次报工", {}, { timeout: 5_000 }) as HTMLInputElement;
+    fireEvent.change(quantity, { target: { value: "20" } });
+    fireEvent.click(await screen.findByRole("button", { name: /提交报工/ }));
+
+    await waitFor(() => expect(bodies.length).toBe(1));
+    /* 提交语义是 CREATE 实际报工：身份来自待报工任务，不允许前端自带来源快照。 */
+    expect(bodies[0]).toMatchObject({ weeklyPlanId, processCode: "bending", productionQuantity: 20 });
+    expect(typeof bodies[0].productionDate).toBe("string");
+    expect(Object.keys(bodies[0]).sort()).toEqual(["processCode", "productionDate", "productionQuantity", "weeklyPlanId"]);
+    await waitFor(() => expect(invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? [])).some((key) => key.includes("mps-weekly-plans"))).toBe(true));
+  }, 25_000);
+});

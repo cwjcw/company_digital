@@ -8,8 +8,9 @@ const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-11111111111
 describe("MasterPlanSpreadsheetService", () => {
   const previewId = "22222222-2222-4222-8222-222222222222";
   const previewManager = { query: jest.fn() };
-  const dataSource = { transaction: jest.fn(async (work: (manager: typeof previewManager) => unknown) => work(previewManager)) };
-  const queries = { exportRows: jest.fn() };
+  const dataSourceQuery = jest.fn();
+  const dataSource = { query: dataSourceQuery, transaction: jest.fn(async (work: (manager: typeof previewManager) => unknown) => work(previewManager)) };
+  const queries = { exportRows: jest.fn(), pendingReportRows: jest.fn(async () => ({ rows: [] as Array<Record<string, unknown>>, visibleFields: [] as string[] })) };
   const application = { validateImportUpdates: jest.fn(), importUpdates: jest.fn(), importBlockedReason: jest.fn().mockResolvedValue(null) };
   const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() };
   const service = new MasterPlanSpreadsheetService(dataSource as never, queries as never, application as never, directory as never);
@@ -205,5 +206,99 @@ describe("MasterPlanSpreadsheetService", () => {
       id: "11111111-1111-4111-8111-111111111111", expectedVersion: 3,
       values: expect.objectContaining({ divisionId: organization.id })
     })], actor);
+  });
+
+  describe("pending process report import", () => {
+    const taskId = "33333333-3333-4333-8333-333333333333";
+    const weeklyPlanId = "44444444-4444-4444-8444-444444444444";
+    const pendingRow = {
+      id: taskId, version: 4, weeklyPlanId, processCode: "bending", processName: "折弯",
+      orderNumber: "2026A027192", itemCode: "TGG919BDP-1/1", itemName: "品项", plannedQuantity: "100.0000",
+      cumulativeReportedQuantity: "40.0000", remainingQuantity: "60.0000"
+    };
+
+    beforeEach(() => {
+      queries.pendingReportRows.mockResolvedValue({ rows: [pendingRow], visibleFields: [] });
+      previewManager.query.mockImplementation((sql: string) => sql.startsWith("INSERT") ? [{ id: previewId }] : []);
+      dataSourceQuery.mockImplementation((sql: string, params: unknown[]) => sql.startsWith("SELECT task.id,task.version")
+        ? (String(params[1]) === taskId ? [{ id: taskId, version: 4, weekly_plan_id: weeklyPlanId, process_code: "bending" }] : [])
+        : []);
+    });
+
+    it("builds the pending template from the same authoritative field definition, in the approved order", async () => {
+      const buffer = await service.template("mps-process-reports", actor, "PENDING");
+      const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+      const sheet = workbook.worksheets[0]!;
+      expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
+        "记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"
+      ]);
+      /* 模板预置当前待报工任务，只有本次报工数量与生产日期是空白待填。 */
+      expect(sheet.getRow(2).getCell(3).text).toBe("2026A027192");
+      expect(sheet.getRow(2).getCell(9).text).toBe("60.0000");
+      expect(sheet.getRow(2).getCell(10).text).toBe("");
+      expect(workbook.getWorksheet("填写说明")!.getCell("A1").text).toContain("CREATE 报工记录");
+      expect((sheet.getRow(1).values as unknown[]).join("|")).not.toContain("操作");
+    });
+
+    it("creates a new report row from the task identity, never from order number or Chinese process name", async () => {
+      application.validateImportUpdates.mockResolvedValue([]);
+      const file = await workbookFile(
+        ["记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"],
+        [[taskId, 4, "2026A027192", "TGG919BDP-1/1", "品项", "折弯", 100, 40, 60, 20, "2026-09-16"]]
+      );
+      const result = await service.preview("mps-process-reports", file, actor, "PENDING");
+
+      expect(result.errors).toEqual([]);
+      expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-process-reports", [
+        expect.objectContaining({ id: null, expectedVersion: null, values: { weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: "20" } })
+      ], actor);
+    });
+
+    it("rejects a stale task version and an unknown task per row before any write", async () => {
+      application.validateImportUpdates.mockResolvedValue([]);
+      dataSourceQuery.mockImplementation((sql: string, params: unknown[]) => sql.startsWith("SELECT task.id,task.version")
+        ? (String(params[1]) === taskId ? [{ id: taskId, version: 5, weekly_plan_id: weeklyPlanId, process_code: "bending" }] : [])
+        : []);
+      const file = await workbookFile(
+        ["记录ID", "版本", "本次报工数量", "生产日期"],
+        [[taskId, 4, 20, "2026-09-16"], ["55555555-5555-4555-8555-555555555555", 1, 10, "2026-09-16"]]
+      );
+      const result = await service.preview("mps-process-reports", file, actor, "PENDING");
+
+      expect(result.previewId).toBeNull();
+      expect(result.errors).toEqual([
+        { row: 2, reason: "任务版本已变化，请重新下载待报工模板后填写" },
+        { row: 3, reason: "待报工任务不存在或不属于当前租户" }
+      ]);
+      expect(application.validateImportUpdates).not.toHaveBeenCalled();
+    });
+
+    it("requires the reporting quantity and date on every pending import row", async () => {
+      const file = await workbookFile(
+        ["记录ID", "版本", "本次报工数量", "生产日期"],
+        [[taskId, 4, "", "2026-09-16"], [taskId, 4, 10, ""]]
+      );
+      const result = await service.preview("mps-process-reports", file, actor, "PENDING");
+
+      expect(result.errors).toEqual([
+        { row: 2, reason: "本次报工数量不能为空" },
+        { row: 3, reason: "生产日期不能为空" }
+      ]);
+    });
+
+    it("reuses the shared transaction and idempotency pipeline on confirm", async () => {
+      application.importUpdates.mockResolvedValue({ total: 1, created: 1, updated: 0, repeated: false });
+      /* 用户下载待报工模板后只填写“本次报工数量/生产日期”，其余列保持系统导出值。 */
+      const filled = new ExcelJS.Workbook(); await filled.xlsx.load(await service.template("mps-process-reports", actor, "PENDING") as never);
+      const sheet = filled.worksheets[0]!; sheet.getRow(2).getCell(10).value = 20; sheet.getRow(2).getCell(11).value = new Date("2026-09-16T00:00:00Z");
+      const buffer = Buffer.from(await filled.xlsx.writeBuffer());
+      const file = { originalname: "pending.xlsx", buffer } as Express.Multer.File;
+      application.validateImportUpdates.mockResolvedValue([]);
+      const preview = await service.preview("mps-process-reports", file, actor, "PENDING");
+      previewManager.query.mockImplementation((sql: string) => sql.includes("SELECT * FROM mps_import_previews") ? [{ id: previewId, payload_json: { rows: [{ row: 2, id: null, expectedVersion: null, values: { weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: "20" } }] }, file_hash: "hash-1", confirmed_at: null }] : []);
+
+      await expect(service.confirm("mps-process-reports", preview.previewId!, actor)).resolves.toMatchObject({ created: 1, updated: 0 });
+      expect(application.importUpdates).toHaveBeenCalledWith("mps-process-reports", [expect.objectContaining({ id: null, values: expect.objectContaining({ weeklyPlanId, processCode: "bending" }) })], "hash-1", actor);
+    });
   });
 });

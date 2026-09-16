@@ -279,7 +279,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   const previewImport = async (file: File) => {
     const body = new FormData(); body.append("file", file); setImporting(true); setImportError(null); setImportPreview(null);
-    try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview`, { method: "POST", body })); }
+    try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview${isPendingView ? "?view=PENDING" : ""}`, { method: "POST", body })); }
     catch (error) { setImportError(`导入失败\n\n${(error as Error).message}`); }
     finally { setImporting(false); }
     return false;
@@ -287,8 +287,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const confirmImport = async () => {
     if (!importPreview?.previewId) return; setImporting(true); setImportError(null);
     try {
-      const result = await api<{ created: number; updated: number }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ previewId: importPreview.previewId }) });
-      message.success(`导入完成，新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条`); setImportPreview(null); refresh();
+      const result = await api<{ created: number; updated: number; reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/import-confirm`, { method: "POST", body: JSON.stringify({ previewId: importPreview.previewId }) });
+      setImportPreview(null); await refresh();
+      if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(result.reconciliation, `导入完成，新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条；事业部计划已刷新`); }
+      else message.success(`导入完成，新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条`);
     } catch (error) { setImportError(`导入失败，本次数据未提交。\n\n失败原因：\n${(error as Error).message}\n\n本次整批数据均未写入。`); }
     finally { setImporting(false); }
   };
@@ -345,7 +347,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
   return <div>
     <PageHeader title={info.label} subtitle={`${info.area} · 新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段`} actions={<Space>
-      {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template`, `${info.label}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
+      {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
       {metadata.data?.actions.create && hasResourcePermission(resource, "create") && <Button type="primary" onClick={openCreate}>新增</Button>}

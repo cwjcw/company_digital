@@ -140,6 +140,18 @@ export class MasterPlanQueryService {
     return { rows, visibleFields: first.visibleFields };
   }
 
+  /** 待报工导入模板需要当前全部待报工任务作为识别行（不含填报值）。 */
+  async pendingReportRows(actor: MasterPlanActor) {
+    const first = await this.processReportTasks({ page: 1, pageSize: 200 }, actor);
+    const rows = [...first.rows];
+    for (let page = 2; rows.length < first.total; page++) {
+      const next = await this.processReportTasks({ page, pageSize: 200 }, actor);
+      rows.push(...next.rows);
+      if (!next.rows.length) break;
+    }
+    return { rows, visibleFields: first.visibleFields };
+  }
+
   async weeklyPlanOptions(searchInput: unknown, actor: MasterPlanActor) {
     const resource = this.resource("mps-weekly-plans");
     if (!hasMasterPlanPermission(actor, resource.code, "read")) throw new ForbiddenException("当前权限组没有事业部周计划查看权限");
@@ -160,14 +172,14 @@ export class MasterPlanQueryService {
     const source = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id "weeklyPlanId",weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,
       task.process_code,task.process_name,weekly.planned_quantity,
       COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity,
-      GREATEST(weekly.planned_quantity-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
+      GREATEST(COALESCE(weekly.planned_quantity,0)-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
       NULL::numeric production_quantity,NULL::date production_date,
       task.created_by,task.created_at,task.updated_by,task.updated_at
       FROM mps_weekly_process_plans task
       JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
       LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
         ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
-      WHERE task.execution_enabled=true AND NOT (weekly.planned_quantity>0 AND COALESCE(reports.cumulative_quantity,0)>=weekly.planned_quantity)`;
+      WHERE task.execution_enabled=true AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
     const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
     const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];
     const search = String(input.search ?? "").trim();
