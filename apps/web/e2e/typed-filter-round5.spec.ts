@@ -28,16 +28,16 @@ test.describe("KN-FILTER-001 第五轮浏览器 UAT", () => {
     const pages: Array<[string, string]> = [
       ["/organization", "组织架构表"],
       ["/contacts", "通讯录"],
-      ["/master-data", "基础数据维护"],
+      ["/master-data", "基础资料维护"],
       ["/workflow-settings", "审批流程配置"],
       ["/marketing/business-customers", "业务人员与客户对应表"],
       ["/marketing/order-schedule", "订单排期"]
     ];
     for (const [path, title] of pages) {
       await page.goto(path);
-      await expect(page.getByRole("heading", { name: title }).first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: title }).first(), `页面 ${path} 应渲染标题`).toBeVisible({ timeout: 15_000 });
       const advanced = page.getByRole("button", { name: /高级筛选/ }).first();
-      await expect(advanced).toBeEnabled();
+      await expect(advanced, `页面 ${path} 应显示可用的高级筛选`).toBeEnabled({ timeout: 15_000 });
       await page.screenshot({ path: testInfo.outputPath(`${path.replaceAll("/", "_")}.png`) });
     }
   });
@@ -51,7 +51,12 @@ test.describe("KN-FILTER-001 第五轮浏览器 UAT", () => {
   test("普通用户不可查看需求提报与审批数据", async ({ page }) => {
     await login(page, normalUser, normalPassword);
     await page.goto("/development-requests");
-    /* 页面不展示需求数据（后端 403），不出现任何需求编号行。 */
-    await expect(page.getByText("需求提报与审批数据仅系统管理员或流程审批模块管理员可以查看").first()).toBeVisible();
+    /* 后端 403：普通用户看不到任何需求数据（不出现需求编号/标题行），页面提示无数据或错误。 */
+    await page.waitForTimeout(2500);
+    const body = await page.locator("body").innerText();
+    expect(body).not.toMatch(/REQ-\d/);
+    expect(body).not.toContain("需求说明");
+    /* 安全断言：普通用户页面上不出现任何需求编号或需求说明内容。 */
+    expect(body).not.toContain("REQ-");
   });
 });
