@@ -146,6 +146,24 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 39. `NOT_APPLICABLE` 必须写真实产品理由（例如“角色管理是角色树配置模式，右侧列表是 users 上下文视图”），不得只写“暂不支持”。
 40. 禁止新增独立“操作”列（行级操作使用既有菜单/按钮）。
 
+#### 3.1.0.3 KDOS 统一表格打印（KN-PRINT-001，强制）
+
+1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
+2. 打印筛选结果复用：page context + quick search + applied Advanced FilterGroup + sort，然后打印全部匹配记录（不是当前页）。
+3. 高级筛选是唯一正式 Filter UI；打印不得重新引入旧筛选、Header Filter、列头筛选或 legacy filter UI。
+4. Print 平台不得创建第二套 FilterCompiler（复用 `SqlFilterCompiler` / `TableFilterRegistry` / operator、reference、date、permission 语义）。
+5. 打印已选只能提交 stable IDs，后端必须重新取数并重新校验权限（跨页选择必须正确打印）。
+6. 统一使用 `batch_print` 权限；没有 batch_print → 403；拥有 batch_print 不扩大 read/字段/租户/数据范围。
+7. 打印仍受 read、tenant、data scope、page context、field read permission 约束；客户端列只能收窄字段，不能扩大字段。
+8. 敏感字段（password/hash/token/secret/API Key）永不进入 Print DTO；审计字段默认不打印；默认不打印技术字段、selection、UI-only 字段、按钮与“操作”列。
+9. dictionary/member/department/reference 必须输出正式 label（成员显示姓名，reference 显示编码+名称，不打印 UUID）。
+10. percentage/durationMinutes/date/datetime/boolean 按 metadata 正式格式输出（duration 用“小时+分钟”，空值统一“—”）。
+11. Dedicated Print DOM + Print CSS + Browser Print；禁止截图打印/长 PNG；打印前必须提供可见的打印预览与方向选择。
+12. A4 支持 portrait/landscape，宽表自动横向；同一业务表所有打印列必须在同一物理页宽度内（禁止横向拆表）；纵向允许分页并重复表头。
+13. >300 行必须先确认（300 只是确认阈值，不是硬上限）；超大数据先给真实 count 并二次警示；受控分批查询，禁止 pageSize=1000000 与静默截断。
+14. 树形配置/Dashboard 等非记录型页面可以 NOT_APPLICABLE，但必须写真实中文产品理由；上下文视图（如 selectedRoleId）必须服务端 AND 到打印 Query。
+15. Print DTO 必须 server-side projection；打印纯读取，不得改变任何业务数据；禁止新增独立“操作”列。
+
 #### 3.1.2 企业微信推送项目目录（强制）
 
 - 计划中心所有新增企业微信推送任务必须放在 `automation/wechat_push_projects/`，每个任务使用独立子文件夹；配置、业务状态文本、图片模板、测试、运行说明和服务模板不得散落到其他业务模块。
