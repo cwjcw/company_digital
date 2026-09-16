@@ -198,7 +198,8 @@ export class TablePrintService {
   private normalizeIds(value: unknown): string[] {
     if (value == null || value === "") return [];
     const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-    const ids = list.map((entry) => String(entry).trim()).filter((entry) => /^[0-9a-f-]{20,}$/i.test(entry));
+    /* 兼容数组与逗号分隔字符串两种提交形式；只接受 UUID 形状，其他一律忽略（客户端输入不可信）。 */
+    const ids = list.flatMap((entry) => String(entry).split(",")).map((entry) => entry.trim()).filter((entry) => /^[0-9a-f-]{20,}$/i.test(entry));
     return [...new Set(ids)];
   }
 
