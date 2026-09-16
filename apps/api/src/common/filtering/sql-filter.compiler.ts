@@ -146,10 +146,14 @@ export class SqlFilterCompiler {
     if (!values.length) return operator === "not_contains_any" ? "true" : "1=0";
     params.push(values);
     const index = `${this.ph(params.length)}::text[]`;
-    const elements = `(SELECT element FROM jsonb_array_elements_text(${array}) element)`;
-    if (operator === "contains_any") return `EXISTS (SELECT 1 FROM ${elements} value WHERE value =ANY(${index}))`;
-    if (operator === "contains_all") return `(SELECT count(DISTINCT value) FROM ${elements} value WHERE value =ANY(${index})) = ${values.length}`;
-    if (operator === "not_contains_any") return `NOT EXISTS (SELECT 1 FROM ${elements} value WHERE value =ANY(${index}))`;
+    /*
+     * 集合函数必须显式声明别名与列名（`AS elements(element)`）：若只写 `jsonb_array_elements_text(...) element`，
+     * 表别名会遮住同名输出列，`element` 会解析成整行 record，PostgreSQL 报 “operator does not exist: record = text”。
+     */
+    const elements = `jsonb_array_elements_text(${array}) AS elements(element)`;
+    if (operator === "contains_any") return `EXISTS (SELECT 1 FROM ${elements} WHERE element =ANY(${index}))`;
+    if (operator === "contains_all") return `(SELECT count(DISTINCT element) FROM ${elements} WHERE element =ANY(${index})) = ${values.length}`;
+    if (operator === "not_contains_any") return `NOT EXISTS (SELECT 1 FROM ${elements} WHERE element =ANY(${index}))`;
     throw new BadRequestException(`字段“${field.label}”不支持该筛选方式`);
   }
 

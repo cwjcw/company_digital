@@ -82,8 +82,12 @@ describe("KN-FILTER-001 server filter compiler", () => {
     const any = multipleCompiler().compile({ logic: "AND", rules: [{ field: "responsibleUserIds", operator: "contains_any", values: ["user-1"] }] }, params);
     expect(any).toContain("jsonb_array_elements_text");
     expect(any).toContain("EXISTS");
+    /* 集合函数必须显式声明别名与列名，否则 element 会解析成整行 record（记录级 500 回归）。 */
+    expect(any).toContain("AS elements(element)");
+    expect(any).toContain("element =ANY");
+    expect(any).not.toMatch(/jsonb_array_elements_text\([^)]*\)\s+element\b/);
     const all = multipleCompiler().compile({ logic: "AND", rules: [{ field: "responsibleUserIds", operator: "contains_all", values: ["user-1", "user-2"] }] }, []);
-    expect(all).toContain("count(DISTINCT value)");
+    expect(all).toContain("count(DISTINCT element)");
     const count = multipleCompiler().compile({ logic: "AND", rules: [{ field: "responsibleUserIds", operator: "count_gte", value: 1 }] }, []);
     expect(count).toContain("jsonb_array_length");
   });
