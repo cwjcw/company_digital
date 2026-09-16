@@ -88,24 +88,54 @@ export const tableResourceRegistry = [
 
 export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
 
-export type TablePermissionFieldType = "text" | "number" | "date" | "dictionary" | "member" | "department" | "boolean";
+/**
+ * KDOS 正式字段语义类型（KN-FILTER-001 Phase 0）。
+ * 旧的 7 种类型不足以表达时间戳、关联、结构化与附件字段，导致筛选与显示只能靠字段名猜语义。
+ * 新增类型必须与筛选编译器、候选值查询、显示格式一致；不允许按字段名或当前值猜类型。
+ */
+export type TablePermissionFieldType =
+  | "text" | "number" | "date" | "datetime" | "boolean" | "dictionary" | "member" | "department" | "reference" | "structured" | "attachment";
+
+/** 数值显示/输入格式：百分比、时长（分钟）、金额、整数与普通小数必须区分。 */
+export type TableFieldFormat = "plain" | "integer" | "decimal" | "percentage" | "durationMinutes" | "currency";
+
+/** 筛选值来源：普通列、虚拟列（子查询/表达式）、关联表、聚合值或专用自定义绑定。 */
+export type TableFilterBindingKind = "column" | "virtual" | "relation" | "aggregate" | "custom";
+export interface TableFilterBinding {
+  kind: TableFilterBindingKind;
+  /** 安全表达式或关联提示，仅服务端使用；客户端不得下发 SQL/列名。 */
+  expression?: string;
+  /** reference 字段的候选来源资源（必须在 tableResourceRegistry 内）。 */
+  referenceResource?: string;
+  valueField?: string;
+  labelField?: string;
+  note?: string;
+}
+
 export interface TablePermissionFieldDefinition {
   key: string;
   label: string;
   type: TablePermissionFieldType;
   editable: boolean;
   required?: boolean;
+  /** 多值字段（数组/多选）必须显式声明，不能用类型推断。 */
+  multiple?: boolean;
+  format?: TableFieldFormat;
+  /** 是否允许作为筛选条件；structured/attachment 默认不可筛选。 */
+  filterable?: boolean;
+  filterBinding?: TableFilterBinding;
   options?: Array<{ value: string; label: string }>;
 }
 
 const auditPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "createdBy", label: "创建人", type: "member", editable: false },
-  { key: "createdAt", label: "创建时间", type: "date", editable: false },
+  { key: "createdAt", label: "创建时间", type: "datetime", editable: false, format: "plain" },
   { key: "updatedBy", label: "更新人", type: "member", editable: false },
-  { key: "updatedAt", label: "更新时间", type: "date", editable: false }
+  { key: "updatedAt", label: "更新时间", type: "datetime", editable: false, format: "plain" }
 ];
-const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean?, boolean?]>) => [
-  ...items.map(([key, label, type = "text", editable = true, required = false]) => ({ key, label, type, editable, required })),
+type FieldExtra = Pick<TablePermissionFieldDefinition, "multiple" | "format" | "filterable" | "filterBinding">;
+const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean?, boolean?, FieldExtra?]>) => [
+  ...items.map(([key, label, type = "text", editable = true, required = false, extra]) => ({ key, label, type, editable, required, ...(extra ?? {}) })),
   ...auditPermissionFields
 ];
 
@@ -128,28 +158,28 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "business-customer-mapping": fields([["departmentId", "部门", "department"], ["section", "课室"], ["customerCode", "客户"], ["salespersonUserIds", "业务员", "member"]]),
   "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number"], ["status", "状态", "dictionary"]]),
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
-  "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number"], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member"]]),
-  "equipment-status-report": fields([["equipmentId", "设备编号"], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number"], ["faultMinutes", "故障时长", "number"], ["faultReason", "故障原因", "dictionary"]]),
-  "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["reportingRate", "录入率", "number", false], ["runtimeMinutes", "运行时长", "number", false], ["faultMinutes", "故障时长", "number", false]]),
+  "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
+  "equipment-status-report": fields([["equipmentId", "设备编号", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number", true, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
+  "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["reportingRate", "录入率", "number", false, false, { format: "percentage" }], ["runtimeMinutes", "运行时长", "number", false, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", false, false, { format: "durationMinutes" }]]),
   "mps-erp-orders": fields([["sourceAccountName", "来源账套", "text", false], ["salespersonName", "业务员", "text", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["expectedShippingDate", "预计出货日期", "date", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["unit", "单位", "text", false], ["orderQuantity", "订单数量", "number", false], ["taxIncludedUnitPrice", "含税单价", "number", false], ["taxIncludedAmount", "含税金额", "number", false], ["orderStatus", "订单状态", "text", false]]),
   "mps-customer-divisions": fields([["customerCode", "客户编码", "text", true, true], ["primaryDivisionId", "主责事业部", "department", true, true], ["enabled", "启用", "boolean"], ["remark", "备注"]]),
   "mps-order-allocations": fields([["salespersonName", "业务员"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["orderDate", "下单日期", "date"], ["expectedShippingDate", "预计出货日期", "date"], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["unit", "单位"], ["orderQuantity", "订单数量", "number"], ["allocatedQuantity", "分配数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["remark", "备注"]]),
   /* 工序周期列顺序与 canonical registry 完全一致（毛坯位于研磨之后、表面处理之前）。 */
   "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"], ...standardProcesses.map((process) => [process.cycleField, `${process.name}周期`, "number"] as [string, string, "number"])]),
-  "mps-group-plans": fields([["sourceAccounts", "来源账套", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["customerCode", "客户编码", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["orderAmount", "订单金额", "number", false], ["requiredQuantity", "需求数量", "number", false], ["primaryDivisionId", "主责事业部", "department", false], ["completedQuantity", "完成数量", "number", false], ["pendingQuantity", "待完成数量", "number", false], ["completionRate", "完成比例", "number", false]]),
+  "mps-group-plans": fields([["sourceAccounts", "来源账套", "text", false, false, { filterBinding: { kind: "aggregate", note: "由多个来源账套聚合拼接，按包含匹配筛选" } }], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["customerCode", "客户编码", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["orderAmount", "订单金额", "number", false, false, { format: "currency" }], ["requiredQuantity", "需求数量", "number", false], ["primaryDivisionId", "主责事业部", "department", false], ["completedQuantity", "完成数量", "number", false], ["pendingQuantity", "待完成数量", "number", false], ["completionRate", "完成比例", "number", false, false, { format: "percentage" }]]),
   "mps-monthly-plans": fields([["divisionId", "承接事业部", "department", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["latestCustomerDueDate", "最迟客户交期", "date"], ["modelAge", "新旧款", "dictionary"], ["productAttribute", "产品属性"], ["surfaceNature", "表面性质"], ["specialItem", "特殊事项"], ["requiredQuantity", "需求数量", "number", false], ["cumulativeInboundQuantity", "累计入库数量", "number", false], ["pendingQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["plannedPageCount", "计划页数", "number"], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"], ["orderWeekCount", "下单周数", "number", false]]),
   "mps-shipping-plans": fields([["customerCode", "客户编码", "text", true, true], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称", "text", true, true], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["modelAge", "新旧款", "dictionary", true], ["enteredWeeklyPlan", "已进入周计划", "boolean", false]]),
   "mps-base-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["modelAge", "新旧款", "dictionary", true], ["productAttribute", "产品属性", "dictionary", true, true], ["surfaceNature", "表面性质", "dictionary", true, true], ["manufacturingMethod", "生产方式", "dictionary", true, true], ["weeklyPlanState", "周计划状态", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false], ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false]]),
   "mps-weekly-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["allocatedInboundQuantity", "分摊入库数量", "number"], ["pendingQuantity", "欠数", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["drawingDueDate", "图纸交期", "date", false], ["hardwareDueDate", "五金交期", "date", false], ["woodDueDate", "木作交期", "date", false], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"]]),
-  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "text", true, true], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
+  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
   "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常说明"]]),
-  "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "text", true, true], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常说明"]]),
-  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "text"], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
-  "mps-process-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "text", true, true], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["processCode", "工序", "dictionary", true, true], ["productionDate", "生产日期", "date", true, true], ["plannedQuantity", "计划数量", "number", false], ["productionQuantity", "报工数量", "number", true, true]]),
+  "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常说明"]]),
+  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "suppliers", valueField: "id", labelField: "name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
+  "mps-process-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["processCode", "工序", "dictionary", true, true], ["productionDate", "生产日期", "date", true, true], ["plannedQuantity", "计划数量", "number", false], ["productionQuantity", "报工数量", "number", true, true]]),
   "mps-sync-configs": fields([["syncKey", "同步编码", "text", false], ["name", "同步任务", "text", false], ["enabled", "启用", "boolean"], ["intervalMinutes", "间隔分钟", "number"], ["lastStartedAt", "最近开始", "date", false], ["lastSuccessAt", "最近成功", "date", false], ["lastFailureAt", "最近失败", "date", false], ["lastSyncCount", "最近同步数量", "number", false], ["status", "状态", "dictionary", false], ["errorMessage", "错误信息", "text", false]]),
-  "mps-sync-logs": fields([["syncKey", "同步编码", "text", false], ["runType", "运行类型", "dictionary", false], ["status", "状态", "dictionary", false], ["startedAt", "开始时间", "date", false], ["completedAt", "完成时间", "date", false], ["syncCount", "同步数量", "number", false], ["errorMessage", "错误信息", "text", false], ["idempotencyKey", "幂等标识", "text", false]]),
+  "mps-sync-logs": fields([["syncKey", "同步编码", "text", false], ["runType", "运行类型", "dictionary", false], ["status", "状态", "dictionary", false], ["startedAt", "开始时间", "datetime", false], ["completedAt", "完成时间", "datetime", false], ["syncCount", "同步数量", "number", false], ["errorMessage", "错误信息", "text", false], ["idempotencyKey", "幂等标识", "text", false]]),
   "mps-data-exceptions": fields([["resource", "来源表", "text", false], ["businessKey", "业务键", "text", false], ["exceptionType", "异常类型", "dictionary", false], ["severity", "级别", "dictionary", false], ["message", "异常说明", "text", false], ["active", "未解决", "boolean", false], ["resolvedAt", "解决时间", "date", false]]),
-  "mps-system-settings": fields([["settingKey", "参数编码", "text", false], ["name", "参数名称", "text", false], ["valueJson", "参数值"], ["description", "说明", "text", false]]),
+  "mps-system-settings": fields([["settingKey", "参数编码", "text", false], ["name", "参数名称", "text", false], ["valueJson", "参数值", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "jsonb 参数值只按原样展示/写入，不参与结构化筛选" } }], ["description", "说明", "text", false]]),
   "development-requests": fields([["requestNumber", "需求编号", "text", false], ["title", "标题"], ["category", "类别", "dictionary"], ["description", "需求说明"], ["urgency", "紧急程度", "dictionary"], ["desiredDate", "期望完成日期", "date"], ["status", "状态", "dictionary", false], ["requesterId", "申请人", "member", false]]),
   "approval-flow-configs": fields([["flowKey", "流程编码", "text", false], ["name", "流程名称"], ["enabled", "启用", "boolean"]]),
   "suppliers": fields([["code", "供应商编码"], ["name", "供应商名称"], ["enabled", "启用", "boolean"]]),
@@ -217,3 +247,144 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
 }
 
 export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePermissionFieldRegistry[resource] ?? auditPermissionFields;
+
+/**
+ * KN-FILTER-001：全项目唯一筛选操作符 registry。
+ * 服务端编译器与前端高级筛选 UI 共用这一份定义；客户端只能提交 field + operator + operand，
+ * 字段类型永远由服务端 metadata 决定，不得由客户端声明或按名称猜测。
+ */
+export type TableFilterOperator =
+  | "eq" | "neq" | "in" | "not_in" | "contains" | "not_contains" | "starts_with"
+  | "is_empty" | "is_not_empty" | "gt" | "gte" | "lt" | "lte" | "between"
+  | "date_eq" | "date_before" | "date_after" | "date_between" | "date_dynamic"
+  | "contains_any" | "contains_all" | "not_contains_any" | "count_eq" | "count_gte" | "count_lte"
+  | "is_true" | "is_false" | "has_attachment" | "has_no_attachment";
+
+export interface TableFilterOperatorDefinition {
+  operator: TableFilterOperator;
+  label: string;
+  operand: "none" | "single" | "list" | "range" | "dynamic";
+}
+
+const TEXT_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "eq", label: "等于", operand: "single" },
+  { operator: "neq", label: "不等于", operand: "single" },
+  { operator: "in", label: "等于任意一个", operand: "list" },
+  { operator: "not_in", label: "不等于任意一个", operand: "list" },
+  { operator: "contains", label: "包含", operand: "single" },
+  { operator: "not_contains", label: "不包含", operand: "single" },
+  { operator: "starts_with", label: "开头是", operand: "single" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const CHOICE_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "eq", label: "等于", operand: "single" },
+  { operator: "neq", label: "不等于", operand: "single" },
+  { operator: "in", label: "等于任意一个", operand: "list" },
+  { operator: "not_in", label: "不等于任意一个", operand: "list" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const NUMBER_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "eq", label: "等于", operand: "single" },
+  { operator: "neq", label: "不等于", operand: "single" },
+  { operator: "gt", label: "大于", operand: "single" },
+  { operator: "gte", label: "大于等于", operand: "single" },
+  { operator: "lt", label: "小于", operand: "single" },
+  { operator: "lte", label: "小于等于", operand: "single" },
+  { operator: "between", label: "介于", operand: "range" },
+  { operator: "in", label: "等于任意一个", operand: "list" },
+  { operator: "not_in", label: "不等于任意一个", operand: "list" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const DATE_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "date_eq", label: "等于", operand: "single" },
+  { operator: "date_before", label: "早于", operand: "single" },
+  { operator: "date_after", label: "晚于", operand: "single" },
+  { operator: "date_between", label: "介于", operand: "range" },
+  { operator: "date_dynamic", label: "动态区间", operand: "dynamic" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const BOOLEAN_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "is_true", label: "是", operand: "none" },
+  { operator: "is_false", label: "否", operand: "none" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const MULTIPLE_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "contains_any", label: "包含任意一个", operand: "list" },
+  { operator: "contains_all", label: "包含全部", operand: "list" },
+  { operator: "not_contains_any", label: "不包含任何", operand: "list" },
+  { operator: "count_eq", label: "数量等于", operand: "single" },
+  { operator: "count_gte", label: "数量大于等于", operand: "single" },
+  { operator: "count_lte", label: "数量小于等于", operand: "single" },
+  { operator: "is_empty", label: "为空", operand: "none" },
+  { operator: "is_not_empty", label: "不为空", operand: "none" }
+];
+const ATTACHMENT_OPERATORS: TableFilterOperatorDefinition[] = [
+  { operator: "has_attachment", label: "有附件", operand: "none" },
+  { operator: "has_no_attachment", label: "无附件", operand: "none" }
+];
+
+/** 动态日期关键字：由服务端按 Asia/Shanghai 计算区间，客户端不得下发具体日期范围。 */
+export const tableFilterDynamicDateKeys = ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "last_7_days", "last_30_days", "this_year"] as const;
+export type TableFilterDynamicDateKey = typeof tableFilterDynamicDateKeys[number];
+
+export function tableFilterOperatorsFor(field: Pick<TablePermissionFieldDefinition, "type" | "multiple">): TableFilterOperatorDefinition[] {
+  if (field.type === "attachment") return ATTACHMENT_OPERATORS;
+  if (field.type === "structured") return [];
+  if (field.multiple) return MULTIPLE_OPERATORS;
+  switch (field.type) {
+    case "number": return NUMBER_OPERATORS;
+    case "date":
+    case "datetime": return DATE_OPERATORS;
+    case "boolean": return BOOLEAN_OPERATORS;
+    case "dictionary":
+    case "member":
+    case "department":
+    case "reference": return CHOICE_OPERATORS;
+    default: return TEXT_OPERATORS;
+  }
+}
+
+export function isTableFieldFilterable(field: TablePermissionFieldDefinition) {
+  if (field.type === "structured") return field.filterable === true;
+  if (field.type === "attachment") return true;
+  return field.filterable !== false && tableFilterOperatorsFor(field).length > 0;
+}
+
+/**
+ * Phase 0 审计闸门：每个正式字段都必须声明可判定的语义类型；reference 必须给出候选来源；
+ * structured 必须显式声明筛选策略。新增字段遗漏 metadata 时模块加载即失败，避免未来按名称猜类型。
+ */
+export function auditTableFieldMetadata(): { resources: number; fields: number; errors: string[] } {
+  const errors: string[] = [];
+  const knownResources = new Set(tableResourceRegistry.map((resource) => resource.code as string));
+  const seenResources = new Set<string>();
+  let fields = 0;
+  for (const resource of tableResourceRegistry) {
+    if (seenResources.has(resource.code)) errors.push(`重复 resource code：${resource.code}`);
+    seenResources.add(resource.code);
+    const definitions = tablePermissionFieldRegistry[resource.code as TableResourceCode] ?? auditPermissionFields;
+    const seenKeys = new Set<string>();
+    for (const field of definitions) {
+      fields += 1;
+      const where = `${resource.code}.${field.key}`;
+      if (seenKeys.has(field.key)) errors.push(`重复字段：${where}`);
+      seenKeys.add(field.key);
+      if (!field.label) errors.push(`缺少显示名：${where}`);
+      if (field.type === "reference" && !field.filterBinding?.referenceResource) errors.push(`reference 缺少候选来源：${where}`);
+      if (field.filterBinding?.referenceResource && !knownResources.has(field.filterBinding.referenceResource)) errors.push(`reference 指向未知资源：${where} → ${field.filterBinding.referenceResource}`);
+      if (field.type === "structured" && field.filterable === undefined) errors.push(`structured 必须声明 filterable：${where}`);
+      if (field.multiple !== undefined && typeof field.multiple !== "boolean") errors.push(`multiple 必须为布尔：${where}`);
+    }
+  }
+  return { resources: seenResources.size, fields, errors };
+}
+
+const tableFieldAudit = auditTableFieldMetadata();
+if (tableFieldAudit.errors.length) {
+  throw new Error(`KDOS 正式字段 metadata 审计失败（KN-FILTER-001 Phase 0）：\n${tableFieldAudit.errors.slice(0, 20).join("\n")}`);
+}

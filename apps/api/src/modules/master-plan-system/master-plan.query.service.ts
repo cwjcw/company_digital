@@ -4,8 +4,9 @@ import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingCo
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { standardProcesses } from "@tracker/shared";
+import { MasterPlanFilterCompiler } from "./master-plan.filter";
 
-type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
+type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const basePlanDerivedFields = new Set(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]);
 const processReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
@@ -82,6 +83,15 @@ export class MasterPlanQueryService {
       } else if (!this.applyDictionaryFilter(resource, field, this.expression(allColumns[field]!), value, params, clauses)) {
         params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`);
       }
+    }
+    /* KN-FILTER-001：类型化高级筛选（ALL/ANY）。字段类型、可筛选性与操作符全部由服务端 metadata 决定，
+       与旧 Record<string,string> 条件并存；两者都只能落在当前用户可见字段上。 */
+    if (input.filterGroup != null && String(input.filterGroup).trim() !== "") {
+      const compiler = new MasterPlanFilterCompiler(
+        fieldsFor(resource), allColumns, (key) => visibleFields.includes(key),
+        (column) => this.expression(column), (field, raw) => this.resolveOptionFilterValues(resource, field, raw)
+      );
+      clauses.push(compiler.compile(input.filterGroup, params));
     }
     const view = String(input.view ?? "ALL").toUpperCase();
     if (["mps-group-plans", "mps-monthly-plans"].includes(code)) {
@@ -210,6 +220,14 @@ export class MasterPlanQueryService {
       } else if (!this.applyDictionaryFilter(resource, field, this.expression(columns[field]!), value, params, clauses)) {
         params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
       }
+    }
+    /* 待报工任务同样支持类型化高级筛选；本次报工数量/生产日期是输入列，不参与筛选。 */
+    if (input.filterGroup != null && String(input.filterGroup).trim() !== "") {
+      const compiler = new MasterPlanFilterCompiler(
+        processReportPendingFields().filter((field) => !field.input), columns, (key) => visibleFields.includes(key),
+        (column) => this.expression(column), (field, raw) => this.resolveOptionFilterValues(resource, field, raw)
+      );
+      clauses.push(compiler.compile(input.filterGroup, params));
     }
     const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
     const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
