@@ -17,6 +17,13 @@ export type TableFilterSource = {
   table: string;
   /** field key → 列名（不含别名）。 */
   columns: Record<string, string>;
+  /**
+   * 该资源的租户列名。默认 `tenant_id`；ERP 镜像表（sales_orders 等）与审计日志没有租户列时显式传 `null`，
+   * 此时租户隔离由资源权限与数据范围承担，平台不得伪造租户条件。
+   */
+  tenantColumn?: string | null;
+  /** field key → 完整 SQL 表达式（用于虚拟列/关联列）；优先于 columns。 */
+  expressions?: Record<string, string>;
   /** 该资源的字段定义（默认取 tablePermissionFieldsFor）。 */
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */
@@ -45,4 +52,18 @@ export class TableFilterRegistry {
   }
 
   codes() { return [...this.sources.keys()]; }
+
+  /**
+   * 启动闸门：contracts 声明的 REGISTERED_AND_FILTERABLE 资源集合必须与运行时注册表完全一致。
+   * 少注册 = 前端能力声明说谎（UI 显示筛选但服务端忽略）；多注册 = 未纳入契约审计。
+   */
+  assertDeclaredCodes(declared: string[]) {
+    const registered = new Set(this.sources.keys());
+    const declaredSet = new Set(declared);
+    const missing = [...declaredSet].filter((code) => !registered.has(code));
+    const extra = [...registered].filter((code) => !declaredSet.has(code));
+    if (missing.length || extra.length) {
+      throw new Error(`KN-FILTER-001 筛选能力声明与运行时注册表不一致：未注册=${missing.join(",") || "无"}；未声明=${extra.join(",") || "无"}`);
+    }
+  }
 }

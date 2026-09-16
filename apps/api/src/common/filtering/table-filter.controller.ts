@@ -6,7 +6,7 @@ import { FieldCandidateService } from "./field-candidate.service";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
-import { isTableFieldFilterable, referenceLabelFieldsFor } from "@kdos/contracts";
+import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf } from "@kdos/contracts";
 
 type FilterRequest = Request & { user: any; requestId: string };
 
@@ -34,10 +34,10 @@ export class TableFilterController {
     const scope = source.buildScope(actor, params);
     return this.candidates.resolve(String(field ?? ""), search, limit, {
       fields: source.fields,
-      expressions: Object.fromEntries(Object.entries(source.columns).map(([key, column]) => [key, `record.${column}`])),
+      expressions: this.expressions(source),
       canReadField: (key) => actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.permissions.includes(`${source.code}:${key}:read`) || actor.permissions.includes(`${source.code}:${key}:update`) || actor.permissions.includes(`${source.code}:*:read`),
       scopedSource: `${source.table} record`,
-      scopedWhere: `record.tenant_id=$1 AND ${scope}`,
+      scopedWhere: this.scopedWhere(source, scope),
       scopedParams: params,
       referenceCandidates: (referenceResource, term, size, binding) => this.referenceCandidates(referenceResource, binding, term, size, actor),
       departmentCandidates: async (term, size) => (await this.directory.listEnabled())
@@ -60,9 +60,28 @@ export class TableFilterController {
       const source = this.registry.get(code);
       return {
         code,
+        capability: tableFilterResourceCapabilityOf(code),
         filterableFields: source.fields.filter((field) => isTableFieldFilterable(field)).map((field) => field.key)
       };
     });
+  }
+
+  /**
+   * 租户条件由资源自己声明：确有 `tenant_id` 的表必须恒定加租户谓词；
+   * ERP 镜像/审计等无租户列的资源显式声明 `tenantColumn: null`，不得伪造条件掩盖真实隔离边界。
+   */
+  private scopedWhere(source: { tenantColumn?: string | null }, scope: string) {
+    const tenant = source.tenantColumn === undefined ? "tenant_id" : source.tenantColumn;
+    const clauses = tenant ? [`record.${tenant}=$1`, scope] : [scope];
+    return clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
+  }
+
+  /** 字段 key → 带别名的安全表达式：`columns` 是裸列名，`expressions` 已经是完整表达式。 */
+  private expressions(source: { columns: Record<string, string>; expressions?: Record<string, string> }) {
+    return {
+      ...Object.fromEntries(Object.entries(source.columns).map(([key, column]) => [key, `record.${column}`])),
+      ...(source.expressions ?? {})
+    };
   }
 
   private actor(request: FilterRequest): TableFilterActor {
@@ -84,7 +103,7 @@ export class TableFilterController {
   private async referenceCandidates(referenceResource: string, binding: { valueField?: string; labelField?: string } | undefined, term: string, size: number, actor: TableFilterActor) {
     const target = this.registry.get(referenceResource);
     const params: unknown[] = [actor.tenantId];
-    let clause = `record.tenant_id=$1 AND ${target.buildScope(actor, params)}`;
+    let clause = this.scopedWhere(target, target.buildScope(actor, params));
     /* 标签列来自字段显式 labelField 或目标资源的标签定义；缺失时直接拒绝，不允许猜测。 */
     const labelColumns = referenceLabelFieldsFor(referenceResource, binding?.labelField);
     if (!labelColumns.length) throw new BadRequestException(`关联字段缺少标签定义：${referenceResource}`);

@@ -143,9 +143,49 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
   "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
-  "sales-orders": fields([["customerCode", "客户代码"], ["customerName", "客户名称"], ["orderNumber", "订单编号"], ["orderDate", "订单日期", "date"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "订单数量", "number"], ["unit", "生产单位"], ["customerDueDate", "客户交期", "date"]]),
-  "finished-goods-inbound": fields([["inboundDate", "入库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "入库数量", "number"], ["warehouse", "仓库"]]),
-  "finished-goods-outbound": fields([["outboundDate", "出库日期", "date"], ["customerCode", "客户代码"], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["quantity", "出库数量", "number"], ["warehouse", "仓库"], ["deliveryNumber", "出库单号"]]),
+  /* 数据中心三张表 metadata 必须与实体列/页面列一致（KN-FILTER-001 第四轮校正）。 */
+  "sales-orders": fields([
+    ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库/账套", "text", false], ["sourceKey", "来源主键", "text", false],
+    ["documentDate", "单据日期", "date"], ["orderDate", "订单日期", "date"], ["orderNumber", "订单编号", "text", true, true],
+    ["documentName", "单据名称"], ["closeStatus", "关闭状态"], ["customerCode", "客户代码"],
+    ["shipToCustomerCode", "送货客户代码"], ["invoiceCustomerCode", "开票客户代码"], ["employeeName", "业务员"],
+    ["taxIncluded", "含税标识"], ["currencyCode", "币种"], ["exchangeRate", "汇率", "number", true, false, { format: "decimal" }],
+    ["sequenceNumber", "序号", "number", true, false, { format: "integer" }], ["itemNumber", "品项编码", "text", true, true],
+    ["itemName", "品项名称"], ["specification", "规格"], ["unitName", "业务单位"],
+    ["businessQuantity", "订单数量", "number", true, false, { format: "decimal" }], ["priceQuantity", "计价数量", "number", true, false, { format: "decimal" }],
+    ["price", "单价", "number", true, false, { format: "decimal" }], ["rmbPrice", "人民币单价", "number", true, false, { format: "decimal" }],
+    ["rmbTaxIncludedAmount", "人民币含税价", "number", true, false, { format: "currency" }],
+    ["deliveredBusinessQuantity", "已交数量", "number", true, false, { format: "decimal" }],
+    ["plannedDeliveryDate", "计划交期", "date"], ["taxRate", "税率", "number", true, false, { format: "decimal" }],
+    ["amountExcludingTaxBc", "本币未税金额", "number", true, false, { format: "currency" }],
+    ["taxBc", "本币税额", "number", true, false, { format: "currency" }],
+    ["creatorUserId", "制单人编号"], ["creatorUserName", "制单人"], ["adminUnitName", "管理单位"],
+    ["ownerDepartment", "责任部门"], ["ownerEmployee", "责任业务"], ["ownerDivision", "责任事业部"],
+    ["reviewDueDate", "评审交期", "date"], ["quantity", "数量", "number", true, false, { format: "decimal" }], ["remark", "备注"]
+  ]),
+  "finished-goods-inbound": fields([
+    ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库/账套", "text", false], ["sourceKey", "来源主键", "text", false],
+    ["categoryNumber", "分类编号"], ["documentNumber", "入库单单号", "text", true, true], ["documentFullName", "单据全称"],
+    ["documentDate", "单据日期", "date"], ["inboundDate", "入库日期", "date"], ["lineNumber", "序号", "number", true, false, { format: "integer" }],
+    ["workOrderNumber", "工单单号"], ["salesOrderNumber", "销售单号"], ["inventoryCode", "产品品号", "text", true, true],
+    ["quickCode", "快捷码"], ["inventoryName", "品名"], ["specification", "规格"], ["unit", "业务单位"],
+    ["receivedQuantity", "允收数量", "number", true, false, { format: "decimal" }], ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"],
+    ["inboundCategory", "入库类别"], ["workshopCode", "车间编码"], ["workshop", "车间"], ["handlerCode", "经手人编码"], ["handler", "经手人"],
+    ["businessType", "业务类型"], ["voucherWord", "单据字"], ["category", "类别"], ["creator", "制单人"], ["auditor", "审核人"],
+    ["relationInfo", "关联信息"], ["unitPrice", "单价", "number", true, false, { format: "decimal" }],
+    ["totalAmount", "金额", "number", true, false, { format: "currency" }], ["remark", "备注"]
+  ]),
+  "finished-goods-outbound": fields([
+    ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库/账套", "text", false], ["sourceKey", "来源主键", "text", false],
+    ["documentDate", "单据日期", "date"], ["documentNumber", "出库单号", "text", true, true], ["documentStatus", "单据状态"],
+    ["directionValue", "出入库方向值", "number", true, false, { format: "integer" }], ["voucherType", "单据类型"], ["businessType", "业务类型"],
+    ["customerCode", "客户代码"], ["customerName", "客户名称"], ["salesOrderNumber", "销售订单号"],
+    ["itemNumber", "品项编码", "text", true, true], ["itemName", "品项名称"], ["specification", "规格型号"],
+    ["quantity", "出库数量", "number", true, false, { format: "decimal" }], ["unit", "计量单位"],
+    ["unitPrice", "单价", "number", true, false, { format: "decimal" }], ["totalAmount", "金额", "number", true, false, { format: "currency" }],
+    ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
+    ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"]
+  ]),
   "duplicate-order-review": fields([["duplicateLevel", "重复等级"], ["suggestedAction", "建议动作"], ["e10OrderNumber", "E10订单号"], ["tplusOrderNumber", "T+订单号"], ["sourceAccountName", "来源账套"], ["customerSummary", "客户"], ["e10ItemQuantitySummary", "E10品项及数量摘要"], ["tplusItemQuantitySummary", "T+品项及数量摘要"], ["totalQuantityConsistent", "总数量是否一致", "boolean"], ["deliveryDateConsistent", "交期是否一致", "boolean"], ["matchingRule", "匹配规则"], ["matchingReason", "匹配理由"], ["systemSuggestion", "系统建议"], ["businessConfirmationStatus", "业务确认状态"], ["businessConfirmedBy", "业务确认人"], ["businessConfirmedAt", "业务确认日期", "date"], ["businessRemark", "备注"]]),
   "supplier-list": fields([
     ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库", "text", false], ["sourceAccountName", "来源账套", "text", false],
@@ -160,7 +200,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "order-schedule": fields([["customerCode", "客户代码"], ["departmentId", "部门", "department", false], ["section", "课室", "text", false], ["salespersonUserIds", "业务员", "member", false], ["orderNumber", "订单编号"], ["itemNumber", "品项编码"], ["itemName", "品项名称"], ["customerDueDate", "客户交期", "date"], ["orderTotalQuantity", "订单总数量", "number"], ["productionUnit", "生产单位"], ["completionRatio", "订单完成比例", "number"], ["status", "状态", "dictionary"]]),
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
-  "equipment-status-report": fields([["equipmentId", "设备编号", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number", true, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
+  "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["runtimeMinutes", "运行时长", "number", true, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
   "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["reportingRate", "录入率", "number", false, false, { format: "percentage" }], ["runtimeMinutes", "运行时长", "number", false, false, { format: "durationMinutes" }], ["faultMinutes", "故障时长", "number", false, false, { format: "durationMinutes" }]]),
   "mps-erp-orders": fields([["sourceAccountName", "来源账套", "text", false], ["salespersonName", "业务员", "text", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["expectedShippingDate", "预计出货日期", "date", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["unit", "单位", "text", false], ["orderQuantity", "订单数量", "number", false], ["taxIncludedUnitPrice", "含税单价", "number", false], ["taxIncludedAmount", "含税金额", "number", false], ["orderStatus", "订单状态", "text", false]]),
   "mps-customer-divisions": fields([["customerCode", "客户编码", "text", true, true], ["primaryDivisionId", "主责事业部", "department", true, true], ["enabled", "启用", "boolean"], ["remark", "备注"]]),
@@ -191,8 +231,10 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "organization": fields([["name", "部门名称"], ["parentId", "上级部门", "department"], ["leaderUserIds", "部门负责人", "member", false], ["level", "层级", "number", false], ["enabled", "状态", "boolean"]]),
   "contacts": fields([["employeeNo", "工号"], ["name", "姓名"], ["position", "职位"], ["telephone", "电话"], ["departmentPaths", "部门路径", "department", false], ["enabled", "状态", "boolean", false]]),
   "imports": fields([["fileName", "文件名"], ["resource", "导入表单"], ["status", "状态", "dictionary", false], ["successCount", "成功数", "number", false], ["failureCount", "失败数", "number", false]]),
-  "audit-logs": fields([["actorName", "操作人", "member", false], ["resource", "表单", "text", false], ["action", "操作", "text", false], ["source", "来源", "text", false], ["requestId", "请求ID", "text", false]]),
-  "api-keys": fields([["name", "名称"], ["scopes", "权限范围"], ["enabled", "启用", "boolean"], ["expiresAt", "到期时间", "date"]]),
+  /* 审计日志的 actorName 是写入时的操作者快照文本，不是可解析成员关系，按真实语义登记为 text。 */
+  "audit-logs": fields([["actorName", "操作人", "text", false], ["resource", "表单", "text", false], ["action", "操作", "text", false], ["recordId", "记录 ID", "text", false], ["source", "来源", "text", false], ["requestId", "请求ID", "text", false]]),
+  /* scopes 是 jsonb 权限范围数组，只按原样展示/写入，不参与结构化筛选（禁止 CAST JSON 模糊匹配）。 */
+  "api-keys": fields([["name", "名称"], ["scopes", "权限范围", "structured", true, false, { filterable: false, filterBinding: { kind: "custom", note: "API Key 权限范围为 jsonb 数组，只按原样展示" } }], ["enabled", "启用", "boolean"], ["expiresAt", "到期时间", "datetime"]]),
   "tplus-sales-orders": fields([["source", "数据源", "dictionary", false], ["customerCode", "客户代码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderDate", "订单日期", "date", false]]),
   "customer-data-import": fields([["source", "数据源", "dictionary"], ["customerCode", "客户代码"], ["status", "状态", "dictionary", false]])
 };
@@ -375,6 +417,33 @@ export function isTableFieldFilterable(field: TablePermissionFieldDefinition) {
   return field.filterable !== false && tableFilterOperatorsFor(field).length > 0;
 }
 
+const DATE_UI_OPERATORS: TableFilterOperator[] = ["eq", "neq", "gt", "lt", "gte", "lte", "between", "dynamic", "is_empty", "is_not_empty"];
+const CHOICE_UI_OPERATORS: TableFilterOperator[] = ["eq", "neq", "in", "not_in", "is_empty", "is_not_empty"];
+
+/**
+ * KN-FILTER-001 第四轮：正式高级筛选 UI 的操作符白名单。
+ * 内部编译器保留更强能力（供后续/服务端使用），但正式界面严格只暴露已确认的操作符：
+ * 不暴露 starts_with、count_eq/count_gte/count_lte、数值 in/not_in 等未确认项；日期时间共用一套。
+ */
+export function tableFilterUiOperatorsFor(field: TablePermissionFieldDefinition): TableFilterOperatorDefinition[] {
+  const operators = tableFilterOperatorsFor(field);
+  if (!operators.length) return operators;
+  const allowed = field.multiple
+    ? ["contains_any", "contains_all", "not_contains_any", "is_empty", "is_not_empty"]
+    : {
+      text: ["eq", "neq", "in", "not_in", "contains", "not_contains", "is_empty", "is_not_empty"],
+      number: ["eq", "neq", "gte", "lte", "between", "is_empty", "is_not_empty"],
+      date: DATE_UI_OPERATORS, datetime: DATE_UI_OPERATORS,
+      boolean: ["is_true", "is_false", "is_empty", "is_not_empty"],
+      dictionary: CHOICE_UI_OPERATORS, member: CHOICE_UI_OPERATORS, department: CHOICE_UI_OPERATORS, reference: CHOICE_UI_OPERATORS,
+      /* 附件字段的“有/无附件”即正式的空/非空语义（编译器按 jsonb 数组长度判定）。 */
+      attachment: ["has_attachment", "has_no_attachment"],
+      structured: []
+    }[field.type as Exclude<TablePermissionFieldType, "structured">] ?? [];
+  const whitelist = new Set<TableFilterOperator>(allowed as TableFilterOperator[]);
+  return operators.filter((definition) => whitelist.has(definition.operator));
+}
+
 /**
  * 关联候选标签的唯一来源：按目标资源声明标签列（逗号分隔可多列）。
  * 关联字段必须显式声明 labelField 或命中此表，缺失时 metadata 审计直接失败，禁止猜测字段。
@@ -387,6 +456,73 @@ export const tableReferenceLabelFields: Record<string, string> = {
 
 export function referenceLabelFieldsFor(referenceResource: string, labelField?: string) {
   return (labelField ?? tableReferenceLabelFields[referenceResource] ?? "").split(",").map((column) => column.trim()).filter(Boolean);
+}
+
+/**
+ * KN-FILTER-001 第四轮：44 个正式 resource 的类型化筛选能力登记。
+ * 这是“筛选能力”的唯一声明来源，供审计与启动闸门使用；不得出现 UNKNOWN / 未处理。
+ *
+ * - REGISTERED_AND_FILTERABLE：已注册进平台 `TableFilterRegistry`，服务端 list 真正接收 FilterGroup；
+ * - REGISTERED_NOT_FILTERABLE：已注册候选/数据源，但业务上没有任何可筛选字段（当前为空集）；
+ * - NOT_APPLICABLE：不是可查询的业务记录表（聚合大屏、上传即算即走、纯任务表），不提供类型化筛选；
+ * - BLOCKED：本轮尚未接入，必须写明真实原因，属于未完成项而非不明状态。
+ */
+export type TableFilterResourceStatus = "REGISTERED_AND_FILTERABLE" | "REGISTERED_NOT_FILTERABLE" | "NOT_APPLICABLE" | "BLOCKED";
+
+export interface TableFilterResourceCapability {
+  status: TableFilterResourceStatus;
+  /** BLOCKED / NOT_APPLICABLE 必须写明原因，禁止留空。 */
+  reason?: string;
+}
+
+const mpsFilterCapabilities = Object.fromEntries(
+  [
+    "mps-erp-orders", "mps-customer-divisions", "mps-order-allocations", "mps-process-cycles", "mps-group-plans",
+    "mps-monthly-plans", "mps-shipping-plans", "mps-base-plans", "mps-weekly-plans", "mps-weekly-process-plans",
+    "mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports",
+    "mps-sync-configs", "mps-sync-logs", "mps-data-exceptions", "mps-system-settings"
+  ].map((code) => [code, { status: "REGISTERED_AND_FILTERABLE" as const }])
+);
+
+export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
+  ...mpsFilterCapabilities,
+  /* 数据中心：订单、成品入库/出库为真实业务记录表，本轮接入平台 FilterCompiler。 */
+  "sales-orders": { status: "REGISTERED_AND_FILTERABLE" },
+  "finished-goods-inbound": { status: "REGISTERED_AND_FILTERABLE" },
+  "finished-goods-outbound": { status: "REGISTERED_AND_FILTERABLE" },
+  /* 设备：台账与状态填报为真实业务记录表，本轮接入平台 FilterCompiler。 */
+  "equipment-register": { status: "REGISTERED_AND_FILTERABLE" },
+  "equipment-status-report": { status: "REGISTERED_AND_FILTERABLE" },
+  /* 系统管理：审计日志是真实记录表，本轮接入平台 FilterCompiler。 */
+  "audit-logs": { status: "REGISTERED_AND_FILTERABLE" },
+  /* 数据中心：供应商清单为 T+ 同步投影，本轮接入平台 FilterCompiler。 */
+  "supplier-list": { status: "REGISTERED_AND_FILTERABLE" },
+  /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
+  "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
+  "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
+  /* 上传即算即走 / 纯任务型资源：没有可持久化查询的业务记录表。 */
+  "hr-departure-check": { status: "NOT_APPLICABLE", reason: "离职人员检查是上传花名册后即时比对的工具页，结果不落业务表，没有可筛选的持久记录集。" },
+  imports: { status: "NOT_APPLICABLE", reason: "导入记录是后台任务表，页面用于追溯同步任务状态，不是业务记录表。" },
+  "tplus-sales-orders": { status: "NOT_APPLICABLE", reason: "T+ 销售订单同步为集成任务视图，源数据语义由集成适配器维护，不作为可筛选业务记录表。" },
+  "customer-data-import": { status: "NOT_APPLICABLE", reason: "客户数据导入为一次性导入任务，结果写入客户主数据，没有独立可筛选记录表。" },
+  /* 本轮尚未接入：真实业务表，但需要按资源核实数据范围语义后再接入平台编译器。 */
+  "duplicate-order-review": { status: "BLOCKED", reason: "重复订单复核为复核结果表，需先核实其数据范围语义再接入平台编译器。" },
+  "business-customer-mapping": { status: "BLOCKED", reason: "营销映射表当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
+  "order-schedule": { status: "BLOCKED", reason: "订单排期当前由服务层整表取回后内存分页，需改为服务端 SQL 筛选后再接入。" },
+  "development-requests": { status: "BLOCKED", reason: "需求提报按流程策略在服务层裁剪行权限，需先确认数据范围绑定再接入平台编译器。" },
+  "approval-flow-configs": { status: "BLOCKED", reason: "审批流程配置为系统管理配置项，需按系统管理数据范围核实后接入。" },
+  suppliers: { status: "BLOCKED", reason: "供应商主数据为系统管理配置项，需按系统管理数据范围核实后接入。" },
+  dictionaries: { status: "BLOCKED", reason: "字典由类型+值两张表组合展示，需确认平台绑定后再接入。" },
+  processes: { status: "BLOCKED", reason: "工序主数据为系统管理配置项，需按系统管理数据范围核实后接入。" },
+  users: { status: "BLOCKED", reason: "用户目录为管理员聚合视图，需按管理员范围核实后接入。" },
+  roles: { status: "BLOCKED", reason: "角色列表为管理员聚合视图（含权限与成员关联），需按管理员范围核实后接入。" },
+  organization: { status: "BLOCKED", reason: "组织架构为企业微信权威目录，需按组织目录范围核实后接入。" },
+  contacts: { status: "BLOCKED", reason: "通讯录为外部同步目录，需确认数据范围绑定后接入。" },
+  "api-keys": { status: "BLOCKED", reason: "API Key 为管理员配置项，需按管理员范围核实后接入。" }
+};
+
+export function tableFilterResourceCapabilityOf(code: string): TableFilterResourceCapability {
+  return tableFilterResourceCapabilities[code] ?? { status: "BLOCKED", reason: `未登记筛选能力：${code}` };
 }
 
 /**
@@ -422,7 +558,33 @@ export function auditTableFieldMetadata(): { resources: number; fields: number; 
   return { resources: seenResources.size, fields, errors };
 }
 
+/**
+ * KN-FILTER-001 第四轮闸门：每个正式 resource 必须声明确定状态（不允许 UNKNOWN / 未处理），
+ * 且 BLOCKED / NOT_APPLICABLE 必须写明原因；不得登记未知 resource。
+ */
+export function auditTableFilterCapabilities(): { total: number; errors: string[] } {
+  const errors: string[] = [];
+  const knownResources = new Set(tableResourceRegistry.map((resource) => resource.code as string));
+  for (const resource of tableResourceRegistry) {
+    const capability = tableFilterResourceCapabilities[resource.code];
+    if (!capability) { errors.push(`未声明筛选能力：${resource.code}`); continue; }
+    if (!["REGISTERED_AND_FILTERABLE", "REGISTERED_NOT_FILTERABLE", "NOT_APPLICABLE", "BLOCKED"].includes(capability.status)) {
+      errors.push(`筛选能力状态非法：${resource.code} → ${capability.status}`);
+    }
+    if (capability.status !== "REGISTERED_AND_FILTERABLE" && !capability.reason) errors.push(`缺少筛选能力原因：${resource.code}`);
+  }
+  for (const code of Object.keys(tableFilterResourceCapabilities)) {
+    if (!knownResources.has(code)) errors.push(`筛选能力登记了未知 resource：${code}`);
+  }
+  return { total: tableResourceRegistry.length, errors };
+}
+
 const tableFieldAudit = auditTableFieldMetadata();
 if (tableFieldAudit.errors.length) {
   throw new Error(`KDOS 正式字段 metadata 审计失败（KN-FILTER-001 Phase 0）：\n${tableFieldAudit.errors.slice(0, 20).join("\n")}`);
+}
+
+const tableCapabilityAudit = auditTableFilterCapabilities();
+if (tableCapabilityAudit.errors.length) {
+  throw new Error(`KDOS 筛选能力登记审计失败（KN-FILTER-001 Round 4）：\n${tableCapabilityAudit.errors.slice(0, 20).join("\n")}`);
 }

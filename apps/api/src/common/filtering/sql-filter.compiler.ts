@@ -19,8 +19,15 @@ export class SqlFilterCompiler {
     private readonly expressions: Record<string, string>,
     private readonly canFilterField: (fieldKey: string) => boolean,
     private readonly expression: (column: string) => string = (column) => column,
-    private readonly resolveOptionValues: FilterOptionResolver = () => null
+    private readonly resolveOptionValues: FilterOptionResolver = () => null,
+    /**
+     * 参数占位符工厂：默认 `$n`（原生 SQL / dataSource.query）。
+     * TypeORM QueryBuilder 传 `(index) => ":f" + index` 即可复用同一编译器，不得另写一套筛选逻辑。
+     */
+    private readonly placeholder: (index: number) => string = (index) => `$${index}`
   ) {}
+
+  private ph(index: number) { return this.placeholder(index); }
 
   compile(input: unknown, params: unknown[]): string {
     const { logic, rules } = parseFilterGroup(input);
@@ -67,7 +74,7 @@ export class SqlFilterCompiler {
       const asDate = field.type === "datetime" ? `${target}` : `${target}::date`;
       const range = (from: string, to: string) => {
         params.push(from, to);
-        return `(${asDate} >= $${params.length - 1}::date AND ${asDate} < ($${params.length}::date + interval '1 day'))`;
+        return `(${asDate} >= ${this.ph(params.length - 1)}::date AND ${asDate} < (${this.ph(params.length)}::date + interval '1 day'))`;
       };
       if (operator === "dynamic") { const { from, to } = dynamicDateRange(String(rule.dynamic ?? "")); return range(from, to); }
       if (operator === "between") return range(this.dateOperand(rule.min, field.label), this.dateOperand(rule.max, field.label));
@@ -75,7 +82,7 @@ export class SqlFilterCompiler {
       if (operator === "eq") return range(value, value);
       if (operator === "neq") return `NOT (${range(value, value)})`;
       params.push(value);
-      const bound = `$${params.length}::date`;
+      const bound = `${this.ph(params.length)}::date`;
       if (operator === "gt") return `${asDate} >= (${bound} + interval '1 day')`;
       if (operator === "gte") return `${asDate} >= ${bound}`;
       if (operator === "lt") return `${asDate} < ${bound}`;
@@ -87,16 +94,16 @@ export class SqlFilterCompiler {
       if (operator === "between") {
         const min = this.numberOperand(rule.min, field.label); const max = this.numberOperand(rule.max, field.label);
         params.push(min, max);
-        return `${asNumber} BETWEEN $${params.length - 1}::numeric AND $${params.length}::numeric`;
+        return `${asNumber} BETWEEN ${this.ph(params.length - 1)}::numeric AND ${this.ph(params.length)}::numeric`;
       }
       if (operator === "in" || operator === "not_in") {
         const values = this.listOperands(rule, field.label).map((entry) => this.numberOperand(entry, field.label));
         params.push(values);
-        const index = `$${params.length}::numeric[]`;
+        const index = `${this.ph(params.length)}::numeric[]`;
         return operator === "in" ? `${asNumber} =ANY(${index})` : `(${asNumber} IS NULL OR ${asNumber} <>ALL(${index}))`;
       }
       params.push(this.numberOperand(rule.value, field.label));
-      const single = `$${params.length}::numeric`;
+      const single = `${this.ph(params.length)}::numeric`;
       const compare = { eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[operator];
       if (!compare) throw new BadRequestException(`字段“${field.label}”不支持该筛选方式`);
       return `${asNumber} ${compare} ${single}`;
@@ -105,14 +112,14 @@ export class SqlFilterCompiler {
     if (operator === "contains" || operator === "not_contains" || operator === "starts_with") {
       const raw = this.textOperand(rule.value, field.label);
       params.push(operator === "starts_with" ? `${raw}%` : `%${raw}%`);
-      return `COALESCE(${text},'') ${operator === "not_contains" ? "NOT ILIKE" : "ILIKE"} $${params.length}`;
+      return `COALESCE(${text},'') ${operator === "not_contains" ? "NOT ILIKE" : "ILIKE"} ${this.ph(params.length)}`;
     }
 
     if (operator === "in" || operator === "not_in") {
       const values = this.resolveValues(field, this.listOperands(rule, field.label));
       if (!values.length) return "1=0";
       params.push(values);
-      const index = `$${params.length}::text[]`;
+      const index = `${this.ph(params.length)}::text[]`;
       return operator === "in" ? `${text} =ANY(${index})` : `COALESCE(${text},'') <>ALL(${index})`;
     }
 
@@ -121,7 +128,7 @@ export class SqlFilterCompiler {
     const resolved = this.resolveValues(field, [raw]);
     if (!resolved.length) return "1=0";
     params.push(resolved);
-    const index = `$${params.length}::text[]`;
+    const index = `${this.ph(params.length)}::text[]`;
     return operator === "neq" ? `COALESCE(${text},'') <>ALL(${index})` : `${text} =ANY(${index})`;
   }
 
@@ -133,12 +140,12 @@ export class SqlFilterCompiler {
     if (operator === "count_eq" || operator === "count_gte" || operator === "count_lte") {
       params.push(this.numberOperand(rule.value, field.label));
       const compare = operator === "count_eq" ? "=" : operator === "count_gte" ? ">=" : "<=";
-      return `${length} ${compare} $${params.length}::numeric`;
+      return `${length} ${compare} ${this.ph(params.length)}::numeric`;
     }
     const values = this.resolveValues(field, this.listOperands(rule, field.label));
     if (!values.length) return operator === "not_contains_any" ? "true" : "1=0";
     params.push(values);
-    const index = `$${params.length}::text[]`;
+    const index = `${this.ph(params.length)}::text[]`;
     const elements = `(SELECT element FROM jsonb_array_elements_text(${array}) element)`;
     if (operator === "contains_any") return `EXISTS (SELECT 1 FROM ${elements} value WHERE value =ANY(${index}))`;
     if (operator === "contains_all") return `(SELECT count(DISTINCT value) FROM ${elements} value WHERE value =ANY(${index})) = ${values.length}`;

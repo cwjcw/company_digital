@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  auditTableFieldMetadata, isTableFieldFilterable, masterPlanResourceDefinitions,
-  tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
+  auditTableFieldMetadata, auditTableFilterCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
+  referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
+  tableFilterResourceCapabilities, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
 } from "./index";
 
 describe("KN-FILTER-001 field metadata audit gate", () => {
@@ -76,6 +77,74 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
 });
 
 describe("active PMC resources", () => {
+
+  describe("KN-FILTER-001 第四轮筛选能力与 UI 白名单", () => {
+    it("每个正式 resource 都有确定筛选状态，且没有 UNKNOWN / 未处理", () => {
+      const audit = auditTableFilterCapabilities();
+      expect(audit.errors).toEqual([]);
+      expect(audit.total).toBe(tableResourceRegistry.length);
+      for (const resource of tableResourceRegistry) {
+        const status = tableFilterResourceCapabilities[resource.code]?.status;
+        expect(["REGISTERED_AND_FILTERABLE", "REGISTERED_NOT_FILTERABLE", "NOT_APPLICABLE", "BLOCKED"]).toContain(status);
+      }
+    });
+
+    it("BLOCKED / NOT_APPLICABLE 必须写明真实原因", () => {
+      const items = Object.entries(tableFilterResourceCapabilities).filter(([, capability]) => capability.status !== "REGISTERED_AND_FILTERABLE");
+      expect(items.length).toBeGreaterThan(0);
+      for (const [code, capability] of items) {
+        expect(capability.reason, `${code} 缺少原因`).toBeTruthy();
+      }
+    });
+
+    it("关联字段必须有显式标签定义，不靠猜字段", () => {
+      expect(referenceLabelFieldsFor("suppliers")).toContain("name");
+      expect(referenceLabelFieldsFor("equipment-register")).toContain("equipment_code");
+      expect(referenceLabelFieldsFor("mps-weekly-plans").length).toBeGreaterThan(1);
+      expect(referenceLabelFieldsFor("unknown-resource")).toEqual([]);
+      expect(referenceLabelFieldsFor("unknown-resource", "name")).toEqual(["name"]);
+    });
+
+    it("正式 UI 不暴露未确认操作符（starts_with / count_* / 数值 in）", () => {
+      const text = tablePermissionFieldsFor("sales-orders").find((field) => field.key === "orderNumber")!;
+      const textOperators = tableFilterUiOperatorsFor(text).map((entry) => entry.operator);
+      expect(textOperators).toContain("contains");
+      expect(textOperators).not.toContain("starts_with");
+
+      const number = tablePermissionFieldsFor("sales-orders").find((field) => field.key === "businessQuantity")!;
+      const numberOperators = tableFilterUiOperatorsFor(number).map((entry) => entry.operator);
+      expect(numberOperators).toEqual(["eq", "neq", "gte", "lte", "between", "is_empty", "is_not_empty"]);
+
+      const multiple = tablePermissionFieldsFor("equipment-register").find((field) => field.key === "responsibleUserIds")!;
+      const multipleOperators = tableFilterUiOperatorsFor(multiple).map((entry) => entry.operator);
+      expect(multipleOperators).toContain("contains_any");
+      expect(multipleOperators).not.toContain("count_gte");
+    });
+
+    it("数据结构化字段不进入正式筛选，日期时间共用一套操作符", () => {
+      const structured = tablePermissionFieldsFor("api-keys").find((field) => field.key === "scopes")!;
+      expect(structured.type).toBe("structured");
+      expect(structured.filterable).toBe(false);
+      expect(isTableFieldFilterable(structured)).toBe(false);
+
+      const date = tablePermissionFieldsFor("sales-orders").find((field) => field.key === "orderDate")!;
+      const datetime = tablePermissionFieldsFor("audit-logs").find((field) => field.key === "createdAt")!;
+      expect(tableFilterUiOperatorsFor(date).map((entry) => entry.operator)).toEqual(tableFilterUiOperatorsFor(datetime).map((entry) => entry.operator));
+      expect(tableFilterUiOperatorsFor(datetime).map((entry) => entry.operator)).toContain("dynamic");
+    });
+
+    it("数据中心 metadata 与真实业务列一致（订单/入库/出库）", () => {
+      const orderFields = tablePermissionFieldsFor("sales-orders").map((field) => field.key);
+      expect(orderFields).toEqual(expect.arrayContaining(["orderNumber", "itemNumber", "businessQuantity", "plannedDeliveryDate", "ownerDivision"]));
+      const inboundFields = tablePermissionFieldsFor("finished-goods-inbound").map((field) => field.key);
+      expect(inboundFields).toEqual(expect.arrayContaining(["documentNumber", "inventoryCode", "inboundDate", "receivedQuantity"]));
+      const outboundFields = tablePermissionFieldsFor("finished-goods-outbound").map((field) => field.key);
+      expect(outboundFields).toEqual(expect.arrayContaining(["documentNumber", "customerName", "itemNumber", "totalAmount"]));
+      /* 审计日志的操作人是快照文本，不是成员关联。 */
+      expect(tablePermissionFieldsFor("audit-logs").find((field) => field.key === "actorName")?.type).toBe("text");
+    });
+  });
+
   it("keeps the current master-plan resources and excludes retired planning UI resources", () => {
     const masterPlanCodes = masterPlanResourceDefinitions.map((resource) => resource.code);
     expect(masterPlanCodes).toContain("mps-erp-orders");
