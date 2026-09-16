@@ -6,7 +6,10 @@ import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 import { useAuditColumns } from "./audit-fields";
-import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
+import {
+  HeaderFilterEditor, KdosAdvancedFilter, emptyFilterGroup, visibleOperators,
+  type AdvancedFilterGroup, type AdvancedFilterRule
+} from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
 
@@ -179,14 +182,32 @@ function ColumnFilterPanel({ label, value, onApply, onClear, close }: {
 }
 
 function addColumnHeaderFilters<RecordType extends DataRecord>(
-  columns: ColumnsType<RecordType>, filters: Record<string, string>, onFiltersChange: (filters: Record<string, string>) => void
+  columns: ColumnsType<RecordType>, resource: string, filterFields: TablePermissionFieldDefinition[] | undefined,
+  group: AdvancedFilterGroup, onGroupChange: (group: AdvancedFilterGroup) => void,
+  filters: Record<string, string>, onFiltersChange: (filters: Record<string, string>) => void
 ): ColumnsType<RecordType> {
   return columns.map((raw) => {
     const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
-    if (column.children?.length) return { ...column, children: addColumnHeaderFilters(column.children, filters, onFiltersChange) };
+    if (column.children?.length) return { ...column, children: addColumnHeaderFilters(column.children, resource, filterFields, group, onGroupChange, filters, onFiltersChange) };
     const key = columnKey(column);
     if (!key || column.dataIndex == null || column.filterDropdown) return column;
     const label = typeof column.title === "string" ? column.title : key;
+    /* 有正式 metadata 时，列头筛选只是 FilterGroup 的单字段快捷编辑器（与高级筛选共用同一状态）。 */
+    const field = filterFields?.find((candidate) => candidate.key === key);
+    if (field && field.filterable !== false && field.type !== "structured" && visibleOperators(field).length) {
+      const rule = group.rules.find((candidate) => candidate.field === key);
+      const setRule = (next: AdvancedFilterRule | null) => onGroupChange({
+        ...group,
+        rules: [...group.rules.filter((candidate) => candidate.field !== key), ...(next ? [next] : [])]
+      });
+      return {
+        ...column,
+        filteredValue: rule ? [rule.operator as string] : null,
+        filterIcon: (filtered: boolean) => <span title="筛选" aria-label={`${label}筛选`}><FilterOutlined style={{ color: filtered ? "#176B87" : undefined }} /></span>,
+        filterDropdown: ({ close }) => <HeaderFilterEditor resource={resource} field={field} rule={rule} close={close}
+          onChange={(next: AdvancedFilterRule) => setRule(next)} onClear={() => setRule(null)} />
+      };
+    }
     return {
       ...column,
       filteredValue: filters[key] ? [filters[key]] : null,
@@ -291,8 +312,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
   const renderedColumns = useMemo(
-    () => addColumnHeaderFilters(filterColumns(allColumns, visible), filters, setFilters),
-    [allColumns, filters, visible]
+    () => addColumnHeaderFilters(filterColumns(allColumns, visible), resource, filterFields, filterGroup, (group) => { setFilters({}); setFilterGroup(group); }, filters, setFilters),
+    [allColumns, filterFields, filterGroup, filters, resource, visible]
   );
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {

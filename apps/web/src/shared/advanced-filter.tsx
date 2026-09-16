@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- shared filter helpers are intentionally co-located with the component */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, DatePicker, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
+import { Badge, Button, DatePicker, Flex, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -28,10 +28,45 @@ export function visibleOperators(field: TablePermissionFieldDefinition) {
   return allowed;
 }
 
+/** Header Filter 默认操作符（仍来自正式 registry，只是按 §7 指定首选顺序）。 */
+export function defaultOperatorFor(field: TablePermissionFieldDefinition): TableFilterOperator | undefined {
+  const available = visibleOperators(field).map((entry) => entry.operator as TableFilterOperator);
+  const preferred: TableFilterOperator[] = field.multiple
+    ? ["contains_any", "is_empty", "is_not_empty"]
+    : field.type === "text" ? ["contains", "eq", "is_empty"]
+    : field.type === "boolean" ? ["eq", "is_true", "is_false"]
+    : field.type === "number" ? ["eq", "between", "gte"]
+    : field.type === "date" || field.type === "datetime" ? ["eq", "between", "dynamic"]
+    : field.type === "attachment" ? ["is_empty", "is_not_empty"]
+    : ["eq", "in", "is_not_empty"];
+  return preferred.find((operator) => available.includes(operator)) ?? available[0];
+}
+
+/** Header Filter 单字段快捷编辑器：只读写同一个 FilterGroup 中的该字段规则。 */
+export function HeaderFilterEditor({ resource, field, rule, onChange, onClear, close }: {
+  resource: string; field: TablePermissionFieldDefinition; rule?: AdvancedFilterRule;
+  onChange: (rule: AdvancedFilterRule) => void; onClear: () => void; close: () => void;
+}) {
+  const operator = rule?.operator ?? defaultOperatorFor(field);
+  const [draft, setDraft] = useState<AdvancedFilterRule>(() => rule ?? { field: field.key, operator: operator ?? ("eq" as TableFilterOperator) });
+  useEffect(() => setDraft(rule ?? { field: field.key, operator: operator ?? ("eq" as TableFilterOperator) }), [field.key, operator, rule]);
+  const operators = visibleOperators(field);
+  return <div className="kdos-column-filter-panel" data-testid="header-filter-panel" onKeyDown={(event) => event.stopPropagation()}>
+    <Typography.Text strong>{field.label}</Typography.Text>
+    <Select size="small" style={{ width: "100%" }} value={draft.operator} options={operators.map((entry) => ({ value: entry.operator, label: entry.label }))}
+      onChange={(next) => setDraft({ field: field.key, operator: next as TableFilterOperator })} />
+    <RuleValue resource={resource} field={field} operator={String(draft.operator)} rule={draft} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
+    <Flex justify="space-between" gap={8}>
+      <Button onClick={() => { onClear(); close(); }}>清除</Button>
+      <Button type="primary" onClick={() => { onChange(draft); close(); }}>筛选</Button>
+    </Flex>
+  </div>;
+}
+
 type Candidate = { value: string; label: string };
 const fieldLabel = (field: TablePermissionFieldDefinition) => field.label;
 
-function CandidateSelect({ resource, field, multiple, placeholder, onChange }: {
+export function CandidateSelect({ resource, field, multiple, placeholder, onChange }: {
   resource: string; field: TablePermissionFieldDefinition; multiple: boolean; placeholder: string;
   onChange: (value: string | string[] | null) => void;
 }) {
@@ -41,7 +76,8 @@ function CandidateSelect({ resource, field, multiple, placeholder, onChange }: {
     setLoading(true);
     try {
       const view = resource === "mps-process-reports" && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "PENDING" ? "&view=PENDING" : "";
-      const found = await api<Candidate[]>(`/master-plan-system/references/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}${view}`);
+      /* 平台级筛选接口：所有正式业务表统一入口，不依赖任何模块专用 URL。 */
+      const found = await api<Candidate[]>(`/table-filters/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}${view}`);
       setOptions(found ?? []);
     } catch { setOptions(field.options ?? []); }
     finally { setLoading(false); }
@@ -56,7 +92,7 @@ function CandidateSelect({ resource, field, multiple, placeholder, onChange }: {
   />;
 }
 
-function RuleValue({ resource, field, operator, rule, onChange }: {
+export function RuleValue({ resource, field, operator, rule, onChange }: {
   resource: string; field: TablePermissionFieldDefinition; operator: string; rule: AdvancedFilterRule;
   onChange: (patch: Partial<AdvancedFilterRule>) => void;
 }) {

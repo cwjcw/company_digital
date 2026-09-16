@@ -16,7 +16,7 @@ export type CandidateContext = {
   scopedWhere: string;
   scopedParams: unknown[];
   /** 关联字段候选解析器：reference 字段的候选来源资源。 */
-  referenceCandidates?: (referenceResource: string, search: string, limit: number) => Promise<FieldCandidate[]>;
+  referenceCandidates?: (referenceResource: string, search: string, limit: number, binding?: TablePermissionFieldDefinition["filterBinding"]) => Promise<FieldCandidate[]>;
   /** 部门与成员候选解析器（平台通用目录）。 */
   departmentCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
   memberCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
@@ -59,7 +59,7 @@ export class FieldCandidateService {
     if (field.type === "reference") {
       const referenceResource = field.filterBinding?.referenceResource;
       if (!referenceResource || !context.referenceCandidates) throw new BadRequestException(`字段“${field.label}”缺少候选来源`);
-      return context.referenceCandidates(referenceResource, search, limit);
+      return context.referenceCandidates(referenceResource, search, limit, field.filterBinding);
     }
     if (field.type === "boolean") return [{ value: "true", label: "是" }, { value: "false", label: "否" }];
     if (field.type === "date" || field.type === "datetime" || field.type === "structured" || field.type === "attachment") return [];
