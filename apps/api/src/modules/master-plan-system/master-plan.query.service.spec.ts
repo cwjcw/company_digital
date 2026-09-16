@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import type { MasterPlanActor } from "./master-plan.types";
 
@@ -41,6 +41,56 @@ describe("MasterPlanQueryService metadata", () => {
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read", "mps-shipping-plans:divisionId:read"]))).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "org-1" })]));
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-monthly-plans:*:read", "mps-monthly-plans:divisionId:read"]))).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read"]))).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe("MasterPlanQueryService base plan weekly feedback", () => {
+  const directory = { listEnabled: jest.fn().mockResolvedValue([]) };
+  const basePlanId = "22222222-2222-4222-8222-222222222222";
+  const basePlanActor = actor(["mps-base-plans:*:read", "mps-weekly-plans:*:read"]);
+
+  it("exposes the read-only weekly state fields and the locator action from the same admission rule", () => {
+    const metadata = new MasterPlanQueryService({} as never, directory as never).metadata("mps-base-plans", basePlanActor);
+    const keys = metadata.fields.map((field) => field.key);
+    expect(keys).toEqual(expect.arrayContaining(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]));
+    expect(metadata.fields.filter((field) => field.key.startsWith("weeklyPlan")).every((field) => field.editable === false)).toBe(true);
+    expect(metadata.createFields.map((field) => field.key)).not.toEqual(expect.arrayContaining(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]));
+    expect(metadata.actions.viewWeekly).toBe(true);
+    expect(new MasterPlanQueryService({} as never, directory as never).metadata("mps-base-plans", actor(["mps-base-plans:*:read"])).actions.viewWeekly).toBe(false);
+  });
+
+  it("derives the base-plan state, missing items and failure hint from base_plan_id and the shared admission rule", async () => {
+    const query = jest.fn(async (sql: string) => sql.includes("count(*)::integer count") ? [{ count: 1 }] : [{ id: basePlanId, version: 1 }]);
+    const result = await new MasterPlanQueryService({ query } as never, directory as never).list("mps-base-plans", {}, basePlanActor);
+    const dataSql = query.mock.calls.map(([sql]) => String(sql)).find((sql) => sql.startsWith("SELECT record.id")) ?? "";
+
+    expect(result.visibleFields).toEqual(expect.arrayContaining(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]));
+    expect(dataSql).toContain("weekly.base_plan_id=record.id");
+    expect(dataSql).toContain("FROM mps_reconciliation_outbox event");
+    expect(dataSql).toContain("event.record_id=record.id");
+    expect(dataSql).toContain("THEN '已进入周计划'");
+    expect(dataSql).toContain("NULLIF(btrim(record.latest_review_due_date::text),'') IS NOT NULL");
+    expect(dataSql).toContain("'最迟评审交期'");
+    expect(dataSql).toContain(`(SELECT weekly.id FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.base_plan_id=record.id) "weeklyPlanId"`);
+  });
+
+  it("locates exactly one weekly plan by validated base_plan_id and rejects anything else", async () => {
+    const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 0 }] : []);
+    const service = new MasterPlanQueryService({ query } as never, directory as never);
+    const weeklyActor = actor(["mps-weekly-plans:*:read", "mps-weekly-plans:orderNumber:read"]);
+
+    await service.list("mps-weekly-plans", { basePlanId }, weeklyActor);
+    const located = query.mock.calls.at(0)!;
+    expect(String(located[0])).toContain("record.base_plan_id=$2::uuid");
+    expect(located[1]).toEqual(["KAINAN", basePlanId]);
+
+    await expect(service.list("mps-weekly-plans", { basePlanId: "SO-1" }, weeklyActor)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list("mps-weekly-plans", { basePlanId: "abc" }, weeklyActor)).rejects.toBeInstanceOf(BadRequestException);
+
+    const beforeUnrelated = query.mock.calls.length;
+    const unrelated = new MasterPlanQueryService({ query } as never, directory as never);
+    await unrelated.list("mps-base-plans", { basePlanId }, basePlanActor);
+    expect(query.mock.calls.slice(beforeUnrelated).map(([sql]) => String(sql)).some((sql) => sql.includes("record.base_plan_id="))).toBe(false);
   });
 });
 

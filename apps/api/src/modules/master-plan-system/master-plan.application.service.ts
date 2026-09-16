@@ -460,9 +460,10 @@ export class MasterPlanApplicationService {
     try { await this.sync.processOutbox(); } catch { /* The committed business write remains successful; the outbox will retry. */ }
     const [event] = await this.dataSource.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource=$2 AND record_id=$3::uuid AND sync_key='base-to-weekly' AND idempotency_key=$4`, [actor.tenantId, resource.code, recordId, `outbox:${actor.requestId}:${resource.code}:base-to-weekly`]);
     if (!event) return undefined;
-    return event.status === "FAILED"
-      ? { status: "FAILED", message: `基础计划已保存，但周计划生成失败：${event.last_error || "系统将自动重试"}` }
-      : { status: String(event.status), message: null };
+    if (event.status === "FAILED") return { status: "FAILED", message: `基础计划已保存，但周计划生成失败：${event.last_error || "系统将自动重试"}` };
+    if (event.status === "SUCCESS") return { status: "SUCCESS", message: null };
+    /* The write is committed; a pending or in-flight reconciliation must never be reported as success or failure. */
+    return { status: String(event.status), message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" };
   }
 
   private async enforceShippingWindow(resource: MasterPlanResource, actor: MasterPlanActor) {

@@ -40,7 +40,7 @@ function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], .
 }
 
 function display(value: unknown, field: TablePermissionFieldDefinition, row: any) {
-  if (field.key === "weeklyPlanState") return <Tag color={({ "待完善": "default", "已具备条件": "processing", "已进入周计划": "success" } as Record<string, string>)[String(value)]}>{value || "—"}</Tag>;
+  if (field.key === "weeklyPlanState") return <Tag color={({ "待完善": "default", "已具备条件": "processing", "已进入周计划": "success" } as Record<string, string>)[String(value)]}>{value ? String(value) : "—"}</Tag>;
   if (field.key === "weeklyPlanMissingFields") return value ? `缺少：${String(value)}` : "—";
   if (field.key === "weeklyPlanGenerationIssue") return value ? <Tag color="error">生成失败：{String(value)}</Tag> : "—";
   if (field.type === "boolean") return <Tag color={value ? "success" : "default"}>{value ? "是" : "否"}</Tag>;
@@ -152,6 +152,13 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const refreshRelatedPlans = useCallback(async () => {
     await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
+  /* 基础计划 -> 周计划必须通过稳定 base_plan_id 定位，禁止按订单号/品项/交期模糊搜索。 */
+  const viewWeeklyPlan = useCallback((row: any) => {
+    const weeklyPlanId = row?.weeklyPlanId ? String(row.weeklyPlanId) : "";
+    if (!weeklyPlanId) { message.info("该基础计划尚未生成周计划"); return; }
+    navigate(`/master-plan-system/resources/mps-weekly-plans?basePlanId=${encodeURIComponent(weeklyPlanId)}`);
+  }, [navigate]);
+  const clearWeeklyPlanFilter = useCallback(() => navigate("/master-plan-system/resources/mps-weekly-plans"), [navigate]);
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
     try {
       const updated = await api<{ version: number; values: Record<string, unknown>; reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
@@ -159,6 +166,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       if (resource === "mps-base-plans") {
         await refreshRelatedPlans();
         if (updated.reconciliation?.status === "FAILED") message.warning(updated.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
+        else if (updated.reconciliation && updated.reconciliation.status !== "SUCCESS") message.info(updated.reconciliation.message ?? "基础计划已保存，周计划正在生成。");
         else message.success(`${field.label}已保存；周计划状态已刷新`);
       } else {
         queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === confirmedValue)?.pathLabel ?? null } : {}) } : entry) } : current);
@@ -182,9 +190,19 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     try {
       const values = await form.validateFields();
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
-      if (modal?.mode === "edit") await api(`/master-plan-system/resources/${resource}/${modal.row.id}`, { method: "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal.row.version }) });
-      else await api(`/master-plan-system/resources/${resource}`, { method: "POST", body: JSON.stringify(payload) });
-      message.success(modal?.mode === "edit" ? "修改成功" : "新增成功"); setModal(null); refresh();
+      const edited = modal?.mode === "edit";
+      const saved = edited
+        ? await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${modal!.row.id}`, { method: "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal!.row.version }) })
+        : await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}`, { method: "POST", body: JSON.stringify(payload) });
+      setModal(null);
+      if (resource === "mps-base-plans") {
+        await refreshRelatedPlans();
+        if (saved?.reconciliation?.status === "FAILED") message.warning(saved.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
+        else if (saved?.reconciliation && saved.reconciliation.status !== "SUCCESS") message.info(saved.reconciliation.message ?? "基础计划已保存，周计划正在生成。");
+        else message.success(edited ? "修改成功；周计划状态已刷新" : "新增成功；周计划状态已刷新");
+      } else {
+        message.success(edited ? "修改成功" : "新增成功"); refresh();
+      }
     } catch (error) {
       const validation = error as { errorFields?: Array<{ name: Array<string | number>; errors: string[] }>; message?: string };
       const reason = validation.errorFields?.[0]?.errors?.[0] ?? validation.message ?? "保存失败，请检查填写内容后重试";
@@ -236,11 +254,14 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
   const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
   if (!info) return null;
-  const withActions = metadata.data && (metadata.data.actions.update || metadata.data.actions.delete || (resource === "mps-process-reports" && metadata.data.actions.create)) ? [...columns, {
+  const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
+  const hasRowActions = Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
+  const withActions = hasRowActions ? [...columns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const,
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
       onDelete={async () => { try { await api(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); message.success("删除成功"); refresh(); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
+      onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => syncMutation.mutate(row.syncKey) : undefined} />
   }] : columns;
   const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
@@ -249,9 +270,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     <PageHeader title={info.label} subtitle={`${info.area} · 新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段`} actions={<Space>
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template`, `${info.label}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
-      {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
+      {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
       {metadata.data?.actions.create && hasResourcePermission(resource, "create") && <Button type="primary" onClick={openCreate}>新增</Button>}
     </Space>} />
+    {basePlanId && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅显示该事业部基础计划生成的周计划" action={<Button size="small" onClick={clearWeeklyPlanFilter}>清除定位</Button>} />}
     {viewTabs}
     <KdosDataTable resource={resource} editable={Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}

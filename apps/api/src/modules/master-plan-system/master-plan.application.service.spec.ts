@@ -111,6 +111,68 @@ describe("MasterPlanApplicationService imports", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("mps_reconciliation_outbox"))).toBe(true);
   });
 
+  it.each([
+    ["FAILED", "基础计划已保存，但周计划生成失败：未维护工序周期"],
+    ["PENDING", "基础计划已保存，周计划正在生成，请稍后刷新查看。"],
+    ["RUNNING", "基础计划已保存，周计划正在生成，请稍后刷新查看。"]
+  ])("reports reconciliation state %s without rolling back the committed base-plan write", async (status, expected) => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 3, order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", planned_quantity: "10", latest_review_due_date: null };
+    const updated = { ...current, version: 4, latest_review_due_date: "2026-09-20" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_base_plans")) return [current];
+      if (sql.startsWith("UPDATE mps_base_plans")) return [[updated], 1];
+      if (sql.startsWith("SELECT status,last_error FROM mps_reconciliation_outbox")) return [{ status, last_error: status === "FAILED" ? "未维护工序周期" : null }];
+      return [];
+    });
+    const manager = { query };
+    const sync = { processOutbox: jest.fn().mockResolvedValue(1) };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
+
+    await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" },
+      reconciliation: { status, message: expected }
+    });
+    expect(sync.processOutbox).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE mps_base_plans"))).toBe(true);
+  });
+
+  it("reports a completed reconciliation as success without inventing a warning", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 3, order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", planned_quantity: "10", latest_review_due_date: null };
+    const updated = { ...current, version: 4, latest_review_due_date: "2026-09-20" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_base_plans")) return [current];
+      if (sql.startsWith("UPDATE mps_base_plans")) return [[updated], 1];
+      if (sql.startsWith("SELECT status,last_error FROM mps_reconciliation_outbox")) return [{ status: "SUCCESS", last_error: null }];
+      return [];
+    });
+    const manager = { query };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, { processOutbox: jest.fn().mockResolvedValue(1) } as never);
+
+    await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "SUCCESS", message: null }
+    });
+  });
+
+  it("keeps a committed base-plan write successful when the reconciliation pass itself throws", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 3, order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", planned_quantity: "10", latest_review_due_date: null };
+    const updated = { ...current, version: 4, latest_review_due_date: "2026-09-20" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_base_plans")) return [current];
+      if (sql.startsWith("UPDATE mps_base_plans")) return [[updated], 1];
+      return [];
+    });
+    const manager = { query };
+    const sync = { processOutbox: jest.fn().mockRejectedValue(new Error("连接中断")) };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
+
+    await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }
+    });
+  });
+
   it("validates a blank-identity row as a create and rejects duplicate business keys", async () => {
     const query = jest.fn().mockResolvedValue([]);
     const dataSource = { query, manager: { query } };

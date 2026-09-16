@@ -1,4 +1,6 @@
 import { MasterPlanSyncService } from "./master-plan.sync.service";
+import { MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql } from "./master-plan.config";
+import { ConflictException } from "@nestjs/common";
 
 describe("MasterPlanSyncService execution matrix", () => {
   const weekly = (manufacturingMethod: string) => ({
@@ -33,7 +35,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql[0]).toContain("order_number=excluded.order_number");
     expect(sql[0]).toContain("item_code=excluded.item_code");
     expect(sql[0]).toContain("delivery_number=excluded.delivery_number");
-    expect(sql[0]).toContain("latest_review_due_date IS NOT NULL AND product_attribute IS NOT NULL AND surface_nature IS NOT NULL AND manufacturing_method IS NOT NULL");
+    expect(sql[0]).toContain(weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!));
     expect(sql.join(" ")).not.toContain("SET base_plan_id=NULL");
     expect(sql.join(" ")).not.toContain("ON CONFLICT(tenant_id,order_number,item_code,delivery_number)");
     expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
@@ -67,5 +69,21 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(reportUpdate).toContain("item_code=$5");
     expect(reportUpdate).toContain("planned_quantity=$8");
     expect(sql.some((statement) => statement.includes("INSERT INTO mps_process_reports"))).toBe(false);
+  });
+
+  it("keeps an outbox event retryable when its sync key is already running instead of reporting a failure", async () => {
+    const query = jest.fn(async (statement: string) => statement.includes("UPDATE mps_reconciliation_outbox") && statement.includes("status='RUNNING'")
+      ? [{ id: "outbox-1", tenant_id: "KAINAN", sync_key: "base-to-weekly", actor_id: "33333333-3333-4333-8333-333333333333", actor_name: "tester", idempotency_key: "outbox:request-1:mps-base-plans:base-to-weekly" }]
+      : []);
+    const dataSource = { query, transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    jest.spyOn(service, "run").mockRejectedValue(new ConflictException("该同步任务正在运行"));
+
+    await expect(service.processOutbox()).resolves.toBe(1);
+    const updates = query.mock.calls.map(([statement]) => String(statement)).filter((statement) => /UPDATE mps_reconciliation_outbox SET status='(PENDING|FAILED)'/.test(statement));
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toContain("status='PENDING'");
+    expect(updates[0]).toContain("last_error=NULL");
+    expect(updates[0]).not.toContain("FAILED");
   });
 });

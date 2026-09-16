@@ -46,6 +46,11 @@ export class MasterPlanSyncService {
         await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now(),last_error=NULL,updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=$1`, [event.id, event.actor_id]);
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
+        /* 同一同步键正在运行时只是暂时让位，不是业务失败：保持 PENDING 稍后重试，避免把并发让位显示成“生成失败”。 */
+        if (error instanceof ConflictException && message === "该同步任务正在运行") {
+          await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='PENDING',last_error=NULL,next_attempt_at=now() + interval '5 seconds',updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=$1`, [event.id, event.actor_id]);
+          continue;
+        }
         await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error=$2,next_attempt_at=now() + least(attempts,30) * interval '1 minute',updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1`, [event.id, message, event.actor_id]);
       }
     }

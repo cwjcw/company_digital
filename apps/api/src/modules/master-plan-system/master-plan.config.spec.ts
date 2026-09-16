@@ -1,5 +1,7 @@
 import { tablePermissionFieldsFor } from "@kdos/contracts";
-import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionMissingFields, weeklyAdmissionSql } from "./master-plan.config";
+import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionMissingFields, weeklyAdmissionMissingSql, weeklyAdmissionSql } from "./master-plan.config";
+
+const snake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 
 describe("master plan manual-entry configuration", () => {
   it.each([
@@ -44,7 +46,20 @@ describe("master plan manual-entry configuration", () => {
     expect(base.requiredAlways).toBeUndefined();
     expect(base.weeklyAdmissionRequiredFields).toEqual(["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
     expect(weeklyAdmissionMissingFields(base, { latestReviewDueDate: "2026-09-20", productAttribute: "五金" })).toEqual(["surfaceNature", "manufacturingMethod"]);
-    expect(weeklyAdmissionSql(base)).toBe("latest_review_due_date IS NOT NULL AND product_attribute IS NOT NULL AND surface_nature IS NOT NULL AND manufacturing_method IS NOT NULL");
+    expect(weeklyAdmissionMissingFields(base, { latestReviewDueDate: "2026-09-20", productAttribute: "  ", surfaceNature: null, manufacturingMethod: "自制" })).toEqual(["productAttribute", "surfaceNature"]);
+  });
+
+  it("derives the admission predicate and missing labels from the single admission field list", () => {
+    const base = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
+    const admissionFields = base.weeklyAdmissionRequiredFields ?? [];
+    const aliased = weeklyAdmissionSql(base, "record");
+    for (const field of admissionFields) expect(aliased).toContain(`NULLIF(btrim(record.${snake(field)}::text),'') IS NOT NULL`);
+    expect(aliased.split(" AND ")).toHaveLength(admissionFields.length);
+
+    const missing = weeklyAdmissionMissingSql(base, "record");
+    const labels = new Map(fieldsFor(base).map((field) => [field.key, field.label]));
+    for (const field of admissionFields) expect(missing).toContain(`'${labels.get(field)}'`);
+    expect(weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-monthly-plans")!)).toBe("true");
   });
 
   it("removes unapproved base/weekly fields and exposes daily reporting fields", () => {
