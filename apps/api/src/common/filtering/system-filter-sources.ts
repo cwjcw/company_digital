@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, type OnModuleInit } from "@nestjs/common";
+import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor, type TableResourceCode } from "@kdos/contracts";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 
@@ -20,6 +21,7 @@ const authorized = (check: (actor: TableFilterActor) => boolean, message: string
 
 type Source = {
   code: TableResourceCode;
+  dictionaryCandidates?: (fieldKey: string, search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
   table: string;
   columns: Record<string, string>;
   expressions?: Record<string, string>;
@@ -37,6 +39,22 @@ const SOURCES: Source[] = [
       enableDueDate: "enable_due_date", enableStatus: "enable_status", enableException: "enable_exception", enabled: "enabled",
       createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
     }
+  },
+  {
+    code: "users",
+    table: "users",
+    authorize: authorized(systemModule, "仅系统管理员或系统管理模块管理员可以访问用户管理"),
+    columns: {
+      username: "username", displayName: "display_name", employeeNo: "employee_no", wechatUserId: "wechat_user_id",
+      position: "position", alias: "alias", gender: "gender", mobile: "mobile", email: "email", division: "division",
+      enabled: "enabled", lastLoginAt: "last_login_at", departmentPaths: "department_paths",
+      createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
+    },
+    expressions: {
+      /* 角色是真实关系：jsonb 数组（按角色 ID 包含匹配）；departmentPaths 仅展示（metadata filterable=false）。 */
+      roleIds: `(SELECT COALESCE(jsonb_agg(link.role_id),'[]'::jsonb) FROM user_roles link WHERE link.user_id = record.id)`
+    },
+    searchColumns: ["username", "displayName", "employeeNo", "mobile", "email", "position"]
   },
   {
     code: "dictionaries",
@@ -131,10 +149,21 @@ const SOURCES: Source[] = [
 
 @Injectable()
 export class SystemFilterSourceProvider implements OnModuleInit {
-  constructor(private readonly registry: TableFilterRegistry) {}
+  constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource) {}
 
   onModuleInit() {
     for (const source of SOURCES) {
+      /* 角色候选来自正式 roles 表（用户与角色是真实关系），只提供 ID + 名称，不暴露任何权限明细。 */
+      const dictionaryCandidates = source.code === "users"
+        ? async (fieldKey: string, search: string, limit: number) => {
+          if (fieldKey !== "roleIds") return [];
+          const rows: Array<{ value: string; label: string }> = await this.dataSource.query(
+            `SELECT id AS value, name AS label FROM roles WHERE ($1='' OR name ILIKE $2) ORDER BY name LIMIT $3`,
+            [search, `%${search}%`, limit]
+          );
+          return rows.map((row) => ({ value: String(row.value), label: String(row.label) }));
+        }
+        : source.dictionaryCandidates;
       this.registry.register({
         code: source.code,
         table: source.table,
@@ -144,6 +173,7 @@ export class SystemFilterSourceProvider implements OnModuleInit {
         authorize: source.authorize,
         /* 系统管理/流程配置表没有 tenant_id 列：隔离由资源与管理权限承担，平台不伪造租户条件。 */
         tenantColumn: null,
+        dictionaryCandidates,
         searchColumns: source.searchColumns,
         buildScope: () => "1=1"
       });

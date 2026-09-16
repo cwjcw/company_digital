@@ -42,6 +42,7 @@ export class TableFilterController {
       scopedParams: params,
       executor: source.runQuery,
       referenceCandidates: (referenceResource, term, size, binding) => this.referenceCandidates(referenceResource, binding, term, size, actor),
+      dictionaryCandidates: source.dictionaryCandidates,
       departmentCandidates: source.departmentCandidates ?? (async (term, size) => (await this.directory.listEnabled())
         .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))
         .slice(0, size).map((option) => ({ value: option.id, label: option.pathLabel }))),

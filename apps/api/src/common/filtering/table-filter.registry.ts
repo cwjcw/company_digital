@@ -31,6 +31,8 @@ export type TableFilterSource = {
   runQuery?: (sql: string, params: unknown[]) => Promise<any[]>;
   /** 该资源自己的成员候选来源（跨库资源必须提供，例如 KDOS 营销表的业务员）。 */
   memberCandidates?: (search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
+  /** 字典/关系型字段自己的候选来源（例如 users.roleIds 来自正式 roles 表）。 */
+  dictionaryCandidates?: (fieldKey: string, search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
   /** 该资源自己的部门候选来源（跨库资源必须提供）。 */
   departmentCandidates?: (search: string, limit: number) => Promise<Array<{ value: string; label: string }>>;
   /**

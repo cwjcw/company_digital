@@ -19,7 +19,7 @@ function buildRegistry() {
   new EquipmentFilterSourceProvider(registry).onModuleInit();
   new SupplyChainFilterSourceProvider(registry).onModuleInit();
   new AuditFilterSourceProvider(registry).onModuleInit();
-  new SystemFilterSourceProvider(registry).onModuleInit();
+  new SystemFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
   /* 营销资源位于 KDOS 库：这里只验证注册（连接池在使用时才需要）。 */
   new MarketingFilterSourceProvider(registry, { pool: { query: async () => ({ rows: [] }) } } as never, {
     listEnabledUsers: async () => [], listEnabledOrganizations: async () => []

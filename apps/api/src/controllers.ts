@@ -845,9 +845,15 @@ export class AdminController {
   }
 
   @Get("users")
-  async listUsers(@Query("search") search: string | undefined, @Req() req: UserRequest) {
+  async listUsers(@Query() query: Record<string, string | undefined>, @Req() req: UserRequest) {
     this.admin(req);
-    return this.adminQueries.listUsers(search);
+    /* KN-FILTER-001：options=1 只用于下拉/成员候选（bounded 字段），其余一律服务端分页查询。 */
+    if (query.options === "1") return this.adminQueries.listDirectoryOptions();
+    return this.adminQueries.listUsersPage({
+      page: query.page, pageSize: query.pageSize, search: query.search, status: query.status,
+      departmentId: query.departmentId, roleId: query.roleId, filterGroup: query.filterGroup,
+      sortField: query.sortField, sortOrder: query.sortOrder
+    }, { isSystemAdmin: req.user.isSystemAdmin === true, permissions: req.user.permissions ?? [] });
   }
 
   @Get("roles")

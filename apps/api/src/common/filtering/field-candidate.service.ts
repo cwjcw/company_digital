@@ -17,6 +17,8 @@ export type CandidateContext = {
   scopedParams: unknown[];
   /** 关联字段候选解析器：reference 字段的候选来源资源。 */
   referenceCandidates?: (referenceResource: string, search: string, limit: number, binding?: TablePermissionFieldDefinition["filterBinding"]) => Promise<FieldCandidate[]>;
+  /** 字典/关系型字段候选解析器（优先于类型默认行为）。 */
+  dictionaryCandidates?: (fieldKey: string, search: string, limit: number) => Promise<FieldCandidate[]>;
   /** 资源所在库的查询执行器；缺省使用平台默认 DataSource（KDOS 库资源必须提供）。 */
   executor?: (sql: string, params: unknown[]) => Promise<any[]>;
   /** 部门与成员候选解析器（平台通用目录）。 */
@@ -49,6 +51,9 @@ export class FieldCandidateService {
         .filter((option) => !search || option.label.includes(search) || option.value.includes(search))
         .slice(0, limit)
         .map((option) => ({ value: String(option.value), label: String(option.label) }));
+    }
+    if (field.type === "dictionary" && !field.options?.length && context.dictionaryCandidates) {
+      return context.dictionaryCandidates(field.key, search, limit);
     }
     if (field.type === "department") {
       if (!context.departmentCandidates) throw new BadRequestException("部门候选暂不可用");

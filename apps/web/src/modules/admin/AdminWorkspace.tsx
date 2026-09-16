@@ -12,6 +12,7 @@ import {
 } from "antd";
 import { api } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
+import { blankPlatformQuery, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
 
 const { Text, Title } = Typography;
 type ViewMode = "departments" | "roles";
@@ -44,8 +45,35 @@ export function AdminWorkspace() {
   const [memberSearch, setMemberSearch] = useState(""); const [memberOrganizationId, setMemberOrganizationId] = useState<string>();
   const [roleForm] = Form.useForm();
 
+  /* KN-FILTER-001：部门视图与角色成员视图都走服务端分页查询；下拉/成员弹窗使用 options 接口（bounded 字段）。 */
+  const [departmentQuery, setDepartmentQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
+  const [roleMemberQuery, setRoleMemberQuery] = useState<PlatformTableQuery>(blankPlatformQuery());
   const effectiveUserSearch = mode === "departments" ? deferredSearch : "";
-  const users = useQuery({ queryKey: ["admin-users", effectiveUserSearch], queryFn: () => api<any[]>(`/admin/users?search=${encodeURIComponent(effectiveUserSearch)}`) });
+  /* 成员候选/下拉统一使用 options 接口；列表使用服务端分页。 */
+  const directory = useQuery({ queryKey: ["admin-users-options"], queryFn: () => api<any[]>("/admin/users?options=1") });
+  const adminUsersUrl = (base: PlatformTableQuery, context: { status?: string; departmentId?: string; roleId?: string; search?: string }) => {
+    const params = new URLSearchParams({ page: String(base.page), pageSize: String(base.pageSize) });
+    if (context.search) params.set("search", context.search);
+    if (context.status && context.status !== "all") params.set("status", context.status);
+    if (context.departmentId) params.set("departmentId", context.departmentId);
+    if (context.roleId) params.set("roleId", context.roleId);
+    if (base.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(base.filterGroup));
+    if (base.sortField) params.set("sortField", base.sortField);
+    if (base.sortOrder) params.set("sortOrder", base.sortOrder);
+    return `/admin/users?${params}`;
+  };
+  const departmentMembers = useQuery({
+    queryKey: ["admin-users", "departments", departmentQuery, effectiveUserSearch, status, selectedDepartment ?? ""],
+    queryFn: () => api<PlatformTablePage<any>>(adminUsersUrl(departmentQuery, { search: effectiveUserSearch, status, departmentId: selectedDepartment })),
+    placeholderData: (previous) => previous,
+    enabled: mode === "departments"
+  });
+  const roleMembersPage = useQuery({
+    queryKey: ["admin-users", "roles", roleMemberQuery, roleMemberSearch, selectedRoleId ?? ""],
+    queryFn: () => api<PlatformTablePage<any>>(adminUsersUrl(roleMemberQuery, { search: roleMemberSearch, roleId: selectedRoleId })),
+    placeholderData: (previous) => previous,
+    enabled: mode === "roles" && Boolean(selectedRoleId)
+  });
   const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => api<any[]>("/admin/roles") });
   const roleGroups = useQuery({ queryKey: ["admin-role-groups"], queryFn: () => api<any[]>("/admin/role-groups") });
   const organizations = useQuery({ queryKey: ["organization-units"], queryFn: () => api<any[]>("/admin/organization-units") });
@@ -70,11 +98,8 @@ export function AdminWorkspace() {
     return make(null);
   })();
 
-  const visibleUsers = (users.data ?? []).filter((user) => {
-    if (status === "enabled" && !user.enabled) return false; if (status === "disabled" && user.enabled) return false;
-    if (!selectedDepartment) return true;
-    return (user.departmentPaths ?? []).some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, selectedDepartment));
-  });
+  /* 服务端已完成 部门 + 状态 + 搜索 + FilterGroup 的 AND；前端不再过滤。 */
+  const visibleUsers = departmentMembers.data?.rows ?? [];
 
   const openEmployee = (user?: any) => {
     setEditingUser(user); setEmployeeTab("basic"); setEmployeeDrawer(true);
@@ -124,10 +149,8 @@ export function AdminWorkspace() {
   const roleMemberKeyword = roleMemberSearch.trim().toLowerCase();
   const userBelongsToAnyOrganization = (user: any, organizationIds: string[]) => organizationIds.some((organizationId) =>
     (user.departmentPaths ?? []).some((path: string[]) => organizationMembership.departmentPathBelongsTo(path, organizationId)));
-  const roleMembers = (users.data ?? []).filter((user) => user.enabled !== false && selectedRoleId && (user.roleIds?.includes(selectedRoleId)
-    || userBelongsToAnyOrganization(user, selectedRole?.organizationUnitIds ?? [])))
-    .filter((user) => !roleMemberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
-      .some((value) => String(value ?? "").toLowerCase().includes(roleMemberKeyword)));
+  /* 角色成员由服务端按 selectedRoleId（角色关系 ∪ 角色授权组织范围）强制约束，客户端无法移除该条件。 */
+  const roleMembers = roleMembersPage.data?.rows ?? [];
   const openRoleDialog = (kind: "group" | "role" | "rename", role?: any, group?: any) => {
     roleForm.resetFields(); setEditingRoleGroup(group); setEditingRole(role); setRoleDialog(kind);
     roleForm.setFieldsValue(kind === "rename" ? { name: role.name } : kind === "role" ? { roleGroupId: group?.id ?? roleGroups.data?.[0]?.id } : {});
@@ -199,7 +222,7 @@ export function AdminWorkspace() {
   const toggleMember = (userId: string, selected: boolean) => setMemberDraft((current) => selected
     ? [...new Set([...current, userId])] : current.filter((id) => id !== userId));
   const memberKeyword = memberSearch.trim().toLocaleLowerCase();
-  const enabledMemberCandidates = (users.data ?? []).filter((user) => user.enabled !== false);
+  const enabledMemberCandidates = (directory.data ?? []).filter((user) => user.enabled !== false);
   const searchedMemberCandidates = enabledMemberCandidates.filter((user) => !memberKeyword || [user.displayName, user.employeeNo, user.username, user.mobile]
     .some((value) => String(value ?? "").toLocaleLowerCase().includes(memberKeyword)));
   const organizationMemberCandidates = searchedMemberCandidates.filter((user) => memberOrganizationId && (user.departmentPaths ?? [])
@@ -212,8 +235,15 @@ export function AdminWorkspace() {
   const setCandidateSelection = (candidates: any[], selected: boolean) => setMemberDraft((current) => selected
     ? [...new Set([...current, ...candidates.map((user) => user.id)])]
     : current.filter((id) => !candidates.some((user) => user.id === id)));
-  const exportMembers = () => {
-    const header = "姓名,编号,所属部门,角色\n"; const csv = header + roleMembers.map((user) => [user.displayName, user.employeeNo || user.username, (user.departmentPaths ?? []).map((path: string[]) => path.at(-1)).join("|"), selectedRole?.name].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const exportMembers = async () => {
+    /* 导出使用与服务端同一约束（selectedRoleId + 搜索 + FilterGroup）分页取全量，禁止只导出当前页。 */
+    const rows: any[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const result = await api<PlatformTablePage<any>>(adminUsersUrl({ ...roleMemberQuery, page, pageSize: 200 }, { search: roleMemberSearch, roleId: selectedRoleId }));
+      rows.push(...result.rows);
+      if (rows.length >= result.total || result.rows.length === 0) break;
+    }
+    const header = "姓名,编号,所属部门,角色\n"; const csv = header + rows.map((user) => [user.displayName, user.employeeNo || user.username, (user.departmentPaths ?? []).map((path: string[]) => path.at(-1)).join("|"), selectedRole?.name].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `${selectedRole?.name ?? "角色"}-成员.csv`; link.click(); URL.revokeObjectURL(url);
   };
 
@@ -245,16 +275,16 @@ export function AdminWorkspace() {
         <Space><Button type="primary" icon={<UserAddOutlined />} onClick={() => openEmployee()}>邀请成员</Button><Button icon={<ExportOutlined />} onClick={() => message.info("可通过角色页按角色导出成员")}>导出</Button></Space>
         <Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 310 }} /><Text>账号状态</Text><Select value={status} onChange={setStatus} style={{ width: 130 }} options={[{ value: "all", label: "全部" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} /></Space>
       </Flex>
-      <KdosDataTable resource="users" shellClassName="employee-admin-member-table-shell" className="employee-admin-table employee-admin-member-table" rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={visibleUsers} loading={users.isLoading} columns={userColumns} pagination={false} scroll={{ x: 1750, y: "100%" }} />
+      <KdosDataTable resource="users" shellClassName="employee-admin-member-table-shell" className="employee-admin-table employee-admin-member-table" rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={visibleUsers} loading={departmentMembers.isLoading} columns={userColumns} serverData={{ total: departmentMembers.data?.total ?? 0, onQueryChange: setDepartmentQuery }} scroll={{ x: 1750, y: "100%" }} />
     </> : selectedRole ? <>
       <Flex className="employee-admin-title" justify="space-between" align="center"><Title level={3}>{selectedRole.name}</Title><Space split={<span className="role-title-divider" />}><Button type="link" onClick={() => openRoleDialog("rename", selectedRole)}>修改名称</Button><Button type="link" onClick={() => { setMoveRole(selectedRole); setMoveGroupId(selectedRole.roleGroupId); }}>调整分组</Button></Space></Flex>
       <Flex className="employee-admin-toolbar" justify="space-between"><Space><Button type="primary" onClick={openMemberDialog}>添加成员</Button><Button icon={<ImportOutlined />} disabled>导入</Button><Button icon={<ExportOutlined />} onClick={exportMembers}>导出</Button></Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={roleMemberSearch} onChange={(event) => setRoleMemberSearch(event.target.value)} style={{ width: 310 }} /></Flex>
-      <KdosDataTable resource="roles" className="employee-admin-table" rowKey="id" dataSource={roleMembers} columns={[
+      <KdosDataTable resource="users" className="employee-admin-table" rowKey="id" dataSource={roleMembers} serverData={{ total: roleMembersPage.data?.total ?? 0, onQueryChange: setRoleMemberQuery }} columns={[
         { title: "姓名", dataIndex: "displayName", render: (value: string) => <Space><Avatar className="employee-table-avatar">{initials(value)}</Avatar>{value}</Space> },
         { title: "所属部门", dataIndex: "departmentPaths", render: (paths: string[][]) => (paths ?? []).map((path) => path.at(-1)).join("、") || "—" },
         { title: "分管部门", render: () => (selectedRole.organizationUnitIds ?? []).map((id: string) => organizationMap.get(id)?.name).filter(Boolean).join("、") || "—" },
         { title: "操作", width: 120, render: (_: unknown, user: any) => userBelongsToAnyOrganization(user, selectedRole.organizationUnitIds ?? []) ? <Tag color="blue">部门授权</Tag> : <Button danger type="link" onClick={() => { setMemberDraft((selectedRole.userIds ?? []).filter((id: string) => id !== user.id)); setMemberOrganizationDraft(selectedRole.organizationUnitIds ?? []); setMemberDialog(true); }}>移除</Button> }
-      ]} pagination={false} />
+      ]} />
     </> : <div className="admin-empty-role"><UserSwitchOutlined /><span>请先创建或选择一个角色</span></div>}</main>
 
     <Drawer forceRender className="employee-edit-drawer" width={760} title={<div className="employee-drawer-identity"><Avatar>{initials(editingUser?.displayName ?? employeeForm.getFieldValue("displayName") ?? "新")}</Avatar><div><strong>{editingUser?.displayName ?? "邀请成员"}</strong><Space><Tag color="blue">已加入</Tag><Tag color="green">{editingUser?.enabled === false ? "已停用" : "已启用"}</Tag></Space></div></div>} open={employeeDrawer} onClose={() => setEmployeeDrawer(false)} footer={<Space><Button type="primary" loading={savingEmployee} onClick={() => void saveEmployee()}>保存</Button><Dropdown menu={{ items: editingUser ? [{ key: "reset", label: "重置为默认密码" }] : [], onClick: async () => { if (!editingUser) return; await api(`/admin/users/${editingUser.id}/reset-password`, { method: "POST" }); message.success("密码已重置"); } }}><Button>更多</Button></Dropdown></Space>}>
@@ -278,7 +308,7 @@ export function AdminWorkspace() {
     </Drawer>
 
     <Modal title={action?.kind === "HANDOVER" ? "交接工作" : "转移部门"} open={Boolean(action)} onCancel={() => setAction(undefined)} onOk={() => action && actionValue && void performEmployeeAction(action.user, action.kind, action.kind === "HANDOVER" ? { targetUserId: actionValue } : { departmentPaths: [unitPath(actionValue)] })} okButtonProps={{ disabled: !actionValue }}>
-      <Form layout="vertical"><Form.Item label={action?.kind === "HANDOVER" ? "选择工作接收人" : "选择转入部门"}>{action?.kind === "HANDOVER" ? <Select showSearch optionFilterProp="label" value={actionValue} onChange={setActionValue} options={(users.data ?? []).filter((user) => user.enabled && user.id !== action?.user.id).map((user) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} /> : <TreeSelect treeData={organizationTree} treeDefaultExpandAll value={actionValue} onChange={setActionValue} />}</Form.Item></Form>
+      <Form layout="vertical"><Form.Item label={action?.kind === "HANDOVER" ? "选择工作接收人" : "选择转入部门"}>{action?.kind === "HANDOVER" ? <Select showSearch optionFilterProp="label" value={actionValue} onChange={setActionValue} options={(directory.data ?? []).filter((user) => user.enabled && user.id !== action?.user.id).map((user) => ({ value: user.id, label: `${user.displayName}（${user.employeeNo ?? user.username}）` }))} /> : <TreeSelect treeData={organizationTree} treeDefaultExpandAll value={actionValue} onChange={setActionValue} />}</Form.Item></Form>
     </Modal>
 
     <Modal forceRender confirmLoading={roleSaving} title={roleDialog === "group" ? "创建角色组" : roleDialog === "rename-group" ? "修改角色组名称" : roleDialog === "rename" ? "修改角色名称" : "创建角色"} open={Boolean(roleDialog)} onCancel={() => { setRoleDialog(undefined); setEditingRole(undefined); setEditingRoleGroup(undefined); }} onOk={() => void saveRoleDialog()}>

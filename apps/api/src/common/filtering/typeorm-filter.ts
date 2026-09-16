@@ -11,6 +11,8 @@ export function applyTypedFilterToQueryBuilder(options: {
   alias: string;
   fields: TablePermissionFieldDefinition[];
   columns: Record<string, string>;
+  /** field key → 完整 SQL 表达式（虚拟列/关联列），优先于 columns。 */
+  expressions?: Record<string, string>;
   filterGroup: unknown;
   canFilterField: (fieldKey: string) => boolean;
   resolveOptionValues?: FilterOptionResolver;
@@ -20,7 +22,10 @@ export function applyTypedFilterToQueryBuilder(options: {
   const params: unknown[] = [];
   const compiler = new SqlFilterCompiler(
     fields,
-    Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, `${alias}.${column}`])),
+    {
+      ...Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, `${alias}.${column}`])),
+      ...(options.expressions ?? {})
+    },
     options.canFilterField,
     (column) => column,
     options.resolveOptionValues ?? (() => null),

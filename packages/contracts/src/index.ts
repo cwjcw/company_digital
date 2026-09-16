@@ -248,7 +248,16 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   /* dictionary_values 只有 value（中文选项即显示文本，没有独立 label 列），因此按真实 schema 登记。 */
   "dictionaries": fields([["typeCode", "字典类型编码"], ["typeName", "字典类型"], ["value", "字典值"], ["sortOrder", "排序", "number"], ["enabled", "启用", "boolean"]]),
   "processes": fields([["code", "工序编码"], ["name", "工序名称"], ["sortOrder", "排序", "number"], ["enableRequiredDays", "所需天数", "boolean"], ["enableDueDate", "交期", "boolean"], ["enableStatus", "状态", "boolean"], ["enableException", "异常", "boolean"], ["enabled", "启用", "boolean"]]),
-  "users": fields([["username", "账号"], ["displayName", "姓名"], ["employeeNo", "工号"], ["division", "部门"], ["position", "职位"], ["mobile", "手机"], ["email", "邮箱"], ["enabled", "状态", "boolean"]]),
+  "users": fields([
+    ["username", "账号"], ["displayName", "姓名"], ["employeeNo", "工号"], ["wechatUserId", "企业微信成员 ID", "text", false],
+    ["position", "职位"], ["alias", "别名"], ["gender", "性别"], ["mobile", "手机"], ["email", "邮箱"],
+    ["division", "部门"], ["enabled", "状态", "boolean"], ["lastLoginAt", "最近登录", "datetime", false],
+    /* 用户与角色是真实关系：按角色 ID 的数组包含语义筛选（user_roles），不做角色名字符串匹配。 */
+    ["roleIds", "角色", "dictionary", false, false, { multiple: true, filterBinding: { kind: "relation", note: "user_roles 真实关系（jsonb 数组），按角色 ID 包含匹配" } }],
+    ["roles", "角色名称", "text", false, false, { filterable: false, filterBinding: { kind: "aggregate", note: "由角色关系解析的展示用名称，仅展示" } }],
+    /* 多路径 jsonb（企业微信多部门）：没有可靠的单值筛选语义，显式 filterable=false，不影响 users 其它字段筛选。 */
+    ["departmentPaths", "所属部门路径", "structured", false, false, { filterable: false, filterBinding: { kind: "custom", note: "多路径 jsonb 数组，仅展示；部门条件使用页面上下文（选中部门）在服务端过滤" } }]
+  ]),
   "roles": fields([["name", "角色名称"], ["description", "角色描述"], ["roleGroupId", "角色组", "dictionary"]]),
   "organization": fields([
     ["name", "部门名称"], ["parentId", "上级部门", "department"],
@@ -556,8 +565,8 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
     "approval-flow-configs": { status: "REGISTERED_AND_FILTERABLE" },
   dictionaries: { status: "REGISTERED_AND_FILTERABLE" },
   processes: { status: "REGISTERED_AND_FILTERABLE" },
-  users: { status: "BLOCKED", reason: "用户管理页面当前是成员+部门树+角色成员弹窗的管理员聚合视图（前端整表、客户端部门/状态筛选、分页关闭）；接入服务端筛选必须先按产品要求重构该页面为服务端分页，本轮不强行切换以免破坏既有管理交互。" },
-  roles: { status: "BLOCKED", reason: "角色与权限页面当前展示的是所选角色的成员列表（行数据是用户，不是角色记录），与角色表 metadata 不一致；直接注册会出现筛选字段与页面行不匹配的假筛选，需先确认页面语义。" },
+  users: { status: "REGISTERED_AND_FILTERABLE" },
+  roles: { status: "NOT_APPLICABLE", reason: "角色管理采用角色树配置模式（左侧角色组+角色树），不存在以角色记录为行的标准 KdosDataTable；页面右侧表格展示的是所选角色的用户成员（users 上下文视图），不是 role records。因此角色 resource 不适用标准表格高级筛选，其成员视图按 users 资源接入。" },
   organization: { status: "REGISTERED_AND_FILTERABLE" },
   contacts: { status: "REGISTERED_AND_FILTERABLE" },
   "api-keys": { status: "REGISTERED_AND_FILTERABLE" }

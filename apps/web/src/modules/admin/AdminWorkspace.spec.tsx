@@ -14,7 +14,9 @@ describe("AdminWorkspace", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
     vi.mocked(api).mockImplementation(async (path) => {
-      if (path.startsWith("/admin/users?")) return [employee] as never;
+      if (path === "/admin/users?options=1") return [employee] as never;
+      if (path.startsWith("/admin/users?")) return { rows: [employee], total: 1, page: 1, pageSize: 50 } as never;
+      if (path.startsWith("/admin/users?")) return { rows: [employee], total: 1, page: 1, pageSize: 50 } as never;
       if (path === "/admin/roles") return [role] as never;
       if (path === "/admin/role-groups") return [{ id: "group-1", name: "系统角色", sortOrder: 0 }] as never;
       if (path === "/admin/organization-units") return [{ id: "org-1", name: "凯南", parentId: null, enabled: true }, { id: "org-2", name: "计划中心", parentId: "org-1", enabled: true }] as never;
@@ -63,6 +65,7 @@ describe("AdminWorkspace", () => {
         { id: "descendant", username: "descendant", displayName: "子部门成员", enabled: true, departmentPaths: [["厦门凯南展示制品有限公司", "营销中心", "业务部"]], roleIds: [] },
         { id: "quotation", username: "quotation", displayName: "报价部成员", enabled: true, departmentPaths: [["厦门凯南展示制品有限公司", "营销中心", "报价部"]], roleIds: [] }
       ] as never;
+      if (path.startsWith("/admin/users?")) return { rows: [employee], total: 1, page: 1, pageSize: 50 } as never;
       if (path === "/admin/roles") return [role] as never;
       if (path === "/admin/role-groups") return [{ id: "group-1", name: "系统角色", sortOrder: 0 }] as never;
       if (path === "/admin/organization-units") return [
