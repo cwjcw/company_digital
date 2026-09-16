@@ -136,7 +136,11 @@ export class TableFilterController {
   private scopedWhere(source: { tenantColumn?: string | null }, scope: string) {
     const tenant = source.tenantColumn === undefined ? "tenant_id" : source.tenantColumn;
     const clauses = tenant ? [`record.${tenant}=$1`, scope] : [scope];
-    return clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
+    const where = clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
+    /* 无租户列的全局配置表（隔离由资源权限承担）不会引用 $1；此时显式给 $1 一个类型，
+       否则 PostgreSQL 会报 “could not determine data type of parameter $1”。 */
+    if (where.includes("$1")) return where;
+    return `$1::text IS NOT NULL AND (${where === "1=1" ? "1=1" : where})`;
   }
 
   /** 字段 key → 带别名的安全表达式：`columns` 是裸列名，`expressions` 已经是完整表达式。 */
