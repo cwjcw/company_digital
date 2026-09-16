@@ -43,10 +43,10 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     await page.goto("/data-center/sales-orders");
     await expect(page.getByRole("heading", { name: "订单表" }).first()).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: /打印筛选结果/ }).click();
-    const modal = page.locator(".ant-modal-confirm");
+    const modal = page.locator(".ant-modal").filter({ hasText: "确认打印" });
     await expect(modal).toBeVisible({ timeout: 30_000 });
     await expect(modal).toContainText(/建议进一步筛选后再打印|打印内容较多/);
-    await modal.getByRole("button", { name: /取\s*消/ }).click();
+    await modal.getByRole("button", { name: "取消" }).click();
     await expect(page.getByTestId("kdos-print-preview")).toHaveCount(0);
   });
 
@@ -57,8 +57,9 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     await page.goto("/users");
     await expect(page.getByRole("heading", { name: "用户与角色" }).first()).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: /打印筛选结果/ }).click();
-    const modal = page.locator(".ant-modal-confirm");
-    if (await modal.isVisible().catch(() => false)) await modal.getByRole("button", { name: /继续打印/ }).click();
+    const modal = page.locator(".ant-modal").filter({ hasText: "确认打印" });
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    await modal.getByRole("button", { name: /继续打印/ }).click();
     await expect(page.getByTestId("kdos-print-preview")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".kdos-print-root .kdos-print-title")).toHaveText("用户与角色");
     const render = calls.filter((url) => url.includes("/table-prints/render"));
@@ -78,8 +79,9 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     const printSelected = page.getByRole("button", { name: /打印已选（2）/ });
     await expect(printSelected).toBeVisible();
     await printSelected.click();
-    const modal = page.locator(".ant-modal-confirm");
-    if (await modal.isVisible().catch(() => false)) await modal.getByRole("button", { name: /继续打印/ }).click();
+    const modal = page.locator(".ant-modal").filter({ hasText: "确认打印" });
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    await modal.getByRole("button", { name: /继续打印/ }).click();
     const root = page.locator(".kdos-print-root");
     await expect(page.getByTestId("kdos-print-preview")).toBeVisible({ timeout: 30_000 });
     await expect(root.locator(".kdos-print-scope")).toContainText("已选，共 2 条");

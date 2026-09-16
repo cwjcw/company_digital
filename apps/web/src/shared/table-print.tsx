@@ -140,23 +140,28 @@ export function KdosPrintDocument({ dto }: { dto: TablePrintDto }) {
 }
 
 /**
- * 打印入口：先取 manifest 拿到真实条数 → 超过阈值要求用户确认 → 再请求 Print DTO → 打开打印窗口。
- * 后端每次都会重新校验 batch_print / read / tenant / data scope / 字段权限，前端不做任何数据裁剪。
+ * 打印两阶段 API（便于页面用自身 Modal 做确认，避免静态 Modal 在不同构建下不渲染）：
+ * 1) planPrint 只计算真实条数（不加载数据），返回是否需要用户确认；
+ * 2) renderPrint 真正生成 Print DTO 并打开打印预览。
+ * 后端每次都重新校验 batch_print / read / tenant / data scope / 字段权限。
  */
-export async function printTable(request: TablePrintRequest & { confirm?: (content: string) => Promise<boolean> }) {
+export function printConfirmMessage(manifest: TablePrintManifest) {
+  if (manifest.total > manifest.largeWarningThreshold) {
+    return `当前结果 ${manifest.total.toLocaleString("zh-CN")} 条，浏览器生成打印内容可能耗时较长，建议进一步筛选后再打印。是否仍然继续？`;
+  }
+  return `当前筛选结果共 ${manifest.total.toLocaleString("zh-CN")} 条，打印内容较多，是否继续？`;
+}
+
+export async function planPrint(request: TablePrintRequest) {
   const manifest = await api<TablePrintManifest>(
     `/table-prints/manifest?resource=${encodeURIComponent(request.resource)}${request.search ? `&search=${encodeURIComponent(request.search)}` : ""}${request.sortField ? `&sortField=${encodeURIComponent(request.sortField)}` : ""}${request.sortOrder ? `&sortOrder=${encodeURIComponent(request.sortOrder)}` : ""}${request.filterGroup?.rules?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(request.filterGroup))}` : ""}${request.context && Object.keys(request.context).length ? `&context=${encodeURIComponent(JSON.stringify(request.context))}` : ""}${request.selectedIds?.length ? `&selectedIds=${encodeURIComponent(request.selectedIds.join(","))}` : ""}`
   );
-  if (manifest.total === 0) return { printed: false, reason: "empty" as const, manifest };
-  if (manifest.total > manifest.confirmThreshold) {
-    const large = manifest.total > manifest.largeWarningThreshold;
-    const confirmed = await request.confirm?.(large
-      ? `当前结果 ${manifest.total.toLocaleString("zh-CN")} 条，浏览器生成打印内容可能耗时较长，建议进一步筛选后再打印。是否仍然继续？`
-      : `当前筛选结果共 ${manifest.total.toLocaleString("zh-CN")} 条，打印内容较多，是否继续？`);
-    if (!confirmed) return { printed: false, reason: "cancelled" as const, manifest };
-  }
+  return { manifest, requiresConfirm: manifest.total > manifest.confirmThreshold };
+}
+
+export async function renderPrint(request: TablePrintRequest) {
   const dto = await api<TablePrintDto>("/table-prints/render", { method: "POST", body: JSON.stringify(printBody(request)) });
-  if (!dto.rows.length) return { printed: false, reason: "empty" as const, manifest };
+  if (!dto.rows.length) return { printed: false as const, reason: "empty" as const, dto };
   if (dto.meta.requestedCount != null && dto.meta.printedCount < dto.meta.requestedCount) {
     /* 越权/状态变化导致部分记录不可打印时：只提示数量，不泄漏这些记录是否存在或内容。 */
     Modal.info({
@@ -165,6 +170,18 @@ export async function printTable(request: TablePrintRequest & { confirm?: (conte
       okText: "知道了"
     });
   }
-  const cleanup = openPrintPreview(dto, manifest.orientation);
-  return { printed: true, reason: "printed" as const, manifest, dto, cleanup };
+  const cleanup = openPrintPreview(dto, dto.meta.orientation);
+  return { printed: true as const, reason: "printed" as const, dto, cleanup };
+}
+
+/** 兼容便捷入口：内部走两阶段 API，可用 confirm 回调做确认。 */
+export async function printTable(request: TablePrintRequest & { confirm?: (content: string) => Promise<boolean> }) {
+  const { manifest, requiresConfirm } = await planPrint(request);
+  if (manifest.total === 0) return { printed: false as const, reason: "empty" as const, manifest };
+  if (requiresConfirm) {
+    const confirmed = await request.confirm?.(printConfirmMessage(manifest));
+    if (!confirmed) return { printed: false as const, reason: "cancelled" as const, manifest };
+  }
+  const result = await renderPrint(request);
+  return { ...result, manifest };
 }

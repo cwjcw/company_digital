@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
 import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
-import { printTable, tablePrintAllowed, useTablePrintCapabilities } from "./table-print";
+import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
 
 type DataRecord = Record<string, any>;
 
@@ -232,34 +232,46 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
+  const [printing, setPrinting] = useState(false);
   const printCapabilities = useTablePrintCapabilities();
   const printingSupported = tablePrintAllowed(printCapabilities.data, resource);
-  const [printing, setPrinting] = useState(false);
   const printableColumnKeys = useMemo(() => {
     const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
     return keys.length ? keys : undefined;
   }, [columns]);
+  const [pendingPrint, setPendingPrint] = useState<{ manifest: TablePrintManifest; selectedIds?: string[] } | null>(null);
+  const printRequest = (selectedIds?: string[]) => ({
+    resource,
+    search,
+    filterGroup,
+    sortField: sortField || undefined,
+    sortOrder: (sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined) as "asc" | "desc" | undefined,
+    context: printContext ?? {},
+    selectedIds,
+    columnKeys: printableColumnKeys
+  });
+  /** 打印筛选结果 / 打印已选：先 count（不加载数据）→ 需要时确认 → 生成 Print DTO → 打开打印预览。 */
   const runPrint = async (selectedIds?: string[]) => {
     if (printing) return;
     setPrinting(true);
     try {
-      const result = await printTable({
-        resource,
-        search,
-        filterGroup,
-        sortField: sortField || undefined,
-        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
-        context: printContext ?? {},
-        selectedIds,
-        columnKeys: printableColumnKeys,
-        confirm: (content) => new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: "确认打印", content, okText: "继续打印", cancelText: "取消",
-            onOk: () => resolve(true), onCancel: () => resolve(false)
-          });
-        })
-      });
-      if (!result.printed && result.reason === "empty") printMessage.info("当前没有可打印数据。");
+      const { manifest, requiresConfirm } = await planPrint(printRequest(selectedIds));
+      if (manifest.total === 0) { printMessage.info("当前没有可打印数据。"); return; }
+      if (requiresConfirm) { setPendingPrint({ manifest, selectedIds }); return; }
+      await renderPrint(printRequest(selectedIds));
+    } catch (error) {
+      printMessage.error(error instanceof Error ? error.message : "打印失败，请稍后重试");
+    } finally {
+      setPrinting(false);
+    }
+  };
+  const confirmPrint = async () => {
+    if (!pendingPrint) return;
+    const { selectedIds } = pendingPrint;
+    setPendingPrint(null);
+    setPrinting(true);
+    try {
+      await renderPrint(printRequest(selectedIds));
     } catch (error) {
       printMessage.error(error instanceof Error ? error.message : "打印失败，请稍后重试");
     } finally {
@@ -378,7 +390,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
     }
   };
 
-  return <KdosTableEditContext.Provider value={{ editing: editing && canEdit, canEdit }}><section className={["kdos-data-table-shell", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
+  return <KdosTableEditContext.Provider value={{ editing: editing && canEdit, canEdit }}><>
+    <Modal open={Boolean(pendingPrint)} title="确认打印" okText="继续打印" cancelText="取消" confirmLoading={printing}
+      onOk={() => void confirmPrint()} onCancel={() => setPendingPrint(null)}>
+      {pendingPrint ? printConfirmMessage(pendingPrint.manifest) : null}
+    </Modal>
+    <section className={["kdos-data-table-shell", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
@@ -436,5 +453,5 @@ export function KdosDataTable<RecordType extends DataRecord>({
         <Flex vertical gap={8}>{fields.map((field) => <Checkbox key={field.key} value={field.key}>{field.label}</Checkbox>)}</Flex>
       </Checkbox.Group>
     </Drawer>}
-  </section></KdosTableEditContext.Provider>;
+  </section></></KdosTableEditContext.Provider>;
 }
