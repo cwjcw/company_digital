@@ -65,6 +65,13 @@ export class MasterPlanBlankProcessCycle1722920058000 implements MigrationInterf
           updated_by=EXCLUDED.updated_by,version=process_definitions.version+1`,
       [code, name, order]);
     }
+    /* 仅存在于新 registry 的行在回滚时移除，使工序主数据精确回到旧 14 工序状态（有历史引用时保留为停用）。 */
+    const retiredCodes = RETIRED_PROCESSES.map(([code]) => code);
+    await queryRunner.query(`DELETE FROM process_definitions definition
+      WHERE definition.code <> ALL($1::varchar[])
+        AND NOT EXISTS (SELECT 1 FROM item_process_progress progress WHERE progress.process_definition_id=definition.id)`, [retiredCodes]);
+    await queryRunner.query(`UPDATE process_definitions SET enabled=false,updated_at=now(),updated_by='KN-PROC-001-rollback',version=version+1
+      WHERE code <> ALL($1::varchar[])`, [retiredCodes]);
     await queryRunner.query(`ALTER TABLE mps_process_cycles DROP COLUMN IF EXISTS blank_days`);
   }
 }

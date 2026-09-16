@@ -1,5 +1,6 @@
 import { standardProcesses } from "@tracker/shared";
 import { MasterPlanBlankProcessCycle1722920058000 } from "../../migrations/1722920058000-MasterPlanBlankProcessCycle";
+import { MasterPlanProcessCodeConstraint1722920059000 } from "../../migrations/1722920059000-MasterPlanProcessCodeConstraint";
 import { MASTER_PLAN_RESOURCE_MAP, columnsFor, fieldsFor, virtualColumns } from "./master-plan.config";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
@@ -115,5 +116,21 @@ describe("KN-PROC-001 migration", () => {
     expect(restored).toContain("drawingBom");
     expect(restored).toContain("assemblyPacking");
     expect(restored).toContain("焊接/点焊");
+  });
+
+  it("widens the weekly task and process report process gates to the ten canonical codes", async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    await new MasterPlanProcessCodeConstraint1722920059000().up({ query } as never);
+    const sql = query.mock.calls.map(([statement]) => String(statement)).join("\n");
+
+    expect(sql).toContain("ALTER TABLE mps_weekly_process_plans ADD CONSTRAINT ck_mps_weekly_process_code CHECK(process_code IN ('cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging'))");
+    expect(sql).toContain("ALTER TABLE mps_process_reports ADD CONSTRAINT ck_mps_process_report_code CHECK(process_code IN ('cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging'))");
+    expect(sql).toContain("DROP CONSTRAINT IF EXISTS ck_mps_weekly_process_code");
+
+    const rollback = jest.fn().mockResolvedValue(undefined);
+    await new MasterPlanProcessCodeConstraint1722920059000().down({ query: rollback } as never);
+    const down = rollback.mock.calls.map(([statement]) => String(statement)).join("\n");
+    expect(down).toContain("CHECK(process_code IN ('cutting','machining','bending','spotWelding','welding','woodworking','grinding','surfaceTreatment','packaging'))");
+    expect(down).not.toContain("'blank'");
   });
 });
