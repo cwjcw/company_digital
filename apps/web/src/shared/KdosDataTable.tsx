@@ -3,8 +3,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type K
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
 import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
-import { tableResourceRegistry } from "@kdos/contracts";
-import type { TablePermissionFieldDefinition } from "@kdos/contracts";
+import { tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
+import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
@@ -270,6 +270,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
+  /*
+   * KN-FILTER-001：字段 metadata 默认取契约中的正式定义（所有 44 个 resource 都有）。
+   * 页面无需逐个传 filterFields；特殊视图（例如主计划 PENDING）可以显式覆盖。
+   */
+  const resolvedFilterFields = filterFields ?? tablePermissionFieldsFor(resource as TableResourceCode);
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const userKey = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const preferenceKey = viewKey ? `${resource}:${viewKey}` : resource;
@@ -288,10 +293,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
     queryKey: ["table-filter-resources"],
     queryFn: () => api<Array<{ code: string; filterableFields: string[] }>>("/table-filters/resources"),
     staleTime: 300_000,
-    enabled: Boolean(filterFields?.length) && !simple
+    enabled: Boolean(resolvedFilterFields?.length) && !simple
   });
-  const typedFilteringSupported = Boolean(filterFields?.length) && (filterCapabilities.data ?? []).some((entry: { code: string }) => entry.code === resource);
-  const supportedFilterFields = typedFilteringSupported ? filterFields : undefined;
+  const registeredFilterCodes = Array.isArray(filterCapabilities.data) ? filterCapabilities.data : [];
+  const typedFilteringSupported = Boolean(resolvedFilterFields?.length) && registeredFilterCodes.some((entry: { code: string }) => entry.code === resource);
+  const supportedFilterFields = typedFilteringSupported ? resolvedFilterFields : undefined;
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -417,7 +423,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={fields} searchPlaceholder={searchPlaceholder} />
         {typedFilteringSupported ? <KdosAdvancedFilter resource={resource} fields={supportedFilterFields ?? []} value={filterGroup}
           onApply={(group) => { setFilters({}); setFilterGroup(group); }} />
-          : filterFields?.length && !filterCapabilities.isLoading
+          : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索或列头筛选">高级筛选（暂不支持）</Button>
             : null}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
