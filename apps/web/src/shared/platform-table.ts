@@ -2,7 +2,7 @@ import { emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
 
 /**
  * KN-FILTER-001 平台统一读取入口（前端侧）：所有已注册资源都用同一个 `/table-filters/rows`
- * 取得服务端分页结果；筛选状态与列头/高级筛选共用同一个 FilterGroup。
+ * 取得服务端分页结果；筛选状态只来自“高级筛选”的唯一 FilterGroup（KN-FILTER-002）。
  */
 export type PlatformTableQuery = {
   page: number;

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- shared filter helpers are intentionally co-located with the component */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, DatePicker, Flex, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
+import { Badge, Button, DatePicker, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -41,27 +41,6 @@ export function defaultOperatorFor(field: TablePermissionFieldDefinition): Table
     : field.type === "attachment" ? ["is_empty", "is_not_empty"]
     : ["eq", "in", "is_not_empty"];
   return preferred.find((operator) => available.includes(operator)) ?? available[0];
-}
-
-/** Header Filter 单字段快捷编辑器：只读写同一个 FilterGroup 中的该字段规则。 */
-export function HeaderFilterEditor({ resource, field, rule, onChange, onClear, close }: {
-  resource: string; field: TablePermissionFieldDefinition; rule?: AdvancedFilterRule;
-  onChange: (rule: AdvancedFilterRule) => void; onClear: () => void; close: () => void;
-}) {
-  const operator = rule?.operator ?? defaultOperatorFor(field);
-  const [draft, setDraft] = useState<AdvancedFilterRule>(() => rule ?? { field: field.key, operator: operator ?? ("eq" as TableFilterOperator) });
-  useEffect(() => setDraft(rule ?? { field: field.key, operator: operator ?? ("eq" as TableFilterOperator) }), [field.key, operator, rule]);
-  const operators = visibleOperators(field);
-  return <div className="kdos-column-filter-panel" data-testid="header-filter-panel" onKeyDown={(event) => event.stopPropagation()}>
-    <Typography.Text strong>{field.label}</Typography.Text>
-    <Select size="small" style={{ width: "100%" }} value={draft.operator} options={operators.map((entry) => ({ value: entry.operator, label: entry.label }))}
-      onChange={(next) => setDraft({ field: field.key, operator: next as TableFilterOperator })} />
-    <RuleValue resource={resource} field={field} operator={String(draft.operator)} rule={draft} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
-    <Flex justify="space-between" gap={8}>
-      <Button onClick={() => { onClear(); close(); }}>清除</Button>
-      <Button type="primary" onClick={() => { onChange(draft); close(); }}>筛选</Button>
-    </Flex>
-  </div>;
 }
 
 type Candidate = { value: string; label: string };
@@ -186,7 +165,7 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
     setDraft((current) => ({ ...current, rules: current.rules.map((rule, itemIndex) => itemIndex === index ? { ...rule, ...patch } : rule) }));
   const changeField = (index: number, fieldKey: string) => {
     const field = selectable.find((candidate) => candidate.key === fieldKey);
-    /* 使用文档化的默认操作符（文本=包含、日期=等于、数值=等于、多值=包含任意一个），与列头筛选保持一致。 */
+    /* 使用文档化的默认操作符（文本=包含、日期=等于、数值=等于、多值=包含任意一个）。 */
     const operator = field ? defaultOperatorFor(field) : undefined;
     /* 字段变化必须清除不兼容的操作符与操作数。 */
     update(index, { field: fieldKey, operator: operator as TableFilterOperator, value: undefined, values: [], min: undefined, max: undefined, dynamic: undefined });

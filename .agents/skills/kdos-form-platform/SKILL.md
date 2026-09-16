@@ -42,13 +42,13 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 所有独立业务表单和报表必须分页；默认每页 `50` 条，允许选择 `20 / 50 / 100 / 200` 条，显示总条数并支持翻页和快速跳页。切换每页条数、搜索或筛选后，当前页必须回到第一页，防止停留在不存在的页码。每页条数可以按“用户 + 表单资源”保存为个人偏好，但不得改变其他用户或权限范围。
 - 主计划等必须保留 AG Grid Community 的宽表可以继续使用 AG Grid，但其分页能力、每页条数选项、总数提示和位置必须与上述统一表格一致，不得以虚拟滚动为理由取消分页。
 - 所有表格的分页、页码、每页条数、总数、跳页、加载、空数据、列菜单、排序、筛选、固定字段、复制和导出等可见文案与辅助提示必须使用中文；不得出现 `Page Size`、`Page 1 of 88`、`Columns`、`Filters`、`Sort Ascending` 等英文，也不得依赖组件库的英文默认值。Ant Design 统一挂载中文语言包，AG Grid 必须显式传入完整中文 `localeText`。
-- 每个可筛选字段的字段名旁必须提供统一的筛选按钮；按钮、悬浮提示、弹层标题、条件名称和操作按钮全部使用中文。字段筛选至少提供“包含”的即时文本查找、回车应用、“筛选”和“清除”，并与顶部标准筛选面板共享同一筛选状态，不得形成两套互相冲突的条件。
+- 标准表格的筛选入口只有一套：工具栏的「高级筛选」（KN-FILTER-002）。列头不再提供漏斗/列菜单筛选，工具栏不再提供旧「筛选」抽屉；快速搜索（Excel 的“查找”）与高级筛选并存，但它不是第二套筛选系统。所有筛选文案必须使用中文。
 - 字典/选项类字段（数据库保存稳定 `value`，界面显示中文 `label`）的筛选必须在服务端先按字段自身的 `options` 定义把输入解析成真实 `value` 再查询：输入 `value` 或 `label` 都必须命中，模糊输入按 label/value 解析成全部匹配项后使用 `= ANY(...)`，匹配不到任何选项时返回 0 行；禁止直接把显示名称送给数据库 `value` 列做模糊匹配，也禁止在控制器、服务或前端另写第二份字典映射。列表、待办视图、全局搜索与导出必须共用同一解析逻辑，保证同一筛选条件得到同一数据集。
 - 顶部快速搜索对应 Excel 的“查找”，字段名旁筛选对应 Excel 的“自动筛选”。筛选弹层应自动聚焦输入框、允许清空、支持回车应用、突出显示已生效条件，并在条件变化后返回第一页；日期、数字、字典、成员和部门字段应逐步使用匹配其类型的条件与候选值，不得长期把所有字段退化成不可解释的自由文本。
-- 类型化高级筛选（KN-FILTER-001）：正式筛选协议是 `FilterGroup { logic: "AND" | "OR"; rules: FilterRule[] }`，`FilterRule` 只包含 `field` + `operator` + 操作数（`value`/`values`/`min`/`max`/`dynamic`）；客户端不得提交字段类型、列名、SQL、table、join、cast 或表达式，类型永远由服务端字段 metadata 决定（`@kdos/contracts` 的 `TablePermissionFieldType`：text/number/date/datetime/boolean/dictionary/member/department/reference/structured/attachment）。时间戳必须用 `datetime`（不得当 `date`），关联字段必须用 `reference` 并声明候选来源资源，数组/多值字段必须显式 `multiple: true`，数值必须声明 `format`（integer/decimal/percentage/durationMinutes/currency），JSON 字段必须显式声明 `filterable` 策略。
-- 服务端筛选编译器（`master-plan.filter.ts` 的 `MasterPlanFilterCompiler`，后续模块复用同一实现与 `tableFilterOperatorsFor` 操作符 registry）必须做到：字段 allowlist（未知字段拒绝）、操作符必须属于该字段类型（不匹配拒绝）、操作数类型化校验（数字/日期/关键字）、全部值参数化（禁止拼接用户输入）、字段读权限校验（无 read 权限的字段不得筛选，防止隐藏字段侧信道推断）、`tenant_id` 与数据范围在筛选之前生效、动态日期（today/yesterday/this_week/last_week/this_month/last_month/last_7_days/last_30_days/this_year）由服务端按 Asia/Shanghai 计算。类型化筛选与既有自由文本筛选必须共用同一条件入口，列表、总数、分页、导出与 PENDING 视图必须使用同一个编译器，保证页面筛选与导出结果一致。
+- 类型化高级筛选（KN-FILTER-001/002，唯一正式筛选系统）：正式筛选协议是 `FilterGroup { logic: "AND" | "OR"; rules: FilterRule[] }`，`FilterRule` 只包含 `field` + `operator` + 操作数（`value`/`values`/`min`/`max`/`dynamic`）；客户端不得提交字段类型、列名、SQL、table、join、cast 或表达式，类型永远由服务端字段 metadata 决定（`@kdos/contracts` 的 `TablePermissionFieldType`：text/number/date/datetime/boolean/dictionary/member/department/reference/structured/attachment）。时间戳必须用 `datetime`（不得当 `date`），关联字段必须用 `reference` 并声明候选来源资源，数组/多值字段必须显式 `multiple: true`，数值必须声明 `format`（integer/decimal/percentage/durationMinutes/currency），JSON 字段必须显式声明 `filterable` 策略。
+- 服务端筛选编译器（`master-plan.filter.ts` 的 `MasterPlanFilterCompiler`，后续模块复用同一实现与 `tableFilterOperatorsFor` 操作符 registry）必须做到：字段 allowlist（未知字段拒绝）、操作符必须属于该字段类型（不匹配拒绝）、操作数类型化校验（数字/日期/关键字）、全部值参数化（禁止拼接用户输入）、字段读权限校验（无 read 权限的字段不得筛选，防止隐藏字段侧信道推断）、`tenant_id` 与数据范围在筛选之前生效、动态日期（today/yesterday/this_week/last_week/this_month/last_month/last_7_days/last_30_days/this_year）由服务端按 Asia/Shanghai 计算。列表、总数、分页、导出与 PENDING 视图必须使用同一个编译器与同一个 applied FilterGroup，保证页面筛选与导出/打印结果一致；旧 `Record<string,string>` 自由文本筛选只允许作为历史边界兼容，用户界面不得再产生它。
 
-#### 3.1.0.1 平台筛选能力登记与接入（KN-FILTER-001 第四轮，强制）
+#### 3.1.0.1 平台筛选能力登记与接入（KN-FILTER-001/002，强制）
 
 - **唯一编译器**：平台实现只有 `apps/api/src/common/filtering/sql-filter.compiler.ts`（`SqlFilterCompiler`）与 `filter.contract.ts`；任何模块不得再写第二套筛选/字典/日期逻辑。TypeORM 模块通过 `applyTypedFilterToQueryBuilder()` 复用同一编译器（`:filter_n` 命名参数），原生 SQL 模块直接用 `$n` 占位符。
 - **能力登记唯一来源**：`@kdos/contracts` 的 `tableFilterResourceCapabilities` 必须覆盖全部正式 resource，状态只能是 `REGISTERED_AND_FILTERABLE` / `REGISTERED_NOT_FILTERABLE` / `NOT_APPLICABLE` / `BLOCKED`，禁止 UNKNOWN 或“暂未处理”；`NOT_APPLICABLE` 与 `BLOCKED` 必须写明原因。`TableFilterBootstrapCheck` 在启动时断言声明集合与运行时 `TableFilterRegistry` **完全一致**，少注册或多注册都让应用启动失败。
@@ -56,8 +56,8 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - **不许伪造租户条件**：`tenantColumn` 默认 `tenant_id`；ERP 镜像表与审计日志等确实没有租户列的资源必须显式声明 `tenantColumn: null`，隔离由资源权限与数据范围承担。
 - **data scope 不得全局假定 `created_by`**：`OWN` 的含义必须服从该资源既有正式语义（示例：设备按事业部/本人，供应商按范围规则，主计划按事业部）。平台 `buildScope` 必须与该模块列表未筛选时的权限完全一致，candidate 与 list 必须共用同一构造。
 - **reference 禁止猜 label**：关联候选标签只能来自字段 `filterBinding.labelField` 或 `tableReferenceLabelFields` 的显式声明；缺失即 metadata 审计失败并在 candidate 接口返回 400，禁止“回退目标资源前两个文本字段”。
-- **正式 UI 操作符白名单**：界面只暴露 `tableFilterUiOperatorsFor()` 的结果——文本/字典/成员/部门/关联/多值各有固定集合；`starts_with`、`count_eq/count_gte/count_lte`、数值 `in/not_in` 等内部能力不得出现在正式界面。文本字段默认条件为“包含”，与列头筛选一致。
-- **Header 与 Advanced 是同一个 FilterGroup**：两者必须读写同一 `filterGroup`，草稿与应用态分离，只有点击“筛选/清空”才写 applied 并请求；条件变化回到 `page=1`。
+- **正式 UI 操作符白名单**：界面只暴露 `tableFilterUiOperatorsFor()` 的结果——文本/字典/成员/部门/关联/多值各有固定集合；`starts_with`、`count_eq/count_gte/count_lte`、数值 `in/not_in` 等内部能力不得出现在正式界面。文本字段默认条件为“包含”。
+- **高级筛选是唯一入口（KN-FILTER-002）**：`KdosDataTable` 工具栏只保留「快速搜索」+「高级筛选」；禁止列头筛选、Floating Filter、列菜单筛选、旧“筛选”抽屉或任何第二套通用筛选 UI。只维护一个 draft FilterGroup 与一个 applied FilterGroup，只有点击“筛选/清空”才写 applied 并请求，条件变化回到 `page=1`。
 - **时长与百分比必须类型化输入**：`durationMinutes` 让用户填“小时 + 分钟”（10 小时 30 分钟 = 630，BETWEEN 480~630），`percentage` 界面为 0..100、提交前换算（80% → 0.8），数据库仍比较整数分钟/小数，不得让用户直接输入分钟或 0.8。
 - **字典解析不得引用不存在的列**：`dictionary_values` 只有 `value`（无独立 label 列）时按 value 精确命中；动态字典应优先提升为平台共享解析服务。
 - **平台统一读取入口**：已注册资源统一使用 `GET /api/v1/table-filters/rows?resource&page&pageSize&search&sortField&sortOrder&filterGroup`，语义固定为 permission → tenant → data scope → quick search → FilterGroup → sort → `COUNT`/`LIMIT`/`OFFSET`，并且只返回调用者有字段读权限的列（例如 API Key 永远不返回 `key_hash`）；页面不要再用“整表取回 + 前端过滤/分页”。
@@ -91,6 +91,60 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - HTTP `304`、浏览器 ETag 或网络缓存不能替代应用查询缓存和服务端分页，因为控制器和数据库查询可能已经执行。首次打开、强制刷新、缓存过期或失效事件后的重新读取属于正常刷新；普通页面往返不得反复加载整表。
 - AG Grid 使用服务端/无限行模型或等价受控分页时，序号按全局偏移计算，排序和筛选作用于完整权限范围，勾选使用稳定记录 ID，并按产品规则保留跨页选择；不得把当前页排序、筛选或当前页行数冒充全量结果。
 - 至少测试：保鲜期内重新进入不发起重复列表请求；翻页、页大小、搜索、字段筛选和排序返回正确记录与总数；写入和实时事件会失效缓存；退出或权限变化后旧数据不可见；伪造字段、排序键、页大小或身份不能突破租户和数据权限。
+
+#### 3.1.0.2 KDOS 统一类型化高级筛选（KN-FILTER-002，强制）
+
+本节是 KDOS 全部标准表格必须长期遵守的筛选规范；与其他章节冲突时以本节为准。
+
+**唯一入口**
+1. KDOS 标准表格只有一套正式高级筛选系统。
+2. 用户界面只保留「高级筛选」入口；禁止另建 Header Filter、Floating Filter、列菜单 Filter 或第二套通用筛选（含旧「筛选」抽屉、简单文本筛选面板）。
+3. 快速搜索可以与高级筛选并存，但快速搜索不是第二套 Filter 系统，也不等于 legacy `filters`。
+4. 正式筛选状态统一使用 `FilterGroup`；不得另立状态。
+5. `FilterGroup` 结构固定为 `{ logic: "AND" | "OR", rules: FilterRule[] }`；`FilterRule` 只含 `field` + `operator` + 操作数。
+6. 不允许第二套 FilterCompiler：服务端只有 `apps/api/src/common/filtering/sql-filter.compiler.ts`（TypeORM 走 `applyTypedFilterToQueryBuilder`），客户端不得实现字段类型/操作符映射。
+
+**执行顺序**
+7. 所有筛选必须服务端执行，禁止“服务器分页后再前端过滤”。
+8. 条件顺序固定：`permission` → `tenant` → `data scope` → `page context` → `quick search` → `FilterGroup`。
+9. 之后才执行 `sort` → `COUNT` → `LIMIT/OFFSET`；rows 与 total 必须来自同一 WHERE。
+10. draft 与 applied 必须分离。
+11. 只有点击“筛选”或“清空”才修改 applied 状态并请求服务器。
+12. 筛选条件变化后 `page=1`。
+13. 列表、count、export、（后续）print 必须复用同一 applied `FilterGroup` 语义。
+
+**字段类型与操作符白名单**
+14. 可用操作符由服务端字段类型决定，客户端不得声明类型。
+15. `text`：eq / neq / in / not_in / contains / not_contains / is_empty / is_not_empty。
+16. 单值 `dictionary` / `member` / `department` / `reference`：eq / neq / in / not_in / is_empty / is_not_empty。
+17. 多值字段（`multiple: true`）：contains_any / contains_all / not_contains_any / is_empty / is_not_empty。
+18. `date` / `datetime`：eq / neq / gt / lt / gte / lte / between / dynamic / is_empty / is_not_empty。
+19. `number`：eq / neq / gte / lte / between / is_empty / is_not_empty。
+20. `boolean`：eq（是/否）/ is_empty / is_not_empty。
+21. `false` 与 `NULL` 必须严格区分。
+22. `neq` / `not_in` / `not_contains` 不得自动包含 `NULL`。
+23. `structured` / json 默认 `filterable=false`。
+24. 禁止 `CAST(jsonb AS text) ILIKE` 作为“万能”高级筛选。
+25. `reference` 必须显式声明 `valueField` 与 `labelField`（或 resolver），禁止猜 label。
+26. `dictionary` 保存稳定 `value`，界面显示正式 `label`；输入 label 或 value 都由服务端解析。
+27. `member` 候选显示姓名/工号，不得把 UUID 作为用户选择内容。
+28. `percentage` 按真实 metadata 的 `percentageScale`（`ratio` 或 `percent`），不得全局假设 0..1。
+29. `durationMinutes` 使用“小时 + 分钟”输入（10 小时 30 分钟 = 630），不得要求用户直接输入 630。
+30. 动态日期由服务器按正式时区（Asia/Shanghai）解析。
+
+**候选与权限**
+31. candidate 必须遵守 permission、tenant、字段读权限与 data scope。
+32. candidate 不得泄漏 list 不可见的数据（同一 scope 构造）。
+33. 页面上下文条件（部门/状态/角色/视图 Tab/日期范围）必须由服务端与 `FilterGroup` 做 AND，客户端不能移除或覆盖。
+34. PENDING 等虚拟资源必须使用正式业务 Query，不得为筛选另建临时数据逻辑。
+35. 客户端不能提交任意 SQL、column、table、binding 或表达式。
+36. `filterBinding` 只能由服务端 metadata 定义。
+
+**资源登记与其它**
+37. 每个正式 resource 必须明确为 `REGISTERED_AND_FILTERABLE` 或 `NOT_APPLICABLE`。
+38. 不能把 `BLOCKED` / `UNKNOWN` 留作长期状态。
+39. `NOT_APPLICABLE` 必须写真实产品理由（例如“角色管理是角色树配置模式，右侧列表是 users 上下文视图”），不得只写“暂不支持”。
+40. 禁止新增独立“操作”列（行级操作使用既有菜单/按钮）。
 
 #### 3.1.2 企业微信推送项目目录（强制）
 

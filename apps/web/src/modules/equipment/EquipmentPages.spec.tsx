@@ -100,10 +100,11 @@ describe("EquipmentRegisterPage server filters", () => {
     localStorage.clear();
   });
 
-  it("sends the displayed monitoring label with the stable monitored field key", async () => {
+  it("only exposes the single advanced filter entry (legacy 筛选 drawer and header filters removed)", async () => {
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path === "/auth/me") return { permissions: ["equipment-register:*:read"] } as never;
       if (path === "/directory/users") return [] as never;
+      if (path === "/table-filters/resources") return [{ code: "equipment-register", filterableFields: ["equipmentCode", "monitored"] }] as never;
       if (path.startsWith("/equipment/assets?")) return { rows: [], total: 0, page: 1, pageSize: 50 } as never;
       throw new Error(`unexpected request: ${path}`);
     });
@@ -112,13 +113,11 @@ describe("EquipmentRegisterPage server filters", () => {
 
     await waitFor(() => expect(view.container.querySelector('[data-resource="equipment-register"]')).toBeInTheDocument());
     const toolbar = view.container.querySelector<HTMLElement>('[data-resource="equipment-register"] .kdos-data-table-toolbar')!;
-    fireEvent.click(within(toolbar).getByRole("button", { name: /筛选$/ }));
-    fireEvent.change(await screen.findByPlaceholderText("筛选状态填报"), { target: { value: "需要填报" } });
-
-    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => {
-      if (!String(path).startsWith("/equipment/assets?")) return false;
-      return new URL(String(path), "http://kdos.local").searchParams.get("monitored") === "需要填报";
-    })).toBe(true));
+    /* KN-FILTER-002：工具栏只保留快速搜索 + 高级筛选。 */
+    expect(await within(toolbar).findByRole("button", { name: /高级筛选/ })).toBeEnabled();
+    expect(within(toolbar).queryByRole("button", { name: /^筛选/ })).not.toBeInTheDocument();
+    /* 列头不再提供第二套筛选入口。 */
+    expect(view.container.querySelectorAll(".ant-table-filter-trigger").length).toBe(0);
   });
 
   it("renders planned startup time in hours and minutes", async () => {

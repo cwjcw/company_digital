@@ -1,17 +1,14 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
-import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
+import { EditOutlined, EyeOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
-import {
-  HeaderFilterEditor, KdosAdvancedFilter, emptyFilterGroup, visibleOperators,
-  type AdvancedFilterGroup, type AdvancedFilterRule
-} from "./advanced-filter";
+import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
 
@@ -140,85 +137,13 @@ function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Se
 
 export type KdosFilterField = { key: string; label: string };
 
-export function KdosTableSearchFilter({ search, onSearchChange, filters, onFiltersChange, fields, searchPlaceholder = "搜索当前表格" }: {
+/* KN-FILTER-002：工具栏只保留快速搜索（Excel“查找”语义）。旧“筛选”抽屉（legacy Record<string,string>）已删除。 */
+export function KdosTableQuickSearch({ search, onSearchChange, searchPlaceholder = "搜索当前表格" }: {
   search: string;
   onSearchChange: (value: string) => void;
-  filters: Record<string, string>;
-  onFiltersChange: (value: Record<string, string>) => void;
-  fields: KdosFilterField[];
   searchPlaceholder?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length;
-  return <>
-    <Space wrap={false}>
-      <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />
-      <Button type={activeFilterCount ? "primary" : "default"} icon={<FilterOutlined />} onClick={() => setOpen(true)}>筛选{activeFilterCount ? `（${activeFilterCount}）` : ""}</Button>
-    </Space>
-    <Drawer title="按字段筛选" width={420} open={open} onClose={() => setOpen(false)}
-      extra={<Button disabled={!activeFilterCount} onClick={() => onFiltersChange({})}>清空筛选</Button>}>
-      <Flex vertical gap={12}>{fields.map((field) => <label key={field.key} className="kdos-data-table-filter-field">
-        <Typography.Text>{field.label}</Typography.Text>
-        <Input allowClear value={filters[field.key] ?? ""} placeholder={`筛选${field.label}`}
-          onChange={(event) => onFiltersChange({ ...filters, [field.key]: event.target.value })} />
-      </label>)}</Flex>
-    </Drawer>
-  </>;
-}
-
-function ColumnFilterPanel({ label, value, onApply, onClear, close }: {
-  label: string; value: string; onApply: (value: string) => void; onClear: () => void; close: () => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const apply = () => { onApply(draft.trim()); close(); };
-  return <div className="kdos-column-filter-panel" onKeyDown={(event) => event.stopPropagation()}>
-    <Typography.Text strong>{label}</Typography.Text>
-    <Typography.Text type="secondary">文本筛选：包含</Typography.Text>
-    <Input autoFocus allowClear value={draft} placeholder={`输入要查找的${label}`} onChange={(event) => setDraft(event.target.value)} onPressEnter={apply} />
-    <Flex justify="space-between" gap={8}>
-      <Button onClick={() => { setDraft(""); onClear(); close(); }}>清除</Button>
-      <Button type="primary" onClick={apply}>筛选</Button>
-    </Flex>
-  </div>;
-}
-
-function addColumnHeaderFilters<RecordType extends DataRecord>(
-  columns: ColumnsType<RecordType>, resource: string, filterFields: TablePermissionFieldDefinition[] | undefined,
-  group: AdvancedFilterGroup, onGroupChange: (group: AdvancedFilterGroup) => void,
-  filters: Record<string, string>, onFiltersChange: (filters: Record<string, string>) => void
-): ColumnsType<RecordType> {
-  return columns.map((raw) => {
-    const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
-    if (column.children?.length) return { ...column, children: addColumnHeaderFilters(column.children, resource, filterFields, group, onGroupChange, filters, onFiltersChange) };
-    const key = columnKey(column);
-    if (!key || column.dataIndex == null || column.filterDropdown) return column;
-    const label = typeof column.title === "string" ? column.title : key;
-    /* 有正式 metadata 时，列头筛选只是 FilterGroup 的单字段快捷编辑器（与高级筛选共用同一状态）。 */
-    const field = filterFields?.find((candidate) => candidate.key === key);
-    if (field && field.filterable !== false && field.type !== "structured" && visibleOperators(field).length) {
-      const rule = group.rules.find((candidate) => candidate.field === key);
-      const setRule = (next: AdvancedFilterRule | null) => onGroupChange({
-        ...group,
-        rules: [...group.rules.filter((candidate) => candidate.field !== key), ...(next ? [next] : [])]
-      });
-      return {
-        ...column,
-        filteredValue: rule ? [rule.operator as string] : null,
-        filterIcon: (filtered: boolean) => <span title="筛选" aria-label={`${label}筛选`}><FilterOutlined style={{ color: filtered ? "#176B87" : undefined }} /></span>,
-        filterDropdown: ({ close }) => <HeaderFilterEditor resource={resource} field={field} rule={rule} close={close}
-          onChange={(next: AdvancedFilterRule) => setRule(next)} onClear={() => setRule(null)} />
-      };
-    }
-    return {
-      ...column,
-      filteredValue: filters[key] ? [filters[key]] : null,
-      filterIcon: (filtered: boolean) => <span title="筛选" aria-label={`${label}筛选`}><FilterOutlined style={{ color: filtered ? "#176B87" : undefined }} /></span>,
-      filterDropdown: ({ close }) => <ColumnFilterPanel label={label} value={filters[key] ?? ""} close={close}
-        onApply={(value) => onFiltersChange({ ...filters, [key]: value })}
-        onClear={() => { const next = { ...filters }; delete next[key]; onFiltersChange(next); }} />
-    };
-  });
+  return <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />;
 }
 
 export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<RecordType>, "columns" | "dataSource"> & {
@@ -334,10 +259,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key).filter((key) => !defaultHiddenFields.includes(key));
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
-  const renderedColumns = useMemo(
-    () => addColumnHeaderFilters(filterColumns(allColumns, visible), resource, supportedFilterFields, filterGroup, (group) => { setFilters({}); setFilterGroup(group); }, filters, setFilters),
-    [allColumns, supportedFilterFields, filterGroup, filters, resource, visible]
-  );
+  /* KN-FILTER-002：列头不再提供筛选下拉，正式条件只能通过“高级筛选”建立。 */
+  const renderedColumns = useMemo(() => filterColumns(allColumns, visible), [allColumns, visible]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -426,7 +349,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         {toolbar}
       </Space>
       <Space wrap>
-        <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={fields} searchPlaceholder={searchPlaceholder} />
+        <KdosTableQuickSearch search={search} onSearchChange={setSearch} searchPlaceholder={searchPlaceholder} />
         {typedFilteringSupported ? <KdosAdvancedFilter resource={resource} fields={supportedFilterFields ?? []} value={filterGroup}
           onApply={(group) => { setFilters({}); setFilterGroup(group); }} />
           : resolvedFilterFields?.length && !filterCapabilities.isLoading

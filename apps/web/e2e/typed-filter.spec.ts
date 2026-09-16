@@ -39,7 +39,7 @@ test.describe("类型化高级筛选浏览器 UAT", () => {
   test.describe.configure({ timeout: 120_000 });
   test.skip(!username || !password, "设置 KNFILTER_E2E_USERNAME/KNFILTER_E2E_PASSWORD 后连接已部署环境执行");
 
-  test("已接入资源：条件填入不刷新、点击筛选才请求、列头与高级筛选共用同一 FilterGroup", async ({ page }, testInfo) => {
+  test("已接入资源：条件填入不刷新、点击筛选才请求、列头不再提供第二套筛选", async ({ page }, testInfo) => {
     await login(page);
     const listRequests: string[] = [];
     page.on("request", (request) => { if (request.url().includes("/equipment/assets")) listRequests.push(decodeURIComponent(request.url())); });
