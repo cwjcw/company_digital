@@ -56,6 +56,11 @@ export class MasterPlanQueryService {
       const searchableFields = visibleFields.filter((field) => field !== resource.divisionField && !allColumns[field]!.startsWith("("));
       params.push(`%${search}%`);
       const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`);
+      for (const field of searchableFields) {
+        const optionValues = this.resolveOptionFilterValues(resource, field, search);
+        if (!optionValues?.length) continue;
+        params.push(optionValues); alternatives.push(`${this.expression(allColumns[field]!)}::text = ANY($${params.length}::text[])`);
+      }
       const organizationIds = organizationOptions.filter((option) => option.name.includes(search) || option.pathLabel.includes(search)).map((option) => option.id);
       if (organizationIds.length && resource.divisionField) { params.push(organizationIds); alternatives.push(`${this.expression(allColumns[resource.divisionField]!)}=ANY($${params.length}::uuid[])`); }
       clauses.push(`(${alternatives.join(" OR ") || "1=0"})`);
@@ -66,7 +71,9 @@ export class MasterPlanQueryService {
       if (field === resource.divisionField) {
         const ids = organizationOptions.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);
         params.push(ids); clauses.push(`${this.expression(allColumns[field]!)}=ANY($${params.length}::uuid[])`);
-      } else { params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`); }
+      } else if (!this.applyDictionaryFilter(resource, field, this.expression(allColumns[field]!), value, params, clauses)) {
+        params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(allColumns[field]!)}::text,'') ILIKE $${params.length}`);
+      }
     }
     const view = String(input.view ?? "ALL").toUpperCase();
     if (["mps-group-plans", "mps-monthly-plans"].includes(code)) {
@@ -151,6 +158,11 @@ export class MasterPlanQueryService {
       const searchableFields = visibleFields.filter((field) => field !== "divisionId" && columns[field] && !columns[field]!.startsWith("("));
       params.push(`%${search}%`);
       const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
+      for (const field of searchableFields) {
+        const optionValues = this.resolveOptionFilterValues(resource, field, search);
+        if (!optionValues?.length) continue;
+        params.push(optionValues); alternatives.push(`${this.expression(columns[field]!)}::text = ANY($${params.length}::text[])`);
+      }
       const organizationIds = organizations.filter((option) => option.name.includes(search) || option.pathLabel.includes(search)).map((option) => option.id);
       if (organizationIds.length) { params.push(organizationIds); alternatives.push(`record.division_id=ANY($${params.length}::uuid[])`); }
       clauses.push(`(${alternatives.join(" OR ") || "1=0"})`);
@@ -160,7 +172,9 @@ export class MasterPlanQueryService {
       if (field === "divisionId") {
         const ids = organizations.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);
         params.push(ids); clauses.push(`record.division_id=ANY($${params.length}::uuid[])`);
-      } else { params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`); }
+      } else if (!this.applyDictionaryFilter(resource, field, this.expression(columns[field]!), value, params, clauses)) {
+        params.push(`%${value}%`); clauses.push(`COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
+      }
     }
     const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
     const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
@@ -193,6 +207,32 @@ export class MasterPlanQueryService {
       if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 100) throw new Error();
       return value as Record<string, unknown>;
     } catch { throw new BadRequestException("筛选条件格式无效"); }
+  }
+
+  /**
+   * 字典/选项字段在数据库保存稳定 value、页面展示 label；筛选输入必须先解析成真实 value 再查询。
+   * 返回 null 表示该字段没有选项定义，调用方继续使用普通 ILIKE 文本筛选。
+   * 返回空数组表示有选项定义但输入匹配不到任何选项，必须返回 0 行，不得退回用 label 匹配 value 列。
+   */
+  private resolveOptionFilterValues(resource: MasterPlanResource, field: string, raw: string) {
+    const options = fieldsFor(resource).find((entry) => entry.key === field)?.options ?? [];
+    if (!options.length) return null;
+    const needle = raw.trim().toLocaleLowerCase();
+    if (!needle) return [];
+    const exact = options.filter((option) => String(option.value).toLocaleLowerCase() === needle || String(option.label).toLocaleLowerCase() === needle);
+    const matched = exact.length
+      ? exact
+      : options.filter((option) => String(option.value).toLocaleLowerCase().includes(needle) || String(option.label).toLocaleLowerCase().includes(needle));
+    return [...new Set(matched.map((option) => String(option.value)))];
+  }
+
+  /** 字典字段筛选：解析出全部匹配的真实 value 后按值过滤；无匹配项时直接返回 0 行。 */
+  private applyDictionaryFilter(resource: MasterPlanResource, field: string, expression: string, raw: string, params: unknown[], clauses: string[]) {
+    const optionValues = this.resolveOptionFilterValues(resource, field, raw);
+    if (!optionValues) return false;
+    if (!optionValues.length) { clauses.push("1=0"); return true; }
+    params.push(optionValues); clauses.push(`${expression}::text = ANY($${params.length}::text[])`);
+    return true;
   }
 
   private scopeClause(resource: MasterPlanResource, actor: MasterPlanActor, action: string, columns: Record<string, string>, params: unknown[]) {
