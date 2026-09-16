@@ -153,4 +153,36 @@ test.describe("新版主计划线上只读与字段契约", () => {
     await page.getByRole("button", { name: "退出编辑模式" }).click();
     await expect(page.getByRole("button", { name: /提交报工/ })).toHaveCount(0);
   });
+
+  test("类型化高级筛选按字段类型提供条件并只在点击筛选后刷新", async ({ page }) => {
+    await page.goto("/master-plan-system/mps-process-reports");
+    await page.getByRole("tab", { name: "待报工任务" }).click();
+    const body = page.locator(".ant-table-tbody");
+    await expect(body.locator("tr.ant-table-row").first()).toBeVisible();
+    const baseline = await body.locator("tr.ant-table-row").count();
+
+    await page.getByRole("button", { name: /高级筛选|条条件/ }).click();
+    const panel = page.getByTestId("advanced-filter-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("筛选出符合以下")).toBeVisible();
+
+    await panel.getByRole("button", { name: /添加过滤条件/ }).click();
+    await panel.getByText("选择字段").first().click();
+    await page.getByTitle("工序").last().click();
+    /* 工序为字典字段：条件是“等于”，值是正式下拉候选（来自 canonical registry）。 */
+    await panel.getByText("等于").first().click();
+    await page.getByTitle("毛坯").last().click();
+    /* 未点击“筛选”前不得刷新正式列表。 */
+    expect(await body.locator("tr.ant-table-row").count()).toBe(baseline);
+
+    await panel.getByRole("button", { name: /筛\s*选/ }).click();
+    await expect(body).toContainText("毛坯");
+    await expect(body).not.toContainText("折弯");
+    await expect(page.getByRole("button", { name: /1 条条件/ })).toBeVisible();
+
+    /* 清空恢复全部待报工任务。 */
+    await page.getByRole("button", { name: /条条件/ }).click();
+    await panel.getByRole("button", { name: /清\s*空/ }).click();
+    await expect(body).toContainText("折弯");
+  });
 });

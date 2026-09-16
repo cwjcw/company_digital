@@ -10,7 +10,9 @@ export type CandidateContext = {
   expressions: Record<string, string>;
   /** 字段是否可读（调用方已完成权限/数据范围判定）。 */
   canReadField: (fieldKey: string) => boolean;
-  /** 资源表的租户+数据范围前缀（调用方必须已包含 tenant 与 scope 条件）。 */
+  /** 资源表来源（含别名，例如 `mps_base_plans record`）。 */
+  scopedSource: string;
+  /** 租户 + 数据范围条件（调用方必须已包含 tenant 与 scope）。 */
   scopedWhere: string;
   scopedParams: unknown[];
   /** 关联字段候选解析器：reference 字段的候选来源资源。 */
@@ -66,10 +68,10 @@ export class FieldCandidateService {
     const expression = context.expressions[field.key];
     if (!expression) throw new BadRequestException(`字段“${field.label}”暂不支持候选值`);
     const params = [...context.scopedParams];
-    let clause = `COALESCE(${expression},'') <> ''`;
-    if (search) { params.push(`%${search}%`); clause += ` AND ${expression} ILIKE $${params.length}`; }
+    let clause = `${context.scopedWhere} AND COALESCE(${expression}::text,'') <> ''`;
+    if (search) { params.push(`%${search}%`); clause += ` AND ${expression}::text ILIKE $${params.length}`; }
     params.push(limit);
-    const rows = await this.dataSource.query(`SELECT DISTINCT ${expression}::text value FROM (SELECT record.* FROM ${context.scopedWhere}) record WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
+    const rows = await this.dataSource.query(`SELECT DISTINCT ${expression}::text value FROM ${context.scopedSource} WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
     return rows.map((row: { value: string }) => ({ value: String(row.value), label: String(row.value) }));
   }
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
@@ -14,7 +14,12 @@ const processReportDerivedFields = new Set(["cumulativeReportedQuantity", "remai
 
 @Injectable()
 export class MasterPlanQueryService {
-  constructor(private readonly dataSource: DataSource, private readonly directory: OrganizationDirectoryService, private readonly candidates: Pick<FieldCandidateService, "resolve"> = { resolve: async () => [] }) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly directory: OrganizationDirectoryService,
+    /* 字段候选值服务（平台级）；单元测试直接构造时可省略。 */
+    @Optional() @Inject(FieldCandidateService) private readonly candidates?: Pick<FieldCandidateService, "resolve">
+  ) {}
 
   metadata(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
@@ -170,18 +175,22 @@ export class MasterPlanQueryService {
    * KN-FILTER-001 字段候选值：只返回当前用户可见（资源读权限 + 字段读权限 + 租户 + 数据范围）范围内的候选。
    * 字典字段复用正式 options（不查历史数据库值），reference 走声明好的候选来源资源。
    */
-  async fieldCandidates(code: string, fieldKey: unknown, search: unknown, limit: unknown, actor: MasterPlanActor) {
+  async fieldCandidates(code: string, fieldKey: unknown, search: unknown, limit: unknown, actor: MasterPlanActor, view?: unknown) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
-    const pending = code === "mps-process-reports";
+    /* 只有显式请求 PENDING 视图时才使用待报工字段集（否则按实际报工字段集解析）。 */
+    const pending = code === "mps-process-reports" && String(view ?? "").toUpperCase() === "PENDING";
     const columns = pending ? processReportPendingColumns() : columnsFor(resource);
+    const expressions = Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, this.expression(column)]));
     const params: unknown[] = [actor.tenantId];
     const scope = this.scopeClause(resource, actor, "read", columns, params);
+    if (!this.candidates) throw new BadRequestException("字段候选值服务不可用");
     return this.candidates.resolve(String(fieldKey ?? ""), search, limit, {
       fields: pending ? processReportPendingFields() : fieldsFor(resource),
-      expressions: columns,
+      expressions,
       canReadField: (key) => this.visible(actor, code, key),
-      scopedWhere: `SELECT record.* FROM ${resource.table} record WHERE record.tenant_id=$1 AND ${scope}`,
+      scopedSource: `${resource.table} record`,
+      scopedWhere: `record.tenant_id=$1 AND ${scope}`,
       scopedParams: params,
       departmentCandidates: async (term, size) => (await this.directory.listEnabled())
         .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))

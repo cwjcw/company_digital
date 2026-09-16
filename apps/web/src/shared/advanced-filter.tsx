@@ -40,7 +40,8 @@ function CandidateSelect({ resource, field, multiple, placeholder, onChange }: {
   const load = useCallback(async (search: string) => {
     setLoading(true);
     try {
-      const found = await api<Candidate[]>(`/master-plan-system/references/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}`);
+      const view = resource === "mps-process-reports" && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "PENDING" ? "&view=PENDING" : "";
+      const found = await api<Candidate[]>(`/master-plan-system/references/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}${view}`);
       setOptions(found ?? []);
     } catch { setOptions(field.options ?? []); }
     finally { setLoading(false); }
