@@ -65,6 +65,9 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - **无租户列的全局配置表**（`process_ded*` 等系统表、审计日志、营销表用自己的 tenant 解析）必须显式声明 `tenantColumn: null`，隔离由资源与管理权限承担，不伪造租户条件；参数 $1 仍需显式类型以避免 “could not determine data type of parameter $1”。
 - **字典 label→value**：静态 options 由平台编译器直接解析（输入 label 或 value 都命中）；动态字典（设备故障原因等）由资源的 resolver 解析；禁止各模块自建第二份映射。
 - **百分比尺度必须按真实 schema**：`percentageScale: "ratio"`（0..1，界面 80% → 0.8）或 `"percent"`（0..100，界面原样）；禁止全局假设。
+- **配置树型 resource 可以 NOT_APPLICABLE**：采用“树形配置 + 右侧上下文列表”的页面（如角色管理）没有以该 resource 记录为行的标准 KdosDataTable 时，登记为 `NOT_APPLICABLE` 并写明产品理由；不得为了消除 BLOCKED 强行注册。
+- **上下文成员列表必须使用真实行 resource**：右侧展示的是用户时，`KdosDataTable` 必须使用 `resource="users"`，禁止复用 `roles` metadata 去过滤 user rows。
+- **上下文约束必须服务端 AND FilterGroup**：页面上下文条件（选中部门、选中角色、账号状态）由后端强制加入 WHERE，与搜索、FilterGroup 之间是 AND；客户端不能移除或覆盖；跨页导出必须复用同一约束。
 - **审计字段按真实 schema 登记**：`updated_by` 多数表是 varchar（可存 system/迁移标识）→ `text`；`created_by` 通常是 member；`created_at/updated_at` 是 `datetime`。允许 resource 级 override，禁止只按字段名统一语义。
 
 #### 3.1.0 行选择与行级操作（强制）
