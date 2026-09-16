@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { DataSource } from "typeorm";
 import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingFields } from "./master-plan.config";
+import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
@@ -95,7 +96,8 @@ export class MasterPlanSpreadsheetService {
       for (const field of includedFields) {
         const cell = row.getCell(columnsByKey.get(field.key)!);
         if (cell.type === ExcelJS.ValueType.Formula || cell.type === ExcelJS.ValueType.Error) parseErrors.push({ row: number, reason: `${field.label}不能包含公式或错误值` });
-        values[field.key] = cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : cell.text.trim();
+        const raw = cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : cell.text.trim();
+        values[field.key] = this.importValue(field, raw);
       }
       rows.push({ row: number, id: idText || null, expectedVersion: versionText ? Number(versionText) : null, values });
     });
@@ -149,7 +151,8 @@ export class MasterPlanSpreadsheetService {
     const sheet = workbook.addWorksheet(label.slice(0, 31));
     sheet.columns = [{ header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 }, ...fields.map((field) => ({ header: field.label, key: field.key, width: 20 }))];
     const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
-    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, field.type === "department" && row[field.key] ? organizationPaths.get(String(row[field.key])) ?? row[field.key] : row[field.key] ?? null])) });
+    /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
+    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, this.displayValue(field, row[field.key], organizationPaths)])) });
     sheet.getRow(1).font = { bold: true }; sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }]; sheet.autoFilter = { from: "A1", to: sheet.getRow(1).getCell(sheet.columnCount).address };
     const schema = workbook.addWorksheet("_字段定义", { state: "veryHidden" });
     schema.addRow(["resource", label]); schema.addRow(["fieldKey", "column", "templateLabel"]);
@@ -185,6 +188,25 @@ export class MasterPlanSpreadsheetService {
   }
 
   private pendingTemplateLabel(code: string) { return `${code}-待报工`; }
+
+  /** 单元格展示值：部门显示完整路径，字典字段显示 label，其余原样。 */
+  private displayValue(field: TablePermissionFieldDefinition, raw: unknown, organizationPaths: Map<string, string>) {
+    if (raw == null || raw === "") return null;
+    if (field.type === "department") return organizationPaths.get(String(raw)) ?? raw;
+    if (field.type === "boolean") return raw === true ? "是" : raw === false ? "否" : raw;
+    const options = field.options ?? [];
+    return options.find((option) => String(option.value) === String(raw))?.label ?? raw;
+  }
+
+  /** 单元格回写值：把用户填写的 label 解析回稳定 value（手机端/Excel 下拉只提供中文名称）。 */
+  private importValue(field: TablePermissionFieldDefinition, raw: unknown) {
+    if (raw == null || raw === "") return raw;
+    const options = field.options ?? [];
+    if (!options.length) return raw;
+    const text = String(raw).trim();
+    const matched = options.find((option) => String(option.label) === text || String(option.value) === text);
+    return matched ? String(matched.value) : raw;
+  }
 
   /** 待报工模板/预览字段：上下文列需读权限，本次报工数量与生产日期需新增权限（提交时按 CREATE 实际报工校验）。 */
   private pendingImportFields(actor: MasterPlanActor) {

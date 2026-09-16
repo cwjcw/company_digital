@@ -235,6 +235,8 @@ describe("MasterPlanSpreadsheetService", () => {
       /* 模板预置当前待报工任务，只有本次报工数量与生产日期是空白待填。 */
       expect(sheet.getRow(2).getCell(3).text).toBe("2026A027192");
       expect(sheet.getRow(2).getCell(9).text).toBe("60.0000");
+      /* 字典列按用户看到的 label 展示（工序=bending 显示为折弯），导入时再解析回 value。 */
+      expect(sheet.getRow(2).getCell(6).text).toBe("折弯");
       expect(sheet.getRow(2).getCell(10).text).toBe("");
       expect(workbook.getWorksheet("填写说明")!.getCell("A1").text).toContain("CREATE 报工记录");
       expect((sheet.getRow(1).values as unknown[]).join("|")).not.toContain("操作");
@@ -284,6 +286,19 @@ describe("MasterPlanSpreadsheetService", () => {
         { row: 2, reason: "本次报工数量不能为空" },
         { row: 3, reason: "生产日期不能为空" }
       ]);
+    });
+
+    it("parses dictionary labels back to their stable values on import", async () => {
+      application.validateImportUpdates.mockResolvedValue([]);
+      const file = await workbookFile(
+        ["记录ID", "版本", "所属事业部周计划", "工序"],
+        [["", "", "", "折弯"]]
+      );
+      await service.preview("mps-weekly-process-plans", file, actor);
+
+      expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-weekly-process-plans", [
+        expect.objectContaining({ values: expect.objectContaining({ processCode: "bending" }) })
+      ], actor);
     });
 
     it("reuses the shared transaction and idempotency pipeline on confirm", async () => {
