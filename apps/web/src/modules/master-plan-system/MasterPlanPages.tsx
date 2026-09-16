@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload } from "antd";
 import { DownloadOutlined, MoreOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { api } from "../../api";
 import { hasFieldPermission, hasResourcePermission, KdosDataTable, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
@@ -12,8 +13,12 @@ import type { AuditDirectoryUser } from "../../shared/audit-fields";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
-type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean } };
+type PendingField = TablePermissionFieldDefinition & { input: boolean };
+type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
 type Reconciliation = { status: string; message: string | null };
+/** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
+const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
+const reportResources = new Set(["mps-process-reports", "mps-weekly-process-plans", "mps-material-reports", "mps-outsourcing-reports", "mps-technical-reports"]);
 const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
@@ -86,6 +91,21 @@ function InlineMasterPlanCell({ resource, field, row, value, organizations, user
   return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commit()} onPressEnter={(event) => event.currentTarget.blur()} />;
 }
 
+/** 待报工任务的本次报工数量/生产日期是草稿输入，不写回任务行；提交时才 CREATE 实际报工记录。 */
+function PendingReportCell({ field, draft, onChange }: { field: PendingField; draft?: { quantity?: number | null; date?: Dayjs | null }; onChange: (patch: { quantity?: number | null; date?: Dayjs | null }) => void }) {
+  const { editing } = useKdosTableEditMode();
+  if (!editing) return <>{draft?.quantity ? String(draft.quantity) : "—"}</>;
+  if (field.type === "date") return <DatePicker size="small" value={draft?.date ?? dayjs()} allowClear onChange={(next) => onChange({ date: next })} style={{ width: "100%" }} />;
+  return <InputNumber size="small" min={0} precision={4} value={draft?.quantity ?? null} placeholder="本次报工" onChange={(next) => onChange({ quantity: next == null ? null : Number(next) })} style={{ width: "100%" }} />;
+}
+
+/** 提交入口放在编辑模式工具栏，不新增独立“操作”列；未进入编辑模式时不显示。 */
+function PendingReportSubmit({ count, submitting, onSubmit }: { count: number; submitting: boolean; onSubmit: () => void }) {
+  const { editing } = useKdosTableEditMode();
+  if (!editing) return null;
+  return <Button type="primary" loading={submitting} disabled={!count} onClick={onSubmit}>提交报工{count ? `（${count}）` : ""}</Button>;
+}
+
 function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
@@ -133,6 +153,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const info = definitionMap.get(resource as any);
   const queryClient = useQueryClient(); const navigate = useNavigate(); const [searchParams] = useSearchParams(); const basePlanId = resource === "mps-weekly-plans" ? searchParams.get("basePlanId") ?? undefined : undefined;
   const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
+  const isPendingView = resource === "mps-process-reports" && view === "PENDING";
+  const [pendingDrafts, setPendingDrafts] = useState<Record<string, { quantity?: number | null; date?: Dayjs | null }>>({});
+  const [pendingSubmitting, setPendingSubmitting] = useState(false);
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
   const saveLock = useRef(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState<string | null>(null);
@@ -148,7 +171,16 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: ["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource) && Boolean(metadata.data) });
   const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view, basePlanId], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view, basePlanId)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] });
+  /* 报工保存后事业部周计划/月度计划展示的执行汇总必须立即失效，不能等 60 秒缓存过期。 */
+  const refreshExecutionPlans = useCallback(async () => {
+    await Promise.all(reportDependentResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
+  }, [queryClient, sessionSubject]);
+  const applyReconciliationFeedback = useCallback((reconciliation: Reconciliation | undefined, successText: string) => {
+    if (reconciliation?.status === "FAILED") { message.warning(reconciliation.message ?? `${successText}，但执行状态同步失败。`); return; }
+    if (reconciliation && reconciliation.status !== "SUCCESS") { message.info(reconciliation.message ?? `${successText}，执行状态正在同步，请稍后刷新查看。`); return; }
+    message.success(successText);
+  }, []);
   const refreshRelatedPlans = useCallback(async () => {
     await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -168,12 +200,17 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         if (updated.reconciliation?.status === "FAILED") message.warning(updated.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
         else if (updated.reconciliation && updated.reconciliation.status !== "SUCCESS") message.info(updated.reconciliation.message ?? "基础计划已保存，周计划正在生成。");
         else message.success(`${field.label}已保存；周计划状态已刷新`);
+      } else if (reportResources.has(resource)) {
+        queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version) } : entry) } : current);
+        await refreshExecutionPlans();
+        await refresh();
+        applyReconciliationFeedback(updated.reconciliation, `${field.label}已保存；事业部计划已刷新`);
       } else {
         queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, [field.key]: confirmedValue, version: Number(updated.version), ...(field.type === "department" ? { divisionName: organizations.data?.find((option) => option.id === confirmedValue)?.pathLabel ?? null } : {}) } : entry) } : current);
         message.success(`${field.label}已保存`);
       }
     } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
-  }, [organizations.data, queryClient, refreshRelatedPlans, resource, sessionSubject]);
+  }, [applyReconciliationFeedback, organizations.data, queryClient, refresh, refreshExecutionPlans, refreshRelatedPlans, resource, sessionSubject]);
   const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
@@ -200,6 +237,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         if (saved?.reconciliation?.status === "FAILED") message.warning(saved.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
         else if (saved?.reconciliation && saved.reconciliation.status !== "SUCCESS") message.info(saved.reconciliation.message ?? "基础计划已保存，周计划正在生成。");
         else message.success(edited ? "修改成功；周计划状态已刷新" : "新增成功；周计划状态已刷新");
+      } else if (reportResources.has(resource)) {
+        await refreshExecutionPlans();
+        await refresh();
+        applyReconciliationFeedback(saved?.reconciliation, edited ? "修改成功；事业部计划已刷新" : "报工成功；事业部计划已刷新");
       } else {
         message.success(edited ? "修改成功" : "新增成功"); refresh();
       }
@@ -253,17 +294,53 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
   const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline]);
+  /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
+     不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
+  const pendingFields = metadata.data?.pendingFields ?? [];
+  const pendingColumns = useMemo(() => pendingFields.map((field) => field.input
+    ? { title: field.label, key: field.key, width: 150, render: (_: unknown, row: any) => <PendingReportCell field={field} draft={pendingDrafts[row.id]} onChange={(patch) => setPendingDrafts((current) => ({ ...current, [row.id]: { ...current[row.id], ...patch } }))} /> }
+    : { title: field.label, key: field.key, dataIndex: field.key, width: Math.max(105, Math.min(240, field.label.length * 18 + 54)), render: (value: unknown, row: any) => display(value, field, row) }
+  ), [pendingFields, pendingDrafts]);
+  const activeColumns = isPendingView ? pendingColumns : columns;
+  const pendingSubmittable = (rows.data?.rows ?? []).filter((row) => Number(pendingDrafts[row.id]?.quantity) > 0);
+  const submitPendingReports = async () => {
+    if (!pendingSubmittable.length || pendingSubmitting) return;
+    setPendingSubmitting(true);
+    const failures: string[] = []; let created = 0; let reconciliation: Reconciliation | undefined;
+    for (const row of pendingSubmittable) {
+      const draft = pendingDrafts[row.id]!;
+      try {
+        const response = await api<{ reconciliation?: Reconciliation }>("/master-plan-system/resources/mps-process-reports", {
+          method: "POST",
+          body: JSON.stringify({
+            weeklyPlanId: row.weeklyPlanId, processCode: row.processCode,
+            productionDate: dayjs(draft.date ?? dayjs()).format("YYYY-MM-DD"),
+            productionQuantity: Number(draft.quantity)
+          })
+        });
+        created += 1; reconciliation = response?.reconciliation ?? reconciliation;
+      } catch (error) {
+        failures.push(`${row.orderNumber ?? ""} / ${row.itemCode ?? ""} / ${row.processCode ?? ""}：${(error as Error).message}`);
+      }
+    }
+    setPendingSubmitting(false);
+    setPendingDrafts({});
+    await refresh();
+    await refreshExecutionPlans();
+    if (failures.length) { message.warning(`已提交 ${created} 条报工，${failures.length} 条失败：${failures.slice(0, 3).join("；")}`); return; }
+    applyReconciliationFeedback(reconciliation, `已提交 ${created} 条报工；事业部计划已刷新`);
+  };
   if (!info) return null;
   const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
-  const hasRowActions = Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
-  const withActions = hasRowActions ? [...columns, {
+  const hasRowActions = !isPendingView && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
+  const withActions = hasRowActions ? [...activeColumns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const,
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
-      onDelete={async () => { try { await api(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); message.success("删除成功"); refresh(); } catch (error) { message.error((error as Error).message); } }}
+      onDelete={async () => { try { const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); await refresh(); if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(deleted?.reconciliation, "删除成功；事业部计划已刷新"); } else message.success("删除成功"); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => syncMutation.mutate(row.syncKey) : undefined} />
-  }] : columns;
+  }] : activeColumns;
   const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
     : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
   return <div>
@@ -275,7 +352,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     </Space>} />
     {basePlanId && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅显示该事业部基础计划生成的周计划" action={<Button size="small" onClick={clearWeeklyPlanFilter}>清除定位</Button>} />}
     {viewTabs}
-    <KdosDataTable resource={resource} editable={Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
+    <KdosDataTable resource={resource} viewKey={isPendingView ? "PENDING" : undefined} editable={isPendingView ? Boolean(metadata.data?.actions.reportProcess) : Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
+      toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>

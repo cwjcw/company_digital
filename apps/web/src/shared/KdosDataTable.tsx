@@ -210,6 +210,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   editable?: boolean;
   /** Fields hidden for users who have not saved a personal column view yet. */
   defaultHiddenFields?: string[];
+  /** Optional view discriminator so different views of one resource keep separate column and page-size preferences. */
+  viewKey?: string;
   /** Standard record selection is enabled by default for registered business tables. */
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
@@ -236,15 +238,16 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false,
+  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
   selectable, selectionActions,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const userKey = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
-  const storageKey = `kdos-form-view:${userKey}:${resource}`;
-  const pageSizeStorageKey = `kdos-form-page-size:${userKey}:${resource}`;
+  const preferenceKey = viewKey ? `${resource}:${viewKey}` : resource;
+  const storageKey = `kdos-form-view:${userKey}:${preferenceKey}`;
+  const pageSizeStorageKey = `kdos-form-page-size:${userKey}:${preferenceKey}`;
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);

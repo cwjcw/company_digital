@@ -9,6 +9,27 @@ import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** 写入后需要独立对账的同步任务（单一权威映射，enqueue 与反馈共用）。 */
+const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
+  "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
+  "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
+  "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
+  "mps-weekly-process-plans": ["execution-rollup"],
+  "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
+};
+
+/**
+ * 需要等待对账真实完成后再反馈前端的资源：报工类记录必须等 execution-rollup 重新汇总，
+ * 否则前端刚刷新周计划就会读到旧状态。反馈状态由 outbox 行本身决定，不使用定时器猜测。
+ */
+const RECONCILIATION_FEEDBACK: Partial<Record<string, { syncKey: string; failure: (error: string) => string; pending: string }>> = {
+  "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存，周计划正在生成，请稍后刷新查看。" },
+  "mps-process-reports": { syncKey: "execution-rollup", failure: (error) => `报工已保存，但执行状态同步失败：${error}`, pending: "报工已保存，执行状态正在同步，请稍后刷新查看。" },
+  "mps-weekly-process-plans": { syncKey: "execution-rollup", failure: (error) => `工序任务已保存，但执行状态同步失败：${error}`, pending: "工序任务已保存，执行状态正在同步，请稍后刷新查看。" },
+  "mps-material-reports": { syncKey: "execution-rollup", failure: (error) => `主材报工已保存，但执行状态同步失败：${error}`, pending: "主材报工已保存，执行状态正在同步，请稍后刷新查看。" },
+  "mps-outsourcing-reports": { syncKey: "execution-rollup", failure: (error) => `外协报工已保存，但执行状态同步失败：${error}`, pending: "外协报工已保存，执行状态正在同步，请稍后刷新查看。" }
+};
+
 @Injectable()
 export class MasterPlanApplicationService {
   constructor(private readonly dataSource: DataSource, private readonly sync: MasterPlanSyncService) {}
@@ -21,6 +42,8 @@ export class MasterPlanApplicationService {
     const values = this.writable(resource, body, actor, "create");
     this.validateRequiredOnCreate(resource, values);
     await this.fillReportSource(resource, values, actor.tenantId);
+    /* 来源快照（例如报工所属事业部）由服务端解析后，必须再经业务数据范围校验，不能依赖前端不传越权 ID。 */
+    this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
     this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource); const entries = Object.entries(values);
@@ -132,8 +155,9 @@ export class MasterPlanApplicationService {
       if (response.succeeded > 0) await this.enqueueReconciliation(manager, resource, actor);
       return response;
     }));
-    if (!result.repeated && result.succeeded > 0) void this.sync.processOutbox().catch(() => undefined);
-    return result;
+    if (result.repeated || !result.succeeded) { void this.sync.processOutbox().catch(() => undefined); return result; }
+    const reconciliation = await this.completeReconciliation(resource, null, actor);
+    return reconciliation ? { ...result, reconciliation } : result;
   }
 
   async importUpdates(code: string, rows: Array<{ id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, fileHash: string, actor: MasterPlanActor) {
@@ -158,6 +182,7 @@ export class MasterPlanApplicationService {
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
           await this.fillReportSource(resource, values, actor.tenantId, manager, shippingMonthlyPlanIds);
+          this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
           const columns = columnsFor(resource); const entries = Object.entries(values);
           if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
@@ -195,8 +220,9 @@ export class MasterPlanApplicationService {
       if (createdCount || updatedCount) await this.enqueueReconciliation(manager, resource, actor);
       return response;
     }));
-    if (!result.repeated && result.created + result.updated > 0) void this.sync.processOutbox().catch(() => undefined);
-    return result;
+    if (result.repeated || !(result.created + result.updated)) { void this.sync.processOutbox().catch(() => undefined); return result; }
+    const reconciliation = await this.completeReconciliation(resource, null, actor);
+    return reconciliation ? { ...result, reconciliation } : result;
   }
 
   async validateImportUpdates(code: string, rows: Array<{ row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, actor: MasterPlanActor) {
@@ -214,6 +240,7 @@ export class MasterPlanApplicationService {
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
           await this.fillReportSource(resource, values, actor.tenantId);
+          this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
           const businessKey = this.businessKey(resource, values);
           if (businessKey && seenBusinessKeys.has(businessKey)) throw new BadRequestException("文件中存在重复业务记录");
@@ -257,8 +284,9 @@ export class MasterPlanApplicationService {
       await this.enqueueReconciliation(manager, resource, actor, id);
       return { id, deleted: true };
     }));
-    void this.sync.processOutbox().catch(() => undefined);
-    return result;
+    /* 删除实际报工后同样必须重新汇总，前端依据真实对账状态刷新周计划。 */
+    const reconciliation = await this.completeReconciliation(resource, id, actor);
+    return reconciliation ? { ...result, reconciliation } : result;
   }
 
   private resource(code: string) { const resource = MASTER_PLAN_RESOURCE_MAP.get(code as any); if (!resource) throw new NotFoundException("主计划表不存在"); return resource; }
@@ -268,7 +296,10 @@ export class MasterPlanApplicationService {
   private label(resource: MasterPlanResource, key: string) { return fieldsFor(resource).find((field) => field.key === key)?.label ?? key; }
 
   private writable(resource: MasterPlanResource, body: Record<string, unknown>, actor: MasterPlanActor, action: "create" | "update" = "update") {
-    const allowed = new Map(fieldsFor(resource).filter((field) => field.editable).map((field) => [field.key, field]));
+    /* 身份字段（createOnlyFields）只在新增时可写，记录生成后不再接受普通修改。 */
+    const allowed = new Map(fieldsFor(resource)
+      .filter((field) => field.editable || (action === "create" && (field as { createOnly?: boolean }).createOnly))
+      .map((field) => [field.key, field]));
     const output: Record<string, unknown> = {};
     for (const [field, raw] of Object.entries(body)) {
       if (["expectedVersion", "id", "version", "createdBy", "createdAt", "updatedBy", "updatedAt", "tenantId"].includes(field)) continue;
@@ -429,6 +460,27 @@ export class MasterPlanApplicationService {
     });
   }
 
+  /**
+   * 新增时的业务数据范围校验（含服务端解析出的 sourcesnapshot，例如报工所属事业部）：
+   * - 未为该表配置任何数据范围：保持既有“可新增”行为；
+   * - ALL：全部允许；NONE（例如“仅添加数据”预置组）：按只填报语义允许新增；
+   * - OWN：新增记录创建人即当前用户，允许；
+   * - CUSTOM：必须按条件命中，否则拒绝，防止伪造 weeklyPlanId 向无权事业部报工。
+   */
+  private assertCreateScope(resource: MasterPlanResource, row: Record<string, unknown>, actor: MasterPlanActor) {
+    if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return;
+    const scopes = actor.tableDataScopes.filter((scope) => scope.resource === resource.code && (!scope.actions || scope.actions.includes("create")));
+    if (!scopes.length) return;
+    if (scopes.some((scope) => scope.scope === "ALL" || scope.scope === "NONE")) return;
+    if (actor.userId && scopes.some((scope) => scope.scope === "OWN")) return;
+    const columns = columnsFor(resource);
+    const permitted = scopes.filter((scope) => scope.scope === "CUSTOM").some((scope) => {
+      const matches = (scope.rules ?? []).map((rule) => this.matches(row[columns[String(rule.fieldKey ?? "")]], rule.operator, rule.value === "CURRENT_USER" ? actor.userId : rule.value));
+      return matches.length > 0 && (scope.match === "ANY" ? matches.some(Boolean) : matches.every(Boolean));
+    });
+    if (!permitted) throw new ForbiddenException("当前数据范围不允许在该事业部新增记录");
+  }
+
   private matches(current: unknown, operator: unknown, expected: unknown) {
     const left = String(current ?? ""); const right = String(expected ?? "");
     if (operator === "EQ") return left === right; if (operator === "NE") return left !== right;
@@ -440,30 +492,25 @@ export class MasterPlanApplicationService {
   }
 
   private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null) {
-    const jobs: Partial<Record<string, string[]>> = {
-      "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
-      "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
-      "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
-      "mps-weekly-process-plans": ["execution-rollup"],
-      "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
-    };
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
-    for (const syncKey of jobs[resource.code] ?? []) await manager.query(`
+    for (const syncKey of RECONCILIATION_JOBS[resource.code] ?? []) await manager.query(`
       INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,$2,$3::uuid,$4,$5,$6::uuid,$7,$6::uuid,$6::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
     [actor.tenantId, resource.code, recordId, syncKey, `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
   }
 
-  private async completeReconciliation(resource: MasterPlanResource, recordId: string, actor: MasterPlanActor) {
-    if (resource.code !== "mps-base-plans") { void this.sync.processOutbox().catch(() => undefined); return undefined; }
+  private async completeReconciliation(resource: MasterPlanResource, recordId: string | null, actor: MasterPlanActor) {
+    const feedback = RECONCILIATION_FEEDBACK[resource.code];
+    if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     try { await this.sync.processOutbox(); } catch { /* The committed business write remains successful; the outbox will retry. */ }
-    const [event] = await this.dataSource.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource=$2 AND record_id=$3::uuid AND sync_key='base-to-weekly' AND idempotency_key=$4`, [actor.tenantId, resource.code, recordId, `outbox:${actor.requestId}:${resource.code}:base-to-weekly`]);
+    const [event] = await this.dataSource.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource=$2 AND record_id IS NOT DISTINCT FROM $3::uuid AND sync_key=$4 AND idempotency_key=$5`,
+      [actor.tenantId, resource.code, recordId, feedback.syncKey, `outbox:${actor.requestId}:${resource.code}:${feedback.syncKey}`]);
     if (!event) return undefined;
-    if (event.status === "FAILED") return { status: "FAILED", message: `基础计划已保存，但周计划生成失败：${event.last_error || "系统将自动重试"}` };
+    if (event.status === "FAILED") return { status: "FAILED", message: feedback.failure(event.last_error || "系统将自动重试") };
     if (event.status === "SUCCESS") return { status: "SUCCESS", message: null };
     /* The write is committed; a pending or in-flight reconciliation must never be reported as success or failure. */
-    return { status: String(event.status), message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" };
+    return { status: String(event.status), message: feedback.pending };
   }
 
   private async enforceShippingWindow(resource: MasterPlanResource, actor: MasterPlanActor) {

@@ -3,6 +3,8 @@ import { tablePermissionFieldsFor, type TablePermissionFieldDefinition, type Tab
 export type MasterPlanResource = {
   code: TableResourceCode; table: string; create: boolean; remove: boolean; defaultOrder: string;
   divisionField?: string; requiredOnCreate?: string[]; requiredOnUpdate?: string[]; requiredAlways?: string[]; weeklyAdmissionRequiredFields?: string[]; uniqueKeyFields?: string[];
+  /** 身份字段：创建时必须提供，记录生成后禁止普通修改（例如实际报工的所属周计划与工序）。 */
+  createOnlyFields?: string[];
   extraColumns?: Record<string, string>;
 };
 
@@ -20,7 +22,7 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
   { code: "mps-material-reports", table: "mps_material_reports", create: true, remove: true, defaultOrder: "order_number,item_code,delivery_number,material_name", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "materialName"], uniqueKeyFields: ["weeklyPlanId", "materialName"] },
   { code: "mps-outsourcing-reports", table: "mps_outsourcing_reports", create: false, remove: false, defaultOrder: "outsourcing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
-  { code: "mps-process-reports", table: "mps_process_reports", create: true, remove: true, defaultOrder: "production_date DESC,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "processCode", "productionDate", "productionQuantity"], extraColumns: { processName: "process_name" } },
+  { code: "mps-process-reports", table: "mps_process_reports", create: true, remove: true, defaultOrder: "production_date DESC,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "processCode", "productionDate", "productionQuantity"], createOnlyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name" } },
   { code: "mps-sync-configs", table: "mps_sync_configs", create: false, remove: false, defaultOrder: "name" },
   { code: "mps-sync-logs", table: "mps_sync_logs", create: false, remove: false, defaultOrder: "started_at DESC" },
   { code: "mps-data-exceptions", table: "mps_data_exceptions", create: false, remove: false, defaultOrder: "active DESC,severity DESC,updated_at DESC" },
@@ -114,11 +116,54 @@ function virtualColumns(resource: MasterPlanResource) {
 export function fieldsFor(resource: MasterPlanResource): TablePermissionFieldDefinition[] {
   return tablePermissionFieldsFor(resource.code).map((field) => {
     const options = optionsFor(resource.code, field.key);
-    return options.length ? { ...field, options } : field;
+    const createOnly = (resource.createOnlyFields ?? []).includes(field.key);
+    const resolved = options.length ? { ...field, options } : field;
+    /* 身份字段创建后只读：行内编辑、批量修改、导入更新与普通 PATCH 都不得修改所属周计划或工序。 */
+    return createOnly ? { ...resolved, editable: false, createOnly: true } as TablePermissionFieldDefinition : resolved;
   });
 }
 export function columnsFor(resource: MasterPlanResource): Record<string, string> {
   return { ...Object.fromEntries(fieldsFor(resource).map((field) => [field.key, camelToSnake(field.key)])), ...virtualColumns(resource), ...(resource.extraColumns ?? {}) };
+}
+
+/**
+ * 工序报工“待报工任务”（PENDING）视图的唯一权威字段定义：页面列与 Excel 待报工模板共用这一份顺序与名称。
+ * 字段类型与字典 options 继续取 fieldsFor("mps-process-reports")，不新增第二套 schema 或字典；
+ * input=true 是用户填报字段，其余字段是任务上下文，只读。
+ */
+export const PROCESS_REPORT_PENDING_FIELDS = [
+  { key: "orderNumber", label: "订单编号" },
+  { key: "itemCode", label: "品项编码" },
+  { key: "itemName", label: "品项名称" },
+  { key: "processCode", label: "工序" },
+  { key: "plannedQuantity", label: "计划数量" },
+  { key: "cumulativeReportedQuantity", label: "累计报工" },
+  { key: "remainingQuantity", label: "剩余数量" },
+  { key: "productionQuantity", label: "本次报工数量", input: true },
+  { key: "productionDate", label: "生产日期", input: true }
+] as const;
+
+/** 待报工视图的稳定列映射：任务上下文 + 由实际报工汇总得到的累计/剩余。 */
+export function processReportPendingColumns(): Record<string, string> {
+  return {
+    divisionId: "division_id",
+    orderNumber: "order_number", itemCode: "item_code", itemName: "item_name", processCode: "process_code",
+    plannedQuantity: "planned_quantity", cumulativeReportedQuantity: "cumulative_reported_quantity",
+    remainingQuantity: "remaining_quantity", productionQuantity: "production_quantity", productionDate: "production_date"
+  };
+}
+
+export function processReportPendingFields(): Array<TablePermissionFieldDefinition & { input: boolean }> {
+  const registry = new Map(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-reports")!).map((field) => [field.key, field]));
+  return PROCESS_REPORT_PENDING_FIELDS.map((entry) => {
+    const input = "input" in entry && entry.input === true;
+    const definition = registry.get(entry.key);
+    return {
+      key: entry.key, label: entry.label, type: definition?.type ?? "number",
+      ...(definition?.options?.length ? { options: definition.options } : {}),
+      editable: input, required: input, input
+    } as TablePermissionFieldDefinition & { input: boolean };
+  });
 }
 
 /** The only definition of fields required to progress a base plan into a weekly plan. */

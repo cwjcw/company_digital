@@ -1,12 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { DataSource } from "typeorm";
-import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
+import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const basePlanDerivedFields = new Set(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]);
+const processReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
 
 @Injectable()
 export class MasterPlanQueryService {
@@ -19,7 +20,7 @@ export class MasterPlanQueryService {
     return {
       resource: resource.code,
       fields: fieldsFor(resource).filter((field) => this.visible(actor, code, field.key)),
-      createFields: canCreate ? fieldsFor(resource).filter((field) => field.editable && this.visible(actor, code, field.key)) : [],
+      createFields: canCreate ? fieldsFor(resource).filter((field) => (field.editable || (field as { createOnly?: boolean }).createOnly) && this.visible(actor, code, field.key)) : [],
       actions: {
         create: canCreate,
         update: hasMasterPlanPermission(actor, code, "update"),
@@ -27,8 +28,12 @@ export class MasterPlanQueryService {
         import: hasMasterPlanPermission(actor, code, "import"),
         export: hasMasterPlanPermission(actor, code, "export"),
         viewWeekly: code === "mps-base-plans" && hasMasterPlanPermission(actor, "mps-weekly-plans", "read"),
+        /* 待报工行内填报的本质是 CREATE 实际报工记录，因此按 mps-process-reports 的新增权限判定，不借用修改权限。 */
+        reportProcess: code === "mps-process-reports" && hasMasterPlanPermission(actor, code, "create"),
         batchUpdate: hasMasterPlanPermission(actor, code, "batch_update") && fieldsFor(resource).some((field) => field.editable && hasMasterPlanFieldPermission(actor, code, field.key, "update"))
-      }
+      },
+      /* 待报工视图字段与 Excel 模板共用同一份权威定义；累计/剩余由实际报工汇总，只读。 */
+      pendingFields: code === "mps-process-reports" ? processReportPendingFields().filter((field) => this.visible(actor, code, field.key)) : undefined
     };
   }
 
@@ -146,16 +151,29 @@ export class MasterPlanQueryService {
   }
 
   private async processReportTasks(input: ListInput, actor: MasterPlanActor) {
-    const resource = this.resource("mps-process-reports"); const columns = columnsFor(resource);
-    const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
+    /* 待报工任务不是 mps_process_reports 记录：它来自 mps_weekly_process_plans + mps_weekly_plans，
+       累计/剩余由实际报工 SUM 得出，字段顺序取自唯一权威定义 processReportPendingFields()。 */
+    const resource = this.resource("mps-process-reports"); const columns = processReportPendingColumns();
+    const visibleFields = processReportPendingFields().map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 50); const pageSize = [20,50,100,200].includes(requested) ? requested : 50;
-    const source = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id,weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,task.process_code,task.process_name,NULL::date production_date,weekly.planned_quantity,NULL::numeric production_quantity,task.created_by,task.created_at,task.updated_by,task.updated_at FROM mps_weekly_process_plans task JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id WHERE task.execution_enabled=true AND task.status<>'已完成'`;
+    const source = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id "weeklyPlanId",weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,
+      task.process_code,task.process_name,weekly.planned_quantity,
+      COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity,
+      GREATEST(weekly.planned_quantity-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
+      NULL::numeric production_quantity,NULL::date production_date,
+      task.created_by,task.created_at,task.updated_by,task.updated_at
+      FROM mps_weekly_process_plans task
+      JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
+      LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
+        ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
+      WHERE task.execution_enabled=true AND NOT (weekly.planned_quantity>0 AND COALESCE(reports.cumulative_quantity,0)>=weekly.planned_quantity)`;
     const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
     const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];
     const search = String(input.search ?? "").trim();
     if (search) {
-      const searchableFields = visibleFields.filter((field) => field !== "divisionId" && columns[field] && !columns[field]!.startsWith("("));
+      /* 本次报工数量/生产日期是待填报输入列，不是任务事实，不参与搜索。 */
+      const searchableFields = visibleFields.filter((field) => !["divisionId", "productionQuantity", "productionDate"].includes(field) && columns[field]);
       params.push(`%${search}%`);
       const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
       for (const field of searchableFields) {
@@ -168,7 +186,9 @@ export class MasterPlanQueryService {
       clauses.push(`(${alternatives.join(" OR ") || "1=0"})`);
     }
     for (const [field, raw] of Object.entries(this.filters(input.filters))) {
-      if (!visibleFields.includes(field) || !columns[field]) continue; const value = String(raw ?? "").trim(); if (!value) continue;
+      /* 本次报工数量/生产日期是待填报输入列，不是任务事实，不参与筛选。 */
+      if (!visibleFields.includes(field) || !columns[field] || ["productionQuantity", "productionDate"].includes(field)) continue;
+      const value = String(raw ?? "").trim(); if (!value) continue;
       if (field === "divisionId") {
         const ids = organizations.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);
         params.push(ids); clauses.push(`record.division_id=ANY($${params.length}::uuid[])`);
@@ -178,13 +198,12 @@ export class MasterPlanQueryService {
     }
     const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
     const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
-    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,false "canUpdate",false "canDelete",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.production_date DESC NULLS LAST,record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,record."weeklyPlanId",false "canUpdate",false "canDelete",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
     const paths = new Map(organizations.map((option) => [option.id, option.pathLabel]));
     for (const row of rows) {
       if (visibleFields.includes("divisionId")) row.divisionName = paths.get(String(row.divisionId ?? "")) ?? null;
-      if (visibleFields.includes("weeklyPlanId")) row.weeklyPlanLabel = `${row.orderNumber ?? ""} / ${row.itemCode ?? ""} / ${row.itemName ?? ""} / 交期编码${row.deliveryNumber ?? ""}`;
     }
-    return { rows, total: Number(count), page, pageSize, visibleFields };
+    return { rows, total: Number(count), page, pageSize, visibleFields, view: "PENDING" as const };
   }
 
   private resource(code: string) {
@@ -197,6 +216,7 @@ export class MasterPlanQueryService {
 
   private visible(actor: MasterPlanActor, resource: string, field: string) {
     if (resource === "mps-base-plans" && basePlanDerivedFields.has(field)) return hasMasterPlanPermission(actor, resource, "read");
+    if (resource === "mps-process-reports" && processReportDerivedFields.has(field)) return hasMasterPlanPermission(actor, resource, "read");
     return hasMasterPlanFieldPermission(actor, resource, field, "read") || hasMasterPlanFieldPermission(actor, resource, field, "update");
   }
 
