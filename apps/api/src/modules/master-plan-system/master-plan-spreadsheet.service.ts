@@ -222,15 +222,19 @@ export class MasterPlanSpreadsheetService {
   private async resolvePendingReportRows(rows: ImportRow[], actor: MasterPlanActor) {
     const errors: Array<{ row: number; reason: string }> = []; const createRows: ImportRow[] = [];
     for (const row of rows) {
+      const rawQuantity = row.values.productionQuantity; const rawDate = row.values.productionDate;
+      const quantityEmpty = rawQuantity == null || String(rawQuantity).trim() === "";
+      const dateEmpty = rawDate == null || String(rawDate).trim() === "";
+      /* 模板预置全部待报工任务：填报两列都没写的行表示本次不报工，直接跳过（即使任务版本已变化也不报错）。 */
+      if (quantityEmpty && dateEmpty) continue;
       if (!row.id || !uuidPattern.test(String(row.id))) { errors.push({ row: row.row, reason: "缺少有效的待报工任务ID，请使用系统导出的待报工模板" }); continue; }
       if (!Number.isInteger(row.expectedVersion) || (row.expectedVersion ?? 0) < 1) { errors.push({ row: row.row, reason: "待报工任务版本必须为正整数，请重新下载模板" }); continue; }
       const [task] = await this.dataSource.query(`SELECT task.id,task.version,task.weekly_plan_id,task.process_code
         FROM mps_weekly_process_plans task WHERE task.tenant_id=$1 AND task.id=$2::uuid AND task.execution_enabled=true`, [actor.tenantId, row.id]);
       if (!task) { errors.push({ row: row.row, reason: "待报工任务不存在或不属于当前租户" }); continue; }
       if (Number(task.version) !== row.expectedVersion) { errors.push({ row: row.row, reason: "任务版本已变化，请重新下载待报工模板后填写" }); continue; }
-      const rawQuantity = row.values.productionQuantity; const rawDate = row.values.productionDate;
-      if (rawQuantity == null || String(rawQuantity).trim() === "") { errors.push({ row: row.row, reason: "本次报工数量不能为空" }); continue; }
-      if (rawDate == null || String(rawDate).trim() === "") { errors.push({ row: row.row, reason: "生产日期不能为空" }); continue; }
+      if (quantityEmpty) { errors.push({ row: row.row, reason: "本次报工数量不能为空" }); continue; }
+      if (dateEmpty) { errors.push({ row: row.row, reason: "生产日期不能为空" }); continue; }
       createRows.push({ row: row.row, id: null, expectedVersion: null, values: { weeklyPlanId: task.weekly_plan_id, processCode: task.process_code, productionDate: rawDate, productionQuantity: rawQuantity } });
     }
     return { createRows, errors };

@@ -275,16 +275,16 @@ describe("MasterPlanSpreadsheetService", () => {
       expect(application.validateImportUpdates).not.toHaveBeenCalled();
     });
 
-    it("requires the reporting quantity and date on every pending import row", async () => {
+    it("skips untouched template rows and requires quantity and date together on filled rows", async () => {
       const file = await workbookFile(
         ["记录ID", "版本", "本次报工数量", "生产日期"],
-        [[taskId, 4, "", "2026-09-16"], [taskId, 4, 10, ""]]
+        [[taskId, 4, "", ""], [taskId, 4, "", "2026-09-16"], [taskId, 4, 10, ""]]
       );
       const result = await service.preview("mps-process-reports", file, actor, "PENDING");
 
       expect(result.errors).toEqual([
-        { row: 2, reason: "本次报工数量不能为空" },
-        { row: 3, reason: "生产日期不能为空" }
+        { row: 3, reason: "本次报工数量不能为空" },
+        { row: 4, reason: "生产日期不能为空" }
       ]);
     });
 
