@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- shared print helpers are intentionally co-located with the print document component */
 import { Modal } from "antd";
+import { useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { api } from "../api";
 import { useQuery } from "@tanstack/react-query";
@@ -67,29 +68,40 @@ const printBody = (request: TablePrintRequest) => ({
   columnKeys: request.columnKeys ?? []
 });
 
-/** 打开浏览器打印窗口（真正打印前会先把专门 DOM 挂到 body 下，业务页面不会进入打印内容）。 */
-function openPrintWindow(dto: TablePrintDto, orientation: "portrait" | "landscape") {
+/**
+ * 打开打印预览（Dedicated Print DOM）：用户可以在打印前看到标题/字段/数据/方向，并可切换纵向/横向。
+ * 点“打印”后才调用浏览器打印；打印时只输出打印文档，业务页面不会进入打印内容。
+ */
+function openPrintPreview(dto: TablePrintDto, initialOrientation: "portrait" | "landscape") {
   const portal = document.createElement("div");
   portal.className = "kdos-print-portal";
   document.body.appendChild(portal);
   const sizeStyle = document.createElement("style");
-  sizeStyle.textContent = `@page { size: A4 ${orientation}; margin: ${orientation === "landscape" ? "8mm" : "10mm"}; }`;
   document.head.appendChild(sizeStyle);
   const root: Root = createRoot(portal);
-  root.render(<KdosPrintDocument dto={dto} />);
-  const cleanup = () => {
-    window.removeEventListener("afterprint", cleanup);
-    root.unmount();
-    portal.remove();
-    sizeStyle.remove();
+  const cleanup = () => { root.unmount(); portal.remove(); sizeStyle.remove(); };
+  const applyOrientation = (orientation: "portrait" | "landscape") => {
+    sizeStyle.textContent = `@page { size: A4 ${orientation}; margin: ${orientation === "landscape" ? "8mm" : "10mm"}; }`;
   };
-  window.addEventListener("afterprint", cleanup);
-  /* 等待一帧，确保打印 DOM 已挂载后再调用浏览器打印。 */
-  window.setTimeout(() => {
-    window.print();
-    /* 某些浏览器不触发 afterprint：兜底清理。 */
-    window.setTimeout(cleanup, 60_000);
-  }, 60);
+  const PrintPreview = () => {
+    const [orientation, setOrientation] = useState<"portrait" | "landscape">(initialOrientation);
+    useEffect(() => { applyOrientation(orientation); }, [orientation]);
+    const current: TablePrintDto = { ...dto, meta: { ...dto.meta, orientation } };
+    return <div className="kdos-print-preview" data-testid="kdos-print-preview">
+      <div className="kdos-print-preview-bar">
+        <span className="kdos-print-preview-hint">打印预览：共 {dto.meta.printedCount} 条 · 方向：{orientation === "landscape" ? "横向 A4" : "纵向 A4"}</span>
+        <button type="button" onClick={() => setOrientation(orientation === "landscape" ? "portrait" : "landscape")}>
+          切换为{orientation === "landscape" ? "纵向" : "横向"}
+        </button>
+        <button type="button" onClick={() => window.print()}>打印</button>
+        <button type="button" onClick={cleanup}>关闭</button>
+      </div>
+      <div className={`kdos-print-paper paper-${orientation}`}>
+        <KdosPrintDocument dto={current} />
+      </div>
+    </div>;
+  };
+  root.render(<PrintPreview />);
   return cleanup;
 }
 
@@ -153,6 +165,6 @@ export async function printTable(request: TablePrintRequest & { confirm?: (conte
       okText: "知道了"
     });
   }
-  const cleanup = openPrintWindow(dto, manifest.orientation);
+  const cleanup = openPrintPreview(dto, manifest.orientation);
   return { printed: true, reason: "printed" as const, manifest, dto, cleanup };
 }

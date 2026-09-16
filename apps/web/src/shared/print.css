@@ -1,7 +1,17 @@
 /* KN-PRINT-001 统一打印样式：Dedicated Print DOM + Print CSS + 浏览器打印（禁止截图打印）。 */
-.kdos-print-root { display: none; }
+/* 屏幕上是打印预览（可见），打印时只输出打印文档本身。 */
+.kdos-print-root { display: block; }
+.kdos-print-preview { position: fixed; inset: 0; z-index: 2000; background: #e6e8eb; overflow: auto; padding: 16px; }
+.kdos-print-preview-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin: -16px -16px 12px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #d9d9d9; }
+.kdos-print-preview-hint { margin-right: auto; color: #555; font-size: 13px; }
+.kdos-print-paper { background: #fff; margin: 0 auto; padding: 12mm 10mm; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
+.kdos-print-paper.paper-landscape { width: 297mm; }
+.kdos-print-paper.paper-portrait { width: 210mm; }
 
 @media print {
+  .kdos-print-preview { position: static; inset: auto; background: none; padding: 0; overflow: visible; }
+  .kdos-print-preview-bar { display: none !important; }
+  .kdos-print-paper { width: 100%; padding: 0; margin: 0; box-shadow: none; }
   /* 业务页面（侧栏/菜单/按钮/分页/搜索/高级筛选/弹窗）一律不进入打印内容。 */
   body > *:not(.kdos-print-portal) { display: none !important; }
   .kdos-print-portal { display: block !important; }
