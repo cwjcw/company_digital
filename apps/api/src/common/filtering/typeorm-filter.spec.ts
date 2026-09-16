@@ -1,6 +1,7 @@
 import { SelectQueryBuilder } from "typeorm";
-import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { tablePermissionFieldsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { applyTypedFilterToQueryBuilder } from "./typeorm-filter";
+import { SqlFilterCompiler } from "./sql-filter.compiler";
 
 /**
  * KN-FILTER-001 平台 QueryBuilder 适配测试：TypeORM 模块必须与原生 SQL 共用同一编译器，
@@ -89,8 +90,7 @@ describe("平台 QueryBuilder 类型化筛选", () => {
 });
 
 describe("平台字典选项解析（静态 options）", () => {
-  const { SqlFilterCompiler } = require("./sql-filter.compiler");
-  const field = { key: "status", label: "状态", type: "dictionary", editable: true, options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] };
+  const field: TablePermissionFieldDefinition = { key: "status", label: "状态", type: "dictionary", editable: true, options: [{ value: "NORMAL", label: "正常" }, { value: "VOID", label: "作废" }] };
   const compile = (value: string) => {
     const params: unknown[] = [];
     const clause = new SqlFilterCompiler([field], { status: "record.status" }, () => true, (column: string) => column).compile({ logic: "AND", rules: [{ field: "status", operator: "eq", value }] }, params);
