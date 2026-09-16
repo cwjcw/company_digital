@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
-import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } from "antd";
-import { EditOutlined, EyeOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
+import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Table, Tag, Typography } from "antd";
+import { EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
 import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
+import { printTable, tablePrintAllowed, useTablePrintCapabilities } from "./table-print";
 
 type DataRecord = Record<string, any>;
 
@@ -166,6 +167,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   filterFields?: TablePermissionFieldDefinition[];
   /** KN-FILTER-001：页面自带列表接口时，把已应用的 FilterGroup 交给页面自行下发到后端。 */
   onFilterGroupChange?: (group: AdvancedFilterGroup) => void;
+  /** KN-PRINT-001：打印用的页面业务上下文（部门/状态/角色/视图），后端会强制 AND 到打印查询。 */
+  printContext?: Record<string, unknown>;
   /** Standard record selection is enabled by default for registered business tables. */
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
@@ -193,7 +196,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
-  filterFields, onFilterGroupChange, selectable, selectionActions,
+  filterFields, onFilterGroupChange, printContext, selectable, selectionActions,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -227,6 +230,42 @@ export function KdosDataTable<RecordType extends DataRecord>({
   /* 只有真正可筛选（filterable 且类型支持操作符）的字段才进入高级筛选，structure/attachment 等不会出现假筛选项。 */
   const supportedFilterFields = typedFilteringSupported ? resolvedFilterFields.filter((field) => isTableFieldFilterable(field)) : undefined;
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
+  /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
+  const { message: printMessage } = AntApp.useApp();
+  const printCapabilities = useTablePrintCapabilities();
+  const printingSupported = tablePrintAllowed(printCapabilities.data, resource);
+  const [printing, setPrinting] = useState(false);
+  const printableColumnKeys = useMemo(() => {
+    const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
+    return keys.length ? keys : undefined;
+  }, [columns]);
+  const runPrint = async (selectedIds?: string[]) => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      const result = await printTable({
+        resource,
+        search,
+        filterGroup,
+        sortField: sortField || undefined,
+        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
+        context: printContext ?? {},
+        selectedIds,
+        columnKeys: printableColumnKeys,
+        confirm: (content) => new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: "确认打印", content, okText: "继续打印", cancelText: "取消",
+            onOk: () => resolve(true), onCancel: () => resolve(false)
+          });
+        })
+      });
+      if (!result.printed && result.reason === "empty") printMessage.info("当前没有可打印数据。");
+    } catch (error) {
+      printMessage.error(error instanceof Error ? error.message : "打印失败，请稍后重试");
+    } finally {
+      setPrinting(false);
+    }
+  };
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
   const requestedPagination = pagination && typeof pagination === "object" ? pagination : undefined;
@@ -355,6 +394,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索或列头筛选">高级筛选（暂不支持）</Button>
             : null}
+        {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>打印筛选结果</Button>}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>
@@ -362,6 +402,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     {!simple && selectedRowKeys.length > 0 && <Flex className="kdos-data-table-selection-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         <Typography.Text strong>已选 {selectedRowKeys.length}/{selectionState.total}</Typography.Text>
+        {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint(selectedRowKeys.map(String))}>打印已选（{selectedRowKeys.length}）</Button>}
         <Button type="link" onClick={clearSelection}>清空选择</Button>
       </Space>
       {selectionActions?.(selectionState)}

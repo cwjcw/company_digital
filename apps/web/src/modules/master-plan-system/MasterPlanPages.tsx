@@ -363,6 +363,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     {viewTabs}
     <KdosDataTable resource={resource} viewKey={isPendingView ? "PENDING" : undefined} editable={isPendingView ? Boolean(metadata.data?.actions.reportProcess) : Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
       filterFields={isPendingView ? pendingFields.filter((field) => !field.input) : metadata.data?.fields}
+      printContext={{ view: isPendingView ? "PENDING" : "ACTUAL" }}
       toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate

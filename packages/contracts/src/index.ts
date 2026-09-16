@@ -125,6 +125,10 @@ export interface TablePermissionFieldDefinition {
    * - `percent`：存储 0..100，界面原样输入（例：80 → 80）。
    */
   percentageScale?: "ratio" | "percent";
+  /** KN-PRINT-001：是否允许进入打印投影。默认按类型判断（敏感字段、审计字段、structured/attachment 默认 false）。 */
+  printable?: boolean;
+  /** KN-PRINT-001：打印列标题（缺省使用 label）。 */
+  printLabel?: string;
   /** 是否允许作为筛选条件；structured/attachment 默认不可筛选。 */
   filterable?: boolean;
   filterBinding?: TableFilterBinding;
@@ -572,6 +576,79 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "api-keys": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
+/**
+ * KN-PRINT-001 打印能力登记：每个正式 resource 必须有明确的打印状态（不允许 UNKNOWN / BLOCKED）。
+ * PRINTABLE：存在标准记录型 KdosDataTable 且打印有真实业务意义；
+ * NOT_APPLICABLE：聚合大屏、树形配置、一次性导入、纯任务型等非记录型页面（必须写明中文产品理由）。
+ */
+export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
+export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
+
+const printNotApplicable: Record<string, string> = {
+  "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
+  "equipment-dashboard": "集团设备大屏是聚合指标视图，不是记录列表，打印无业务意义。",
+  "hr-departure-check": "离职人员检查是上传花名册后即时比对的结果页，数据不落库，没有可打印的持久记录集合。",
+  imports: "导入记录是后台任务追溯页面，不是业务记录表，打印无业务意义。",
+  "tplus-sales-orders": "T+ 销售订单同步是集成任务视图，业务数据以正式订单表为准，本页不单独打印。",
+  "customer-data-import": "客户数据导入是一次性导入任务，结果写入客户主数据，本页不单独打印。",
+  roles: "角色管理是角色树配置模式，右侧列表展示的是所选角色的用户成员（users 上下文视图），角色 resource 自身没有记录型表格可打印。",
+  "api-keys": "API Key 管理是安全配置页面（密钥/hash 属敏感信息，不得进入任何打印内容），无业务打印需求。",
+  "mps-sync-configs": "同步配置是系统运维参数表，属于技术配置而非业务记录，不提供业务打印。",
+  "mps-system-settings": "系统参数是技术配置项（含 jsonb 参数值），不提供业务打印。"
+};
+
+export const tablePrintResourceCapabilities: Record<string, TablePrintResourceCapability> = Object.fromEntries(
+  tableResourceRegistry.map((resource) => [
+    resource.code,
+    printNotApplicable[resource.code]
+      ? { status: "NOT_APPLICABLE" as const, reason: printNotApplicable[resource.code] }
+      : { status: "PRINTABLE" as const }
+  ])
+);
+
+export function tablePrintResourceCapabilityOf(code: string): TablePrintResourceCapability {
+  return tablePrintResourceCapabilities[code] ?? { status: "NOT_APPLICABLE", reason: `未登记的打印能力：${code}` };
+}
+
+export function auditTablePrintCapabilities(): { total: number; printable: number; notApplicable: number; errors: string[] } {
+  const errors: string[] = [];
+  const known = new Set(tableResourceRegistry.map((resource) => resource.code as string));
+  let printable = 0; let notApplicable = 0;
+  for (const resource of tableResourceRegistry) {
+    const capability = tablePrintResourceCapabilities[resource.code];
+    if (!capability) { errors.push(`未声明打印能力：${resource.code}`); continue; }
+    if (capability.status === "PRINTABLE") printable += 1;
+    else {
+      notApplicable += 1;
+      if (!capability.reason || capability.reason.length < 10) errors.push(`NOT_APPLICABLE 缺少真实产品理由：${resource.code}`);
+    }
+  }
+  for (const code of Object.keys(tablePrintResourceCapabilities)) {
+    if (!known.has(code)) errors.push(`打印能力登记了未知 resource：${code}`);
+  }
+  return { total: tableResourceRegistry.length, printable, notApplicable, errors };
+}
+
+/** 敏感字段绝对禁止进入打印投影（即使 metadata 或客户端要求）。 */
+export const tablePrintForbiddenFieldKeywords = ["password", "passwd", "secret", "token", "keyhash", "key_hash", "privatekey", "credential", "apikey", "api_key"];
+
+export function isTablePrintFieldSafe(key: string) {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return !tablePrintForbiddenFieldKeywords.some((keyword) => normalized.includes(keyword.replace(/[^a-z0-9]/g, "")));
+}
+
+/** 审计字段默认不打印（除非 resource 显式声明 printable: true）。 */
+export const tablePrintAuditFieldKeys = ["createdBy", "createdAt", "updatedBy", "updatedAt"];
+
+export function isTablePrintFieldPrintable(field: TablePermissionFieldDefinition) {
+  if (!isTablePrintFieldSafe(field.key)) return false;
+  if (field.printable === false) return false;
+  if (field.printable === true) return true;
+  if (field.type === "structured" || field.type === "attachment") return false;
+  if (tablePrintAuditFieldKeys.includes(field.key)) return false;
+  return true;
+}
+
 export function tableFilterResourceCapabilityOf(code: string): TableFilterResourceCapability {
   return tableFilterResourceCapabilities[code] ?? { status: "BLOCKED", reason: `未登记筛选能力：${code}` };
 }
@@ -633,6 +710,11 @@ export function auditTableFilterCapabilities(): { total: number; errors: string[
 const tableFieldAudit = auditTableFieldMetadata();
 if (tableFieldAudit.errors.length) {
   throw new Error(`KDOS 正式字段 metadata 审计失败（KN-FILTER-001 Phase 0）：\n${tableFieldAudit.errors.slice(0, 20).join("\n")}`);
+}
+
+const tablePrintAudit = auditTablePrintCapabilities();
+if (tablePrintAudit.errors.length) {
+  throw new Error(`KDOS 打印能力登记审计失败（KN-PRINT-001）：\n${tablePrintAudit.errors.slice(0, 20).join("\n")}`);
 }
 
 const tableCapabilityAudit = auditTableFilterCapabilities();

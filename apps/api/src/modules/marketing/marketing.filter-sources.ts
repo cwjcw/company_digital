@@ -58,6 +58,16 @@ export class MarketingFilterSourceProvider implements OnModuleInit {
         fields: tablePermissionFieldsFor(source.code),
         runQuery: run,
         buildScope: () => TENANT,
+        /* KN-PRINT-001：业务员列批量解析为显示名（KDOS 目录，一次查询，禁止 N+1）。 */
+        printResolvers: {
+          salespersonUserIds: async (rows) => {
+            const ids = [...new Set(rows.flatMap((row) => (row.salespersonUserIds as string[] | undefined) ?? []))];
+            if (!ids.length) return new Map();
+            const users = await this.directory.findUsersByIds(ids);
+            const names = new Map(users.map((user) => [user.id, user.displayName]));
+            return new Map(rows.map((row) => [String(row.id ?? ""), ((row.salespersonUserIds as string[] | undefined) ?? []).map((id) => names.get(id) ?? "").filter(Boolean)]));
+          },
+        },
         memberCandidates: async (search, limit) => (await this.directory.listEnabledUsers())
           .filter((user) => !search || user.displayName.includes(search) || (user.departmentPaths ?? []).some((path) => path.join("/").includes(search)))
           .slice(0, limit)

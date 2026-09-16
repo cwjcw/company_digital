@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  auditTableFieldMetadata, auditTableFilterCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
+  auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
+  isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
   tableFilterResourceCapabilities, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
 } from "./index";
@@ -108,6 +109,32 @@ describe("active PMC resources", () => {
       const departmentPaths = tablePermissionFieldsFor("users").find((field) => field.key === "departmentPaths")!;
       expect(departmentPaths.filterable).toBe(false);
       expect(isTableFieldFilterable(departmentPaths)).toBe(false);
+    });
+
+    it("KN-PRINT-001 打印能力覆盖全部正式 resource，且没有 UNKNOWN", () => {
+      const audit = auditTablePrintCapabilities();
+      expect(audit.errors).toEqual([]);
+      expect(audit.total).toBe(tableResourceRegistry.length);
+      expect(audit.printable + audit.notApplicable).toBe(tableResourceRegistry.length);
+      for (const resource of tableResourceRegistry) {
+        const capability = tablePrintResourceCapabilities[resource.code]!;
+        expect(["PRINTABLE", "NOT_APPLICABLE"]).toContain(capability.status);
+        if (capability.status === "NOT_APPLICABLE") expect(capability.reason!.length).toBeGreaterThan(10);
+      }
+      /* roles 是角色树配置视图，api-keys 是安全配置页：两者都不得打印。 */
+      expect(tablePrintResourceCapabilities.roles!.status).toBe("NOT_APPLICABLE");
+      expect(tablePrintResourceCapabilities["api-keys"]!.status).toBe("NOT_APPLICABLE");
+    });
+
+    it("KN-PRINT-001 敏感字段永不进入打印投影，审计字段默认不打印", () => {
+      for (const key of ["passwordHash", "password_hash", "key_hash", "apiKeySecret", "accessToken", "refreshToken", "secret"]) {
+        expect(isTablePrintFieldSafe(key), key).toBe(false);
+      }
+      expect(isTablePrintFieldSafe("displayName")).toBe(true);
+      expect(isTablePrintFieldPrintable({ key: "createdAt", label: "创建时间", type: "datetime", editable: false })).toBe(false);
+      expect(isTablePrintFieldPrintable({ key: "scopes", label: "权限范围", type: "structured", editable: true })).toBe(false);
+      expect(isTablePrintFieldPrintable({ key: "orderNumber", label: "订单编号", type: "text", editable: true })).toBe(true);
+      expect(isTablePrintFieldPrintable({ key: "remark", label: "备注", type: "text", editable: true, printable: true })).toBe(true);
     });
 
     it("BLOCKED / NOT_APPLICABLE 必须写明真实原因", () => {

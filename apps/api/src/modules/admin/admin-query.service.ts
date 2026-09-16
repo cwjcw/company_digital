@@ -10,6 +10,10 @@ export type AdminUserPageQuery = {
   page?: unknown; pageSize?: unknown; search?: unknown; status?: unknown; departmentId?: unknown;
   /** 角色成员视图的上下文约束（服务端强制，不是客户端可删除的 FilterRule）。 */
   roleId?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown;
+  /** KN-PRINT-001 打印已选：稳定记录 ID（后端重新取数）。 */
+  ids?: unknown;
+  /** KN-PRINT-001 打印专用批大小（复用同一查询，不受交互分页上限限制）。 */
+  batchSize?: unknown;
 };
 
 export type AdminUserPage = { rows: Array<Record<string, unknown>>; total: number; page: number; pageSize: number };
@@ -75,7 +79,8 @@ export class AdminQueryService {
    */
   async listUsersPage(query: AdminUserPageQuery, actor: { isSystemAdmin?: boolean; permissions: string[] }): Promise<AdminUserPage> {
     const requestedPageSize = Number(query.pageSize);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const batchSize = Math.min(500, Math.max(1, Number(query.batchSize) || 0));
+    const pageSize = batchSize > 200 ? batchSize : ([20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50);
     const page = Math.max(Number(query.page) || 1, 1);
     const builder = this.users.createQueryBuilder("row");
 
@@ -108,6 +113,8 @@ export class AdminQueryService {
       if (!departmentPath.length) return { rows: [], total: 0, page, pageSize };
       builder.andWhere("row.department_paths @> :departmentPath::jsonb", { departmentPath: JSON.stringify([departmentPath]) });
     }
+    const printIds = Array.isArray(query.ids) ? query.ids.map((id) => String(id)).filter(Boolean) : [];
+    if (printIds.length) builder.andWhere("row.id = ANY(:printIds::uuid[])", { printIds });
     const status = String(query.status ?? "all");
     if (status === "enabled") builder.andWhere("row.enabled = true");
     if (status === "disabled") builder.andWhere("row.enabled = false");

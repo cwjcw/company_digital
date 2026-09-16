@@ -1,6 +1,23 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 
+/** KN-PRINT-001 打印取数参数：与列表共用同一套条件语义。 */
+export type TablePrintRowQuery = {
+  search: string;
+  filterGroup?: unknown;
+  sortField?: unknown;
+  sortOrder?: unknown;
+  /** 页面上下文（部门/状态/角色/视图等），由 resource 的服务端查询解释。 */
+  context: Record<string, unknown>;
+  /** 打印已选：稳定记录 ID。 */
+  ids?: string[];
+  /** 打印列 key（已通过 metadata 与字段权限校验）。 */
+  fieldKeys: string[];
+  page: number;
+  pageSize: number;
+  actor: TableFilterActor;
+};
+
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
 export type TableFilterActor = {
   tenantId: string; userId: string | null; permissions: string[]; roles?: string[];
@@ -42,6 +59,15 @@ export type TableFilterSource = {
   authorize?: (actor: TableFilterActor) => void;
   /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
   searchColumns?: string[];
+  /**
+   * KN-PRINT-001：该资源自己的打印取数实现（可正确处理 ACTUAL/PENDING 视图与页面上下文）。
+   * 未提供时打印服务使用注册表的通用 SQL（同一列绑定与平台编译器）。
+   */
+  printRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
+  /** KN-PRINT-001：批量 label 解析器（member/department/reference/dictionary），禁止 N+1。 */
+  printResolvers?: Record<string, (rows: Array<Record<string, unknown>>) => Promise<Map<string, unknown>>>;
+  /** KN-PRINT-001：可选的打印分组表头（有业务意义的分组，例如工序/时间）。 */
+  printHeaderGroups?: Array<{ label: string; columns: string[] }>;
   /** 该资源的字段定义（默认取 tablePermissionFieldsFor）。 */
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */

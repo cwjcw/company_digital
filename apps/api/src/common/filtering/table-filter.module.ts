@@ -7,12 +7,14 @@ import { FieldCandidateService } from "./field-candidate.service";
 import { TableFilterBootstrapCheck } from "./table-filter-bootstrap";
 import { TableFilterController } from "./table-filter.controller";
 import { TableFilterRegistry } from "./table-filter.registry";
+import { TablePrintController } from "../printing/table-print.controller";
+import { TablePrintService } from "../printing/table-print.service";
 
 /** KN-FILTER-001 平台筛选模块：所有正式业务表统一使用的 candidate/筛选入口。 */
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule],
-  controllers: [TableFilterController],
-  providers: [AuthGuard, FieldCandidateService, TableFilterRegistry, TableFilterBootstrapCheck],
+  controllers: [TableFilterController, TablePrintController],
+  providers: [AuthGuard, FieldCandidateService, TableFilterRegistry, TableFilterBootstrapCheck, TablePrintService],
   exports: [FieldCandidateService, TableFilterRegistry]
 })
 export class TableFilterModule {}

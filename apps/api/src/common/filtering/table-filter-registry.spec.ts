@@ -14,12 +14,12 @@ import { SystemFilterSourceProvider } from "./system-filter-sources";
  */
 function buildRegistry() {
   const registry = new TableFilterRegistry();
-  new MasterPlanFilterSourceProvider(registry).onModuleInit();
+  new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
   new MasterDataFilterSourceProvider(registry).onModuleInit();
   new EquipmentFilterSourceProvider(registry).onModuleInit();
   new SupplyChainFilterSourceProvider(registry).onModuleInit();
   new AuditFilterSourceProvider(registry).onModuleInit();
-  new SystemFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
+  new SystemFilterSourceProvider(registry, { query: async () => [] } as never, {} as never).onModuleInit();
   /* 营销资源位于 KDOS 库：这里只验证注册（连接池在使用时才需要）。 */
   new MarketingFilterSourceProvider(registry, { pool: { query: async () => ({ rows: [] }) } } as never, {
     listEnabledUsers: async () => [], listEnabledOrganizations: async () => []

@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, type OnModuleInit } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import { AdminQueryService } from "../../modules/admin/admin-query.service";
 import { tablePermissionFieldsFor, type TableResourceCode } from "@kdos/contracts";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 
@@ -149,7 +150,7 @@ const SOURCES: Source[] = [
 
 @Injectable()
 export class SystemFilterSourceProvider implements OnModuleInit {
-  constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource) {}
+  constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource, private readonly adminQueries: AdminQueryService) {}
 
   onModuleInit() {
     for (const source of SOURCES) {
@@ -176,10 +177,32 @@ export class SystemFilterSourceProvider implements OnModuleInit {
         authorize: source.authorize,
         /* 系统管理/流程配置表没有 tenant_id 列：隔离由资源与管理权限承担，平台不伪造租户条件。 */
         tenantColumn: null,
+        printRows: source.code === "users" ? (query) => this.printUsers(query) : undefined,
+        printResolvers: source.code === "users" ? {
+          /* 角色列批量解析为正式角色名（一次查询，禁止 N+1）。 */
+          roleIds: async (rows) => {
+            const ids = [...new Set(rows.flatMap((row) => (row.roleIds as string[] | undefined) ?? []))];
+            if (!ids.length) return new Map();
+            const roles: Array<{ id: string; name: string }> = await this.dataSource.query("SELECT id, name FROM roles WHERE id = ANY($1::uuid[])", [ids]);
+            const names = new Map(roles.map((role) => [String(role.id), String(role.name)]));
+            return new Map(rows.map((row) => [String(row.id ?? ""), ((row.roleIds as string[] | undefined) ?? []).map((id) => names.get(id) ?? "").filter(Boolean)]));
+          }
+        } : undefined,
         dictionaryCandidates,
         searchColumns: source.searchColumns,
         buildScope: () => "1=1"
       });
     }
+  }
+
+  /** 用户打印取数：与列表共用同一服务端查询（部门/状态/角色上下文 + 搜索 + FilterGroup + 排序），只是换成打印批大小。 */
+  private async printUsers(query: import("./table-filter.registry").TablePrintRowQuery) {
+    const context = query.context ?? {};
+    return this.adminQueries.listUsersPage({
+      page: query.page, pageSize: query.pageSize, batchSize: query.pageSize,
+      search: query.search, filterGroup: query.filterGroup, sortField: query.sortField, sortOrder: query.sortOrder,
+      departmentId: context.departmentId, status: context.status, roleId: context.roleId,
+      ids: query.ids
+    }, { isSystemAdmin: query.actor.isSystemAdmin === true, permissions: query.actor.permissions });
   }
 }
