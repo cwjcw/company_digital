@@ -65,28 +65,62 @@ export class FormalProjectionRepository {
       WHERE NULLIF("sourceOrderId",'') IS NOT NULL OR NULLIF("orderNumber",'') IS NOT NULL`, [JSON.stringify(records)]);
   }
 
+  /**
+   * 防御性校验：一行 staging 记录如果同时命中“按 source_order_id”和“仅按 order_number”的关联，会被重复带入 upsert，
+   * 从而在同一个 INSERT 中写同一目标两次（PostgreSQL 会报 ON CONFLICT DO UPDATE command cannot affect row a second time）。
+   * orders 与 order_items 的身份已在 SQL 中按目标键去重/聚合，这里只保留无法由分组保证的 sales_orders 行身份校验，
+   * 让未来的身份映射回归以明确错误暴露，而不是留下难以定位的数据库错误。
+   */
+  private async assertNoDuplicateLineTargets(manager: EntityManager, records: ProjectionRecord[]) {
+    const duplicates = await manager.query(`WITH affected AS (
+      SELECT DISTINCT "sourceSystem" source_system,"sourceDatabase" source_database,NULLIF("sourceOrderId",'') source_order_id,
+        NULLIF("orderNumber",'') order_number
+      FROM jsonb_to_recordset($1::jsonb) AS row("sourceSystem" varchar,"sourceDatabase" varchar,"sourceOrderId" varchar,"orderNumber" varchar)
+      WHERE NULLIF("sourceOrderId",'') IS NOT NULL OR NULLIF("orderNumber",'') IS NOT NULL
+    ), line_targets AS (
+      SELECT r.source_system,r.source_database,r.source_id
+      FROM erp_staging_raw_records r
+      WHERE r.tenant_id=$2 AND r.record_type='ORDER_LINE' AND r.order_number IS NOT NULL AND r.item_code IS NOT NULL
+        AND EXISTS (SELECT 1 FROM affected a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
+    ) SELECT source_system||'|'||source_database||'|'||source_id duplicate_key,count(*)::integer duplicate_count,
+        string_agg(DISTINCT source_id,',') sample_source_ids
+      FROM line_targets GROUP BY 1 HAVING count(*)>1 ORDER BY 2 DESC LIMIT 5`, [JSON.stringify(records), tenant()]);
+    if (duplicates.length) {
+      const detail = duplicates.map((row: any) => `${row.duplicate_key} (count=${row.duplicate_count}, sourceIds=${row.sample_source_ids ?? ""})`).join("; ");
+      throw new Error(`正式投影 sales-orders-v1 输入存在重复目标键，已阻止写入：${detail}`);
+    }
+  }
+
   private async applySalesOrders(manager: EntityManager, records: ProjectionRecord[], actor: SyncActor) {
     await this.affectedOrders(manager, records);
+    await this.assertNoDuplicateLineTargets(manager, records);
+    /* 去重/聚合身份必须与 ON CONFLICT 目标键一致：
+       orders 的业务身份是 (source_database, order_number)，因此表头在一批内只能保留该身份下最新的一条，
+       不得再按 source_order_id 去重；同一订单号下多个 ERP 订单 ID 的明细仍逐行写入 sales_orders。 */
     const orderResult = await manager.query(`WITH headers AS (
-      SELECT DISTINCT ON(r.source_system,r.source_database,r.source_order_id)
+      SELECT DISTINCT ON(r.source_database,r.order_number)
         r.source_system,r.source_database,r.source_order_id,r.order_number,r.business_date,r.delivery_date,
         r.customer_code,r.customer_name,r.is_cancelled,r.is_closed,r.is_completed
-      FROM erp_staging_raw_records r JOIN projection_affected_orders a
-        ON a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number))
+      FROM erp_staging_raw_records r
       WHERE r.tenant_id=$1 AND r.record_type='ORDER_HEADER'
-      ORDER BY r.source_system,r.source_database,r.source_order_id,r.modified_at DESC NULLS LAST,r.id DESC
+        AND EXISTS (SELECT 1 FROM projection_affected_orders a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
+      ORDER BY r.source_database,r.order_number,r.modified_at DESC NULLS LAST,r.id DESC
     ), line_summary AS (
-      SELECT r.source_system,r.source_database,r.source_order_id,sum(COALESCE(r.quantity,0)) total_quantity,
+      SELECT r.source_database,r.order_number,sum(COALESCE(r.quantity,0)) total_quantity,
         min(r.delivery_date) FILTER(WHERE r.delivery_date IS NOT NULL) due_date
-      FROM erp_staging_raw_records r JOIN projection_affected_orders a
-        ON a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number))
-      WHERE r.tenant_id=$1 AND r.record_type='ORDER_LINE' GROUP BY r.source_system,r.source_database,r.source_order_id
+      FROM erp_staging_raw_records r
+      WHERE r.tenant_id=$1 AND r.record_type='ORDER_LINE'
+        AND EXISTS (SELECT 1 FROM projection_affected_orders a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
+      GROUP BY r.source_database,r.order_number
     ), source_rows AS (
       SELECT h.*,COALESCE(lines.total_quantity,0) total_quantity,COALESCE(lines.due_date,h.delivery_date) due_date,
         source.source_account_name,
         CASE h.source_database WHEN 'UFTData741219_000012' THEN '事业三部' WHEN 'UFTData418971_000003' THEN '事业四部'
           ELSE source.source_account_name END division
-      FROM headers h LEFT JOIN line_summary lines USING(source_system,source_database,source_order_id)
+      FROM headers h LEFT JOIN line_summary lines ON lines.source_database=h.source_database AND lines.order_number=h.order_number
       LEFT JOIN erp_sync_sources source ON source.tenant_id=$1 AND source.source_database=h.source_database
       WHERE h.order_number IS NOT NULL
     ), upserted AS (
@@ -106,16 +140,18 @@ export class FormalProjectionRepository {
     await manager.query(`INSERT INTO plan_periods(year,month,status,created_by,updated_by)
       SELECT DISTINCT EXTRACT(year FROM COALESCE(r.delivery_date,r.business_date))::smallint,
         EXTRACT(month FROM COALESCE(r.delivery_date,r.business_date))::smallint,'active',$2::uuid,$3
-      FROM erp_staging_raw_records r JOIN projection_affected_orders a
-        ON a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number))
+      FROM erp_staging_raw_records r
       WHERE r.tenant_id=$1 AND r.record_type='ORDER_LINE' AND r.item_code IS NOT NULL AND COALESCE(r.delivery_date,r.business_date) IS NOT NULL
+        AND EXISTS (SELECT 1 FROM projection_affected_orders a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
       ON CONFLICT(year,month) DO UPDATE SET status='active',updated_at=now(),updated_by=$3`, [tenant(),actor.userId,actor.displayName]);
 
     const lineResult = await manager.query(`WITH affected_lines AS (
       SELECT r.*,row_number() OVER(PARTITION BY r.source_system,r.source_database,r.source_order_id ORDER BY r.source_id)::integer sequence
-      FROM erp_staging_raw_records r JOIN projection_affected_orders a
-        ON a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number))
+      FROM erp_staging_raw_records r
       WHERE r.tenant_id=$1 AND r.record_type='ORDER_LINE' AND r.order_number IS NOT NULL AND r.item_code IS NOT NULL
+        AND EXISTS (SELECT 1 FROM projection_affected_orders a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
     ), upserted AS (
       INSERT INTO sales_orders(source_system,source_database,source_key,document_date,order_date,order_number,document_name,close_status,
         customer_code,ship_to_customer_code,invoice_customer_code,sequence_number,item_number,item_name,business_quantity,price_quantity,
@@ -137,29 +173,36 @@ export class FormalProjectionRepository {
       RETURNING id
     ) SELECT count(*)::integer count FROM upserted`, [tenant(),actor.userId,actor.displayName]);
 
+    /* order_items 的业务身份是 (period_id, order_id, item_number)，即租户内一张订单的一个品项每月只有一条记录。
+       同一订单号/品项/月份下的多条 ERP 订单行必须合并到这条记录：数量求和（与既有 13/11/8 行等历史组一致），
+       交期取最早，品名/客户/来源订单 ID 取最近修改的那一条，禁止把 item_name 或客户字段放进分组维度，
+       否则同一条 order_items 会在同一条 INSERT 中被写两次。 */
     const itemResult = await manager.query(`WITH lines AS (
       SELECT r.*,date_trunc('month',COALESCE(r.delivery_date,r.business_date)::timestamp)::date period_date
-      FROM erp_staging_raw_records r JOIN projection_affected_orders a
-        ON a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number))
+      FROM erp_staging_raw_records r
       WHERE r.tenant_id=$1 AND r.record_type='ORDER_LINE' AND r.item_code IS NOT NULL AND COALESCE(r.delivery_date,r.business_date) IS NOT NULL
+        AND EXISTS (SELECT 1 FROM projection_affected_orders a
+          WHERE a.source_database=r.source_database AND (a.source_order_id=r.source_order_id OR (a.source_order_id IS NULL AND a.order_number=r.order_number)))
     ), plans AS (
       SELECT source_system,source_database,source_order_line_id,sum(COALESCE(delivered_quantity,0)) delivered
       FROM erp_staging_raw_records WHERE tenant_id=$1 AND record_type='DELIVERY_PLAN'
         AND (source_database,source_order_id) IN (SELECT source_database,source_order_id FROM lines)
       GROUP BY source_system,source_database,source_order_line_id
     ), summarized AS (
-      SELECT line.source_system,line.source_database,line.source_order_id,line.order_number,line.item_code,line.item_name,line.customer_code,line.customer_name,
-        line.period_date,min(line.delivery_date) delivery_date,sum(COALESCE(line.quantity,0)) quantity,
-        sum(CASE WHEN line.source_system='E10' THEN COALESCE(plan.delivered,0) ELSE COALESCE(line.delivered_quantity,0) END) completed
+      SELECT line.source_database,line.order_number,line.item_code,line.period_date,
+        min(line.delivery_date) delivery_date,sum(COALESCE(line.quantity,0)) quantity,
+        sum(CASE WHEN line.source_system='E10' THEN COALESCE(plan.delivered,0) ELSE COALESCE(line.delivered_quantity,0) END) completed,
+        (array_agg(line.source_order_id ORDER BY line.modified_at DESC NULLS LAST,line.source_id DESC))[1] source_order_id,
+        (array_agg(line.item_name ORDER BY line.modified_at DESC NULLS LAST,line.source_id DESC))[1] item_name,
+        (array_agg(COALESCE(NULLIF(line.customer_name,''),line.customer_code) ORDER BY line.modified_at DESC NULLS LAST,line.source_id DESC))[1] customer_name
       FROM lines line LEFT JOIN plans plan ON plan.source_system=line.source_system AND plan.source_database=line.source_database
         AND plan.source_order_line_id=line.source_order_line_id
-      GROUP BY line.source_system,line.source_database,line.source_order_id,line.order_number,line.item_code,line.item_name,
-        line.customer_code,line.customer_name,line.period_date
+      GROUP BY line.source_database,line.order_number,line.item_code,line.period_date
     ), upserted AS (
       INSERT INTO order_items(order_id,period_id,item_number,relation_key,item_name,review_due_date,customer,division,production_quantity,
         historical_inbound_quantity,today_inbound_quantity,source_month,active,created_by,updated_by)
       SELECT orders.id,period.id,row.item_code,concat(row.source_database,'|',row.source_order_id,'|',row.item_code,'|',row.period_date),row.item_name,row.delivery_date,
-        COALESCE(NULLIF(row.customer_name,''),row.customer_code),orders.division,row.quantity,row.completed,0,EXTRACT(month FROM row.period_date)::smallint,
+        row.customer_name,orders.division,row.quantity,row.completed,0,EXTRACT(month FROM row.period_date)::smallint,
         true,$2::uuid,$3
       FROM summarized row JOIN orders ON orders.source_database=row.source_database AND orders.order_number=row.order_number
       JOIN plan_periods period ON period.year=EXTRACT(year FROM row.period_date)::smallint AND period.month=EXTRACT(month FROM row.period_date)::smallint
