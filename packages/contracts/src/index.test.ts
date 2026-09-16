@@ -9,7 +9,8 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
   it("audits every formal resource and field without metadata errors", () => {
     const audit = auditTableFieldMetadata();
     expect(audit.errors).toEqual([]);
-    expect(audit.resources).toBeGreaterThanOrEqual(44);
+    expect(audit.resources).toBe(tableResourceRegistry.length);
+    expect(audit.resources).toBeGreaterThanOrEqual(42);
     expect(audit.fields).toBeGreaterThanOrEqual(673);
   });
 
@@ -29,7 +30,7 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
       ["mps-material-reports", "weeklyPlanId", "mps-weekly-plans"],
       ["mps-weekly-process-plans", "weeklyPlanId", "mps-weekly-plans"],
       ["equipment-status-report", "equipmentId", "equipment-register"],
-      ["mps-outsourcing-reports", "supplierId", "suppliers"]
+      ["mps-outsourcing-reports", "supplierId", "supplier-list"]
     ];
     for (const [resource, key, target] of expectations) {
       const field = tablePermissionFieldsFor(resource as never).find((candidate) => candidate.key === key)!;
@@ -89,6 +90,26 @@ describe("active PMC resources", () => {
       }
     });
 
+    it("最终收口：BLOCKED = 0，UNKNOWN = 0，users 已注册，roles 为 NOT_APPLICABLE 且有产品理由", () => {
+      const statuses = tableResourceRegistry.map((resource) => tableFilterResourceCapabilities[resource.code]?.status);
+      expect(statuses).not.toContain("BLOCKED");
+      expect(statuses.every((status) => status === "REGISTERED_AND_FILTERABLE" || status === "NOT_APPLICABLE")).toBe(true);
+      expect(tableFilterResourceCapabilities.users!.status).toBe("REGISTERED_AND_FILTERABLE");
+      expect(tableFilterResourceCapabilities.roles!.status).toBe("NOT_APPLICABLE");
+      /* 理由必须说明“角色树配置模式 / 右侧是用户成员”，不能只写“暂不支持”。 */
+      expect(tableFilterResourceCapabilities.roles!.reason).toMatch(/角色树/);
+      expect(tableFilterResourceCapabilities.roles!.reason).toMatch(/用户成员|users/);
+    });
+
+    it("用户与角色是真实关系：roleIds 为多值关系字段，departmentPaths 不参与筛选", () => {
+      const roleIds = tablePermissionFieldsFor("users").find((field) => field.key === "roleIds")!;
+      expect(roleIds.multiple).toBe(true);
+      expect(roleIds.filterBinding?.kind).toBe("relation");
+      const departmentPaths = tablePermissionFieldsFor("users").find((field) => field.key === "departmentPaths")!;
+      expect(departmentPaths.filterable).toBe(false);
+      expect(isTableFieldFilterable(departmentPaths)).toBe(false);
+    });
+
     it("BLOCKED / NOT_APPLICABLE 必须写明真实原因", () => {
       const items = Object.entries(tableFilterResourceCapabilities).filter(([, capability]) => capability.status !== "REGISTERED_AND_FILTERABLE");
       expect(items.length).toBeGreaterThan(0);
@@ -98,7 +119,7 @@ describe("active PMC resources", () => {
     });
 
     it("关联字段必须有显式标签定义，不靠猜字段", () => {
-      expect(referenceLabelFieldsFor("suppliers")).toContain("name");
+      expect(referenceLabelFieldsFor("supplier-list", "code,name")).toEqual(["code", "name"]);
       expect(referenceLabelFieldsFor("equipment-register")).toContain("equipment_code");
       expect(referenceLabelFieldsFor("mps-weekly-plans").length).toBeGreaterThan(1);
       expect(referenceLabelFieldsFor("unknown-resource")).toEqual([]);
