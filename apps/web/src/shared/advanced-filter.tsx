@@ -186,7 +186,8 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
     setDraft((current) => ({ ...current, rules: current.rules.map((rule, itemIndex) => itemIndex === index ? { ...rule, ...patch } : rule) }));
   const changeField = (index: number, fieldKey: string) => {
     const field = selectable.find((candidate) => candidate.key === fieldKey);
-    const operator = field ? visibleOperators(field)[0]?.operator : undefined;
+    /* 使用文档化的默认操作符（文本=包含、日期=等于、数值=等于、多值=包含任意一个），与列头筛选保持一致。 */
+    const operator = field ? defaultOperatorFor(field) : undefined;
     /* 字段变化必须清除不兼容的操作符与操作数。 */
     update(index, { field: fieldKey, operator: operator as TableFilterOperator, value: undefined, values: [], min: undefined, max: undefined, dynamic: undefined });
   };
