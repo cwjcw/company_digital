@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   auditTableFieldMetadata, isTableFieldFilterable, masterPlanResourceDefinitions,
-  tableFilterDynamicDateKeys, tableFilterOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
+  tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
 } from "./index";
 
 describe("KN-FILTER-001 field metadata audit gate", () => {
@@ -52,10 +52,18 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
     const operators = (resource: string, key: string) => tableFilterOperatorsFor(tablePermissionFieldsFor(resource as never).find((field) => field.key === key)!).map((entry) => entry.operator);
     expect(operators("mps-process-reports", "orderNumber")).toEqual(expect.arrayContaining(["contains", "in", "is_empty"]));
     expect(operators("mps-process-reports", "productionQuantity")).toEqual(expect.arrayContaining(["gt", "between", "not_in"]));
-    expect(operators("mps-process-reports", "productionDate")).toEqual(expect.arrayContaining(["date_eq", "date_between", "date_dynamic"]));
+    /* 日期与时间共用一套操作符：等于/不等于/大于/小于/大于等于/小于等于/选择范围/动态筛选/为空/不为空。 */
+    expect(operators("mps-process-reports", "productionDate")).toEqual(["eq", "neq", "gt", "lt", "gte", "lte", "between", "dynamic", "is_empty", "is_not_empty"]);
+    expect(tablePermissionFieldsFor("mps-sync-logs" as never).find((field) => field.key === "startedAt")?.type).toBe("datetime");
     expect(operators("mps-process-reports", "processCode")).toEqual(expect.arrayContaining(["eq", "in", "is_not_empty"]));
     expect(operators("mps-process-reports", "processCode")).not.toContain("contains");
-    expect(tableFilterDynamicDateKeys).toContain("this_month");
+    expect(tableFilterDynamicDateKeys).toEqual([
+      "YESTERDAY", "TODAY", "TOMORROW", "NEXT_1_WEEK", "NEXT_2_WEEKS",
+      "LAST_MONTH", "THIS_MONTH", "NEXT_MONTH", "LAST_YEAR", "THIS_YEAR", "NEXT_YEAR"
+    ]);
+    expect(tableFilterDynamicDateOptions.map((option) => option.label)).toEqual([
+      "昨天", "今天", "明天", "未来1周", "未来2周", "上月", "本月", "下月", "去年", "今年", "明年"
+    ]);
   });
 
   it("keeps the process dictionary field filterable so the UI can offer the canonical 10 processes", () => {

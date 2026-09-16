@@ -8,11 +8,12 @@ import { MasterPlanQueryService } from "./master-plan.query.service";
 import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { OrganizationDirectoryModule } from "../organization-directory/organization-directory.module";
+import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule],
   controllers: [MasterPlanController],
-  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService],
+  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, FieldCandidateService],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

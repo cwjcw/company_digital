@@ -4,7 +4,9 @@ import { Button, Checkbox, Drawer, Flex, Input, Space, Table, Tag, Typography } 
 import { EditOutlined, EyeOutlined, FilterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { tableResourceRegistry } from "@kdos/contracts";
+import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 import { useAuditColumns } from "./audit-fields";
+import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
 
@@ -212,6 +214,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   defaultHiddenFields?: string[];
   /** Optional view discriminator so different views of one resource keep separate column and page-size preferences. */
   viewKey?: string;
+  /** 正式字段 metadata：提供后启用类型化高级筛选（操作符与值控件全部由 metadata 决定）。 */
+  filterFields?: TablePermissionFieldDefinition[];
   /** Standard record selection is enabled by default for registered business tables. */
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
@@ -219,7 +223,7 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   /** Server-backed paging/search/filtering for ERP-sized tables. */
   serverData?: {
     total: number;
-    onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" }) => void;
+    onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" }) => void;
   };
 };
 
@@ -239,7 +243,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
-  selectable, selectionActions,
+  filterFields, selectable, selectionActions,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -254,6 +258,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
+  /* 类型化高级筛选：草稿在面板内维护，只有点击“筛选/清空”才写入 applied 并触发服务端查询。 */
+  const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>(emptyFilterGroup());
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -268,7 +274,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
   }, [resource]);
-  useEffect(() => { setCurrentPage(1); }, [filters, search]);
+  useEffect(() => { setCurrentPage(1); }, [filters, search, filterGroup]);
+  useEffect(() => { setFilterGroup(emptyFilterGroup()); }, [resource, viewKey]);
   const allColumns = useMemo(() => {
     const business = decorate(columns, serverMode, sortField, sortOrder);
     if (!systemFields) return business;
@@ -302,7 +309,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => {
     if (!serverMode) return;
     const timer = window.setTimeout(() => serverQueryCallback.current?.({
-      page: currentPage, pageSize, search: search.trim(), filters, sortField: sortField || undefined,
+      page: currentPage, pageSize, search: search.trim(), filters, filterGroup, sortField: sortField || undefined,
       sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
     }), 250);
     return () => window.clearTimeout(timer);
@@ -376,6 +383,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
       </Space>
       <Space wrap>
         <KdosTableSearchFilter search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} fields={fields} searchPlaceholder={searchPlaceholder} />
+        {filterFields?.length ? <KdosAdvancedFilter resource={resource} fields={filterFields} value={filterGroup}
+          onApply={(group) => { setFilters({}); setFilterGroup(group); }} /> : null}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>

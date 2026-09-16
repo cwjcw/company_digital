@@ -5,6 +5,7 @@ import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanA
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { standardProcesses } from "@tracker/shared";
 import { MasterPlanFilterCompiler } from "./master-plan.filter";
+import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,7 +14,7 @@ const processReportDerivedFields = new Set(["cumulativeReportedQuantity", "remai
 
 @Injectable()
 export class MasterPlanQueryService {
-  constructor(private readonly dataSource: DataSource, private readonly directory: OrganizationDirectoryService) {}
+  constructor(private readonly dataSource: DataSource, private readonly directory: OrganizationDirectoryService, private readonly candidates: Pick<FieldCandidateService, "resolve"> = { resolve: async () => [] }) {}
 
   metadata(code: string, actor: MasterPlanActor) {
     const resource = this.resource(code);
@@ -163,6 +164,68 @@ export class MasterPlanQueryService {
       if (!next.rows.length) break;
     }
     return { rows, visibleFields: first.visibleFields };
+  }
+
+  /**
+   * KN-FILTER-001 字段候选值：只返回当前用户可见（资源读权限 + 字段读权限 + 租户 + 数据范围）范围内的候选。
+   * 字典字段复用正式 options（不查历史数据库值），reference 走声明好的候选来源资源。
+   */
+  async fieldCandidates(code: string, fieldKey: unknown, search: unknown, limit: unknown, actor: MasterPlanActor) {
+    const resource = this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
+    const pending = code === "mps-process-reports";
+    const columns = pending ? processReportPendingColumns() : columnsFor(resource);
+    const params: unknown[] = [actor.tenantId];
+    const scope = this.scopeClause(resource, actor, "read", columns, params);
+    return this.candidates.resolve(String(fieldKey ?? ""), search, limit, {
+      fields: pending ? processReportPendingFields() : fieldsFor(resource),
+      expressions: columns,
+      canReadField: (key) => this.visible(actor, code, key),
+      scopedWhere: `SELECT record.* FROM ${resource.table} record WHERE record.tenant_id=$1 AND ${scope}`,
+      scopedParams: params,
+      departmentCandidates: async (term, size) => (await this.directory.listEnabled())
+        .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))
+        .slice(0, size).map((option) => ({ value: option.id, label: option.pathLabel })),
+      memberCandidates: async (term, size) => (await this.dataSource.query(
+        `SELECT id, COALESCE(NULLIF(display_name,''),username) label FROM users WHERE enabled=true${term ? " AND (COALESCE(display_name,'') ILIKE $1 OR username ILIKE $1)" : ""} ORDER BY label LIMIT $${term ? 2 : 1}`,
+        term ? [`%${term}%`, size] : [size]
+      )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label })),
+      referenceCandidates: (referenceResource, term, size) => this.referenceCandidates(referenceResource, term, size, actor)
+    });
+  }
+
+  private async referenceCandidates(referenceResource: string, term: string, size: number, actor: MasterPlanActor) {
+    if (referenceResource === "mps-weekly-plans") {
+      if (!hasMasterPlanPermission(actor, "mps-weekly-plans", "read")) throw new ForbiddenException("当前权限组没有事业部周计划查看权限");
+      const resource = this.resource("mps-weekly-plans");
+      const params: unknown[] = [actor.tenantId];
+      const scope = this.scopeClause(resource, actor, "read", columnsFor(resource), params);
+      let clause = "record.tenant_id=$1 AND " + scope;
+      if (term) { params.push(`%${term}%`); clause += ` AND concat_ws(' / ',record.order_number,record.item_code,record.item_name) ILIKE $${params.length}`; }
+      params.push(size);
+      return (await this.dataSource.query(`SELECT record.id value, concat_ws(' / ',record.order_number,record.item_code,record.item_name,'交期编码'||record.delivery_number::text) label
+        FROM mps_weekly_plans record WHERE ${clause} ORDER BY label LIMIT $${params.length}`, params))
+        .map((row: { value: string; label: string }) => ({ value: row.value, label: row.label }));
+    }
+    if (referenceResource === "suppliers") {
+      if (!hasMasterPlanPermission(actor, "suppliers", "read")) throw new ForbiddenException("当前权限组没有供应商查看权限");
+      const params: unknown[] = [];
+      let clause = "enabled=true";
+      if (term) { params.push(`%${term}%`); clause += ` AND name ILIKE $${params.length}`; }
+      params.push(size);
+      return (await this.dataSource.query(`SELECT id value, name label FROM suppliers WHERE ${clause} ORDER BY name LIMIT $${params.length}`, params))
+        .map((row: { value: string; label: string }) => ({ value: row.value, label: row.label }));
+    }
+    if (referenceResource === "equipment-register") {
+      if (!hasMasterPlanPermission(actor, "equipment-register", "read")) throw new ForbiddenException("当前权限组没有设备台账查看权限");
+      const params: unknown[] = [actor.tenantId];
+      let clause = "tenant_id=$1 AND active=true";
+      if (term) { params.push(`%${term}%`); clause += ` AND (equipment_code ILIKE $${params.length} OR equipment_name ILIKE $${params.length})`; }
+      params.push(size);
+      return (await this.dataSource.query(`SELECT id value, concat_ws(' / ',equipment_code,equipment_name) label FROM equipment_assets WHERE ${clause} ORDER BY label LIMIT $${params.length}`, params))
+        .map((row: { value: string; label: string }) => ({ value: row.value, label: row.label }));
+    }
+    throw new BadRequestException(`关联字段候选来源暂不支持：${referenceResource}`);
   }
 
   async weeklyPlanOptions(searchInput: unknown, actor: MasterPlanActor) {

@@ -11,8 +11,9 @@ import { PageHeader } from "../../shared/legacy-ui";
 import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/OrganizationSelect";
 import type { AuditDirectoryUser } from "../../shared/audit-fields";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 
-type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
+type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PendingField = TablePermissionFieldDefinition & { input: boolean };
 type ProcessOption = { code: string; name: string; order: number };
 type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
@@ -28,6 +29,7 @@ function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?:
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
   if (query.search) params.set("search", query.search);
   if (Object.values(query.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(query.filters));
+  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   if (basePlanId) params.set("basePlanId", basePlanId);
@@ -360,6 +362,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     {basePlanId && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅显示该事业部基础计划生成的周计划" action={<Button size="small" onClick={clearWeeklyPlanFilter}>清除定位</Button>} />}
     {viewTabs}
     <KdosDataTable resource={resource} viewKey={isPendingView ? "PENDING" : undefined} editable={isPendingView ? Boolean(metadata.data?.actions.reportProcess) : Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
+      filterFields={isPendingView ? pendingFields.filter((field) => !field.input) : metadata.data?.fields}
       toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate

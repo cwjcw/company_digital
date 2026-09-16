@@ -35,7 +35,7 @@ describe("KN-FILTER-001 server filter compiler", () => {
     const clause = compilerFor("mps-process-reports").compile({ logic: "AND", rules: [
       { field: "orderNumber", operator: "contains", value: "2026A0" },
       { field: "productionQuantity", operator: "between", min: "1", max: "10" },
-      { field: "productionDate", operator: "date_dynamic", dynamic: "this_month" }
+      { field: "productionDate", operator: "dynamic", dynamic: "THIS_MONTH" }
     ] }, params);
     expect(clause).toContain("ILIKE $");
     expect(clause).toContain("BETWEEN $");
@@ -45,12 +45,21 @@ describe("KN-FILTER-001 server filter compiler", () => {
     expect(params).toContain("10");
   });
 
-  it("computes dynamic date ranges on the server from Asia/Shanghai today", () => {
-    const range = dynamicDateRange("this_month", "2026-09-16");
-    expect(range).toEqual({ from: "2026-09-01", to: "2026-09-30" });
-    expect(dynamicDateRange("yesterday", "2026-09-16")).toEqual({ from: "2026-09-15", to: "2026-09-15" });
-    expect(dynamicDateRange("last_month", "2026-09-16")).toEqual({ from: "2026-08-01", to: "2026-08-31" });
-    expect(() => dynamicDateRange("next_century", "2026-09-16")).toThrow(BadRequestException);
+  it("computes the confirmed dynamic date set on the server from Asia/Shanghai today", () => {
+    expect(dynamicDateRange("THIS_MONTH", "2026-09-16")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(dynamicDateRange("YESTERDAY", "2026-09-16")).toEqual({ from: "2026-09-15", to: "2026-09-15" });
+    expect(dynamicDateRange("TOMORROW", "2026-09-16")).toEqual({ from: "2026-09-17", to: "2026-09-17" });
+    /* 未来 1 周 / 2 周为闭区间：今天 … 今天+7/14 天。 */
+    expect(dynamicDateRange("NEXT_1_WEEK", "2026-09-16")).toEqual({ from: "2026-09-16", to: "2026-09-23" });
+    expect(dynamicDateRange("NEXT_2_WEEKS", "2026-09-16")).toEqual({ from: "2026-09-16", to: "2026-09-30" });
+    expect(dynamicDateRange("LAST_MONTH", "2026-09-16")).toEqual({ from: "2026-08-01", to: "2026-08-31" });
+    expect(dynamicDateRange("NEXT_MONTH", "2026-09-16")).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    expect(dynamicDateRange("LAST_YEAR", "2026-09-16")).toEqual({ from: "2025-01-01", to: "2025-12-31" });
+    expect(dynamicDateRange("THIS_YEAR", "2026-09-16")).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(dynamicDateRange("NEXT_YEAR", "2026-09-16")).toEqual({ from: "2027-01-01", to: "2027-12-31" });
+    /* 未确认的额外语义（周/近 N 天）不再支持。 */
+    expect(() => dynamicDateRange("this_week", "2026-09-16")).toThrow(BadRequestException);
+    expect(() => dynamicDateRange("last_30_days", "2026-09-16")).toThrow(BadRequestException);
   });
 
   it("supports ALL and ANY combination", () => {
@@ -104,7 +113,7 @@ describe("KN-FILTER-001 server filter compiler", () => {
     expect(() => compiler.compile({ rules: [{ field: "rawPayload", operator: "eq", value: "1" }] }, [])).toThrow("不允许筛选");
     expect(() => compiler.compile({ rules: [{ field: "productionDate", operator: "contains", value: "1" }] }, [])).toThrow("不支持该筛选方式");
     expect(() => compiler.compile({ rules: [{ field: "productionQuantity", operator: "gt", value: "abc" }] }, [])).toThrow("必须是数字");
-    expect(() => compiler.compile({ rules: [{ field: "productionDate", operator: "date_eq", value: "2026-9-1" }] }, [])).toThrow("格式应为 YYYY-MM-DD");
+    expect(() => compiler.compile({ rules: [{ field: "productionDate", operator: "eq", value: "2026-9-1" }] }, [])).toThrow("格式应为 YYYY-MM-DD");
     expect(() => compiler.compile({ rules: [{ field: "itemName", operator: "contains", value: "" }] }, [])).toThrow("请填写");
   });
 

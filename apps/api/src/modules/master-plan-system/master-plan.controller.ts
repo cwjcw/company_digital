@@ -27,6 +27,12 @@ export class MasterPlanController {
   @Get("references/organizations")
   organizationOptions(@Query("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.organizationOptions(resource, this.actor(request)); }
 
+  /** 类型化高级筛选的字段候选值（受资源读权限、字段读权限、租户与数据范围约束）。 */
+  @Get("references/candidates")
+  fieldCandidates(@Query("resource") resource: string, @Query("field") field: string, @Query("search") search: string, @Query("limit") limit: string, @Req() request: MasterPlanRequest) {
+    return this.queries.fieldCandidates(resource, field, search, limit, this.actor(request));
+  }
+
   @Get("resources/:resource")
   list(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.queries.list(resource, query, this.actor(request)); }
 

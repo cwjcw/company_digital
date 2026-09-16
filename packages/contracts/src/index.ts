@@ -130,7 +130,8 @@ export interface TablePermissionFieldDefinition {
 const auditPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "createdBy", label: "创建人", type: "member", editable: false },
   { key: "createdAt", label: "创建时间", type: "datetime", editable: false, format: "plain" },
-  { key: "updatedBy", label: "更新人", type: "member", editable: false },
+  /* updated_by 在多数正式表是 varchar，可能存放 system / migration / 同步任务标识，不能强制按成员解析。 */
+  { key: "updatedBy", label: "更新人", type: "text", editable: false },
   { key: "updatedAt", label: "更新时间", type: "datetime", editable: false, format: "plain" }
 ];
 type FieldExtra = Pick<TablePermissionFieldDefinition, "multiple" | "format" | "filterable" | "filterBinding">;
@@ -256,7 +257,7 @@ export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePe
 export type TableFilterOperator =
   | "eq" | "neq" | "in" | "not_in" | "contains" | "not_contains" | "starts_with"
   | "is_empty" | "is_not_empty" | "gt" | "gte" | "lt" | "lte" | "between"
-  | "date_eq" | "date_before" | "date_after" | "date_between" | "date_dynamic"
+  | "dynamic"
   | "contains_any" | "contains_all" | "not_contains_any" | "count_eq" | "count_gte" | "count_lte"
   | "is_true" | "is_false" | "has_attachment" | "has_no_attachment";
 
@@ -299,11 +300,14 @@ const NUMBER_OPERATORS: TableFilterOperatorDefinition[] = [
   { operator: "is_not_empty", label: "不为空", operand: "none" }
 ];
 const DATE_OPERATORS: TableFilterOperatorDefinition[] = [
-  { operator: "date_eq", label: "等于", operand: "single" },
-  { operator: "date_before", label: "早于", operand: "single" },
-  { operator: "date_after", label: "晚于", operand: "single" },
-  { operator: "date_between", label: "介于", operand: "range" },
-  { operator: "date_dynamic", label: "动态区间", operand: "dynamic" },
+  { operator: "eq", label: "等于", operand: "single" },
+  { operator: "neq", label: "不等于", operand: "single" },
+  { operator: "gt", label: "大于", operand: "single" },
+  { operator: "lt", label: "小于", operand: "single" },
+  { operator: "gte", label: "大于等于", operand: "single" },
+  { operator: "lte", label: "小于等于", operand: "single" },
+  { operator: "between", label: "选择范围", operand: "range" },
+  { operator: "dynamic", label: "动态筛选", operand: "dynamic" },
   { operator: "is_empty", label: "为空", operand: "none" },
   { operator: "is_not_empty", label: "不为空", operand: "none" }
 ];
@@ -328,8 +332,24 @@ const ATTACHMENT_OPERATORS: TableFilterOperatorDefinition[] = [
   { operator: "has_no_attachment", label: "无附件", operand: "none" }
 ];
 
-/** 动态日期关键字：由服务端按 Asia/Shanghai 计算区间，客户端不得下发具体日期范围。 */
-export const tableFilterDynamicDateKeys = ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "last_7_days", "last_30_days", "this_year"] as const;
+/**
+ * 动态日期关键字（用户最终确认集合，唯一正式定义）：服务端按 Asia/Shanghai 计算区间，
+ * 客户端只提交关键字，不得下发具体日期范围。
+ */
+export const tableFilterDynamicDateOptions = [
+  { value: "YESTERDAY", label: "昨天" },
+  { value: "TODAY", label: "今天" },
+  { value: "TOMORROW", label: "明天" },
+  { value: "NEXT_1_WEEK", label: "未来1周" },
+  { value: "NEXT_2_WEEKS", label: "未来2周" },
+  { value: "LAST_MONTH", label: "上月" },
+  { value: "THIS_MONTH", label: "本月" },
+  { value: "NEXT_MONTH", label: "下月" },
+  { value: "LAST_YEAR", label: "去年" },
+  { value: "THIS_YEAR", label: "今年" },
+  { value: "NEXT_YEAR", label: "明年" }
+] as const;
+export const tableFilterDynamicDateKeys = tableFilterDynamicDateOptions.map((option) => option.value);
 export type TableFilterDynamicDateKey = typeof tableFilterDynamicDateKeys[number];
 
 export function tableFilterOperatorsFor(field: Pick<TablePermissionFieldDefinition, "type" | "multiple">): TableFilterOperatorDefinition[] {
