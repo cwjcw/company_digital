@@ -26,7 +26,7 @@ function newClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-function renderPage(resource: string, initialEntry = `/master-plan-system/resources/${resource}`, client = newClient()) {
+function renderPage(resource: string, initialEntry = `/master-plan-system/${resource}`, client = newClient()) {
   currentLocation = initialEntry;
   return {
     client,
@@ -35,7 +35,7 @@ function renderPage(resource: string, initialEntry = `/master-plan-system/resour
         <MemoryRouter initialEntries={[initialEntry]}>
           <LocationSpy />
           <Routes>
-            <Route path="/master-plan-system/resources/:resource" element={<ResourceRoute />} />
+            <Route path="/master-plan-system/:resource" element={<ResourceRoute />} />
             <Route path="*" element={<div>未匹配路由</div>} />
           </Routes>
         </MemoryRouter>
@@ -245,7 +245,7 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "查看周计划" }));
 
     /* 定位参数必须是基础计划自身的稳定 ID（上游关系），不是周计划 ID 或订单业务键。 */
-    await waitFor(() => expect(currentLocation).toBe("/master-plan-system/resources/mps-weekly-plans?basePlanId=row-1"));
+    await waitFor(() => expect(currentLocation).toBe("/master-plan-system/mps-weekly-plans?basePlanId=row-1"));
   }, 20_000);
 
   it("shows the located base-plan notice on the weekly plan page and can clear the locator", async () => {
@@ -256,14 +256,14 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
       if (path.startsWith("/master-plan-system/resources/mps-weekly-plans?") && !init) return { rows: [{ id: "weekly-1", version: 1, orderNumber: "2026A027192" }], total: 1 } as never;
       throw new Error(`unexpected request: ${path}`);
     });
-    renderPage("mps-weekly-plans", `/master-plan-system/resources/mps-weekly-plans?page=1&pageSize=50&view=ALL&basePlanId=${basePlanId}`);
+    renderPage("mps-weekly-plans", `/master-plan-system/mps-weekly-plans?page=1&pageSize=50&view=ALL&basePlanId=${basePlanId}`);
 
     expect(await screen.findByText("仅显示该事业部基础计划生成的周计划")).toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes(`basePlanId=${basePlanId}`))).toBe(true));
     expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "清除定位" }));
-    await waitFor(() => expect(currentLocation).toBe("/master-plan-system/resources/mps-weekly-plans"));
+    await waitFor(() => expect(currentLocation).toBe("/master-plan-system/mps-weekly-plans"));
   }, 20_000);
 
   it("invalidates both base plans and weekly plans after an inline save and surfaces the reconciliation failure", async () => {
@@ -279,7 +279,7 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
       if (path.startsWith("/master-plan-system/resources/mps-base-plans?") && !init) return { rows: [{ ...baseRow, itemName: patched ? "新基础品项" : "基础品项" }], total: 1 } as never;
       throw new Error(`unexpected request: ${path}`);
     });
-    renderPage("mps-base-plans", "/master-plan-system/resources/mps-base-plans", client);
+    renderPage("mps-base-plans", "/master-plan-system/mps-base-plans", client);
     const invalidated = vi.spyOn(client, "invalidateQueries");
     const warning = vi.spyOn(message, "warning").mockImplementation(() => undefined as never);
 

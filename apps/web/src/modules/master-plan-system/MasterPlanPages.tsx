@@ -156,9 +156,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const viewWeeklyPlan = useCallback((row: any) => {
     const basePlanId = row?.id ? String(row.id) : "";
     if (!basePlanId || !(row?.weeklyPlanId || row?.weeklyPlanState === "已进入周计划")) { message.info("该基础计划尚未生成周计划"); return; }
-    navigate(`/master-plan-system/resources/mps-weekly-plans?basePlanId=${encodeURIComponent(basePlanId)}`);
+    navigate(`/master-plan-system/mps-weekly-plans?basePlanId=${encodeURIComponent(basePlanId)}`);
   }, [navigate]);
-  const clearWeeklyPlanFilter = useCallback(() => navigate("/master-plan-system/resources/mps-weekly-plans"), [navigate]);
+  const clearWeeklyPlanFilter = useCallback(() => navigate("/master-plan-system/mps-weekly-plans"), [navigate]);
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
     try {
       const updated = await api<{ version: number; values: Record<string, unknown>; reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });

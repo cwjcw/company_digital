@@ -82,4 +82,29 @@ test.describe("新版主计划线上只读与字段契约", () => {
     await page.goto("/master-plan-system/mps-group-plans");
     await expect(page.getByRole("heading", { name: "集团主计划" })).toBeVisible();
   });
+
+  test("基础计划周计划状态可读且按 base_plan_id 精确定位对应周计划", async ({ page }) => {
+    await page.goto("/master-plan-system/mps-base-plans");
+    await expect(page.getByRole("heading", { name: "事业部基础计划表" })).toBeVisible();
+    await expect(page.locator(".ant-table-thead").getByText("周计划状态", { exact: true }).first()).toBeVisible();
+    await expect(page.locator(".ant-table-thead").getByText("周计划缺少项", { exact: true }).first()).toBeVisible();
+
+    await page.getByPlaceholder("搜索当前表格").fill("TGG919BDP-1/1");
+    const row = page.locator(".ant-table-tbody tr").filter({ hasText: "2026A027192" }).filter({ hasText: "TGG919BDP-1/1" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText("已进入周计划", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: "更多操作" }).click();
+    await page.getByRole("menuitem", { name: "查看周计划" }).click();
+    await expect(page).toHaveURL(/\/master-plan-system\/mps-weekly-plans\?.*basePlanId=[0-9a-f-]{36}/);
+    await expect(page.getByText("仅显示该事业部基础计划生成的周计划")).toBeVisible();
+
+    const weeklyRow = page.locator(".ant-table-tbody tr").filter({ hasText: "2026A027192" }).filter({ hasText: "TGG919BDP-1/1" }).first();
+    await expect(weeklyRow).toBeVisible();
+    await expect(page.locator(".ant-table-tbody tr.ant-table-row")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /新\s*增/ })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "清除定位" }).click();
+    await expect(page).toHaveURL(/\/master-plan-system\/mps-weekly-plans$/);
+  });
 });
