@@ -69,7 +69,8 @@ const SOURCES: Source[] = [
           SELECT parent.id, parent.parent_id, parent.name, parent.name || ' / ' || chain.path, chain.depth + 1
           FROM organization_units parent JOIN chain ON parent.id = chain.parent_id
         ) SELECT path FROM chain ORDER BY depth DESC LIMIT 1)`,
-      leaderNames: `(SELECT string_agg(member.display_name,'、' ORDER BY member.display_name) FROM jsonb_array_elements_text(record.leader_user_ids) AS leader(user_id) JOIN users member ON member.id = leader.user_id::uuid)`,
+      /* 返回 jsonb 数组（前端按数组渲染）；筛选时按聚合文本做包含匹配。 */
+      leaderNames: `(SELECT COALESCE(jsonb_agg(member.display_name ORDER BY member.display_name),'[]'::jsonb) FROM jsonb_array_elements_text(record.leader_user_ids) AS leader(user_id) JOIN users member ON member.id = leader.user_id::uuid)`,
       memberCount: `(SELECT count(*) FROM users member WHERE member.enabled = true AND member.department_paths @> to_jsonb(ARRAY[record.name::text]))`
     },
     searchColumns: ["name", "wechatDepartmentId", "division"]
