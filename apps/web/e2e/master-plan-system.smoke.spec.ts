@@ -129,4 +129,28 @@ test.describe("新版主计划线上只读与字段契约", () => {
     await expect(body).not.toContainText("焊接");
     expect(await body.locator("tr.ant-table-row").count()).toBeGreaterThan(0);
   });
+
+  test("待报工任务按正式字段定义只读展示且不出现独立操作列", async ({ page }) => {
+    await page.goto("/master-plan-system/mps-process-reports");
+    await page.getByRole("tab", { name: "待报工任务" }).click();
+
+    const headers = page.locator(".ant-table-thead th");
+    for (const label of ["订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"]) {
+      await expect(headers.filter({ hasText: label }).first()).toBeVisible();
+    }
+    await expect(headers.filter({ hasText: /^操作$/ })).toHaveCount(0);
+    await expect(page.locator(".ant-table-tbody tr.ant-table-row").first()).toBeVisible();
+
+    /* 只读浏览模式：待报工任务没有可填写的报工控件，也没有提交按钮。 */
+    const body = page.locator(".ant-table-tbody");
+    await expect(body.locator("input:not([type='checkbox'])")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /提交报工/ })).toHaveCount(0);
+
+    /* 进入编辑模式后才出现填报控件与提交入口（工具栏，不占用独立操作列）。 */
+    await page.getByRole("button", { name: "进入编辑模式" }).click();
+    await expect(page.getByRole("button", { name: /提交报工/ })).toBeVisible();
+    await expect(body.getByPlaceholder("本次报工").first()).toBeVisible();
+    await page.getByRole("button", { name: "退出编辑模式" }).click();
+    await expect(page.getByRole("button", { name: /提交报工/ })).toHaveCount(0);
+  });
 });
