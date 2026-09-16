@@ -33,6 +33,9 @@ import { AuditQueryService } from "./modules/audit/audit-query.service";
 import { SupplyChainModule } from "./modules/supply-chain/supply-chain.module";
 import { MasterPlanSystemModule } from "./modules/master-plan-system/master-plan.module";
 import { OrganizationDirectoryModule } from "./modules/organization-directory/organization-directory.module";
+import { TableFilterModule } from "./common/filtering/table-filter.module";
+import { MasterDataFilterSourceProvider } from "./modules/master-data/master-data.filter-sources";
+import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources";
 
 @Module({
   imports: [
@@ -52,7 +55,8 @@ import { OrganizationDirectoryModule } from "./modules/organization-directory/or
     EquipmentModule,
     OrderSyncModule,
     SupplyChainModule,
-    MasterPlanSystemModule
+    MasterPlanSystemModule,
+    TableFilterModule
   ],
   controllers: [
     SystemController, ReferenceDataController, DirectoryController, AuthController, PlanController,
@@ -62,7 +66,8 @@ import { OrganizationDirectoryModule } from "./modules/organization-directory/or
   providers: [
     AuthService, AuthGuard, SalesDashboardService, ImportService,
     TplusOrderSyncService, AdminQueryService, AdminApplicationService,
-    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService, AuditQueryService
+    TablePermissionGroupApplicationService, AdministratorGrantApplicationService, MailService, MasterDataQueryService, AuditQueryService,
+    MasterDataFilterSourceProvider, AuditFilterSourceProvider
   ]
 })
 export class AppModule {}

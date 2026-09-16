@@ -1,9 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
 import { hasSupplierListPermission, SupplyChainActor } from "./supply-chain.types";
 
 type QueryInput = {
-  page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; sortField?: unknown; sortOrder?: unknown;
+  page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown;
 };
 
 const columns: Record<string, string> = {
@@ -45,6 +47,15 @@ export class SupplyChainQueryService {
       if (!value) continue;
       if (field === "enabled") this.booleanFilter(value, params, clauses);
       else { params.push(`%${value}%`); clauses.push(`COALESCE(${columns[field]}::text,'') ILIKE $${params.length}`); }
+    }
+    /* KN-FILTER-001：类型化高级筛选复用平台编译器，与租户、数据范围、搜索、分页/总数同一 where。 */
+    if (input.filterGroup != null && String(input.filterGroup).trim() !== "") {
+      const compiler = new SqlFilterCompiler(
+        tablePermissionFieldsFor("supplier-list"), columns,
+        (key) => visibleFields.includes(key),
+        (column) => column
+      );
+      clauses.push(compiler.compile(input.filterGroup, params));
     }
     const where = clauses.join(" AND ");
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM supply_chain_suppliers supplier WHERE ${where}`, params);

@@ -463,11 +463,11 @@ export class MasterDataController {
   @Get("sales-orders")
   listSalesOrders(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
-    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string, @Query("filterGroup") filterGroup: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "sales-orders", "read");
-    return this.masterDataQueries.salesOrderPage({ page, pageSize, search, filters, sortField, sortOrder });
+    return this.masterDataQueries.salesOrderPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
   }
   @Post("sales-orders")
   async addSalesOrder(@Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
@@ -523,11 +523,11 @@ export class MasterDataController {
   @Get("finished-goods-inbound")
   listFinishedGoodsInbound(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
-    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string, @Query("filterGroup") filterGroup: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-inbound", "read");
-    return this.masterDataQueries.finishedGoodsInboundPage({ page, pageSize, search, filters, sortField, sortOrder });
+    return this.masterDataQueries.finishedGoodsInboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
   }
   @Get("finished-goods-inbound/export")
   async exportFinishedGoodsInbound(@Query("format") format: string, @Req() req: UserRequest, @Res() response: Response) {
@@ -687,11 +687,11 @@ export class MasterDataController {
   @Get("finished-goods-outbound")
   listFinishedGoodsOutbound(
     @Query("page") page: string, @Query("pageSize") pageSize: string, @Query("search") search: string, @Query("filters") filters: string,
-    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string,
+    @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string, @Query("filterGroup") filterGroup: string,
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-outbound", "read");
-    return this.masterDataQueries.finishedGoodsOutboundPage({ page, pageSize, search, filters, sortField, sortOrder });
+    return this.masterDataQueries.finishedGoodsOutboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
   }
 
   @Post("finished-goods-outbound")
@@ -781,7 +781,7 @@ export class AuditController {
   list(@Query() input: Record<string,string|undefined>, @Req() req: UserRequest) {
     requireSystemAdmin(req);
     let filters={};try{filters=JSON.parse(input.filters??"{}");}catch{filters={};}
-    return this.audits.list({page:Number(input.page),pageSize:Number(input.pageSize),search:input.search,filters,sortField:input.sortField,sortOrder:input.sortOrder});
+    return this.audits.list({page:Number(input.page),pageSize:Number(input.pageSize),search:input.search,filters,filterGroup:input.filterGroup,sortField:input.sortField,sortOrder:input.sortOrder});
   }
 }
 

@@ -6,14 +6,16 @@ import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImp
 import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
 import { hasFieldPermission, KdosDataTable } from "../../shared/KdosDataTable";
 import { useAuditColumns } from "../../shared/audit-fields";
+import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 
-type ServerTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
+type ServerTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type ServerTablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
 const initialTableQuery: ServerTableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
 const pageUrl = (path: string, query: ServerTableQuery) => {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search) params.set("search", query.search);
   if (Object.values(query.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(query.filters));
+  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   return `${path}?${params}`;

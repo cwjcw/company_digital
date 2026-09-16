@@ -1,9 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
-import { EquipmentActor, equipmentScope, hasEquipmentPermission } from "./equipment.types";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import { EquipmentActor, equipmentScope, equipmentScopeClause, hasEquipmentPermission } from "./equipment.types";
 
 type PageInput = {
   page?: number; pageSize?: number; search?: string; divisionId?: string; equipmentId?: string;
+  filterGroup?: unknown;
   divisionName?: string; usageDepartmentName?: string; equipmentCode?: string; equipmentName?: string;
   purchaseDate?: string; plannedStartupMinutes?: string; monitored?: string;
   reportDate?: string; runtimeMinutes?: string; faultMinutes?: string; faultReason?: string; responsibleUserIds?: string;
@@ -32,6 +35,7 @@ export class EquipmentQueryService {
       createdBy: "asset.created_by::text", createdAt: "asset.created_at::text", updatedBy: "asset.updated_by::text", updatedAt: "asset.updated_at::text"
     });
     this.booleanLabelFilter(input.monitored, params, clauses, "asset.monitored", "需要填报", "无需填报");
+    await this.typedFilter(input, params, clauses, "asset", "equipment-register", actor);
     const where = clauses.join(" AND ");
     const sortColumns: Record<string, string> = { divisionName:"asset.division_name_snapshot",usageDepartmentName:"asset.usage_department_name_snapshot",equipmentCode:"asset.equipment_code",equipmentName:"asset.equipment_name",purchaseDate:"asset.purchase_date",plannedStartupMinutes:"asset.planned_startup_minutes",monitored:"asset.monitored",createdBy:"asset.created_by",createdAt:"asset.created_at",updatedBy:"asset.updated_by",updatedAt:"asset.updated_at" };
     const sortColumn = sortColumns[input.sortField ?? ""];
@@ -75,6 +79,7 @@ export class EquipmentQueryService {
       runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')", responsibleUserIds: responsibleNames,
       createdBy: "report.created_by::text", createdAt: "report.created_at::text", updatedBy: "report.updated_by::text", updatedAt: "report.updated_at::text"
     });
+    await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
     const where = clauses.join(" AND ");
     const sortColumns: Record<string, string> = { equipmentCode:"report.equipment_code_snapshot",equipmentName:"report.equipment_name_snapshot",divisionName:"report.division_name_snapshot",usageDepartmentName:"report.usage_department_name_snapshot",responsibleUserIds:responsibleNames,reportDate:"report.report_date",runtimeMinutes:"report.runtime_minutes",faultMinutes:"report.fault_minutes",faultReason:"report.fault_reason",createdBy:"report.created_by",createdAt:"report.created_at",updatedBy:"report.updated_by",updatedAt:"report.updated_at" };
     const sortColumn = sortColumns[input.sortField ?? ""];
@@ -114,6 +119,7 @@ export class EquipmentQueryService {
       equipmentCode: "report.equipment_code_snapshot", equipmentName: "report.equipment_name_snapshot", reportDate: "report.report_date::text",
       runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')"
     });
+    await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
     return this.dataSource.query(`SELECT report.division_name_snapshot "divisionName",report.equipment_code_snapshot "equipmentCode",
       report.equipment_name_snapshot "equipmentName",report.usage_department_name_snapshot "usageDepartmentName",report.report_date "reportDate",
       report.runtime_minutes "runtimeMinutes",report.fault_minutes "faultMinutes",report.fault_reason "faultReason"
@@ -352,16 +358,56 @@ export class EquipmentQueryService {
   }
 
   private scopeClause(actor: EquipmentActor, resource: string, action: string, alias: string, params: unknown[]) {
-    const scope = equipmentScope(actor, resource, action);
-    if (scope.unrestricted) return "1=1";
-    const clauses: string[] = [];
-    if (scope.divisionIds.length) {
-      params.push(scope.divisionIds); clauses.push(`${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`);
-    }
-    if (scope.own && actor.userId) {
-      params.push(actor.userId); clauses.push(`${alias}.created_by=$${params.length}::uuid`);
-    }
-    return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
+    return equipmentScopeClause(actor, resource, action, alias, params);
+  }
+
+  /**
+   * KN-FILTER-001：设备模块接入平台类型化筛选，复用同一个 `SqlFilterCompiler`（不得另写一套）。
+   * 字段表达式按资源+别名生成，字典字段（故障原因）先按正式字典表把 label 解析成 value。
+   */
+  private async typedFilter(input: PageInput, params: unknown[], clauses: string[], alias: string, resource: "equipment-register" | "equipment-status-report", actor: EquipmentActor) {
+    if (input.filterGroup == null || String(input.filterGroup).trim() === "") return;
+    const dictionary = resource === "equipment-status-report" ? await this.faultReasonDictionary() : null;
+    const compiler = new SqlFilterCompiler(
+      tablePermissionFieldsFor(resource),
+      this.filterColumns(alias, resource),
+      (key) => actor.isSystemAdmin === true || actor.permissions.includes("*")
+        || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
+        || actor.permissions.includes(`${resource}:*:read`),
+      (column) => column,
+      dictionary ? (field, raw) => (field === "faultReason" ? dictionary.match(raw) : null) : undefined
+    );
+    clauses.push(compiler.compile(input.filterGroup, params));
+  }
+
+  private filterColumns(alias: string, resource: "equipment-register" | "equipment-status-report"): Record<string, string> {
+    const members = `COALESCE((SELECT jsonb_agg(er.user_id) FROM equipment_responsibles er WHERE er.tenant_id=${alias}.tenant_id AND er.equipment_id=${alias}.id),'[]'::jsonb)`;
+    if (resource === "equipment-register") return {
+      divisionId: `${alias}.division_organization_unit_id`, usageDepartmentId: `${alias}.usage_department_organization_unit_id`,
+      equipmentCode: `${alias}.equipment_code`, equipmentName: `${alias}.equipment_name`, purchaseDate: `${alias}.purchase_date`,
+      plannedStartupMinutes: `${alias}.planned_startup_minutes`, monitored: `${alias}.monitored`, responsibleUserIds: members,
+      createdBy: `${alias}.created_by`, createdAt: `${alias}.created_at`, updatedBy: `${alias}.updated_by`, updatedAt: `${alias}.updated_at`
+    };
+    return {
+      equipmentId: `${alias}.equipment_id`, equipmentCode: `${alias}.equipment_code_snapshot`, equipmentName: `${alias}.equipment_name_snapshot`,
+      divisionId: `${alias}.division_organization_unit_id`, usageDepartmentId: `${alias}.usage_department_organization_unit_id`,
+      responsibleUserIds: members, reportDate: `${alias}.report_date`, runtimeMinutes: `${alias}.runtime_minutes`,
+      faultMinutes: `${alias}.fault_minutes`, faultReason: `${alias}.fault_reason`,
+      createdBy: `${alias}.created_by`, createdAt: `${alias}.created_at`, updatedBy: `${alias}.updated_by`, updatedAt: `${alias}.updated_at`
+    };
+  }
+
+  /** 设备故障原因字典：label 与 value 都可命中，未命中返回 null（由编译器按原值处理）。 */
+  private async faultReasonDictionary() {
+    const rows: Array<{ value: string; label: string | null }> = await this.dataSource.query(
+      `SELECT dv.value, dv.label FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true`
+    );
+    return {
+      match: (raw: string) => {
+        const matched = rows.filter((row) => row.value === raw || row.label === raw).map((row) => row.value);
+        return matched.length ? matched : null;
+      }
+    };
   }
 
   private referenceCreationScopeClause(actor: EquipmentActor, resource: string, alias: string, params: unknown[]) {

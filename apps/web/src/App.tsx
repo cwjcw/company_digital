@@ -16,6 +16,7 @@ import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { masterPlanResourceDefinitions, tableResourceRegistry } from "@kdos/contracts";
 import { api, ApiError } from "./api";
+import type { AdvancedFilterGroup } from "./shared/advanced-filter";
 import { SalesSummaryDashboard } from "./modules/planning/pages/OperationalPlanningPages";
 import { DevelopmentRequestsPage } from "./modules/development/DevelopmentRequestsPage";
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
@@ -449,7 +450,7 @@ function DataOperations() {
   </div>;
 }
 
-type InboundTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
+type InboundTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type InboundTablePage = { rows: any[]; total: number; page: number; pageSize: number };
 
 function FinishedGoodsInboundPage() {
@@ -461,6 +462,7 @@ function FinishedGoodsInboundPage() {
       const params = new URLSearchParams({ page: String(tableQuery.page), pageSize: String(tableQuery.pageSize) });
       if (tableQuery.search) params.set("search", tableQuery.search);
       if (Object.values(tableQuery.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(tableQuery.filters));
+      if (tableQuery.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
       if (tableQuery.sortField) params.set("sortField", tableQuery.sortField);
       if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder);
       return api<InboundTablePage>(`/master-data/finished-goods-inbound?${params}`);
@@ -580,7 +582,7 @@ function FinishedGoodsInboundPage() {
 
 function AuditLogs() {
   const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:50,search:"",filters:{}});
-  const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
+  const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.filterGroup?.rules?.length)params.set("filterGroup",JSON.stringify(tableQuery.filterGroup));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
   return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
     <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data?.rows} serverData={{total:logs.data?.total??0,onQueryChange:setTableQuery}} columns={[
       { title: "用户", dataIndex: "actorName", width: 120 }, { title: "资源", dataIndex: "resource", width: 130 },

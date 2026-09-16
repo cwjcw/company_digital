@@ -7,11 +7,13 @@ import { EquipmentApplicationService } from "./equipment.application.service";
 import { EquipmentExportService } from "./equipment-export.service";
 import { EquipmentImportService } from "./equipment-import.service";
 import { EquipmentQueryService } from "./equipment.query.service";
+import { EquipmentFilterSourceProvider } from "./equipment.filter-sources";
+import { TableFilterModule } from "../../common/filtering/table-filter.module";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ApiKey, User])],
+  imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule],
   controllers: [EquipmentController],
-  providers: [AuthGuard, EquipmentApplicationService, EquipmentQueryService, EquipmentImportService, EquipmentExportService],
+  providers: [AuthGuard, EquipmentApplicationService, EquipmentQueryService, EquipmentImportService, EquipmentExportService, EquipmentFilterSourceProvider],
   exports: [EquipmentApplicationService, EquipmentQueryService]
 })
 export class EquipmentModule {}

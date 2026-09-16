@@ -1,16 +1,22 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ObjectLiteral, Repository, SelectQueryBuilder } from "typeorm";
+import { tablePermissionFieldsFor, type TableResourceCode } from "@kdos/contracts";
 import { FinishedGoodsInbound, FinishedGoodsOutbound, SalesOrder } from "../../entities";
+import { applyTypedFilterToQueryBuilder } from "../../common/filtering/typeorm-filter";
 
 export type MasterDataPageQuery = {
   page?: unknown;
   pageSize?: unknown;
   search?: unknown;
   filters?: unknown;
+  filterGroup?: unknown;
   sortField?: unknown;
   sortOrder?: unknown;
 };
+
+/** 数据中心表的数据范围：当前这三张 ERP 镜像表只有资源级权限，没有行级范围，平台与列表保持一致。 */
+export type MasterDataActor = { permissions: string[]; isSystemAdmin?: boolean };
 
 export type MasterDataPage<T> = {
   rows: T[];
@@ -28,29 +34,47 @@ export class MasterDataQueryService {
   ) {}
 
   salesOrderPage(query: MasterDataPageQuery) {
+    return this.salesOrderPageFor(query, { permissions: ["*"] });
+  }
+
+  salesOrderPageFor(query: MasterDataPageQuery, actor: MasterDataActor) {
     return this.page(
       this.salesOrders,
       query,
       ["orderNumber", "customerCode", "itemNumber", "itemName", "specification", "sourceSystem", "sourceDatabase"],
-      (builder) => builder.orderBy("row.orderDate", "DESC", "NULLS LAST").addOrderBy("row.orderNumber", "ASC").addOrderBy("row.itemNumber", "ASC")
+      (builder) => builder.orderBy("row.orderDate", "DESC", "NULLS LAST").addOrderBy("row.orderNumber", "ASC").addOrderBy("row.itemNumber", "ASC"),
+      "sales-orders",
+      actor
     );
   }
 
   finishedGoodsInboundPage(query: MasterDataPageQuery) {
+    return this.finishedGoodsInboundPageFor(query, { permissions: ["*"] });
+  }
+
+  finishedGoodsInboundPageFor(query: MasterDataPageQuery, actor: MasterDataActor) {
     return this.page(
       this.finishedGoodsInbound,
       query,
       ["documentNumber", "salesOrderNumber", "workOrderNumber", "inventoryCode", "inventoryName", "warehouse", "sourceSystem", "sourceDatabase"],
-      (builder) => builder.orderBy("row.inboundDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.lineNumber", "ASC")
+      (builder) => builder.orderBy("row.inboundDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.lineNumber", "ASC"),
+      "finished-goods-inbound",
+      actor
     );
   }
 
   finishedGoodsOutboundPage(query: MasterDataPageQuery) {
+    return this.finishedGoodsOutboundPageFor(query, { permissions: ["*"] });
+  }
+
+  finishedGoodsOutboundPageFor(query: MasterDataPageQuery, actor: MasterDataActor) {
     return this.page(
       this.finishedGoodsOutbound,
       query,
       ["documentNumber", "salesOrderNumber", "customerCode", "customerName", "itemNumber", "itemName", "warehouse", "sourceSystem", "sourceDatabase"],
-      (builder) => builder.orderBy("row.documentDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.itemNumber", "ASC")
+      (builder) => builder.orderBy("row.documentDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.itemNumber", "ASC"),
+      "finished-goods-outbound",
+      actor
     );
   }
 
@@ -58,7 +82,9 @@ export class MasterDataQueryService {
     repository: Repository<T>,
     query: MasterDataPageQuery,
     searchFields: string[],
-    order: (builder: SelectQueryBuilder<T>) => SelectQueryBuilder<T>
+    order: (builder: SelectQueryBuilder<T>) => SelectQueryBuilder<T>,
+    resource: TableResourceCode,
+    actor: MasterDataActor
   ): Promise<MasterDataPage<T>> {
     const page = Math.max(1, Math.trunc(Number(query.page) || 1));
     const pageSize = Math.min(200, Math.max(10, Math.trunc(Number(query.pageSize) || 50)));
@@ -82,12 +108,31 @@ export class MasterDataQueryService {
       builder.andWhere(`CAST(${column} AS text) ILIKE :${parameter}`, { [parameter]: `%${value}%` });
     }
 
+    /* KN-FILTER-001：类型化高级筛选复用平台编译器（`:filter_n` 命名参数），与快速搜索/分页/总数同一 where。 */
+    applyTypedFilterToQueryBuilder({
+      builder, alias: "row", fields: tablePermissionFieldsFor(resource), columns: this.columnMap(repository),
+      filterGroup: query.filterGroup,
+      canFilterField: (key) => actor.isSystemAdmin === true || actor.permissions.includes("*")
+        || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
+        || actor.permissions.includes(`${resource}:*:read`)
+    });
+
     const sortColumn = this.textColumn(repository, String(query.sortField ?? ""));
     if (sortColumn) builder.orderBy(sortColumn, String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC", "NULLS LAST");
     else order(builder);
     builder.skip((page - 1) * pageSize).take(pageSize);
     const [rows, total] = await builder.getManyAndCount();
     return { rows, total, page, pageSize };
+  }
+
+  /** 字段 key → 真实数据库列：以实体 metadata 为准，不按字段名猜测。 */
+  private columnMap<T extends ObjectLiteral>(repository: Repository<T>) {
+    const columns: Record<string, string> = {};
+    for (const column of repository.metadata.columns) {
+      if (column.relationMetadata) continue;
+      columns[column.propertyName] = column.databaseName;
+    }
+    return columns;
   }
 
   private textColumn<T extends ObjectLiteral>(repository: Repository<T>, property: string) {

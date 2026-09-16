@@ -10,8 +10,9 @@ import { api } from "../../api";
 import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission } from "../../shared/KdosDataTable";
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
+import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 
-type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
+type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PageResult<T> = { rows: T[]; total: number; page: number; pageSize: number };
 type EquipmentAsset = {
   id: string; divisionId: string; divisionName: string; usageDepartmentId: string | null;
@@ -47,6 +48,7 @@ function tableUrl(path: string, query: TableQuery) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search) params.set("search", query.search);
   for (const [key, value] of Object.entries(query.filters)) if (value.trim()) params.set(key, value.trim());
+  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   return `${path}?${params}`;

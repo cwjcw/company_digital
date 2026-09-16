@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
-import { KdosAdvancedFilter, emptyFilterGroup, visibleOperators } from "./advanced-filter";
+import { DurationInput, KdosAdvancedFilter, PercentageInput, emptyFilterGroup, visibleOperators } from "./advanced-filter";
 
 vi.mock("../api", () => ({ api: vi.fn(async () => []) }));
 
@@ -9,6 +9,8 @@ const text = { key: "orderNumber", label: "订单编号", type: "text", editable
 const dictionary = { key: "processCode", label: "工序", type: "dictionary", editable: true, options: [{ value: "blank", label: "毛坯" }, { value: "bending", label: "折弯" }] } as TablePermissionFieldDefinition;
 const date = { key: "productionDate", label: "生产日期", type: "date", editable: true } as TablePermissionFieldDefinition;
 const number = { key: "plannedQuantity", label: "计划数量", type: "number", editable: true, format: "decimal" } as TablePermissionFieldDefinition;
+const percentage = { key: "completionRate", label: "完成比例", type: "number", editable: true, format: "percentage" } as TablePermissionFieldDefinition;
+const duration = { key: "runtimeMinutes", label: "运行时长", type: "number", editable: true, format: "durationMinutes" } as TablePermissionFieldDefinition;
 
 describe("KdosAdvancedFilter", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
@@ -30,7 +32,44 @@ describe("KdosAdvancedFilter", () => {
     expect(visibleOperators(text).map((entry) => entry.operator)).toEqual(expect.arrayContaining(["eq", "contains", "is_empty"]));
     expect(visibleOperators(dictionary).map((entry) => entry.operator)).toEqual(["eq", "neq", "in", "not_in", "is_empty", "is_not_empty"]);
     expect(visibleOperators(date).map((entry) => entry.operator)).toEqual(["eq", "neq", "gt", "lt", "gte", "lte", "between", "dynamic", "is_empty", "is_not_empty"]);
-    expect(visibleOperators(number).map((entry) => entry.operator)).toEqual(expect.arrayContaining(["between", "gt"]));
+    /* 正式 UI 白名单：数值只暴露 eq/neq/gte/lte/between/is_empty/is_not_empty（隐藏 gt/lt/in/not_in）。 */
+    expect(visibleOperators(number).map((entry) => entry.operator)).toEqual(["eq", "neq", "gte", "lte", "between", "is_empty", "is_not_empty"]);
+    expect(visibleOperators(text).map((entry) => entry.operator)).not.toContain("starts_with");
+    expect(visibleOperators(percentage).map((entry) => entry.operator)).toContain("between");
+    expect(visibleOperators(duration).map((entry) => entry.operator)).toContain("between");
+  });
+
+  it("时长字段按小时+分钟输入并转换为分钟（10小时30分钟 → 630）", async () => {
+    const onChange = vi.fn();
+    render(<DurationInput value={undefined} onChange={onChange} />);
+    const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+    const hours = inputs[0]!;
+    const minutes = inputs[1]!;
+    fireEvent.change(hours, { target: { value: "10" } });
+    expect(onChange).toHaveBeenLastCalledWith(600);
+    onChange.mockClear();
+    fireEvent.change(minutes, { target: { value: "30" } });
+    expect(onChange).toHaveBeenLastCalledWith(30);
+  });
+
+  it("时长字段回显已存分钟值（630 → 10 小时 30 分钟）", () => {
+    render(<DurationInput value={630} onChange={vi.fn()} />);
+    const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+    expect(inputs[0]!.value).toBe("10");
+    expect(inputs[1]!.value).toBe("30");
+  });
+
+  it("百分比字段界面显示 0..100，提交换算为存储值（80% → 0.8）", () => {
+    const onChange = vi.fn();
+    render(<PercentageInput value={undefined} onChange={onChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "80" } });
+    expect(onChange).toHaveBeenLastCalledWith(0.8);
+  });
+
+  it("百分比字段回显存储值 0.6 为 60%", () => {
+    render(<PercentageInput value={0.6} onChange={vi.fn()} />);
+    expect(Number((screen.getByRole("spinbutton") as HTMLInputElement).value)).toBe(60);
   });
 
   it("keeps draft separate from applied state and only applies on 筛选", async () => {

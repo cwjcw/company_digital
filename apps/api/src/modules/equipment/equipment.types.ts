@@ -65,3 +65,22 @@ export function equipmentScope(actor: EquipmentActor, resource: string, action: 
     ? { unrestricted: false, divisionIds: [...divisionIds], own: true }
     : { unrestricted: false, divisionIds: [...divisionIds] };
 }
+
+/**
+ * 设备数据范围谓词（唯一实现）：列表、总数、导出与平台 candidate 必须共用本函数，
+ * 保证“候选来源集合”与“列表可见集合”完全一致。
+ */
+export function equipmentScopeClause(actor: EquipmentActor, resource: string, action: string, alias: string, params: unknown[]) {
+  const scope = equipmentScope(actor, resource, action);
+  if (scope.unrestricted) return "1=1";
+  const clauses: string[] = [];
+  if (scope.divisionIds.length) {
+    params.push(scope.divisionIds);
+    clauses.push(`${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`);
+  }
+  if (scope.own && actor.userId) {
+    params.push(actor.userId);
+    clauses.push(`${alias}.created_by=$${params.length}::uuid`);
+  }
+  return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
+}

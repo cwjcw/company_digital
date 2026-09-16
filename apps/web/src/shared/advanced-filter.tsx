@@ -4,7 +4,7 @@ import { Badge, Button, DatePicker, Flex, InputNumber, Input, Popover, Select, S
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
-  tableFilterDynamicDateOptions, tableFilterOperatorsFor,
+  tableFilterDynamicDateOptions, tableFilterUiOperatorsFor,
   type TableFilterOperator, type TablePermissionFieldDefinition
 } from "@kdos/contracts";
 import { api } from "../api";
@@ -21,11 +21,12 @@ export function filterGroupRuleCount(group?: AdvancedFilterGroup | null) {
   return group?.rules?.length ?? 0;
 }
 
-/** 只暴露正式用户可见操作符（内部协议可能支持更多，但不自动出现在 UI）。 */
+/**
+ * 正式 UI 只暴露已确认的操作符白名单（`tableFilterUiOperatorsFor`，KN-FILTER-001 §30）：
+ * 隐藏 starts_with、count_*、数值 in/not_in 等内部能力，避免界面出现未确认的筛选方式。
+ */
 export function visibleOperators(field: TablePermissionFieldDefinition) {
-  const allowed = tableFilterOperatorsFor(field);
-  if (field.type === "attachment") return allowed.filter((entry) => entry.operator === "is_empty" || entry.operator === "is_not_empty");
-  return allowed;
+  return tableFilterUiOperatorsFor(field);
 }
 
 /** Header Filter 默认操作符（仍来自正式 registry，只是按 §7 指定首选顺序）。 */
@@ -92,6 +93,31 @@ export function CandidateSelect({ resource, field, multiple, placeholder, onChan
   />;
 }
 
+/**
+ * 时长字段正式输入：业务用户按“小时 + 分钟”填写，服务端仍比较整数分钟。
+ * 例如 10 小时 30 分钟 → 630；BETWEEN 8 小时 0 分钟 ~ 10 小时 30 分钟 → 480 ~ 630。
+ */
+export function DurationInput({ value, onChange }: { value: unknown; onChange: (next: number | undefined) => void }) {
+  const total = value == null || value === "" ? undefined : Math.max(0, Number(value) || 0);
+  const hours = total == null ? undefined : Math.floor(total / 60);
+  const minutes = total == null ? undefined : total % 60;
+  const combine = (nextHours: number | null | undefined, nextMinutes: number | null | undefined) =>
+    onChange(Math.max(0, Number(nextHours ?? 0)) * 60 + Math.min(59, Math.max(0, Number(nextMinutes ?? 0))));
+  return <Space size={4}>
+    <InputNumber min={0} precision={0} value={hours ?? null} placeholder="小时" addonAfter="小时" style={{ width: 110 }}
+      onChange={(next) => combine(next, minutes ?? 0)} />
+    <InputNumber min={0} max={59} precision={0} value={minutes ?? null} placeholder="分钟" addonAfter="分钟" style={{ width: 110 }}
+      onChange={(next) => combine(hours ?? 0, next)} />
+  </Space>;
+}
+
+/** 百分比字段正式输入：界面按 0..100 显示，提交前换算为存储值（80% → 0.8）。 */
+export function PercentageInput({ value, onChange }: { value: unknown; onChange: (next: number | undefined) => void }) {
+  const display = value == null || value === "" ? undefined : Number(value) * 100;
+  return <InputNumber min={0} max={100} precision={2} value={display === undefined || Number.isNaN(display) ? null : display}
+    addonAfter="%" style={{ width: 130 }} onChange={(next) => onChange(next == null ? undefined : Number(next) / 100)} />;
+}
+
 export function RuleValue({ resource, field, operator, rule, onChange }: {
   resource: string; field: TablePermissionFieldDefinition; operator: string; rule: AdvancedFilterRule;
   onChange: (patch: Partial<AdvancedFilterRule>) => void;
@@ -107,6 +133,8 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
   if (operator === "between") {
     const control = (key: "min" | "max", value: unknown) => field.type === "date" || field.type === "datetime"
       ? <DatePicker showTime={field.type === "datetime"} value={value ? dayjs(String(value)) : null} onChange={(next) => onChange({ [key]: next ? next.format("YYYY-MM-DD") : undefined } as Partial<AdvancedFilterRule>)} />
+      : field.format === "durationMinutes" ? <DurationInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
+      : field.format === "percentage" ? <PercentageInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : <InputNumber value={value as number} onChange={(next) => onChange({ [key]: next ?? undefined } as Partial<AdvancedFilterRule>)} style={{ width: 120 }} />;
     return <Space>{control("min", rule.min)}<Typography.Text type="secondary">至</Typography.Text>{control("max", rule.max)}</Space>;
   }
@@ -125,8 +153,10 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
       onChange={(next) => onChange({ value: next ? next.format("YYYY-MM-DD") : undefined })} />;
   }
   if (field.type === "number") {
+    if (field.format === "durationMinutes") return <DurationInput value={rule.value} onChange={(next) => onChange({ value: next })} />;
+    if (field.format === "percentage") return <PercentageInput value={rule.value} onChange={(next) => onChange({ value: next })} />;
     return <InputNumber value={rule.value as number} onChange={(next) => onChange({ value: next ?? undefined })} style={{ width: 140 }}
-      addonAfter={field.format === "percentage" ? "%" : field.format === "durationMinutes" ? "分钟" : undefined} />;
+      addonAfter={undefined} />;
   }
   return <Input value={rule.value as string} placeholder="输入要匹配的内容" style={{ minWidth: 200, maxWidth: 320 }}
     onChange={(event) => onChange({ value: event.target.value })} onPressEnter={(event) => (event.target as HTMLInputElement).blur()} />;
