@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, DatePicker, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs, { type Dayjs } from "dayjs";
+import dayjs from "dayjs";
 import {
   tableFilterDynamicDateOptions, tableFilterOperatorsFor,
   type TableFilterOperator, type TablePermissionFieldDefinition

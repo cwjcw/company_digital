@@ -313,7 +313,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
     }), 250);
     return () => window.clearTimeout(timer);
-  }, [serverMode, currentPage, filters, pageSize, search, sortField, sortOrder]);
+  }, [serverMode, currentPage, filters, filterGroup, pageSize, search, sortField, sortOrder]);
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil((serverData?.total ?? rows.length) / pageSize));
     if (currentPage > lastPage) setCurrentPage(lastPage);

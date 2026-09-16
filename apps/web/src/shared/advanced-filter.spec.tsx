@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
-import { api } from "../api";
 import { KdosAdvancedFilter, emptyFilterGroup, visibleOperators } from "./advanced-filter";
 
 vi.mock("../api", () => ({ api: vi.fn(async () => []) }));
