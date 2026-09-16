@@ -107,4 +107,26 @@ test.describe("新版主计划线上只读与字段契约", () => {
     await page.getByRole("button", { name: "清除定位" }).click();
     await expect(page).toHaveURL(/\/master-plan-system\/mps-weekly-plans$/);
   });
+
+  test("工序字典字段按显示名称筛选可命中数据库 value", async ({ page }) => {
+    await page.goto("/master-plan-system/mps-process-reports");
+    await expect(page.getByRole("heading", { name: "工序报工表" })).toBeVisible();
+    await page.getByRole("tab", { name: "待报工任务" }).click();
+
+    const body = page.locator(".ant-table-tbody");
+    await expect(body.locator("tr.ant-table-row").first()).toBeVisible();
+    await expect(body).toContainText("折弯");
+
+    await page.locator(".ant-table-thead").getByLabel("工序筛选").first().click();
+    const panel = page.locator(".kdos-column-filter-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByPlaceholder("输入要查找的工序").fill("折弯");
+    await panel.getByRole("button", { name: /筛\s*选/ }).click();
+
+    await expect(body.locator("tr.ant-table-row").first()).toBeVisible();
+    await expect(body).toContainText("折弯");
+    await expect(body).not.toContainText("下料");
+    await expect(body).not.toContainText("焊接");
+    expect(await body.locator("tr.ant-table-row").count()).toBeGreaterThan(0);
+  });
 });
