@@ -1,31 +1,28 @@
 {
   "task": "KN-MPS-INIT-001",
+  "goal": "事业四部完整主计划快照初始化",
   "mode": "dry-run",
-  "generatedAt": "2026-09-17T12:19:47.500Z",
+  "generatedAt": "2026-09-17T14:10:19.687Z",
   "tenantId": "KAINAN",
   "file": "/tmp/standard.xlsx",
   "blockers": [],
+  "warnings": [
+    "存在同一文件的旧初始化账本（目标：周计划历史初始化；执行时间 2026-09-17T12:21:29.985Z），本轮按最终目标“事业四部完整主计划快照初始化”重构完整快照，成功后覆盖该账本。"
+  ],
   "validation": {
-    "sheets": [
-      "README_后台初始化",
-      "01_weekly_plans",
-      "02_weekly_process_plans",
-      "03_process_reports",
-      "04_unmapped_review",
-      "05_source_trace"
-    ],
     "weekly": {
       "rows": 1169,
       "duplicateBusinessKeys": 0,
       "invalidRows": 0,
-      "latestReviewDueDateNullRows": 1169
+      "latestReviewDueDateNullRows": 1169,
+      "distinctOrders": 99
     },
     "processPlans": {
       "rows": 11690,
       "orphans": 0,
       "invalidCodes": [],
       "weeklyNotTenProcesses": 0,
-      "dueDateNullRows": 8408
+      "dueDateNotNull": 3282
     },
     "processReports": {
       "rows": 356,
@@ -35,17 +32,25 @@
       "badProductionDate": 0,
       "nonEmptyException": 0
     },
+    "groupPlans": {
+      "rows": 99
+    },
     "sourceTrace": {
       "rows": 1169,
       "unmappedReviewRows": 4155
-    },
-    "mergedBusinessKeys": 0
+    }
   },
   "expected": {
+    "erpOrderLines": 1169,
+    "orderAllocations": 1169,
+    "groupPlans": 99,
+    "monthlyPlans": 1169,
     "basePlans": 1169,
     "weeklyPlans": 1169,
-    "processPlans": 11690,
+    "weeklyProcessPlans": 11690,
     "processReports": 356,
+    "processCycles": 0,
+    "shippingPlans": 0,
     "technicalReports": 0,
     "materialReports": 0,
     "outsourcingReports": 0
@@ -74,8 +79,7 @@
     "divisions": [
       {
         "id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
-        "name": "事业四部",
-        "enabled": true
+        "name": "事业四部"
       }
     ],
     "syncs": [
@@ -89,7 +93,7 @@
       },
       {
         "sync_key": "execution-rollup",
-        "enabled": false
+        "enabled": true
       },
       {
         "sync_key": "inbound-allocation",
@@ -104,7 +108,34 @@
         "enabled": false
       }
     ],
-    "ledger": [],
+    "ledger": [
+      {
+        "value_json": {
+          "file": "standard.xlsx",
+          "counts": {
+            "bases": 1169,
+            "weeklies": 1169,
+            "plansCount": 11690,
+            "reportsCount": 356
+          },
+          "tenant": "KAINAN",
+          "executedAt": "2026-09-17T12:21:29.985Z",
+          "fileSha256": "a0b7711f5d9eb46b16239d64d3597e19977a6ff15ddd5a885fed3e3c2091f254",
+          "checkConstraints": {
+            "bases": 1169,
+            "weeklies": 1169,
+            "plansCount": 11690,
+            "orphanPlans": 0,
+            "reportsCount": 356,
+            "reusableBase": 0,
+            "orphanReports": 0,
+            "orphanWeeklies": 0,
+            "notTenProcesses": 0,
+            "duplicateProcess": 0
+          }
+        }
+      }
+    ],
     "nullable": [
       {
         "column_name": "base_plan_id",
