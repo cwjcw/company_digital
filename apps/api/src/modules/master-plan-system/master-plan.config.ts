@@ -57,8 +57,14 @@ const monthlyReportSum = (code: string) =>
   `(SELECT COALESCE(sum(per_week.reported),0) FROM mps_weekly_plans weekly JOIN (SELECT report.tenant_id,report.weekly_plan_id,sum(report.production_quantity) reported FROM mps_process_reports report WHERE report.process_code='${code}' GROUP BY report.tenant_id,report.weekly_plan_id) per_week ON per_week.tenant_id=weekly.tenant_id AND per_week.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
 const monthlyReportCount = (code: string) =>
   `(SELECT COALESCE(sum(per_week.report_count),0) FROM mps_weekly_plans weekly JOIN (SELECT report.tenant_id,report.weekly_plan_id,count(*) report_count FROM mps_process_reports report WHERE report.process_code='${code}' GROUP BY report.tenant_id,report.weekly_plan_id) per_week ON per_week.tenant_id=weekly.tenant_id AND per_week.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
-/** 月计划工序需求：当前月计划范围内所有关联周计划的计划数量之和（与 PENDING 使用同一正式字段）。 */
-const monthlyProcessDemand = `(SELECT COALESCE(sum(weekly.planned_quantity),0) FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+/**
+ * KN-MPS-EXEC-001 口径修正：月计划生产进度 = 整个订单/月度总需求完成率。
+ * 分母固定使用月计划正式总需求 `record.required_quantity`；
+ * 禁止使用 SUM(关联周计划 planned_quantity)（那只是“已下达周计划数量”，会高估完成率）。
+ */
+const monthlyReportedTotal = (code: string) => `(${monthlyReportSum(code)})::numeric`;
+/** 已下达周计划数量：仅作为 Hover 辅助信息，绝不参与月计划生产进度分母。 */
+const monthlyDispatchedQuantity = `(SELECT COALESCE(sum(weekly.planned_quantity),0) FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
 
 /** 单一来源异常片段：来源标签 + 去重后的异常文本（同一来源多条用「、」连接）。 */
 const exceptionPart = (label: string, sql: string) => `NULLIF(('${label}：'||(${sql})),'')`;
@@ -119,7 +125,9 @@ export function virtualColumns(resource: MasterPlanResource) {
       /* KN-MPS-EXEC-001：月计划生产进度 = SUM(累计实际报工) / SUM(所有关联周计划的工序需求)，禁止平均百分比。 */
       output[`${code}ReportedQuantity`] = monthlyReportSum(code);
       output[`${code}ReportCount`] = monthlyReportCount(code);
-      output[`${code}ProductionProgress`] = `(CASE WHEN ${monthlyProcessDemand} > 0 THEN (${monthlyReportSum(code)})::numeric / ${monthlyProcessDemand} ELSE NULL END)`;
+      output[`${code}ProductionProgress`] = `(CASE WHEN COALESCE(record.required_quantity,0) > 0 THEN ${monthlyReportedTotal(code)} / record.required_quantity ELSE NULL END)`;
+      /* Hover 辅助信息：已下达周计划数量（不参与进度计算）。 */
+      output[`${code}DispatchedQuantity`] = monthlyDispatchedQuantity;
     }
   }
   if (resource.code === "mps-weekly-plans") Object.assign(output, {

@@ -150,13 +150,13 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
     width: Math.max(105, Math.min(240, field.label.length * 18 + 54)),
     render: (value: unknown, row: any) => renderCell ? renderCell(value, field, row) : display(value, field, row)
   });
-  const progressColumn = (field: TablePermissionFieldDefinition, process: ProcessOption) => ({
+  const progressColumn = (field: TablePermissionFieldDefinition, process: ProcessOption, resourceCode: string) => ({
     title: "生产进度",
     dataIndex: field.key,
     width: 120,
     className: processColorClass(process.code),
     onCell: (row: any) => ({ className: progressCellClass(row?.[field.key]), style: progressCellStyle(row?.[field.key]) }),
-    render: (value: unknown, row: any) => <ProgressCell process={process} row={row} value={value} />
+    render: (value: unknown, row: any) => <MasterPlanProgressCell process={process} row={row} value={value} resource={resourceCode} />
   });
   const exceptionColumn = (field: TablePermissionFieldDefinition) => ({
     title: "异常",
@@ -190,7 +190,7 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
     const children = fields
       .filter((field) => ["CycleDays", "DueDate", "Status", "ProductionProgress"].some((suffix) => field.key === `${process.code}${suffix}`))
       .map((field) => {
-        const base = field.key.endsWith("ProductionProgress") ? progressColumn(field, process) : column(field);
+        const base = field.key.endsWith("ProductionProgress") ? progressColumn(field, process, resource) : column(field);
         return {
           ...base,
           onHeaderCell: () => ({ className: `${processColorClass(process.code)} kdos-process-sub`, style: { background: color.sub, color: color.text } })
@@ -236,16 +236,25 @@ export function formatProductionProgress(value: unknown) {
   return `${Number.isInteger(percent) ? percent : Math.round(percent * 10) / 10}%`;
 }
 
-/** 生产进度单元格：主表只占一列，Hover 显示需求数量 / 累计报工 / 报工次数 / 生产进度。 */
-function ProgressCell({ process, row, value }: { process: ProcessOption; row: any; value: unknown }) {
-  const demand = row?.plannedQuantity;
+/**
+ * 生产进度单元格：主表只占一列，Hover 显示需求数量 / 累计报工 / 报工次数 / 生产进度。
+ * 月计划分母是整个订单/月度总需求（requiredQuantity）——绝不用已下达周计划数量；
+ * 已下达周计划数量只作为辅助信息展示（不参与进度计算）。
+ */
+export function MasterPlanProgressCell({ process, row, value, resource }: { process: ProcessOption; row: any; value: unknown; resource: string }) {
+  const monthly = resource === "mps-monthly-plans";
+  /* 月计划的分母是整个订单/月度总需求（requiredQuantity）；已下达周计划数量只作为辅助信息展示。 */
+  const demand = monthly ? row?.requiredQuantity : row?.plannedQuantity;
+  const dispatched = row?.[`${process.code}DispatchedQuantity`];
   const reported = row?.[`${process.code}ReportedQuantity`];
   const count = row?.[`${process.code}ReportCount`];
   const text = formatProductionProgress(value);
+  const show = (input: unknown, fallback = "—") => input == null || input === "" ? fallback : String(input);
   return <Tooltip title={<div className="kdos-progress-tooltip">
-    <div>需求数量：{demand == null || demand === "" ? "—" : String(demand)}</div>
-    <div>累计报工：{reported == null || reported === "" ? "—" : String(reported)}</div>
-    <div>报工次数：{count == null || count === "" ? "0" : String(count)}</div>
+    <div>{monthly ? "月度总需求" : "需求数量"}：{show(demand)}</div>
+    <div>累计报工：{show(reported)}</div>
+    <div>报工次数：{show(count, "0")}</div>
+    {monthly && <div>已下达周计划数量：{show(dispatched)}</div>}
     <div>生产进度：{text}</div>
   </div>}>
     <span className={progressCellClass(value)} style={progressCellStyle(value)}>{text}</span>

@@ -193,6 +193,26 @@ describe("active PMC resources", () => {
     });
   });
 
+  it("KN-MPS-EXEC-001：已下达周计划数量只属于月计划只读辅助字段，不进入周计划", () => {
+    const monthlyKeys = tablePermissionFieldsFor("mps-monthly-plans").map((field) => field.key);
+    const weeklyKeys = tablePermissionFieldsFor("mps-weekly-plans").map((field) => field.key);
+    /* 月计划：10 个工序各有「已下达周计划数量」只读辅助字段，且不是可编辑字段。 */
+    const dispatched = tablePermissionFieldsFor("mps-monthly-plans").filter((field) => field.key.endsWith("DispatchedQuantity"));
+    expect(dispatched).toHaveLength(10);
+    for (const field of dispatched) {
+      expect(field.editable).toBe(false);
+      expect(field.format).toBe("decimal");
+      expect(field.label).toMatch(/·已下达周计划数量$/);
+    }
+    /* 周计划没有该辅助字段。 */
+    expect(weeklyKeys.some((key) => key.endsWith("DispatchedQuantity"))).toBe(false);
+    /* 月/周计划都有 10 个只读 percentage 生产进度字段（唯一事实来源是 mps_process_reports 累计报工）。 */
+    for (const keys of [monthlyKeys, weeklyKeys]) {
+      expect(keys.filter((key) => key.endsWith("ProductionProgress"))).toHaveLength(10);
+    }
+    expect(monthlyKeys).toContain("requiredQuantity");
+  });
+
   it("keeps the current master-plan resources and excludes retired planning UI resources", () => {
     const masterPlanCodes = masterPlanResourceDefinitions.map((resource) => resource.code);
     expect(masterPlanCodes).toContain("mps-erp-orders");

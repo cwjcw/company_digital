@@ -317,6 +317,14 @@ const mpsProcessProgressFields: TablePermissionFieldDefinition[] = standardMpsPr
   { key: `${code}ReportCount`, label: `${label}·报工次数`, type: "number" as const, editable: false, format: "integer" as const }
 ]);
 
+/**
+ * 月计划专用只读辅助字段：已下达周计划数量（仅用于 Hover 说明，绝不参与生产进度分母）。
+ * 周计划没有该字段。
+ */
+const mpsProcessDispatchedFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
+  { key: `${code}DispatchedQuantity`, label: `${label}·已下达周计划数量`, type: "number" as const, editable: false, format: "decimal" as const }
+]);
+
 /** 周/月计划整表唯一异常列：汇总所有正式执行异常来源（含来源标签、去重、稳定顺序）。 */
 const mpsExceptionSummaryField: TablePermissionFieldDefinition[] = [
   { key: "exceptionSummary", label: "异常", type: "text" as const, editable: false }
@@ -359,6 +367,7 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
     ...(resource === "mps-weekly-plans" ? weeklyAuxiliaryPermissionFields : monthlyAuxiliaryPermissionFields),
     ...mpsProcessPermissionFields,
     ...mpsProcessProgressFields,
+    ...(resource === "mps-monthly-plans" ? mpsProcessDispatchedFields : []),
     ...mpsExceptionSummaryField,
     ...auditPermissionFields
   ];

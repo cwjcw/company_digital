@@ -4,7 +4,8 @@ import { standardProcesses } from "@tracker/shared";
 /**
  * KN-MPS-EXEC-001：工序生产进度与统一异常的 SQL 语义契约。
  * 关键不变量：累计报工来自 mps_process_reports 的 SUM（不是最后一条/MAX/AVG/条数）；
- * 月计划按需求加权（SUM(actual)/SUM(demand)）且用两层聚合防止 JOIN 重复累计；异常带来源标签并去重。
+ * 月计划进度 = 整个订单/月度总需求完成率（SUM(全部关联周计划 actual) / record.required_quantity），
+ * 绝不用 SUM(weekly.planned_quantity)（已下达周计划数量）做分母，且用两层聚合防止 JOIN 重复累计；异常带来源标签并去重。
  */
 const weekly = MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")!;
 const monthly = MASTER_PLAN_RESOURCE_MAP.get("mps-monthly-plans")!;
@@ -36,14 +37,36 @@ describe("KN-MPS-EXEC-001 生产进度 SQL", () => {
     expect(sql).toContain("CASE WHEN COALESCE(record.planned_quantity,0) > 0");
   });
 
-  it("月计划按需求加权：SUM(actual)/SUM(demand)，禁止平均百分比", () => {
+  it("月计划进度 = 整个订单/月度总需求完成率：SUM(actual)/record.required_quantity，禁止平均百分比", () => {
     const sql = String(monthlyColumns.cuttingProductionProgress);
     /* 分子：先按 tenant+weekly_plan_id+process_code 聚合并 SUM（两层聚合，防一对多 JOIN 放大）。 */
     expect(sql).toContain("GROUP BY report.tenant_id,report.weekly_plan_id");
     expect(sql).toContain("sum(per_week.reported)");
-    /* 分母：当前月计划范围内所有关联周计划的需求数量之和。 */
-    expect(sql).toContain("sum(weekly.planned_quantity)");
+    /* 分母：月计划正式总需求 required_quantity（整个订单/月度总需求），不是已下达周计划数量。 */
+    expect(sql).toContain("record.required_quantity");
+    expect(sql).toContain("COALESCE(record.required_quantity,0) > 0");
     expect(sql).not.toMatch(/avg\(/i);
+  });
+
+  it("永久锁定：月计划进度分母绝不能是 SUM(weekly.planned_quantity)（已下达周计划数量）", () => {
+    /* 若有人把分母改回“已下达周计划数量”，本用例立即失败：
+       样例 required=500、两个 weekly planned 合计 300 且全部报满 300 → 正确 60%，错误实现会显示 100%。 */
+    for (const code of ["cutting", "machining", "packaging"]) {
+      const progressSql = String(monthlyColumns[`${code}ProductionProgress`]);
+      expect(progressSql).not.toContain("planned_quantity");
+      expect(progressSql).not.toContain("sum(weekly.planned_quantity)");
+      expect(progressSql).toContain("record.required_quantity");
+    }
+  });
+
+  it("已下达周计划数量只是月计划只读辅助字段，不参与生产进度分母", () => {
+    /* 辅助字段：月计划有、周计划没有；只读 number/decimal。 */
+    const field = fieldsFor(monthly).find((item) => item.key === "cuttingDispatchedQuantity");
+    expect(field).toMatchObject({ type: "number", editable: false, format: "decimal", label: "下料·已下达周计划数量" });
+    expect(fieldsFor(weekly).some((item) => item.key === "cuttingDispatchedQuantity")).toBe(false);
+    /* 辅助 SQL 求的是 SUM(weekly.planned_quantity)，只出现在 DispatchedQuantity，绝不出现在 ProductionProgress。 */
+    expect(String(monthlyColumns.cuttingDispatchedQuantity)).toContain("sum(weekly.planned_quantity)");
+    expect(String(monthlyColumns.cuttingProductionProgress)).not.toContain("sum(weekly.planned_quantity)");
   });
 
   it("防 JOIN 重复累计：进度不使用 mps_weekly_process_plans 与报工同层 JOIN 求和", () => {
