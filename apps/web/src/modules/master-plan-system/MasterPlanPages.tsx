@@ -211,6 +211,9 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
       children: safeChildren
     });
   }
+  /* KN-MPS-EXEC-001：所有 *Exception 字段（10 个工序异常 + 技术/五金/木作/外协异常）不再单列展示，
+     其内容已统一汇总到整表唯一的「异常」列；字段本体仍保留在 metadata 中供筛选/导出/兼容使用。 */
+  for (const field of fields) if (field.key.endsWith("Exception")) grouped.add(field.key);
   const leading = fields.filter((field) => !grouped.has(field.key) && field.key !== "exceptionSummary").map(column);
   const exceptionField = fields.find((field) => field.key === "exceptionSummary");
   return [...leading, ...groups, ...(exceptionField ? [exceptionColumn(exceptionField)] : [])];

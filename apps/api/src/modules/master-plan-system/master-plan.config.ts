@@ -75,7 +75,8 @@ function weeklyExceptionSummary() {
     ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
       exceptionPart(process.name, `SELECT string_agg(DISTINCT process.exception_text,'、' ORDER BY process.exception_text) FROM mps_weekly_process_plans process WHERE process.tenant_id=record.tenant_id AND process.weekly_plan_id=record.id AND process.process_code='${process.code}' AND btrim(COALESCE(process.exception_text,''))<>''`))
   ];
-  return `concat_ws('；',${parts.join(",")})`;
+  /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
+  return `(concat_ws('；',${parts.join(",")}))`;
 }
 
 /** 月计划统一异常：跨当前月计划范围内所有关联周计划汇总（同一来源+文本只出现一次）。 */
@@ -91,7 +92,8 @@ function monthlyExceptionSummary() {
     ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
       exceptionPart(process.name, `SELECT string_agg(DISTINCT process.exception_text,'、' ORDER BY process.exception_text) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE ${monthlyWhere} AND process.process_code='${process.code}' AND btrim(COALESCE(process.exception_text,''))<>''`))
   ];
-  return `concat_ws('；',${parts.join(",")})`;
+  /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
+  return `(concat_ws('；',${parts.join(",")}))`;
 }
 
 export function virtualColumns(resource: MasterPlanResource) {
