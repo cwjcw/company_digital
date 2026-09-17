@@ -311,7 +311,9 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     { key: "cumulativeReportedQuantity", label: "累计报工", type: "number", editable: false, required: false, input: false },
     { key: "remainingQuantity", label: "剩余数量", type: "number", editable: false, required: false, input: false },
     { key: "productionQuantity", label: "本次报工数量", type: "number", editable: true, required: true, input: true },
-    { key: "productionDate", label: "生产日期", type: "date", editable: true, required: true, input: true }
+    { key: "productionDate", label: "生产日期", type: "date", editable: true, required: true, input: true },
+    /* KN-MPS-UI-001：异常为可选人工文本，和本次报工数量/生产日期一起提交。 */
+    { key: "exceptionText", label: "异常", type: "text", editable: true, required: false, input: true }
   ];
   const meta = { resource: "mps-process-reports", fields: [{ key: "productionQuantity", label: "报工数量", type: "number", editable: true }], createFields: [], pendingFields, actions: { create: true, update: true, delete: true, import: true, export: false, batchUpdate: false, reportProcess: true } };
 
@@ -340,7 +342,9 @@ describe("MasterPlanResourcePage pending process reporting", () => {
 
     await waitFor(() => expect(screen.getByText("2026A027192")).toBeInTheDocument());
     const headers = Array.from(container.querySelectorAll(".ant-table-thead th")).map((cell) => cell.textContent?.trim() ?? "");
-    for (const label of ["订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"]) expect(headers).toContain(label);
+    for (const label of ["订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期", "异常"]) expect(headers).toContain(label);
+    /* 异常列在最后（与权威定义顺序一致，不新增操作列）。 */
+    expect(headers.indexOf("异常")).toBeGreaterThan(headers.indexOf("生产日期"));
     expect(headers.indexOf("品项编码")).toBeGreaterThan(headers.indexOf("订单编号"));
     expect(headers.indexOf("品项名称")).toBeGreaterThan(headers.indexOf("品项编码"));
     expect(headers).not.toContain("操作");
@@ -369,6 +373,31 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     expect(typeof bodies[0].productionDate).toBe("string");
     expect(Object.keys(bodies[0]).sort()).toEqual(["processCode", "productionDate", "productionQuantity", "weeklyPlanId"]);
     await waitFor(() => expect(invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? [])).some((key) => key.includes("mps-weekly-plans"))).toBe(true));
+  }, 25_000);
+
+  it("submits the optional human exception with the report and omits it when left blank", async () => {
+    const bodies: any[] = []; mockPending((body) => bodies.push(body));
+    renderPage("mps-process-reports", "/master-plan-system/mps-process-reports");
+    fireEvent.click(await screen.findByRole("tab", { name: "待报工任务" }));
+    await screen.findByText("2026A027192", {}, { timeout: 10_000 });
+
+    fireEvent.click(await screen.findByRole("button", { name: /进入\s*编辑模式/ }));
+    const quantity = await screen.findByPlaceholderText("本次报工", {}, { timeout: 5_000 }) as HTMLInputElement;
+    fireEvent.change(quantity, { target: { value: "20" } });
+    const exception = await screen.findByPlaceholderText("可选：人工确认的异常") as HTMLInputElement;
+    fireEvent.change(exception, { target: { value: "  夹具异常  " } });
+    fireEvent.click(await screen.findByRole("button", { name: /提交报工/ }));
+
+    await waitFor(() => expect(bodies.length).toBe(1));
+    /* 人工异常原样（去首尾空格）写入本次报工事实。 */
+    expect(bodies[0]).toMatchObject({ weeklyPlanId, processCode: "bending", productionQuantity: 20, exceptionText: "夹具异常" });
+
+    /* 留空时不写入 exceptionText（不制造空异常）。 */
+    fireEvent.change(await screen.findByPlaceholderText("可选：人工确认的异常") as HTMLInputElement, { target: { value: "" } });
+    fireEvent.change(await screen.findByPlaceholderText("本次报工", {}, { timeout: 5_000 }) as HTMLInputElement, { target: { value: "10" } });
+    fireEvent.click(await screen.findByRole("button", { name: /提交报工/ }));
+    await waitFor(() => expect(bodies.length).toBe(2));
+    expect(Object.keys(bodies[1]).sort()).toEqual(["processCode", "productionDate", "productionQuantity", "weeklyPlanId"]);
   }, 25_000);
 });
 

@@ -230,7 +230,7 @@ describe("MasterPlanSpreadsheetService", () => {
       const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
       const sheet = workbook.worksheets[0]!;
       expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-        "记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"
+        "记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期", "异常"
       ]);
       /* 模板预置当前待报工任务，只有本次报工数量与生产日期是空白待填。 */
       expect(sheet.getRow(2).getCell(3).text).toBe("2026A027192");
@@ -238,6 +238,8 @@ describe("MasterPlanSpreadsheetService", () => {
       /* 字典列按用户看到的 label 展示（工序=bending 显示为折弯），导入时再解析回 value。 */
       expect(sheet.getRow(2).getCell(6).text).toBe("折弯");
       expect(sheet.getRow(2).getCell(10).text).toBe("");
+      /* KN-MPS-UI-001：异常是可选人工文本，模板留空。 */
+      expect(sheet.getRow(2).getCell(12).text).toBe("");
       expect(workbook.getWorksheet("填写说明")!.getCell("A1").text).toContain("CREATE 报工记录");
       expect((sheet.getRow(1).values as unknown[]).join("|")).not.toContain("操作");
     });
@@ -245,14 +247,14 @@ describe("MasterPlanSpreadsheetService", () => {
     it("creates a new report row from the task identity, never from order number or Chinese process name", async () => {
       application.validateImportUpdates.mockResolvedValue([]);
       const file = await workbookFile(
-        ["记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"],
-        [[taskId, 4, "2026A027192", "TGG919BDP-1/1", "品项", "折弯", 100, 40, 60, 20, "2026-09-16"]]
+        ["记录ID", "版本", "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期", "异常"],
+        [[taskId, 4, "2026A027192", "TGG919BDP-1/1", "品项", "折弯", 100, 40, 60, 20, "2026-09-16", "夹具异常"]]
       );
       const result = await service.preview("mps-process-reports", file, actor, "PENDING");
 
       expect(result.errors).toEqual([]);
       expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-process-reports", [
-        expect.objectContaining({ id: null, expectedVersion: null, values: { weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: "20" } })
+        expect.objectContaining({ id: null, expectedVersion: null, values: { weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: "20", exceptionText: "夹具异常" } })
       ], actor);
     });
 

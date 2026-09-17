@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { DataSource } from "typeorm";
-import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, type MasterPlanResource } from "./master-plan.config";
+import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { standardProcesses } from "@tracker/shared";
 import { MasterPlanFilterCompiler } from "./master-plan.filter";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
+import { tableSupportFieldsFor } from "@kdos/contracts";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -120,6 +121,11 @@ export class MasterPlanQueryService {
       ? this.scopeClause(resource, actor, "delete", allColumns, dataParams)
       : "false";
     const selected = visibleFields.map((field) => `${this.expression(allColumns[field]!)} "${field}"`);
+    /* KN-MPS-UI-001：辅助计算字段（累计报工）只作为行投影返回给界面解释生产进度，绝不进入列/打印/导出/筛选。 */
+    for (const field of tableSupportFieldsFor(resource.code)) {
+      if (!allColumns[field.key]) continue;
+      selected.push(`${this.expression(allColumns[field.key]!)} "${field.key}"`);
+    }
     selected.push(`(${updateAllowed}) "canUpdate"`);
     selected.push(`(${deleteAllowed}) "canDelete"`);
     const joins: string[] = [];
@@ -254,6 +260,8 @@ export class MasterPlanQueryService {
     /* 待报工任务不是 mps_process_reports 记录：它来自 mps_weekly_process_plans + mps_weekly_plans，
        累计/剩余由实际报工 SUM 得出，字段顺序取自唯一权威定义 processReportPendingFields()。 */
     const resource = this.resource("mps-process-reports"); const columns = processReportPendingColumns();
+    /* 本次填报输入列（本次报工数量 / 生产日期 / 异常）不参与搜索、筛选与任务事实汇总。 */
+    const pendingInputKeys = processReportPendingInputKeys();
     const visibleFields = processReportPendingFields().map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 50); const pageSize = [20,50,100,200].includes(requested) ? requested : 50;
@@ -261,7 +269,7 @@ export class MasterPlanQueryService {
       task.process_code,task.process_name,weekly.planned_quantity,
       COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity,
       GREATEST(COALESCE(weekly.planned_quantity,0)-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
-      NULL::numeric production_quantity,NULL::date production_date,
+      NULL::numeric production_quantity,NULL::date production_date,NULL::text exception_text,
       task.created_by,task.created_at,task.updated_by,task.updated_at
       FROM mps_weekly_process_plans task
       JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
@@ -273,7 +281,7 @@ export class MasterPlanQueryService {
     const search = String(input.search ?? "").trim();
     if (search) {
       /* 本次报工数量/生产日期是待填报输入列，不是任务事实，不参与搜索。 */
-      const searchableFields = visibleFields.filter((field) => !["divisionId", "productionQuantity", "productionDate"].includes(field) && columns[field]);
+      const searchableFields = visibleFields.filter((field) => !["divisionId", ...pendingInputKeys].includes(field) && columns[field]);
       params.push(`%${search}%`);
       const alternatives = searchableFields.map((field) => `COALESCE(${this.expression(columns[field]!)}::text,'') ILIKE $${params.length}`);
       for (const field of searchableFields) {
@@ -287,7 +295,7 @@ export class MasterPlanQueryService {
     }
     for (const [field, raw] of Object.entries(this.filters(input.filters))) {
       /* 本次报工数量/生产日期是待填报输入列，不是任务事实，不参与筛选。 */
-      if (!visibleFields.includes(field) || !columns[field] || ["productionQuantity", "productionDate"].includes(field)) continue;
+      if (!visibleFields.includes(field) || !columns[field] || pendingInputKeys.includes(field)) continue;
       const value = String(raw ?? "").trim(); if (!value) continue;
       if (field === "divisionId") {
         const ids = organizations.filter((option) => option.name.includes(value) || option.pathLabel.includes(value) || option.id === value).map((option) => option.id);

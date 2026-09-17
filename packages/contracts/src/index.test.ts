@@ -3,8 +3,9 @@ import {
   auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
   isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
-  tableFilterResourceCapabilities, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry
+  tableFilterResourceCapabilities, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
 } from "./index";
+import { standardProcesses } from "@tracker/shared";
 
 describe("KN-FILTER-001 field metadata audit gate", () => {
   it("audits every formal resource and field without metadata errors", () => {
@@ -193,24 +194,40 @@ describe("active PMC resources", () => {
     });
   });
 
-  it("KN-MPS-EXEC-001：已下达周计划数量只属于月计划只读辅助字段，不进入周计划", () => {
-    const monthlyKeys = tablePermissionFieldsFor("mps-monthly-plans").map((field) => field.key);
-    const weeklyKeys = tablePermissionFieldsFor("mps-weekly-plans").map((field) => field.key);
-    /* 月计划：10 个工序各有「已下达周计划数量」只读辅助字段，且不是可编辑字段。 */
-    const dispatched = tablePermissionFieldsFor("mps-monthly-plans").filter((field) => field.key.endsWith("DispatchedQuantity"));
-    expect(dispatched).toHaveLength(10);
-    for (const field of dispatched) {
-      expect(field.editable).toBe(false);
-      expect(field.format).toBe("decimal");
-      expect(field.label).toMatch(/·已下达周计划数量$/);
-    }
-    /* 周计划没有该辅助字段。 */
-    expect(weeklyKeys.some((key) => key.endsWith("DispatchedQuantity"))).toBe(false);
-    /* 月/周计划都有 10 个只读 percentage 生产进度字段（唯一事实来源是 mps_process_reports 累计报工）。 */
-    for (const keys of [monthlyKeys, weeklyKeys]) {
+  it("KN-MPS-UI-001：辅助计算字段不是业务字段，累计报工/报工次数/每工序已下达数量都不得成为主表列", () => {
+    for (const resource of ["mps-weekly-plans", "mps-monthly-plans"] as const) {
+      const keys = tablePermissionFieldsFor(resource).map((field) => field.key);
+      expect(keys.some((key) => key.endsWith("ReportedQuantity"))).toBe(false);
+      expect(keys.some((key) => key.endsWith("ReportCount"))).toBe(false);
+      expect(keys.some((key) => key.endsWith("DispatchedQuantity"))).toBe(false);
+      /* 每工序异常不再单列，异常统一到唯一 exceptionSummary。 */
+      expect(keys.some((key) => key.endsWith("Exception"))).toBe(false);
+      expect(keys.filter((key) => key === "exceptionSummary")).toHaveLength(1);
+      /* 每工序主表列仍是 周期/交期/状态/生产进度。 */
       expect(keys.filter((key) => key.endsWith("ProductionProgress"))).toHaveLength(10);
+      for (const process of standardProcesses) for (const suffix of ["CycleDays", "DueDate", "Status"]) expect(keys).toContain(`${process.code}${suffix}`);
+      /* 累计报工只存在于辅助计算字段登记表（Tooltip 用），不是业务字段。 */
+      expect(tableSupportFieldsFor(resource).map((field) => field.key)).toEqual(standardProcesses.map((process) => `${process.code}ReportedQuantity`));
     }
-    expect(monthlyKeys).toContain("requiredQuantity");
+    /* 月计划只有一个「已下达周计划数量」，且紧跟在需求数量之后的基础数量区域。 */
+    const monthlyKeys = tablePermissionFieldsFor("mps-monthly-plans").map((field) => field.key);
+    expect(monthlyKeys.filter((key) => key === "dispatchedWeeklyQuantity")).toHaveLength(1);
+    expect(monthlyKeys.indexOf("dispatchedWeeklyQuantity")).toBe(monthlyKeys.indexOf("requiredQuantity") + 1);
+    expect(monthlyKeys.indexOf("dispatchedWeeklyQuantity")).toBeLessThan(monthlyKeys.indexOf("cumulativeInboundQuantity"));
+    const dispatchedField = tablePermissionFieldsFor("mps-monthly-plans").find((field) => field.key === "dispatchedWeeklyQuantity");
+    expect(dispatchedField).toMatchObject({ label: "已下达周计划数量", editable: false, format: "decimal" });
+    /* 周计划没有该字段。 */
+    expect(tablePermissionFieldsFor("mps-weekly-plans").map((field) => field.key)).not.toContain("dispatchedWeeklyQuantity");
+  });
+
+  it("KN-MPS-UI-001：所有正式报工表都支持人工异常文本，工序任务文本改为计划提示", () => {
+    for (const resource of ["mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports"] as const) {
+      const field = tablePermissionFieldsFor(resource).find((candidate) => candidate.key === "exceptionText");
+      expect(field).toMatchObject({ label: "异常", type: "text", editable: true });
+      expect(field?.required).toBeFalsy();
+    }
+    /* 工序任务上的 exception_text 只是系统/计划提示，不再具有生产异常事实语义。 */
+    expect(tablePermissionFieldsFor("mps-weekly-process-plans").find((field) => field.key === "exceptionText")?.label).toBe("计划提示");
   });
 
   it("keeps the current master-plan resources and excludes retired planning UI resources", () => {

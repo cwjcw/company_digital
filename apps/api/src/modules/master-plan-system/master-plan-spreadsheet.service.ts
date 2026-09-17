@@ -11,12 +11,14 @@ import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanA
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 
 type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
-const legacyFieldAliases: Record<string, string[]> = { orderDate: ["订单日期"] };
+/* KN-MPS-UI-001：异常字段统一显示为「异常」，历史模板的「异常说明」表头继续可导入。 */
+const legacyFieldAliases: Record<string, string[]> = { orderDate: ["订单日期"], exceptionText: ["异常说明"] };
 const unreadableSpreadsheetMessage = "Excel 未解密或文件损坏，请解密或检查确保文件正确后导入。";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const pendingTemplateNotes = [
   "待报工任务导入：一行表示对一条待报工任务进行一次新的实际报工（CREATE 报工记录），不会覆盖历史报工。",
   "本次报工数量、生产日期由用户填写；订单编号、品项编码、品项名称、工序、计划数量、累计报工、剩余数量仅用于核对，请勿修改。",
+  "异常为可选项，仅填写实际生产过程中人工确认的异常；系统提示、计划缺失等无需填写。",
   "记录ID 是待报工任务的稳定标识、版本是该任务的乐观锁版本，均由系统维护，请勿修改；任务版本变化时该行会被拒绝并提示重新导出。",
   "同一任务可以多次导入报工（不同生产日期或同一天多笔），累计报工会自动重新汇总；累计达到计划数量后该任务不再出现在待报工列表。",
   "上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"
@@ -172,10 +174,12 @@ export class MasterPlanSpreadsheetService {
       optionColumn++;
     }
     const noteSheet = workbook.addWorksheet("填写说明"); noteSheet.getColumn(1).width = 120;
+    /* KN-MPS-UI-001：支持人工异常的报工表（含待报工视图）必须写明异常可选、只填人工确认的异常。 */
     noteSheet.addRows(notes?.map((line) => [line]) ?? [
       ["记录ID：系统为每条记录自动生成的唯一标识。新增导入时留空，由系统生成；更新已导出记录时必须原样保留且不得修改。"],
       ["版本：系统自动维护的正整数，用于防止多人同时修改时覆盖新数据。新增导入时留空；更新导入时必须保留导出时的版本，版本已变化时整批拒绝并提示刷新后重试。"],
       ["新增规则：记录ID和版本必须同时留空；更新规则：记录ID和版本必须同时填写。只填写其中一个会校验失败。"],
+      ...(fields.some((field) => field.key === "exceptionText") ? [["异常为可选项，仅填写实际生产过程中人工确认的异常；系统提示、计划缺失等无需填写。"]] : []),
       ["仅可修改有字段编辑权限的业务字段；空白单元格表示清空该字段。"],
       ["上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"],
       ["创建人、创建时间、更新人、更新时间不参与导入。"]
@@ -235,7 +239,10 @@ export class MasterPlanSpreadsheetService {
       if (Number(task.version) !== row.expectedVersion) { errors.push({ row: row.row, reason: "任务版本已变化，请重新下载待报工模板后填写" }); continue; }
       if (quantityEmpty) { errors.push({ row: row.row, reason: "本次报工数量不能为空" }); continue; }
       if (dateEmpty) { errors.push({ row: row.row, reason: "生产日期不能为空" }); continue; }
-      createRows.push({ row: row.row, id: null, expectedVersion: null, values: { weeklyPlanId: task.weekly_plan_id, processCode: task.process_code, productionDate: rawDate, productionQuantity: rawQuantity } });
+      /* 异常是可选项：留空即不写入异常，非空原样保存为本次报工的人工异常事实。 */
+      const rawException = row.values.exceptionText;
+      const exceptionText = rawException == null || String(rawException).trim() === "" ? null : String(rawException).trim();
+      createRows.push({ row: row.row, id: null, expectedVersion: null, values: { weeklyPlanId: task.weekly_plan_id, processCode: task.process_code, productionDate: rawDate, productionQuantity: rawQuantity, exceptionText } });
     }
     return { createRows, errors };
   }

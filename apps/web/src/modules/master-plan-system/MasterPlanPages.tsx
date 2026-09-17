@@ -123,9 +123,15 @@ function InlineMasterPlanCell({ resource, field, row, value, organizations, user
 }
 
 /** 待报工任务的本次报工数量/生产日期是草稿输入，不写回任务行；提交时才 CREATE 实际报工记录。 */
-function PendingReportCell({ field, draft, onChange }: { field: PendingField; draft?: { quantity?: number | null; date?: Dayjs | null }; onChange: (patch: { quantity?: number | null; date?: Dayjs | null }) => void }) {
+/*
+ * KN-MPS-UI-001：待报工行内填报的输入列来自统一权威定义（本次报工数量 / 生产日期 / 异常）。
+ * 异常是可选人工文本，只有用户填写才写入本次报工事实；系统不会自动生成异常。
+ */
+type PendingDraft = { quantity?: number | null; date?: Dayjs | null; exceptionText?: string | null };
+function PendingReportCell({ field, draft, onChange }: { field: PendingField; draft?: PendingDraft; onChange: (patch: PendingDraft) => void }) {
   const { editing } = useKdosTableEditMode();
-  if (!editing) return <>{draft?.quantity ? String(draft.quantity) : "—"}</>;
+  if (!editing) return <>{field.key === "exceptionText" ? (draft?.exceptionText ? String(draft.exceptionText) : "—") : draft?.quantity ? String(draft.quantity) : "—"}</>;
+  if (field.key === "exceptionText") return <Input size="small" value={draft?.exceptionText ?? ""} placeholder="可选：人工确认的异常" onChange={(event) => onChange({ exceptionText: event.target.value })} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker size="small" value={draft?.date ?? dayjs()} allowClear onChange={(next) => onChange({ date: next })} style={{ width: "100%" }} />;
   return <InputNumber size="small" min={0} precision={4} value={draft?.quantity ?? null} placeholder="本次报工" onChange={(next) => onChange({ quantity: next == null ? null : Number(next) })} style={{ width: "100%" }} />;
 }
@@ -142,7 +148,14 @@ function PendingReportSubmit({ count, submitting, onSubmit }: { count: number; s
  * 之前“字段不存在就不建组”的做法会让权限组只勾选部分字段时整个工序名消失；现在始终生成 10 个工序组，
  * 顺序严格按 process.order，组内只渲染当前用户可读的列：周期 / 交期 / 状态 / 生产进度。
  * 每个工序异常不再单列，异常统一到整表唯一的「异常」列（exceptionSummary）。
+ * KN-MPS-UI-001：主表只显示管理字段；*ReportedQuantity / *ReportCount / *DispatchedQuantity 属于
+ * 辅助计算字段，即使 metadata 里因为兼容仍存在，也不得自动落入 leading columns。
  */
+const MASTER_PLAN_SUPPORT_FIELD_SUFFIXES = ["ReportedQuantity", "ReportCount", "DispatchedQuantity"];
+export function isMasterPlanSupportField(key: string) {
+  return MASTER_PLAN_SUPPORT_FIELD_SUFFIXES.some((suffix) => key.endsWith(suffix));
+}
+
 function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
@@ -214,7 +227,9 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
   /* KN-MPS-EXEC-001：所有 *Exception 字段（10 个工序异常 + 技术/五金/木作/外协异常）不再单列展示，
      其内容已统一汇总到整表唯一的「异常」列；字段本体仍保留在 metadata 中供筛选/导出/兼容使用。 */
   for (const field of fields) if (field.key.endsWith("Exception")) grouped.add(field.key);
-  const leading = fields.filter((field) => !grouped.has(field.key) && field.key !== "exceptionSummary").map(column);
+  const leading = fields
+    .filter((field) => !grouped.has(field.key) && field.key !== "exceptionSummary" && !isMasterPlanSupportField(field.key))
+    .map(column);
   const exceptionField = fields.find((field) => field.key === "exceptionSummary");
   return [...leading, ...groups, ...(exceptionField ? [exceptionColumn(exceptionField)] : [])];
 }
@@ -238,23 +253,21 @@ export function formatProductionProgress(value: unknown) {
 
 /**
  * 生产进度单元格：主表只占一列，Hover 显示需求数量 / 累计报工 / 报工次数 / 生产进度。
- * 月计划分母是整个订单/月度总需求（requiredQuantity）——绝不用已下达周计划数量；
- * 已下达周计划数量只作为辅助信息展示（不参与进度计算）。
+ * KN-MPS-UI-001：不再显示「报工次数」；月计划分母是整个订单/月度总需求（requiredQuantity），
+ * 已下达周计划数量（月计划唯一字段 dispatchedWeeklyQuantity）只作为辅助信息展示，不参与进度计算。
  */
 export function MasterPlanProgressCell({ process, row, value, resource }: { process: ProcessOption; row: any; value: unknown; resource: string }) {
   const monthly = resource === "mps-monthly-plans";
   /* 月计划的分母是整个订单/月度总需求（requiredQuantity）；已下达周计划数量只作为辅助信息展示。 */
   const demand = monthly ? row?.requiredQuantity : row?.plannedQuantity;
-  const dispatched = row?.[`${process.code}DispatchedQuantity`];
+  const dispatched = row?.dispatchedWeeklyQuantity;
   const reported = row?.[`${process.code}ReportedQuantity`];
-  const count = row?.[`${process.code}ReportCount`];
   const text = formatProductionProgress(value);
   const show = (input: unknown, fallback = "—") => input == null || input === "" ? fallback : String(input);
   return <Tooltip title={<div className="kdos-progress-tooltip">
     <div>{monthly ? "月度总需求" : "需求数量"}：{show(demand)}</div>
-    <div>累计报工：{show(reported)}</div>
-    <div>报工次数：{show(count, "0")}</div>
     {monthly && <div>已下达周计划数量：{show(dispatched)}</div>}
+    <div>累计报工：{show(reported)}</div>
     <div>生产进度：{text}</div>
   </div>}>
     <span className={progressCellClass(value)} style={progressCellStyle(value)}>{text}</span>
@@ -281,7 +294,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const queryClient = useQueryClient(); const navigate = useNavigate(); const [searchParams] = useSearchParams(); const basePlanId = resource === "mps-weekly-plans" ? searchParams.get("basePlanId") ?? undefined : undefined;
   const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
   const isPendingView = resource === "mps-process-reports" && view === "PENDING";
-  const [pendingDrafts, setPendingDrafts] = useState<Record<string, { quantity?: number | null; date?: Dayjs | null }>>({});
+  const [pendingDrafts, setPendingDrafts] = useState<Record<string, PendingDraft>>({});
   const [pendingSubmitting, setPendingSubmitting] = useState(false);
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
@@ -444,7 +457,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
           body: JSON.stringify({
             weeklyPlanId: row.weeklyPlanId, processCode: row.processCode,
             productionDate: dayjs(draft.date ?? dayjs()).format("YYYY-MM-DD"),
-            productionQuantity: Number(draft.quantity)
+            productionQuantity: Number(draft.quantity),
+            /* KN-MPS-UI-001：异常是可选人工事实；留空则不写入异常。 */
+            ...(String(draft.exceptionText ?? "").trim() ? { exceptionText: String(draft.exceptionText).trim() } : {})
           })
         });
         created += 1; reconciliation = response?.reconciliation ?? reconciliation;

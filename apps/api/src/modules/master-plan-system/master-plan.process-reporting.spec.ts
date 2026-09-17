@@ -25,16 +25,19 @@ const task = {
 };
 
 describe("KN-PR-001 pending process reporting view", () => {
-  it("defines the pending view fields once, in the approved order, with only two input columns", () => {
+  it("defines the pending view fields once, in the approved order, with the reporting inputs", () => {
     expect(PROCESS_REPORT_PENDING_FIELDS.map((field) => field.label)).toEqual([
-      "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期"
+      "订单编号", "品项编码", "品项名称", "工序", "计划数量", "累计报工", "剩余数量", "本次报工数量", "生产日期", "异常"
     ]);
     expect(PROCESS_REPORT_PENDING_FIELDS.map((field) => field.key)).toEqual([
       "orderNumber", "itemCode", "itemName", "processCode", "plannedQuantity",
-      "cumulativeReportedQuantity", "remainingQuantity", "productionQuantity", "productionDate"
+      "cumulativeReportedQuantity", "remainingQuantity", "productionQuantity", "productionDate", "exceptionText"
     ]);
     const fields = processReportPendingFields();
-    expect(fields.filter((field) => field.input).map((field) => field.key)).toEqual(["productionQuantity", "productionDate"]);
+    expect(fields.filter((field) => field.input).map((field) => field.key)).toEqual(["productionQuantity", "productionDate", "exceptionText"]);
+    /* 数量与生产日期必填；异常是可选人工文本。 */
+    expect(fields.filter((field) => field.input && field.required).map((field) => field.key)).toEqual(["productionQuantity", "productionDate"]);
+    expect(fields.find((field) => field.key === "exceptionText")).toMatchObject({ label: "异常", type: "text", editable: true, required: false });
     expect(fields.filter((field) => !field.input).every((field) => field.editable === false)).toBe(true);
     /* 工序字典 options 与正式字段定义同源。 */
     /* KN-PROC-001：工序 options 只有正式 10 工序，毛坯在研磨之后、表面处理之前。 */

@@ -47,12 +47,15 @@ describe("KN-PROC-001 unified process registry", () => {
     const metadata = new MasterPlanQueryService({} as never, directory as never).metadata("mps-weekly-plans", actor);
     expect(metadata.processes.map((process: { code: string }) => process.code)).toEqual(PROCESS_ORDER);
     const keys = metadata.fields.map((field: { key: string }) => field.key);
-    expect(keys).toEqual(expect.arrayContaining(["blankCycleDays", "blankDueDate", "blankStatus", "blankException"]));
+    /* KN-MPS-UI-001：每工序只保留 周期/交期/状态/生产进度，异常统一到唯一 exceptionSummary。 */
+    expect(keys).toEqual(expect.arrayContaining(["blankCycleDays", "blankDueDate", "blankStatus", "blankProductionProgress"]));
+    expect(keys).not.toContain("blankException");
     expect(keys.indexOf("blankStatus")).toBeGreaterThan(keys.indexOf("grindingStatus"));
     expect(keys.indexOf("blankStatus")).toBeLessThan(keys.indexOf("surfaceTreatmentStatus"));
 
     const columns = virtualColumns(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")!);
-    expect(Object.keys(columns)).toEqual(expect.arrayContaining(["blankCycleDays", "blankDueDate", "blankStatus", "blankException"]));
+    expect(Object.keys(columns)).toEqual(expect.arrayContaining(["blankCycleDays", "blankDueDate", "blankStatus", "blankProductionProgress"]));
+    expect(Object.keys(columns)).not.toContain("blankException");
     expect(columns.blankStatus).toContain("process.process_code='blank'");
   });
 

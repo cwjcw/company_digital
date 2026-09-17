@@ -135,6 +135,19 @@ export interface TablePermissionFieldDefinition {
   options?: Array<{ value: string; label: string }>;
 }
 
+/**
+ * KN-MPS-UI-001 辅助计算字段（support projection）：
+ * 只用于解释派生指标（例如生产进度 Tooltip 的「累计报工」），**不是业务字段**。
+ * 它们不进入主表列、打印、Excel 导出/模板与字段权限编辑器；只在行投影中按需返回给界面做说明。
+ * 判断口径：辅助字段绝不允许出现在 `tablePermissionFieldsFor(resource)` 里。
+ */
+export interface TableSupportFieldDefinition {
+  key: string;
+  label: string;
+  type: TablePermissionFieldType;
+  format?: TableFieldFormat;
+}
+
 const auditPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "createdBy", label: "创建人", type: "member", editable: false },
   { key: "createdAt", label: "创建时间", type: "datetime", editable: false, format: "plain" },
@@ -225,15 +238,18 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   /* 工序周期列顺序与 canonical registry 完全一致（毛坯位于研磨之后、表面处理之前）。 */
   "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"], ...standardProcesses.map((process) => [process.cycleField, `${process.name}周期`, "number"] as [string, string, "number"])]),
   "mps-group-plans": fields([["sourceAccounts", "来源账套", "text", false, false, { filterBinding: { kind: "aggregate", note: "由多个来源账套聚合拼接，按包含匹配筛选" } }], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["customerCode", "客户编码", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["orderAmount", "订单金额", "number", false, false, { format: "currency" }], ["requiredQuantity", "需求数量", "number", false], ["primaryDivisionId", "主责事业部", "department", false], ["completedQuantity", "完成数量", "number", false], ["pendingQuantity", "待完成数量", "number", false], ["completionRate", "完成比例", "number", false, false, { format: "percentage" }]]),
-  "mps-monthly-plans": fields([["divisionId", "承接事业部", "department", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["latestCustomerDueDate", "最迟客户交期", "date"], ["modelAge", "新旧款", "dictionary"], ["productAttribute", "产品属性"], ["surfaceNature", "表面性质"], ["specialItem", "特殊事项"], ["requiredQuantity", "需求数量", "number", false], ["cumulativeInboundQuantity", "累计入库数量", "number", false], ["pendingQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["plannedPageCount", "计划页数", "number"], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"], ["orderWeekCount", "下单周数", "number", false]]),
+  /* KN-MPS-UI-001：月计划基础数量区域固定为 需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数；全表只有一个「已下达周计划数量」。 */
+  "mps-monthly-plans": fields([["divisionId", "承接事业部", "department", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["latestCustomerDueDate", "最迟客户交期", "date"], ["modelAge", "新旧款", "dictionary"], ["productAttribute", "产品属性"], ["surfaceNature", "表面性质"], ["specialItem", "特殊事项"], ["requiredQuantity", "需求数量", "number", false], ["dispatchedWeeklyQuantity", "已下达周计划数量", "number", false, false, { format: "decimal", filterBinding: { kind: "virtual", note: "当前月计划范围内所有关联周计划 planned_quantity 之和（辅助管理指标，绝不参与生产进度分母）" } }], ["cumulativeInboundQuantity", "累计入库数量", "number", false], ["pendingQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["plannedPageCount", "计划页数", "number"], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"], ["orderWeekCount", "下单周数", "number", false]]),
   "mps-shipping-plans": fields([["customerCode", "客户编码", "text", true, true], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称", "text", true, true], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["modelAge", "新旧款", "dictionary", true], ["enteredWeeklyPlan", "已进入周计划", "boolean", false]]),
   "mps-base-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["modelAge", "新旧款", "dictionary", true], ["productAttribute", "产品属性", "dictionary", true, true], ["surfaceNature", "表面性质", "dictionary", true, true], ["manufacturingMethod", "生产方式", "dictionary", true, true], ["weeklyPlanState", "周计划状态", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false], ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false]]),
   "mps-weekly-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["allocatedInboundQuantity", "分摊入库数量", "number"], ["pendingQuantity", "欠数", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["drawingDueDate", "图纸交期", "date", false], ["hardwareDueDate", "五金交期", "date", false], ["woodDueDate", "木作交期", "date", false], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"]]),
-  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
-  "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常说明"]]),
-  "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常说明"]]),
-  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "supplier-list", valueField: "id", labelField: "code,name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常说明"]]),
-  "mps-process-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["processCode", "工序", "dictionary", true, true], ["productionDate", "生产日期", "date", true, true], ["plannedQuantity", "计划数量", "number", false], ["productionQuantity", "报工数量", "number", true, true]]),
+  /* KN-MPS-UI-001：工序任务的 exception_text 只是系统/计划提示，不再具有「生产异常事实」语义（异常唯一来源是报工表）。 */
+  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "计划提示"]]),
+  "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常"]]),
+  "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常"]]),
+  "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "supplier-list", valueField: "id", labelField: "code,name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常"]]),
+  /* KN-MPS-UI-001：工序报工新增人工「异常」文本（可选），异常事实绑定到每一次报工，不是工序任务。 */
+  "mps-process-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["processCode", "工序", "dictionary", true, true], ["productionDate", "生产日期", "date", true, true], ["plannedQuantity", "计划数量", "number", false], ["productionQuantity", "报工数量", "number", true, true], ["exceptionText", "异常"]]),
   "mps-sync-configs": fields([["syncKey", "同步编码", "text", false], ["name", "同步任务", "text", false], ["enabled", "启用", "boolean"], ["intervalMinutes", "间隔分钟", "number"], ["lastStartedAt", "最近开始", "date", false], ["lastSuccessAt", "最近成功", "date", false], ["lastFailureAt", "最近失败", "date", false], ["lastSyncCount", "最近同步数量", "number", false], ["status", "状态", "dictionary", false], ["errorMessage", "错误信息", "text", false]]),
   "mps-sync-logs": fields([["syncKey", "同步编码", "text", false], ["runType", "运行类型", "dictionary", false], ["status", "状态", "dictionary", false], ["startedAt", "开始时间", "datetime", false], ["completedAt", "完成时间", "datetime", false], ["syncCount", "同步数量", "number", false], ["errorMessage", "错误信息", "text", false], ["idempotencyKey", "幂等标识", "text", false]]),
   "mps-data-exceptions": fields([["resource", "来源表", "text", false], ["businessKey", "业务键", "text", false], ["exceptionType", "异常类型", "dictionary", false], ["severity", "级别", "dictionary", false], ["message", "异常说明", "text", false], ["active", "未解决", "boolean", false], ["resolvedAt", "解决时间", "date", false]]),
@@ -302,28 +318,35 @@ const standardMpsProcesses = standardProcesses.map((process) => [process.code, p
 const mpsProcessPermissionFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
   { key: `${code}CycleDays`, label: `${label}·所需周期`, type: "number" as const, editable: false },
   { key: `${code}DueDate`, label: `${label}·交期`, type: "date" as const, editable: false },
-  { key: `${code}Status`, label: `${label}·状态`, type: "dictionary" as const, editable: false },
-  { key: `${code}Exception`, label: `${label}·异常`, type: "text" as const, editable: false }
+  { key: `${code}Status`, label: `${label}·状态`, type: "dictionary" as const, editable: false }
 ]);
 
 /**
  * KN-MPS-EXEC-001：每个标准工序的「生产进度」只读派生字段（唯一事实来源 mps_process_reports 累计报工）。
  * 内部按 ratio 存储（0.8=80%、1.05=105%），与平台 percentage 规范一致；需求为 0/NULL 时为 NULL（界面显示 —）。
- * ReportedQuantity/ReportCount 只用于 Hover 详情，不作为表格列。
+ * KN-MPS-UI-001：每个工序的主表列固定为「周期 | 交期 | 状态 | 生产进度」；本任务只为生产进度注册正式字段，
+ * 累计报工改为 support projection、报工次数与每工序已下达数量直接删除，都不再是业务字段。
  */
 const mpsProcessProgressFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
-  { key: `${code}ProductionProgress`, label: `${label}·生产进度`, type: "number" as const, editable: false, format: "percentage" as const },
-  { key: `${code}ReportedQuantity`, label: `${label}·累计报工`, type: "number" as const, editable: false, format: "decimal" as const },
-  { key: `${code}ReportCount`, label: `${label}·报工次数`, type: "number" as const, editable: false, format: "integer" as const }
+  { key: `${code}ProductionProgress`, label: `${label}·生产进度`, type: "number" as const, editable: false, format: "percentage" as const }
 ]);
 
 /**
- * 月计划专用只读辅助字段：已下达周计划数量（仅用于 Hover 说明，绝不参与生产进度分母）。
- * 周计划没有该字段。
+ * KN-MPS-UI-001 辅助计算字段（support projection，不是业务字段）：
+ * 累计报工只用于解释生产进度（Tooltip），绝不进入主表列、打印、导出、Excel 模板与字段权限编辑器。
+ * 报工次数已按业务确认彻底删除；每工序「已下达周计划数量」重复设计已收敛为月计划唯一的 dispatchedWeeklyQuantity。
  */
-const mpsProcessDispatchedFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
-  { key: `${code}DispatchedQuantity`, label: `${label}·已下达周计划数量`, type: "number" as const, editable: false, format: "decimal" as const }
+const mpsProcessReportedSupportFields: TableSupportFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
+  { key: `${code}ReportedQuantity`, label: `${label}·累计报工`, type: "number" as const, format: "decimal" as const }
 ]);
+
+/** 辅助计算字段登记表：只有明确登记在这里的字段才允许作为行投影辅助值返回，且永远不会成为业务字段。 */
+const tableSupportFieldRegistry: Partial<Record<TableResourceCode, TableSupportFieldDefinition[]>> = {
+  "mps-weekly-plans": mpsProcessReportedSupportFields,
+  "mps-monthly-plans": mpsProcessReportedSupportFields
+};
+
+export const tableSupportFieldsFor = (resource: TableResourceCode) => tableSupportFieldRegistry[resource] ?? [];
 
 /** 周/月计划整表唯一异常列：汇总所有正式执行异常来源（含来源标签、去重、稳定顺序）。 */
 const mpsExceptionSummaryField: TablePermissionFieldDefinition[] = [
@@ -332,32 +355,25 @@ const mpsExceptionSummaryField: TablePermissionFieldDefinition[] = [
 const weeklyAuxiliaryPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "technicalCycleDays", label: "技术/图纸计划·所需周期", type: "number", editable: false },
   { key: "technicalStatus", label: "技术/图纸计划·状态", type: "dictionary", editable: false },
-  { key: "technicalException", label: "技术/图纸计划·异常", type: "text", editable: false },
   { key: "hardwareCycleDays", label: "五金主材计划·所需周期", type: "number", editable: false },
   { key: "hardwareStatus", label: "五金主材计划·状态", type: "dictionary", editable: false },
-  { key: "hardwareException", label: "五金主材计划·异常", type: "text", editable: false },
   { key: "woodCycleDays", label: "木作主材计划·所需周期", type: "number", editable: false },
   { key: "woodStatus", label: "木作主材计划·状态", type: "dictionary", editable: false },
-  { key: "woodException", label: "木作主材计划·异常", type: "text", editable: false },
   { key: "outsourcingCycleDays", label: "外协计划·所需周期", type: "number", editable: false },
   { key: "outsourcingDueDate", label: "外协计划·交期", type: "date", editable: false },
   { key: "outsourcingStatus", label: "外协计划·状态", type: "dictionary", editable: false },
-  { key: "outsourcingException", label: "外协计划·异常", type: "text", editable: false },
   { key: "outsourcingActualInboundDate", label: "外协计划·实际入库日期", type: "date", editable: false }
 ];
 const monthlyAuxiliaryPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "technicalCycleDays", label: "技术/图纸计划·所需周期", type: "number", editable: false },
   { key: "drawingDueDate", label: "技术/图纸计划·图纸交期", type: "date", editable: false },
   { key: "technicalStatus", label: "技术/图纸计划·状态", type: "dictionary", editable: false },
-  { key: "technicalException", label: "技术/图纸计划·异常", type: "text", editable: false },
   { key: "hardwareCycleDays", label: "五金主材计划·所需周期", type: "number", editable: false },
   { key: "hardwareDueDate", label: "五金主材计划·交期", type: "date", editable: false },
   { key: "hardwareStatus", label: "五金主材计划·状态", type: "dictionary", editable: false },
-  { key: "hardwareException", label: "五金主材计划·异常", type: "text", editable: false },
   { key: "woodCycleDays", label: "木作主材计划·所需周期", type: "number", editable: false },
   { key: "woodDueDate", label: "木作主材计划·交期", type: "date", editable: false },
   { key: "woodStatus", label: "木作主材计划·状态", type: "dictionary", editable: false },
-  { key: "woodException", label: "木作主材计划·异常", type: "text", editable: false },
   ...weeklyAuxiliaryPermissionFields.filter((field) => field.key.startsWith("outsourcing"))
 ];
 for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
@@ -367,7 +383,6 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
     ...(resource === "mps-weekly-plans" ? weeklyAuxiliaryPermissionFields : monthlyAuxiliaryPermissionFields),
     ...mpsProcessPermissionFields,
     ...mpsProcessProgressFields,
-    ...(resource === "mps-monthly-plans" ? mpsProcessDispatchedFields : []),
     ...mpsExceptionSummaryField,
     ...auditPermissionFields
   ];
@@ -708,6 +723,11 @@ export function auditTableFieldMetadata(): { resources: number; fields: number; 
       }
       if (field.type === "structured" && field.filterable === undefined) errors.push(`structured 必须声明 filterable：${where}`);
       if (field.multiple !== undefined && typeof field.multiple !== "boolean") errors.push(`multiple 必须为布尔：${where}`);
+    }
+    /* KN-MPS-UI-001：辅助计算字段（support projection）绝不能同时登记为业务字段，否则会重新泄露到主表/打印/导出/字段权限。 */
+    for (const support of tableSupportFieldsFor(resource.code as TableResourceCode)) {
+      if (seenKeys.has(support.key)) errors.push(`辅助计算字段不得作为业务字段登记：${resource.code}.${support.key}`);
+      if (!support.label) errors.push(`辅助计算字段缺少显示名：${resource.code}.${support.key}`);
     }
   }
   return { resources: seenResources.size, fields, errors };
