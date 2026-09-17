@@ -41,6 +41,25 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
   });
 
+  it("KN-MPS-INIT-001：base-to-weekly 只处理满足准入的基础计划，缺评审交期的历史 base 永不进入生成/更新集合", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const insert = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.includes("INSERT INTO mps_weekly_plans"))!;
+
+    /* 准入谓词继续强制要求评审交期（历史初始化 base 为 NULL → 永远不满足）。 */
+    expect(insert).toContain("NULLIF(btrim(base.latest_review_due_date::text),'') IS NOT NULL");
+    expect(insert).toContain("NULLIF(btrim(base.product_attribute::text),'') IS NOT NULL");
+    expect(insert).toContain("NULLIF(btrim(base.surface_nature::text),'') IS NOT NULL");
+    expect(insert).toContain("NULLIF(btrim(base.manufacturing_method::text),'') IS NOT NULL");
+    /* 即使发生冲突，也必须“确有差异”才更新，避免无意义重写历史行。 */
+    expect(insert).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET");
+    expect(insert).toContain("IS DISTINCT FROM");
+    /* 仍然按 base_plan_id 一对一，不会新增第二条 weekly（唯一约束保证 1:1）。 */
+    expect(insert).toContain("LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id");
+  });
+
   it("never copies an illegal dictionary value from the base plan into the weekly plan", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) };
     const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
