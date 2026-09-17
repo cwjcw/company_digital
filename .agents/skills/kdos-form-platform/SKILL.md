@@ -176,6 +176,11 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 11. Dedicated Print DOM + Print CSS + Browser Print；禁止截图打印/长 PNG；打印前必须提供可见的打印预览与方向选择。
 12. A4 支持 portrait/landscape，宽表自动横向；同一业务表所有打印列必须在同一物理页宽度内（禁止横向拆表）；纵向允许分页并重复表头。
 13. >300 行必须先确认（300 只是确认阈值，不是硬上限）；超大数据先给真实 count 并二次警示；受控分批查询，禁止 pageSize=1000000 与静默截断。
+13.1 打印业务时间统一按 **Asia/Shanghai** 显示为 `YYYY-MM-DD HH:mm:ss`：后端返回 ISO instant，前端必须用 `Intl.DateTimeFormat` + `timeZone: "Asia/Shanghai"` 转换；禁止依赖浏览器本机时区、禁止手工 +8、禁止直接输出 ISO 字符串或毫秒。
+13.2 打印人必须来自可信认证身份的 `displayName`（回退 `username`，再回退 `—`）；**禁止显示 userId/UUID**，也禁止前端查 `/auth/me` 覆盖服务端打印元数据；API Key 触发打印时按现有 actor 名称语义展示，同样不显示 UUID。
+13.3 打印页眉不显示“已应用搜索和筛选条件”等无业务价值描述（也不得换成“已筛选/高级筛选已生效”等同类文案）；只保留有意义的范围信息：`已选 / 筛选结果 / 全部记录` + 数量。
+13.4 打印页眉结构固定为：平台名 → 业务表中文名 → `打印时间：…` + `打印人：…`（flex + 列间距，不得粘连）→ `打印范围：…`；不显示 resource code、UUID、FilterGroup JSON 或检索条件描述。
+13.5 打印文档的排版规则必须同时作用于「屏幕预览」与「实际打印」（只把隐藏业务页面/预览工具条与分页控制放进 `@media print`），否则预览版式与纸上不一致。
 14. 树形配置/Dashboard 等非记录型页面可以 NOT_APPLICABLE，但必须写真实中文产品理由；上下文视图（如 selectedRoleId）必须服务端 AND 到打印 Query。
 15. Print DTO 必须 server-side projection；打印纯读取，不得改变任何业务数据；禁止新增独立“操作”列。
 
