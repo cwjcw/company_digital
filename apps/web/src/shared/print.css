@@ -1,12 +1,46 @@
-/* KN-PRINT-001 统一打印样式：Dedicated Print DOM + Print CSS + 浏览器打印（禁止截图打印）。 */
-/* 屏幕上是打印预览（可见），打印时只输出打印文档本身。 */
-.kdos-print-root { display: block; }
+/*
+ * KN-PRINT-001 统一打印样式：Dedicated Print DOM + Print CSS + 浏览器打印（禁止截图打印）。
+ * 说明：打印文档的排版规则必须同时作用于「屏幕预览」与「实际打印」，
+ * 否则用户在预览里看到的版式（例如打印时间/打印人粘在一起）与纸上不一致。
+ * 只把“隐藏业务页面、隐藏预览工具条、分页控制”这类与纸张相关的规则放在 @media print。
+ */
+
+/* ===== 打印文档排版（屏幕预览 + 打印都生效） ===== */
+.kdos-print-root { display: block; color: #000; background: #fff; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.kdos-print-header { margin-bottom: 8px; }
+.kdos-print-platform { font-size: 12px; color: #333; }
+.kdos-print-title { font-size: 18px; font-weight: 700; margin: 2px 0 6px; }
+/* 打印时间与打印人必须明显分开（flex + 列间距），不得粘在一起。 */
+.kdos-print-meta { font-size: 11px; color: #333; display: flex; flex-wrap: wrap; column-gap: 24px; row-gap: 4px; }
+.kdos-print-meta > span { display: inline-block; white-space: nowrap; }
+.kdos-print-scope { font-size: 11px; color: #333; margin-top: 2px; }
+
+/* 一个业务表的所有列必须在同一物理页宽度内：固定表格布局 + 智能列宽，禁止横向拆表。 */
+.kdos-print-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; }
+.kdos-print-table th,
+.kdos-print-table td { border: 1px solid #666; padding: 2px 4px; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+.kdos-print-table th { background: #f2f2f2; font-weight: 700; text-align: center; }
+/* 纵向自然分页时每页重复表头。 */
+.kdos-print-table thead { display: table-header-group; }
+.kdos-print-table tr { break-inside: avoid; page-break-inside: avoid; }
+.kdos-print-align-right { text-align: right; }
+.kdos-print-align-center { text-align: center; }
+.kdos-print-empty { padding: 24px; font-size: 12px; text-align: center; }
+
+/* 纵向/横向分别使用命名页面；打印时还会动态注入实际 @page 尺寸，保证 A4 生效。 */
+.kdos-print-root.orientation-portrait { page: kdos-a4-portrait; }
+.kdos-print-root.orientation-landscape { page: kdos-a4-landscape; }
+
+/* ===== 打印预览外壳（仅屏幕） ===== */
 .kdos-print-preview { position: fixed; inset: 0; z-index: 2000; background: #e6e8eb; overflow: auto; padding: 16px; }
 .kdos-print-preview-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin: -16px -16px 12px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #d9d9d9; }
 .kdos-print-preview-hint { margin-right: auto; color: #555; font-size: 13px; }
 .kdos-print-paper { background: #fff; margin: 0 auto; padding: 12mm 10mm; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
-.kdos-print-paper.paper-landscape { width: 297mm; }
-.kdos-print-paper.paper-portrait { width: 210mm; }
+.kdos-print-paper.paper-landscape { width: 297mm; max-width: 100%; }
+.kdos-print-paper.paper-portrait { width: 210mm; max-width: 100%; }
+
+@page kdos-a4-portrait { size: A4 portrait; margin: 10mm; }
+@page kdos-a4-landscape { size: A4 landscape; margin: 8mm; }
 
 @media print {
   .kdos-print-preview { position: static; inset: auto; background: none; padding: 0; overflow: visible; }
@@ -15,30 +49,4 @@
   /* 业务页面（侧栏/菜单/按钮/分页/搜索/高级筛选/弹窗）一律不进入打印内容。 */
   body > *:not(.kdos-print-portal) { display: none !important; }
   .kdos-print-portal { display: block !important; }
-
-  .kdos-print-root { display: block !important; color: #000; background: #fff; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
-  .kdos-print-header { margin-bottom: 8px; }
-  .kdos-print-platform { font-size: 12px; color: #333; }
-  .kdos-print-title { font-size: 18px; font-weight: 700; margin: 2px 0 6px; }
-  .kdos-print-meta { font-size: 11px; color: #333; display: flex; flex-wrap: wrap; gap: 4px 16px; }
-  .kdos-print-scope { font-size: 11px; color: #333; }
-
-  /* 一个业务表的所有列必须在同一物理页宽度内：固定表格布局 + 智能列宽，禁止横向拆表。 */
-  .kdos-print-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; }
-  .kdos-print-table th,
-  .kdos-print-table td { border: 1px solid #666; padding: 2px 4px; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
-  .kdos-print-table th { background: #f2f2f2; font-weight: 700; text-align: center; }
-  /* 纵向自然分页时每页重复表头。 */
-  .kdos-print-table thead { display: table-header-group; }
-  .kdos-print-table tr { break-inside: avoid; page-break-inside: avoid; }
-  .kdos-print-align-right { text-align: right; }
-  .kdos-print-align-center { text-align: center; }
-  .kdos-print-empty { padding: 24px; font-size: 12px; text-align: center; }
-
-  /* 纵向/横向分别使用命名页面；打印时还会动态注入实际 @page 尺寸，保证 A4 生效。 */
-  .kdos-print-root.orientation-portrait { page: kdos-a4-portrait; }
-  .kdos-print-root.orientation-landscape { page: kdos-a4-landscape; }
 }
-
-@page kdos-a4-portrait { size: A4 portrait; margin: 10mm; }
-@page kdos-a4-landscape { size: A4 landscape; margin: 8mm; }
