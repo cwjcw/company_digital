@@ -161,15 +161,32 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 3. 每个工序固定展示：`周期 | 交期 | 状态 | 生产进度`。`Status` 保留定性业务语义（未开始/进行中/延期/已完成 等），`ProductionProgress` 承担定量完成程度，两者不得互相推导、不得互相替换。
 4. 生产进度的唯一事实来源是实际报工事实表 `mps_process_reports`：按 `tenant_id + weekly_plan_id + process_code` **SUM** `production_quantity`；禁止取最后一条、MAX、AVG 或把报工条数当数量，禁止覆盖历史报工。
 5. 周计划进度 = `SUM(实际报工) / 工序需求`；工序需求复用 PENDING 同一正式字段（`mps_weekly_plans.planned_quantity`），不得新建第二份需求数量。需求为 0/NULL 时显示 `—`（禁止除零产生 NaN/Infinity）。
-6. 月计划进度 = `SUM(全部关联周计划的累计实际报工) / monthly.required_quantity`：表示**整个订单/月度总需求完成率**，**绝不表示“已下达到周计划部分的执行完成率”**。分母固定用月计划正式总需求 `record.required_quantity`；**禁止用 `SUM(weekly.planned_quantity)`（已下达周计划数量）做月计划进度分母或参与百分比计算**——它只能作为 Hover 辅助信息（`${code}DispatchedQuantity`）展示；**禁止平均各周计划百分比**；报工必须先按 `tenant+weekly_plan_id+process_code` 预聚合成子查询再与周计划关联，禁止一对多 JOIN 直接 SUM 造成重复累计；`required_quantity` 为 0/NULL → `—`（禁止除零）。
+6. 月计划进度 = `SUM(全部关联周计划的累计实际报工) / monthly.required_quantity`：表示**整个订单/月度总需求完成率**，**绝不表示“已下达到周计划部分的执行完成率”**。分母固定用月计划正式总需求 `record.required_quantity`；**禁止用 `SUM(weekly.planned_quantity)`（已下达周计划数量）做月计划进度分母或参与百分比计算**——已下达数量是月计划唯一字段 `dispatchedWeeklyQuantity`（基础数量区域，`需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数`），绝不参与百分比；**禁止平均各周计划百分比**；报工必须先按 `tenant+weekly_plan_id+process_code` 预聚合成子查询再与周计划关联，禁止一对多 JOIN 直接 SUM 造成重复累计；`required_quantity` 为 0/NULL → `—`（禁止除零）。
 6.1 状态与进度独立：不得因为 `Status=已完成` 反推进度为 100%，也不得因为进度 ≥100% 自动修改 `Status`；允许“状态：已完成 / 生产进度：60%”。月计划绿色只由 `required_quantity>0 且累计实际报工 ≥ required_quantity` 决定（`>=100%` 只是该条件的界面表达）；已下达周计划全部完成但月计划总需求未完成时**不得**显示 100%、**不得**变绿。典型锁定样例：`required=500`、两个 weekly planned 合计 300 且累计报工 300 → 月计划必须显示 **60%**（不是 100%）；`required=500`、weekly A planned100/actual105、weekly B planned200/actual150 → 月计划必须显示 **51%**（不是 85%、不是 90%）。
 7. 允许 `ProductionProgress > 100%`（如 105%、130%），不得 `Math.min(progress,1)` 封顶；`>=100%` 时**只**把生产进度单元格标为完成绿，不得整行或整个工序组变绿，也不得改变状态列语义。
 8. 工序配色按 `process.order` 从平台调色板取色（低饱和，三层：一级表头较明显 / 二级表头更浅 / 数据单元格极浅），同一工序在周计划与月计划颜色一致；禁止逐工序写 `if (code === "cutting")` 之类的硬编码。
-9. 周计划/月计划整表只保留**一个**「异常」列（`exceptionSummary`）；10 个工序异常列与辅助异常列（技术/五金/木作/外协）不再单独展示，字段本体可保留在 metadata 中供筛选/导出/兼容。
-10. 统一异常必须保留来源标签（技术 / 五金主材 / 木作主材 / 外协 / 各标准工序中文名），按“来源+文本”去重，同工序多条异常按 `工序名：异常1、异常2` 展示；顺序稳定：技术 → 五金主材 → 木作主材 → 外协 → 标准工序（按 `process.order`）。月计划异常必须汇总当前月计划范围内**所有**关联周计划，禁止只取第一条/最近一条。
+9. 周计划/月计划整表只保留**一个**「异常」列（`exceptionSummary`）；10 个工序异常列与辅助异常列（技术/五金/木作/外协）**不再是业务字段**，不得出现在主表、打印、Excel 导出/模板与字段权限编辑器里（详见 §3.1.0.5）。
+10. 统一异常必须保留来源标签（技术 / 五金主材 / 木作主材 / 外协 / 各标准工序中文名），按“来源+文本”去重，同工序多条异常按 `工序名：异常1、异常2` 展示；顺序稳定：技术 → 五金主材 → 木作主材 → 外协 → 标准工序（按 `process.order`）。月计划异常必须汇总当前月计划范围内**所有**关联周计划，禁止只取第一条/最近一条。**异常唯一来源是人工报工事实**（详见 §3.1.0.5）。
 11. 异常列建议宽度 240–320px、默认可截断、Hover 显示完整文本，打印与 Excel 导出输出完整异常文本。
 12. 不新增独立“操作”列；生产进度不新增实体列（派生指标实时计算，除非有明确性能/审计要求并说明理由）。
 13. 服务器列表 SQL 的派生表达式必须以 `(` 开头：列表查询对非括号表达式会自动加 `record.` 前缀，裸函数（如 `concat_ws(...)`）会被解析成 schema 限定调用导致 `schema "record" does not exist`。
+
+#### 3.1.0.5 主计划表格精简与报工异常事实化（KN-MPS-UI-001，强制）
+
+1. **辅助计算字段 ≠ 主表字段**：主计划主表只显示管理字段。`*ReportedQuantity` / `*ReportCount` / `*DispatchedQuantity`（含 10 个工序维度）绝不允许作为业务字段注册进 `tablePermissionFieldsFor()`，否则会自动落入主表列、打印、导出、字段权限编辑器。前端 `groupedColumns` 必须额外做防御性过滤（`isMasterPlanSupportField`）并锁定测试。
+2. 累计报工（`*ReportedQuantity`）**只允许**作为生产进度 Tooltip 的辅助信息：通过 `tableSupportFieldsFor(resource)` 登记为 support projection，仅在行投影中返回，不进入 metadata 业务字段、打印、导出、Excel 模板与字段权限。
+3. 报工次数（`*ReportCount`）不得进入周/月计划：生产进度 Tooltip 也不显示报工次数，虚拟列与 metadata 一并删除。
+4. 月计划只有**一个**「已下达周计划数量」（`dispatchedWeeklyQuantity`，`SUM(关联 weekly.planned_quantity)`，只读），放在基础数量区域；禁止按工序重复 10 份；周计划不存在该字段。
+5. 已下达周计划数量**绝不参与**月计划 `ProductionProgress` 分母（分母恒为 `monthly.required_quantity`），51%/60% 两个锁定样例必须持续通过。
+6. **异常唯一事实来源是人工报工**：`mps_technical_reports` / `mps_material_reports` / `mps_outsourcing_reports` / `mps_process_reports` 的 `exception_text`。异常属于生产执行事实，不属于系统校验或计划配置结果。
+7. **系统不得自动生成生产异常**：`未维护工序周期`、`未维护技术周期`、`缺少交期`、`计划配置不完整`、`基础数据缺失`、`同步失败`、`数据质量异常` 等只能进入 `mps_data_exceptions`、状态、生成提示或系统日志，绝不能进入 `exceptionSummary`；同步任务不得向任何报工表的 `exception_text` 自动写入提示文本。
+8. `mps_weekly_process_plans.exception_text` 只是**计划提示**（UI 标签同样为“计划提示”），不得参与周/月计划统一异常汇总，也不得作为生产异常事实被读取。
+9. 所有正式报工表必须支持人工可编辑、可选（非必填）的 `exceptionText`；`mps_process_reports` 必须通过 migration 增加 `exception_text text NULL`（可空、无系统默认值）并回填已有权限组的字段权限。
+10. 异常按“来源 + 文本”去重；同工序多条异常合并为 `焊接：夹具异常、焊缝开裂`；月计划跨当前 monthly 关联的所有 weekly 汇总，同一来源+文本只出现一次。
+11. 人工异常必须绑定到**每一次报工事实**：新增/编辑/删除实际报工（含 PENDING 行内填报、Excel 待报工导入、普通 Excel 报工导入、API create/update）都要能写/改/清空 `exceptionText`，并触发 `execution-rollup` 重新汇总，使周/月计划异常即时更新或消失。
+12. Excel 模板与导入：支持异常列（待报工模板列顺序为 `… 本次报工数量 | 生产日期 | 异常`），填写说明写明“异常为可选项，仅填写实际生产过程中人工确认的异常；系统提示、计划缺失等无需填写。”；导入器不得自动生成异常；历史表头“异常说明”继续可导入（legacy alias）。
+13. 打印与导出：周/月计划打印/导出只包含生产进度、统一异常与月计划唯一的已下达周计划数量；绝不导出 10 个工序 Exception / ReportedQuantity / ReportCount / DispatchedQuantity。
+14. 标准工序来源唯一为 `@tracker/shared` 的 `standardProcesses`；不新增独立“操作”列。
 
 #### 3.1.0.3 KDOS 统一表格打印（KN-PRINT-001，强制）
 
