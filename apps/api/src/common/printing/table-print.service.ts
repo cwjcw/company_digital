@@ -64,7 +64,7 @@ export class TablePrintService {
     if (!fields.length) throw new ForbiddenException("当前权限组没有可打印字段");
     const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
     const total = rangeType === "SELECTED"
-      ? await this.countSelected(source, actor, selectedIds, fields)
+      ? await this.countSelected(source, actor, query, selectedIds, fields)
       : await this.countFiltered(source, actor, query, fields);
     const columns = this.columnsFor(source, fields);
     return {
@@ -268,8 +268,9 @@ export class TablePrintService {
     return result.total;
   }
 
-  private async countSelected(source: TableFilterSource, actor: TableFilterActor, ids: string[], fields: TablePermissionFieldDefinition[]) {
-    const result = await this.queryRows(source, actor, {}, fields, 1, 1, ids);
+  /** 打印已选的计数同样必须带上页面上下文/搜索/FilterGroup（例如 users 的部门/状态、主计划视图）。 */
+  private async countSelected(source: TableFilterSource, actor: TableFilterActor, query: TablePrintQuery, ids: string[], fields: TablePermissionFieldDefinition[]) {
+    const result = await this.queryRows(source, actor, query, fields, 1, 1, ids);
     return result.total;
   }
 
