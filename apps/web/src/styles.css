@@ -723,3 +723,10 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .kdos-progress-tooltip { font-size: 12px; line-height: 1.7; }
 /* 统一异常列：默认可截断，Hover 显示完整内容；打印/导出保留完整文本。 */
 .kdos-exception-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ===== KN-MPS-UI-001 辅助计划一级分组（技术/图纸计划、五金主材计划、木作主材计划、外协计划）=====
+   周计划与月计划共用 `auxiliaryPlanGroups` 这一定义，因此样式只在这里定义一次，
+   保证同一个业务分组在两张表里标题、背景、层级完全一致；不套用 10 工序色板。 */
+.kdos-auxiliary-group-head { background: #f4f6fa; }
+.kdos-auxiliary-group-head > .ant-table-column-title { font-weight: 700; }
+.kdos-auxiliary-group-sub { background: #fafbfd; }

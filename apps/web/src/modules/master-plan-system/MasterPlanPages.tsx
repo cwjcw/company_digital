@@ -156,6 +156,21 @@ export function isMasterPlanSupportField(key: string) {
   return MASTER_PLAN_SUPPORT_FIELD_SUFFIXES.some((suffix) => key.endsWith(suffix));
 }
 
+/**
+ * KN-MPS-UI-001：辅助计划一级分组的**唯一正式定义**（标题、顺序、语义只有一份来源，周计划与月计划共用）。
+ * 结构与标题由该定义决定，与字段权限解耦：字段权限只决定组内哪些字段可读，
+ * 绝不允许“少一个子字段读权限 → 整个一级分组标题消失”。
+ * 组内字段顺序同样取自定义，保证同一分组在周计划/月计划中的子列顺序一致。
+ */
+export const auxiliaryPlanGroups: Array<{ key: string; title: string; fields: string[] }> = [
+  { key: "technical", title: "技术/图纸计划", fields: ["technicalCycleDays", "drawingDueDate", "technicalStatus"] },
+  { key: "hardware", title: "五金主材计划", fields: ["hardwareCycleDays", "hardwareDueDate", "hardwareStatus"] },
+  { key: "wood", title: "木作主材计划", fields: ["woodCycleDays", "woodDueDate", "woodStatus"] },
+  { key: "outsourcing", title: "外协计划", fields: ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingActualInboundDate"] }
+];
+/** 辅助计划分组占用的字段键（用于保证它们绝不落入普通 leading columns）。 */
+const auxiliaryPlanFieldKeys = new Set(auxiliaryPlanGroups.flatMap((group) => group.fields));
+
 function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
@@ -181,21 +196,28 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
       : "—"
   });
   if (!["mps-monthly-plans", "mps-weekly-plans"].includes(resource)) return fields.map(column);
-  /* 辅助计划分组：字段结构固定，异常同样已并入统一异常列，不再单列。 */
-  const auxiliary: Array<[string, string[]]> = resource === "mps-weekly-plans"
-    ? [
-      ["技术/图纸计划", ["technicalCycleDays", "drawingDueDate", "technicalStatus"]],
-      ["五金主材计划", ["hardwareCycleDays", "hardwareDueDate", "hardwareStatus"]],
-      ["木作主材计划", ["woodCycleDays", "woodDueDate", "woodStatus"]],
-      ["外协计划", ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingActualInboundDate"]]
-    ]
-    : [];
   const grouped = new Set<string>();
   const groups: any[] = [];
-  for (const [title, keys] of auxiliary) {
-    const children = fields.filter((field) => keys.includes(field.key));
-    children.forEach((field) => grouped.add(field.key));
-    if (children.length) groups.push({ title, children: children.map(column) });
+  /* 辅助计划分组：结构与标题来自唯一正式定义（周/月一致），组内只渲染当前用户可读字段。 */
+  for (const key of auxiliaryPlanFieldKeys) grouped.add(key);
+  for (const group of auxiliaryPlanGroups) {
+    const children = group.fields
+      .map((key) => fields.find((field) => field.key === key))
+      .filter((field): field is TablePermissionFieldDefinition => Boolean(field))
+      .map((field) => ({ ...column(field), onHeaderCell: () => ({ className: "kdos-auxiliary-group-sub" }) }));
+    /* 权限组未授予该分组任何字段读权限时，仍保留一级分组标题（结构由正式定义决定），组内占位不泄露数据。 */
+    const safeChildren = children.length ? children : [{
+      title: "无可见字段", dataIndex: `auxiliary-${group.key}-placeholder`, width: 90,
+      render: () => "—",
+      onHeaderCell: () => ({ className: "kdos-auxiliary-group-sub" })
+    }];
+    groups.push({
+      title: group.title,
+      key: `auxiliary-${group.key}`,
+      className: "kdos-auxiliary-group",
+      onHeaderCell: () => ({ className: "kdos-auxiliary-group-head" }),
+      children: safeChildren
+    });
   }
   for (const process of [...processes].sort((left, right) => left.order - right.order)) {
     const color = processColor(process.order);
