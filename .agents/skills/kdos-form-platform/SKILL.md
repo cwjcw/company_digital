@@ -161,7 +161,8 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 3. 每个工序固定展示：`周期 | 交期 | 状态 | 生产进度`。`Status` 保留定性业务语义（未开始/进行中/延期/已完成 等），`ProductionProgress` 承担定量完成程度，两者不得互相推导、不得互相替换。
 4. 生产进度的唯一事实来源是实际报工事实表 `mps_process_reports`：按 `tenant_id + weekly_plan_id + process_code` **SUM** `production_quantity`；禁止取最后一条、MAX、AVG 或把报工条数当数量，禁止覆盖历史报工。
 5. 周计划进度 = `SUM(实际报工) / 工序需求`；工序需求复用 PENDING 同一正式字段（`mps_weekly_plans.planned_quantity`），不得新建第二份需求数量。需求为 0/NULL 时显示 `—`（禁止除零产生 NaN/Infinity）。
-6. 月计划进度 = `SUM(实际报工) / SUM(全部关联周计划的工序需求)`：**禁止平均各周计划百分比**；报工必须先按 `tenant+weekly_plan_id+process_code` 预聚合成子查询再与周计划关联，禁止一对多 JOIN 直接 SUM 造成重复累计。
+6. 月计划进度 = `SUM(全部关联周计划的累计实际报工) / monthly.required_quantity`：表示**整个订单/月度总需求完成率**，**绝不表示“已下达到周计划部分的执行完成率”**。分母固定用月计划正式总需求 `record.required_quantity`；**禁止用 `SUM(weekly.planned_quantity)`（已下达周计划数量）做月计划进度分母或参与百分比计算**——它只能作为 Hover 辅助信息（`${code}DispatchedQuantity`）展示；**禁止平均各周计划百分比**；报工必须先按 `tenant+weekly_plan_id+process_code` 预聚合成子查询再与周计划关联，禁止一对多 JOIN 直接 SUM 造成重复累计；`required_quantity` 为 0/NULL → `—`（禁止除零）。
+6.1 状态与进度独立：不得因为 `Status=已完成` 反推进度为 100%，也不得因为进度 ≥100% 自动修改 `Status`；允许“状态：已完成 / 生产进度：60%”。月计划绿色只由 `required_quantity>0 且累计实际报工 ≥ required_quantity` 决定（`>=100%` 只是该条件的界面表达）；已下达周计划全部完成但月计划总需求未完成时**不得**显示 100%、**不得**变绿。典型锁定样例：`required=500`、两个 weekly planned 合计 300 且累计报工 300 → 月计划必须显示 **60%**（不是 100%）；`required=500`、weekly A planned100/actual105、weekly B planned200/actual150 → 月计划必须显示 **51%**（不是 85%、不是 90%）。
 7. 允许 `ProductionProgress > 100%`（如 105%、130%），不得 `Math.min(progress,1)` 封顶；`>=100%` 时**只**把生产进度单元格标为完成绿，不得整行或整个工序组变绿，也不得改变状态列语义。
 8. 工序配色按 `process.order` 从平台调色板取色（低饱和，三层：一级表头较明显 / 二级表头更浅 / 数据单元格极浅），同一工序在周计划与月计划颜色一致；禁止逐工序写 `if (code === "cutting")` 之类的硬编码。
 9. 周计划/月计划整表只保留**一个**「异常」列（`exceptionSummary`）；10 个工序异常列与辅助异常列（技术/五金/木作/外协）不再单独展示，字段本体可保留在 metadata 中供筛选/导出/兼容。
