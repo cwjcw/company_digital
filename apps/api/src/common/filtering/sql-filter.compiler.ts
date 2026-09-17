@@ -5,8 +5,13 @@ import { isBlankFilterValue, maxFilterRules, parseFilterGroup, type TypedFilterR
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const datetimePattern = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/;
+/** KN-FILTER-003：用户输入的 datetime 是 Asia/Shanghai 墙上时间；`+08:00` 显式偏移让比较与服务器/容器时区无关。 */
+const BUSINESS_TIMEZONE_OFFSET = "+08:00";
+const datetimeOperandPattern = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?$/;
 
 export type FilterOptionResolver = (field: string, raw: string) => string[] | null;
+/** KN-FILTER-003：datetime eq/neq 的“同一时间窗口”精度（UI 到秒，接口允许毫秒）。 */
+type Precision = "second" | "millisecond";
 
 /**
  * KDOS 平台级安全筛选编译器（KN-FILTER-001）：所有正式业务表共用这一份实现。
@@ -69,9 +74,9 @@ export class SqlFilterCompiler {
 
     if (field.multiple) return this.compileMultiple(field, operator, rule, target, params);
 
-    /* 日期与时间共用一套操作符（eq/neq/gt/lt/gte/lte/between/dynamic），粒度由字段类型决定。 */
-    if (field.type === "date" || field.type === "datetime") {
-      const asDate = field.type === "datetime" ? `${target}` : `${target}::date`;
+    /* date：只表示自然日，保持既有自然日语义（KN-FILTER-003 明确不改动 date 筛选结果）。 */
+    if (field.type === "date") {
+      const asDate = `${target}::date`;
       const range = (from: string, to: string) => {
         params.push(from, to);
         return `(${asDate} >= ${this.ph(params.length - 1)}::date AND ${asDate} < (${this.ph(params.length)}::date + interval '1 day'))`;
@@ -87,6 +92,37 @@ export class SqlFilterCompiler {
       if (operator === "gte") return `${asDate} >= ${bound}`;
       if (operator === "lt") return `${asDate} < ${bound}`;
       if (operator === "lte") return `${asDate} < (${bound} + interval '1 day')`;
+    }
+
+    /*
+     * KN-FILTER-003：datetime 表示具体业务时间点（UI 精度到秒），必须按真实时间点比较：
+     * 禁止 `slice(0,10)`、禁止 `::date` 降级；用户输入按 Asia/Shanghai 墙上时间 → 显式 `+08:00` → `timestamptz`。
+     * 数据库正式列类型为 `timestamp with time zone`（见进度文件审计结果），因此绝对时间比较与运行环境时区无关。
+     */
+    if (field.type === "datetime") {
+      const instant = (literal: string) => { params.push(literal); return `${this.ph(params.length)}::timestamptz`; };
+      /* eq/neq 按 UI 精度定义时间窗口：秒精度 → 同一秒 [t, t+1s)，带毫秒 → 同一毫秒。 */
+      const sameWindow = (operand: { literal: string; precision: Precision }) => {
+        const start = instant(operand.literal);
+        return `(${target} >= ${start} AND ${target} < ${start} + interval '${operand.precision === "millisecond" ? "1 millisecond" : "1 second"}')`;
+      };
+      if (operator === "dynamic") {
+        /* 动态日期继续按 Asia/Shanghai 自然日边界（今天 = 今日 00:00:00 ~ 明日 00:00:00），不改成“当前时间往前 24 小时”。 */
+        const { from, to } = dynamicDateRange(String(rule.dynamic ?? ""));
+        return `(${target} >= ${instant(`${from} 00:00:00${BUSINESS_TIMEZONE_OFFSET}`)} AND ${target} < ${instant(`${this.nextDay(to)} 00:00:00${BUSINESS_TIMEZONE_OFFSET}`)})`;
+      }
+      if (operator === "between") {
+        const min = this.datetimeOperand(rule.min, field.label); const max = this.datetimeOperand(rule.max, field.label);
+        return `(${target} >= ${instant(min.literal)} AND ${target} <= ${instant(max.literal)})`;
+      }
+      const operand = this.datetimeOperand(rule.value, field.label);
+      if (operator === "eq") return sameWindow(operand);
+      if (operator === "neq") return `NOT ${sameWindow(operand)}`;
+      const bound = instant(operand.literal);
+      if (operator === "gt") return `${target} > ${bound}`;
+      if (operator === "gte") return `${target} >= ${bound}`;
+      if (operator === "lt") return `${target} < ${bound}`;
+      if (operator === "lte") return `${target} <= ${bound}`;
     }
 
     if (field.type === "number") {
@@ -195,6 +231,24 @@ export class SqlFilterCompiler {
     const text = this.textOperand(value, label);
     if (!(datePattern.test(text) || datetimePattern.test(text))) throw new BadRequestException(`“${label}”的筛选日期格式应为 YYYY-MM-DD`);
     return text.slice(0, 10);
+  }
+
+  /**
+   * KN-FILTER-003 datetime 操作数：接受 `YYYY-MM-DD HH:mm[:ss[.SSS]]` 或 `YYYY-MM-DDTHH:mm…`，
+   * 规范化为“上海墙上时间 + 显式 +08:00 偏移”的 timestamptz 字面量。
+   * 这里**绝不截断时间**（禁止 slice(0,10)），精度同时返回给 eq/neq 决定“同一秒 / 同一毫秒”窗口。
+   */
+  private datetimeOperand(value: unknown, label: string): { literal: string; precision: Precision } {
+    const text = this.textOperand(value, label);
+    const matched = datetimeOperandPattern.exec(text);
+    if (!matched) throw new BadRequestException(`“${label}”的筛选时间格式应为 YYYY-MM-DD HH:mm:ss`);
+    const [, day, hour, minute, second = "00", fraction = ""] = matched;
+    return { literal: `${day} ${hour}:${minute}:${second}${fraction}${BUSINESS_TIMEZONE_OFFSET}`, precision: fraction ? "millisecond" : "second" };
+  }
+
+  /** 动态日期区间右边界：下一天（独占），仍按自然日计算。 */
+  private nextDay(day: string) {
+    return new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10);
   }
 
   private listOperands(rule: TypedFilterRule, label: string) {

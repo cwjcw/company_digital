@@ -146,6 +146,23 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 39. `NOT_APPLICABLE` 必须写真实产品理由（例如“角色管理是角色树配置模式，右侧列表是 users 上下文视图”），不得只写“暂不支持”。
 40. 禁止新增独立“操作”列（行级操作使用既有菜单/按钮）。
 
+#### 3.1.0.2.1 高级筛选 datetime 时间精度与业务时区（KN-FILTER-003，强制）
+
+本节是 KN-FILTER-002 §3.1.0.2 第 18 条（date/datetime 操作符）的时间语义细则，长期强制。
+
+1. `date` 与 `datetime` 是**不同业务类型**，禁止共用会丢时间的序列化/解析实现（禁止 `datetime` 走 `format("YYYY-MM-DD")`）。
+2. `date` 筛选值格式固定 `YYYY-MM-DD`，只表示自然日。
+3. `datetime` 筛选值**必须保留时分秒**，格式固定 `YYYY-MM-DD HH:mm:ss`（接口同时接受 `YYYY-MM-DDTHH:mm:ss`）。
+4. `datetime` 禁止 `slice(0, 10)`、禁止格式化成 `YYYY-MM-DD`、禁止 `Date.toISOString()` 造成无说明的隐式时区偏移。
+5. `datetime` SQL 比较禁止 `::date` 降级；必须按真实时间点比较（服务端 `datetimeOperand()` 与 `dateOperand()` 分开实现，取值按字段类型分流）。
+6. `datetime eq` 按 UI 精度定义时间窗口：UI 精确到秒时 `eq` = 同一秒 `[t, t+1s)`（毫秒值仍能命中）；接口给出毫秒时按同一毫秒；`neq` 为该窗口的反逻辑。
+7. `datetime between` 必须保留两个完整时间点（`>= min AND <= max`），跨零点不得扩大成整天。
+8. KDOS 业务时区固定 **Asia/Shanghai**：用户输入的 datetime 是上海墙上时间，服务端用显式 `+08:00` 偏移转成 `timestamptz` 比较（数据库正式列类型为 `timestamp with time zone`）。
+9. `dynamic`（今天/昨天/本周/本月/最近 N 天）继续按 **Asia/Shanghai 自然日**计算（今天 = 今日 00:00:00 ~ 明日 00:00:00），不得改成“当前时间往前 24 小时”。
+10. 禁止依赖浏览器、Node 进程或容器本地时区推断时间语义；比较结果必须与运行环境 TZ 无关。
+11. 任何新的 datetime 筛选实现必须提供五类测试：单值序列化、回显（关闭重开保留完整时间）、between、跨零点、时区/边界；后端至少覆盖 gte/lte、eq 毫秒场景、between、date 回归与 dynamic 回归。
+12. 打印、导出与页面列表必须继承同一份 applied `FilterGroup` 时间语义（页面按 15:30 筛选，打印/导出也必须是 15:30，不得退化成当天 00:00）。
+
 #### 3.1.0.1.1 设备事业部数据范围与新增（KN-EQUIP-001，强制）
 
 - 设备模块的 `create` 数据范围只有一份实现（`equipmentCreateScope` / `equipmentCreateScopeClause` / `equipmentCreateAllowed`）：候选设备下拉、正式保存校验、Excel 导入必须共用，禁止再写第二套事业部判断。

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, DatePicker, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
 import {
   tableFilterDynamicDateOptions, tableFilterUiOperatorsFor,
   type TableFilterOperator, type TablePermissionFieldDefinition
@@ -97,6 +98,33 @@ export function PercentageInput({ value, onChange }: { value: unknown; onChange:
     addonAfter="%" style={{ width: 130 }} onChange={(next) => onChange(next == null ? undefined : Number(next) / 100)} />;
 }
 
+/**
+ * KN-FILTER-003：date 与 datetime 的正式序列化格式。
+ * - date 只表示自然日：`YYYY-MM-DD`；
+ * - datetime 表示具体业务时间点（UI 精度到秒）：`YYYY-MM-DD HH:mm:ss`，**绝不允许**格式化成 `YYYY-MM-DD` 丢时间。
+ * 业务时区固定为 Asia/Shanghai：这里序列化的是用户看到的上海墙上时间，时区换算由服务端按 `+08:00` 显式完成，
+ * 前端不做 `toISOString()` 隐式偏移，也不依赖浏览器本地时区。
+ */
+export const FILTER_DATE_FORMAT = "YYYY-MM-DD";
+export const FILTER_DATETIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
+export function serializeTemporalFilterValue(field: TablePermissionFieldDefinition, value: Dayjs | null | undefined) {
+  if (!value) return undefined;
+  return value.format(field.type === "datetime" ? FILTER_DATETIME_FORMAT : FILTER_DATE_FORMAT);
+}
+
+/** 时间字段正式输入：date 用普通日期选择；datetime 用带秒的时间选择，回显完整 `YYYY-MM-DD HH:mm:ss`。 */
+export function TemporalInput({ field, value, onChange }: {
+  field: TablePermissionFieldDefinition; value: unknown; onChange: (next: string | undefined) => void;
+}) {
+  const isDatetime = field.type === "datetime";
+  return <DatePicker
+    showTime={isDatetime ? { format: "HH:mm:ss" } : false}
+    format={isDatetime ? FILTER_DATETIME_FORMAT : FILTER_DATE_FORMAT}
+    value={value ? dayjs(String(value)) : null}
+    onChange={(next) => onChange(serializeTemporalFilterValue(field, next))}
+  />;
+}
+
 export function RuleValue({ resource, field, operator, rule, onChange }: {
   resource: string; field: TablePermissionFieldDefinition; operator: string; rule: AdvancedFilterRule;
   onChange: (patch: Partial<AdvancedFilterRule>) => void;
@@ -111,7 +139,7 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
   }
   if (operator === "between") {
     const control = (key: "min" | "max", value: unknown) => field.type === "date" || field.type === "datetime"
-      ? <DatePicker showTime={field.type === "datetime"} value={value ? dayjs(String(value)) : null} onChange={(next) => onChange({ [key]: next ? next.format("YYYY-MM-DD") : undefined } as Partial<AdvancedFilterRule>)} />
+      ? <TemporalInput field={field} value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : field.format === "durationMinutes" ? <DurationInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : field.format === "percentage" ? <PercentageInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : <InputNumber value={value as number} onChange={(next) => onChange({ [key]: next ?? undefined } as Partial<AdvancedFilterRule>)} style={{ width: 120 }} />;
@@ -128,8 +156,7 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
       onChange={(value) => onChange({ value: Array.isArray(value) ? value[0] : value ?? undefined })} />;
   }
   if (field.type === "date" || field.type === "datetime") {
-    return <DatePicker showTime={field.type === "datetime"} value={rule.value ? dayjs(String(rule.value)) : null}
-      onChange={(next) => onChange({ value: next ? next.format("YYYY-MM-DD") : undefined })} />;
+    return <TemporalInput field={field} value={rule.value} onChange={(next) => onChange({ value: next })} />;
   }
   if (field.type === "number") {
     if (field.format === "durationMinutes") return <DurationInput value={rule.value} onChange={(next) => onChange({ value: next })} />;
