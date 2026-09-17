@@ -1,0 +1,48 @@
+{
+  "task": "KN-MPS-INIT-001",
+  "kind": "sync-vs-initialization-conflict",
+  "detectedAt": "2026-09-17",
+  "detectedDuring": "分阶段恢复同步 — 第三阶段 base-to-weekly",
+  "status": "blocker（base-to-weekly 已立即暂停；未删除/未重跑初始化数据）",
+  "businessCause": "MasterPlanSyncService.baseToWeekly() 在插入准入通过的基础计划后，会对租户下**所有**周计划执行 ensureExecutionRows()，而不仅是本次新生成的那批；历史初始化周计划 manufacturing_method 为 NULL（源数据无可靠值），processEnabled=false，因此：① 被判定为不启用工序执行 → 把该周计划的全部工序任务置为 execution_enabled=false；② 仍按平台常规为每条周计划插入 1 条技术报工与 2 条主材报工（五金/木作）占位任务。",
+  "conflictSql": "SELECT w.*, c.* FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1  →  for (weekly of weeklyRows) ensureExecutionRows(manager, weekly, ...)  →  UPDATE mps_weekly_process_plans SET execution_enabled=false ... / INSERT INTO mps_technical_reports ... / INSERT INTO mps_material_reports(五金|木作) ...",
+  "impact": {
+    "weeklyProcessPlansDisabled": { "count": 11690, "total": 11690, "field": "mps_weekly_process_plans.execution_enabled", "effect": "工序明细页面按 execution_enabled=true 过滤 → 页面显示“暂无数据”" },
+    "technicalReportsAutoCreated": { "count": 1169, "expected": 0, "note": "平台常规占位任务，exception_text 为 NULL" },
+    "materialReportsAutoCreated": { "count": 2338, "expected": 0, "breakdown": { "五金": 1169, "木作": 1169 }, "note": "received=false；exception_text 为 NULL" },
+    "outsourcingReports": { "count": 0, "expected": 0 },
+    "unchanged": {
+      "basePlans": 1169,
+      "weeklyPlans": 1169,
+      "weeklyProcessPlans": 11690,
+      "processReports": 356,
+      "weeklyProcessPlanDueDates": "工序计划哈希与恢复前完全一致（plans hash baad9825c56acf2d3945a0eca5b19709 未变）",
+      "processReportSnapshotFields": "division_id/order_number/item_code/item_name/delivery_number/planned_quantity 值未变（仅 version/updated_at 由平台更新）",
+      "processReportsProductionDate": "356/356 仍为 2026-09-17",
+      "processReportsExceptionText": "356/356 仍为 NULL"
+    }
+  },
+  "actionsTaken": [
+    "立即暂停 base-to-weekly（mps_sync_configs.enabled=false），未恢复它的自动运行",
+    "未删除任何初始化数据、未重跑初始化",
+    "其余 5 个同步按分阶段恢复并逐个验证：execution-rollup（SUCCESS，356 条报工进入累计/工序状态）、inbound-allocation（SUCCESS，162 条周计划获得分摊入库）、shipping-to-base（SUCCESS，0 行）、plan-projections（SUCCESS，0 行并把旧异常从 666 条刷新为 2 条历史同步失败记录）、erp-orders（SUCCESS，121360 行 ERP 订单明细）"
+  ],
+  "recommendedSolutions": [
+    {
+      "id": "A",
+      "title": "平台修复：base-to-weekly 只处理本次准入/新生成的周计划",
+      "detail": "ensureExecutionRows() 只应对本次 INSERT/UPDATE 命中的 base（或本次新生成的 weekly）执行，而不是遍历租户下全部周计划；这样历史导入/迁移数据不会被平台同步改写 execution_enabled，也不会被自动补技术/主材报工占位行。"
+    },
+    {
+      "id": "B",
+      "title": "经确认后按初始化口径恢复这两类副产物",
+      "detail": "若确认历史周计划应当保留可执行的 10 个工序任务（11690 条 execution_enabled=true），并把 技术/主材 报工恢复为 0，则需要在暂停 base-to-weekly 的前提下，经过授权执行一次针对性修正（重新启用工序任务 + 删除平台自动生成的 1169 技术报工 / 2338 主材报工占位行）。本任务未擅自执行该修正。"
+    },
+    {
+      "id": "C",
+      "title": "接受平台语义（不推荐）",
+      "detail": "承认 manufacturing_method 为空的历史周计划不启用工序执行，工序明细页面保持为空；同时接受技术/主材报工表存在平台占位行（与本次 §25 的‘必须为 0’口径冲突，需要用户明确改口径）。"
+    }
+  ],
+  "closingConditionImpact": "关闭条件“base-to-weekly 不覆盖初始化数据”未满足 → 按任务要求保持同步在安全状态（base-to-weekly 暂停），不宣布 KN-MPS-INIT-001 完成。"
+}

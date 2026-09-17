@@ -1,0 +1,100 @@
+{
+  "task": "KN-MPS-INIT-001",
+  "generatedAt": "2026-09-17T12:14:24.044Z",
+  "source": {
+    "path": "/tmp/source.xlsx",
+    "bytes": 726296,
+    "sha256": "4003b70806126559a2e0956b2442607b45d6955f8cf1e0ecfaaa302d6926ae79"
+  },
+  "target": {
+    "path": "/tmp/standard-out.xlsx",
+    "bytes": 512576,
+    "sha256": "a0b7711f5d9eb46b16239d64d3597e19977a6ff15ddd5a885fed3e3c2091f254"
+  },
+  "normalizationSteps": [
+    "namespace-normalized",
+    "tableParts-removed"
+  ],
+  "officialReaderBeforeStandardization": "failed",
+  "officialReaderAfterStandardization": "ok",
+  "logicalContent": {
+    "overallBefore": "ac75337466452d8f4aee0c42ef28a4212ab1bafe4e2c767b0cec43f75d1827a6",
+    "overallAfter": "ac75337466452d8f4aee0c42ef28a4212ab1bafe4e2c767b0cec43f75d1827a6",
+    "equal": true,
+    "sheets": [
+      {
+        "sheet": "README_后台初始化",
+        "rowCountBefore": 27,
+        "rowCountAfter": 27,
+        "columnCountBefore": 2,
+        "columnCountAfter": 2,
+        "cellsBefore": 54,
+        "cellsAfter": 54,
+        "sha256Before": "4b78395b4c6b4356d6bd8136f2eeaab1ebee9cea99287c9626e638c9051c4967",
+        "sha256After": "4b78395b4c6b4356d6bd8136f2eeaab1ebee9cea99287c9626e638c9051c4967",
+        "equal": true
+      },
+      {
+        "sheet": "01_weekly_plans",
+        "rowCountBefore": 1170,
+        "rowCountAfter": 1170,
+        "columnCountBefore": 17,
+        "columnCountAfter": 17,
+        "cellsBefore": 19890,
+        "cellsAfter": 19890,
+        "sha256Before": "10fe7ead704c356f8a39c4683c71b825f83bd810610240066187519fd896ea65",
+        "sha256After": "10fe7ead704c356f8a39c4683c71b825f83bd810610240066187519fd896ea65",
+        "equal": true
+      },
+      {
+        "sheet": "02_weekly_process_plans",
+        "rowCountBefore": 11691,
+        "rowCountAfter": 11691,
+        "columnCountBefore": 11,
+        "columnCountAfter": 11,
+        "cellsBefore": 128601,
+        "cellsAfter": 128601,
+        "sha256Before": "4d1d3c0239a2b7f0ad92bc1bf19deeed631833b0f229fd27b3125e7b125ad8a8",
+        "sha256After": "4d1d3c0239a2b7f0ad92bc1bf19deeed631833b0f229fd27b3125e7b125ad8a8",
+        "equal": true
+      },
+      {
+        "sheet": "03_process_reports",
+        "rowCountBefore": 357,
+        "rowCountAfter": 357,
+        "columnCountBefore": 10,
+        "columnCountAfter": 10,
+        "cellsBefore": 3570,
+        "cellsAfter": 3570,
+        "sha256Before": "aac6f6ae0b765889de7d1636d2ef250b81a4c90a56a915eb843befd652aa686b",
+        "sha256After": "aac6f6ae0b765889de7d1636d2ef250b81a4c90a56a915eb843befd652aa686b",
+        "equal": true
+      },
+      {
+        "sheet": "04_unmapped_review",
+        "rowCountBefore": 4156,
+        "rowCountAfter": 4156,
+        "columnCountBefore": 8,
+        "columnCountAfter": 8,
+        "cellsBefore": 33248,
+        "cellsAfter": 33248,
+        "sha256Before": "dcc0089d3d0ffce4b9d2eb4749b8335ab118579e60ec3a9108c56d3c38d8900c",
+        "sha256After": "dcc0089d3d0ffce4b9d2eb4749b8335ab118579e60ec3a9108c56d3c38d8900c",
+        "equal": true
+      },
+      {
+        "sheet": "05_source_trace",
+        "rowCountBefore": 1170,
+        "rowCountAfter": 1170,
+        "columnCountBefore": 7,
+        "columnCountAfter": 7,
+        "cellsBefore": 8190,
+        "cellsAfter": 8190,
+        "sha256Before": "b4568a5fcf26124bf4e2002356604936c43d963af90d60819e570591e679a2a7",
+        "sha256After": "b4568a5fcf26124bf4e2002356604936c43d963af90d60819e570591e679a2a7",
+        "equal": true
+      }
+    ]
+  },
+  "differences": []
+}

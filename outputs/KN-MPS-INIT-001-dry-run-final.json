@@ -1,0 +1,128 @@
+{
+  "task": "KN-MPS-INIT-001",
+  "mode": "dry-run",
+  "generatedAt": "2026-09-17T12:19:47.500Z",
+  "tenantId": "KAINAN",
+  "file": "/tmp/standard.xlsx",
+  "blockers": [],
+  "validation": {
+    "sheets": [
+      "README_后台初始化",
+      "01_weekly_plans",
+      "02_weekly_process_plans",
+      "03_process_reports",
+      "04_unmapped_review",
+      "05_source_trace"
+    ],
+    "weekly": {
+      "rows": 1169,
+      "duplicateBusinessKeys": 0,
+      "invalidRows": 0,
+      "latestReviewDueDateNullRows": 1169
+    },
+    "processPlans": {
+      "rows": 11690,
+      "orphans": 0,
+      "invalidCodes": [],
+      "weeklyNotTenProcesses": 0,
+      "dueDateNullRows": 8408
+    },
+    "processReports": {
+      "rows": 356,
+      "orphans": 0,
+      "invalidCodes": [],
+      "badQuantity": 0,
+      "badProductionDate": 0,
+      "nonEmptyException": 0
+    },
+    "sourceTrace": {
+      "rows": 1169,
+      "unmappedReviewRows": 4155
+    },
+    "mergedBusinessKeys": 0
+  },
+  "expected": {
+    "basePlans": 1169,
+    "weeklyPlans": 1169,
+    "processPlans": 11690,
+    "processReports": 356,
+    "technicalReports": 0,
+    "materialReports": 0,
+    "outsourcingReports": 0
+  },
+  "actual": null,
+  "ledger": "dry-run：未写入数据库",
+  "fileBytes": 512576,
+  "fileSha256": "a0b7711f5d9eb46b16239d64d3597e19977a6ff15ddd5a885fed3e3c2091f254",
+  "officialReader": "ok",
+  "db": {
+    "counts": {
+      "mps_erp_order_lines": 0,
+      "mps_order_allocations": 0,
+      "mps_process_cycles": 0,
+      "mps_group_plans": 0,
+      "mps_monthly_plans": 0,
+      "mps_shipping_plans": 0,
+      "mps_base_plans": 0,
+      "mps_weekly_plans": 0,
+      "mps_weekly_process_plans": 0,
+      "mps_technical_reports": 0,
+      "mps_material_reports": 0,
+      "mps_outsourcing_reports": 0,
+      "mps_process_reports": 0
+    },
+    "divisions": [
+      {
+        "id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+        "name": "事业四部",
+        "enabled": true
+      }
+    ],
+    "syncs": [
+      {
+        "sync_key": "base-to-weekly",
+        "enabled": false
+      },
+      {
+        "sync_key": "erp-orders",
+        "enabled": false
+      },
+      {
+        "sync_key": "execution-rollup",
+        "enabled": false
+      },
+      {
+        "sync_key": "inbound-allocation",
+        "enabled": false
+      },
+      {
+        "sync_key": "plan-projections",
+        "enabled": false
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "enabled": false
+      }
+    ],
+    "ledger": [],
+    "nullable": [
+      {
+        "column_name": "base_plan_id",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "latest_review_due_date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "inspection_required",
+        "is_nullable": "NO"
+      }
+    ],
+    "systemUser": [
+      {
+        "id": "0199e000-0000-7000-8000-000000000001"
+      }
+    ]
+  }
+}
