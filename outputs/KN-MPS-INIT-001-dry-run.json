@@ -1,0 +1,928 @@
+{
+  "task": "KN-MPS-INIT-001",
+  "mode": "read-only-dry-run",
+  "generatedAt": "2026-09-17T12:04:53.474Z",
+  "tenantId": "KAINAN",
+  "file": "/tmp/knm-init.xlsx",
+  "blockers": [
+    "初始化文件无法被平台官方读取器（exceljs）直接解析：主命名空间写成 `x:` 前缀且 Excel 表格关系使用绝对 Target；分析只能用规范化副本，正式导入前必须由生成器重新产出标准 xlsx。",
+    "mps_weekly_plans.latest_review_due_date 为 NOT NULL，但 01 有 1169 行留空；任务规则要求允许为空且发现 NOT NULL 必须停止（未修改 schema、未生成假日期）",
+    "mps_weekly_plans.base_plan_id 为 NOT NULL（且 UNIQUE(tenant_id, base_plan_id)+FK→mps_base_plans）：每条周计划都需一条专属基础计划；初始化包只有 01/02/03，不含基础计划，无法在不凭空造数据的前提下写入"
+  ],
+  "warnings": [
+    "mps_weekly_plans NOT NULL 列：allocated_inbound_quantity、base_plan_id、created_at、created_by、delivery_number、id、image_refs、inspection_required、item_code、latest_customer_due_date、latest_review_due_date、order_number、pending_quantity、planned_quantity、tenant_id、updated_at、updated_by、version"
+  ],
+  "excel": {
+    "officialReader": "failed",
+    "officialReaderError": "Cannot read properties of undefined (reading 'sheets')",
+    "analysisCopy": {
+      "used": true,
+      "sha256": "30d849cd1a3eda7c50ad5b32c2ad119cabda3e4490ce6a48ae38a17c5b5fe6c2",
+      "steps": [
+        "namespace-normalized:xl/workbook.xml",
+        "namespace-normalized:xl/styles.xml",
+        "namespace-normalized:xl/sharedStrings.xml",
+        "namespace-normalized:xl/worksheets/sheet1.xml",
+        "namespace-normalized:xl/worksheets/sheet2.xml",
+        "namespace-normalized:xl/tables/table1.xml",
+        "namespace-normalized:xl/worksheets/sheet3.xml",
+        "namespace-normalized:xl/tables/table2.xml",
+        "namespace-normalized:xl/worksheets/sheet4.xml",
+        "namespace-normalized:xl/tables/table3.xml",
+        "namespace-normalized:xl/worksheets/sheet5.xml",
+        "namespace-normalized:xl/tables/table4.xml",
+        "namespace-normalized:xl/worksheets/sheet6.xml",
+        "namespace-normalized:xl/tables/table5.xml",
+        "tableParts-removed:xl/worksheets/sheet2.xml",
+        "table-removed:xl/tables/table1.xml",
+        "tableParts-removed:xl/worksheets/sheet3.xml",
+        "table-removed:xl/tables/table2.xml",
+        "tableParts-removed:xl/worksheets/sheet4.xml",
+        "table-removed:xl/tables/table3.xml",
+        "tableParts-removed:xl/worksheets/sheet5.xml",
+        "table-removed:xl/tables/table4.xml",
+        "tableParts-removed:xl/worksheets/sheet6.xml",
+        "table-removed:xl/tables/table5.xml",
+        "table-rels-emptied:xl/worksheets/_rels/sheet2.xml.rels",
+        "table-rels-emptied:xl/worksheets/_rels/sheet3.xml.rels",
+        "table-rels-emptied:xl/worksheets/_rels/sheet4.xml.rels",
+        "table-rels-emptied:xl/worksheets/_rels/sheet5.xml.rels",
+        "table-rels-emptied:xl/worksheets/_rels/sheet6.xml.rels"
+      ]
+    },
+    "sheets": [
+      "README_后台初始化",
+      "01_weekly_plans",
+      "02_weekly_process_plans",
+      "03_process_reports",
+      "04_unmapped_review",
+      "05_source_trace"
+    ],
+    "counts": {
+      "weeklyPlans": 1169,
+      "processPlans": 11690,
+      "processReports": 356,
+      "unmappedReview": 4155,
+      "sourceTrace": 1169
+    }
+  },
+  "validation": {
+    "weekly": {
+      "rows": 1169,
+      "duplicateBusinessKeys": 0,
+      "missingRequiredRows": 0,
+      "latestReviewDueDateMissingRows": 1169,
+      "distinctDivisionValues": [
+        "事业四部"
+      ],
+      "distinctDeliveryNumbers": [
+        "1"
+      ],
+      "excelHasWeeklyPlanIdColumn": true,
+      "excelWeeklyPlanIdAllEmpty": true,
+      "hasLatestReviewDueDateColumn": true
+    },
+    "processPlans": {
+      "rows": 11690,
+      "weeklyKeysCovered": 1169,
+      "weeklyNotTenProcesses": 0,
+      "invalidProcessCodes": [],
+      "orphanRows": 0,
+      "dueDateNullRows": 8408,
+      "dueDatePresentRows": 3282
+    },
+    "processReports": {
+      "rows": 356,
+      "invalidProcessCodes": [],
+      "orphanRows": 0,
+      "nonNumericQuantity": 0,
+      "negativeQuantity": 0,
+      "distinctProductionDates": [
+        "Thu Sep 17 2026 00:00:00 GMT+0000 (Coordinated Universal Time)"
+      ],
+      "nonEmptyExceptionText": 0
+    },
+    "knownDuplicateKeys": [
+      {
+        "orderNumber": "2026A027333",
+        "itemCode": "TGH616KB-1/1",
+        "weeklyRows": 1,
+        "plannedQuantity": [
+          "28"
+        ],
+        "sourceRows": "435、443",
+        "sourceRowCount": "2",
+        "mergedPlannedQuantity": "28"
+      },
+      {
+        "orderNumber": "2026A027333",
+        "itemCode": "TGH642KB-1/1",
+        "weeklyRows": 1,
+        "plannedQuantity": [
+          "60"
+        ],
+        "sourceRows": "442、444",
+        "sourceRowCount": "2",
+        "mergedPlannedQuantity": "60"
+      }
+    ]
+  },
+  "exclusions": {
+    "unmappedReviewRows": 4155,
+    "rowLevelExcluded": 96,
+    "fieldLevelUnmapped": 4059,
+    "buckets": {
+      "无品号": 96
+    },
+    "sourceFields": [
+      "前道配件",
+      "后道包材&配件",
+      "对应计划页数",
+      "工序:表面处理",
+      "新旧款",
+      "外协方式",
+      "验货",
+      "图纸&BOM时间",
+      "外协供应商",
+      "工序:包装",
+      "验货数量",
+      "工序:机加",
+      "工序:焊接",
+      "工序:研磨",
+      "工序:毛坯",
+      "订单级/无品项行"
+    ],
+    "includedSourceRowCount": 1171,
+    "declaredSourceRowCountSum": 1171,
+    "excludedSourceRowCount": 96,
+    "sourceRowsBothIncludedAndExcluded": 0,
+    "sourceRowList": [
+      "3",
+      "31",
+      "46",
+      "52",
+      "55",
+      "57",
+      "59",
+      "61",
+      "63",
+      "69",
+      "75",
+      "79",
+      "85",
+      "88",
+      "98",
+      "100",
+      "102",
+      "106",
+      "108",
+      "179",
+      "181",
+      "183",
+      "185",
+      "188",
+      "191",
+      "194",
+      "197",
+      "200",
+      "205",
+      "209",
+      "215",
+      "218",
+      "228",
+      "234",
+      "236",
+      "247",
+      "250",
+      "252",
+      "258",
+      "260",
+      "272",
+      "276",
+      "285",
+      "288",
+      "293",
+      "307",
+      "325",
+      "447",
+      "450",
+      "462",
+      "464",
+      "469",
+      "472",
+      "474",
+      "501",
+      "504",
+      "522",
+      "524",
+      "526",
+      "538",
+      "541",
+      "627",
+      "630",
+      "634",
+      "641",
+      "643",
+      "646",
+      "672",
+      "674",
+      "676",
+      "680",
+      "689",
+      "702",
+      "732",
+      "737",
+      "741",
+      "745",
+      "751",
+      "756",
+      "758",
+      "886",
+      "911",
+      "924",
+      "926",
+      "929",
+      "996",
+      "1010",
+      "1012",
+      "1022",
+      "1040",
+      "1066",
+      "1118",
+      "1123",
+      "1174",
+      "1236",
+      "1258"
+    ],
+    "sample": [
+      {
+        "sourceRow": "3",
+        "orderNumber": "2026C235004",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "31",
+        "orderNumber": "2026C235006",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "46",
+        "orderNumber": "2026A027191",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "52",
+        "orderNumber": "2026A027188",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "55",
+        "orderNumber": "2026A027189",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "57",
+        "orderNumber": "2026A027232",
+        "itemCode": "7/14发货",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "59",
+        "orderNumber": "2026A027215",
+        "itemCode": "7/12发1个",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "61",
+        "orderNumber": "2026A027216",
+        "itemCode": "7/12发1个",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "63",
+        "orderNumber": "2026A027176",
+        "itemCode": "7/30发货",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "69",
+        "orderNumber": "2026A027178",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "75",
+        "orderNumber": "2026A027211",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "79",
+        "orderNumber": "2026A027259",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "85",
+        "orderNumber": "2026A027183",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "88",
+        "orderNumber": "2026A027206",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "98",
+        "orderNumber": "2026A027234",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "100",
+        "orderNumber": "2026A027235",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "102",
+        "orderNumber": "2026A027297",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "106",
+        "orderNumber": "2026A027248",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "108",
+        "orderNumber": "2026A027286",
+        "itemCode": "本单包装注意分包",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      },
+      {
+        "sourceRow": "179",
+        "orderNumber": "2026A027301",
+        "itemCode": "",
+        "sourceField": "订单级/无品项行",
+        "rawValue": "",
+        "reason": "用户确认：只有订单没有品号的行直接忽略。"
+      }
+    ],
+    "note": "行级排除可追溯到 sourceRow；被排除源行的品名/生产数量在当前初始化包中没有对应列时无法完整还原，必须回看原始源 Excel（不猜测）"
+  },
+  "db": {
+    "counts": {
+      "mps_erp_order_lines": 0,
+      "mps_order_allocations": 0,
+      "mps_process_cycles": 0,
+      "mps_group_plans": 0,
+      "mps_monthly_plans": 0,
+      "mps_shipping_plans": 0,
+      "mps_base_plans": 0,
+      "mps_weekly_plans": 0,
+      "mps_weekly_process_plans": 0,
+      "mps_technical_reports": 0,
+      "mps_material_reports": 0,
+      "mps_outsourcing_reports": 0,
+      "mps_process_reports": 0
+    },
+    "division": [
+      {
+        "id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+        "name": "事业四部",
+        "enabled": true
+      }
+    ],
+    "nullability": [
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "created_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "created_by",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "delivery_number",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "division_id",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "exception_text",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "id",
+        "is_nullable": "NO",
+        "column_default": "uuidv7()"
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "item_code",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "item_name",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "order_number",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "planned_quantity",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "process_code",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "process_name",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "production_date",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "production_quantity",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "tenant_id",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "updated_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "updated_by",
+        "is_nullable": "NO",
+        "column_default": "'0199e000-0000-7000-8000-000000000001'::uuid"
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "version",
+        "is_nullable": "NO",
+        "column_default": "1"
+      },
+      {
+        "table_name": "mps_process_reports",
+        "column_name": "weekly_plan_id",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "allocated_inbound_quantity",
+        "is_nullable": "NO",
+        "column_default": "0"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "base_plan_id",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "created_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "created_by",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "customer_code",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "delivery_number",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "division_id",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "drawing_due_date",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "hardware_cycle_days",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "hardware_due_date",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "id",
+        "is_nullable": "NO",
+        "column_default": "uuidv7()"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "image_refs",
+        "is_nullable": "NO",
+        "column_default": "'[]'::jsonb"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "inspection_quantity",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "inspection_required",
+        "is_nullable": "NO",
+        "column_default": "false"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "item_code",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "item_name",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "latest_customer_due_date",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "latest_review_due_date",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "manufacturing_method",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "model_age",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "order_date",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "order_exception_info",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "order_number",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "order_week_count",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "pending_quantity",
+        "is_nullable": "NO",
+        "column_default": "0"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "planned_quantity",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "product_attribute",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "remark",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "surface_nature",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "technical_cycle_days",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "tenant_id",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "updated_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "updated_by",
+        "is_nullable": "NO",
+        "column_default": "'0199e000-0000-7000-8000-000000000001'::uuid"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "version",
+        "is_nullable": "NO",
+        "column_default": "1"
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "wood_cycle_days",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "column_name": "wood_due_date",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "created_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "created_by",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "cycle_days",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "daily_reported_quantity",
+        "is_nullable": "NO",
+        "column_default": "0"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "due_date",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "exception_text",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "execution_enabled",
+        "is_nullable": "NO",
+        "column_default": "true"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "id",
+        "is_nullable": "NO",
+        "column_default": "uuidv7()"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "process_code",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "process_name",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "report_date",
+        "is_nullable": "NO",
+        "column_default": "((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai'::text))::date"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "sequence",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "status",
+        "is_nullable": "NO",
+        "column_default": "'未开始'::character varying"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "tenant_id",
+        "is_nullable": "NO",
+        "column_default": null
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "updated_at",
+        "is_nullable": "NO",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "updated_by",
+        "is_nullable": "NO",
+        "column_default": "'0199e000-0000-7000-8000-000000000001'::uuid"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "version",
+        "is_nullable": "NO",
+        "column_default": "1"
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "column_name": "weekly_plan_id",
+        "is_nullable": "NO",
+        "column_default": null
+      }
+    ],
+    "syncConfigs": [
+      {
+        "sync_key": "base-to-weekly",
+        "enabled": false
+      },
+      {
+        "sync_key": "erp-orders",
+        "enabled": false
+      },
+      {
+        "sync_key": "execution-rollup",
+        "enabled": false
+      },
+      {
+        "sync_key": "inbound-allocation",
+        "enabled": false
+      },
+      {
+        "sync_key": "plan-projections",
+        "enabled": false
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "enabled": false
+      }
+    ],
+    "systemUser": [
+      {
+        "id": "0199e000-0000-7000-8000-000000000001",
+        "username": "__kdos_system__",
+        "display_name": "KDOS系统任务"
+      }
+    ],
+    "initLedger": []
+  },
+  "fileBytes": 726296,
+  "fileSha256": "4003b70806126559a2e0956b2442607b45d6955f8cf1e0ecfaaa302d6926ae79",
+  "summary": {
+    "wouldInsertWeeklyPlans": 1169,
+    "wouldInsertProcessPlans": 11690,
+    "wouldInsertProcessReports": 356,
+    "excelRowLevelExcluded": 96,
+    "blockerCount": 3
+  }
+}
