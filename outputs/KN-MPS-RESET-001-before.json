@@ -1,0 +1,86 @@
+{
+    "task": "KN-MPS-RESET-001",
+    "tables": [
+        {
+            "rows": 1256,
+            "business": "事业部基础计划表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_base_plans"
+        },
+        {
+            "rows": 121349,
+            "business": "ERP订单明细",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_erp_order_lines"
+        },
+        {
+            "rows": 15825,
+            "business": "集团主计划",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_group_plans"
+        },
+        {
+            "rows": 4,
+            "business": "主材报工表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_material_reports"
+        },
+        {
+            "rows": 118010,
+            "business": "事业部月度计划",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_monthly_plans"
+        },
+        {
+            "rows": 118010,
+            "business": "订单分配表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_order_allocations"
+        },
+        {
+            "rows": 1,
+            "business": "外协报工表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_outsourcing_reports"
+        },
+        {
+            "rows": 1,
+            "business": "工序周期表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_process_cycles"
+        },
+        {
+            "rows": 6,
+            "business": "工序报工表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_process_reports"
+        },
+        {
+            "rows": 1255,
+            "business": "出货计划表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_shipping_plans"
+        },
+        {
+            "rows": 2,
+            "business": "技术报工表",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_technical_reports"
+        },
+        {
+            "rows": 2,
+            "business": "事业部周计划",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_weekly_plans"
+        },
+        {
+            "rows": 20,
+            "business": "周计划工序明细",
+            "tenant_id": "KAINAN",
+            "table_name": "mps_weekly_process_plans"
+        }
+    ],
+    "database": "four_department_tracker",
+    "capturedAt": "2026-09-17T11:50:29.316377+00:00",
+    "tenantFilter": "KAINAN"
+}

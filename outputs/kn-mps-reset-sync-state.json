@@ -1,0 +1,84 @@
+{
+  "task": "KN-MPS-RESET-001",
+  "purpose": "为事业四部正式初始化（KN-MPS-INIT-001）暂停所有会写入主计划 13 张表的自动同步；清理完成后保持暂停。",
+  "tenantId": "KAINAN",
+  "database": "four_department_tracker",
+  "pausedAt": "2026-09-17T11:47:57.762Z",
+  "pauseMethod": "UPDATE mps_sync_configs SET enabled=false（调度器 @Interval(60s) 只执行 enabled=true 的配置；MANUAL 手工同步不受影响，未执行）",
+  "previousSyncConfigs": [
+    {
+      "sync_key": "base-to-weekly",
+      "name": "基础计划同步周计划",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:23:21.995399+00:00",
+      "last_success_at": "2026-09-17T11:23:22.063072+00:00"
+    },
+    {
+      "sync_key": "erp-orders",
+      "name": "ERP订单同步",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:24:21.99738+00:00",
+      "last_success_at": "2026-09-17T11:24:23.748051+00:00"
+    },
+    {
+      "sync_key": "execution-rollup",
+      "name": "报工与计划状态对账",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:26:21.999652+00:00",
+      "last_success_at": "2026-09-17T11:26:22.041729+00:00"
+    },
+    {
+      "sync_key": "inbound-allocation",
+      "name": "系统入库与FIFO分摊",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:25:21.999738+00:00",
+      "last_success_at": "2026-09-17T11:25:22.123141+00:00"
+    },
+    {
+      "sync_key": "plan-projections",
+      "name": "集团/月度计划对账",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:27:22.001311+00:00",
+      "last_success_at": "2026-09-17T11:27:26.405945+00:00"
+    },
+    {
+      "sync_key": "shipping-to-base",
+      "name": "出货计划同步基础计划",
+      "enabled": true,
+      "interval_minutes": 30,
+      "status": "SUCCESS",
+      "last_started_at": "2026-09-17T11:32:22.01179+00:00",
+      "last_success_at": "2026-09-17T11:32:22.065614+00:00"
+    }
+  ],
+  "restoreInstructions": [
+    "KN-MPS-INIT-001 完成后，按 previousSyncConfigs 逐条恢复 enabled 与 interval_minutes（UPDATE mps_sync_configs SET enabled=true ... WHERE tenant_id=KAINAN AND sync_key=...）",
+    "恢复前确认正式数据已导入、业务口径已确认；恢复后首个调度周期（≤60s）会按 interval_minutes 到期规则执行"
+  ],
+  "tablesInScope": [
+    "mps_erp_order_lines",
+    "mps_order_allocations",
+    "mps_process_cycles",
+    "mps_group_plans",
+    "mps_monthly_plans",
+    "mps_shipping_plans",
+    "mps_base_plans",
+    "mps_weekly_plans",
+    "mps_weekly_process_plans",
+    "mps_technical_reports",
+    "mps_material_reports",
+    "mps_outsourcing_reports",
+    "mps_process_reports"
+  ],
+  "secretsIncluded": false
+}
