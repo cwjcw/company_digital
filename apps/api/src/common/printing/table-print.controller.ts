@@ -70,6 +70,8 @@ export class TablePrintController {
     return {
       tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN",
       userId: request.user?.sub ?? null,
+      displayName: request.user?.displayName ?? undefined,
+      username: request.user?.username ?? undefined,
       permissions: request.user?.permissions ?? [],
       roles: request.user?.roles ?? [],
       isSystemAdmin: request.user?.isSystemAdmin === true,

@@ -54,6 +54,22 @@ export function useTablePrintCapabilities() {
   });
 }
 
+/**
+ * KN-PRINT-001：打印业务时间统一按 Asia/Shanghai 显示为 `YYYY-MM-DD HH:mm:ss`。
+ * 后端始终返回 ISO instant；这里显式指定时区，禁止依赖浏览器本机时区、禁止手工 +8。
+ */
+export function formatPrintDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
 export function tablePrintAllowed(capabilities: Array<{ code: string; print: { status: string }; allowed: boolean }> | undefined, resource: string) {
   /* 后端未返回（加载中/异常）或返回非数组时一律视为不可打印，避免出现“假打印入口”。 */
   if (!Array.isArray(capabilities)) return false;
@@ -120,9 +136,8 @@ export function KdosPrintDocument({ dto }: { dto: TablePrintDto }) {
       <div className="kdos-print-platform">凯南数字化工作台</div>
       <div className="kdos-print-title">{dto.title}</div>
       <div className="kdos-print-meta">
-        <span>打印时间：{meta.printedAt.replace("T", " ").slice(0, 19)}</span>
-        <span>打印人：{meta.printedBy || "—"}</span>
-        {(meta.filtered || meta.searched) && <span>已应用搜索和筛选条件</span>}
+        <span>打印时间：{formatPrintDateTime(meta.printedAt)}</span>
+        <span>打印人：{meta.printedBy?.trim() || "—"}</span>
       </div>
       <div className="kdos-print-scope">{scope}</div>
     </div>

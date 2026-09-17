@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 import { api } from "../api";
 import { KdosDataTable } from "./KdosDataTable";
-import { KdosPrintDocument, printTable, type TablePrintDto } from "./table-print";
+import { KdosPrintDocument, formatPrintDateTime, printTable, type TablePrintDto } from "./table-print";
 
 /**
  * KN-PRINT-001：统一打印入口（按钮位置、权限、>300 确认、0 行提示）与打印 DOM/版式模型。
@@ -178,13 +178,49 @@ describe("KN-PRINT-001 打印文档模型", () => {
 
   afterEach(() => cleanup());
 
+  it("A/B: 打印时间按 Asia/Shanghai 显示（UTC 03:56:58 → 11:56:58），且不依赖浏览器本机时区", () => {
+    /* 与浏览器/进程时区无关：格式化函数显式使用 Asia/Shanghai。 */
+    expect(formatPrintDateTime("2026-09-17T03:56:58.000Z")).toBe("2026-09-17 11:56:58");
+    expect(formatPrintDateTime("2026-09-17T11:56:58.000Z")).toBe("2026-09-17 19:56:58");
+    /* 夏令时无关（中国无夏令时）：跨年边界同样按 +08:00 折算。 */
+    expect(formatPrintDateTime("2026-01-01T00:00:00.000Z")).toBe("2026-01-01 08:00:00");
+    expect(formatPrintDateTime(null)).toBe("—");
+  });
+
+  it("C/D: 打印人显示可信姓名（displayName → username → —），DOM 不出现 UUID", () => {
+    const withName: TablePrintDto = { ...dto, meta: { ...dto.meta, printedBy: "崔玮杰" } };
+    const { container, unmount } = render(<KdosPrintDocument dto={withName} />);
+    const root = container.querySelector('[data-testid="kdos-print-root"]') as HTMLElement;
+    expect(within(root).getByText("打印人：崔玮杰")).toBeInTheDocument();
+    expect(root.textContent).not.toContain(dto.meta.printedBy.includes("-") ? "" : "never");
+    unmount();
+    /* 无姓名时回退为登录账号；都没有时显示 —— */
+    const { container: usernameContainer } = render(<KdosPrintDocument dto={{ ...dto, meta: { ...dto.meta, printedBy: "cuiweijie" } }} />);
+    expect(usernameContainer.textContent).toContain("打印人：cuiweijie");
+    const { container: emptyContainer } = render(<KdosPrintDocument dto={{ ...dto, meta: { ...dto.meta, printedBy: "" } }} />);
+    expect(emptyContainer.textContent).toContain("打印人：—");
+  });
+
+  it("E/F: 页眉不再出现筛选描述，但保留打印范围", () => {
+    const filtered: TablePrintDto = { ...dto, meta: { ...dto.meta, filtered: true, searched: true, printedAt: "2026-09-17T03:56:58.000Z", printedBy: "崔玮杰" } };
+    const { container } = render(<KdosPrintDocument dto={filtered} />);
+    const root = container.querySelector('[data-testid="kdos-print-root"]') as HTMLElement;
+    expect(root.textContent).not.toContain("已应用搜索和筛选条件");
+    expect(root.textContent).not.toContain("已筛选");
+    expect(root.textContent).not.toContain("高级筛选已生效");
+    /* 打印范围保留，且只出现有意义的范围信息。 */
+    expect(within(root).getByText(/打印范围：筛选结果，共 1 条/)).toBeInTheDocument();
+    /* 打印时间已按中国标准时间展示。 */
+    expect(within(root).getByText("打印时间：2026-09-17 11:56:58")).toBeInTheDocument();
+    expect(root.textContent).not.toContain("2026-09-17T03:56:58");
+  });
+
   it("打印根节点带方向 class，包含表头、分组表头与打印信息", () => {
     const { container } = render(<KdosPrintDocument dto={dto} />);
     const root = container.querySelector('[data-testid="kdos-print-root"]') as HTMLElement;
     expect(root.className).toContain("orientation-landscape");
     expect(within(root).getByText("凯南数字化工作台")).toBeInTheDocument();
     expect(within(root).getByText("事业部周计划")).toBeInTheDocument();
-    expect(within(root).getByText(/已应用搜索和筛选条件/)).toBeInTheDocument();
     expect(within(root).getByText(/打印范围：筛选结果，共 1 条/)).toBeInTheDocument();
     expect(within(root).getByText("计划")).toBeInTheDocument();
     expect(container.querySelector('[data-testid="kdos-print-table"] thead')).toBeTruthy();

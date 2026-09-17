@@ -137,11 +137,20 @@ export class TablePrintService {
         filtered: Boolean(this.hasFilterGroup(query.filterGroup)),
         searched: String(query.search ?? "").trim() !== "",
         printedAt: new Date().toISOString(),
-        printedBy: String(actor.userId ?? ""),
+        /* KN-PRINT-001：打印人必须是可信认证身份的姓名，禁止显示 userId/UUID。 */
+        printedBy: this.printedByOf(actor),
         batchSize: PRINT_BATCH_SIZE,
         batches
       }
     };
+  }
+
+  /** 打印人展示值：displayName → username → "—"（userId 仅用于审计与内部识别，不上纸）。 */
+  private printedByOf(actor: TableFilterActor) {
+    const display = String(actor.displayName ?? "").trim();
+    if (display) return display;
+    const username = String(actor.username ?? "").trim();
+    return username || "—";
   }
 
   private sourceFor(resourceCode: string) {

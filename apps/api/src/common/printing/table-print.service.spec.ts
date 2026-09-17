@@ -183,6 +183,26 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     expect(format({ key: "members", label: "成员", type: "member", editable: true, multiple: true }, ["张三", "李四"])).toBe("张三、李四");
   });
 
+  it("打印人：优先 displayName，其次 username，绝不显示 userId/UUID", async () => {
+    const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
+    const service = new TablePrintService(registry, {} as never);
+    const permissions = [`${resource}:*:batch_print`, `${resource}:*:read`];
+    const withName = await service.render(resource, { rangeType: "FILTERED" }, {
+      ...actor(permissions), userId: "f6756112-dfef-4082-b250-96a3b7607b1a", displayName: "崔玮杰", username: "cuiweijie"
+    });
+    expect(withName.meta.printedBy).toBe("崔玮杰");
+    const withoutName = await service.render(resource, { rangeType: "FILTERED" }, {
+      ...actor(permissions), userId: "f6756112-dfef-4082-b250-96a3b7607b1a", username: "cuiweijie"
+    });
+    expect(withoutName.meta.printedBy).toBe("cuiweijie");
+    const neither = await service.render(resource, { rangeType: "FILTERED" }, {
+      ...actor(permissions), userId: "f6756112-dfef-4082-b250-96a3b7607b1a", displayName: "  ", username: ""
+    });
+    expect(neither.meta.printedBy).toBe("—");
+    /* 任何情况下都不得把 UUID 作为打印人输出。 */
+    for (const dto of [withName, withoutName, neither]) expect(JSON.stringify(dto.meta.printedBy)).not.toContain("f6756112");
+  });
+
   it("NOT_APPLICABLE 的 resource 拒绝打印并给出真实产品理由", async () => {
     const service = new TablePrintService(registryWith({ code: "roles" }), {} as never);
     await expect(service.manifest("roles", { rangeType: "FILTERED" }, actor(["*"]))).rejects.toThrow(/角色树配置模式/);

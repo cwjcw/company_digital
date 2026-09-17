@@ -27,6 +27,8 @@ export type TablePrintRowQuery = {
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
 export type TableFilterActor = {
   tenantId: string; userId: string | null; permissions: string[]; roles?: string[];
+  /** KN-PRINT-001：可信认证身份（来自 AuthGuard 后的 request.user），用于打印页眉等展示字段；不得用于权限判断。 */
+  displayName?: string; username?: string;
   isSystemAdmin?: boolean; moduleAdminCodes?: string[];
   tableDataScopes?: Array<{ resource: string; scope: string; match?: string; actions?: string[]; rules?: Array<{ fieldKey?: string; operator?: string; value?: unknown }> }>;
   hasPermission?: (resource: string, action: string) => boolean;
