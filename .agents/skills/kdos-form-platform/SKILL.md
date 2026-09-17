@@ -150,6 +150,13 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 
 1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
 2. 打印筛选结果复用：page context + quick search + applied Advanced FilterGroup + sort，然后打印全部匹配记录（不是当前页）。
+2.1 标准表格只保留一个主打印入口（工具栏按钮）：未选中记录时显示「打印筛选结果」，一旦有选中记录就自动变为「打印已选（N）」；禁止在 selection toolbar 再放第二个打印按钮，也禁止新增“操作”列。
+2.2 选中优先于筛选：只要存在选中记录，打印就是 SELECTED，不能用当前 search/FilterGroup 覆盖为 FILTERED。
+2.3 Print API 必须显式传 `rangeType: "FILTERED" | "SELECTED"`，禁止根据 selectedIds 是否为空猜模式。
+2.4 `rangeType=SELECTED` 但稳定 ID 为空或非法时必须 400，绝不退化打印整表；部分记录无权时只返回可打印部分并给出 requestedCount/printedCount，全部无权时 printedCount=0 且提示“当前选中记录已无可打印数据”。
+2.5 稳定 ID 不允许平台假设都是 UUID：每个 resource 必须声明 `recordKey`（`{ field, type: uuid|text|integer|bigint }`），打印查询按真实主键参数化并做类型化校验。
+2.6 页面自定义 rowSelection 时必须同步到平台选择状态，保证“打印已选”与用户看到的选择一致。
+2.7 选中 N 条只能打印 N 条（平台级回归测试）：manifest.total、requestedCount、printedCount、预览行数必须一致。
 3. 高级筛选是唯一正式 Filter UI；打印不得重新引入旧筛选、Header Filter、列头筛选或 legacy filter UI。
 4. Print 平台不得创建第二套 FilterCompiler（复用 `SqlFilterCompiler` / `TableFilterRegistry` / operator、reference、date、permission 语义）。
 5. 打印已选只能提交 stable IDs，后端必须重新取数并重新校验权限（跨页选择必须正确打印）。
