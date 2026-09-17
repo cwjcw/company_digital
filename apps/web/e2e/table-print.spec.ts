@@ -43,7 +43,7 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     await page.screenshot({ path: testInfo.outputPath("master-plan-print.png") });
   });
 
-  test.fixme("Data Center 大表：超过阈值先确认，取消不加载数据", async ({ page }) => {
+  test("Data Center 大表：超过阈值先确认，取消不加载数据", async ({ page }) => {
     await login(page);
     await page.goto("/data-center/sales-orders");
     await expect(page.getByRole("heading", { name: "订单表" }).first()).toBeVisible({ timeout: 20_000 });
@@ -55,7 +55,7 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     await expect(page.getByTestId("kdos-print-preview")).toHaveCount(0);
   });
 
-  test.fixme("Users：页面上下文（部门/状态）随打印请求下发", async ({ page }) => {
+  test("Users：页面上下文（部门/状态）随打印请求下发", async ({ page }) => {
     await login(page);
     const calls: string[] = [];
     page.on("request", (request) => { if (request.url().includes("/table-prints/")) calls.push(decodeURIComponent(request.url())); });
@@ -71,7 +71,7 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     expect(render.length).toBeGreaterThan(0);
   });
 
-  test.fixme("跨页选择：打印已选（跨页稳定 ID）", async ({ page }) => {
+  test("跨页选择：打印已选（跨页稳定 ID）", async ({ page }) => {
     await login(page);
     await page.goto("/equipment-register");
     await expect(page.getByRole("heading", { name: "设备总台账" })).toBeVisible({ timeout: 20_000 });
@@ -91,5 +91,64 @@ test.describe("KN-PRINT-001 统一表格打印", () => {
     await expect(page.getByTestId("kdos-print-preview")).toBeVisible({ timeout: 30_000 });
     await expect(root.locator(".kdos-print-scope")).toContainText("已选，共 2 条");
     await expect(root.locator("tbody tr")).toHaveCount(2);
+  });
+});
+
+/** 选中 1 条：同一个主打印入口变成「打印已选（1）」，预览只打印这 1 条。 */
+const SELECT_ONE_PAGES: Array<[string, string, string]> = [
+  ["Master Plan", "/master-plan-system/mps-weekly-plans", "事业部周计划"],
+  ["Equipment", "/equipment-register", "设备总台账"],
+  ["Data Center", "/data-center/sales-orders", "订单表"],
+  ["Marketing", "/marketing/order-schedule", "订单排期"],
+  ["Users", "/users", "用户与角色"]
+];
+
+test.describe("KN-PRINT-001 选中优先（选 1 条只打印 1 条）", () => {
+  test.describe.configure({ timeout: 180_000 });
+  test.skip(!password, "缺少 KNP_E2E_PASSWORD");
+
+  for (const [label, path, title] of SELECT_ONE_PAGES) {
+    test(`${label}：选 1 条 → 打印已选（1） → 预览 1 行`, async ({ page }, testInfo) => {
+      await login(page);
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: title }).first()).toBeVisible({ timeout: 20_000 });
+      const shell = page.locator(".kdos-data-table-shell").first();
+      /* 未选择时只有一个「打印筛选结果」。 */
+      await expect(shell.getByRole("button", { name: /打印筛选结果/ })).toBeVisible({ timeout: 20_000 });
+      await expect(shell.getByRole("button", { name: /打印已选/ })).toHaveCount(0);
+      /* 勾选第一条后：同一个按钮变成「打印已选（1）」，不再出现“打印筛选结果”。 */
+      await shell.locator(".ant-table-tbody tr.ant-table-row").first().locator(".ant-checkbox-input").click();
+      const selectedButton = shell.getByRole("button", { name: /打印已选（1）/ });
+      await expect(selectedButton).toBeVisible();
+      await expect(shell.getByRole("button", { name: /打印筛选结果/ })).toHaveCount(0);
+      await selectedButton.click();
+      const confirm = page.locator(".ant-modal").filter({ hasText: "确认打印" });
+      if (await confirm.isVisible().catch(() => false)) await confirm.getByRole("button", { name: /继续打印/ }).click();
+      const root = page.locator(".kdos-print-root");
+      await expect(page.getByTestId("kdos-print-preview")).toBeVisible({ timeout: 60_000 });
+      await expect(root.locator(".kdos-print-title")).toHaveText(title);
+      await expect(root.locator(".kdos-print-scope")).toContainText("已选，共 1 条");
+      await expect(root.locator("tbody tr")).toHaveCount(1);
+      await page.screenshot({ path: testInfo.outputPath(`${label}-selected-one.png`) });
+    });
+  }
+
+  test("Role Members：选 1 条 → 打印已选（1）", async ({ page }) => {
+    await login(page);
+    await page.goto("/users");
+    await page.getByRole("button", { name: "切换到角色" }).click();
+    await page.locator(".role-tree-role").first().click();
+    const shell = page.locator(".kdos-data-table-shell").last();
+    await expect(shell.getByRole("button", { name: /打印筛选结果/ })).toBeVisible({ timeout: 20_000 });
+    await shell.locator(".ant-table-tbody tr.ant-table-row").first().locator(".ant-checkbox-input").click();
+    const selectedButton = shell.getByRole("button", { name: /打印已选（1）/ });
+    await expect(selectedButton).toBeVisible();
+    await selectedButton.click();
+    const confirm = page.locator(".ant-modal").filter({ hasText: "确认打印" });
+    if (await confirm.isVisible().catch(() => false)) await confirm.getByRole("button", { name: /继续打印/ }).click();
+    const root = page.locator(".kdos-print-root");
+    await expect(page.getByTestId("kdos-print-preview")).toBeVisible({ timeout: 60_000 });
+    await expect(root.locator(".kdos-print-scope")).toContainText("已选，共 1 条");
+    await expect(root.locator("tbody tr")).toHaveCount(1);
   });
 });

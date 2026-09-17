@@ -380,6 +380,25 @@ export function KdosDataTable<RecordType extends DataRecord>({
         : current.filter((key) => !changedKeys.has(key)));
     }
   } : undefined;
+
+  /**
+   * KN-PRINT-001：页面自定义 rowSelection（例如用户管理/营销）时，平台选择状态必须同步，
+   * 否则「打印已选」会读不到选择而退化成打印全部。这里统一包装成唯一的选择语义。
+   */
+  const effectiveRowSelection: TableProps<RecordType>["rowSelection"] | undefined = tableProps.rowSelection
+    ? {
+      preserveSelectedRowKeys: true,
+      ...tableProps.rowSelection,
+      onChange: (keys, selectedRows, info) => {
+        setSelectedRowKeys(keys.map(String));
+        selectedRecords.current.clear();
+        for (const row of selectedRows) selectedRecords.current.set(recordKey(row, tableProps.rowKey), row);
+        (tableProps.rowSelection as { onChange?: (keys: Key[], rows: RecordType[], info: { type: string }) => void } | undefined)?.onChange?.(
+          keys.map(String), selectedRows, info as { type: string }
+        );
+      }
+    }
+    : internalRowSelection;
   const resolvedPagination = pagination === false && !isRegisteredForm ? false : {
     ...requestedPagination,
     current: currentPage,
@@ -438,7 +457,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       {...tableProps}
       className={["kdos-data-table", className].filter(Boolean).join(" ")}
       rowKey={tableProps.rowKey ?? "id"}
-      rowSelection={tableProps.rowSelection ?? internalRowSelection}
+      rowSelection={effectiveRowSelection}
       dataSource={rows}
       columns={renderedColumns}
       pagination={resolvedPagination}
