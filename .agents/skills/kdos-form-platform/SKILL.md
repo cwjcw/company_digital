@@ -146,6 +146,14 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 39. `NOT_APPLICABLE` 必须写真实产品理由（例如“角色管理是角色树配置模式，右侧列表是 users 上下文视图”），不得只写“暂不支持”。
 40. 禁止新增独立“操作”列（行级操作使用既有菜单/按钮）。
 
+#### 3.1.0.1.1 设备事业部数据范围与新增（KN-EQUIP-001，强制）
+
+- 设备模块的 `create` 数据范围只有一份实现（`equipmentCreateScope` / `equipmentCreateScopeClause` / `equipmentCreateAllowed`）：候选设备下拉、正式保存校验、Excel 导入必须共用，禁止再写第二套事业部判断。
+- 不变量：**候选里能选的设备 = 保存允许新增的设备**（同一 actor 下两者由同一函数派生，回归测试必须断言）。
+- CUSTOM 规则只支持 `divisionId EQ <organization UUID>` 与 `divisionId IN [<organization UUID>...]`，一律按稳定部门 ID 比较；禁止用 `divisionNameSnapshot` 或中文名称做权限判断。`ALL/OWN/NONE` 视为不受事业部限制；`OWN` 仅在"本人创建"记录上额外生效。
+- 多权限组叠加时：只累加具备该 action 的权限组；`read` 的 `ALL` 不得扩大 `create` 范围（fail-closed）。
+- 保存失败必须留在弹窗内可见（持久 `Alert`，按 403/409/400 给出可照做的中文原因），不能只弹一条会消失的轻提示；成功后才关闭弹窗并刷新列表与设备看板。
+
 #### 3.1.0.3 KDOS 统一表格打印（KN-PRINT-001，强制）
 
 1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
