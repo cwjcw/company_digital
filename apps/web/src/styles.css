@@ -713,3 +713,13 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
   .equipment-dashboard-grid, .equipment-recording-grid, .equipment-form-grid { grid-template-columns: 1fr; }
   .equipment-form-wide { grid-column: auto; }
 }
+
+/* ===== KN-MPS-EXEC-001 主计划工序执行可视化 ===== */
+/* 工序分组表头/子表头/单元格底色由 processColor(order) 以内联样式给出，这里只负责排版与语义 token。 */
+.kdos-process-head > .ant-table-column-title { font-weight: 700; }
+.kdos-process .kdos-progress-cell { display: inline-block; padding: 1px 8px; border-radius: 10px; font-variant-numeric: tabular-nums; }
+/* >=100% 只高亮“生产进度”单元格（覆盖工序默认浅色），不影响状态列与其他字段。 */
+.kdos-progress-cell.kdos-progress-satisfied { background: #e7f6ec; color: #1f6b3a; font-weight: 600; }
+.kdos-progress-tooltip { font-size: 12px; line-height: 1.7; }
+/* 统一异常列：默认可截断，Hover 显示完整内容；打印/导出保留完整文本。 */
+.kdos-exception-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

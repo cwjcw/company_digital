@@ -1,6 +1,7 @@
+/* eslint-disable react-refresh/only-export-components -- 工序配色/进度格式化等纯函数与页面组件同文件，供测试与表格渲染共用 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload } from "antd";
+import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
 import { DownloadOutlined, MoreOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
@@ -57,9 +58,33 @@ function display(value: unknown, field: TablePermissionFieldDefinition, row: any
   if (field.type === "dictionary" && value != null) return field.options?.find((option) => option.value === String(value))?.label ?? String(value);
   if (field.type === "date" && value) return dayjs(String(value)).format("YYYY-MM-DD");
   if (field.key === "completionRate") return `${Math.round(Number(value || 0) * 100)}%`;
+  if (field.key === "exceptionSummary") return value ? String(value) : "—";
   if (value && typeof value === "object") return JSON.stringify(value);
   return value == null || value === "" ? "—" : String(value);
 }
+
+/**
+ * KN-MPS-EXEC-001 工序低饱和配色（唯一来源：process.order）。三层：一级表头较明显、二级表头更浅、数据单元格极浅。
+ * 周计划与月计划使用同一函数 → 同一工序颜色稳定一致；新增工序时无需改代码。
+ */
+const PROCESS_PALETTE = [
+  { header: "#e8f0fb", sub: "#f2f7fd", cell: "#f9fbfe", text: "#1f4e79" },
+  { header: "#fdf0e3", sub: "#fef7ef", cell: "#fffbf7", text: "#8a4b12" },
+  { header: "#e9f5ec", sub: "#f3faf5", cell: "#fafdfb", text: "#1f6b3a" },
+  { header: "#f3edfa", sub: "#f8f4fc", cell: "#fcfafe", text: "#5b3d8a" },
+  { header: "#fdeeee", sub: "#fef6f6", cell: "#fffbfb", text: "#8a2f2f" },
+  { header: "#eaf4f6", sub: "#f3f9fa", cell: "#f9fcfd", text: "#155e6b" },
+  { header: "#f6f2e6", sub: "#faf8f0", cell: "#fdfcf7", text: "#6b5a17" },
+  { header: "#eef0f6", sub: "#f5f6fa", cell: "#fafbfd", text: "#3d4a6b" },
+  { header: "#f0eef5", sub: "#f7f5fa", cell: "#fbfafd", text: "#4f3f6b" },
+  { header: "#eef5ee", sub: "#f5faf5", cell: "#fbfdfb", text: "#2f5d3a" }
+];
+export function processColor(order: number) {
+  const index = Math.max(0, (Math.trunc(order) || 1) - 1) % PROCESS_PALETTE.length;
+  return PROCESS_PALETTE[index]!;
+}
+/** 工序语义 class token：测试与主题都基于 token，不依赖具体 RGB。 */
+export const processColorClass = (code: string) => `kdos-process kdos-process-${code}`;
 
 /** 未取到服务端工序定义时的兜底顺序（唯一权威定义在 @tracker/shared，服务端通过 metadata.processes 下发）。 */
 const fallbackProcessGroups: ProcessOption[] = [
@@ -112,6 +137,12 @@ function PendingReportSubmit({ count, submitting, onSubmit }: { count: number; s
   return <Button type="primary" loading={submitting} disabled={!count} onClick={onSubmit}>提交报工{count ? `（${count}）` : ""}</Button>;
 }
 
+/**
+ * KN-MPS-EXEC-001：工序分组必须由 canonical process registry 动态生成（结构来自工序定义，字段只是组内可见列）。
+ * 之前“字段不存在就不建组”的做法会让权限组只勾选部分字段时整个工序名消失；现在始终生成 10 个工序组，
+ * 顺序严格按 process.order，组内只渲染当前用户可读的列：周期 / 交期 / 状态 / 生产进度。
+ * 每个工序异常不再单列，异常统一到整表唯一的「异常」列（exceptionSummary）。
+ */
 function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
@@ -119,26 +150,103 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
     width: Math.max(105, Math.min(240, field.label.length * 18 + 54)),
     render: (value: unknown, row: any) => renderCell ? renderCell(value, field, row) : display(value, field, row)
   });
+  const progressColumn = (field: TablePermissionFieldDefinition, process: ProcessOption) => ({
+    title: "生产进度",
+    dataIndex: field.key,
+    width: 120,
+    className: processColorClass(process.code),
+    onCell: (row: any) => ({ className: progressCellClass(row?.[field.key]), style: progressCellStyle(row?.[field.key]) }),
+    render: (value: unknown, row: any) => <ProgressCell process={process} row={row} value={value} />
+  });
+  const exceptionColumn = (field: TablePermissionFieldDefinition) => ({
+    title: "异常",
+    dataIndex: field.key,
+    width: 280,
+    ellipsis: { showTitle: false } as const,
+    render: (value: unknown) => value
+      ? <Tooltip title={String(value)}><span className="kdos-exception-summary">{String(value)}</span></Tooltip>
+      : "—"
+  });
   if (!["mps-monthly-plans", "mps-weekly-plans"].includes(resource)) return fields.map(column);
-  const grouped = new Set<string>(); const groups: any[] = [];
-  if (resource === "mps-weekly-plans") {
-    const auxiliary: Array<[string, string[]]> = [
-      ["外协计划", ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingException", "outsourcingActualInboundDate"]],
-      ["技术/图纸计划", ["technicalCycleDays", "drawingDueDate", "technicalStatus", "technicalException"]],
-      ["五金主材计划", ["hardwareCycleDays", "hardwareDueDate", "hardwareStatus", "hardwareException"]],
-      ["木作主材计划", ["woodCycleDays", "woodDueDate", "woodStatus", "woodException"]]
-    ];
-    for (const [title, keys] of auxiliary) {
-      const children = fields.filter((field) => keys.includes(field.key)); children.forEach((field) => grouped.add(field.key));
-      if (children.length) groups.push({ title, children: children.map(column) });
-    }
+  /* 辅助计划分组：字段结构固定，异常同样已并入统一异常列，不再单列。 */
+  const auxiliary: Array<[string, string[]]> = resource === "mps-weekly-plans"
+    ? [
+      ["技术/图纸计划", ["technicalCycleDays", "drawingDueDate", "technicalStatus"]],
+      ["五金主材计划", ["hardwareCycleDays", "hardwareDueDate", "hardwareStatus"]],
+      ["木作主材计划", ["woodCycleDays", "woodDueDate", "woodStatus"]],
+      ["外协计划", ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingActualInboundDate"]]
+    ]
+    : [];
+  const grouped = new Set<string>();
+  const groups: any[] = [];
+  for (const [title, keys] of auxiliary) {
+    const children = fields.filter((field) => keys.includes(field.key));
+    children.forEach((field) => grouped.add(field.key));
+    if (children.length) groups.push({ title, children: children.map(column) });
   }
-  /* 工序分组顺序完全按服务端下发的 canonical registry（毛坯位于研磨与表面处理之间）。 */
   for (const process of [...processes].sort((left, right) => left.order - right.order)) {
-    const children = fields.filter((field) => ["CycleDays", "DueDate", "Status", "Exception"].some((suffix) => field.key === `${process.code}${suffix}`));
-    children.forEach((field) => grouped.add(field.key)); if (children.length) groups.push({ title: process.name, children: children.map(column) });
+    const color = processColor(process.order);
+    /* 工序组结构永远生成（与字段权限解耦）；组内只放可读字段：周期 / 交期 / 状态 / 生产进度。 */
+    const children = fields
+      .filter((field) => ["CycleDays", "DueDate", "Status", "ProductionProgress"].some((suffix) => field.key === `${process.code}${suffix}`))
+      .map((field) => {
+        const base = field.key.endsWith("ProductionProgress") ? progressColumn(field, process) : column(field);
+        return {
+          ...base,
+          onHeaderCell: () => ({ className: `${processColorClass(process.code)} kdos-process-sub`, style: { background: color.sub, color: color.text } })
+        };
+      });
+    children.forEach((child) => grouped.add(child.dataIndex as string));
+    /* 权限组未授予该工序任何字段读权限时，仍保留工序名称（结构由 canonical registry 决定），组内占位不泄露数据。 */
+    const safeChildren = children.length ? children : [{
+      title: "无可见字段", dataIndex: `process-${process.code}-placeholder`, width: 90,
+      render: () => "—",
+      onHeaderCell: () => ({ className: `${processColorClass(process.code)} kdos-process-sub`, style: { background: color.sub, color: color.text } })
+    }];
+    groups.push({
+      title: process.name,
+      key: `process-${process.code}`,
+      className: processColorClass(process.code),
+      onHeaderCell: () => ({ className: `${processColorClass(process.code)} kdos-process-head`, style: { background: color.header, color: color.text } }),
+      children: safeChildren
+    });
   }
-  return [...fields.filter((field) => !grouped.has(field.key)).map(column), ...groups];
+  const leading = fields.filter((field) => !grouped.has(field.key) && field.key !== "exceptionSummary").map(column);
+  const exceptionField = fields.find((field) => field.key === "exceptionSummary");
+  return [...leading, ...groups, ...(exceptionField ? [exceptionColumn(exceptionField)] : [])];
+}
+
+/** 生产进度单元格样式：>=100%（ratio>=1）时只高亮该单元格为完成绿，其余工序字段保持工序浅色。 */
+export function progressCellClass(value: unknown) {
+  const ratio = value == null || value === "" ? null : Number(value);
+  return ratio != null && Number.isFinite(ratio) && ratio >= 1 ? "kdos-progress-cell kdos-progress-satisfied" : "kdos-progress-cell";
+}
+export function progressCellStyle(value: unknown) {
+  const ratio = value == null || value === "" ? null : Number(value);
+  return ratio != null && Number.isFinite(ratio) && ratio >= 1 ? { background: "#e7f6ec", color: "#1f6b3a", fontWeight: 600 } : undefined;
+}
+/** 生产进度格式化：需求为 0/NULL → —（不出现 NaN/Infinity）；允许超过 100%（不封顶）。 */
+export function formatProductionProgress(value: unknown) {
+  const ratio = value == null || value === "" ? null : Number(value);
+  if (ratio == null || !Number.isFinite(ratio)) return "—";
+  const percent = ratio * 100;
+  return `${Number.isInteger(percent) ? percent : Math.round(percent * 10) / 10}%`;
+}
+
+/** 生产进度单元格：主表只占一列，Hover 显示需求数量 / 累计报工 / 报工次数 / 生产进度。 */
+function ProgressCell({ process, row, value }: { process: ProcessOption; row: any; value: unknown }) {
+  const demand = row?.plannedQuantity;
+  const reported = row?.[`${process.code}ReportedQuantity`];
+  const count = row?.[`${process.code}ReportCount`];
+  const text = formatProductionProgress(value);
+  return <Tooltip title={<div className="kdos-progress-tooltip">
+    <div>需求数量：{demand == null || demand === "" ? "—" : String(demand)}</div>
+    <div>累计报工：{reported == null || reported === "" ? "—" : String(reported)}</div>
+    <div>报工次数：{count == null || count === "" ? "0" : String(count)}</div>
+    <div>生产进度：{text}</div>
+  </div>}>
+    <span className={progressCellClass(value)} style={progressCellStyle(value)}>{text}</span>
+  </Tooltip>;
 }
 
 function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {

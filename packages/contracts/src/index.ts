@@ -305,6 +305,22 @@ const mpsProcessPermissionFields: TablePermissionFieldDefinition[] = standardMps
   { key: `${code}Status`, label: `${label}·状态`, type: "dictionary" as const, editable: false },
   { key: `${code}Exception`, label: `${label}·异常`, type: "text" as const, editable: false }
 ]);
+
+/**
+ * KN-MPS-EXEC-001：每个标准工序的「生产进度」只读派生字段（唯一事实来源 mps_process_reports 累计报工）。
+ * 内部按 ratio 存储（0.8=80%、1.05=105%），与平台 percentage 规范一致；需求为 0/NULL 时为 NULL（界面显示 —）。
+ * ReportedQuantity/ReportCount 只用于 Hover 详情，不作为表格列。
+ */
+const mpsProcessProgressFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
+  { key: `${code}ProductionProgress`, label: `${label}·生产进度`, type: "number" as const, editable: false, format: "percentage" as const },
+  { key: `${code}ReportedQuantity`, label: `${label}·累计报工`, type: "number" as const, editable: false, format: "decimal" as const },
+  { key: `${code}ReportCount`, label: `${label}·报工次数`, type: "number" as const, editable: false, format: "integer" as const }
+]);
+
+/** 周/月计划整表唯一异常列：汇总所有正式执行异常来源（含来源标签、去重、稳定顺序）。 */
+const mpsExceptionSummaryField: TablePermissionFieldDefinition[] = [
+  { key: "exceptionSummary", label: "异常", type: "text" as const, editable: false }
+];
 const weeklyAuxiliaryPermissionFields: TablePermissionFieldDefinition[] = [
   { key: "technicalCycleDays", label: "技术/图纸计划·所需周期", type: "number", editable: false },
   { key: "technicalStatus", label: "技术/图纸计划·状态", type: "dictionary", editable: false },
@@ -342,6 +358,8 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
     ...current.slice(0, -auditPermissionFields.length),
     ...(resource === "mps-weekly-plans" ? weeklyAuxiliaryPermissionFields : monthlyAuxiliaryPermissionFields),
     ...mpsProcessPermissionFields,
+    ...mpsProcessProgressFields,
+    ...mpsExceptionSummaryField,
     ...auditPermissionFields
   ];
 }

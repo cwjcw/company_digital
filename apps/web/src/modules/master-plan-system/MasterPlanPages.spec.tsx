@@ -389,7 +389,8 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
       processField("blank", "毛坯", "CycleDays", "所需周期", "number"),
       processField("blank", "毛坯", "DueDate", "交期", "date"),
       processField("blank", "毛坯", "Status", "状态", "dictionary"),
-      processField("blank", "毛坯", "Exception", "异常", "text"),
+      processField("blank", "毛坯", "ProductionProgress", "生产进度", "number"),
+      { key: "exceptionSummary", label: "异常", type: "text", editable: false, required: false },
       processField("surfaceTreatment", "表面处理", "Status", "状态", "dictionary"),
       { key: "packagingStatus", label: "包装·状态", type: "dictionary", editable: false, required: false }
     ];
@@ -417,7 +418,16 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
     expect(headers.indexOf("研磨")).toBeLessThan(headers.indexOf("毛坯"));
     expect(headers.indexOf("毛坯")).toBeLessThan(headers.indexOf("表面处理"));
     const childHeaders = Array.from((headerRows.at(-1) ?? headerRows[0]!).querySelectorAll("th")).map((cell) => cell.textContent?.trim() ?? "");
-    expect(childHeaders.join("|")).toContain(["所需周期", "交期", "状态", "异常"].join("|"));
+    /* KN-MPS-EXEC-001：工序组内字段固定为 周期/交期/状态/生产进度（不再有每工序异常列）。 */
+    /* 组内字段为 周期/交期/状态/生产进度（该用例只 mock 了部分工序字段，其余工序显示占位，不泄露数据）。 */
+    expect(childHeaders).toContain("所需周期");
+    expect(childHeaders).toContain("状态");
+    expect(childHeaders).toContain("生产进度");
+    expect(childHeaders).not.toContain("异常");
     expect(childHeaders.indexOf("毛坯")).toBe(-1);
+    /* 整张表只有 1 个「异常」列（统一异常汇总），位于工序组之后。 */
+    const exceptionHeaders = headers.filter((header) => header === "异常");
+    expect(exceptionHeaders.length).toBe(1);
+    expect(headers.indexOf("异常")).toBeGreaterThan(headers.indexOf("包装"));
   }, 20_000);
 });

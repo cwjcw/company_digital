@@ -46,6 +46,54 @@ function optionsFor(resource: TableResourceCode, fieldKey: string) {
 const camelToSnake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 const processes = standardProcesses.map((process) => process.code);
 
+
+/** 周计划某工序的累计实际报工（按 tenant+weekly_plan_id+process_code 聚合，禁止 JOIN 重复累计）。 */
+const weeklyReportSum = (code: string) =>
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
+const weeklyReportCount = (code: string) =>
+  `(SELECT count(*) FROM mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
+/** 月计划：先按 tenant+weekly_plan_id+process_code 聚合报工，再按关联周计划求和（避免一对多 JOIN 放大）。 */
+const monthlyReportSum = (code: string) =>
+  `(SELECT COALESCE(sum(per_week.reported),0) FROM mps_weekly_plans weekly JOIN (SELECT report.tenant_id,report.weekly_plan_id,sum(report.production_quantity) reported FROM mps_process_reports report WHERE report.process_code='${code}' GROUP BY report.tenant_id,report.weekly_plan_id) per_week ON per_week.tenant_id=weekly.tenant_id AND per_week.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+const monthlyReportCount = (code: string) =>
+  `(SELECT COALESCE(sum(per_week.report_count),0) FROM mps_weekly_plans weekly JOIN (SELECT report.tenant_id,report.weekly_plan_id,count(*) report_count FROM mps_process_reports report WHERE report.process_code='${code}' GROUP BY report.tenant_id,report.weekly_plan_id) per_week ON per_week.tenant_id=weekly.tenant_id AND per_week.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+/** 月计划工序需求：当前月计划范围内所有关联周计划的计划数量之和（与 PENDING 使用同一正式字段）。 */
+const monthlyProcessDemand = `(SELECT COALESCE(sum(weekly.planned_quantity),0) FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+
+/** 单一来源异常片段：来源标签 + 去重后的异常文本（同一来源多条用「、」连接）。 */
+const exceptionPart = (label: string, sql: string) => `NULLIF(('${label}：'||(${sql})),'')`;
+
+/** 周计划统一异常：技术 → 五金主材 → 木作主材 → 外协 → 10 个标准工序（严格按 canonical order）。 */
+function weeklyExceptionSummary() {
+  const weeklySource = (table: string, extra: string) =>
+    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM ${table} report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
+  const parts = [
+    exceptionPart("技术", weeklySource("mps_technical_reports", "")),
+    exceptionPart("五金主材", weeklySource("mps_material_reports", "AND report.material_name='五金'")),
+    exceptionPart("木作主材", weeklySource("mps_material_reports", "AND report.material_name='木作'")),
+    exceptionPart("外协", weeklySource("mps_outsourcing_reports", "")),
+    ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
+      exceptionPart(process.name, `SELECT string_agg(DISTINCT process.exception_text,'、' ORDER BY process.exception_text) FROM mps_weekly_process_plans process WHERE process.tenant_id=record.tenant_id AND process.weekly_plan_id=record.id AND process.process_code='${process.code}' AND btrim(COALESCE(process.exception_text,''))<>''`))
+  ];
+  return `concat_ws('；',${parts.join(",")})`;
+}
+
+/** 月计划统一异常：跨当前月计划范围内所有关联周计划汇总（同一来源+文本只出现一次）。 */
+function monthlyExceptionSummary() {
+  const monthlyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
+  const joinedSource = (table: string, extra: string) =>
+    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM mps_weekly_plans weekly JOIN ${table} report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere} ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
+  const parts = [
+    exceptionPart("技术", joinedSource("mps_technical_reports", "")),
+    exceptionPart("五金主材", joinedSource("mps_material_reports", "AND report.material_name='五金'")),
+    exceptionPart("木作主材", joinedSource("mps_material_reports", "AND report.material_name='木作'")),
+    exceptionPart("外协", joinedSource("mps_outsourcing_reports", "")),
+    ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
+      exceptionPart(process.name, `SELECT string_agg(DISTINCT process.exception_text,'、' ORDER BY process.exception_text) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE ${monthlyWhere} AND process.process_code='${process.code}' AND btrim(COALESCE(process.exception_text,''))<>''`))
+  ];
+  return `concat_ws('；',${parts.join(",")})`;
+}
+
 export function virtualColumns(resource: MasterPlanResource) {
   const output: Record<string, string> = {};
   for (const code of processes) {
@@ -55,6 +103,10 @@ export function virtualColumns(resource: MasterPlanResource) {
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${base})`;
       output[`${code}Status`] = `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(process.status='延期') THEN '延期' WHEN bool_and(process.status='已完成') THEN '已完成' WHEN bool_or(process.status='进行中') THEN '进行中' ELSE '未开始' END ${base})`;
       output[`${code}Exception`] = `(SELECT string_agg(DISTINCT process.exception_text,'；' ORDER BY process.exception_text) ${base} AND btrim(COALESCE(process.exception_text,''))<>'')`;
+      /* KN-MPS-EXEC-001：生产进度 = 累计实际报工 / 工序需求（周计划需求取正式 planned_quantity，与 PENDING 同源）。 */
+      output[`${code}ReportedQuantity`] = weeklyReportSum(code);
+      output[`${code}ReportCount`] = weeklyReportCount(code);
+      output[`${code}ProductionProgress`] = `(CASE WHEN COALESCE(record.planned_quantity,0) > 0 THEN (${weeklyReportSum(code)})::numeric / record.planned_quantity ELSE NULL END)`;
     }
     if (resource.code === "mps-monthly-plans") {
       const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND process.process_code='${code}'`;
@@ -62,6 +114,10 @@ export function virtualColumns(resource: MasterPlanResource) {
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${joined} AND process.status<>'已完成')`;
       output[`${code}Status`] = `(SELECT CASE WHEN bool_or(process.status='延期') THEN '延期' WHEN bool_and(process.status='已完成') THEN '已完成' WHEN bool_or(process.status='进行中') THEN '进行中' ELSE '未开始' END ${joined})`;
       output[`${code}Exception`] = `(SELECT string_agg(DISTINCT process.exception_text,'；') ${joined} AND btrim(COALESCE(process.exception_text,''))<>'')`;
+      /* KN-MPS-EXEC-001：月计划生产进度 = SUM(累计实际报工) / SUM(所有关联周计划的工序需求)，禁止平均百分比。 */
+      output[`${code}ReportedQuantity`] = monthlyReportSum(code);
+      output[`${code}ReportCount`] = monthlyReportCount(code);
+      output[`${code}ProductionProgress`] = `(CASE WHEN ${monthlyProcessDemand} > 0 THEN (${monthlyReportSum(code)})::numeric / ${monthlyProcessDemand} ELSE NULL END)`;
     }
   }
   if (resource.code === "mps-weekly-plans") Object.assign(output, {
@@ -77,6 +133,8 @@ export function virtualColumns(resource: MasterPlanResource) {
     outsourcingDueDate: `(SELECT min(report.outsourcing_due_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`,
     outsourcingActualInboundDate: `(SELECT max(report.actual_inbound_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`
   });
+  if (resource.code === "mps-weekly-plans") output.exceptionSummary = weeklyExceptionSummary();
+  if (resource.code === "mps-monthly-plans") output.exceptionSummary = monthlyExceptionSummary();
   if (resource.code === "mps-base-plans") {
     const admission = weeklyAdmissionSql(resource, "record");
     const missing = weeklyAdmissionMissingSql(resource, "record");
