@@ -239,26 +239,35 @@ export function KdosDataTable<RecordType extends DataRecord>({
     const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
     return keys.length ? keys : undefined;
   }, [columns]);
-  const [pendingPrint, setPendingPrint] = useState<{ manifest: TablePrintManifest; selectedIds?: string[] } | null>(null);
-  const printRequest = (selectedIds?: string[]) => ({
+  const [pendingPrint, setPendingPrint] = useState<{ manifest: TablePrintManifest; rangeType: "FILTERED" | "SELECTED"; selectedIds?: string[] } | null>(null);
+  /* KN-PRINT-001：单一主打印入口——有选中记录就是「打印已选（N）」（SELECTED 优先），否则「打印筛选结果」。 */
+  const selectedCount = selectedRowKeys.length;
+  const printRangeType: "FILTERED" | "SELECTED" = selectedCount > 0 ? "SELECTED" : "FILTERED";
+  const printRequest = (rangeType: "FILTERED" | "SELECTED", selectedIds?: string[]) => ({
     resource,
+    rangeType,
     search,
     filterGroup,
     sortField: sortField || undefined,
     sortOrder: (sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined) as "asc" | "desc" | undefined,
     context: printContext ?? {},
-    selectedIds,
+    selectedIds: rangeType === "SELECTED" ? selectedIds : undefined,
     columnKeys: printableColumnKeys
   });
   /** 打印筛选结果 / 打印已选：先 count（不加载数据）→ 需要时确认 → 生成 Print DTO → 打开打印预览。 */
-  const runPrint = async (selectedIds?: string[]) => {
+  const runPrint = async () => {
     if (printing) return;
+    const rangeType = printRangeType;
+    const selectedIds = rangeType === "SELECTED" ? selectedRowKeys.map(String) : undefined;
     setPrinting(true);
     try {
-      const { manifest, requiresConfirm } = await planPrint(printRequest(selectedIds));
-      if (manifest.total === 0) { printMessage.info("当前没有可打印数据。"); return; }
-      if (requiresConfirm) { setPendingPrint({ manifest, selectedIds }); return; }
-      await renderPrint(printRequest(selectedIds));
+      const { manifest, requiresConfirm } = await planPrint(printRequest(rangeType, selectedIds));
+      if (manifest.total === 0) {
+        printMessage.info(rangeType === "SELECTED" ? "当前选中记录已无可打印数据。" : "当前没有可打印数据。");
+        return;
+      }
+      if (requiresConfirm) { setPendingPrint({ manifest, rangeType, selectedIds }); return; }
+      await renderPrint(printRequest(rangeType, selectedIds));
     } catch (error) {
       printMessage.error(error instanceof Error ? error.message : "打印失败，请稍后重试");
     } finally {
@@ -267,11 +276,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   };
   const confirmPrint = async () => {
     if (!pendingPrint) return;
-    const { selectedIds } = pendingPrint;
+    const { rangeType, selectedIds } = pendingPrint;
     setPendingPrint(null);
     setPrinting(true);
     try {
-      await renderPrint(printRequest(selectedIds));
+      await renderPrint(printRequest(rangeType, selectedIds));
     } catch (error) {
       printMessage.error(error instanceof Error ? error.message : "打印失败，请稍后重试");
     } finally {
@@ -411,7 +420,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索或列头筛选">高级筛选（暂不支持）</Button>
             : null}
-        {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>打印筛选结果</Button>}
+        {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
+          {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
+        </Button>}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
         <TablePermissionButton resource={resource} />
       </Space>
@@ -419,7 +430,6 @@ export function KdosDataTable<RecordType extends DataRecord>({
     {!simple && selectedRowKeys.length > 0 && <Flex className="kdos-data-table-selection-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         <Typography.Text strong>已选 {selectedRowKeys.length}/{selectionState.total}</Typography.Text>
-        {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint(selectedRowKeys.map(String))}>打印已选（{selectedRowKeys.length}）</Button>}
         <Button type="link" onClick={clearSelection}>清空选择</Button>
       </Space>
       {selectionActions?.(selectionState)}

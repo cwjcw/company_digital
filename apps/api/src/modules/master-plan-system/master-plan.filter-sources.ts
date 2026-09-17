@@ -37,7 +37,8 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
     } satisfies MasterPlanActor;
     const result = await this.queries.list(code, {
       page: query.page, pageSize: 200, search: query.search, filterGroup: query.filterGroup,
-      sortField: query.sortField, sortOrder: query.sortOrder, view: query.context.view ?? "ACTUAL"
+      sortField: query.sortField, sortOrder: query.sortOrder, view: query.context.view ?? "ACTUAL",
+      ids: query.ids
     }, actor);
     return { rows: result.rows as Array<Record<string, unknown>>, total: result.total };
   }

@@ -5,7 +5,7 @@ import {
   type TablePermissionFieldDefinition, type TableResourceCode
 } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../filtering/sql-filter.compiler";
-import { TableFilterRegistry, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
+import { TableFilterRegistry, recordKeyOf, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
 import type { TablePrintColumn, TablePrintDto, TablePrintHeaderGroup, TablePrintManifest, TablePrintOrientation } from "./print.contract";
 
 /**
@@ -26,6 +26,8 @@ export type TablePrintQuery = {
   sortOrder?: unknown;
   /** 页面上下文（部门/状态/角色/视图等），由 resource 的服务端查询解释。 */
   context?: Record<string, unknown>;
+  /** 打印模式：显式声明，禁止用 selectedIds 是否为空来猜。 */
+  rangeType?: unknown;
   /** 打印已选：稳定记录 ID（后端会重新取数并做权限过滤）。 */
   selectedIds?: unknown;
   /** 客户端只能收窄列集合；后端只做交集。 */
@@ -60,8 +62,8 @@ export class TablePrintService {
     if (!this.canReadResource(actor, source)) throw new ForbiddenException("当前权限组没有此表的查看权限");
     const fields = this.printableFields(source, actor, query.columnKeys);
     if (!fields.length) throw new ForbiddenException("当前权限组没有可打印字段");
-    const selectedIds = this.normalizeIds(query.selectedIds);
-    const total = selectedIds.length
+    const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
+    const total = rangeType === "SELECTED"
       ? await this.countSelected(source, actor, selectedIds, fields)
       : await this.countFiltered(source, actor, query, fields);
     const columns = this.columnsFor(source, fields);
@@ -85,10 +87,10 @@ export class TablePrintService {
     const { source, resource } = this.sourceFor(resourceCode);
     const fields = this.printableFields(source, actor, query.columnKeys);
     const columns = this.columnsFor(source, fields);
-    const selectedIds = this.normalizeIds(query.selectedIds);
+    const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
     const rows: Array<Record<string, unknown>> = [];
     let batches = 0;
-    if (selectedIds.length) {
+    if (rangeType === "SELECTED") {
       /* 打印已选：后端按稳定 ID 重新取数（权限/租户/范围/字段权限重新校验），顺序沿用当前正式排序。 */
       for (let offset = 0; offset < selectedIds.length; offset += PRINT_BATCH_SIZE) {
         const chunk = selectedIds.slice(offset, offset + PRINT_BATCH_SIZE);
@@ -108,15 +110,16 @@ export class TablePrintService {
         page += 1;
       }
     }
-    const resolved = await this.resolveLabels(source, rows, fields);
+    const keyField = recordKeyOf(source).field;
+    const resolved = await this.resolveLabels(source, rows, fields, keyField);
     const formatted = rows.map((row) => {
       const output: Record<string, string> = {};
       for (const field of fields) {
-        output[field.key] = this.formatValue(field, resolved.get(String(row.id))?.[field.key] ?? row[field.key]);
+        output[field.key] = this.formatValue(field, resolved.get(String(row[keyField]))?.[field.key] ?? row[field.key]);
       }
       return output;
     });
-    this.logger.log(`打印 ${resourceCode}：rangeType=${selectedIds.length ? "SELECTED" : "FILTERED"} 行数=${formatted.length} 批次=${batches}`);
+    this.logger.log(`打印 ${resourceCode}：rangeType=${rangeType} requestedCount=${selectedIds.length || "-"} printedCount=${formatted.length} 批次=${batches}`);
     return {
       title: resource.label,
       resource: resourceCode,
@@ -126,9 +129,9 @@ export class TablePrintService {
       meta: {
         resource: resourceCode,
         title: resource.label,
-        rangeType: selectedIds.length ? "SELECTED" : "FILTERED",
+        rangeType,
         total: manifest.total,
-        requestedCount: selectedIds.length ? selectedIds.length : undefined,
+        requestedCount: rangeType === "SELECTED" ? selectedIds.length : undefined,
         printedCount: formatted.length,
         orientation: manifest.orientation,
         filtered: Boolean(this.hasFilterGroup(query.filterGroup)),
@@ -195,12 +198,32 @@ export class TablePrintService {
     return new Set(list.map((entry) => String(entry).trim()).filter(Boolean));
   }
 
-  private normalizeIds(value: unknown): string[] {
-    if (value == null || value === "") return [];
-    const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-    /* 兼容数组与逗号分隔字符串两种提交形式；只接受 UUID 形状，其他一律忽略（客户端输入不可信）。 */
-    const ids = list.flatMap((entry) => String(entry).split(",")).map((entry) => entry.trim()).filter((entry) => /^[0-9a-f-]{20,}$/i.test(entry));
+  /**
+   * 解析打印模式（显式 rangeType）：SELECTED 必须带合法稳定 ID，否则 400，绝不退化为 FILTERED；
+   * FILTERED 即使误传 selectedIds 也一律忽略。
+   */
+  private resolveRange(source: TableFilterSource, query: TablePrintQuery) {
+    const raw = query.rangeType == null || String(query.rangeType).trim() === "" ? "FILTERED" : String(query.rangeType).toUpperCase();
+    if (raw !== "FILTERED" && raw !== "SELECTED") throw new BadRequestException("打印模式只能是 FILTERED 或 SELECTED");
+    if (raw === "FILTERED") return { rangeType: "FILTERED" as const, ids: [] as string[] };
+    const ids = this.normalizeIds(source, query.selectedIds);
+    if (!ids.length) throw new BadRequestException("打印已选必须提供有效的记录 ID");
+    return { rangeType: "SELECTED" as const, ids };
+  }
+
+  /** 按资源正式主键类型校验稳定 ID（不假设所有 resource 都是 UUID）。 */
+  private normalizeIds(source: TableFilterSource, value: unknown): string[] {
+    const key = recordKeyOf(source);
+    const list = value == null || value === "" ? [] : Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+    const ids = list.flatMap((entry) => String(entry).split(",")).map((entry) => entry.trim()).filter((entry) => this.isValidKey(key.type, entry));
     return [...new Set(ids)];
+  }
+
+  private isValidKey(type: "uuid" | "text" | "integer" | "bigint", value: string) {
+    if (!value) return false;
+    if (type === "uuid") return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    if (type === "integer" || type === "bigint") return /^-?\d{1,19}$/.test(value);
+    return value.length <= 200;
   }
 
   private hasFilterGroup(filterGroup: unknown) {
@@ -300,20 +323,24 @@ export class TablePrintService {
       );
       clauses.push(compiler.compile(query.filterGroup, params));
     }
+    const key = recordKeyOf(source);
     if (query.ids?.length) {
       params.push(query.ids);
-      clauses.push(`record.id = ANY($${params.length}::uuid[])`);
+      const keyColumn = source.columns[key.field] ?? key.field;
+      const cast = key.type === "uuid" ? "uuid" : key.type === "bigint" ? "bigint" : key.type === "integer" ? "integer" : "text";
+      clauses.push(`record.${keyColumn} = ANY($${params.length}::${cast}[])`);
     }
     const where = clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
     const selected = [
-      `record.id AS "id"`,
+      `record.${source.columns[recordKeyOf(source).field] ?? recordKeyOf(source).field} AS "${recordKeyOf(source).field}"`,
       ...Object.entries(source.columns).filter(([key]) => query.fieldKeys.includes(key)).map(([key, column]) => `record.${column} AS "${key}"`),
       ...Object.entries(source.expressions ?? {}).filter(([key]) => query.fieldKeys.includes(key) && !source.columns[key]).map(([key, expression]) => `${expression} AS "${key}"`)
     ];
     const sortColumn = query.sortField ? (source.columns[String(query.sortField)] ?? source.expressions?.[String(query.sortField)]) : undefined;
+    const keyColumn = source.columns[recordKeyOf(source).field];
     const orderBy = sortColumn
       ? `record.${sortColumn} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`
-      : source.columns.id ? "record.id" : "record.ctid";
+      : keyColumn ? `record.${keyColumn}` : "record.ctid";
     const run = source.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
     const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;
     const paged = [...params, query.pageSize, (query.page - 1) * query.pageSize];
@@ -340,7 +367,7 @@ export class TablePrintService {
   }
 
   /** 批量 label 解析（dictionary/member/department/reference），禁止 N+1。 */
-  private async resolveLabels(source: TableFilterSource, rows: Array<Record<string, unknown>>, fields: TablePermissionFieldDefinition[]) {
+  private async resolveLabels(source: TableFilterSource, rows: Array<Record<string, unknown>>, fields: TablePermissionFieldDefinition[], keyField = "id") {
     const resolved = new Map<string, Record<string, unknown>>();
     const labelFields = fields.filter((field) => ["dictionary", "member", "department", "reference"].includes(field.type));
     const resolvers: Array<Promise<void>> = [];
@@ -349,7 +376,7 @@ export class TablePrintService {
       if (!resolver) continue;
       resolvers.push(resolver(rows).then((values) => {
         for (const row of rows) {
-          const id = String(row.id ?? "");
+          const id = String(row[keyField] ?? "");
           const value = values.get(id);
           if (value === undefined) continue;
           resolved.set(id, { ...(resolved.get(id) ?? {}), [field.key]: value });

@@ -62,12 +62,68 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /打印筛选结果/ })).not.toBeInTheDocument());
   });
 
-  it("选中记录后在选择工具栏提供「打印已选（N）」", async () => {
+  it("未选择记录时：按钮为「打印筛选结果」，请求 rangeType=FILTERED", async () => {
+    const calls: string[] = [];
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-filters/resources") return [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never;
+      if (path === "/table-prints/capabilities") return capabilities as never;
+      if (String(path).startsWith("/table-prints/manifest")) {
+        calls.push(decodeURIComponent(String(path)));
+        return { resource: "mps-weekly-plans", title: "事业部周计划", printable: true, total: 3, columns: [], headerGroups: [], orientation: "portrait", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
+      }
+      if (path === "/table-prints/render") return { title: "事业部周计划", resource: "mps-weekly-plans", columns: [], headerGroups: [], rows: [{ orderNumber: "A1" }], meta: { rangeType: "FILTERED", total: 3, printedCount: 3, orientation: "portrait", filtered: false, searched: false, printedAt: "", printedBy: "" } } as never;
+      return [] as never;
+    });
+    const { container } = renderTable();
+    const button = await screen.findByRole("button", { name: /打印筛选结果/ });
+    /* 只有一个主打印入口：选择工具栏不再重复出现打印按钮。 */
+    expect(screen.getAllByRole("button", { name: /打印筛选结果/ }).length).toBe(1);
+    fireEvent.click(button);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    expect(calls[0]).toContain("rangeType=FILTERED");
+    expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path) === "/table-prints/render" && String(init?.body ?? "").includes('"rangeType":"FILTERED"'))).toBe(true);
+    expect(container.querySelector(".kdos-data-table-selection-toolbar")).toBeNull();
+  });
+
+  it("选中 1 条后：同一个按钮变为「打印已选（1）」，请求 rangeType=SELECTED 且只带该 stable ID", async () => {
+    const calls: Array<{ path: string; body: string }> = [];
+    vi.mocked(api).mockImplementation((async (path: string, init?: RequestInit) => {
+      if (path === "/table-filters/resources") return [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never;
+      if (path === "/table-prints/capabilities") return capabilities as never;
+      if (String(path).startsWith("/table-prints/manifest")) {
+        calls.push({ path: decodeURIComponent(String(path)), body: "" });
+        return { resource: "mps-weekly-plans", title: "事业部周计划", printable: true, total: 1, columns: [], headerGroups: [], orientation: "portrait", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
+      }
+      if (path === "/table-prints/render") {
+        calls.push({ path, body: String(init?.body ?? "") });
+        return { title: "事业部周计划", resource: "mps-weekly-plans", columns: [], headerGroups: [], rows: [{ orderNumber: "A1" }], meta: { rangeType: "SELECTED", total: 1, requestedCount: 1, printedCount: 1, orientation: "portrait", filtered: false, searched: false, printedAt: "", printedBy: "" } } as never;
+      }
+      return [] as never;
+    }) as never);
     const { container } = renderTable();
     await screen.findByRole("button", { name: /打印筛选结果/ });
-    const checkbox = container.querySelector(".ant-table-tbody .ant-checkbox-input") as HTMLInputElement;
-    fireEvent.click(checkbox);
-    expect(await screen.findByRole("button", { name: /打印已选（1）/ })).toBeInTheDocument();
+    fireEvent.click(container.querySelector(".ant-table-tbody .ant-checkbox-input") as HTMLInputElement);
+    const selectedButton = await screen.findByRole("button", { name: /打印已选（1）/ });
+    /* 仍然只有一个打印入口：选中时不能再同时出现“打印筛选结果”。 */
+    expect(screen.getByRole("button", { name: /打印已选（1）/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /打印筛选结果/ })).not.toBeInTheDocument();
+    fireEvent.click(selectedButton);
+    await waitFor(() => expect(calls.some((call) => call.path === "/table-prints/render")).toBe(true));
+    const manifestCall = calls[0]!;
+    expect(manifestCall.path).toContain("rangeType=SELECTED");
+    expect(manifestCall.path).toContain("selectedIds=r1");
+    const renderCall = calls.find((call) => call.path === "/table-prints/render")!;
+    expect(renderCall.body).toContain('"rangeType":"SELECTED"');
+    expect(renderCall.body).toContain("r1");
+  });
+
+  it("清空选择后按钮恢复为「打印筛选结果」", async () => {
+    const { container } = renderTable();
+    await screen.findByRole("button", { name: /打印筛选结果/ });
+    fireEvent.click(container.querySelector(".ant-table-tbody .ant-checkbox-input") as HTMLInputElement);
+    await screen.findByRole("button", { name: /打印已选（1）/ });
+    fireEvent.click(screen.getByRole("button", { name: /清空选择/ }));
+    expect(await screen.findByRole("button", { name: /打印筛选结果/ })).toBeInTheDocument();
   });
 
   it("打印筛选结果：先取 manifest，超过 300 条时要求确认，取消则不请求渲染", async () => {
@@ -76,7 +132,7 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
       if (path.startsWith("/table-prints/manifest")) return { resource: "mps-weekly-plans", title: "事业部周计划", printable: true, total: 1248, columns: [], headerGroups: [], orientation: "landscape", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
       return [] as never;
     });
-    const result = await printTable({ resource: "mps-weekly-plans", confirm });
+    const result = await printTable({ resource: "mps-weekly-plans", rangeType: "FILTERED", confirm });
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("1,248"));
     expect(result.printed).toBe(false);
     expect(result.reason).toBe("cancelled");
@@ -89,7 +145,7 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
       if (path.startsWith("/table-prints/manifest")) return { resource: "sales-orders", title: "订单表", printable: true, total: 97843, columns: [], headerGroups: [], orientation: "landscape", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
       return [] as never;
     });
-    await printTable({ resource: "sales-orders", confirm });
+    await printTable({ resource: "sales-orders", rangeType: "FILTERED", confirm });
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("建议进一步筛选后再打印"));
   });
 
@@ -98,7 +154,7 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
       if (path.startsWith("/table-prints/manifest")) return { resource: "mps-weekly-plans", title: "事业部周计划", printable: true, total: 0, columns: [], headerGroups: [], orientation: "portrait", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
       return [] as never;
     });
-    const result = await printTable({ resource: "mps-weekly-plans" });
+    const result = await printTable({ resource: "mps-weekly-plans", rangeType: "FILTERED" });
     expect(result.printed).toBe(false);
     expect(result.reason).toBe("empty");
   });
@@ -123,19 +179,19 @@ describe("KN-PRINT-001 打印文档模型", () => {
   afterEach(() => cleanup());
 
   it("打印根节点带方向 class，包含表头、分组表头与打印信息", () => {
-    render(<KdosPrintDocument dto={dto} />);
-    const root = screen.getByTestId("kdos-print-root");
+    const { container } = render(<KdosPrintDocument dto={dto} />);
+    const root = container.querySelector('[data-testid="kdos-print-root"]') as HTMLElement;
     expect(root.className).toContain("orientation-landscape");
     expect(within(root).getByText("凯南数字化工作台")).toBeInTheDocument();
     expect(within(root).getByText("事业部周计划")).toBeInTheDocument();
     expect(within(root).getByText(/已应用搜索和筛选条件/)).toBeInTheDocument();
     expect(within(root).getByText(/打印范围：筛选结果，共 1 条/)).toBeInTheDocument();
     expect(within(root).getByText("计划")).toBeInTheDocument();
-    expect(screen.getByTestId("kdos-print-table").querySelector("thead")).toBeTruthy();
+    expect(container.querySelector('[data-testid="kdos-print-table"] thead')).toBeTruthy();
   });
 
   it("纵向文档使用 portrait class", () => {
-    render(<KdosPrintDocument dto={{ ...dto, meta: { ...dto.meta, orientation: "portrait" } }} />);
-    expect(screen.getByTestId("kdos-print-root").className).toContain("orientation-portrait");
+    const { container } = render(<KdosPrintDocument dto={{ ...dto, meta: { ...dto.meta, orientation: "portrait" } }} />);
+    expect((container.querySelector('[data-testid="kdos-print-root"]') as HTMLElement).className).toContain("orientation-portrait");
   });
 });

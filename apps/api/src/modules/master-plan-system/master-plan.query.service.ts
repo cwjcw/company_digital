@@ -7,7 +7,7 @@ import { standardProcesses } from "@tracker/shared";
 import { MasterPlanFilterCompiler } from "./master-plan.filter";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 
-type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown };
+type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const basePlanDerivedFields = new Set(["weeklyPlanState", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"]);
 const processReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
@@ -60,6 +60,9 @@ export class MasterPlanQueryService {
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
+    /* KN-PRINT-001：打印已选只取选中记录（与列表共用同一 where/排序/分页语义）。 */
+    const printIds = Array.isArray(input.ids) ? input.ids.map((id) => String(id)).filter(Boolean) : [];
+    if (printIds.length) { params.push(printIds); clauses.push(`record.id = ANY($${params.length}::uuid[])`); }
     if (code === "mps-weekly-plans" && input.basePlanId != null && String(input.basePlanId).trim() !== "") {
       const basePlanId = String(input.basePlanId).trim();
       if (!uuidPattern.test(basePlanId)) throw new BadRequestException("基础计划定位参数无效");

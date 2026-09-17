@@ -44,11 +44,69 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       }
     });
     const service = new TablePrintService(registry, {} as never);
-    const dto = await service.render(resource, { search: "", filterGroup: { logic: "AND", rules: [] } }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const dto = await service.render(resource, { rangeType: "FILTERED", search: "", filterGroup: { logic: "AND", rules: [] } }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
     expect(dto.rows.length).toBe(total);
     expect(calls.length).toBeGreaterThan(1);
     expect(dto.meta.rangeType).toBe("FILTERED");
     expect(dto.meta.printedCount).toBe(total);
+  });
+
+  it("SELECTED 1 条：manifest/render 都只含该记录，rangeType=SELECTED", async () => {
+    const registry = registryWith({
+      code: resource,
+      printRows: async (query) => ({
+        rows: (query.ids ?? []).map((id) => ({ id, orderNumber: "A1", quantity: 1, status: "NORMAL" })),
+        total: (query.ids ?? []).length
+      })
+    });
+    const service = new TablePrintService(registry, {} as never);
+    const id = "11111111-1111-4111-8111-111111111111";
+    const manifest = await service.manifest(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    expect(manifest.total).toBe(1);
+    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    expect(dto.meta.rangeType).toBe("SELECTED");
+    expect(dto.meta.requestedCount).toBe(1);
+    expect(dto.meta.printedCount).toBe(1);
+    expect(dto.rows.length).toBe(1);
+  });
+
+  it("SELECTED 与非 UUID 主键：文本主键资源按真实主键重取（不再假设 UUID）", async () => {
+    const registry = registryWith({
+      code: resource,
+      recordKey: { field: "orderNumber", type: "text" },
+      printRows: async (query) => ({
+        rows: (query.ids ?? []).map((id) => ({ id: "ignored", orderNumber: id, quantity: 1, status: "NORMAL" })),
+        total: (query.ids ?? []).length
+      })
+    });
+    const service = new TablePrintService(registry, {} as never);
+    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: ["ORDER-001"] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    expect(dto.meta.requestedCount).toBe(1);
+    expect(dto.meta.printedCount).toBe(1);
+    expect(dto.rows[0]!.orderNumber).toBe("ORDER-001");
+  });
+
+  it("SELECTED 空/非法 ID：400，绝不退化为 FILTERED", async () => {
+    const registry = registryWith({ code: resource, printRows: async () => ({ rows: [{ id: "x" }], total: 1 }) });
+    const service = new TablePrintService(registry, {} as never);
+    const permissions = [`${resource}:*:batch_print`, `${resource}:*:read`];
+    await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
+    await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: ["not-a-uuid"] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
+    await expect(service.manifest(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
+  });
+
+  it("FILTERED 即使误传 selectedIds 也忽略，仍打印全部匹配结果", async () => {
+    let seenIds: string[] | undefined = ["sentinel"];
+    const registry = registryWith({
+      code: resource,
+      printRows: async (query) => { seenIds = query.ids; return { rows: [{ id: "11111111-1111-4111-8111-111111111111", orderNumber: "A1" }], total: 1 }; }
+    });
+    const service = new TablePrintService(registry, {} as never);
+    const dto = await service.render(resource, { rangeType: "FILTERED", selectedIds: ["11111111-1111-4111-8111-111111111111"] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    /* FILTERED 模式不把 selectedIds 传给取数层（等于忽略）。 */
+    expect(seenIds ?? []).toEqual([]);
+    expect(dto.meta.rangeType).toBe("FILTERED");
+    expect(dto.meta.requestedCount).toBeUndefined();
   });
 
   it("打印已选：按稳定 ID 重新取数，越权/不存在 ID 被过滤且不泄漏", async () => {
@@ -65,6 +123,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     });
     const service = new TablePrintService(registry, {} as never);
     const dto = await service.render(resource, {
+      rangeType: "SELECTED",
       selectedIds: [
         "11111111-1111-4111-8111-111111111111",
         "11111111-1111-4111-8111-222222222222",
@@ -87,21 +146,21 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       printRows: async (query) => { sorts.push([query.sortField, query.sortOrder]); return { rows: [], total: 0 }; }
     });
     const service = new TablePrintService(registry, {} as never);
-    await service.render(resource, { sortField: "orderNumber", sortOrder: "desc" }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    await service.render(resource, { rangeType: "FILTERED", sortField: "orderNumber", sortOrder: "desc" }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
     expect(sorts[0]).toEqual(["orderNumber", "desc"]);
   });
 
   it("没有 batch_print 权限 → 403；没有 read 权限同样拒绝", async () => {
     const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
     const service = new TablePrintService(registry, {} as never);
-    await expect(service.render(resource, {}, actor([`${resource}:*:read`]))).rejects.toThrow(/没有该表打印权限/);
-    await expect(service.render(resource, {}, actor([`${resource}:*:batch_print`]))).rejects.toThrow(/没有此表的查看权限/);
+    await expect(service.render(resource, { rangeType: "FILTERED" }, actor([`${resource}:*:read`]))).rejects.toThrow(/没有该表打印权限/);
+    await expect(service.render(resource, { rangeType: "FILTERED" }, actor([`${resource}:*:batch_print`]))).rejects.toThrow(/没有此表的查看权限/);
   });
 
   it("字段读权限与敏感字段保护：不可读字段与审计字段不进入打印列", async () => {
     const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
     const service = new TablePrintService(registry, {} as never);
-    const manifest = await service.manifest(resource, {}, actor([
+    const manifest = await service.manifest(resource, { rangeType: "FILTERED" }, actor([
       `${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:status:read`
     ]));
     const keys = manifest.columns.map((column) => column.key);
@@ -126,7 +185,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
 
   it("NOT_APPLICABLE 的 resource 拒绝打印并给出真实产品理由", async () => {
     const service = new TablePrintService(registryWith({ code: "roles" }), {} as never);
-    await expect(service.manifest("roles", {}, actor(["*"]))).rejects.toThrow(/角色树配置模式/);
+    await expect(service.manifest("roles", { rangeType: "FILTERED" }, actor(["*"]))).rejects.toThrow(/角色树配置模式/);
   });
 
   it("能力清单覆盖全部正式 resource，且没有 UNKNOWN", async () => {

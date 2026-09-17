@@ -26,8 +26,12 @@ export type TablePrintDto = {
   };
 };
 
+export type TablePrintRangeType = "FILTERED" | "SELECTED";
+
 export type TablePrintRequest = {
   resource: string;
+  /** 显式打印模式：禁止用 selectedIds 是否为空猜模式。 */
+  rangeType: TablePrintRangeType;
   search?: string;
   filterGroup?: AdvancedFilterGroup | null;
   sortField?: string;
@@ -59,6 +63,7 @@ export function tablePrintAllowed(capabilities: Array<{ code: string; print: { s
 
 const printBody = (request: TablePrintRequest) => ({
   resource: request.resource,
+  rangeType: request.rangeType,
   search: request.search ?? "",
   filterGroup: request.filterGroup ?? undefined,
   sortField: request.sortField,
@@ -154,7 +159,7 @@ export function printConfirmMessage(manifest: TablePrintManifest) {
 
 export async function planPrint(request: TablePrintRequest) {
   const manifest = await api<TablePrintManifest>(
-    `/table-prints/manifest?resource=${encodeURIComponent(request.resource)}${request.search ? `&search=${encodeURIComponent(request.search)}` : ""}${request.sortField ? `&sortField=${encodeURIComponent(request.sortField)}` : ""}${request.sortOrder ? `&sortOrder=${encodeURIComponent(request.sortOrder)}` : ""}${request.filterGroup?.rules?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(request.filterGroup))}` : ""}${request.context && Object.keys(request.context).length ? `&context=${encodeURIComponent(JSON.stringify(request.context))}` : ""}${request.selectedIds?.length ? `&selectedIds=${encodeURIComponent(request.selectedIds.join(","))}` : ""}`
+    `/table-prints/manifest?resource=${encodeURIComponent(request.resource)}&rangeType=${request.rangeType}${request.search ? `&search=${encodeURIComponent(request.search)}` : ""}${request.sortField ? `&sortField=${encodeURIComponent(request.sortField)}` : ""}${request.sortOrder ? `&sortOrder=${encodeURIComponent(request.sortOrder)}` : ""}${request.filterGroup?.rules?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(request.filterGroup))}` : ""}${request.context && Object.keys(request.context).length ? `&context=${encodeURIComponent(JSON.stringify(request.context))}` : ""}${request.selectedIds?.length ? `&selectedIds=${encodeURIComponent(request.selectedIds.join(","))}` : ""}`
   );
   return { manifest, requiresConfirm: manifest.total > manifest.confirmThreshold };
 }

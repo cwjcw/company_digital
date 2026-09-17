@@ -1,6 +1,12 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
 
+/** 资源稳定主键（平台默认 UUID id，可由资源显式覆盖）。 */
+export type TableRecordKey = { field: string; type: "uuid" | "text" | "integer" | "bigint" };
+export function recordKeyOf(source: { recordKey?: TableRecordKey } | null | undefined): TableRecordKey {
+  return source?.recordKey ?? { field: "id", type: "uuid" };
+}
+
 /** KN-PRINT-001 打印取数参数：与列表共用同一套条件语义。 */
 export type TablePrintRowQuery = {
   search: string;
@@ -59,6 +65,11 @@ export type TableFilterSource = {
   authorize?: (actor: TableFilterActor) => void;
   /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
   searchColumns?: string[];
+  /**
+   * KN-PRINT-001：该资源的正式稳定主键（打印已选按此重取，不假设所有 resource 都是 UUID）。
+   * 默认 `{ field: "id", type: "uuid" }`；非 UUID 主键的资源必须显式声明。
+   */
+  recordKey?: TableRecordKey;
   /**
    * KN-PRINT-001：该资源自己的打印取数实现（可正确处理 ACTUAL/PENDING 视图与页面上下文）。
    * 未提供时打印服务使用注册表的通用 SQL（同一列绑定与平台编译器）。

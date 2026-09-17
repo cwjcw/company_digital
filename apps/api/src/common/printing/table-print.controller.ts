@@ -36,6 +36,7 @@ export class TablePrintController {
       sortField: body.sortField,
       sortOrder: body.sortOrder,
       context: (body.context ?? {}) as Record<string, unknown>,
+      rangeType: body.rangeType,
       selectedIds: body.selectedIds,
       columnKeys: body.columnKeys
     }, this.actor(request));
@@ -48,6 +49,7 @@ export class TablePrintController {
       sortField: query.sortField,
       sortOrder: query.sortOrder,
       context: this.parseContext(query.context),
+      rangeType: query.rangeType,
       selectedIds: query.selectedIds,
       columnKeys: query.columnKeys
     };
