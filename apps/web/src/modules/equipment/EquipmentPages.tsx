@@ -58,6 +58,18 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "操作失败，请稍后重试";
 }
 
+/**
+ * KN-EQUIP-001：把设备状态保存失败翻译成业务用户能直接照做的提示。
+ * 事业部范围失败必须说明“当前账号只能填报<自己事业部>的设备”，不要只给“超出事业部数据范围”。
+ */
+function statusSaveErrorText(message: string) {
+  if (message.includes("超出事业部数据范围")) return `${message}。当前账号只能填报本人数据范围内的设备；设备下拉只显示允许填报的设备，请重新选择后再保存。`;
+  if (message.includes("已经填报")) return `${message}。同一天同一台设备只能有一条填报记录，请改为编辑已有记录。`;
+  if (message.includes("设备不存在、已停用或不需要监控")) return `${message}。该设备可能已被停用或取消“需要填报”，请刷新设备列表后重新选择。`;
+  if (message.includes("没有此表的操作权限") || message.includes("权限")) return `${message}。如需填报请联系管理员为当前账号增加设备状态填报权限。`;
+  return message;
+}
+
 function durationText(value: unknown) {
   const minutes = Math.max(0, Number(value) || 0);
   return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
@@ -243,6 +255,7 @@ export function EquipmentStatusReportPage() {
     finally { setExporting(false); }
   };
   const [exportingTemplate, setExportingTemplate] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
   const exportTemplate = async () => {
     setExportingTemplate(true);
     try { await downloadApiFile("/equipment/status-reports/import-template", "设备状态填报导入模板.xlsx"); }
@@ -258,6 +271,7 @@ export function EquipmentStatusReportPage() {
   };
   const save = async () => {
     if ((editing && !canUpdate) || (!editing && !canCreate)) { message.error("当前权限不允许此操作"); setOpen(false); return; }
+    setSaveError(undefined);
     try {
       const values = await form.validateFields(); setSaving(true);
       const runtimeMinutes = Number(values.runtimeHours ?? 0) * 60 + Number(values.runtimeMinutePart ?? 0);
@@ -268,7 +282,11 @@ export function EquipmentStatusReportPage() {
       });
       message.success(editing ? "设备状态已更新" : "设备状态已填报"); setOpen(false); refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
     } catch (error: any) {
-      if (!Array.isArray(error?.errorFields)) message.error(errorText(error));
+      if (Array.isArray(error?.errorFields)) return;
+      /* KN-EQUIP-001：失败必须留在弹窗内可见（不能只弹一条会消失的提示，用户会以为“点了没反应”）。 */
+      const text = errorText(error);
+      setSaveError(statusSaveErrorText(text));
+      message.error(text);
     } finally { setSaving(false); }
   };
   const remove = (row: EquipmentStatus) => Modal.confirm({
@@ -307,8 +325,9 @@ export function EquipmentStatusReportPage() {
         <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
       </>}
       loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1450, y: "calc(100vh - 310px)" }} />
-    <Modal title={editing ? "编辑设备状态" : "填报设备状态"} width={700} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
+    <Modal title={editing ? "编辑设备状态" : "填报设备状态"} width={700} open={open} onCancel={() => { setSaveError(undefined); setOpen(false); }} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
+        {saveError && <Alert type="error" showIcon style={{ marginBottom: 16 }} message="保存失败" description={saveError} />}
         {!editing && options.isSuccess && equipmentOptions.length === 0 && <Alert type="warning" showIcon style={{ marginBottom: 16 }}
           message="暂无可以填报的设备"
           description="设备总台账中尚未将任何设备标记为“需要填报”。请先由有权限的人员在设备总台账中确认需要监测的设备。" />}

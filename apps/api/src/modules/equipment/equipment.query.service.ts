@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
-import { EquipmentActor, equipmentScope, equipmentScopeClause, hasEquipmentPermission } from "./equipment.types";
+import { EquipmentActor, equipmentCreateScopeClause, equipmentScopeClause, hasEquipmentPermission } from "./equipment.types";
 
 type PageInput = {
   page?: number; pageSize?: number; search?: string; divisionId?: string; equipmentId?: string;
@@ -413,15 +413,9 @@ export class EquipmentQueryService {
     };
   }
 
+  /** KN-EQUIP-001：候选设备与新增加载共用同一 create 范围实现（equipmentCreateScopeClause）。 */
   private referenceCreationScopeClause(actor: EquipmentActor, resource: string, alias: string, params: unknown[]) {
-    if (actor.isSystemAdmin === true || actor.permissions.includes("*")) return "1=1";
-    const scopes = (actor.tableDataScopes ?? []).filter((scope) =>
-      scope.resource === resource && (!Array.isArray(scope.actions) || scope.actions.includes("create"))
-    );
-    if (scopes.some((scope) => ["ALL", "OWN", "NONE"].includes(scope.scope))) return "1=1";
-    const divisionIds = equipmentScope(actor, resource, "create").divisionIds;
-    if (!divisionIds.length) return "1=0";
-    params.push(divisionIds); return `${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`;
+    return equipmentCreateScopeClause(actor, resource, alias, params);
   }
 
   private page(input: PageInput) {

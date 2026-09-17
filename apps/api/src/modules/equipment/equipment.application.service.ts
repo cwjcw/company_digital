@@ -5,7 +5,7 @@ import {
   AuditLog, DictionaryType, DictionaryValue, EquipmentAsset, EquipmentResponsible,
   EquipmentStatusReport, IdempotencyRecord, OrganizationUnit, User
 } from "../../entities";
-import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentScope, hasEquipmentPermission } from "./equipment.types";
+import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentCreateAllowed, equipmentScope, hasEquipmentPermission } from "./equipment.types";
 
 type AssetInput = {
   divisionId: string;
@@ -329,17 +329,9 @@ export class EquipmentApplicationService {
     const scope = equipmentScope(actor, resource, action);
     if (scope.unrestricted || scope.divisionIds.includes(divisionId)) return;
     if (scope.own && actor.userId && createdBy === actor.userId) return;
-    if (action === "create" && this.referenceCreationAllowed(actor, resource, divisionId)) return;
+    /* KN-EQUIP-001：新增走平台唯一 create 范围（候选/保存/导入同源），非新增仍按记录级范围判定。 */
+    if (action === "create" && equipmentCreateAllowed(actor, resource, divisionId)) return;
     throw new ForbiddenException(scope.own ? "只能管理本人创建的数据" : "超出事业部数据范围");
-  }
-
-  private referenceCreationAllowed(actor: EquipmentActor, resource: string, divisionId: string) {
-    if (actor.isSystemAdmin === true || actor.permissions.includes("*")) return true;
-    const scopes = (actor.tableDataScopes ?? []).filter((scope) =>
-      scope.resource === resource && (!Array.isArray(scope.actions) || scope.actions.includes("create"))
-    );
-    if (scopes.some((scope) => ["ALL", "OWN", "NONE"].includes(scope.scope))) return true;
-    return equipmentScope(actor, resource, "create").divisionIds.includes(divisionId);
   }
 
   private optionalDate(value: unknown, label: string) {

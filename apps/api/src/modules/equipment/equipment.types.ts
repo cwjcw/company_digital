@@ -67,6 +67,39 @@ export function equipmentScope(actor: EquipmentActor, resource: string, action: 
 }
 
 /**
+ * KN-EQUIP-001 设备“新增(create)”数据范围（唯一真相）：
+ * 候选设备（status-options）、正式保存（assertRecordAccess）与导入必须共用本函数，
+ * 保证「候选里能选的设备」严格等于「保存允许新增的设备」，不再维护两套事业部判断。
+ *
+ * 语义（与权限组预设一致）：ALL/OWN/NONE 视为不受事业部限制；CUSTOM 只支持
+ * `divisionId EQ <organization UUID>` / `divisionId IN [<organization UUID>...]`，
+ * 一律按稳定部门 ID 比较，禁止用中文名称比较。
+ */
+export function equipmentCreateScope(actor: EquipmentActor, resource: string): EquipmentScope {
+  if (actor.isSystemAdmin === true || actor.permissions.includes("*")) return { unrestricted: true, divisionIds: [] };
+  const scopes = (actor.tableDataScopes ?? []).filter((scope) =>
+    scope.resource === resource && (!Array.isArray(scope.actions) || scope.actions.includes("create"))
+  );
+  if (scopes.some((scope) => ["ALL", "OWN", "NONE"].includes(scope.scope))) return { unrestricted: true, divisionIds: [] };
+  return equipmentScope(actor, resource, "create");
+}
+
+/** create 范围谓词：候选 SQL 与导入预校验共用（参数化，禁止拼接客户端输入）。 */
+export function equipmentCreateScopeClause(actor: EquipmentActor, resource: string, alias: string, params: unknown[]) {
+  const scope = equipmentCreateScope(actor, resource);
+  if (scope.unrestricted) return "1=1";
+  if (!scope.divisionIds.length) return "1=0";
+  params.push(scope.divisionIds);
+  return `${alias}.division_organization_unit_id=ANY($${params.length}::uuid[])`;
+}
+
+/** create 记录级校验：与候选 SQL 同源同语义。 */
+export function equipmentCreateAllowed(actor: EquipmentActor, resource: string, divisionId: string) {
+  const scope = equipmentCreateScope(actor, resource);
+  return scope.unrestricted || scope.divisionIds.includes(divisionId);
+}
+
+/**
  * 设备数据范围谓词（唯一实现）：列表、总数、导出与平台 candidate 必须共用本函数，
  * 保证“候选来源集合”与“列表可见集合”完全一致。
  */

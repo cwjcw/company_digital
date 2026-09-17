@@ -3,7 +3,7 @@ import { EquipmentApplicationService } from "./equipment.application.service";
 import { EquipmentController } from "./equipment.controller";
 import { EquipmentImportService } from "./equipment-import.service";
 import { EquipmentQueryService } from "./equipment.query.service";
-import { equipmentScope, hasEquipmentPermission, type EquipmentActor } from "./equipment.types";
+import { equipmentCreateAllowed, equipmentScope, hasEquipmentPermission, type EquipmentActor } from "./equipment.types";
 
 const actor = (overrides: Partial<EquipmentActor> = {}): EquipmentActor => ({
   tenantId: "KAINAN", userId: "00000000-0000-7000-8000-000000000001", username: "tester",
@@ -82,10 +82,12 @@ describe("equipment permissions and validation", () => {
     }] }), "equipment-status-report", "read");
     expect(own).toEqual({ unrestricted: false, divisionIds: [], own: true });
     const service = new EquipmentApplicationService({} as never) as any;
-    expect(service.referenceCreationAllowed(actor({
+    /* KN-EQUIP-001：OWN 权限组的新增不受事业部限制（与候选设备范围同源）。 */
+    expect(equipmentCreateAllowed(actor({
       permissions: ["equipment-status-report:*:create"],
       tableDataScopes: [{ resource: "equipment-status-report", scope: "OWN", actions: ["create"] }]
     }), "equipment-status-report", "division-1")).toBe(true);
+    expect(service).toBeTruthy();
     expect(() => service.assertRecordAccess(actor({
       permissions: ["equipment-status-report:*:update"],
       tableDataScopes: [{ resource: "equipment-status-report", scope: "OWN", actions: ["update"] }]
