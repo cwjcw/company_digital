@@ -1,16 +1,36 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App as AntApp } from "antd";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
 import { ModulePortal } from "./ModulePortal";
 
 vi.mock("../../api", () => ({ api: vi.fn() }));
 
+/**
+ * KN-TEST-001：本测试只验证 ModulePortal 的业务行为，不验证 AntD 通知组件本身。
+ * 真实的 `App.useApp().message` 会挂载通知并通过 rc-motion 播放动画，产生一个在 jsdom
+ * 环境销毁之后才执行的异步 React passive-effect（React 提交后经 setImmediate 调度
+ * flushPassiveEffects，读取 window），从而在 Vitest 结束时报 "window is not defined"。
+ * 这里把 App.useApp() 稳定替换为可断言的 message mock：保留“保存成功/失败会提示”的业务语义，
+ * 但不运行通知动画的异步生命周期。只影响本 spec 文件，不改动生产代码与 <AntApp> 用法。
+ */
+const appMessage = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+vi.mock("antd", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("antd")>();
+  const RealApp = actual.App;
+  const stubNotification = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), open: vi.fn(), destroy: vi.fn() };
+  const stubModal = { confirm: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn(), destroy: vi.fn() };
+  const App = ((props: Parameters<typeof RealApp>[0]) => RealApp(props)) as typeof RealApp;
+  (App as unknown as { useApp: () => unknown }).useApp = () => ({ message: appMessage, notification: stubNotification, modal: stubModal });
+  return { ...actual, App };
+});
+
 const mockedApi = vi.mocked(api);
 const renderPortal = (user: Record<string, unknown>, onOpen = vi.fn()) => render(<AntApp><ModulePortal user={user} onOpen={onOpen} onLogout={vi.fn()} /></AntApp>);
 
 describe("ModulePortal system access", () => {
-  beforeEach(() => { cleanup(); localStorage.clear(); mockedApi.mockReset(); });
+  beforeEach(() => { localStorage.clear(); mockedApi.mockReset(); appMessage.success.mockClear(); appMessage.error.mockClear(); });
+  afterEach(() => { cleanup(); });
 
   it("hides system management from non-system administrators", () => {
     renderPortal({ username: "demo-manager", roles: ["集团管理员"] });
@@ -54,5 +74,9 @@ describe("ModulePortal system access", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存顺序" }));
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith("/auth/preferences/portal-modules", expect.objectContaining({ method: "PUT" })));
     await waitFor(() => expect(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").portalModuleOrder).toEqual(expect.any(Array)));
+    /* 等待组件真正 settled：退出排序态（“调整顺序”重新出现、保存按钮消失）后再结束测试。 */
+    await waitFor(() => expect(screen.getByRole("button", { name: "调整顺序" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "保存顺序" })).not.toBeInTheDocument();
+    expect(appMessage.success).toHaveBeenCalledTimes(1);
   });
 });
