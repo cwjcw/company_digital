@@ -28,6 +28,57 @@ describe("MasterPlanSpreadsheetService", () => {
     return { originalname: "import.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()) } as Express.Multer.File;
   }
 
+  describe("KN-MPS-WO-001 3天生产工单 Excel", () => {
+    it("导出：两列日期、无交期编码、无合并范围列、记录ID/版本隐藏且日期为真实日期单元格", async () => {
+      queries.exportRows.mockResolvedValue({
+        visibleFields: ["customerCode", "orderNumber", "productionStartDate", "productionEndDate", "remark", "processingRemark", "productionDateRange", "weeklyPlanId"],
+        rows: [{ id: "row-1", version: 3, customerCode: "0001", orderNumber: "O001", productionStartDate: "2026-09-20", productionEndDate: "2026-09-22", remark: "加急", processingRemark: "先做A面", productionDateRange: "2026-09-20 ～ 2026-09-22", weeklyPlanId: "33333333-3333-4333-8333-333333333333" }]
+      });
+      const buffer = await service.export("mps-three-day-work-orders", {}, actor);
+      const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+      const sheet = workbook.worksheets[0]!;
+      const headers = sheet.getRow(1).values as unknown[];
+      expect(headers).toContain("生产开始日期");
+      expect(headers).toContain("生产结束日期");
+      /* 用户确认：Excel 不出现交期编码，也不出现服务端合并的「生产日期」范围列与来源周计划 UUID。 */
+      expect(headers).not.toContain("交期编码");
+      expect(headers).not.toContain("生产日期");
+      expect(headers).not.toContain("来源周计划");
+      /* 记录ID/版本保留但隐藏（导入仍按 ID+version 定位）。 */
+      expect(sheet.getColumn(1).hidden).toBe(true);
+      expect(sheet.getColumn(2).hidden).toBe(true);
+      /* 日期按 yyyy-mm-dd 的真实日期单元格导出。 */
+      const startCell = sheet.getRow(2).getCell(headers.indexOf("生产开始日期"));
+      expect(startCell.value).toBeInstanceOf(Date);
+      expect(startCell.numFmt).toBe("yyyy-mm-dd");
+      /* 4 个人工列为「可填写区域」，来源列无底纹。 */
+      const remarkCell = sheet.getRow(2).getCell(headers.indexOf("备注"));
+      expect(remarkCell.fill && (remarkCell.fill as { fgColor?: { argb?: string } }).fgColor?.argb).toBe("FFFFF7E0");
+      const orderCell = sheet.getRow(2).getCell(headers.indexOf("订单编号"));
+      expect((orderCell.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb).toBeUndefined();
+      /* 填写说明写清可填写列与单日/空值规则。 */
+      const notes = workbook.getWorksheet("填写说明")!;
+      const noteText = notes.getColumn(1).values.join("\n");
+      expect(noteText).toContain("Excel 不能新增工单");
+      expect(noteText).toContain("浅黄色底色");
+      expect(noteText).toContain("填写同一天");
+    });
+
+    it("导入：只有 4 个人工列可写，来源列不会写回；空记录ID新增被明确拒绝", async () => {
+      application.validateImportUpdates.mockResolvedValue([]);
+      const file = await workbookFile(
+        ["记录ID", "版本", "生产开始日期", "生产结束日期", "备注", "加工备注", "订单编号", "品项编码", "需求数量"],
+        [["", "", "2026-09-20", "2026-09-22", "加急", "先做A面", "O001", "P001", 100]]
+      );
+      await service.preview("mps-three-day-work-orders", file, actor);
+      const called = application.validateImportUpdates.mock.calls.at(-1)!;
+      /* 只有人工字段进入待写入值；来源列被忽略（即使 Excel 里有值）。 */
+      expect(Object.keys(called[1][0].values).sort()).toEqual(["processingRemark", "productionEndDate", "productionStartDate", "remark"]);
+      /* 空身份行按“新增”进入校验（真实 application service 会在 create 闸门拒绝并提示先同步，见 work-order-validation 用例）。 */
+      expect(called[1][0]).toMatchObject({ id: null, expectedVersion: null });
+    });
+  });
+
   it("rejects encrypted workbooks with the unified message before parsing", async () => {
     const file = { originalname: "encrypted.xlsx", buffer: Buffer.from([0x88, 0x7d, 0x1c, 0xd6, 0x56, 0x02]) } as Express.Multer.File;
     await expect(service.preview("mps-shipping-plans", file, actor)).rejects.toEqual(expect.objectContaining<Partial<BadRequestException>>({ message: ENCRYPTED_SPREADSHEET_MESSAGE }));

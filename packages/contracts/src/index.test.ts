@@ -3,7 +3,7 @@ import {
   auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
   isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
-  tableFilterResourceCapabilities, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
+  tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
 } from "./index";
 import { standardProcesses } from "@tracker/shared";
 
@@ -218,6 +218,36 @@ describe("active PMC resources", () => {
     expect(dispatchedField).toMatchObject({ label: "已下达周计划数量", editable: false, format: "decimal" });
     /* 周计划没有该字段。 */
     expect(tablePermissionFieldsFor("mps-weekly-plans").map((field) => field.key)).not.toContain("dispatchedWeeklyQuantity");
+  });
+
+  it("KN-MPS-WO-001：3天生产工单是生产执行下的正式资源，不含交期编码且来源字段只读", () => {
+    const resource = masterPlanResourceDefinitions.find((entry) => entry.code === "mps-three-day-work-orders");
+    expect(resource).toMatchObject({ label: "3天生产工单", area: "生产执行" });
+    expect(tableResourceRegistry.map((entry) => entry.code)).toContain("mps-three-day-work-orders");
+    expect(tableFilterResourceCapabilityOf("mps-three-day-work-orders").status).toBe("REGISTERED_AND_FILTERABLE");
+    const fields = tablePermissionFieldsFor("mps-three-day-work-orders");
+    const keys = fields.map((field) => field.key);
+    /* 用户确认：不显示、不导入、不导出交期编码。 */
+    expect(keys).not.toContain("deliveryNumber");
+    /* 来源字段只读（同步维护），人工字段可编辑。 */
+    for (const key of ["divisionId", "customerCode", "orderNumber", "orderDate", "modelAge", "itemCode", "itemName", "imageRefs", "requiredQuantity", "blankCompletionDate", "packagingCompletionDate", "manufacturingMethod"]) {
+      expect(fields.find((field) => field.key === key)?.editable).toBe(false);
+    }
+    for (const key of ["productionStartDate", "productionEndDate", "remark", "processingRemark"]) {
+      expect(fields.find((field) => field.key === key)?.editable).toBe(true);
+    }
+    /* 生产日期是「两个原子 date 字段 + 一个打印/展示合并列」；合并列不参与筛选。 */
+    expect(fields.find((field) => field.key === "productionStartDate")?.type).toBe("date");
+    expect(fields.find((field) => field.key === "productionEndDate")?.type).toBe("date");
+    expect(fields.find((field) => field.key === "productionDateRange")).toMatchObject({ editable: false, filterable: false });
+    /* 来源周计划 UUID 是技术身份：不打印。 */
+    expect(fields.find((field) => field.key === "weeklyPlanId")?.printable).toBe(false);
+    /* 基础计划新增两个可编辑日期字段；周计划只读投影，不复制存储。 */
+    const base = tablePermissionFieldsFor("mps-base-plans");
+    for (const key of ["blankCompletionDate", "packagingCompletionDate"]) {
+      expect(base.find((field) => field.key === key)).toMatchObject({ type: "date", editable: true });
+      expect(tablePermissionFieldsFor("mps-weekly-plans").find((field) => field.key === key)).toMatchObject({ type: "date", editable: false });
+    }
   });
 
   it("KN-MPS-UI-001：所有正式报工表都支持人工异常文本，工序任务文本改为计划提示", () => {
