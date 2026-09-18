@@ -222,6 +222,20 @@ D. **自动同步与用户主动同步必须区分**：由用户主动点击触�
 
 配套约束：派生表必须走正式资源注册（contracts 资源/字段/筛选/打印/权限）与统一 Excel 框架；不得新增独立“操作”列；不得把派生表的人工文本当作“异常”来源。
 
+#### 3.1.0.7 同步投影的准入边界与副作用范围（KN-MPS-SYNC-001，强制）
+
+适用：任何“主投影 + 下游副作用”两阶段的同步任务（例如 base-to-weekly：先 upsert 周计划，再刷新工序执行计划/技术/主材/外协占位/报工快照）。
+
+A. **副作用必须服从与主投影相同的 eligibility/admission**：如果主 projection 只处理满足某个准入条件的记录（admission/eligibility，例如 `weeklyAdmissionSql(base)`），那么同一同步任务的后续 side effects 必须使用**同一份 admission**。禁止“主 INSERT 只处理 eligible 记录，副作用阶段却重新扫描整个 tenant 全表”——否则未准入的历史/迁移记录会被意外改动（例如把 `execution_enabled` 关掉、凭空生成占位报工）。
+
+B. **副作用范围不等于 INSERT/UPDATE 的 RETURNING rows**：当配置/周期/规则变化时（例如工序周期 `mps_process_cycles` 改了，weekly 主字段却毫无变化 → upsert RETURNING=0），仍需按最新配置重算既有 eligible 记录。因此副作用范围必须查询“**全部当前 eligible 记录**”，不能退化成“本次 upsert 有变化的记录”。
+
+C. **历史/迁移/未准入记录不得被同步任务意外修改**：全租户扫描会把历史、迁移或未准入记录卷进副作用。此类记录必须被同步任务完全跳过：不修改主记录、不重算工序、不新增/关闭占位、不刷新快照，也不得用同步删除它们（历史数据生命周期另行设计）。
+
+D. **准入条件只能有一份权威来源**：admission 谓词必须复用同一函数/常量（如 `weeklyAdmissionSql(...)`），禁止在副作用阶段手写第二套“某字段 IS NOT NULL”判断。副作用需要关联上游表时，必须通过**稳定 parent ID + tenant** 关联（例如 `JOIN base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id`），不得用订单号/品项/交期等可变业务字段推算来源，也不得只写 `base.id=weekly.base_plan_id` 而漏掉 tenant。
+
+说明：系统级同步按 tenant 工作，不套用页面 data scope（不要把用户 `scopeClause` 误加进系统同步）。
+
 1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
 2. 打印筛选结果复用：page context + quick search + applied Advanced FilterGroup + sort，然后打印全部匹配记录（不是当前页）。
 2.1 标准表格只保留一个主打印入口（工具栏按钮）：未选中记录时显示「打印筛选结果」，一旦有选中记录就自动变为「打印已选（N）」；禁止在 selection toolbar 再放第二个打印按钮，也禁止新增“操作”列。
