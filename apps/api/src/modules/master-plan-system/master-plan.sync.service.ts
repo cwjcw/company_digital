@@ -228,7 +228,12 @@ export class MasterPlanSyncService {
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
         RETURNING id`, [tenantId, userId, updatedBy]);
-      const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,c.cutting_days,c.machining_days,c.bending_days,c.spot_welding_days,c.welding_days,c.woodworking_days,c.grinding_days,c.blank_days,c.surface_treatment_days,c.packaging_days FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1`, [tenantId]);
+      /* KN-MPS-SYNC-001：执行副作用的范围必须与主投影共用同一份 admission。
+         只允许处理「关联 base 当前满足 weeklyAdmissionSql」的 weekly；禁止像旧实现那样按 tenant 全表扫描，
+         否则未准入的历史 weekly 会被意外改动（execution_enabled、工序周期、技术/主材/外协占位、报工快照）。
+         这里刻意不复用 INSERT ... RETURNING：工序周期/规则变化时 weekly 主字段可能无变化（RETURNING=0），
+         但 admitted weekly 仍需要按最新 process cycle 重算执行计划，因此范围取「全部当前 admitted weekly」。 */
+      const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,c.cutting_days,c.machining_days,c.bending_days,c.spot_welding_days,c.welding_days,c.woodworking_days,c.grinding_days,c.blank_days,c.surface_treatment_days,c.packaging_days FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND ${admission}`, [tenantId]);
       for (const weekly of weeklyRows) await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy);
       return this.changedCount(rows);
     });
