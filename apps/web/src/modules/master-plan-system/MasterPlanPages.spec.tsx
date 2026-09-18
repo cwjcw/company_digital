@@ -399,6 +399,124 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(bodies.length).toBe(2));
     expect(Object.keys(bodies[1]).sort()).toEqual(["processCode", "productionDate", "productionQuantity", "weeklyPlanId"]);
   }, 25_000);
+
+  /* KN-MPS-UI-REPORT-001：报工成功必须立即可见，刷新失败不得否定已保存的报工。 */
+  const rowOf = (id: string, orderNumber: string, processCode: string) => ({ ...pendingRow, id, orderNumber, itemCode: `${orderNumber}-ITEM`, processCode });
+  const secondRow = rowOf("55555555-5555-4555-8555-555555555555", "2026A027193", "cutting");
+  const mockSubmit = (report: (body: any) => unknown) => {
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return meta as never;
+      if (path === "/master-plan-system/resources/mps-process-reports" && init?.method === "POST") return await report(JSON.parse(String(init.body))) as never;
+      if (path.includes("view=PENDING")) return { rows: [pendingRow, secondRow], total: 2 } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-process-reports?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+  };
+  const openPending = async () => {
+    renderPage("mps-process-reports", "/master-plan-system/mps-process-reports");
+    fireEvent.click(await screen.findByRole("tab", { name: "待报工任务" }));
+    await screen.findByText("2026A027192", {}, { timeout: 10_000 });
+    fireEvent.click(await screen.findByRole("button", { name: /进入\s*编辑模式/ }));
+  };
+  const quantityInputs = () => screen.findAllByPlaceholderText("本次报工", {}, { timeout: 5_000 });
+  /* antd InputNumber 按 precision=4 回显，断言只比较数值，避免格式差异造成假失败。 */
+  const quantityValues = () => Array.from(document.querySelectorAll("input[placeholder='本次报工']")).map((input) => Number((input as HTMLInputElement).value || 0));
+  const fill = async (values: string[]) => {
+    const inputs = await quantityInputs();
+    for (let index = 0; index < values.length; index += 1) fireEvent.change(inputs[index]!, { target: { value: values[index] } });
+  };
+  const submitButton = () => screen.getByRole("button", { name: /提交报工/ });
+
+  it("Case 1：单条成功后立即反馈，清空该条输入并恢复 loading", async () => {
+    mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("报工成功；事业部计划已刷新"));
+    await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
+    const button = submitButton();
+    expect(button).toBeDisabled();
+    expect(button.className).not.toContain("ant-btn-loading");
+  }, 25_000);
+
+  it("Case 2：成功后刷新失败仍显示报工成功，并额外提示刷新失败", async () => {
+    const client = newClient();
+    mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    const warning = vi.spyOn(message, "warning").mockImplementation(() => undefined as never);
+    /* 缓存刷新异常：不得把已经成功的报工表现成失败。 */
+    vi.spyOn(client, "invalidateQueries").mockRejectedValue(new Error("cache boom"));
+    renderPage("mps-process-reports", "/master-plan-system/mps-process-reports", client);
+    fireEvent.click(await screen.findByRole("tab", { name: "待报工任务" }));
+    await screen.findByText("2026A027192", {}, { timeout: 10_000 });
+    fireEvent.click(await screen.findByRole("button", { name: /进入\s*编辑模式/ }));
+    await fill(["20"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("报工成功；事业部计划已刷新"));
+    await waitFor(() => expect(warning).toHaveBeenCalledWith("报工已保存，但页面数据刷新失败，请手动刷新页面"));
+  }, 25_000);
+
+  it("Case 3：POST 失败时保留输入、给出后端错误、不出现成功提示", async () => {
+    mockSubmit(() => { throw new Error("当前生产方式不允许创建工序任务或工序报工"); });
+    const error = vi.spyOn(message, "error").mockImplementation(() => undefined as never);
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(error).toHaveBeenCalledWith(expect.stringContaining("报工提交失败：")));
+    expect(String(error.mock.calls[0]![0])).toContain("当前生产方式不允许创建工序任务或工序报工");
+    expect(success).not.toHaveBeenCalled();
+    expect(quantityValues()).toEqual([20, 0]);
+    const button = submitButton();
+    expect(button).toBeEnabled();
+    expect(button.className).not.toContain("ant-btn-loading");
+  }, 25_000);
+
+  it("Case 4：部分成功时只清空成功记录，失败记录保留原数量", async () => {
+    mockSubmit((body) => body.processCode === "cutting"
+      ? (() => { throw new Error("cutting 报工被拒绝"); })()
+      : ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    const warning = vi.spyOn(message, "warning").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20", "20"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(warning).toHaveBeenCalledWith(expect.stringContaining("已成功提交 1 条报工，1 条提交失败")));
+    expect(String(warning.mock.calls[0]![0])).toContain("cutting 报工被拒绝");
+    await waitFor(() => expect(quantityValues()).toEqual([0, 20]));
+  }, 25_000);
+
+  it("Case 5：多条全部成功时清空全部输入并让按钮回到 disabled", async () => {
+    mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20", "30"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("已成功提交 2 条报工；事业部计划已刷新"));
+    await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
+    expect(submitButton()).toBeDisabled();
+  }, 25_000);
+
+  it("Case 6：意外异常后 loading 必须恢复（finally），且不残留已成功输入", async () => {
+    let attempts = 0;
+    mockSubmit(() => { attempts += 1; return { id: `report-${attempts}`, reconciliation: { status: "SUCCESS", message: null } }; });
+    /* 反馈层抛出意外异常：必须在 finally 恢复 loading，并在兜底分支清理已成功输入。 */
+    vi.spyOn(message, "success").mockImplementationOnce(() => { throw new Error("toast boom"); }).mockImplementation(() => undefined as never);
+    const warning = vi.spyOn(message, "warning").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(warning).toHaveBeenCalledWith(expect.stringContaining("已成功提交 1 条报工")));
+    await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
+    const button = submitButton();
+    expect(button.className).not.toContain("ant-btn-loading");
+    /* loading 已恢复：重新填写后可再次提交（若 pendingSubmitting 卡死则不会产生第二次 POST）。 */
+    await fill(["5"]);
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(attempts).toBe(2));
+  }, 25_000);
 });
 
 describe("MasterPlanResourcePage weekly plan process groups", () => {

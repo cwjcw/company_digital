@@ -557,34 +557,73 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   ), [pendingFields, pendingDrafts]);
   const activeColumns = isPendingView ? pendingColumns : columns;
   const pendingSubmittable = (rows.data?.rows ?? []).filter((row) => Number(pendingDrafts[row.id]?.quantity) > 0);
+  /*
+   * KN-MPS-UI-REPORT-001：报工成功与页面刷新是两个不同结果。
+   * 顺序必须是「提交 → 立即给出成功反馈 → 只清理已成功的输入 → 恢复 loading → 最后刷新」，
+   * 刷新（或缓存失效）失败绝不能把已经写入的报工表现成“报工失败”。
+   */
   const submitPendingReports = async () => {
     if (!pendingSubmittable.length || pendingSubmitting) return;
     setPendingSubmitting(true);
-    const failures: string[] = []; let created = 0; let reconciliation: Reconciliation | undefined;
-    for (const row of pendingSubmittable) {
-      const draft = pendingDrafts[row.id]!;
-      try {
-        const response = await api<{ reconciliation?: Reconciliation }>("/master-plan-system/resources/mps-process-reports", {
-          method: "POST",
-          body: JSON.stringify({
-            weeklyPlanId: row.weeklyPlanId, processCode: row.processCode,
-            productionDate: dayjs(draft.date ?? dayjs()).format("YYYY-MM-DD"),
-            productionQuantity: Number(draft.quantity),
-            /* KN-MPS-UI-001：异常是可选人工事实；留空则不写入异常。 */
-            ...(String(draft.exceptionText ?? "").trim() ? { exceptionText: String(draft.exceptionText).trim() } : {})
-          })
-        });
-        created += 1; reconciliation = response?.reconciliation ?? reconciliation;
-      } catch (error) {
-        failures.push(`${row.orderNumber ?? ""} / ${row.itemCode ?? ""} / ${row.processCode ?? ""}：${(error as Error).message}`);
+    const successfulIds = new Set<string>();
+    const failures: string[] = [];
+    let created = 0;
+    let reconciliation: Reconciliation | undefined;
+    try {
+      for (const row of pendingSubmittable) {
+        const draft = pendingDrafts[row.id]!;
+        try {
+          const response = await api<{ reconciliation?: Reconciliation }>("/master-plan-system/resources/mps-process-reports", {
+            method: "POST",
+            body: JSON.stringify({
+              weeklyPlanId: row.weeklyPlanId, processCode: row.processCode,
+              productionDate: dayjs(draft.date ?? dayjs()).format("YYYY-MM-DD"),
+              productionQuantity: Number(draft.quantity),
+              /* KN-MPS-UI-001：异常是可选人工事实；留空则不写入异常。 */
+              ...(String(draft.exceptionText ?? "").trim() ? { exceptionText: String(draft.exceptionText).trim() } : {})
+            })
+          });
+          successfulIds.add(row.id); created += 1; reconciliation = response?.reconciliation ?? reconciliation;
+        } catch (error) {
+          failures.push(`${row.orderNumber ?? ""} / ${row.itemCode ?? ""} / ${row.processCode ?? ""}：${(error as Error).message}`);
+        }
       }
+      /* 4. POST 结束后立即反馈（不等待任何刷新）。全部失败时绝不出现“报工成功”。 */
+      if (!created) {
+        message.error(`报工提交失败：${failures.slice(0, 3).join("；")}`);
+      } else if (failures.length) {
+        message.warning(`已成功提交 ${created} 条报工，${failures.length} 条提交失败：${failures.slice(0, 3).join("；")}`);
+      } else {
+        const base = created === 1 ? "报工成功" : `已成功提交 ${created} 条报工`;
+        applyReconciliationFeedback(reconciliation, `${base}；事业部计划已刷新`);
+      }
+      /* 5. 只清理成功提交的输入；失败记录保留原数量，供用户修改后重试。 */
+      if (successfulIds.size) setPendingDrafts((current) => {
+        const next = { ...current };
+        for (const id of successfulIds) delete next[id];
+        return next;
+      });
+    } catch (error) {
+      /* 意外异常（例如反馈层异常）也不得让已成功的输入残留、更不得伪装成“报工失败”。 */
+      if (successfulIds.size) setPendingDrafts((current) => {
+        const next = { ...current };
+        for (const id of successfulIds) delete next[id];
+        return next;
+      });
+      message.warning(created > 0
+        ? `已成功提交 ${created} 条报工，但界面提示异常，请刷新页面确认。`
+        : `报工提交异常：${(error as Error).message}`);
+    } finally {
+      /* 6. 无论 POST / 反馈 / 清理是否异常，loading 都必须恢复。 */
+      setPendingSubmitting(false);
     }
-    setPendingSubmitting(false);
-    setPendingDrafts({});
-    await refresh();
-    await refreshExecutionPlans();
-    if (failures.length) { message.warning(`已提交 ${created} 条报工，${failures.length} 条失败：${failures.slice(0, 3).join("；")}`); return; }
-    applyReconciliationFeedback(reconciliation, `已提交 ${created} 条报工；事业部计划已刷新`);
+    /* 7. 刷新与报工结果解耦：刷新失败只提示刷新问题，不否定已保存的报工。 */
+    try {
+      await refresh();
+      await refreshExecutionPlans();
+    } catch {
+      message.warning(created > 0 ? "报工已保存，但页面数据刷新失败，请手动刷新页面" : "页面数据刷新失败，请手动刷新页面");
+    }
   };
   if (!info) return null;
   const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
