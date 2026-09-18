@@ -4,9 +4,15 @@ import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday } from "./master-plan.domain";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql, type MasterPlanResource } from "./master-plan.config";
+import {
+  MASTER_PLAN_ERP_ADMISSION, SNAPSHOT_BUSINESS_KEY_BINDING, erpAccountWhitelistSql, erpOrderAdmissibleStatusSql, erpOrderDateAdmissionSql,
+  erpSourceIdentitySql, snapshotSourceSystemSql
+} from "./master-plan.erp-admission";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
+/** 同步结果：`count` 继续写入 mps_sync_logs.sync_count，`metrics` 写入同表 metrics（KN-MPS-LIVE-002 可观测性）。 */
+type SyncOutcome = { count: number; metrics?: Record<string, number> };
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
 
 @Injectable()
@@ -70,10 +76,12 @@ export class MasterPlanSyncService {
       await this.dataSource.query(`INSERT INTO mps_sync_logs(tenant_id,sync_config_id,sync_key,run_type,status,started_at,idempotency_key,created_by,updated_by) VALUES($1,$2,$3,$4,'RUNNING',now(),$5,$6::uuid,$7)`, [tenantId, config.id, syncKey, runType, idempotencyKey, userId, userId ?? username]);
       await this.dataSource.query(`UPDATE mps_sync_configs SET status='RUNNING',last_started_at=now(),error_message=NULL,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, userId ?? username]);
       try {
-        const count = await this.execute(syncKey, tenantId, userId, userId ?? username);
-        await this.dataSource.query(`UPDATE mps_sync_logs SET status='SUCCESS',completed_at=now(),sync_count=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`, [tenantId, idempotencyKey, count, userId ?? username]);
+        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username);
+        const count = outcome.count;
+        await this.dataSource.query(`UPDATE mps_sync_logs SET status='SUCCESS',completed_at=now(),sync_count=$3,metrics=$5::jsonb,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`,
+          [tenantId, idempotencyKey, count, userId ?? username, outcome.metrics ? JSON.stringify(outcome.metrics) : null]);
         await this.dataSource.query(`UPDATE mps_sync_configs SET status='SUCCESS',last_success_at=now(),last_sync_count=$3,error_message=NULL,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, count, userId ?? username]);
-        return { syncKey, repeated: false, count, status: "SUCCESS" };
+        return { syncKey, repeated: false, count, metrics: outcome.metrics ?? null, status: "SUCCESS" };
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
         await this.dataSource.query(`UPDATE mps_sync_logs SET status='FAILED',completed_at=now(),error_message=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`, [tenantId, idempotencyKey, message, userId ?? username]);
@@ -84,8 +92,8 @@ export class MasterPlanSyncService {
     } finally { this.running.delete(runningKey); }
   }
 
-  private execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string) {
-    const jobs: Record<string, () => Promise<number>> = {
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
+    const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
       "plan-projections": () => this.projectPlans(tenantId, userId, updatedBy),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, updatedBy),
@@ -93,48 +101,176 @@ export class MasterPlanSyncService {
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),
       "execution-rollup": () => this.executionRollup(tenantId, updatedBy)
     };
-    const job = jobs[syncKey]; if (!job) throw new ConflictException("未知同步任务"); return job();
+    const job = jobs[syncKey]; if (!job) throw new ConflictException("未知同步任务");
+    const result = await job();
+    return typeof result === "number" ? { count: result } : result;
   }
 
-  private async projectOrders(tenantId: string, userId: string | null, updatedBy: string) {
-    const rows = await this.dataSource.query(`
-      INSERT INTO mps_erp_order_lines(tenant_id,source_system,source_database,source_account_name,source_key,salesperson_name,customer_code,
-        order_number,order_type,order_date,customer_due_date,preproduction_review_date,expected_shipping_date,item_code,item_name,unit,
-        order_quantity,tax_included_unit_price,tax_included_amount,order_status,source_active,source_updated_at,created_by,updated_by)
-      SELECT $1,COALESCE(source_system,'SYSTEM'),COALESCE(source_database,'KDOS'),source_database,COALESCE(source_key,id::text),employee_name,customer_code,
-        order_number,document_name,COALESCE(order_date,document_date),planned_delivery_date,review_due_date,planned_delivery_date,item_number,item_name,unit_name,
-        greatest(COALESCE(business_quantity,quantity,0),0),COALESCE(rmb_price,price),rmb_tax_included_amount,close_status,true,updated_at,$2::uuid,$3
-      FROM sales_orders WHERE btrim(COALESCE(order_number,''))<>'' AND btrim(COALESCE(item_number,''))<>''
-      ON CONFLICT(tenant_id,source_system,source_database,source_key) DO UPDATE SET
-        salesperson_name=excluded.salesperson_name,customer_code=excluded.customer_code,order_number=excluded.order_number,order_type=excluded.order_type,
-        order_date=excluded.order_date,customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,
-        expected_shipping_date=excluded.expected_shipping_date,item_code=excluded.item_code,item_name=excluded.item_name,unit=excluded.unit,
-        order_quantity=excluded.order_quantity,tax_included_unit_price=excluded.tax_included_unit_price,tax_included_amount=excluded.tax_included_amount,
-        order_status=excluded.order_status,source_active=true,source_updated_at=excluded.source_updated_at,updated_at=now(),updated_by=$3,version=mps_erp_order_lines.version+1
-      WHERE (mps_erp_order_lines.salesperson_name,mps_erp_order_lines.customer_code,mps_erp_order_lines.order_number,mps_erp_order_lines.item_code,mps_erp_order_lines.order_quantity,mps_erp_order_lines.source_updated_at)
-        IS DISTINCT FROM (excluded.salesperson_name,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.order_quantity,excluded.source_updated_at)
-      RETURNING id`, [tenantId, userId, updatedBy]);
-    return rows.length;
+  /**
+   * KN-MPS-LIVE-002：主计划 ERP 订单准入（唯一入口）。
+   *
+   * 与 LIVE-001 审计到的旧行为（`SELECT … FROM sales_orders` 全量投影）不同，本实现强制：
+   * 1) 账套白名单：只允许科加 `UFTData418971_000003`，其他账套一律 `blocked_by_source_database`；
+   * 2) 业务准入水位：`order_date >= 2026-09-17` **只约束新来源身份**，不是 created_at / updated_at；
+   * 3) 状态门槛：已关闭 / 已完成 / 已作废不得作为新订单准入；
+   * 4) cutover watermark（`mps_sync_configs.watermark_at`，可空）：只约束新来源身份；
+   * 5) 来源身份判定：自身来源身份或别名已存在 → UPDATE 原记录；不存在 → 走新单准入；
+   * 6) 快照业务键抑制：新来源身份若与历史快照 `order_number+item_code` 相同 → 绝不 INSERT 第二条，
+   *    改为写入 `mps_order_line_source_aliases` 绑定，此后 ERP 修改直接更新这条原记录；
+   * 7) 关闭语义：只更新来源状态字段（`source_active`/`order_status`/…），绝不删除已产生的计划链数据。
+   *
+   * 增量变化仍然完全依赖 ERP 最后更新时间（`sales_orders.updated_at` ← `LastModifiedDate`）与稳定来源主键。
+   */
+  private async projectOrders(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
+    const ss = (alias: string) => erpSourceIdentitySql(alias).sourceSystem;
+    const sd = (alias: string) => erpSourceIdentitySql(alias).sourceDatabase;
+    const sk = (alias: string) => erpSourceIdentitySql(alias).sourceKey;
+    const [config] = await this.dataSource.query(`SELECT watermark_at FROM mps_sync_configs WHERE tenant_id=$1 AND sync_key='erp-orders'`, [tenantId]);
+    const watermark = config?.watermark_at ?? null;
+    /** ERP-owned 字段的唯一投影表达式：来源身份 + 业务字段 + 状态 + 最后更新时间。 */
+    const payload = (alias: string) => `${ss(alias)} AS source_system,${sd(alias)} AS source_database,${alias}.source_database AS source_account_name,
+      ${sk(alias)} AS source_key,${alias}.employee_name AS salesperson_name,${alias}.customer_code AS customer_code,
+      ${alias}.order_number AS order_number,${alias}.document_name AS order_type,coalesce(${alias}.order_date,${alias}.document_date) AS order_date,
+      ${alias}.planned_delivery_date AS customer_due_date,${alias}.review_due_date AS preproduction_review_date,
+      ${alias}.planned_delivery_date AS expected_shipping_date,${alias}.item_number AS item_code,${alias}.item_name AS item_name,
+      ${alias}.unit_name AS unit,greatest(coalesce(${alias}.business_quantity,${alias}.quantity,0),0) AS order_quantity,
+      coalesce(${alias}.rmb_price,${alias}.price) AS tax_included_unit_price,${alias}.rmb_tax_included_amount AS tax_included_amount,
+      ${alias}.close_status AS order_status,(${erpOrderAdmissibleStatusSql(alias)}) AS source_active,${alias}.updated_at AS source_updated_at`;
+    const ownedColumns = ["salesperson_name","customer_code","order_type","order_date","customer_due_date","preproduction_review_date",
+      "expected_shipping_date","item_name","unit","order_quantity","tax_included_unit_price","tax_included_amount","order_status","source_active","source_updated_at"];
+    const distinctGuard = (target: string, source: string) =>
+      `(${ownedColumns.map((column) => `${target}.${column}`).join(",")}) IS DISTINCT FROM (${ownedColumns.map((column) => `${source}.${column}`).join(",")})`;
+
+    return this.dataSource.transaction(async (manager) => {
+      /* 1) 来源身份绑定：ERP 新来源身份与历史快照业务键相同 → 只建立别名，绝不新增第二条业务记录。 */
+      const bound = await manager.query(`
+        INSERT INTO mps_order_line_source_aliases(tenant_id,mps_order_line_id,source_system,source_database,source_key,bound_at,bound_reason,created_by,updated_by)
+        SELECT $1,snap.id,${ss("o")},${sd("o")},${sk("o")},now(),$4,$2::uuid,$3
+        FROM sales_orders o
+        JOIN LATERAL (
+          SELECT t.id FROM mps_erp_order_lines t
+          WHERE t.tenant_id=$1 AND t.order_number=o.order_number AND t.item_code=o.item_number
+            AND t.source_system IN (${snapshotSourceSystemSql()})
+          ORDER BY t.created_at,t.id LIMIT 1
+        ) snap ON true
+        WHERE ${erpAccountWhitelistSql("o")}
+          AND btrim(coalesce(o.order_number,''))<>'' AND btrim(coalesce(o.item_number,''))<>''
+          AND NOT EXISTS (SELECT 1 FROM mps_erp_order_lines t WHERE t.tenant_id=$1 AND t.source_system=${ss("o")} AND t.source_database=${sd("o")} AND t.source_key=${sk("o")})
+          AND NOT EXISTS (SELECT 1 FROM mps_order_line_source_aliases a WHERE a.tenant_id=$1 AND a.source_system=${ss("o")} AND a.source_database=${sd("o")} AND a.source_key=${sk("o")})
+        ON CONFLICT(tenant_id,source_system,source_database,source_key) DO NOTHING
+        RETURNING id`, [tenantId, userId, updatedBy, SNAPSHOT_BUSINESS_KEY_BINDING]);
+
+      /* 2) 通过别名更新原记录：ERP-owned 字段以最新 ERP 为准，身份字段（订单号/品号）保持原值以保护既有计划链键。 */
+      const aliasUpdated = await manager.query(`
+        UPDATE mps_erp_order_lines t SET
+          salesperson_name=p.salesperson_name,customer_code=p.customer_code,order_type=p.order_type,order_date=p.order_date,
+          customer_due_date=p.customer_due_date,preproduction_review_date=p.preproduction_review_date,
+          expected_shipping_date=p.expected_shipping_date,item_name=p.item_name,unit=p.unit,order_quantity=p.order_quantity,
+          tax_included_unit_price=p.tax_included_unit_price,tax_included_amount=p.tax_included_amount,order_status=p.order_status,
+          source_active=p.source_active,source_updated_at=p.source_updated_at,updated_at=now(),updated_by=$2,version=t.version+1
+        FROM (
+          SELECT DISTINCT ON (a.mps_order_line_id) a.mps_order_line_id,${payload("o")}
+          FROM sales_orders o
+          JOIN mps_order_line_source_aliases a ON a.tenant_id=$1 AND a.source_system=${ss("o")} AND a.source_database=${sd("o")} AND a.source_key=${sk("o")}
+          WHERE ${erpAccountWhitelistSql("o")}
+          ORDER BY a.mps_order_line_id,o.updated_at DESC NULLS LAST,o.id DESC
+        ) p
+        WHERE t.tenant_id=$1 AND t.id=p.mps_order_line_id AND p.source_system IS NOT NULL AND ${distinctGuard("t", "p")}
+        RETURNING t.id`, [tenantId, updatedBy]);
+
+      /* 3) 自有来源身份的 upsert：已准入记录的修改照常更新；新来源身份必须先通过账套/水位/状态门槛。 */
+      const written = await manager.query(`
+        INSERT INTO mps_erp_order_lines(tenant_id,source_system,source_database,source_account_name,source_key,salesperson_name,customer_code,
+          order_number,order_type,order_date,customer_due_date,preproduction_review_date,expected_shipping_date,item_code,item_name,unit,
+          order_quantity,tax_included_unit_price,tax_included_amount,order_status,source_active,source_updated_at,created_by,updated_by)
+        SELECT $1,p.*,$2::uuid,$3 FROM (
+          SELECT ${payload("o")} FROM sales_orders o
+          WHERE ${erpAccountWhitelistSql("o")}
+            AND btrim(coalesce(o.order_number,''))<>'' AND btrim(coalesce(o.item_number,''))<>''
+            AND NOT EXISTS (SELECT 1 FROM mps_order_line_source_aliases a WHERE a.tenant_id=$1 AND a.source_system=${ss("o")} AND a.source_database=${sd("o")} AND a.source_key=${sk("o")})
+            AND (
+              EXISTS (SELECT 1 FROM mps_erp_order_lines t WHERE t.tenant_id=$1 AND t.source_system=${ss("o")} AND t.source_database=${sd("o")} AND t.source_key=${sk("o")})
+              OR (${erpOrderDateAdmissionSql("o")} AND ${erpOrderAdmissibleStatusSql("o")}${watermark ? " AND o.updated_at > $4::timestamptz" : ""})
+            )
+        ) p
+        ON CONFLICT(tenant_id,source_system,source_database,source_key) DO UPDATE SET
+          salesperson_name=excluded.salesperson_name,customer_code=excluded.customer_code,order_type=excluded.order_type,
+          order_date=excluded.order_date,customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,
+          expected_shipping_date=excluded.expected_shipping_date,item_name=excluded.item_name,unit=excluded.unit,
+          order_quantity=excluded.order_quantity,tax_included_unit_price=excluded.tax_included_unit_price,tax_included_amount=excluded.tax_included_amount,
+          order_status=excluded.order_status,source_active=excluded.source_active,source_updated_at=excluded.source_updated_at,
+          updated_at=now(),updated_by=$3,version=mps_erp_order_lines.version+1
+        WHERE ${distinctGuard("mps_erp_order_lines", "excluded")}
+        RETURNING id,(xmax=0) AS inserted`, watermark ? [tenantId, userId, updatedBy, watermark] : [tenantId, userId, updatedBy]);
+
+      /* 4) 计数：与准入谓词同源，供同步日志/验收报告使用（不做第二套判定逻辑）。 */
+      const [counts] = await manager.query(`
+        WITH src AS (
+          SELECT ${ss("o")} AS source_system,${sd("o")} AS source_database,${sk("o")} AS source_key,o.order_number,o.item_number,o.order_date,o.close_status,o.updated_at
+          FROM sales_orders o WHERE btrim(coalesce(o.order_number,''))<>'' AND btrim(coalesce(o.item_number,''))<>''
+        ), classified AS (
+          SELECT s.*,${erpAccountWhitelistSql("s")} AS account_allowed,(${erpOrderDateAdmissionSql("s")}) AS order_date_allowed,
+            (${erpOrderAdmissibleStatusSql("s")}) AS status_allowed,${watermark ? "s.updated_at > $2::timestamptz" : "true"} AS watermark_allowed,
+            EXISTS (SELECT 1 FROM mps_erp_order_lines t WHERE t.tenant_id=$1 AND t.source_system=s.source_system AND t.source_database=s.source_database AND t.source_key=s.source_key) AS identity_known,
+            EXISTS (SELECT 1 FROM mps_order_line_source_aliases a WHERE a.tenant_id=$1 AND a.source_system=s.source_system AND a.source_database=s.source_database AND a.source_key=s.source_key) AS alias_known
+          FROM src s
+        )
+        SELECT count(*)::integer AS scanned,
+          count(*) FILTER (WHERE account_allowed AND (identity_known OR alias_known OR (order_date_allowed AND status_allowed AND watermark_allowed)))::integer AS eligible,
+          count(*) FILTER (WHERE NOT account_allowed)::integer AS blocked_by_source_database,
+          count(*) FILTER (WHERE account_allowed AND NOT identity_known AND NOT alias_known AND NOT order_date_allowed)::integer AS blocked_by_order_date,
+          count(*) FILTER (WHERE account_allowed AND NOT identity_known AND NOT alias_known AND order_date_allowed AND NOT status_allowed)::integer AS blocked_by_status,
+          count(*) FILTER (WHERE account_allowed AND NOT identity_known AND NOT alias_known AND order_date_allowed AND status_allowed AND NOT watermark_allowed)::integer AS blocked_by_watermark
+        FROM classified`, watermark ? [tenantId, watermark] : [tenantId]);
+
+      const inserted = written.filter((row: { inserted: boolean }) => row.inserted).length;
+      const upserted = written.length - inserted;
+      const updated = aliasUpdated.length + upserted;
+      const eligible = Number(counts?.eligible ?? 0);
+      const metrics = {
+        scanned: Number(counts?.scanned ?? 0), eligible, inserted, updated,
+        unchanged: Math.max(eligible - inserted - updated, 0),
+        duplicate_suppressed: bound.length, alias_bound: bound.length,
+        blocked_by_source_database: Number(counts?.blocked_by_source_database ?? 0),
+        blocked_by_order_date: Number(counts?.blocked_by_order_date ?? 0),
+        blocked_by_status: Number(counts?.blocked_by_status ?? 0),
+        blocked_by_watermark: Number(counts?.blocked_by_watermark ?? 0)
+      };
+      return { count: inserted + updated, metrics };
+    });
   }
 
-  private projectPlans(tenantId: string, userId: string | null, updatedBy: string) {
+  /**
+   * KN-MPS-LIVE-002：集团/月度计划对账。
+   *
+   * 三处口径修正（均由 LIVE-001 审计暴露）：
+   * 1) 订单分配的事业部**必须由客户→事业部映射派生**，不再依赖 `division_id` 列默认值（否则未映射订单会被静默归入事业四部）；
+   * 2) 没有客户事业部映射的订单**禁止继续投影到月计划**，只保留在 ERP 订单层并产生 MISSING_ALLOCATION_DIVISION 数据异常；
+   * 3) 累计入库/欠数/完成率只统计科加账套 `UFTData418971_000003`，不再跨账套加总。
+   */
+  private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
     return this.dataSource.transaction(async (manager) => {
       const allocations = await manager.query(`
-        INSERT INTO mps_order_allocations(tenant_id,order_number,item_code,salesperson_name,customer_code,order_date,expected_shipping_date,item_name,unit,order_quantity,allocated_quantity,tax_included_unit_price,tax_included_amount,order_status,created_by,updated_by)
-        SELECT tenant_id,order_number,item_code,max(salesperson_name),max(customer_code),min(order_date),max(expected_shipping_date),max(item_name),max(unit),sum(greatest(order_quantity,0)),sum(greatest(order_quantity,0)),max(tax_included_unit_price),sum(COALESCE(tax_included_amount,0)),max(order_status),$2::uuid,$3
-        FROM mps_erp_order_lines WHERE tenant_id=$1 AND source_active=true GROUP BY tenant_id,order_number,item_code
+        INSERT INTO mps_order_allocations(tenant_id,order_number,item_code,salesperson_name,customer_code,order_date,expected_shipping_date,item_name,unit,order_quantity,allocated_quantity,tax_included_unit_price,tax_included_amount,order_status,division_id,created_by,updated_by)
+        SELECT e.tenant_id,e.order_number,e.item_code,max(e.salesperson_name),max(e.customer_code),min(e.order_date),max(e.expected_shipping_date),max(e.item_name),max(e.unit),
+          sum(greatest(e.order_quantity,0)),sum(greatest(e.order_quantity,0)),max(e.tax_included_unit_price),sum(COALESCE(e.tax_included_amount,0)),max(e.order_status),
+          /* 客户→事业部映射在 (tenant_id,customer_code) 上唯一，因此组内至多一行；PostgreSQL 没有 max(uuid) 聚合，这里用确定性取值。 */
+          (array_agg(map.primary_division_id))[1],$2::uuid,$3
+        FROM mps_erp_order_lines e
+        LEFT JOIN mps_customer_division_mappings map ON map.tenant_id=e.tenant_id AND map.customer_code=e.customer_code AND map.enabled=true
+        WHERE e.tenant_id=$1 AND e.source_active=true GROUP BY e.tenant_id,e.order_number,e.item_code
         ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET salesperson_name=excluded.salesperson_name,customer_code=excluded.customer_code,
           order_date=excluded.order_date,expected_shipping_date=excluded.expected_shipping_date,item_name=excluded.item_name,unit=excluded.unit,
           order_quantity=excluded.order_quantity,allocated_quantity=excluded.allocated_quantity,tax_included_unit_price=excluded.tax_included_unit_price,tax_included_amount=excluded.tax_included_amount,
-          order_status=excluded.order_status,updated_at=now(),updated_by=$3,version=mps_order_allocations.version+1
-        WHERE (mps_order_allocations.salesperson_name,mps_order_allocations.customer_code,mps_order_allocations.order_date,mps_order_allocations.expected_shipping_date,mps_order_allocations.item_name,mps_order_allocations.unit,mps_order_allocations.order_quantity,mps_order_allocations.allocated_quantity,mps_order_allocations.tax_included_unit_price,mps_order_allocations.tax_included_amount,mps_order_allocations.order_status)
-          IS DISTINCT FROM (excluded.salesperson_name,excluded.customer_code,excluded.order_date,excluded.expected_shipping_date,excluded.item_name,excluded.unit,excluded.order_quantity,excluded.allocated_quantity,excluded.tax_included_unit_price,excluded.tax_included_amount,excluded.order_status)
+          order_status=excluded.order_status,division_id=excluded.division_id,updated_at=now(),updated_by=$3,version=mps_order_allocations.version+1
+        WHERE (mps_order_allocations.salesperson_name,mps_order_allocations.customer_code,mps_order_allocations.order_date,mps_order_allocations.expected_shipping_date,mps_order_allocations.item_name,mps_order_allocations.unit,mps_order_allocations.order_quantity,mps_order_allocations.allocated_quantity,mps_order_allocations.tax_included_unit_price,mps_order_allocations.tax_included_amount,mps_order_allocations.order_status,mps_order_allocations.division_id)
+          IS DISTINCT FROM (excluded.salesperson_name,excluded.customer_code,excluded.order_date,excluded.expected_shipping_date,excluded.item_name,excluded.unit,excluded.order_quantity,excluded.allocated_quantity,excluded.tax_included_unit_price,excluded.tax_included_amount,excluded.order_status,excluded.division_id)
         RETURNING id`, [tenantId, userId, updatedBy]);
       const monthly = await manager.query(`
         INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,latest_customer_due_date,item_name,required_quantity,created_by,updated_by)
         SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,max(e.customer_name),a.order_date,max(e.customer_due_date),max(e.preproduction_review_date),max(COALESCE(a.expected_shipping_date,e.customer_due_date)),a.item_name,a.allocated_quantity,$2::uuid,$3
         FROM mps_order_allocations a LEFT JOIN mps_erp_order_lines e ON e.tenant_id=a.tenant_id AND e.order_number=a.order_number AND e.item_code=a.item_code AND e.source_active=true
-        WHERE a.tenant_id=$1 GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
+        WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
         ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,
           customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,latest_customer_due_date=excluded.latest_customer_due_date,item_name=excluded.item_name,required_quantity=excluded.required_quantity,
           updated_at=now(),updated_by=$3,version=mps_monthly_plans.version+1
@@ -142,13 +278,18 @@ export class MasterPlanSyncService {
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.latest_customer_due_date,excluded.item_name,excluded.required_quantity)
         RETURNING id`, [tenantId, userId, updatedBy]);
       const inbound = await manager.query(`
-        WITH totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound WHERE sales_order_number IS NOT NULL GROUP BY sales_order_number,inventory_code)
+        WITH totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound
+          WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
+          GROUP BY sales_order_number,inventory_code)
         UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=COALESCE(t.quantity,0),pending_quantity=greatest(p.required_quantity-COALESCE(t.quantity,0),0),
           completion_rate=CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END,
           updated_at=now(),updated_by=$2,version=p.version+1 FROM totals t WHERE p.tenant_id=$1 AND p.order_number=t.order_number AND p.item_code=t.item_code
           AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (COALESCE(t.quantity,0),greatest(p.required_quantity-COALESCE(t.quantity,0),0),CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END)
         RETURNING p.id`, [tenantId, updatedBy]);
-      await manager.query(`UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=0,pending_quantity=greatest(p.required_quantity,0),completion_rate=0,updated_at=now(),updated_by=$2,version=p.version+1 WHERE p.tenant_id=$1 AND NOT EXISTS(SELECT 1 FROM finished_goods_inbound i WHERE i.sales_order_number=p.order_number AND i.inventory_code=p.item_code) AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (0,greatest(p.required_quantity,0),0)`, [tenantId, updatedBy]);
+      await manager.query(`UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=0,pending_quantity=greatest(p.required_quantity,0),completion_rate=0,updated_at=now(),updated_by=$2,version=p.version+1
+        WHERE p.tenant_id=$1 AND EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=p.tenant_id AND a.order_number=p.order_number AND a.item_code=p.item_code)
+        AND NOT EXISTS(SELECT 1 FROM finished_goods_inbound i WHERE i.sales_order_number=p.order_number AND i.inventory_code=p.item_code AND i.source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}')
+        AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (0,greatest(p.required_quantity,0),0)`, [tenantId, updatedBy]);
       const groups = await manager.query(`
         WITH source_orders AS (
           SELECT tenant_id,order_number,
@@ -178,7 +319,19 @@ export class MasterPlanSyncService {
           IS DISTINCT FROM (excluded.source_accounts,excluded.order_type,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.order_amount,excluded.required_quantity,excluded.primary_division_id,excluded.completed_quantity,excluded.pending_quantity,excluded.completion_rate)
         RETURNING id`, [tenantId, userId, updatedBy]);
       await this.refreshExceptions(manager, tenantId, userId, updatedBy);
-      return this.changedCount(allocations) + this.changedCount(monthly) + this.changedCount(inbound) + this.changedCount(groups);
+      const [unmapped] = await manager.query(`SELECT
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM mps_customer_division_mappings m WHERE m.tenant_id=a.tenant_id AND m.customer_code=a.customer_code AND m.enabled=true AND m.primary_division_id=a.division_id)) AS division_defaulted`, [tenantId]);
+      return {
+        count: this.changedCount(allocations) + this.changedCount(monthly) + this.changedCount(inbound) + this.changedCount(groups),
+        metrics: {
+          allocations: this.changedCount(allocations), monthly_plans: this.changedCount(monthly), group_plans: this.changedCount(groups),
+          inbound_recalculated: this.changedCount(inbound),
+          blocked_by_missing_customer_mapping: Number(unmapped?.blocked_by_missing_customer_mapping ?? 0),
+          division_defaulted: Number(unmapped?.division_defaulted ?? 0)
+        }
+      };
     });
   }
 
@@ -265,10 +418,11 @@ export class MasterPlanSyncService {
   }
 
   private async allocateInbound(tenantId: string, updatedBy: string) {
+    /* KN-MPS-LIVE-002：入库分摊只统计科加账套，禁止把其它账套入库加进事业四部。 */
     const changed = await this.dataSource.query(`
       WITH inbound_totals AS (
         SELECT sales_order_number order_number,inventory_code item_code,sum(greatest(COALESCE(received_quantity,0),0)) quantity
-        FROM finished_goods_inbound WHERE sales_order_number IS NOT NULL
+        FROM finished_goods_inbound WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
         GROUP BY sales_order_number,inventory_code
       ), ordered AS (
         SELECT w.id,w.planned_quantity,COALESCE(t.quantity,0) inbound_quantity,
