@@ -1,0 +1,227 @@
+{
+  "task": "KN-MPS-LIVE-001",
+  "mode": "read-only-audit+dry-run",
+  "generatedAt": "2026-09-18T06:15:52.533Z",
+  "tenantId": "KAINAN",
+  "overlap": {
+    "snapshotLines": {
+      "snapshot_lines": 1169,
+      "snapshot_orders": 99,
+      "snapshot_order_items": 1169
+    },
+    "classification": {
+      "snapshot_lines": 1169,
+      "class_a_order_item_matched": 1095,
+      "class_b_snapshot_only": 74,
+      "class_d_quantity_diff": 3,
+      "class_d_customer_diff": 32,
+      "class_d_order_date_diff": 514,
+      "class_d_item_name_diff": 52,
+      "class_d_due_date_diff": 1053
+    },
+    "classCBySource": [
+      {
+        "source_system": "E10",
+        "source_database": "E10_6.0.0.1.NEW.CHS",
+        "erp_order_items": 93138,
+        "matched_snapshot": 0,
+        "class_c_erp_only": 93138
+      },
+      {
+        "source_system": "T+",
+        "source_database": "UFTData418971_000003",
+        "erp_order_items": 17743,
+        "matched_snapshot": 1095,
+        "class_c_erp_only": 16648
+      },
+      {
+        "source_system": "T+",
+        "source_database": "UFTData741219_000012",
+        "erp_order_items": 7471,
+        "matched_snapshot": 0,
+        "class_c_erp_only": 7471
+      }
+    ],
+    "distinctKeyExcepts": {
+      "snapshot_only_keys": 74,
+      "erp_only_keys": 117047,
+      "shared_keys": 1095,
+      "erp_distinct_orders": 15849
+    },
+    "erpOnlyRecency": {
+      "erp_only_order_items": 117047,
+      "updated_24h": 3200,
+      "updated_7d": 9597,
+      "updated_since_0917": 3917,
+      "order_date_0918": 122,
+      "order_date_0915": 852,
+      "order_date_0901": 3638
+    },
+    "samples": {
+      "classB": [
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "2387f790af8fcc46",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "39dd78184df51255",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "d1ccd262cf7ac941",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "1463643de9a76f73",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "c7a074a8287b52b3",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "5e55d5da0566a05d",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "8e80b1d686874217",
+          "orderMasked": "2025A***103",
+          "itemHash": "c84d97875eca78bf",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "70e17140ae449d5d",
+          "orderMasked": "2025A***120",
+          "itemHash": "6ab05cf18b7f8820",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "031cebe1387ffc1c",
+          "orderMasked": "2025A***173",
+          "itemHash": "953bf55e65bfa23a",
+          "itemMasked": "********"
+        },
+        {
+          "orderHash": "77a24dcf03a6125f",
+          "orderMasked": "2026A***211",
+          "itemHash": "bb8fa8766da16f4c",
+          "itemMasked": "GKW12****1/1"
+        }
+      ],
+      "classD": [
+        {
+          "orderHash": "efdb70ba4996c0f9",
+          "orderMasked": "2026C***004",
+          "itemHash": "c506f3fbf29db1d3",
+          "itemMasked": "99996****1/1",
+          "snapshotOrderDate": "2026-04-04T00:00:00.000Z",
+          "erpOrderDate": "2026-04-04T00:00:00.000Z",
+          "snapshotQuantity": 20,
+          "erpQuantity": 20
+        },
+        {
+          "orderHash": "efdb70ba4996c0f9",
+          "orderMasked": "2026C***004",
+          "itemHash": "2e57d1dfd17f7c7c",
+          "itemMasked": "99996****1/1",
+          "snapshotOrderDate": "2026-04-04T00:00:00.000Z",
+          "erpOrderDate": "2026-04-04T00:00:00.000Z",
+          "snapshotQuantity": 4,
+          "erpQuantity": 4
+        },
+        {
+          "orderHash": "0820a54ca46e9c87",
+          "orderMasked": "2026A***353",
+          "itemHash": "95c11445bc5e6299",
+          "itemMasked": "GFF07****1/1",
+          "snapshotOrderDate": "2026-08-25T00:00:00.000Z",
+          "erpOrderDate": "2026-08-26T00:00:00.000Z",
+          "snapshotQuantity": 8,
+          "erpQuantity": 8
+        },
+        {
+          "orderHash": "55dca1a07bda5065",
+          "orderMasked": "2026A***347",
+          "itemHash": "0705401e56b3e0a1",
+          "itemMasked": "GFF95****1/1",
+          "snapshotOrderDate": "2026-08-21T00:00:00.000Z",
+          "erpOrderDate": "2026-08-20T00:00:00.000Z",
+          "snapshotQuantity": 30,
+          "erpQuantity": 30
+        },
+        {
+          "orderHash": "0820a54ca46e9c87",
+          "orderMasked": "2026A***353",
+          "itemHash": "34af8bf7a34e8b3a",
+          "itemMasked": "GFM51****1/1",
+          "snapshotOrderDate": "2026-08-25T00:00:00.000Z",
+          "erpOrderDate": "2026-08-26T00:00:00.000Z",
+          "snapshotQuantity": 1,
+          "erpQuantity": 1
+        },
+        {
+          "orderHash": "55dca1a07bda5065",
+          "orderMasked": "2026A***347",
+          "itemHash": "0b891f5b962c4d40",
+          "itemMasked": "GFK68****1/1",
+          "snapshotOrderDate": "2026-08-21T00:00:00.000Z",
+          "erpOrderDate": "2026-08-20T00:00:00.000Z",
+          "snapshotQuantity": 80,
+          "erpQuantity": 80
+        },
+        {
+          "orderHash": "ed24fb5bdc82c0f1",
+          "orderMasked": "2026A***360",
+          "itemHash": "e932e6338ea4e3d7",
+          "itemMasked": "GFK59****1/1",
+          "snapshotOrderDate": "2026-09-02T00:00:00.000Z",
+          "erpOrderDate": "2026-09-01T00:00:00.000Z",
+          "snapshotQuantity": 11,
+          "erpQuantity": 11
+        },
+        {
+          "orderHash": "52d5bcfffd57c001",
+          "orderMasked": "2026A***394",
+          "itemHash": "2e48b8e473eee54b",
+          "itemMasked": "GFL12********1/1",
+          "snapshotOrderDate": "2026-09-12T00:00:00.000Z",
+          "erpOrderDate": "2026-09-15T00:00:00.000Z",
+          "snapshotQuantity": 100,
+          "erpQuantity": 100
+        },
+        {
+          "orderHash": "4aac1892c100da61",
+          "orderMasked": "2026A***286",
+          "itemHash": "3e092147fd0dcf40",
+          "itemMasked": "TGH76*****1/1",
+          "snapshotOrderDate": "2026-07-13T00:00:00.000Z",
+          "erpOrderDate": "2026-07-14T00:00:00.000Z",
+          "snapshotQuantity": 2,
+          "erpQuantity": 2
+        },
+        {
+          "orderHash": "55dca1a07bda5065",
+          "orderMasked": "2026A***347",
+          "itemHash": "70a678d8d07de333",
+          "itemMasked": "GFK38****1/1",
+          "snapshotOrderDate": "2026-08-21T00:00:00.000Z",
+          "erpOrderDate": "2026-08-20T00:00:00.000Z",
+          "snapshotQuantity": 30,
+          "erpQuantity": 30
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,939 @@
+{
+  "task": "KN-MPS-LIVE-001",
+  "mode": "read-only-audit+dry-run",
+  "generatedAt": "2026-09-18T06:15:52.533Z",
+  "tenantId": "KAINAN",
+  "architecture": {
+    "stagingTables": [
+      {
+        "table_name": "erp_change_events",
+        "rows": 872526
+      },
+      {
+        "table_name": "erp_projection_consumers",
+        "rows": 3
+      },
+      {
+        "table_name": "erp_staging_raw_records",
+        "rows": 1370976
+      },
+      {
+        "table_name": "erp_sync_batches",
+        "rows": 113055
+      },
+      {
+        "table_name": "erp_sync_cursors",
+        "rows": 31
+      },
+      {
+        "table_name": "erp_sync_runs",
+        "rows": 2238
+      },
+      {
+        "table_name": "erp_sync_sources",
+        "rows": 3
+      }
+    ],
+    "stagingByRecordType": [
+      {
+        "record_type": "ORDER_HEADER",
+        "rows": 15955,
+        "min_modified_at": "2020-09-02T17:20:36.000Z",
+        "max_modified_at": "2026-09-18T13:55:54.000Z"
+      },
+      {
+        "record_type": "ORDER_LINE",
+        "rows": 121485,
+        "min_modified_at": "2020-09-01T18:17:01.000Z",
+        "max_modified_at": "2026-09-18T13:53:38.650Z"
+      }
+    ],
+    "sourceRegistrations": [
+      {
+        "source_key": "e10-main",
+        "source_system": "E10",
+        "source_database": "E10_6.0.0.1.NEW.CHS",
+        "source_account_name": "厦门凯南展示制品有限公司",
+        "status": "ACTIVE",
+        "incremental_enabled": true,
+        "source_snapshot_at": "2026-08-31T17:49:32.790Z",
+        "initialization_completed_at": "2026-08-31T11:12:04.628Z",
+        "last_sync_at": "2026-09-18T06:00:02.091Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "source_system": "T+",
+        "source_database": "UFTData741219_000012",
+        "source_account_name": "凯南智能",
+        "status": "ACTIVE",
+        "incremental_enabled": true,
+        "source_snapshot_at": "2026-08-31T18:47:43.327Z",
+        "initialization_completed_at": "2026-08-31T11:12:31.251Z",
+        "last_sync_at": "2026-09-18T06:00:11.647Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "source_system": "T+",
+        "source_database": "UFTData418971_000003",
+        "source_account_name": "科加智能",
+        "status": "ACTIVE",
+        "incremental_enabled": true,
+        "source_snapshot_at": "2026-08-31T18:54:46.943Z",
+        "initialization_completed_at": "2026-08-31T11:12:44.785Z",
+        "last_sync_at": "2026-09-18T06:00:14.912Z"
+      }
+    ],
+    "projectionConsumers": [
+      {
+        "consumer_key": "finished-goods-inbound-v1",
+        "target_resource": "finished_goods_inbound",
+        "record_types": [
+          "INBOUND_LINE"
+        ],
+        "enabled": true,
+        "status": "IDLE",
+        "batch_size": 1000,
+        "last_event_created_at": "2026-09-18T06:00:13.685Z",
+        "retry_count": 0,
+        "last_error": null,
+        "last_success_at": "2026-09-18T06:07:09.817Z"
+      },
+      {
+        "consumer_key": "finished-goods-outbound-v1",
+        "target_resource": "finished_goods_outbound",
+        "record_types": [
+          "OUTBOUND_LINE"
+        ],
+        "enabled": true,
+        "status": "IDLE",
+        "batch_size": 1000,
+        "last_event_created_at": "2026-09-18T06:00:11.804Z",
+        "retry_count": 0,
+        "last_error": null,
+        "last_success_at": "2026-09-18T06:07:09.679Z"
+      },
+      {
+        "consumer_key": "sales-orders-v1",
+        "target_resource": "sales_orders",
+        "record_types": [
+          "ORDER_HEADER",
+          "ORDER_LINE",
+          "DELIVERY_PLAN"
+        ],
+        "enabled": true,
+        "status": "IDLE",
+        "batch_size": 1000,
+        "last_event_created_at": "2026-09-18T06:00:01.609Z",
+        "retry_count": 0,
+        "last_error": null,
+        "last_success_at": "2026-09-18T06:07:12.283Z"
+      }
+    ],
+    "cursors": [
+      {
+        "source_key": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "delivery_plan",
+        "source_table": "SALES_ORDER_DOC_SD",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:55:54.991Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:01.207Z"
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "source_table": "ITEM_WAREHOUSE",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:59:54.713Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:01.207Z"
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "source_table": "SALES_ORDER_DOC_D",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:53:38.650Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:01.207Z"
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "source_table": "SALES_ORDER_DOC",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:55:54.000Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:01.207Z"
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "source_table": "SALES_ISSUE_D",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:53:37.452Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:01.207Z"
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "delivery_plan",
+        "source_table": "SALES_ORDER_DOC_SD",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "source_table": "ITEM_WAREHOUSE",
+        "initialization_business_date": "1900-01-01T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "source_table": "SALES_ORDER_DOC_D",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "source_table": "SALES_ORDER_DOC",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "source_table": "SALES_ISSUE_D",
+        "initialization_business_date": "2022-02-21T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "e10-main",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_initial",
+        "source_table": "SALES_ISSUE_D",
+        "initialization_business_date": "1900-01-01T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "inbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:48:49.693Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:05.303Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "source_table": "ST_NewCurrentStock",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T11:29:36.000Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:05.303Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "source_table": "SA_SaleOrder_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T11:55:33.880Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:05.303Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "source_table": "SA_SaleOrder",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T11:55:33.000Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:05.303Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:54:49.067Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:05.303Z"
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "source_table": "ST_NewCurrentStock",
+        "initialization_business_date": "1900-01-01T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "source_table": "SA_SaleOrder_b",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "source_table": "SA_SaleOrder",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kainan",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "inbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:53:49.420Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:08.153Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "inventory",
+        "source_table": "ST_NewCurrentStock",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T10:54:41.000Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:08.153Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "order_detail",
+        "source_table": "SA_SaleOrder_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T11:24:08.880Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:08.153Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "order_header",
+        "source_table": "SA_SaleOrder",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T11:24:08.850Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:08.153Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INCREMENTAL",
+        "stream": "outbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": null,
+        "last_processed_modified_at": "2026-09-18T13:42:21.577Z",
+        "last_successful_scan_upper_bound": "2026-09-18T14:00:08.153Z"
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "inbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "inventory",
+        "source_table": "ST_NewCurrentStock",
+        "initialization_business_date": "1900-01-01T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "order_detail",
+        "source_table": "SA_SaleOrder_b",
+        "initialization_business_date": "2026-08-29T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "order_header",
+        "source_table": "SA_SaleOrder",
+        "initialization_business_date": "2026-08-29T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      },
+      {
+        "source_key": "tplus-kejia",
+        "phase": "INITIALIZATION",
+        "stream": "outbound_detail",
+        "source_table": "ST_RDRecord_b",
+        "initialization_business_date": "2026-08-31T00:00:00.000Z",
+        "last_processed_modified_at": null,
+        "last_successful_scan_upper_bound": null
+      }
+    ],
+    "changeEventRecency": {
+      "last_24h": 9610,
+      "last_7d": 71359,
+      "max_created_at": "2026-09-18T06:00:13.685Z"
+    },
+    "masterPlanErpOrdersSource": "sales_orders（canonical 正式投影表），不使用 erp_change_events / erp_projection_consumers 游标"
+  },
+  "dryRunErpOrders": {
+    "would_read": 121485,
+    "would_insert": 121485,
+    "would_update": 0,
+    "would_unchanged": 0,
+    "identity_conflicts": 0,
+    "businessDuplicates": {
+      "would_insert_rows_sharing_business_key": 1098,
+      "affected_snapshot_business_keys": 1095,
+      "affected_orders": 90
+    },
+    "snapshotPostState": {
+      "snapshot_lines": 1169,
+      "snapshot_business_keys": 1169,
+      "would_add_lines": 121485,
+      "erp_business_keys": 118142,
+      "erp_orders": 15849,
+      "post_total_lines": 122654
+    },
+    "boundaryScenarios": {
+      "full_scan_rows": 121485,
+      "excluding_snapshot_business_keys": 120387,
+      "watermark_since_20260918_cst": 1456,
+      "watermark_last_7d": 10437,
+      "order_date_today": 123,
+      "only_kejia_account": 18205,
+      "only_open_status": 69999,
+      "kejia_plus_watermark": 326,
+      "kejia_open_non_snapshot": 12581
+    }
+  },
+  "dryRunPlanProjections": {
+    "assumptions": "假设 erp-orders 已按当前代码执行（全部 sales_orders 全量投影），再评估 plan-projections 的写入规模；未执行任何写库。",
+    "allocations": {
+      "would_target_keys": 118216,
+      "existing_keys": 1169,
+      "would_insert": 117047,
+      "would_target_orders": 15851
+    },
+    "monthly": {
+      "would_target_keys": 118216,
+      "existing_keys": 1169,
+      "would_insert": 117047
+    },
+    "groupPlans": {
+      "would_target_orders": 15851,
+      "existing_orders": 99,
+      "would_insert": 15752
+    },
+    "snapshotDoubleCounting": {
+      "monthly_total": 1169,
+      "monthly_matching_erp": 1095,
+      "required_quantity_would_change": 1095,
+      "erp_quantity_sum": "358248.0000",
+      "snapshot_required_quantity_sum": "369415.0000",
+      "would_be_required_quantity_sum": "727663.0000"
+    },
+    "divisionAssignment": {
+      "allocations": 1169,
+      "division_null": 0,
+      "distinct_division": 1
+    },
+    "divisionColumnDefault": {
+      "column_name": "division_id",
+      "column_default": "'d23442f9-4862-4641-b4a7-c8d470bc56ea'::uuid",
+      "is_nullable": "YES"
+    },
+    "divisionMappingCoverage": {
+      "mappings": {
+        "mappings": 3,
+        "mapped_customers": 3
+      },
+      "erpCustomers": {
+        "erp_customers": 442,
+        "unmapped_erp_customers": 439,
+        "erp_only_customers": 440
+      },
+      "erpBatch": {
+        "erp_order_items_unmapped_customers": 101440
+      }
+    }
+  },
+  "dryRunInbound": {
+    "monthly": {
+      "monthly_total": 1169,
+      "with_inbound": 213,
+      "without_inbound": 956,
+      "would_be_reset_to_zero": 0,
+      "cumulative_would_change": 121,
+      "cumulative_would_increase": 121,
+      "cumulative_would_decrease": 0,
+      "pending_would_change": 121,
+      "completion_rate_would_change": 121
+    },
+    "weekly": {
+      "weekly_total": 1169,
+      "allocated_would_change": 121,
+      "pending_would_change": 121,
+      "newly_allocated": 95
+    },
+    "crossSourceRisk": {
+      "inboundKeysWithMultipleSources": {
+        "keys_multi_source": 12
+      },
+      "orderNumbersInMultipleErpDatabases": {
+        "orders": 70
+      },
+      "orderNumbersInMultipleErpDatabasesHitSnapshot": {
+        "orders": 7
+      }
+    },
+    "samples": [
+      {
+        "orderHash": "52cbcd08404b935b",
+        "orderMasked": "2026A***299",
+        "itemHash": "feaa229bb2de6d01",
+        "itemMasked": "SFA41****1/1",
+        "requiredQuantity": 1320,
+        "currentCumulativeInbound": 30,
+        "wouldBeCumulativeInbound": 1320,
+        "currentPending": 1290,
+        "currentCompletionRate": 0.0227
+      },
+      {
+        "orderHash": "29b32f6710ed27d2",
+        "orderMasked": "2026A***323",
+        "itemHash": "13fec7e9a3b9d681",
+        "itemMasked": "GFY61****1/1",
+        "requiredQuantity": 2,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 2,
+        "currentPending": 2,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "7b2d270d3cac38cb",
+        "orderMasked": "2026A***384",
+        "itemHash": "3a7febdab1a70cda",
+        "itemMasked": "GFM49****1/1",
+        "requiredQuantity": 17,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 17,
+        "currentPending": 17,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "295cd935f1feea42",
+        "orderMasked": "2026A***311",
+        "itemHash": "77345d7e29218f47",
+        "itemMasked": "GFM35****1/1",
+        "requiredQuantity": 10,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 10,
+        "currentPending": 10,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "c03a6caf1fb00f1d",
+        "orderMasked": "2026A***314",
+        "itemHash": "d77fed0aad380bd6",
+        "itemMasked": "GFC56****1/1",
+        "requiredQuantity": 122,
+        "currentCumulativeInbound": 112,
+        "wouldBeCumulativeInbound": 122,
+        "currentPending": 10,
+        "currentCompletionRate": 0.918
+      },
+      {
+        "orderHash": "2b27c0566591b649",
+        "orderMasked": "2026A***330",
+        "itemHash": "cada3d6382e177cc",
+        "itemMasked": "GFY16****1/1",
+        "requiredQuantity": 200,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 190,
+        "currentPending": 200,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "2c5711ebeb51f30c",
+        "orderMasked": "2026A***333",
+        "itemHash": "c8e1877e5b539f24",
+        "itemMasked": "TGH63*****1/1",
+        "requiredQuantity": 22,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 22,
+        "currentPending": 22,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "b64829aada0b0660",
+        "orderMasked": "2026A***324",
+        "itemHash": "ce571410520b9360",
+        "itemMasked": "GKM98****1/1",
+        "requiredQuantity": 1,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 1,
+        "currentPending": 1,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "2c5711ebeb51f30c",
+        "orderMasked": "2026A***333",
+        "itemHash": "47796f697234ad93",
+        "itemMasked": "TGJ53*****1/1",
+        "requiredQuantity": 198,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 198,
+        "currentPending": 198,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "b64829aada0b0660",
+        "orderMasked": "2026A***324",
+        "itemHash": "e7247077cef52127",
+        "itemMasked": "GFL90****1/1",
+        "requiredQuantity": 7,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 6,
+        "currentPending": 7,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "5284e776abf434f5",
+        "orderMasked": "2026A***310",
+        "itemHash": "ae123096b9ba4d86",
+        "itemMasked": "GFE60****1/1",
+        "requiredQuantity": 2,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 2,
+        "currentPending": 2,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "295cd935f1feea42",
+        "orderMasked": "2026A***311",
+        "itemHash": "753f5e90c817951e",
+        "itemMasked": "GFC54****1/1",
+        "requiredQuantity": 5,
+        "currentCumulativeInbound": 2,
+        "wouldBeCumulativeInbound": 5,
+        "currentPending": 3,
+        "currentCompletionRate": 0.4
+      },
+      {
+        "orderHash": "28ad479666f4af2b",
+        "orderMasked": "2026A***312",
+        "itemHash": "308d654cd3e55cf5",
+        "itemMasked": "GFP37**LW4",
+        "requiredQuantity": 4,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 4,
+        "currentPending": 4,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "6ae20347c799fb1a",
+        "orderMasked": "2026A***304",
+        "itemHash": "db13a6259f5c39a6",
+        "itemMasked": "GFK45****1/1",
+        "requiredQuantity": 80,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 80,
+        "currentPending": 80,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "5284e776abf434f5",
+        "orderMasked": "2026A***310",
+        "itemHash": "428fcbb809b71448",
+        "itemMasked": "GFB31****1/1",
+        "requiredQuantity": 84,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 84,
+        "currentPending": 84,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "b64829aada0b0660",
+        "orderMasked": "2026A***324",
+        "itemHash": "17eb5e236fc47ba2",
+        "itemMasked": "GFL90****1/1",
+        "requiredQuantity": 3,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 2,
+        "currentPending": 3,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "c03a6caf1fb00f1d",
+        "orderMasked": "2026A***314",
+        "itemHash": "2808bf67232195b6",
+        "itemMasked": "GFK68****1/1",
+        "requiredQuantity": 8,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 8,
+        "currentPending": 8,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "295cd935f1feea42",
+        "orderMasked": "2026A***311",
+        "itemHash": "ad553d8457a221f2",
+        "itemMasked": "GFK45****1/1",
+        "requiredQuantity": 2,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 2,
+        "currentPending": 2,
+        "currentCompletionRate": 0
+      },
+      {
+        "orderHash": "2c5711ebeb51f30c",
+        "orderMasked": "2026A***333",
+        "itemHash": "da208dc393d2172b",
+        "itemMasked": "TGH87**1/1",
+        "requiredQuantity": 2223,
+        "currentCumulativeInbound": 1265,
+        "wouldBeCumulativeInbound": 1990,
+        "currentPending": 958,
+        "currentCompletionRate": 0.5691
+      },
+      {
+        "orderHash": "c0ba97aeb0f86639",
+        "orderMasked": "2026A***306",
+        "itemHash": "d562474867a34ff1",
+        "itemMasked": "TGH34****1/1",
+        "requiredQuantity": 20,
+        "currentCumulativeInbound": 0,
+        "wouldBeCumulativeInbound": 20,
+        "currentPending": 20,
+        "currentCompletionRate": 0
+      }
+    ]
+  },
+  "chain": {
+    "shippingPlans": {
+      "rows": 0
+    },
+    "basePlans": {
+      "rows": 1169,
+      "missing_latest_review_due_date": 1169,
+      "missing_product_attribute": 1169,
+      "missing_surface_nature": 1169,
+      "missing_manufacturing_method": 1169,
+      "without_shipping_plan": 1169
+    },
+    "weeklyPlans": {
+      "rows": 1169,
+      "missing_latest_review_due_date": 1169,
+      "missing_product_attribute": 1169,
+      "missing_surface_nature": 1169,
+      "missing_manufacturing_method": 1169
+    },
+    "weeklyAdmissionRequiredFields": [
+      "latestReviewDueDate",
+      "productAttribute",
+      "surfaceNature",
+      "manufacturingMethod"
+    ],
+    "weeklyAdmissionCurrentlySatisfied": {
+      "admitted": 0
+    },
+    "workOrders": {
+      "rows": 1169,
+      "with_manual_production_date": 0,
+      "with_manual_remark": 0,
+      "with_manual_processing_remark": 0
+    },
+    "outbox": [
+      {
+        "sync_key": "base-to-weekly",
+        "status": "SUCCESS",
+        "rows": 25
+      },
+      {
+        "sync_key": "execution-rollup",
+        "status": "SUCCESS",
+        "rows": 39
+      },
+      {
+        "sync_key": "plan-projections",
+        "status": "SUCCESS",
+        "rows": 4
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "status": "SUCCESS",
+        "rows": 2
+      }
+    ],
+    "syncLogs": [
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "EVENT",
+        "status": "FAILED",
+        "runs": 2,
+        "last_started": "2026-09-14T06:07:46.249Z"
+      },
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "EVENT",
+        "status": "SUCCESS",
+        "runs": 28,
+        "last_started": "2026-09-16T09:39:34.332Z"
+      },
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "MANUAL",
+        "status": "FAILED",
+        "runs": 4,
+        "last_started": "2026-09-16T09:34:13.232Z"
+      },
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "MANUAL",
+        "status": "SUCCESS",
+        "runs": 4,
+        "last_started": "2026-09-18T05:17:51.952Z"
+      },
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "SCHEDULED",
+        "status": "FAILED",
+        "runs": 21,
+        "last_started": "2026-09-14T12:52:00.827Z"
+      },
+      {
+        "sync_key": "base-to-weekly",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 279,
+        "last_started": "2026-09-17T12:25:47.112Z"
+      },
+      {
+        "sync_key": "erp-orders",
+        "run_type": "MANUAL",
+        "status": "SUCCESS",
+        "runs": 1,
+        "last_started": "2026-09-16T02:38:35.113Z"
+      },
+      {
+        "sync_key": "erp-orders",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 311,
+        "last_started": "2026-09-17T14:00:47.322Z"
+      },
+      {
+        "sync_key": "execution-rollup",
+        "run_type": "EVENT",
+        "status": "SUCCESS",
+        "runs": 39,
+        "last_started": "2026-09-17T08:55:03.450Z"
+      },
+      {
+        "sync_key": "execution-rollup",
+        "run_type": "MANUAL",
+        "status": "SUCCESS",
+        "runs": 2,
+        "last_started": "2026-09-17T14:12:53.873Z"
+      },
+      {
+        "sync_key": "execution-rollup",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 340,
+        "last_started": "2026-09-18T06:15:07.002Z"
+      },
+      {
+        "sync_key": "inbound-allocation",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 312,
+        "last_started": "2026-09-17T13:53:47.303Z"
+      },
+      {
+        "sync_key": "plan-projections",
+        "run_type": "EVENT",
+        "status": "SUCCESS",
+        "runs": 4,
+        "last_started": "2026-09-15T02:42:22.737Z"
+      },
+      {
+        "sync_key": "plan-projections",
+        "run_type": "SCHEDULED",
+        "status": "FAILED",
+        "runs": 4,
+        "last_started": "2026-09-11T02:47:39.658Z"
+      },
+      {
+        "sync_key": "plan-projections",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 304,
+        "last_started": "2026-09-17T13:58:47.316Z"
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "run_type": "EVENT",
+        "status": "SUCCESS",
+        "runs": 4,
+        "last_started": "2026-09-16T02:07:16.316Z"
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "run_type": "MANUAL",
+        "status": "SUCCESS",
+        "runs": 1,
+        "last_started": "2026-09-16T02:49:35.910Z"
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "run_type": "SCHEDULED",
+        "status": "SUCCESS",
+        "runs": 310,
+        "last_started": "2026-09-17T13:57:47.314Z"
+      }
+    ]
+  }
+}

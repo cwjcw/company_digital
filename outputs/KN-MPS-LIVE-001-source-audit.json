@@ -1,0 +1,339 @@
+{
+  "task": "KN-MPS-LIVE-001",
+  "mode": "read-only-audit+dry-run",
+  "generatedAt": "2026-09-18T06:15:52.533Z",
+  "tenantId": "KAINAN",
+  "baseline": {
+    "tableCounts": [
+      {
+        "table_name": "finished_goods_inbound",
+        "rows": 80318
+      },
+      {
+        "table_name": "mps_base_plans",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_erp_order_lines",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_group_plans",
+        "rows": 99
+      },
+      {
+        "table_name": "mps_material_reports",
+        "rows": 0
+      },
+      {
+        "table_name": "mps_monthly_plans",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_order_allocations",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_outsourcing_reports",
+        "rows": 0
+      },
+      {
+        "table_name": "mps_process_cycles",
+        "rows": 0
+      },
+      {
+        "table_name": "mps_process_reports",
+        "rows": 356
+      },
+      {
+        "table_name": "mps_shipping_plans",
+        "rows": 0
+      },
+      {
+        "table_name": "mps_technical_reports",
+        "rows": 0
+      },
+      {
+        "table_name": "mps_three_day_work_orders",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_weekly_plans",
+        "rows": 1169
+      },
+      {
+        "table_name": "mps_weekly_process_plans",
+        "rows": 11690
+      },
+      {
+        "table_name": "sales_orders",
+        "rows": 121485
+      }
+    ],
+    "syncConfigs": [
+      {
+        "sync_key": "base-to-weekly",
+        "enabled": false,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-18T05:17:51.955Z",
+        "last_success_at": "2026-09-18T05:17:51.978Z",
+        "last_sync_count": 0,
+        "interval_minutes": 30
+      },
+      {
+        "sync_key": "erp-orders",
+        "enabled": false,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-17T14:00:47.325Z",
+        "last_success_at": "2026-09-17T14:00:49.047Z",
+        "last_sync_count": 0,
+        "interval_minutes": 30
+      },
+      {
+        "sync_key": "execution-rollup",
+        "enabled": true,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-18T06:15:07.006Z",
+        "last_success_at": "2026-09-18T06:15:20.293Z",
+        "last_sync_count": 23380,
+        "interval_minutes": 30
+      },
+      {
+        "sync_key": "inbound-allocation",
+        "enabled": false,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-17T13:53:47.307Z",
+        "last_success_at": "2026-09-17T13:53:47.447Z",
+        "last_sync_count": 0,
+        "interval_minutes": 30
+      },
+      {
+        "sync_key": "plan-projections",
+        "enabled": false,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-17T13:58:47.319Z",
+        "last_success_at": "2026-09-17T13:58:51.825Z",
+        "last_sync_count": 13,
+        "interval_minutes": 30
+      },
+      {
+        "sync_key": "shipping-to-base",
+        "enabled": false,
+        "status": "SUCCESS",
+        "last_started_at": "2026-09-17T13:57:47.317Z",
+        "last_success_at": "2026-09-17T13:57:47.331Z",
+        "last_sync_count": 0,
+        "interval_minutes": 30
+      }
+    ],
+    "serverNow": {
+      "utc_now": "2026-09-18T06:15:52.571Z",
+      "shanghai_now": "2026-09-18T14:15:52.571Z"
+    }
+  },
+  "sourceAudit": {
+    "totals": {
+      "rows": 121485,
+      "distinct_orders": 15849,
+      "distinct_order_items": 118142,
+      "null_order_date": 0,
+      "null_planned_delivery": 8155,
+      "null_source_key": 0,
+      "null_source_system": 0,
+      "min_order_date": "2020-08-31T00:00:00.000Z",
+      "max_order_date": "2026-09-18T00:00:00.000Z",
+      "min_created_at": "2026-08-25T12:15:24.082Z",
+      "max_created_at": "2026-09-18T06:07:09.581Z",
+      "min_updated_at": "2026-09-01T07:01:09.194Z",
+      "max_updated_at": "2026-09-18T06:07:09.581Z"
+    },
+    "bySource": [
+      {
+        "source_system": "E10",
+        "source_database": "E10_6.0.0.1.NEW.CHS",
+        "rows": 95752,
+        "orders": 13324,
+        "order_items": 93138,
+        "customers": 389,
+        "min_order_date": "2020-08-31T00:00:00.000Z",
+        "max_order_date": "2026-09-18T00:00:00.000Z",
+        "min_created_at": "2026-09-01T07:01:09.194Z",
+        "max_created_at": "2026-09-18T06:07:09.581Z",
+        "min_updated_at": "2026-09-01T07:01:09.194Z",
+        "max_updated_at": "2026-09-18T06:07:09.581Z"
+      },
+      {
+        "source_system": "T+",
+        "source_database": "UFTData418971_000003",
+        "rows": 18205,
+        "orders": 1256,
+        "order_items": 17743,
+        "customers": 5,
+        "min_order_date": "2025-05-20T00:00:00.000Z",
+        "max_order_date": "2026-09-18T00:00:00.000Z",
+        "min_created_at": "2026-08-25T12:15:24.082Z",
+        "max_created_at": "2026-09-18T03:35:00.846Z",
+        "min_updated_at": "2026-09-01T07:27:35.378Z",
+        "max_updated_at": "2026-09-18T03:35:00.846Z"
+      },
+      {
+        "source_system": "T+",
+        "source_database": "UFTData741219_000012",
+        "rows": 7528,
+        "orders": 1339,
+        "order_items": 7471,
+        "customers": 53,
+        "min_order_date": "2024-11-20T00:00:00.000Z",
+        "max_order_date": "2026-09-18T00:00:00.000Z",
+        "min_created_at": "2026-09-01T07:01:09.194Z",
+        "max_created_at": "2026-09-18T01:35:00.855Z",
+        "min_updated_at": "2026-09-01T07:27:27.855Z",
+        "max_updated_at": "2026-09-18T04:05:00.839Z"
+      }
+    ],
+    "byYear": [
+      {
+        "year": "2020",
+        "rows": 1294,
+        "order_items": 1260
+      },
+      {
+        "year": "2021",
+        "rows": 5122,
+        "order_items": 5024
+      },
+      {
+        "year": "2022",
+        "rows": 7742,
+        "order_items": 7606
+      },
+      {
+        "year": "2023",
+        "rows": 10061,
+        "order_items": 9725
+      },
+      {
+        "year": "2024",
+        "rows": 11290,
+        "order_items": 11120
+      },
+      {
+        "year": "2025",
+        "rows": 28243,
+        "order_items": 27302
+      },
+      {
+        "year": "2026",
+        "rows": 57733,
+        "order_items": 56105
+      }
+    ],
+    "byRecency": {
+      "order_date_7d": 2094,
+      "order_date_30d": 6740,
+      "order_date_60d": 14643,
+      "order_date_90d": 21794,
+      "order_date_180d": 42681,
+      "order_date_future": 0,
+      "updated_24h": 3443,
+      "updated_7d": 10437,
+      "updated_30d": 121485,
+      "created_30d": 121485
+    },
+    "statusDistribution": [
+      {
+        "source_system": "E10",
+        "close_status": "未关闭",
+        "rows": 53989,
+        "order_items": 52391
+      },
+      {
+        "source_system": "E10",
+        "close_status": "已关闭",
+        "rows": 41763,
+        "order_items": 40753
+      },
+      {
+        "source_system": "T+",
+        "close_status": "未关闭",
+        "rows": 16010,
+        "order_items": 15588
+      },
+      {
+        "source_system": "T+",
+        "close_status": "已关闭",
+        "rows": 9723,
+        "order_items": 9605
+      }
+    ],
+    "statusColumns": [
+      {
+        "column_name": "auditor"
+      },
+      {
+        "column_name": "close_status"
+      }
+    ],
+    "inbound": {
+      "totals": {
+        "rows": 80318,
+        "orders": 1335,
+        "null_sales_order": 33745,
+        "min_inbound_date": "2024-11-20T00:00:00.000Z",
+        "max_inbound_date": "2026-09-19T00:00:00.000Z",
+        "min_updated_at": "2026-08-25T12:15:24.082Z",
+        "max_updated_at": "2026-09-18T06:07:09.581Z"
+      },
+      "bySource": [
+        {
+          "source_system": "T+",
+          "source_database": "UFTData418971_000003",
+          "rows": 41825,
+          "orders": 764,
+          "min_inbound_date": "2025-05-20T00:00:00.000Z",
+          "max_inbound_date": "2026-09-18T00:00:00.000Z"
+        },
+        {
+          "source_system": "T+",
+          "source_database": "UFTData741219_000012",
+          "rows": 38493,
+          "orders": 604,
+          "min_inbound_date": "2024-11-20T00:00:00.000Z",
+          "max_inbound_date": "2026-09-19T00:00:00.000Z"
+        }
+      ]
+    }
+  },
+  "snapshot": {
+    "bySource": [
+      {
+        "source_system": "KDOS_INIT",
+        "source_database": "FOURTH_DIVISION_20260917",
+        "rows": 1169,
+        "orders": 99,
+        "min_order_date": "2026-04-04T00:00:00.000Z",
+        "max_order_date": "2026-09-15T00:00:00.000Z",
+        "null_source_updated_at": 1169,
+        "active": 1169
+      }
+    ],
+    "keyShape": {
+      "key_is_order_item_delivery": 1169,
+      "rows": 1169
+    },
+    "populatedColumns": {
+      "rows": 1169,
+      "null_customer_code": 8,
+      "null_customer_name": 1169,
+      "null_salesperson": 1169,
+      "null_order_type": 1169,
+      "null_customer_due_date": 1169,
+      "null_review_date": 1169,
+      "null_expected_shipping": 0,
+      "null_unit": 1169,
+      "null_price": 1169,
+      "null_amount": 1169,
+      "null_order_status": 1169
+    }
+  }
+}
