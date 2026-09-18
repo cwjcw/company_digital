@@ -29,3 +29,19 @@ E10 的 `LastModifiedDate` 为 `datetime2(7)`，增量分页必须在投影、�
 staging 的每次真实新增或内容变化会在同一 PostgreSQL 事务写入 `erp_change_events`。`erp_projection_consumers` 为订单、入库、出库和未来目标表保存彼此独立的事件游标、1000条批次上限、10分钟租约和指数退避状态。下游只有完成自身幂等事务后才能调用 complete 推进游标；失败调用 fail，不推进游标。重叠窗口内内容未变化的记录不会产生物理 UPDATE 或重复事件。
 
 正式切换后，`sales-orders-v1`、`finished-goods-inbound-v1`、`finished-goods-outbound-v1` 分别把变更幂等投影到现有业务表；不得另建同义订单或出入库表。三个 `kdos-erp-projection@.timer` 在每小时 `05/35` 分运行，确保先等待 `00/30` 分的源采集提交，再独立消费各自游标。初始化使用 `initialize-formal` Application Command 为现有 staging 补齐事件，然后循环运行 `project.py --consumer <key>` 直至返回零记录。切换过程必须先备份并验证原有 UUID、人工字段和下游关联仍然保留。
+
+## KN-MPS-LIVE-002：主计划只读科加账套的准入边界
+
+ERP 采集层（本目录的 staging 同步与三个 canonical 投影消费者）仍然是三账套共享的正式数据层，`sales_orders` 等表继续服务销售看板等模块。**PMC 主计划**在自己的准入边界上强制只读科加账套：
+
+| 边界 | 规则 | 权威位置 |
+| --- | --- | --- |
+| 账套白名单 | 只允许 `source_database='UFTData418971_000003'`；E10 与凯南账套一律不进入主计划 | `apps/api/src/modules/master-plan-system/master-plan.erp-admission.ts` |
+| 新订单业务准入 | 下单日期 `order_date >= 2026-09-17`；不是 `created_at` / `updated_at` | 同上 |
+| 增量变化判断 | 继续使用 ERP 最后更新（`LastModifiedDate` → `sales_orders.updated_at`）与稳定来源主键 | `master-plan.sync.service.ts#projectOrders` |
+| 状态门槛 | 已关闭 / 已完成 / 已作废不得作为**新订单**准入；已进入计划链的历史记录只更新来源状态字段，绝不删除 | 同上 |
+| 快照业务键抑制 | 新 ERP 来源身份若与历史快照 `order_number+item_code` 相同 → 写入 `mps_order_line_source_aliases` 绑定，绝不 INSERT 第二条 | 同上 |
+| 事业部归属 | 订单分配的事业部只由客户→事业部映射派生；未映射 → 不进入月计划 + `MISSING_ALLOCATION_DIVISION` 异常 | `master-plan.sync.service.ts#projectPlans` |
+| 入库口径 | 累计入库 / 欠数 / 完成率 / FIFO 分摊只统计科加账套 | `projectPlans` / `allocateInbound` |
+
+N8N 入口保持不变：仍然只有 `/data/automation/code/work/PMC/knweb/data-operations/order-sync/sync-kejia-orders.sh`；该脚本显式 fail closed，拒绝 `tplus-kejia` 以外的任何来源。
