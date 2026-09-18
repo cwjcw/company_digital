@@ -89,4 +89,47 @@ describe("KN-MPS-LIVE-003-01 deferred snapshot write-back", () => {
     /* 绑定写入的 bound_at 使用数据库 now()（事务时间），而 canonical updated_at 不可能晚于该时刻。 */
     expect(statementOf(statements, "INSERT INTO mps_order_line_source_aliases")).toContain("now()");
   });
+
+  it("计数必须处理 TypeORM 的 [rows, affectedCount] 形状：0 行回写不得被误报成 2 次更新", async () => {
+    /* TypeORM 对 UPDATE/DELETE 返回 [rows, affectedCount]，对 INSERT ... RETURNING 返回 rows。 */
+    const query = jest.fn(async (statement: string) => {
+      const sql = String(statement);
+      if (sql.includes("INSERT INTO mps_order_line_source_aliases")) return [{ id: "alias-1" }];
+      if (sql.includes("UPDATE mps_erp_order_lines t SET")) return [[], 0];
+      if (sql.includes("INSERT INTO mps_erp_order_lines")) return [{ id: "line-1", inserted: true }];
+      if (sql.includes("AS scanned")) {
+        return [{ scanned: 10, eligible: 1, blocked_by_source_database: 0, blocked_by_order_date: 0, blocked_by_status: 0, blocked_by_watermark: 0 }];
+      }
+      return [];
+    });
+    const service = new MasterPlanSyncService({
+      query: jest.fn().mockResolvedValue([{ watermark_at: null }]),
+      transaction: async (work: (manager: unknown) => unknown) => work({ query })
+    } as never);
+
+    const outcome = await (service as any).projectOrders(TENANT, ACTOR, ACTOR);
+    expect(outcome.metrics).toMatchObject({ eligible: 1, inserted: 1, updated: 0, unchanged: 0, alias_bound: 1, duplicate_suppressed: 1 });
+    expect(outcome.count).toBe(1);
+  });
+
+  it("计数同样支持真实 UPDATE 返回 [rows, affectedCount]：有变化时 updated 取实际行数", async () => {
+    const query = jest.fn(async (statement: string) => {
+      const sql = String(statement);
+      if (sql.includes("INSERT INTO mps_order_line_source_aliases")) return [[], 0];
+      if (sql.includes("UPDATE mps_erp_order_lines t SET")) return [[{ id: "line-9" }, { id: "line-10" }], 2];
+      if (sql.includes("INSERT INTO mps_erp_order_lines")) return [];
+      if (sql.includes("AS scanned")) {
+        return [{ scanned: 3, eligible: 2, blocked_by_source_database: 0, blocked_by_order_date: 0, blocked_by_status: 0, blocked_by_watermark: 0 }];
+      }
+      return [];
+    });
+    const service = new MasterPlanSyncService({
+      query: jest.fn().mockResolvedValue([{ watermark_at: null }]),
+      transaction: async (work: (manager: unknown) => unknown) => work({ query })
+    } as never);
+
+    const outcome = await (service as any).projectOrders(TENANT, ACTOR, ACTOR);
+    expect(outcome.metrics).toMatchObject({ eligible: 2, inserted: 0, updated: 2, unchanged: 0, alias_bound: 0 });
+    expect(outcome.count).toBe(2);
+  });
 });

@@ -235,14 +235,18 @@ export class MasterPlanSyncService {
           count(*) FILTER (WHERE account_allowed AND NOT identity_known AND NOT alias_known AND order_date_allowed AND status_allowed AND NOT watermark_allowed)::integer AS blocked_by_watermark
         FROM classified`, watermark ? [tenantId, watermark] : [tenantId]);
 
+      /*
+       * 计数必须用 changedCount() 归一化：TypeORM 对 UPDATE/DELETE 返回 [rows, affectedCount]，
+       * 对 INSERT ... RETURNING 直接返回 rows；直接取 .length 会把「0 行更新」误报成 2（KN-MPS-LIVE-003-01 修复的计数缺陷）。
+       */
       const inserted = written.filter((row: { inserted: boolean }) => row.inserted).length;
-      const upserted = written.length - inserted;
-      const updated = aliasUpdated.length + upserted;
+      const upserted = this.changedCount(written) - inserted;
+      const updated = this.changedCount(aliasUpdated) + upserted;
       const eligible = Number(counts?.eligible ?? 0);
       const metrics = {
         scanned: Number(counts?.scanned ?? 0), eligible, inserted, updated,
         unchanged: Math.max(eligible - inserted - updated, 0),
-        duplicate_suppressed: bound.length, alias_bound: bound.length,
+        duplicate_suppressed: this.changedCount(bound), alias_bound: this.changedCount(bound),
         blocked_by_source_database: Number(counts?.blocked_by_source_database ?? 0),
         blocked_by_order_date: Number(counts?.blocked_by_order_date ?? 0),
         blocked_by_status: Number(counts?.blocked_by_status ?? 0),
