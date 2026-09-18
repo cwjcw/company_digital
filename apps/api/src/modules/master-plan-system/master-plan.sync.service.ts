@@ -160,7 +160,16 @@ export class MasterPlanSyncService {
         ON CONFLICT(tenant_id,source_system,source_database,source_key) DO NOTHING
         RETURNING id`, [tenantId, userId, updatedBy, SNAPSHOT_BUSINESS_KEY_BINDING]);
 
-      /* 2) 通过别名更新原记录：ERP-owned 字段以最新 ERP 为准，身份字段（订单号/品号）保持原值以保护既有计划链键。 */
+      /*
+       * 2) 通过别名更新原记录：只回写「绑定之后确实发生内容变化」的 ERP 数据。
+       *
+       * KN-MPS-LIVE-003-01（用户确认方案一）：首次 alias 绑定 ≠ ERP 修改。
+       * 判定变化的唯一依据是 canonical ERP 来源的内容更新时间（`sales_orders.updated_at`，
+       * 它在 staging 内容哈希变化时才推进），而不是目标表自身的 `mps_erp_order_lines.updated_at`：
+       *   canonical updated_at <= alias.bound_at → 不 UPDATE（保护 1169 初始化基线）
+       *   canonical updated_at >  alias.bound_at → UPDATE 原记录（ERP-owned 字段以最新 ERP 为准）
+       * 身份字段（订单号/品号）始终不在此语句中更新，以保护既有计划链业务键。
+       */
       const aliasUpdated = await manager.query(`
         UPDATE mps_erp_order_lines t SET
           salesperson_name=p.salesperson_name,customer_code=p.customer_code,order_type=p.order_type,order_date=p.order_date,
@@ -169,13 +178,16 @@ export class MasterPlanSyncService {
           tax_included_unit_price=p.tax_included_unit_price,tax_included_amount=p.tax_included_amount,order_status=p.order_status,
           source_active=p.source_active,source_updated_at=p.source_updated_at,updated_at=now(),updated_by=$2,version=t.version+1
         FROM (
-          SELECT DISTINCT ON (a.mps_order_line_id) a.mps_order_line_id,${payload("o")}
+          SELECT DISTINCT ON (a.mps_order_line_id) a.mps_order_line_id,a.bound_at,${payload("o")}
           FROM sales_orders o
           JOIN mps_order_line_source_aliases a ON a.tenant_id=$1 AND a.source_system=${ss("o")} AND a.source_database=${sd("o")} AND a.source_key=${sk("o")}
           WHERE ${erpAccountWhitelistSql("o")}
-          ORDER BY a.mps_order_line_id,o.updated_at DESC NULLS LAST,o.id DESC
+          /* 同一初始化行可能绑定多条 ERP 明细：优先取「绑定之后确实变化过」的那条，再取最新修改时间。 */
+          ORDER BY a.mps_order_line_id,(o.updated_at > a.bound_at) DESC,o.updated_at DESC NULLS LAST,o.id DESC
         ) p
-        WHERE t.tenant_id=$1 AND t.id=p.mps_order_line_id AND p.source_system IS NOT NULL AND ${distinctGuard("t", "p")}
+        WHERE t.tenant_id=$1 AND t.id=p.mps_order_line_id AND p.source_system IS NOT NULL
+          AND p.source_updated_at IS NOT NULL AND p.source_updated_at > p.bound_at
+          AND ${distinctGuard("t", "p")}
         RETURNING t.id`, [tenantId, updatedBy]);
 
       /* 3) 自有来源身份的 upsert：已准入记录的修改照常更新；新来源身份必须先通过账套/水位/状态门槛。 */
