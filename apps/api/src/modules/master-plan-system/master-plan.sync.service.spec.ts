@@ -41,6 +41,60 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
   });
 
+  it("KN-MPS-SYNC-001：执行副作用范围与主投影共用同一 admission，并按 tenant+base_plan_id 关联 base", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const statements = manager.query.mock.calls.map(([statement]) => String(statement));
+    const upsert = statements.find((statement) => statement.includes("INSERT INTO mps_weekly_plans"))!;
+    const scope = statements.find((statement) => statement.startsWith("SELECT w.*,c."))!;
+    const admission = weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!, "base");
+
+    /* 唯一权威 admission：执行范围与主投影必须使用同一份 weeklyAdmissionSql 输出，而不是手写第二套准入条件。 */
+    expect(upsert).toContain(admission);
+    expect(scope).toContain(`WHERE w.tenant_id=$1 AND ${admission}`);
+    /* 稳定 parent ID + tenant 关联：不能只用 base.id = weekly.base_plan_id（会跨租户），也不能按订单号/品项/交期推算来源。 */
+    expect(scope).toContain("JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id");
+    /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配（cycle 的 item_code JOIN 仍允许）。 */
+    const scopeWhere = scope.split(" WHERE ")[1] ?? "";
+    expect(scopeWhere).not.toMatch(/order_number|item_code|delivery_number/);
+    /* 越界反模式：不得再出现「只按 tenant 全表扫描周计划」（缺 base 关联/admission 的旧查询）。 */
+    expect(scope).not.toMatch(/FROM mps_weekly_plans w LEFT JOIN mps_process_cycles/);
+    expect(scope).not.toMatch(/WHERE w\.tenant_id=\$1$/);
+  });
+
+  it("KN-MPS-SYNC-001：执行范围不依赖 INSERT ... RETURNING，工序周期变化时 admitted weekly 仍被重算", async () => {
+    const admitted = { ...weekly("自制"), id: "aaaaaaaa-1111-4111-8111-111111111111" };
+    /* 主投影 upsert 返回空（weekly 业务主字段无变化 → RETURNING=0），但 scope 查询独立返回 admitted weekly。 */
+    const query = jest.fn(async (statement: string) => (String(statement).startsWith("SELECT w.*,c.") ? [admitted] : []));
+    const dataSource = { transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
+    const service = new MasterPlanSyncService(dataSource as never);
+
+    await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const calls = query.mock.calls.map(([statement]) => String(statement));
+    /* 证明没有误用 RETURNING-only 修法：upsert 无变化也要按最新 process cycle 刷新执行计划。 */
+    expect(calls.some((statement) => statement.startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(true);
+    expect(calls.some((statement) => statement.startsWith("UPDATE mps_weekly_plans SET technical_cycle_days="))).toBe(true);
+  });
+
+  it("KN-MPS-SYNC-001：历史未准入 weekly 不在执行范围内时零写入（不得刷新工序/占位/报工）", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const dataSource = { transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
+    const service = new MasterPlanSyncService(dataSource as never);
+
+    await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const calls = query.mock.calls.map(([statement]) => String(statement));
+    expect(calls.some((statement) => statement.startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("UPDATE mps_weekly_process_plans SET execution_enabled=false"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("INSERT INTO mps_technical_reports"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("INSERT INTO mps_material_reports"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("INSERT INTO mps_outsourcing_reports"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("UPDATE mps_outsourcing_reports SET execution_enabled=false"))).toBe(false);
+    expect(calls.some((statement) => statement.startsWith("UPDATE mps_process_reports"))).toBe(false);
+    expect(calls.some((statement) => statement.includes("DELETE FROM mps_"))).toBe(false);
+  });
+
   it("KN-MPS-INIT-001：base-to-weekly 只处理满足准入的基础计划，缺评审交期的历史 base 永不进入生成/更新集合", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) };
     const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
