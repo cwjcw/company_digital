@@ -5,6 +5,7 @@ import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { shanghaiToday, STANDARD_PROCESSES } from "./master-plan.domain";
+import { assertShippingEditAllowed } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -538,11 +539,11 @@ export class MasterPlanApplicationService {
     if (resource.code !== "mps-shipping-plans") return;
     const rows = await this.dataSource.query(`SELECT setting_key,value_json FROM mps_system_settings WHERE tenant_id=$1 AND setting_key IN ('shipping_edit_weekday','shipping_temporary_unlock_until')`, [actor.tenantId]);
     const settings = new Map(rows.map((row: any) => [row.setting_key, row.value_json]));
-    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
-    const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(parts.find((part) => part.type === "weekday")?.value ?? "") + 1;
-    const unlockUntil = settings.get("shipping_temporary_unlock_until");
-    if (unlockUntil && Date.parse(String(unlockUntil)) > Date.now()) return;
-    if (weekday !== Number(settings.get("shipping_edit_weekday") ?? 5)) throw new ForbiddenException("出货计划仅在配置的开放星期可编辑；如需临时调整，请由系统管理员设置临时解锁时间");
+    /* KN-MPS-LIVE-002：单一解析入口。临时解锁优先；开放星期支持 "2,4,5"；非法配置 fail closed。 */
+    assertShippingEditAllowed({
+      editWeekday: settings.get("shipping_edit_weekday"),
+      temporaryUnlockUntil: settings.get("shipping_temporary_unlock_until")
+    });
   }
 
   private audit(manager: EntityManager, actor: MasterPlanActor, resource: string, recordId: string | null, action: string, before: unknown, after: unknown) {
