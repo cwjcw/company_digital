@@ -42,6 +42,8 @@ export const masterPlanResourceDefinitions = [
   { code: "mps-base-plans", label: "事业部基础计划表", area: "计划管理" },
   { code: "mps-weekly-plans", label: "事业部周计划", area: "计划管理" },
   { code: "mps-weekly-process-plans", label: "周计划工序明细", area: "计划管理" },
+  /* KN-MPS-WO-001：3天生产工单（PMC中心 → 生产执行），只能由“从周计划同步”生成。 */
+  { code: "mps-three-day-work-orders", label: "3天生产工单", area: "生产执行" },
   { code: "mps-technical-reports", label: "技术报工表", area: "生产执行" },
   { code: "mps-material-reports", label: "主材报工表", area: "生产执行" },
   { code: "mps-outsourcing-reports", label: "外协报工表", area: "生产执行" },
@@ -241,9 +243,30 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   /* KN-MPS-UI-001：月计划基础数量区域固定为 需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数；全表只有一个「已下达周计划数量」。 */
   "mps-monthly-plans": fields([["divisionId", "承接事业部", "department", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["latestCustomerDueDate", "最迟客户交期", "date"], ["modelAge", "新旧款", "dictionary"], ["productAttribute", "产品属性"], ["surfaceNature", "表面性质"], ["specialItem", "特殊事项"], ["requiredQuantity", "需求数量", "number", false], ["dispatchedWeeklyQuantity", "已下达周计划数量", "number", false, false, { format: "decimal", filterBinding: { kind: "virtual", note: "当前月计划范围内所有关联周计划 planned_quantity 之和（辅助管理指标，绝不参与生产进度分母）" } }], ["cumulativeInboundQuantity", "累计入库数量", "number", false], ["pendingQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["plannedPageCount", "计划页数", "number"], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"], ["orderWeekCount", "下单周数", "number", false]]),
   "mps-shipping-plans": fields([["customerCode", "客户编码", "text", true, true], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称", "text", true, true], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["divisionId", "承接事业部", "department", true, true], ["modelAge", "新旧款", "dictionary", true], ["enteredWeeklyPlan", "已进入周计划", "boolean", false]]),
-  "mps-base-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["modelAge", "新旧款", "dictionary", true], ["productAttribute", "产品属性", "dictionary", true, true], ["surfaceNature", "表面性质", "dictionary", true, true], ["manufacturingMethod", "生产方式", "dictionary", true, true], ["weeklyPlanState", "周计划状态", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false], ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false]]),
-  "mps-weekly-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["allocatedInboundQuantity", "分摊入库数量", "number"], ["pendingQuantity", "欠数", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["drawingDueDate", "图纸交期", "date", false], ["hardwareDueDate", "五金交期", "date", false], ["woodDueDate", "木作交期", "date", false], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"]]),
+  /* KN-MPS-WO-001：毛坯完成日期 / 包装完成日期为人工维护、可空、非准入条件的正式字段。 */
+  "mps-base-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["modelAge", "新旧款", "dictionary", true], ["productAttribute", "产品属性", "dictionary", true, true], ["surfaceNature", "表面性质", "dictionary", true, true], ["manufacturingMethod", "生产方式", "dictionary", true, true], ["blankCompletionDate", "毛坯完成日期", "date"], ["packagingCompletionDate", "包装完成日期", "date"], ["weeklyPlanState", "周计划状态", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false], ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false]]),
+  "mps-weekly-plans": fields([["divisionId", "承接事业部", "department"], ["customerCode", "客户编码"], ["orderNumber", "订单编号", "text", true, true], ["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["deliveryNumber", "交期编码", "number", true, true], ["orderDate", "下单日期", "date"], ["latestCustomerDueDate", "最迟客户交期", "date", true, true], ["latestReviewDueDate", "最迟评审交期", "date", true, true], ["plannedQuantity", "计划数量", "number", true, true], ["allocatedInboundQuantity", "分摊入库数量", "number"], ["pendingQuantity", "欠数", "number", false], ["manufacturingMethod", "生产方式", "dictionary"], ["drawingDueDate", "图纸交期", "date", false], ["hardwareDueDate", "五金交期", "date", false], ["woodDueDate", "木作交期", "date", false], ["blankCompletionDate", "毛坯完成日期", "date", false], ["packagingCompletionDate", "包装完成日期", "date", false], ["orderExceptionInfo", "订单异常信息"], ["inspectionRequired", "是否验货", "boolean"], ["inspectionQuantity", "验货数量", "number"], ["remark", "备注"]]),
   /* KN-MPS-UI-001：工序任务的 exception_text 只是系统/计划提示，不再具有「生产异常事实」语义（异常唯一来源是报工表）。 */
+  /*
+   * KN-MPS-WO-001：3天生产工单。
+   * - 来源字段（source-owned）：同步自事业部周计划，网页/API/Excel 普通写入一律不得修改；
+   * - 人工字段（user-owned）：生产开始/结束日期、备注、加工备注，重复同步绝不覆盖；
+   * - 业务列顺序按用户确认（客户代码 → … → 加工备注），不含交期编码、不含独立操作列；
+   * - productionDateRange 仅用于「生产日期」合并展示/打印，Excel 仍导出两列日期。
+   */
+  "mps-three-day-work-orders": fields([
+    ["customerCode", "客户代码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderDate", "下单日期", "date", false],
+    ["modelAge", "新/旧款", "dictionary", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false],
+    ["imageRefs", "简图", "attachment", false], ["requiredQuantity", "需求数量", "number", false, false, { format: "decimal" }],
+    ["blankCompletionDate", "毛坯完成日期", "date", false], ["packagingCompletionDate", "包装完成日期", "date", false],
+    ["manufacturingMethod", "生产方式", "dictionary", false],
+    ["productionStartDate", "生产开始日期", "date", true], ["productionEndDate", "生产结束日期", "date", true],
+    ["productionDateRange", "生产日期", "text", false, false, { filterable: false }],
+    ["remark", "备注", "text", true], ["processingRemark", "加工备注", "text", true],
+    /* 平台一致性：承接事业部（数据范围/字段权限）+ 来源周计划（同步身份 UUID，不导出不打印）。 */
+    ["divisionId", "承接事业部", "department", false],
+    ["weeklyPlanId", "来源周计划", "reference", false, false, { filterable: false, filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }]
+  ]),
   "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "周期天数", "number"], ["dueDate", "工序交期", "date"], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "计划提示"]]),
   "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常"]]),
   "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "number", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常"]]),
@@ -389,6 +412,15 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
 }
 
 export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePermissionFieldRegistry[resource] ?? auditPermissionFields;
+
+/*
+ * KN-MPS-WO-001：3天生产工单的打印/导出投影。
+ * - 打印只输出合并的「生产日期」范围列（productionDateRange），不再拆成两个难读的业务列；
+ * - 来源周计划 UUID（weeklyPlanId）是系统技术身份，不打印（Excel 侧另有导出排除）。
+ */
+for (const field of tablePermissionFieldRegistry["mps-three-day-work-orders"] ?? []) {
+  if (field.key === "productionStartDate" || field.key === "productionEndDate" || field.key === "weeklyPlanId") field.printable = false;
+}
 
 /**
  * KN-FILTER-001：全项目唯一筛选操作符 registry。
@@ -579,6 +611,7 @@ const mpsFilterCapabilities = Object.fromEntries(
     "mps-erp-orders", "mps-customer-divisions", "mps-order-allocations", "mps-process-cycles", "mps-group-plans",
     "mps-monthly-plans", "mps-shipping-plans", "mps-base-plans", "mps-weekly-plans", "mps-weekly-process-plans",
     "mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports",
+    "mps-three-day-work-orders",
     "mps-sync-configs", "mps-sync-logs", "mps-data-exceptions", "mps-system-settings"
   ].map((code) => [code, { status: "REGISTERED_AND_FILTERABLE" as const }])
 );

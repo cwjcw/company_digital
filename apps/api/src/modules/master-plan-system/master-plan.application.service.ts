@@ -292,6 +292,8 @@ export class MasterPlanApplicationService {
   private resource(code: string) { const resource = MASTER_PLAN_RESOURCE_MAP.get(code as any); if (!resource) throw new NotFoundException("主计划表不存在"); return resource; }
   private assertDirectCreateAllowed(resource: MasterPlanResource) {
     if (resource.code === "mps-weekly-plans") throw new BadRequestException("事业部周计划只能由事业部基础计划生成。");
+    /* KN-MPS-WO-001：3天生产工单只能由“从周计划同步”生成，普通新增与 Excel 新增都必须拒绝。 */
+    if (resource.code === "mps-three-day-work-orders") throw new BadRequestException("3天生产工单不能通过Excel新增，请先在系统点击“从周计划同步”。");
   }
   private label(resource: MasterPlanResource, key: string) { return fieldsFor(resource).find((field) => field.key === key)?.label ?? key; }
 
@@ -436,6 +438,25 @@ export class MasterPlanApplicationService {
   private validateCrossFields(resource: MasterPlanResource, row: Record<string, unknown>) {
     if (resource.code === "mps-material-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记主材已入库时必须填写实际入库日期");
     if (resource.code === "mps-outsourcing-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记外协已入库时必须填写实际入库日期");
+    /*
+     * KN-MPS-WO-001：生产日期是两个原子字段组成的日期范围。
+     * 允许两者都为空（刚同步还没排产），但必须同时有值或同时为空，且开始不得晚于结束。
+     * 只在这里做服务端校验：网页、PATCH、批量修改与 Excel 导入都复用同一规则（不额外增加时长上限）。
+     */
+    if (resource.code === "mps-three-day-work-orders") {
+      const start = this.dateText(row.production_start_date);
+      const end = this.dateText(row.production_end_date);
+      if ((start == null) !== (end == null)) throw new BadRequestException("生产开始日期和生产结束日期必须同时填写或同时留空");
+      if (start && end && start > end) throw new BadRequestException("生产结束日期不能早于生产开始日期");
+    }
+  }
+
+  /** 只保留 YYYY-MM-DD 日期部分（date 列在 pg 驱动下可能是 Date 或字符串）。 */
+  private dateText(value: unknown) {
+    if (value == null || value === "") return null;
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    const text = String(value).trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : text;
   }
 
   async importBlockedReason(code: string, actor: MasterPlanActor) {

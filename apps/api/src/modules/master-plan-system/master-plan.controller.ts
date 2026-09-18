@@ -7,6 +7,7 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
+import { MasterPlanWorkOrderService } from "./master-plan.work-order.service";
 import type { MasterPlanActor } from "./master-plan.types";
 
 type MasterPlanRequest = Request & { user: any; requestId: string };
@@ -16,7 +17,7 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService) {}
 
   @Get("resources/:resource/meta")
   metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.metadata(resource, this.actor(request)); }
@@ -50,6 +51,13 @@ export class MasterPlanController {
 
   @Post("resources/:resource")
   create(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.create(resource, body, this.actor(request)); }
+
+  /**
+   * KN-MPS-WO-001：3天生产工单“从周计划同步”。
+   * 只能由用户主动点击触发（不注册 scheduler / mps_sync_configs 任务）；权限与数据范围在服务层校验。
+   */
+  @Post("resources/mps-three-day-work-orders/sync-from-weekly")
+  syncThreeDayWorkOrders(@Req() request: MasterPlanRequest) { return this.workOrders.syncFromWeekly(this.actor(request)); }
 
   @Patch("resources/:resource/batch")
   batchUpdate(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.batchUpdate(resource, body, this.actor(request)); }

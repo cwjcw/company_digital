@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
-import { DownloadOutlined, MoreOutlined, UploadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, MoreOutlined, SyncOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
@@ -25,6 +25,10 @@ const reportResources = new Set(["mps-process-reports", "mps-weekly-process-plan
 const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
+/** KN-MPS-WO-001：3天生产工单（只能由“从周计划同步”生成）。 */
+const WORK_ORDER_RESOURCE = "mps-three-day-work-orders";
+/** 只在打印/合并展示中使用、不作为普通表格列的服务端派生字段。 */
+const WORK_ORDER_MERGED_FIELDS = new Set(["productionDateRange", "productionStartDate", "productionEndDate", "weeklyPlanId"]);
 
 function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?: string) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
@@ -57,6 +61,14 @@ function display(value: unknown, field: TablePermissionFieldDefinition, row: any
   if (field.key === "weeklyPlanId" && row.weeklyPlanLabel) return row.weeklyPlanLabel;
   if (field.type === "dictionary" && value != null) return field.options?.find((option) => option.value === String(value))?.label ?? String(value);
   if (field.type === "date" && value) return dayjs(String(value)).format("YYYY-MM-DD");
+  /* KN-MPS-WO-001：简图列保持紧凑，绝不把附件 JSON 原样铺进表格。 */
+  if (field.type === "attachment") {
+    const items = Array.isArray(value) ? value : [];
+    if (!items.length) return "—";
+    const first = items[0] as unknown;
+    const label = typeof first === "string" ? first : String((first as { name?: string; url?: string })?.name ?? (first as { url?: string })?.url ?? "附件");
+    return items.length > 1 ? `${label} 等 ${items.length} 个` : label;
+  }
   if (field.key === "completionRate") return `${Math.round(Number(value || 0) * 100)}%`;
   if (field.key === "exceptionSummary") return value ? String(value) : "—";
   if (value && typeof value === "object") return JSON.stringify(value);
@@ -171,7 +183,61 @@ export const auxiliaryPlanGroups: Array<{ key: string; title: string; fields: st
 /** 辅助计划分组占用的字段键（用于保证它们绝不落入普通 leading columns）。 */
 const auxiliaryPlanFieldKeys = new Set(auxiliaryPlanGroups.flatMap((group) => group.fields));
 
-function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups) {
+/**
+ * KN-MPS-WO-001：3天生产工单的「生产日期」是一个日期范围列（RangePicker 一次编辑两个原子字段），
+ * 表格不显示 生产开始日期/生产结束日期 两个网页列，也不显示服务端合并列与来源周计划 UUID。
+ */
+function workOrderColumns(
+  fields: TablePermissionFieldDefinition[],
+  renderCell: ((value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode) | undefined,
+  onSaveRange: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void
+) {
+  const columns: any[] = [];
+  for (const field of fields) {
+    if (WORK_ORDER_MERGED_FIELDS.has(field.key) && field.key !== "productionStartDate") continue;
+    if (field.key === "productionStartDate") {
+      columns.push({
+        title: "生产日期", dataIndex: "productionStartDate", width: 230,
+        render: (_: unknown, row: any) => <ProductionDateCell row={row} onSaveRange={onSaveRange} />
+      });
+      continue;
+    }
+    const width = ["orderNumber", "itemName", "remark", "processingRemark"].includes(field.key) ? 220 : field.type === "attachment" ? 110 : Math.max(105, Math.min(240, field.label.length * 18 + 54));
+    columns.push({ title: field.label, dataIndex: field.key, width, render: (value: unknown, row: any) => renderCell ? renderCell(value, field, row) : display(value, field, row) });
+  }
+  return columns;
+}
+
+/** 生产日期单元格：只读时显示范围文本；编辑模式提供 RangePicker，一次 PATCH 两个字段（带 expectedVersion）。 */
+export function ProductionDateCell({ row, onSaveRange }: { row: any; onSaveRange: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void }) {
+  const { editing } = useKdosTableEditMode();
+  const start = row?.productionStartDate ? dayjs(String(row.productionStartDate)) : null;
+  const end = row?.productionEndDate ? dayjs(String(row.productionEndDate)) : null;
+  if (!editing) return <>{formatProductionDateRange(row?.productionStartDate, row?.productionEndDate)}</>;
+  return <DatePicker.RangePicker size="small" allowEmpty={[true, true]} value={[start, end]} style={{ width: "100%" }}
+    onChange={(range) => {
+      const nextStart = range?.[0] ? range[0].format("YYYY-MM-DD") : null;
+      const nextEnd = range?.[1] ? range[1].format("YYYY-MM-DD") : null;
+      onSaveRange(row, { productionStartDate: nextStart, productionEndDate: nextEnd });
+    }} />;
+}
+
+/** 生产日期范围展示：同日显示单日，否则显示「开始 ～ 结束」，都为空显示 —。 */
+export function formatProductionDateRange(start: unknown, end: unknown) {
+  const from = start ? dayjs(String(start)).format("YYYY-MM-DD") : null;
+  const to = end ? dayjs(String(end)).format("YYYY-MM-DD") : null;
+  if (!from && !to) return "—";
+  if (from && !to) return from;
+  if (!from && to) return to;
+  return from === to ? from : `${from} ～ ${to}`;
+}
+
+/** KN-MPS-WO-001：同步结果反馈文案（不满足于“同步成功”，必须给出 scanned/created/updated/unchanged）。 */
+export function formatWorkOrderSyncResult(result: { created: number; updated: number; unchanged: number; skipped?: number }) {
+  return `同步完成：新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条${result.skipped ? `，跳过 ${result.skipped} 条` : ""}`;
+}
+
+function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups, onSaveRange?: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void) {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
     dataIndex: field.key,
@@ -195,6 +261,7 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
       ? <Tooltip title={String(value)}><span className="kdos-exception-summary">{String(value)}</span></Tooltip>
       : "—"
   });
+  if (resource === WORK_ORDER_RESOURCE) return workOrderColumns(fields, renderCell, onSaveRange ?? (() => undefined));
   if (!["mps-monthly-plans", "mps-weekly-plans"].includes(resource)) return fields.map(column);
   const grouped = new Set<string>();
   const groups: any[] = [];
@@ -373,6 +440,29 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       }
     } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
   }, [applyReconciliationFeedback, organizations.data, queryClient, refresh, refreshExecutionPlans, refreshRelatedPlans, resource, sessionSubject]);
+  /**
+   * KN-MPS-WO-001：生产日期一次 PATCH 两个原子字段（productionStartDate + productionEndDate），
+   * 仍带 expectedVersion 乐观锁；服务端负责「同时为空或同时有值 + 开始不晚于结束」的最终校验。
+   */
+  const saveInlineFields = useCallback(async (row: any, values: Record<string, unknown>) => {
+    try {
+      const updated = await api<{ version: number; values: Record<string, unknown> }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ ...values, expectedVersion: row.version }) });
+      queryClient.setQueriesData<{ rows: any[]; total: number }>({ queryKey: ["mps-rows", sessionSubject, resource] }, (current) => current ? { ...current, rows: current.rows.map((entry) => entry.id === row.id ? { ...entry, ...updated.values, version: Number(updated.version) } : entry) } : current);
+      message.success("生产日期已保存");
+    } catch (error) { message.error((error as Error).message || "生产日期保存失败"); throw error; }
+  }, [queryClient, resource, sessionSubject]);
+  /** KN-MPS-WO-001：从周计划同步（只能用户主动点击，非定时任务）。 */
+  const [syncingWorkOrders, setSyncingWorkOrders] = useState(false);
+  const syncWorkOrders = useCallback(async () => {
+    if (syncingWorkOrders) return;
+    setSyncingWorkOrders(true);
+    try {
+      const result = await api<{ scanned: number; created: number; updated: number; unchanged: number; skipped?: number }>(`/master-plan-system/resources/${WORK_ORDER_RESOURCE}/sync-from-weekly`, { method: "POST" });
+      await refresh();
+      message.success(formatWorkOrderSyncResult(result));
+    } catch (error) { message.error((error as Error).message || "同步失败"); }
+    finally { setSyncingWorkOrders(false); }
+  }, [refresh, syncingWorkOrders]);
   const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
@@ -457,7 +547,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, metadata.data?.processes]);
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values)), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
   const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);
@@ -498,7 +588,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   if (!info) return null;
   const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
-  const hasRowActions = !isPendingView && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
+  /* KN-MPS-WO-001：3天生产工单不生成最右侧行操作列（新增/删除均不适用，编辑靠编辑模式 + 单元格控件）。 */
+  const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
   const withActions = hasRowActions ? [...activeColumns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const,
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
@@ -514,6 +605,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
+      {resource === WORK_ORDER_RESOURCE && metadata.data?.actions.update && <Button type="primary" icon={<SyncOutlined />} loading={syncingWorkOrders} onClick={() => void syncWorkOrders()}>从周计划同步</Button>}
       {metadata.data?.actions.create && hasResourcePermission(resource, "create") && <Button type="primary" onClick={openCreate}>新增</Button>}
     </Space>} />
     {basePlanId && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅显示该事业部基础计划生成的周计划" action={<Button size="small" onClick={clearWeeklyPlanFilter}>清除定位</Button>} />}

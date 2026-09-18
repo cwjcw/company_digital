@@ -19,6 +19,11 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "itemName", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "divisionId"], requiredAlways: ["itemName", "divisionId"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], extraColumns: { monthlyPlanId: "monthly_plan_id" } },
   { code: "mps-base-plans", table: "mps_base_plans", create: true, remove: false, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], requiredOnUpdate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "plannedQuantity"], weeklyAdmissionRequiredFields: ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
   { code: "mps-weekly-plans", table: "mps_weekly_plans", create: false, remove: false, defaultOrder: "latest_review_due_date,order_number,item_code,delivery_number", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "deliveryNumber", "latestCustomerDueDate", "latestReviewDueDate", "plannedQuantity"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"] },
+  /*
+   * KN-MPS-WO-001：3天生产工单。create=false（只能由“从周计划同步”生成，禁止普通新增/Excel 新增）、
+   * remove=false（不做普通删除）；同步身份唯一键是 weeklyPlanId（绝不使用订单号+品项+交期定位）。
+   */
+  { code: "mps-three-day-work-orders", table: "mps_three_day_work_orders", create: false, remove: false, defaultOrder: "order_number,item_code,weekly_plan_id", divisionField: "divisionId", uniqueKeyFields: ["weeklyPlanId"] },
   { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: true, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", requiredOnCreate: ["weeklyPlanId", "processCode"], uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number", divisionField: "divisionId" },
   { code: "mps-material-reports", table: "mps_material_reports", create: true, remove: true, defaultOrder: "order_number,item_code,delivery_number,material_name", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "materialName"], uniqueKeyFields: ["weeklyPlanId", "materialName"] },
@@ -149,6 +154,18 @@ export function virtualColumns(resource: MasterPlanResource) {
     outsourcingActualInboundDate: `(SELECT max(report.actual_inbound_date) FROM mps_outsourcing_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id)`
   });
   if (resource.code === "mps-weekly-plans") output.exceptionSummary = weeklyExceptionSummary();
+  /*
+   * KN-MPS-WO-001：毛坯/包装完成日期的唯一人工维护来源是基础计划，周计划只做只读投影（不复制存储），
+   * 因此 base-to-weekly 保持 disabled 时基础计划的修改也能实时反映到周计划与后续同步。
+   */
+  if (resource.code === "mps-weekly-plans") Object.assign(output, {
+    blankCompletionDate: `(SELECT base.blank_completion_date FROM mps_base_plans base WHERE base.tenant_id=record.tenant_id AND base.id=record.base_plan_id)`,
+    packagingCompletionDate: `(SELECT base.packaging_completion_date FROM mps_base_plans base WHERE base.tenant_id=record.tenant_id AND base.id=record.base_plan_id)`
+  });
+  /* KN-MPS-WO-001：3天生产工单的「生产日期」是 productionStartDate + productionEndDate 的合并展示/打印列。 */
+  if (resource.code === "mps-three-day-work-orders") Object.assign(output, {
+    productionDateRange: `(CASE WHEN record.production_start_date IS NULL THEN NULL WHEN record.production_end_date IS NULL THEN to_char(record.production_start_date,'YYYY-MM-DD') WHEN record.production_start_date = record.production_end_date THEN to_char(record.production_start_date,'YYYY-MM-DD') ELSE to_char(record.production_start_date,'YYYY-MM-DD')||' ～ '||to_char(record.production_end_date,'YYYY-MM-DD') END)`
+  });
   if (resource.code === "mps-monthly-plans") output.exceptionSummary = monthlyExceptionSummary();
   if (resource.code === "mps-base-plans") {
     const admission = weeklyAdmissionSql(resource, "record");

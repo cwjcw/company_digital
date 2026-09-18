@@ -328,6 +328,26 @@ export class MasterPlanQueryService {
     return resource;
   }
 
+  /**
+   * KN-MPS-WO-001：3天生产工单的同步来源 = 当前用户 tenant + 数据范围内的**全部**事业部周计划
+   * （不是当前分页，也不是浏览器已加载行）。与列表查询共用同一套 scopeClause 谓词，保证同步不能绕过数据范围。
+   * 毛坯/包装完成日期直接来自基础计划（周计划只读投影），不经过 base-to-weekly。
+   */
+  async weeklyWorkOrderSource(actor: MasterPlanActor) {
+    const weekly = this.resource("mps-weekly-plans");
+    const columns = columnsFor(weekly);
+    const params: unknown[] = [actor.tenantId];
+    const scope = this.scopeClause(weekly, actor, "read", columns, params);
+    return this.dataSource.query(`
+      SELECT record.id AS weekly_plan_id, record.division_id, record.customer_code, record.order_number, record.order_date,
+             record.model_age, record.item_code, record.item_name, record.image_refs, record.planned_quantity, record.manufacturing_method,
+             base.blank_completion_date, base.packaging_completion_date
+      FROM mps_weekly_plans record
+      LEFT JOIN mps_base_plans base ON base.tenant_id=record.tenant_id AND base.id=record.base_plan_id
+      WHERE record.tenant_id=$1 AND ${scope}
+      ORDER BY record.order_number, record.item_code, record.id`, params) as Promise<Array<Record<string, unknown>>>;
+  }
+
   private expression(column: string) { return column.startsWith("(") ? column : `record.${column}`; }
 
   private visible(actor: MasterPlanActor, resource: string, field: string) {

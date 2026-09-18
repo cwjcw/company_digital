@@ -24,6 +24,24 @@ const pendingTemplateNotes = [
   "上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"
 ];
 
+/**
+ * KN-MPS-WO-001：3天生产工单的 Excel 约定。
+ * - 导出不包含技术身份列（weeklyPlanId）与服务端合并展示列（productionDateRange）：Excel 始终是「生产开始日期 + 生产结束日期」两列；
+ * - 记录ID/版本保留在工作簿但隐藏，导入仍按 ID+version 定位（乐观锁），绝不按订单号+品项定位；
+ * - 只有 4 个人工列可填写，其余来源列仅供核对，误改也不会写回数据库。
+ */
+const exportExcludedFields: Record<string, string[]> = { "mps-three-day-work-orders": ["weeklyPlanId", "productionDateRange"] };
+const exportNotes: Record<string, string[]> = {
+  "mps-three-day-work-orders": [
+    "3天生产工单只能由「从周计划同步」生成，Excel 不能新增工单；如果表格里没有需要的工单，请先在系统点击「从周计划同步」。",
+    "只有浅黄色底色的 4 列可以填写：生产开始日期、生产结束日期、备注、加工备注；其余列来自事业部周计划，请勿修改（误改也不会写回数据库）。",
+    "只生产一天时，生产开始日期与生产结束日期填写同一天；暂时不排产时两列都留空；生产开始日期不能晚于生产结束日期。",
+    "生产开始日期与生产结束日期请使用 yyyy-mm-dd（例如 2026-09-20）。",
+    "记录ID、版本由系统维护（已隐藏），请勿修改；版本已变化时该行会被拒绝并提示重新导出。",
+    "上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"
+  ]
+};
+
 @Injectable()
 export class MasterPlanSpreadsheetService {
   constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService) {}
@@ -50,8 +68,12 @@ export class MasterPlanSpreadsheetService {
   async export(code: string, input: Record<string, unknown>, actor: MasterPlanActor) {
     const resource = this.resource(code);
     const result = await this.queries.exportRows(code, input, actor);
-    const fields = fieldsFor(resource).filter((field) => result.visibleFields.includes(field.key));
-    return this.workbook(resource.code, fields, result.rows);
+    const excluded = new Set(exportExcludedFields[resource.code] ?? []);
+    const fields = fieldsFor(resource).filter((field) => result.visibleFields.includes(field.key) && !excluded.has(field.key));
+    return this.workbook(resource.code, fields, result.rows, exportNotes[resource.code], {
+      hideIdentityColumns: resource.code === "mps-three-day-work-orders",
+      highlightEditableColumns: resource.code === "mps-three-day-work-orders"
+    });
   }
 
   async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown) {
@@ -148,13 +170,20 @@ export class MasterPlanSpreadsheetService {
     });
   }
 
-  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[]) {
+  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean } = {}) {
     const workbook = new ExcelJS.Workbook(); workbook.creator = "KDOS 主计划系统";
     const sheet = workbook.addWorksheet(label.slice(0, 31));
-    sheet.columns = [{ header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 }, ...fields.map((field) => ({ header: field.label, key: field.key, width: 20 }))];
+    sheet.columns = [
+      { header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 },
+      /* 日期列统一按 yyyy-mm-dd 显示（用户看到 2026-09-20，而不是序列号或带时间的日期）。 */
+      ...fields.map((field) => ({ header: field.label, key: field.key, width: field.type === "date" ? 14 : 20, ...(field.type === "date" ? { style: { numFmt: "yyyy-mm-dd" } } : {}) }))
+    ];
+    if (options.hideIdentityColumns) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
     const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
     /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
     for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, this.displayValue(field, row[field.key], organizationPaths)])) });
+    /* 需要人工填写的列给一个简洁的浅色底纹，明确「可填写区域」。 */
+    if (options.highlightEditableColumns) for (const row of sheet.getRows(2, Math.max(rows.length, 1)) ?? []) fields.forEach((field, index) => { if (field.editable) row.getCell(index + 3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7E0" } }; });
     sheet.getRow(1).font = { bold: true }; sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }]; sheet.autoFilter = { from: "A1", to: sheet.getRow(1).getCell(sheet.columnCount).address };
     const schema = workbook.addWorksheet("_字段定义", { state: "veryHidden" });
     schema.addRow(["resource", label]); schema.addRow(["fieldKey", "column", "templateLabel"]);
@@ -172,6 +201,19 @@ export class MasterPlanSpreadsheetService {
       const targetLetter = sheet.getCell(1, fieldIndex + 3).address.replace(/\d+/g, "");
       (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, { type: "list", allowBlank: !field.required, formulae: [name], showErrorMessage: true, errorTitle: "选项无效", error: `请选择${field.label}下拉选项` });
       optionColumn++;
+    }
+    /*
+     * KN-MPS-WO-001 §59：所有 date 字段补上通用日期校验（yyyy-mm-dd），避免低熟练用户在单元格里输入自定义日期范围字符串。
+     * 服务端始终是最终权威校验；这里只是 Excel 侧提示。
+     */
+    for (const [fieldIndex, field] of fields.entries()) {
+      if (field.type !== "date") continue;
+      const targetLetter = sheet.getCell(1, fieldIndex + 3).address.replace(/\d+/g, "");
+      (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, {
+        type: "date", operator: "between", allowBlank: true,
+        formulae: [new Date(Date.UTC(2000, 0, 1)), new Date(Date.UTC(2100, 11, 31))],
+        showErrorMessage: true, errorTitle: "日期格式无效", error: `${field.label}请填写 yyyy-mm-dd 格式的日期`
+      });
     }
     const noteSheet = workbook.addWorksheet("填写说明"); noteSheet.getColumn(1).width = 120;
     /* KN-MPS-UI-001：支持人工异常的报工表（含待报工视图）必须写明异常可选、只填人工确认的异常。 */
@@ -198,8 +240,19 @@ export class MasterPlanSpreadsheetService {
     if (raw == null || raw === "") return null;
     if (field.type === "department") return organizationPaths.get(String(raw)) ?? raw;
     if (field.type === "boolean") return raw === true ? "是" : raw === false ? "否" : raw;
+    /* KN-MPS-WO-001：日期按真正的日期单元格导出（配合 yyyy-mm-dd 数字格式），用户看到 2026-09-20 而不是序列号。 */
+    if (field.type === "date") return this.excelDate(raw);
     const options = field.options ?? [];
     return options.find((option) => String(option.value) === String(raw))?.label ?? raw;
+  }
+
+  /** 把数据库返回的日期值规范成 Excel 日期单元格（UTC 零点，避免时区偏移导致少一天）。 */
+  private excelDate(raw: unknown) {
+    if (raw instanceof Date) return new Date(Date.UTC(raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate()));
+    const text = String(raw).trim();
+    const matched = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+    if (!matched) return raw;
+    return new Date(Date.UTC(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3])));
   }
 
   /** 单元格回写值：把用户填写的 label 解析回稳定 value（手机端/Excel 下拉只提供中文名称）。 */
