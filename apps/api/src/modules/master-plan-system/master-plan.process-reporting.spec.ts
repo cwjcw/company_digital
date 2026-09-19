@@ -87,7 +87,8 @@ describe("KN-PR-001 pending process reporting view", () => {
 describe("KN-PR-001 actual process reports", () => {
   const insertedReport = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", version: 1, weekly_plan_id: task.weeklyPlanId, process_code: "bending" };
   /** 默认 mock：周计划来源可解析、报工可插入、outbox 行可按需返回。 */
-  const reportQuery = (extra?: (sql: string) => unknown[] | undefined) => jest.fn(async (sql: string) => {
+  const reportQuery = (extra?: (sql: string) => unknown[] | undefined) => jest.fn(async (sql: string, params?: unknown[]) => {
+    void params;
     if (sql.includes("FROM mps_weekly_plans")) return [weeklyPlanRow()];
     if (sql.startsWith("INSERT INTO mps_process_reports")) return [insertedReport];
     return extra?.(sql) ?? [];
@@ -105,6 +106,9 @@ describe("KN-PR-001 actual process reports", () => {
     }, reporter());
     expect(inserted).toBeDefined();
     expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO mps_process_reports"))).toBe(true);
+    const outbox = query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO mps_reconciliation_outbox"));
+    expect(String(outbox?.[0])).toContain("scope_json");
+    expect(outbox?.[1]).toEqual(expect.arrayContaining([JSON.stringify({ weeklyPlanId: task.weeklyPlanId, processCode: "bending" })]));
 
     /* 身份字段生成后不得被普通修改或批量修改。 */
     await expect(service.update("mps-process-reports", task.id, { processCode: "welding", expectedVersion: 1 }, admin)).rejects.toThrow("字段 processCode 不允许写入");
@@ -132,21 +136,35 @@ describe("KN-PR-001 actual process reports", () => {
     await deleteService.remove("mps-process-reports", current.id, 3, admin);
     expect(deleteQuery.mock.calls.some(([sql]) => String(sql).startsWith("DELETE FROM mps_process_reports"))).toBe(true);
     expect(deleteQuery.mock.calls.some(([sql]) => String(sql).includes("mps_reconciliation_outbox"))).toBe(true);
+    const deleteOutbox = deleteQuery.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO mps_reconciliation_outbox"));
+    expect(deleteOutbox?.[1]).toEqual(expect.arrayContaining([JSON.stringify({ weeklyPlanId: task.weeklyPlanId, processCode: "bending" })]));
   });
 
-  it("rolls cumulative reported quantity up from actual reports only", async () => {
-    const processRow = { id: "99999999-9999-4999-8999-999999999999", weekly_plan_id: task.weeklyPlanId, process_code: "bending", due_date: "2026-09-30", report_date: "2026-09-16", planned_quantity: "100", cumulative_reported: "100", daily_reported: "8" };
-    const manager = { query: jest.fn(async (sql: string) => sql.startsWith("SELECT p.id,p.weekly_plan_id") ? [processRow] : []) };
+  it("rolls cumulative reported quantity up from actual reports only with set-based SQL", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
     const service = new MasterPlanSyncService({ transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never);
     await (service as any).executionRollup("KAINAN", "tester");
     const sql = manager.query.mock.calls.map(([statement]) => String(statement)).join(" ");
 
-    expect(sql).toContain("COALESCE(sum(r.production_quantity),0) cumulative_reported");
+    expect(sql).toContain("COALESCE(sum(r.production_quantity),0) AS cumulative_reported");
     expect(sql).toContain("LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code");
-    expect(sql).toContain("UPDATE mps_weekly_process_plans SET daily_reported_quantity=$3,status=$4");
+    expect(sql).toContain("UPDATE mps_weekly_process_plans p SET daily_reported_quantity=d.daily_reported,status=d.status");
+    expect(sql).toContain("IS DISTINCT FROM (d.daily_reported,d.status)");
     /* 状态由事实表 SUM 得出的累计决定（100 >= 100 → 已完成），不是增量漂移。 */
-    expect((manager.query.mock.calls as unknown[][]).some((call) => JSON.stringify(call[1] ?? "").includes("已完成"))).toBe(true);
+    expect(sql).toContain("WHEN planned_quantity>0 AND cumulative_reported>=planned_quantity THEN '已完成'");
+    expect(manager.query).toHaveBeenCalledTimes(2);
     expect(sql).not.toContain("INSERT INTO mps_process_reports");
+  });
+
+  it("limits a process-report reconciliation to its durable weekly-plan/process scope", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const service = new MasterPlanSyncService({ transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never);
+    await (service as any).executionRollup("KAINAN", "tester", { weeklyPlanId: task.weeklyPlanId, processCode: "bending" });
+    const [sql, params] = manager.query.mock.calls[0];
+    expect(String(sql)).toContain("AND p.weekly_plan_id=$4::uuid AND p.process_code=$5");
+    expect(params).toEqual(["KAINAN", "tester", expect.any(String), task.weeklyPlanId, "bending"]);
+    expect(String(sql)).not.toContain("mps_outsourcing_reports");
+    expect(manager.query).toHaveBeenCalledTimes(1);
   });
 
   it("keeps manual report facts safe from later plan synchronisation", async () => {
@@ -192,19 +210,15 @@ describe("KN-PR-001 actual process reports", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO mps_process_reports"))).toBe(true);
   });
 
-  it("reports execution rollup completion back to the caller instead of guessing with timers", async () => {
-    const query = reportQuery((sql) => sql.includes("FROM mps_reconciliation_outbox") ? [{ status: "SUCCESS", last_error: null }] : undefined);
+  it("returns PENDING after durable enqueue without waiting for execution rollup", async () => {
+    const query = reportQuery();
     const sync = { processOutbox: jest.fn().mockResolvedValue(1) };
     const service = new MasterPlanApplicationService({ query, manager: { query }, transaction: (work: (value: { query: jest.Mock }) => unknown) => work({ query }) } as never, sync as never);
 
     await expect(service.create("mps-process-reports", { weeklyPlanId: task.weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: 10 }, admin))
-      .resolves.toMatchObject({ reconciliation: { status: "SUCCESS", message: null } });
+      .resolves.toMatchObject({ reconciliation: { status: "PENDING", message: "报工已保存，执行状态正在同步，请稍后刷新查看。" } });
     expect(sync.processOutbox).toHaveBeenCalled();
-
-    const pendingQuery = reportQuery((sql) => sql.includes("FROM mps_reconciliation_outbox") ? [{ status: "RUNNING", last_error: null }] : undefined);
-    const pendingService = new MasterPlanApplicationService({ query: pendingQuery, manager: { query: pendingQuery }, transaction: (work: (value: { query: jest.Mock }) => unknown) => work({ query: pendingQuery }) } as never, { processOutbox: jest.fn().mockResolvedValue(0) } as never);
-    await expect(pendingService.create("mps-process-reports", { weeklyPlanId: task.weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: 10 }, admin))
-      .resolves.toMatchObject({ reconciliation: { status: "RUNNING", message: "报工已保存，执行状态正在同步，请稍后刷新查看。" } });
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("SELECT status,last_error FROM mps_reconciliation_outbox"))).toBe(false);
   });
 
   it("never fabricates empty reports and leaves identity resolution to the server", async () => {

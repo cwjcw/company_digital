@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, Logger } from "@nest
 import { Interval } from "@nestjs/schedule";
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
-import { outsourcingStatus, processStatus, reverseSchedule, shanghaiToday } from "./master-plan.domain";
+import { reverseSchedule, shanghaiToday } from "./master-plan.domain";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql, type MasterPlanResource } from "./master-plan.config";
 import {
   MASTER_PLAN_ERP_ADMISSION, SNAPSHOT_BUSINESS_KEY_BINDING, erpAccountWhitelistSql, erpOrderAdmissibleStatusSql, erpOrderDateAdmissionSql,
@@ -11,6 +11,7 @@ import {
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
+type ExecutionRollupScope = { weeklyPlanId: string; processCode: string };
 /** 同步结果：`count` 继续写入 mps_sync_logs.sync_count，`metrics` 写入同表 metrics（KN-MPS-LIVE-002 可观测性）。 */
 type SyncOutcome = { count: number; metrics?: Record<string, number> };
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
@@ -46,24 +47,33 @@ export class MasterPlanSyncService {
       ) RETURNING *`);
       return Array.isArray(result[0]) ? result[0] : result;
     });
+    const groups = new Map<string, typeof events>();
     for (const event of events) {
+      const scope = this.executionScope(event.sync_key, event.scope_json);
+      const key = `${event.tenant_id}:${event.sync_key}:${scope ? `${scope.weeklyPlanId}:${scope.processCode}` : "all"}`;
+      groups.set(key, [...(groups.get(key) ?? []), event]);
+    }
+    for (const group of groups.values()) {
+      const event = group[0]!;
+      const eventIds = group.map((item: { id: string }) => item.id);
+      const scope = this.executionScope(event.sync_key, event.scope_json);
       try {
-        await this.run(event.tenant_id, event.sync_key, "EVENT", event.actor_id, event.actor_name, event.idempotency_key);
-        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now(),last_error=NULL,updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=$1`, [event.id, event.actor_id]);
+        await this.run(event.tenant_id, event.sync_key, "EVENT", event.actor_id, event.actor_name, event.idempotency_key, scope);
+        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now(),last_error=NULL,updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, event.actor_id]);
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
         /* 同一同步键正在运行时只是暂时让位，不是业务失败：保持 PENDING 稍后重试，避免把并发让位显示成“生成失败”。 */
         if (error instanceof ConflictException && message === "该同步任务正在运行") {
-          await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='PENDING',last_error=NULL,next_attempt_at=now() + interval '5 seconds',updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=$1`, [event.id, event.actor_id]);
+          await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='PENDING',last_error=NULL,next_attempt_at=now() + interval '5 seconds',updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, event.actor_id]);
           continue;
         }
-        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error=$2,next_attempt_at=now() + least(attempts,30) * interval '1 minute',updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1`, [event.id, message, event.actor_id]);
+        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error=$2,next_attempt_at=now() + least(attempts,30) * interval '1 minute',updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, message, event.actor_id]);
       }
     }
     return events.length;
   }
 
-  async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`) {
+  async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, executionScope: ExecutionRollupScope | null = null) {
     const runningKey = `${tenantId}:${syncKey}`;
     if (this.running.has(runningKey)) throw new ConflictException("该同步任务正在运行");
     this.running.add(runningKey);
@@ -76,7 +86,7 @@ export class MasterPlanSyncService {
       await this.dataSource.query(`INSERT INTO mps_sync_logs(tenant_id,sync_config_id,sync_key,run_type,status,started_at,idempotency_key,created_by,updated_by) VALUES($1,$2,$3,$4,'RUNNING',now(),$5,$6::uuid,$7)`, [tenantId, config.id, syncKey, runType, idempotencyKey, userId, userId ?? username]);
       await this.dataSource.query(`UPDATE mps_sync_configs SET status='RUNNING',last_started_at=now(),error_message=NULL,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, userId ?? username]);
       try {
-        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username);
+        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username, executionScope);
         const count = outcome.count;
         await this.dataSource.query(`UPDATE mps_sync_logs SET status='SUCCESS',completed_at=now(),sync_count=$3,metrics=$5::jsonb,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`,
           [tenantId, idempotencyKey, count, userId ?? username, outcome.metrics ? JSON.stringify(outcome.metrics) : null]);
@@ -92,14 +102,14 @@ export class MasterPlanSyncService {
     } finally { this.running.delete(runningKey); }
   }
 
-  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null): Promise<SyncOutcome> {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
       "plan-projections": () => this.projectPlans(tenantId, userId, updatedBy),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, updatedBy),
       "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),
-      "execution-rollup": () => this.executionRollup(tenantId, updatedBy)
+      "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope)
     };
     const job = jobs[syncKey]; if (!job) throw new ConflictException("未知同步任务");
     const result = await job();
@@ -475,13 +485,47 @@ export class MasterPlanSyncService {
     return this.changedCount(changed);
   }
 
-  private async executionRollup(tenantId: string, updatedBy: string) {
+  private async executionRollup(tenantId: string, updatedBy: string, scope: ExecutionRollupScope | null = null) {
     const today = shanghaiToday(); let count = 0;
     await this.dataSource.transaction(async (manager) => {
-      const processes = await manager.query(`SELECT p.id,p.weekly_plan_id,p.process_code,p.due_date,p.report_date,w.planned_quantity,COALESCE(sum(r.production_quantity),0) cumulative_reported,COALESCE(sum(r.production_quantity) FILTER (WHERE r.production_date=p.report_date),0) daily_reported FROM mps_weekly_process_plans p JOIN mps_weekly_plans w ON w.id=p.weekly_plan_id AND w.tenant_id=p.tenant_id LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code WHERE p.tenant_id=$1 GROUP BY p.id,p.weekly_plan_id,p.process_code,p.due_date,p.report_date,w.planned_quantity`, [tenantId]);
-      for (const row of processes) { const status = processStatus(row.planned_quantity, row.cumulative_reported, this.dateOnly(row.due_date), today); const changed = await manager.query(`UPDATE mps_weekly_process_plans SET daily_reported_quantity=$3,status=$4,updated_at=now(),updated_by=$5,version=version+1 WHERE tenant_id=$1 AND id=$2 AND (daily_reported_quantity,status) IS DISTINCT FROM ($3,$4) RETURNING id`, [tenantId, row.id, row.daily_reported, status, updatedBy]); count += changed.length; }
-      const outsource = await manager.query(`SELECT id,purchase_order_number,actual_inbound_date,outsourcing_due_date FROM mps_outsourcing_reports WHERE tenant_id=$1`, [tenantId]);
-      for (const row of outsource) { const status = outsourcingStatus({ purchaseOrderNumber: row.purchase_order_number, actualInboundDate: this.dateOnly(row.actual_inbound_date), dueDate: this.dateOnly(row.outsourcing_due_date), today }); const changed = await manager.query(`UPDATE mps_outsourcing_reports SET status=$3,received=($4::date IS NOT NULL),updated_at=now(),updated_by=$5,version=version+1 WHERE tenant_id=$1 AND id=$2 AND (status,received) IS DISTINCT FROM ($3,($4::date IS NOT NULL)) RETURNING id`, [tenantId, row.id, status, row.actual_inbound_date, updatedBy]); count += changed.length; }
+      const scoped = scope ? "AND p.weekly_plan_id=$4::uuid AND p.process_code=$5" : "";
+      const params = scope ? [tenantId, updatedBy, today, scope.weeklyPlanId, scope.processCode] : [tenantId, updatedBy, today];
+      const processes = await manager.query(`WITH aggregates AS (
+        SELECT p.id,p.due_date,p.report_date,w.planned_quantity,
+          COALESCE(sum(r.production_quantity),0) AS cumulative_reported,
+          COALESCE(sum(r.production_quantity) FILTER (WHERE r.production_date=p.report_date),0) AS daily_reported
+        FROM mps_weekly_process_plans p
+        JOIN mps_weekly_plans w ON w.id=p.weekly_plan_id AND w.tenant_id=p.tenant_id
+        LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code
+        WHERE p.tenant_id=$1 ${scoped}
+        GROUP BY p.id,p.due_date,p.report_date,w.planned_quantity
+      ), desired AS (
+        SELECT id,daily_reported,CASE
+          WHEN planned_quantity>0 AND cumulative_reported>=planned_quantity THEN '已完成'
+          WHEN due_date IS NOT NULL AND $3::date>due_date THEN '延期'
+          WHEN cumulative_reported>0 THEN '进行中'
+          ELSE '未开始' END AS status
+        FROM aggregates
+      )
+      UPDATE mps_weekly_process_plans p SET daily_reported_quantity=d.daily_reported,status=d.status,updated_at=now(),updated_by=$2,version=p.version+1
+      FROM desired d WHERE p.tenant_id=$1 AND p.id=d.id
+        AND (p.daily_reported_quantity,p.status) IS DISTINCT FROM (d.daily_reported,d.status)
+      RETURNING p.id`, params);
+      count += this.changedCount(processes);
+      if (!scope) {
+        const outsource = await manager.query(`WITH desired AS (
+          SELECT id,actual_inbound_date IS NOT NULL AS received,CASE
+            WHEN actual_inbound_date IS NOT NULL THEN '已入库'
+            WHEN btrim(coalesce(purchase_order_number,''))='' THEN '未开始'
+            WHEN outsourcing_due_date IS NOT NULL AND $3::date>outsourcing_due_date THEN '延期'
+            ELSE '进行中' END AS status
+          FROM mps_outsourcing_reports WHERE tenant_id=$1
+        )
+        UPDATE mps_outsourcing_reports o SET status=d.status,received=d.received,updated_at=now(),updated_by=$2,version=o.version+1
+        FROM desired d WHERE o.tenant_id=$1 AND o.id=d.id AND (o.status,o.received) IS DISTINCT FROM (d.status,d.received)
+        RETURNING o.id`, [tenantId, updatedBy, today]);
+        count += this.changedCount(outsource);
+      }
       // 技术状态由技术人员在技术报工表维护；对账不得根据附件反向覆盖人工状态。
     });
     return count;
@@ -521,5 +565,12 @@ export class MasterPlanSyncService {
     if (value == null || value === "") return null;
     const parsed = value instanceof Date ? value : new Date(String(value));
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+  }
+  private executionScope(syncKey: string, value: unknown): ExecutionRollupScope | null {
+    if (syncKey !== "execution-rollup" || !value || typeof value !== "object") return null;
+    const scope = value as Record<string, unknown>;
+    return typeof scope.weeklyPlanId === "string" && typeof scope.processCode === "string"
+      ? { weeklyPlanId: scope.weeklyPlanId, processCode: scope.processCode }
+      : null;
   }
 }

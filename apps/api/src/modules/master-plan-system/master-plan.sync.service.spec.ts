@@ -203,4 +203,26 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(updates[0]).toContain("last_error=NULL");
     expect(updates[0]).not.toContain("FAILED");
   });
+
+  it.each([2, 5, 10])("coalesces %i same-process reconciliation events into one scoped rollup and completes every event", async (count) => {
+    const scope = { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "bending" };
+    const events = Array.from({ length: count }, (_, index) => ({
+      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      tenant_id: "KAINAN", sync_key: "execution-rollup", scope_json: scope,
+      actor_id: "33333333-3333-4333-8333-333333333333", actor_name: "tester", idempotency_key: `outbox-${index}`
+    }));
+    const query = jest.fn(async (statement: string, params?: unknown[]) => {
+      void params;
+      return statement.includes("UPDATE mps_reconciliation_outbox") && statement.includes("status='RUNNING'") ? events : [];
+    });
+    const dataSource = { query, transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    jest.spyOn(service, "run").mockResolvedValue({ syncKey: "execution-rollup", repeated: false, count: 1, metrics: null, status: "SUCCESS" });
+
+    await expect(service.processOutbox()).resolves.toBe(count);
+    expect(service.run).toHaveBeenCalledTimes(1);
+    expect(service.run).toHaveBeenCalledWith("KAINAN", "execution-rollup", "EVENT", events[0]!.actor_id, "tester", "outbox-0", scope);
+    const success = query.mock.calls.find(([statement]) => String(statement).includes("status='SUCCESS'"));
+    expect(success?.[1]?.[0]).toEqual(events.map((event) => event.id));
+  });
 });

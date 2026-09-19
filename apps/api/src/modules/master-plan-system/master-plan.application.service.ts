@@ -59,10 +59,10 @@ export class MasterPlanApplicationService {
       const params = [actor.tenantId, actorId, actorId, ...entries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$3,${entries.map((_, index) => `$${index + 4}`).join(",")}) RETURNING *`, params);
       await this.audit(manager, actor, code, inserted[0].id, `${code}.created`, null, inserted[0]);
-      await this.enqueueReconciliation(manager, resource, actor, inserted[0].id);
+      await this.enqueueReconciliation(manager, resource, actor, inserted[0].id, inserted[0]);
       return inserted[0];
     }));
-    const reconciliation = await this.completeReconciliation(resource, result.id, actor);
+    const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
@@ -97,14 +97,14 @@ export class MasterPlanApplicationService {
         [committedRow] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, id]);
       }
       await this.audit(manager, actor, code, id, `${code}.updated`, current, committedRow);
-      await this.enqueueReconciliation(manager, resource, actor, id);
+      await this.enqueueReconciliation(manager, resource, actor, id, committedRow);
       return {
         id: committedRow.id,
         version: Number(committedRow.version),
         values: Object.fromEntries(entries.map(([field]) => [field, committedRow[columns[field]!]]))
       };
     }));
-    const reconciliation = await this.completeReconciliation(resource, id, actor);
+    const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
@@ -184,7 +184,7 @@ export class MasterPlanApplicationService {
       return response;
     }));
     if (result.repeated || !result.succeeded) { void this.sync.processOutbox().catch(() => undefined); return result; }
-    const reconciliation = await this.completeReconciliation(resource, null, actor);
+    const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
@@ -249,7 +249,7 @@ export class MasterPlanApplicationService {
       return response;
     }));
     if (result.repeated || !(result.created + result.updated)) { void this.sync.processOutbox().catch(() => undefined); return result; }
-    const reconciliation = await this.completeReconciliation(resource, null, actor);
+    const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
@@ -309,11 +309,11 @@ export class MasterPlanApplicationService {
       if (Number(current.version) !== version) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
       await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
       await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
-      await this.enqueueReconciliation(manager, resource, actor, id);
+      await this.enqueueReconciliation(manager, resource, actor, id, current);
       return { id, deleted: true };
     }));
     /* 删除实际报工后同样必须重新汇总，前端依据真实对账状态刷新周计划。 */
-    const reconciliation = await this.completeReconciliation(resource, id, actor);
+    const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
@@ -540,26 +540,33 @@ export class MasterPlanApplicationService {
     return false;
   }
 
-  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null) {
+  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null) {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+    /* 删除报工后事实行已不存在，故在同一事务内把稳定工序身份写入 durable outbox，而不是事后猜测。 */
+    const scope = resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
+      ? this.executionScope(record)
+      : null;
     for (const syncKey of RECONCILIATION_JOBS[resource.code] ?? []) await manager.query(`
-      INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
-      VALUES($1,$2,$3::uuid,$4,$5,$6::uuid,$7,$6::uuid,$6::uuid)
+      INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
+      VALUES($1,$2,$3::uuid,$4,$5::jsonb,$6,$7::uuid,$8,$7::uuid,$7::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
-    [actor.tenantId, resource.code, recordId, syncKey, `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
   }
 
-  private async completeReconciliation(resource: MasterPlanResource, recordId: string | null, actor: MasterPlanActor) {
+  private async completeReconciliation(resource: MasterPlanResource) {
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
-    try { await this.sync.processOutbox(); } catch { /* The committed business write remains successful; the outbox will retry. */ }
-    const [event] = await this.dataSource.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource=$2 AND record_id IS NOT DISTINCT FROM $3::uuid AND sync_key=$4 AND idempotency_key=$5`,
-      [actor.tenantId, resource.code, recordId, feedback.syncKey, `outbox:${actor.requestId}:${resource.code}:${feedback.syncKey}`]);
-    if (!event) return undefined;
-    if (event.status === "FAILED") return { status: "FAILED", message: feedback.failure(event.last_error || "系统将自动重试") };
-    if (event.status === "SUCCESS") return { status: "SUCCESS", message: null };
-    /* The write is committed; a pending or in-flight reconciliation must never be reported as success or failure. */
-    return { status: String(event.status), message: feedback.pending };
+    /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */
+    void this.sync.processOutbox().catch(() => undefined);
+    return { status: "PENDING", message: feedback.pending };
+  }
+
+  private executionScope(record: Record<string, unknown> | null) {
+    const weeklyPlanId = record?.weekly_plan_id ?? record?.weeklyPlanId;
+    const processCode = record?.process_code ?? record?.processCode;
+    return typeof weeklyPlanId === "string" && typeof processCode === "string" && weeklyPlanId && processCode
+      ? { weeklyPlanId, processCode }
+      : null;
   }
 
   private async enforceShippingWindow(resource: MasterPlanResource, actor: MasterPlanActor) {
