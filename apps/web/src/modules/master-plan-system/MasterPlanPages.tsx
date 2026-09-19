@@ -29,6 +29,15 @@ const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entr
 const WORK_ORDER_RESOURCE = "mps-three-day-work-orders";
 /** 只在打印/合并展示中使用、不作为普通表格列的服务端派生字段。 */
 const WORK_ORDER_MERGED_FIELDS = new Set(["productionDateRange", "productionStartDate", "productionEndDate", "weeklyPlanId"]);
+const baseToWeeklyRefreshResources = [
+  "mps-base-plans",
+  "mps-weekly-plans",
+  "mps-weekly-process-plans",
+  "mps-process-reports",
+  "mps-technical-reports",
+  "mps-material-reports",
+  "mps-outsourcing-reports"
+];
 
 function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?: string) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
@@ -392,6 +401,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSelection, setBatchSelection] = useState<KdosTableSelection<any> | null>(null);
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
+  const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -524,7 +534,25 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       refresh();
     } finally { setBatchSaving(false); }
   };
-  const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }), onSuccess: (result) => { message.success(`同步完成，共处理 ${result.count} 条变更`); refresh(); void queryClient.invalidateQueries({ queryKey: ["mps-rows"] }); }, onError: (error) => message.error((error as Error).message) });
+  const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
+  const refreshBaseToWeeklyResources = useCallback(async () => {
+    await Promise.all(baseToWeeklyRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
+  }, [queryClient, sessionSubject]);
+  const runManualSync = useCallback(async (syncKey: string) => {
+    try {
+      const result = await syncMutation.mutateAsync(syncKey);
+      if (syncKey === "base-to-weekly") {
+        message.success(result.count > 0 ? `同步到周计划完成，共处理 ${result.count} 条变更` : "同步完成，没有需要更新的数据");
+        await refreshBaseToWeeklyResources();
+      } else {
+        message.success(`同步完成，共处理 ${result.count} 条变更`);
+        await refresh();
+        void queryClient.invalidateQueries({ queryKey: ["mps-rows"] });
+      }
+    } catch (error) {
+      message.error(syncKey === "base-to-weekly" ? `同步到周计划失败：${(error as Error).message}` : (error as Error).message);
+    }
+  }, [refresh, refreshBaseToWeeklyResources, queryClient, syncMutation]);
   const download = async (path: string, filename: string) => {
     const blob = await api<Blob>(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
     anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
@@ -635,15 +663,24 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       onDelete={async () => { try { const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); await refresh(); if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(deleted?.reconciliation, "删除成功；事业部计划已刷新"); } else message.success("删除成功"); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
-      onSync={resource === "mps-sync-configs" ? () => syncMutation.mutate(row.syncKey) : undefined} />
+      onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined} />
   }] : activeColumns;
   const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
     : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
+  const canSyncBaseToWeekly = resource === "mps-base-plans" && hasResourcePermission("mps-sync-configs", "update");
+  const confirmBaseToWeeklySync = () => {
+    setBaseSyncConfirmOpen(true);
+  };
+  const executeBaseToWeeklySync = async () => {
+    await runManualSync("base-to-weekly");
+    setBaseSyncConfirmOpen(false);
+  };
   return <div>
     <PageHeader title={info.label} subtitle={`${info.area} · 新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段`} actions={<Space>
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
+      {canSyncBaseToWeekly && <Button icon={<SyncOutlined />} loading={syncMutation.isPending} disabled={syncMutation.isPending} onClick={confirmBaseToWeeklySync}>同步到周计划</Button>}
       {resource === WORK_ORDER_RESOURCE && metadata.data?.actions.update && <Button type="primary" icon={<SyncOutlined />} loading={syncingWorkOrders} onClick={() => void syncWorkOrders()}>从周计划同步</Button>}
       {metadata.data?.actions.create && hasResourcePermission(resource, "create") && <Button type="primary" onClick={openCreate}>新增</Button>}
     </Space>} />
@@ -658,6 +695,12 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}
       scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
+    <Modal title="确认同步到周计划？" open={baseSyncConfirmOpen} onCancel={() => { if (!syncMutation.isPending) setBaseSyncConfirmOpen(false); }} onOk={() => void executeBaseToWeeklySync()}
+      okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
+      <p>将把所有满足周计划准入条件的事业部基础计划同步到事业部周计划，并重新计算相关工序执行状态。</p>
+      <p>该操作不是只同步当前筛选结果。</p>
+      <p>是否继续？</p>
+    </Modal>
     <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>
         {saveError && <Alert type="error" showIcon message={saveError} style={{ gridColumn: "1 / -1" }} />}

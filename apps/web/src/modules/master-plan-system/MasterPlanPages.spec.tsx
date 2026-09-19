@@ -236,6 +236,81 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
     expect(screen.getByText("生成失败：未维护工序周期")).toBeInTheDocument();
   });
 
+  it("shows the manual base-to-weekly action only with sync update permission", async () => {
+    mockBasePlans();
+    renderPage("mps-base-plans");
+    await screen.findByText("待完善");
+    expect(screen.getByRole("button", { name: /同步到周计划/ })).toBeInTheDocument();
+  });
+
+  it("hides the manual base-to-weekly action without sync update permission", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["mps-base-plans:*:read", "mps-base-plans:*:update"] }));
+    mockBasePlans();
+    renderPage("mps-base-plans");
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/master-plan-system/resources/mps-base-plans/meta"));
+    expect(screen.queryByRole("button", { name: "同步到周计划" })).not.toBeInTheDocument();
+  });
+
+  it("requires confirmation before calling base-to-weekly", async () => {
+    mockBasePlans();
+    renderPage("mps-base-plans");
+    await screen.findByText("待完善");
+    fireEvent.click(screen.getByText("同步到周计划"));
+
+    const dialog = await screen.findByText("确认同步到周计划？").then((title) => title.closest<HTMLElement>(".ant-modal"));
+    expect(dialog).not.toBeNull();
+    if (!dialog) throw new Error("confirmation modal did not open");
+    expect(within(dialog).getByText("确认同步到周计划？")).toBeInTheDocument();
+    expect(within(dialog).getByText(/该操作不是只同步当前筛选结果/)).toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path).includes("/sync/base-to-weekly") && init?.method === "POST")).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+  });
+
+  it.each([
+    [{ count: 3 }, "同步到周计划完成，共处理 3 条变更"],
+    [{ count: 0 }, "同步完成，没有需要更新的数据"]
+  ] as const)("calls base-to-weekly once and reports count=%s", async (result, successText) => {
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return baseMeta as never;
+      if (path.startsWith("/master-plan-system/resources/mps-base-plans?") && !init) return { rows: [{ ...baseRow }], total: 1 } as never;
+      if (path === "/master-plan-system/sync/base-to-weekly" && init?.method === "POST") return result as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage("mps-base-plans");
+    await screen.findByText("待完善");
+    fireEvent.click(screen.getByText("同步到周计划"));
+    const dialog = await screen.findByText("确认同步到周计划？").then((title) => title.closest<HTMLElement>(".ant-modal"));
+    expect(dialog).not.toBeNull();
+    if (!dialog) throw new Error("confirmation modal did not open");
+    fireEvent.click(within(dialog).getByRole("button", { name: /确认同步/ }));
+
+    await waitFor(() => expect(vi.mocked(api).mock.calls.filter(([path, init]) => path === "/master-plan-system/sync/base-to-weekly" && init?.method === "POST")).toHaveLength(1));
+    expect(success).toHaveBeenCalledWith(successText);
+    success.mockRestore();
+  });
+
+  it("shows the backend error and restores the action after a failed sync", async () => {
+    const error = vi.spyOn(message, "error").mockImplementation(() => undefined as never);
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return baseMeta as never;
+      if (path.startsWith("/master-plan-system/resources/mps-base-plans?") && !init) return { rows: [{ ...baseRow }], total: 1 } as never;
+      if (path === "/master-plan-system/sync/base-to-weekly" && init?.method === "POST") throw new Error("后端真实错误");
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage("mps-base-plans");
+    await screen.findByText("待完善");
+    fireEvent.click(screen.getByText("同步到周计划"));
+    const dialog = await screen.findByText("确认同步到周计划？").then((title) => title.closest<HTMLElement>(".ant-modal"));
+    if (!dialog) throw new Error("confirmation modal did not open");
+    fireEvent.click(within(dialog).getByRole("button", { name: /确认同步/ }));
+    await waitFor(() => expect(error).toHaveBeenCalledWith("同步到周计划失败：后端真实错误"));
+    expect(screen.getByRole("button", { name: /同步到周计划/ })).not.toBeDisabled();
+    error.mockRestore();
+  });
+
   it("locates the generated weekly plan by stable base_plan_id instead of a business search", async () => {
     mockBasePlans({ weeklyPlanState: "已进入周计划", weeklyPlanMissingFields: null, weeklyPlanId: basePlanId });
     renderPage("mps-base-plans");
