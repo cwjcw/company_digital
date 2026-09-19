@@ -1,6 +1,13 @@
-import { aggregateGroup, allocateInboundFifo, outsourcingStatus, processStatus, reverseSchedule } from "./master-plan.domain";
+import { aggregateGroup, allocateInboundFifo, outsourcingStatus, processStatus, reverseSchedule, shouldEnableProcess } from "./master-plan.domain";
 
 describe("master plan domain", () => {
+  it.each([
+    ["自制", "packaging", true], ["自制+外协", "packaging", true], ["外协", "packaging", true], ["中心外购", "packaging", true],
+    ["外协", "cutting", false], ["中心外购", "welding", false], ["自制", "cutting", true], ["自制+外协", "welding", true]
+  ])("enables %s / %s = %s through the single process rule", (manufacturingMethod, processCode, expected) => {
+    expect(shouldEnableProcess(manufacturingMethod, processCode)).toBe(expected);
+  });
+
   it("reverse schedules natural dates and keeps zero-day processes on the cursor", () => {
     const rows = reverseSchedule("2026-09-20", { packagingDays: 2, surfaceTreatmentDays: 0, grindingDays: 3 });
     expect(rows.find((row) => row.code === "packaging")?.dueDate).toBe("2026-09-20");

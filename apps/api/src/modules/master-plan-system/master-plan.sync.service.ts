@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, Logger } from "@nest
 import { Interval } from "@nestjs/schedule";
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
-import { reverseSchedule, shanghaiToday } from "./master-plan.domain";
+import { reverseSchedule, shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master-plan.domain";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql, type MasterPlanResource } from "./master-plan.config";
 import {
   MASTER_PLAN_ERP_ADMISSION, SNAPSHOT_BUSINESS_KEY_BINDING, erpAccountWhitelistSql, erpOrderAdmissibleStatusSql, erpOrderDateAdmissionSql,
@@ -438,10 +438,17 @@ export class MasterPlanSyncService {
       grindingDays: this.nullableNumber(weekly.grinding_days), blankDays: this.nullableNumber(weekly.blank_days),
       surfaceTreatmentDays: this.nullableNumber(weekly.surface_treatment_days), packagingDays: this.nullableNumber(weekly.packaging_days)
     }) : [];
-    const processEnabled = ["自制", "自制+外协"].includes(weekly.manufacturing_method);
+    const enabledSchedules = schedules.filter((schedule) => shouldEnableProcess(weekly.manufacturing_method, schedule.code));
+    /* 包装不依赖工序周期或评审交期；缺失时仍创建同一唯一键下的可报工任务。 */
+    if (!enabledSchedules.some((schedule) => schedule.code === "packaging")) {
+      const packagingIndex = STANDARD_PROCESSES.findIndex(([code]) => code === "packaging");
+      const [, packagingName] = STANDARD_PROCESSES[packagingIndex]!;
+      enabledSchedules.push({ code: "packaging", name: packagingName, sequence: packagingIndex + 1, cycleDays: null, dueDate: null });
+    }
     /* KN-MPS-UI-001：工序任务上的提示文本只是「计划提示」，不是生产异常；它绝不参与周/月计划统一异常汇总。 */
-    if (processEnabled) for (const schedule of schedules) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO UPDATE SET process_name=excluded.process_name,sequence=excluded.sequence,cycle_days=excluded.cycle_days,due_date=excluded.due_date,execution_enabled=true,updated_at=now(),updated_by=$10,version=mps_weekly_process_plans.version+1 WHERE (mps_weekly_process_plans.process_name,mps_weekly_process_plans.sequence,mps_weekly_process_plans.cycle_days,mps_weekly_process_plans.due_date,mps_weekly_process_plans.execution_enabled) IS DISTINCT FROM (excluded.process_name,excluded.sequence,excluded.cycle_days,excluded.due_date,true)`, [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
-    if (!processEnabled) await manager.query(`UPDATE mps_weekly_process_plans SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
+    for (const schedule of enabledSchedules) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO UPDATE SET process_name=excluded.process_name,sequence=excluded.sequence,cycle_days=excluded.cycle_days,due_date=excluded.due_date,execution_enabled=true,updated_at=now(),updated_by=$10,version=mps_weekly_process_plans.version+1 WHERE (mps_weekly_process_plans.process_name,mps_weekly_process_plans.sequence,mps_weekly_process_plans.cycle_days,mps_weekly_process_plans.due_date,mps_weekly_process_plans.execution_enabled) IS DISTINCT FROM (excluded.process_name,excluded.sequence,excluded.cycle_days,excluded.due_date,true)`, [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
+    /* 生产方式切换为外协/中心外购时，保留包装启用，只关闭其余既存内部工序。 */
+    if (!shouldEnableProcess(weekly.manufacturing_method, "cutting")) await manager.query(`UPDATE mps_weekly_process_plans SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND process_code<>'packaging' AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     const technicalDays = this.nullableNumber(weekly.technical_days);
     const drawingDueDate = technicalDays == null || !reviewDueDate ? null : new Date(Date.parse(`${reviewDueDate}T00:00:00Z`) - technicalDays * 86_400_000).toISOString().slice(0, 10);
     await manager.query(`UPDATE mps_weekly_plans SET technical_cycle_days=$3,drawing_due_date=$4,updated_at=now(),updated_by=$5,version=version+1 WHERE tenant_id=$1 AND id=$2 AND (technical_cycle_days,drawing_due_date) IS DISTINCT FROM ($3,$4)`, [tenantId, weekly.id, technicalDays, drawingDueDate, updatedBy]);

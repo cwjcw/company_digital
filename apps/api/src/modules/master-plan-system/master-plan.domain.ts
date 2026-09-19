@@ -10,6 +10,14 @@ export const STANDARD_PROCESSES = standardProcesses.map((process) => [process.co
 export type ProcessCode = string;
 export type ProcessCycleInput = Partial<Record<string, number | null>>;
 
+/**
+ * KN-MPS-PROC-PACKAGING-001：包装是所有生产方式的收尾工序；其余内部工序
+ * 仅适用于自制及自制+外协。执行任务同步与人工报工准入必须共同使用此规则。
+ */
+export function shouldEnableProcess(manufacturingMethod: string | null | undefined, processCode: string) {
+  return processCode === "packaging" || ["自制", "自制+外协"].includes(manufacturingMethod ?? "");
+}
+
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
 

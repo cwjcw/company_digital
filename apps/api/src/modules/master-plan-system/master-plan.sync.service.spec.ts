@@ -17,12 +17,35 @@ describe("MasterPlanSyncService execution matrix", () => {
     const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
     await (service as any).ensureExecutionRows(manager, weekly(method), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const sql = manager.query.mock.calls.map(([statement]) => String(statement));
-    expect(sql.some((statement) => statement.startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(processExpected);
+    const processWrites = manager.query.mock.calls.filter(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"));
+    expect(processWrites.filter(([, params]) => Array.isArray(params) && params[2] === "packaging")).toHaveLength(1);
+    expect(processWrites.filter(([, params]) => Array.isArray(params) && params[2] !== "packaging")).toHaveLength(processExpected ? 9 : 0);
     expect(sql.some((statement) => statement.startsWith("INSERT INTO mps_outsourcing_reports"))).toBe(outsourcingExpected);
     expect(sql.some((statement) => statement.includes("INSERT INTO mps_process_reports"))).toBe(false);
     expect(sql.some((statement) => /DELETE FROM mps_(weekly_process_plans|outsourcing_reports)/.test(statement))).toBe(false);
-    if (!processExpected) expect(sql.some((statement) => statement.startsWith("UPDATE mps_weekly_process_plans SET execution_enabled=false"))).toBe(true);
+    if (!processExpected) expect(sql.some((statement) => statement.includes("process_code<>'packaging' AND execution_enabled=true"))).toBe(true);
     if (!outsourcingExpected) expect(sql.some((statement) => statement.startsWith("UPDATE mps_outsourcing_reports SET execution_enabled=false"))).toBe(true);
+  });
+
+  it("creates one enabled packaging task without process cycles or a review due date", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
+    await (service as any).ensureExecutionRows(manager, { ...weekly("中心外购"), latest_review_due_date: null, packaging_days: null }, "KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const processWrites = manager.query.mock.calls.filter(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"));
+    expect(processWrites).toHaveLength(1);
+    expect(processWrites[0]![1]).toEqual(expect.arrayContaining(["packaging", "包装", 10, null, null, "未维护工序周期"]));
+    expect(String(processWrites[0]![0])).toContain("ON CONFLICT(tenant_id,weekly_plan_id,process_code)");
+  });
+
+  it("keeps packaging enabled while production-method transitions only toggle other internal processes", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
+    await (service as any).ensureExecutionRows(manager, weekly("中心外购"), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    await (service as any).ensureExecutionRows(manager, weekly("自制"), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
+    const processWrites = manager.query.mock.calls.filter(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"));
+    expect(processWrites.filter(([, params]) => Array.isArray(params) && params[2] === "packaging")).toHaveLength(2);
+    expect(processWrites.filter(([, params]) => Array.isArray(params) && params[2] !== "packaging")).toHaveLength(9);
+    const disable = manager.query.mock.calls.map(([statement]) => String(statement)).filter((statement) => statement.startsWith("UPDATE mps_weekly_process_plans SET execution_enabled=false"));
+    expect(disable).toHaveLength(1);
+    expect(disable[0]).toContain("process_code<>'packaging'");
   });
 
   it("refreshes only the requested weekly-plan id through the public execution entrypoint", async () => {

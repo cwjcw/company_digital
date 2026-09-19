@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
-import { shanghaiToday, STANDARD_PROCESSES } from "./master-plan.domain";
+import { shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master-plan.domain";
 import { assertShippingEditAllowed } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 
@@ -427,7 +427,7 @@ export class MasterPlanApplicationService {
     const weeklyPlanId = String(values.weeklyPlanId ?? ""); if (!uuidPattern.test(weeklyPlanId)) throw new BadRequestException("请选择有效的周计划");
     const [weekly] = await manager.query(`SELECT division_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) throw new BadRequestException("周计划不存在");
-    if (["mps-weekly-process-plans", "mps-process-reports"].includes(resource.code) && !["自制", "自制+外协"].includes(weekly.manufacturing_method)) throw new BadRequestException("当前生产方式不允许创建工序任务或工序报工");
+    if (["mps-weekly-process-plans", "mps-process-reports"].includes(resource.code) && !shouldEnableProcess(weekly.manufacturing_method, String(values.processCode ?? ""))) throw new BadRequestException("当前生产方式不允许创建该工序任务或工序报工");
     if (resource.code === "mps-weekly-process-plans") {
       const index = STANDARD_PROCESSES.findIndex(([code]) => code === values.processCode);
       if (index < 0) throw new BadRequestException("工序必须是系统标准工序");
@@ -582,6 +582,8 @@ export class MasterPlanApplicationService {
 
   private audit(manager: EntityManager, actor: MasterPlanActor, resource: string, recordId: string | null, action: string, before: unknown, after: unknown) {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
-    return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$1::uuid,$1::uuid)`, [actorId, actor.username, resource, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.source]);
+    /* audit_logs 的持久化枚举将系统调用归档为 API；应用层仍以 system 表示非人工来源。 */
+    const source = actor.source === "system" ? "api" : actor.source;
+    return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$1::uuid,$1::uuid)`, [actorId, actor.username, resource, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, source]);
   }
 }

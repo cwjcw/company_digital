@@ -3,6 +3,26 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-111111111111", username: "tester", permissions: ["*"], isSystemAdmin: true, moduleAdminCodes: [], tableDataScopes: [], requestId: "request-import", source: "web" as const };
 
 describe("MasterPlanApplicationService imports", () => {
+  it.each(["自制", "自制+外协", "外协", "中心外购"])("allows packaging task and report source for %s", async (manufacturingMethod) => {
+    const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: manufacturingMethod };
+    const query = jest.fn().mockResolvedValue([weekly]);
+    const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
+    for (const code of ["mps-weekly-process-plans", "mps-process-reports"]) {
+      const values: Record<string, unknown> = { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "packaging" };
+      await expect((service as any).fillReportSource((service as any).resource(code), values, actor.tenantId)).resolves.toBeUndefined();
+      expect(values.processName).toBe("包装");
+    }
+  });
+
+  it.each([["外协", "cutting"], ["中心外购", "welding"]])("rejects non-packaging process reports for %s", async (manufacturingMethod, processCode) => {
+    const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: manufacturingMethod };
+    const query = jest.fn().mockResolvedValue([weekly]);
+    const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
+    await expect((service as any).fillReportSource((service as any).resource("mps-process-reports"), {
+      weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode
+    }, actor.tenantId)).rejects.toThrow("当前生产方式不允许创建该工序任务或工序报工");
+  });
+
   it("rejects direct POST and Excel creation of a division weekly plan", async () => {
     const query = jest.fn().mockResolvedValue([]); const manager = { query };
     const service = new MasterPlanApplicationService({ query, manager, transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never, { processOutbox: jest.fn() } as never);
@@ -312,6 +332,18 @@ describe("MasterPlanApplicationService imports", () => {
     await expect(service.refreshWeeklyExecution(id, actor)).resolves.toEqual({ id, version: 4 });
     expect(sync.refreshWeeklyExecution).toHaveBeenCalledWith(manager, id, actor.tenantId, actor.userId, actor.userId);
     await expect(service.refreshWeeklyExecution(id, { ...actor, permissions: [], isSystemAdmin: false })).rejects.toThrow("当前权限组没有该表修改权限");
+  });
+
+  it("records system execution refreshes with the audit API source accepted by the database", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 4, manufacturing_method: "中心外购", created_by: actor.userId };
+    const query = jest.fn(async (sql: string) => sql.startsWith("SELECT * FROM mps_weekly_plans") ? [current] : []);
+    const manager = { query };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, { refreshWeeklyExecution: jest.fn().mockResolvedValue(true), processOutbox: jest.fn() } as never);
+
+    await service.refreshWeeklyExecution(id, { ...actor, source: "system" });
+    const audit = (query.mock.calls as Array<[string, unknown[]?]>).find(([sql]) => String(sql).includes("INSERT INTO audit_logs"));
+    expect(audit?.[1]?.[8]).toBe("api");
   });
 
   it("keeps batch update operational with expected versions, idempotency and audit", async () => {
