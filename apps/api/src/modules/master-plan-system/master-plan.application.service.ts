@@ -31,6 +31,12 @@ const RECONCILIATION_FEEDBACK: Partial<Record<string, { syncKey: string; failure
   "mps-outsourcing-reports": { syncKey: "execution-rollup", failure: (error) => `外协报工已保存，但执行状态同步失败：${error}`, pending: "外协报工已保存，执行状态正在同步，请稍后刷新查看。" }
 };
 
+/** 改动这些周计划字段会改变工序/外协任务准入、排期或计划上下文；备注等无关字段不触发重算。 */
+const WEEKLY_EXECUTION_REFRESH_FIELDS = new Set([
+  "divisionId", "orderNumber", "itemCode", "itemName", "deliveryNumber",
+  "latestReviewDueDate", "plannedQuantity", "manufacturingMethod"
+]);
+
 @Injectable()
 export class MasterPlanApplicationService {
   constructor(private readonly dataSource: DataSource, private readonly sync: MasterPlanSyncService) {}
@@ -85,16 +91,37 @@ export class MasterPlanApplicationService {
       // TypeORM/pg returns UPDATE ... RETURNING as [rows, affectedCount], unlike INSERT/SELECT.
       const updatedRow = Array.isArray(updated[0]) ? updated[0][0] : updated[0];
       if (!updatedRow) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
-      await this.audit(manager, actor, code, id, `${code}.updated`, current, updatedRow);
+      let committedRow = updatedRow;
+      if (resource.code === "mps-weekly-plans" && Object.keys(values).some((field) => WEEKLY_EXECUTION_REFRESH_FIELDS.has(field))) {
+        await this.sync.refreshWeeklyExecution(manager, id, actor.tenantId, actor.userId, actor.userId ?? actor.username);
+        [committedRow] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, id]);
+      }
+      await this.audit(manager, actor, code, id, `${code}.updated`, current, committedRow);
       await this.enqueueReconciliation(manager, resource, actor, id);
       return {
-        id: updatedRow.id,
-        version: Number(updatedRow.version),
-        values: Object.fromEntries(entries.map(([field]) => [field, updatedRow[columns[field]!]]))
+        id: committedRow.id,
+        version: Number(committedRow.version),
+        values: Object.fromEntries(entries.map(([field]) => [field, committedRow[columns[field]!]]))
       };
     }));
     const reconciliation = await this.completeReconciliation(resource, id, actor);
     return reconciliation ? { ...result, reconciliation } : result;
+  }
+
+  /** KN-MPS-UI-WEEKLY-EXEC-001：业务人员按单条周计划手工重算执行任务，不走系统级同步权限或全租户扫描。 */
+  async refreshWeeklyExecution(id: string, actor: MasterPlanActor) {
+    const resource = this.resource("mps-weekly-plans");
+    if (!hasMasterPlanPermission(actor, resource.code, "update")) throw new ForbiddenException("当前权限组没有该表修改权限");
+    return this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      const [current] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
+      if (!current) throw new NotFoundException("周计划不存在");
+      if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许刷新该记录");
+      const refreshed = await this.sync.refreshWeeklyExecution(manager, id, actor.tenantId, actor.userId, actor.userId ?? actor.username);
+      if (!refreshed) throw new NotFoundException("周计划不存在");
+      const [updated] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, id]);
+      await this.audit(manager, actor, resource.code, id, "mps-weekly-plans.execution_refreshed", current, updated);
+      return { id, version: Number(updated.version) };
+    }));
   }
 
   async batchUpdate(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {

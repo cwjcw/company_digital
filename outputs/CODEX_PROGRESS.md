@@ -2,11 +2,11 @@
 
 ## 任务
 
-任务名称：KN-MPS-UI-BASE-SYNC-001
+任务名称：科加出货表字段补齐
 
-任务目标：在 mps-base-plans 页面增加受 mps-sync-configs:update 权限控制的“同步到周计划”手工按钮，复用现有 base-to-weekly 接口，并完成前端测试、构建与部署核验。
+任务目标：从当前数据库匹配科加出货 Excel 的订单品项，补齐缺失的品项名称和下单日期，输出新文件。
 
-当前状态：已完成
+当前状态：阻塞（等待解密后的源文件）
 
 最后更新时间：2026-09-19
 
@@ -14,9 +14,9 @@
 
 ## 当前阶段
 
-当前阶段：已完成实现、验证与 Web 部署
+当前阶段：源文件格式核查
 
-当前子任务：无
+当前子任务：已确认源文件为加密/受保护容器，无法按规范解析。
 
 ---
 
@@ -28,24 +28,27 @@
 - [x] 增加前端回归测试，覆盖权限、确认、单次 POST、count 反馈和失败恢复。
 - [x] 完成 Web 测试、类型检查、lint 和生产构建。
 - [x] 完成备份、仅 Web 容器部署、健康检查及线上静态产物核验；未触发生产同步。
+- [x] 读取 KN-MPS-UI-WEEKLY-EXEC-001 需求、当前进度和适用架构/安全/权限规范。
+- [x] 将单条周计划 execution refresh 归入 MasterPlanSyncService 的唯一执行规则入口。
+- [x] 周计划关键字段保存时，在同一事务中自动刷新执行任务；无关备注不触发刷新。
+- [x] 增加周计划单条手工刷新 API、数据范围/更新权限校验、审计及前端“更多操作”确认入口。
+- [x] API/Web 测试、类型检查、lint、备份、API/Web 部署和健康检查完成。
+- [x] 接收科加出货表字段补齐任务；原文件与生产数据库保持只读。
+- [x] 确认数据库 `mps_erp_order_lines` 包含 `order_number`、`item_code`、`item_name`、`order_date`，可作为后续精确匹配来源。
+- [x] 对 `/home/Jerry/下载/科加最新出货.xlsx` 进行加密容器检测：文件头不是 XLSX ZIP 或旧版 XLS OLE 格式，读取器无法打开。
 
 ## 正在进行
 
-- [x] 定位并实现页面按钮、二次确认、刷新范围和反馈。
+- [ ] 等待解密后的源文件，以识别表头、匹配键和覆盖范围。
 
 ## 待完成
 
-- [x] 增加前端回归测试。
-- [x] 运行 web test、typecheck、lint/build。
-- [x] 按项目正式方式部署 Web，执行健康检查和上线效果核验（不触发生产同步）。
-- [x] 记录同步开关状态与最终报告。
+- [ ] 使用解密后的工作簿生成 `客家出货.xlsx` 并复核匹配结果。
 
 ---
 
 ## 修改文件
 
-- apps/web/src/modules/master-plan-system/MasterPlanPages.tsx
-- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx
 - outputs/CODEX_PROGRESS.md
 
 ## 数据库 Migration
@@ -58,22 +61,23 @@
 
 ## 已运行测试
 
-测试名称：pnpm --filter @tracker/web test；pnpm --filter @tracker/web typecheck；pnpm --filter @tracker/web lint；pnpm --filter @tracker/web build
+测试名称：源文件加密容器检测
 
-结果：131 tests PASS；typecheck PASS；lint 0 error、1 个既有 warning；build PASS（Node 22 触发项目要求 Node >=24 的 pnpm warning）
+结果：已检测到加密/受保护容器，按规范停止导入；未解析任何业务行，未写入数据库。
 
 ## 当前已知问题
 
-- Node 当前为 v22.23.1，项目要求 Node >=24；本次验证和容器构建均通过，pnpm 输出 engine warning。
-- lint 保留既有 apps/web/src/modules/portal/ModulePortal.tsx Fast Refresh warning，无 error。
+- 源文件为加密/受保护容器，无法读取表头或业务行。项目规范要求停止导入，必须提供解密后的文件。
 
 ## 等待用户确认
 
-- 无
+- 请提供解密后的 `/home/Jerry/下载/科加最新出货.xlsx`（可覆盖原文件或另给路径）。
 
 ## 下一步
 
-1. 任务已完成；后续由用户在确认基础计划数据后主动点击同步按钮。
+1. 获取解密后的工作簿。
+2. 检查源表字段与样例，按订单号和品项编码精确匹配数据库。
+3. 生成 `客家出货.xlsx`，复核未匹配/歧义记录并报告。
 
 ---
 

@@ -59,6 +59,10 @@ export class MasterPlanController {
   @Post("resources/mps-three-day-work-orders/sync-from-weekly")
   syncThreeDayWorkOrders(@Req() request: MasterPlanRequest) { return this.workOrders.syncFromWeekly(this.actor(request)); }
 
+  /** KN-MPS-UI-WEEKLY-EXEC-001：仅重算当前周计划的工序/外协执行任务。 */
+  @Post("resources/mps-weekly-plans/:id/refresh-execution")
+  refreshWeeklyExecution(@Param("id") id: string, @Req() request: MasterPlanRequest) { return this.application.refreshWeeklyExecution(id, this.actor(request)); }
+
   @Patch("resources/:resource/batch")
   batchUpdate(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.batchUpdate(resource, body, this.actor(request)); }
 

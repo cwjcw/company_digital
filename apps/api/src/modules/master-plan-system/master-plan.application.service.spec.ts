@@ -300,6 +300,41 @@ describe("MasterPlanApplicationService imports", () => {
     });
   });
 
+  it("refreshes execution rows atomically for weekly execution fields but not remarks", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 4, division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", delivery_number: 1, latest_customer_due_date: "2026-10-01", latest_review_due_date: "2026-09-20", planned_quantity: "10", manufacturing_method: "中心外购", remark: "旧备注", created_by: actor.userId };
+    const updated = { ...current, version: 5, manufacturing_method: "自制+外协" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [current];
+      if (sql.startsWith("UPDATE mps_weekly_plans")) return [[updated], 1];
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid")) return [updated];
+      return [];
+    });
+    const manager = { query };
+    const sync = { refreshWeeklyExecution: jest.fn().mockResolvedValue(true), processOutbox: jest.fn().mockResolvedValue(undefined) };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
+
+    await service.update("mps-weekly-plans", id, { manufacturingMethod: "自制+外协", expectedVersion: 4 }, actor);
+    expect(sync.refreshWeeklyExecution).toHaveBeenCalledWith(manager, id, actor.tenantId, actor.userId, actor.userId);
+
+    sync.refreshWeeklyExecution.mockClear();
+    await service.update("mps-weekly-plans", id, { remark: "新备注", expectedVersion: 4 }, actor);
+    expect(sync.refreshWeeklyExecution).not.toHaveBeenCalled();
+  });
+
+  it("refreshes only an authorized, tenant-scoped weekly plan through the manual command", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    const current = { id, version: 4, manufacturing_method: "自制", created_by: actor.userId };
+    const query = jest.fn(async (sql: string) => sql.startsWith("SELECT * FROM mps_weekly_plans") ? [current] : []);
+    const manager = { query };
+    const sync = { refreshWeeklyExecution: jest.fn().mockResolvedValue(true), processOutbox: jest.fn() };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
+
+    await expect(service.refreshWeeklyExecution(id, actor)).resolves.toEqual({ id, version: 4 });
+    expect(sync.refreshWeeklyExecution).toHaveBeenCalledWith(manager, id, actor.tenantId, actor.userId, actor.userId);
+    await expect(service.refreshWeeklyExecution(id, { ...actor, permissions: [], isSystemAdmin: false })).rejects.toThrow("当前权限组没有该表修改权限");
+  });
+
   it("keeps batch update operational with expected versions, idempotency and audit", async () => {
     const id = "22222222-2222-4222-8222-222222222222"; const current = { id, version: 2, item_code: "旧编码", created_by: actor.userId };
     const query = jest.fn(async (...args: [string, unknown[]?]) => {

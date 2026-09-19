@@ -25,6 +25,21 @@ describe("MasterPlanSyncService execution matrix", () => {
     if (!outsourcingExpected) expect(sql.some((statement) => statement.startsWith("UPDATE mps_outsourcing_reports SET execution_enabled=false"))).toBe(true);
   });
 
+  it("refreshes only the requested weekly-plan id through the public execution entrypoint", async () => {
+    const target = weekly("自制+外协");
+    const query = jest.fn(async (statement: string, params?: unknown[]) => String(statement).startsWith("SELECT w.*,c.")
+      ? String(params?.[1]) === target.id ? [target] : []
+      : []);
+    const manager = { query };
+    const service = new MasterPlanSyncService({} as never);
+
+    await expect(service.refreshWeeklyExecution(manager as never, target.id, "KAINAN", "33333333-3333-4333-8333-333333333333", "tester")).resolves.toBe(true);
+    await expect(service.refreshWeeklyExecution(manager as never, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "KAINAN", "33333333-3333-4333-8333-333333333333", "tester")).resolves.toBe(false);
+    const processWrites = query.mock.calls.filter(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"));
+    expect(processWrites).toHaveLength(10);
+    expect(processWrites.every(([, params]) => Array.isArray(params) && params[1] === target.id)).toBe(true);
+  });
+
   it("creates and updates weekly rows only by stable base-plan identity and admission", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) };
     const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };

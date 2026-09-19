@@ -370,6 +370,40 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
   }, 20_000);
 });
 
+describe("MasterPlanResourcePage weekly execution refresh", () => {
+  const weeklyId = "33333333-3333-4333-8333-333333333333";
+  const weeklyMeta = { resource: "mps-weekly-plans", fields: tablePermissionFieldsFor("mps-weekly-plans"), createFields: [], actions: { create: false, update: true, delete: false, import: false, export: false, batchUpdate: false } };
+
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["*"], isSystemAdmin: true }));
+  });
+
+  afterEach(() => cleanup());
+
+  it("refreshes one weekly plan from the more menu only after confirmation", async () => {
+    const client = newClient(); const invalidated = vi.spyOn(client, "invalidateQueries");
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return weeklyMeta as never;
+      if (path.startsWith("/master-plan-system/resources/mps-weekly-plans?") && !init) return { rows: [{ id: weeklyId, version: 3, orderNumber: "2026A027336", itemCode: "TGH002HT-1/1", canUpdate: true }], total: 1 } as never;
+      if (path === `/master-plan-system/resources/mps-weekly-plans/${weeklyId}/refresh-execution` && init?.method === "POST") return { id: weeklyId, version: 4 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage("mps-weekly-plans", "/master-plan-system/mps-weekly-plans", client);
+    await screen.findByText("2026A027336");
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "刷新工序任务" }));
+    const dialog = await screen.findByRole("dialog", { name: "确认刷新工序任务？" });
+    expect(within(dialog).getByText(/不会删除已有实际报工记录/)).toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path).includes("refresh-execution") && init?.method === "POST")).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认刷新" }));
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(`/master-plan-system/resources/mps-weekly-plans/${weeklyId}/refresh-execution`, { method: "POST" }));
+    const keys = invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? []));
+    for (const resource of ["mps-weekly-plans", "mps-weekly-process-plans", "mps-process-reports", "mps-outsourcing-reports", "mps-technical-reports", "mps-material-reports"]) expect(keys.some((key) => key.includes(resource))).toBe(true);
+  }, 20_000);
+});
+
 describe("MasterPlanResourcePage pending process reporting", () => {
   const weeklyPlanId = "33333333-3333-4333-8333-333333333333";
   const pendingRow = {

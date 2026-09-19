@@ -38,6 +38,14 @@ const baseToWeeklyRefreshResources = [
   "mps-material-reports",
   "mps-outsourcing-reports"
 ];
+const weeklyExecutionRefreshResources = [
+  "mps-weekly-plans",
+  "mps-weekly-process-plans",
+  "mps-process-reports",
+  "mps-outsourcing-reports",
+  "mps-technical-reports",
+  "mps-material-reports"
+];
 
 function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?: string) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
@@ -372,13 +380,14 @@ export function MasterPlanProgressCell({ process, row, value, resource }: { proc
   </Tooltip>;
 }
 
-function RowActions({ metadata, row, onEdit, onDelete, onSync, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
+function RowActions({ metadata, row, onEdit, onDelete, onSync, onRefreshExecution, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onRefreshExecution?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
   const { editing } = useKdosTableEditMode();
   const items = [
     onViewWeekly ? { key: "viewWeekly", label: "查看周计划", onClick: onViewWeekly } : null,
     editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
     editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
     editing && onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
+    onRefreshExecution ? { key: "refreshExecution", label: "刷新工序任务", onClick: onRefreshExecution } : null,
     metadata.actions.delete && row.canDelete !== false && !row.pendingTask ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", content: "删除后不可恢复。", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
   ].filter(Boolean) as Array<{ key: string; label: string; danger?: boolean; onClick: () => void }>;
   if (!items.length) return null;
@@ -402,6 +411,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
   const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
+  const [executionRefreshRow, setExecutionRefreshRow] = useState<any | null>(null);
   const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -422,6 +432,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   }, []);
   const refreshRelatedPlans = useCallback(async () => {
     await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
+  }, [queryClient, sessionSubject]);
+  const refreshWeeklyExecutionResources = useCallback(async () => {
+    await Promise.all(weeklyExecutionRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
   /* 基础计划 -> 周计划必须通过稳定 base_plan_id 定位，禁止按订单号/品项/交期模糊搜索。 */
   const viewWeeklyPlan = useCallback((row: any) => {
@@ -535,6 +548,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     } finally { setBatchSaving(false); }
   };
   const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
+  const executionRefreshMutation = useMutation({ mutationFn: (weeklyPlanId: string) => api<{ id: string; version: number }>(`/master-plan-system/resources/mps-weekly-plans/${weeklyPlanId}/refresh-execution`, { method: "POST" }) });
   const refreshBaseToWeeklyResources = useCallback(async () => {
     await Promise.all(baseToWeeklyRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -553,6 +567,15 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       message.error(syncKey === "base-to-weekly" ? `同步到周计划失败：${(error as Error).message}` : (error as Error).message);
     }
   }, [refresh, refreshBaseToWeeklyResources, queryClient, syncMutation]);
+  const executeWeeklyExecutionRefresh = async () => {
+    if (!executionRefreshRow?.id || executionRefreshMutation.isPending) return;
+    try {
+      await executionRefreshMutation.mutateAsync(String(executionRefreshRow.id));
+      await refreshWeeklyExecutionResources();
+      message.success("工序任务已刷新，可进入工序报工查看");
+      setExecutionRefreshRow(null);
+    } catch (error) { message.error(`刷新工序任务失败：${(error as Error).message}`); }
+  };
   const download = async (path: string, filename: string) => {
     const blob = await api<Blob>(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
     anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
@@ -663,7 +686,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       onDelete={async () => { try { const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); await refresh(); if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(deleted?.reconciliation, "删除成功；事业部计划已刷新"); } else message.success("删除成功"); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
-      onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined} />
+      onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined}
+      onRefreshExecution={resource === "mps-weekly-plans" && metadata.data?.actions.update && hasResourcePermission("mps-weekly-plans", "update") && row.canUpdate !== false ? () => setExecutionRefreshRow(row) : undefined} />
   }] : activeColumns;
   const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
     : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
@@ -699,6 +723,11 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
       <p>将把所有满足周计划准入条件的事业部基础计划同步到事业部周计划，并重新计算相关工序执行状态。</p>
       <p>该操作不是只同步当前筛选结果。</p>
+      <p>是否继续？</p>
+    </Modal>
+    <Modal title="确认刷新工序任务？" open={Boolean(executionRefreshRow)} onCancel={() => { if (!executionRefreshMutation.isPending) setExecutionRefreshRow(null); }} onOk={() => void executeWeeklyExecutionRefresh()}
+      okText="确认刷新" cancelText="取消" confirmLoading={executionRefreshMutation.isPending}>
+      <p>系统将根据当前周计划的生产方式、最迟评审日期及工序周期配置重新计算该计划的工序执行状态和计划日期，不会删除已有实际报工记录。</p>
       <p>是否继续？</p>
     </Modal>
     <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>

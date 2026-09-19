@@ -408,6 +408,18 @@ export class MasterPlanSyncService {
     });
   }
 
+  /**
+   * KN-MPS-UI-WEEKLY-EXEC-001：唯一的单条周计划执行刷新入口。
+   * 基础计划全量投影、周计划关键字段保存和人工兜底都必须进入同一规则，
+   * 以稳定 weekly_plan_id + tenant 定位，绝不按订单/品项等可变业务键推算。
+   */
+  async refreshWeeklyExecution(manager: EntityManager, weeklyPlanId: string, tenantId: string, userId: string | null, updatedBy: string) {
+    const [weekly] = await manager.query(`SELECT w.*,c.technical_days,c.cutting_days,c.machining_days,c.bending_days,c.spot_welding_days,c.welding_days,c.woodworking_days,c.grinding_days,c.blank_days,c.surface_treatment_days,c.packaging_days FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
+    if (!weekly) return false;
+    await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy);
+    return true;
+  }
+
   private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string) {
     const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
     const schedules = reviewDueDate ? reverseSchedule(reviewDueDate, {
