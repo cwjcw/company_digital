@@ -6,7 +6,7 @@
 
 任务目标：安全阻断空客户代码订单进入月计划和集团主计划，保留可追踪订单分配，生成稳定且可闭环的数据异常；部署后仅在临时恢复库验证，保持 `plan-projections=false`。
 
-当前状态：进行中
+当前状态：已完成
 
 最后更新时间：2026-09-20
 
@@ -14,59 +14,60 @@
 
 ## 当前阶段
 
-当前阶段：部署前备份与提交
+当前阶段：已部署并完成临时恢复库真实验证
 
-当前子任务：代码和回归已通过；准备重新备份、提交并部署 API。
+当前子任务：无。
 
 ---
 
 ## 已完成
 
-- [x] 读取任务要求、项目规则、架构/安全/运行手册、当前进度和完整 `kdos-form-platform` 技能规范。
-- [x] 确认开始 HEAD 为 `b9619bf`，工作区 clean；上一任务未开启 `plan-projections`。
-- [x] 确认生产真实问题样本为 `2025A027103`（7项）和 `2026A027319`（1项），当前生产同步开关符合保护要求。
-- [x] 确认 `exception_type` 为无 CHECK 的 varchar；本任务无需 Migration。
-- [x] 在 `projectPlans()` 中将空客户、缺映射、正常映射明确分流：订单分配保留；月计划要求事业部及非空客户；集团主计划要求全部活动明细客户非空且存在 enabled 映射。
-- [x] 在 `refreshExceptions()` 中新增 `MISSING_CUSTOMER_CODE`，以订单/品项或集团订单生成稳定非空异常键；空客户不再伪装为缺主责事业部；新增异常纳入 resolve 生命周期。
-- [x] 在同步 metrics 中新增 `blocked_by_missing_customer_code`，并使 `blocked_by_missing_customer_mapping` 仅统计客户代码有效但无事业部的分配。
-- [x] 扩展主计划投影测试，覆盖 NULL、空字符串、空白、缺映射、正常映射、幂等异常键、客户补齐 resolve 与历史空客户集团计划保护。
-- [x] 完成 API/Web 全量测试、typecheck、lint 与 API build。
+- [x] 确认开始 HEAD `b9619bf`、工作区 clean，生产同步开关符合保护要求。
+- [x] 确认 `mps_data_exceptions.exception_type` 是无 CHECK/enum 的 varchar；无需 Migration。
+- [x] 月计划投影增加“事业部非空且客户代码按 `NULLIF(BTRIM(...),'')` 非空”的显式防线。
+- [x] 集团主计划投影增加“订单全部活动明细客户代码非空且存在 enabled 映射”的显式防线；不删除历史 group/monthly。
+- [x] 新增 `MISSING_CUSTOMER_CODE`，使用 `allocation:<order>:<item>:missing-customer-code` 和 `group:<order>:missing-customer-code` 稳定非空键；空客户与缺映射异常分离。
+- [x] 将 `MISSING_CUSTOMER_CODE` 纳入异常 resolve 生命周期，并将 metrics 拆分为缺客户代码、缺映射和默认事业部三类。
+- [x] 扩展投影测试，覆盖 NULL、空字符串、空白、缺映射、正常映射、幂等、客户补齐 resolve、历史空客户 group。
+- [x] 完成 API/Web 全量测试、typecheck、lint、API Node 24 生产镜像构建。
+- [x] 完成部署前双库/uploads 备份及可恢复性校验，滚动部署 API；API、Web、PostgreSQL healthy，Swagger/OpenAPI 200。
+- [x] 在生产备份恢复的临时库执行真实投影：首次成功、第二次全部核心 metrics 为 0；两个生产样本共 8 个空客户品项均产生 allocation 异常且无 NULL exception_key。
+- [x] 临时库模拟补齐 `2025A027103` 客户代码后，7 个 allocation 恢复正常投影，旧 `MISSING_CUSTOMER_CODE` 均 resolve；另验证 NULL、空字符串、空白及无映射代码四种隔离输入。
+- [x] 生产 `plan-projections` 始终保持 false，未执行 LIVE-003-02 正式切换。
 
 ## 正在进行
 
-- [ ] 重新备份、提交、部署 API，并以生产备份临时库验证真实样本。
+- 无。
 
 ## 待完成
 
-- [ ] 补齐 NULL、空字符串、空白、缺映射、正常映射、重复执行、补齐客户代码、历史空客户集团计划的测试。
-- [ ] 运行 API/Web 测试、typecheck、lint 与构建。
-- [ ] 备份、部署 API，验证健康检查与同步开关。
-- [ ] 使用生产备份临时库验证两条真实样本；不执行 LIVE-003-02 正式切换。
-- [ ] 提交并推送 GitHub main、Gitee master，确保最终工作区 clean。
+- 无；后续正式切换须重新执行 `KN-MPS-LIVE-003-02` 全部门禁。
 
 ---
 
 ## 修改文件
 
+- `apps/api/src/modules/master-plan-system/master-plan.sync.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.live-projection.spec.ts`
 - `outputs/CODEX_PROGRESS.md`
 
 ---
 
 ## 数据库 Migration
 
-- 无：`mps_data_exceptions.exception_type` 为无 CHECK/enum 的 varchar。
+- 无。
 
 ---
 
 ## 新增或修改测试
 
-- `master-plan.live-projection.spec.ts`：空客户代码投影保护 8 类验收场景与 metrics 契约。
+- `master-plan.live-projection.spec.ts`：空客户代码保护 8 类验收场景及 metrics 契约。
 
 ---
 
 ## 已运行测试
 
-测试名称：API 主计划投影定向测试
+测试名称：API 定向投影测试
 
 结果：1 套、13 项通过。
 
@@ -78,11 +79,15 @@
 
 结果：22 套、132 项通过；typecheck 通过；lint 无错误（1 条既有 Fast Refresh 警告）。
 
+测试名称：生产备份临时库真实投影
+
+结果：首次 `SUCCESS`，空客户阻断 8、缺映射 0、默认事业部 0；第二次核心 metrics 全为 0；补齐客户代码后的异常 resolve 通过；NULL/空字符串/空白/无映射四种隔离输入通过。
+
 ---
 
 ## 当前已知问题
 
-- 无；尚待生产备份临时库验证与部署后健康检查。
+- 两条生产样本已有初始化历史月计划/集团计划；本任务按要求不删除且不改写其人工字段。空客户首次投影对这些历史行的月计划/集团投影字段更新数为 0；后续 LIVE-003-02 仍须以其正式门禁审计历史数据。
 
 ---
 
@@ -94,9 +99,8 @@
 
 ## 下一步
 
-1. 执行部署前备份并校验。
-2. 提交实现，构建和滚动部署 API，核验 API/Web/Swagger/OpenAPI/PostgreSQL 健康。
-3. 在新生产备份恢复的临时库执行两次真实投影，验证样本、异常生命周期和幂等；生产开关保持关闭。
+1. 本任务已完成。
+2. 需要正式开启计划投影时，从 `KN-MPS-LIVE-003-02` 的全量 GO/NO-GO 流程重新开始。
 
 ---
 
@@ -106,5 +110,14 @@
 
 1. 读取当前适用的 AGENTS.md、`.agents/skills/kdos-form-platform/SKILL.md` 与本文件。
 2. 执行 `git status`、`git diff --stat`。
-3. 保留未提交修改，从“下一步”的第一项继续。
-4. 禁止开启 `plan-projections`；正式切换必须由重新执行的 `KN-MPS-LIVE-003-02` 决定。
+3. 不得直接开启 `plan-projections`；正式切换只能由重新执行的 `KN-MPS-LIVE-003-02` 决定。
+
+---
+
+## 备份与部署记录
+
+- 备份时间：2026-09-20 09:08:22 +08:00。
+- `data/backups/four_department_tracker_20260920_090822.backup`：313386278 bytes；SHA256 `d775430c7eb870b2d06eac4ae8a34b7fe5714705ffc395772fa736111d92c4db`。
+- `data/backups/kdos_20260920_090822.backup`：8155720 bytes；SHA256 `bc03dc3520a831cc6639f4275c1217ca0e56784565373b6350db0fec85c21ada`。
+- `data/backups/uploads_20260920_090822.tar.gz`：38271 bytes；SHA256 `089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+- 已部署 API commit：`30d8fa7`；生产 API、Web、PostgreSQL healthy，`/api/docs` 与 `/api/openapi.json` 返回 200。
