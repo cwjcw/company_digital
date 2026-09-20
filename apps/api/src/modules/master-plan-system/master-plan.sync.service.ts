@@ -271,7 +271,7 @@ export class MasterPlanSyncService {
    *
    * 三处口径修正（均由 LIVE-001 审计暴露）：
    * 1) 订单分配的事业部**必须由客户→事业部映射派生**，不再依赖 `division_id` 列默认值（否则未映射订单会被静默归入事业四部）；
-   * 2) 没有客户事业部映射的订单**禁止继续投影到月计划**，只保留在 ERP 订单层并产生 MISSING_ALLOCATION_DIVISION 数据异常；
+   * 2) 缺少客户代码或客户事业部映射的订单**禁止继续投影到月计划/集团主计划**，但保留订单分配并产生可追踪数据异常；
    * 3) 累计入库/欠数/完成率只统计科加账套 `UFTData418971_000003`，不再跨账套加总。
    */
   private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
@@ -296,7 +296,8 @@ export class MasterPlanSyncService {
         INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,latest_customer_due_date,item_name,required_quantity,created_by,updated_by)
         SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,max(e.customer_name),a.order_date,max(e.customer_due_date),max(e.preproduction_review_date),max(COALESCE(a.expected_shipping_date,e.customer_due_date)),a.item_name,a.allocated_quantity,$2::uuid,$3
         FROM mps_order_allocations a LEFT JOIN mps_erp_order_lines e ON e.tenant_id=a.tenant_id AND e.order_number=a.order_number AND e.item_code=a.item_code AND e.source_active=true
-        WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
+        WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
+        GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
         ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,
           customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,latest_customer_due_date=excluded.latest_customer_due_date,item_name=excluded.item_name,required_quantity=excluded.required_quantity,
           updated_at=now(),updated_by=$3,version=mps_monthly_plans.version+1
@@ -327,6 +328,8 @@ export class MasterPlanSyncService {
           FROM mps_erp_order_lines
           WHERE tenant_id=$1 AND source_active=true
           GROUP BY tenant_id,order_number
+          /* 一个订单任一活动明细缺少客户代码，就不能以其他明细穿透到集团主计划。 */
+          HAVING bool_and(NULLIF(BTRIM(customer_code),'') IS NOT NULL)
         ), item_totals AS (
           SELECT tenant_id,order_number,sum(required_quantity) required_quantity,
             sum(least(cumulative_inbound_quantity,required_quantity)) completed_quantity,
@@ -339,14 +342,16 @@ export class MasterPlanSyncService {
         INSERT INTO mps_group_plans(tenant_id,order_number,source_accounts,order_type,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,order_amount,required_quantity,primary_division_id,completed_quantity,pending_quantity,completion_rate,created_by,updated_by)
         SELECT s.tenant_id,s.order_number,s.source_accounts,s.order_type,s.customer_code,s.customer_name,s.order_date,s.customer_due_date,s.preproduction_review_date,s.order_amount,i.required_quantity,map.primary_division_id,i.completed_quantity,i.pending_quantity,i.completion_rate,$2::uuid,$3
         FROM source_orders s JOIN item_totals i ON i.tenant_id=s.tenant_id AND i.order_number=s.order_number
-        LEFT JOIN mps_customer_division_mappings map ON map.tenant_id=s.tenant_id AND map.customer_code=s.customer_code AND map.enabled=true
+        /* 没有 enabled 客户映射的订单同样不得自动进入集团主计划。 */
+        JOIN mps_customer_division_mappings map ON map.tenant_id=s.tenant_id AND map.customer_code=s.customer_code AND map.enabled=true
         ON CONFLICT(tenant_id,order_number) DO UPDATE SET source_accounts=excluded.source_accounts,order_type=excluded.order_type,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,order_amount=excluded.order_amount,required_quantity=excluded.required_quantity,primary_division_id=excluded.primary_division_id,completed_quantity=excluded.completed_quantity,pending_quantity=excluded.pending_quantity,completion_rate=excluded.completion_rate,updated_at=now(),updated_by=$3,version=mps_group_plans.version+1
         WHERE (mps_group_plans.source_accounts,mps_group_plans.order_type,mps_group_plans.customer_code,mps_group_plans.customer_name,mps_group_plans.order_date,mps_group_plans.customer_due_date,mps_group_plans.preproduction_review_date,mps_group_plans.order_amount,mps_group_plans.required_quantity,mps_group_plans.primary_division_id,mps_group_plans.completed_quantity,mps_group_plans.pending_quantity,mps_group_plans.completion_rate)
           IS DISTINCT FROM (excluded.source_accounts,excluded.order_type,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.order_amount,excluded.required_quantity,excluded.primary_division_id,excluded.completed_quantity,excluded.pending_quantity,excluded.completion_rate)
         RETURNING id`, [tenantId, userId, updatedBy]);
       await this.refreshExceptions(manager, tenantId, userId, updatedBy);
       const [unmapped] = await manager.query(`SELECT
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND NULLIF(BTRIM(a.customer_code),'') IS NULL) AS blocked_by_missing_customer_code,
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
         (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM mps_customer_division_mappings m WHERE m.tenant_id=a.tenant_id AND m.customer_code=a.customer_code AND m.enabled=true AND m.primary_division_id=a.division_id)) AS division_defaulted`, [tenantId]);
       return {
@@ -354,6 +359,7 @@ export class MasterPlanSyncService {
         metrics: {
           allocations: this.changedCount(allocations), monthly_plans: this.changedCount(monthly), group_plans: this.changedCount(groups),
           inbound_recalculated: this.changedCount(inbound),
+          blocked_by_missing_customer_code: Number(unmapped?.blocked_by_missing_customer_code ?? 0),
           blocked_by_missing_customer_mapping: Number(unmapped?.blocked_by_missing_customer_mapping ?? 0),
           division_defaulted: Number(unmapped?.division_defaulted ?? 0)
         }
@@ -539,11 +545,14 @@ export class MasterPlanSyncService {
   }
 
   private async refreshExceptions(manager: EntityManager, tenantId: string, userId: string | null, updatedBy: string) {
-    await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$2,version=version+1 WHERE tenant_id=$1 AND active=true AND exception_type IN ('MISSING_PRIMARY_DIVISION','MISSING_ALLOCATION_DIVISION','NON_POSITIVE_DEMAND','INBOUND_EXCEEDS_DEMAND')`, [tenantId, updatedBy]);
+    await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$2,version=version+1 WHERE tenant_id=$1 AND active=true AND exception_type IN ('MISSING_CUSTOMER_CODE','MISSING_PRIMARY_DIVISION','MISSING_ALLOCATION_DIVISION','NON_POSITIVE_DEMAND','INBOUND_EXCEEDS_DEMAND')`, [tenantId, updatedBy]);
     await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
     SELECT $1,exception_key,resource,record_id,business_key,exception_type,severity,message,true,$2::uuid,$3 FROM (SELECT DISTINCT ON (exception_key) * FROM (
-      SELECT 'customer:'||customer_code exception_key,'mps-group-plans' resource,NULL::uuid record_id,customer_code business_key,'MISSING_PRIMARY_DIVISION' exception_type,'ERROR' severity,'客户未配置主责事业部' message FROM mps_group_plans WHERE tenant_id=$1 AND primary_division_id IS NULL
-      UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND division_id IS NULL
+      /* 业务字段可为空时，异常键必须仍是稳定、非空的业务主键，绝不依赖 NULL 拼接。 */
+      SELECT 'group:'||order_number||':missing-customer-code' exception_key,'mps-group-plans' resource,id record_id,order_number business_key,'MISSING_CUSTOMER_CODE' exception_type,'ERROR' severity,'ERP订单缺少客户代码，无法确定承接事业部' message FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
+      UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','ERP订单缺少客户代码，无法确定承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
+      UNION ALL SELECT 'customer:'||BTRIM(customer_code),'mps-group-plans',id,BTRIM(customer_code),'MISSING_PRIMARY_DIVISION','ERROR','客户未配置主责事业部' FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND primary_division_id IS NULL
+      UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL
       UNION ALL SELECT 'demand:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'NON_POSITIVE_DEMAND','ERROR','订单需求数量必须大于0' FROM mps_monthly_plans WHERE tenant_id=$1 AND required_quantity<=0
       UNION ALL SELECT 'over-inbound:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'INBOUND_EXCEEDS_DEMAND','WARNING','累计入库数量超过订单需求数量' FROM mps_monthly_plans WHERE tenant_id=$1 AND cumulative_inbound_quantity>required_quantity
     ) exceptions_raw ORDER BY exception_key) exceptions ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$3,version=mps_data_exceptions.version+1`, [tenantId, userId, updatedBy]);
