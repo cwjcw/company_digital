@@ -15,6 +15,10 @@ async function projectPlansSql() {
 }
 
 const statementOf = (statements: string[], needle: string) => statements.find((statement) => statement.includes(needle))!;
+const inboundStatements = (statements: string[]) => ({
+  recalculate: statementOf(statements, "UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=COALESCE(t.quantity,0)"),
+  reset: statementOf(statements, "SET cumulative_inbound_quantity=0")
+});
 
 /** KN-MPS-LIVE-002：计划投影的事业部归属与入库账套口径。 */
 describe("KN-MPS-LIVE-002 master plan projection boundaries", () => {
@@ -39,13 +43,10 @@ describe("KN-MPS-LIVE-002 master plan projection boundaries", () => {
 
   it("Case J：累计入库/欠数/完成率只统计科加账套", async () => {
     const statements = await projectPlansSql();
-    const recalc = statementOf(statements, "UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=COALESCE(t.quantity,0)");
+    const { recalculate: recalc, reset } = inboundStatements(statements);
     expect(recalc).toContain(`AND source_database='${KEJIA}'`);
     expect(recalc).not.toContain("UFTData741219_000012");
-    const reset = statementOf(statements, "SET cumulative_inbound_quantity=0");
     expect(reset).toContain(`i.source_database='${KEJIA}'`);
-    /* 只重置已进入计划链（存在订单分配）的月计划，且绝不清空其他账套的判定结果。 */
-    expect(reset).toContain("EXISTS(SELECT 1 FROM mps_order_allocations a");
   });
 
   it("Case I/J：周计划入库 FIFO 分摊同样只统计科加账套", async () => {
@@ -82,6 +83,47 @@ describe("KN-MPS-LIVE-002 master plan projection boundaries", () => {
     /* 缺映射与缺客户代码必须分开，不能把所有 division_id=NULL 混为同一异常。 */
     expect(exceptions.join("\n")).toContain("NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL");
     expect(exceptions.join("\n")).toContain("NULLIF(BTRIM(customer_code),'') IS NULL");
+  });
+});
+
+/** KN-MPS-PROJ-INBOUND-GUARD-001：入库副作用必须服从与主投影一致的当前合法范围。 */
+describe("KN-MPS-PROJ-INBOUND-GUARD-001 monthly inbound eligibility guard", () => {
+  it("有入库重算与无入库清零复用同一 eligible_allocations CTE", async () => {
+    const { recalculate, reset } = inboundStatements(await projectPlansSql());
+    const eligibility = [
+      "a.tenant_id=$1",
+      "a.division_id IS NOT NULL",
+      "NULLIF(BTRIM(a.customer_code),'') IS NOT NULL",
+      "FROM mps_customer_division_mappings map",
+      "map.tenant_id=a.tenant_id",
+      "map.customer_code=a.customer_code",
+      "map.enabled=true",
+      "map.primary_division_id=a.division_id"
+    ];
+    for (const statement of [recalculate, reset]) {
+      expect(statement).toContain("WITH eligible_allocations AS");
+      for (const fragment of eligibility) expect(statement).toContain(fragment);
+    }
+    expect(recalculate).toContain("JOIN eligible_allocations a");
+    expect(reset).toContain("FROM eligible_allocations a");
+    expect(reset).not.toContain("EXISTS(SELECT 1 FROM mps_order_allocations a");
+  });
+
+  it("空客户、无映射和已失效 mapping 都不会进入两段入库重算范围；恢复 enabled mapping 自动重新准入", async () => {
+    const { recalculate, reset } = inboundStatements(await projectPlansSql());
+    for (const statement of [recalculate, reset]) {
+      /* eligibility 是按当前 allocation + 当前 enabled mapping 判断，不能依赖历史 monthly 自身字段。 */
+      expect(statement).not.toMatch(/\bp\.customer_code\b/);
+      expect(statement).toContain("a.division_id IS NOT NULL");
+      expect(statement).toContain("NULLIF(BTRIM(a.customer_code),'') IS NOT NULL");
+      expect(statement).toContain("map.enabled=true");
+      expect(statement).toContain("map.primary_division_id=a.division_id");
+    }
+  });
+
+  it("冻结的历史 monthly 不计入 inbound_recalculated；计数仍只来自受 guard 的有入库 UPDATE", async () => {
+    const { recalculate } = inboundStatements(await projectPlansSql());
+    expect(recalculate).toContain("RETURNING p.id");
   });
 });
 

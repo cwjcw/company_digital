@@ -305,16 +305,18 @@ export class MasterPlanSyncService {
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.latest_customer_due_date,excluded.item_name,excluded.required_quantity)
         RETURNING id`, [tenantId, userId, updatedBy]);
       const inbound = await manager.query(`
-        WITH totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound
+        WITH ${this.eligibleMonthlyProjectionScopeCte()}, totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound
           WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
           GROUP BY sales_order_number,inventory_code)
         UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=COALESCE(t.quantity,0),pending_quantity=greatest(p.required_quantity-COALESCE(t.quantity,0),0),
           completion_rate=CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END,
-          updated_at=now(),updated_by=$2,version=p.version+1 FROM totals t WHERE p.tenant_id=$1 AND p.order_number=t.order_number AND p.item_code=t.item_code
+          updated_at=now(),updated_by=$2,version=p.version+1 FROM totals t JOIN eligible_allocations a ON a.tenant_id=$1 AND a.order_number=t.order_number AND a.item_code=t.item_code
+          WHERE p.tenant_id=$1 AND p.order_number=t.order_number AND p.item_code=t.item_code
           AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (COALESCE(t.quantity,0),greatest(p.required_quantity-COALESCE(t.quantity,0),0),CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END)
         RETURNING p.id`, [tenantId, updatedBy]);
-      await manager.query(`UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=0,pending_quantity=greatest(p.required_quantity,0),completion_rate=0,updated_at=now(),updated_by=$2,version=p.version+1
-        WHERE p.tenant_id=$1 AND EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=p.tenant_id AND a.order_number=p.order_number AND a.item_code=p.item_code)
+      await manager.query(`WITH ${this.eligibleMonthlyProjectionScopeCte()}
+        UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=0,pending_quantity=greatest(p.required_quantity,0),completion_rate=0,updated_at=now(),updated_by=$2,version=p.version+1
+        FROM eligible_allocations a WHERE p.tenant_id=$1 AND a.tenant_id=p.tenant_id AND a.order_number=p.order_number AND a.item_code=p.item_code
         AND NOT EXISTS(SELECT 1 FROM finished_goods_inbound i WHERE i.sales_order_number=p.order_number AND i.inventory_code=p.item_code AND i.source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}')
         AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (0,greatest(p.required_quantity,0),0)`, [tenantId, updatedBy]);
       const groups = await manager.query(`
@@ -365,6 +367,30 @@ export class MasterPlanSyncService {
         }
       };
     });
+  }
+
+  /**
+   * KN-MPS-PROJ-INBOUND-GUARD-001：月计划入库重算的唯一合法范围。
+   *
+   * 历史 monthly 可以保留，但只有当前 allocation 仍具备非空客户代码、有效事业部且
+   * 与 enabled customer→division mapping 一致时，才允许同步接管入库、欠数和完成率。
+   * 有入库与无入库清零两段 SQL 必须复用这个 CTE，避免出现一处放行、一处冻结的漂移。
+   */
+  private eligibleMonthlyProjectionScopeCte() {
+    return `eligible_allocations AS (
+      SELECT a.tenant_id,a.order_number,a.item_code
+      FROM mps_order_allocations a
+      WHERE a.tenant_id=$1
+        AND a.division_id IS NOT NULL
+        AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
+        AND EXISTS(
+          SELECT 1 FROM mps_customer_division_mappings map
+          WHERE map.tenant_id=a.tenant_id
+            AND map.customer_code=a.customer_code
+            AND map.enabled=true
+            AND map.primary_division_id=a.division_id
+        )
+    )`;
   }
 
   private async shippingToBase(tenantId: string, userId: string | null, updatedBy: string) {
