@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor } from "./master-plan.config";
+import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor, processReportPendingColumns, processReportPendingFields, processReportPendingSourceSql } from "./master-plan.config";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { TableFilterRegistry, type TablePrintRowQuery } from "../../common/filtering/table-filter.registry";
 import { MasterPlanQueryService } from "./master-plan.query.service";
@@ -22,6 +22,11 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
         columns,
         fields: fieldsFor(resource),
         buildScope: (actor, params) => buildDataScopeClause({ resource: resource.code, columns, actor, params }),
+        candidateVariant: resource.code === "mps-process-reports" ? (context) => String(context.view ?? "").toUpperCase() === "PENDING" ? {
+          table: `(${processReportPendingSourceSql})`, columns: processReportPendingColumns(),
+          fields: processReportPendingFields().filter((field) => !field.input),
+          buildScope: (actor, params) => buildDataScopeClause({ resource: resource.code, columns: processReportPendingColumns(), actor, params })
+        } : undefined : undefined,
         /* KN-PRINT-001：打印取数复用模块正式查询（正确处理 ACTUAL/PENDING 视图与工序派生列），不自建打印 SQL。 */
         printRows: (query) => this.printRows(resource.code, query)
       });

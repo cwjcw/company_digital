@@ -11,11 +11,17 @@ const actor: MasterPlanActor = {
 const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: "org-1", name: "事业一部", pathLabel: "凯南 / 制造中心 / 事业一部" }]) };
 
 describe("KN-FILTER-001 field candidates", () => {
-  const context = (query = jest.fn().mockResolvedValue([])) => ({
+  const context = (query = jest.fn().mockImplementation(async (sql: string) => {
+    if (sql.includes("record.process_code")) return ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"].map((value) => ({ value }));
+    if (sql.includes("record.division_id")) return [{ value: "org-1" }];
+    if (sql.includes("record.weekly_plan_id")) return [{ value: "weekly-1" }];
+    if (sql.includes("record.responsible_user_id")) return [{ value: "user-1" }];
+    return [];
+  })) => ({
     service: new FieldCandidateService({ query } as never),
     context: {
       fields: fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-reports")!),
-      expressions: { orderNumber: "order_number" },
+      expressions: { orderNumber: "record.order_number", processCode: "record.process_code", divisionId: "record.division_id", weeklyPlanId: "record.weekly_plan_id", responsibleUserId: "record.responsible_user_id" },
       canReadField: () => true,
       scopedSource: "mps_process_reports record",
       scopedWhere: "record.tenant_id=$1 AND 1=1",
@@ -26,14 +32,14 @@ describe("KN-FILTER-001 field candidates", () => {
     }
   });
 
-  it("returns dictionary options from the canonical metadata instead of querying historical values", async () => {
+  it("returns only dictionary options present in the authorized rows, labeled from canonical metadata", async () => {
     const { service, context: ctx } = context();
     const options = await service.resolve("processCode", "", 50, ctx);
     expect(options.map((option) => option.value)).toEqual(["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"]);
     expect(options.find((option) => option.value === "blank")?.label).toBe("毛坯");
   });
 
-  it("resolves department, member and reference candidates from their formal sources", async () => {
+  it("intersects department, member and reference labels with authorized row values", async () => {
     const { service, context: ctx } = context();
     expect(await service.resolve("divisionId", "事业", 10, ctx)).toEqual([{ value: "org-1", label: "凯南 / 制造中心 / 事业一部" }]);
     expect(await service.resolve("weeklyPlanId", "", 10, ctx)).toEqual([{ value: "weekly-1", label: "2026A027192 / TGG919BDP-1/1" }]);
@@ -50,7 +56,7 @@ describe("KN-FILTER-001 field candidates", () => {
     expect(sql).toContain("SELECT DISTINCT");
     expect(sql).toContain("LIMIT $");
     expect(sql).toContain("record.tenant_id=$1");
-    expect(params).toEqual(["KAINAN", "%2026A%", 20]);
+    expect(params).toEqual(["KAINAN", "%2026A%", 21]);
   });
 
   it("rejects fields without read permission and unsupported field kinds", async () => {

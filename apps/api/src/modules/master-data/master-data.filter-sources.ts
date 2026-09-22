@@ -74,6 +74,11 @@ export class MasterDataFilterSourceProvider implements OnModuleInit {
         columns,
         tenantColumn: null,
         fields: tablePermissionFieldsFor(source.code),
+        searchColumns: source.code === "sales-orders"
+          ? ["orderNumber", "customerCode", "itemNumber", "itemName", "specification", "sourceSystem", "sourceDatabase"]
+          : source.code === "finished-goods-inbound"
+            ? ["documentNumber", "salesOrderNumber", "workOrderNumber", "inventoryCode", "inventoryName", "warehouse", "sourceSystem", "sourceDatabase"]
+            : ["documentNumber", "salesOrderNumber", "customerCode", "customerName", "itemNumber", "itemName", "warehouse", "sourceSystem", "sourceDatabase"],
         buildScope: () => "1=1"
       });
     }

@@ -26,7 +26,8 @@ export type CandidateContext = {
   memberCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
 };
 
-const maxCandidates = 50;
+const maxCandidates = 200;
+export type CandidateResult = { options: FieldCandidate[]; hasMore: boolean };
 
 /**
  * KN-FILTER-001 字段候选值服务（平台级）：为高级筛选提供受权限约束的候选值。
@@ -37,49 +38,62 @@ export class FieldCandidateService {
   constructor(private readonly dataSource: DataSource) {}
 
   async resolve(fieldKey: string, searchInput: unknown, limitInput: unknown, context: CandidateContext): Promise<FieldCandidate[]> {
+    return (await this.resolveWithMeta(fieldKey, searchInput, limitInput, context)).options;
+  }
+
+  async resolveWithMeta(fieldKey: string, searchInput: unknown, limitInput: unknown, context: CandidateContext): Promise<CandidateResult> {
     const field = context.fields.find((candidate) => candidate.key === fieldKey);
     if (!field) throw new BadRequestException(`字段 ${fieldKey} 不存在`);
     if (!context.canReadField(field.key)) throw new ForbiddenException(`当前权限组不能按该字段筛选：${field.label}`);
     const operators = tableFilterOperatorsFor(field);
     if (!operators.length || field.filterable === false) throw new BadRequestException(`字段“${field.label}”不支持筛选`);
     const search = String(searchInput ?? "").trim();
-    const limit = Math.min(maxCandidates, Math.max(1, Math.floor(Number(limitInput) || 20)));
+    const limit = Math.min(maxCandidates, Math.max(1, Math.floor(Number(limitInput) || 50)));
+    if (search.length > 200) throw new BadRequestException("候选搜索词过长");
+    if (["date", "datetime", "number", "boolean", "structured", "attachment"].includes(field.type)) return { options: [], hasMore: false };
 
-    /* 字典类字段直接复用正式 options（不查历史数据库值）。 */
-    if (field.options?.length) {
-      return field.options
-        .filter((option) => !search || option.label.includes(search) || option.value.includes(search))
-        .slice(0, limit)
-        .map((option) => ({ value: String(option.value), label: String(option.label) }));
-    }
-    if (field.type === "dictionary" && !field.options?.length && context.dictionaryCandidates) {
-      return context.dictionaryCandidates(field.key, search, limit);
-    }
-    if (field.type === "department") {
-      if (!context.departmentCandidates) throw new BadRequestException("部门候选暂不可用");
-      return context.departmentCandidates(search, limit);
-    }
-    if (field.type === "member") {
-      if (!context.memberCandidates) throw new BadRequestException("成员候选暂不可用");
-      return context.memberCandidates(search, limit);
-    }
-    if (field.type === "reference") {
-      const referenceResource = field.filterBinding?.referenceResource;
-      if (!referenceResource || !context.referenceCandidates) throw new BadRequestException(`字段“${field.label}”缺少候选来源`);
-      return context.referenceCandidates(referenceResource, search, limit, field.filterBinding);
-    }
-    if (field.type === "boolean") return [{ value: "true", label: "是" }, { value: "false", label: "否" }];
-    if (field.type === "date" || field.type === "datetime" || field.type === "structured" || field.type === "attachment") return [];
-
-    /* text：服务端受限去重查询，禁止一次性返回全部 DISTINCT 结果。 */
+    /* 候选必须先在当前资源的完整授权数据范围内 DISTINCT；不能把目录/静态选项本身当作可见行。 */
     const expression = context.expressions[field.key];
     if (!expression) throw new BadRequestException(`字段“${field.label}”暂不支持候选值`);
     const params = [...context.scopedParams];
-    let clause = `${context.scopedWhere} AND COALESCE(${expression}::text,'') <> ''`;
-    if (search) { params.push(`%${search}%`); clause += ` AND ${expression}::text ILIKE $${params.length}`; }
-    params.push(limit);
+    const labels = new Map<string, string>();
+    let matchingValues: string[] | undefined;
+    let providerHasMore = false;
+    if (field.options?.length) {
+      for (const option of field.options) labels.set(String(option.value), String(option.label));
+      if (search) matchingValues = field.options.filter((option) => option.label.includes(search) || option.value.includes(search)).map((option) => String(option.value));
+    } else {
+      const provider = field.type === "dictionary" ? context.dictionaryCandidates && ((term: string, size: number) => context.dictionaryCandidates!(field.key, term, size))
+        : field.type === "department" ? context.departmentCandidates
+        : field.type === "member" ? context.memberCandidates
+        : field.type === "reference" ? (async (term: string, size: number) => {
+          const referenceResource = field.filterBinding?.referenceResource;
+          if (!referenceResource || !context.referenceCandidates) throw new BadRequestException(`字段“${field.label}”缺少候选来源`);
+          return context.referenceCandidates(referenceResource, term, size, field.filterBinding);
+        }) : undefined;
+      if (provider) {
+        const choices = await provider(search, maxCandidates + 1);
+        providerHasMore = choices.length > maxCandidates;
+        for (const choice of choices) labels.set(String(choice.value), String(choice.label));
+        if (search) matchingValues = choices.map((choice) => String(choice.value));
+      }
+    }
+    if (matchingValues && !matchingValues.length) return { options: [], hasMore: false };
+    const candidateExpression = field.multiple
+      ? "candidate_element.value"
+      : `${expression}::text`;
+    const from = field.multiple
+      ? `${context.scopedSource} CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(to_jsonb(${expression}))='array' THEN to_jsonb(${expression}) ELSE '[]'::jsonb END) AS candidate_element(value)`
+      : context.scopedSource;
+    let clause = `${context.scopedWhere} AND COALESCE(${candidateExpression},'') <> ''`;
+    if (matchingValues) { params.push(matchingValues); clause += ` AND ${candidateExpression} = ANY($${params.length}::text[])`; }
+    else if (search) { params.push(`%${search}%`); clause += ` AND ${candidateExpression} ILIKE $${params.length}`; }
+    params.push(limit + 1);
     const run = context.executor ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
-    const rows = await run(`SELECT DISTINCT ${expression}::text value FROM ${context.scopedSource} WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
-    return rows.map((row: { value: string }) => ({ value: String(row.value), label: String(row.value) }));
+    const rows = await run(`SELECT DISTINCT ${candidateExpression} value FROM ${from} WHERE ${clause} ORDER BY value LIMIT $${params.length}`, params);
+    const needsOfficialLabel = ["member", "department", "reference"].includes(field.type);
+    const visibleRows = rows.slice(0, limit).filter((row: { value: string }) => !needsOfficialLabel || labels.has(String(row.value)));
+    const hasMore = rows.length > limit || providerHasMore || visibleRows.length < Math.min(rows.length, limit);
+    return { options: visibleRows.map((row: { value: string }) => ({ value: String(row.value), label: labels.get(String(row.value)) ?? String(row.value) })), hasMore };
   }
 }

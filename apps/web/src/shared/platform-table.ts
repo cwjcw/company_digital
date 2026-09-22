@@ -1,4 +1,4 @@
-import { emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
+import { emptyFilterGroup, hasFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
 
 /**
  * KN-FILTER-001 平台统一读取入口（前端侧）：所有已注册资源都用同一个 `/table-filters/rows`
@@ -23,7 +23,7 @@ export const blankPlatformQuery = (pageSize = 50): PlatformTableQuery => ({
 export function platformRowsUrl(resource: string, query: PlatformTableQuery) {
   const params = new URLSearchParams({ resource, page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search.trim()) params.set("search", query.search.trim());
-  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
+  if (hasFilterGroup(query.filterGroup)) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   return `/table-filters/rows?${params}`;

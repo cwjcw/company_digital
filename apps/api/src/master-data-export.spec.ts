@@ -19,7 +19,7 @@ function fakeRepository(rows: unknown[]) {
   return {
     calls,
     repository: {
-      metadata: { columns: [{ propertyName: "id", databaseName: "id" }, { propertyName: "itemNumber", databaseName: "item_number" }, { propertyName: "customerName", databaseName: "customer_name" }] },
+      metadata: { columns: [{ propertyName: "id", databaseName: "id" }, { propertyName: "itemNumber", databaseName: "item_number" }, { propertyName: "customerName", databaseName: "customer_name" }], findColumnWithPropertyName: (key: string) => key === "itemNumber" ? { databaseName: "item_number" } : null },
       createQueryBuilder: () => builder
     }
   };
@@ -45,6 +45,7 @@ describe("数据中心跨页导出（KN-FILTER-001）", () => {
     await controller.exportFinishedGoodsOutbound(
       JSON.stringify({ logic: "AND", rules: [{ field: "customerName", operator: "contains", value: "公司" }] }),
       "",
+      "", "",
       { user: { sub: "u1", permissions: ["*"], isSystemAdmin: true } } as never,
       response
     );
@@ -62,8 +63,27 @@ describe("数据中心跨页导出（KN-FILTER-001）", () => {
     await expect(controller.exportFinishedGoodsOutbound(
       JSON.stringify({ logic: "AND", rules: [{ field: "notAColumn", operator: "eq", value: 1 }] }),
       "",
+      "", "",
       { user: { sub: "u1", permissions: ["*"], isSystemAdmin: true } } as never,
       new PassThrough() as never
     )).rejects.toThrow(/不允许筛选/);
+  });
+
+  it("导出继承列菜单排序，拒绝不可读字段排序", async () => {
+    const { repository, calls } = fakeRepository([]);
+    const controller = controllerWith(repository);
+    const response = Object.assign(new PassThrough(), { setHeader: () => undefined }) as never;
+    await controller.exportFinishedGoodsOutbound("", "", "itemNumber", "desc", { user: { permissions: ["*"] } } as never, response);
+    expect(calls.some((call) => call.clause === "row.itemNumber")).toBe(true);
+    await expect(controller.exportFinishedGoodsOutbound("", "", "itemNumber", "asc", { user: { permissions: ["finished-goods-outbound:*:export"] } } as never, response)).rejects.toThrow(/不能按该字段排序/);
+  });
+
+  it("数据中心模块管理员保留字段排序权限", async () => {
+    const { repository, calls } = fakeRepository([]);
+    const response = Object.assign(new PassThrough(), { setHeader: () => undefined }) as never;
+    await controllerWith(repository).exportFinishedGoodsOutbound("", "", "itemNumber", "asc", {
+      user: { permissions: ["finished-goods-outbound:*:export"], moduleAdminCodes: ["data"] }
+    } as never, response);
+    expect(calls.some((call) => call.clause === "row.itemNumber")).toBe(true);
   });
 });

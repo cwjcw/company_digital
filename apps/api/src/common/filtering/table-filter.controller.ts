@@ -4,10 +4,11 @@ import type { Request } from "express";
 import { AuthGuard } from "../../auth";
 import { FieldCandidateService } from "./field-candidate.service";
 import { SqlFilterCompiler } from "./sql-filter.compiler";
+import { parseFilterGroup, type ParsedFilterGroup } from "./filter.contract";
 import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
-import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf, tableResourceRegistry, type TablePermissionFieldDefinition } from "@kdos/contracts";
 
 type FilterRequest = Request & { user: any; requestId: string };
 
@@ -28,17 +29,35 @@ export class TableFilterController {
   ) {}
 
   @Get("candidates")
-  async candidateOptions(@Query("resource") resource: string, @Query("field") field: string, @Query("search") search: string, @Query("limit") limit: string, @Req() request: FilterRequest) {
+  async candidateOptions(@Query() query: Record<string, string | undefined>, @Req() request: FilterRequest) {
     const actor = this.actor(request);
-    const source = this.registry.get(String(resource ?? ""));
+    const registeredSource = this.registry.get(String(query.resource ?? ""));
+    const context = { ...this.context(query.context), ...(query.view === "PENDING" ? { view: "PENDING" } : {}) };
+    const source = { ...registeredSource, ...registeredSource.candidateVariant?.(context) };
+    source.authorize?.(actor);
+    this.assertReadResource(actor, source.code);
     const params: unknown[] = [actor.tenantId];
     const scope = source.buildScope(actor, params);
-    return this.candidates.resolve(String(field ?? ""), search, limit, {
+    const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params) ?? "1=1"];
+    const tableSearch = String(query.tableSearch ?? "").trim();
+    if (tableSearch) {
+      const columns = this.searchExpressions(source, actor);
+      params.push(`%${tableSearch}%`);
+      clauses.push(columns.length ? `(${columns.map((column) => `COALESCE(${column}::text,'') ILIKE $${params.length}`).join(" OR ")})` : "1=0");
+    }
+    const advanced = parseFilterGroup(query.advancedFilterGroup);
+    const header = parseFilterGroup(query.headerFilterGroup);
+    const currentField = String(query.currentHeaderField ?? query.field ?? "");
+    const withoutSelf = this.withoutHeaderField(header, currentField);
+    const group: ParsedFilterGroup = { logic: "AND", rules: [], groups: [advanced, withoutSelf] };
+    const compiler = new SqlFilterCompiler(source.fields, this.expressions(source), (key) => this.canReadField(actor, source.code, key));
+    clauses.push(compiler.compile(group, params));
+    const result = await this.candidates.resolveWithMeta(String(query.field ?? ""), query.search, query.limit, {
       fields: source.fields,
       expressions: this.expressions(source),
-      canReadField: (key) => actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.permissions.includes(`${source.code}:${key}:read`) || actor.permissions.includes(`${source.code}:${key}:update`) || actor.permissions.includes(`${source.code}:*:read`),
+      canReadField: (key) => this.canReadField(actor, source.code, key),
       scopedSource: `${source.table} record`,
-      scopedWhere: this.scopedWhere(source, scope),
+      scopedWhere: clauses.filter((clause) => clause !== "true").join(" AND "),
       scopedParams: params,
       executor: source.runQuery,
       referenceCandidates: (referenceResource, term, size, binding) => this.referenceCandidates(referenceResource, binding, term, size, actor),
@@ -51,6 +70,12 @@ export class TableFilterController {
         term ? [`%${term}%`, size] : [size]
       )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label })))
     });
+    return query.withMeta === "1" ? result : result.options;
+  }
+
+  private withoutHeaderField(group: ParsedFilterGroup, field: string): ParsedFilterGroup {
+    return { logic: group.logic, rules: group.rules.filter((rule) => rule.field !== field),
+      ...(group.groups ? { groups: group.groups.map((child) => this.withoutHeaderField(child, field)) } : {}) };
   }
 
   /**
@@ -63,14 +88,15 @@ export class TableFilterController {
     const actor = this.actor(request);
     const source = this.registry.get(String(query.resource ?? ""));
     source.authorize?.(actor);
+    this.assertReadResource(actor, source.code);
     const params: unknown[] = [actor.tenantId];
-    const clauses = [this.scopedWhere(source, source.buildScope(actor, params))];
+    const clauses = [this.scopedWhere(source, source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params) ?? "1=1"];
     const search = String(query.search ?? "").trim();
     if (search) {
       params.push(`%${search}%`);
-      const columns = (source.searchColumns ?? this.defaultSearchColumns(source)).map((key) => source.columns[key] ?? source.expressions?.[key]).filter(Boolean) as string[];
+      const columns = this.searchExpressions(source, actor);
       clauses.push(columns.length
-        ? `(${columns.map((column) => `COALESCE(record.${column}::text,'') ILIKE $${params.length}`).join(" OR ")})`
+        ? `(${columns.map((column) => `COALESCE(${column}::text,'') ILIKE $${params.length}`).join(" OR ")})`
         : "1=0");
     }
     if (query.filterGroup != null && String(query.filterGroup).trim() !== "") {
@@ -85,6 +111,10 @@ export class TableFilterController {
     const where = clauses.filter((clause) => clause && clause !== "1=1").join(" AND ") || "1=1";
     const sortKey = String(query.sortField ?? "");
     const sortColumn = source.columns[sortKey] ?? source.expressions?.[sortKey];
+    const sortAlias = source.sortAliases?.[sortKey];
+    if (sortKey && (!sortColumn && !sortAlias || !source.fields.some((field) => field.key === (sortAlias?.permissionField ?? sortKey)))) throw new BadRequestException("排序字段无效");
+    if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey)) throw new ForbiddenException("当前权限组不能按该字段排序");
+    const sortExpression = sortKey ? sortAlias?.expression ?? this.expressions(source)[sortKey] : undefined;
     const requestedPageSize = Number(query.pageSize);
     const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
     const page = Math.max(Number(query.page) || 1, 1);
@@ -97,7 +127,7 @@ export class TableFilterController {
     const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;
     const paged = [...params, pageSize, (page - 1) * pageSize];
     const rows = await run(
-      `SELECT ${selected.join(",")} FROM ${source.table} record WHERE ${where} ORDER BY ${sortColumn ? `record.${sortColumn}` : source.columns.id ? "record.id" : "record.ctid"} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST LIMIT $${paged.length - 1} OFFSET $${paged.length}`,
+      `SELECT ${selected.join(",")} FROM ${source.table} record WHERE ${where} ORDER BY ${sortExpression ?? (source.columns.id ? "record.id" : "record.ctid")} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST LIMIT $${paged.length - 1} OFFSET $${paged.length}`,
       paged
     );
     return { rows, total: Number(count), page, pageSize };
@@ -108,10 +138,35 @@ export class TableFilterController {
     return source.fields.filter((field) => searchable.has(field.type)).map((field) => field.key).filter((key) => Boolean(source.columns[key]));
   }
 
+  private searchExpressions(source: ReturnType<TableFilterRegistry["get"]>, actor: TableFilterActor): string[] {
+    return [
+      ...(source.searchColumns ?? this.defaultSearchColumns(source))
+        .filter((key) => this.canReadField(actor, source.code, key))
+        .map((key) => this.expressions(source)[key]),
+      ...(source.searchAliases ?? []).filter((alias) => this.canReadField(actor, source.code, alias.permissionField)).map((alias) => alias.expression)
+    ].filter((expression): expression is string => Boolean(expression));
+  }
+
+  private context(raw: unknown): Record<string, unknown> {
+    if (raw == null || raw === "") return {};
+    if (typeof raw !== "string" || raw.length > 4000) throw new BadRequestException("表格上下文格式无效");
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
+      return value as Record<string, unknown>;
+    } catch { throw new BadRequestException("表格上下文格式无效"); }
+  }
+
   private canReadField(actor: TableFilterActor, resource: string, key: string) {
+    const definition = tableResourceRegistry.find((item) => item.code === resource);
     return actor.isSystemAdmin === true || actor.permissions.includes("*")
-      || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
-      || actor.permissions.includes(`${resource}:*:read`);
+      || Boolean(definition && actor.moduleAdminCodes?.includes(definition.moduleCode))
+      || actor.permissions.includes(`${resource}:${key}:read`);
+  }
+
+  private assertReadResource(actor: TableFilterActor, resource: string) {
+    if (actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:read`)) return;
+    throw new ForbiddenException("当前权限组没有此表的查看权限");
   }
 
   /**
@@ -173,6 +228,7 @@ export class TableFilterController {
    */
   private async referenceCandidates(referenceResource: string, binding: { valueField?: string; labelField?: string } | undefined, term: string, size: number, actor: TableFilterActor) {
     const target = this.registry.get(referenceResource);
+    target.authorize?.(actor);
     const params: unknown[] = [actor.tenantId];
     let clause = this.scopedWhere(target, target.buildScope(actor, params));
     /* 标签列来自字段显式 labelField 或目标资源的标签定义；缺失时直接拒绝，不允许猜测。 */

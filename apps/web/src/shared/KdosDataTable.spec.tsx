@@ -36,6 +36,15 @@ describe("KdosDataTable server pagination", () => {
     expect(view.container.querySelector(".ant-pagination-item-2")).toHaveClass("ant-pagination-item-active");
   });
 
+  it("simple 汇总表不显示搜索、高级筛选、字段显示或列菜单", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KdosDataTable simple resource="equipment-register" systemFields={false}
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
+    expect(screen.queryByRole("button", { name: "设备编号列菜单" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索当前表格")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /字段显示/ })).not.toBeInTheDocument();
+  });
+
   it("allows stable record selection in browse mode and clears it explicitly", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -9,6 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
 import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
+import type { AdvancedFilterRule } from "./advanced-filter";
+import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
 
 type DataRecord = Record<string, any>;
@@ -42,14 +44,14 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
     const definition = tableResourceRegistry.find((item) => item.code === resource);
     return session.isSystemAdmin === true || session.permissions?.includes("*")
       || (definition && session.moduleAdminCodes?.includes(definition.moduleCode))
-      || session.permissions?.includes(`${resource}:${field}:${action}`)
-      || (action === "read" && session.permissions?.includes(`${resource}:${field}:update`));
+      || session.permissions?.includes(`${resource}:${field}:${action}`);
   } catch {
     return false;
   }
 }
 
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
+const emptyHeaderRules: AdvancedFilterRule[] = [];
 export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
 
 export function shouldResetServerTablePage(action: "paginate" | "sort" | "filter") {
@@ -97,19 +99,19 @@ function comparable(value: unknown) {
   return String(value).toLocaleLowerCase();
 }
 
-function decorate<RecordType extends DataRecord>(columns: ColumnsType<RecordType>, serverMode = false, sortField = "", sortOrder?: "ascend" | "descend"): ColumnsType<RecordType> {
+function decorate<RecordType extends DataRecord>(columns: ColumnsType<RecordType>, menuMode: boolean): ColumnsType<RecordType> {
   return columns.map((raw) => {
     const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
-    if (column.children?.length) return { ...column, children: decorate(column.children, serverMode, sortField, sortOrder) };
+    if (column.children?.length) return { ...column, children: decorate(column.children, menuMode) };
     const key = columnKey(column);
     return {
       ...column,
       key: column.key ?? key,
-      sorter: serverMode && column.dataIndex != null ? true : column.sorter ?? (key ? ((left: RecordType, right: RecordType) => {
+      sorter: menuMode ? undefined : column.sorter ?? (key ? ((left: RecordType, right: RecordType) => {
         const a = comparable(valueAt(left, key)); const b = comparable(valueAt(right, key));
         return typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "zh-CN", { numeric: true });
       }) : undefined),
-      sortOrder: serverMode && key === sortField ? sortOrder : column.sortOrder,
+      sortOrder: menuMode ? undefined : column.sortOrder,
       showSorterTooltip: false
     };
   });
@@ -218,6 +220,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
   /* 类型化高级筛选：草稿在面板内维护，只有点击“筛选/清空”才写入 applied 并触发服务端查询。 */
   const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>(emptyFilterGroup());
+  const [headerFilters, setHeaderFilters] = useState<Record<string, AdvancedFilterRule[]>>({});
+  const headerGroup = useMemo<AdvancedFilterGroup>(() => ({ logic: "AND", rules: [], groups: Object.values(headerFilters)
+    .filter((rules) => rules.length).map((rules) => ({ logic: "OR", rules })) }), [headerFilters]);
+  const effectiveFilterGroup = useMemo<AdvancedFilterGroup>(() => headerGroup.groups?.length
+    ? { logic: "AND", rules: [], groups: [filterGroup, headerGroup] } : filterGroup, [filterGroup, headerGroup]);
+  const headerFilterCount = Object.values(headerFilters).filter((rules) => rules.length).length;
   /* KN-FILTER-001 capability：只有已接入平台筛选的资源才显示正式高级筛选，避免“可填写但服务端忽略”。 */
   const filterCapabilities = useQuery({
     queryKey: ["table-filter-resources"],
@@ -247,7 +255,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     resource,
     rangeType,
     search,
-    filterGroup,
+    filterGroup: effectiveFilterGroup,
     sortField: sortField || undefined,
     sortOrder: (sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined) as "asc" | "desc" | undefined,
     context: printContext ?? {},
@@ -300,47 +308,92 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
   }, [resource]);
-  useEffect(() => { setCurrentPage(1); }, [filters, search, filterGroup]);
-  useEffect(() => { setFilterGroup(emptyFilterGroup()); }, [resource, viewKey]);
+  useEffect(() => { setCurrentPage(1); }, [filters, search, effectiveFilterGroup]);
+  useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);
   const filterGroupCallback = useRef(onFilterGroupChange);
   useEffect(() => { filterGroupCallback.current = onFilterGroupChange; }, [onFilterGroupChange]);
-  useEffect(() => { filterGroupCallback.current?.(filterGroup); }, [filterGroup]);
+  useEffect(() => { filterGroupCallback.current?.(effectiveFilterGroup); }, [effectiveFilterGroup]);
   const allColumns = useMemo(() => {
-    const business = decorate(columns, serverMode, sortField, sortOrder);
+    const business = decorate(columns, !simple);
     if (!systemFields) return business;
     const systemKeys = new Set(kdosSystemFieldDefinitions.map((field) => field.key as string));
     const withoutClientAuditColumns = business.filter((column) => !systemKeys.has(columnKey(column)));
     return [...withoutClientAuditColumns, ...systemAuditColumns] as ColumnsType<RecordType>;
-  }, [columns, serverMode, sortField, sortOrder, systemFields, systemAuditColumns]);
+  }, [columns, simple, systemFields, systemAuditColumns]);
   const fields = useMemo(() => flatten(allColumns), [allColumns]);
   const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
     try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); return Array.isArray(saved) ? saved : []; } catch { return []; }
   });
+  const pinnedStorageKey = `kdos-form-pinned:${userKey}:${preferenceKey}`;
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
+    try { const saved = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? "[]"); return Array.isArray(saved) ? saved : []; } catch { return []; }
+  });
   const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key).filter((key) => !defaultHiddenFields.includes(key));
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
+  useEffect(() => { localStorage.setItem(pinnedStorageKey, JSON.stringify(pinnedKeys)); }, [pinnedStorageKey, pinnedKeys]);
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
-  /* KN-FILTER-002：列头不再提供筛选下拉，正式条件只能通过“高级筛选”建立。 */
-  const renderedColumns = useMemo(() => filterColumns(allColumns, visible), [allColumns, visible]);
+  const renderedColumns = useMemo(() => {
+    const metadata = new Map(resolvedFilterFields.map((field) => [field.key, field]));
+    const metadataByLabel = new Map<string, TablePermissionFieldDefinition>();
+    for (const field of resolvedFilterFields) {
+      if (metadataByLabel.has(field.label)) metadataByLabel.delete(field.label);
+      else metadataByLabel.set(field.label, field);
+    }
+    const wrap = (items: ColumnsType<RecordType>): ColumnsType<RecordType> => items.map((raw) => {
+      const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
+      if (column.children?.length) return { ...column, children: wrap(column.children) };
+      const key = columnKey(column);
+      const field = metadata.get(key) ?? (typeof column.title === "string" ? metadataByLabel.get(column.title) : undefined);
+      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasFieldPermission(resource, field.key, "read")) return column;
+      const systemFixed = Boolean(column.fixed);
+      const pinned = pinnedKeys.includes(key);
+      return { ...column, fixed: column.fixed ?? (pinned ? "left" : undefined),
+        title: <KdosColumnMenu title={typeof column.title === "function" ? field.label : column.title ?? field.label}
+          resource={resource} field={field} systemFixed={systemFixed} pinned={pinned}
+          sortOrder={sortField === key ? sortOrder : undefined} filtered={Boolean(headerFilters[field.key]?.length)} rules={headerFilters[field.key] ?? emptyHeaderRules}
+          filterable={Boolean(supportedFilterFields?.some((candidate) => candidate.key === field.key))}
+          tableSearch={search} advancedGroup={filterGroup} headerGroup={headerGroup} context={printContext}
+          onSort={(order) => { setSortField(order ? key : ""); setSortOrder(order); setCurrentPage(1); }}
+          onPin={() => setPinnedKeys((current) => pinned ? current.filter((item) => item !== key) : [...current, key])}
+          onHide={() => { setVisibleKeys(effectiveVisible.filter((item) => item !== key)); setPinnedKeys((current) => current.filter((item) => item !== key)); }}
+          onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
+    });
+    return filterColumns(wrap(allColumns), visible);
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, printContext, effectiveVisible]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
     const activeFilters = Object.entries(filters).filter(([, value]) => value.trim());
-    return (dataSource ?? []).filter((row) => {
+    const matching = (dataSource ?? []).filter((row) => {
       if (keyword && !searchableKeys.some((key) => String(valueAt(row, key) ?? "").toLocaleLowerCase().includes(keyword))) return false;
-      return activeFilters.every(([key, value]) => String(valueAt(row, key) ?? "").toLocaleLowerCase().includes(value.trim().toLocaleLowerCase()));
+      if (!activeFilters.every(([key, value]) => String(valueAt(row, key) ?? "").toLocaleLowerCase().includes(value.trim().toLocaleLowerCase()))) return false;
+      return Boolean(onFilterGroupChange) || Object.entries(headerFilters).every(([key, rules]) => !rules.length || rules.some((rule) => {
+        const value = valueAt(row, key);
+        if (rule.operator === "is_empty") return value == null || value === "" || (Array.isArray(value) && !value.length);
+        if (rule.operator === "in") return rule.values?.map(String).includes(String(value)) ?? false;
+        if (rule.operator === "contains_any") return Array.isArray(value) && value.some((entry) => rule.values?.map(String).includes(String(entry)));
+        if (rule.operator === "eq") return String(value) === String(rule.value);
+        return true;
+      }));
     });
-  }, [dataSource, filters, search, searchableKeys]);
+    if (!sortField || !sortOrder) return matching;
+    return [...matching].sort((left, right) => {
+      const a = comparable(valueAt(left, sortField)); const b = comparable(valueAt(right, sortField));
+      const result = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "zh-CN", { numeric: true });
+      return sortOrder === "descend" ? -result : result;
+    });
+  }, [dataSource, filters, search, searchableKeys, headerFilters, sortField, sortOrder, onFilterGroupChange]);
   const rows = serverData ? (dataSource ?? []) : clientRows;
   const serverQueryCallback = useRef(serverData?.onQueryChange);
   useEffect(() => { serverQueryCallback.current = serverData?.onQueryChange; }, [serverData?.onQueryChange]);
   useEffect(() => {
     if (!serverMode) return;
     const timer = window.setTimeout(() => serverQueryCallback.current?.({
-      page: currentPage, pageSize, search: search.trim(), filters, filterGroup, sortField: sortField || undefined,
+      page: currentPage, pageSize, search: search.trim(), filters, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
       sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
     }), 250);
     return () => window.clearTimeout(timer);
-  }, [serverMode, currentPage, filters, filterGroup, pageSize, search, sortField, sortOrder]);
+  }, [serverMode, currentPage, filters, effectiveFilterGroup, pageSize, search, sortField, sortOrder]);
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil((serverData?.total ?? rows.length) / pageSize));
     if (currentPage > lastPage) setCurrentPage(lastPage);
@@ -435,9 +488,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
       <Space wrap>
         <KdosTableQuickSearch search={search} onSearchChange={setSearch} searchPlaceholder={searchPlaceholder} />
         {typedFilteringSupported ? <KdosAdvancedFilter resource={resource} fields={supportedFilterFields ?? []} value={filterGroup}
+          headerFilterCount={headerFilterCount} onClearHeaderFilters={() => setHeaderFilters({})}
           onApply={(group) => { setFilters({}); setFilterGroup(group); }} />
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
-            ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索或列头筛选">高级筛选（暂不支持）</Button>
+            ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
           {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
@@ -476,9 +530,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
       }}
     />
     {!simple && <Drawer title="字段显示与个人视图" width={400} open={drawerOpen} onClose={() => setDrawerOpen(false)}
-      extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys([]); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
+      extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys([]); setPinnedKeys([]); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
       <Typography.Paragraph type="secondary">字段设置只保存到当前账号；创建人、创建时间、更新人、更新时间可以隐藏，但不能编辑。</Typography.Paragraph>
-      <Checkbox.Group value={effectiveVisible} onChange={(keys) => setVisibleKeys(keys.map(String))} style={{ width: "100%" }}>
+      <Checkbox.Group value={effectiveVisible} onChange={(keys) => { setVisibleKeys(keys.map(String)); setPinnedKeys((current) => current.filter((key) => keys.map(String).includes(key))); }} style={{ width: "100%" }}>
         <Flex vertical gap={8}>{fields.map((field) => <Checkbox key={field.key} value={field.key}>{field.label}</Checkbox>)}</Flex>
       </Checkbox.Group>
     </Drawer>}

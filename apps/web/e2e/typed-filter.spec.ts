@@ -39,7 +39,7 @@ test.describe("类型化高级筛选浏览器 UAT", () => {
   test.describe.configure({ timeout: 120_000 });
   test.skip(!username || !password, "设置 KNFILTER_E2E_USERNAME/KNFILTER_E2E_PASSWORD 后连接已部署环境执行");
 
-  test("已接入资源：条件填入不刷新、点击筛选才请求、列头不再提供第二套筛选", async ({ page }, testInfo) => {
+  test("已接入资源：高级筛选按确认生效，列头使用统一菜单", async ({ page }, testInfo) => {
     await login(page);
     const listRequests: string[] = [];
     page.on("request", (request) => { if (request.url().includes("/equipment/assets")) listRequests.push(decodeURIComponent(request.url())); });
@@ -69,12 +69,15 @@ test.describe("类型化高级筛选浏览器 UAT", () => {
     expect(applied).toContain("contains");
     expect(applied).toContain("page=1");
 
-    /* 列头筛选必须显示同一条规则（Header 与 Advanced 共用 FilterGroup）。 */
+    /* 高级筛选与列头筛选是独立入口，共用服务端 FilterGroup 编译器。 */
     const header = page.locator("th", { hasText: "设备名称" }).first();
-    await header.locator(".ant-table-filter-trigger").click();
-    const dropdown = page.locator(".ant-table-filter-dropdown").last();
-    await expect(dropdown.getByRole("textbox").first()).toHaveValue("CNC");
-    await page.screenshot({ path: testInfo.outputPath("header-filter-synced.png") });
+    await expect(header.locator(".ant-table-filter-trigger")).toHaveCount(0);
+    await header.getByRole("button", { name: "设备名称列菜单" }).click();
+    const menu = page.getByTestId("column-menu-equipmentName");
+    await expect(menu.getByRole("button", { name: "升序" })).toBeVisible();
+    await menu.getByRole("button", { name: "筛选" }).click();
+    await expect(menu.getByPlaceholder("搜索字段值……")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("header-filter-menu.png") });
   });
 
   test("时长字段按小时+分钟输入；百分比字段不要求输入 0.8", async ({ page }) => {

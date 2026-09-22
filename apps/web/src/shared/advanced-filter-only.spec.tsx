@@ -6,8 +6,8 @@ import { api } from "../api";
 import { KdosDataTable } from "./KdosDataTable";
 
 /**
- * KN-FILTER-002：KDOS 标准表格只保留一套用户可见筛选入口——“高级筛选”。
- * 断言旧“筛选”抽屉、列头漏斗等第二套入口不存在，同时高级筛选、快速搜索与分页/排序语义保持。
+ * KN-TABLE-COLUMN-MENU-001：快速搜索、高级筛选、列头筛选共用同一 FilterGroup。
+ * 旧“筛选”抽屉和 Ant 独立排序/漏斗入口仍不存在。
  */
 vi.mock("../api", () => ({ api: vi.fn() }));
 
@@ -50,11 +50,12 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     expect(screen.queryByText("按字段筛选")).not.toBeInTheDocument();
   });
 
-  it("C/D: 列头不提供漏斗/列菜单筛选入口", async () => {
+  it("C/D: 列头使用统一菜单，不出现 Ant 原生漏斗", async () => {
     const { view } = renderTable();
     await waitFor(() => expect(view.container.querySelector(".ant-table-thead")).toBeInTheDocument());
     expect(view.container.querySelectorAll(".ant-table-filter-trigger").length).toBe(0);
     expect(view.container.querySelectorAll(".ant-table-filter-dropdown").length).toBe(0);
+    expect(screen.getByRole("button", { name: "订单编号列菜单" })).toBeInTheDocument();
   });
 
   it("E: 高级筛选仍支持添加/删除/ALL/ANY/筛选/清空", async () => {
@@ -120,11 +121,66 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     expect(rules[0]!.field).toBe("itemCode");
   });
 
-  it("排序仍可用（不由筛选入口提供）", async () => {
+  it("排序只通过列菜单，执行后回到第一页", async () => {
     const { view, queries } = renderTable();
     await waitFor(() => expect(view.container.querySelector(".ant-table-thead")).toBeInTheDocument());
-    const sorter = view.container.querySelector(".ant-table-column-sorters") ?? view.container.querySelector(".ant-table-column-has-sorters");
-    expect(sorter).toBeTruthy();
-    expect(queries.length).toBeGreaterThanOrEqual(0);
+    expect(view.container.querySelector(".ant-table-column-sorters")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(screen.getByRole("button", { name: /升序/ }));
+    await waitFor(() => expect(queries.at(-1)).toEqual(expect.objectContaining({ sortField: "orderNumber", sortOrder: "asc", page: 1 })));
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(screen.getByRole("button", { name: /降序/ }));
+    await waitFor(() => expect(queries.at(-1)).toEqual(expect.objectContaining({ sortField: "orderNumber", sortOrder: "desc", page: 1 })));
+  });
+
+  it("列头多选和未填写形成同字段 OR，候选从服务端获取且排除自身筛选", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => path === "/table-filters/resources"
+      ? [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never
+      : path.startsWith("/table-filters/candidates?") ? { options: [{ value: "A", label: "A" }, { value: "B", label: "B" }], hasMore: false } as never : [] as never);
+    const { queries } = renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    const panel = await screen.findByTestId("column-menu-orderNumber");
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /筛选/ })).toBeEnabled());
+    fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
+    await waitFor(() => expect(within(panel).getByText("A")).toBeInTheDocument());
+    fireEvent.click(within(panel).getByText("A"));
+    fireEvent.click(within(panel).getByText("未填写"));
+    fireEvent.click(within(panel).getByRole("button", { name: /确\s*定/ }));
+    await waitFor(() => expect(queries.at(-1)?.filterGroup).toMatchObject({ logic: "AND", groups: [
+      { logic: "AND", rules: [] }, { logic: "AND", groups: [{ logic: "OR", rules: [
+        { field: "orderNumber", operator: "in", values: ["A"] }, { field: "orderNumber", operator: "is_empty" }
+      ] }] }
+    ] }));
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("currentHeaderField=orderNumber"))).toBe(true));
+  });
+
+  it("高基数未加载完整候选时禁用全选，simple 表不显示列菜单", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => path === "/table-filters/resources"
+      ? [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never
+      : path.startsWith("/table-filters/candidates?") ? { options: [{ value: "A", label: "A" }], hasMore: true } as never : [] as never);
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    const panel = await screen.findByTestId("column-menu-orderNumber");
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /筛选/ })).toBeEnabled());
+    fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
+    await waitFor(() => expect(within(panel).getByText("候选值较多，请输入关键词搜索")).toBeInTheDocument());
+    expect(within(panel).getByRole("checkbox", { name: "全选" })).toBeDisabled();
+  });
+
+  it("冻结/隐藏写入当前用户个人视图，隐藏后取消用户冻结", async () => {
+    renderTable();
+    const trigger = screen.getByRole("button", { name: "订单编号列菜单" });
+    expect(trigger.getAttribute("tabindex")).not.toBe("-1");
+    fireEvent.focus(trigger);
+    fireEvent.click(trigger);
+    const panel = await screen.findByTestId("column-menu-orderNumber");
+    fireEvent.click(within(panel).getByRole("button", { name: /冻结到左侧/ }));
+    expect(JSON.parse(localStorage.getItem("kdos-form-pinned:u1:mps-weekly-plans") ?? "[]")).toContain("orderNumber");
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "隐藏此列" }));
+    expect(JSON.parse(localStorage.getItem("kdos-form-pinned:u1:mps-weekly-plans") ?? "[]")).not.toContain("orderNumber");
+    expect(screen.queryByRole("button", { name: "订单编号列菜单" })).not.toBeInTheDocument();
   });
 });

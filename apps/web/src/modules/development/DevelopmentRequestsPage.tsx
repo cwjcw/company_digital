@@ -85,7 +85,7 @@ export function DevelopmentRequestsPage() {
   const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>();
   const requests = useQuery({
     queryKey: ["development-requests", scope, search, filterGroup],
-    queryFn: () => api<RequestRow[]>(`/development-requests?scope=${scope}&search=${encodeURIComponent(search)}${filterGroup?.rules?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(filterGroup))}` : ""}`)
+    queryFn: () => api<RequestRow[]>(`/development-requests?scope=${scope}&search=${encodeURIComponent(search)}${filterGroup?.rules?.length || filterGroup?.groups?.length ? `&filterGroup=${encodeURIComponent(JSON.stringify(filterGroup))}` : ""}`)
   });
   const detail = useQuery({ queryKey: ["development-request", detailId], queryFn: () => api<RequestRow>(`/development-requests/${detailId}`), enabled: Boolean(detailId) });
   const rows = useMemo(() => requests.data ?? [], [requests.data]);

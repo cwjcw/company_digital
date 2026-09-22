@@ -89,6 +89,17 @@ describe("平台筛选资源注册表（KN-FILTER-001）", () => {
     expect(clause).toContain("division_organization_unit_id");
     expect(clause).not.toContain("created_by");
     expect(params).toContainEqual(["division-1"]);
+    expect(source.expressions?.responsibleUserIds).toContain("equipment_responsibles");
+    expect(registry.get("equipment-status-report").expressions?.responsibleUserIds).toContain("equipment_responsibles");
+  });
+
+  it("待报工候选来自任务来源而非实际报工表", () => {
+    const source = registry.get("mps-process-reports");
+    const pending = source.candidateVariant?.({ view: "PENDING" });
+    expect(pending?.table).toContain("mps_weekly_process_plans task");
+    expect(pending?.table).toContain("task.execution_enabled=true");
+    expect(pending?.columns?.remainingQuantity).toBe("remaining_quantity");
+    expect(source.candidateVariant?.({ view: "ACTUAL" })).toBeUndefined();
   });
 
 });

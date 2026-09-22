@@ -51,7 +51,7 @@ function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?:
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize), view });
   if (query.search) params.set("search", query.search);
   if (Object.values(query.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(query.filters));
-  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
+  if (query.filterGroup?.rules?.length || query.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   if (basePlanId) params.set("basePlanId", basePlanId);

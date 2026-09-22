@@ -3,6 +3,7 @@ export type EquipmentActor = {
   userId: string | null;
   username: string;
   isSystemAdmin?: boolean;
+  moduleAdminCodes?: string[];
   permissions: string[];
   tableDataScopes: Array<{
     resource: string;

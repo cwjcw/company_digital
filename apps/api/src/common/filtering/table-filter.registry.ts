@@ -49,6 +49,8 @@ export type TableFilterSource = {
   tenantColumn?: string | null;
   /** field key → 完整 SQL 表达式（用于虚拟列/关联列）；优先于 columns。 */
   expressions?: Record<string, string>;
+  /** 前端展示列与正式字段键不同的资源（如 divisionName→divisionId）的受控排序绑定。 */
+  sortAliases?: Record<string, { expression: string; permissionField: string }>;
   /**
    * 可选查询执行器：资源所在的物理库与平台默认 DataSource 不同时使用
    * （例如 KDOS 库 `marketing.*` 的营销资源）。不提供时使用平台默认 DataSource。
@@ -67,6 +69,8 @@ export type TableFilterSource = {
   authorize?: (actor: TableFilterActor) => void;
   /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
   searchColumns?: string[];
+  /** 列表快速搜索中的展示/派生表达式，必须绑定一个正式可读字段。 */
+  searchAliases?: Array<{ expression: string; permissionField: string }>;
   /**
    * KN-PRINT-001：该资源的正式稳定主键（打印已选按此重取，不假设所有 resource 都是 UUID）。
    * 默认 `{ field: "id", type: "uuid" }`；非 UUID 主键的资源必须显式声明。
@@ -85,6 +89,10 @@ export type TableFilterSource = {
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */
   buildScope: (actor: TableFilterActor, params: unknown[]) => string;
+  /** 页面上下文由服务端资源注册表解释并强制 AND；未知键不得被客户端当作 SQL 发送。 */
+  buildContext?: (context: Record<string, unknown>, params: unknown[]) => string | Promise<string>;
+  /** 同一 resource 的上下文视图可选择另一真实行来源（如待报工任务）。 */
+  candidateVariant?: (context: Record<string, unknown>) => Partial<Pick<TableFilterSource, "table" | "columns" | "fields" | "buildScope" | "searchColumns">> | undefined;
 };
 
 /**

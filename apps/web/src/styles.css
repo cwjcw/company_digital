@@ -760,3 +760,14 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .kdos-auxiliary-group-head { background: #f4f6fa; }
 .kdos-auxiliary-group-head > .ant-table-column-title { font-weight: 700; }
 .kdos-auxiliary-group-sub { background: #fafbfd; }
+.kdos-column-title { display: inline-flex; align-items: center; gap: 5px; min-width: 0; width: 100%; }
+.kdos-column-title-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kdos-column-state { color: #1677ff; font-size: 12px; flex: none; }
+.kdos-column-menu-trigger { border: 0; background: transparent; cursor: pointer; color: #576779; opacity: 0; padding: 2px; margin-left: auto; flex: none; }
+.ant-table-thead th:hover .kdos-column-menu-trigger,
+.kdos-column-menu-trigger:focus-visible,
+.kdos-column-menu-trigger[aria-expanded="true"] { opacity: 1; }
+.kdos-column-menu-trigger:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.kdos-column-menu-panel { display: flex; flex-direction: column; gap: 4px; min-width: 180px; max-width: 310px; }
+.kdos-column-menu-panel > .ant-btn { text-align: left; }
+.kdos-column-menu-candidates { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }

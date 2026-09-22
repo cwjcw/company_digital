@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { DataSource } from "typeorm";
-import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, type MasterPlanResource } from "./master-plan.config";
+import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { standardProcesses } from "@tracker/shared";
@@ -111,6 +111,8 @@ export class MasterPlanQueryService {
     const where = clauses.join(" AND ");
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM ${resource.table} record WHERE ${where}`, params);
     const requestedSort = String(input.sortField ?? "");
+    if (requestedSort && !allColumns[requestedSort]) throw new BadRequestException("排序字段无效");
+    if (requestedSort && !visibleFields.includes(requestedSort)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortColumn = visibleFields.includes(requestedSort) ? allColumns[requestedSort] : "";
     const orderBy = sortColumn ? `${this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
     const dataParams = [...params];
@@ -265,17 +267,7 @@ export class MasterPlanQueryService {
     const visibleFields = processReportPendingFields().map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 50); const pageSize = [20,50,100,200].includes(requested) ? requested : 50;
-    const source = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id "weeklyPlanId",weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,
-      task.process_code,task.process_name,weekly.planned_quantity,
-      COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity,
-      GREATEST(COALESCE(weekly.planned_quantity,0)-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
-      NULL::numeric production_quantity,NULL::date production_date,NULL::text exception_text,
-      task.created_by,task.created_at,task.updated_by,task.updated_at
-      FROM mps_weekly_process_plans task
-      JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
-      LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
-        ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
-      WHERE task.execution_enabled=true AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
+    const source = processReportPendingSourceSql;
     const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
     const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];
     const search = String(input.search ?? "").trim();

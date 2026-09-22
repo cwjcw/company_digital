@@ -50,7 +50,7 @@ function tableUrl(path: string, query: TableQuery) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search) params.set("search", query.search);
   for (const [key, value] of Object.entries(query.filters)) if (value.trim()) params.set(key, value.trim());
-  if (query.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
+  if (query.filterGroup?.rules?.length || query.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(query.filterGroup));
   if (query.sortField) params.set("sortField", query.sortField);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   return `${path}?${params}`;
@@ -260,6 +260,9 @@ export function EquipmentStatusReportPage() {
     try {
       const query = new URLSearchParams(); if (tableQuery.search) query.set("search", tableQuery.search);
       for (const [key, value] of Object.entries(tableQuery.filters)) if (value.trim()) query.set(key, value.trim());
+      if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) query.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
+      if (tableQuery.sortField) query.set("sortField", tableQuery.sortField);
+      if (tableQuery.sortOrder) query.set("sortOrder", tableQuery.sortOrder);
       await downloadApiFile(`/equipment/status-reports/export?${query}`, "设备状态填报.xlsx"); message.success("设备状态填报已导出");
     } catch (error) { message.error(errorText(error)); }
     finally { setExporting(false); }

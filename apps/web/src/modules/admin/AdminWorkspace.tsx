@@ -57,7 +57,7 @@ export function AdminWorkspace() {
     if (context.status && context.status !== "all") params.set("status", context.status);
     if (context.departmentId) params.set("departmentId", context.departmentId);
     if (context.roleId) params.set("roleId", context.roleId);
-    if (base.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(base.filterGroup));
+    if (base.filterGroup?.rules?.length || base.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(base.filterGroup));
     if (base.sortField) params.set("sortField", base.sortField);
     if (base.sortOrder) params.set("sortOrder", base.sortOrder);
     return `/admin/users?${params}`;

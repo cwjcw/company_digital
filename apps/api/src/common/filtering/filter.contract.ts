@@ -7,22 +7,37 @@ export type TypedFilterRule = {
 };
 
 export const maxFilterRules = 50;
+export const maxFilterDepth = 4;
+export type ParsedFilterGroup = { logic: "AND" | "OR"; rules: TypedFilterRule[]; groups?: ParsedFilterGroup[] };
 
 export const isBlankFilterValue = (value: unknown) => value == null || String(value).trim() === "";
 
-export function parseFilterGroup(input: unknown): { logic: "AND" | "OR"; rules: TypedFilterRule[] } {
+export function parseFilterGroup(input: unknown): ParsedFilterGroup {
   if (input == null || input === "") return { logic: "AND", rules: [] };
   let value: unknown = input;
   if (typeof input === "string") {
     try { value = JSON.parse(input); } catch { throw new BadRequestException("高级筛选条件格式无效"); }
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BadRequestException("高级筛选条件格式无效");
-  const raw = value as { logic?: unknown; rules?: unknown };
+  let ruleCount = 0;
+  const parse = (candidate: unknown, depth: number): ParsedFilterGroup => {
+  if (depth > maxFilterDepth) throw new BadRequestException(`高级筛选最多嵌套 ${maxFilterDepth} 层`);
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new BadRequestException("高级筛选条件格式无效");
+  const raw = candidate as { logic?: unknown; rules?: unknown; groups?: unknown };
   /* 兼容界面上的“所有/任一”表述：ALL=AND、ANY=OR；其余取值一律拒绝。 */
   const rawLogic = raw.logic == null ? "AND" : String(raw.logic).toUpperCase();
   const logic = rawLogic === "ALL" ? "AND" : rawLogic === "ANY" ? "OR" : rawLogic;
   if (logic !== "AND" && logic !== "OR") throw new BadRequestException("高级筛选组合方式只能是“所有(AND)”或“任一(OR)”");
   if (!Array.isArray(raw.rules)) throw new BadRequestException("高级筛选条件格式无效");
-  if (raw.rules.length > maxFilterRules) throw new BadRequestException(`高级筛选单次最多 ${maxFilterRules} 条条件`);
-  return { logic, rules: raw.rules as TypedFilterRule[] };
+  if (raw.groups !== undefined && !Array.isArray(raw.groups)) throw new BadRequestException("高级筛选条件格式无效");
+  ruleCount += raw.rules.length;
+  if (ruleCount > maxFilterRules) throw new BadRequestException(`高级筛选单次最多 ${maxFilterRules} 条条件`);
+  const rules = raw.rules.map((rule) => {
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) throw new BadRequestException("高级筛选条件格式无效");
+    return rule as TypedFilterRule;
+  });
+  const groups = raw.groups?.map((group) => parse(group, depth + 1));
+  return groups === undefined ? { logic, rules } : { logic, rules, groups };
+  };
+  return parse(value, 1);
 }

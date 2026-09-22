@@ -255,6 +255,19 @@ export function processReportPendingColumns(): Record<string, string> {
   };
 }
 
+/** 待报工列表与候选查询共用任务事实来源，避免把 ACTUAL 报工记录当成 PENDING 候选。 */
+export const processReportPendingSourceSql = `SELECT task.id,task.version,task.tenant_id,weekly.division_id,task.weekly_plan_id "weeklyPlanId",weekly.order_number,weekly.item_code,weekly.item_name,weekly.delivery_number,
+      task.process_code,task.process_name,weekly.planned_quantity,
+      COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity,
+      GREATEST(COALESCE(weekly.planned_quantity,0)-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity,
+      NULL::numeric production_quantity,NULL::date production_date,NULL::text exception_text,
+      task.created_by,task.created_at,task.updated_by,task.updated_at
+      FROM mps_weekly_process_plans task
+      JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
+      LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
+        ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
+      WHERE task.execution_enabled=true AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
+
 export function processReportPendingFields(): Array<TablePermissionFieldDefinition & { input: boolean }> {
   const registry = new Map(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-reports")!).map((field) => [field.key, field]));
   return PROCESS_REPORT_PENDING_FIELDS.map((entry) => {

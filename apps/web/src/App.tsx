@@ -409,7 +409,7 @@ function FinishedGoodsInboundPage() {
       const params = new URLSearchParams({ page: String(tableQuery.page), pageSize: String(tableQuery.pageSize) });
       if (tableQuery.search) params.set("search", tableQuery.search);
       if (Object.values(tableQuery.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(tableQuery.filters));
-      if (tableQuery.filterGroup?.rules?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
+      if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
       if (tableQuery.sortField) params.set("sortField", tableQuery.sortField);
       if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder);
       return api<InboundTablePage>(`/master-data/finished-goods-inbound?${params}`);
@@ -459,7 +459,7 @@ function FinishedGoodsInboundPage() {
       /* KN-FILTER-001：导出与列表共用 search + FilterGroup，保证跨页导出与筛选一致。 */
       const exportParams = new URLSearchParams({ format });
       if (tableQuery.search) exportParams.set("search", tableQuery.search);
-      if (tableQuery.filterGroup?.rules?.length) exportParams.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
+      if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) exportParams.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
       await downloadApiFile(`/master-data/finished-goods-inbound/export?${exportParams}`, `成品入库数据.${format}`);
       message.success(`成品入库 ${format.toUpperCase()} 已导出`);
     } catch (error) { message.error((error as Error).message); }
@@ -533,7 +533,7 @@ function FinishedGoodsInboundPage() {
 
 function AuditLogs() {
   const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:50,search:"",filters:{}});
-  const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.filterGroup?.rules?.length)params.set("filterGroup",JSON.stringify(tableQuery.filterGroup));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
+  const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length)params.set("filterGroup",JSON.stringify(tableQuery.filterGroup));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
   return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
     <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data?.rows} serverData={{total:logs.data?.total??0,onQueryChange:setTableQuery}} columns={[
       { title: "用户", dataIndex: "actorName", width: 120 }, { title: "资源", dataIndex: "resource", width: 130 },

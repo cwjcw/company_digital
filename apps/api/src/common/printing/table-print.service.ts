@@ -173,15 +173,17 @@ export class TablePrintService {
   private canReadResource(actor: TableFilterActor, source: TableFilterSource) {
     if (actor.isSystemAdmin === true || (actor.permissions ?? []).includes("*")) return true;
     const permissions = actor.permissions ?? [];
-    return source.fields.some((field) => this.canReadField(actor, source.code, field.key))
-      || permissions.includes(`${source.code}:*:read`) || permissions.includes(`${source.code}:*:export`);
+    const definition = tableResourceRegistry.find((item) => item.code === source.code);
+    return Boolean(definition && actor.moduleAdminCodes?.includes(definition.moduleCode))
+      || permissions.includes(`${source.code}:*:read`);
   }
 
   private canReadField(actor: TableFilterActor, resource: string, key: string) {
     const permissions = actor.permissions ?? [];
+    const definition = tableResourceRegistry.find((item) => item.code === resource);
     return actor.isSystemAdmin === true || permissions.includes("*")
-      || permissions.includes(`${resource}:${key}:read`) || permissions.includes(`${resource}:${key}:update`)
-      || permissions.includes(`${resource}:*:read`);
+      || Boolean(definition && actor.moduleAdminCodes?.includes(definition.moduleCode))
+      || permissions.includes(`${resource}:${key}:read`);
   }
 
   /** 打印列 = 正式 metadata ∩ 字段读权限 ∩ 客户端可收窄集合；客户端无法扩大字段。 */
@@ -292,6 +294,10 @@ export class TablePrintService {
     source: TableFilterSource, actor: TableFilterActor, query: TablePrintQuery,
     fields: TablePermissionFieldDefinition[], page: number, pageSize: number, ids?: string[]
   ) {
+    const sortKey = String(query.sortField ?? "");
+    const sortPermissionField = source.sortAliases?.[sortKey]?.permissionField ?? sortKey;
+    if (sortKey && !tablePermissionFieldsFor(source.code as TableResourceCode).some((field) => field.key === sortPermissionField)) throw new BadRequestException("排序字段无效");
+    if (sortKey && !this.canReadField(actor, source.code, sortPermissionField)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const rowQuery: TablePrintRowQuery = {
       search: String(query.search ?? "").trim(),
       filterGroup: query.filterGroup,
@@ -311,14 +317,14 @@ export class TablePrintService {
   /** 通用 SQL 打印查询：复用注册表列绑定 + 平台编译器（无第二套 FilterCompiler）。 */
   private async genericRows(source: TableFilterSource, query: TablePrintRowQuery) {
     const params: unknown[] = [query.actor.tenantId];
-    const clauses = [this.scopedWhere(source, source.buildScope(query.actor, params))];
+    const clauses = [this.scopedWhere(source, source.buildScope(query.actor, params)), await source.buildContext?.(query.context, params) ?? "1=1"];
     if (query.search) {
       const searchKeys = source.searchColumns?.length
         ? source.searchColumns
         : tablePermissionFieldsFor(source.code as TableResourceCode)
           .filter((field) => ["text", "number", "dictionary", "reference", "member", "department"].includes(field.type))
           .map((field) => field.key);
-      const searchable = searchKeys.map((key) => source.columns[key]).filter(Boolean) as string[];
+      const searchable = searchKeys.filter((key) => this.canReadField(query.actor, source.code, key)).map((key) => source.columns[key]).filter(Boolean) as string[];
       if (searchable.length) {
         params.push(`%${query.search}%`);
         clauses.push(`(${searchable.map((column) => `COALESCE(record.${column}::text,'') ILIKE $${params.length}`).join(" OR ")})`);
@@ -346,10 +352,10 @@ export class TablePrintService {
       ...Object.entries(source.columns).filter(([key]) => query.fieldKeys.includes(key)).map(([key, column]) => `record.${column} AS "${key}"`),
       ...Object.entries(source.expressions ?? {}).filter(([key]) => query.fieldKeys.includes(key) && !source.columns[key]).map(([key, expression]) => `${expression} AS "${key}"`)
     ];
-    const sortColumn = query.sortField ? (source.columns[String(query.sortField)] ?? source.expressions?.[String(query.sortField)]) : undefined;
+    const sortColumn = query.sortField ? (source.sortAliases?.[String(query.sortField)]?.expression ?? (source.columns[String(query.sortField)] ? `record.${source.columns[String(query.sortField)]}` : source.expressions?.[String(query.sortField)])) : undefined;
     const keyColumn = source.columns[recordKeyOf(source).field];
     const orderBy = sortColumn
-      ? `record.${sortColumn} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`
+      ? `${sortColumn} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`
       : keyColumn ? `record.${keyColumn}` : "record.ctid";
     const run = source.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
     const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;

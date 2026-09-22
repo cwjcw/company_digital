@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { tableFilterOperatorsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { dynamicDateRange } from "./dynamic-date";
-import { isBlankFilterValue, maxFilterRules, parseFilterGroup, type TypedFilterRule } from "./filter.contract";
+import { isBlankFilterValue, maxFilterRules, parseFilterGroup, type ParsedFilterGroup, type TypedFilterRule } from "./filter.contract";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const datetimePattern = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/;
@@ -35,16 +35,19 @@ export class SqlFilterCompiler {
   private ph(index: number) { return this.placeholder(index); }
 
   compile(input: unknown, params: unknown[]): string {
-    const { logic, rules } = parseFilterGroup(input);
-    const clauses = rules.map((rule) => this.compileRule(rule, params)).filter(Boolean);
+    return this.compileGroup(parseFilterGroup(input), params);
+  }
+
+  private compileGroup({ logic, rules, groups }: ParsedFilterGroup, params: unknown[]): string {
+    const clauses = [...rules.map((rule) => this.compileRule(rule, params)), ...(groups ?? []).map((group) => this.compileGroup(group, params))].filter(Boolean);
     if (!clauses.length) return "true";
     return `(${clauses.join(logic === "OR" ? " OR " : " AND ")})`;
   }
 
   /** 供 metadata/测试读取：字段与操作符（不接受客户端 type）。 */
   describe(input: unknown) {
-    const { logic, rules } = parseFilterGroup(input);
-    return { logic, rules: rules.map((rule) => ({ field: String(rule.field ?? ""), operator: String(rule.operator ?? "") })) };
+    const describeGroup = ({ logic, rules, groups }: ParsedFilterGroup): unknown => ({ logic, rules: rules.map((rule) => ({ field: String(rule.field ?? ""), operator: String(rule.operator ?? "") })), ...(groups ? { groups: groups.map(describeGroup) } : {}) });
+    return describeGroup(parseFilterGroup(input));
   }
 
   private compileRule(rule: TypedFilterRule, params: unknown[]): string {
@@ -60,8 +63,8 @@ export class SqlFilterCompiler {
     const target = this.expression(column);
     const text = `${target}::text`;
 
-    if (operator === "is_empty") return `COALESCE(${text},'')=''`;
-    if (operator === "is_not_empty") return `COALESCE(${text},'')<>''`;
+    if (!field.multiple && operator === "is_empty") return `COALESCE(${text},'')=''`;
+    if (!field.multiple && operator === "is_not_empty") return `COALESCE(${text},'')<>''`;
     if (operator === "is_true") return `${target} IS TRUE`;
     if (operator === "is_false") return `${target} IS NOT TRUE`;
 

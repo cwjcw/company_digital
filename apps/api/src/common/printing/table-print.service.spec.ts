@@ -29,6 +29,7 @@ function registryWith(source: Partial<TableFilterSource> & { code: string }) {
 }
 
 const resource = "mps-weekly-plans"; /* 已注册为 PRINTABLE 的正式 resource，用于测试打印服务契约。 */
+const fullPrintPermissions = [`${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:quantity:read`, `${resource}:status:read`];
 
 describe("平台打印服务（KN-PRINT-001）", () => {
   it("打印筛选结果是全部匹配记录（受控分批），不是当前页", async () => {
@@ -44,7 +45,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       }
     });
     const service = new TablePrintService(registry, {} as never);
-    const dto = await service.render(resource, { rangeType: "FILTERED", search: "", filterGroup: { logic: "AND", rules: [] } }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const dto = await service.render(resource, { rangeType: "FILTERED", search: "", filterGroup: { logic: "AND", rules: [] } }, actor(fullPrintPermissions));
     expect(dto.rows.length).toBe(total);
     expect(calls.length).toBeGreaterThan(1);
     expect(dto.meta.rangeType).toBe("FILTERED");
@@ -61,9 +62,9 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     });
     const service = new TablePrintService(registry, {} as never);
     const id = "11111111-1111-4111-8111-111111111111";
-    const manifest = await service.manifest(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const manifest = await service.manifest(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor(fullPrintPermissions));
     expect(manifest.total).toBe(1);
-    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: [id] }, actor(fullPrintPermissions));
     expect(dto.meta.rangeType).toBe("SELECTED");
     expect(dto.meta.requestedCount).toBe(1);
     expect(dto.meta.printedCount).toBe(1);
@@ -80,7 +81,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       })
     });
     const service = new TablePrintService(registry, {} as never);
-    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: ["ORDER-001"] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const dto = await service.render(resource, { rangeType: "SELECTED", selectedIds: ["ORDER-001"] }, actor(fullPrintPermissions));
     expect(dto.meta.requestedCount).toBe(1);
     expect(dto.meta.printedCount).toBe(1);
     expect(dto.rows[0]!.orderNumber).toBe("ORDER-001");
@@ -89,7 +90,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
   it("SELECTED 空/非法 ID：400，绝不退化为 FILTERED", async () => {
     const registry = registryWith({ code: resource, printRows: async () => ({ rows: [{ id: "x" }], total: 1 }) });
     const service = new TablePrintService(registry, {} as never);
-    const permissions = [`${resource}:*:batch_print`, `${resource}:*:read`];
+    const permissions = fullPrintPermissions;
     await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
     await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: ["not-a-uuid"] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
     await expect(service.manifest(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
@@ -102,7 +103,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       printRows: async (query) => { seenIds = query.ids; return { rows: [{ id: "11111111-1111-4111-8111-111111111111", orderNumber: "A1" }], total: 1 }; }
     });
     const service = new TablePrintService(registry, {} as never);
-    const dto = await service.render(resource, { rangeType: "FILTERED", selectedIds: ["11111111-1111-4111-8111-111111111111"] }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    const dto = await service.render(resource, { rangeType: "FILTERED", selectedIds: ["11111111-1111-4111-8111-111111111111"] }, actor(fullPrintPermissions));
     /* FILTERED 模式不把 selectedIds 传给取数层（等于忽略）。 */
     expect(seenIds ?? []).toEqual([]);
     expect(dto.meta.rangeType).toBe("FILTERED");
@@ -130,7 +131,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
         "99999999-9999-4999-8999-999999999999",
         "88888888-8888-4888-8888-888888888888"
       ]
-    }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    }, actor(fullPrintPermissions));
     /* manifest 先做 count、render 再取数：两次都按稳定 ID 重新查询，ID 集合一致。 */
     expect(new Set(seenIds.flat()).size).toBe(4);
     expect(dto.rows.length).toBe(2);
@@ -146,7 +147,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       printRows: async (query) => { sorts.push([query.sortField, query.sortOrder]); return { rows: [], total: 0 }; }
     });
     const service = new TablePrintService(registry, {} as never);
-    await service.render(resource, { rangeType: "FILTERED", sortField: "orderNumber", sortOrder: "desc" }, actor([`${resource}:*:batch_print`, `${resource}:*:read`]));
+    await service.render(resource, { rangeType: "FILTERED", sortField: "orderNumber", sortOrder: "desc" }, actor(fullPrintPermissions));
     expect(sorts[0]).toEqual(["orderNumber", "desc"]);
   });
 
@@ -164,7 +165,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
       `${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:status:read`
     ]));
     const keys = manifest.columns.map((column) => column.key);
-    /* 字段权限：只声明了两个字段的读权限时必须使用 `resource:*:read` 才会展开，否则按字段读权限收紧。 */
+    /* 表级 read 不会扩大字段权限；只声明两个可读字段时只输出它们。 */
     expect(keys).toContain("orderNumber");
     expect(keys).not.toContain("createdAt");
     expect(keys).not.toContain("id");
@@ -186,7 +187,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
   it("打印人：优先 displayName，其次 username，绝不显示 userId/UUID", async () => {
     const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
     const service = new TablePrintService(registry, {} as never);
-    const permissions = [`${resource}:*:batch_print`, `${resource}:*:read`];
+    const permissions = fullPrintPermissions;
     const withName = await service.render(resource, { rangeType: "FILTERED" }, {
       ...actor(permissions), userId: "f6756112-dfef-4082-b250-96a3b7607b1a", displayName: "崔玮杰", username: "cuiweijie"
     });

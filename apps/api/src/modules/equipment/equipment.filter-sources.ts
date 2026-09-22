@@ -23,7 +23,21 @@ export class EquipmentFilterSourceProvider implements OnModuleInit {
         plannedStartupMinutes: "planned_startup_minutes", monitored: "monitored",
         createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
       },
+      expressions: {
+        responsibleUserIds: "COALESCE((SELECT jsonb_agg(er.user_id) FROM equipment_responsibles er WHERE er.tenant_id=record.tenant_id AND er.equipment_id=record.id),'[]'::jsonb)"
+      },
       fields: tablePermissionFieldsFor("equipment-register"),
+      searchColumns: ["equipmentCode", "equipmentName"],
+      searchAliases: [
+        { expression: "record.division_name_snapshot", permissionField: "divisionId" },
+        { expression: "record.usage_department_name_snapshot", permissionField: "usageDepartmentId" },
+        { expression: "(record.planned_startup_minutes / 60)::text || '小时' || (record.planned_startup_minutes % 60)::text || '分钟'", permissionField: "plannedStartupMinutes" },
+        { expression: "COALESCE((SELECT string_agg(u.display_name,' ') FROM equipment_responsibles er JOIN users u ON u.id=er.user_id WHERE er.tenant_id=record.tenant_id AND er.equipment_id=record.id),'')", permissionField: "responsibleUserIds" }
+      ],
+      sortAliases: {
+        divisionName: { expression: "record.division_name_snapshot", permissionField: "divisionId" },
+        usageDepartmentName: { expression: "record.usage_department_name_snapshot", permissionField: "usageDepartmentId" }
+      },
       buildScope: (actor, params) => scope(actor, "equipment-register", params)
     });
     this.registry.register({
@@ -35,7 +49,20 @@ export class EquipmentFilterSourceProvider implements OnModuleInit {
         reportDate: "report_date", plannedRuntimeMinutes: "planned_runtime_minutes", runtimeMinutes: "runtime_minutes", faultMinutes: "fault_minutes", faultReason: "fault_reason",
         createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
       },
+      expressions: {
+        responsibleUserIds: "COALESCE((SELECT jsonb_agg(er.user_id) FROM equipment_responsibles er WHERE er.tenant_id=record.tenant_id AND er.equipment_id=record.equipment_id),'[]'::jsonb)"
+      },
       fields: tablePermissionFieldsFor("equipment-status-report"),
+      searchColumns: ["equipmentCode", "equipmentName", "faultReason"],
+      searchAliases: [
+        { expression: "record.division_name_snapshot", permissionField: "divisionId" },
+        { expression: "record.usage_department_name_snapshot", permissionField: "usageDepartmentId" },
+        { expression: "COALESCE((SELECT string_agg(u.display_name,' ') FROM equipment_responsibles er JOIN users u ON u.id=er.user_id WHERE er.tenant_id=record.tenant_id AND er.equipment_id=record.equipment_id),'')", permissionField: "responsibleUserIds" }
+      ],
+      sortAliases: {
+        divisionName: { expression: "record.division_name_snapshot", permissionField: "divisionId" },
+        usageDepartmentName: { expression: "record.usage_department_name_snapshot", permissionField: "usageDepartmentId" }
+      },
       buildScope: (actor, params) => scope(actor, "equipment-status-report", params)
     });
   }

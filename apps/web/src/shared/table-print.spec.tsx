@@ -49,7 +49,8 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
     expect(await screen.findByRole("button", { name: /打印筛选结果/ })).toBeInTheDocument();
     /* 没有独立“操作”列，也没有行内打印按钮。 */
     expect(screen.queryByText("操作")).not.toBeInTheDocument();
-    expect(container.querySelectorAll(".ant-table-tbody button").length).toBe(0);
+    expect(container.querySelectorAll(".ant-table-tbody button[aria-label*='打印']").length).toBe(0);
+    expect(container.querySelectorAll(".ant-table-thead .kdos-column-menu-trigger").length).toBe(2);
   });
 
   it("没有 batch_print 权限时不显示打印入口", async () => {
@@ -83,6 +84,33 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
     expect(calls[0]).toContain("rangeType=FILTERED");
     expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path) === "/table-prints/render" && String(init?.body ?? "").includes('"rangeType":"FILTERED"'))).toBe(true);
     expect(container.querySelector(".kdos-data-table-selection-toolbar")).toBeNull();
+  });
+
+  it("打印筛选结果继承列头筛选生成的递归 effective FilterGroup", async () => {
+    const manifests: string[] = [];
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-filters/resources") return [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never;
+      if (path === "/table-prints/capabilities") return capabilities as never;
+      if (path.startsWith("/table-filters/candidates?")) return { options: [{ value: "A1", label: "A1" }], hasMore: false } as never;
+      if (path.startsWith("/table-prints/manifest")) {
+        manifests.push(path);
+        return { resource: "mps-weekly-plans", title: "事业部周计划", printable: true, total: 1, columns: [], headerGroups: [], orientation: "portrait", batchSize: 200, confirmThreshold: 300, largeWarningThreshold: 3000 } as never;
+      }
+      if (path === "/table-prints/render") return { title: "事业部周计划", resource: "mps-weekly-plans", columns: [], headerGroups: [], rows: [{ orderNumber: "A1" }], meta: { rangeType: "FILTERED", total: 1, printedCount: 1, orientation: "portrait", filtered: true, searched: false, printedAt: "", printedBy: "" } } as never;
+      return [] as never;
+    });
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    const panel = await screen.findByTestId("column-menu-orderNumber");
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /筛选/ })).toBeEnabled());
+    fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
+    await waitFor(() => expect(within(panel).getByText("A1")).toBeInTheDocument());
+    fireEvent.click(within(panel).getByText("A1"));
+    fireEvent.click(within(panel).getByRole("button", { name: /确\s*定/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /打印筛选结果/ }));
+    await waitFor(() => expect(manifests.length).toBe(1));
+    const group = JSON.parse(new URLSearchParams(manifests[0]!.split("?")[1]).get("filterGroup") ?? "{}") as { groups: Array<{ groups?: unknown[] }> };
+    expect(group.groups[1]?.groups).toHaveLength(1);
   });
 
   it("选中 1 条后：同一个按钮变为「打印已选（1）」，请求 rangeType=SELECTED 且只带该 stable ID", async () => {

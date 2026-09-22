@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ObjectLiteral, Repository, SelectQueryBuilder } from "typeorm";
 import { tablePermissionFieldsFor, type TableResourceCode } from "@kdos/contracts";
@@ -16,7 +16,7 @@ export type MasterDataPageQuery = {
 };
 
 /** 数据中心表的数据范围：当前这三张 ERP 镜像表只有资源级权限，没有行级范围，平台与列表保持一致。 */
-export type MasterDataActor = { permissions: string[]; isSystemAdmin?: boolean };
+export type MasterDataActor = { permissions: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[] };
 
 export type MasterDataPage<T> = {
   rows: T[];
@@ -112,14 +112,19 @@ export class MasterDataQueryService {
     applyTypedFilterToQueryBuilder({
       builder, alias: "row", fields: tablePermissionFieldsFor(resource), columns: this.columnMap(repository),
       filterGroup: query.filterGroup,
-      canFilterField: (key) => actor.isSystemAdmin === true || actor.permissions.includes("*")
-        || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
-        || actor.permissions.includes(`${resource}:*:read`)
+      canFilterField: (key) => actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("data") === true
+        || actor.permissions.includes(`${resource}:${key}:read`)
     });
 
-    const sortColumn = this.textColumn(repository, String(query.sortField ?? ""));
-    if (sortColumn) builder.orderBy(sortColumn, String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC", "NULLS LAST");
-    else order(builder);
+    const sortField = String(query.sortField ?? "");
+    if (sortField) {
+      const readable = tablePermissionFieldsFor(resource).some((field) => field.key === sortField)
+        && (actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("data") === true || actor.permissions.includes(`${resource}:${sortField}:read`));
+      if (!readable) throw new ForbiddenException("当前权限组不能按该字段排序");
+      const sortColumn = this.textColumn(repository, sortField);
+      if (!sortColumn) throw new ForbiddenException("当前权限组不能按该字段排序");
+      builder.orderBy(sortColumn, String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC", "NULLS LAST");
+    } else order(builder);
     builder.skip((page - 1) * pageSize).take(pageSize);
     const [rows, total] = await builder.getManyAndCount();
     return { rows, total, page, pageSize };

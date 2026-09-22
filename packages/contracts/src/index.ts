@@ -435,6 +435,13 @@ export type TableFilterOperator =
   | "contains_any" | "contains_all" | "not_contains_any" | "count_eq" | "count_gte" | "count_lte"
   | "is_true" | "is_false" | "has_attachment" | "has_no_attachment";
 
+/** KN-TABLE-COLUMN-MENU-001：旧 flat group 保持有效；groups 支持高级筛选与列头筛选 AND 合并。 */
+export type TableFilterRule = {
+  field: string; operator: TableFilterOperator;
+  value?: unknown; values?: unknown[]; min?: unknown; max?: unknown; dynamic?: string;
+};
+export type TableFilterGroup = { logic: "AND" | "OR"; rules: TableFilterRule[]; groups?: TableFilterGroup[] };
+
 export interface TableFilterOperatorDefinition {
   operator: TableFilterOperator;
   label: string;

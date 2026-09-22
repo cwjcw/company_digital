@@ -14,13 +14,15 @@ export type AdvancedFilterRule = {
   field: string; operator: TableFilterOperator;
   value?: unknown; values?: unknown[]; min?: unknown; max?: unknown; dynamic?: string;
 };
-export type AdvancedFilterGroup = { logic: "AND" | "OR"; rules: AdvancedFilterRule[] };
+export type AdvancedFilterGroup = { logic: "AND" | "OR"; rules: AdvancedFilterRule[]; groups?: AdvancedFilterGroup[] };
 
 export const emptyFilterGroup = (): AdvancedFilterGroup => ({ logic: "AND", rules: [] });
 
-export function filterGroupRuleCount(group?: AdvancedFilterGroup | null) {
-  return group?.rules?.length ?? 0;
+export function filterGroupRuleCount(group?: AdvancedFilterGroup | null): number {
+  return (group?.rules?.length ?? 0) + (group?.groups ?? []).reduce((sum, child) => sum + filterGroupRuleCount(child), 0);
 }
+
+export const hasFilterGroup = (group?: AdvancedFilterGroup | null) => filterGroupRuleCount(group) > 0;
 
 /**
  * 正式 UI 只暴露已确认的操作符白名单（`tableFilterUiOperatorsFor`，KN-FILTER-001 §30）：
@@ -173,12 +175,14 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
  * 操作符完全来自正式 registry（tableFilterOperatorsFor），值控件按字段类型/格式选择，
  * 切换字段或操作符时清除不兼容的操作数。
  */
-export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledFields = [] }: {
+export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledFields = [], headerFilterCount = 0, onClearHeaderFilters }: {
   resource: string;
   fields: TablePermissionFieldDefinition[];
   value: AdvancedFilterGroup;
   onApply: (group: AdvancedFilterGroup) => void;
   disabledFields?: string[];
+  headerFilterCount?: number;
+  onClearHeaderFilters?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<AdvancedFilterGroup>(value);
@@ -202,6 +206,10 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
   const clear = () => { const empty = emptyFilterGroup(); setDraft(empty); onApply(empty); setOpen(false); };
 
   const panel = <div className="kdos-advanced-filter" style={{ width: 620 }} data-testid="advanced-filter-panel">
+    {headerFilterCount > 0 && <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 8 }}>
+      <Typography.Text>列头筛选：{headerFilterCount}列</Typography.Text>
+      <Button type="link" onClick={onClearHeaderFilters}>清除所有列头筛选</Button>
+    </Space>}
     <Space size={8} wrap>
       <Typography.Text>筛选出符合以下</Typography.Text>
       <Select size="small" value={draft.logic} style={{ width: 92 }}

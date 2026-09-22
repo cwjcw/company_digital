@@ -39,6 +39,7 @@ export class EquipmentQueryService {
     await this.typedFilter(input, params, clauses, "asset", "equipment-register", actor);
     const where = clauses.join(" AND ");
     const sortColumns: Record<string, string> = { divisionName:"asset.division_name_snapshot",usageDepartmentName:"asset.usage_department_name_snapshot",equipmentCode:"asset.equipment_code",equipmentName:"asset.equipment_name",purchaseDate:"asset.purchase_date",plannedStartupMinutes:"asset.planned_startup_minutes",monitored:"asset.monitored",createdBy:"asset.created_by",createdAt:"asset.created_at",updatedBy:"asset.updated_by",updatedAt:"asset.updated_at" };
+    this.assertSortField(input.sortField, sortColumns, "equipment-register", actor);
     const sortColumn = sortColumns[input.sortField ?? ""];
     const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "asset.division_name_snapshot,asset.usage_department_name_snapshot,asset.equipment_code";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_assets asset WHERE ${where}`, params);
@@ -84,6 +85,7 @@ export class EquipmentQueryService {
     await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
     const where = clauses.join(" AND ");
     const sortColumns: Record<string, string> = { equipmentCode:"report.equipment_code_snapshot",equipmentName:"report.equipment_name_snapshot",divisionName:"report.division_name_snapshot",usageDepartmentName:"report.usage_department_name_snapshot",responsibleUserIds:responsibleNames,reportDate:"report.report_date",plannedRuntimeMinutes:"report.planned_runtime_minutes",runtimeMinutes:"report.runtime_minutes",utilizationRate,faultMinutes:"report.fault_minutes",faultReason:"report.fault_reason",createdBy:"report.created_by",createdAt:"report.created_at",updatedBy:"report.updated_by",updatedAt:"report.updated_at" };
+    this.assertSortField(input.sortField, sortColumns, "equipment-status-report", actor);
     const sortColumn = sortColumns[input.sortField ?? ""];
     const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_status_reports report WHERE ${where}`, params);
@@ -124,11 +126,14 @@ export class EquipmentQueryService {
       plannedRuntimeMinutes: "report.planned_runtime_minutes::text", runtimeMinutes: "report.runtime_minutes::text", utilizationRate: `${utilizationRate}::text`, faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')"
     });
     await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
+    const exportSortColumns: Record<string, string> = { equipmentCode: "report.equipment_code_snapshot", equipmentName: "report.equipment_name_snapshot", divisionName: "report.division_name_snapshot", usageDepartmentName: "report.usage_department_name_snapshot", reportDate: "report.report_date", plannedRuntimeMinutes: "report.planned_runtime_minutes", runtimeMinutes: "report.runtime_minutes", faultMinutes: "report.fault_minutes", faultReason: "report.fault_reason" };
+    this.assertSortField(input.sortField, exportSortColumns, "equipment-status-report", actor);
+    const exportOrder = input.sortField ? `${exportSortColumns[input.sortField]} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot";
     return this.dataSource.query(`SELECT report.division_name_snapshot "divisionName",report.equipment_code_snapshot "equipmentCode",
       report.equipment_name_snapshot "equipmentName",report.usage_department_name_snapshot "usageDepartmentName",report.report_date "reportDate",
       report.planned_runtime_minutes "plannedRuntimeMinutes",report.runtime_minutes "runtimeMinutes",${utilizationRate} "utilizationRate",report.fault_minutes "faultMinutes",report.fault_reason "faultReason"
       FROM equipment_status_reports report WHERE ${clauses.join(" AND ")}
-      ORDER BY report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot`, params);
+      ORDER BY ${exportOrder}`, params);
   }
 
   async assetFormOptions(actor: EquipmentActor) {
@@ -494,6 +499,16 @@ export class EquipmentQueryService {
     if (!hasEquipmentPermission(actor, resource, action)) throw new ForbiddenException("当前权限组没有此表的操作权限");
   }
 
+  private assertSortField(key: string | undefined, columns: Record<string, string>, resource: string, actor: EquipmentActor) {
+    if (!key) return;
+    if (!columns[key]) throw new BadRequestException("排序字段无效");
+    const field = key === "divisionName" ? "divisionId" : key === "usageDepartmentName" ? "usageDepartmentId" : key;
+    if (!(actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
+      || actor.permissions.includes(`${resource}:${field}:read`))) {
+      throw new ForbiddenException("当前权限组不能按该字段排序");
+    }
+  }
+
   private scopeClause(actor: EquipmentActor, resource: string, action: string, alias: string, params: unknown[]) {
     return equipmentScopeClause(actor, resource, action, alias, params);
   }
@@ -508,9 +523,8 @@ export class EquipmentQueryService {
     const compiler = new SqlFilterCompiler(
       tablePermissionFieldsFor(resource),
       this.filterColumns(alias, resource),
-      (key) => actor.isSystemAdmin === true || actor.permissions.includes("*")
-        || actor.permissions.includes(`${resource}:${key}:read`) || actor.permissions.includes(`${resource}:${key}:update`)
-        || actor.permissions.includes(`${resource}:*:read`),
+      (key) => actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
+        || actor.permissions.includes(`${resource}:${key}:read`),
       (column) => column,
       dictionary ? (field, raw) => (field === "faultReason" ? dictionary.match(raw) : null) : undefined
     );

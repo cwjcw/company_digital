@@ -190,9 +190,47 @@ export class SystemFilterSourceProvider implements OnModuleInit {
         } : undefined,
         dictionaryCandidates,
         searchColumns: source.searchColumns,
-        buildScope: () => "1=1"
+        buildScope: () => "1=1",
+        buildContext: source.code === "users" ? (context, params) => this.userContext(context, params) : undefined
       });
     }
+  }
+
+  /** 与用户列表相同的状态、部门路径与“直接角色 ∪ 角色组织范围”语义；候选查询先应用此上下文。 */
+  private async userContext(context: Record<string, unknown>, params: unknown[]) {
+    const clauses: string[] = [];
+    const status = String(context.status ?? "all");
+    if (!["all", "enabled", "disabled"].includes(status)) throw new ForbiddenException("用户状态上下文无效");
+    if (status === "enabled") clauses.push("record.enabled=true");
+    if (status === "disabled") clauses.push("record.enabled=false");
+    const departmentId = String(context.departmentId ?? "").trim();
+    if (departmentId) {
+      const path = await this.organizationPath(departmentId);
+      if (!path.length) return "1=0";
+      params.push(JSON.stringify([path]));
+      clauses.push(`record.department_paths @> $${params.length}::jsonb`);
+    }
+    const roleId = String(context.roleId ?? "").trim();
+    if (roleId) {
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(roleId)) throw new ForbiddenException("角色上下文无效");
+      params.push(roleId);
+      const membership = `EXISTS (SELECT 1 FROM user_roles link WHERE link.user_id=record.id AND link.role_id=$${params.length}::uuid)`;
+      const rows: Array<{ organization_unit_id: string }> = await this.dataSource.query("SELECT organization_unit_id FROM role_organization_scopes WHERE role_id=$1::uuid", [roleId]);
+      const paths = (await Promise.all(rows.map((row) => this.organizationPath(row.organization_unit_id)))).filter((path) => path.length);
+      const scope = paths.map((path) => { params.push(JSON.stringify([path])); return `record.department_paths @> $${params.length}::jsonb`; });
+      clauses.push(`(${[membership, ...scope].join(" OR ")})`);
+    }
+    return clauses.join(" AND ") || "1=1";
+  }
+
+  private async organizationPath(id: string): Promise<string[]> {
+    if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) throw new ForbiddenException("部门上下文无效");
+    const rows: Array<{ names: string[] }> = await this.dataSource.query(`WITH RECURSIVE chain AS (
+      SELECT id,parent_id,ARRAY[name::text] names FROM organization_units WHERE id=$1::uuid
+      UNION ALL SELECT parent.id,parent.parent_id,ARRAY[parent.name::text] || child.names
+      FROM organization_units parent JOIN chain child ON parent.id=child.parent_id
+    ) SELECT names FROM chain WHERE parent_id IS NULL LIMIT 1`, [id]);
+    return rows[0]?.names ?? [];
   }
 
   /** 用户打印取数：与列表共用同一服务端查询（部门/状态/角色上下文 + 搜索 + FilterGroup + 排序），只是换成打印批大小。 */

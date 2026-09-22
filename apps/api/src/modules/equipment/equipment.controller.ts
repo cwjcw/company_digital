@@ -28,6 +28,7 @@ export class EquipmentController {
       tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", userId: request.user?.sub ?? null,
       username: request.user?.displayName ?? request.user?.username ?? "unknown", permissions: request.user?.permissions ?? [],
       isSystemAdmin: request.user?.isSystemAdmin === true,
+      moduleAdminCodes: request.user?.moduleAdminCodes ?? [],
       tableDataScopes: request.user?.tableDataScopes ?? [], requestId: request.requestId
     };
   }

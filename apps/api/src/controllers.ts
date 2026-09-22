@@ -432,7 +432,7 @@ export class MasterDataController {
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "sales-orders", "read");
-    return this.masterDataQueries.salesOrderPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
+    return this.masterDataQueries.salesOrderPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true, moduleAdminCodes: req.user.moduleAdminCodes ?? [] });
   }
   @Post("sales-orders")
   async addSalesOrder(@Body() body: Partial<SalesOrder>, @Req() req: UserRequest) {
@@ -492,7 +492,7 @@ export class MasterDataController {
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-inbound", "read");
-    return this.masterDataQueries.finishedGoodsInboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
+    return this.masterDataQueries.finishedGoodsInboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true, moduleAdminCodes: req.user.moduleAdminCodes ?? [] });
   }
   @Get("finished-goods-inbound/export")
   async exportFinishedGoodsInbound(@Query("format") format: string, @Query("filterGroup") filterGroup: string, @Query("search") search: string, @Req() req: UserRequest, @Res() response: Response) {
@@ -664,7 +664,7 @@ export class MasterDataController {
     @Req() req: UserRequest
   ) {
     requireTablePermission(req, "finished-goods-outbound", "read");
-    return this.masterDataQueries.finishedGoodsOutboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true });
+    return this.masterDataQueries.finishedGoodsOutboundPageFor({ page, pageSize, search, filters, filterGroup, sortField, sortOrder }, { permissions: req.user.permissions ?? [], isSystemAdmin: req.user.isSystemAdmin === true, moduleAdminCodes: req.user.moduleAdminCodes ?? [] });
   }
 
   @Post("finished-goods-outbound")
@@ -688,18 +688,25 @@ export class MasterDataController {
   }
 
   @Get("finished-goods-outbound/export")
-  async exportFinishedGoodsOutbound(@Query("filterGroup") filterGroup: string, @Query("search") search: string, @Req() req: UserRequest, @Res() response: Response) {
+  async exportFinishedGoodsOutbound(@Query("filterGroup") filterGroup: string, @Query("search") search: string, @Query("sortField") sortField: string, @Query("sortOrder") sortOrder: string, @Req() req: UserRequest, @Res() response: Response) {
     requireTablePermission(req, "finished-goods-outbound", "export");
     /* KN-FILTER-001：导出与列表共用同一条 where（quick search + FilterGroup），禁止页面 typed、导出 legacy。 */
-    const builder = this.finishedGoodsOutbound.createQueryBuilder("row")
-      .orderBy("row.documentDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.itemNumber", "ASC");
-    if (String(search ?? "").trim()) builder.andWhere("(row.document_number ILIKE :search OR row.sales_order_number ILIKE :search OR row.customer_code ILIKE :search OR row.customer_name ILIKE :search OR row.item_number ILIKE :search OR row.item_name ILIKE :search)", { search: `%${String(search).trim()}%` });
+    const builder = this.finishedGoodsOutbound.createQueryBuilder("row");
+    if (String(search ?? "").trim()) builder.andWhere("(row.document_number ILIKE :search OR row.sales_order_number ILIKE :search OR row.customer_code ILIKE :search OR row.customer_name ILIKE :search OR row.item_number ILIKE :search OR row.item_name ILIKE :search OR row.warehouse ILIKE :search OR row.source_system ILIKE :search OR row.source_database ILIKE :search)", { search: `%${String(search).trim()}%` });
     applyTypedFilterToQueryBuilder({
       builder, alias: "row", fields: tablePermissionFieldsFor("finished-goods-outbound"),
       columns: this.masterDataColumns(this.finishedGoodsOutbound), filterGroup,
-      canFilterField: (key) => req.user.isSystemAdmin === true || (req.user.permissions ?? []).includes("*")
-        || (req.user.permissions ?? []).includes(`finished-goods-outbound:${key}:read`) || (req.user.permissions ?? []).includes("finished-goods-outbound:*:read")
+      canFilterField: (key) => req.user.isSystemAdmin === true || (req.user.permissions ?? []).includes("*") || req.user.moduleAdminCodes?.includes("data") === true
+        || (req.user.permissions ?? []).includes(`finished-goods-outbound:${key}:read`)
     });
+    if (sortField) {
+      const permitted = tablePermissionFieldsFor("finished-goods-outbound").some((field) => field.key === sortField)
+        && (req.user.isSystemAdmin === true || (req.user.permissions ?? []).includes("*") || req.user.moduleAdminCodes?.includes("data") === true || (req.user.permissions ?? []).includes(`finished-goods-outbound:${sortField}:read`));
+      if (!permitted) throw new ForbiddenException("当前权限组不能按该字段排序");
+      const column = this.finishedGoodsOutbound.metadata.findColumnWithPropertyName(sortField);
+      if (!column || column.relationMetadata) throw new BadRequestException("不支持该排序字段");
+      builder.orderBy(`row.${sortField}`, String(sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC", "NULLS LAST");
+    } else builder.orderBy("row.documentDate", "DESC", "NULLS LAST").addOrderBy("row.documentNumber", "ASC").addOrderBy("row.itemNumber", "ASC");
     const rows = await builder.getMany();
     const fields: Array<[keyof FinishedGoodsOutbound, string]> = [
       ["documentDate", "单据日期"], ["documentNumber", "出库单号"], ["documentStatus", "单据状态"],

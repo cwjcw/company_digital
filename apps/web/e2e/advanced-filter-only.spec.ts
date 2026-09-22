@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * KN-FILTER-002 浏览器 UAT：标准表格只能看到一套筛选入口——“高级筛选”。
- * 旧「筛选」按钮、列头漏斗/列菜单筛选必须全部消失；快速搜索与排序保留。
+ * 旧「筛选」按钮和 Ant 列头漏斗消失；统一列菜单提供排序与列头筛选。
  */
 const username = process.env.KNF2_E2E_USERNAME ?? "__knf2_admin";
 const password = process.env.KNF2_E2E_PASSWORD ?? "";
@@ -28,7 +28,7 @@ test.describe("KN-FILTER-002 只有一套高级筛选入口", () => {
   test.skip(!password, "缺少 KNF2_E2E_PASSWORD");
 
   for (const [label, path, title] of PAGES) {
-    test(`${label}：只有高级筛选，无旧筛选与列头漏斗，排序保留`, async ({ page }, testInfo) => {
+    test(`${label}：保留高级筛选，列头使用统一菜单`, async ({ page }, testInfo) => {
       await login(page);
       await page.goto(path);
       await expect(page.getByRole("heading", { name: title }).first()).toBeVisible({ timeout: 20_000 });
@@ -39,12 +39,12 @@ test.describe("KN-FILTER-002 只有一套高级筛选入口", () => {
       await expect(toolbar.getByRole("button", { name: /^筛选/ })).toHaveCount(0);
       /* 旧「按字段筛选」抽屉不存在。 */
       await expect(page.getByText("按字段筛选")).toHaveCount(0);
-      /* 列头不再提供漏斗/列菜单筛选。 */
+      /* 列头不再提供 Ant 独立漏斗或独立排序按钮。 */
       await expect(page.locator(".ant-table-filter-trigger")).toHaveCount(0);
+      await expect(page.locator(".ant-table-column-has-sorters")).toHaveCount(0);
       /* 快速搜索保留。 */
       await expect(shell.getByPlaceholder(/搜索/)).toHaveCount(1);
-      /* 排序仍可用（列头可点击排序）。 */
-      await expect(page.locator(".ant-table-column-has-sorters").first()).toBeVisible();
+      await expect(shell.getByRole("button", { name: /列菜单/ }).first()).toBeAttached();
       await page.screenshot({ path: testInfo.outputPath(`${label}.png`) });
     });
   }
@@ -57,8 +57,7 @@ test.describe("KN-FILTER-002 只有一套高级筛选入口", () => {
     const shell = page.locator(".kdos-data-table-shell").last();
     await expect(shell.getByRole("button", { name: /高级筛选/ })).toHaveCount(1);
     await expect(page.locator(".ant-table-filter-trigger")).toHaveCount(0);
-    /* 角色成员列表允许按成员姓名排序。 */
-    await expect(page.locator(".employee-admin-table .ant-table-column-has-sorters, .employee-admin-table th").first()).toBeVisible();
+    await expect(shell.getByRole("button", { name: /列菜单/ }).first()).toBeAttached();
     await page.screenshot({ path: testInfo.outputPath("RoleMembers.png") });
   });
 });

@@ -42,7 +42,7 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 所有独立业务表单和报表必须分页；默认每页 `50` 条，允许选择 `20 / 50 / 100 / 200` 条，显示总条数并支持翻页和快速跳页。切换每页条数、搜索或筛选后，当前页必须回到第一页，防止停留在不存在的页码。每页条数可以按“用户 + 表单资源”保存为个人偏好，但不得改变其他用户或权限范围。
 - 主计划等必须保留 AG Grid Community 的宽表可以继续使用 AG Grid，但其分页能力、每页条数选项、总数提示和位置必须与上述统一表格一致，不得以虚拟滚动为理由取消分页。
 - 所有表格的分页、页码、每页条数、总数、跳页、加载、空数据、列菜单、排序、筛选、固定字段、复制和导出等可见文案与辅助提示必须使用中文；不得出现 `Page Size`、`Page 1 of 88`、`Columns`、`Filters`、`Sort Ascending` 等英文，也不得依赖组件库的英文默认值。Ant Design 统一挂载中文语言包，AG Grid 必须显式传入完整中文 `localeText`。
-- 标准表格的筛选入口只有一套：工具栏的「高级筛选」（KN-FILTER-002）。列头不再提供漏斗/列菜单筛选，工具栏不再提供旧「筛选」抽屉；快速搜索（Excel 的“查找”）与高级筛选并存，但它不是第二套筛选系统。所有筛选文案必须使用中文。
+- 标准表格保留快速搜索、工具栏「高级筛选」和列头菜单「筛选」（KN-FILTER-004）；三个入口共用一套 FilterGroup / TableFilterRegistry / SqlFilterCompiler。工具栏旧「筛选」抽屉、Ant 原生漏斗和第二套筛选引擎仍禁止。所有文案使用中文。
 - 字典/选项类字段（数据库保存稳定 `value`，界面显示中文 `label`）的筛选必须在服务端先按字段自身的 `options` 定义把输入解析成真实 `value` 再查询：输入 `value` 或 `label` 都必须命中，模糊输入按 label/value 解析成全部匹配项后使用 `= ANY(...)`，匹配不到任何选项时返回 0 行；禁止直接把显示名称送给数据库 `value` 列做模糊匹配，也禁止在控制器、服务或前端另写第二份字典映射。列表、待办视图、全局搜索与导出必须共用同一解析逻辑，保证同一筛选条件得到同一数据集。
 - 顶部快速搜索对应 Excel 的“查找”，字段名旁筛选对应 Excel 的“自动筛选”。筛选弹层应自动聚焦输入框、允许清空、支持回车应用、突出显示已生效条件，并在条件变化后返回第一页；日期、数字、字典、成员和部门字段应逐步使用匹配其类型的条件与候选值，不得长期把所有字段退化成不可解释的自由文本。
 - 类型化高级筛选（KN-FILTER-001/002，唯一正式筛选系统）：正式筛选协议是 `FilterGroup { logic: "AND" | "OR"; rules: FilterRule[] }`，`FilterRule` 只包含 `field` + `operator` + 操作数（`value`/`values`/`min`/`max`/`dynamic`）；客户端不得提交字段类型、列名、SQL、table、join、cast 或表达式，类型永远由服务端字段 metadata 决定（`@kdos/contracts` 的 `TablePermissionFieldType`：text/number/date/datetime/boolean/dictionary/member/department/reference/structured/attachment）。时间戳必须用 `datetime`（不得当 `date`），关联字段必须用 `reference` 并声明候选来源资源，数组/多值字段必须显式 `multiple: true`，数值必须声明 `format`（integer/decimal/percentage/durationMinutes/currency），JSON 字段必须显式声明 `filterable` 策略。
@@ -57,7 +57,7 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - **data scope 不得全局假定 `created_by`**：`OWN` 的含义必须服从该资源既有正式语义（示例：设备按事业部/本人，供应商按范围规则，主计划按事业部）。平台 `buildScope` 必须与该模块列表未筛选时的权限完全一致，candidate 与 list 必须共用同一构造。
 - **reference 禁止猜 label**：关联候选标签只能来自字段 `filterBinding.labelField` 或 `tableReferenceLabelFields` 的显式声明；缺失即 metadata 审计失败并在 candidate 接口返回 400，禁止“回退目标资源前两个文本字段”。
 - **正式 UI 操作符白名单**：界面只暴露 `tableFilterUiOperatorsFor()` 的结果——文本/字典/成员/部门/关联/多值各有固定集合；`starts_with`、`count_eq/count_gte/count_lte`、数值 `in/not_in` 等内部能力不得出现在正式界面。文本字段默认条件为“包含”。
-- **高级筛选是唯一入口（KN-FILTER-002）**：`KdosDataTable` 工具栏只保留「快速搜索」+「高级筛选」；禁止列头筛选、Floating Filter、列菜单筛选、旧“筛选”抽屉或任何第二套通用筛选 UI。只维护一个 draft FilterGroup 与一个 applied FilterGroup，只有点击“筛选/清空”才写 applied 并请求，条件变化回到 `page=1`。
+- **KN-FILTER-004 新产品决策**：`KdosDataTable` 保留「快速搜索」+「高级筛选」，真实业务叶子列增加统一列菜单的「筛选」。高级筛选保留 draft/applied；列头筛选独立交互状态只在确认时应用，两者合成同一 effective FilterGroup，条件变化回到 `page=1`。禁止第二套编译器或旧“筛选”抽屉。
 - **时长与百分比必须类型化输入**：`durationMinutes` 让用户填“小时 + 分钟”（10 小时 30 分钟 = 630，BETWEEN 480~630），`percentage` 界面为 0..100、提交前换算（80% → 0.8），数据库仍比较整数分钟/小数，不得让用户直接输入分钟或 0.8。
 - **字典解析不得引用不存在的列**：`dictionary_values` 只有 `value`（无独立 label 列）时按 value 精确命中；动态字典应优先提升为平台共享解析服务。
 - **平台统一读取入口**：已注册资源统一使用 `GET /api/v1/table-filters/rows?resource&page&pageSize&search&sortField&sortOrder&filterGroup`，语义固定为 permission → tenant → data scope → quick search → FilterGroup → sort → `COUNT`/`LIMIT`/`OFFSET`，并且只返回调用者有字段读权限的列（例如 API Key 永远不返回 `key_hash`）；页面不要再用“整表取回 + 前端过滤/分页”。
@@ -94,14 +94,14 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 
 #### 3.1.0.2 KDOS 统一类型化高级筛选（KN-FILTER-002，强制）
 
-本节是 KDOS 全部标准表格必须长期遵守的筛选规范；与其他章节冲突时以本节为准。
+本节是 KDOS 标准表格的基础筛选规范；关于列头筛选入口与递归组合，以后续 KN-FILTER-004 为准。
 
-**唯一入口**
-1. KDOS 标准表格只有一套正式高级筛选系统。
-2. 用户界面只保留「高级筛选」入口；禁止另建 Header Filter、Floating Filter、列菜单 Filter 或第二套通用筛选（含旧「筛选」抽屉、简单文本筛选面板）。
+**统一引擎与入口**
+1. KDOS 标准表格只有一套正式 Filter engine；快速搜索、高级筛选、列头筛选都是入口。
+2. 用户界面保留「高级筛选」和列菜单「筛选」；禁止 Floating Filter、Ant 原生漏斗和第二套通用筛选（含旧「筛选」抽屉、简单文本筛选面板）。
 3. 快速搜索可以与高级筛选并存，但快速搜索不是第二套 Filter 系统，也不等于 legacy `filters`。
 4. 正式筛选状态统一使用 `FilterGroup`；不得另立状态。
-5. `FilterGroup` 结构固定为 `{ logic: "AND" | "OR", rules: FilterRule[] }`；`FilterRule` 只含 `field` + `operator` + 操作数。
+5. `FilterGroup` 向后兼容扩展为 `{ logic: "AND" | "OR", rules: FilterRule[], groups?: FilterGroup[] }`；`FilterRule` 只含 `field` + `operator` + 操作数。
 6. 不允许第二套 FilterCompiler：服务端只有 `apps/api/src/common/filtering/sql-filter.compiler.ts`（TypeORM 走 `applyTypedFilterToQueryBuilder`），客户端不得实现字段类型/操作符映射。
 
 **执行顺序**
@@ -111,7 +111,7 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 10. draft 与 applied 必须分离。
 11. 只有点击“筛选”或“清空”才修改 applied 状态并请求服务器。
 12. 筛选条件变化后 `page=1`。
-13. 列表、count、export、（后续）print 必须复用同一 applied `FilterGroup` 语义。
+13. 列表、count、export、print 必须复用同一 effective `FilterGroup` 语义。
 
 **字段类型与操作符白名单**
 14. 可用操作符由服务端字段类型决定，客户端不得声明类型。
@@ -145,6 +145,16 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 38. 不能把 `BLOCKED` / `UNKNOWN` 留作长期状态。
 39. `NOT_APPLICABLE` 必须写真实产品理由（例如“角色管理是角色树配置模式，右侧列表是 users 上下文视图”），不得只写“暂不支持”。
 40. 禁止新增独立“操作”列（行级操作使用既有菜单/按钮）。
+
+#### 3.1.0.2.2 统一列菜单与列头筛选（KN-FILTER-004，强制）
+
+1. 所有 `KdosDataTable simple={false}` 的真实业务叶子字段默认提供统一三点列菜单：升序、降序、取消排序、冻结左侧/取消冻结、隐藏列、筛选；`simple`、`__` 技术列、选择列、纯操作列和分组容器排除。
+2. 菜单触发器默认隐藏，表头 hover 或键盘 focus 显示；排序只通过菜单触发，字段旁只显示不可点击的轻量状态。系统固定列不能取消冻结；用户冻结与隐藏列、pageSize 按用户+resource+viewKey 保存，隐藏用户冻结列时同时取消冻结。
+3. FilterGroup 旧平面格式继续可用；递归 `groups` 最多四层、总规则最多 50 条，越界返回 400。`effective = ROOT AND (advanced) AND (headers)`；不同 header 字段 AND，同一字段多选/未填写 OR；`未填写` 必须用 `is_empty`。
+4. 候选值从完整授权范围的服务器查询，不取当前页；`permission → tenant → data scope → page context → quick search → advanced + 其他列头条件 → DISTINCT → candidate search → LIMIT`。当前字段自己的 header 条件从候选查询移除；candidate search 与 table quick search 分开。最多 200 条，明确返回 hasMore/truncated，未取完时禁用全选。
+5. 文本、字典、成员、部门、关联字段使用候选搜索与多选；date/datetime/number/duration/percentage/boolean 复用高级筛选类型化控件。候选、筛选、排序都要求字段 READ，客户端不得提交类型、表名、列名或 SQL。
+6. 高级筛选面板显示列头筛选的字段数并提供一键清除；列头条件默认只保留本会话，不永久写入 localStorage。页面列表、总数、打印和导出继承同一 quick search + effective FilterGroup + sort + page context + 权限/data scope。
+7. 不允许业务模块复制第二套 FilterCompiler、私有 candidate API 或数据库 Migration；后续标准表格默认继承公共能力。
 
 #### 3.1.0.2.1 高级筛选 datetime 时间精度与业务时区（KN-FILTER-003，强制）
 
@@ -245,7 +255,7 @@ D. **准入条件只能有一份权威来源**：admission 谓词必须复用同
 2.5 稳定 ID 不允许平台假设都是 UUID：每个 resource 必须声明 `recordKey`（`{ field, type: uuid|text|integer|bigint }`），打印查询按真实主键参数化并做类型化校验。
 2.6 页面自定义 rowSelection 时必须同步到平台选择状态，保证“打印已选”与用户看到的选择一致。
 2.7 选中 N 条只能打印 N 条（平台级回归测试）：manifest.total、requestedCount、printedCount、预览行数必须一致。
-3. 高级筛选是唯一正式 Filter UI；打印不得重新引入旧筛选、Header Filter、列头筛选或 legacy filter UI。
+3. 高级筛选与列头筛选共用唯一 Filter engine；打印不得重新引入旧筛选或 legacy filter UI。
 4. Print 平台不得创建第二套 FilterCompiler（复用 `SqlFilterCompiler` / `TableFilterRegistry` / operator、reference、date、permission 语义）。
 5. 打印已选只能提交 stable IDs，后端必须重新取数并重新校验权限（跨页选择必须正确打印）。
 6. 统一使用 `batch_print` 权限；没有 batch_print → 403；拥有 batch_print 不扩大 read/字段/租户/数据范围。
