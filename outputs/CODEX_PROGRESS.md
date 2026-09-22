@@ -1,5 +1,33 @@
 # Codex 工作进度
 
+## 当前任务：KN-EQUIP-IMPORT-ERROR-001
+
+任务目标：修复设备状态旧模板及其他文件级导入失败只显示瞬时 message 的问题，增加持久错误 Modal；旧模板提供下载最新模板入口，行级预览错误保持原流程。
+
+当前状态：进行中（2026-09-22）；阶段：修复、全量测试、备份、API/Web 部署和健康检查已完成；待真实账号完成线上 preview。
+
+已完成：确认后端已拒绝缺少“计划运行时间”的旧模板；统一旧模板错误文案并移除重复句；前端新增 `importError` 持久 Modal；旧模板错误显示“下载最新模板”并复用现有下载接口；其他文件级错误同样进入 Modal；重新选文件和成功预览时清理旧错误；保留 `beforeUpload` 返回 false 和行级预览错误流程。
+
+正在进行：等待有效线上账号，执行旧模板和新版模板只读 preview 验收。
+
+待完成：真实旧模板与新版模板线上只读 preview；提交并推送 GitHub main/Gitee master；工作区 clean。
+
+修改文件：`apps/api/src/modules/equipment/equipment-import.service.ts`、`apps/api/src/modules/equipment/equipment.spec.ts`、`apps/web/src/modules/equipment/EquipmentPages.tsx`、`apps/web/src/modules/equipment/EquipmentPages.spec.tsx`、本进度文件。
+
+数据库 Migration：无。
+
+新增或修改测试：后端旧/新 workbook 级 preview 测试；前端旧模板 400 → 持久 Modal、完整文案、下载模板按钮、无预览 Modal、单次 preview 请求测试。最终 API 59套/478项、Web 23套/141项通过；API/Web typecheck、lint 通过。
+
+已运行测试：API equipment 专项 18 项、Web Equipment 专项 9 项通过；API 59套/478项、Web 23套/141项全量通过；API/Web typecheck、lint、build 通过。Web lint 仅有既有 ModulePortal warning，Web build 仅有既有 bundle 体积提示。备份：`data/backups/{four_department_tracker,kdos,uploads}_20260922_194655.*`，SHA-256 已输出并核验。
+
+当前已知问题：线上真实账号尚未提供；旧/新版文件线上 preview 待账号和真实模板完成。部署后 API/Web/PostgreSQL healthy，`/health`、`/api/v1/health`、`/api/docs`、`/api/openapi.json` 均 200；未登录导入接口仍为 401。不得执行真实导入确认。
+
+下一步：1. 使用真实旧/新模板只做 preview；2. 提交推送并更新最终报告；3. 获得账号后将线上验收项补齐并把状态改为已完成。
+
+恢复执行：读取本节、项目 AGENTS.md、相关 skill，执行 git status/diff；从下一步第一项继续。
+
+---
+
 ## 当前任务：KN-TABLE-COLUMN-MENU-001
 
 任务目标：实现 KDOS 统一列菜单、列头筛选、递归 FilterGroup、候选联动及打印/导出一致性。

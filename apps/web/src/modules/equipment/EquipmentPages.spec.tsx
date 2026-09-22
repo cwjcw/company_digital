@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Modal } from "antd";
 import { api } from "../../api";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
+import { downloadApiFile } from "../../shared/legacy-ui";
 
 const chartProps = vi.hoisted(() => [] as Array<{ option: any; ariaLabel: string; empty?: boolean }>);
 
@@ -12,6 +13,11 @@ vi.mock("../../api", () => ({
   getValue: vi.fn(),
   containsText: vi.fn()
 }));
+
+vi.mock("../../shared/legacy-ui", async () => {
+  const actual = await vi.importActual<typeof import("../../shared/legacy-ui")>("../../shared/legacy-ui");
+  return { ...actual, downloadApiFile: vi.fn(async () => undefined) };
+});
 
 vi.mock("../../shared/charts", async () => {
   const React = await import("react");
@@ -129,6 +135,32 @@ describe("EquipmentStatusReportPage live permissions", () => {
     await confirm.mock.calls[0]![0].onOk?.();
 
     await waitFor(() => expect(api).toHaveBeenCalledWith("/equipment/status-reports/status-1?expectedVersion=3", { method: "DELETE" }));
+  });
+
+  it("keeps an old-template preview failure visible and offers the latest template", async () => {
+    const legacyMessage = "当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。";
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/auth/me") return { permissions: ["equipment-status-report:*:read", "equipment-status-report:*:import"] } as never;
+      if (path === "/table-filters/resources") return [{ code: "equipment-status-report", filterableFields: ["equipmentCode"] }] as never;
+      if (path.startsWith("/equipment/status-reports?")) return { rows: [], total: 0, page: 1, pageSize: 50 } as never;
+      if (path === "/equipment/status-reports/import-preview") throw new Error(legacyMessage);
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage();
+    const upload = await screen.findByRole("button", { name: /导入/ });
+    const input = upload.closest("span")?.querySelector("input[type=file]") ?? document.querySelector("input[type=file]");
+    expect(input).toBeTruthy();
+    const file = new File(["old-template"], "旧版设备状态模板.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => path === "/equipment/status-reports/import-preview")).toBe(true), { timeout: 10_000 });
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path === "/equipment/status-reports/import-preview")).toHaveLength(1);
+
+    const dialog = await screen.findByRole("dialog", { name: "导入失败" });
+    expect(within(dialog).getByText(legacyMessage)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "下载最新模板" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "设备状态导入预览" })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "下载最新模板" }));
+    await waitFor(() => expect(vi.mocked(downloadApiFile)).toHaveBeenCalledWith("/equipment/status-reports/import-template", "设备状态填报导入模板.xlsx"));
   });
 });
 

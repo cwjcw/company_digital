@@ -60,6 +60,10 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "操作失败，请稍后重试";
 }
 
+function isLegacyStatusTemplateError(text: string) {
+  return text.includes("旧版设备状态模板") && text.includes("计划运行时间") && text.includes("模板已升级");
+}
+
 /**
  * KN-EQUIP-001：把设备状态保存失败翻译成业务用户能直接照做的提示。
  * 事业部范围失败必须说明“当前账号只能填报<自己事业部>的设备”，不要只给“超出事业部数据范围”。
@@ -222,6 +226,7 @@ export function EquipmentStatusReportPage() {
   const [open, setOpen] = useState(false); const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false); const [confirmingImport, setConfirmingImport] = useState(false);
   const [exporting, setExporting] = useState(false); const [importPreview, setImportPreview] = useState<StatusImportPreview>();
+  const [importError, setImportError] = useState<string>();
   const [form] = Form.useForm();
   const permissions = useEquipmentPermissions("equipment-status-report");
   const { canRead, canCreate, canUpdate, canDelete, canImport, canExport } = permissions;
@@ -235,11 +240,12 @@ export function EquipmentStatusReportPage() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["equipment-status"] });
   const equipmentOptions = (options.data?.equipment ?? []).map((item) => ({ value: item.id, label: `${item.equipmentCode}｜${item.equipmentName}｜${item.divisionName}` }));
   const previewImport = async (file: File) => {
+    setImportError(undefined); setImportPreview(undefined);
     const body = new FormData(); body.append("file", file); setImporting(true);
     try {
       const preview = await api<StatusImportPreview>("/equipment/status-reports/import-preview", { method: "POST", body });
-      setImportPreview(preview);
-    } catch (error) { message.error(errorText(error)); }
+      setImportError(undefined); setImportPreview(preview);
+    } catch (error) { setImportError(errorText(error)); }
     finally { setImporting(false); }
     return false;
   };
@@ -375,12 +381,19 @@ export function EquipmentStatusReportPage() {
     </Modal>
     <Modal title="设备状态导入预览" width={760} open={Boolean(importPreview)} onCancel={() => setImportPreview(undefined)}
       okText="确认导入" okButtonProps={{ disabled: Boolean(importPreview?.errors.length || !importPreview?.rows.length) }} confirmLoading={confirmingImport} onOk={() => void confirmImport()} destroyOnHidden>
-      {importPreview && <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        {importPreview && <Space direction="vertical" size={12} style={{ width: "100%" }}>
         <Alert type={importPreview.errors.length ? "error" : "success"} showIcon
           message={importPreview.errors.length ? `发现 ${importPreview.errors.length} 项错误，修正文件后重新导入` : "文件校验通过，可以确认导入"}
           description={`共 ${importPreview.total} 条；预计新增 ${importPreview.createCount} 条、更新 ${importPreview.updateCount} 条、未变化 ${importPreview.unchangedCount} 条。`} />
         {importPreview.errors.slice(0, 20).map((error) => <Typography.Text type="danger" key={`${error.rowNumber}-${error.message}`}>第 {error.rowNumber} 行：{error.message}</Typography.Text>)}
       </Space>}
+    </Modal>
+    <Modal title="导入失败" open={Boolean(importError)} onCancel={() => setImportError(undefined)}
+      footer={isLegacyStatusTemplateError(importError ?? "") ? [
+        <Button key="download" loading={exportingTemplate} onClick={() => void exportTemplate()}>下载最新模板</Button>,
+        <Button key="close" type="primary" onClick={() => setImportError(undefined)}>关闭</Button>
+      ] : undefined} destroyOnHidden>
+      {importError && <Alert type="error" showIcon message="文件未能进入导入预览" description={importError} />}
     </Modal>
   </div>;
 }

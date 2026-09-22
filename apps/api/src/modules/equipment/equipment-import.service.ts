@@ -84,7 +84,7 @@ export class EquipmentImportService {
     });
     const required = ["divisionName", "equipmentCode", "reportDate", "plannedRuntimeMinutes", "runtimeMinutes", "faultMinutes", "faultReason"];
     const missing = required.filter((name) => !map.has(name));
-    if (missing.includes("plannedRuntimeMinutes")) throw new BadRequestException("当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。模板已升级，请重新下载最新模板。");
+    if (missing.includes("plannedRuntimeMinutes")) throw new BadRequestException("当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。");
     if (missing.length) {
       const labels: Record<string, string> = { divisionName: "事业部", equipmentCode: "设备编号", reportDate: "填报日期", plannedRuntimeMinutes: "计划运行时间", runtimeMinutes: "实际运行时长", faultMinutes: "故障时长", faultReason: "故障原因" };
       throw new BadRequestException(`缺少字段：${missing.map((name) => labels[name] ?? name).join("、")}`);

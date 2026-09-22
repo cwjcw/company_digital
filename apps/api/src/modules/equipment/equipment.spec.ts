@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import ExcelJS from "exceljs";
 import { EquipmentApplicationService } from "./equipment.application.service";
 import { EquipmentController } from "./equipment.controller";
 import { EquipmentImportService } from "./equipment-import.service";
@@ -221,8 +222,31 @@ describe("equipment permissions and validation", () => {
     expect(service.duration("755")).toBe(755);
     expect(service.duration(0)).toBe(0);
     expect(Number.isNaN(service.duration("十二小时"))).toBe(true);
-    expect(() => service.headerMap(["事业部", "设备编号", "填报日期", "运行时长", "故障时长", "故障原因"])).toThrow("模板已升级，请重新下载最新模板");
+    expect(() => service.headerMap(["事业部", "设备编号", "填报日期", "运行时长", "故障时长", "故障原因"])).toThrow("当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。");
     expect(service.headerMap(["事业部", "使用部门", "设备编号", "设备名称", "填报日期", "计划运行时间", "实际运行时长", "故障时长", "故障原因"]).get("runtimeMinutes")).toBe(6);
     expect(service.headerMap(["事业部", "设备编号", "填报日期", "计划运行时间", "运行时长", "故障时长", "故障原因"]).get("runtimeMinutes")).toBe(4);
+  });
+
+  it("rejects an old workbook at preview level but accepts the new template", async () => {
+    process.env.JWT_ACCESS_SECRET ||= "equipment-import-test-secret";
+    const oldWorkbook = new ExcelJS.Workbook();
+    const oldSheet = oldWorkbook.addWorksheet("设备状态填报");
+    oldSheet.addRow(["事业部", "使用部门", "设备编号", "设备名称", "填报日期", "运行时长", "故障时长", "故障原因"]);
+    oldSheet.addRow(["事业一部", "生产部", "A001", "设备甲", "2026-09-21", "7小时", "0小时", ""]);
+    const oldFile = { originalname: "旧版设备状态模板.xlsx", buffer: Buffer.from(await oldWorkbook.xlsx.writeBuffer()) } as Express.Multer.File;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("设备状态填报");
+    sheet.addRow(["事业部", "使用部门", "设备编号", "设备名称", "填报日期", "计划运行时间", "实际运行时长", "故障时长", "故障原因"]);
+    sheet.addRow(["事业一部", "生产部", "A001", "设备甲", "2026-09-21", "8小时", "7小时", "0小时", ""]);
+    const newerFile = { originalname: "新版设备状态模板.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()) } as Express.Multer.File;
+    const application = { previewStatusImport: jest.fn().mockResolvedValue({ rows: [], errors: [], total: 1, createCount: 0, updateCount: 0, unchangedCount: 0 }) };
+    const service = new EquipmentImportService(application as never);
+    const importActor = actor({ permissions: ["equipment-status-report:*:import"] });
+
+    await expect(service.previewStatus(oldFile, importActor)).rejects.toThrow("缺少“计划运行时间”字段");
+    expect(application.previewStatusImport).not.toHaveBeenCalled();
+
+    await expect(service.previewStatus(newerFile, importActor)).resolves.toMatchObject({ total: 1 });
+    expect(application.previewStatusImport).toHaveBeenCalledTimes(1);
   });
 });
