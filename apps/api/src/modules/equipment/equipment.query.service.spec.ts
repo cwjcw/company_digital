@@ -99,6 +99,7 @@ describe("EquipmentQueryService status responsibility", () => {
   it("uses a report record rather than duration values to identify daily data", async () => {
     const dataSource = { query: jest.fn().mockResolvedValueOnce([{ payload: { metrics: { dailyRecordedEquipment: 1 } } }]) } as any;
     const service = new EquipmentQueryService(dataSource);
+    (service as any).shanghaiDate = () => "2026-09-22";
 
     const result = await service.dashboard({ periodType: "day", period: "2026-09-09" }, {
       tenantId: "KAINAN", userId: null, username: "系统管理员", permissions: ["*"], tableDataScopes: [], requestId: "request-dashboard"
@@ -114,6 +115,44 @@ describe("EquipmentQueryService status responsibility", () => {
     expect(sql).toContain("'dailyRecordedEquipment'");
     expect(sql).toContain("round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds))::integer");
     expect(sql).toContain("'division',division,'departmentId'");
+    expect(sql).toContain("sum(report.planned_runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0)");
+    expect(sql).toContain("'plannedRuntimeMinutes'");
+    expect(sql).toContain("'utilizationRate'");
+    expect(sql).toContain("'equipmentRows'");
+    expect(sql).toContain("utilization_runtime_minutes::numeric/planned_runtime_minutes*100");
+    expect(sql).toContain("'operationsMonitoring'");
+    expect(sql).toContain("operations_divisions");
+    expect(sql).toContain("operations_division_daily");
+    expect(sql).toContain("operations_division_trends");
+    expect(sql).toContain("operations_yesterday_department");
+    expect(sql).toContain("operations_yesterday_division");
+    expect(sql).toContain("GROUP BY division_id,division");
+    expect(sql).toContain("'yesterdayDivisionRows'");
+    expect(sql).toContain("'yesterdayDepartmentRows'");
+    expect(sql).not.toContain("'yesterdayRows'");
+    expect(sql).toContain("'sevenDayTrend',jsonb_build_object");
+    expect(sql).toContain("'total'");
+    expect(sql).toContain("'divisions'");
+    expect(sql).toContain("generate_series(window_start,window_end,interval '1 day')");
+    expect(sql).toContain("count(DISTINCT report.equipment_id)::integer filled_equipment_count");
+    expect(sql).toContain("COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes");
+    expect(sql).toContain("sum(report.runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0)");
+    expect(sql).toContain("'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END");
+    expect(sql).toContain("round(filled_equipment_count::numeric/expected_equipment_count*100,1)");
+    expect(sql).not.toContain("avg(");
+    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-15", "2026-09-21"]);
+  });
+
+  it("rolls the operations trend window forward with the Shanghai calendar date", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValueOnce([{ payload: { metrics: {} } }]) } as any;
+    const service = new EquipmentQueryService(dataSource);
+    (service as any).shanghaiDate = () => "2026-09-23";
+
+    await service.dashboard({ periodType: "day", period: "2026-09-22" }, {
+      tenantId: "KAINAN", userId: null, username: "系统管理员", permissions: ["*"], tableDataScopes: [], requestId: "request-dashboard-rollover"
+    });
+
+    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-16", "2026-09-22"]);
   });
 });
 

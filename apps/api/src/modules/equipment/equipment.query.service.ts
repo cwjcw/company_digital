@@ -10,6 +10,7 @@ type PageInput = {
   divisionName?: string; usageDepartmentName?: string; equipmentCode?: string; equipmentName?: string;
   purchaseDate?: string; plannedStartupMinutes?: string; monitored?: string;
   reportDate?: string; runtimeMinutes?: string; faultMinutes?: string; faultReason?: string; responsibleUserIds?: string;
+  plannedRuntimeMinutes?: string; utilizationRate?: string;
   createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
   sortField?: string; sortOrder?: string;
 };
@@ -69,6 +70,7 @@ export class EquipmentQueryService {
     const { page, pageSize, offset } = this.page(input); const params: unknown[] = [actor.tenantId];
     const clauses = ["report.tenant_id=$1", "report.active=true", this.scopeClause(actor, "equipment-status-report", "read", "report", params)];
     const responsibleNames = `COALESCE((SELECT string_agg(u.display_name,' ') FROM equipment_responsibles er JOIN users u ON u.id=er.user_id WHERE er.tenant_id=report.tenant_id AND er.equipment_id=report.equipment_id),'')`;
+    const utilizationRate = `(CASE WHEN report.planned_runtime_minutes IS NULL OR report.planned_runtime_minutes <= 0 THEN NULL ELSE report.runtime_minutes::numeric / report.planned_runtime_minutes * 100 END)`;
     const search = String(input.search ?? "").trim();
     if (search) { params.push(`%${search}%`); clauses.push(`(report.equipment_code_snapshot ILIKE $${params.length} OR report.equipment_name_snapshot ILIKE $${params.length} OR report.division_name_snapshot ILIKE $${params.length} OR report.usage_department_name_snapshot ILIKE $${params.length} OR COALESCE(report.fault_reason,'') ILIKE $${params.length} OR ${responsibleNames} ILIKE $${params.length})`); }
     if (input.divisionId) { params.push(input.divisionId); clauses.push(`report.division_organization_unit_id=$${params.length}::uuid`); }
@@ -76,12 +78,12 @@ export class EquipmentQueryService {
     this.textFilters(input, params, clauses, {
       divisionName: "report.division_name_snapshot", usageDepartmentName: "report.usage_department_name_snapshot",
       equipmentCode: "report.equipment_code_snapshot", equipmentName: "report.equipment_name_snapshot", reportDate: "report.report_date::text",
-      runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')", responsibleUserIds: responsibleNames,
+      plannedRuntimeMinutes: "report.planned_runtime_minutes::text", runtimeMinutes: "report.runtime_minutes::text", utilizationRate: `${utilizationRate}::text`, faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')", responsibleUserIds: responsibleNames,
       createdBy: "report.created_by::text", createdAt: "report.created_at::text", updatedBy: "report.updated_by::text", updatedAt: "report.updated_at::text"
     });
     await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
     const where = clauses.join(" AND ");
-    const sortColumns: Record<string, string> = { equipmentCode:"report.equipment_code_snapshot",equipmentName:"report.equipment_name_snapshot",divisionName:"report.division_name_snapshot",usageDepartmentName:"report.usage_department_name_snapshot",responsibleUserIds:responsibleNames,reportDate:"report.report_date",runtimeMinutes:"report.runtime_minutes",faultMinutes:"report.fault_minutes",faultReason:"report.fault_reason",createdBy:"report.created_by",createdAt:"report.created_at",updatedBy:"report.updated_by",updatedAt:"report.updated_at" };
+    const sortColumns: Record<string, string> = { equipmentCode:"report.equipment_code_snapshot",equipmentName:"report.equipment_name_snapshot",divisionName:"report.division_name_snapshot",usageDepartmentName:"report.usage_department_name_snapshot",responsibleUserIds:responsibleNames,reportDate:"report.report_date",plannedRuntimeMinutes:"report.planned_runtime_minutes",runtimeMinutes:"report.runtime_minutes",utilizationRate,faultMinutes:"report.fault_minutes",faultReason:"report.fault_reason",createdBy:"report.created_by",createdAt:"report.created_at",updatedBy:"report.updated_by",updatedAt:"report.updated_at" };
     const sortColumn = sortColumns[input.sortField ?? ""];
     const orderBy = sortColumn ? `${sortColumn} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST` : "report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot";
     const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM equipment_status_reports report WHERE ${where}`, params);
@@ -91,7 +93,8 @@ export class EquipmentQueryService {
         report.equipment_name_snapshot "equipmentName",report.division_organization_unit_id "divisionId",
         report.division_name_snapshot "divisionName",report.usage_department_organization_unit_id "usageDepartmentId",
         report.usage_department_name_snapshot "usageDepartmentName",report.report_date "reportDate",
-        report.runtime_minutes "runtimeMinutes",report.fault_minutes "faultMinutes",report.fault_reason "faultReason",
+        report.planned_runtime_minutes "plannedRuntimeMinutes",report.runtime_minutes "runtimeMinutes",
+        ${utilizationRate} "utilizationRate",report.fault_minutes "faultMinutes",report.fault_reason "faultReason",
         report.version,report.created_by "createdBy",report.created_at "createdAt",report.updated_by "updatedBy",report.updated_at "updatedAt",
         COALESCE(resp.ids,'[]'::jsonb) "responsibleUserIds",COALESCE(resp.users,'[]'::jsonb) "responsibleUsers"
       FROM equipment_status_reports report
@@ -112,17 +115,18 @@ export class EquipmentQueryService {
     this.assert(actor, "equipment-status-report", "export");
     const params: unknown[] = [actor.tenantId];
     const clauses = ["report.tenant_id=$1", "report.active=true", this.scopeClause(actor, "equipment-status-report", "export", "report", params)];
+    const utilizationRate = `(CASE WHEN report.planned_runtime_minutes IS NULL OR report.planned_runtime_minutes <= 0 THEN NULL ELSE report.runtime_minutes::numeric / report.planned_runtime_minutes * 100 END)`;
     const search = String(input.search ?? "").trim();
     if (search) { params.push(`%${search}%`); clauses.push(`(report.equipment_code_snapshot ILIKE $${params.length} OR report.equipment_name_snapshot ILIKE $${params.length} OR report.division_name_snapshot ILIKE $${params.length} OR report.usage_department_name_snapshot ILIKE $${params.length} OR COALESCE(report.fault_reason,'') ILIKE $${params.length})`); }
     this.textFilters(input, params, clauses, {
       divisionName: "report.division_name_snapshot", usageDepartmentName: "report.usage_department_name_snapshot",
       equipmentCode: "report.equipment_code_snapshot", equipmentName: "report.equipment_name_snapshot", reportDate: "report.report_date::text",
-      runtimeMinutes: "report.runtime_minutes::text", faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')"
+      plannedRuntimeMinutes: "report.planned_runtime_minutes::text", runtimeMinutes: "report.runtime_minutes::text", utilizationRate: `${utilizationRate}::text`, faultMinutes: "report.fault_minutes::text", faultReason: "COALESCE(report.fault_reason,'')"
     });
     await this.typedFilter(input, params, clauses, "report", "equipment-status-report", actor);
     return this.dataSource.query(`SELECT report.division_name_snapshot "divisionName",report.equipment_code_snapshot "equipmentCode",
       report.equipment_name_snapshot "equipmentName",report.usage_department_name_snapshot "usageDepartmentName",report.report_date "reportDate",
-      report.runtime_minutes "runtimeMinutes",report.fault_minutes "faultMinutes",report.fault_reason "faultReason"
+      report.planned_runtime_minutes "plannedRuntimeMinutes",report.runtime_minutes "runtimeMinutes",${utilizationRate} "utilizationRate",report.fault_minutes "faultMinutes",report.fault_reason "faultReason"
       FROM equipment_status_reports report WHERE ${clauses.join(" AND ")}
       ORDER BY report.report_date DESC,report.division_name_snapshot,report.equipment_code_snapshot`, params);
   }
@@ -144,7 +148,7 @@ export class EquipmentQueryService {
     const params: unknown[] = [actor.tenantId];
     const referenceScope = canCreate ? this.referenceCreationScopeClause(actor, "equipment-status-report", "asset", params) : "1=0";
     const [equipment, faultReasons] = await Promise.all([
-      this.dataSource.query(`SELECT asset.id,asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName" FROM equipment_assets asset WHERE asset.tenant_id=$1 AND asset.active=true AND asset.monitored=true AND ${referenceScope} ORDER BY asset.equipment_code,asset.division_name_snapshot`, params),
+      this.dataSource.query(`SELECT asset.id,asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName",asset.planned_startup_minutes "plannedStartupMinutes" FROM equipment_assets asset WHERE asset.tenant_id=$1 AND asset.active=true AND asset.monitored=true AND ${referenceScope} ORDER BY asset.equipment_code,asset.division_name_snapshot`, params),
       this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
     ]);
     return { equipment, users: [], organizations: [], faultReasons: faultReasons.map((row: any) => row.value) };
@@ -197,6 +201,10 @@ export class EquipmentQueryService {
       params.push(dashboardInput.departmentIds);
       eligibleFilters.push(`asset.usage_department_organization_unit_id=ANY($${params.length}::uuid[])`);
     }
+    const operationsYesterday = this.addDays(this.shanghaiDate(), -1);
+    const operationsStart = this.addDays(operationsYesterday, -6);
+    params.push(operationsStart, operationsYesterday);
+    const [operationsStartParam, operationsEndParam] = [params.length - 1, params.length];
     const [payload] = await this.dataSource.query(`
       WITH bounds AS (
         SELECT $${windowStartParam}::date window_start,$${windowEndParam}::date window_end,$${windowDaysParam}::integer window_days
@@ -213,6 +221,89 @@ export class EquipmentQueryService {
         SELECT DISTINCT ON (report.equipment_id) report.* FROM window_reports report CROSS JOIN bounds
         WHERE report.report_date=bounds.window_end
         ORDER BY report.equipment_id,report.updated_at DESC
+      ), operations_bounds AS (
+        SELECT $${operationsStartParam}::date window_start,$${operationsEndParam}::date window_end
+      ), operations_dates AS (
+        SELECT generate_series(window_start,window_end,interval '1 day')::date report_date FROM operations_bounds
+      ), operations_reports AS MATERIALIZED (
+        SELECT report.* FROM equipment_status_reports report JOIN monitored asset ON asset.id=report.equipment_id CROSS JOIN operations_bounds
+        WHERE report.tenant_id=$1 AND report.active=true AND report.report_date BETWEEN operations_bounds.window_start AND operations_bounds.window_end
+      ), operations_daily AS (
+        SELECT dates.report_date,
+          (SELECT count(*)::integer FROM monitored) expected_equipment_count,
+          count(DISTINCT report.equipment_id)::integer filled_equipment_count,
+          COALESCE(sum(report.planned_runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer planned_runtime_minutes,
+          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(report.runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer utilization_runtime_minutes
+        FROM operations_dates dates LEFT JOIN operations_reports report ON report.report_date=dates.report_date
+        GROUP BY dates.report_date
+      ), operations_divisions AS (
+        SELECT asset.division_organization_unit_id division_id,asset.division_name_snapshot division
+        FROM monitored asset
+        GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot
+      ), operations_division_daily AS (
+        SELECT dates.report_date,divisions.division_id,divisions.division,
+          count(DISTINCT asset.id)::integer expected_equipment_count,
+          count(DISTINCT report.equipment_id)::integer filled_equipment_count,
+          COALESCE(sum(report.planned_runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer planned_runtime_minutes,
+          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(report.runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer utilization_runtime_minutes
+        FROM operations_dates dates CROSS JOIN operations_divisions divisions
+        LEFT JOIN monitored asset
+          ON asset.division_organization_unit_id IS NOT DISTINCT FROM divisions.division_id
+          AND asset.division_name_snapshot IS NOT DISTINCT FROM divisions.division
+        LEFT JOIN operations_reports report ON report.equipment_id=asset.id AND report.report_date=dates.report_date
+        GROUP BY dates.report_date,divisions.division_id,divisions.division
+      ), operations_division_trends AS (
+        SELECT division_id,division,jsonb_agg(jsonb_build_object(
+          'date',report_date,'expectedEquipmentCount',expected_equipment_count,'filledEquipmentCount',filled_equipment_count,
+          'unfilledEquipmentCount',expected_equipment_count-filled_equipment_count,
+          'reportingRate',CASE WHEN expected_equipment_count>0 THEN round(filled_equipment_count::numeric/expected_equipment_count*100,1) ELSE NULL END,
+          'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+          'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END
+        ) ORDER BY report_date) trend_rows
+        FROM operations_division_daily
+        GROUP BY division_id,division
+      ), operations_yesterday_department AS (
+        SELECT asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
+          asset.usage_department_organization_unit_id department_id,
+          COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门') department,
+          count(DISTINCT asset.id)::integer expected_equipment_count,
+          count(DISTINCT report.equipment_id)::integer filled_equipment_count,
+          COALESCE(sum(report.planned_runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer planned_runtime_minutes,
+          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(report.runtime_minutes) FILTER (WHERE report.planned_runtime_minutes IS NOT NULL AND report.planned_runtime_minutes>0),0)::integer utilization_runtime_minutes
+        FROM monitored asset LEFT JOIN operations_reports report
+          ON report.equipment_id=asset.id AND report.report_date=(SELECT window_end FROM operations_bounds)
+        GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot,asset.usage_department_organization_unit_id,
+          COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门')
+      ), operations_yesterday_division AS (
+        SELECT division_id,division,
+          sum(expected_equipment_count)::integer expected_equipment_count,
+          sum(filled_equipment_count)::integer filled_equipment_count,
+          sum(planned_runtime_minutes)::integer planned_runtime_minutes,
+          sum(runtime_minutes)::integer runtime_minutes,
+          sum(utilization_runtime_minutes)::integer utilization_runtime_minutes
+        FROM operations_yesterday_department
+        GROUP BY division_id,division
+      ), operations_yesterday_department_rows AS (
+        SELECT division_id,division,department_id,department,
+          expected_equipment_count,filled_equipment_count,planned_runtime_minutes,runtime_minutes,utilization_runtime_minutes
+        FROM operations_yesterday_department
+      ), operations_yesterday_division_rows AS (
+        SELECT division_id,division,
+          expected_equipment_count,filled_equipment_count,planned_runtime_minutes,runtime_minutes,utilization_runtime_minutes
+        FROM operations_yesterday_division
+      ), equipment_duration AS (
+        SELECT asset.id equipment_id,asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
+          asset.usage_department_organization_unit_id department_id,
+          COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门') department,
+          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(report.runtime_minutes) FILTER (WHERE report.planned_runtime_minutes>0),0)::integer utilization_runtime_minutes,
+          sum(report.planned_runtime_minutes) FILTER (WHERE report.planned_runtime_minutes>0)::integer planned_runtime_minutes,
+          COALESCE(sum(report.fault_minutes),0)::integer fault_minutes
+        FROM monitored asset LEFT JOIN window_reports report ON report.equipment_id=asset.id
+        GROUP BY asset.id,asset.division_organization_unit_id,asset.division_name_snapshot,asset.usage_department_organization_unit_id,COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门')
       ), asset_state AS (
         SELECT asset.id,asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
           asset.usage_department_organization_unit_id department_id,
@@ -227,13 +318,14 @@ export class EquipmentQueryService {
           count(*) FILTER (WHERE state='未填报')::integer unreported_count
         FROM asset_state GROUP BY division_id,division
       ), division_duration AS (
-        SELECT asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
-          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,COALESCE(sum(report.fault_minutes),0)::integer fault_minutes
-        FROM monitored asset LEFT JOIN window_reports report ON report.equipment_id=asset.id
-        GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot
+        SELECT division_id,division,COALESCE(sum(runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(utilization_runtime_minutes),0)::integer utilization_runtime_minutes,
+          COALESCE(sum(planned_runtime_minutes),0)::integer planned_runtime_minutes,COALESCE(sum(fault_minutes),0)::integer fault_minutes
+        FROM equipment_duration GROUP BY division_id,division
       ), division_analysis AS (
         SELECT state.division,state.equipment_count,state.normal_count,state.fault_count,state.idle_count,state.unreported_count,
-          duration.runtime_minutes,duration.fault_minutes,
+          duration.planned_runtime_minutes,duration.runtime_minutes,duration.fault_minutes,
+          CASE WHEN duration.planned_runtime_minutes>0 THEN round(duration.utilization_runtime_minutes::numeric/duration.planned_runtime_minutes*100,1) ELSE NULL END utilization_rate,
           round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds))::integer runtime_daily_average_minutes,
           round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds))::integer fault_daily_average_minutes
         FROM division_state state JOIN division_duration duration ON duration.division_id=state.division_id
@@ -245,15 +337,14 @@ export class EquipmentQueryService {
           count(*) FILTER (WHERE state='未填报')::integer unreported_count
         FROM asset_state GROUP BY division_id,division,department_id,department
       ), department_duration AS (
-        SELECT asset.division_organization_unit_id division_id,asset.division_name_snapshot division,
-          asset.usage_department_organization_unit_id department_id,
-          COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门') department,
-          COALESCE(sum(report.runtime_minutes),0)::integer runtime_minutes,COALESCE(sum(report.fault_minutes),0)::integer fault_minutes
-        FROM monitored asset LEFT JOIN window_reports report ON report.equipment_id=asset.id
-        GROUP BY asset.division_organization_unit_id,asset.division_name_snapshot,asset.usage_department_organization_unit_id,COALESCE(NULLIF(asset.usage_department_name_snapshot,''),'未指定部门')
+        SELECT division_id,division,department_id,department,COALESCE(sum(runtime_minutes),0)::integer runtime_minutes,
+          COALESCE(sum(utilization_runtime_minutes),0)::integer utilization_runtime_minutes,
+          COALESCE(sum(planned_runtime_minutes),0)::integer planned_runtime_minutes,COALESCE(sum(fault_minutes),0)::integer fault_minutes
+        FROM equipment_duration GROUP BY division_id,division,department_id,department
       ), department_analysis AS (
         SELECT state.division,state.department_id,state.department,state.equipment_count,state.normal_count,state.fault_count,state.idle_count,state.unreported_count,
-          duration.runtime_minutes,duration.fault_minutes,
+          duration.planned_runtime_minutes,duration.runtime_minutes,duration.fault_minutes,
+          CASE WHEN duration.planned_runtime_minutes>0 THEN round(duration.utilization_runtime_minutes::numeric/duration.planned_runtime_minutes*100,1) ELSE NULL END utilization_rate,
           round(duration.runtime_minutes::numeric/(SELECT window_days FROM bounds))::integer runtime_daily_average_minutes,
           round(duration.fault_minutes::numeric/(SELECT window_days FROM bounds))::integer fault_daily_average_minutes
         FROM department_state state JOIN department_duration duration
@@ -266,7 +357,9 @@ export class EquipmentQueryService {
           'totalEquipment',(SELECT count(*) FROM eligible),'firstBatchMonitoringEquipment',(SELECT count(*) FROM monitored),
           'pendingGoLiveEquipment',(SELECT count(*) FROM eligible WHERE monitored=false),
           'dailyRecordedEquipment',(SELECT count(*) FROM asset_state WHERE state<>'未填报'),
-          'runtimeMinutes',(SELECT COALESCE(sum(runtime_minutes),0) FROM window_reports),'faultMinutes',(SELECT COALESCE(sum(fault_minutes),0) FROM window_reports),
+          'plannedRuntimeMinutes',(SELECT COALESCE(sum(planned_runtime_minutes),0) FROM equipment_duration),
+          'runtimeMinutes',(SELECT COALESCE(sum(runtime_minutes),0) FROM equipment_duration),'faultMinutes',(SELECT COALESCE(sum(fault_minutes),0) FROM equipment_duration),
+          'utilizationRate',CASE WHEN (SELECT COALESCE(sum(planned_runtime_minutes),0) FROM equipment_duration)>0 THEN round((SELECT COALESCE(sum(utilization_runtime_minutes),0) FROM equipment_duration)::numeric/(SELECT sum(planned_runtime_minutes) FROM equipment_duration)*100,1) ELSE NULL END,
           'runtimeDailyAverageMinutes',round((SELECT COALESCE(sum(runtime_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds))::integer,
           'faultDailyAverageMinutes',round((SELECT COALESCE(sum(fault_minutes),0) FROM window_reports)::numeric/(SELECT window_days FROM bounds))::integer,
           'normalEquipment',(SELECT count(*) FROM asset_state WHERE state='正常运行'),'faultEquipment',(SELECT count(*) FROM asset_state WHERE state='存在故障'),
@@ -274,14 +367,58 @@ export class EquipmentQueryService {
         ),
         'divisionRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'division',division,'equipmentCount',equipment_count,'normalCount',normal_count,'faultCount',fault_count,
-          'idleCount',idle_count,'unreportedCount',unreported_count,'runtimeMinutes',runtime_minutes,'faultMinutes',fault_minutes,
+          'idleCount',idle_count,'unreportedCount',unreported_count,'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,'utilizationRate',utilization_rate,'faultMinutes',fault_minutes,
           'runtimeDailyAverageMinutes',runtime_daily_average_minutes,'faultDailyAverageMinutes',fault_daily_average_minutes
         ) ORDER BY division) FROM division_analysis),'[]'::jsonb),
         'departmentRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'division',division,'departmentId',department_id,'department',department,'equipmentCount',equipment_count,'normalCount',normal_count,'faultCount',fault_count,
-          'idleCount',idle_count,'unreportedCount',unreported_count,'runtimeMinutes',runtime_minutes,'faultMinutes',fault_minutes,
+          'idleCount',idle_count,'unreportedCount',unreported_count,'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,'utilizationRate',utilization_rate,'faultMinutes',fault_minutes,
           'runtimeDailyAverageMinutes',runtime_daily_average_minutes,'faultDailyAverageMinutes',fault_daily_average_minutes
         ) ORDER BY division,department) FROM department_analysis),'[]'::jsonb),
+        'equipmentRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'division',division,'departmentId',department_id,'department',department,'equipmentId',equipment_id,
+          'equipmentCode',asset.equipment_code,'equipmentName',asset.equipment_name,
+          'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+          'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END,
+          'faultMinutes',fault_minutes
+        ) ORDER BY division,department,asset.equipment_code) FROM equipment_duration JOIN equipment_assets asset ON asset.id=equipment_duration.equipment_id),'[]'::jsonb),
+        'operationsMonitoring',jsonb_build_object(
+          'yesterday',(SELECT jsonb_build_object(
+            'date',report_date,'expectedEquipmentCount',expected_equipment_count,'filledEquipmentCount',filled_equipment_count,
+            'unfilledEquipmentCount',expected_equipment_count-filled_equipment_count,
+            'reportingRate',CASE WHEN expected_equipment_count>0 THEN round(filled_equipment_count::numeric/expected_equipment_count*100,1) ELSE NULL END,
+            'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+            'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END
+          ) FROM operations_daily WHERE report_date=(SELECT window_end FROM operations_bounds)),
+          'yesterdayDivisionRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'divisionId',division_id,'division',division,
+            'expectedEquipmentCount',expected_equipment_count,'filledEquipmentCount',filled_equipment_count,
+            'unfilledEquipmentCount',expected_equipment_count-filled_equipment_count,
+            'reportingRate',CASE WHEN expected_equipment_count>0 THEN round(filled_equipment_count::numeric/expected_equipment_count*100,1) ELSE NULL END,
+            'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+            'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END
+          ) ORDER BY CASE division WHEN '凯南事业一部' THEN 1 WHEN '事业一部' THEN 1 WHEN '凯南事业二部' THEN 2 WHEN '事业二部' THEN 2 WHEN '凯南事业三部' THEN 3 WHEN '事业三部' THEN 3 WHEN '凯南事业四部' THEN 4 WHEN '事业四部' THEN 4 ELSE 99 END,division) FROM operations_yesterday_division_rows),'[]'::jsonb),
+          'yesterdayDepartmentRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'divisionId',division_id,'division',division,'departmentId',department_id,'department',department,
+            'expectedEquipmentCount',expected_equipment_count,'filledEquipmentCount',filled_equipment_count,
+            'unfilledEquipmentCount',expected_equipment_count-filled_equipment_count,
+            'reportingRate',CASE WHEN expected_equipment_count>0 THEN round(filled_equipment_count::numeric/expected_equipment_count*100,1) ELSE NULL END,
+            'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+            'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END
+          ) ORDER BY CASE division WHEN '凯南事业一部' THEN 1 WHEN '事业一部' THEN 1 WHEN '凯南事业二部' THEN 2 WHEN '事业二部' THEN 2 WHEN '凯南事业三部' THEN 3 WHEN '事业三部' THEN 3 WHEN '凯南事业四部' THEN 4 WHEN '事业四部' THEN 4 ELSE 99 END,division,department) FROM operations_yesterday_department_rows),'[]'::jsonb),
+          'sevenDayTrend',jsonb_build_object(
+            'total',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'date',report_date,'expectedEquipmentCount',expected_equipment_count,'filledEquipmentCount',filled_equipment_count,
+            'reportingRate',CASE WHEN expected_equipment_count>0 THEN round(filled_equipment_count::numeric/expected_equipment_count*100,1) ELSE NULL END,
+            'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,
+            'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END
+            ) ORDER BY report_date) FROM operations_daily),'[]'::jsonb),
+            'divisions',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+              'divisionId',division_id,'divisionName',division,'rows',trend_rows
+            ) ORDER BY CASE division WHEN '凯南事业一部' THEN 1 WHEN '事业一部' THEN 1 WHEN '凯南事业二部' THEN 2 WHEN '事业二部' THEN 2 WHEN '凯南事业三部' THEN 3 WHEN '事业三部' THEN 3 WHEN '凯南事业四部' THEN 4 WHEN '事业四部' THEN 4 ELSE 99 END,division)
+              FROM operations_division_trends),'[]'::jsonb)
+          )
+        ),
         'filters',jsonb_build_object(
           'divisions',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',division_id,'name',division) ORDER BY division)
             FROM (SELECT DISTINCT division_organization_unit_id division_id,division_name_snapshot division FROM scoped_assets) divisions),'[]'::jsonb),
@@ -391,7 +528,7 @@ export class EquipmentQueryService {
     return {
       equipmentId: `${alias}.equipment_id`, equipmentCode: `${alias}.equipment_code_snapshot`, equipmentName: `${alias}.equipment_name_snapshot`,
       divisionId: `${alias}.division_organization_unit_id`, usageDepartmentId: `${alias}.usage_department_organization_unit_id`,
-      responsibleUserIds: members, reportDate: `${alias}.report_date`, runtimeMinutes: `${alias}.runtime_minutes`,
+      responsibleUserIds: members, reportDate: `${alias}.report_date`, plannedRuntimeMinutes: `${alias}.planned_runtime_minutes`, runtimeMinutes: `${alias}.runtime_minutes`,
       faultMinutes: `${alias}.fault_minutes`, faultReason: `${alias}.fault_reason`,
       createdBy: `${alias}.created_by`, createdAt: `${alias}.created_at`, updatedBy: `${alias}.updated_by`, updatedAt: `${alias}.updated_at`
     };

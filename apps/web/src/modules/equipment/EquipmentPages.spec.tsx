@@ -5,11 +5,26 @@ import { Modal } from "antd";
 import { api } from "../../api";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
 
+const chartProps = vi.hoisted(() => [] as Array<{ option: any; ariaLabel: string; empty?: boolean }>);
+
 vi.mock("../../api", () => ({
   api: vi.fn(),
   getValue: vi.fn(),
   containsText: vi.fn()
 }));
+
+vi.mock("../../shared/charts", async () => {
+  const React = await import("react");
+  return {
+    KdosChart: (props: { option: any; ariaLabel: string; empty?: boolean }) => {
+      chartProps.push(props);
+      return React.createElement("div", { role: "img", "aria-label": props.ariaLabel, "data-kdos-chart": "true" });
+    },
+    formatChartDate: (value: string | undefined) => value ? `${Number(value.slice(5, 7))}月${Number(value.slice(8, 10))}日` : "—",
+    formatChartDuration: (value: number | null | undefined) => value == null ? "—" : `${Math.floor(value / 60)}小时${value % 60 ? `${value % 60}分钟` : ""}`,
+    formatChartPercent: (value: number | null | undefined) => value == null ? "—" : `${Number(value).toFixed(1)}%`
+  };
+});
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -29,15 +44,38 @@ function shanghaiYesterday() {
   return new Date(Date.UTC(Number(value("year")), Number(value("month")) - 1, Number(value("day")) - 1)).toISOString().slice(0, 10);
 }
 
+const trendRows = Array.from({ length: 7 }, (_, index) => ({ date: `2026-09-${String(index + 15).padStart(2, "0")}`, expectedEquipmentCount: 100, filledEquipmentCount: 90 + index, unfilledEquipmentCount: 10 - index, reportingRate: 90 + index, plannedRuntimeMinutes: 47_940, runtimeMinutes: 37_680, utilizationRate: index === 0 ? null : index === 6 ? 105 : 78.6 }));
+const divisionTwoTrendRows = trendRows.map((row, index) => ({ ...row, expectedEquipmentCount: 50, filledEquipmentCount: 35 + index, unfilledEquipmentCount: 15 - index, reportingRate: 70 + index, plannedRuntimeMinutes: 4_320, runtimeMinutes: index === 6 ? 4_752 : 3_240, utilizationRate: index === 0 ? null : index === 6 ? 110 : 75 }));
+
 const dashboardResponse = {
   windowStart: "2026-09-14", windowEnd: "2026-09-14", windowDays: 1,
-  metrics: { dailyRecordedEquipment: 1 }, divisionRows: [], departmentRows: [], filters: { divisions: [], departments: [] }
+  metrics: { dailyRecordedEquipment: 1 }, divisionRows: [], departmentRows: [], filters: { divisions: [], departments: [] },
+  operationsMonitoring: {
+    yesterday: { date: "2026-09-21", expectedEquipmentCount: 150, filledEquipmentCount: 120, unfilledEquipmentCount: 30, reportingRate: 80, plannedRuntimeMinutes: 1080, runtimeMinutes: 1380, utilizationRate: 83.3 },
+    yesterdayDivisionRows: [
+      { divisionId: "division-1", division: "凯南事业一部", expectedEquipmentCount: 100, filledEquipmentCount: 90, unfilledEquipmentCount: 10, reportingRate: 90, plannedRuntimeMinutes: 1080, runtimeMinutes: 900, utilizationRate: 83.3 },
+      { divisionId: "division-2", division: "凯南事业二部", expectedEquipmentCount: 50, filledEquipmentCount: 30, unfilledEquipmentCount: 20, reportingRate: 60, plannedRuntimeMinutes: 0, runtimeMinutes: 480, utilizationRate: null }
+    ],
+    yesterdayDepartmentRows: [
+      { divisionId: "division-1", division: "凯南事业一部", departmentId: "department-1", department: "五金车间", expectedEquipmentCount: 20, filledEquipmentCount: 19, unfilledEquipmentCount: 1, reportingRate: 95, plannedRuntimeMinutes: 480, runtimeMinutes: 420, utilizationRate: 87.5 },
+      { divisionId: "division-1", division: "凯南事业一部", departmentId: "department-2", department: "木作车间", expectedEquipmentCount: 80, filledEquipmentCount: 71, unfilledEquipmentCount: 9, reportingRate: 88.8, plannedRuntimeMinutes: 600, runtimeMinutes: 480, utilizationRate: 80 },
+      { divisionId: "division-2", division: "凯南事业二部", departmentId: "department-3", department: "五金车间", expectedEquipmentCount: 50, filledEquipmentCount: 30, unfilledEquipmentCount: 20, reportingRate: 60, plannedRuntimeMinutes: 0, runtimeMinutes: 480, utilizationRate: null }
+    ],
+    sevenDayTrend: {
+      total: trendRows,
+      divisions: [
+        { divisionId: "division-1", divisionName: "凯南事业一部", rows: trendRows },
+        { divisionId: "division-2", divisionName: "凯南事业二部", rows: divisionTwoTrendRows }
+      ]
+    }
+  }
 };
 
 describe("EquipmentStatusReportPage live permissions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    chartProps.length = 0;
   });
 
   it("does not trust stale local permissions to open the create dialog", async () => {
@@ -141,6 +179,7 @@ describe("EquipmentDashboardPage date filters", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    chartProps.length = 0;
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path.startsWith("/equipment/dashboard?")) return dashboardResponse as never;
       throw new Error(`unexpected request: ${path}`);
@@ -162,6 +201,45 @@ describe("EquipmentDashboardPage date filters", () => {
     expect(screen.getByLabelText("设备驾驶舱统计日期")).toHaveValue(expected);
     expect(screen.getByText("有数据设备")).toBeInTheDocument();
   });
+
+  it("renders total and per-division ECharts dual-line trends with one shared axis", async () => {
+    const view = renderDashboard();
+    expect(await screen.findByText("设备运行与填报监控")).toBeInTheDocument();
+    expect(await screen.findByText("昨日填报率")).toBeInTheDocument();
+    expect(screen.getAllByText("80.0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("昨日稼动率")).toBeInTheDocument();
+    expect(screen.getByText("实际 23小时0分钟 / 计划 18小时0分钟")).toBeInTheDocument();
+    expect(screen.getByText("昨日事业部填报与稼动情况")).toBeInTheDocument();
+    expect(screen.getByText("昨日部门填报与稼动情况")).toBeInTheDocument();
+    const divisionMonitoringTable = screen.getByText("昨日事业部填报与稼动情况").closest(".ant-card") as HTMLElement;
+    const departmentMonitoringTable = screen.getByText("昨日部门填报与稼动情况").closest(".ant-card") as HTMLElement;
+    expect(within(divisionMonitoringTable).queryAllByText("使用部门/车间")).toHaveLength(0);
+    expect(within(departmentMonitoringTable).queryAllByText("使用部门/车间").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("所属事业部").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("事业一部").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("事业二部").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("五金车间")).toHaveLength(2);
+    expect(screen.getByText("100")).toBeInTheDocument();
+    expect(screen.getByText("7小时0分钟")).toBeInTheDocument();
+    expect(screen.getByText("87.5%")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.queryByText("层级")).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "最近7天总体填报率与稼动率趋势" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: /最近7天填报率与稼动率趋势/ })).toHaveLength(2);
+    expect(view.container.querySelectorAll("[data-kdos-chart='true']")).toHaveLength(3);
+    const options = chartProps.slice(-3).map((props) => props.option);
+    expect(options).toHaveLength(3);
+    for (const option of options) {
+      expect(option.series).toHaveLength(2);
+      expect(option.xAxis.data).toEqual(trendRows.map((row) => row.date));
+      expect(option.yAxis.min).toBe(0);
+      expect(option.yAxis.max).toBe(120);
+    }
+    expect(options[0].series[1].data[0]).toBeNull();
+    expect(options[0].series[1].data[6]).toBe(105);
+    expect(options[0].tooltip.formatter([{ dataIndex: 6 }])).toContain("实际运行 628小时");
+    expect(options[0].tooltip.formatter([{ dataIndex: 6 }])).toContain("稼动率 105.0%");
+  }, 15_000);
 
   it("restores Shanghai yesterday on clear and retains month, year, and custom filters", async () => {
     renderDashboard();

@@ -114,10 +114,23 @@ describe("equipment permissions and validation", () => {
 
   it("stores durations as exact non-negative integer minutes", () => {
     const service = new EquipmentApplicationService({} as never) as any;
-    expect(service.minutes(undefined, "运行时长")).toBe(0);
-    expect(service.minutes(125, "运行时长")).toBe(125);
-    expect(() => service.minutes(-1, "运行时长")).toThrow(BadRequestException);
-    expect(() => service.minutes(1.5, "运行时长")).toThrow(BadRequestException);
+    expect(service.minutes(undefined, "实际运行时长")).toBe(0);
+    expect(service.minutes(125, "实际运行时长")).toBe(125);
+    expect(() => service.minutes(-1, "实际运行时长")).toThrow(BadRequestException);
+    expect(() => service.minutes(1.5, "实际运行时长")).toThrow(BadRequestException);
+  });
+
+  it("requires a positive daily planned runtime while keeping normal durations non-negative", () => {
+    const service = new EquipmentApplicationService({} as never) as any;
+    expect(service.positiveMinutes(600, "计划运行时间")).toBe(600);
+    expect(() => service.positiveMinutes(undefined, "计划运行时间")).toThrow("必须填写且必须大于0");
+    expect(() => service.positiveMinutes(0, "计划运行时间")).toThrow("必须填写且必须大于0");
+    expect(() => service.positiveMinutes(-1, "计划运行时间")).toThrow("必须填写且必须大于0");
+  });
+
+  it("includes the daily planned runtime in status audit snapshots", () => {
+    const service = new EquipmentApplicationService({} as never) as any;
+    expect(service.statusAudit({ equipmentId: "asset-1", reportDate: "2026-09-20", plannedRuntimeMinutes: 630, runtimeMinutes: 700, faultMinutes: 0, faultReason: null, active: true, version: 2 })).toMatchObject({ plannedRuntimeMinutes: 630 });
   });
 
   it("parses supported duration formats during import", () => {
@@ -208,5 +221,8 @@ describe("equipment permissions and validation", () => {
     expect(service.duration("755")).toBe(755);
     expect(service.duration(0)).toBe(0);
     expect(Number.isNaN(service.duration("十二小时"))).toBe(true);
+    expect(() => service.headerMap(["事业部", "设备编号", "填报日期", "运行时长", "故障时长", "故障原因"])).toThrow("模板已升级，请重新下载最新模板");
+    expect(service.headerMap(["事业部", "使用部门", "设备编号", "设备名称", "填报日期", "计划运行时间", "实际运行时长", "故障时长", "故障原因"]).get("runtimeMinutes")).toBe(6);
+    expect(service.headerMap(["事业部", "设备编号", "填报日期", "计划运行时间", "运行时长", "故障时长", "故障原因"]).get("runtimeMinutes")).toBe(4);
   });
 });

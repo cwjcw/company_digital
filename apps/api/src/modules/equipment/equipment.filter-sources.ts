@@ -32,7 +32,7 @@ export class EquipmentFilterSourceProvider implements OnModuleInit {
       columns: {
         equipmentId: "equipment_id", equipmentCode: "equipment_code_snapshot", equipmentName: "equipment_name_snapshot",
         divisionId: "division_organization_unit_id", usageDepartmentId: "usage_department_organization_unit_id",
-        reportDate: "report_date", runtimeMinutes: "runtime_minutes", faultMinutes: "fault_minutes", faultReason: "fault_reason",
+        reportDate: "report_date", plannedRuntimeMinutes: "planned_runtime_minutes", runtimeMinutes: "runtime_minutes", faultMinutes: "fault_minutes", faultReason: "fault_reason",
         createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
       },
       fields: tablePermissionFieldsFor("equipment-status-report"),

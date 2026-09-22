@@ -4,7 +4,7 @@ KDOS is a modular monolith for Kainan operations. Phase one makes Planning Cente
 
 ## Runtime
 
-- `apps/web`: React 19, Vite, TanStack Query, Ant Design, AG Grid Community.
+- `apps/web`: React 19, Vite, TanStack Query, Ant Design, AG Grid Community, Apache ECharts.
 - `apps/api`: NestJS modular-monolith API, local JWT compatibility auth, Socket.IO.
 - `apps/worker`: asynchronous job contract; phase one uses no broker.
 - `apps/mcp`: read-only AI tool catalog skeleton; no database execution.
@@ -12,6 +12,8 @@ KDOS is a modular monolith for Kainan operations. Phase one makes Planning Cente
 - Nginx: sole HTTP entry point for SPA, `/api`, `/uploads`, and Socket.IO.
 
 Node.js 24 is the build/runtime target. pnpm 11 manages all workspaces.
+
+Apache ECharts is the KDOS standard business-chart foundation. Business modules use it only through the shared `apps/web/src/shared/charts` public components and do not maintain independent chart initialization implementations.
 
 ## Dependency direction
 

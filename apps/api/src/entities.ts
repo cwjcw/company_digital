@@ -565,6 +565,7 @@ export class EquipmentStatusReport extends AuditedEntity {
   @Column({ name: "division_name_snapshot", type: "varchar" }) divisionNameSnapshot!: string;
   @Column({ name: "usage_department_name_snapshot", type: "varchar" }) usageDepartmentNameSnapshot!: string;
   @Column({ name: "report_date", type: "date" }) reportDate!: string;
+  @Column({ name: "planned_runtime_minutes", type: "integer", nullable: true }) plannedRuntimeMinutes!: number | null;
   @Column({ name: "runtime_minutes", type: "integer", default: 0 }) runtimeMinutes!: number;
   @Column({ name: "fault_minutes", type: "integer", default: 0 }) faultMinutes!: number;
   @Column({ name: "fault_reason", type: "varchar", nullable: true }) faultReason!: string | null;

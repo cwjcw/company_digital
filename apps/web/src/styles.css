@@ -704,12 +704,42 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .equipment-dashboard .equipment-analysis-card .ant-table-body { max-height: none !important; }
 .equipment-analysis-card + .equipment-analysis-card { margin-top: 16px; }
 
+.equipment-monitoring-card { margin-bottom: 18px; border: 1px solid #e7edf5; }
+.equipment-monitoring-card > .ant-card-head { background: #fbfcfe; }
+.equipment-monitoring-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.equipment-monitoring-kpi { border: 0; box-shadow: inset 0 0 0 1px #edf1f6; }
+.equipment-monitoring-kpi-reporting { border-top: 3px solid #3578c6; }
+.equipment-monitoring-kpi-utilization { border-top: 3px solid #2e9363; }
+.equipment-monitoring-kpi .ant-card-body { display: grid; gap: 4px; }
+.equipment-monitoring-kpi .ant-statistic-content { font-size: 30px; font-weight: 650; }
+.equipment-monitoring-kpi-reporting .ant-statistic-content { color: #2868ad; }
+.equipment-monitoring-kpi-utilization .ant-statistic-content { color: #267b58; }
+.equipment-monitoring-inner-card + .equipment-monitoring-inner-card { margin-top: 14px; }
+.equipment-monitoring-inner-card > .ant-card-head { min-height: 46px; }
+.equipment-trend-total-card { margin-bottom: 14px; border: 1px solid #edf1f6; }
+.equipment-trend-total-card > .ant-card-head,
+.equipment-trend-division-card > .ant-card-head { min-height: 42px; }
+.equipment-trend-division-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.equipment-trend-division-card { border: 1px solid #edf1f6; }
+.equipment-trend-division-card .ant-card-body { padding: 10px 12px 12px; }
+.kdos-chart { position: relative; width: 100%; min-height: 220px; overflow: hidden; }
+.kdos-chart-canvas { width: 100%; height: 100%; }
+.kdos-chart-empty,.kdos-chart-loading { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(255,255,255,.74); }
+.kdos-chart-loading { z-index: 1; }
+.equipment-monitoring-trend { min-height: 300px; }
+.equipment-monitoring-trend-compact { min-height: 250px; }
+.equipment-monitoring-inner-card .ant-table { font-size: 13px; }
+.equipment-monitoring-inner-card .ant-table-thead > tr > th { padding-block: 9px; white-space: nowrap; }
+.equipment-monitoring-inner-card .ant-table-tbody > tr > td { padding-block: 8px; white-space: nowrap; }
+
 @media (max-width: 1350px) {
   .equipment-kpi-grid { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
 }
 
 @media (max-width: 900px) {
   .equipment-kpi-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .equipment-monitoring-summary { grid-template-columns: 1fr; }
+  .equipment-trend-division-grid { grid-template-columns: 1fr; }
   .equipment-dashboard-grid, .equipment-recording-grid, .equipment-form-grid { grid-template-columns: 1fr; }
   .equipment-form-wide { grid-column: auto; }
 }

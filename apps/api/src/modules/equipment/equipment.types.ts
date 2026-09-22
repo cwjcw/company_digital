@@ -22,6 +22,7 @@ export type EquipmentStatusImportSourceRow = {
   divisionName: string;
   equipmentCode: string;
   reportDate: string;
+  plannedRuntimeMinutes: number;
   runtimeMinutes: number;
   faultMinutes: number;
   faultReason: string | null;

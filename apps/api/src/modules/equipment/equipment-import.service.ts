@@ -46,11 +46,11 @@ export class EquipmentImportService {
     sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber === 1) return;
       const read = (name: string) => row.getCell(header.get(name)!).value;
-      if (["事业部", "设备编号", "填报日期", "运行时长", "故障时长", "故障原因"].every((name) => String(read(name) ?? "").trim() === "")) return;
+      if (["divisionName", "equipmentCode", "reportDate", "plannedRuntimeMinutes", "runtimeMinutes", "faultMinutes", "faultReason"].every((name) => String(read(name) ?? "").trim() === "")) return;
       rows.push({
-        rowNumber, divisionName: this.text(read("事业部")), equipmentCode: this.text(read("设备编号")),
-        reportDate: this.date(read("填报日期")), runtimeMinutes: this.duration(read("运行时长")),
-        faultMinutes: this.duration(read("故障时长")), faultReason: this.text(read("故障原因")) || null
+        rowNumber, divisionName: this.text(read("divisionName")), equipmentCode: this.text(read("equipmentCode")),
+        reportDate: this.date(read("reportDate")), plannedRuntimeMinutes: this.duration(read("plannedRuntimeMinutes")), runtimeMinutes: this.duration(read("runtimeMinutes")),
+        faultMinutes: this.duration(read("faultMinutes")), faultReason: this.text(read("faultReason")) || null
       });
     });
     return rows;
@@ -62,21 +62,33 @@ export class EquipmentImportService {
     const parsed = lines.map((line) => this.csvLine(line)); const header = this.headerMap(parsed[0]!);
     return parsed.slice(1).flatMap((values, index) => {
       const read = (name: string) => values[header.get(name)!] ?? "";
-      if (["事业部", "设备编号", "填报日期", "运行时长", "故障时长", "故障原因"].every((name) => String(read(name)).trim() === "")) return [];
+      if (["divisionName", "equipmentCode", "reportDate", "plannedRuntimeMinutes", "runtimeMinutes", "faultMinutes", "faultReason"].every((name) => String(read(name)).trim() === "")) return [];
       return [{
-        rowNumber: index + 2, divisionName: this.text(read("事业部")), equipmentCode: this.text(read("设备编号")),
-        reportDate: this.date(read("填报日期")), runtimeMinutes: this.duration(read("运行时长")),
-        faultMinutes: this.duration(read("故障时长")), faultReason: this.text(read("故障原因")) || null
+        rowNumber: index + 2, divisionName: this.text(read("divisionName")), equipmentCode: this.text(read("equipmentCode")),
+        reportDate: this.date(read("reportDate")), plannedRuntimeMinutes: this.duration(read("plannedRuntimeMinutes")), runtimeMinutes: this.duration(read("runtimeMinutes")),
+        faultMinutes: this.duration(read("faultMinutes")), faultReason: this.text(read("faultReason")) || null
       }];
     });
   }
 
   private headerMap(values: unknown[]) {
-    const aliases: Record<string, string> = { "事业部": "事业部", "设备编号": "设备编号", "填报日期": "填报日期", "运行时长": "运行时长", "故障时长": "故障时长", "故障原因": "故障原因" };
+    const aliases: Record<string, string> = {
+      "事业部": "divisionName", "使用部门": "usageDepartmentName", "设备编号": "equipmentCode", "设备名称": "equipmentName",
+      "填报日期": "reportDate", "计划运行时间": "plannedRuntimeMinutes", "实际运行时长": "runtimeMinutes", "运行时长": "runtimeMinutes",
+      "故障时长": "faultMinutes", "故障原因": "faultReason"
+    };
     const map = new Map<string, number>();
-    values.forEach((value, index) => { const name = aliases[this.text(value).replace(/\s+/g, "")]; if (name) map.set(name, index); });
-    const missing = Object.values(aliases).filter((name) => !map.has(name));
-    if (missing.length) throw new BadRequestException(`缺少字段：${missing.join("、")}`);
+    values.forEach((value, index) => {
+      const header = this.text(value).replace(/\s+/g, ""); const name = aliases[header];
+      if (name && (!map.has(name) || header === "实际运行时长")) map.set(name, index);
+    });
+    const required = ["divisionName", "equipmentCode", "reportDate", "plannedRuntimeMinutes", "runtimeMinutes", "faultMinutes", "faultReason"];
+    const missing = required.filter((name) => !map.has(name));
+    if (missing.includes("plannedRuntimeMinutes")) throw new BadRequestException("当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。模板已升级，请重新下载最新模板。");
+    if (missing.length) {
+      const labels: Record<string, string> = { divisionName: "事业部", equipmentCode: "设备编号", reportDate: "填报日期", plannedRuntimeMinutes: "计划运行时间", runtimeMinutes: "实际运行时长", faultMinutes: "故障时长", faultReason: "故障原因" };
+      throw new BadRequestException(`缺少字段：${missing.map((name) => labels[name] ?? name).join("、")}`);
+    }
     return map;
   }
 

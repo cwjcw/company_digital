@@ -22,6 +22,7 @@ type AssetInput = {
 type StatusInput = {
   equipmentId: string;
   reportDate: string;
+  plannedRuntimeMinutes: number;
   runtimeMinutes?: number;
   faultMinutes?: number;
   faultReason?: string | null;
@@ -132,7 +133,8 @@ export class EquipmentApplicationService {
     for (const row of rows) {
       try {
         const reportDate = this.reportDate(row.reportDate);
-        const runtimeMinutes = this.minutes(row.runtimeMinutes, "运行时长"); const faultMinutes = this.minutes(row.faultMinutes, "故障时长");
+        const plannedRuntimeMinutes = this.positiveMinutes(row.plannedRuntimeMinutes, "计划运行时间");
+        const runtimeMinutes = this.minutes(row.runtimeMinutes, "实际运行时长"); const faultMinutes = this.minutes(row.faultMinutes, "故障时长");
         const faultReason = String(row.faultReason ?? "").trim() || null;
         if (faultMinutes > 0 && !faultReason) throw new BadRequestException("故障时长大于 0 时必须填写故障原因");
         if (faultReason && !faultReasons.has(faultReason)) throw new BadRequestException("故障原因不在有效选项中");
@@ -144,8 +146,8 @@ export class EquipmentApplicationService {
         if (seen.has(businessKey)) throw new BadRequestException("文件内存在相同设备、相同日期的重复记录");
         seen.add(businessKey);
         const existing = await this.dataSource.manager.findOneBy(EquipmentStatusReport, { tenantId: actor.tenantId, equipmentId: asset.id, reportDate });
-        const unchanged = Boolean(existing?.active && existing.runtimeMinutes === runtimeMinutes && existing.faultMinutes === faultMinutes && existing.faultReason === faultReason);
-        validRows.push({ ...row, equipmentId: asset.id, equipmentName: asset.equipmentName, reportDate, runtimeMinutes, faultMinutes, faultReason, action: unchanged ? "UNCHANGED" : existing ? "UPDATE" : "CREATE" });
+        const unchanged = Boolean(existing?.active && existing.plannedRuntimeMinutes === plannedRuntimeMinutes && existing.runtimeMinutes === runtimeMinutes && existing.faultMinutes === faultMinutes && existing.faultReason === faultReason);
+        validRows.push({ ...row, equipmentId: asset.id, equipmentName: asset.equipmentName, reportDate, plannedRuntimeMinutes, runtimeMinutes, faultMinutes, faultReason, action: unchanged ? "UNCHANGED" : existing ? "UPDATE" : "CREATE" });
       } catch (error) {
         errors.push({ rowNumber: row.rowNumber, message: error instanceof Error ? error.message : "数据无效" });
       }
@@ -179,10 +181,10 @@ export class EquipmentApplicationService {
         const existing = await manager.createQueryBuilder(EquipmentStatusReport, "report").setLock("pessimistic_write")
           .where("report.tenantId=:tenantId AND report.equipmentId=:equipmentId AND report.reportDate=:reportDate", { tenantId: actor.tenantId, equipmentId: asset.id, reportDate: row.reportDate }).getOne();
         const faultReason = String(row.faultReason ?? "").trim() || null;
-        if (existing?.active && existing.runtimeMinutes === Number(row.runtimeMinutes) && existing.faultMinutes === Number(row.faultMinutes) && existing.faultReason === faultReason) { unchanged += 1; continue; }
+        if (existing?.active && existing.plannedRuntimeMinutes === Number(row.plannedRuntimeMinutes) && existing.runtimeMinutes === Number(row.runtimeMinutes) && existing.faultMinutes === Number(row.faultMinutes) && existing.faultReason === faultReason) { unchanged += 1; continue; }
         await this.saveStatus(manager, existing?.id ?? null, {
           equipmentId: asset.id, reportDate: row.reportDate, runtimeMinutes: row.runtimeMinutes,
-          faultMinutes: row.faultMinutes, faultReason, expectedVersion: existing?.version
+          plannedRuntimeMinutes: row.plannedRuntimeMinutes, faultMinutes: row.faultMinutes, faultReason, expectedVersion: existing?.version
         }, actor, "import");
         if (existing) updated += 1; else created += 1;
       }
@@ -290,7 +292,8 @@ export class EquipmentApplicationService {
     if (!asset || !asset.monitored) throw new BadRequestException("设备不存在、已停用或不需要监控");
     if (!id) this.assertRecordAccess(actor, "equipment-status-report", permissionAction ?? "create", asset.divisionOrganizationUnitId, null);
     const reportDate = this.reportDate(input.reportDate);
-    const runtimeMinutes = this.minutes(input.runtimeMinutes, "运行时长"); const faultMinutes = this.minutes(input.faultMinutes, "故障时长");
+    const plannedRuntimeMinutes = this.positiveMinutes(input.plannedRuntimeMinutes, "计划运行时间");
+    const runtimeMinutes = this.minutes(input.runtimeMinutes, "实际运行时长"); const faultMinutes = this.minutes(input.faultMinutes, "故障时长");
     const faultReason = String(input.faultReason ?? "").trim() || null;
     if (faultMinutes > 0 && !faultReason) throw new BadRequestException("故障时长大于 0 时必须选择故障原因");
     if (faultReason) {
@@ -313,7 +316,7 @@ export class EquipmentApplicationService {
       usageDepartmentOrganizationUnitId: asset.usageDepartmentOrganizationUnitId,
       equipmentCodeSnapshot: asset.equipmentCode, equipmentNameSnapshot: asset.equipmentName,
       divisionNameSnapshot: asset.divisionNameSnapshot, usageDepartmentNameSnapshot: asset.usageDepartmentNameSnapshot,
-      reportDate, runtimeMinutes, faultMinutes, faultReason, active: true, updatedBy: actor.userId ?? actor.username
+      reportDate, plannedRuntimeMinutes, runtimeMinutes, faultMinutes, faultReason, active: true, updatedBy: actor.userId ?? actor.username
     });
     try { report = await manager.save(EquipmentStatusReport, report); }
     catch (error: any) { if (String(error?.code) === "23505") throw new ConflictException("该设备在所选日期已经填报，请编辑已有记录"); throw error; }
@@ -353,8 +356,14 @@ export class EquipmentApplicationService {
     const number = Number(value ?? 0); if (!Number.isInteger(number) || number < 0) throw new BadRequestException(`${label}必须是非负整数分钟`); return number;
   }
 
+  private positiveMinutes(value: unknown, label: string) {
+    const number = Number(value);
+    if (!Number.isInteger(number) || number <= 0) throw new BadRequestException(`${label}必须填写且必须大于0`);
+    return number;
+  }
+
   private assetAudit(asset: EquipmentAsset) { return { divisionId: asset.divisionOrganizationUnitId, usageDepartmentId: asset.usageDepartmentOrganizationUnitId, equipmentCode: asset.equipmentCode, equipmentName: asset.equipmentName, purchaseDate: asset.purchaseDate, plannedStartupMinutes: asset.plannedStartupMinutes, monitored: asset.monitored, active: asset.active, version: asset.version }; }
-  private statusAudit(report: EquipmentStatusReport) { return { equipmentId: report.equipmentId, reportDate: report.reportDate, runtimeMinutes: report.runtimeMinutes, faultMinutes: report.faultMinutes, faultReason: report.faultReason, active: report.active, version: report.version }; }
+  private statusAudit(report: EquipmentStatusReport) { return { equipmentId: report.equipmentId, reportDate: report.reportDate, plannedRuntimeMinutes: report.plannedRuntimeMinutes, runtimeMinutes: report.runtimeMinutes, faultMinutes: report.faultMinutes, faultReason: report.faultReason, active: report.active, version: report.version }; }
   private audit(manager: EntityManager, actor: EquipmentActor, resource: string, recordId: string | null, action: string, beforeJson: unknown, afterJson: unknown) {
     return manager.save(AuditLog, { actorId: actor.userId, actorName: actor.username, resource, recordId, action, beforeJson, afterJson, requestId: actor.requestId, source: actor.source ?? "web", updatedBy: actor.userId ?? actor.username });
   }

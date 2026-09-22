@@ -11,6 +11,8 @@ import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission } fr
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
+import { KdosChart, formatChartDate, formatChartDuration, formatChartPercent } from "../../shared/charts";
+import type { EChartsOption } from "echarts";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PageResult<T> = { rows: T[]; total: number; page: number; pageSize: number };
@@ -24,15 +26,15 @@ type EquipmentAsset = {
 type EquipmentStatus = {
   id: string; equipmentId: string; equipmentCode: string; equipmentName: string; divisionId: string;
   divisionName: string; usageDepartmentId: string | null; usageDepartmentName: string; reportDate: string;
-  runtimeMinutes: number; faultMinutes: number; faultReason: string | null; version: number;
+  plannedRuntimeMinutes: number | null; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number; faultReason: string | null; version: number;
   responsibleUserIds: string[]; responsibleUsers: Array<{ id: string; displayName: string }>;
 };
 type StatusImportPreview = {
   fileHash: string; signature: string; total: number; createCount: number; updateCount: number; unchangedCount: number;
-  rows: Array<{ rowNumber: number; divisionName: string; equipmentCode: string; equipmentName: string; reportDate: string; runtimeMinutes: number; faultMinutes: number; faultReason: string | null; equipmentId: string; action: string }>;
+  rows: Array<{ rowNumber: number; divisionName: string; equipmentCode: string; equipmentName: string; reportDate: string; plannedRuntimeMinutes: number; runtimeMinutes: number; faultMinutes: number; faultReason: string | null; equipmentId: string; action: string }>;
   errors: Array<{ rowNumber: number; message: string }>;
 };
-type EquipmentOption = Pick<EquipmentAsset, "id" | "equipmentCode" | "equipmentName" | "divisionId" | "divisionName" | "usageDepartmentId" | "usageDepartmentName">;
+type EquipmentOption = Pick<EquipmentAsset, "id" | "equipmentCode" | "equipmentName" | "divisionId" | "divisionName" | "usageDepartmentId" | "usageDepartmentName" | "plannedStartupMinutes">;
 type OrganizationOption = { id: string; name: string; parentId: string | null; path: string[]; pathLabel: string };
 type EquipmentOptions = {
   equipment: EquipmentOption[];
@@ -75,13 +77,21 @@ function durationText(value: unknown) {
   return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
 }
 
+function nullableDurationText(value: unknown) {
+  return value === null || value === undefined ? "—" : durationText(value);
+}
+
+function utilizationText(value: unknown) {
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : `${Number(value).toFixed(1)}%`;
+}
+
 function shanghaiYesterday() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
   return dayjs(`${value("year")}-${value("month")}-${value("day")}`).subtract(1, "day");
 }
 
-function DurationFields({ prefix, label }: { prefix: "plannedStartup" | "runtime" | "fault"; label: string }) {
+function DurationFields({ prefix, label }: { prefix: "plannedStartup" | "plannedRuntime" | "runtime" | "fault"; label: string }) {
   return <Form.Item label={label} required>
     <Space.Compact block>
       <Form.Item name={`${prefix}Hours`} noStyle rules={[{ required: true, message: `请输入${label}` }]}>
@@ -266,19 +276,28 @@ export function EquipmentStatusReportPage() {
     if ((row && !canUpdate) || (!row && !canCreate)) { message.error("当前权限不允许此操作"); return; }
     setEditing(row); const runtime = Number(row?.runtimeMinutes ?? 0); const fault = Number(row?.faultMinutes ?? 0);
     const equipmentId = row?.equipmentId; setSelectedEquipmentId(equipmentId);
-    form.setFieldsValue({ equipmentId, reportDate: row?.reportDate ? dayjs(row.reportDate) : dayjs(), runtimeHours: Math.floor(runtime / 60), runtimeMinutePart: runtime % 60, faultHours: Math.floor(fault / 60), faultMinutePart: fault % 60, faultReason: row?.faultReason ?? undefined });
+    const planned = Number(row?.plannedRuntimeMinutes ?? 0);
+    form.setFieldsValue({ equipmentId, reportDate: row?.reportDate ? dayjs(row.reportDate) : dayjs(), plannedRuntimeHours: planned > 0 ? Math.floor(planned / 60) : undefined, plannedRuntimeMinutePart: planned > 0 ? planned % 60 : undefined, runtimeHours: Math.floor(runtime / 60), runtimeMinutePart: runtime % 60, faultHours: Math.floor(fault / 60), faultMinutePart: fault % 60, faultReason: row?.faultReason ?? undefined });
     setOpen(true);
+  };
+  const selectEquipment = (equipmentId: string) => {
+    setSelectedEquipmentId(equipmentId);
+    if (editing) return;
+    const selected = options.data?.equipment.find((item) => item.id === equipmentId);
+    const planned = Number(selected?.plannedStartupMinutes ?? 0);
+    form.setFieldsValue({ plannedRuntimeHours: planned > 0 ? Math.floor(planned / 60) : undefined, plannedRuntimeMinutePart: planned > 0 ? planned % 60 : undefined });
   };
   const save = async () => {
     if ((editing && !canUpdate) || (!editing && !canCreate)) { message.error("当前权限不允许此操作"); setOpen(false); return; }
     setSaveError(undefined);
     try {
       const values = await form.validateFields(); setSaving(true);
+      const plannedRuntimeMinutes = Number(values.plannedRuntimeHours ?? 0) * 60 + Number(values.plannedRuntimeMinutePart ?? 0);
       const runtimeMinutes = Number(values.runtimeHours ?? 0) * 60 + Number(values.runtimeMinutePart ?? 0);
       const faultMinutes = Number(values.faultHours ?? 0) * 60 + Number(values.faultMinutePart ?? 0);
       if (faultMinutes > 0 && !values.faultReason) { form.setFields([{ name: "faultReason", errors: ["故障时长大于0时必须选择故障原因"] }]); return; }
       await api(editing ? `/equipment/status-reports/${editing.id}` : "/equipment/status-reports", {
-        method: editing ? "PATCH" : "POST", body: JSON.stringify({ equipmentId: values.equipmentId, reportDate: values.reportDate.format("YYYY-MM-DD"), runtimeMinutes, faultMinutes, faultReason: values.faultReason ?? null, expectedVersion: editing?.version })
+        method: editing ? "PATCH" : "POST", body: JSON.stringify({ equipmentId: values.equipmentId, reportDate: values.reportDate.format("YYYY-MM-DD"), plannedRuntimeMinutes, runtimeMinutes, faultMinutes, faultReason: values.faultReason ?? null, expectedVersion: editing?.version })
       });
       message.success(editing ? "设备状态已更新" : "设备状态已填报"); setOpen(false); refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
     } catch (error: any) {
@@ -306,7 +325,9 @@ export function EquipmentStatusReportPage() {
       ? row.responsibleUsers.map((user) => <Tag key={user.id}>{user.displayName}</Tag>)
       : <Typography.Text type="warning">未指定</Typography.Text> },
     { title: "填报日期", dataIndex: "reportDate", width: 120, render: (value: string) => dayjs(value).format("YYYY-MM-DD") },
-    { title: "运行时长", dataIndex: "runtimeMinutes", width: 130, render: durationText },
+    { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 150, render: nullableDurationText },
+    { title: "实际运行时长", dataIndex: "runtimeMinutes", width: 130, render: durationText },
+    { title: "稼动率", dataIndex: "utilizationRate", width: 110, render: utilizationText },
     { title: "故障时长", dataIndex: "faultMinutes", width: 130, render: (value: number) => <Typography.Text type={value > 0 ? "danger" : undefined}>{durationText(value)}</Typography.Text> },
     { title: "故障原因", dataIndex: "faultReason", width: 150, render: (value: string | null) => value ? <Tag color="red">{value}</Tag> : "—" },
     ...(canUpdate || canDelete ? [{ title: "操作", key: "actions", width: 150, fixed: "right", render: (_: unknown, row: EquipmentStatus) => <Space>
@@ -332,7 +353,7 @@ export function EquipmentStatusReportPage() {
           message="暂无可以填报的设备"
           description="设备总台账中尚未将任何设备标记为“需要填报”。请先由有权限的人员在设备总台账中确认需要监测的设备。" />}
         <Form.Item name="equipmentId" label="设备编号" rules={[{ required: true, message: "请选择设备编号" }]}>
-          <Select autoFocus showSearch optionFilterProp="label" options={equipmentOptions} onChange={setSelectedEquipmentId} disabled={Boolean(editing)}
+          <Select autoFocus showSearch optionFilterProp="label" options={equipmentOptions} onChange={selectEquipment} disabled={Boolean(editing)}
             loading={options.isLoading} notFoundContent="暂无标记为需要填报的设备" placeholder="先选择设备编号" />
         </Form.Item>
         <div className="equipment-form-grid equipment-auto-fields">
@@ -342,7 +363,8 @@ export function EquipmentStatusReportPage() {
           <Form.Item name="reportDate" label="填报日期" rules={[{ required: true, message: "请选择填报日期" }]}>
             <DatePicker allowClear={false} style={{ width: "100%" }} format="YYYY-MM-DD" disabledDate={(date) => date.startOf("day").isAfter(dayjs().startOf("day")) || date.startOf("day").isBefore(dayjs().subtract(6, "day").startOf("day"))} />
           </Form.Item>
-          <DurationFields prefix="runtime" label="运行时长" />
+          <DurationFields prefix="plannedRuntime" label="计划运行时间" />
+          <DurationFields prefix="runtime" label="实际运行时长" />
           <DurationFields prefix="fault" label="故障时长" />
           <Form.Item name="faultReason" label="故障原因" className="equipment-form-wide"><Select allowClear options={(options.data?.faultReasons ?? []).map((value) => ({ value, label: value }))} placeholder="无故障可不选；有故障必须选择" /></Form.Item>
         </div>
@@ -362,20 +384,125 @@ export function EquipmentStatusReportPage() {
 
 type DashboardData = {
   windowStart: string; windowEnd: string; windowDays: number;
-  metrics: Record<string, number>;
+  metrics: Record<string, number | null>;
   divisionRows: Array<{
     division: string; equipmentCount: number; normalCount: number; faultCount: number; idleCount: number; unreportedCount: number;
-    runtimeMinutes: number; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
+    plannedRuntimeMinutes: number; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
   }>;
   departmentRows: Array<{
     division: string; departmentId: string | null; department: string; equipmentCount: number; normalCount: number; faultCount: number; idleCount: number; unreportedCount: number;
-    runtimeMinutes: number; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
+    plannedRuntimeMinutes: number; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
   }>;
+  equipmentRows: Array<{ division: string; departmentId: string | null; department: string; equipmentId: string; equipmentCode: string; equipmentName: string; plannedRuntimeMinutes: number | null; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number }>;
+  operationsMonitoring?: {
+    yesterday: MonitoringMetric | null;
+    yesterdayDivisionRows: MonitoringDivisionRow[];
+    yesterdayDepartmentRows: MonitoringDepartmentRow[];
+    sevenDayTrend: MonitoringTrend;
+  };
   filters: {
     divisions: Array<{ id: string; name: string }>;
     departments: Array<{ id: string; name: string }>;
   };
 };
+
+type MonitoringMetric = {
+  date: string;
+  expectedEquipmentCount: number;
+  filledEquipmentCount: number;
+  unfilledEquipmentCount?: number;
+  reportingRate: number | null;
+  plannedRuntimeMinutes: number;
+  runtimeMinutes: number;
+  utilizationRate: number | null;
+};
+
+type MonitoringDivisionRow = MonitoringMetric & {
+  divisionId: string;
+  division: string;
+};
+
+type MonitoringDepartmentRow = MonitoringDivisionRow & {
+  departmentId: string | null;
+  department: string;
+};
+
+type MonitoringTrend = {
+  total: MonitoringMetric[];
+  divisions: Array<{ divisionId: string; divisionName: string; rows: MonitoringMetric[] }>;
+};
+
+function reportingRateText(value: number | null | undefined) {
+  return formatChartPercent(value);
+}
+
+function reportingRateStatus(value: number | null | undefined): "success" | "normal" | "exception" | undefined {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return undefined;
+  return Number(value) >= 95 ? "success" : Number(value) >= 80 ? "normal" : "exception";
+}
+
+function reportingRateCell(value: number | null | undefined) {
+  const status = reportingRateStatus(value);
+  return <Typography.Text type={status === "success" ? "success" : status === "normal" ? "warning" : status === "exception" ? "danger" : undefined}>{reportingRateText(value)}</Typography.Text>;
+}
+
+function commonTrendAxisMax(trend: MonitoringTrend | undefined) {
+  const rates = [
+    ...(trend?.total ?? []),
+    ...(trend?.divisions ?? []).flatMap((division) => division.rows)
+  ].flatMap((point) => [point.reportingRate, point.utilizationRate]).filter((value): value is number => value !== null && value !== undefined && Number.isFinite(Number(value))).map(Number);
+  const maxRate = rates.length ? Math.max(...rates) : 0;
+  return Math.max(100, Math.ceil(maxRate / 20) * 20);
+}
+
+function trendLatestSummary(points: MonitoringMetric[]) {
+  const latest = points.at(-1);
+  return latest ? `昨日填报率 ${formatChartPercent(latest.reportingRate)} · 昨日稼动率 ${formatChartPercent(latest.utilizationRate)}` : "暂无昨日数据";
+}
+
+function EquipmentTrendChart({ points, yAxisMax, compact, ariaLabel }: { points: MonitoringMetric[]; yAxisMax: number; compact?: boolean; ariaLabel: string }) {
+  const option = useMemo<EChartsOption>(() => ({
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: (parameters: unknown) => {
+        const first = (Array.isArray(parameters) ? parameters[0] : parameters) as { dataIndex?: number } | undefined;
+        const point = points[Number(first?.dataIndex)];
+        if (!point) return "";
+        return `<div class="kdos-chart-tooltip-title">${formatChartDate(point.date)}</div>
+          <div>填报率 ${formatChartPercent(point.reportingRate)}</div>
+          <div>已填设备 ${point.filledEquipmentCount}台</div>
+          <div>应填设备 ${point.expectedEquipmentCount}台</div>
+          <div>未填设备 ${point.unfilledEquipmentCount ?? Math.max(0, point.expectedEquipmentCount - point.filledEquipmentCount)}台</div>
+          <br/><div>稼动率 ${formatChartPercent(point.utilizationRate)}</div>
+          <div>实际运行 ${formatChartDuration(point.runtimeMinutes)}</div>
+          <div>计划运行 ${formatChartDuration(point.plannedRuntimeMinutes)}</div>`;
+      }
+    },
+    legend: { top: 4, left: 0, data: ["填报率", "稼动率"] },
+    xAxis: { type: "category", boundaryGap: false, data: points.map((point) => point.date), axisLabel: { interval: 0, formatter: (value: string) => value.slice(5).replace("-", "/") } },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: yAxisMax,
+      interval: 20,
+      axisLabel: { formatter: (value: number) => `${value}%` }
+    },
+    series: [
+      { name: "填报率", type: "line", smooth: 0.22, data: points.map((point) => point.reportingRate), symbol: "circle", symbolSize: 6, lineStyle: { width: 2.5 }, emphasis: { focus: "series", scale: true } },
+      { name: "稼动率", type: "line", smooth: 0.22, data: points.map((point) => point.utilizationRate), symbol: "circle", symbolSize: 6, lineStyle: { width: 2.5 }, emphasis: { focus: "series", scale: true } }
+    ]
+  }), [points, yAxisMax]);
+  return <KdosChart className={compact ? "equipment-monitoring-trend equipment-monitoring-trend-compact" : "equipment-monitoring-trend"} height={compact ? 250 : 330} ariaLabel={ariaLabel} option={option} empty={!points.length} emptyText="暂无最近 7 天数据" />;
+}
+
+const dashboardDivisionDisplayNames = new Map([
+  ["凯南事业一部", "事业一部"], ["凯南事业二部", "事业二部"], ["凯南事业三部", "事业三部"], ["凯南事业四部", "事业四部"]
+]);
+
+function dashboardDivisionName(value: string) {
+  return dashboardDivisionDisplayNames.get(value) ?? value;
+}
 
 type DashboardPeriodType = "day" | "month" | "year" | "custom";
 const { RangePicker } = DatePicker;
@@ -405,6 +532,10 @@ export function EquipmentDashboardPage() {
   });
   const data = dashboard.data;
   const metrics = data?.metrics ?? {};
+  const monitoring = data?.operationsMonitoring;
+  const yesterdayMonitoring = monitoring?.yesterday;
+  const trend = monitoring?.sevenDayTrend;
+  const trendAxisMax = commonTrendAxisMax(trend);
   const firstBatchMonitoring = Number(metrics.firstBatchMonitoringEquipment ?? 0);
   const divisionOptions = (data?.filters.divisions ?? []).map((item) => ({ value: item.id, label: item.name }));
   const departmentOptions = (data?.filters.departments ?? []).map((item) => ({ value: item.id, label: item.name }));
@@ -432,7 +563,56 @@ export function EquipmentDashboardPage() {
         <TablePermissionButton resource="equipment-dashboard" />
       </Space>
     </Flex>
+    <Card className="equipment-monitoring-card" loading={dashboard.isLoading} title="设备运行与填报监控"
+      extra={<Typography.Text type="secondary">昨日概览 · 最近7天趋势</Typography.Text>}>
+      <div className="equipment-monitoring-summary">
+        <Card className="equipment-monitoring-kpi equipment-monitoring-kpi-reporting">
+          <Statistic title="昨日填报率" value={reportingRateText(yesterdayMonitoring?.reportingRate)} />
+          <Typography.Text type="secondary">{yesterdayMonitoring ? `${yesterdayMonitoring.filledEquipmentCount} / ${yesterdayMonitoring.expectedEquipmentCount} 台` : "—"}</Typography.Text>
+          <Typography.Text type="secondary">未填报 {yesterdayMonitoring?.unfilledEquipmentCount ?? "—"} 台</Typography.Text>
+        </Card>
+        <Card className="equipment-monitoring-kpi equipment-monitoring-kpi-utilization">
+          <Statistic title="昨日稼动率" value={utilizationText(yesterdayMonitoring?.utilizationRate)} />
+          <Typography.Text type="secondary">实际 {yesterdayMonitoring ? durationText(yesterdayMonitoring.runtimeMinutes) : "—"} / 计划 {yesterdayMonitoring ? durationText(yesterdayMonitoring.plannedRuntimeMinutes) : "—"}</Typography.Text>
+          <Typography.Text type="secondary">统计日期：{formatChartDate(yesterdayMonitoring?.date)}</Typography.Text>
+        </Card>
+      </div>
+      <Card className="equipment-monitoring-inner-card" title="最近7天总体填报率与稼动率趋势">
+        <Card className="equipment-trend-total-card" title="集团总览" extra={<Typography.Text type="secondary">{trendLatestSummary(trend?.total ?? [])}</Typography.Text>}>
+          <EquipmentTrendChart points={trend?.total ?? []} yAxisMax={trendAxisMax} ariaLabel="最近7天总体填报率与稼动率趋势" />
+        </Card>
+        <div className="equipment-trend-division-grid">
+          {(trend?.divisions ?? []).map((division) => <Card key={division.divisionId} className="equipment-trend-division-card" title={dashboardDivisionName(division.divisionName)} extra={<Typography.Text type="secondary">{trendLatestSummary(division.rows)}</Typography.Text>}>
+            <EquipmentTrendChart compact points={division.rows} yAxisMax={trendAxisMax} ariaLabel={`${dashboardDivisionName(division.divisionName)}最近7天填报率与稼动率趋势`} />
+          </Card>)}
+        </div>
+      </Card>
+      <Card className="equipment-monitoring-inner-card" title="昨日事业部填报与稼动情况">
+        <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+          rowKey="divisionId" dataSource={monitoring?.yesterdayDivisionRows ?? []} columns={[
+            { title: "所属事业部", dataIndex: "division", width: 110, render: dashboardDivisionName },
+            { title: "应填设备", dataIndex: "expectedEquipmentCount", width: 85, align: "center" }, { title: "已填设备", dataIndex: "filledEquipmentCount", width: 85, align: "center" },
+            { title: "未填设备", dataIndex: "unfilledEquipmentCount", width: 85, align: "center" }, { title: "填报率", dataIndex: "reportingRate", width: 100, align: "center", render: reportingRateCell },
+            { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 125, align: "right", render: durationText },
+            { title: "实际运行时长", dataIndex: "runtimeMinutes", width: 125, align: "right", render: durationText },
+            { title: "稼动率", dataIndex: "utilizationRate", width: 100, align: "center", render: utilizationText }
+          ]} />
+      </Card>
+      <Card className="equipment-monitoring-inner-card" title="昨日部门填报与稼动情况">
+        <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+          rowKey={(row) => `${row.divisionId}-${row.departmentId ?? row.department}`} dataSource={monitoring?.yesterdayDepartmentRows ?? []} columns={[
+            { title: "所属事业部", dataIndex: "division", width: 105, render: dashboardDivisionName },
+            { title: "使用部门/车间", dataIndex: "department", width: 140 },
+            { title: "应填设备", dataIndex: "expectedEquipmentCount", width: 80, align: "center" }, { title: "已填设备", dataIndex: "filledEquipmentCount", width: 80, align: "center" },
+            { title: "未填设备", dataIndex: "unfilledEquipmentCount", width: 80, align: "center" }, { title: "填报率", dataIndex: "reportingRate", width: 95, align: "center", render: reportingRateCell },
+            { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 120, align: "right", render: durationText },
+            { title: "实际运行时长", dataIndex: "runtimeMinutes", width: 120, align: "right", render: durationText },
+            { title: "稼动率", dataIndex: "utilizationRate", width: 95, align: "center", render: utilizationText }
+          ]} />
+      </Card>
+    </Card>
     <Typography.Title level={4}>设备情况统计</Typography.Title>
+    <Typography.Text type="secondary">稼动率 = 实际运行时长 ÷ 计划运行时间 × 100%</Typography.Text>
     <div className="equipment-kpi-grid">
       <Card className="equipment-kpi-card equipment-kpi-card-total"><Statistic title="设备总数量" value={metrics.totalEquipment ?? 0} suffix="台" /></Card>
       <Card className="equipment-kpi-card equipment-kpi-card-monitoring"><Statistic title="首批监控数量" value={firstBatchMonitoring} suffix="台" /></Card>
@@ -440,8 +620,10 @@ export function EquipmentDashboardPage() {
       <Card className="equipment-kpi-card equipment-kpi-card-recorded"><Statistic title="有数据设备" value={metrics.dailyRecordedEquipment ?? 0} suffix="台" /></Card>
       <Card><Statistic title="正常运行" value={metrics.normalEquipment ?? 0} suffix="台" valueStyle={{ color: "#2e9363" }} /></Card>
       <Card><Statistic title="存在故障" value={metrics.faultEquipment ?? 0} suffix="台" valueStyle={{ color: "#cf3f3f" }} /></Card>
-      <Card><Statistic title="运行总时长" value={durationText(metrics.runtimeMinutes)} /></Card>
-      <Card><Statistic title="运行日均" value={durationText(metrics.runtimeDailyAverageMinutes)} /></Card>
+      <Card><Statistic title="计划运行总时长" value={durationText(metrics.plannedRuntimeMinutes)} /></Card>
+      <Card><Statistic title="实际运行总时长" value={durationText(metrics.runtimeMinutes)} /></Card>
+      <Card><Statistic title="集团稼动率" value={utilizationText(metrics.utilizationRate)} /></Card>
+      <Card><Statistic title="实际运行日均" value={durationText(metrics.runtimeDailyAverageMinutes)} /></Card>
       <Card><Statistic title="故障总时长" value={durationText(metrics.faultMinutes)} valueStyle={{ color: Number(metrics.faultMinutes) > 0 ? "#cf3f3f" : undefined }} /></Card>
       <Card><Statistic title="故障日均" value={durationText(metrics.faultDailyAverageMinutes)} valueStyle={{ color: Number(metrics.faultDailyAverageMinutes) > 0 ? "#cf3f3f" : undefined }} /></Card>
     </div>
@@ -451,21 +633,37 @@ export function EquipmentDashboardPage() {
         { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
         { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
         { title: "未运行", dataIndex: "idleCount", width: 90 }, { title: "未填报", dataIndex: "unreportedCount", width: 90 },
-        { title: "运行总时长", dataIndex: "runtimeMinutes", width: 140, render: durationText }, { title: "运行日均", dataIndex: "runtimeDailyAverageMinutes", width: 140, render: durationText },
+        { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 150, render: durationText },
+        { title: "实际运行总时长", dataIndex: "runtimeMinutes", width: 140, render: durationText }, { title: "实际运行日均", dataIndex: "runtimeDailyAverageMinutes", width: 140, render: durationText },
+        { title: "稼动率", dataIndex: "utilizationRate", width: 110, render: utilizationText },
         { title: "故障总时长", dataIndex: "faultMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> },
         { title: "故障日均", dataIndex: "faultDailyAverageMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> }
       ]} />
     </Card>
-    <Card className="equipment-analysis-card" title="按部门设备运行分析" loading={dashboard.isLoading}>
+    <Card className="equipment-analysis-card" title="按车间/使用部门设备运行分析" loading={dashboard.isLoading}>
       <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey={(row) => `${row.division}-${row.departmentId ?? `unassigned-${row.department}`}`} dataSource={data?.departmentRows} scroll={{ x: 1450 }} columns={[
           { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
           { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
           { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
           { title: "未运行", dataIndex: "idleCount", width: 90 }, { title: "未填报", dataIndex: "unreportedCount", width: 90 },
-          { title: "运行总时长", dataIndex: "runtimeMinutes", width: 140, render: durationText }, { title: "运行日均", dataIndex: "runtimeDailyAverageMinutes", width: 140, render: durationText },
+          { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 150, render: durationText },
+          { title: "实际运行总时长", dataIndex: "runtimeMinutes", width: 140, render: durationText }, { title: "实际运行日均", dataIndex: "runtimeDailyAverageMinutes", width: 140, render: durationText },
+          { title: "稼动率", dataIndex: "utilizationRate", width: 110, render: utilizationText },
           { title: "故障总时长", dataIndex: "faultMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> },
           { title: "故障日均", dataIndex: "faultDailyAverageMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> }
+        ]} />
+    </Card>
+    <Card className="equipment-analysis-card" title="设备稼动率明细" loading={dashboard.isLoading}>
+      <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+        rowKey="equipmentId" dataSource={data?.equipmentRows} scroll={{ x: 1250 }} columns={[
+          { title: "事业部", dataIndex: "division", width: 150, fixed: "left" },
+          { title: "使用部门/车间", dataIndex: "department", width: 170, fixed: "left" },
+          { title: "设备编号", dataIndex: "equipmentCode", width: 150 }, { title: "设备名称", dataIndex: "equipmentName", width: 220 },
+          { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 150, render: nullableDurationText },
+          { title: "实际运行时长", dataIndex: "runtimeMinutes", width: 130, render: durationText },
+          { title: "稼动率", dataIndex: "utilizationRate", width: 110, render: utilizationText },
+          { title: "故障时长", dataIndex: "faultMinutes", width: 130, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> }
         ]} />
     </Card>
   </div>;
