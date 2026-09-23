@@ -107,9 +107,9 @@ export class NotificationService {
         const payload = this.objectPayload(outbox.payload);
         const equipmentId = this.requiredPayloadText(payload.equipmentId, "equipmentId");
         const users = await manager.query(`
-          SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId"
+          SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
           FROM equipment_responsibles er JOIN users u ON u.id=er.user_id
-          WHERE er.tenant_id=$1 AND er.equipment_id=$2::uuid AND u.enabled=true
+          WHERE er.tenant_id=$1 AND er.equipment_id=$2::uuid
           ORDER BY u.id`, [tenantId, equipmentId]) as Array<Record<string, unknown>>;
         const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users);
         await manager.query(`
@@ -208,6 +208,10 @@ export class NotificationService {
     const result: Array<{ deliveryId: string; userId: string; displayName: string; wechatUserId: string }> = [];
     for (const user of users) {
       const userId = String(user.userId); const previous = latest.get(userId); const wechatUserId = String(user.wechatUserId ?? "").trim();
+      if (user.enabled === false) {
+        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId || null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_DISABLED", "该用户当前处于禁用状态");
+        continue;
+      }
       if (!wechatUserId) {
         if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_MISSING_WECHAT_ID", "责任人未配置企业微信用户 ID");
         continue;
@@ -278,7 +282,7 @@ export class NotificationService {
     const config = rule.config ?? {};
     if (config.messageType != null && config.messageType !== "text") throw new ConflictException("当前 Dispatcher 只支持文本通知");
     const template = typeof config.template === "string" && config.template.trim() ? config.template : EQUIPMENT_FAULT_TEMPLATE;
-    return template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_match, key: string) => String(payload[key] ?? "—"));
+    return template.replace(/\{\{?([A-Za-z][A-Za-z0-9_]*)\}\}?/g, (_match, key: string) => String(payload[key] ?? "—"));
   }
   private async withManager<T>(tenantId: string, manager: EntityManager | undefined, work: (scoped: EntityManager) => Promise<T>) {
     if (manager) { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]); return work(manager); }

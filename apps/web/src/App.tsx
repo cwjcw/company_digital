@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import {
   ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
   FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
-  SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined
+  SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined, NotificationOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,6 +23,7 @@ import { DevelopmentRequestsPage } from "./modules/development/DevelopmentReques
 import { ApprovalFlowSettingsPage } from "./modules/workflow/ApprovalFlowSettingsPage";
 import { BrandLogo, ModulePortal, portalModules } from "./modules/portal/ModulePortal";
 import { ProfileCenterPage } from "./modules/profile/ProfileCenterPage";
+import { NotificationCenterPage } from "./modules/notifications/NotificationCenterPage";
 import { FinishedGoodsOutboundPage, SalesOrdersPage, SupplierListPage } from "./modules/data-center/DataCenterPages";
 import { BusinessCustomerMappingsPage, OrderSchedulePage } from "./modules/marketing/MarketingPages";
 import { AdminWorkspace } from "./modules/admin/AdminWorkspace";
@@ -147,12 +148,12 @@ function Shell({ logout }: { logout: () => void }) {
   useEffect(() => { if (liveSession.data) localStorage.setItem("sessionUser", JSON.stringify(liveSession.data)); }, [liveSession.data]);
   const isSystemAdmin = user.isSystemAdmin === true;
   const isAnyAdministrator = isSystemAdmin || (user.moduleAdminCodes?.length ?? 0) > 0;
-  const systemPaths = ["/master-data", "/data-operations", "/organization", "/audit", "/admin", "/users", "/administrators", "/contacts", "/api-keys"];
+  const systemPaths = ["/master-data", "/data-operations", "/organization", "/audit", "/admin", "/users", "/administrators", "/contacts", "/api-keys", "/system/notifications"];
   const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
   const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
-  if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(location.pathname === "/administrators" && isAnyAdministrator)) return <Navigate to="/" replace />;
+  if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
@@ -218,6 +219,7 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" }
       ] },
       { key: "system-governance", label: "系统治理", children: [
+        { key: "/system/notifications", icon: <NotificationOutlined />, label: "消息中心" },
         { key: "/organization", icon: <ApartmentOutlined />, label: "组织架构表" },
         { key: "/audit", icon: <AuditOutlined />, label: "审计日志" }
       ] },
@@ -227,7 +229,7 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/contacts", icon: <ContactsOutlined />, label: "通讯录" },
         { key: "/api-keys", icon: <ApiOutlined />, label: "API Key" }
       ] }
-    ] : [{ key: "/administrators", icon: <SafetyCertificateOutlined />, label: "管理员" }] }],
+    ] : [{ key: "/administrators", icon: <SafetyCertificateOutlined />, label: "管理员" }, { key: "/system/notifications", icon: <NotificationOutlined />, label: "消息中心" }] }],
     profile: [{ key: "profile-root", label: "个人中心", children: [
       { key: "/profile", icon: <UserOutlined />, label: "账户资料与安全" }
     ] }]
@@ -244,7 +246,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
       "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
-      "/api-keys": "API Key", "/profile": "个人中心"
+      "/api-keys": "API Key", "/system/notifications": "消息中心", "/profile": "个人中心"
     } as Record<string, string>)[location.pathname] ?? activeModule.title;
   return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}`}>
     <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
@@ -293,6 +295,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/administrators" element={<AdministratorsPage />} />
           <Route path="/contacts" element={<ContactDirectory />} />
           <Route path="/api-keys" element={<ApiKeyCenter />} />
+          <Route path="/system/notifications" element={<NotificationCenterPage />} />
           <Route path="/profile" element={<ProfileCenterPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

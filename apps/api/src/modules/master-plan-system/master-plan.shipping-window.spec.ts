@@ -1,5 +1,5 @@
 import { ForbiddenException } from "@nestjs/common";
-import { assertShippingEditAllowed, parseWeekdays, resolveShippingEditWeekdays, shanghaiWeekday } from "./master-plan.shipping-window";
+import { assertShippingEditAllowed, normalizeShippingEditWeekday, parseWeekdays, resolveShippingEditWeekdays, shanghaiWeekday } from "./master-plan.shipping-window";
 
 /**
  * KN-MPS-LIVE-002：出货计划开放星期支持多个星期（英文逗号分隔），并保持原有兼容行为。
@@ -18,7 +18,7 @@ describe("shipping edit weekday window", () => {
     expect(parseWeekdays(value)).toEqual(expected);
   });
 
-  it.each([["0"], ["8"], ["abc"], ["2,a,5"], [","], [""], ["2,,5"], ["2.5"], ["-1"]])(
+  it.each([["0"], ["8"], ["abc"], ["2,a,5"], ["2，4，5"], [","], [""], ["2,,5"], ["2.5"], ["-1"]])(
     "rejects the illegal configuration %s instead of opening the window", (value) => {
       expect(() => parseWeekdays(value)).toThrow(/非法的开放星期配置/);
     });
@@ -30,6 +30,18 @@ describe("shipping edit weekday window", () => {
     expect(resolveShippingEditWeekdays(null)).toEqual([5]);
     expect(resolveShippingEditWeekdays(undefined)).toEqual([5]);
     expect(() => resolveShippingEditWeekdays("")).toThrow(/非法的开放星期配置/);
+  });
+
+  it.each([
+    ["5", "5"], ["2,5", "2,5"], ["2,4,5", "2,4,5"], ["2, 4, 5", "2,4,5"], ["2,2,4,5", "2,4,5"]
+  ])("normalizes the saved value %s to %s", (value, expected) => {
+    expect(normalizeShippingEditWeekday(value)).toBe(expected);
+  });
+
+  it("uses the exact save-time validation message for invalid weekday input", () => {
+    for (const value of ["0", "8", "2,8", "A,5", "2，4，5"]) {
+      expect(() => normalizeShippingEditWeekday(value)).toThrow("请输入 1~7 的星期数字，多个星期使用英文逗号分隔，例如：2,4,5");
+    }
   });
 
   it("uses the Shanghai calendar for the weekday", () => {

@@ -1,5 +1,89 @@
 # Codex 工作进度
 
+## 当前任务：KN-MPS-NOTIFICATION-CENTER-001
+
+任务目标：修复出货计划开放星期多值保存/校验，并建设系统管理→消息中心，接入现有 notification_rules、notification_outbox、notification_delivery_logs；不新增业务表推送按钮、不新增渠道、不引入消息中间件。
+
+当前状态：已完成代码、测试、migration、部署与健康检查（2026-09-23）；线上需要登录账号的业务验收仍待用户提供有效账号。
+
+最后更新时间：2026-09-23
+
+### 当前阶段
+
+当前阶段：开放星期保存规范化与消息中心基础闭环
+
+当前子任务：线上业务验收待授权账号；代码交付已完成。
+
+### 已完成
+
+- [x] 完整阅读本次附件、项目 AGENTS.md、ARCHITECTURE.md、SECURITY.md、docs/integration-guide.md 与 `kdos-form-platform` skill。
+- [x] 核对 App.tsx、主计划系统、通知基础设施、资源注册表、管理员/模块管理员权限实现。
+- [x] 确认 `shipping_edit_weekday` 已有运行时多值解析，但保存入口尚未统一校验/规范化。
+- [x] 确认当前代码库没有“管控天数”字段、参数、Entity/DTO、业务规则或 Excel 契约；本轮不猜测范围、不新增虚构配置。
+- [x] `shipping_edit_weekday` 保存统一 trim、去重、数字排序、英文逗号规范化；非法输入使用精确提示，旧单值仍兼容。
+- [x] 主计划系统参数编辑表单改为文本输入并显示要求的星期帮助文案；读取/刷新沿用同一 `jsonb` 字符串值，不改底层字段类型。
+- [x] 新增通知规则模块归属 migration；消息中心后端 API 覆盖规则、启停、测试入队、真实投递日志、失败查询和授权重试。
+- [x] 消息中心只允许注册事件、受支持接收人和企业微信工作通知；新增系统管理入口与三 Tab 页面，无业务表推送按钮。
+- [x] 系统管理员/资源所属模块管理员后端授权、普通用户直接 API 拒绝、模板变量白名单和测试模式提示已完成。
+- [x] 完成备份、migration、API/Web 重建部署；API、Web、PostgreSQL、Swagger/OpenAPI 健康检查通过。
+- [x] 修正模块管理员进入 `/system/notifications` 的前端路由守卫，并完成 Web 重建部署与健康检查。
+
+### 正在进行
+
+- [ ] 仅剩线上业务验收：需要有效系统管理员或 PMC 模块管理员登录账号，保存 `2,4,5` 后刷新确认；不通过绕过权限方式验收。
+
+### 待完成
+
+- [ ] 获得有效账号后完成线上 `2,4,5` 保存/刷新和消息中心登录后核验。
+
+### 修改文件
+
+- `apps/api/src/migrations/1722920069000-NotificationCenterAdministration.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.application.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.shipping-window.ts`、`master-plan.shipping-window.spec.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.ts`、`notification.admin.controller.ts`、`notification-admin.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`、`notifications.module.ts`
+- `apps/web/src/App.tsx`、`apps/web/src/modules/notifications/NotificationCenterPage.tsx`、`NotificationCenterPage.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`
+- `ARCHITECTURE.md`、`SECURITY.md`、`docs/integration-guide.md`、本进度文件
+
+### 数据库 Migration
+
+- `NotificationCenterAdministration1722920069000`：`notification_rules.module_code`、模块索引；不改变既有通知表状态模型。
+- 已在线执行；备份：`data/backups/*_20260923_113912.*`，SHA-256：`cbed5f8475da89140621e0da1d0424a88037030522427ebb877edcc5747d73c7`、`441bac94b62043bed323424f2fe9bb633e791b02d7b06a1367920c4dd30c8803`、`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+
+### 新增或修改测试
+
+- 开放星期合法/非法/中文逗号/保存规范化测试。
+- 通知中心服务端注册事件、权限、模板变量测试；前端三 Tab/测试模式/注册事件测试。
+
+### 已运行测试
+
+- API 全量：64 suites / 509 tests 通过；API typecheck、lint、build 通过。
+- Web 全量测试通过；Web typecheck、lint、build 通过；仅既有 `ModulePortal` Fast Refresh warning 和既有 bundle 体积提示。
+- API 专项（主计划/通知）：4 suites / 89 tests 通过。
+- 部署后 `healthcheck.sh` 通过；数据库显示 migration 无待执行项；未登录消息中心 API 返回 401。
+
+### 当前已知问题
+
+- “管控天数”在当前代码库不存在，无法按现有业务规则实现；未猜测范围、未新增虚构字段/Excel 契约。
+- `2,4,5` 的真实登录后保存/刷新验收待有效账号；当前线上数据库原值保持不变，未用 SQL 代替业务保存。
+- 真实企业微信仍保持既有测试模式，仅允许崔玮杰；本轮不切换生产发送。
+
+### 等待用户确认
+
+- 无。
+
+### 下一步
+
+1. 用户提供有效系统管理员或 PMC 模块管理员账号后，保存 `2,4,5` 并刷新核对。
+2. 登录 `/system/notifications` 核对三个 Tab、设备故障事件和测试模式提示。
+3. 若线上验收通过，将本节剩余待办标记完成；不修改当前稳定部署。
+
+### 恢复执行说明
+
+新的 Codex 会话开始后先读取本节，再执行 `git status` / `git diff --stat`，从“下一步”的第一项继续；不要重做下方已完成历史任务。
+
 ## 当前任务：KDOS-NOTIFICATIONS-DISPATCHER-002
 
 任务目标：完成 `notification_outbox` → 通知规则 → 动态责任人 → 内部 Dispatcher API → 主机 Python Dispatcher → 默认 `WeChatPusher` 的安全闭环；验证阶段仅允许崔玮杰，暂不开发通知中心前端。

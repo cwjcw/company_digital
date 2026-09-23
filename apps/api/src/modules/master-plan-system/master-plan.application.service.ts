@@ -5,7 +5,7 @@ import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master-plan.domain";
-import { assertShippingEditAllowed } from "./master-plan.shipping-window";
+import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -83,6 +83,7 @@ export class MasterPlanApplicationService {
         const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
         values.monthlyPlanId = monthly?.id ?? null;
       }
+      this.normalizeSystemSetting(resource, current, values);
       if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
       this.validateRequiredOnUpdate(resource, values, current);
       this.validateCrossFields(resource, { ...current, ...this.toDatabaseRecord(resource, values) });
@@ -226,6 +227,7 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
         const values = this.writable(resource, input.values, actor);
+        this.normalizeSystemSetting(resource, current, values);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
         if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
           values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code)) ?? null;
@@ -287,6 +289,7 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
         const values = this.writable(resource, input.values, actor);
+        this.normalizeSystemSetting(resource, current, values);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId);
         this.validateRequiredOnUpdate(resource, values, current);
         const mergedValues = this.completeValues(resource, current, values);
@@ -463,6 +466,21 @@ export class MasterPlanApplicationService {
   }
 
   private toDatabaseRecord(resource: MasterPlanResource, values: Record<string, unknown>) { const columns = columnsFor(resource); return Object.fromEntries(Object.entries(values).map(([key, value]) => [columns[key], value])); }
+
+  /**
+   * 系统参数的 jsonb 只是存储容器，业务值仍按参数自己的契约校验。
+   * 开放星期不接受 JSON 数组或中文逗号，持久化统一为稳定的英文逗号字符串，
+   * 这样旧的单值 `5` 与新的多值 `2,4,5` 共用同一读取/编辑链路。
+   */
+  private normalizeSystemSetting(resource: MasterPlanResource, current: Record<string, unknown>, values: Record<string, unknown>) {
+    if (resource.code !== "mps-system-settings" || !Object.prototype.hasOwnProperty.call(values, "valueJson")) return;
+    if (String(current.setting_key ?? "") !== "shipping_edit_weekday") return;
+    try {
+      values.valueJson = normalizeShippingEditWeekday(values.valueJson);
+    } catch {
+      throw new BadRequestException("请输入 1~7 的星期数字，多个星期使用英文逗号分隔，例如：2,4,5");
+    }
+  }
   private validateCrossFields(resource: MasterPlanResource, row: Record<string, unknown>) {
     if (resource.code === "mps-material-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记主材已入库时必须填写实际入库日期");
     if (resource.code === "mps-outsourcing-reports" && row.received === true && !row.actual_inbound_date) throw new BadRequestException("标记外协已入库时必须填写实际入库日期");

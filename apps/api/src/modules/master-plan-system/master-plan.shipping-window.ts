@@ -29,6 +29,16 @@ export function parseWeekdays(value: unknown): number[] {
   return [...parsed].sort((left, right) => left - right);
 }
 
+/** 保存入口使用的规范化形式：拒绝 JSON 数组，始终返回稳定的英文逗号字符串。 */
+export function normalizeShippingEditWeekday(value: unknown): string {
+  try {
+    if (Array.isArray(value)) throw new Error("数组不是受支持的简单配置格式");
+    return parseWeekdays(value).join(",");
+  } catch {
+    throw new Error("请输入 1~7 的星期数字，多个星期使用英文逗号分隔，例如：2,4,5");
+  }
+}
+
 /** 默认开放星期（配置不存在时保持既有兼容行为：周五）。 */
 export const DEFAULT_SHIPPING_EDIT_WEEKDAYS = [5] as const;
 

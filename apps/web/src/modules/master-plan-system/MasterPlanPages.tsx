@@ -58,7 +58,7 @@ function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?:
   return `/master-plan-system/resources/${resource}?${params}`;
 }
 
-function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], ...control }: { field: TablePermissionFieldDefinition; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[]; weeklyPlans?: Array<{ id: string; label: string }> } & Record<string, any>) {
+function FieldInput({ field, resource, organizations = [], users = [], weeklyPlans = [], ...control }: { field: TablePermissionFieldDefinition; resource?: string; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[]; weeklyPlans?: Array<{ id: string; label: string }> } & Record<string, any>) {
   if (field.type === "boolean") return <Switch {...control} />;
   if (field.type === "number") return <InputNumber {...control} min={0} precision={field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker {...control} style={{ width: "100%" }} />;
@@ -66,6 +66,7 @@ function FieldInput({ field, organizations = [], users = [], weeklyPlans = [], .
   if (field.type === "dictionary" && field.options?.length) return <Select {...control} options={field.options} />;
   if (field.type === "department") return <OrganizationSelect {...control} organizations={organizations} placeholder="选择完整组织路径" />;
   if (field.type === "member") return <Select {...control} showSearch optionFilterProp="label" allowClear placeholder="选择成员" options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} />;
+  if (resource === "mps-system-settings" && field.key === "valueJson") return <div><Input {...control} placeholder="例如：2,4,5" /><div style={{ marginTop: 6, color: "#667085", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-line" }}>1=周一，2=周二，3=周三，4=周四，{"\n"}5=周五，6=周六，7=周日；{"\n"}多个星期使用英文逗号分隔，例如：2,4,5</div></div>;
   return <Input.TextArea {...control} autoSize={{ minRows: 1, maxRows: 4 }} />;
 }
 
@@ -147,6 +148,7 @@ function InlineMasterPlanCell({ resource, field, row, value, organizations, user
   if (field.type === "department") return <OrganizationSelect size="small" value={draft || undefined} disabled={saving} organizations={organizations} onChange={(next) => { setDraft(next); void commit(next); }} />;
   if (field.type === "member") return <Select size="small" value={draft || undefined} allowClear showSearch optionFilterProp="label" disabled={saving} options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
   if (field.key === "weeklyPlanId") return <Select size="small" value={draft || undefined} showSearch optionFilterProp="label" disabled={saving} options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
+  if (resource === "mps-system-settings" && field.key === "valueJson") return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commit()} onPressEnter={(event) => event.currentTarget.blur()} />;
   if (field.type === "number") return <InputNumber size="small" value={draft as any} min={0} disabled={saving} onChange={setDraft} onBlur={() => void commit()} onPressEnter={(event) => { event.currentTarget.blur(); }} style={{ width: "100%" }} />;
   return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commit()} onPressEnter={(event) => event.currentTarget.blur()} />;
 }
@@ -733,7 +735,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>
         {saveError && <Alert type="error" showIcon message={saveError} style={{ gridColumn: "1 / -1" }} />}
-        {formFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput field={field} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} /></Form.Item>)}
+        {formFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput resource={resource} field={field} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} /></Form.Item>)}
       </Form>
     </Modal>
     <Modal title={importPreview ? "导入预览" : "导入失败"} open={Boolean(importPreview || importError)} onCancel={() => { setImportPreview(null); setImportError(null); }} onOk={() => void confirmImport()}
@@ -758,7 +760,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
             onChange={(key) => { batchForm.resetFields(["value"]); setBatchField(editableFields.find((field) => field.key === key) ?? null); }} />
         </Form.Item>
         <Form.Item name="value" label="修改为" rules={[{ required: true, message: "请填写修改后的值" }]}>
-          {batchField ? <FieldInput field={batchField} organizations={organizations.data ?? []} users={users.data ?? []} /> : <Input disabled placeholder="请先选择字段" />}
+          {batchField ? <FieldInput resource={resource} field={batchField} organizations={organizations.data ?? []} users={users.data ?? []} /> : <Input disabled placeholder="请先选择字段" />}
         </Form.Item>
       </Form>
     </Modal>
