@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import socket
+import signal
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +25,7 @@ from urllib.request import Request, urlopen
 
 
 BASIC_CODE_ROOT = Path("/data/automation/code/work/basci/basic_code")
+LOGGER = logging.getLogger("kdos-notification-dispatcher")
 
 
 @dataclass(frozen=True)
@@ -72,34 +76,49 @@ class KdosNotificationDispatcher:
         failed = 0
         skipped = 0
         for notification in notifications:
-            notification_id = str(notification.get("notificationId", ""))
-            content = str(notification.get("content", ""))
-            if not notification_id or not content:
-                continue
-            for recipient in notification.get("recipients", []):
-                delivery_id = str(recipient.get("deliveryId", ""))
-                if not delivery_id:
+            try:
+                notification_id = str(notification.get("notificationId", ""))
+                content = str(notification.get("content", ""))
+                if not notification_id or not content:
                     continue
-                if not self._allowed(recipient):
-                    self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "RECIPIENT_TARGET_MISMATCH", "Dispatcher 实际接收人未通过 TEST MODE 单人门禁")
-                    skipped += 1
-                    continue
-                try:
-                    response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
-                    if int(response.get("errcode", 0)) != 0:
-                        raise RuntimeError(str(response.get("errmsg", "企业微信返回失败")))
-                    self.http_post(f"/internal/notifications/{notification_id}/success", {
-                        "deliveryId": delivery_id,
-                        "deliveryIds": recipient.get("deliveryIds", []),
-                        "providerMessageId": response.get("msgid"),
-                        "errcode": str(response.get("errcode", 0)),
-                        "errmsg": response.get("errmsg"),
-                    })
-                    sent += 1
-                except Exception as exc:  # noqa: BLE001 - the delivery must be reported for retry
-                    self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "WECHAT_SEND_FAILED", str(exc))
-                    failed += 1
+                for recipient in notification.get("recipients", []):
+                    delivery_id = str(recipient.get("deliveryId", ""))
+                    if not delivery_id:
+                        continue
+                    if not self._allowed(recipient):
+                        self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "RECIPIENT_TARGET_MISMATCH", "Dispatcher 实际接收人未通过 TEST MODE 单人门禁")
+                        skipped += 1
+                        continue
+                    try:
+                        response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
+                        if int(response.get("errcode", 0)) != 0:
+                            raise RuntimeError(str(response.get("errmsg", "企业微信返回失败")))
+                        self.http_post(f"/internal/notifications/{notification_id}/success", {
+                            "deliveryId": delivery_id,
+                            "deliveryIds": recipient.get("deliveryIds", []),
+                            "providerMessageId": response.get("msgid"),
+                            "errcode": str(response.get("errcode", 0)),
+                            "errmsg": response.get("errmsg"),
+                        })
+                        sent += 1
+                    except Exception as exc:  # noqa: BLE001 - the delivery must be reported for retry
+                        self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "WECHAT_SEND_FAILED", str(exc))
+                        failed += 1
+            except Exception:  # noqa: BLE001 - one malformed notification must not stop the batch
+                LOGGER.exception("处理通知 %s 失败，继续处理下一条", notification.get("notificationId"))
+                failed += 1
         return {"claimed": len(notifications), "sent": sent, "failed": failed, "skipped": skipped}
+
+    def run_forever(self, limit: int = 10, poll_interval: float = 1.0, stop_event: threading.Event | None = None) -> None:
+        """常驻轮询；单次 API/消息异常只记录并等待下一轮，不退出进程。"""
+        event = stop_event or threading.Event()
+        while not event.is_set():
+            try:
+                result = self.run_once(limit)
+                LOGGER.info("通知轮询完成：%s", result)
+            except Exception:  # noqa: BLE001 - transient API/network failures are expected
+                LOGGER.exception("通知轮询失败，%ss 后继续", poll_interval)
+            event.wait(max(0.1, poll_interval))
 
     def _allowed(self, recipient: dict[str, Any]) -> bool:
         return (
@@ -144,12 +163,23 @@ class KdosNotificationDispatcher:
 
 
 def main() -> int:
+    logging.basicConfig(level=os.getenv("KDOS_DISPATCHER_LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="领取 KDOS 通知并通过企业微信发送")
-    parser.add_argument("--once", action="store_true", help="执行一次轮询；未指定时也只执行一次")
+    parser.add_argument("--once", action="store_true", help="只执行一次轮询后退出；默认进入常驻模式")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--interval", type=float, default=float(os.getenv("KDOS_DISPATCHER_POLL_INTERVAL", "1")))
     args = parser.parse_args()
-    result = KdosNotificationDispatcher(DispatcherConfig.from_env()).run_once(args.limit)
-    print(json.dumps(result, ensure_ascii=False))
+    dispatcher = KdosNotificationDispatcher(DispatcherConfig.from_env())
+    if args.once:
+        print(json.dumps(dispatcher.run_once(args.limit), ensure_ascii=False))
+        return 0
+    stop_event = threading.Event()
+    def stop(_signum: int, _frame: Any) -> None:
+        LOGGER.info("收到停止信号，等待当前轮询结束")
+        stop_event.set()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    dispatcher.run_forever(args.limit, args.interval, stop_event)
     return 0
 
 

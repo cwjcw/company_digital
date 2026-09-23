@@ -56,8 +56,8 @@ export class MasterPlanQueryService {
     const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
-    const requestedPageSize = Math.floor(Number(input.pageSize) || 50);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const requestedPageSize = Math.floor(Number(input.pageSize) || 100);
+    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100;
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
@@ -266,7 +266,7 @@ export class MasterPlanQueryService {
     const pendingInputKeys = processReportPendingInputKeys();
     const visibleFields = processReportPendingFields().map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
-    const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 50); const pageSize = [20,50,100,200].includes(requested) ? requested : 50;
+    const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 100); const pageSize = [20,50,100,200].includes(requested) ? requested : 100;
     const source = processReportPendingSourceSql;
     const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
     const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];

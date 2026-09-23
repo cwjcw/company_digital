@@ -28,12 +28,21 @@ describe("KdosDataTable server pagination", () => {
       />
     </QueryClientProvider>);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 100 })));
     onQueryChange.mockClear();
     fireEvent.click(view.container.querySelector(".ant-pagination-item-2")!);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 50 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 100 })));
     expect(view.container.querySelector(".ant-pagination-item-2")).toHaveClass("ant-pagination-item-active");
+  });
+
+  it("keeps an explicit page size instead of replacing it with the platform default", async () => {
+    const onQueryChange = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[]} serverData={{ total: 0, onQueryChange }}
+      pagination={{ pageSize: 50 }} /></QueryClientProvider>);
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
   });
 
   it("simple 汇总表不显示搜索、高级筛选、字段显示或列菜单", () => {

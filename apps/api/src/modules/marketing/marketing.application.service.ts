@@ -181,7 +181,7 @@ export class MarketingApplicationService {
 
   private pageRows<T extends Record<string, unknown>>(rows: T[], input: MarketingPageInput, allowedFields: string[]) {
     const page = Math.max(Number(input.page) || 1, 1);
-    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 50;
+    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 100;
     const allowed = new Set(allowedFields);
     const filtered = rows.filter((row) => Object.entries(input.filters ?? {}).every(([key, raw]) => {
       const value = raw.trim().toLocaleLowerCase();
@@ -384,7 +384,7 @@ export class MarketingApplicationService {
       : (resource === "business-customer-mapping" ? "mapping.department,mapping.section,mapping.customer_code" : "schedule.customer_due_date NULLS LAST,schedule.order_number,schedule.item_number");
     const page = Math.max(Number(input.page) || 1, 1);
     const requested = Number(input.pageSize);
-    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 50;
+    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 100;
     return { whereSql: clauses.join(" AND "), params, orderBy, page, pageSize };
   }
 

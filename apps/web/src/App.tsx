@@ -32,7 +32,7 @@ import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
-import { KdosDataTable, useKdosTableEditMode } from "./shared/KdosDataTable";
+import { KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
@@ -405,7 +405,7 @@ type InboundTablePage = { rows: any[]; total: number; page: number; pageSize: nu
 
 function FinishedGoodsInboundPage() {
   const queryClient = useQueryClient();
-  const [tableQuery, setTableQuery] = useState<InboundTableQuery>({ page: 1, pageSize: 50, search: "", filters: {} });
+  const [tableQuery, setTableQuery] = useState<InboundTableQuery>({ page: 1, pageSize: kdosDefaultPageSize, search: "", filters: {} });
   const records = useQuery({
     queryKey: ["finished-goods-inbound", tableQuery],
     queryFn: () => {
@@ -502,7 +502,7 @@ function FinishedGoodsInboundPage() {
       rowSelection={{ selectedRowKeys: selectedIds, onChange: setSelectedIds }}
       dataSource={records.data?.rows} loading={records.isLoading}
       serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }}
-      pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+      pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
       scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} columns={columns} />
     <Modal title="新增入库记录" width={1080} open={open} onCancel={() => setOpen(false)}
       onOk={() => form.validateFields().then(async (values) => {
@@ -535,7 +535,7 @@ function FinishedGoodsInboundPage() {
 }
 
 function AuditLogs() {
-  const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:50,search:"",filters:{}});
+  const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:kdosDefaultPageSize,search:"",filters:{}});
   const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length)params.set("filterGroup",JSON.stringify(tableQuery.filterGroup));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
   return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
     <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data?.rows} serverData={{total:logs.data?.total??0,onQueryChange:setTableQuery}} columns={[

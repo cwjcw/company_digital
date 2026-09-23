@@ -116,7 +116,7 @@ export class TableFilterController {
     if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortExpression = sortKey ? sortAlias?.expression ?? this.expressions(source)[sortKey] : undefined;
     const requestedPageSize = Number(query.pageSize);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100;
     const page = Math.max(Number(query.page) || 1, 1);
     const selected = [
       ...Object.entries(source.columns).filter(([key]) => this.canReadField(actor, source.code, key)).map(([key, column]) => `record.${column} AS "${key}"`),

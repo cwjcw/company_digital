@@ -121,12 +121,14 @@ describe("equipment permissions and validation", () => {
     expect(() => service.minutes(1.5, "实际运行时长")).toThrow(BadRequestException);
   });
 
-  it("requires a positive daily planned runtime while keeping normal durations non-negative", () => {
+  it("allows a required daily planned runtime of zero while keeping the legacy positive helper strict", () => {
     const service = new EquipmentApplicationService({} as never) as any;
     expect(service.positiveMinutes(600, "计划运行时间")).toBe(600);
     expect(() => service.positiveMinutes(undefined, "计划运行时间")).toThrow("必须填写且必须大于0");
     expect(() => service.positiveMinutes(0, "计划运行时间")).toThrow("必须填写且必须大于0");
     expect(() => service.positiveMinutes(-1, "计划运行时间")).toThrow("必须填写且必须大于0");
+    expect(service.requiredMinutes(0, "计划运行时间")).toBe(0);
+    expect(() => service.requiredMinutes(undefined, "计划运行时间")).toThrow("必须填写");
   });
 
   it("includes the daily planned runtime in status audit snapshots", () => {

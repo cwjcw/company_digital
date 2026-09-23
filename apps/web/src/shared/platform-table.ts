@@ -16,7 +16,7 @@ export type PlatformTableQuery = {
 
 export type PlatformTablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
 
-export const blankPlatformQuery = (pageSize = 50): PlatformTableQuery => ({
+export const blankPlatformQuery = (pageSize = 100): PlatformTableQuery => ({
   page: 1, pageSize, search: "", filters: {}, filterGroup: emptyFilterGroup()
 });
 

@@ -30,8 +30,8 @@ export class SupplyChainQueryService {
     const visibleFields = this.visibleFields(actor);
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有供应商清单可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
-    const requestedPageSize = Math.floor(Number(input.pageSize) || 50);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const requestedPageSize = Math.floor(Number(input.pageSize) || 100);
+    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100;
     const params: unknown[] = [actor.tenantId];
     const clauses = ["supplier.tenant_id=$1", this.scopeClause(actor, params)];
     const search = String(input.search ?? "").trim();

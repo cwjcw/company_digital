@@ -6,7 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { api, ApiError } from "../../api";
 import { downloadApiFile, ImportFeedbackAlert, InlineText, PageHeader, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate } from "../../shared/date-format";
-import { hasResourcePermission, KdosDataTable, useKdosTableEditMode } from "../../shared/KdosDataTable";
+import { hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "../../shared/KdosDataTable";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
 
@@ -14,7 +14,7 @@ type DirectoryUser = { id: string; displayName: string; departmentPaths: string[
 type DirectoryOrganization = { id: string; name: string; parentId: string | null; path: string[]; pathLabel: string; enabled: boolean };
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; sortField?: string; sortOrder?: "asc" | "desc" };
 type TablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
-const blankQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const blankQuery: TableQuery = { page: 1, pageSize: kdosDefaultPageSize, search: "", filters: {} };
 const tableUrl = (path: string, query: TableQuery, extra: Record<string,string> = {}) => {
   const params=new URLSearchParams({...extra,page:String(query.page),pageSize:String(query.pageSize)});
   if(query.search)params.set("search",query.search);if(Object.values(query.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(query.filters));

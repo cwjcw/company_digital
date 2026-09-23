@@ -53,6 +53,7 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 const emptyHeaderRules: AdvancedFilterRule[] = [];
 export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
+export const kdosDefaultPageSize = 100;
 
 export function shouldResetServerTablePage(action: "paginate" | "sort" | "filter") {
   return action === "sort" || action === "filter";
@@ -301,7 +302,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
     const saved = Number(localStorage.getItem(pageSizeStorageKey));
-    return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? 50);
+    return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? kdosDefaultPageSize);
   });
   const canEdit = editable && hasResourcePermission(resource, "update");
   useEffect(() => {

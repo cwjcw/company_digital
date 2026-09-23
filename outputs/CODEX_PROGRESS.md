@@ -1,5 +1,76 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-DISPATCHER-AND-TABLE-DEFAULTS-004
+
+任务目标：完成 Dispatcher 常驻自动发送、计划运行时间新建默认为 0、事业部周计划生产进度 Excel 数值格式统一、标准表格默认每页 100 条；不扩展通知渠道或业务入口。
+
+当前状态：代码、质量门禁、API/Web 部署和用户级 Dispatcher 服务已完成；真实新业务事件待用户手工触发。
+
+最后更新时间：2026-09-23
+
+### 当前阶段
+
+当前阶段：实现与验证
+
+当前子任务：完成 Dispatcher 常驻循环/systemd 配置、Excel 数值单元格测试、分页和计划时间测试后再处理线上旧消息。
+
+### 已完成
+
+- [x] Dispatcher 增加默认常驻轮询、`--once` 调试模式、API/单条通知异常隔离、SIGTERM/SIGINT 优雅退出。
+- [x] 计划运行时间新建表单显示 `0小时0分钟`，后端允许必填值 0，历史数据不改。
+- [x] 生产进度 formatter 下沉到 `@tracker/shared`，周计划 Excel 导出写入 numeric ratio 和 `0.#%` 格式。
+- [x] KdosDataTable 与标准分页 API 默认值统一为 100，显式 pageSize 保持优先。
+
+### 正在进行
+
+- [x] 运行 API/Web/Shared/Python 测试、lint、typecheck、build。
+- [x] 安装并启动 `kdos-notification-dispatcher.service`（当前用户 linger scope）。
+- [x] 仅抑制明确的 `01-01-0004` 历史 PENDING 测试事件，并收敛本次上线验证中已实际发送但 API 回执未落库的 5 条旧记录。
+
+### 待完成
+
+- [x] service active/running、常驻多轮日志和 `--once` 单轮验证。
+- [ ] 使用现有测试设备产生一条新的正式事件并完成企业微信真实收信验收。
+
+### 修改文件
+
+- `automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py`、`test_dispatcher.py`
+- `apps/api/src/modules/equipment/equipment.application.service.ts`、`equipment-export.service.ts`、相关测试
+- `packages/shared/src/index.ts`、`index.test.ts`
+- `apps/api/src/modules/master-plan-system/master-plan-spreadsheet.service.ts`、相关测试
+- `apps/web/src/shared/KdosDataTable.tsx`、`platform-table.ts`、标准业务页面及相关测试
+- `apps/api/src/modules/notifications/notification.service.ts`、`notification.service.spec.ts`
+- `automation/wechat_push_projects/kdos-notification-dispatcher/README.md`
+- `automation/wechat_push_projects/kdos-notification-dispatcher/kdos-notification-dispatcher.service`
+
+### 数据库 Migration
+
+- 无新增 migration；仅对一条明确的 `01-01-0004` 历史 PENDING 测试事件做终态抑制。
+
+### 新增或修改测试
+
+- Dispatcher 常驻/API 故障/坏消息继续轮询；计划时间 0；生产进度真实 xlsx numeric/numFmt；默认 100 和显式 50 优先。
+
+### 已运行测试
+
+- API 全量：64 suites / 517 tests 通过，1 个环境标记测试跳过。
+- Web 全量：24 files / 143 tests 通过；Shared：6 tests 通过；Dispatcher Python：6 tests 通过。
+- API/Web/Shared lint、typecheck、build 通过；Web 仅既有 Fast Refresh 与 bundle 体积 warning。
+- 备份：`data/backups/*_20260923_170147.*`；部署后健康检查通过；无待执行 migration。
+- Dispatcher 用户服务：enabled/active，Python 使用 basic_code `.venv`，连续 1 秒轮询；`--once` 返回 claimed=0。
+
+### 当前已知问题
+
+- 无 root sudo 权限，无法安装 `/etc/systemd/system` 的系统级 unit；已安装同名用户级 linger unit，`systemctl --user` enabled/active，`journalctl --user -u` 正常。
+- 本次上线验证中 5 条旧消息已成功调用企业微信但回执因 API 参数 bug 未落库，修复后通过内部 success API 收敛为 SENT；这些记录 provider_message_id 仍为空。
+
+### 下一步
+
+1. 用户现在可以将 `01-01-0004` 的故障时长从 10 改成 20，生成一条新的正式测试事件。
+2. 核对新事件的业务责任人解析、实际崔玮杰接收、provider msgid 和 delivery 状态。
+
+---
+
 ## 当前任务：KDOS-NOTIFICATION-ONLINE-FIX-003
 
 任务目标：修复 `shipping_edit_weekday` 多值 jsonb 保存，以及设备故障通知 TEST MODE 的实际接收人覆盖语义；增加指定人员规则和投递日志区分，不扩展通知渠道或业务入口。

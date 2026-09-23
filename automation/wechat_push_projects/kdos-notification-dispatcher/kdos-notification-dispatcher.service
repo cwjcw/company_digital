@@ -1,0 +1,25 @@
+[Unit]
+Description=KDOS 企业微信通知 Dispatcher
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=Jerry
+WorkingDirectory=/data/automation/code/work/PMC/knweb
+EnvironmentFile=/data/automation/code/work/PMC/knweb/.env
+Environment=KDOS_API_BASE_URL=http://127.0.0.1:15172/api/v1
+Environment=KDOS_DEFAULT_TENANT_CODE=KAINAN
+Environment=KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME=崔玮杰
+Environment=KDOS_DISPATCHER_ALLOWED_USER_ID=f6756112-dfef-4082-b250-96a3b7607b1a
+Environment=KDOS_DISPATCHER_POLL_INTERVAL=1
+ExecStart=/data/automation/code/work/basci/basic_code/.venv/bin/python /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

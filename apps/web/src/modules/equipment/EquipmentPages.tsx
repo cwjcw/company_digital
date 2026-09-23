@@ -7,7 +7,7 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import { api } from "../../api";
-import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission } from "../../shared/KdosDataTable";
+import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission, kdosDefaultPageSize } from "../../shared/KdosDataTable";
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
@@ -43,7 +43,7 @@ type EquipmentOptions = {
   faultReasons: string[];
 };
 
-const blankQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const blankQuery: TableQuery = { page: 1, pageSize: kdosDefaultPageSize, search: "", filters: {} };
 const divisionNames = new Set(["事业一部", "事业二部", "事业三部", "事业四部", "研发中心"]);
 
 function tableUrl(path: string, query: TableQuery) {
@@ -286,7 +286,7 @@ export function EquipmentStatusReportPage() {
     setEditing(row); const runtime = Number(row?.runtimeMinutes ?? 0); const fault = Number(row?.faultMinutes ?? 0);
     const equipmentId = row?.equipmentId; setSelectedEquipmentId(equipmentId);
     const planned = Number(row?.plannedRuntimeMinutes ?? 0);
-    form.setFieldsValue({ equipmentId, reportDate: row?.reportDate ? dayjs(row.reportDate) : dayjs(), plannedRuntimeHours: planned > 0 ? Math.floor(planned / 60) : undefined, plannedRuntimeMinutePart: planned > 0 ? planned % 60 : undefined, runtimeHours: Math.floor(runtime / 60), runtimeMinutePart: runtime % 60, faultHours: Math.floor(fault / 60), faultMinutePart: fault % 60, faultReason: row?.faultReason ?? undefined });
+    form.setFieldsValue({ equipmentId, reportDate: row?.reportDate ? dayjs(row.reportDate) : dayjs(), plannedRuntimeHours: Math.floor(planned / 60), plannedRuntimeMinutePart: planned % 60, runtimeHours: Math.floor(runtime / 60), runtimeMinutePart: runtime % 60, faultHours: Math.floor(fault / 60), faultMinutePart: fault % 60, faultReason: row?.faultReason ?? undefined });
     setOpen(true);
   };
   const selectEquipment = (equipmentId: string) => {
@@ -294,7 +294,7 @@ export function EquipmentStatusReportPage() {
     if (editing) return;
     const selected = options.data?.equipment.find((item) => item.id === equipmentId);
     const planned = Number(selected?.plannedStartupMinutes ?? 0);
-    form.setFieldsValue({ plannedRuntimeHours: planned > 0 ? Math.floor(planned / 60) : undefined, plannedRuntimeMinutePart: planned > 0 ? planned % 60 : undefined });
+    form.setFieldsValue({ plannedRuntimeHours: Math.floor(planned / 60), plannedRuntimeMinutePart: planned % 60 });
   };
   const save = async () => {
     if ((editing && !canUpdate) || (!editing && !canCreate)) { message.error("当前权限不允许此操作"); setOpen(false); return; }

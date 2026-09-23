@@ -134,7 +134,7 @@ export class EquipmentApplicationService {
     for (const row of rows) {
       try {
         const reportDate = this.reportDate(row.reportDate);
-        const plannedRuntimeMinutes = this.positiveMinutes(row.plannedRuntimeMinutes, "计划运行时间");
+      const plannedRuntimeMinutes = this.requiredMinutes(row.plannedRuntimeMinutes, "计划运行时间");
         const runtimeMinutes = this.minutes(row.runtimeMinutes, "实际运行时长"); const faultMinutes = this.minutes(row.faultMinutes, "故障时长");
         const faultReason = String(row.faultReason ?? "").trim() || null;
         if (faultMinutes > 0 && !faultReason) throw new BadRequestException("故障时长大于 0 时必须填写故障原因");
@@ -293,7 +293,7 @@ export class EquipmentApplicationService {
     if (!asset || !asset.monitored) throw new BadRequestException("设备不存在、已停用或不需要监控");
     if (!id) this.assertRecordAccess(actor, "equipment-status-report", permissionAction ?? "create", asset.divisionOrganizationUnitId, null);
     const reportDate = this.reportDate(input.reportDate);
-    const plannedRuntimeMinutes = this.positiveMinutes(input.plannedRuntimeMinutes, "计划运行时间");
+    const plannedRuntimeMinutes = this.requiredMinutes(input.plannedRuntimeMinutes, "计划运行时间");
     const runtimeMinutes = this.minutes(input.runtimeMinutes, "实际运行时长"); const faultMinutes = this.minutes(input.faultMinutes, "故障时长");
     const faultReason = String(input.faultReason ?? "").trim() || null;
     if (faultMinutes > 0 && !faultReason) throw new BadRequestException("故障时长大于 0 时必须选择故障原因");
@@ -392,6 +392,11 @@ export class EquipmentApplicationService {
     const number = Number(value);
     if (!Number.isInteger(number) || number <= 0) throw new BadRequestException(`${label}必须填写且必须大于0`);
     return number;
+  }
+
+  private requiredMinutes(value: unknown, label: string) {
+    if (value === null || value === undefined || String(value).trim() === "") throw new BadRequestException(`${label}必须填写`);
+    return this.minutes(value, label);
   }
 
   private assetAudit(asset: EquipmentAsset) { return { divisionId: asset.divisionOrganizationUnitId, usageDepartmentId: asset.usageDepartmentOrganizationUnitId, equipmentCode: asset.equipmentCode, equipmentName: asset.equipmentName, purchaseDate: asset.purchaseDate, plannedStartupMinutes: asset.plannedStartupMinutes, monitored: asset.monitored, active: asset.active, version: asset.version }; }

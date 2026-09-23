@@ -570,8 +570,8 @@ export class EquipmentQueryService {
   }
 
   private page(input: PageInput) {
-    const page = Math.max(1, Number(input.page ?? 1)); const requested = Number(input.pageSize ?? 50);
-    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 50;
+    const page = Math.max(1, Number(input.page ?? 1)); const requested = Number(input.pageSize ?? 100);
+    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 100;
     return { page, pageSize, offset: (page - 1) * pageSize };
   }
 

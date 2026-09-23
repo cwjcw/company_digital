@@ -6,8 +6,9 @@ import { DownloadOutlined, MoreOutlined, SyncOutlined, UploadOutlined } from "@a
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { formatProductionProgress as sharedFormatProductionProgress } from "@tracker/shared";
 import { api } from "../../api";
-import { hasFieldPermission, hasResourcePermission, KdosDataTable, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
+import { hasFieldPermission, hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/OrganizationSelect";
 import type { AuditDirectoryUser } from "../../shared/audit-fields";
@@ -22,7 +23,7 @@ type Reconciliation = { status: string; message: string | null };
 /** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
 const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
 const reportResources = new Set(["mps-process-reports", "mps-weekly-process-plans", "mps-material-reports", "mps-outsourcing-reports", "mps-technical-reports"]);
-const initialQuery: TableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const initialQuery: TableQuery = { page: 1, pageSize: kdosDefaultPageSize, search: "", filters: {} };
 const auditFields = new Set(["createdBy", "createdAt", "updatedBy", "updatedAt"]);
 const definitionMap = new Map(masterPlanResourceDefinitions.map((entry) => [entry.code, entry]));
 /** KN-MPS-WO-001：3天生产工单（只能由“从周计划同步”生成）。 */
@@ -351,13 +352,8 @@ export function progressCellStyle(value: unknown) {
   const ratio = value == null || value === "" ? null : Number(value);
   return ratio != null && Number.isFinite(ratio) && ratio >= 1 ? { background: "#e7f6ec", color: "#1f6b3a", fontWeight: 600 } : undefined;
 }
-/** 生产进度格式化：需求为 0/NULL → —（不出现 NaN/Infinity）；允许超过 100%（不封顶）。 */
-export function formatProductionProgress(value: unknown) {
-  const ratio = value == null || value === "" ? null : Number(value);
-  if (ratio == null || !Number.isFinite(ratio)) return "—";
-  const percent = ratio * 100;
-  return `${Number.isInteger(percent) ? percent : Math.round(percent * 10) / 10}%`;
-}
+/** 生产进度展示格式由 @tracker/shared 统一提供，Excel 与前端不再各自复制口径。 */
+export const formatProductionProgress = sharedFormatProductionProgress;
 
 /**
  * 生产进度单元格：主表只占一列，Hover 显示需求数量 / 累计报工 / 报工次数 / 生产进度。

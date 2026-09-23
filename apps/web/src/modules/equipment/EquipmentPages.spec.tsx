@@ -111,7 +111,8 @@ describe("EquipmentStatusReportPage live permissions", () => {
     expect(screen.queryByRole("button", { name: /^导入$/ })).not.toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => path === "/equipment/status-options")).toBe(true));
     fireEvent.click(button);
-    expect(await screen.findByRole("dialog", { name: "填报设备状态" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "填报设备状态" });
+    expect(within(dialog).getAllByRole("spinbutton").map((input) => (input as HTMLInputElement).value)).toEqual(["0", "0", "0", "0", "0", "0"]);
   });
 
   it("deletes a status row with its optimistic version in the query string", async () => {

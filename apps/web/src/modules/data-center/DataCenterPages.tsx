@@ -4,13 +4,13 @@ import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Space, Ta
 import { api, ApiError } from "../../api";
 import { ImportFeedbackAlert, InlineText, PageHeader, downloadApiFile, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, isDueDateLabel } from "../../shared/date-format";
-import { hasFieldPermission, KdosDataTable } from "../../shared/KdosDataTable";
+import { hasFieldPermission, KdosDataTable, kdosDefaultPageSize } from "../../shared/KdosDataTable";
 import { useAuditColumns } from "../../shared/audit-fields";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 
 type ServerTableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type ServerTablePage<T> = { rows: T[]; total: number; page: number; pageSize: number };
-const initialTableQuery: ServerTableQuery = { page: 1, pageSize: 50, search: "", filters: {} };
+const initialTableQuery: ServerTableQuery = { page: 1, pageSize: kdosDefaultPageSize, search: "", filters: {} };
 const pageUrl = (path: string, query: ServerTableQuery) => {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search) params.set("search", query.search);

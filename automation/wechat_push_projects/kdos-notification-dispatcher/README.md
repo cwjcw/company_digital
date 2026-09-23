@@ -16,4 +16,5 @@ python3 dispatcher.py --once --limit 1
 
 `KDOS_DISPATCHER_ALLOWED_USER_ID` 可作为更稳定的实际测试接收人门禁。没有 token 或没有任何单人门禁时，程序直接拒绝运行。业务责任人由 API 正常解析并保留在投递日志中；TEST MODE 下 API 将实际投递目标覆盖为崔玮杰，多个业务责任人只返回一个实际投递项，并通过 `deliveryIds` 关联全部业务投递日志。Dispatcher 不解析业务责任人，也不把崔玮杰要求为设备责任人。
 
-Dispatcher 默认只执行一次轮询，不支持群机器人回退。企业微信 secret 仍只由 `basic_code` 自己的 `.env` 管理。
+`--once` 仅用于人工调试；不带 `--once` 时 Dispatcher 默认以约 1 秒间隔常驻轮询，单次 API/通知异常会记录并继续下一轮，收到 SIGTERM/SIGINT 后优雅退出。正式服务应使用
+`/data/automation/code/work/basci/basic_code/.venv/bin/python` 启动本目录的 `dispatcher.py`，并通过独立的 systemd `EnvironmentFile` 注入 token。企业微信 secret 仍只由 `basic_code` 自己的 `.env` 管理，不支持群机器人回退。

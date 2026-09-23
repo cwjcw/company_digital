@@ -105,6 +105,24 @@ describe("MasterPlanSpreadsheetService", () => {
     expect(sheet.getRow(2).getCell(3).text).toBe("000123");
   });
 
+  it("exports weekly production progress as numeric ratio cells with the frontend percentage format", async () => {
+    queries.exportRows.mockResolvedValue({
+      visibleFields: ["cuttingProductionProgress", "machiningProductionProgress"],
+      rows: [{ id: "row-1", version: 1, cuttingProductionProgress: "0.7143", machiningProductionProgress: 1 }]
+    });
+    const buffer = await service.export("mps-weekly-plans", {}, actor);
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("mps-weekly-plans")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    const cutting = sheet.getCell(2, headers.indexOf("下料·生产进度"));
+    const machining = sheet.getCell(2, headers.indexOf("机加·生产进度"));
+    expect(cutting.value).toBe(0.7143);
+    expect(typeof cutting.value).toBe("number");
+    expect(cutting.numFmt).toBe("0.#%");
+    expect(machining.value).toBe(1);
+    expect(machining.numFmt).toBe("0.#%");
+  });
+
   it("treats blank record ID and version as new rows for every shared table importer", async () => {
     application.validateImportUpdates.mockResolvedValue([]);
     const file = await workbookFile(

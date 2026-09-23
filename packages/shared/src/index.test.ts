@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { dictionarySeeds, processDefinitions, standardProcessCodes, standardProcesses } from "./index";
+import { dictionarySeeds, formatProductionProgress, processDefinitions, productionProgressRatio, standardProcessCodes, standardProcesses } from "./index";
 
 describe("canonical KDOS process registry", () => {
+  it("formats production progress with the shared frontend/export percentage口径", () => {
+    expect(productionProgressRatio("0.7143")).toBe(0.7143);
+    expect(formatProductionProgress("0.7143")).toBe("71.4%");
+    expect(formatProductionProgress(1)).toBe("100%");
+    expect(formatProductionProgress(null)).toBe("—");
+  });
+
   it("defines exactly the ten approved standard processes in order", () => {
     expect(standardProcesses.map((process) => process.code)).toEqual([
       "cutting", "machining", "bending", "spotWelding", "welding",

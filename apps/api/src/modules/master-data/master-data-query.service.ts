@@ -87,7 +87,7 @@ export class MasterDataQueryService {
     actor: MasterDataActor
   ): Promise<MasterDataPage<T>> {
     const page = Math.max(1, Math.trunc(Number(query.page) || 1));
-    const pageSize = Math.min(200, Math.max(10, Math.trunc(Number(query.pageSize) || 50)));
+    const pageSize = Math.min(200, Math.max(10, Math.trunc(Number(query.pageSize) || 100)));
     const search = String(query.search ?? "").trim();
     const filters = this.parseFilters(query.filters);
     const builder = repository.createQueryBuilder("row");

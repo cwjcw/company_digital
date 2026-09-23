@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
 
@@ -97,6 +98,37 @@ class DispatcherTest(unittest.TestCase):
         result = dispatcher.KdosNotificationDispatcher(self.config(), http_post, pusher).run_once()
         self.assertEqual(result["failed"], 1)
         self.assertTrue(any(body.get("errcode") == "WECHAT_SEND_FAILED" for _, body in calls))
+
+    def test_resident_mode_survives_one_api_failure_and_keeps_polling(self):
+        calls = []
+        stop_event = threading.Event()
+
+        def http_post(path, body):
+            calls.append(path)
+            if len(calls) == 1:
+                raise RuntimeError("temporary API outage")
+            stop_event.set()
+            return {"notifications": []}
+
+        dispatcher.KdosNotificationDispatcher(self.config(), http_post, FakePusher()).run_forever(
+            poll_interval=0.001, stop_event=stop_event
+        )
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_resident_mode_survives_one_malformed_notification(self):
+        calls = []
+        stop_event = threading.Event()
+
+        def http_post(path, body):
+            calls.append(path)
+            if len(calls) == 1:
+                return {"notifications": [{"notificationId": "broken", "recipients": [{}]}]}
+            stop_event.set()
+            return {"notifications": []}
+
+        runner = dispatcher.KdosNotificationDispatcher(self.config(), http_post, FakePusher())
+        runner.run_forever(poll_interval=0.001, stop_event=stop_event)
+        self.assertGreaterEqual(len(calls), 2)
 
     def test_config_requires_token_and_recipient_gate(self):
         with self.assertRaisesRegex(RuntimeError, "TOKEN"):

@@ -80,7 +80,7 @@ export class AdminQueryService {
   async listUsersPage(query: AdminUserPageQuery, actor: { isSystemAdmin?: boolean; permissions: string[] }): Promise<AdminUserPage> {
     const requestedPageSize = Number(query.pageSize);
     const batchSize = Math.min(500, Math.max(1, Number(query.batchSize) || 0));
-    const pageSize = batchSize > 200 ? batchSize : ([20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50);
+    const pageSize = batchSize > 200 ? batchSize : ([20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100);
     const page = Math.max(Number(query.page) || 1, 1);
     const builder = this.users.createQueryBuilder("row");
 

@@ -130,14 +130,14 @@ export class NotificationService {
     return this.withManager(tenantId, undefined, async (manager) => {
       const rows = this.rowsOf(await manager.query(`
         UPDATE notification_delivery_logs AS delivery SET
-          status='SENT',response_code=$6,response_json=NULL,error_message=NULL,
-          errcode=$7,errmsg=$8,provider_message_id=$9,delivered_at=now()
+          status='SENT',response_code=$5,response_json=NULL,error_message=NULL,
+          errcode=$6,errmsg=$7,provider_message_id=$8,delivered_at=now()
         FROM notification_outbox AS outbox
         WHERE delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
-          AND outbox.tenant_id=$1 AND outbox.id=$3::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$4
-          AND delivery.id=ANY($5::uuid[])
+          AND outbox.tenant_id=$1 AND outbox.id=$2::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$3
+          AND delivery.id=ANY($4::uuid[])
           AND delivery.status IN ('PENDING','PROCESSING')
-        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, deliveryIds, result.errcode ?? null, result.errcode ?? null, result.errmsg ?? null, result.providerMessageId ?? null]));
+        RETURNING outbox.*`, [tenantId, outboxId, workerId, deliveryIds, result.errcode ?? null, result.errcode ?? null, result.errmsg ?? null, result.providerMessageId ?? null]));
       if (!rows[0]) throw new ConflictException("通知投递不存在、已被其他 worker 处理或状态已变化");
       return this.reconcileOutbox(manager, tenantId, outboxId, workerId);
     });
@@ -150,14 +150,14 @@ export class NotificationService {
     return this.withManager(tenantId, undefined, async (manager) => {
       const rows = this.rowsOf(await manager.query(`
         UPDATE notification_delivery_logs AS delivery SET
-          status='RETRY_PENDING',response_code=$6,response_json=NULL,error_message=$7,
-          errcode=$8,errmsg=$9,provider_message_id=$10
+          status='RETRY_PENDING',response_code=$5,response_json=NULL,error_message=$6,
+          errcode=$7,errmsg=$8,provider_message_id=$9
         FROM notification_outbox AS outbox
         WHERE delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
-          AND outbox.tenant_id=$1 AND outbox.id=$3::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$4
-         AND delivery.id=ANY($5::uuid[])
+          AND outbox.tenant_id=$1 AND outbox.id=$2::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$3
+         AND delivery.id=ANY($4::uuid[])
          AND delivery.status IN ('PENDING','PROCESSING')
-        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, deliveryIds, result.errcode ?? null, error, result.errcode ?? null, result.errmsg ?? error, result.providerMessageId ?? null]));
+        RETURNING outbox.*`, [tenantId, outboxId, workerId, deliveryIds, result.errcode ?? null, error, result.errcode ?? null, result.errmsg ?? error, result.providerMessageId ?? null]));
       if (!rows[0]) throw new ConflictException("通知投递不存在、已被其他 worker 处理或状态已变化");
       return this.reconcileOutbox(manager, tenantId, outboxId, workerId);
     });
@@ -314,10 +314,10 @@ export class NotificationService {
     const hasRetry = states.some((state) => ["RETRY_PENDING", "FAILED"].includes(state.status) && state.count > 0);
     const status = hasActive ? "PROCESSING" : hasRetry ? "FAILED" : "SENT";
     const retryAt = status === "FAILED" ? "now()+LEAST(GREATEST(attempts,1),30)*interval '1 minute'" : "NULL";
-    const rows = this.rowsOf(await manager.query(`UPDATE notification_outbox SET status=$4,failed_at=CASE WHEN $4='FAILED' THEN now() ELSE failed_at END,
-      sent_at=CASE WHEN $4='SENT' THEN now() ELSE sent_at END,next_retry_at=${retryAt},
-      locked_at=CASE WHEN $4='PROCESSING' THEN locked_at ELSE NULL END,locked_by=CASE WHEN $4='PROCESSING' THEN locked_by ELSE NULL END,
-      last_error=CASE WHEN $4='FAILED' THEN COALESCE(last_error,'企业微信投递失败') ELSE NULL END,updated_at=now(),version=version+1
+    const rows = this.rowsOf(await manager.query(`UPDATE notification_outbox SET status=$4::varchar,failed_at=CASE WHEN $4::varchar='FAILED' THEN now() ELSE failed_at END,
+      sent_at=CASE WHEN $4::varchar='SENT' THEN now() ELSE sent_at END,next_retry_at=${retryAt},
+      locked_at=CASE WHEN $4::varchar='PROCESSING' THEN locked_at ELSE NULL END,locked_by=CASE WHEN $4::varchar='PROCESSING' THEN locked_by ELSE NULL END,
+      last_error=CASE WHEN $4::varchar='FAILED' THEN COALESCE(last_error,'企业微信投递失败') ELSE NULL END,updated_at=now(),version=version+1
       WHERE tenant_id=$1 AND id=$2::uuid AND status='PROCESSING' AND locked_by=$3 RETURNING *`, [tenantId, outboxId, workerId, status]));
     if (!rows[0]) throw new ConflictException("通知任务不存在、已被其他 worker 处理或状态已变化"); return rows[0];
   }

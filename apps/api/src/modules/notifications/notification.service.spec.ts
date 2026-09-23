@@ -194,6 +194,12 @@ describe("NotificationService", () => {
       .mockResolvedValueOnce([{ id: outboxId, status: "PROCESSING" }]);
     const service = new NotificationService(source as never);
     await expect(service.markDeliveryFailure(tenantId, outboxId, "dispatcher-1", { deliveryId, errcode: "500", errmsg: "temporary" })).resolves.toMatchObject({ status: "PROCESSING" });
-    expect(String(manager.query.mock.calls[3]?.[0])).toContain("status=$4");
+    const updateSql = String(manager.query.mock.calls[1]?.[0]);
+    const updateParams = manager.query.mock.calls[1]?.[1] as unknown[];
+    expect(updateSql).toContain("outbox.id=$2::uuid");
+    expect(updateSql).toContain("delivery.id=ANY($4::uuid[])");
+    expect(updateSql).not.toContain("$10");
+    expect(updateParams).toHaveLength(9);
+    expect(String(manager.query.mock.calls[3]?.[0])).toContain("status=$4::varchar");
   });
 });

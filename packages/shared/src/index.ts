@@ -78,6 +78,21 @@ export const standardProcessCodes: readonly string[] = standardProcesses.map((pr
 export const standardProcessLabels: ReadonlyMap<string, string> = new Map(standardProcesses.map((process) => [process.code, process.name]));
 export type StandardProcessCode = string;
 
+/** 主计划周/月计划统一的生产进度口径：输入是 1.0 = 100% 的比例。 */
+export function productionProgressRatio(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const ratio = Number(value);
+  return Number.isFinite(ratio) ? ratio : null;
+}
+
+/** 前端单元格与导出说明共用的生产进度展示格式，不封顶。 */
+export function formatProductionProgress(value: unknown): string {
+  const ratio = productionProgressRatio(value);
+  if (ratio == null) return "—";
+  const percent = ratio * 100;
+  return `${Number.isInteger(percent) ? percent : Math.round(percent * 10) / 10}%`;
+}
+
 if (standardProcesses.length !== 10) throw new Error(`KDOS must define exactly 10 standard processes, got ${standardProcesses.length}`);
 if (standardProcesses.some((process, index) => process.order !== index + 1)) throw new Error("Standard process order must be 1..10 without gaps");
 if (standardProcesses.some((process) => !process.code || !process.name || !process.cycleField)) throw new Error("Standard process entries require code, name and cycleField");

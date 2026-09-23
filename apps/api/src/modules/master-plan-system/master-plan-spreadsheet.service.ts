@@ -9,6 +9,7 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
+import { productionProgressRatio } from "@tracker/shared";
 
 type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
 /* KN-MPS-UI-001：异常字段统一显示为「异常」，历史模板的「异常说明」表头继续可导入。 */
@@ -176,7 +177,11 @@ export class MasterPlanSpreadsheetService {
     sheet.columns = [
       { header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 },
       /* 日期列统一按 yyyy-mm-dd 显示（用户看到 2026-09-20，而不是序列号或带时间的日期）。 */
-      ...fields.map((field) => ({ header: field.label, key: field.key, width: field.type === "date" ? 14 : 20, ...(field.type === "date" ? { style: { numFmt: "yyyy-mm-dd" } } : {}) }))
+      ...fields.map((field) => ({
+        header: field.label, key: field.key, width: field.type === "date" ? 14 : 20,
+        ...(field.type === "date" ? { style: { numFmt: "yyyy-mm-dd" } } : {}),
+        ...(this.isProductionProgressField(field) ? { style: { numFmt: "0.#%" } } : {})
+      }))
     ];
     if (options.hideIdentityColumns) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
     const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
@@ -242,8 +247,14 @@ export class MasterPlanSpreadsheetService {
     if (field.type === "boolean") return raw === true ? "是" : raw === false ? "否" : raw;
     /* KN-MPS-WO-001：日期按真正的日期单元格导出（配合 yyyy-mm-dd 数字格式），用户看到 2026-09-20 而不是序列号。 */
     if (field.type === "date") return this.excelDate(raw);
+    /* 生产进度的数据库比例可能由 PostgreSQL numeric 返回字符串，Excel 必须收到数值并使用百分比格式。 */
+    if (this.isProductionProgressField(field)) return productionProgressRatio(raw);
     const options = field.options ?? [];
     return options.find((option) => String(option.value) === String(raw))?.label ?? raw;
+  }
+
+  private isProductionProgressField(field: TablePermissionFieldDefinition) {
+    return field.key.endsWith("ProductionProgress");
   }
 
   /** 把数据库返回的日期值规范成 Excel 日期单元格（UTC 零点，避免时区偏移导致少一天）。 */
