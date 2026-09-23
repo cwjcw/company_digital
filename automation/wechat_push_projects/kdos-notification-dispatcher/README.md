@@ -14,6 +14,6 @@ export KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME='崔玮杰'
 python3 dispatcher.py --once --limit 1
 ```
 
-`KDOS_DISPATCHER_ALLOWED_USER_ID` 可作为更稳定的额外门禁。没有 token 或没有任何单人门禁时，程序直接拒绝运行；不满足门禁的其他责任人只回写 `RECIPIENT_NOT_ALLOWED`，不会调用企业微信。
+`KDOS_DISPATCHER_ALLOWED_USER_ID` 可作为更稳定的实际测试接收人门禁。没有 token 或没有任何单人门禁时，程序直接拒绝运行。业务责任人由 API 正常解析并保留在投递日志中；TEST MODE 下 API 将实际投递目标覆盖为崔玮杰，多个业务责任人只返回一个实际投递项，并通过 `deliveryIds` 关联全部业务投递日志。Dispatcher 不解析业务责任人，也不把崔玮杰要求为设备责任人。
 
 Dispatcher 默认只执行一次轮询，不支持群机器人回退。企业微信 secret 仍只由 `basic_code` 自己的 `.env` 管理。

@@ -81,7 +81,7 @@ class KdosNotificationDispatcher:
                 if not delivery_id:
                     continue
                 if not self._allowed(recipient):
-                    self._report_failure(notification_id, delivery_id, "RECIPIENT_NOT_ALLOWED", "当前仅允许配置的单人验证接收人")
+                    self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "RECIPIENT_TARGET_MISMATCH", "Dispatcher 实际接收人未通过 TEST MODE 单人门禁")
                     skipped += 1
                     continue
                 try:
@@ -90,13 +90,14 @@ class KdosNotificationDispatcher:
                         raise RuntimeError(str(response.get("errmsg", "企业微信返回失败")))
                     self.http_post(f"/internal/notifications/{notification_id}/success", {
                         "deliveryId": delivery_id,
+                        "deliveryIds": recipient.get("deliveryIds", []),
                         "providerMessageId": response.get("msgid"),
                         "errcode": str(response.get("errcode", 0)),
                         "errmsg": response.get("errmsg"),
                     })
                     sent += 1
                 except Exception as exc:  # noqa: BLE001 - the delivery must be reported for retry
-                    self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", str(exc))
+                    self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "WECHAT_SEND_FAILED", str(exc))
                     failed += 1
         return {"claimed": len(notifications), "sent": sent, "failed": failed, "skipped": skipped}
 
@@ -114,9 +115,10 @@ class KdosNotificationDispatcher:
             self.pusher = WeChatPusher()
         return self.pusher
 
-    def _report_failure(self, notification_id: str, delivery_id: str, code: str, message: str) -> None:
+    def _report_failure(self, notification_id: str, delivery_id: str, delivery_ids: list[Any], code: str, message: str) -> None:
         self.http_post(f"/internal/notifications/{notification_id}/failure", {
             "deliveryId": delivery_id,
+            "deliveryIds": delivery_ids,
             "errcode": code,
             "errmsg": message[:4000],
         })

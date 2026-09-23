@@ -126,6 +126,8 @@ KDOS notifications use the same transactional-outbox boundary: an application co
 
 ## Events, workflow and AI
 
+通知 TEST MODE 当前由 API 强制开启：规则仍先解析 `EQUIPMENT_RESPONSIBLE` 或 `FIXED_USERS` 的真实业务用户，实际投递覆盖到启用的崔玮杰/CuiWeiJie；多业务用户通过一条 Dispatcher 实际发送和多个 delivery ID 回写，日志保留两层接收人信息。
+
 Socket.IO receives minimal events such as tenant, period, version, entity id, optimistic version and change type; clients invalidate queries and refetch authorized data.
 
 Planning exposes a `WorkflowGateway` boundary for publish, major changes, delivery-date changes, unlock and period close. Phase one records the contract but does not deploy Flowable.

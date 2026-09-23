@@ -14,6 +14,9 @@ const MAX_ERROR_LENGTH = 4000;
 const DEFAULT_LOCK_TIMEOUT_SECONDS = 300;
 const EQUIPMENT_RESOURCE = "equipment-status-report";
 const EQUIPMENT_FAULT_RECIPIENT_RULE = "EQUIPMENT_RESPONSIBLE";
+const FIXED_USERS_RECIPIENT_RULE = "FIXED_USERS";
+const TEST_RECIPIENT_WECHAT_ID = "CuiWeiJie";
+const TEST_RECIPIENT_NAME = "崔玮杰";
 const EQUIPMENT_FAULT_TEMPLATE = "【设备故障提醒】\n\n事业部：{divisionName}\n设备编号：{equipmentCode}\n设备名称：{equipmentName}\n\n故障时间：{oldFaultMinutes}分钟 → {newFaultMinutes}分钟\n故障原因：{faultReason}\n\n填报人：{actorName}\n时间：{occurredAt}\n\n请及时处理。";
 
 type NotificationRuleRow = Record<string, unknown> & {
@@ -100,18 +103,14 @@ export class NotificationService {
           await this.quarantine(manager, tenantId, outbox, workerId, "NO_MATCHING_RULE", "没有匹配的启用通知规则");
           continue;
         }
-        if (rule.resource !== EQUIPMENT_RESOURCE || rule.recipient_rule !== EQUIPMENT_FAULT_RECIPIENT_RULE) {
+        if (rule.resource !== EQUIPMENT_RESOURCE || ![EQUIPMENT_FAULT_RECIPIENT_RULE, FIXED_USERS_RECIPIENT_RULE].includes(String(rule.recipient_rule))) {
           await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知规则的资源或接收人规则不受当前 Dispatcher 支持");
           continue;
         }
         const payload = this.objectPayload(outbox.payload);
-        const equipmentId = this.requiredPayloadText(payload.equipmentId, "equipmentId");
-        const users = await manager.query(`
-          SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
-          FROM equipment_responsibles er JOIN users u ON u.id=er.user_id
-          WHERE er.tenant_id=$1 AND er.equipment_id=$2::uuid
-          ORDER BY u.id`, [tenantId, equipmentId]) as Array<Record<string, unknown>>;
-        const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users);
+        const users = await this.resolveBusinessRecipients(manager, tenantId, rule, payload);
+        const testRecipient = this.testMode() ? await this.resolveTestRecipient(manager) : null;
+        const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users, testRecipient);
         await manager.query(`
           UPDATE notification_outbox SET notification_rule_id=$3::uuid,updated_at=now(),version=version+1
           WHERE tenant_id=$1 AND id=$2::uuid AND status='PROCESSING' AND locked_by=$4`, [tenantId, outbox.id, rule.id, workerId]);
@@ -127,16 +126,18 @@ export class NotificationService {
 
   async markDeliverySuccess(tenantId: string, outboxId: string, workerId: string, result: NotificationDeliveryResult) {
     this.requireJobIdentity(tenantId, outboxId, workerId); this.requireText(result.deliveryId, "deliveryId", 64);
+    const deliveryIds = this.deliveryIds(result);
     return this.withManager(tenantId, undefined, async (manager) => {
       const rows = this.rowsOf(await manager.query(`
         UPDATE notification_delivery_logs AS delivery SET
-          status='SENT',response_code=$5,response_json=NULL,error_message=NULL,
-          errcode=$6,errmsg=$7,provider_message_id=$8,delivered_at=now()
+          status='SENT',response_code=$6,response_json=NULL,error_message=NULL,
+          errcode=$7,errmsg=$8,provider_message_id=$9,delivered_at=now()
         FROM notification_outbox AS outbox
-        WHERE delivery.id=$2::uuid AND delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
+        WHERE delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
           AND outbox.tenant_id=$1 AND outbox.id=$3::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$4
+          AND delivery.id=ANY($5::uuid[])
           AND delivery.status IN ('PENDING','PROCESSING')
-        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, result.errcode ?? null, result.errcode ?? null, result.errmsg ?? null, result.providerMessageId ?? null]));
+        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, deliveryIds, result.errcode ?? null, result.errcode ?? null, result.errmsg ?? null, result.providerMessageId ?? null]));
       if (!rows[0]) throw new ConflictException("通知投递不存在、已被其他 worker 处理或状态已变化");
       return this.reconcileOutbox(manager, tenantId, outboxId, workerId);
     });
@@ -145,16 +146,18 @@ export class NotificationService {
   async markDeliveryFailure(tenantId: string, outboxId: string, workerId: string, result: NotificationDeliveryResult) {
     this.requireJobIdentity(tenantId, outboxId, workerId); this.requireText(result.deliveryId, "deliveryId", 64);
     const error = String(result.errmsg ?? "企业微信投递失败").slice(0, MAX_ERROR_LENGTH);
+    const deliveryIds = this.deliveryIds(result);
     return this.withManager(tenantId, undefined, async (manager) => {
       const rows = this.rowsOf(await manager.query(`
         UPDATE notification_delivery_logs AS delivery SET
-          status='RETRY_PENDING',response_code=$5,response_json=NULL,error_message=$6,
-          errcode=$7,errmsg=$8,provider_message_id=$9
+          status='RETRY_PENDING',response_code=$6,response_json=NULL,error_message=$7,
+          errcode=$8,errmsg=$9,provider_message_id=$10
         FROM notification_outbox AS outbox
-        WHERE delivery.id=$2::uuid AND delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
+        WHERE delivery.tenant_id=$1 AND delivery.notification_outbox_id=outbox.id
           AND outbox.tenant_id=$1 AND outbox.id=$3::uuid AND outbox.status='PROCESSING' AND outbox.locked_by=$4
-          AND delivery.status IN ('PENDING','PROCESSING')
-        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, result.errcode ?? null, error, result.errcode ?? null, result.errmsg ?? error, result.providerMessageId ?? null]));
+         AND delivery.id=ANY($5::uuid[])
+         AND delivery.status IN ('PENDING','PROCESSING')
+        RETURNING outbox.*`, [tenantId, result.deliveryId, outboxId, workerId, deliveryIds, result.errcode ?? null, error, result.errcode ?? null, result.errmsg ?? error, result.providerMessageId ?? null]));
       if (!rows[0]) throw new ConflictException("通知投递不存在、已被其他 worker 处理或状态已变化");
       return this.reconcileOutbox(manager, tenantId, outboxId, workerId);
     });
@@ -185,6 +188,12 @@ export class NotificationService {
         WHERE candidate.tenant_id=$1 AND ((candidate.status='PENDING' AND (candidate.next_retry_at IS NULL OR candidate.next_retry_at<=now()))
           OR (candidate.status='FAILED' AND candidate.next_retry_at IS NOT NULL AND candidate.next_retry_at<=now())
           OR (candidate.status='PROCESSING' AND candidate.locked_at<=now()-($4 * interval '1 second')))
+          AND NOT EXISTS (
+            SELECT 1 FROM notification_delivery_logs historical_delivery
+            WHERE historical_delivery.tenant_id=candidate.tenant_id
+              AND historical_delivery.notification_outbox_id=candidate.id
+              AND historical_delivery.errcode='RECIPIENT_NOT_ALLOWED'
+          )
         ORDER BY candidate.created_at,candidate.id FOR UPDATE SKIP LOCKED LIMIT $3)
       RETURNING outbox.id AS id,outbox.tenant_id AS tenant_id,outbox.notification_rule_id AS notification_rule_id,
         outbox.event_type AS event_type,outbox.channel AS channel,outbox.dedup_key AS dedup_key,outbox.payload AS payload,
@@ -199,38 +208,92 @@ export class NotificationService {
     return rows[0] ?? null;
   }
 
-  private async prepareRecipientDeliveries(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, users: Array<Record<string, unknown>>) {
+  private async resolveBusinessRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, payload: Record<string, unknown>) {
+    if (rule.recipient_rule === FIXED_USERS_RECIPIENT_RULE) {
+      const configured = Array.isArray(rule.config?.recipientUserIds)
+        ? rule.config.recipientUserIds.map((value) => String(value).trim()).filter(Boolean)
+        : [];
+      if (!configured.length) return [];
+      return manager.query(`
+        SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+        FROM users u WHERE u.id=ANY($1::uuid[]) ORDER BY u.id`, [configured]) as Promise<Array<Record<string, unknown>>>;
+    }
+    const equipmentId = this.requiredPayloadText(payload.equipmentId, "equipmentId");
+    return manager.query(`
+      SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+      FROM equipment_responsibles er JOIN users u ON u.id=er.user_id
+      WHERE er.tenant_id=$1 AND er.equipment_id=$2::uuid
+      ORDER BY u.id`, [tenantId, equipmentId]) as Promise<Array<Record<string, unknown>>>;
+  }
+
+  private async resolveTestRecipient(manager: EntityManager) {
+    const rows = (await manager.query(`
+      SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+      FROM users u
+      WHERE u.enabled=true AND (u.wechat_user_id=$1 OR u.display_name=$2)
+      ORDER BY CASE WHEN u.wechat_user_id=$1 THEN 0 ELSE 1 END,u.id LIMIT 1`, [TEST_RECIPIENT_WECHAT_ID, TEST_RECIPIENT_NAME]) ?? []) as Array<Record<string, unknown>>;
+    const recipient = rows[0];
+    if (!recipient || !String(recipient.wechatUserId ?? "").trim()) return null;
+    return recipient;
+  }
+
+  private async prepareRecipientDeliveries(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, users: Array<Record<string, unknown>>, testRecipient: Record<string, unknown> | null) {
     const userIds = users.map((user) => String(user.userId));
     const existing = userIds.length ? await manager.query(`SELECT DISTINCT ON (recipient_user_id) id,recipient_user_id,attempt,status
       FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND recipient_user_id=ANY($3::uuid[])
       ORDER BY recipient_user_id,attempt DESC,id DESC`, [tenantId, outbox.id, userIds]) : [];
     const latest = new Map((existing as Array<Record<string, unknown>>).map((row) => [String(row.recipient_user_id), row]));
-    const result: Array<{ deliveryId: string; userId: string; displayName: string; wechatUserId: string }> = [];
+    const result: Array<{ deliveryId: string; deliveryIds?: string[]; userId: string; displayName: string; wechatUserId: string; resolvedRecipientUserIds?: string[]; testMode?: boolean }> = [];
+    const pendingForTest: Array<{ id: string; userId: string }> = [];
     for (const user of users) {
       const userId = String(user.userId); const previous = latest.get(userId); const wechatUserId = String(user.wechatUserId ?? "").trim();
       if (user.enabled === false) {
-        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId || null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_DISABLED", "该用户当前处于禁用状态");
+        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId || null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_DISABLED", "该用户当前处于禁用状态", null, null, this.testMode());
         continue;
       }
-      if (!wechatUserId) {
-        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_MISSING_WECHAT_ID", "责任人未配置企业微信用户 ID");
+      const actual = this.testMode() ? testRecipient : user;
+      if (!this.testMode() && !wechatUserId) {
+        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_MISSING_WECHAT_ID", "责任人未配置企业微信用户 ID", null, null, false);
         continue;
       }
-      if (previous?.status === "SENT" || previous?.status === "SKIPPED") continue;
+      if (!actual || !String(actual.wechatUserId ?? "").trim()) {
+        if (previous?.status !== "SKIPPED") await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId || null, Number(previous?.attempt ?? 0) + 1, "SKIPPED", "SKIPPED_TEST_RECIPIENT_UNAVAILABLE", "测试接收人崔玮杰未配置启用的企业微信用户 ID", null, null, true);
+        continue;
+      }
+      if (previous?.status === "SENT") continue;
       if (previous?.status === "PENDING" || previous?.status === "PROCESSING") {
-        result.push({ deliveryId: String(previous.id), userId, displayName: String(user.displayName ?? userId), wechatUserId }); continue;
+        pendingForTest.push({ id: String(previous.id), userId }); continue;
       }
-      const row = await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId, Number(previous?.attempt ?? 0) + 1, "PENDING");
-      result.push({ deliveryId: String(row.id), userId, displayName: String(user.displayName ?? userId), wechatUserId });
+      const row = await this.insertRecipientLog(manager, tenantId, outbox, userId, wechatUserId || null, Number(previous?.attempt ?? 0) + 1, "PENDING",
+        this.testMode() && !wechatUserId ? "TEST_MODE_BUSINESS_RECIPIENT_MISSING_WECHAT_ID" : undefined,
+        this.testMode() && !wechatUserId ? "业务接收人未配置企业微信 UserId，TEST MODE 已覆盖为崔玮杰" : undefined,
+        String(actual.userId), String(actual.wechatUserId), this.testMode());
+      pendingForTest.push({ id: String(row.id), userId });
+    }
+    if (this.testMode()) {
+      if (pendingForTest.length) result.push({
+        deliveryId: pendingForTest[0].id,
+        deliveryIds: pendingForTest.map((item) => item.id),
+        userId: String(testRecipient?.userId ?? ""),
+        displayName: String(testRecipient?.displayName ?? TEST_RECIPIENT_NAME),
+        wechatUserId: String(testRecipient?.wechatUserId ?? TEST_RECIPIENT_WECHAT_ID),
+        resolvedRecipientUserIds: pendingForTest.map((item) => item.userId),
+        testMode: true
+      });
+    } else {
+      for (const item of pendingForTest) {
+        const user = users.find((candidate) => String(candidate.userId) === item.userId);
+        if (user) result.push({ deliveryId: item.id, userId: item.userId, displayName: String(user.displayName ?? item.userId), wechatUserId: String(user.wechatUserId ?? "") });
+      }
     }
     return result;
   }
 
-  private async insertRecipientLog(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, userId: string | null, wechatUserId: string | null, attempt: number, status: "PENDING" | "SKIPPED", errcode?: string, errmsg?: string) {
+  private async insertRecipientLog(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, userId: string | null, wechatUserId: string | null, attempt: number, status: "PENDING" | "SKIPPED", errcode?: string, errmsg?: string, actualUserId?: string | null, actualWechatUserId?: string | null, testMode = false) {
     const rows = await manager.query(`INSERT INTO notification_delivery_logs(
-      tenant_id,notification_outbox_id,recipient_user_id,wechat_user_id,attempt,status,errcode,errmsg,error_message,delivered_at)
-      VALUES($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,CASE WHEN $6::varchar='SKIPPED' THEN now() ELSE NULL END) RETURNING *`,
-    [tenantId, outbox.id, userId, wechatUserId, Math.max(attempt, 1), status, errcode ?? null, errmsg ?? null, errmsg ?? null]);
+      tenant_id,notification_outbox_id,recipient_user_id,wechat_user_id,actual_recipient_user_id,actual_wechat_user_id,test_mode,attempt,status,errcode,errmsg,error_message,delivered_at)
+      VALUES($1,$2::uuid,$3::uuid,$4,$5::uuid,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $9::varchar='SKIPPED' THEN now() ELSE NULL END) RETURNING *`,
+    [tenantId, outbox.id, userId, wechatUserId, actualUserId ?? null, actualWechatUserId ?? null, testMode, Math.max(attempt, 1), status, errcode ?? null, errmsg ?? null, errmsg ?? null]);
     return rows[0];
   }
 
@@ -278,6 +341,12 @@ export class NotificationService {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new ConflictException("通知 payload 无效"); return value as Record<string, unknown>;
   }
   private requiredPayloadText(value: unknown, name: string) { const text = String(value ?? "").trim(); if (!text) throw new ConflictException(`通知 payload 缺少 ${name}`); return text; }
+  /** 第一阶段强制保留 TEST MODE；后续正式模式只需切换此安全覆盖层。 */
+  private testMode() { return true; }
+  private deliveryIds(result: NotificationDeliveryResult) {
+    const ids = [result.deliveryId, ...(result.deliveryIds ?? [])].map((id) => String(id).trim()).filter(Boolean);
+    return [...new Set(ids)].slice(0, 500);
+  }
   private renderContent(rule: NotificationRuleRow, payload: Record<string, unknown>) {
     const config = rule.config ?? {};
     if (config.messageType != null && config.messageType !== "text") throw new ConflictException("当前 Dispatcher 只支持文本通知");

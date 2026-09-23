@@ -12,6 +12,41 @@ function dataSource() {
 }
 
 describe("NotificationService", () => {
+  it("keeps TEST MODE forced on during this phase", () => {
+    const { source } = dataSource();
+    const service = new NotificationService(source as never);
+    expect((service as any).testMode()).toBe(true);
+  });
+
+  it("does not make a disabled business user an actual recipient", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "delivery-disabled" }])
+      .mockResolvedValueOnce([{ id: "delivery-enabled" }]);
+    const service = new NotificationService(source as never);
+    const result = await (service as any).prepareRecipientDeliveries(
+      manager, tenantId, { id: outboxId, attempts: 1 },
+      [
+        { userId: "00000000-0000-7000-8000-000000000011", displayName: "禁用用户", wechatUserId: "disabled", enabled: false },
+        { userId: "00000000-0000-7000-8000-000000000012", displayName: "张三", wechatUserId: "zhang", enabled: true }
+      ],
+      { userId: "00000000-0000-7000-8000-000000000014", displayName: "崔玮杰", wechatUserId: "CuiWeiJie", enabled: true }
+    );
+    expect(result[0]).toMatchObject({ userId: "00000000-0000-7000-8000-000000000014", deliveryIds: ["delivery-enabled"], testMode: true });
+    expect(manager.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("SKIPPED_DISABLED"))).toBe(true);
+  });
+
+  it("resolves FIXED_USERS by stable IDs at dispatch time", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", enabled: true, wechatUserId: "zhang" }]);
+    const service = new NotificationService(source as never);
+    await expect((service as any).resolveBusinessRecipients(manager, tenantId, {
+      recipient_rule: "FIXED_USERS",
+      config: { recipientUserIds: ["00000000-0000-7000-8000-000000000011"] }
+    }, {})).resolves.toEqual([expect.objectContaining({ userId: "00000000-0000-7000-8000-000000000011" })]);
+    expect(manager.query.mock.calls[0][1]).toEqual([["00000000-0000-7000-8000-000000000011"]]);
+  });
+
   it("upserts a tenant-scoped rule and uses a stable rule key", async () => {
     const { manager, source } = dataSource();
     manager.query.mockResolvedValue([{ id: ruleId, tenant_id: tenantId, rule_key: "equipment.failure" }]);
@@ -80,6 +115,7 @@ describe("NotificationService", () => {
     expect(String(manager.query.mock.calls[1]?.[0])).toContain("FOR UPDATE SKIP LOCKED");
     expect(String(manager.query.mock.calls[3]?.[0])).toContain("next_retry_at=NULL");
     expect(String(manager.query.mock.calls[4]?.[0])).toContain("SKIPPED");
+    expect(String(manager.query.mock.calls[1]?.[0])).toContain("historical_delivery.errcode='RECIPIENT_NOT_ALLOWED'");
   });
 
   it("resolves enabled equipment responsibles and creates one pending delivery per wechat user", async () => {
@@ -88,16 +124,17 @@ describe("NotificationService", () => {
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: null, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010", divisionName: "事业一部", equipmentCode: "EQ-01", equipmentName: "冲床", oldFaultMinutes: 0, newFaultMinutes: 60, faultReason: "卡料", actorName: "填报人", occurredAt: "2026-09-23T10:00:00+08:00" } }])
       .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: { messageType: "text", template: "{equipmentCode}:{newFaultMinutes}" } }])
       .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "崔玮杰", wechatUserId: "wx-cui" }])
+      .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "崔玮杰", wechatUserId: "wx-cui", enabled: true }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: deliveryId }])
       .mockResolvedValueOnce(undefined);
     const service = new NotificationService(source as never);
     await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([{
       notificationId: outboxId, messageType: "text", content: "EQ-01:60",
-      recipients: [{ deliveryId, userId: "00000000-0000-7000-8000-000000000011", displayName: "崔玮杰", wechatUserId: "wx-cui" }]
+      recipients: [{ deliveryId, deliveryIds: [deliveryId], userId: "00000000-0000-7000-8000-000000000011", displayName: "崔玮杰", wechatUserId: "wx-cui", resolvedRecipientUserIds: ["00000000-0000-7000-8000-000000000011"], testMode: true }]
     }]);
-    expect(String(manager.query.mock.calls[4]?.[0])).toContain("notification_delivery_logs");
-    expect(String(manager.query.mock.calls[6]?.[0])).toContain("notification_rule_id=$3::uuid");
+    expect(String(manager.query.mock.calls[5]?.[0])).toContain("notification_delivery_logs");
+    expect(String(manager.query.mock.calls[7]?.[0])).toContain("notification_rule_id=$3::uuid");
   });
 
   it("skips a missing wechat id without blocking other recipients", async () => {
@@ -106,14 +143,47 @@ describe("NotificationService", () => {
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010" } }])
       .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} }])
       .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "无企微", wechatUserId: null }])
+      .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000012", displayName: "崔玮杰", wechatUserId: "CuiWeiJie", enabled: true }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: deliveryId }])
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined);
     const service = new NotificationService(source as never);
-    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([]);
-    expect(manager.query.mock.calls[5]?.[1]).toContain("SKIPPED_MISSING_WECHAT_ID");
-    expect(String(manager.query.mock.calls[7]?.[0])).toContain("status='SENT'");
+    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([expect.objectContaining({
+      recipients: [expect.objectContaining({ userId: "00000000-0000-7000-8000-000000000012", wechatUserId: "CuiWeiJie", testMode: true })]
+    })]);
+    expect(manager.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("TEST_MODE_BUSINESS_RECIPIENT_MISSING_WECHAT_ID"))).toBe(true);
+  });
+
+  it("collapses multiple business recipients into one Cui WeiJie TEST MODE delivery", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010" } }])
+      .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} }])
+      .mockResolvedValueOnce([
+        { userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", wechatUserId: "zhang", enabled: true },
+        { userId: "00000000-0000-7000-8000-000000000012", displayName: "李四", wechatUserId: "li", enabled: true },
+        { userId: "00000000-0000-7000-8000-000000000013", displayName: "王五", wechatUserId: "wang", enabled: true }
+      ])
+      .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000014", displayName: "崔玮杰", wechatUserId: "CuiWeiJie", enabled: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "delivery-1" }])
+      .mockResolvedValueOnce([{ id: "delivery-2" }])
+      .mockResolvedValueOnce([{ id: "delivery-3" }])
+      .mockResolvedValueOnce(undefined);
+    const service = new NotificationService(source as never);
+    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([expect.objectContaining({
+      recipients: [{
+        deliveryId: "delivery-1",
+        deliveryIds: ["delivery-1", "delivery-2", "delivery-3"],
+        userId: "00000000-0000-7000-8000-000000000014",
+        displayName: "崔玮杰",
+        wechatUserId: "CuiWeiJie",
+        resolvedRecipientUserIds: ["00000000-0000-7000-8000-000000000011", "00000000-0000-7000-8000-000000000012", "00000000-0000-7000-8000-000000000013"],
+        testMode: true
+      }]
+    })]);
+    expect(manager.query.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO notification_delivery_logs"))).toHaveLength(3);
   });
 
   it("keeps an outbox retryable after one recipient fails while another is pending", async () => {

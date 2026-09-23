@@ -6,9 +6,10 @@ import { api } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 
-type Rule = { id: string; name: string; eventType: string; module: string; resource: string; resourceLabel: string; condition: string; recipientLabel: string; channelLabel: string; enabled: boolean; latestSendAt?: string | null; config?: { template?: string }; version: number };
+type Rule = { id: string; name: string; eventType: string; module: string; resource: string; resourceLabel: string; condition: string; recipientRule: string; recipientLabel: string; recipientUserIds?: string[]; channelLabel: string; enabled: boolean; latestSendAt?: string | null; config?: { template?: string; recipientUserIds?: string[] }; version: number };
 type EventDefinition = { eventType: string; label: string; module: string; resource: string; resourceLabel: string; condition: string; channelLabel: string; recipientLabels: Record<string, string>; variables: string[] };
-type Log = { id: string; sendTime: string; ruleName: string; module: string; resource: string; eventType: string; originalRecipient: string; actualRecipient: string; wechatUserId: string; status: string; retryCount: number; providerMessageId?: string | null; failureReason?: string | null; outboxId: string };
+type RecipientUser = { id: string; displayName: string; username: string; enabled: boolean };
+type Log = { id: string; sendTime: string; ruleName: string; module: string; resource: string; eventType: string; recipientRuleLabel: string; resolvedRecipient: string; actualRecipient: string; wechatUserId: string; testMode: boolean; status: string; retryCount: number; providerMessageId?: string | null; failureReason?: string | null; outboxId: string };
 
 const statusLabel: Record<string, string> = { SENT: "已发送", FAILED: "失败", RETRY_PENDING: "待重试", SKIPPED_MISSING_WECHAT_ID: "缺少企业微信 UserId", SKIPPED_DISABLED: "用户已禁用", SKIPPED: "已跳过", PENDING: "待发送", PROCESSING: "处理中" };
 const statusColor: Record<string, string> = { SENT: "success", FAILED: "error", RETRY_PENDING: "warning", SKIPPED_MISSING_WECHAT_ID: "warning", SKIPPED_DISABLED: "default", PENDING: "processing", PROCESSING: "processing" };
@@ -17,6 +18,7 @@ const formatTime = (value?: string | null) => value ? new Date(value).toLocaleSt
 export function NotificationCenterPage() {
   const queryClient = useQueryClient(); const [activeTab, setActiveTab] = useState("rules");
   const events = useQuery({ queryKey: ["notification-events"], queryFn: () => api<EventDefinition[]>("/notifications/events"), staleTime: 300_000 });
+  const recipientUsers = useQuery({ queryKey: ["notification-recipient-users"], queryFn: () => api<RecipientUser[]>("/notifications/recipient-users"), staleTime: 300_000 });
   const [module, setModule] = useState(""); const [resource, setResource] = useState(""); const [status, setStatus] = useState(""); const [eventType, setEventType] = useState("");
   const ruleQuery = `/notifications/rules?${new URLSearchParams(Object.fromEntries(Object.entries({ module, resource, status, eventType }).filter(([, value]) => value))).toString()}`;
   const rules = useQuery({ queryKey: ["notification-rules", module, resource, status, eventType], queryFn: () => api<Rule[]>(ruleQuery) });
@@ -26,11 +28,11 @@ export function NotificationCenterPage() {
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["notification-rules"] }); void queryClient.invalidateQueries({ queryKey: ["notification-logs"] }); };
   const [editor, setEditor] = useState<Rule | null | undefined>(undefined); const [testRule, setTestRule] = useState<Rule>();
   const openEditor = (rule?: Rule) => setEditor(rule ?? null);
-  const saveRule = async (values: { name: string; eventType: string; template?: string }) => {
+  const saveRule = async (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientUserIds?: string[] }) => {
     try {
       const selected = events.data?.find((item) => item.eventType === values.eventType); if (!selected) throw new Error("请选择已注册的通知事件");
-      await api(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, expectedVersion: editor?.version }) });
-      message.success(editor ? "消息规则已保存" : "消息规则已创建"); setEditor(undefined); refresh();
+     await api(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, recipientRule: values.recipientRule, recipientUserIds: values.recipientUserIds, expectedVersion: editor?.version }) });
+     message.success(editor ? "消息规则已保存" : "消息规则已创建"); setEditor(undefined); refresh();
     } catch (error) { message.error((error as Error).message); }
   };
   const toggle = async (rule: Rule) => { try { await api(`/notifications/rules/${rule.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !rule.enabled, expectedVersion: rule.version }) }); message.success(rule.enabled ? "规则已停用" : "规则已启用"); refresh(); } catch (error) { message.error((error as Error).message); } };
@@ -43,7 +45,7 @@ export function NotificationCenterPage() {
   ];
   const logColumns = [
     { title: "发送时间", dataIndex: "sendTime", width: 170, render: formatTime }, { title: "规则", dataIndex: "ruleName", width: 160 }, { title: "模块", dataIndex: "module", width: 90 }, { title: "资源/数据表", dataIndex: "resource", width: 160 }, { title: "事件", dataIndex: "eventType", width: 230 },
-    { title: "原始接收人", dataIndex: "originalRecipient", width: 110 }, { title: "实际接收人", dataIndex: "actualRecipient", width: 150 }, { title: "企业微信 UserId", dataIndex: "wechatUserId", width: 150 }, { title: "状态", dataIndex: "status", width: 150, render: (value: string) => <Tag color={statusColor[value]}>{statusLabel[value] ?? value}</Tag> }, { title: "重试次数", dataIndex: "retryCount", width: 90 }, { title: "Provider 消息 ID", dataIndex: "providerMessageId", width: 160, render: (value: string | null) => value || "—" }, { title: "失败原因", dataIndex: "failureReason", width: 220, render: (value: string | null, row: Log) => value || (row.status === "SKIPPED_MISSING_WECHAT_ID" ? "请先补充企业微信 UserId" : row.status === "SKIPPED_DISABLED" ? "该用户当前处于禁用状态" : "—") },
+    { title: "规则接收方式", dataIndex: "recipientRuleLabel", width: 120 }, { title: "解析出的业务接收人", dataIndex: "resolvedRecipient", width: 170 }, { title: "TEST MODE实际接收人", dataIndex: "actualRecipient", width: 170 }, { title: "实际企业微信 UserId", dataIndex: "wechatUserId", width: 160 }, { title: "测试模式", dataIndex: "testMode", width: 90, render: (value: boolean) => value ? "是" : "否" }, { title: "状态", dataIndex: "status", width: 150, render: (value: string) => <Tag color={statusColor[value]}>{statusLabel[value] ?? value}</Tag> }, { title: "重试次数", dataIndex: "retryCount", width: 90 }, { title: "Provider 消息 ID", dataIndex: "providerMessageId", width: 160, render: (value: string | null) => value || "—" }, { title: "失败原因", dataIndex: "failureReason", width: 220, render: (value: string | null, row: Log) => value || (row.status === "SKIPPED_MISSING_WECHAT_ID" ? "请先补充企业微信 UserId" : row.status === "SKIPPED_DISABLED" ? "该用户当前处于禁用状态" : "—") },
     ...(activeTab === "failures" ? [{ title: "操作", key: "actions", width: 100, render: (_: unknown, row: Log) => ["FAILED", "RETRY_PENDING"].includes(row.status) ? <Button type="link" onClick={() => void retry(row)}>重试</Button> : null }] : [])
   ];
   const eventOptions = (events.data ?? []).map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }));
@@ -57,20 +59,22 @@ export function NotificationCenterPage() {
       {events.data?.length ? <Alert type="info" showIcon message={<span>已注册事件：{events.data.map((item) => `${item.resourceLabel} / ${item.eventType}`).join("、")}</span>} style={{ marginBottom: 16 }} /> : null}
       <KdosDataTable simple resource="notification-rules" rowKey="id" loading={rules.isLoading} dataSource={rules.data ?? []} columns={ruleColumns} scroll={{ x: 1700 }} pagination={{ pageSize: 20 }} />
     </> : <><Space wrap style={{ marginBottom: 16 }}><Select allowClear placeholder="规则" value={logRuleId || undefined} onChange={(value) => setLogRuleId(value ?? "")} options={(rules.data ?? []).map((item) => ({ value: item.id, label: item.name }))} style={{ width: 180 }} /><Select allowClear placeholder="状态" value={logStatus || undefined} onChange={(value) => setLogStatus(value ?? "")} options={Object.entries(statusLabel).map(([value, label]) => ({ value, label }))} style={{ width: 150 }} /><Input allowClear placeholder="资源/数据表" value={logResource} onChange={(event) => setLogResource(event.target.value)} style={{ width: 180 }} /><Input allowClear placeholder="接收人/UserId" value={logRecipient} onChange={(event) => setLogRecipient(event.target.value)} style={{ width: 180 }} /><Input type="date" value={logFrom} onChange={(event) => setLogFrom(event.target.value)} style={{ width: 150 }} /><Input type="date" value={logTo} onChange={(event) => setLogTo(event.target.value)} style={{ width: 150 }} /></Space><KdosDataTable simple resource="notification-delivery-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data ?? []} columns={logColumns} scroll={{ x: 2300 }} pagination={{ pageSize: 20 }} /></>}
-    <RuleModal rule={editor} events={events.data ?? []} onCancel={() => setEditor(undefined)} onSave={saveRule} />
+    <RuleModal rule={editor} events={events.data ?? []} recipientUsers={recipientUsers.data ?? []} onCancel={() => setEditor(undefined)} onSave={saveRule} />
     <TestModal rule={testRule} onCancel={() => setTestRule(undefined)} />
   </div>;
 }
 
-function RuleModal({ rule, events, onCancel, onSave }: { rule: Rule | null | undefined; events: EventDefinition[]; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string }) => Promise<void> }) {
-  const [form] = Form.useForm(); const selectedEventType = Form.useWatch("eventType", form); const selectedEvent = events.find((item) => item.eventType === selectedEventType);
+function RuleModal({ rule, events, recipientUsers, onCancel, onSave }: { rule: Rule | null | undefined; events: EventDefinition[]; recipientUsers: RecipientUser[]; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientUserIds?: string[] }) => Promise<void> }) {
+  const [form] = Form.useForm(); const selectedEventType = Form.useWatch("eventType", form); const selectedRecipientRule = Form.useWatch("recipientRule", form); const selectedEvent = events.find((item) => item.eventType === selectedEventType);
   if (rule === undefined) return null;
   return <Modal title={rule ? "编辑消息规则" : "新增消息规则"} open onCancel={onCancel} onOk={() => void form.validateFields().then(onSave)} okText="保存" width={760} destroyOnHidden>
-    <Form form={form} layout="vertical" initialValues={{ name: rule?.name, eventType: rule?.eventType, template: rule?.config?.template }}>
+    <Form form={form} layout="vertical" initialValues={{ name: rule?.name, eventType: rule?.eventType, recipientRule: rule?.recipientRule ?? "EQUIPMENT_RESPONSIBLE", recipientUserIds: rule?.recipientUserIds ?? rule?.config?.recipientUserIds ?? [], template: rule?.config?.template }}>
       <Form.Item name="name" label="规则名称" rules={[{ required: true, message: "请输入规则名称" }]}><Input /></Form.Item>
       <Form.Item name="eventType" label="实时通知事件" rules={[{ required: true, message: "请选择已注册事件" }]}><Select options={events.map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }))} /></Form.Item>
       <Form.Item label="模块 / 资源"><Input value={selectedEvent ? `${selectedEvent.module} / ${selectedEvent.resourceLabel}` : rule ? `${rule.module} / ${rule.resourceLabel}` : "请选择事件"} disabled /></Form.Item>
-      <Form.Item label="接收人 / 渠道"><Input value="设备责任人 / 企业微信工作通知" disabled /></Form.Item>
+      <Form.Item name="recipientRule" label="接收人规则" rules={[{ required: true, message: "请选择接收人规则" }]}><Select options={[{ value: "EQUIPMENT_RESPONSIBLE", label: "设备责任人" }, { value: "FIXED_USERS", label: "指定人员" }]} /></Form.Item>
+      {selectedRecipientRule === "FIXED_USERS" && <Form.Item name="recipientUserIds" label="指定人员" rules={[{ required: true, type: "array", min: 1, message: "请选择至少一名启用用户" }]}><Select mode="multiple" showSearch optionFilterProp="label" options={recipientUsers.map((user) => ({ value: user.id, label: `${user.displayName}（${user.username}）` }))} placeholder="选择一个或多个启用用户" /></Form.Item>}
+      <Form.Item label="渠道"><Input value="企业微信工作通知" disabled /></Form.Item>
       <Form.Item name="template" label="消息模板" extra="仅允许使用服务端提供的 {{变量名}}，不支持 JavaScript、SQL 或表达式。"><Input.TextArea autoSize={{ minRows: 5, maxRows: 12 }} placeholder="例如：设备 {{equipmentCode}} 故障时长从 {{oldFaultMinutes}} 变为 {{newFaultMinutes}} 分钟" /></Form.Item>
       {selectedEvent && <Typography.Text type="secondary">可用变量：{selectedEvent.variables.map((item) => `{{${item}}}`).join("、")}</Typography.Text>}
     </Form>

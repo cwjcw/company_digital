@@ -476,7 +476,10 @@ export class MasterPlanApplicationService {
     if (resource.code !== "mps-system-settings" || !Object.prototype.hasOwnProperty.call(values, "valueJson")) return;
     if (String(current.setting_key ?? "") !== "shipping_edit_weekday") return;
     try {
-      values.valueJson = normalizeShippingEditWeekday(values.valueJson);
+      // value_json is jsonb.  The business value is a string, so the
+      // parameter must be a JSON string literal ("2,4,5"), not the raw
+      // unquoted text 2,4,5 which PostgreSQL rejects as invalid jsonb.
+      values.valueJson = JSON.stringify(normalizeShippingEditWeekday(values.valueJson));
     } catch {
       throw new BadRequestException("请输入 1~7 的星期数字，多个星期使用英文逗号分隔，例如：2,4,5");
     }

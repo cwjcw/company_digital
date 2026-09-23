@@ -1,5 +1,6 @@
 import { NotificationInfrastructure1722920067000 } from "../../migrations/1722920067000-NotificationInfrastructure";
 import { NotificationRoutingAndRecipientDeliveries1722920068000 } from "../../migrations/1722920068000-NotificationRoutingAndRecipientDeliveries";
+import { NotificationTestModeDelivery1722920070000 } from "../../migrations/1722920070000-NotificationTestModeDelivery";
 
 describe("KDOS notification infrastructure migration", () => {
   it("creates tenant-scoped rules, outbox and delivery log tables", async () => {
@@ -29,5 +30,15 @@ describe("KDOS notification infrastructure migration", () => {
     expect(sql).toContain("EQUIPMENT_RESPONSIBLE");
     expect(sql).toContain("SKIPPED");
     expect(sql).toContain("uq_notification_delivery_recipient_attempt");
+  });
+
+  it("adds separate actual TEST MODE recipient fields without rewriting history", async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    await new NotificationTestModeDelivery1722920070000().up({ query } as never);
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("actual_recipient_user_id");
+    expect(sql).toContain("actual_wechat_user_id");
+    expect(sql).toContain("test_mode boolean NOT NULL DEFAULT false");
+    expect(sql).toContain("idx_notification_delivery_actual_recipient");
   });
 });

@@ -13,6 +13,7 @@ type NotificationRequest = Request & { user: any; requestId: string };
 export class NotificationAdminController {
   constructor(private readonly service: NotificationAdminService) {}
   @Get("events") events(@Req() request: NotificationRequest) { return this.service.availableEvents(this.actor(request)); }
+  @Get("recipient-users") recipientUsers(@Req() request: NotificationRequest) { return this.service.recipientUsers(this.actor(request)); }
   @Get("template-variables") variables(@Query("eventType") eventType: string, @Req() request: NotificationRequest) { return this.service.templateVariables(this.actor(request), eventType); }
   @Get("rules") rules(@Query() query: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.listRules(this.actor(request), query); }
   @Get("rules/:id") rule(@Param("id") id: string, @Req() request: NotificationRequest) { return this.service.detail(this.actor(request), id); }

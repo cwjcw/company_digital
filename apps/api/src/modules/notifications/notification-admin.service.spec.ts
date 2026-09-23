@@ -8,7 +8,7 @@ const ordinaryActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: 
 describe("NotificationAdminService", () => {
   it("only exposes registered events and supports the planning module administrator", () => {
     const service = new NotificationAdminService({} as never, {} as never);
-    expect(service.availableEvents(planningActor)).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "equipment.status.fault_changed", resource: "equipment-status-report", channel: "WECHAT_WORK" })]));
+    expect(service.availableEvents(planningActor)).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "equipment.status.fault_changed", resource: "equipment-status-report", channel: "WECHAT_WORK", condition: "故障时长发生变化且新值大于0时触发", recipientLabels: { EQUIPMENT_RESPONSIBLE: "设备责任人", FIXED_USERS: "指定人员" } })]));
     expect(() => service.availableEvents(ordinaryActor)).toThrow(ForbiddenException);
   });
 
@@ -23,5 +23,33 @@ describe("NotificationAdminService", () => {
 
   it("keeps the test-mode contract visible to callers", () => {
     expect(NOTIFICATION_TEST_MODE_MESSAGE).toBe("当前处于企业微信测试模式，实际企业微信消息仅发送给崔玮杰。");
+  });
+
+  it("validates and stores fixed recipient user IDs without accepting names", () => {
+    const service = new NotificationAdminService({} as never, {} as never);
+    expect((service as any).validRule({
+      name: "指定人员", eventType: "equipment.status.fault_changed", resource: "equipment-status-report",
+      recipientRule: "FIXED_USERS", recipientUserIds: ["00000000-0000-7000-8000-000000000011"]
+    })).toMatchObject({ recipientRule: "FIXED_USERS", config: { recipientUserIds: ["00000000-0000-7000-8000-000000000011"] } });
+    expect(() => (service as any).validRule({
+      name: "指定人员", eventType: "equipment.status.fault_changed", resource: "equipment-status-report",
+      recipientRule: "FIXED_USERS", recipientUserIds: ["张三"]
+    })).toThrow("有效用户 ID");
+  });
+
+  it("saves a fixed-recipient rule with multiple stable user IDs", async () => {
+    const manager = { query: jest.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: "00000000-0000-7000-8000-000000000099", rule_key: "fixed-users", name: "指定人员", event_type: "equipment.status.fault_changed", resource: "equipment-status-report", recipient_rule: "FIXED_USERS", config: { recipientUserIds: ["00000000-0000-7000-8000-000000000011", "00000000-0000-7000-8000-000000000012"] }, enabled: true, version: 1 }])
+      .mockResolvedValueOnce([]) };
+    const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => unknown) => work(manager)) };
+    const service = new NotificationAdminService(dataSource as never, {} as never);
+    const result = await service.create(planningActor, {
+      name: "指定人员", eventType: "equipment.status.fault_changed", resource: "equipment-status-report",
+      recipientRule: "FIXED_USERS",
+      recipientUserIds: ["00000000-0000-7000-8000-000000000011", "00000000-0000-7000-8000-000000000012"]
+    });
+    expect(result).toMatchObject({ recipientRule: "FIXED_USERS", recipientUserIds: ["00000000-0000-7000-8000-000000000011", "00000000-0000-7000-8000-000000000012"] });
+    expect(manager.query.mock.calls[1][1][7]).toBe("FIXED_USERS");
   });
 });

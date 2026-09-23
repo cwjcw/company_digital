@@ -30,8 +30,12 @@ export class NotificationInternalController {
 
   private delivery(body: InternalBody): NotificationDeliveryResult {
     const deliveryId = this.text(body.deliveryId, "deliveryId", 64);
+    const deliveryIds = Array.isArray(body.deliveryIds)
+      ? body.deliveryIds.map((value) => this.text(value, "deliveryId", 64)).slice(0, 500)
+      : undefined;
     return {
       deliveryId,
+      deliveryIds,
       providerMessageId: this.optionalText(body.providerMessageId, 255),
       errcode: this.optionalText(body.errcode, 64),
       errmsg: this.optionalText(body.errmsg, 4000)

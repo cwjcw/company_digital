@@ -34,6 +34,8 @@
 
 ## Files
 
+- 通知 TEST MODE 当前强制开启：API 先解析并记录真实业务接收人，再将实际投递覆盖到启用的崔玮杰/CuiWeiJie；`notification_delivery_logs` 分别记录业务接收人、实际接收人、实际企微 ID 与 `test_mode`。固定人员规则只持久化启用 KDOS 用户的稳定 `users.id`，历史 `RECIPIENT_NOT_ALLOWED` 失败任务不会被新 Dispatcher 重放。
+
 - `ObjectStorage` isolates Planning from storage implementation. Phase one uses `LocalObjectStorage`; keys are generated, path traversal is rejected, and files are written with restricted permissions.
 - Images are MIME allowlisted to JPEG/PNG/WebP, size-limited, decoded through Sharp when compression is needed, and capped at two per item.
 - Static uploads currently inherit application access at the Nginx route; do not store secrets or identity documents there. Signed/private object delivery is phase-two work.

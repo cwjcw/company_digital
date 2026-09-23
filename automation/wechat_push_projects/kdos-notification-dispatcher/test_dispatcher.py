@@ -46,7 +46,7 @@ class DispatcherTest(unittest.TestCase):
             ],
         }
 
-    def test_only_configured_validation_recipient_reaches_wechat(self):
+    def test_actual_test_recipient_reaches_wechat_and_business_recipient_is_not_sent(self):
         calls = []
         pusher = FakePusher()
 
@@ -58,6 +58,33 @@ class DispatcherTest(unittest.TestCase):
         self.assertEqual(result, {"claimed": 1, "sent": 1, "failed": 0, "skipped": 1})
         self.assertEqual(pusher.calls, [("设备故障提醒", "wx-cui")])
         self.assertEqual(calls[-1][0], "/internal/notifications/notification-1/failure")
+        self.assertEqual(calls[-1][1]["errcode"], "RECIPIENT_TARGET_MISMATCH")
+
+    def test_one_actual_test_message_carries_multiple_business_delivery_ids(self):
+        calls = []
+        pusher = FakePusher()
+        notification = {
+            "notificationId": "notification-1",
+            "content": "设备故障提醒",
+            "recipients": [{
+                "deliveryId": "delivery-1",
+                "deliveryIds": ["delivery-1", "delivery-2", "delivery-3"],
+                "userId": "user-cui",
+                "displayName": "崔玮杰",
+                "wechatUserId": "wx-cui",
+                "testMode": True,
+                "resolvedRecipientUserIds": ["zhang", "li", "wang"],
+            }],
+        }
+
+        def http_post(path, body):
+            calls.append((path, body))
+            return {"notifications": [notification]} if path.endswith("/claim") else {}
+
+        result = dispatcher.KdosNotificationDispatcher(self.config(), http_post, pusher).run_once()
+        self.assertEqual(result, {"claimed": 1, "sent": 1, "failed": 0, "skipped": 0})
+        self.assertEqual(len(pusher.calls), 1)
+        self.assertEqual(calls[-1][1]["deliveryIds"], ["delivery-1", "delivery-2", "delivery-3"])
 
     def test_wechat_failure_is_reported_for_retry(self):
         calls = []
