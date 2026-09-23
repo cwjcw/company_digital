@@ -1,5 +1,108 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-NOTIFICATIONS-DISPATCHER-002
+
+任务目标：完成 `notification_outbox` → 通知规则 → 动态责任人 → 内部 Dispatcher API → 主机 Python Dispatcher → 默认 `WeChatPusher` 的安全闭环；验证阶段仅允许崔玮杰，暂不开发通知中心前端。
+
+当前状态：部分完成（2026-09-23）；阶段：规则解析、动态接收人、逐接收人投递状态、内部 API 和主机适配器已完成并已部署；真实崔玮杰单人实发受当前责任人数据阻塞。
+
+最后更新时间：2026-09-23
+
+---
+
+## 当前阶段
+
+当前阶段：Dispatcher 闭环与单人验证门禁
+
+当前子任务：全量测试、迁移前检查、部署后健康检查和崔玮杰单人实发验证。
+
+---
+
+## 已完成
+
+- [x] 完整阅读当前项目 `AGENTS.md`、`ARCHITECTURE.md`、`SECURITY.md`、`docs/integration-guide.md`。
+- [x] 阅读 `equipment`、`contact-sync`、`master-plan-system` 及 `mps_reconciliation_outbox` 迁移和消费者实现。
+- [x] 确认沿用 `apps/api` TypeORM PostgreSQL migration、`DataSource.transaction` 和显式 `tenant_id` 条件；不使用 Redis、RabbitMQ、Kafka。
+- [x] 上一阶段设备状态 faultMinutes 变化已在设备写入、Audit 和 outbox 入队同一事务中完成。
+- [x] 新增 `notification_rules`、`notification_outbox`、`notification_delivery_logs`，全部带 `tenant_id`、RLS policy 和跨租户复合外键约束。
+- [x] 实现规则 upsert、`tenant_id + dedup_key` 幂等入队、`FOR UPDATE SKIP LOCKED` 批量领取、worker 所有权校验、成功/失败状态回写和 `next_retry_at` 重试。
+- [x] 新增通知路由迁移：规则 resource/recipient_rule、逐接收人 delivery 字段、缺失 wechat ID 的 SKIPPED 状态和 KAINAN 正式设备故障规则。
+- [x] `claimForDispatcher` 使用 `FOR UPDATE SKIP LOCKED`，仅返回启用且受支持的设备故障规则；无匹配规则隔离为 `FAILED + next_retry_at=NULL`，不会直接发送。
+- [x] API 内按 `equipment_responsibles → users` 动态解析启用责任人，未配置 `wechat_user_id` 只记录 `SKIPPED_MISSING_WECHAT_ID`，不阻塞其他责任人。
+- [x] 增加逐责任人成功/失败回写、部分成功保持重试、所有可投递项完成后 outbox 标记 SENT。
+- [x] 新增 token + tenant + worker header 保护的内部 Dispatcher API；controller 不访问数据库。
+- [x] 新增 `automation/wechat_push_projects/kdos-notification-dispatcher`，仅调用内部 API 和 `/data/automation/code/work/basci/basic_code` 的默认 `WeChatPusher`；未通过单人门禁不调用企业微信。
+- [x] 更新 `ARCHITECTURE.md`、`SECURITY.md`、`docs/integration-guide.md` 和企业微信推送项目索引。
+- [x] 新增规则路由、缺失接收人、部分失败、内部 guard 和 Python Dispatcher 专项测试。
+
+## 正在进行
+
+- [x] 全量 API 测试、typecheck、lint、build 和 Python Dispatcher 测试。
+- [x] 完成迁移前备份、两份 TypeORM migration、API 重建部署和 health check。
+- [x] 设置运行环境单人门禁 `KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME=崔玮杰`，Dispatcher 空队列轮询返回 `claimed=0,sent=0,failed=0,skipped=0`。
+
+## 待完成
+
+- [ ] 记录真实发送结果；当前 KAINAN 中崔玮杰账号启用且 `wechat_user_id=CuiWeiJie`，但没有任何 `equipment_responsibles` 关系，无法由正式动态责任人规则生成发给他的设备通知。需要先通过设备管理业务流程将崔玮杰合法设置为测试设备责任人，再执行单次实发。
+
+## 修改文件
+
+- `apps/api/src/migrations/1722920067000-NotificationInfrastructure.ts`
+- `apps/api/src/migrations/1722920068000-NotificationRoutingAndRecipientDeliveries.ts`
+- `apps/api/src/modules/notifications/notification.types.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`
+- `apps/api/src/modules/notifications/notification.internal.controller.ts`
+- `apps/api/src/modules/notifications/notification.internal.guard.ts`
+- `apps/api/src/modules/notifications/notifications.module.ts`
+- `apps/api/src/modules/notifications/notification.migration.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.internal.spec.ts`
+- `apps/api/src/app.module.ts`
+- `apps/api/src/modules/equipment/equipment.application.service.ts`
+- `apps/api/src/modules/equipment/equipment.module.ts`
+- `apps/api/src/modules/equipment/equipment-notification.spec.ts`
+- `ARCHITECTURE.md`、`SECURITY.md`、`docs/integration-guide.md`
+- `automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py`
+- `automation/wechat_push_projects/kdos-notification-dispatcher/test_dispatcher.py`
+- `automation/wechat_push_projects/kdos-notification-dispatcher/README.md`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 新增 `NotificationInfrastructure1722920067000`：三张通知表、索引、状态/重试/幂等约束和 RLS。
+- 新增 `NotificationRoutingAndRecipientDeliveries1722920068000`：规则路由字段、KAINAN 设备故障规则、逐责任人 delivery 字段和缺失企微 ID 状态；已于 2026-09-23 执行。
+- 部署前备份：`data/backups/*_20260923_101524.*`；SHA-256 已在升级输出中核验，KAINAN 规则和三张通知表已在线存在。
+
+## 新增或修改测试
+
+- 通知迁移/服务/内部 guard 3 suites / 14 tests；设备故障专项 14 tests；Python Dispatcher 3 tests；待全量回归。
+
+## 已运行测试
+
+- Python Dispatcher 专项：3 tests 通过。
+- API notifications/equipment 专项：3 suites / 14 tests 通过；typecheck 通过。
+- API 全量：63 suites / 499 tests 通过；API lint/typecheck/build 通过；Python Dispatcher：3 tests 通过；migration/deployment/health 通过；真实发送因无崔玮杰设备责任人关系未执行。
+
+## 当前已知问题
+
+- 真实企业微信发送未执行：正式动态责任人查询不到崔玮杰。未直接 SQL 修改业务责任人、未绕过规则发送；恢复条件是通过设备管理页面/API 完成合法责任人配置并提供可验证的测试设备。
+
+## 等待用户确认
+
+- 无。
+
+## 下一步
+
+1. 由业务侧通过设备管理流程为测试设备配置崔玮杰为责任人。
+2. 产生一次真实 `faultMinutes` 增量事件，运行 Dispatcher，仅验证崔玮杰单人发送并核对 outbox/delivery 状态。
+3. 验证完成后更新本节为已完成；在此之前保持单人门禁，不启用其他接收人。
+
+## 恢复执行说明
+
+新的 Codex 会话开始后，先读取本节、项目规范和当前 git 状态，从“下一步”的第一项未完成任务继续；不要重新分析已经完成的设备工作。
+
+---
+
 ## 当前任务：KN-EQUIP-IMPORT-ERROR-001
 
 任务目标：修复设备状态旧模板及其他文件级导入失败只显示瞬时 message 的问题，增加持久错误 Modal；旧模板提供下载最新模板入口，行级预览错误保持原流程。

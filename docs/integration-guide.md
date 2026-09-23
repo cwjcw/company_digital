@@ -85,6 +85,14 @@ Phase-one legacy T+ snapshot route remains `/api/v1/data-operations/tplus/sales-
 
 Connect to Socket.IO namespace `/plans` with the access token and period. Treat events as cache invalidations. Payloads contain IDs/version/change type only; consumers refetch through authorized query routes and process each event idempotently.
 
+## KDOS notifications
+
+Application commands use `NotificationService` to write `notification_outbox` in the same PostgreSQL transaction as the business change when an `EntityManager` is available. Each row is tenant-scoped and idempotent by `tenant_id + dedup_key`; the internal Dispatcher API claims due or stale rows with `FOR UPDATE SKIP LOCKED`, matches an enabled rule, resolves dynamic recipients and creates one delivery attempt per recipient before returning a text message. The outbox transitions `PENDING`/due `FAILED` to `PROCESSING` and then to `SENT` or retryable `FAILED`; delivery logs retain per-recipient `SENT`, `RETRY_PENDING` and `SKIPPED` outcomes.
+
+Equipment status writes emit `equipment.status.fault_changed` only when `faultMinutes` changes and the new value is greater than zero. The equipment row, its audit record and the outbox event share the status-write transaction. The event payload carries equipment/division snapshots, old/new fault minutes, fault reason, actor identity and occurrence time; no recipient or Enterprise WeChat identity is resolved at this boundary.
+
+`POST /api/v1/internal/notifications/claim` and the per-delivery success/failure callbacks are host-only endpoints protected by `KDOS_NOTIFICATION_INTERNAL_TOKEN`, `X-KDOS-Tenant-Id` and `X-KDOS-Worker-Id`; they do not use browser authentication or expose a notification center. The host project `automation/wechat_push_projects/kdos-notification-dispatcher` only calls this API and the default `WeChatPusher` from `/data/automation/code/work/basci/basic_code`; it never connects to PostgreSQL or resolves recipients. Validation sending must set `KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME=崔玮杰` (or the equivalent approved user ID), and no other recipient is sent while that gate is active.
+
 ## Equipment management routes
 
 Equipment management is a native PMC function, not an ERP projection. `GET/POST/PATCH/DELETE /api/v1/equipment/assets` uses resource `equipment-register`; `GET/POST/PATCH/DELETE /api/v1/equipment/status-reports` uses `equipment-status-report`; and `GET /api/v1/equipment/dashboard` uses `equipment-dashboard`. All three apply independent permission-group scopes using the stable `divisionId` department field. Status durations are integer minutes on the wire and render as `X小时X分钟`; status dates must fall between the current Asia/Shanghai date and six days earlier. The target tables are tenant-scoped, optimistic-versioned, audited, and never accept browser-supplied system audit fields.

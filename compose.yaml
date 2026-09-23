@@ -49,6 +49,7 @@ services:
       API_PORT: 15173
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
+      KDOS_NOTIFICATION_INTERNAL_TOKEN: ${KDOS_NOTIFICATION_INTERNAL_TOKEN:?KDOS_NOTIFICATION_INTERNAL_TOKEN is required}
       UPLOAD_DIR: /app/data/uploads
     volumes:
       - ./data/uploads:/app/data/uploads

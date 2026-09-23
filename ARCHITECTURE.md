@@ -65,6 +65,7 @@ T+ / future E10 / WMS / MES
 - `integrations/tplus`: dual-account T+ to Canonical Sales Order adapter.
 - `apps/api/src/modules/planning`: Planning controller, commands, domain, repository, query, import/export/image services and manifest.
 - `apps/api/src/modules/master-plan-system`: metadata-driven主计划查询与命令、受控 Excel 更新和事务型重投影 outbox。业务写入与 `mps_reconciliation_outbox` 同事务提交；消费者独立重试，不把提交后的投影失败伪装成业务写入失败。
+- `apps/api/src/modules/notifications`: KDOS 通知后端基础设施。通知规则、`notification_outbox` 与逐接收人 `notification_delivery_logs` 使用 PostgreSQL 事务、租户 RLS 和幂等 dedup key；Dispatcher 领取前在 API 内完成规则匹配和动态责任人解析，领取使用 `FOR UPDATE SKIP LOCKED`，不包含通知中心前端。
 - `apps/web/src/modules/planning`: metadata-driven grid, monthly/weekly plan, sales summary/details, September on-hand summary dashboard and work-report pages.
 - `apps/api/src/modules/equipment` and `apps/web/src/modules/equipment`: tenant-scoped equipment ledger, many-to-many system-member responsibility, rolling-seven-day status reporting and company cockpit read models. Status pages resolve responsibility live through `equipment_responsibles` by stable equipment ID, so ledger changes appear without copying stale responsibility into status rows; the status-table responsibility field is available but hidden in the default personal view. The controller calls separate application/query services; organization UUIDs are authoritative and workbook names are retained only as snapshots.
 - `apps/api/src/modules/supply-chain` and `apps/web/src/modules/data-center`: the independently governed, read-only `supplier-list` resource. T+ extraction is isolated in `automation/tplus_supplier_import`; its canonical rows enter the tenant-scoped `supply_chain_suppliers` table only through `SupplyChainApplicationService`, with source-account keys, idempotency and audit.
@@ -120,6 +121,8 @@ Excel follows upload → parse → normalize → validate → preview → confir
 T+ source SQL remains isolated in integration adapters; sales-order reads stay in `data-operations/tplus` / `integrations/tplus`, while supplier-master reads stay in `automation/tplus_supplier_import`. Both map external rows to canonical models before invoking application commands. Planning and supply-chain business modules never import a T+ SQL reader.
 
 Monthly rollover runs with a `SYSTEM` actor and calls Planning query/application services. It creates a period and draft idempotently and carries previous outstanding items through normal commands.
+
+KDOS notifications use the same transactional-outbox boundary: an application command may enqueue a tenant-scoped notification through `NotificationService` in its current transaction. The outbox supports `PENDING`, `PROCESSING`, `SENT` and `FAILED`, records `next_retry_at`, and writes recipient-level delivery attempts. The internal Dispatcher API performs rule resolution and equipment-responsible lookup before returning text to the host adapter; the host adapter only calls the default `basic_code` `WeChatPusher`, with an environment-controlled single-recipient validation gate. There is no broker, Redis, RabbitMQ, Kafka or notification-center frontend.
 
 ## Events, workflow and AI
 

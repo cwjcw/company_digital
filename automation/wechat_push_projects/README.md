@@ -13,3 +13,4 @@
 当前任务：
 
 - `equipment-governance-daily`：设备监测、责任人和培训条件的事业部日报。
+- `kdos-notification-dispatcher`：领取 KDOS 通知 outbox，并在单人验证门禁下调用默认企业微信自建应用。

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { DataSource, EntityManager, In } from "typeorm";
 import {
@@ -6,6 +6,7 @@ import {
   EquipmentStatusReport, IdempotencyRecord, OrganizationUnit, User
 } from "../../entities";
 import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentCreateAllowed, equipmentScope, hasEquipmentPermission } from "./equipment.types";
+import { NotificationService } from "../notifications/notification.service";
 
 type AssetInput = {
   divisionId: string;
@@ -30,7 +31,7 @@ type StatusInput = {
 
 @Injectable()
 export class EquipmentApplicationService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly dataSource: DataSource, @Optional() private readonly notifications?: NotificationService) {}
 
   async createAsset(input: AssetInput, actor: EquipmentActor) {
     this.assert(actor, "equipment-register", "create");
@@ -321,7 +322,38 @@ export class EquipmentApplicationService {
     try { report = await manager.save(EquipmentStatusReport, report); }
     catch (error: any) { if (String(error?.code) === "23505") throw new ConflictException("该设备在所选日期已经填报，请编辑已有记录"); throw error; }
     await this.audit(manager, actor, "equipment-status-report", report.id, id ? "equipment.status.updated" : "equipment.status.created", before, this.statusAudit(report));
+    await this.enqueueFaultChangedNotification(manager, actor, asset, report, id ? (before as { faultMinutes?: number } | null)?.faultMinutes ?? 0 : 0);
     return { id: report.id, version: report.version };
+  }
+
+  private async enqueueFaultChangedNotification(
+    manager: EntityManager,
+    actor: EquipmentActor,
+    asset: EquipmentAsset,
+    report: EquipmentStatusReport,
+    oldFaultMinutes: number
+  ) {
+    if (oldFaultMinutes === report.faultMinutes || report.faultMinutes <= 0) return;
+    if (!this.notifications) throw new ConflictException("通知基础设施未配置");
+    await this.notifications.enqueueEvent(actor.tenantId, {
+      eventType: "equipment.status.fault_changed",
+      channel: "WECHAT_WORK",
+      dedupKey: `equipment-status-report:${report.id}:${report.version}:equipment.status.fault_changed`,
+      payload: {
+        equipmentId: asset.id,
+        equipmentCode: asset.equipmentCode,
+        equipmentName: asset.equipmentName,
+        divisionId: asset.divisionOrganizationUnitId,
+        divisionName: asset.divisionNameSnapshot,
+        oldFaultMinutes,
+        newFaultMinutes: report.faultMinutes,
+        faultReason: report.faultReason,
+        actorUserId: actor.userId,
+        actorName: actor.username,
+        occurredAt: new Date().toISOString()
+      },
+      createdBy: actor.userId
+    }, manager);
   }
 
   private assert(actor: EquipmentActor, resource: string, action: string) {

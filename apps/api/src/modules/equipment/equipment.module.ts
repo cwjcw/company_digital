@@ -9,9 +9,10 @@ import { EquipmentImportService } from "./equipment-import.service";
 import { EquipmentQueryService } from "./equipment.query.service";
 import { EquipmentFilterSourceProvider } from "./equipment.filter-sources";
 import { TableFilterModule } from "../../common/filtering/table-filter.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule],
+  imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule, NotificationsModule],
   controllers: [EquipmentController],
   providers: [AuthGuard, EquipmentApplicationService, EquipmentQueryService, EquipmentImportService, EquipmentExportService, EquipmentFilterSourceProvider],
   exports: [EquipmentApplicationService, EquipmentQueryService]

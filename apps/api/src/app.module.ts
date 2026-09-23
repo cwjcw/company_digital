@@ -37,6 +37,7 @@ import { TableFilterModule } from "./common/filtering/table-filter.module";
 import { MasterDataFilterSourceProvider } from "./modules/master-data/master-data.filter-sources";
 import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources";
 import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sources";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sou
     OrderSyncModule,
     SupplyChainModule,
     MasterPlanSystemModule,
+    NotificationsModule,
     TableFilterModule
   ],
   controllers: [
