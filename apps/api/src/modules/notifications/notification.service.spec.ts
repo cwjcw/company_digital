@@ -47,6 +47,30 @@ describe("NotificationService", () => {
     expect(manager.query.mock.calls[0][1]).toEqual([["00000000-0000-7000-8000-000000000011"]]);
   });
 
+  it("resolves mixed organization, role and employee targets dynamically and keeps stable user IDs", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([
+      { id: "org-root", parent_id: null, name: "事业一部", enabled: true },
+      { id: "org-child", parent_id: "org-root", name: "五金车间", enabled: true },
+      { id: "org-other", parent_id: null, name: "事业二部", enabled: true }
+    ]).mockResolvedValueOnce([{ organization_unit_id: "org-root" }]).mockResolvedValueOnce([
+      { userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true },
+      { userId: "user-2", displayName: "李四", wechatUserId: "li", enabled: false }
+    ]);
+    const service = new NotificationService(source as never);
+    const result = await (service as any).resolveConfiguredRecipients(manager, [
+      { type: "ORGANIZATION", organizationUnitId: "org-child", includeDescendants: false },
+      { type: "ROLE", roleId: "role-1" },
+      { type: "USER", userId: "user-1" }
+    ]);
+    expect(result).toEqual([
+      { userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true },
+      { userId: "user-2", displayName: "李四", wechatUserId: "li", enabled: false }
+    ]);
+    expect(String(manager.query.mock.calls[2]?.[0])).toContain("SELECT DISTINCT u.id");
+    expect(String(manager.query.mock.calls[2]?.[0])).toContain("department_paths");
+  });
+
   it("upserts a tenant-scoped rule and uses a stable rule key", async () => {
     const { manager, source } = dataSource();
     manager.query.mockResolvedValue([{ id: ruleId, tenant_id: tenantId, rule_key: "equipment.failure" }]);

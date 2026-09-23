@@ -15,6 +15,11 @@ export type NotificationRuleInput = {
   config?: Record<string, unknown>;
 };
 
+export type NotificationRecipientTarget =
+  | { type: "ORGANIZATION"; organizationUnitId: string; includeDescendants: boolean }
+  | { type: "ROLE"; roleId: string }
+  | { type: "USER"; userId: string };
+
 export type NotificationOutboxInput = {
   ruleId?: string | null;
   eventType: string;

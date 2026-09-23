@@ -1,5 +1,69 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-NOTIFICATION-RECIPIENT-TARGETS-005
+
+任务目标：通知规则接收对象复用现有组织架构、角色、员工授权选择机制，支持多选混合和组织范围动态解析；不保存名称作为业务键。
+
+当前状态：代码、全量质量门禁、API/Web 部署和线上只读核验已完成。
+
+最后更新时间：2026-09-23
+
+### 当前阶段
+
+当前阶段：接收对象模型、动态解析与 UI 实现
+
+当前子任务：完成全量测试、构建、部署和数据库运行链路核验。
+
+### 已完成
+
+- [x] `FIXED_USERS` 兼容保留，但配置统一规范化为 `recipientTargets`。
+- [x] 支持 `ORGANIZATION / ROLE / USER` 三类稳定 ID，可多选、混合选择。
+- [x] 组织对象支持 `includeDescendants=false/true`，即仅当前组织/包含下级组织。
+- [x] 发送时按当前组织、角色成员和员工关系动态解析，最终按 `users.id` 去重；禁用员工仍保留跳过日志，不成为有效投递对象。
+- [x] 消息中心复用现有组织树、角色分组、员工复选选择模式和对应数据源；名称仅展示。
+
+### 正在进行
+
+- [x] 全量 API/Web 测试、lint、typecheck、build。
+- [x] API/Web 部署和健康检查。
+- [x] 检查线上既有 `FIXED_USERS` 配置读取兼容及新规则保存路径。
+
+### 修改文件
+
+- `apps/api/src/modules/notifications/notification.types.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.ts`
+- `apps/api/src/modules/notifications/notification.admin.controller.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.spec.ts`
+- `apps/web/src/modules/notifications/NotificationCenterPage.tsx`
+
+### 数据库 Migration
+
+- 无新增 migration；继续使用 `notification_rules.config` jsonb 保存稳定 ID 配置。
+
+### 新增或修改测试
+
+- 混合组织/角色/员工稳定 ID 校验。
+- 组织范围、角色组织授权和员工去重的动态解析测试。
+- 消息中心组织/角色/员工选择器保持现有专项测试覆盖。
+
+### 已运行测试
+
+- API 全量：64 suites / 520 tests 通过，1 个环境标记测试跳过。
+- Web 全量：24 files / 143 tests 通过；通知 API 专项 21 tests 通过；Dispatcher Python：6 tests 通过。
+- API/Web lint、typecheck、build 通过；Web 仅既有 Fast Refresh 与 bundle 体积 warning。
+- 备份：`data/backups/*_20260923_173410.*`；部署后健康检查通过；无待执行 migration。
+
+### 当前已知问题
+
+- 线上既有规则仍使用兼容格式 `recipientUserIds`，读取和发送兼容；新保存路径写入 `recipientTargets`。
+
+### 下一步
+
+1. 若要立即验证新配置，请在消息中心按组织架构、角色、员工混合选择并保存一条规则。
+2. 触发新设备事件后核对动态解析出的 users.id 去重结果和投递日志。
+
 ## 当前任务：KDOS-DISPATCHER-AND-TABLE-DEFAULTS-004
 
 任务目标：完成 Dispatcher 常驻自动发送、计划运行时间新建默认为 0、事业部周计划生产进度 Excel 数值格式统一、标准表格默认每页 100 条；不扩展通知渠道或业务入口。

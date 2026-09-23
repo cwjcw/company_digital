@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Form, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from "antd";
-import { EditOutlined, ReloadOutlined, SendOutlined } from "@ant-design/icons";
+import { Alert, Avatar, Checkbox, Flex, Input, Form, Button, Modal, Select, Space, Tabs, Tag, Tree, Typography, message } from "antd";
+import { ApartmentOutlined, EditOutlined, ReloadOutlined, SendOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import { api } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 
-type Rule = { id: string; name: string; eventType: string; module: string; resource: string; resourceLabel: string; condition: string; recipientRule: string; recipientLabel: string; recipientUserIds?: string[]; channelLabel: string; enabled: boolean; latestSendAt?: string | null; config?: { template?: string; recipientUserIds?: string[] }; version: number };
+type RecipientTarget = { type: "ORGANIZATION"; organizationUnitId: string; includeDescendants: boolean } | { type: "ROLE"; roleId: string } | { type: "USER"; userId: string };
+type Rule = { id: string; name: string; eventType: string; module: string; resource: string; resourceLabel: string; condition: string; recipientRule: string; recipientLabel: string; recipientTargets?: RecipientTarget[]; recipientUserIds?: string[]; channelLabel: string; enabled: boolean; latestSendAt?: string | null; config?: { template?: string; recipientTargets?: RecipientTarget[]; recipientUserIds?: string[] }; version: number };
 type EventDefinition = { eventType: string; label: string; module: string; resource: string; resourceLabel: string; condition: string; channelLabel: string; recipientLabels: Record<string, string>; variables: string[] };
-type RecipientUser = { id: string; displayName: string; username: string; enabled: boolean };
+type RecipientOptions = { organizations: Array<{ id: string; name: string; parentId?: string | null; pathLabel: string; enabled: boolean }>; roles: Array<{ id: string; name: string; roleGroupId?: string | null; roleGroupName?: string | null }>; users: Array<{ id: string; displayName: string; username: string; employeeNo?: string | null; enabled: boolean }> };
 type Log = { id: string; sendTime: string; ruleName: string; module: string; resource: string; eventType: string; recipientRuleLabel: string; resolvedRecipient: string; actualRecipient: string; wechatUserId: string; testMode: boolean; status: string; retryCount: number; providerMessageId?: string | null; failureReason?: string | null; outboxId: string };
 
 const statusLabel: Record<string, string> = { SENT: "已发送", FAILED: "失败", RETRY_PENDING: "待重试", SKIPPED_MISSING_WECHAT_ID: "缺少企业微信 UserId", SKIPPED_DISABLED: "用户已禁用", SKIPPED: "已跳过", PENDING: "待发送", PROCESSING: "处理中" };
@@ -18,7 +19,7 @@ const formatTime = (value?: string | null) => value ? new Date(value).toLocaleSt
 export function NotificationCenterPage() {
   const queryClient = useQueryClient(); const [activeTab, setActiveTab] = useState("rules");
   const events = useQuery({ queryKey: ["notification-events"], queryFn: () => api<EventDefinition[]>("/notifications/events"), staleTime: 300_000 });
-  const recipientUsers = useQuery({ queryKey: ["notification-recipient-users"], queryFn: () => api<RecipientUser[]>("/notifications/recipient-users"), staleTime: 300_000 });
+  const recipientOptions = useQuery({ queryKey: ["notification-recipient-options"], queryFn: () => api<RecipientOptions>("/notifications/recipient-options"), staleTime: 300_000 });
   const [module, setModule] = useState(""); const [resource, setResource] = useState(""); const [status, setStatus] = useState(""); const [eventType, setEventType] = useState("");
   const ruleQuery = `/notifications/rules?${new URLSearchParams(Object.fromEntries(Object.entries({ module, resource, status, eventType }).filter(([, value]) => value))).toString()}`;
   const rules = useQuery({ queryKey: ["notification-rules", module, resource, status, eventType], queryFn: () => api<Rule[]>(ruleQuery) });
@@ -28,10 +29,10 @@ export function NotificationCenterPage() {
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["notification-rules"] }); void queryClient.invalidateQueries({ queryKey: ["notification-logs"] }); };
   const [editor, setEditor] = useState<Rule | null | undefined>(undefined); const [testRule, setTestRule] = useState<Rule>();
   const openEditor = (rule?: Rule) => setEditor(rule ?? null);
-  const saveRule = async (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientUserIds?: string[] }) => {
+  const saveRule = async (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientTargets?: RecipientTarget[] }) => {
     try {
       const selected = events.data?.find((item) => item.eventType === values.eventType); if (!selected) throw new Error("请选择已注册的通知事件");
-     await api(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, recipientRule: values.recipientRule, recipientUserIds: values.recipientUserIds, expectedVersion: editor?.version }) });
+     await api(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, recipientRule: values.recipientRule, recipientTargets: values.recipientTargets, expectedVersion: editor?.version }) });
      message.success(editor ? "消息规则已保存" : "消息规则已创建"); setEditor(undefined); refresh();
     } catch (error) { message.error((error as Error).message); }
   };
@@ -59,27 +60,55 @@ export function NotificationCenterPage() {
       {events.data?.length ? <Alert type="info" showIcon message={<span>已注册事件：{events.data.map((item) => `${item.resourceLabel} / ${item.eventType}`).join("、")}</span>} style={{ marginBottom: 16 }} /> : null}
       <KdosDataTable simple resource="notification-rules" rowKey="id" loading={rules.isLoading} dataSource={rules.data ?? []} columns={ruleColumns} scroll={{ x: 1700 }} pagination={{ pageSize: 20 }} />
     </> : <><Space wrap style={{ marginBottom: 16 }}><Select allowClear placeholder="规则" value={logRuleId || undefined} onChange={(value) => setLogRuleId(value ?? "")} options={(rules.data ?? []).map((item) => ({ value: item.id, label: item.name }))} style={{ width: 180 }} /><Select allowClear placeholder="状态" value={logStatus || undefined} onChange={(value) => setLogStatus(value ?? "")} options={Object.entries(statusLabel).map(([value, label]) => ({ value, label }))} style={{ width: 150 }} /><Input allowClear placeholder="资源/数据表" value={logResource} onChange={(event) => setLogResource(event.target.value)} style={{ width: 180 }} /><Input allowClear placeholder="接收人/UserId" value={logRecipient} onChange={(event) => setLogRecipient(event.target.value)} style={{ width: 180 }} /><Input type="date" value={logFrom} onChange={(event) => setLogFrom(event.target.value)} style={{ width: 150 }} /><Input type="date" value={logTo} onChange={(event) => setLogTo(event.target.value)} style={{ width: 150 }} /></Space><KdosDataTable simple resource="notification-delivery-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data ?? []} columns={logColumns} scroll={{ x: 2300 }} pagination={{ pageSize: 20 }} /></>}
-    <RuleModal rule={editor} events={events.data ?? []} recipientUsers={recipientUsers.data ?? []} onCancel={() => setEditor(undefined)} onSave={saveRule} />
+    <RuleModal rule={editor} events={events.data ?? []} recipientOptions={recipientOptions.data ?? { organizations: [], roles: [], users: [] }} onCancel={() => setEditor(undefined)} onSave={saveRule} />
     <TestModal rule={testRule} onCancel={() => setTestRule(undefined)} />
   </div>;
 }
 
-function RuleModal({ rule, events, recipientUsers, onCancel, onSave }: { rule: Rule | null | undefined; events: EventDefinition[]; recipientUsers: RecipientUser[]; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientUserIds?: string[] }) => Promise<void> }) {
+function RuleModal({ rule, events, recipientOptions, onCancel, onSave }: { rule: Rule | null | undefined; events: EventDefinition[]; recipientOptions: RecipientOptions; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientTargets?: RecipientTarget[] }) => Promise<void> }) {
   const [form] = Form.useForm(); const selectedEventType = Form.useWatch("eventType", form); const selectedRecipientRule = Form.useWatch("recipientRule", form); const selectedEvent = events.find((item) => item.eventType === selectedEventType);
   if (rule === undefined) return null;
-  return <Modal title={rule ? "编辑消息规则" : "新增消息规则"} open onCancel={onCancel} onOk={() => void form.validateFields().then(onSave)} okText="保存" width={760} destroyOnHidden>
-    <Form form={form} layout="vertical" initialValues={{ name: rule?.name, eventType: rule?.eventType, recipientRule: rule?.recipientRule ?? "EQUIPMENT_RESPONSIBLE", recipientUserIds: rule?.recipientUserIds ?? rule?.config?.recipientUserIds ?? [], template: rule?.config?.template }}>
+  return <Modal title={rule ? "编辑消息规则" : "新增消息规则"} open onCancel={onCancel} onOk={() => void form.validateFields().then(onSave)} okText="保存" width={960} destroyOnHidden>
+    <Form form={form} layout="vertical" initialValues={{ name: rule?.name, eventType: rule?.eventType, recipientRule: rule?.recipientRule ?? "EQUIPMENT_RESPONSIBLE", recipientTargets: rule?.recipientTargets ?? rule?.config?.recipientTargets ?? (rule?.recipientUserIds ?? rule?.config?.recipientUserIds ?? []).map((userId) => ({ type: "USER", userId })), template: rule?.config?.template }}>
       <Form.Item name="name" label="规则名称" rules={[{ required: true, message: "请输入规则名称" }]}><Input /></Form.Item>
       <Form.Item name="eventType" label="实时通知事件" rules={[{ required: true, message: "请选择已注册事件" }]}><Select options={events.map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }))} /></Form.Item>
       <Form.Item label="模块 / 资源"><Input value={selectedEvent ? `${selectedEvent.module} / ${selectedEvent.resourceLabel}` : rule ? `${rule.module} / ${rule.resourceLabel}` : "请选择事件"} disabled /></Form.Item>
-      <Form.Item name="recipientRule" label="接收人规则" rules={[{ required: true, message: "请选择接收人规则" }]}><Select options={[{ value: "EQUIPMENT_RESPONSIBLE", label: "设备责任人" }, { value: "FIXED_USERS", label: "指定人员" }]} /></Form.Item>
-      {selectedRecipientRule === "FIXED_USERS" && <Form.Item name="recipientUserIds" label="指定人员" rules={[{ required: true, type: "array", min: 1, message: "请选择至少一名启用用户" }]}><Select mode="multiple" showSearch optionFilterProp="label" options={recipientUsers.map((user) => ({ value: user.id, label: `${user.displayName}（${user.username}）` }))} placeholder="选择一个或多个启用用户" /></Form.Item>}
+      <Form.Item name="recipientRule" label="接收人规则" rules={[{ required: true, message: "请选择接收人规则" }]}><Select options={[{ value: "EQUIPMENT_RESPONSIBLE", label: "设备责任人" }, { value: "FIXED_USERS", label: "组织架构 / 角色 / 员工" }]} /></Form.Item>
+      {selectedRecipientRule === "FIXED_USERS" && <Form.Item name="recipientTargets" label="接收对象" rules={[{ required: true, type: "array", min: 1, message: "请选择组织架构、角色或员工" }]}><RecipientTargetSelector options={recipientOptions} /></Form.Item>}
       <Form.Item label="渠道"><Input value="企业微信工作通知" disabled /></Form.Item>
       <Form.Item name="template" label="消息模板" extra="仅允许使用服务端提供的 {{变量名}}，不支持 JavaScript、SQL 或表达式。"><Input.TextArea autoSize={{ minRows: 5, maxRows: 12 }} placeholder="例如：设备 {{equipmentCode}} 故障时长从 {{oldFaultMinutes}} 变为 {{newFaultMinutes}} 分钟" /></Form.Item>
       {selectedEvent && <Typography.Text type="secondary">可用变量：{selectedEvent.variables.map((item) => `{{${item}}}`).join("、")}</Typography.Text>}
     </Form>
   </Modal>;
 }
+
+function RecipientTargetSelector({ value = [], onChange, options }: { value?: RecipientTarget[]; onChange?: (value: RecipientTarget[]) => void; options: RecipientOptions }) {
+  const [activeTab, setActiveTab] = useState("organization"); const [search, setSearch] = useState("");
+  const targets = value ?? [];
+  const organizations = options.organizations;
+  const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
+  const roles = options.roles; const users = options.users.filter((user) => user.enabled);
+  const organizationIds = new Set(targets.filter((target): target is Extract<RecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION").map((target) => target.organizationUnitId));
+  const roleIds = new Set(targets.filter((target): target is Extract<RecipientTarget, { type: "ROLE" }> => target.type === "ROLE").map((target) => target.roleId));
+  const userIds = new Set(targets.filter((target): target is Extract<RecipientTarget, { type: "USER" }> => target.type === "USER").map((target) => target.userId));
+  const setTargets = (next: RecipientTarget[]) => onChange?.([...new Map(next.map((target) => [targetKey(target), target])).values()]);
+  const toggle = (target: RecipientTarget, checked: boolean) => setTargets(checked ? [...targets, target] : targets.filter((current) => targetKey(current) !== targetKey(target)));
+  const treeData = (() => { const make = (parentId: string | null): any[] => organizations.filter((unit) => (unit.parentId ?? null) === parentId).map((unit) => ({ key: unit.id, title: unit.name, icon: <ApartmentOutlined />, children: make(unit.id) })); return make(null); })();
+  const selectedOrganizations = targets.filter((target): target is Extract<RecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION");
+  const groupedRoles = [...new Set(roles.map((role) => role.roleGroupId ?? "ungrouped"))].map((groupId) => ({ id: groupId, name: roles.find((role) => (role.roleGroupId ?? "ungrouped") === groupId)?.roleGroupName ?? "未分组", roles: roles.filter((role) => (role.roleGroupId ?? "ungrouped") === groupId) }));
+  const filteredUsers = users.filter((user) => `${user.displayName} ${user.username} ${user.employeeNo ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const selectedLabels = targets.map((target) => target.type === "ORGANIZATION" ? `组织：${organizationMap.get(target.organizationUnitId)?.name ?? target.organizationUnitId}` : target.type === "ROLE" ? `角色：${roles.find((role) => role.id === target.roleId)?.name ?? target.roleId}` : `员工：${users.find((user) => user.id === target.userId)?.displayName ?? target.userId}`);
+  return <div className="notification-recipient-selector">
+    {selectedLabels.length ? <Flex wrap gap={6} style={{ marginBottom: 12 }}>{selectedLabels.map((label, index) => <Tag key={`${label}-${index}`}>{label}</Tag>)}</Flex> : <Typography.Text type="secondary">尚未选择接收对象</Typography.Text>}
+    <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "organization", label: "组织架构", icon: <ApartmentOutlined />, children: <div>
+      <Typography.Text type="secondary">选择组织后可设置“仅当前组织”或“包含下级组织”，保存的只有 organizationUnitId 和范围标记。</Typography.Text>
+      <Tree checkable checkStrictly showIcon blockNode defaultExpandAll treeData={treeData} checkedKeys={[...organizationIds]} onCheck={(keys) => { const checked = new Set((Array.isArray(keys) ? keys : keys.checked).map(String)); const next = targets.filter((target) => target.type !== "ORGANIZATION" || checked.has(target.organizationUnitId)); for (const id of checked) if (!organizationIds.has(id)) next.push({ type: "ORGANIZATION", organizationUnitId: id, includeDescendants: true }); setTargets(next); }} />
+      {selectedOrganizations.map((target) => <Flex key={target.organizationUnitId} justify="space-between" align="center" style={{ marginTop: 6 }}><span>{organizationMap.get(target.organizationUnitId)?.pathLabel ?? organizationMap.get(target.organizationUnitId)?.name}</span><Select value={target.includeDescendants ? "DESCENDANTS" : "SELF"} onChange={(scope) => setTargets(targets.map((current) => current.type === "ORGANIZATION" && current.organizationUnitId === target.organizationUnitId ? { ...current, includeDescendants: scope === "DESCENDANTS" } : current))} options={[{ value: "SELF", label: "仅当前组织" }, { value: "DESCENDANTS", label: "包含下级组织" }]} style={{ width: 150 }} /></Flex>)}
+    </div> }, { key: "role", label: "角色", icon: <TeamOutlined />, children: <div>{groupedRoles.map((group) => <div key={group.id} style={{ marginBottom: 10 }}><Typography.Text strong>{group.name}</Typography.Text>{group.roles.map((role) => <div key={role.id}><Checkbox checked={roleIds.has(role.id)} onChange={(event) => toggle({ type: "ROLE", roleId: role.id }, event.target.checked)}>{role.name}</Checkbox></div>)}</div>)}</div> }, { key: "user", label: "员工", icon: <UserOutlined />, children: <div><Input allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索姓名、账号或工号" style={{ marginBottom: 8 }} />{filteredUsers.map((user) => <div key={user.id}><Checkbox checked={userIds.has(user.id)} onChange={(event) => toggle({ type: "USER", userId: user.id }, event.target.checked)}><Avatar size="small" style={{ marginRight: 6 }}>{user.displayName.slice(0, 1)}</Avatar>{user.displayName}（{user.employeeNo ?? user.username}）</Checkbox></div>)}</div> }]} />
+  </div>;
+}
+
+function targetKey(target: RecipientTarget) { return target.type === "ORGANIZATION" ? `${target.type}:${target.organizationUnitId}:${target.includeDescendants ? "DESCENDANTS" : "SELF"}` : `${target.type}:${target.type === "ROLE" ? target.roleId : target.userId}`; }
 
 function TestModal({ rule, onCancel }: { rule?: Rule; onCancel: () => void }) {
   const [payload, setPayload] = useState(`{\n  "equipmentId": "",\n  "equipmentCode": "",\n  "equipmentName": "",\n  "divisionName": "",\n  "oldFaultMinutes": 0,\n  "newFaultMinutes": 60,\n  "faultReason": "",\n  "actorName": "",\n  "occurredAt": ""\n}`); const [loading, setLoading] = useState(false);

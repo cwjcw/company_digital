@@ -7,7 +7,8 @@ import type {
   NotificationEnqueueResult,
   NotificationEventInput,
   NotificationOutboxInput,
-  NotificationRuleInput
+  NotificationRuleInput,
+  NotificationRecipientTarget
 } from "./notification.types";
 
 const MAX_ERROR_LENGTH = 4000;
@@ -210,13 +211,7 @@ export class NotificationService {
 
   private async resolveBusinessRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, payload: Record<string, unknown>) {
     if (rule.recipient_rule === FIXED_USERS_RECIPIENT_RULE) {
-      const configured = Array.isArray(rule.config?.recipientUserIds)
-        ? rule.config.recipientUserIds.map((value) => String(value).trim()).filter(Boolean)
-        : [];
-      if (!configured.length) return [];
-      return manager.query(`
-        SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
-        FROM users u WHERE u.id=ANY($1::uuid[]) ORDER BY u.id`, [configured]) as Promise<Array<Record<string, unknown>>>;
+      return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config));
     }
     const equipmentId = this.requiredPayloadText(payload.equipmentId, "equipmentId");
     return manager.query(`
@@ -224,6 +219,53 @@ export class NotificationService {
       FROM equipment_responsibles er JOIN users u ON u.id=er.user_id
       WHERE er.tenant_id=$1 AND er.equipment_id=$2::uuid
       ORDER BY u.id`, [tenantId, equipmentId]) as Promise<Array<Record<string, unknown>>>;
+  }
+
+  /**
+   * 按角色授权页的动态语义解析组织、角色和员工：
+   * - 组织按稳定 organizationUnitId 解析当前节点或完整子树；
+   * - 角色包含直接角色成员和角色授权组织范围内的当前成员；
+   * - 最终只返回去重后的 users.id，名称仅作为展示字段。
+   */
+  private async resolveConfiguredRecipients(manager: EntityManager, targets: NotificationRecipientTarget[]) {
+    if (!targets.length) return [];
+    const userIds = targets.filter((target) => target.type === "USER").map((target) => target.userId);
+    const roleIds = targets.filter((target) => target.type === "ROLE").map((target) => target.roleId);
+    const organizationTargets = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION");
+    if (!roleIds.length && !organizationTargets.length) {
+      return manager.query(`SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+        FROM users u WHERE u.id=ANY($1::uuid[]) ORDER BY u.id`, [userIds]) as Promise<Array<Record<string, unknown>>>;
+    }
+    const organizations = await manager.query("SELECT id,parent_id,name,enabled FROM organization_units WHERE enabled=true ORDER BY id") as Array<Record<string, unknown>>;
+    const byId = new Map(organizations.map((unit) => [String(unit.id), unit]));
+    const pathOf = (id: string) => {
+      const path: string[] = []; const seen = new Set<string>(); let current = byId.get(id);
+      while (current && !seen.has(String(current.id))) { seen.add(String(current.id)); path.unshift(String(current.name)); current = current.parent_id ? byId.get(String(current.parent_id)) : undefined; }
+      return path;
+    };
+    const unitPaths = (unitIds: string[], includeDescendants: boolean) => unitIds.flatMap((unitId) => {
+      const selectedPath = pathOf(unitId); if (!selectedPath.length) return [];
+      return organizations.filter((unit) => {
+        const candidatePath = pathOf(String(unit.id));
+        return candidatePath.length === selectedPath.length && candidatePath.every((part, index) => part === selectedPath[index]) || includeDescendants && candidatePath.length > selectedPath.length && selectedPath.every((part, index) => part === candidatePath[index]);
+      }).map((unit) => pathOf(String(unit.id)));
+    });
+    const explicitOrganizationPaths = organizationTargets.flatMap((target) => unitPaths([target.organizationUnitId], target.includeDescendants));
+    const roleOrganizationRows = roleIds.length ? await manager.query("SELECT organization_unit_id FROM role_organization_scopes WHERE role_id=ANY($1::uuid[])", [roleIds]) as Array<{ organization_unit_id: string }> : [];
+    const roleOrganizationPaths = unitPaths(roleOrganizationRows.map((row) => String(row.organization_unit_id)), true);
+    const paths = [...new Map([...explicitOrganizationPaths, ...roleOrganizationPaths].map((path) => [path.join("\u001f"), path])).values()];
+    const params: unknown[] = [userIds, roleIds];
+    const predicates = ["u.id=ANY($1::uuid[])", "EXISTS (SELECT 1 FROM user_roles direct_role WHERE direct_role.user_id=u.id AND direct_role.role_id=ANY($2::uuid[]))"];
+    for (const path of paths) { params.push(JSON.stringify([path])); predicates.push(`u.department_paths @> $${params.length}::jsonb`); }
+    return manager.query(`SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+      FROM users u WHERE (${predicates.join(" OR ")}) ORDER BY u.id`, params) as Promise<Array<Record<string, unknown>>>;
+  }
+
+  private recipientTargets(config: Record<string, unknown> | undefined): NotificationRecipientTarget[] {
+    const configured = config?.recipientTargets;
+    if (Array.isArray(configured)) return configured as NotificationRecipientTarget[];
+    const legacy = config?.recipientUserIds;
+    return Array.isArray(legacy) ? legacy.map((userId) => ({ type: "USER", userId: String(userId) })) : [];
   }
 
   private async resolveTestRecipient(manager: EntityManager) {

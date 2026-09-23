@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import { tableResourceRegistry } from "@kdos/contracts";
 import { NotificationService } from "./notification.service";
+import type { NotificationRecipientTarget } from "./notification.types";
 
 export type NotificationAdminActor = {
   tenantId: string;
@@ -18,7 +19,7 @@ export const NOTIFICATION_TEST_MODE_MESSAGE = "当前处于企业微信测试模
 const CHANNEL = "WECHAT_WORK";
 const RECIPIENT = "EQUIPMENT_RESPONSIBLE";
 const FIXED_RECIPIENT = "FIXED_USERS";
-const RECIPIENT_LABELS = { [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "指定人员" } as const;
+const RECIPIENT_LABELS = { [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
 const EVENT = {
   eventType: "equipment.status.fault_changed",
   label: "设备故障变化",
@@ -58,6 +59,35 @@ export class NotificationAdminService {
       FROM users WHERE enabled=true ORDER BY "displayName",username`);
   }
 
+  /** 复用角色授权的三个稳定对象来源，名称只用于展示，不进入规则配置。 */
+  async recipientOptions(actor: NotificationAdminActor) {
+    this.assertAnyAccess(actor);
+    const [organizations, roles, users] = await Promise.all([
+      this.dataSource.query(`SELECT id,name,parent_id "parentId",level,enabled,sort_order "sortOrder"
+        FROM organization_units WHERE enabled=true ORDER BY level,sort_order,name,id`),
+      this.dataSource.query(`SELECT r.id,r.name,r.role_group_id "roleGroupId",g.name "roleGroupName"
+        FROM roles r LEFT JOIN role_groups g ON g.id=r.role_group_id
+        WHERE r.name <> '系统管理员' AND r.permission_group_resource IS NULL ORDER BY g.name NULLS FIRST,r.name,r.id`),
+      this.dataSource.query(`SELECT u.id,COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.username,u.employee_no "employeeNo",
+        u.department_paths "departmentPaths",COALESCE(jsonb_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL),'[]'::jsonb) "roleIds"
+        FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id
+        WHERE u.enabled=true GROUP BY u.id ORDER BY "displayName",u.username`)
+    ]);
+    const byId = new Map((organizations as Array<Record<string, unknown>>).map((unit) => [String(unit.id), unit]));
+    const pathOf = (id: string) => {
+      const path: string[] = []; const seen = new Set<string>(); let current = byId.get(id);
+      while (current && !seen.has(String(current.id))) { seen.add(String(current.id)); path.unshift(String(current.name)); current = current.parentId ? byId.get(String(current.parentId)) : undefined; }
+      return path;
+    };
+    return {
+      organizations: (organizations as Array<Record<string, unknown>>).map((unit) => {
+        const path = pathOf(String(unit.id)); return { ...unit, path, pathLabel: path.join(" / ") };
+      }),
+      roles,
+      users
+    };
+  }
+
   async listRules(actor: NotificationAdminActor, query: Record<string, unknown> = {}) {
     this.assertAnyAccess(actor);
     const values: unknown[] = [actor.tenantId];
@@ -92,6 +122,7 @@ export class NotificationAdminService {
     const ruleKey = String(body.ruleKey ?? `notification:${input.eventType}:${randomUUID()}`).trim();
     if (!ruleKey || ruleKey.length > 128) throw new BadRequestException("规则编码无效");
     return this.write(actor, async (manager) => {
+      await this.validateRecipientTargets(manager, input.recipientTargets);
       const rows = await manager.query(`INSERT INTO notification_rules(tenant_id,rule_key,name,event_type,channel,module_code,resource,recipient_rule,enabled,config,created_by,updated_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::uuid,$11::uuid) RETURNING *`,
       [actor.tenantId, ruleKey, input.name, input.eventType, CHANNEL, EVENT.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId]);
@@ -107,6 +138,7 @@ export class NotificationAdminService {
       if (body.expectedVersion != null && Number(body.expectedVersion) !== Number(current.version)) throw new ConflictException("规则已被其他用户修改，请刷新后重试");
       const input = this.validRule({ ...current, ...body, resource: body.resource ?? current.resource, eventType: body.eventType ?? current.event_type, name: body.name ?? current.name, enabled: body.enabled ?? current.enabled, recipientRule: body.recipientRule ?? current.recipient_rule, config: body.config ?? current.config, template: body.template ?? current.config?.template });
       this.assertResourceAccess(actor, input.resource);
+      await this.validateRecipientTargets(manager, input.recipientTargets);
       const rows = await manager.query(`UPDATE notification_rules SET name=$3,event_type=$4,module_code=$5,resource=$6,recipient_rule=$7,enabled=$8,config=$9::jsonb,updated_by=$10::uuid,updated_at=now(),version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$11 RETURNING *`,
       [actor.tenantId, id, input.name, input.eventType, EVENT.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId, Number(current.version)]);
@@ -172,15 +204,17 @@ export class NotificationAdminService {
     const recipientRule = String(body.recipientRule ?? body.recipient_rule ?? RECIPIENT).trim();
     if (![RECIPIENT, FIXED_RECIPIENT].includes(recipientRule)) throw new BadRequestException("当前事件不支持该接收人规则");
     const sourceConfig = { ...((body.config as Record<string, unknown> | undefined) ?? {}) };
+    const rawTargets = body.recipientTargets ?? sourceConfig.recipientTargets;
     const rawIds = body.recipientUserIds ?? sourceConfig.recipientUserIds;
     if (recipientRule === FIXED_RECIPIENT) {
-      if (!Array.isArray(rawIds) || !rawIds.length) throw new BadRequestException("请选择至少一名启用用户");
-      const ids = [...new Set(rawIds.map((value) => String(value).trim()))];
-      if (ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) throw new BadRequestException("指定人员必须使用有效用户 ID");
-      sourceConfig.recipientUserIds = ids;
-    } else delete sourceConfig.recipientUserIds;
+      const targets = this.normalizeRecipientTargets(rawTargets, rawIds);
+      if (!targets.length) throw new BadRequestException("请选择组织架构、角色或员工");
+      sourceConfig.recipientTargets = targets;
+      delete sourceConfig.recipientUserIds;
+    } else { delete sourceConfig.recipientUserIds; delete sourceConfig.recipientTargets; }
     const configTemplate = template ? this.normalizeTemplate(template, event.variables) : undefined;
-    return { name, eventType, resource, recipientRule, enabled: body.enabled !== false, config: { messageType: "text", ...sourceConfig, ...(configTemplate ? { template: configTemplate } : {}) } };
+    const recipientTargets = recipientRule === FIXED_RECIPIENT ? this.normalizeRecipientTargets(rawTargets, rawIds) : [];
+    return { name, eventType, resource, recipientRule, enabled: body.enabled !== false, recipientTargets, config: { messageType: "text", ...sourceConfig, ...(recipientRule === FIXED_RECIPIENT ? { recipientTargets } : {}), ...(configTemplate ? { template: configTemplate } : {}) } };
   }
 
   private normalizeTemplate(template: string, variables: readonly string[]) {
@@ -196,10 +230,56 @@ export class NotificationAdminService {
   private assertAnyAccess(actor: NotificationAdminActor) { if (!actor.isSystemAdmin && !actor.moduleAdminCodes.length) throw new ForbiddenException("仅系统管理员或模块管理员可以访问消息中心"); }
   private scopeWhere(actor: NotificationAdminActor, where: string[], values: unknown[], alias: string) { if (!actor.isSystemAdmin) { values.push(actor.moduleAdminCodes); where.push(`${alias}.module_code = ANY($${values.length}::varchar[])`); } }
   private variableLabel(key: string) { return ({ equipmentId: "设备 ID", equipmentCode: "设备编号", equipmentName: "设备名称", divisionId: "事业部 ID", divisionName: "事业部", oldFaultMinutes: "原故障时长", newFaultMinutes: "新故障时长", faultReason: "故障原因", actorUserId: "填报人 ID", actorName: "填报人", occurredAt: "发生时间" } as Record<string, string>)[key] ?? key; }
+  private normalizeRecipientTargets(rawTargets: unknown, legacyUserIds: unknown): NotificationRecipientTarget[] {
+    const uuid = (value: unknown, label: string) => {
+      const id = String(value ?? "").trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new BadRequestException(`${label}必须使用有效 ID`);
+      return id;
+    };
+    if (Array.isArray(rawTargets)) {
+      const targets = rawTargets.map((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BadRequestException("接收对象配置无效");
+        const target = raw as Record<string, unknown>; const type = String(target.type ?? "").toUpperCase();
+        if (type === "ORGANIZATION") return { type, organizationUnitId: uuid(target.organizationUnitId, "组织架构 ID"), includeDescendants: target.includeDescendants === true } as NotificationRecipientTarget;
+        if (type === "ROLE") return { type, roleId: uuid(target.roleId, "角色 ID") } as NotificationRecipientTarget;
+        if (type === "USER") return { type, userId: uuid(target.userId, "员工 ID") } as NotificationRecipientTarget;
+        throw new BadRequestException("接收对象必须来自组织架构、角色或员工");
+      });
+      return [...new Map(targets.map((target) => [this.recipientTargetKey(target), target])).values()];
+    }
+    if (Array.isArray(legacyUserIds)) {
+      return legacyUserIds.map((userId) => {
+        const id = String(userId ?? "").trim();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new BadRequestException("指定人员必须使用有效用户 ID");
+        return { type: "USER", userId: id } as NotificationRecipientTarget;
+      });
+    }
+    return [];
+  }
+
+  private recipientTargetKey(target: NotificationRecipientTarget) {
+    return target.type === "ORGANIZATION" ? `${target.type}:${target.organizationUnitId}:${target.includeDescendants ? "DESCENDANTS" : "SELF"}` : `${target.type}:${target.type === "ROLE" ? target.roleId : target.userId}`;
+  }
+
+  private async validateRecipientTargets(manager: EntityManager, targets: NotificationRecipientTarget[]) {
+    const organizationIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION").map((target) => target.organizationUnitId);
+    const roleIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ROLE" }> => target.type === "ROLE").map((target) => target.roleId);
+    const userIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "USER" }> => target.type === "USER").map((target) => target.userId);
+    const rows = await manager.query(`SELECT 'ORGANIZATION' type,id FROM organization_units WHERE id=ANY($1::uuid[])
+      UNION ALL SELECT 'ROLE' type,id FROM roles WHERE id=ANY($2::uuid[])
+      UNION ALL SELECT 'USER' type,id FROM users WHERE id=ANY($3::uuid[])`, [organizationIds, roleIds, userIds]);
+    const found = new Set((rows as Array<Record<string, unknown>>).map((row) => `${row.type}:${row.id}`));
+    for (const target of targets) {
+      const key = target.type === "ORGANIZATION" ? `ORGANIZATION:${target.organizationUnitId}` : target.type === "ROLE" ? `ROLE:${target.roleId}` : `USER:${target.userId}`;
+      if (!found.has(key)) throw new BadRequestException("接收对象不存在或已被移除，请刷新后重新选择");
+    }
+  }
+
   private ruleView(row: Record<string, unknown>) {
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const config = (row.config as Record<string, unknown> | undefined) ?? {};
-    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: "PMC中心", resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientUserIds: Array.isArray(config.recipientUserIds) ? config.recipientUserIds : [], condition: EVENT.condition, enabled: row.enabled, config: row.config, latestSendAt: row.latest_send_at ?? null, version: row.version };
+    const recipientTargets = Array.isArray(config.recipientTargets) ? config.recipientTargets : Array.isArray(config.recipientUserIds) ? config.recipientUserIds.map((userId) => ({ type: "USER", userId })) : [];
+    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: "PMC中心", resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientTargets, recipientUserIds: recipientTargets.filter((target: any) => target.type === "USER").map((target: any) => target.userId), condition: EVENT.condition, enabled: row.enabled, config: { ...config, recipientTargets }, latestSendAt: row.latest_send_at ?? null, version: row.version };
   }
   private logView(row: Record<string, unknown>) {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
