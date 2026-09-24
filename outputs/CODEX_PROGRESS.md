@@ -1,5 +1,100 @@
 # Codex 工作进度
 
+## 当前任务：KN-MPS-INBOUND-ALLOCATION-VERIFY-001
+
+任务目标：在不修改源码、入库事实或自动同步开关的前提下，核对正式 inbound-allocation 实现，完成执行前只读影响评估与备份，并通过正式手工入口验证 2026A027330 / GFY167SG-1/1 的周计划欠数回写。
+
+当前状态：NO-GO；执行前只读核验完成，正式手工同步未执行。
+
+最后更新时间：2026-09-24
+
+### 当前阶段
+
+当前阶段：认证阻塞后的安全收尾
+
+当前子任务：记录认证阻塞和完整只读结论，不产生生产写入。
+
+### 已完成
+
+- [x] 读取任务说明、项目 AGENTS.md、ARCHITECTURE.md、SECURITY.md、docs/runbook.md 和 docs/integration-guide.md。
+- [x] 确认工作区 clean，当前 HEAD 为 `ba597a3` 的后继。
+- [x] 确认正式手工入口为 `POST /api/v1/master-plan-system/sync/:syncKey`，服务层 `manual()` 对 `enabled=false` 允许 MANUAL 执行。
+- [x] 初步确认 inbound-allocation 使用 `UFTData418971_000003`，按订单号+品号汇总后按交期/交货号/ID 顺序分摊，并写入同步日志。
+- [x] 生产配置确认：`KAINAN/inbound-allocation` 为 `enabled=false`、`status=SUCCESS`、最近成功时间 `2026-09-17 13:53:47.307373+00`；其他主要开关未修改。
+- [x] 目标基线确认：GFY167SG-1/1 入库 `169.0000+31.0000=200.0000`，周计划 `200.0000/0.0000/200.0000`；GFY371SG-1/1 入库 `48.0000`，周计划 `50.0000/0.0000/50.0000`。
+- [x] 全量正式算法只读模拟：1169 条周计划中预计变化 448 条、不变化 721 条；allocated 增加 `47532.0000`、减少 0；pending 增加 0、减少 `47532.0000`；异常 0。426 条变化记录关联 2026-09-17 后入库更新，另 22 条为既有未分摊欠数。
+- [x] 目标包装报工只读确认：GFY167SG-1/1 为 31，GFY371SG-1/1 为 48。
+
+### 正在进行
+
+- [x] 验证生产配置、目标订单基线、全部周计划影响模拟和报工事实。
+- [x] 合法登录尝试返回 `401 密码错误`；正式入口认证阻塞，按规则停止。
+
+### 待完成
+
+- [ ] 生产备份且记录路径、大小、校验信息（未进入生产写入阶段，未执行备份）。
+- [ ] 通过正式认证入口执行一次手工 inbound-allocation（认证阻塞，未执行）。
+- [ ] 执行后验证日志、目标周计划、全量对账、入库和开关状态（未执行）。
+
+### 修改文件
+
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 无。
+
+### 新增或修改测试
+
+- 无；本任务是生产数据同步验证，不修改代码。
+
+### 已运行测试
+
+- 尚未运行代码测试；已完成 Git 预检和正式实现静态核对。
+- 只读生产查询：配置、目标入库/周计划、全量正式算法模拟、异常检查、包装报工，均已完成。
+
+### 当前已知问题
+
+- 正式 API 需要现有合法账号；尚未发现可直接使用且不绕过认证的运维 CLI/service 入口。
+- 工作区与源码未修改；截至当前尚未执行任何生产写入。
+- 认证尝试：使用现有 `.env` 的 `admin` 配置，API 返回 `401 密码错误`；未伪造 JWT、未修改权限、未创建账号。
+
+### 等待用户确认
+
+- 提供一个已有且获授权的系统管理员/主计划同步权限账号后，才可恢复正式入口执行；不得提供或通过聊天传递密码，可在运行环境安全配置后继续。
+
+### 下一步
+
+1. 获取合法认证条件后，重新确认配置和目标基线未漂移。
+2. 按原任务先做备份，再通过 `POST /api/v1/master-plan-system/sync/inbound-allocation` 执行一次。
+3. 执行后完成同步日志、目标订单、全量对账、包装报工和全部开关核验。
+
+### 最终报告
+
+KN-MPS-INBOUND-ALLOCATION-VERIFY-001：NO-GO
+
+开始HEAD=`6444eea`；结束HEAD=`6444eea`；工作区：仅 `outputs/CODEX_PROGRESS.md` 有本任务记录修改，源码未修改。
+
+正式实现确认：入口 `POST /api/v1/master-plan-system/sync/inbound-allocation`；`enabled=false` 时 MANUAL 允许执行；范围为当前 tenant 全部周计划；账套 `UFTData418971_000003`；公式为按 `order_number + item_code` 汇总入库、按交期/交货号/ID FIFO 分摊。
+
+执行前配置：`inbound-allocation=false`，`status=SUCCESS`，`last_success_at=2026-09-17 13:53:47.307373+00`；主要开关为 `erp-orders=true`、`plan-projections=true`、`inbound-allocation=false`、`shipping-to-base=false`、`base-to-weekly=false`、`execution-rollup=true`。
+
+目标执行前：GFY167SG-1/1 入库 `200`（169+31），planned `200`，allocated `0`，pending `200`；GFY371SG-1/1 入库 `48`，planned `50`，allocated `0`，pending `50`。
+
+全量影响模拟：预计变化 `448` 条，不变化 `721` 条；allocated 增加 `47532`、减少 `0`；pending 增加 `0`、减少 `47532`；异常 `0`。前 50 条样本已按正式 SQL 输出，目标记录预计 `0→200`、`200→0`。变化中 426 条关联 9 月 17 日后的入库更新，22 条为此前已存在但未分摊的记录。
+
+备份：未执行；由于认证阻塞未进入生产写入阶段。
+
+手工同步：未执行；未产生本次新的 `mps_sync_logs` 记录。
+
+执行后验证：不适用。报工事实执行前为 GFY167SG-1/1 包装 `31`、GFY371SG-1/1 包装 `48`；本次未写入，未被修改。
+
+源码是否修改：否。Migration：无。最终结论：NO-GO（正式入口认证阻塞）。
+
+---
+
+# Codex 工作进度
+
 ## 当前任务：KDOS-NOTIFICATION-RECIPIENT-TARGETS-005
 
 任务目标：通知规则接收对象复用现有组织架构、角色、员工授权选择机制，支持多选混合和组织范围动态解析；不保存名称作为业务键。
