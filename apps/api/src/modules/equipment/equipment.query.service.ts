@@ -206,9 +206,13 @@ export class EquipmentQueryService {
       params.push(dashboardInput.departmentIds);
       eligibleFilters.push(`asset.usage_department_organization_unit_id=ANY($${params.length}::uuid[])`);
     }
-    const operationsYesterday = this.addDays(this.shanghaiDate(), -1);
-    const operationsStart = this.addDays(operationsYesterday, -6);
-    params.push(operationsStart, operationsYesterday);
+    // The monitoring block is part of the selected dashboard window.  It must
+    // not silently fall back to the server's current "yesterday", otherwise
+    // changing the dashboard date only updates the summary cards while the
+    // monitoring cards and trend remain on today's data.
+    const operationsEnd = dashboardInput.windowEnd;
+    const operationsStart = this.addDays(operationsEnd, -6);
+    params.push(operationsStart, operationsEnd);
     const [operationsStartParam, operationsEndParam] = [params.length - 1, params.length];
     const [payload] = await this.dataSource.query(`
       WITH bounds AS (

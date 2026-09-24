@@ -140,19 +140,19 @@ describe("EquipmentQueryService status responsibility", () => {
     expect(sql).toContain("'utilizationRate',CASE WHEN planned_runtime_minutes>0 THEN round(utilization_runtime_minutes::numeric/planned_runtime_minutes*100,1) ELSE NULL END");
     expect(sql).toContain("round(filled_equipment_count::numeric/expected_equipment_count*100,1)");
     expect(sql).not.toContain("avg(");
-    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-15", "2026-09-21"]);
+    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-03", "2026-09-09"]);
   });
 
-  it("rolls the operations trend window forward with the Shanghai calendar date", async () => {
+  it("anchors the operations trend window to the selected dashboard date", async () => {
     const dataSource = { query: jest.fn().mockResolvedValueOnce([{ payload: { metrics: {} } }]) } as any;
     const service = new EquipmentQueryService(dataSource);
     (service as any).shanghaiDate = () => "2026-09-23";
 
-    await service.dashboard({ periodType: "day", period: "2026-09-22" }, {
+    await service.dashboard({ periodType: "day", period: "2026-09-10" }, {
       tenantId: "KAINAN", userId: null, username: "系统管理员", permissions: ["*"], tableDataScopes: [], requestId: "request-dashboard-rollover"
     });
 
-    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-16", "2026-09-22"]);
+    expect(dataSource.query.mock.calls[0][1].slice(-2)).toEqual(["2026-09-04", "2026-09-10"]);
   });
 });
 

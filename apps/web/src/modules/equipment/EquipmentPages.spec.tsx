@@ -238,14 +238,14 @@ describe("EquipmentDashboardPage date filters", () => {
   it("renders total and per-division ECharts dual-line trends with one shared axis", async () => {
     const view = renderDashboard();
     expect(await screen.findByText("设备运行与填报监控")).toBeInTheDocument();
-    expect(await screen.findByText("昨日填报率")).toBeInTheDocument();
+    expect(await screen.findByText("9月21日填报率")).toBeInTheDocument();
     expect(screen.getAllByText("80.0%").length).toBeGreaterThan(0);
-    expect(screen.getByText("昨日稼动率")).toBeInTheDocument();
+    expect(screen.getByText("9月21日稼动率")).toBeInTheDocument();
     expect(screen.getByText("实际 23小时0分钟 / 计划 18小时0分钟")).toBeInTheDocument();
-    expect(screen.getByText("昨日事业部填报与稼动情况")).toBeInTheDocument();
-    expect(screen.getByText("昨日部门填报与稼动情况")).toBeInTheDocument();
-    const divisionMonitoringTable = screen.getByText("昨日事业部填报与稼动情况").closest(".ant-card") as HTMLElement;
-    const departmentMonitoringTable = screen.getByText("昨日部门填报与稼动情况").closest(".ant-card") as HTMLElement;
+    expect(screen.getByText("9月21日事业部填报与稼动情况")).toBeInTheDocument();
+    expect(screen.getByText("9月21日部门填报与稼动情况")).toBeInTheDocument();
+    const divisionMonitoringTable = screen.getByText("9月21日事业部填报与稼动情况").closest(".ant-card") as HTMLElement;
+    const departmentMonitoringTable = screen.getByText("9月21日部门填报与稼动情况").closest(".ant-card") as HTMLElement;
     expect(within(divisionMonitoringTable).queryAllByText("使用部门/车间")).toHaveLength(0);
     expect(within(departmentMonitoringTable).queryAllByText("使用部门/车间").length).toBeGreaterThan(0);
     expect(screen.getAllByText("所属事业部").length).toBeGreaterThan(0);
@@ -257,8 +257,8 @@ describe("EquipmentDashboardPage date filters", () => {
     expect(screen.getByText("87.5%")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.queryByText("层级")).not.toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "最近7天总体填报率与稼动率趋势" })).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: /最近7天填报率与稼动率趋势/ })).toHaveLength(2);
+    expect(screen.getByRole("img", { name: "最近7天（截至9月21日）总体填报率与稼动率趋势" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: /最近7天（截至9月21日）填报率与稼动率趋势/ })).toHaveLength(2);
     expect(view.container.querySelectorAll("[data-kdos-chart='true']")).toHaveLength(3);
     const options = chartProps.slice(-3).map((props) => props.option);
     expect(options).toHaveLength(3);

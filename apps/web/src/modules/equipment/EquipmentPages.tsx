@@ -473,7 +473,7 @@ function commonTrendAxisMax(trend: MonitoringTrend | undefined) {
 
 function trendLatestSummary(points: MonitoringMetric[]) {
   const latest = points.at(-1);
-  return latest ? `昨日填报率 ${formatChartPercent(latest.reportingRate)} · 昨日稼动率 ${formatChartPercent(latest.utilizationRate)}` : "暂无昨日数据";
+  return latest ? `${formatChartDate(latest.date)}填报率 ${formatChartPercent(latest.reportingRate)} · ${formatChartDate(latest.date)}稼动率 ${formatChartPercent(latest.utilizationRate)}` : "暂无统计数据";
 }
 
 function EquipmentTrendChart({ points, yAxisMax, compact, ariaLabel }: { points: MonitoringMetric[]; yAxisMax: number; compact?: boolean; ariaLabel: string }) {
@@ -551,6 +551,9 @@ export function EquipmentDashboardPage() {
   const monitoring = data?.operationsMonitoring;
   const yesterdayMonitoring = monitoring?.yesterday;
   const trend = monitoring?.sevenDayTrend;
+  const monitoringDate = yesterdayMonitoring?.date ?? data?.windowEnd;
+  const monitoringDateLabel = monitoringDate ? formatChartDate(monitoringDate) : "统计日";
+  const monitoringTrendLabel = monitoringDate ? `最近7天（截至${monitoringDateLabel}）` : "最近7天";
   const trendAxisMax = commonTrendAxisMax(trend);
   const firstBatchMonitoring = Number(metrics.firstBatchMonitoringEquipment ?? 0);
   const divisionOptions = (data?.filters.divisions ?? []).map((item) => ({ value: item.id, label: item.name }));
@@ -580,30 +583,30 @@ export function EquipmentDashboardPage() {
       </Space>
     </Flex>
     <Card className="equipment-monitoring-card" loading={dashboard.isLoading} title="设备运行与填报监控"
-      extra={<Typography.Text type="secondary">昨日概览 · 最近7天趋势</Typography.Text>}>
+      extra={<Typography.Text type="secondary">{monitoringDateLabel}概览 · {monitoringTrendLabel}趋势</Typography.Text>}>
       <div className="equipment-monitoring-summary">
         <Card className="equipment-monitoring-kpi equipment-monitoring-kpi-reporting">
-          <Statistic title="昨日填报率" value={reportingRateText(yesterdayMonitoring?.reportingRate)} />
+          <Statistic title={`${monitoringDateLabel}填报率`} value={reportingRateText(yesterdayMonitoring?.reportingRate)} />
           <Typography.Text type="secondary">{yesterdayMonitoring ? `${yesterdayMonitoring.filledEquipmentCount} / ${yesterdayMonitoring.expectedEquipmentCount} 台` : "—"}</Typography.Text>
           <Typography.Text type="secondary">未填报 {yesterdayMonitoring?.unfilledEquipmentCount ?? "—"} 台</Typography.Text>
         </Card>
         <Card className="equipment-monitoring-kpi equipment-monitoring-kpi-utilization">
-          <Statistic title="昨日稼动率" value={utilizationText(yesterdayMonitoring?.utilizationRate)} />
+          <Statistic title={`${monitoringDateLabel}稼动率`} value={utilizationText(yesterdayMonitoring?.utilizationRate)} />
           <Typography.Text type="secondary">实际 {yesterdayMonitoring ? durationText(yesterdayMonitoring.runtimeMinutes) : "—"} / 计划 {yesterdayMonitoring ? durationText(yesterdayMonitoring.plannedRuntimeMinutes) : "—"}</Typography.Text>
           <Typography.Text type="secondary">统计日期：{formatChartDate(yesterdayMonitoring?.date)}</Typography.Text>
         </Card>
       </div>
-      <Card className="equipment-monitoring-inner-card" title="最近7天总体填报率与稼动率趋势">
+      <Card className="equipment-monitoring-inner-card" title={`${monitoringTrendLabel}总体填报率与稼动率趋势`}>
         <Card className="equipment-trend-total-card" title="集团总览" extra={<Typography.Text type="secondary">{trendLatestSummary(trend?.total ?? [])}</Typography.Text>}>
-          <EquipmentTrendChart points={trend?.total ?? []} yAxisMax={trendAxisMax} ariaLabel="最近7天总体填报率与稼动率趋势" />
+          <EquipmentTrendChart points={trend?.total ?? []} yAxisMax={trendAxisMax} ariaLabel={`${monitoringTrendLabel}总体填报率与稼动率趋势`} />
         </Card>
         <div className="equipment-trend-division-grid">
           {(trend?.divisions ?? []).map((division) => <Card key={division.divisionId} className="equipment-trend-division-card" title={dashboardDivisionName(division.divisionName)} extra={<Typography.Text type="secondary">{trendLatestSummary(division.rows)}</Typography.Text>}>
-            <EquipmentTrendChart compact points={division.rows} yAxisMax={trendAxisMax} ariaLabel={`${dashboardDivisionName(division.divisionName)}最近7天填报率与稼动率趋势`} />
+            <EquipmentTrendChart compact points={division.rows} yAxisMax={trendAxisMax} ariaLabel={`${dashboardDivisionName(division.divisionName)}${monitoringTrendLabel}填报率与稼动率趋势`} />
           </Card>)}
         </div>
       </Card>
-      <Card className="equipment-monitoring-inner-card" title="昨日事业部填报与稼动情况">
+      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}事业部填报与稼动情况`}>
         <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey="divisionId" dataSource={monitoring?.yesterdayDivisionRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 110, render: dashboardDivisionName },
@@ -614,7 +617,7 @@ export function EquipmentDashboardPage() {
             { title: "稼动率", dataIndex: "utilizationRate", width: 100, align: "center", render: utilizationText }
           ]} />
       </Card>
-      <Card className="equipment-monitoring-inner-card" title="昨日部门填报与稼动情况">
+      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}部门填报与稼动情况`}>
         <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey={(row) => `${row.divisionId}-${row.departmentId ?? row.department}`} dataSource={monitoring?.yesterdayDepartmentRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 105, render: dashboardDivisionName },
