@@ -5,6 +5,7 @@ import {
 import { App as AntApp, Button, Space, Tag, Typography } from "antd";
 import { useState } from "react";
 import { api } from "../../api";
+import { BuildVersionLabel } from "../../shared/BuildVersion";
 
 const { Text, Title } = Typography;
 
@@ -185,7 +186,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
         })}
         {!ordering && <div className="portal-module-placeholder" aria-label="预留模块位置"><span>+</span><strong>更多业务模块</strong><small>为后续扩展预留</small></div>}
       </section>
-      <footer className="portal-footer"><span>KN · Digital Operating System</span><span>模块中心 V1.0</span></footer>
+      <footer className="portal-footer"><span>KN · Digital Operating System</span><span>模块中心 V1.0</span><BuildVersionLabel /></footer>
     </main>
   </div>;
 }

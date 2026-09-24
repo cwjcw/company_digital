@@ -259,6 +259,7 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .login-card h2 { display: none; }
 .login-title { font-size: 28px; font-weight: 700; margin: 0 0 6px; color: #173d49; }
 .login-card form { margin-top: 28px; }
+.login-build-version { display: block; margin-top: 8px; color: #8fa4aa; font-size: 11px; text-align: center; }
 .ant-table-wrapper { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 14px rgba(18,55,69,.06); }
 
 .kn-brand { display: inline-flex; align-items: center; gap: 11px; min-width: 0; }

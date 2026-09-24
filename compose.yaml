@@ -40,6 +40,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        KDOS_BUILD_SHA: ${KDOS_BUILD_SHA:-unknown}
     restart: unless-stopped
     env_file:
       - .env
@@ -75,6 +77,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        KDOS_BUILD_SHA: ${KDOS_BUILD_SHA:-unknown}
     restart: unless-stopped
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-15172}:80"

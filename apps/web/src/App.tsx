@@ -33,6 +33,7 @@ import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
 import { KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
+import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
@@ -95,6 +96,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <Button type="link" block onClick={() => setForgotOpen(true)}>忘记密码</Button>
       </Form>
       <ForgotPasswordModal open={forgotOpen} onClose={() => setForgotOpen(false)} />
+      <BuildVersionLabel className="login-build-version" />
     </Card>
   </div>;
 }

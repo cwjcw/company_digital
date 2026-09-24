@@ -41,6 +41,19 @@ curl -fsS http://127.0.0.1:15172/api/v1/health
 
 除非用户明确要求暂不部署，否则完成改动后默认直接上线。若企业微信、ERP、凭据、网络或权限等外部条件阻止完整上线，必须保留已完成部分的准确状态，并明确报告阻塞项、影响范围和恢复条件。
 
+### Web/API standard deployment
+
+Git 更新不等于运行容器更新（`git pull` != deployment）。提交并确认除 `outputs/**` 外工作区无修改后，使用统一入口构建、更新和核对镜像内嵌的 Git SHA：
+
+```bash
+./scripts/deploy.sh web    # 仅构建和更新 Web
+./scripts/deploy.sh api    # 仅构建和更新 API，不重建 PostgreSQL
+./scripts/deploy.sh all    # 先更新 API，再更新 Web
+./scripts/deploy.sh check  # 只读核对 Repository HEAD、Web SHA、API SHA
+```
+
+部署脚本在 Docker build 时注入当前完整 Git SHA，禁止容器运行时读取 `.git`。`all` 成功的判据是 Repository HEAD、`/build-info.json` 的 Web SHA 与 `/api/v1/health` 的 API SHA 完全一致；任一版本不可读取或不一致时返回非零。页面登录卡片和 Portal 页脚显示短 SHA，完整 SHA 可通过元素 title 查看。
+
 ERP订单 staging 同步由三个 user systemd timer 每30分钟独立运行。检查 `systemctl --user list-timers 'kdos-erp-order-sync@*'`、`loginctl show-user "$USER" -p Linger` 和对应 journal；日常运行不生成 CSV/JSON，人工验收时才使用 `sync.py run --source <key> --save-report`。投影消费者默认禁用，只有正式业务表字段映射、旧关系迁移和幂等验证通过后才可启用。
 
 N8N 每日 SSH 同步科加智能订单统一调用 `data-operations/order-sync/sync-kejia-orders.sh`。该入口固定使用科加账套、复用 2026-01-01 初始化/增量游标和只读 SQL 守卫，并在采集成功后排空销售订单正式投影；不得在 N8N Command 中展开数据库密码、API Key 或 SQL。

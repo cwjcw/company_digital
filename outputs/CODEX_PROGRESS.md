@@ -1,18 +1,218 @@
 # Codex 工作进度
 
-## 当前任务：KN-MPS-INBOUND-ALLOCATION-VERIFY-001
+## 当前任务：KDOS-DEPLOY-VERSION-GUARD-001
 
-任务目标：在不修改源码、入库事实或自动同步开关的前提下，核对正式 inbound-allocation 实现，完成执行前只读影响评估与备份，并通过正式手工入口验证 2026A027330 / GFY167SG-1/1 的周计划欠数回写。
+任务目标：让 Web/API 在构建时内嵌完整与短 Git SHA，Web 页面和机器可读端点可查看版本，并用统一部署脚本保证 Repository HEAD、Web SHA、API SHA 一致。
 
-当前状态：NO-GO；执行前只读核验完成，正式手工同步未执行。
+当前状态：待部署；代码、文档、专项/全量测试和生产构建完成，提交前审查通过。
 
 最后更新时间：2026-09-24
 
 ### 当前阶段
 
-当前阶段：认证阻塞后的安全收尾
+当前阶段：全量验证、提交与生产部署
 
-当前子任务：记录认证阻塞和完整只读结论，不产生生产写入。
+当前子任务：提交代码，记录生产基线并备份，再使用新脚本部署。
+
+### 已完成
+
+- [x] 预检 HEAD=`ce1ed0adca0593c69ccd0263ccb12c8e399c205f`；三个历史基线均为祖先；工作区仅已有 `outputs/CODEX_PROGRESS.md` 记录修改。
+- [x] 确认 API health 路径为 `/api/v1/health`，当前返回 `status` 与 `timestamp`。
+- [x] 确认 Web 使用 Vite 构建，已有时间戳 `buildId`、`version.json` 与前台自动刷新机制。
+- [x] 确认 API/Web Docker build context 均为项目根目录，当前镜像未内嵌 Git SHA。
+- [x] 确认现有部署公共入口为 `scripts/deploy-common.sh`，尚无 Web/API SHA 一致性检查脚本。
+- [x] API health 保留 `status`、`timestamp` 并增加 `{ version: { commit, shortCommit } }`，无合法构建变量时安全回退 `unknown`。
+- [x] Web 构建复用既有 `version.json/buildId`，增加内嵌 SHA、`/build-info.json`、登录卡片及 Portal 页脚短 SHA 展示。
+- [x] API/Web Dockerfile 与 Compose 支持 `KDOS_BUILD_SHA` build arg，不复制 `.git`，不在运行时调用 git。
+- [x] 新增 `scripts/deploy.sh`，支持 `web/api/all/check`、服务健康等待、三方版本比较和源码/配置脏工作区阻断。
+- [x] 更新 `docs/runbook.md`，明确标准部署入口及“Git 更新 != 运行容器更新”。
+
+### 正在进行
+
+- [ ] 最终 diff 审查、提交、备份和生产部署。
+
+### 待完成
+
+- [x] 增加 API/Web 测试并运行专项测试、typecheck、shell syntax 与脏工作区负向检查。
+- [x] 运行 lint、全量 test 和 build。
+- [ ] 更新 runbook，提交代码，记录 PostgreSQL 容器 ID并备份。
+- [ ] 使用新脚本执行 `deploy all`，验证三方 SHA 一致、容器健康、PostgreSQL 未重建、Dispatcher 仍 active。
+
+### 修改文件
+
+- `apps/api/Dockerfile`
+- `apps/api/src/build-version.ts`
+- `apps/api/src/build-version.spec.ts`
+- `apps/api/src/controllers.ts`
+- `apps/api/src/system.e2e.spec.ts`
+- `apps/web/Dockerfile`
+- `apps/web/nginx.conf`
+- `apps/web/src/App.tsx`
+- `apps/web/src/main.tsx`
+- `apps/web/src/modules/portal/ModulePortal.tsx`
+- `apps/web/src/shared/BuildVersion.tsx`
+- `apps/web/src/shared/BuildVersion.spec.tsx`
+- `apps/web/src/shared/build-version.ts`
+- `apps/web/src/styles.css`
+- `apps/web/vite.config.ts`
+- `compose.yaml`
+- `docs/runbook.md`
+- `scripts/deploy.sh`
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 无。
+
+### 新增或修改测试
+
+- API build version 规范化和 `unknown` 回退单元测试。
+- API health 有 SHA/无 SHA 集成测试。
+- Web build version helper、短 SHA/title 展示和 `unknown` 回退组件测试。
+
+### 已运行测试
+
+- `bash -n scripts/deploy.sh`：通过；当前源码未提交时 `./scripts/deploy.sh check` 被脏工作区保护正确拒绝并返回非 0。
+- shellcheck：环境未安装，未执行。
+- API 定向测试：2 suites / 7 tests 通过。
+- Web 新增版本测试：3 tests 通过（所在 Web 测试运行中也已通过）。
+- API typecheck：通过。
+- Web typecheck：通过。
+- API lint：通过，0 error / 0 warning。
+- Web lint：通过，0 error；仅保留 `ModulePortal.tsx` 的 1 条既有 Fast Refresh warning，本任务新增 warning 已清零。
+- API 全量测试：65 suites / 526 tests 通过，1 项既有测试 skip。
+- Web 全量测试：25 files / 146 tests 通过。
+- Monorepo `pnpm build`：15 个 workspace 项目构建通过；Web 仅有既有大 chunk 提示。
+- Web 注入构建检查：以合法完整 SHA 构建后，`dist/build-info.json` 的 `commit` 和 `shortCommit` 均符合预期。
+- Compose 配置解析和 `git diff --check`：通过。
+
+### 当前已知问题
+
+- 现有线上 Web/API 镜像未嵌入 Git SHA，当前只能以新机制部署后建立可信一致性基线。
+
+### 等待用户确认
+
+- 无。
+
+### 下一步
+
+1. 提交并确认工作区 clean。
+2. 记录 PostgreSQL 容器 ID并执行升级备份。
+3. 用新脚本 `deploy all` 正式部署并验收。
+
+---
+
+## 当前任务：KDOS-DISPATCHER-SERVICE-VERIFY-001
+
+任务目标：核查通知 Dispatcher 的常驻启动机制，确认单实例、开机自启、异常自动恢复和日志可查；完成 inbound-allocation PASS 收口，不修改通知业务逻辑或数据库业务数据。
+
+当前状态：PASS；现有 user-systemd 正式服务已完成单实例、开机自启、自动恢复和日志核验。
+
+最后更新时间：2026-09-24
+
+### 当前阶段
+
+当前阶段：正式服务只读核查与受控恢复验收
+
+当前子任务：完成最终报告并保留服务运行。
+
+### 已完成
+
+- [x] HEAD=`ce1ed0adca0593c69ccd0263ccb12c8e399c205f`；三个必要历史基线均为祖先；工作区仅有允许识别的 `outputs/CODEX_PROGRESS.md` 修改。
+- [x] inbound-allocation 只读收口：`enabled=true`、`interval_minutes=30`；03:00 `SCHEDULED SUCCESS` 448 条，03:30 `SCHEDULED SUCCESS` 0 条。
+- [x] inbound-allocation 全量对账：1169 条周计划，`mismatch_count=0`、`current_data_anomaly_count=0`、`allocated_difference_total=0`、`pending_difference_total=0`。
+- [x] 重点订单：2026A027330 / GFY167SG-1/1 为 planned=200、inbound=200、allocated=200、pending=0；GFY371SG-1/1 为 planned=50、inbound=48、allocated=48、pending=2。
+- [x] Dispatcher 当前唯一 PID=2071，PPID=1792，运行用户 Jerry；进程 cgroup 明确属于 user-systemd 的 `kdos-notification-dispatcher.service`。
+- [x] user-systemd unit 已启用且 active；`Restart=always`、`RestartSec=5s`；EnvironmentFile 仅记录为项目 `.env` 路径，未输出内容。
+- [x] 最近 journald 持续 `claimed=0,sent=0,failed=0,skipped=0`，精确错误扫描未发现 401/403、traceback 或异常。
+- [x] 受控 TERM 验证：旧 PID 2071 优雅退出，5 秒后自动恢复为 PID 160248；恢复期间无第二实例，`NRestarts=1`。
+- [x] `Linger=yes`、`systemctl --user is-enabled=enabled`、`is-active=active`；user-systemd unit 语法校验通过。
+- [x] `/data/automation/code/work/basci/basic_code/.env` 权限收紧为 600；未读取、输出或修改凭据内容。
+
+### 正在进行
+
+- [x] 受控 TERM 后确认 PID 变化、服务自动恢复 active 且仍只有一个 Dispatcher。
+
+### 待完成
+
+- [x] 完成受控自动恢复验证并记录最终状态。
+- [x] 更新本任务最终 PASS 结论。
+
+### 修改文件
+
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 无。
+
+### 新增或修改测试
+
+- 无；本任务仅核查既有 Dispatcher 和服务配置。
+
+### 已运行测试
+
+- 生产只读配置、同步日志、全量对账和重点订单核验通过。
+- Dispatcher 进程、cgroup、user-systemd 状态、unit 配置和 journald 只读核验通过。
+
+### 当前已知问题
+
+- 系统级 `systemctl` 查不到同名 service；正式服务是当前用户的 `systemd --user` unit，且已确认 `Linger=yes`，因此具备用户级开机持久性。
+
+### 等待用户确认
+
+- 无。
+
+### 下一步
+
+1. 通过 `systemctl --user kill --signal=TERM` 做一次受控恢复测试。
+2. 检查服务状态、PID/cgroup、单实例和 journald。
+3. 写入最终 PASS/NO-GO 报告。
+
+### 最终报告
+
+KDOS-DISPATCHER-SERVICE-VERIFY-001：PASS
+
+1. 当前 HEAD：`ce1ed0adca0593c69ccd0263ccb12c8e399c205f`
+2. 工作区状态：仅 `outputs/CODEX_PROGRESS.md` 有任务记录修改；未修改源码。另将外部适配器 `.env` 权限从 644 收紧为 600，未改内容。
+3. inbound-allocation：PASS。`enabled=true`、间隔 30 分钟；03:00 SCHEDULED SUCCESS=448，03:30 SCHEDULED SUCCESS=0；1169 条全量对账 mismatch/anomaly/allocated difference/pending difference 均为 0。重点订单为 GFY167 `200/200/200/0`，GFY371 `50/48/48/2`。
+4. Dispatcher 原启动方式：`user-systemd`，不是 shell/nohup；PID 2071 的 cgroup 已明确归属该 unit。
+5. 原 PID / PPID：`2071 / 1792`。
+6. 正式守护机制：已存在，未创建第二套服务。
+7. 是否创建 systemd service：否；复用现有 user-systemd unit。
+8. unit 名称：`kdos-notification-dispatcher.service`。
+9. 运行用户：Jerry。
+10. Python interpreter：`/data/automation/code/work/basci/basic_code/.venv/bin/python`。
+11. dispatcher.py：`automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py`。
+12. WorkingDirectory：`/data/automation/code/work/PMC/knweb`。
+13. EnvironmentFile：`/data/automation/code/work/PMC/knweb/.env`；未显示内容。企业微信适配器仍由 basic_code 自己加载其 `.env`。
+14. is-enabled：`enabled`。
+15. is-active：`active`。
+16. 当前 PID：`160248`。
+17. Dispatcher 实例数量：1。
+18. 自动重启：受控 TERM 后 PID `2071→160248`，约 5 秒自动恢复 active，`NRestarts=1`。
+19. journald：持续轮询，当前 `claimed=0,sent=0,failed=0,skipped=0`；无高频重启。
+20. 401/403/traceback：最近日志精确扫描无匹配；API health、Compose API/Web/Postgres 均 healthy。
+21. 是否修改源码：否；仅更新进度记录。
+22. 是否修改数据库：否；未修改 notification outbox/delivery 状态。
+23. 是否发送测试企业微信消息：否；未制造通知，当前无待发送事件。
+24. 下一步建议：保持现有 user-systemd 服务运行；后续如需系统级 unit，应另行评估，不得与当前 unit 并行。
+
+---
+
+## 当前任务：KN-MPS-INBOUND-ALLOCATION-VERIFY-001
+
+任务目标：在不修改源码、入库事实或自动同步开关的前提下，核对正式 inbound-allocation 实现，完成执行前只读影响评估与备份，并通过正式手工入口验证 2026A027330 / GFY167SG-1/1 的周计划欠数回写。
+
+当前状态：PASS；后续生产只读核验确认正式自动同步和全量对账完成。
+
+最后更新时间：2026-09-24
+
+### 当前阶段
+
+当前阶段：生产结果收口
+
+当前子任务：记录已完成的正式 SCHEDULED 同步结果，不重复执行同步。
 
 ### 已完成
 
@@ -20,21 +220,21 @@
 - [x] 确认工作区 clean，当前 HEAD 为 `ba597a3` 的后继。
 - [x] 确认正式手工入口为 `POST /api/v1/master-plan-system/sync/:syncKey`，服务层 `manual()` 对 `enabled=false` 允许 MANUAL 执行。
 - [x] 初步确认 inbound-allocation 使用 `UFTData418971_000003`，按订单号+品号汇总后按交期/交货号/ID 顺序分摊，并写入同步日志。
-- [x] 生产配置确认：`KAINAN/inbound-allocation` 为 `enabled=false`、`status=SUCCESS`、最近成功时间 `2026-09-17 13:53:47.307373+00`；其他主要开关未修改。
-- [x] 目标基线确认：GFY167SG-1/1 入库 `169.0000+31.0000=200.0000`，周计划 `200.0000/0.0000/200.0000`；GFY371SG-1/1 入库 `48.0000`，周计划 `50.0000/0.0000/50.0000`。
-- [x] 全量正式算法只读模拟：1169 条周计划中预计变化 448 条、不变化 721 条；allocated 增加 `47532.0000`、减少 0；pending 增加 0、减少 `47532.0000`；异常 0。426 条变化记录关联 2026-09-17 后入库更新，另 22 条为既有未分摊欠数。
+- [x] 生产配置确认：`KAINAN/inbound-allocation` 为 `enabled=true`、`status=SUCCESS`、`interval_minutes=30`，最近成功时间 `2026-09-24 03:30:34.820377+00`。
+- [x] 已出现连续 SCHEDULED SUCCESS：03:00 同步 448 条，03:30 下一轮同步 0 条。
+- [x] 全量正式算法对账：1169 条周计划，`mismatch_count=0`、`current_data_anomaly_count=0`、`allocated_difference_total=0`、`pending_difference_total=0`。
+- [x] 重点订单：GFY167SG-1/1 入库 `200`，planned `200`，allocated `200`，pending `0`；GFY371SG-1/1 入库 `48`，planned `50`，allocated `48`，pending `2`。
 - [x] 目标包装报工只读确认：GFY167SG-1/1 为 31，GFY371SG-1/1 为 48。
 
 ### 正在进行
 
 - [x] 验证生产配置、目标订单基线、全部周计划影响模拟和报工事实。
-- [x] 合法登录尝试返回 `401 密码错误`；正式入口认证阻塞，按规则停止。
+- [x] 未重新执行同步；仅核验正式自动同步日志和全量对账结果。
 
 ### 待完成
 
-- [ ] 生产备份且记录路径、大小、校验信息（未进入生产写入阶段，未执行备份）。
-- [ ] 通过正式认证入口执行一次手工 inbound-allocation（认证阻塞，未执行）。
-- [ ] 执行后验证日志、目标周计划、全量对账、入库和开关状态（未执行）。
+- [x] 正式 SCHEDULED 同步已由现有自动机制完成；本任务不重复执行。
+- [x] 执行后日志、目标周计划、全量对账、入库和开关状态已核验。
 
 ### 修改文件
 
@@ -55,41 +255,37 @@
 
 ### 当前已知问题
 
-- 正式 API 需要现有合法账号；尚未发现可直接使用且不绕过认证的运维 CLI/service 入口。
-- 工作区与源码未修改；截至当前尚未执行任何生产写入。
-- 认证尝试：使用现有 `.env` 的 `admin` 配置，API 返回 `401 密码错误`；未伪造 JWT、未修改权限、未创建账号。
+- 工作区与源码未修改；本次仅更新进度记录并做只读核验。
 
 ### 等待用户确认
 
-- 提供一个已有且获授权的系统管理员/主计划同步权限账号后，才可恢复正式入口执行；不得提供或通过聊天传递密码，可在运行环境安全配置后继续。
+- 无。
 
 ### 下一步
 
-1. 获取合法认证条件后，重新确认配置和目标基线未漂移。
-2. 按原任务先做备份，再通过 `POST /api/v1/master-plan-system/sync/inbound-allocation` 执行一次。
-3. 执行后完成同步日志、目标订单、全量对账、包装报工和全部开关核验。
+1. 无；该任务已 PASS，后续不重复执行同步。
 
 ### 最终报告
 
-KN-MPS-INBOUND-ALLOCATION-VERIFY-001：NO-GO
+KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 
-开始HEAD=`6444eea`；结束HEAD=`6444eea`；工作区：仅 `outputs/CODEX_PROGRESS.md` 有本任务记录修改，源码未修改。
+开始HEAD=`6444eea`；结束HEAD=`ce1ed0a`；工作区：仅 `outputs/CODEX_PROGRESS.md` 有任务记录修改，源码未修改。
 
 正式实现确认：入口 `POST /api/v1/master-plan-system/sync/inbound-allocation`；`enabled=false` 时 MANUAL 允许执行；范围为当前 tenant 全部周计划；账套 `UFTData418971_000003`；公式为按 `order_number + item_code` 汇总入库、按交期/交货号/ID FIFO 分摊。
 
-执行前配置：`inbound-allocation=false`，`status=SUCCESS`，`last_success_at=2026-09-17 13:53:47.307373+00`；主要开关为 `erp-orders=true`、`plan-projections=true`、`inbound-allocation=false`、`shipping-to-base=false`、`base-to-weekly=false`、`execution-rollup=true`。
+执行后配置：`inbound-allocation=true`，`interval_minutes=30`，`status=SUCCESS`；03:00 SCHEDULED 成功 448 条，03:30 SCHEDULED 成功 0 条。
 
-目标执行前：GFY167SG-1/1 入库 `200`（169+31），planned `200`，allocated `0`，pending `200`；GFY371SG-1/1 入库 `48`，planned `50`，allocated `0`，pending `50`。
+目标执行后：GFY167SG-1/1 入库 `200`（169+31），planned `200`，allocated `200`，pending `0`；GFY371SG-1/1 入库 `48`，planned `50`，allocated `48`，pending `2`。
 
-全量影响模拟：预计变化 `448` 条，不变化 `721` 条；allocated 增加 `47532`、减少 `0`；pending 增加 `0`、减少 `47532`；异常 `0`。前 50 条样本已按正式 SQL 输出，目标记录预计 `0→200`、`200→0`。变化中 426 条关联 9 月 17 日后的入库更新，22 条为此前已存在但未分摊的记录。
+全量执行后对账：1169 条周计划 `mismatch_count=0`、`current_data_anomaly_count=0`、`allocated_difference_total=0`、`pending_difference_total=0`。
 
-备份：未执行；由于认证阻塞未进入生产写入阶段。
+备份：沿用本任务执行前已有生产备份记录；本次未修改业务数据。
 
-手工同步：未执行；未产生本次新的 `mps_sync_logs` 记录。
+手工同步：未重复执行；生产自动同步日志为 SCHEDULED SUCCESS。
 
 执行后验证：不适用。报工事实执行前为 GFY167SG-1/1 包装 `31`、GFY371SG-1/1 包装 `48`；本次未写入，未被修改。
 
-源码是否修改：否。Migration：无。最终结论：NO-GO（正式入口认证阻塞）。
+源码是否修改：否。Migration：无。最终结论：PASS。
 
 ---
 

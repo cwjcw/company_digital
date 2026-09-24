@@ -24,7 +24,7 @@ if (import.meta.env.PROD) {
     try {
       const response = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) return;
-      const version = await response.json() as { buildId?: string };
+      const version = await response.json() as { buildId?: string; commit?: string; shortCommit?: string };
       if (version.buildId && version.buildId !== __BUILD_ID__) window.location.reload();
     } catch {
       // A temporary network failure must not interrupt the current session.

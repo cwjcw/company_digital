@@ -30,7 +30,9 @@ RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/databa
 
 FROM node:24-bookworm-slim AS runtime
 
+ARG KDOS_BUILD_SHA=unknown
 ENV NODE_ENV=production
+ENV KDOS_BUILD_SHA=$KDOS_BUILD_SHA
 WORKDIR /app/apps/api
 
 COPY --from=build /app/node_modules /app/node_modules

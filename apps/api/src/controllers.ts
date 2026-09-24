@@ -27,6 +27,7 @@ import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
 import { SalesDashboardService } from "./sales-dashboard.service";
 import { currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
+import { resolveBuildVersion } from "./build-version";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
 import { AdminApplicationService } from "./modules/admin/admin-application.service";
 import { TablePermissionGroupApplicationService, type TablePermissionGroupInput } from "./modules/admin/table-permission-group.application.service";
@@ -97,7 +98,7 @@ function requireAdministratorViewer(req: UserRequest) {
 @ApiTags("系统")
 @Controller()
 export class SystemController {
-  @Get("health") health() { return { status: "ok", timestamp: new Date().toISOString() }; }
+  @Get("health") health() { return { status: "ok", timestamp: new Date().toISOString(), version: resolveBuildVersion() }; }
 }
 
 @ApiTags("业务参考数据")

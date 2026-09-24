@@ -1,7 +1,9 @@
 FROM node:24-bookworm-slim AS build
 
+ARG KDOS_BUILD_SHA=unknown
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+ENV VITE_KDOS_BUILD_SHA=$KDOS_BUILD_SHA
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
