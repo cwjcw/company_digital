@@ -53,7 +53,7 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 const emptyHeaderRules: AdvancedFilterRule[] = [];
 export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
-export const kdosDefaultPageSize = 100;
+export const kdosDefaultPageSize = 50;
 
 export function shouldResetServerTablePage(action: "paginate" | "sort" | "filter") {
   return action === "sort" || action === "filter";

@@ -1,6 +1,6 @@
 import {
   ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, CalendarOutlined, DashboardOutlined,
-  DatabaseOutlined, HolderOutlined, ShopOutlined, SettingOutlined, UserOutlined
+  DatabaseOutlined, HolderOutlined, ProjectOutlined, ShopOutlined, SettingOutlined, UserOutlined
 } from "@ant-design/icons";
 import { App as AntApp, Button, Space, Tag, Typography } from "antd";
 import { useState } from "react";
@@ -10,7 +10,7 @@ import { BuildVersionLabel } from "../../shared/BuildVersion";
 const { Text, Title } = Typography;
 
 export type PortalModule = {
-  id: "cockpit" | "planning" | "data" | "marketing" | "hr" | "workflow" | "system" | "profile";
+  id: "cockpit" | "project-task" | "planning" | "data" | "marketing" | "hr" | "workflow" | "system" | "profile";
   title: string;
   englishTitle: string;
   description: string;
@@ -25,6 +25,11 @@ export const portalModules: PortalModule[] = [
     id: "cockpit", title: "公司驾驶舱", englishTitle: "COMPANY COCKPIT",
     description: "聚合经营与交付关键指标，快速掌握公司运行状态。",
     features: ["销售接单汇总大屏", "经营指标"], path: "/sales-summary-dashboard", tone: "indigo"
+  },
+  {
+    id: "project-task", title: "项目与任务", englishTitle: "PROJECTS & TASKS",
+    description: "统一管理重点督办项目、责任任务、进展闭环与交付表现。",
+    features: ["项目管理大屏", "员工待办", "任务督办"], path: "/project-task/supervision/project-dashboard", tone: "orange"
   },
   {
     id: "planning", title: "PMC中心", englishTitle: "PMC CENTER",
@@ -65,6 +70,7 @@ export const portalModules: PortalModule[] = [
 
 const moduleIcons = {
   cockpit: <DashboardOutlined />,
+  "project-task": <ProjectOutlined />,
   planning: <CalendarOutlined />,
   data: <DatabaseOutlined />,
   marketing: <ShopOutlined />,

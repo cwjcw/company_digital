@@ -1,6 +1,6 @@
 import {
   Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToOne,
-  PrimaryGeneratedColumn, Unique, UpdateDateColumn
+  PrimaryColumn, PrimaryGeneratedColumn, Unique, UpdateDateColumn
 } from "typeorm";
 
 export abstract class AuditedEntity {
@@ -485,6 +485,7 @@ export class AuditLog extends AuditedEntity {
   @Column({ name: "after_json", type: "jsonb", nullable: true }) afterJson!: unknown;
   @Column({ name: "request_id" }) requestId!: string;
   @Column() source!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64, nullable: true }) tenantId!: string | null;
 }
 
 @Entity("api_keys")
@@ -601,11 +602,90 @@ export class IdempotencyRecord extends AuditedEntity {
   @Column({ name: "response_json", type: "jsonb" }) responseJson!: unknown;
 }
 
+export type SupervisionLifecycleStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED" | "ABORTED";
+export type SupervisionAttachment = { key: string; name: string; contentType: string; size: number };
+
+@Entity("supervision_projects")
+@Unique(["tenantId", "projectCode"])
+@Index(["tenantId", "ownerId"])
+@Index(["tenantId", "supervisorId"])
+@Index(["tenantId", "departmentId"])
+@Index(["tenantId", "dueDate"])
+export class SupervisionProject extends AuditedEntity {
+  @PrimaryColumn({ type: "uuid" }) id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "project_code", type: "varchar", length: 40 }) projectCode!: string;
+  @Column({ name: "project_name", type: "varchar", length: 300 }) projectName!: string;
+  @Column({ name: "source_type", type: "varchar", length: 40, nullable: true }) sourceType!: string | null;
+  @Column({ name: "source_name", type: "varchar", length: 300, nullable: true }) sourceName!: string | null;
+  @Column({ name: "source_date", type: "date", nullable: true }) sourceDate!: string | null;
+  @Column({ name: "owner_id", type: "uuid" }) ownerId!: string;
+  @Column({ name: "supervisor_id", type: "uuid" }) supervisorId!: string;
+  @Column({ name: "department_id", type: "uuid", nullable: true }) departmentId!: string | null;
+  @Column({ name: "participant_ids", type: "jsonb", default: () => "'[]'" }) participantIds!: string[];
+  @Column({ type: "varchar", length: 20, default: "MEDIUM" }) priority!: string;
+  @Column({ name: "planned_start_date", type: "date" }) plannedStartDate!: string;
+  @Column({ name: "due_date", type: "date" }) dueDate!: string;
+  @Column({ name: "lifecycle_status", type: "varchar", length: 30, default: "NOT_STARTED" }) lifecycleStatus!: SupervisionLifecycleStatus;
+  @Column({ name: "acceptance_criteria", type: "text" }) acceptanceCriteria!: string;
+  @Column({ name: "completion_summary", type: "text", nullable: true }) completionSummary!: string | null;
+  @Column({ name: "stop_reason", type: "text", nullable: true }) stopReason!: string | null;
+  @Column({ type: "jsonb", default: () => "'[]'" }) attachments!: SupervisionAttachment[];
+  @Column({ name: "completed_at", type: "timestamptz", nullable: true }) completedAt!: Date | null;
+}
+
+@Entity("supervision_tasks")
+@Unique(["tenantId", "taskCode"])
+@Index(["tenantId", "projectId"])
+@Index(["tenantId", "ownerId"])
+@Index(["tenantId", "departmentId"])
+@Index(["tenantId", "dueDate"])
+export class SupervisionTask extends AuditedEntity {
+  @PrimaryColumn({ type: "uuid" }) id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "task_code", type: "varchar", length: 40 }) taskCode!: string;
+  @Column({ name: "project_id", type: "uuid" }) projectId!: string;
+  @Column({ name: "task_name", type: "varchar", length: 300 }) taskName!: string;
+  @Column({ type: "text", nullable: true }) description!: string | null;
+  @Column({ name: "owner_id", type: "uuid" }) ownerId!: string;
+  @Column({ name: "collaborator_ids", type: "jsonb", default: () => "'[]'" }) collaboratorIds!: string[];
+  @Column({ name: "department_id", type: "uuid", nullable: true }) departmentId!: string | null;
+  @Column({ type: "varchar", length: 20, default: "MEDIUM" }) priority!: string;
+  @Column({ name: "planned_start_date", type: "date", nullable: true }) plannedStartDate!: string | null;
+  @Column({ name: "due_date", type: "date" }) dueDate!: string;
+  @Column({ name: "lifecycle_status", type: "varchar", length: 30, default: "NOT_STARTED" }) lifecycleStatus!: SupervisionLifecycleStatus;
+  @Column({ type: "numeric", precision: 5, scale: 2, default: 0 }) progress!: string;
+  @Column({ name: "acceptance_criteria", type: "text" }) acceptanceCriteria!: string;
+  @Column({ name: "next_followup_date", type: "date", nullable: true }) nextFollowupDate!: string | null;
+  @Column({ name: "completed_at", type: "timestamptz", nullable: true }) completedAt!: Date | null;
+  @Column({ name: "stop_reason", type: "text", nullable: true }) stopReason!: string | null;
+  @Column({ type: "jsonb", default: () => "'[]'" }) attachments!: SupervisionAttachment[];
+}
+
+@Entity("supervision_task_progress")
+@Index(["tenantId", "taskId", "createdAt"])
+@Index(["tenantId", "projectId", "createdAt"])
+export class SupervisionTaskProgress extends AuditedEntity {
+  @PrimaryColumn({ type: "uuid" }) id!: string;
+  @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
+  @Column({ name: "task_id", type: "uuid" }) taskId!: string;
+  @Column({ name: "project_id", type: "uuid" }) projectId!: string;
+  @Column({ name: "update_type", type: "varchar", length: 30 }) updateType!: string;
+  @Column({ type: "numeric", precision: 5, scale: 2, nullable: true }) progress!: string | null;
+  @Column({ type: "text" }) summary!: string;
+  @Column({ name: "risk_issue", type: "text", nullable: true }) riskIssue!: string | null;
+  @Column({ name: "next_action", type: "text", nullable: true }) nextAction!: string | null;
+  @Column({ name: "next_followup_date", type: "date", nullable: true }) nextFollowupDate!: string | null;
+  @Column({ name: "proposed_due_date", type: "date", nullable: true }) proposedDueDate!: string | null;
+  @Column({ name: "change_reason", type: "text", nullable: true }) changeReason!: string | null;
+  @Column({ type: "jsonb", default: () => "'[]'" }) attachments!: SupervisionAttachment[];
+}
+
 export const entities = [
   User, AdministratorGrant, RoleGroup, Role, PermissionGroupSubject, UserRole, Permission, RoleDataScope, RoleOrganizationScope, OrganizationUnit, Contact,
   DevelopmentRequest, DevelopmentRequestEvent, ApprovalFlowConfig, PlanPeriod, Order, OrderItem,
   OutsourcingDetail, ProcessDefinitionEntity, ItemProcessProgress, DictionaryType,
   DictionaryValue, SupplyChainSupplier, SalesOrder, FinishedGoodsInbound, FinishedGoodsOutbound, AuditLog, ApiKey,
   RefreshToken, PasswordResetRequest, EquipmentAsset, EquipmentResponsible, EquipmentStatusReport,
-  ImportJob, ImportJobError, IdempotencyRecord
+  ImportJob, ImportJobError, IdempotencyRecord, SupervisionProject, SupervisionTask, SupervisionTaskProgress
 ];

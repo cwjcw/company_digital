@@ -28,11 +28,11 @@ describe("KdosDataTable server pagination", () => {
       />
     </QueryClientProvider>);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 100 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
     onQueryChange.mockClear();
     fireEvent.click(view.container.querySelector(".ant-pagination-item-2")!);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 100 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 50 })));
     expect(view.container.querySelector(".ant-pagination-item-2")).toHaveClass("ant-pagination-item-active");
   });
 

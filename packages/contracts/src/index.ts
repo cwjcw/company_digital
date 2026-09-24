@@ -22,6 +22,7 @@ export const presetTablePermissionDataScope: Record<PresetPermissionGroupType, "
 /** Stable module identities used by administrator grants. Labels are display-only. */
 export const administrableModuleRegistry = [
   { code: "cockpit", label: "公司驾驶舱" },
+  { code: "project-task", label: "项目与任务" },
   { code: "planning", label: "PMC中心" },
   { code: "data", label: "数据中心" },
   { code: "marketing", label: "营销中心" },
@@ -54,12 +55,46 @@ export const masterPlanResourceDefinitions = [
   { code: "mps-system-settings", label: "系统参数", area: "系统运维" }
 ] as const;
 
+export const supervisionLifecycleStatusOptions = [
+  { value: "NOT_STARTED", label: "未开始" },
+  { value: "IN_PROGRESS", label: "进行中" },
+  { value: "COMPLETED", label: "已完成" },
+  { value: "ABORTED", label: "已中止" }
+] as const;
+export const supervisionDisplayStatusOptions = [
+  { value: "NORMAL", label: "正常推进" },
+  { value: "OVERDUE", label: "已延期" },
+  { value: "COMPLETED", label: "已完成" },
+  { value: "ABORTED", label: "已中止" }
+] as const;
+export const supervisionSourceTypeOptions = [
+  { value: "IMPORTANT_MEETING", label: "重要会议" },
+  { value: "STRATEGIC_TASK", label: "战略任务" },
+  { value: "LEADER_ASSIGNMENT", label: "领导交办" },
+  { value: "SPECIAL_WORK", label: "专项工作" },
+  { value: "OTHER", label: "其他" }
+] as const;
+export const supervisionPriorityOptions = [
+  { value: "URGENT", label: "紧急" }, { value: "HIGH", label: "高" },
+  { value: "MEDIUM", label: "中" }, { value: "LOW", label: "低" }
+] as const;
+export const supervisionProgressUpdateTypeOptions = [
+  { value: "PROGRESS", label: "进度更新" }, { value: "RISK", label: "风险反馈" },
+  { value: "DUE_DATE_CHANGE", label: "延期变更" }, { value: "COMPLETION", label: "完成说明" }
+] as const;
+
 /**
  * Single registry for every independently authorized table/report in KDOS.
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
+  { code: "supervision-project-dashboard", label: "项目管理大屏", module: "项目与任务", moduleCode: "project-task" },
+  { code: "supervision-employee-dashboard", label: "员工待办大屏", module: "项目与任务", moduleCode: "project-task" },
+  { code: "supervision-owner-report", label: "责任人任务完成报表", module: "项目与任务", moduleCode: "project-task" },
+  { code: "supervision-projects", label: "督办项目", module: "项目与任务", moduleCode: "project-task" },
+  { code: "supervision-tasks", label: "督办任务", module: "项目与任务", moduleCode: "project-task" },
+  { code: "supervision-task-progress", label: "任务进展记录", module: "项目与任务", moduleCode: "project-task" },
   { code: "sales-orders", label: "订单表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-inbound", label: "入库表", module: "数据中心", moduleCode: "data" },
   { code: "finished-goods-outbound", label: "出库表", module: "数据中心", moduleCode: "data" },
@@ -166,6 +201,74 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
   "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
+  "supervision-project-dashboard": [
+    { key: "projectCode", label: "项目编号", type: "text", editable: false },
+    { key: "projectName", label: "项目名称", type: "text", editable: false },
+    { key: "displayStatus", label: "项目状态", type: "dictionary", editable: false, options: [...supervisionDisplayStatusOptions] },
+    { key: "ownerId", label: "项目负责人", type: "member", editable: false },
+    { key: "departmentId", label: "责任部门", type: "department", editable: false },
+    { key: "plannedStartDate", label: "计划开始日期", type: "date", editable: false },
+    { key: "dueDate", label: "项目交付日期", type: "date", editable: false },
+    { key: "progress", label: "项目进度", type: "number", editable: false, format: "percentage", percentageScale: "percent" },
+    { key: "riskType", label: "风险类型", type: "text", editable: false },
+    { key: "taskCount", label: "任务数", type: "number", editable: false, format: "integer" }
+  ],
+  "supervision-employee-dashboard": [
+    { key: "taskCode", label: "任务编号", type: "text", editable: false },
+    { key: "projectId", label: "督办项目", type: "reference", editable: false, filterBinding: { kind: "relation", referenceResource: "supervision-projects", valueField: "id", labelField: "project_code,project_name" } },
+    { key: "projectName", label: "项目名称", type: "text", editable: false },
+    { key: "projectStatus", label: "项目状态", type: "dictionary", editable: false, options: [...supervisionDisplayStatusOptions] },
+    { key: "taskName", label: "任务名称", type: "text", editable: false },
+    { key: "priority", label: "优先级", type: "dictionary", editable: false, options: [...supervisionPriorityOptions] },
+    { key: "ownerId", label: "任务责任人", type: "member", editable: false },
+    { key: "dueDate", label: "任务截止日期", type: "date", editable: false },
+    { key: "displayStatus", label: "延期状态", type: "dictionary", editable: false, options: [...supervisionDisplayStatusOptions] }
+  ],
+  "supervision-owner-report": [
+    { key: "projectName", label: "项目名称", type: "text", editable: false },
+    { key: "ownerId", label: "责任人", type: "member", editable: false },
+    { key: "departmentId", label: "责任部门", type: "department", editable: false },
+    { key: "totalTasks", label: "总任务数", type: "number", editable: false, format: "integer" },
+    { key: "onTimeCompleted", label: "按期完成任务数", type: "number", editable: false, format: "integer" },
+    { key: "lateCompleted", label: "逾期完成任务数", type: "number", editable: false, format: "integer" },
+    { key: "currentlyOverdue", label: "当前延期未完成任务数", type: "number", editable: false, format: "integer" },
+    { key: "overdueTasks", label: "延期任务数", type: "number", editable: false, format: "integer" },
+    { key: "notDueIncomplete", label: "未到期未完成任务数", type: "number", editable: false, format: "integer" },
+    { key: "aborted", label: "已中止任务数", type: "number", editable: false, format: "integer" },
+    { key: "onTimeRate", label: "按期完成比例", type: "number", editable: false, format: "percentage", percentageScale: "percent" },
+    { key: "averageDelayDays", label: "平均延期天数", type: "number", editable: false, format: "decimal" }
+  ],
+  "supervision-projects": fields([
+    ["projectCode", "项目编号", "text", false], ["projectName", "项目名称", "text", true, true],
+    ["sourceType", "来源类型", "dictionary", true, false, { options: [...supervisionSourceTypeOptions] }], ["sourceName", "来源名称"], ["sourceDate", "来源日期", "date"],
+    ["ownerId", "项目负责人", "member", true, true], ["supervisorId", "督办人", "member", true, true], ["departmentId", "责任部门", "department"],
+    ["participantIds", "参与人员", "member", true, false, { multiple: true }], ["priority", "优先级", "dictionary", true, false, { options: [...supervisionPriorityOptions] }],
+    ["plannedStartDate", "计划开始日期", "date", true, true], ["dueDate", "项目交付日期", "date", true, true],
+    ["lifecycleStatus", "生命周期状态", "dictionary", false, false, { options: [...supervisionLifecycleStatusOptions] }],
+    ["displayStatus", "当前状态", "dictionary", false, false, { options: [...supervisionDisplayStatusOptions] }],
+    ["progress", "项目进度", "number", false, false, { format: "percentage", percentageScale: "percent" }],
+    ["acceptanceCriteria", "完成/验收标准", "text", true, true], ["completionSummary", "完成说明", "text", false], ["stopReason", "中止原因", "text", false],
+    ["attachments", "附件", "attachment", true], ["completedAt", "实际完成时间", "datetime", false]
+  ]),
+  "supervision-tasks": fields([
+    ["taskCode", "任务编号", "text", false],
+    ["projectId", "所属督办项目", "reference", false, true, { filterBinding: { kind: "relation", referenceResource: "supervision-projects", valueField: "id", labelField: "project_code,project_name" } }],
+    ["projectName", "项目名称", "text", false], ["taskName", "任务名称", "text", true, true], ["description", "任务说明"],
+    ["ownerId", "任务责任人", "member", true, true], ["collaboratorIds", "协作人员", "member", true, false, { multiple: true }], ["departmentId", "责任部门", "department"],
+    ["priority", "优先级", "dictionary", true, false, { options: [...supervisionPriorityOptions] }], ["plannedStartDate", "计划开始日期", "date"], ["dueDate", "任务截止日期", "date", true, true],
+    ["lifecycleStatus", "生命周期状态", "dictionary", false, false, { options: [...supervisionLifecycleStatusOptions] }], ["displayStatus", "当前状态", "dictionary", false, false, { options: [...supervisionDisplayStatusOptions] }],
+    ["progress", "完成进度", "number", true, false, { format: "percentage", percentageScale: "percent" }], ["acceptanceCriteria", "任务完成标准", "text", true, true],
+    ["latestProgress", "最新进展", "text", false], ["nextFollowupDate", "下次跟进日期", "date"], ["completedAt", "实际完成时间", "datetime", false],
+    ["stopReason", "中止原因", "text", false], ["attachments", "附件", "attachment", true]
+  ]),
+  "supervision-task-progress": fields([
+    ["taskId", "所属任务", "reference", false, true, { filterBinding: { kind: "relation", referenceResource: "supervision-tasks", valueField: "id", labelField: "task_code,task_name" } }],
+    ["projectId", "所属督办项目", "reference", false, true, { filterBinding: { kind: "relation", referenceResource: "supervision-projects", valueField: "id", labelField: "project_code,project_name" } }],
+    ["updateType", "更新类型", "dictionary", false, true, { options: [...supervisionProgressUpdateTypeOptions] }],
+    ["progress", "当前完成百分比", "number", false, false, { format: "percentage", percentageScale: "percent" }], ["summary", "本次进展说明", "text", false, true],
+    ["riskIssue", "风险/问题", "text", false], ["nextAction", "下一步行动", "text", false], ["nextFollowupDate", "下次跟进日期", "date", false],
+    ["proposedDueDate", "申请调整后的截止日期", "date", false], ["changeReason", "变更原因", "text", false], ["attachments", "附件", "attachment", false]
+  ]),
   /* 数据中心三张表 metadata 必须与实体列/页面列一致（KN-FILTER-001 第四轮校正）。 */
   "sales-orders": fields([
     ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库/账套", "text", false], ["sourceKey", "来源主键", "text", false],
@@ -590,7 +693,9 @@ export function tableFilterUiOperatorsFor(field: TablePermissionFieldDefinition)
 export const tableReferenceLabelFields: Record<string, string> = {
   "mps-weekly-plans": "order_number,item_code,delivery_number",
   "supplier-list": "code,name",
-  "equipment-register": "equipment_code,equipment_name"
+  "equipment-register": "equipment_code,equipment_name",
+  "supervision-projects": "project_code,project_name",
+  "supervision-tasks": "task_code,task_name"
 };
 
 export function referenceLabelFieldsFor(referenceResource: string, labelField?: string) {
@@ -626,6 +731,12 @@ const mpsFilterCapabilities = Object.fromEntries(
 
 export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
   ...mpsFilterCapabilities,
+  "supervision-projects": { status: "REGISTERED_AND_FILTERABLE" },
+  "supervision-tasks": { status: "REGISTERED_AND_FILTERABLE" },
+  "supervision-task-progress": { status: "REGISTERED_AND_FILTERABLE" },
+  "supervision-project-dashboard": { status: "NOT_APPLICABLE", reason: "项目管理大屏由实时 KPI、风险清单与甘特聚合组成，明细复用督办项目正式资源，不存在第二份独立业务记录集。" },
+  "supervision-employee-dashboard": { status: "NOT_APPLICABLE", reason: "员工待办大屏按当前认证用户实时聚合本周任务，明细复用督办任务正式资源，不存在独立持久记录集。" },
+  "supervision-owner-report": { status: "NOT_APPLICABLE", reason: "责任人完成报表按统计周期实时聚合督办任务，汇总行不是持久业务记录，明细由同一 Query Service 下钻。" },
   /* 数据中心：订单、成品入库/出库为真实业务记录表，本轮接入平台 FilterCompiler。 */
   "sales-orders": { status: "REGISTERED_AND_FILTERABLE" },
   "finished-goods-inbound": { status: "REGISTERED_AND_FILTERABLE" },
@@ -669,6 +780,9 @@ export interface TablePrintResourceCapability { status: TablePrintResourceStatus
 
 const printNotApplicable: Record<string, string> = {
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
+  "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
+  "supervision-employee-dashboard": "员工待办大屏是当前用户的实时工作视图，任务明细通过督办任务资源打印。",
+  "supervision-owner-report": "责任人完成报表是按用户和周期实时聚合结果，本阶段不生成独立打印快照，具体任务通过一致下钻查看。",
   "equipment-dashboard": "集团设备大屏是聚合指标视图，不是记录列表，打印无业务意义。",
   "hr-departure-check": "离职人员检查是上传花名册后即时比对的结果页，数据不落库，没有可打印的持久记录集合。",
   imports: "导入记录是后台任务追溯页面，不是业务记录表，打印无业务意义。",

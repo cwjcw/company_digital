@@ -15,6 +15,8 @@ async function bootstrap() {
   app.use(urlencoded({ limit: "100mb", extended: true }));
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.enableCors({ origin: process.env.WEB_ORIGIN?.split(",") ?? ["http://localhost:5173"], credentials: true });
+  /* 督办附件包含管理事项内容，只允许经 AuthGuard + 租户/数据范围校验的下载接口读取。 */
+  app.use("/uploads/supervision", (_request: unknown, response: any) => response.status(404).end());
   app.use("/uploads", serveStatic(path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? "./data/uploads")));
   app.use((request: any, response: any, next: () => void) => {
     request.requestId = request.headers["x-request-id"] || randomUUID();

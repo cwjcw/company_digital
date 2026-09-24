@@ -2,7 +2,7 @@ import { PageScrollReset } from "./shared/PageScrollReset";
 import { useEffect, useState } from "react";
 import {
   ApiOutlined, ApartmentOutlined, AuditOutlined, BulbOutlined, ContactsOutlined, DashboardOutlined, DatabaseOutlined, FileExcelOutlined,
-  FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined,
+  FolderOpenOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ScheduleOutlined, ProjectOutlined, ReadOutlined, FileTextOutlined,
   SafetyCertificateOutlined, SettingOutlined, TeamOutlined, ToolOutlined, UserOutlined, NotificationOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +35,10 @@ import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPag
 import { KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
+import {
+  OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
+  SupervisionOwnerReportPage, SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage
+} from "./modules/supervision/SupervisionPages";
 import {
   ImportFeedbackAlert, InlineText, PageHeader, auditColumns,
   downloadApiFile, failedImport, inboundBusinessFields, inboundFieldLabels, inboundFields, isAuditField,
@@ -160,6 +164,7 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
+    : location.pathname.startsWith("/project-task/") ? "project-task"
     : location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
@@ -170,6 +175,20 @@ function Shell({ logout }: { logout: () => void }) {
   const navigationByModule: Record<string, any[]> = {
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
+    ] }],
+    "project-task": [{ key: "project-task-root", icon: <ProjectOutlined />, label: "项目与任务", children: [
+      { key: "project-task-help", icon: <ReadOutlined />, label: "应用说明", children: [
+        { key: "/project-task/help/how-to", icon: <FileTextOutlined />, label: "如何使用" },
+        { key: "/project-task/help/flow", icon: <FileTextOutlined />, label: "项目流程图" }
+      ] },
+      { key: "project-task-supervision", icon: <ProjectOutlined />, label: "任务督办", children: [
+        { key: "/project-task/supervision/project-dashboard", icon: <DashboardOutlined />, label: "项目管理大屏" },
+        { key: "/project-task/supervision/my-tasks", icon: <DashboardOutlined />, label: "员工待办大屏" },
+        { key: "/project-task/supervision/owner-report", icon: <FileTextOutlined />, label: "责任人任务完成报表" },
+        { key: "/project-task/supervision/projects", icon: <FolderOpenOutlined />, label: "项目管理" },
+        { key: "/project-task/supervision/tasks", icon: <ScheduleOutlined />, label: "任务管理" }
+      ] },
+      { key: "/project-task/order-projects", icon: <FolderOpenOutlined />, label: "订单项目管理（第二阶段）" }
     ] }],
     planning: [
       { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
@@ -239,6 +258,10 @@ function Shell({ logout }: { logout: () => void }) {
   const masterPlanPage = masterPlanResourceDefinitions.find((entry) => location.pathname === `/master-plan-system/${entry.code}`);
   const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : ({
       "/sales-summary-dashboard": "销售接单汇总大屏",
+      "/project-task/help/how-to": "如何使用", "/project-task/help/flow": "项目流程图",
+      "/project-task/supervision/project-dashboard": "项目管理大屏", "/project-task/supervision/my-tasks": "员工待办大屏",
+      "/project-task/supervision/owner-report": "责任人任务完成报表", "/project-task/supervision/projects": "项目管理",
+      "/project-task/supervision/tasks": "任务管理", "/project-task/order-projects": "订单项目管理",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
@@ -267,6 +290,14 @@ function Shell({ logout }: { logout: () => void }) {
       <Content className="content">
         <Routes>
           <Route path="/sales-summary-dashboard" element={<SalesSummaryDashboard />} />
+          <Route path="/project-task/help/how-to" element={<SupervisionHowToPage />} />
+          <Route path="/project-task/help/flow" element={<SupervisionFlowPage />} />
+          <Route path="/project-task/supervision/project-dashboard" element={<SupervisionProjectDashboardPage />} />
+          <Route path="/project-task/supervision/my-tasks" element={<SupervisionEmployeeDashboardPage />} />
+          <Route path="/project-task/supervision/owner-report" element={<SupervisionOwnerReportPage />} />
+          <Route path="/project-task/supervision/projects" element={<SupervisionProjectsPage />} />
+          <Route path="/project-task/supervision/tasks" element={<SupervisionTasksPage />} />
+          <Route path="/project-task/order-projects" element={<OrderProjectPlaceholderPage />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
