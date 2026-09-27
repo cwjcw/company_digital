@@ -3,7 +3,7 @@ import {
   auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
   isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
-  tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
+  supervisionPriorityOptions, tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
 } from "./index";
 import { standardProcesses } from "@tracker/shared";
 
@@ -80,6 +80,14 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
 });
 
 describe("active PMC resources", () => {
+
+  it("督办项目与任务只共享高、中、低三个优先级选项", () => {
+    expect(supervisionPriorityOptions).toEqual([
+      { value: "HIGH", label: "高" },
+      { value: "MEDIUM", label: "中" },
+      { value: "LOW", label: "低" }
+    ]);
+  });
 
   describe("KN-FILTER-001 第四轮筛选能力与 UI 白名单", () => {
     it("每个正式 resource 都有确定筛选状态，且没有 UNKNOWN / 未处理", () => {

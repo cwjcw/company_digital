@@ -1,18 +1,98 @@
 # Codex 工作进度
 
-## 当前任务：SUPERVISION-CREATION-FIELDS-001
+## 当前任务：SUPERVISION-FORM-USABILITY-002
 
-任务目标：调整创建督办项目/任务的字段、必填规则、字段名称及交付/进度记录，并完成当前运行环境部署核验。
+任务目标：为督办项目/任务表单显示必填红色星号，移除项目与任务的“紧急”优先级，并将任务管理页的权限管理入口收敛为一个。
 
-当前状态：进行中；已完成字段契约、应用服务、查询投影和前端表单的第一轮修改，待补迁移测试与构建验证。
+当前状态：待部署；三项代码调整和完整回归验证已完成。
 
 最后更新时间：2026-09-27
 
 ### 当前阶段
 
-当前阶段：实现复核与自动化验证
+当前阶段：备份、提交与生产部署
 
-当前子任务：修正应用服务实现，补充迁移与行为测试，然后执行 typecheck、专项测试与部署。
+当前子任务：生成上线前备份，提交并部署 Web/API。
+
+### 已完成
+
+- [x] 已阅读当前适用的项目规范、KDOS 表单与权限规范和已有进度记录。
+- [x] 已确认创建项目、创建任务及任务操作表单通过 `requiredMark={false}` 主动隐藏了必填标识。
+- [x] 已确认“紧急”来自共享督办优先级字典，但服务端另有一份允许值集合，需要同步收紧。
+- [x] 已确认 `KdosDataTable` 已自动提供当前任务表的权限管理入口，任务工具栏又额外提供了任务进展权限入口，造成两个同名按钮。
+- [x] 已只读核对当前线上数据：督办项目/任务不存在 `URGENT` 存量记录，无需迁移业务数据。
+- [x] 已恢复督办创建/编辑和任务操作表单的默认必填红色星号。
+- [x] 已从共享督办优先级字典移除“紧急”，服务端校验直接派生该共享字典并拒绝 `URGENT`。
+- [x] 已移除任务管理工具栏中额外的任务进展权限入口，仅保留 `KdosDataTable` 自带的任务权限入口。
+- [x] 已补充共享字典契约测试和项目/任务拒绝 `URGENT` 的服务端测试。
+
+### 正在进行
+
+- [ ] 备份、提交并部署当前运行环境。
+
+### 待完成
+
+- [x] 运行专项测试、lint、typecheck、全量测试和构建。
+- [ ] 备份、提交、部署当前运行环境并执行健康检查和线上效果核验。
+
+### 修改文件
+
+- `apps/api/src/modules/supervision/supervision.application.service.spec.ts`
+- `apps/api/src/modules/supervision/supervision.application.service.ts`
+- `apps/web/src/modules/supervision/SupervisionPages.tsx`
+- `packages/contracts/src/index.test.ts`
+- `packages/contracts/src/index.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 无；当前线上不存在 `URGENT` 督办项目/任务，应用层继续作为正式写入边界。
+
+### 新增或修改测试
+
+- 督办共享优先级字典固定为高/中/低。
+- 督办项目与任务 Application Service 均拒绝已移除的 `URGENT`。
+
+### 已运行测试
+
+- Contracts：1 file / 21 tests 通过。
+- 督办 Application Service 专项：1 suite / 11 tests 通过。
+- Contracts、API、Web typecheck：通过。
+- Contracts、API、Web lint：通过；Web 仅有 1 条既有 Fast Refresh warning。
+- API 全量：70 suites / 552 tests 通过，1 项既有 skip。首次与 Web 并行执行时 1 项无关 Excel 测试因 5 秒超时失败，单独完整重跑后全部通过。
+- Web 全量：25 files / 146 tests 通过。
+- `pnpm build`：15 个工作区构建通过；Web 仅有既有大 chunk 提示。
+- `git diff --check`：通过。
+
+### 当前已知问题
+
+- 无。
+
+### 等待用户确认
+
+- 无。
+
+### 下一步
+
+1. 完成代码和专项测试修改。
+2. 生成上线前备份并提交代码。
+3. 部署并核验线上页面与版本。
+
+---
+
+## 当前任务：SUPERVISION-CREATION-FIELDS-001
+
+任务目标：调整创建督办项目/任务的字段、必填规则、字段名称及交付/进度记录，并完成当前运行环境部署核验。
+
+当前状态：已完成；已迁移并部署至当前运行环境，健康检查和线上资源核验通过。
+
+最后更新时间：2026-09-27
+
+### 当前阶段
+
+当前阶段：交付完成
+
+当前子任务：无
 
 ### 已完成
 
@@ -21,16 +101,17 @@
 - [x] 已增加项目描述、实际交付日期的实体/字段契约与筛选投影。
 - [x] 已将主责部门、参与人、预计交付日期和当前进度名称同步到创建表单及主要列表。
 - [x] 已将项目描述、来源类型、主责部门、参与人、任务说明、计划开始日期及创建任务当前进度纳入服务端必填校验。
+- [x] 已禁止直接写入项目当前进度；项目进度继续由未中止子任务的当前进度平均值派生。
+- [x] 已为已有权限组回填项目描述、项目/任务实际交付日期字段权限。
+- [x] 已通过备份、TypeORM migration、API/Web 重建、版本一致性及线上静态资源字段核验完成上线。
 
 ### 正在进行
 
-- [ ] 修正并验证创建任务当前进度的服务端取值。
-- [ ] 补充迁移和业务规则测试。
+- 无。
 
 ### 待完成
 
-- [ ] 运行 API/Web typecheck、专项测试和构建。
-- [ ] 备份、执行数据库 migration、部署到当前运行环境并健康核验。
+- 无。
 
 ### 修改文件
 
@@ -46,19 +127,25 @@
 
 ### 数据库 Migration
 
-- 待执行：`1722920072000-SupervisionRequiredCreationFields`，为督办项目新增 `project_description`、项目/任务新增 `actual_delivery_date`。历史记录不伪造业务描述或组织归属；新建记录由 Application Service 严格校验必填字段。
+- 已执行：`1722920072000-SupervisionRequiredCreationFields`，为督办项目新增 `project_description`、项目/任务新增 `actual_delivery_date`。历史记录不伪造业务描述或组织归属；新建记录由 Application Service 严格校验必填字段。
 
 ### 新增或修改测试
 
-- 待补：迁移列、创建任务当前进度、项目进度不可直接写入及必填字段校验。
+- 督办迁移、创建任务当前进度、项目进度不可直接写入和筛选注册表装配测试。
 
 ### 已运行测试
 
-- `git diff --check`：待修正当前实现后重跑。
+- 督办专项 API 测试：4 suites / 20 tests 通过。
+- API 全量测试：70 suites / 551 tests 通过，1 项既有 skip。
+- Web 全量测试：25 files / 146 tests 通过。
+- API 与 Web typecheck：通过。
+- `pnpm build`：通过（仅现有大体积 chunk 提示）。
+- `git diff --check`：通过。
+- 线上：备份、迁移、API/Web 健康检查、三方 SHA 一致性与前端字段资源核验均通过。
 
 ### 当前已知问题
 
-- 无业务阻塞；存量记录可能没有新启用的必填字段，已按历史兼容原则保留为空，新建/修改必须由服务端补齐。
+- 存量记录可能没有新启用的必填字段，已按历史兼容原则保留为空；后续新建/修改必须由服务端补齐。
 
 ### 等待用户确认
 
@@ -66,9 +153,13 @@
 
 ### 下一步
 
-1. 修正当前进度变量作用域并检查全部字段映射。
-2. 补齐测试并执行本地验证。
-3. 备份、迁移、部署和线上核验。
+1. 后续如需编辑历史督办记录，补齐其新必填字段。
+
+### 最终报告
+
+- 提交：`f648804 feat(supervision): complete project and task creation fields`
+- 备份：`data/backups/*_20260927_122723.*`
+- 线上版本：Repository / Web / API 均为 `f648804`。
 
 ---
 

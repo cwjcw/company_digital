@@ -47,6 +47,25 @@ describe("任务督办 Application Service 安全入口", () => {
     await expect((service as any).taskInput(manager, input, null)).resolves.toMatchObject({ progress: "35.50" });
   });
 
+  it("项目与任务都拒绝已经移除的紧急优先级", async () => {
+    const departmentId = "0199aa00-0000-7000-8000-000000000003";
+    const ownerId = "0199aa00-0000-7000-8000-000000000001";
+    const manager = {
+      count: async () => 1,
+      findOneBy: async () => ({ id: departmentId, enabled: true })
+    };
+    await expect((service as any).projectInput(manager, {
+      projectName: "项目", projectDescription: "项目说明", sourceType: "OTHER", ownerId, supervisorId: ownerId,
+      participantIds: [ownerId], departmentId, priority: "URGENT", plannedStartDate: "2026-09-27", dueDate: "2026-10-01",
+      acceptanceCriteria: "验收标准"
+    })).rejects.toThrow("优先级无效");
+    await expect((service as any).taskInput(manager, {
+      projectId: "0199aa00-0000-7000-8000-000000000002", taskName: "任务", description: "任务说明", ownerId,
+      collaboratorIds: [ownerId], departmentId, priority: "URGENT", plannedStartDate: "2026-09-27", dueDate: "2026-10-01",
+      progress: 0, acceptanceCriteria: "验收标准"
+    }, null)).rejects.toThrow("优先级无效");
+  });
+
   it("受控截止日期变更仍要求 dueDate 字段编辑权限", () => {
     expect(() => service.changeTaskDueDate("0199aa00-0000-7000-8000-000000000002", { dueDate: "2026-10-01", changeReason: "调整", expectedVersion: 1 }, actor(["supervision-tasks:*:update"])))
       .toThrow(ForbiddenException);

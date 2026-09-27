@@ -75,8 +75,8 @@ export const supervisionSourceTypeOptions = [
   { value: "OTHER", label: "其他" }
 ] as const;
 export const supervisionPriorityOptions = [
-  { value: "URGENT", label: "紧急" }, { value: "HIGH", label: "高" },
-  { value: "MEDIUM", label: "中" }, { value: "LOW", label: "低" }
+  { value: "HIGH", label: "高" }, { value: "MEDIUM", label: "中" },
+  { value: "LOW", label: "低" }
 ] as const;
 export const supervisionProgressUpdateTypeOptions = [
   { value: "PROGRESS", label: "进度更新" }, { value: "RISK", label: "风险反馈" },

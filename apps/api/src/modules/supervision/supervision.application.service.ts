@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { In, type EntityManager, DataSource } from "typeorm";
 import { v7 as uuidv7 } from "uuid";
+import { supervisionPriorityOptions } from "@kdos/contracts";
 import {
   AuditLog, OrganizationUnit, SupervisionProject, SupervisionTask, SupervisionTaskProgress, User,
   type SupervisionAttachment
@@ -10,7 +11,7 @@ import type { ProgressInput, ProjectInput, SupervisionActor, TaskInput } from ".
 import { shanghaiDate } from "./supervision.domain";
 
 const sources = new Set(["IMPORTANT_MEETING", "STRATEGIC_TASK", "LEADER_ASSIGNMENT", "SPECIAL_WORK", "OTHER"]);
-const priorities = new Set(["URGENT", "HIGH", "MEDIUM", "LOW"]);
+const priorities = new Set<string>(supervisionPriorityOptions.map((option) => option.value));
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const projectFields = ["projectName", "projectDescription", "sourceType", "sourceName", "sourceDate", "ownerId", "supervisorId", "departmentId", "participantIds", "priority", "plannedStartDate", "dueDate", "actualDeliveryDate", "acceptanceCriteria", "attachments"];
 const taskFields = ["projectId", "taskName", "description", "ownerId", "collaboratorIds", "departmentId", "priority", "plannedStartDate", "actualDeliveryDate", "acceptanceCriteria", "nextFollowupDate", "attachments"];
