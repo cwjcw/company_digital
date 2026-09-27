@@ -18,7 +18,7 @@ export type SupervisionActor = {
 
 export type ProjectInput = {
   projectName: string; projectDescription: string; sourceType?: string | null; sourceName?: string | null; sourceDate?: string | null;
-  ownerId: string; supervisorId: string; departmentId?: string | null; participantIds?: string[];
+  ownerId: string; supervisorId?: string | null; departmentId?: string | null; participantIds?: string[];
   priority?: string; plannedStartDate: string; dueDate: string; actualDeliveryDate?: string | null; acceptanceCriteria: string;
   attachments?: SupervisionAttachment[]; expectedVersion?: number;
 };

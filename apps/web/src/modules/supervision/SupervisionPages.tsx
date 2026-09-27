@@ -20,7 +20,7 @@ import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 const { Title, Paragraph, Text } = Typography;
 type Attachment = { key: string; name: string; contentType: string; size: number };
 type Options = { users: Array<{ id: string; label: string }>; departments: Array<{ id: string; name: string; pathLabel?: string }>; projects: Array<{ id: string; projectCode: string; projectName: string; lifecycleStatus: string }> };
-type ProjectRow = Record<string, any> & { id: string; version: number; projectCode: string; projectName: string; ownerId: string; supervisorId: string; dueDate: string; lifecycleStatus: string; displayStatus: string; progress: number };
+type ProjectRow = Record<string, any> & { id: string; version: number; projectCode: string; projectName: string; ownerId: string; supervisorId: string | null; dueDate: string; lifecycleStatus: string; displayStatus: string; progress: number };
 type TaskRow = Record<string, any> & { id: string; version: number; taskCode: string; projectId: string; projectName: string; taskName: string; ownerId: string; dueDate: string; lifecycleStatus: string; displayStatus: string; progress: number };
 
 const labelMap = (items: readonly { value: string; label: string }[]) => Object.fromEntries(items.map((item) => [item.value, item.label]));
@@ -130,7 +130,7 @@ function ProjectForm({ open, row, options, onClose, onSaved }: { open: boolean; 
       {canEdit("sourceName") && <Col xs={24} md={8}><Form.Item name="sourceName" label="来源名称"><Input /></Form.Item></Col>}
       {canEdit("sourceDate") && <Col xs={24} md={8}><Form.Item name="sourceDate" label="来源日期"><DatePicker style={{ width: "100%" }} /></Form.Item></Col>}
       {canEdit("ownerId") && <Col xs={24} md={8}><Form.Item name="ownerId" label="项目负责人" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={options?.users.map((item) => ({ value: item.id, label: item.label }))} /></Form.Item></Col>}
-      {canEdit("supervisorId") && <Col xs={24} md={8}><Form.Item name="supervisorId" label="督办人" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={options?.users.map((item) => ({ value: item.id, label: item.label }))} /></Form.Item></Col>}
+      {canEdit("supervisorId") && <Col xs={24} md={8}><Form.Item name="supervisorId" label="督办人"><Select allowClear showSearch optionFilterProp="label" options={options?.users.map((item) => ({ value: item.id, label: item.label }))} /></Form.Item></Col>}
       {canEdit("departmentId") && <Col xs={24} md={8}><Form.Item name="departmentId" label="主责部门" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={options?.departments.map((item) => ({ value: item.id, label: item.pathLabel ?? item.name }))} /></Form.Item></Col>}
       {canEdit("participantIds") && <Col xs={24} md={12}><Form.Item name="participantIds" label="参与人" rules={[{ required: true, type: "array", min: 1 }]}><Select mode="multiple" showSearch optionFilterProp="label" options={options?.users.map((item) => ({ value: item.id, label: item.label }))} /></Form.Item></Col>}
       {canEdit("priority") && <Col xs={24} md={12}><Form.Item name="priority" label="优先级" rules={[{ required: true }]}><Select options={[...supervisionPriorityOptions]} /></Form.Item></Col>}

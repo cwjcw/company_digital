@@ -66,6 +66,20 @@ describe("任务督办 Application Service 安全入口", () => {
     }, null)).rejects.toThrow("优先级无效");
   });
 
+  it("项目督办人不在必填清单中，可以留空", async () => {
+    const departmentId = "0199aa00-0000-7000-8000-000000000003";
+    const ownerId = "0199aa00-0000-7000-8000-000000000001";
+    const manager = {
+      count: async () => 1,
+      findOneBy: async () => ({ id: departmentId, enabled: true })
+    };
+    await expect((service as any).projectInput(manager, {
+      projectName: "项目", projectDescription: "项目说明", sourceType: "OTHER", ownerId,
+      participantIds: [ownerId], departmentId, priority: "HIGH", plannedStartDate: "2026-09-27", dueDate: "2026-10-01",
+      acceptanceCriteria: "验收标准"
+    })).resolves.toMatchObject({ supervisorId: null });
+  });
+
   it("受控截止日期变更仍要求 dueDate 字段编辑权限", () => {
     expect(() => service.changeTaskDueDate("0199aa00-0000-7000-8000-000000000002", { dueDate: "2026-10-01", changeReason: "调整", expectedVersion: 1 }, actor(["supervision-tasks:*:update"])))
       .toThrow(ForbiddenException);

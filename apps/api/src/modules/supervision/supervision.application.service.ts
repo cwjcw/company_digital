@@ -294,10 +294,10 @@ export class SupervisionApplicationService {
     if (plannedStartDate > dueDate) throw new BadRequestException("预计交付日期不能早于计划开始日期");
     const sourceType = this.requiredText(input.sourceType, "来源类型", 40); if (!sources.has(sourceType)) throw new BadRequestException("来源类型无效");
     const priority = String(input.priority ?? "MEDIUM"); if (!priorities.has(priority)) throw new BadRequestException("优先级无效");
-    const ownerId = String(input.ownerId ?? ""); const supervisorId = String(input.supervisorId ?? ""); const participantIds = this.ids(input.participantIds);
-    if (!ownerId || !supervisorId) throw new BadRequestException("项目负责人和督办人不能为空");
+    const ownerId = String(input.ownerId ?? ""); const supervisorId = input.supervisorId ? String(input.supervisorId) : null; const participantIds = this.ids(input.participantIds);
+    if (!ownerId) throw new BadRequestException("项目负责人不能为空");
     if (!participantIds.length) throw new BadRequestException("参与人不能为空");
-    await this.members(manager, [ownerId, supervisorId, ...participantIds]); const departmentId = await this.requiredDepartment(manager, input.departmentId, "主责部门");
+    await this.members(manager, [ownerId, ...(supervisorId ? [supervisorId] : []), ...participantIds]); const departmentId = await this.requiredDepartment(manager, input.departmentId, "主责部门");
     return {
       projectName: this.requiredText(input.projectName, "项目名称", 300), projectDescription: this.requiredText(input.projectDescription, "项目描述", 10000), sourceType, sourceName: this.optionalText(input.sourceName, 300), sourceDate: this.optionalDate(input.sourceDate, "来源日期"),
       ownerId, supervisorId, departmentId, participantIds, priority, plannedStartDate, dueDate, actualDeliveryDate: this.optionalDate(input.actualDeliveryDate, "实际交付日期"),

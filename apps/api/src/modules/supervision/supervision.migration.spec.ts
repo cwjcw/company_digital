@@ -1,5 +1,6 @@
 import { ProjectTaskSupervision1722920071000 } from "../../migrations/1722920071000-ProjectTaskSupervision";
 import { SupervisionRequiredCreationFields1722920072000 } from "../../migrations/1722920072000-SupervisionRequiredCreationFields";
+import { SupervisionFormUsability1722920073000 } from "../../migrations/1722920073000-SupervisionFormUsability";
 
 describe("任务督办 migration", () => {
   it("创建三类明确业务实体、租户复合外键、约束、索引与 RLS，且不创建订单项目表", async () => {
@@ -30,5 +31,16 @@ describe("任务督办创建字段 migration", () => {
     expect(sql).toContain("('supervision-projects','actualDeliveryDate')");
     expect(sql).toContain("('supervision-tasks','actualDeliveryDate')");
     expect(sql).toContain("COALESCE(operation.update,false)");
+  });
+});
+
+describe("任务督办表单易用性 migration", () => {
+  it("督办人改为可空，并在数据库约束中移除紧急优先级", async () => {
+    const statements: string[] = [];
+    await new SupervisionFormUsability1722920073000().up({ query: async (sql: string) => { statements.push(sql); return []; } } as any);
+    const sql = statements.join("\n");
+    expect(sql).toContain("ALTER COLUMN supervisor_id DROP NOT NULL");
+    expect(sql).toContain("CHECK(priority IN ('HIGH','MEDIUM','LOW'))");
+    expect(sql).not.toContain("CHECK(priority IN ('URGENT','HIGH','MEDIUM','LOW'))");
   });
 });

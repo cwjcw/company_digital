@@ -622,7 +622,7 @@ export class SupervisionProject extends AuditedEntity {
   @Column({ name: "source_name", type: "varchar", length: 300, nullable: true }) sourceName!: string | null;
   @Column({ name: "source_date", type: "date", nullable: true }) sourceDate!: string | null;
   @Column({ name: "owner_id", type: "uuid" }) ownerId!: string;
-  @Column({ name: "supervisor_id", type: "uuid" }) supervisorId!: string;
+  @Column({ name: "supervisor_id", type: "uuid", nullable: true }) supervisorId!: string | null;
   @Column({ name: "department_id", type: "uuid", nullable: true }) departmentId!: string | null;
   @Column({ name: "participant_ids", type: "jsonb", default: () => "'[]'" }) participantIds!: string[];
   @Column({ type: "varchar", length: 20, default: "MEDIUM" }) priority!: string;

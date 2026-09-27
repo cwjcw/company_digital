@@ -4,15 +4,15 @@
 
 任务目标：为督办项目/任务表单显示必填红色星号，移除项目与任务的“紧急”优先级，并将任务管理页的权限管理入口收敛为一个。
 
-当前状态：待部署；三项代码调整和完整回归验证已完成。
+当前状态：待部署；最终必填清单一致性修正及完整回归已完成。
 
 最后更新时间：2026-09-27
 
 ### 当前阶段
 
-当前阶段：备份、提交与生产部署
+当前阶段：提交、迁移与重新部署
 
-当前子任务：生成上线前备份，提交并部署 Web/API。
+当前子任务：提交修正，执行 migration 并重新部署 Web/API。
 
 ### 已完成
 
@@ -25,20 +25,25 @@
 - [x] 已从共享督办优先级字典移除“紧急”，服务端校验直接派生该共享字典并拒绝 `URGENT`。
 - [x] 已移除任务管理工具栏中额外的任务进展权限入口，仅保留 `KdosDataTable` 自带的任务权限入口。
 - [x] 已补充共享字典契约测试和项目/任务拒绝 `URGENT` 的服务端测试。
+- [x] 最终复核确认项目“督办人”不在用户指定的必填清单内，但旧实现仍要求必填；已纳入本次修正。
 
 ### 正在进行
 
-- [ ] 备份、提交并部署当前运行环境。
+- [ ] 提交修正并重新部署当前运行环境。
 
 ### 待完成
 
 - [x] 运行专项测试、lint、typecheck、全量测试和构建。
-- [ ] 备份、提交、部署当前运行环境并执行健康检查和线上效果核验。
+- [x] 备份、提交、部署当前运行环境并执行健康检查和线上效果核验。
 
 ### 修改文件
 
 - `apps/api/src/modules/supervision/supervision.application.service.spec.ts`
 - `apps/api/src/modules/supervision/supervision.application.service.ts`
+- `apps/api/src/modules/supervision/supervision.migration.spec.ts`
+- `apps/api/src/migrations/1722920073000-SupervisionFormUsability.ts`
+- `apps/api/src/entities.ts`
+- `apps/api/src/modules/supervision/supervision.types.ts`
 - `apps/web/src/modules/supervision/SupervisionPages.tsx`
 - `packages/contracts/src/index.test.ts`
 - `packages/contracts/src/index.ts`
@@ -46,23 +51,30 @@
 
 ### 数据库 Migration
 
-- 无；当前线上不存在 `URGENT` 督办项目/任务，应用层继续作为正式写入边界。
+- 新增 `1722920073000-SupervisionFormUsability`：项目督办人改为可空；项目/任务数据库优先级约束移除 `URGENT`。当前线上不存在 `URGENT` 存量记录。
 
 ### 新增或修改测试
 
 - 督办共享优先级字典固定为高/中/低。
 - 督办项目与任务 Application Service 均拒绝已移除的 `URGENT`。
+- 项目督办人可以留空。
+- 表单易用性 migration 将督办人改为可空，并从数据库约束移除 `URGENT`。
 
 ### 已运行测试
 
 - Contracts：1 file / 21 tests 通过。
 - 督办 Application Service 专项：1 suite / 11 tests 通过。
+- 最终专项：Application Service + migration 共 2 suites / 15 tests 通过。
 - Contracts、API、Web typecheck：通过。
 - Contracts、API、Web lint：通过；Web 仅有 1 条既有 Fast Refresh warning。
-- API 全量：70 suites / 552 tests 通过，1 项既有 skip。首次与 Web 并行执行时 1 项无关 Excel 测试因 5 秒超时失败，单独完整重跑后全部通过。
+- API 最终全量：70 suites / 554 tests 通过，1 项既有 skip。
 - Web 全量：25 files / 146 tests 通过。
 - `pnpm build`：15 个工作区构建通过；Web 仅有既有大 chunk 提示。
 - `git diff --check`：通过。
+- 上线前备份：`data/backups/*_20260927_154945.*`，三份备份均已生成 SHA256。
+- 生产部署：Repository / Web / API 均为 `18b0329`，部署脚本判定 `CONSISTENT`。
+- 线上健康检查：API、Web、PostgreSQL 容器均为 healthy，`/api/v1/health` 返回 `status=ok`。
+- 线上资源核验：加载的 `index-DUargegM.js` 包含督办项目/任务页面与高/中/低优先级字典。
 
 ### 当前已知问题
 
@@ -74,9 +86,14 @@
 
 ### 下一步
 
-1. 完成代码和专项测试修改。
-2. 生成上线前备份并提交代码。
-3. 部署并核验线上页面与版本。
+1. 完成督办人非必填的代码与 migration 测试。
+2. 提交代码，执行 migration 并重新部署。
+
+### 最终报告
+
+- 提交：`18b0329 fix(supervision): clarify required fields and priorities`
+- 备份：`data/backups/*_20260927_154945.*`
+- 线上版本：Repository / Web / API 均为 `18b0329`。
 
 ---
 
