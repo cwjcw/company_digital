@@ -7,15 +7,15 @@ import type { SupervisionActor } from "./supervision.types";
 
 const physicalColumns: Record<SupervisionResource, Record<string, string>> = {
   "supervision-projects": {
-    id: "id", version: "version", projectCode: "project_code", projectName: "project_name", sourceType: "source_type", sourceName: "source_name", sourceDate: "source_date",
+    id: "id", version: "version", projectCode: "project_code", projectName: "project_name", projectDescription: "project_description", sourceType: "source_type", sourceName: "source_name", sourceDate: "source_date",
     ownerId: "owner_id", supervisorId: "supervisor_id", departmentId: "department_id", participantIds: "participant_ids", priority: "priority",
-    plannedStartDate: "planned_start_date", dueDate: "due_date", lifecycleStatus: "lifecycle_status", acceptanceCriteria: "acceptance_criteria",
+    plannedStartDate: "planned_start_date", dueDate: "due_date", actualDeliveryDate: "actual_delivery_date", lifecycleStatus: "lifecycle_status", acceptanceCriteria: "acceptance_criteria",
     completionSummary: "completion_summary", stopReason: "stop_reason", attachments: "attachments", completedAt: "completed_at",
     createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
   },
   "supervision-tasks": {
     id: "id", version: "version", taskCode: "task_code", projectId: "project_id", taskName: "task_name", description: "description", ownerId: "owner_id",
-    collaboratorIds: "collaborator_ids", departmentId: "department_id", priority: "priority", plannedStartDate: "planned_start_date", dueDate: "due_date",
+    collaboratorIds: "collaborator_ids", departmentId: "department_id", priority: "priority", plannedStartDate: "planned_start_date", dueDate: "due_date", actualDeliveryDate: "actual_delivery_date",
     lifecycleStatus: "lifecycle_status", progress: "progress", acceptanceCriteria: "acceptance_criteria", nextFollowupDate: "next_followup_date",
     completedAt: "completed_at", stopReason: "stop_reason", attachments: "attachments", createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at"
   },
@@ -37,7 +37,7 @@ export class SupervisionFilterSourceProvider implements OnModuleInit {
         code, table: code === "supervision-projects" ? "supervision_projects" : code === "supervision-tasks" ? "supervision_tasks" : "supervision_task_progress",
         columns: physicalColumns[code], expressions: Object.fromEntries(Object.entries(expressions).filter(([key]) => !physicalColumns[code][key])),
         fields: tablePermissionFieldsFor(code),
-        searchColumns: code === "supervision-projects" ? ["projectCode", "projectName", "sourceName"] : code === "supervision-tasks" ? ["taskCode", "taskName", "description"] : ["summary", "riskIssue", "nextAction"],
+        searchColumns: code === "supervision-projects" ? ["projectCode", "projectName", "projectDescription", "sourceName"] : code === "supervision-tasks" ? ["taskCode", "taskName", "description"] : ["summary", "riskIssue", "nextAction"],
         searchAliases: code === "supervision-projects" ? [
           { expression: "COALESCE((SELECT display_name FROM users WHERE id=record.owner_id),'')", permissionField: "ownerId" },
           { expression: "COALESCE((SELECT display_name FROM users WHERE id=record.supervisor_id),'')", permissionField: "supervisorId" }

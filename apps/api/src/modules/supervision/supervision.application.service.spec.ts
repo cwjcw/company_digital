@@ -28,6 +28,25 @@ describe("任务督办 Application Service 安全入口", () => {
       .toThrow(BadRequestException);
   });
 
+  it("项目当前进度只能由子任务派生，普通 PATCH 不能提交该字段", () => {
+    expect(() => service.updateProject("0199aa00-0000-7000-8000-000000000002", { progress: 50 } as any, actor(["supervision-projects:*:update"])))
+      .toThrow("项目当前进度由子任务自动计算，不能手动修改");
+  });
+
+  it("创建任务必须提供百分比当前进度，且保留创建时填写的值", async () => {
+    const manager = {
+      count: async () => 1,
+      findOneBy: async () => ({ id: "0199aa00-0000-7000-8000-000000000003", enabled: true })
+    };
+    const input = {
+      projectId: "0199aa00-0000-7000-8000-000000000002", taskName: "任务", description: "任务说明", ownerId: "0199aa00-0000-7000-8000-000000000001",
+      collaboratorIds: ["0199aa00-0000-7000-8000-000000000001"], departmentId: "0199aa00-0000-7000-8000-000000000003", priority: "HIGH",
+      plannedStartDate: "2026-09-27", dueDate: "2026-10-01", progress: 35.5, acceptanceCriteria: "验收标准"
+    };
+    await expect((service as any).taskInput(manager, { ...input, progress: undefined }, null)).rejects.toThrow("当前进度不能为空");
+    await expect((service as any).taskInput(manager, input, null)).resolves.toMatchObject({ progress: "35.50" });
+  });
+
   it("受控截止日期变更仍要求 dueDate 字段编辑权限", () => {
     expect(() => service.changeTaskDueDate("0199aa00-0000-7000-8000-000000000002", { dueDate: "2026-10-01", changeReason: "调整", expectedVersion: 1 }, actor(["supervision-tasks:*:update"])))
       .toThrow(ForbiddenException);

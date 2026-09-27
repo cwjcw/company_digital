@@ -17,9 +17,9 @@ export function hasSupervisionFieldPermission(actor: SupervisionActor, resource:
 export function supervisionColumnExpressions(resource: SupervisionResource, alias = "record"): Record<string, string> {
   const display = `CASE WHEN ${alias}.lifecycle_status='COMPLETED' THEN 'COMPLETED' WHEN ${alias}.lifecycle_status='ABORTED' THEN 'ABORTED' WHEN ${alias}.due_date < (now() AT TIME ZONE 'Asia/Shanghai')::date THEN 'OVERDUE' ELSE 'NORMAL' END`;
   if (resource === "supervision-projects") return {
-    projectCode: `${alias}.project_code`, projectName: `${alias}.project_name`, sourceType: `${alias}.source_type`, sourceName: `${alias}.source_name`, sourceDate: `${alias}.source_date`,
+    projectCode: `${alias}.project_code`, projectName: `${alias}.project_name`, projectDescription: `${alias}.project_description`, sourceType: `${alias}.source_type`, sourceName: `${alias}.source_name`, sourceDate: `${alias}.source_date`,
     ownerId: `${alias}.owner_id`, supervisorId: `${alias}.supervisor_id`, departmentId: `${alias}.department_id`, participantIds: `${alias}.participant_ids`, priority: `${alias}.priority`,
-    plannedStartDate: `${alias}.planned_start_date`, dueDate: `${alias}.due_date`, lifecycleStatus: `${alias}.lifecycle_status`, displayStatus: display,
+    plannedStartDate: `${alias}.planned_start_date`, dueDate: `${alias}.due_date`, actualDeliveryDate: `${alias}.actual_delivery_date`, lifecycleStatus: `${alias}.lifecycle_status`, displayStatus: display,
     progress: `COALESCE((SELECT round(avg(CASE WHEN task.lifecycle_status='COMPLETED' THEN 100 ELSE task.progress END),2) FROM supervision_tasks task WHERE task.tenant_id=${alias}.tenant_id AND task.project_id=${alias}.id AND task.lifecycle_status<>'ABORTED'),0)`,
     acceptanceCriteria: `${alias}.acceptance_criteria`, completionSummary: `${alias}.completion_summary`, stopReason: `${alias}.stop_reason`, attachments: `${alias}.attachments`, completedAt: `${alias}.completed_at`,
     createdBy: `${alias}.created_by`, createdAt: `${alias}.created_at`, updatedBy: `${alias}.updated_by`, updatedAt: `${alias}.updated_at`
@@ -27,7 +27,7 @@ export function supervisionColumnExpressions(resource: SupervisionResource, alia
   if (resource === "supervision-tasks") return {
     taskCode: `${alias}.task_code`, projectId: `${alias}.project_id`, projectName: `(SELECT project.project_name FROM supervision_projects project WHERE project.tenant_id=${alias}.tenant_id AND project.id=${alias}.project_id)`,
     taskName: `${alias}.task_name`, description: `${alias}.description`, ownerId: `${alias}.owner_id`, collaboratorIds: `${alias}.collaborator_ids`, departmentId: `${alias}.department_id`, priority: `${alias}.priority`,
-    plannedStartDate: `${alias}.planned_start_date`, dueDate: `${alias}.due_date`, lifecycleStatus: `${alias}.lifecycle_status`, displayStatus: display, progress: `${alias}.progress`,
+    plannedStartDate: `${alias}.planned_start_date`, dueDate: `${alias}.due_date`, actualDeliveryDate: `${alias}.actual_delivery_date`, lifecycleStatus: `${alias}.lifecycle_status`, displayStatus: display, progress: `${alias}.progress`,
     acceptanceCriteria: `${alias}.acceptance_criteria`, latestProgress: `(SELECT progress.summary FROM supervision_task_progress progress WHERE progress.tenant_id=${alias}.tenant_id AND progress.task_id=${alias}.id ORDER BY progress.created_at DESC,progress.id DESC LIMIT 1)`,
     nextFollowupDate: `${alias}.next_followup_date`, completedAt: `${alias}.completed_at`, stopReason: `${alias}.stop_reason`, attachments: `${alias}.attachments`,
     createdBy: `${alias}.created_by`, createdAt: `${alias}.created_at`, updatedBy: `${alias}.updated_by`, updatedAt: `${alias}.updated_at`

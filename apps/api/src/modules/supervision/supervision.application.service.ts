@@ -12,8 +12,8 @@ import { shanghaiDate } from "./supervision.domain";
 const sources = new Set(["IMPORTANT_MEETING", "STRATEGIC_TASK", "LEADER_ASSIGNMENT", "SPECIAL_WORK", "OTHER"]);
 const priorities = new Set(["URGENT", "HIGH", "MEDIUM", "LOW"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const projectFields = ["projectName", "sourceType", "sourceName", "sourceDate", "ownerId", "supervisorId", "departmentId", "participantIds", "priority", "plannedStartDate", "dueDate", "acceptanceCriteria", "attachments"];
-const taskFields = ["projectId", "taskName", "description", "ownerId", "collaboratorIds", "departmentId", "priority", "plannedStartDate", "acceptanceCriteria", "nextFollowupDate", "attachments"];
+const projectFields = ["projectName", "projectDescription", "sourceType", "sourceName", "sourceDate", "ownerId", "supervisorId", "departmentId", "participantIds", "priority", "plannedStartDate", "dueDate", "actualDeliveryDate", "acceptanceCriteria", "attachments"];
+const taskFields = ["projectId", "taskName", "description", "ownerId", "collaboratorIds", "departmentId", "priority", "plannedStartDate", "actualDeliveryDate", "acceptanceCriteria", "nextFollowupDate", "attachments"];
 
 @Injectable()
 export class SupervisionApplicationService {
@@ -21,6 +21,7 @@ export class SupervisionApplicationService {
 
   createProject(input: ProjectInput, actor: SupervisionActor) {
     this.assertAction(actor, "supervision-projects", "create");
+    this.assertProjectProgressIsDerived(input);
     return this.transaction(actor, async (manager) => {
       const normalized = await this.projectInput(manager, input);
       this.assertAttachmentTenant(normalized.attachments, actor);
@@ -39,6 +40,7 @@ export class SupervisionApplicationService {
 
   updateProject(id: string, input: Partial<ProjectInput>, actor: SupervisionActor) {
     this.assertAction(actor, "supervision-projects", "update");
+    this.assertProjectProgressIsDerived(input);
     return this.transaction(actor, async (manager) => {
       const project = await this.lockProject(manager, id, actor, "update");
       this.assertVersion(project.version, input.expectedVersion);
@@ -68,7 +70,7 @@ export class SupervisionApplicationService {
       if (!active.length) throw new BadRequestException("项目至少需要一个未中止任务后才能完成");
       if (active.some((task) => task.lifecycleStatus !== "COMPLETED")) throw new BadRequestException("仍有未完成任务，不能完成项目");
       const before = this.projectAudit(project);
-      project.lifecycleStatus = "COMPLETED"; project.completedAt = new Date(); project.completionSummary = summary;
+      project.lifecycleStatus = "COMPLETED"; project.completedAt = new Date(); project.actualDeliveryDate ??= shanghaiDate(project.completedAt); project.completionSummary = summary;
       project.version += 1; project.updatedBy = actor.userId ?? actor.username;
       await manager.save(SupervisionProject, project);
       await this.audit(manager, actor, "supervision-projects", id, "supervision.project.completed", before, this.projectAudit(project));
@@ -117,7 +119,7 @@ export class SupervisionApplicationService {
 
   updateTask(id: string, input: Partial<TaskInput>, actor: SupervisionActor) {
     this.assertAction(actor, "supervision-tasks", "update");
-    if (Object.prototype.hasOwnProperty.call(input, "dueDate")) throw new BadRequestException("任务截止日期必须通过“修改截止日期”操作调整");
+    if (Object.prototype.hasOwnProperty.call(input, "dueDate")) throw new BadRequestException("预计交付日期必须通过“修改预计交付日期”操作调整");
     if (Object.prototype.hasOwnProperty.call(input, "progress")) throw new BadRequestException("任务进度必须通过“更新进展”操作调整");
     return this.transaction(actor, async (manager) => {
       const task = await this.lockTask(manager, id, actor, "update");
@@ -171,13 +173,13 @@ export class SupervisionApplicationService {
     return this.transaction(actor, async (manager) => {
       const task = await this.lockTask(manager, id, actor, "update");
       this.assertVersion(task.version, input.expectedVersion);
-      if (["COMPLETED", "ABORTED"].includes(task.lifecycleStatus)) throw new BadRequestException("已结束任务不能修改截止日期");
-      const dueDate = this.requiredDate(input.dueDate, "调整后截止日期");
-      if (task.plannedStartDate && dueDate < task.plannedStartDate) throw new BadRequestException("任务截止日期不能早于计划开始日期");
+      if (["COMPLETED", "ABORTED"].includes(task.lifecycleStatus)) throw new BadRequestException("已结束任务不能修改预计交付日期");
+      const dueDate = this.requiredDate(input.dueDate, "调整后预计交付日期");
+      if (task.plannedStartDate && dueDate < task.plannedStartDate) throw new BadRequestException("预计交付日期不能早于计划开始日期");
       const reason = this.requiredText(input.changeReason, "变更原因", 5000);
       const before = this.taskAudit(task); const priorDueDate = task.dueDate;
       task.dueDate = dueDate; task.version += 1; task.updatedBy = actor.userId ?? actor.username;
-      const record = this.progressRecord(actor, task, { updateType: "DUE_DATE_CHANGE", progress: task.progress, summary: `截止日期由 ${priorDueDate} 调整为 ${dueDate}`,
+      const record = this.progressRecord(actor, task, { updateType: "DUE_DATE_CHANGE", progress: task.progress, summary: `预计交付日期由 ${priorDueDate} 调整为 ${dueDate}`,
         riskIssue: null, nextAction: null, nextFollowupDate: task.nextFollowupDate, proposedDueDate: dueDate, changeReason: reason, attachments: [] });
       await manager.save(SupervisionTask, task); await manager.save(SupervisionTaskProgress, record);
       await this.audit(manager, actor, "supervision-tasks", task.id, "supervision.task.due_date_changed", before, { ...this.taskAudit(task), changeReason: reason });
@@ -194,7 +196,7 @@ export class SupervisionApplicationService {
       if (task.lifecycleStatus === "ABORTED") throw new BadRequestException("已中止任务不能完成");
       if (task.lifecycleStatus === "COMPLETED") throw new BadRequestException("任务已经完成");
       const summary = this.requiredText(input.completionSummary, "完成说明", 10000); const before = this.taskAudit(task);
-      task.lifecycleStatus = "COMPLETED"; task.progress = "100.00"; task.completedAt = new Date(); task.version += 1; task.updatedBy = actor.userId ?? actor.username;
+      task.lifecycleStatus = "COMPLETED"; task.progress = "100.00"; task.completedAt = new Date(); task.actualDeliveryDate ??= shanghaiDate(task.completedAt); task.version += 1; task.updatedBy = actor.userId ?? actor.username;
       const record = this.progressRecord(actor, task, { updateType: "COMPLETION", progress: "100.00", summary, riskIssue: null, nextAction: null,
         nextFollowupDate: task.nextFollowupDate, proposedDueDate: null, changeReason: null, attachments: this.attachments(input.attachments) });
       this.assertAttachmentTenant(record.attachments, actor);
@@ -237,6 +239,9 @@ export class SupervisionApplicationService {
   }
   private assertFields(actor: SupervisionActor, resource: string, fields: string[]) {
     for (const field of fields) if (!hasSupervisionFieldPermission(actor, resource, field, "update")) throw new ForbiddenException(`字段 ${field} 没有编辑权限`);
+  }
+  private assertProjectProgressIsDerived(input: unknown) {
+    if (input && typeof input === "object" && Object.prototype.hasOwnProperty.call(input, "progress")) throw new BadRequestException("项目当前进度由子任务自动计算，不能手动修改");
   }
   private assertVersion(current: number, expected: unknown) {
     if (!Number.isInteger(Number(expected)) || Number(expected) < 1) throw new BadRequestException("缺少有效的数据版本，请刷新后重试");
@@ -284,31 +289,34 @@ export class SupervisionApplicationService {
   }
 
   private async projectInput(manager: EntityManager, input: ProjectInput) {
-    const plannedStartDate = this.requiredDate(input.plannedStartDate, "计划开始日期"); const dueDate = this.requiredDate(input.dueDate, "项目交付日期");
-    if (plannedStartDate > dueDate) throw new BadRequestException("项目交付日期不能早于计划开始日期");
-    const sourceType = this.optionalText(input.sourceType, 40); if (sourceType && !sources.has(sourceType)) throw new BadRequestException("来源类型无效");
+    const plannedStartDate = this.requiredDate(input.plannedStartDate, "计划开始日期"); const dueDate = this.requiredDate(input.dueDate, "预计交付日期");
+    if (plannedStartDate > dueDate) throw new BadRequestException("预计交付日期不能早于计划开始日期");
+    const sourceType = this.requiredText(input.sourceType, "来源类型", 40); if (!sources.has(sourceType)) throw new BadRequestException("来源类型无效");
     const priority = String(input.priority ?? "MEDIUM"); if (!priorities.has(priority)) throw new BadRequestException("优先级无效");
     const ownerId = String(input.ownerId ?? ""); const supervisorId = String(input.supervisorId ?? ""); const participantIds = this.ids(input.participantIds);
     if (!ownerId || !supervisorId) throw new BadRequestException("项目负责人和督办人不能为空");
-    await this.members(manager, [ownerId, supervisorId, ...participantIds]); const departmentId = await this.department(manager, input.departmentId);
+    if (!participantIds.length) throw new BadRequestException("参与人不能为空");
+    await this.members(manager, [ownerId, supervisorId, ...participantIds]); const departmentId = await this.requiredDepartment(manager, input.departmentId, "主责部门");
     return {
-      projectName: this.requiredText(input.projectName, "项目名称", 300), sourceType, sourceName: this.optionalText(input.sourceName, 300), sourceDate: this.optionalDate(input.sourceDate, "来源日期"),
-      ownerId, supervisorId, departmentId, participantIds, priority, plannedStartDate, dueDate,
+      projectName: this.requiredText(input.projectName, "项目名称", 300), projectDescription: this.requiredText(input.projectDescription, "项目描述", 10000), sourceType, sourceName: this.optionalText(input.sourceName, 300), sourceDate: this.optionalDate(input.sourceDate, "来源日期"),
+      ownerId, supervisorId, departmentId, participantIds, priority, plannedStartDate, dueDate, actualDeliveryDate: this.optionalDate(input.actualDeliveryDate, "实际交付日期"),
       acceptanceCriteria: this.requiredText(input.acceptanceCriteria, "完成/验收标准", 10000), attachments: this.attachments(input.attachments)
     };
   }
   private async taskInput(manager: EntityManager, input: TaskInput, existing: SupervisionTask | null) {
     const projectId = String(existing?.projectId ?? input.projectId ?? "");
     if (!projectId) throw new BadRequestException("所属督办项目不能为空");
-    const ownerId = String(input.ownerId ?? ""); if (!ownerId) throw new BadRequestException("任务责任人不能为空");
-    const collaboratorIds = this.ids(input.collaboratorIds); await this.members(manager, [ownerId, ...collaboratorIds]);
-    const departmentId = await this.department(manager, input.departmentId); const priority = String(input.priority ?? "MEDIUM");
+    const ownerId = String(input.ownerId ?? ""); if (!ownerId) throw new BadRequestException("任务负责人不能为空");
+    const collaboratorIds = this.ids(input.collaboratorIds); if (!collaboratorIds.length) throw new BadRequestException("参与人不能为空"); await this.members(manager, [ownerId, ...collaboratorIds]);
+    const departmentId = await this.requiredDepartment(manager, input.departmentId, "主责部门"); const priority = String(input.priority ?? "MEDIUM");
     if (!priorities.has(priority)) throw new BadRequestException("优先级无效");
-    const dueDate = this.requiredDate(input.dueDate, "任务截止日期"); const plannedStartDate = this.optionalDate(input.plannedStartDate, "计划开始日期");
-    if (plannedStartDate && plannedStartDate > dueDate) throw new BadRequestException("任务截止日期不能早于计划开始日期");
+    const dueDate = this.requiredDate(input.dueDate, "预计交付日期"); const plannedStartDate = this.requiredDate(input.plannedStartDate, "计划开始日期");
+    if (plannedStartDate > dueDate) throw new BadRequestException("预计交付日期不能早于计划开始日期");
+    const currentProgress = existing?.progress ?? input.progress;
+    if (currentProgress == null) throw new BadRequestException("当前进度不能为空");
     return {
-      projectId, taskName: this.requiredText(input.taskName, "任务名称", 300), description: this.optionalText(input.description, 10000), ownerId, collaboratorIds, departmentId, priority,
-      plannedStartDate, dueDate, progress: this.progress(existing?.progress ?? 0).toFixed(2),
+      projectId, taskName: this.requiredText(input.taskName, "任务名称", 300), description: this.requiredText(input.description, "任务说明", 10000), ownerId, collaboratorIds, departmentId, priority,
+      plannedStartDate, dueDate, actualDeliveryDate: this.optionalDate(input.actualDeliveryDate, "实际交付日期"), progress: this.progress(currentProgress).toFixed(2),
       acceptanceCriteria: this.requiredText(input.acceptanceCriteria, "任务完成标准", 10000), nextFollowupDate: this.optionalDate(input.nextFollowupDate, "下次跟进日期"), attachments: this.attachments(input.attachments)
     };
   }
@@ -318,8 +326,9 @@ export class SupervisionApplicationService {
   }
   private async department(manager: EntityManager, raw: unknown) {
     if (raw == null || raw === "") return null; const id = String(raw);
-    if (!await manager.findOneBy(OrganizationUnit, { id, enabled: true })) throw new BadRequestException("责任部门不存在或已停用"); return id;
+    if (!await manager.findOneBy(OrganizationUnit, { id, enabled: true })) throw new BadRequestException("主责部门不存在或已停用"); return id;
   }
+  private async requiredDepartment(manager: EntityManager, raw: unknown, label: string) { const departmentId = await this.department(manager, raw); if (!departmentId) throw new BadRequestException(`${label}不能为空`); return departmentId; }
   private progressRecord(actor: SupervisionActor, task: SupervisionTask, value: Omit<SupervisionTaskProgress, keyof import("../../entities").AuditedEntity | "id" | "tenantId" | "taskId" | "projectId">) {
     return Object.assign(new SupervisionTaskProgress(), value, { id: uuidv7(), tenantId: actor.tenantId, taskId: task.id, projectId: task.projectId, createdBy: actor.userId, updatedBy: actor.userId ?? actor.username, version: 1 });
   }
@@ -339,7 +348,7 @@ export class SupervisionApplicationService {
   private optionalText(value: unknown, max: number) { if (value == null || String(value).trim() === "") return null; const text = String(value).trim(); if (text.length > max) throw new BadRequestException(`文本不能超过 ${max} 个字符`); return text; }
   private requiredDate(value: unknown, label: string) { const date = String(value ?? ""); if (!datePattern.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`); return date; }
   private optionalDate(value: unknown, label: string) { return value == null || value === "" ? null : this.requiredDate(value, label); }
-  private progress(value: unknown) { const number = Number(value); if (!Number.isFinite(number) || number < 0 || number > 100) throw new BadRequestException("完成进度必须在 0 到 100 之间"); return Math.round(number * 100) / 100; }
+  private progress(value: unknown) { const number = Number(value); if (!Number.isFinite(number) || number < 0 || number > 100) throw new BadRequestException("当前进度必须在 0 到 100 之间"); return Math.round(number * 100) / 100; }
   private ids(value: unknown) { if (value == null) return []; if (!Array.isArray(value)) throw new BadRequestException("多选成员格式无效"); return [...new Set(value.map(String).filter(Boolean))]; }
   private attachments(value: unknown): SupervisionAttachment[] {
     if (value == null) return []; if (!Array.isArray(value) || value.length > 20) throw new BadRequestException("附件列表格式无效或超过 20 个");

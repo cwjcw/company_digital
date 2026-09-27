@@ -6,6 +6,7 @@ import { EquipmentFilterSourceProvider } from "../../modules/equipment/equipment
 import { SupplyChainFilterSourceProvider } from "../../modules/supply-chain/supply-chain.filter-sources";
 import { AuditFilterSourceProvider } from "../../modules/audit/audit.filter-sources";
 import { MarketingFilterSourceProvider } from "../../modules/marketing/marketing.filter-sources";
+import { SupervisionFilterSourceProvider } from "../../modules/supervision/supervision.filter-sources";
 import { SystemFilterSourceProvider } from "./system-filter-sources";
 
 /**
@@ -24,6 +25,7 @@ function buildRegistry() {
   new MarketingFilterSourceProvider(registry, { pool: { query: async () => ({ rows: [] }) } } as never, {
     listEnabledUsers: async () => [], listEnabledOrganizations: async () => []
   } as never).onModuleInit();
+  new SupervisionFilterSourceProvider(registry, {} as never).onModuleInit();
   return registry;
 }
 

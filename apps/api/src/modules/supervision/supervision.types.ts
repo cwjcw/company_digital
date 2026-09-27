@@ -17,16 +17,16 @@ export type SupervisionActor = {
 };
 
 export type ProjectInput = {
-  projectName: string; sourceType?: string | null; sourceName?: string | null; sourceDate?: string | null;
+  projectName: string; projectDescription: string; sourceType?: string | null; sourceName?: string | null; sourceDate?: string | null;
   ownerId: string; supervisorId: string; departmentId?: string | null; participantIds?: string[];
-  priority?: string; plannedStartDate: string; dueDate: string; acceptanceCriteria: string;
+  priority?: string; plannedStartDate: string; dueDate: string; actualDeliveryDate?: string | null; acceptanceCriteria: string;
   attachments?: SupervisionAttachment[]; expectedVersion?: number;
 };
 
 export type TaskInput = {
   projectId: string; taskName: string; description?: string | null; ownerId: string; collaboratorIds?: string[];
   departmentId?: string | null; priority?: string; plannedStartDate?: string | null; dueDate?: string;
-  progress?: number; acceptanceCriteria: string; nextFollowupDate?: string | null;
+  actualDeliveryDate?: string | null; progress?: number; acceptanceCriteria: string; nextFollowupDate?: string | null;
   attachments?: SupervisionAttachment[]; expectedVersion?: number;
 };
 

@@ -616,6 +616,8 @@ export class SupervisionProject extends AuditedEntity {
   @Column({ name: "tenant_id", type: "varchar", length: 64 }) tenantId!: string;
   @Column({ name: "project_code", type: "varchar", length: 40 }) projectCode!: string;
   @Column({ name: "project_name", type: "varchar", length: 300 }) projectName!: string;
+  // 历史项目在 002 迁移前没有项目描述；新的写入由 Application Service 强制必填。
+  @Column({ name: "project_description", type: "text", nullable: true }) projectDescription!: string | null;
   @Column({ name: "source_type", type: "varchar", length: 40, nullable: true }) sourceType!: string | null;
   @Column({ name: "source_name", type: "varchar", length: 300, nullable: true }) sourceName!: string | null;
   @Column({ name: "source_date", type: "date", nullable: true }) sourceDate!: string | null;
@@ -626,6 +628,7 @@ export class SupervisionProject extends AuditedEntity {
   @Column({ type: "varchar", length: 20, default: "MEDIUM" }) priority!: string;
   @Column({ name: "planned_start_date", type: "date" }) plannedStartDate!: string;
   @Column({ name: "due_date", type: "date" }) dueDate!: string;
+  @Column({ name: "actual_delivery_date", type: "date", nullable: true }) actualDeliveryDate!: string | null;
   @Column({ name: "lifecycle_status", type: "varchar", length: 30, default: "NOT_STARTED" }) lifecycleStatus!: SupervisionLifecycleStatus;
   @Column({ name: "acceptance_criteria", type: "text" }) acceptanceCriteria!: string;
   @Column({ name: "completion_summary", type: "text", nullable: true }) completionSummary!: string | null;
@@ -653,6 +656,7 @@ export class SupervisionTask extends AuditedEntity {
   @Column({ type: "varchar", length: 20, default: "MEDIUM" }) priority!: string;
   @Column({ name: "planned_start_date", type: "date", nullable: true }) plannedStartDate!: string | null;
   @Column({ name: "due_date", type: "date" }) dueDate!: string;
+  @Column({ name: "actual_delivery_date", type: "date", nullable: true }) actualDeliveryDate!: string | null;
   @Column({ name: "lifecycle_status", type: "varchar", length: 30, default: "NOT_STARTED" }) lifecycleStatus!: SupervisionLifecycleStatus;
   @Column({ type: "numeric", precision: 5, scale: 2, default: 0 }) progress!: string;
   @Column({ name: "acceptance_criteria", type: "text" }) acceptanceCriteria!: string;

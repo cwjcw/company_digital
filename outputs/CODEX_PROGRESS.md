@@ -1,5 +1,77 @@
 # Codex 工作进度
 
+## 当前任务：SUPERVISION-CREATION-FIELDS-001
+
+任务目标：调整创建督办项目/任务的字段、必填规则、字段名称及交付/进度记录，并完成当前运行环境部署核验。
+
+当前状态：进行中；已完成字段契约、应用服务、查询投影和前端表单的第一轮修改，待补迁移测试与构建验证。
+
+最后更新时间：2026-09-27
+
+### 当前阶段
+
+当前阶段：实现复核与自动化验证
+
+当前子任务：修正应用服务实现，补充迁移与行为测试，然后执行 typecheck、专项测试与部署。
+
+### 已完成
+
+- [x] 已阅读项目规范、架构/安全边界、运行手册、集成说明及 KDOS 表单规范。
+- [x] 已确认项目“当前进度”原本就是由非中止子任务进度平均值实时派生。
+- [x] 已增加项目描述、实际交付日期的实体/字段契约与筛选投影。
+- [x] 已将主责部门、参与人、预计交付日期和当前进度名称同步到创建表单及主要列表。
+- [x] 已将项目描述、来源类型、主责部门、参与人、任务说明、计划开始日期及创建任务当前进度纳入服务端必填校验。
+
+### 正在进行
+
+- [ ] 修正并验证创建任务当前进度的服务端取值。
+- [ ] 补充迁移和业务规则测试。
+
+### 待完成
+
+- [ ] 运行 API/Web typecheck、专项测试和构建。
+- [ ] 备份、执行数据库 migration、部署到当前运行环境并健康核验。
+
+### 修改文件
+
+- `apps/api/src/entities.ts`
+- `apps/api/src/migrations/1722920072000-SupervisionRequiredCreationFields.ts`
+- `apps/api/src/modules/supervision/supervision.application.service.ts`
+- `apps/api/src/modules/supervision/supervision.filter-sources.ts`
+- `apps/api/src/modules/supervision/supervision.scope.ts`
+- `apps/api/src/modules/supervision/supervision.types.ts`
+- `apps/web/src/modules/supervision/SupervisionPages.tsx`
+- `packages/contracts/src/index.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 待执行：`1722920072000-SupervisionRequiredCreationFields`，为督办项目新增 `project_description`、项目/任务新增 `actual_delivery_date`。历史记录不伪造业务描述或组织归属；新建记录由 Application Service 严格校验必填字段。
+
+### 新增或修改测试
+
+- 待补：迁移列、创建任务当前进度、项目进度不可直接写入及必填字段校验。
+
+### 已运行测试
+
+- `git diff --check`：待修正当前实现后重跑。
+
+### 当前已知问题
+
+- 无业务阻塞；存量记录可能没有新启用的必填字段，已按历史兼容原则保留为空，新建/修改必须由服务端补齐。
+
+### 等待用户确认
+
+- 无。
+
+### 下一步
+
+1. 修正当前进度变量作用域并检查全部字段映射。
+2. 补齐测试并执行本地验证。
+3. 备份、迁移、部署和线上核验。
+
+---
+
 ## 当前任务：KDOS-DEPLOY-VERSION-GUARD-001
 
 任务目标：让 Web/API 在构建时内嵌完整与短 Git SHA，Web 页面和机器可读端点可查看版本，并用统一部署脚本保证 Repository HEAD、Web SHA、API SHA 一致。
