@@ -1,9 +1,7 @@
 FROM node:24-bookworm-slim AS build
 
-ARG KDOS_BUILD_SHA=unknown
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-ENV VITE_KDOS_BUILD_SHA=$KDOS_BUILD_SHA
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
@@ -14,12 +12,14 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/permissions/package.json packages/permissions/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=kdos-web-pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
 COPY apps/web apps/web
 COPY packages/shared packages/shared
 COPY packages/contracts packages/contracts
 COPY packages/permissions packages/permissions
+ARG KDOS_BUILD_SHA=unknown
+ENV VITE_KDOS_BUILD_SHA=$KDOS_BUILD_SHA
 RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
 
 FROM nginx:1.28-alpine AS runtime

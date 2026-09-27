@@ -4,15 +4,15 @@
 
 任务目标：为督办项目/任务表单显示必填红色星号，移除项目与任务的“紧急”优先级，并将任务管理页的权限管理入口收敛为一个。
 
-当前状态：待部署；最终必填清单一致性修正及完整回归已完成。
+当前状态：部署重试中；最终修正与完整回归已完成，首次新镜像构建因 npm 镜像超时失败，线上旧版本保持健康。
 
 最后更新时间：2026-09-27
 
 ### 当前阶段
 
-当前阶段：提交、迁移与重新部署
+当前阶段：部署构建缓存修复与重试
 
-当前子任务：提交修正，执行 migration 并重新部署 Web/API。
+当前子任务：修复 Web 镜像依赖缓存失效问题，重新构建后执行 migration 与切换。
 
 ### 已完成
 
@@ -26,6 +26,8 @@
 - [x] 已移除任务管理工具栏中额外的任务进展权限入口，仅保留 `KdosDataTable` 自带的任务权限入口。
 - [x] 已补充共享字典契约测试和项目/任务拒绝 `URGENT` 的服务端测试。
 - [x] 最终复核确认项目“督办人”不在用户指定的必填清单内，但旧实现仍要求必填；已纳入本次修正。
+- [x] 已确认 Web Dockerfile 在依赖安装前注入 Git SHA，导致每次提交都让依赖层缓存失效；外部镜像源连续超时后部署无法完成但未切换线上容器。
+- [x] 已将 SHA 注入移动到 Web 编译阶段，并为 pnpm store 增加 BuildKit 缓存，避免后续提交重复下载全部依赖。
 
 ### 正在进行
 
@@ -45,6 +47,7 @@
 - `apps/api/src/entities.ts`
 - `apps/api/src/modules/supervision/supervision.types.ts`
 - `apps/web/src/modules/supervision/SupervisionPages.tsx`
+- `apps/web/Dockerfile`
 - `packages/contracts/src/index.test.ts`
 - `packages/contracts/src/index.ts`
 - `outputs/CODEX_PROGRESS.md`
@@ -75,6 +78,7 @@
 - 生产部署：Repository / Web / API 均为 `18b0329`，部署脚本判定 `CONSISTENT`。
 - 线上健康检查：API、Web、PostgreSQL 容器均为 healthy，`/api/v1/health` 返回 `status=ok`。
 - 线上资源核验：加载的 `index-DUargegM.js` 包含督办项目/任务页面与高/中/低优先级字典。
+- 最终修正首次部署构建：API 新镜像成功；Web 依赖下载至 1078/1081 后因外部 registry timeout 失败，未执行 migration 或切换，线上 `18b0329` 保持健康。
 
 ### 当前已知问题
 
