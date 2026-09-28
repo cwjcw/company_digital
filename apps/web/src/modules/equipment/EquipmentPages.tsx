@@ -227,6 +227,7 @@ export function EquipmentStatusReportPage() {
   const [importing, setImporting] = useState(false); const [confirmingImport, setConfirmingImport] = useState(false);
   const [exporting, setExporting] = useState(false); const [importPreview, setImportPreview] = useState<StatusImportPreview>();
   const [importError, setImportError] = useState<string>();
+  const [confirmImportError, setConfirmImportError] = useState<string>();
   const [form] = Form.useForm();
   const permissions = useEquipmentPermissions("equipment-status-report");
   const { canRead, canCreate, canUpdate, canDelete, canImport, canExport } = permissions;
@@ -240,25 +241,31 @@ export function EquipmentStatusReportPage() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["equipment-status"] });
   const equipmentOptions = (options.data?.equipment ?? []).map((item) => ({ value: item.id, label: `${item.equipmentCode}｜${item.equipmentName}｜${item.divisionName}` }));
   const previewImport = async (file: File) => {
-    setImportError(undefined); setImportPreview(undefined);
+    setImportError(undefined); setConfirmImportError(undefined); setImportPreview(undefined);
     const body = new FormData(); body.append("file", file); setImporting(true);
     try {
       const preview = await api<StatusImportPreview>("/equipment/status-reports/import-preview", { method: "POST", body });
-      setImportError(undefined); setImportPreview(preview);
+      setImportError(undefined); setConfirmImportError(undefined); setImportPreview(preview);
     } catch (error) { setImportError(errorText(error)); }
     finally { setImporting(false); }
     return false;
   };
   const confirmImport = async () => {
     if (!importPreview || importPreview.errors.length) return;
+    setConfirmImportError(undefined);
     setConfirmingImport(true);
     try {
       const result = await api<{ created: number; updated: number; unchanged: number; repeated: boolean }>("/equipment/status-reports/import-confirm", {
         method: "POST", body: JSON.stringify({ fileHash: importPreview.fileHash, signature: importPreview.signature, rows: importPreview.rows })
       });
       message.success(result.repeated ? "该文件已经导入，本次未重复写入" : `导入完成：新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条`);
+      setConfirmImportError(undefined);
       setImportPreview(undefined); refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
-    } catch (error) { message.error(errorText(error)); }
+    } catch (error) {
+      const text = errorText(error);
+      setConfirmImportError(text);
+      message.error(text);
+    }
     finally { setConfirmingImport(false); }
   };
   const exportRows = async () => {
@@ -382,6 +389,7 @@ export function EquipmentStatusReportPage() {
     <Modal title="设备状态导入预览" width={760} open={Boolean(importPreview)} onCancel={() => setImportPreview(undefined)}
       okText="确认导入" okButtonProps={{ disabled: Boolean(importPreview?.errors.length || !importPreview?.rows.length) }} confirmLoading={confirmingImport} onOk={() => void confirmImport()} destroyOnHidden>
         {importPreview && <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        {confirmImportError && <Alert type="error" showIcon message="导入失败" description={confirmImportError} />}
         <Alert type={importPreview.errors.length ? "error" : "success"} showIcon
           message={importPreview.errors.length ? `发现 ${importPreview.errors.length} 项错误，修正文件后重新导入` : "文件校验通过，可以确认导入"}
           description={`共 ${importPreview.total} 条；预计新增 ${importPreview.createCount} 条、更新 ${importPreview.updateCount} 条、未变化 ${importPreview.unchangedCount} 条。`} />

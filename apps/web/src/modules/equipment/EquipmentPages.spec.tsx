@@ -163,6 +163,75 @@ describe("EquipmentStatusReportPage live permissions", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "下载最新模板" }));
     await waitFor(() => expect(vi.mocked(downloadApiFile)).toHaveBeenCalledWith("/equipment/status-reports/import-template", "设备状态填报导入模板.xlsx"));
   });
+
+  it("keeps confirmation failures in the preview modal and clears them on a successful retry", async () => {
+    let confirmAttempts = 0;
+    const confirmError = "ck_equipment_status_planned_runtime：计划运行时间必须为非负数";
+    const preview = {
+      fileHash: "a".repeat(64), signature: "signature", total: 1, createCount: 1, updateCount: 0, unchangedCount: 0,
+      rows: [{ rowNumber: 2, divisionName: "事业一部", equipmentCode: "KN-020YK005", equipmentName: "设备甲", reportDate: "2026-09-26", plannedRuntimeMinutes: 0, runtimeMinutes: 0, faultMinutes: 0, faultReason: null, equipmentId: "asset-1", action: "CREATE" }],
+      errors: []
+    };
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/auth/me") return { permissions: ["equipment-status-report:*:read", "equipment-status-report:*:import"] } as never;
+      if (path === "/table-filters/resources") return [{ code: "equipment-status-report", filterableFields: ["equipmentCode"] }] as never;
+      if (path.startsWith("/equipment/status-reports?")) return { rows: [], total: 0, page: 1, pageSize: 50 } as never;
+      if (path === "/equipment/status-reports/import-preview") return preview as never;
+      if (path === "/equipment/status-reports/import-confirm" && init?.method === "POST") {
+        confirmAttempts += 1;
+        if (confirmAttempts === 1) throw new Error(confirmError);
+        return { created: 1, updated: 0, unchanged: 0, repeated: false } as never;
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage();
+    const upload = await screen.findByRole("button", { name: /导入/ });
+    const input = upload.closest("span")?.querySelector("input[type=file]") ?? document.querySelector("input[type=file]");
+    const file = new File(["zero-runtime"], "设备状态.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    const dialog = await screen.findByRole("dialog", { name: "设备状态导入预览" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认导入" }));
+    await waitFor(() => expect(within(dialog).getByText("导入失败")).toBeInTheDocument());
+    expect(within(dialog).getByText(confirmError)).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认导入" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "设备状态导入预览" })).not.toBeInTheDocument());
+    expect(confirmAttempts).toBe(2);
+  });
+
+  it("clears a confirmation failure when a new file enters preview", async () => {
+    const confirmError = "导入事务失败，请稍后重试";
+    const preview = {
+      fileHash: "b".repeat(64), signature: "signature", total: 1, createCount: 1, updateCount: 0, unchangedCount: 0,
+      rows: [{ rowNumber: 2, divisionName: "事业一部", equipmentCode: "KN-020YK005", equipmentName: "设备甲", reportDate: "2026-09-26", plannedRuntimeMinutes: 0, runtimeMinutes: 0, faultMinutes: 0, faultReason: null, equipmentId: "asset-1", action: "CREATE" }],
+      errors: []
+    };
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/auth/me") return { permissions: ["equipment-status-report:*:read", "equipment-status-report:*:import"] } as never;
+      if (path === "/table-filters/resources") return [{ code: "equipment-status-report", filterableFields: ["equipmentCode"] }] as never;
+      if (path.startsWith("/equipment/status-reports?")) return { rows: [], total: 0, page: 1, pageSize: 50 } as never;
+      if (path === "/equipment/status-reports/import-preview") return { ...preview, fileHash: `${preview.fileHash.slice(0, 63)}${String(vi.mocked(api).mock.calls.filter(([calledPath]) => calledPath === path).length)}` } as never;
+      if (path === "/equipment/status-reports/import-confirm" && init?.method === "POST") throw new Error(confirmError);
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage();
+    const upload = await screen.findByRole("button", { name: /导入/ });
+    const input = upload.closest("span")?.querySelector("input[type=file]") ?? document.querySelector("input[type=file]");
+    const file = new File(["first"], "设备状态-1.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    const dialog = await screen.findByRole("dialog", { name: "设备状态导入预览" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认导入" }));
+    await waitFor(() => expect(within(dialog).getByText(confirmError)).toBeInTheDocument());
+
+    const newFile = new File(["second"], "设备状态-2.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const newInput = document.querySelector("input[type=file]") ?? input;
+    fireEvent.change(newInput!, { target: { files: [newFile] } });
+    await waitFor(() => expect(vi.mocked(api).mock.calls.filter(([calledPath]) => calledPath === "/equipment/status-reports/import-preview")).toHaveLength(2), { timeout: 15_000 });
+    const newDialog = await screen.findByRole("dialog", { name: "设备状态导入预览" });
+    expect(within(newDialog).queryByText(confirmError)).not.toBeInTheDocument();
+  }, 15_000);
 });
 
 describe("EquipmentRegisterPage server filters", () => {

@@ -131,6 +131,37 @@ describe("equipment permissions and validation", () => {
     expect(() => service.requiredMinutes(undefined, "计划运行时间")).toThrow("必须填写");
   });
 
+  it("previews and confirms a zero planned-runtime status without changing other duration rules", async () => {
+    const reportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+    const asset = {
+      id: "asset-zero-runtime", tenantId: "KAINAN", divisionOrganizationUnitId: "division-1", divisionNameSnapshot: "事业一部",
+      usageDepartmentOrganizationUnitId: null, usageDepartmentNameSnapshot: "生产部", equipmentCode: "KN-020YK005", equipmentName: "设备甲",
+      active: true, monitored: true, createdBy: actor().userId, version: 1
+    };
+    const reportQuery = { setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null) };
+    const dictionaryQuery = { innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getMany: jest.fn().mockResolvedValue([]) };
+    const manager = {
+      find: jest.fn().mockResolvedValue([asset]),
+      findOneBy: jest.fn().mockImplementation((entity: { name?: string }) => Promise.resolve(entity.name === "EquipmentAsset" ? asset : null)),
+      createQueryBuilder: jest.fn()
+        .mockReturnValueOnce(dictionaryQuery)
+        .mockReturnValueOnce(reportQuery),
+      create: jest.fn((_entity: unknown, value: unknown) => value),
+      save: jest.fn().mockImplementation((_entity: unknown, value: unknown) => Promise.resolve(value))
+    };
+    const dataSource = { manager, transaction: jest.fn((work: (value: unknown) => unknown) => work(manager)) };
+    const service = new EquipmentApplicationService(dataSource as never);
+    const importActor = actor({ permissions: ["equipment-status-report:*:import"], isSystemAdmin: true });
+    const source = { rowNumber: 2, divisionName: "事业一部", equipmentCode: "KN-020YK005", reportDate, plannedRuntimeMinutes: 0, runtimeMinutes: 0, faultMinutes: 0, faultReason: null };
+
+    const preview = await service.previewStatusImport([source], importActor);
+    expect(preview).toMatchObject({ errors: [], rows: [expect.objectContaining({ plannedRuntimeMinutes: 0 })] });
+
+    const result = await service.confirmStatusImport([{ ...preview.rows[0]!, equipmentId: asset.id, equipmentName: asset.equipmentName }], "a".repeat(64), importActor);
+    expect(result).toMatchObject({ created: 1, updated: 0, unchanged: 0 });
+    expect(manager.save).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ plannedRuntimeMinutes: 0, runtimeMinutes: 0, faultMinutes: 0 }));
+  });
+
   it("includes the daily planned runtime in status audit snapshots", () => {
     const service = new EquipmentApplicationService({} as never) as any;
     expect(service.statusAudit({ equipmentId: "asset-1", reportDate: "2026-09-20", plannedRuntimeMinutes: 630, runtimeMinutes: 700, faultMinutes: 0, faultReason: null, active: true, version: 2 })).toMatchObject({ plannedRuntimeMinutes: 630 });
