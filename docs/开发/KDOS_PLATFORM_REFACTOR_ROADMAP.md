@@ -902,7 +902,10 @@ Phase 1：NOT_STARTED
 
 ```text
 当前业务修复：KDOS-PROJECT-TASK-UX-PERM-001
-项目/任务导航、权限、表格编辑与甘特图体验修复；代码提交 `51933a5`，正式部署待本次验收完成。
+项目/任务导航、权限、表格编辑与甘特图体验修复；代码提交 `51933a5`，已正式部署。
+部署时 Repository HEAD：`cb94991`；部署一致性：`CONSISTENT`。
+API/Web/PostgreSQL：healthy；PostgreSQL 未重建；Dispatcher：active；inbound-allocation：true。
+线上 UI 实际操作验收因当前环境无可用授权账号未执行，待授权账号后补验。
 ```
 
 下一任务：
@@ -1100,10 +1103,12 @@ Flowable 只负责流程 Runtime。
 
 当前状态：
 
-- 代码 commit：`51933a5`；
-- 备份、正式部署、健康检查与线上验收：进行中；
+- 代码 commit：`51933a5`；正式部署时 Repository HEAD：`cb94991`；
+- 备份、正式部署与健康检查：已完成；
+- 线上 UI 实际操作验收：因当前环境无可用授权账号未执行，未猜测凭据、未伪造业务操作；
 - 数据库 schema/migration：本任务不需要；
-- 未完成：部署一致性、服务健康、权限范围线上核验与最终报告。
+- 数据库未执行 migration，未修改业务数据；
+- 未完成：使用授权账号进行一次线上浏览/编辑权限验收。
 
 Next Recommended Task:
 TASK-001 - 创建 `@kdos/ui-schema` 第一版基础 package。
