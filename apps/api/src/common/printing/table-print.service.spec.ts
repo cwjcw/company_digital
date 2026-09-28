@@ -1,5 +1,6 @@
 import { TablePrintService, PRINT_BATCH_SIZE } from "./table-print.service";
 import { TableFilterRegistry, type TableFilterActor, type TableFilterSource } from "../filtering/table-filter.registry";
+import ExcelJS from "exceljs";
 
 /**
  * KN-PRINT-001：平台打印服务的核心契约。
@@ -14,7 +15,7 @@ function registryWith(source: Partial<TableFilterSource> & { code: string }) {
   const registry = new TableFilterRegistry();
   registry.register({
     table: "demo_rows",
-    columns: { id: "id", orderNumber: "order_number", quantity: "quantity", status: "status" },
+    columns: { id: "id", orderNumber: "order_number", itemName: "item_name", quantity: "quantity", status: "status" },
     fields: [
       { key: "id", label: "ID", type: "text", editable: false },
       { key: "orderNumber", label: "订单编号", type: "text", editable: true },
@@ -32,6 +33,40 @@ const resource = "mps-weekly-plans"; /* 已注册为 PRINTABLE 的正式 resourc
 const fullPrintPermissions = [`${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:quantity:read`, `${resource}:status:read`];
 
 describe("平台打印服务（KN-PRINT-001）", () => {
+  it("标准导出使用 export 权限、当前排序并导出全部匹配记录，而不是当前页", async () => {
+    const calls: Array<{ page: number; action?: string; search?: string; sort?: unknown; filterGroup?: unknown }> = [];
+    const total = PRINT_BATCH_SIZE + 3;
+    const registry = registryWith({
+      code: resource,
+      printRows: async (query) => {
+        calls.push({ page: query.page, action: query.action, search: query.search, sort: [query.sortField, query.sortOrder], filterGroup: query.filterGroup });
+        const start = (query.page - 1) * query.pageSize;
+        const size = Math.max(0, Math.min(query.pageSize, total - start));
+        return { rows: Array.from({ length: size }, (_, index) => ({ id: `row-${start + index}`, orderNumber: `A${start + index}`, itemName: "不应导出的字段" })), total };
+      }
+    });
+    const service = new TablePrintService(registry, {} as never);
+    const appliedFilter = { logic: "AND", rules: [{ field: "orderNumber", operator: "contains", value: "A" }] };
+    const buffer = await service.exportXlsx(resource, { search: "关键字", filterGroup: appliedFilter, sortField: "orderNumber", sortOrder: "desc" }, actor([
+      `${resource}:*:export`, `${resource}:*:read`, `${resource}:orderNumber:read`
+    ]));
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.rowCount).toBe(total + 1);
+    expect(sheet.getCell("A1").text).toBe("订单编号");
+    expect(sheet.columnCount).toBe(1);
+    expect(calls.length).toBe(2);
+    expect(calls.every((call) => call.action === "export" && call.search === "关键字")).toBe(true);
+    expect(calls[0]?.sort).toEqual(["orderNumber", "desc"]);
+    expect(calls[0]?.filterGroup).toEqual(appliedFilter);
+  });
+
+  it("标准导出没有 export 权限时拒绝 API 请求", async () => {
+    const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
+    const service = new TablePrintService(registry, {} as never);
+    await expect(service.exportXlsx(resource, {}, actor([`${resource}:*:read`, `${resource}:orderNumber:read`]))).rejects.toThrow(/没有该表导出权限/);
+  });
+
   it("打印筛选结果是全部匹配记录（受控分批），不是当前页", async () => {
     const calls: number[] = [];
     const total = PRINT_BATCH_SIZE * 2 + 37;

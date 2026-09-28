@@ -22,6 +22,8 @@ export type TablePrintRowQuery = {
   page: number;
   pageSize: number;
   actor: TableFilterActor;
+  /** read for list/print; export for the standard Excel export scope. */
+  action?: string;
 };
 
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
@@ -88,7 +90,7 @@ export type TableFilterSource = {
   /** 该资源的字段定义（默认取 tablePermissionFieldsFor）。 */
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */
-  buildScope: (actor: TableFilterActor, params: unknown[]) => string;
+  buildScope: (actor: TableFilterActor, params: unknown[], action?: string) => string;
   /** 页面上下文由服务端资源注册表解释并强制 AND；未知键不得被客户端当作 SQL 发送。 */
   buildContext?: (context: Record<string, unknown>, params: unknown[]) => string | Promise<string>;
   /** 同一 resource 的上下文视图可选择另一真实行来源（如待报工任务）。 */

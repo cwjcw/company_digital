@@ -90,4 +90,30 @@ describe("KdosDataTable server pagination", () => {
     expect(await view.findByText("已选 3/120")).toBeInTheDocument();
     expect(Array.from(secondPageCheckboxes).filter((node) => (node as HTMLInputElement).checked)).toHaveLength(1);
   });
+
+  it("仅在服务端返回 export 权限时显示标准导出按钮", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["mps-group-plans:*:read", "mps-group-plans:*:export"] }));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-group-plans", supported: true, allowed: true }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      return [] as never;
+    });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <KdosDataTable resource="mps-group-plans" columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[]} />
+    </QueryClientProvider>);
+    expect(await screen.findByRole("button", { name: /导出/ })).toBeInTheDocument();
+  });
+
+  it("没有服务端 export 权限时不显示导出按钮", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read"] }));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-group-plans", supported: true, allowed: false }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      return [] as never;
+    });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <KdosDataTable resource="mps-group-plans" columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[]} />
+    </QueryClientProvider>);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument());
+  });
 });

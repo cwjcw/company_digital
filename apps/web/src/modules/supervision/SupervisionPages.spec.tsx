@@ -46,6 +46,16 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("项目与任务表格编辑", () => {
+  it("项目和任务标准业务页不渲染长期解释性副标题", async () => {
+    renderPage(<SupervisionProjectsPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-projects") });
+    expect(await screen.findByText("项目甲")).toBeInTheDocument();
+    expect(screen.queryByText("默认聚焦未完成督办项目；已完成和已中止项目保留用于历史查询。", { exact: false })).not.toBeInTheDocument();
+    cleanup();
+    renderPage(<SupervisionTasksPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-tasks") });
+    expect(await screen.findByText("任务甲")).toBeInTheDocument();
+    expect(screen.queryByText("以督办任务为维度跟踪任务负责人、预计交付日期、当前进度与最新进展。", { exact: false })).not.toBeInTheDocument();
+  });
+
   it("browse mode is readonly, then project text editing autosaves with expectedVersion", async () => {
     renderPage(<SupervisionProjectsPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-projects") });
     expect(await screen.findByText("项目甲")).toBeInTheDocument();

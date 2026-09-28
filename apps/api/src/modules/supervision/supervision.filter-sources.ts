@@ -46,7 +46,7 @@ export class SupervisionFilterSourceProvider implements OnModuleInit {
           { expression: "COALESCE((SELECT display_name FROM users WHERE id=record.owner_id),'')", permissionField: "ownerId" }
         ] : [],
         authorize: (actor) => { if (!hasSupervisionPermission(actor as SupervisionActor, code, "read")) throw new ForbiddenException("当前权限组没有此表的查看权限"); },
-        buildScope: (actor, params) => supervisionScopeClause(actor as SupervisionActor, code, "read", "record", params),
+        buildScope: (actor, params, action) => supervisionScopeClause(actor as SupervisionActor, code, action ?? "read", "record", params),
         runQuery: (sql, params) => this.runWithTenant(sql, params)
       });
     }

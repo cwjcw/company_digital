@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import ExcelJS from "exceljs";
 import {
   isTablePrintFieldPrintable, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry,
   type TablePermissionFieldDefinition, type TableResourceCode
@@ -47,6 +48,16 @@ export class TablePrintService {
       label: resource.label,
       print: tablePrintResourceCapabilityOf(resource.code),
       allowed: this.hasPrintPermission(actor, resource.code)
+    }));
+  }
+
+  /** 标准导出能力清单：不把“有按钮”当作授权，前端仅消费服务端结果。 */
+  exportCapabilities(actor: TableFilterActor) {
+    return tableResourceRegistry.map((resource) => ({
+      code: resource.code,
+      label: resource.label,
+      supported: this.registry.has(resource.code),
+      allowed: this.registry.has(resource.code) && this.hasExportPermission(actor, resource.code)
     }));
   }
 
@@ -145,6 +156,46 @@ export class TablePrintService {
     };
   }
 
+  /**
+   * KN-EXPORT-001：平台统一 XLSX 导出。导出与列表/打印共用 resource registry、FilterGroup、
+   * 搜索、排序、字段权限、数据范围和 label 解析；只把输出格式换成 Excel，不在业务模块复制查询。
+   */
+  async exportXlsx(resourceCode: string, query: TablePrintQuery, actor: TableFilterActor): Promise<Buffer> {
+    const { source, resource } = this.sourceFor(resourceCode);
+    this.assertExportPermission(actor, resourceCode);
+    source.authorize?.(actor);
+    if (!this.canReadResource(actor, source)) throw new ForbiddenException("当前权限组没有此表的查看权限");
+    const fields = this.exportableFields(source, actor, query.columnKeys);
+    if (!fields.length) throw new ForbiddenException("当前权限组没有可导出字段");
+
+    const rows: Array<Record<string, unknown>> = [];
+    let page = 1;
+    let total = 0;
+    for (;;) {
+      const result = await this.queryRows(source, actor, query, fields, page, PRINT_BATCH_SIZE, undefined, "export");
+      total = result.total;
+      rows.push(...result.rows);
+      if (rows.length >= total || result.rows.length < PRINT_BATCH_SIZE) break;
+      if (page >= MAX_BATCHES) throw new BadRequestException(`导出数据超过 ${MAX_BATCHES * PRINT_BATCH_SIZE} 行，请进一步筛选后再导出`);
+      page += 1;
+    }
+
+    const keyField = recordKeyOf(source).field;
+    const resolved = await this.resolveLabels(source, rows, fields, keyField);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "KDOS 平台";
+    const sheet = workbook.addWorksheet(resource.label.slice(0, 31));
+    sheet.columns = fields.map((field) => ({ header: field.printLabel ?? field.label, key: field.key, width: Math.max(12, this.widthFor(field) * 1.5) }));
+    for (const row of rows) {
+      const output: Record<string, string> = {};
+      for (const field of fields) output[field.key] = this.formatValue(field, resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key]);
+      sheet.addRow(output);
+    }
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    sheet.autoFilter = { from: "A1", to: `${this.columnLetter(Math.max(fields.length, 1))}1` };
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
   /** 打印人展示值：displayName → username → "—"（userId 仅用于审计与内部识别，不上纸）。 */
   private printedByOf(actor: TableFilterActor) {
     const display = String(actor.displayName ?? "").trim();
@@ -164,6 +215,18 @@ export class TablePrintService {
     const permissions = actor.permissions ?? [];
     return actor.isSystemAdmin === true || permissions.includes("*")
       || permissions.includes(`${resource}:*:batch_print`) || permissions.includes(`${resource}:*:*`);
+  }
+
+  private hasExportPermission(actor: TableFilterActor, resource: string) {
+    const permissions = actor.permissions ?? [];
+    const definition = tableResourceRegistry.find((item) => item.code === resource);
+    return actor.isSystemAdmin === true || permissions.includes("*")
+      || Boolean(definition && actor.moduleAdminCodes?.includes(definition.moduleCode))
+      || permissions.includes(`${resource}:*:export`) || permissions.includes(`${resource}:*:*`);
+  }
+
+  private assertExportPermission(actor: TableFilterActor, resource: string) {
+    if (!this.hasExportPermission(actor, resource)) throw new ForbiddenException("没有该表导出权限");
   }
 
   private assertPrintPermission(actor: TableFilterActor, resource: string) {
@@ -192,6 +255,14 @@ export class TablePrintService {
     return tablePermissionFieldsFor(source.code as TableResourceCode)
       .filter((field) => isTablePrintFieldPrintable(field))
       .filter((field) => requested.size === 0 || requested.has(field.key))
+      .filter((field) => this.canReadField(actor, source.code, field.key))
+      .filter((field) => this.supportsValue(field, source));
+  }
+
+  private exportableFields(source: TableFilterSource, actor: TableFilterActor, columnKeys: unknown) {
+    return tablePermissionFieldsFor(source.code as TableResourceCode)
+      .filter((field) => isTablePrintFieldPrintable(field))
+      .filter((field) => this.normalizeKeys(columnKeys).size === 0 || this.normalizeKeys(columnKeys).has(field.key))
       .filter((field) => this.canReadField(actor, source.code, field.key))
       .filter((field) => this.supportsValue(field, source));
   }
@@ -259,6 +330,12 @@ export class TablePrintService {
     return 12;
   }
 
+  private columnLetter(value: number) {
+    let number = Math.max(1, Math.floor(value)); let result = "";
+    while (number > 0) { const remainder = (number - 1) % 26; result = String.fromCharCode(65 + remainder) + result; number = Math.floor((number - 1) / 26); }
+    return result;
+  }
+
   /** A4 自动方向：宽表优先横向，列少优先纵向（平台统一判断，各页面不自行猜）。 */
   private orientationFor(columns: TablePrintColumn[]): TablePrintOrientation {
     const total = columns.reduce((sum, column) => sum + column.width, 0);
@@ -292,7 +369,7 @@ export class TablePrintService {
   /** 统一数据入口：模块 provider 优先（能正确处理 ACTUAL/PENDING、users 上下文等），否则用注册表的通用 SQL。 */
   private async queryRows(
     source: TableFilterSource, actor: TableFilterActor, query: TablePrintQuery,
-    fields: TablePermissionFieldDefinition[], page: number, pageSize: number, ids?: string[]
+    fields: TablePermissionFieldDefinition[], page: number, pageSize: number, ids?: string[], action = "read"
   ) {
     const sortKey = String(query.sortField ?? "");
     const sortPermissionField = source.sortAliases?.[sortKey]?.permissionField ?? sortKey;
@@ -308,7 +385,8 @@ export class TablePrintService {
       fieldKeys: fields.map((field) => field.key),
       page,
       pageSize,
-      actor
+      actor,
+      action
     };
     if (source.printRows) return source.printRows(rowQuery);
     return this.genericRows(source, rowQuery);
@@ -317,7 +395,7 @@ export class TablePrintService {
   /** 通用 SQL 打印查询：复用注册表列绑定 + 平台编译器（无第二套 FilterCompiler）。 */
   private async genericRows(source: TableFilterSource, query: TablePrintRowQuery) {
     const params: unknown[] = [query.actor.tenantId];
-    const clauses = [this.scopedWhere(source, source.buildScope(query.actor, params)), await source.buildContext?.(query.context, params) ?? "1=1"];
+    const clauses = [this.scopedWhere(source, source.buildScope(query.actor, params, query.action ?? "read")), await source.buildContext?.(query.context, params) ?? "1=1"];
     if (query.search) {
       const searchKeys = source.searchColumns?.length
         ? source.searchColumns

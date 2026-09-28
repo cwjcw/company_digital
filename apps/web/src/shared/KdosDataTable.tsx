@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Table, Tag, Typography } from "antd";
-import { EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownloadOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
@@ -12,6 +12,7 @@ import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "
 import type { AdvancedFilterRule } from "./advanced-filter";
 import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
+import { exportTable, tableExportAllowed, useTableExportCapabilities } from "./table-export";
 
 type DataRecord = Record<string, any>;
 
@@ -241,9 +242,13 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
+  const { message: exportMessage } = AntApp.useApp();
   const [printing, setPrinting] = useState(false);
   const printCapabilities = useTablePrintCapabilities();
   const printingSupported = tablePrintAllowed(printCapabilities.data, resource);
+  const exportCapabilities = useTableExportCapabilities();
+  const exportingSupported = tableExportAllowed(exportCapabilities.data, resource);
+  const [exporting, setExporting] = useState(false);
   const printableColumnKeys = useMemo(() => {
     const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
     return keys.length ? keys : undefined;
@@ -295,6 +300,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
     } finally {
       setPrinting(false);
     }
+  };
+  const runExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await exportTable({ resource, search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
+        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
+        context: printContext, columnKeys: effectiveVisible.filter((key) => !key.startsWith("__")) });
+      exportMessage.success("导出已开始");
+    } catch (error) {
+      exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
+    } finally { setExporting(false); }
   };
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -494,6 +511,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
+        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void runExport()}>导出</Button>}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
           {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
         </Button>}
