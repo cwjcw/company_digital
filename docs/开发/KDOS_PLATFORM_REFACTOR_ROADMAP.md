@@ -435,7 +435,7 @@ const TaskResource = {
 
 # Phase 1：建立 `@kdos/ui-schema`
 
-状态：`NOT_STARTED`
+状态：`COMPLETED`
 
 目标：
 
@@ -870,7 +870,7 @@ TASK-002 - 建立 KdosSchemaForm 第一版。
 | ID       | 阶段    | 任务                                  | 状态        |
 | -------- | ------- | ------------------------------------- | ----------- |
 | TASK-000 | Phase 0 | 建立平台改造总控文档                  | COMPLETED |
-| TASK-001 | Phase 1 | 创建`@kdos/ui-schema` 基础 package  | NOT_STARTED |
+| TASK-001 | Phase 1 | 创建`@kdos/ui-schema` 基础 package  | COMPLETED |
 | TASK-002 | Phase 2 | 创建`KdosSchemaForm`                | NOT_STARTED |
 | TASK-003 | Phase 2 | 创建`KdosSchemaDetail`              | NOT_STARTED |
 | TASK-004 | Phase 3 | 任务督办接入 Schema Form              | NOT_STARTED |
@@ -895,24 +895,25 @@ TASK-002 - 建立 KdosSchemaForm 第一版。
 
 ```text
 Phase 0：COMPLETED
-Phase 1：NOT_STARTED
+Phase 1：COMPLETED
 ```
 
 当前任务：
 
 ```text
 当前业务修复：KDOS-PROJECT-TASK-UX-PERM-001
-项目/任务导航、权限、表格编辑与甘特图体验修复；代码提交 `51933a5`，已正式部署。
-部署时 Repository HEAD：`cb94991`；部署一致性：`CONSISTENT`。
-API/Web/PostgreSQL：healthy；PostgreSQL 未重建；Dispatcher：active；inbound-allocation：true。
+项目/任务导航、权限、表格编辑、甘特图体验与统一导出能力修复；当前代码提交 `c5fefa3`，正式部署验收待本轮完成。
+此前部署时 Repository HEAD：`5c2107a`；本轮部署一致性与健康检查待完成。
 线上 UI 实际操作验收因当前环境无可用授权账号未执行，待授权账号后补验。
+
+本轮最多恢复一个平台改造任务：TASK-001 已完成；不提前启动 TASK-002。
 ```
 
 下一任务：
 
 ```text
-TASK-001
-创建 @kdos/ui-schema 第一版基础 package。
+TASK-002
+创建 `KdosSchemaForm` 第一版。
 ```
 
 ---
@@ -1112,3 +1113,46 @@ Flowable 只负责流程 Runtime。
 
 Next Recommended Task:
 TASK-001 - 创建 `@kdos/ui-schema` 第一版基础 package。
+
+### KDOS-PROJECT-TASK-UX-PERM-001（本轮扩展）
+
+完成：
+
+- 标准项目/任务页移除长期解释性副标题；规则已写入 `.agents/skills/kdos-form-platform/SKILL.md`；
+- 基于现有 `TableFilterRegistry`、权限字段元数据与打印取数服务增加统一 XLSX 导出，项目与任务复用同一平台入口；
+- 导出服务端重新校验 export/read/字段权限、租户、数据范围、搜索、筛选与排序，导出全部匹配记录并输出成员、部门、字典和日期展示值；
+- 增加导出权限/API 越权、全部匹配记录、条件继承、字段权限和页面入口测试；
+- 代码提交：`c5fefa3`。
+
+验收：
+
+- API/Web 专项测试、typecheck、lint 已通过；
+- 线上授权账号验收待补，未猜测凭据、未制造业务数据或错误。
+
+### TASK-001
+
+任务：
+建立 `@kdos/ui-schema` 第一版基础 package。
+
+完成：
+
+- 创建 `packages/ui-schema` workspace package；
+- 增加 `KdosFieldType`、Field/Option/Form/Detail/Table/Resource Schema；
+- 增加结构校验与断言辅助函数；
+- 测试用督办任务主要字段验证 Schema 可描述任务资源。
+
+测试：
+
+- `pnpm --filter @kdos/ui-schema test`：PASS（2 tests）；
+- `pnpm --filter @kdos/ui-schema typecheck`：PASS；
+- `pnpm --filter @kdos/ui-schema lint`：PASS；
+- `pnpm --filter @kdos/ui-schema build`：PASS。
+
+未完成：
+
+- Schema Renderer；
+- 任务督办接入；
+- TASK-002 及后续 Roadmap 任务。
+
+Next Recommended Task:
+TASK-002 - 创建 `KdosSchemaForm` 第一版。
