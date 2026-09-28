@@ -58,7 +58,7 @@ export function HrDepartureCheckPage() {
     </Space>} />
     <Alert type="info" showIcon message="检查说明" description="可以手工新增，也可以上传 XLSX/CSV；文件必须包含“账号”和“姓名”两列。状态只显示“入职”或“离职”，以最新通讯录为准。" style={{ marginBottom: 16 }} />
     {summary && <Space style={{ marginBottom: 12 }}><Tag>总数 {summary.total}</Tag><Tag color="green">入职 {summary.active}</Tag><Tag>离职 {summary.departed}</Tag></Space>}
-    <KdosDataTable resource="hr-departure-check" rowKey="key" dataSource={rows} columns={columns} scroll={{ y: "calc(100vh - 350px)" }} />
+    <KdosDataTable resource="hr-departure-check" rowKey="key" dataSource={rows} columns={columns} />
     <Modal title="手工新增离职人员检查" open={manualOpen} okText="新增并检查" cancelText="取消" confirmLoading={manualChecking} onOk={() => manualForm.submit()} onCancel={() => { if (!manualChecking) { setManualOpen(false); manualForm.resetFields(); } }}>
       <Form form={manualForm} layout="vertical" onFinish={(values) => void addManual(values)} style={{ marginTop: 20 }}>
         <Form.Item label="账号" name="account" rules={[{ required: true, whitespace: true, message: "请输入账号" }, { max: 100 }]}><Input placeholder="例如：05504" autoFocus /></Form.Item>

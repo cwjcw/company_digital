@@ -716,7 +716,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}
-      scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
+      scroll={{ x: "max-content" }} />
     <Modal title="确认同步到周计划？" open={baseSyncConfirmOpen} onCancel={() => { if (!syncMutation.isPending) setBaseSyncConfirmOpen(false); }} onOk={() => void executeBaseToWeeklySync()}
       okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
       <p>将把所有满足周计划准入条件的事业部基础计划同步到事业部周计划，并重新计算相关工序执行状态。</p>

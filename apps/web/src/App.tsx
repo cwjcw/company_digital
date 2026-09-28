@@ -411,7 +411,7 @@ function DataOperations() {
           <Button onClick={() => void downloadTemplate("dictionaries", "csv")}>下载 CSV 模板</Button>
           <Button danger disabled={!dictionaryIds.length} onClick={async () => { await api("/master-data/dictionary-values/delete", { method: "POST", body: JSON.stringify({ ids: dictionaryIds }) }); setDictionaryIds([]); refresh("dictionaries"); }}>停用选中（{dictionaryIds.length}）</Button>
         </Space>
-        <KdosDataTable resource="dictionaries" editable rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} serverData={{ total: dictionaries.data?.total ?? 0, onQueryChange: setDictionaryQuery }} columns={dictionaryColumns} scroll={{ x: "max-content", y: 480 }} />
+        <KdosDataTable resource="dictionaries" editable rowKey="id" rowSelection={{ selectedRowKeys: dictionaryIds, onChange: setDictionaryIds }} dataSource={dictionaryRows} serverData={{ total: dictionaries.data?.total ?? 0, onQueryChange: setDictionaryQuery }} columns={dictionaryColumns} scroll={{ x: "max-content" }} />
       </> },
       { key: "processes", label: `工序（${processes.data?.total ?? 0}）`, children: <>
         <Space wrap className="master-data-toolbar">
@@ -425,7 +425,7 @@ function DataOperations() {
           }}><Button>导入工序 CSV</Button></Upload>
           <Button danger disabled={!processIds.length} onClick={async () => { await api("/master-data/processes/delete", { method: "POST", body: JSON.stringify({ ids: processIds }) }); setProcessIds([]); refresh("processes"); }}>停用选中（{processIds.length}）</Button>
         </Space>
-        <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data?.rows} serverData={{ total: processes.data?.total ?? 0, onQueryChange: setProcessQuery }} columns={processColumns} scroll={{ x: "max-content", y: 480 }} />
+        <KdosDataTable resource="processes" editable rowKey="id" rowSelection={{ selectedRowKeys: processIds, onChange: setProcessIds }} dataSource={processes.data?.rows} serverData={{ total: processes.data?.total ?? 0, onQueryChange: setProcessQuery }} columns={processColumns} scroll={{ x: "max-content" }} />
       </> }
     ]} />
     <Modal title="新增字典值" open={dictionaryOpen} onCancel={() => setDictionaryOpen(false)} onOk={() => dictionaryForm.validateFields().then(async (values) => { await api("/master-data/dictionaries", { method: "POST", body: JSON.stringify(values) }); setDictionaryOpen(false); dictionaryForm.resetFields(); refresh("dictionaries"); })}><Form form={dictionaryForm} layout="vertical"><Form.Item name="code" label="编码" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="name" label="名称"><Input /></Form.Item><Form.Item name="value" label="值" rules={[{ required: true }]}><Input /></Form.Item></Form></Modal>
@@ -536,7 +536,7 @@ function FinishedGoodsInboundPage() {
       dataSource={records.data?.rows} loading={records.isLoading}
       serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }}
       pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
-      scroll={{ x: "max-content", y: "calc(100vh - 310px)" }} columns={columns} />
+      scroll={{ x: "max-content" }} columns={columns} />
     <Modal title="新增入库记录" width={1080} open={open} onCancel={() => setOpen(false)}
       onOk={() => form.validateFields().then(async (values) => {
         await api("/master-data/finished-goods-inbound", {
@@ -664,7 +664,7 @@ function ContactDirectory() {
     { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> },
     ...auditColumns
   ];
-  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.total ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data?.rows} loading={contacts.isLoading} columns={columns} serverData={{ total: contacts.data?.total ?? 0, onQueryChange: setContactQuery }} scroll={{ x: "max-content", y: "calc(100vh - 305px)" }} /></div>;
+  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.total ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data?.rows} loading={contacts.isLoading} columns={columns} serverData={{ total: contacts.data?.total ?? 0, onQueryChange: setContactQuery }} scroll={{ x: "max-content" }} /></div>;
 }
 
 function ForcePasswordChange({ done }: { done: () => void }) {

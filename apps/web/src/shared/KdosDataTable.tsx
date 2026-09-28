@@ -177,6 +177,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
   selectionActions?: (selection: KdosTableSelection<RecordType>) => ReactNode;
+  /** Explicit exception for embedded/fixed-viewport tables that need their own vertical scroll area. */
+  internalVerticalScroll?: boolean;
   /** Server-backed paging/search/filtering for ERP-sized tables. */
   serverData?: {
     total: number;
@@ -201,6 +203,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
   filterFields, onFilterGroupChange, printContext, selectable, selectionActions,
+  internalVerticalScroll = false,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -494,7 +497,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       onOk={() => void confirmPrint()} onCancel={() => setPendingPrint(null)}>
       {pendingPrint ? printConfirmMessage(pendingPrint.manifest) : null}
     </Modal>
-    <section className={["kdos-data-table-shell", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
+    <section className={["kdos-data-table-shell", internalVerticalScroll ? "kdos-data-table-shell-internal" : "", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
@@ -534,7 +537,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       dataSource={rows}
       columns={renderedColumns}
       pagination={resolvedPagination}
-      scroll={scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }}
+      scroll={internalVerticalScroll ? (scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }) : { ...(scroll ?? { x: "max-content" }), y: undefined }}
       sticky
       onChange={(paginationState, tableFilters, sorter, extra) => {
         if (serverMode && extra.action === "sort") {

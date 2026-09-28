@@ -198,7 +198,7 @@ export function EquipmentRegisterPage() {
     <PageHeader title="设备总台账" subtitle=""
       actions={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} />
     <KdosDataTable resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
-      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1670, y: "calc(100vh - 310px)" }} />
+      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1670 }} />
     <Modal title={editing ? "编辑设备" : "新增设备"} width={760} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
         <div className="equipment-form-grid">
@@ -361,7 +361,7 @@ export function EquipmentStatusReportPage() {
         {canExport && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportRows()}>导出</Button>}
         <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
       </>}
-      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1450, y: "calc(100vh - 310px)" }} />
+      loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1450 }} />
     <Modal title={editing ? "编辑设备状态" : "填报设备状态"} width={700} open={open} onCancel={() => { setSaveError(undefined); setOpen(false); }} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
         {saveError && <Alert type="error" showIcon style={{ marginBottom: 16 }} message="保存失败" description={saveError} />}

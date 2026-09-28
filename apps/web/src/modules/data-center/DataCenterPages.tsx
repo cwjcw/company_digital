@@ -75,7 +75,7 @@ export function SalesOrdersPage() {
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
     <KdosDataTable resource="sales-orders" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns}
       serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
-      scroll={{ x: "max-content", y: "calc(100vh - 315px)" }} />
+      scroll={{ x: "max-content" }} />
     <Modal title="新增订单" width={1000} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
       await api("/master-data/sales-orders", { method: "POST", body: JSON.stringify(payload) });
@@ -133,7 +133,7 @@ export function FinishedGoodsOutboundPage() {
   </Space>} />
     <KdosDataTable resource="finished-goods-outbound" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns}
       serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
-      scroll={{ x: "max-content", y: "calc(100vh - 300px)" }} />
+      scroll={{ x: "max-content" }} />
     <Modal title="新增出库记录" width={1080} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
       await api("/master-data/finished-goods-outbound", { method: "POST", body: JSON.stringify(payload) });
@@ -187,6 +187,6 @@ export function SupplierListPage() {
     <KdosDataTable resource="supplier-list" systemFields={false} rowKey="id" loading={rows.isLoading}
       dataSource={rows.data?.rows} columns={visibleColumns}
       serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
-      scroll={{ x: "max-content", y: "calc(100vh - 300px)" }} />
+      scroll={{ x: "max-content" }} />
   </div>;
 }

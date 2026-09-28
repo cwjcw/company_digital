@@ -109,7 +109,7 @@ export function BusinessCustomerMappingsPage() {
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
     <KdosDataTable resource="business-customer-mapping" editable rowKey="id" loading={rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
-      serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、客户或业务员" scroll={{ x: "max-content", y: "calc(100vh - 325px)" }} />
+      serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、客户或业务员" scroll={{ x: "max-content" }} />
     <Modal title="新增业务与客户对应关系" open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then(async (values) => { await api("/marketing/business-customer-mappings", { method: "POST", body: JSON.stringify({ ...values, salespersonUserIds: values.salespersonUserIds ?? [] }) }); setOpen(false); form.resetFields(); refresh(); }).catch((error) => { if (error instanceof ApiError) message.error(error.message); })}>
       <Form form={form} layout="vertical"><Form.Item name="departmentId" label="部门" rules={[{ required: true, message: "请选择部门" }]}><OrganizationSelect organizations={organizations.data ?? []} placeholder="选择完整组织路径" onChange={() => form.setFieldValue("salespersonUserIds", [])} /></Form.Item><Form.Item name="section" label="课室"><Input placeholder="普通文本，例如：一课" /></Form.Item><Form.Item name="customerCode" label="客户" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="salespersonUserIds" label="业务员"><Select disabled={!newDepartmentId} mode="multiple" showSearch optionFilterProp="label" placeholder={newDepartmentId ? "仅显示所选部门及子部门内的在职用户" : "请先选择部门"} options={usersInDepartment(newDepartmentId).map((user) => ({ value: user.id, label: user.displayName }))} /></Form.Item></Form>
     </Modal>
@@ -207,7 +207,7 @@ export function OrderSchedulePage() {
         <Button onClick={() => void downloadApiFile("/marketing/order-schedules/import-template", "订单排期导入模板.xlsx").catch((error) => setImportError(error.message))}>导出导入模板</Button>
         <Upload accept=".xlsx" showUploadList={false} beforeUpload={(file) => { void previewExcel(file); return false; }}><Button loading={importBusy}>导入 Excel</Button></Upload>
       </Space> : null}
-      scroll={{ x: "max-content", y: "calc(100vh - 365px)" }} />
+      scroll={{ x: "max-content" }} />
     {importError && <Alert type="error" showIcon message="导入失败" description={importError} />}
     <Modal title="订单排期导入预览" width={900} open={Boolean(importPreview)} onCancel={() => !importBusy && setImportPreview(undefined)} onOk={() => void confirmExcel()} confirmLoading={importBusy} okText="确认导入" cancelText="取消" okButtonProps={{ disabled: !importPreview?.token || Boolean(importPreview?.errors.length) }}>
       {importError && <Alert type="error" showIcon message="导入失败" description={importError} />}

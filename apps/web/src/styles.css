@@ -371,12 +371,11 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 100%;
-  overflow: hidden;
   border: 1px solid #e4eaed;
   border-radius: 10px;
   background: #fff;
 }
+.kdos-data-table-shell-internal { height: 100%; overflow: hidden; }
 .kdos-data-table-toolbar {
   min-height: 54px;
   padding: 9px 12px;

@@ -34,6 +34,6 @@ export function OrganizationPage() {
   return <div>
     <PageHeader title="组织架构表" subtitle="企业微信是组织、成员归属和部门负责人的权威来源" actions={<Button icon={<ReloadOutlined />} loading={rows.isFetching} onClick={() => void queryClient.invalidateQueries({ queryKey: ["organization"] })}>刷新同步结果</Button>} />
     <Alert showIcon icon={<ApartmentOutlined />} type="info" message="组织架构随企业微信通讯录全量同步，当前计划每天 03:00 自动更新；部门字段始终保存稳定部门 ID。" style={{ marginBottom: 12 }} />
-    <KdosDataTable resource="organization" rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: "max-content", y: "calc(100vh - 330px)" }} />
+    <KdosDataTable resource="organization" rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: "max-content" }} />
   </div>;
 }

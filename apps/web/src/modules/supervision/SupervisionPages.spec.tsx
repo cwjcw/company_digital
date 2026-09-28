@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App as AntApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
-import { SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage } from "./SupervisionPages";
+import { SupervisionEmployeeDashboardPage, SupervisionOwnerReportPage, SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage } from "./SupervisionPages";
 
 vi.mock("../../api", () => ({ api: vi.fn() }));
 
@@ -68,6 +68,21 @@ describe("项目与任务表格编辑", () => {
     expect(await screen.findByText("2026-09-21 → 2026-09-30")).toBeInTheDocument();
     expect(screen.getByText("即将到期 · 交付 2026-09-30 · 进度 0%")).toBeInTheDocument();
     expect(screen.queryByText(/T00:00:00\.000Z/)).not.toBeInTheDocument();
+  });
+
+  it("三个标准大屏直接进入业务内容，不渲染重复标题或用途说明", () => {
+    const cases = [
+      { page: <SupervisionProjectDashboardPage />, title: "项目管理大屏", description: "管理层查看督办项目总体进度、交付风险与计划时间轴。" },
+      { page: <SupervisionEmployeeDashboardPage />, title: "员工待办大屏", description: "每天查看本人负责或协作的督办任务，及时更新进展并处理延期事项。" },
+      { page: <SupervisionOwnerReportPage />, title: "责任人任务完成报表", description: "固定按任务截止日期落入统计周期；已中止任务不进入绩效分母。点击责任人可下钻同口径任务。" }
+    ];
+    for (const item of cases) {
+      const view = renderPage(item.page, { sub: "user-1", username: "worker", permissions: [...permissions("supervision-project-dashboard", false), ...permissions("supervision-employee-dashboard", false), ...permissions("supervision-owner-report", false), ...permissions("supervision-projects", false), ...permissions("supervision-tasks", false)] });
+      const main = within(view.container.querySelector(".supervision-dashboard-page")!);
+      expect(main.queryByRole("heading", { name: new RegExp(`^${item.title}$`) })).not.toBeInTheDocument();
+      expect(main.queryByText(item.description, { exact: false })).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("browse mode is readonly, then project text editing autosaves with expectedVersion", async () => {

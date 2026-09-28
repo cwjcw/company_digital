@@ -54,6 +54,21 @@ describe("KdosDataTable server pagination", () => {
     expect(screen.queryByRole("button", { name: /字段显示/ })).not.toBeInTheDocument();
   });
 
+  it("标准模式只保留横向滚动，内部纵向滚动必须显式开启", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const standard = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]}
+      scroll={{ x: "max-content", y: 240 }} /></QueryClientProvider>);
+    expect(standard.container.querySelector(".ant-table-body")).toHaveStyle({ overflowY: "hidden" });
+    expect(standard.container.querySelector(".ant-table-body")).toHaveStyle({ overflowX: "auto" });
+
+    standard.unmount();
+    render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id" internalVerticalScroll
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]}
+      scroll={{ x: "max-content", y: 240 }} /></QueryClientProvider>);
+    expect(document.querySelector(".ant-table-body")?.getAttribute("style")).toMatch(/overflow-y: (auto|scroll)/);
+  });
+
   it("allows stable record selection in browse mode and clears it explicitly", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
