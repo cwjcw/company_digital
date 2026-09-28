@@ -66,6 +66,9 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 只有 Modal、Drawer、Dashboard 固定高度小型列表、嵌入式组件、特殊固定 viewport 或明确依赖虚拟滚动的组件可以内部纵向滚动，且必须通过显式 `internalVerticalScroll` 等配置开启。
 - 标准表格继续使用服务端分页、搜索、筛选、排序、数据范围、编辑、批量修改、列显示、行选择和横向滚动；不得为消除内部滚动而取消分页或一次加载全表。
 - 取消内部纵向滚动后必须检查表头、分页和编辑行为；分页仍在表格底部，用户通过页面滚动查看，不能为固定分页重新创建第二个纵向滚动容器。
+- 标准业务表采用页面纵向滚动时，字段标题必须保持 sticky；向下滚动超过表头后仍固定在可视区域顶部，且不得被固定顶栏、Tabs 或 Toolbar 遮挡。
+- 标准组合必须同时满足页面纵向滚动、sticky 字段标题和表格按需横向滚动；不得为了实现 sticky 表头恢复 `scroll.y` 并重新制造双纵向滚动。
+- 横向滚动时 sticky 表头必须与数据列同步对齐；fixed columns、编辑模式、Select/DatePicker/成员下拉不得因表头 z-index 被破坏。`internalVerticalScroll` 例外继续允许自己的内部 sticky 表头。
 
 #### 标准业务表导出能力（强制）
 

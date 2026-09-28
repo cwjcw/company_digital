@@ -61,6 +61,7 @@ describe("KdosDataTable server pagination", () => {
       scroll={{ x: "max-content", y: 240 }} /></QueryClientProvider>);
     expect(standard.container.querySelector(".ant-table-body")).toHaveStyle({ overflowY: "hidden" });
     expect(standard.container.querySelector(".ant-table-body")).toHaveStyle({ overflowX: "auto" });
+    expect(standard.container.querySelector(".ant-table-sticky-holder")).toHaveStyle({ top: "0px" });
 
     standard.unmount();
     render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id" internalVerticalScroll

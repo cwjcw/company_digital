@@ -376,6 +376,7 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
   background: #fff;
 }
 .kdos-data-table-shell-internal { height: 100%; overflow: hidden; }
+.kdos-data-table-shell:not(.kdos-data-table-shell-internal) .ant-table-wrapper { overflow: visible; }
 .kdos-data-table-toolbar {
   min-height: 54px;
   padding: 9px 12px;

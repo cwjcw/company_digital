@@ -538,7 +538,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       columns={renderedColumns}
       pagination={resolvedPagination}
       scroll={internalVerticalScroll ? (scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }) : { ...(scroll ?? { x: "max-content" }), y: undefined }}
-      sticky
+      sticky={internalVerticalScroll ? true : { offsetHeader: 0 }}
       onChange={(paginationState, tableFilters, sorter, extra) => {
         if (serverMode && extra.action === "sort") {
           const active = (Array.isArray(sorter) ? sorter[0] : sorter) as { field?: React.Key; columnKey?: React.Key; order?: "ascend" | "descend" };
