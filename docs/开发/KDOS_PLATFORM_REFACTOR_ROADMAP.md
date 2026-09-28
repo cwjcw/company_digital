@@ -412,13 +412,13 @@ const TaskResource = {
 
 ## Phase 0：建立改造治理机制
 
-状态：`IN_PROGRESS`
+状态：`COMPLETED`
 
 目标：
 
 建立：
 
-`outputs/KDOS_PLATFORM_REFACTOR_ROADMAP.md`
+`docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md`
 
 要求：
 
@@ -426,10 +426,10 @@ const TaskResource = {
 
 完成条件：
 
-- [ ] 总控文件进入 Git
-- [ ] Codex 后续任务明确要求先读本文件
-- [ ] 每次任务完成更新任务状态
-- [ ] 每次任务完成增加 Change Log
+- [x] 总控文件进入 Git
+- [x] Codex 后续任务明确要求先读本文件
+- [x] 每次任务完成更新任务状态
+- [x] 每次任务完成增加 Change Log
 
 ---
 
@@ -869,7 +869,7 @@ TASK-002 - 建立 KdosSchemaForm 第一版。
 
 | ID       | 阶段    | 任务                                  | 状态        |
 | -------- | ------- | ------------------------------------- | ----------- |
-| TASK-000 | Phase 0 | 建立平台改造总控文档                  | IN_PROGRESS |
+| TASK-000 | Phase 0 | 建立平台改造总控文档                  | COMPLETED |
 | TASK-001 | Phase 1 | 创建`@kdos/ui-schema` 基础 package  | NOT_STARTED |
 | TASK-002 | Phase 2 | 创建`KdosSchemaForm`                | NOT_STARTED |
 | TASK-003 | Phase 2 | 创建`KdosSchemaDetail`              | NOT_STARTED |
@@ -889,20 +889,20 @@ TASK-002 - 建立 KdosSchemaForm 第一版。
 
 当前日期：
 
-`2026-09-27`
+`2026-09-28`
 
 当前阶段：
 
 ```text
-Phase 0：IN_PROGRESS
+Phase 0：COMPLETED
 Phase 1：NOT_STARTED
 ```
 
 当前任务：
 
 ```text
-TASK-000
-建立 KDOS 平台化改造总控文件。
+当前业务修复：KDOS-PROJECT-TASK-UX-PERM-001
+项目/任务导航、权限、表格编辑与甘特图体验修复；代码提交 `51933a5`，正式部署待本次验收完成。
 ```
 
 下一任务：
@@ -1068,3 +1068,42 @@ Flowable 只负责流程 Runtime。
 下一步：
 
 `TASK-001 - 创建 @kdos/ui-schema 第一版基础 package。`
+
+## 2026-09-28
+
+### TASK-000 收口
+
+完成：
+
+- 总控文档改为实际 Git 路径 `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md` 并已被 Git 跟踪；
+- 明确后续相关任务必须先读本文件、完成后更新状态与 Change Log；
+- Phase 0 / TASK-000 标记为 `COMPLETED`；
+- 下一推荐任务仍为 TASK-001，本次未启动。
+
+### KDOS-PROJECT-TASK-UX-PERM-001（业务修复记录）
+
+已完成代码与测试：
+
+- `apps/web/src/App.tsx`：项目与任务导航三组子节点提升为模块顶层，保留原路由与资源码；
+- `apps/web/src/modules/portal/ModulePortal.tsx`：移除顶栏角色身份文字，保留头像、显示名、用户名与退出操作；
+- `apps/api/src/common/filtering/data-scope.ts` 与监督范围：恢复 `OWN=created_by`，增加 JSONB 成员数组 `CONTAINS CURRENT_USER` 的通用编译能力；
+- `apps/web/src/modules/supervision/SupervisionPages.tsx`：项目/任务按字段类型内联编辑，使用现有 Application Command、版本校验、审计与缓存更新；
+- `apps/web/src/shared/date-format.ts`：甘特日期统一显示为 date-only；
+- 提示文字改为“编辑模式 · 修改后自动保存”。
+
+测试：
+
+- API：71 suites / 558 tests passed，1 个既有 skip；
+- Web：26 files / 152 tests passed；
+- API/Web typecheck passed；lint 0 errors（保留既有 Fast Refresh warning）；
+- API/Web build passed（Web 保留既有大 chunk warning）。
+
+当前状态：
+
+- 代码 commit：`51933a5`；
+- 备份、正式部署、健康检查与线上验收：进行中；
+- 数据库 schema/migration：本任务不需要；
+- 未完成：部署一致性、服务健康、权限范围线上核验与最终报告。
+
+Next Recommended Task:
+TASK-001 - 创建 `@kdos/ui-schema` 第一版基础 package。
