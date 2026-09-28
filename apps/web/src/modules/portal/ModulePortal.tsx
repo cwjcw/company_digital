@@ -153,7 +153,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
       <BrandLogo />
       <div className="portal-account">
         <span className="portal-avatar">{String(user.displayName ?? user.username ?? "K").slice(0, 1)}</span>
-        <span><Text strong>{user.displayName ?? user.username}</Text><small>{user.roles?.join(" / ") || "企业用户"}</small></span>
+        <span><Text strong>{user.displayName ?? user.username}</Text><small>{user.username ?? "企业用户"}</small></span>
         <Button type="text" onClick={onLogout}>退出</Button>
       </div>
     </header>

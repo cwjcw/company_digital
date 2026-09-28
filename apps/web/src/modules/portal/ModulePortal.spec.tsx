@@ -47,6 +47,13 @@ describe("ModulePortal system access", () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/users" }));
   });
 
+  it("keeps the display name and username but never renders role identity text", () => {
+    renderPortal({ username: "admin", displayName: "系统管理员姓名", roles: ["系统管理员"], isSystemAdmin: true });
+    expect(screen.getByText("系统管理员姓名")).toBeInTheDocument();
+    expect(screen.getByText("admin")).toBeInTheDocument();
+    expect(screen.queryByText("系统管理员", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("shows the administrator viewer entry to module administrators", () => {
     renderPortal({ username: "module-manager", roles: [], isSystemAdmin: false, moduleAdminCodes: ["planning"] });
     expect(screen.getByRole("button", { name: "进入系统管理" })).toBeInTheDocument();

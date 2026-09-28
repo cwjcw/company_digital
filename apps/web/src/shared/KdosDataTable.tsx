@@ -483,7 +483,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
           {editing ? "退出编辑模式" : "进入编辑模式"}
         </Button>}
-        {editing && canEdit && <Tag color="processing">编辑模式 · 单元格失焦自动保存</Tag>}
+        {editing && canEdit && <Tag color="processing" title="文本、数字字段在失焦/回车/Tab 时保存；选择类字段选择后保存">编辑模式 · 修改后自动保存</Tag>}
         {toolbar}
       </Space>
       <Space wrap>

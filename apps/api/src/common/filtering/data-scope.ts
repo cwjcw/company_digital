@@ -7,8 +7,11 @@ import type { TableFilterActor } from "./table-filter.registry";
  */
 export function buildDataScopeClause(input: {
   resource: string; action?: string; columns: Record<string, string>; actor: TableFilterActor; params: unknown[]; expression?: (column: string) => string;
+  /** JSONB member arrays (for example participant_ids) support CONTAINS CURRENT_USER. */
+  memberArrayFields?: string[];
 }): string {
   const { resource, columns, actor, params } = input;
+  const memberArrayFields = new Set(input.memberArrayFields ?? []);
   const action = input.action ?? "read";
   const expression = input.expression ?? ((column: string) => `record.${column}`);
   if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return "1=1";
@@ -31,6 +34,11 @@ export function buildDataScopeClause(input: {
         params.push(values); return `${target}::text ${operator === "NOT_IN" ? "<> ALL" : "= ANY"}($${params.length}::text[])`;
       }
       if (value == null) return "";
+      if (memberArrayFields.has(String(rule.fieldKey ?? "")) && (operator === "CONTAINS" || operator === "NOT_CONTAINS")) {
+        params.push(String(value));
+        const contains = `COALESCE(${target},'[]'::jsonb) ? $${params.length}::text`;
+        return operator === "NOT_CONTAINS" ? `(NOT (${contains}))` : contains;
+      }
       const comparisons: Record<string, string> = { EQ: "=", NE: "<>", GT: ">", GTE: ">=", LT: "<", LTE: "<=" };
       if (comparisons[operator]) { params.push(String(value)); return `${target}::text ${comparisons[operator]} $${params.length}`; }
       if (["CONTAINS", "NOT_CONTAINS", "STARTS_WITH"].includes(operator)) {

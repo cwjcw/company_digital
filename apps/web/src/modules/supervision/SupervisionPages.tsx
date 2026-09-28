@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   EllipsisOutlined, FileAddOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, UploadOutlined
 } from "@ant-design/icons";
@@ -16,6 +16,7 @@ import { api } from "../../api";
 import { KdosDataTable, TablePermissionButton, hasFieldPermission, hasResourcePermission, useKdosTableEditMode } from "../../shared/KdosDataTable";
 import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
+import { formatDateOnly } from "../../shared/date-format";
 
 const { Title, Paragraph, Text } = Typography;
 type Attachment = { key: string; name: string; contentType: string; size: number };
@@ -32,9 +33,56 @@ const updateTypeLabels = labelMap(supervisionProgressUpdateTypeOptions);
 const statusColor: Record<string, string> = { NORMAL: "green", OVERDUE: "red", COMPLETED: "blue", ABORTED: "default", NOT_STARTED: "default", IN_PROGRESS: "processing" };
 const errorText = (error: unknown) => error instanceof Error ? error.message : "操作失败，请稍后重试";
 const dateValue = (value: unknown) => value ? dayjs(String(value)) : null;
-const dateText = (value: unknown) => value ? dayjs(String(value)).format("YYYY-MM-DD") : "—";
+const dateText = (value: unknown) => formatDateOnly(value) || "—";
 const userLabel = (options: Options | undefined, id: unknown) => options?.users.find((item) => item.id === id)?.label ?? (id ? "—" : "—");
 const departmentLabel = (options: Options | undefined, id: unknown) => { const department = options?.departments.find((item) => item.id === id); return department?.pathLabel ?? department?.name ?? "—"; };
+
+function updatePlatformRowCache(queryClient: ReturnType<typeof useQueryClient>, resource: string, id: string, saved: Record<string, unknown>) {
+  queryClient.setQueriesData<PlatformTablePage<any>>({ queryKey: [resource] }, (current) => current
+    ? { ...current, rows: current.rows.map((row) => row.id === id ? { ...row, ...saved } : row) }
+    : current);
+}
+
+function InlineSupervisionCell({ resource, field, row, value, options, onSave }: {
+  resource: "supervision-projects" | "supervision-tasks";
+  field: string;
+  row: ProjectRow | TaskRow;
+  value: unknown;
+  options?: Options;
+  onSave: (value: unknown) => Promise<unknown>;
+}) {
+  const { editing } = useKdosTableEditMode();
+  const { message } = App.useApp();
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (!saving) setDraft(value); }, [value, saving]);
+  const editable = editing && hasFieldPermission(resource, field, "update") && !["COMPLETED", "ABORTED"].includes(row.lifecycleStatus);
+  const users = options?.users.map((item) => ({ value: item.id, label: item.label })) ?? [];
+  const departments = options?.departments.map((item) => ({ value: item.id, label: item.pathLabel ?? item.name })) ?? [];
+  const display = Array.isArray(value)
+    ? value.map((item) => userLabel(options, item)).join("、") || "—"
+    : field === "ownerId" || field === "supervisorId" ? userLabel(options, value)
+      : field === "departmentId" ? departmentLabel(options, value)
+        : field === "sourceType" ? sourceLabels[String(value)] ?? "—"
+          : field === "priority" ? priorityLabels[String(value)] ?? "—"
+            : ["plannedStartDate", "dueDate", "actualDeliveryDate"].includes(field) ? dateText(value) : value == null || value === "" ? "—" : String(value);
+  const save = async (next: unknown) => {
+    if (JSON.stringify(next) === JSON.stringify(value)) return;
+    setDraft(next); setSaving(true);
+    try { await onSave(next); }
+    catch (error) { setDraft(value); message.error(errorText(error)); }
+    finally { setSaving(false); }
+  };
+  if (!editable) return <span className="kdos-readonly-cell">{display}</span>;
+  if (field === "sourceType") return <Select size="small" value={draft as string | undefined} options={[...supervisionSourceTypeOptions]} loading={saving} onChange={(next) => void save(next)} style={{ width: "100%" }} />;
+  if (field === "priority") return <Select size="small" value={draft as string | undefined} options={[...supervisionPriorityOptions]} loading={saving} onChange={(next) => void save(next)} style={{ width: "100%" }} />;
+  if (field === "ownerId" || field === "supervisorId") return <Select size="small" allowClear value={draft as string | undefined} options={users} loading={saving} onChange={(next) => void save(next ?? null)} style={{ width: "100%" }} />;
+  if (field === "departmentId") return <Select size="small" value={draft as string | undefined} options={departments} loading={saving} onChange={(next) => void save(next)} style={{ width: "100%" }} />;
+  if (field === "participantIds" || field === "collaboratorIds") return <Select mode="multiple" size="small" value={Array.isArray(draft) ? draft : []} options={users} loading={saving} onChange={(next) => void save(next)} style={{ width: 220 }} />;
+  if (["plannedStartDate", "dueDate", "actualDeliveryDate"].includes(field)) return <DatePicker size="small" value={draft ? dayjs(formatDateOnly(draft)) : null} disabled={saving} onChange={(next) => void save(next?.format("YYYY-MM-DD") ?? null)} />;
+  if (field === "progress") return <InputNumber size="small" min={0} max={100} value={draft == null ? null : Number(draft)} disabled style={{ width: "100%" }} />;
+  return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void save(draft)} onPressEnter={() => void save(draft)} />;
+}
 
 function useSupervisionOptions() {
   return useQuery({ queryKey: ["supervision-options"], queryFn: () => api<Options>("/supervision/options"), staleTime: 300_000 });
@@ -160,11 +208,23 @@ export function SupervisionProjectsPage({ embedded = false, externalFilter }: { 
     ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] }
     : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] };
   const onQuery = (next: PlatformTableQuery) => { const groups = [externalFilter, statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); };
+  const saveInline = async (row: ProjectRow, field: string, value: unknown) => {
+    const saved = await api<Record<string, unknown>>(`/supervision/projects/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
+    updatePlatformRowCache(queryClient, "supervision-projects", row.id, saved);
+    return saved;
+  };
   const columns: any[] = [
-    { title: "项目编号", dataIndex: "projectCode", width: 175, fixed: "left" }, { title: "项目名称", dataIndex: "projectName", width: 240 }, { title: "来源类型", dataIndex: "sourceType", width: 120, render: (v: string) => sourceLabels[v] ?? "—" },
-    { title: "项目负责人", dataIndex: "ownerId", width: 130, render: (v: string) => userLabel(options.data, v) }, { title: "督办人", dataIndex: "supervisorId", width: 130, render: (v: string) => userLabel(options.data, v) },
-    { title: "主责部门", dataIndex: "departmentId", width: 140, render: (v: string) => departmentLabel(options.data, v) }, { title: "优先级", dataIndex: "priority", width: 90, render: (v: string) => priorityLabels[v] ?? v },
-    { title: "计划开始日期", dataIndex: "plannedStartDate", width: 130, render: dateText }, { title: "预计交付日期", dataIndex: "dueDate", width: 130, render: dateText }, { title: "实际交付日期", dataIndex: "actualDeliveryDate", width: 130, render: dateText },
+    { title: "项目编号", dataIndex: "projectCode", width: 175, fixed: "left" },
+    { title: "项目名称", dataIndex: "projectName", width: 240, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="projectName" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "projectName", next)} /> },
+    { title: "来源类型", dataIndex: "sourceType", width: 120, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="sourceType" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "sourceType", next)} /> },
+    { title: "项目负责人", dataIndex: "ownerId", width: 150, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="ownerId" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "ownerId", next)} /> },
+    { title: "督办人", dataIndex: "supervisorId", width: 150, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="supervisorId" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "supervisorId", next)} /> },
+    { title: "主责部门", dataIndex: "departmentId", width: 150, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="departmentId" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "departmentId", next)} /> },
+    { title: "参与人", dataIndex: "participantIds", width: 220, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="participantIds" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "participantIds", next)} /> },
+    { title: "优先级", dataIndex: "priority", width: 90, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="priority" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "priority", next)} /> },
+    { title: "计划开始日期", dataIndex: "plannedStartDate", width: 145, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="plannedStartDate" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "plannedStartDate", next)} /> },
+    { title: "预计交付日期", dataIndex: "dueDate", width: 145, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="dueDate" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "dueDate", next)} /> },
+    { title: "实际交付日期", dataIndex: "actualDeliveryDate", width: 145, render: (v: unknown, row: ProjectRow) => <InlineSupervisionCell resource="supervision-projects" field="actualDeliveryDate" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "actualDeliveryDate", next)} /> },
     { title: "当前状态", dataIndex: "displayStatus", width: 110, render: (v: string) => <StatusTag value={v} /> }, { title: "当前进度", dataIndex: "progress", width: 150, render: (v: number) => <Progress percent={Number(v ?? 0)} size="small" /> },
     { title: "", key: "__actions", width: 52, fixed: "right", render: (_: unknown, row: ProjectRow) => <ProjectRowActions row={row} onAction={(key, target) => key === "edit" ? setFormRow(target) : setAction({ action: key as "complete" | "abort", row: target })} /> }
   ];
@@ -228,10 +288,20 @@ export function SupervisionTasksPage() {
   const [statusView, setStatusView] = useState("OPEN");
   const [formRow, setFormRow] = useState<TaskRow | null | undefined>(); const [action, setAction] = useState<{ action: TaskAction; row: TaskRow }>(); const [history, setHistory] = useState<TaskRow>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-tasks"] });
+  const saveInline = async (row: TaskRow, field: string, value: unknown) => {
+    const saved = await api<Record<string, unknown>>(`/supervision/tasks/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
+    updatePlatformRowCache(queryClient, "supervision-tasks", row.id, saved);
+    return saved;
+  };
   const columns: any[] = [
-    { title: "任务编号", dataIndex: "taskCode", width: 175, fixed: "left" }, { title: "项目名称", dataIndex: "projectName", width: 210 }, { title: "任务名称", dataIndex: "taskName", width: 240 },
-    { title: "任务负责人", dataIndex: "ownerId", width: 130, render: (v: string) => userLabel(options.data, v) }, { title: "主责部门", dataIndex: "departmentId", width: 140, render: (v: string) => departmentLabel(options.data, v) },
-    { title: "优先级", dataIndex: "priority", width: 90, render: (v: string) => priorityLabels[v] ?? v }, { title: "计划开始日期", dataIndex: "plannedStartDate", width: 130, render: dateText }, { title: "预计交付日期", dataIndex: "dueDate", width: 120, render: dateText }, { title: "实际交付日期", dataIndex: "actualDeliveryDate", width: 120, render: dateText },
+    { title: "任务编号", dataIndex: "taskCode", width: 175, fixed: "left" }, { title: "项目名称", dataIndex: "projectName", width: 210 },
+    { title: "任务名称", dataIndex: "taskName", width: 240, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="taskName" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "taskName", next)} /> },
+    { title: "任务负责人", dataIndex: "ownerId", width: 150, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="ownerId" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "ownerId", next)} /> },
+    { title: "参与人", dataIndex: "collaboratorIds", width: 220, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="collaboratorIds" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "collaboratorIds", next)} /> },
+    { title: "主责部门", dataIndex: "departmentId", width: 150, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="departmentId" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "departmentId", next)} /> },
+    { title: "优先级", dataIndex: "priority", width: 90, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="priority" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "priority", next)} /> },
+    { title: "计划开始日期", dataIndex: "plannedStartDate", width: 145, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="plannedStartDate" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "plannedStartDate", next)} /> },
+    { title: "预计交付日期", dataIndex: "dueDate", width: 145, render: dateText }, { title: "实际交付日期", dataIndex: "actualDeliveryDate", width: 145, render: (v: unknown, row: TaskRow) => <InlineSupervisionCell resource="supervision-tasks" field="actualDeliveryDate" row={row} value={v} options={options.data} onSave={(next) => saveInline(row, "actualDeliveryDate", next)} /> },
     { title: "当前状态", dataIndex: "displayStatus", width: 110, render: (v: string) => <StatusTag value={v} /> }, { title: "当前进度", dataIndex: "progress", width: 145, render: (v: number) => <Progress percent={Number(v ?? 0)} size="small" /> },
     { title: "", key: "__actions", width: 52, fixed: "right", render: (_: unknown, row: TaskRow) => <TaskRowActions row={row} onAction={(key, target) => key === "history" ? setHistory(target) : key === "edit" ? setFormRow(target) : setAction({ action: key as TaskAction, row: target })} /> }
   ];

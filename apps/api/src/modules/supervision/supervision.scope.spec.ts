@@ -20,13 +20,28 @@ describe("任务督办数据范围", () => {
     expect(supervisionScopeClause(actor(), "supervision-tasks", "read", "record", params)).toBe("1=0");
   });
 
-  it("OWN 同时覆盖任务责任人、协作人和本人创建数据", () => {
+  it("OWN 保持平台语义，只匹配本人创建数据", () => {
     const params: unknown[] = ["TENANT-A"];
     const sql = supervisionScopeClause(actor({ tableDataScopes: [{ resource: "supervision-tasks", scope: "OWN", actions: ["read"] }] }), "supervision-tasks", "read", "record", params);
     expect(sql).toContain("record.created_by");
-    expect(sql).toContain("record.owner_id");
-    expect(sql).toContain("record.collaborator_ids");
+    expect(sql).not.toContain("record.owner_id");
+    expect(sql).not.toContain("record.collaborator_ids");
     expect(params).toContain("0199aa00-0000-7000-8000-000000000001");
+  });
+
+  it("CUSTOM ANY supports the related-person rule with member and multi-member fields", () => {
+    const userId = "0199aa00-0000-7000-8000-000000000001";
+    const params: unknown[] = ["TENANT-A"];
+    const sql = supervisionScopeClause(actor({ tableDataScopes: [{ resource: "supervision-projects", scope: "CUSTOM", match: "ANY", actions: ["read"], rules: [
+      { fieldKey: "ownerId", operator: "EQ", value: "CURRENT_USER" },
+      { fieldKey: "supervisorId", operator: "EQ", value: "CURRENT_USER" },
+      { fieldKey: "participantIds", operator: "CONTAINS", value: "CURRENT_USER" }
+    ] }] }), "supervision-projects", "read", "record", params);
+    expect(sql).toContain("record.owner_id::text =");
+    expect(sql).toContain("record.supervisor_id::text =");
+    expect(sql).toContain("record.participant_ids");
+    expect(sql).toContain("? $");
+    expect(params).toContain(userId);
   });
 
   it("CUSTOM 部门范围参数化且不会拼接用户输入", () => {

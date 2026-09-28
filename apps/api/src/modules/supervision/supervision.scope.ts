@@ -41,15 +41,11 @@ export function supervisionColumnExpressions(resource: SupervisionResource, alia
 
 export function supervisionScopeClause(actor: SupervisionActor, resource: SupervisionResource, action: string, alias: string, params: unknown[]) {
   if (actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("project-task") === true) return "1=1";
-  const scopes = (actor.tableDataScopes ?? []).filter((scope) => scope.resource === resource && (!scope.actions || scope.actions.includes(action)));
   const expressions = supervisionColumnExpressions(resource, alias);
-  const generic = buildDataScopeClause({ resource, action, columns: expressions, actor, params, expression: (value) => value });
-  if (!actor.userId || !scopes.some((scope) => scope.scope === "OWN")) return generic;
-  params.push(actor.userId); const user = `$${params.length}::uuid`;
-  const own = resource === "supervision-projects"
-    ? `(${alias}.created_by=${user} OR ${alias}.owner_id=${user} OR ${alias}.supervisor_id=${user} OR ${alias}.participant_ids ? ${user}::text)`
-    : resource === "supervision-tasks"
-      ? `(${alias}.created_by=${user} OR ${alias}.owner_id=${user} OR ${alias}.collaborator_ids ? ${user}::text OR EXISTS(SELECT 1 FROM supervision_projects own_project WHERE own_project.tenant_id=${alias}.tenant_id AND own_project.id=${alias}.project_id AND (own_project.owner_id=${user} OR own_project.supervisor_id=${user} OR own_project.participant_ids ? ${user}::text)))`
-      : `(${alias}.created_by=${user} OR EXISTS(SELECT 1 FROM supervision_tasks own_task WHERE own_task.tenant_id=${alias}.tenant_id AND own_task.id=${alias}.task_id AND (own_task.owner_id=${user} OR own_task.collaborator_ids ? ${user}::text OR EXISTS(SELECT 1 FROM supervision_projects own_project WHERE own_project.tenant_id=own_task.tenant_id AND own_project.id=own_task.project_id AND (own_project.owner_id=${user} OR own_project.supervisor_id=${user} OR own_project.participant_ids ? ${user}::text)))))`;
-  return generic === "1=0" ? own : `(${generic} OR ${own})`;
+  /* Related-person scope is configured through the generic permission framework: member EQ CURRENT_USER,
+     or member-array CONTAINS CURRENT_USER with match ANY. OWN remains the platform's created_by scope. */
+  return buildDataScopeClause({
+    resource, action, columns: expressions, actor, params, expression: (value) => value,
+    memberArrayFields: resource === "supervision-projects" ? ["participantIds"] : resource === "supervision-tasks" ? ["collaboratorIds"] : []
+  });
 }

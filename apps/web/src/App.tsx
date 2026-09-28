@@ -176,7 +176,7 @@ function Shell({ logout }: { logout: () => void }) {
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
-    "project-task": [{ key: "project-task-root", icon: <ProjectOutlined />, label: "项目与任务", children: [
+    "project-task": [
       { key: "project-task-help", icon: <ReadOutlined />, label: "应用说明", children: [
         { key: "/project-task/help/how-to", icon: <FileTextOutlined />, label: "如何使用" },
         { key: "/project-task/help/flow", icon: <FileTextOutlined />, label: "项目流程图" }
@@ -189,7 +189,7 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/project-task/supervision/tasks", icon: <ScheduleOutlined />, label: "任务管理" }
       ] },
       { key: "/project-task/order-projects", icon: <FolderOpenOutlined />, label: "订单项目管理（第二阶段）" }
-    ] }],
+    ],
     planning: [
       { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
         { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
