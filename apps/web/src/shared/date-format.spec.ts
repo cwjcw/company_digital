@@ -16,6 +16,6 @@ describe("due date display format", () => {
 
   it("renders API date values as calendar dates without time or timezone noise", () => {
     expect(formatDateOnly("2026-09-21T00:00:00.000Z")).toBe("2026-09-21");
-    expect(formatDateRange("2026-09-21T00:00:00.000Z", "2026-09-30T00:00:00.000Z")).toBe("2026-09-21 -> 2026-09-30");
+    expect(formatDateRange("2026-09-21T00:00:00.000Z", "2026-09-30T00:00:00.000Z")).toBe("2026-09-21 → 2026-09-30");
   });
 });

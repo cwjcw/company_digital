@@ -3,7 +3,7 @@ import { App as AntApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
-import { SupervisionProjectsPage, SupervisionTasksPage } from "./SupervisionPages";
+import { SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage } from "./SupervisionPages";
 
 vi.mock("../../api", () => ({ api: vi.fn() }));
 
@@ -34,6 +34,11 @@ beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks();
   vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
     if (path === "/supervision/options") return { users: [{ id: "user-1", label: "员工一" }, { id: "user-2", label: "员工二" }], departments: [{ id: "dept-1", name: "部门一" }], projects: [] } as never;
+    if (path.startsWith("/supervision/dashboard/projects")) return {
+      kpi: { total: 1, normal: 1, overdue: 0, dueWithin7Days: 1, averageProgress: 0 },
+      gantt: [{ id: "project-1", projectName: "项目甲", plannedStartDate: "2026-09-21T00:00:00.000Z", dueDate: "2026-09-30T00:00:00.000Z", progress: 0 }],
+      risks: [{ id: "risk-1", projectName: "项目甲", riskType: "即将到期", dueDate: "2026-09-30T00:00:00.000Z", progress: 0 }]
+    } as never;
     if (path === "/table-filters/resources") return [{ code: "supervision-projects", filterableFields: [] }, { code: "supervision-tasks", filterableFields: [] }] as never;
     if (path.startsWith("/table-print/resources")) return [] as never;
     if (path.startsWith("/table-filters/rows?resource=supervision-projects")) return { rows: [project], total: 1, page: 1, pageSize: 50 } as never;
@@ -49,11 +54,20 @@ describe("项目与任务表格编辑", () => {
   it("项目和任务标准业务页不渲染长期解释性副标题", async () => {
     renderPage(<SupervisionProjectsPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-projects") });
     expect(await screen.findByText("项目甲")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^项目管理$/ })).not.toBeInTheDocument();
     expect(screen.queryByText("默认聚焦未完成督办项目；已完成和已中止项目保留用于历史查询。", { exact: false })).not.toBeInTheDocument();
     cleanup();
     renderPage(<SupervisionTasksPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-tasks") });
     expect(await screen.findByText("任务甲")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^任务管理$/ })).not.toBeInTheDocument();
     expect(screen.queryByText("以督办任务为维度跟踪任务负责人、预计交付日期、当前进度与最新进展。", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("甘特图和风险卡片按日历日期显示，不暴露 ISO 时间戳", async () => {
+    renderPage(<SupervisionProjectDashboardPage />, { sub: "user-1", username: "worker", permissions: [...permissions("supervision-project-dashboard", false), ...permissions("supervision-projects", false)] });
+    expect(await screen.findByText("2026-09-21 → 2026-09-30")).toBeInTheDocument();
+    expect(screen.getByText("即将到期 · 交付 2026-09-30 · 进度 0%")).toBeInTheDocument();
+    expect(screen.queryByText(/T00:00:00\.000Z/)).not.toBeInTheDocument();
   });
 
   it("browse mode is readonly, then project text editing autosaves with expectedVersion", async () => {

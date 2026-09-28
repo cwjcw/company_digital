@@ -25,5 +25,5 @@ export function formatDateOnly(value: unknown) {
 export function formatDateRange(start: unknown, end: unknown) {
   const left = formatDateOnly(start);
   const right = formatDateOnly(end);
-  return left && right ? `${left} -> ${right}` : left || right;
+  return left && right ? `${left} → ${right}` : left || right;
 }
