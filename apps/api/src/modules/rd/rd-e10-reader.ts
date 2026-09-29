@@ -20,11 +20,12 @@ export class RdE10Reader {
     if (mode === "INCREMENTAL" && since?.at) args.push("--since-at", since.at, "--since-id", since.id ?? "");
     const basicCodeRoot = process.env.RD_BASIC_CODE_ROOT ?? "/data/automation/code/work/basci/basic_code";
     const child = spawn(python, args, { env: { ...process.env, PYTHONPATH: basicCodeRoot } });
+    const exitPromise = new Promise<number | null>((resolve) => child.once("close", resolve));
     let error = "";
     child.stderr.on("data", (chunk: Buffer) => { error += chunk.toString(); });
     const lines = createInterface({ input: child.stdout as Readable, crlfDelay: Infinity });
     for await (const line of lines) if (line.trim()) yield JSON.parse(line) as E10ItemRow;
-    const exitCode = await new Promise<number | null>((resolve) => child.once("close", resolve));
+    const exitCode = await exitPromise;
     if (exitCode !== 0) throw new Error(`E10 只读读取失败：${error.trim().slice(-500) || `exit=${exitCode}`}`);
   }
 }
