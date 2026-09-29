@@ -8,6 +8,7 @@ import { RdController, RdInternalController } from "./rd.controller";
 import { RdE10Reader } from "./rd-e10-reader";
 import { RdQueryService } from "./rd.query.service";
 import { RdFilterSourceProvider } from "./rd.filter-sources";
+import { RdHistoryScanService } from "./rd-history-scan.service";
 
-@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdE10Reader, RdQueryService, RdFilterSourceProvider], exports: [RdApplicationService, RdQueryService] })
+@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdHistoryScanService, RdE10Reader, RdQueryService, RdFilterSourceProvider], exports: [RdApplicationService, RdQueryService, RdHistoryScanService] })
 export class RdModule {}

@@ -18,13 +18,14 @@ export class RdController {
   @Get("items") listItems(@Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.listItems(query, this.actor(request)); }
   @Get("items/status") status(@Req() request: RdRequest) { return this.queries.status(this.actor(request)); }
   @Post("items/sync") sync(@Body() body: { mode?: "FULL" | "INCREMENTAL" }, @Req() request: RdRequest) { return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", this.actor(request)); }
+  @Get("material-duplicates/scans/latest") latestScan(@Req() request: RdRequest) { return this.queries.latestScan(this.actor(request)); }
   @Post("material-duplicates/check") async check(@Body() body: { itemName?: string; specification?: string; limit?: number }, @Req() request: RdRequest) {
     const abort = new AbortController(); const onAbort = () => abort.abort();
     request.on("aborted", onAbort); request.on("close", onAbort);
     try { return await this.queries.check(body, this.actor(request), abort.signal); }
     finally { request.off("aborted", onAbort); request.off("close", onAbort); }
   }
-  @Post("material-duplicates/scans") startScan(@Req() request: RdRequest) { return this.application.startScan(this.actor(request)); }
+  @Post("material-duplicates/scans") startScan(@Body() body: { mode?: "FULL" | "INCREMENTAL" }, @Req() request: RdRequest) { return this.application.startScan(this.actor(request), body.mode === "FULL" ? "FULL" : "INCREMENTAL"); }
   @Get("material-duplicates/scans/:id") scan(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.scan(id, query, this.actor(request)); }
   @Get("material-duplicates/scans/:id/results") scanResults(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.scan(id, query, this.actor(request)); }
 
@@ -41,9 +42,9 @@ export class RdInternalController {
     return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", { tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-sync", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-${Date.now()}`, source: "api" });
   }
 
-  @Post("material-duplicates/scans") startScan(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined) {
+  @Post("material-duplicates/scans") startScan(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined, @Body() body: { mode?: "FULL" | "INCREMENTAL"; changedItemIds?: string[] }) {
     if (!process.env.KDOS_RD_INTERNAL_TOKEN || token !== process.env.KDOS_RD_INTERNAL_TOKEN) throw new UnauthorizedException("内部同步凭据无效");
     if (!tenantId || tenantId !== (process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN")) throw new UnauthorizedException("租户不匹配");
-    return this.application.startScan({ tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-scan", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-scan-${Date.now()}`, source: "api" });
+    return this.application.startScan({ tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-scan", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-scan-${Date.now()}`, source: "api" }, body?.mode === "FULL" ? "FULL" : "INCREMENTAL", body?.changedItemIds);
   }
 }

@@ -53,6 +53,12 @@ export class RdQueryService {
     return { ...(row ?? { activeItemCount: 0, lastSuccessfulSyncAt: null }), latestSync: run ?? null };
   }
 
+  async latestScan(actor: RdActor) {
+    if (!canReadRd(actor, "rd-material-duplicates")) throw new ForbiddenException("当前权限组没有一物多码查看权限");
+    const [scan] = await this.dataSource.query(`SELECT id,status,stage,scan_mode AS "scanMode",started_at AS "startedAt",finished_at AS "finishedAt",rows,item_count AS "itemCount",compared_pairs AS "comparedPairs",skipped_blocks AS "skippedBlocks",skipped_pairs AS "skippedPairs",counts,rule_version AS "ruleVersion",source_watermark_at AS "sourceWatermarkAt",source_watermark_id AS "sourceWatermarkId",source_version AS "sourceVersion",processed_items AS "processedItems",total_items AS "totalItems",processed_blocks AS "processedBlocks",total_blocks AS "totalBlocks",progress_percent AS "progressPercent",error_message AS "errorMessage" FROM rd_duplicate_scans WHERE tenant_id=$1 ORDER BY started_at DESC LIMIT 1`, [actor.tenantId]);
+    return scan ?? null;
+  }
+
   async check(input: { itemName?: string; specification?: string; limit?: number }, actor: RdActor, signal?: AbortSignal) {
     if (!canReadRd(actor, "rd-material-duplicates")) throw new ForbiddenException("当前权限组没有一物多码查看权限");
     const itemName = String(input.itemName ?? "").trim(), specification = String(input.specification ?? "").trim();
@@ -67,7 +73,7 @@ export class RdQueryService {
 
   async scan(scanId: string, input: Record<string, unknown>, actor: RdActor) {
     if (!canReadRd(actor, "rd-material-duplicates")) throw new ForbiddenException("当前权限组没有一物多码查看权限");
-    const [scan] = await this.dataSource.query(`SELECT id,status,stage,started_at AS "startedAt",finished_at AS "finishedAt",rows,compared_pairs AS "comparedPairs",skipped_blocks AS "skippedBlocks",skipped_pairs AS "skippedPairs",counts,rule_version AS "ruleVersion",error_message AS "errorMessage" FROM rd_duplicate_scans WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, scanId]);
+    const [scan] = await this.dataSource.query(`SELECT id,status,stage,scan_mode AS "scanMode",started_at AS "startedAt",finished_at AS "finishedAt",rows,item_count AS "itemCount",compared_pairs AS "comparedPairs",skipped_blocks AS "skippedBlocks",skipped_pairs AS "skippedPairs",counts,rule_version AS "ruleVersion",source_watermark_at AS "sourceWatermarkAt",source_watermark_id AS "sourceWatermarkId",source_version AS "sourceVersion",processed_items AS "processedItems",total_items AS "totalItems",processed_blocks AS "processedBlocks",total_blocks AS "totalBlocks",progress_percent AS "progressPercent",error_message AS "errorMessage" FROM rd_duplicate_scans WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, scanId]);
     if (!scan) throw new BadRequestException("扫描记录不存在");
     if (scan.status !== "COMPLETE") return scan;
     const page = Math.max(1, Number(input.page) || 1), pageSize = [20, 50, 100].includes(Number(input.pageSize)) ? Number(input.pageSize) : 50;

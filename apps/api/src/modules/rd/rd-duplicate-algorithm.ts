@@ -72,6 +72,25 @@ export function compare(a: MaterialFeatures, b: MaterialFeatures): MatchResult |
 }
 
 export type PreparedMaterialCandidate = MaterialCandidate & { nameKey: string; specKey: string; matchText: string; category: string; f: MaterialFeatures; attrs: Record<string, Set<string>>; numbers: string[] };
+export type PersistedMaterialFeatures = {
+  featureHash: string;
+  normalizedName: string;
+  normalizedSpec: string;
+  inferredCategory: string;
+  numericFeatures: string[];
+  qualifiers: string[];
+  attributes: Record<string, string[]>;
+  candidateKeys: string[];
+  featureJson: {
+    nameKey: string;
+    specKey: string;
+    matchText: string;
+    category: string;
+    f: { normalized: string; specs: string[]; numbers: string[]; qualifiers: string[]; core: string; chars: string[] };
+    attrs: Record<string, string[]>;
+    numbers: string[];
+  };
+};
 const categories = ["螺钉", "螺栓", "螺母", "垫圈", "螺杆", "贴纸", "标签", "纸箱", "圆管", "钢板"];
 const attributes: Record<string, string[]> = {
   材质: ["201", "304", "316", "430", "q195", "q215", "q235", "6061", "6063", "碳钢", "尼龙"],
@@ -85,6 +104,36 @@ export function prepareMaterial(row: MaterialCandidate): PreparedMaterialCandida
   const attrs: Record<string, Set<string>> = {};
   for (const [key, terms] of Object.entries(attributes)) attrs[key] = new Set(terms.filter((term) => text.includes(term)));
   return { ...row, nameKey, specKey, matchText: text, category: categories.find((word) => nameKey.includes(word)) ?? "未确定", f, attrs, numbers: [...text.matchAll(/\d+(?:\.\d+)?/g)].map((m) => m[0]) };
+}
+
+function candidateKeys(row: PreparedMaterialCandidate) {
+  const key = row.f.specs.length ? JSON.stringify(row.f.specs) : row.specKey ? `raw:${row.specKey}` : "";
+  return key ? [key] : [];
+}
+
+export function materialFeatureHash(row: MaterialCandidate) {
+  return stableHash({ name: String(row.name ?? ""), spec: String(row.spec ?? "") });
+}
+
+export function serializeMaterialFeatures(row: PreparedMaterialCandidate): PersistedMaterialFeatures {
+  const attributes: Record<string, string[]> = Object.fromEntries(Object.entries(row.attrs).map(([key, values]) => [key, [...values]]));
+  return {
+    featureHash: materialFeatureHash(row), normalizedName: row.nameKey, normalizedSpec: row.specKey,
+    inferredCategory: row.category, numericFeatures: row.numbers, qualifiers: row.f.qualifiers,
+    attributes, candidateKeys: candidateKeys(row),
+    featureJson: {
+      nameKey: row.nameKey, specKey: row.specKey, matchText: row.matchText, category: row.category,
+      f: { ...row.f, chars: [...row.f.chars] }, attrs: attributes, numbers: row.numbers,
+    },
+  };
+}
+
+export function prepareMaterialFromFeatures(row: MaterialCandidate, persisted: PersistedMaterialFeatures): PreparedMaterialCandidate {
+  const feature = persisted.featureJson;
+  return {
+    ...row, nameKey: feature.nameKey, specKey: feature.specKey, matchText: feature.matchText, category: feature.category,
+    f: { ...feature.f, chars: new Set(feature.f.chars) }, attrs: Object.fromEntries(Object.entries(feature.attrs).map(([key, values]) => [key, new Set(values)])), numbers: feature.numbers,
+  };
 }
 const commonWarning = "类别仅根据品名提示；自制件须核对图纸、孔位和版本，不自动判重。";
 
@@ -128,15 +177,21 @@ export function rankRecent(name: string, spec: string, source: MaterialCandidate
   return rankPrepared(name, spec, source.map(prepareMaterial), limit);
 }
 
-export function scanRows(source: MaterialCandidate[], onProgress: (progress: Record<string, unknown>) => void = () => undefined) {
-  const rows = source.map(prepareMaterial); const groups: HistoryGroup[] = []; const exact = new Map<string, number[]>(), missing = new Map<string, number[]>(), codes = new Map<string, number[]>(), blocks = new Map<string, number[]>();
-  const addTo = (map: Map<string, number[]>, key: string, i: number) => map.set(key, [...(map.get(key) ?? []), i]);
-  rows.forEach((row, i) => { addTo(codes, row.code, i); if (row.nameKey) addTo(row.specKey ? exact : missing, row.specKey ? `${row.nameKey}\0${row.specKey}` : row.nameKey, i); const key = row.f.specs.length ? JSON.stringify(row.f.specs) : row.specKey ? `raw:${row.specKey}` : ""; if (key) addTo(blocks, key, i); });
+function finishGroups(rows: PreparedMaterialCandidate[], groups: HistoryGroup[], comparedPairs: number, skippedBlocks: number, skippedPairs: number) {
+  const order: Record<HistoryGroup["kind"], number> = { exact: 0, similar: 1, missing: 2, code: 3 };
+  groups.sort((a, b) => order[a.kind] - order[b.kind] || (b.score ?? 0) - (a.score ?? 0) || b.count - a.count || a.id - b.id);
+  return { rows: rows.length, groups, counts: Object.fromEntries(Object.keys(order).map((kind) => [kind, groups.filter((group) => group.kind === kind).length])), comparedPairs, skippedBlocks, skippedPairs, generatedAt: new Date().toISOString().slice(0, 19), ruleVersion: "history-1", coverage: "名称规格一致、同名缺规格、同品号分组覆盖全部记录；模糊比较只在相同规格候选桶内进行，超过120条的桶跳过模糊比较。结果不是全部重复物料清单。" };
+}
+
+export function scanPreparedRows(rows: PreparedMaterialCandidate[], onProgress: (progress: Record<string, unknown>) => void = () => undefined) {
+  const groups: HistoryGroup[] = []; const exact = new Map<string, number[]>(), missing = new Map<string, number[]>(), codes = new Map<string, number[]>(), blocks = new Map<string, number[]>();
+  const addTo = (map: Map<string, number[]>, key: string, i: number) => { const indexes = map.get(key); if (indexes) indexes.push(i); else map.set(key, [i]); };
+  rows.forEach((row, i) => { addTo(codes, row.code, i); if (row.nameKey) addTo(row.specKey ? exact : missing, row.specKey ? `${row.nameKey}\0${row.specKey}` : row.nameKey, i); for (const key of candidateKeys(row)) addTo(blocks, key, i); });
   const add = (kind: HistoryGroup["kind"], indexes: number[], score: number | null, reason: string, warnings: string[]) => { const records = indexes.map((i) => rows[i]); groups.push({ id: groups.length + 1, kind, score, reason, warnings, count: records.length, distinctCodes: new Set(records.map((r) => r.code)).size, records: records.slice(0, 50).map(({ row, code, name, spec, sourceId }) => ({ row, code, name, spec, sourceId })), membersTruncated: records.length > 50, search: records.map((r) => `${r.code} ${r.name} ${r.spec}`).join("\n") }); };
   for (const indexes of exact.values()) if (new Set(indexes.map((i) => rows[i].code)).size > 1) add("exact", indexes, 95, "不同品号的品名与非空规格，经空格、全半角、乘号标准化后均一致。", [commonWarning]);
   for (const indexes of missing.values()) if (new Set(indexes.map((i) => rows[i].code)).size > 1) add("missing", indexes, null, "品名标准化后一致，但规格列缺失或为占位符。", ["信息不足，不能仅凭同名确认同物。", commonWarning]);
   for (const indexes of codes.values()) if (indexes[0] !== undefined && rows[indexes[0]].code && indexes.length > 1) add("code", indexes, null, "同一品号有多条来源记录，请检查导出重复、版本或字段冲突。", [commonWarning]);
-  onProgress({ stage: "相似候选比较", exactGroups: groups.length }); let comparedPairs = 0, skippedBlocks = 0, skippedPairs = 0;
+  onProgress({ stage: "相似候选比较", processedItems: rows.length, totalItems: rows.length, exactGroups: groups.length }); let comparedPairs = 0, skippedBlocks = 0, skippedPairs = 0;
   for (const indexes of blocks.values()) {
     if (indexes.length > 120) { skippedBlocks++; skippedPairs += indexes.length * (indexes.length - 1) / 2; continue; }
     for (let x = 0; x < indexes.length; x++) for (let y = x + 1; y < indexes.length; y++) {
@@ -149,8 +204,40 @@ export function scanRows(source: MaterialCandidate[], onProgress: (progress: Rec
       add("similar", [indexes[x], indexes[y]], Math.min(match.score, 90), "规格表达相同，名称存在词序、重复词或标签别名差异。", warnings);
     }
   }
-  const order: Record<HistoryGroup["kind"], number> = { exact: 0, similar: 1, missing: 2, code: 3 }; groups.sort((a, b) => order[a.kind] - order[b.kind] || (b.score ?? 0) - (a.score ?? 0) || b.count - a.count || a.id - b.id);
-  return { rows: rows.length, groups, counts: Object.fromEntries(Object.keys(order).map((kind) => [kind, groups.filter((group) => group.kind === kind).length])), comparedPairs, skippedBlocks, skippedPairs, generatedAt: new Date().toISOString().slice(0, 19), ruleVersion: "history-1", coverage: "名称规格一致、同名缺规格、同品号分组覆盖全部记录；模糊比较只在相同规格候选桶内进行，超过120条的桶跳过模糊比较。结果不是全部重复物料清单。" };
+  onProgress({ stage: "完成", processedItems: rows.length, totalItems: rows.length, processedBlocks: blocks.size, totalBlocks: blocks.size });
+  return finishGroups(rows, groups, comparedPairs, skippedBlocks, skippedPairs);
+}
+
+export function scanChangedPreparedRows(rows: PreparedMaterialCandidate[], changedIds: Set<string>, onProgress: (progress: Record<string, unknown>) => void = () => undefined) {
+  const changedIndexes = new Set(rows.flatMap((row, index) => row.sourceId && changedIds.has(row.sourceId) ? [index] : []));
+  const groups: HistoryGroup[] = []; const exact = new Map<string, number[]>(), missing = new Map<string, number[]>(), codes = new Map<string, number[]>(), blocks = new Map<string, number[]>();
+  const addTo = (map: Map<string, number[]>, key: string, i: number) => { const indexes = map.get(key); if (indexes) indexes.push(i); else map.set(key, [i]); };
+  rows.forEach((row, i) => { addTo(codes, row.code, i); if (row.nameKey) addTo(row.specKey ? exact : missing, row.specKey ? `${row.nameKey}\0${row.specKey}` : row.nameKey, i); for (const key of candidateKeys(row)) addTo(blocks, key, i); });
+  const add = (kind: HistoryGroup["kind"], indexes: number[], score: number | null, reason: string, warnings: string[]) => { const records = indexes.map((i) => rows[i]); groups.push({ id: groups.length + 1, kind, score, reason, warnings, count: records.length, distinctCodes: new Set(records.map((r) => r.code)).size, records: records.slice(0, 50).map(({ row, code, name, spec, sourceId }) => ({ row, code, name, spec, sourceId })), membersTruncated: records.length > 50, search: records.map((r) => `${r.code} ${r.name} ${r.spec}`).join("\n") }); };
+  const touchesChanged = (indexes: number[]) => indexes.some((index) => changedIndexes.has(index));
+  for (const indexes of exact.values()) if (touchesChanged(indexes) && new Set(indexes.map((i) => rows[i].code)).size > 1) add("exact", indexes, 95, "不同品号的品名与非空规格，经空格、全半角、乘号标准化后均一致。", [commonWarning]);
+  for (const indexes of missing.values()) if (touchesChanged(indexes) && new Set(indexes.map((i) => rows[i].code)).size > 1) add("missing", indexes, null, "品名标准化后一致，但规格列缺失或为占位符。", ["信息不足，不能仅凭同名确认同物。", commonWarning]);
+  for (const indexes of codes.values()) if (touchesChanged(indexes) && indexes[0] !== undefined && rows[indexes[0]].code && indexes.length > 1) add("code", indexes, null, "同一品号有多条来源记录，请检查导出重复、版本或字段冲突。", [commonWarning]);
+  onProgress({ stage: "相似候选比较", processedItems: changedIndexes.size, totalItems: rows.length }); let comparedPairs = 0, skippedBlocks = 0, skippedPairs = 0;
+  for (const indexes of blocks.values()) {
+    if (indexes.length > 120) { skippedBlocks++; skippedPairs += indexes.length * (indexes.length - 1) / 2; continue; }
+    for (let x = 0; x < indexes.length; x++) for (let y = x + 1; y < indexes.length; y++) {
+      const a = rows[indexes[x]], b = rows[indexes[y]]; if (a.code === b.code || (a.nameKey === b.nameKey && a.specKey === b.specKey)) continue; comparedPairs++;
+      if (!changedIndexes.has(indexes[x]) && !changedIndexes.has(indexes[y])) continue;
+      if (a.category !== b.category && ![a.category, b.category].includes("未确定")) continue;
+      if (Object.keys(a.attrs).some((key) => a.attrs[key].size && b.attrs[key].size && JSON.stringify([...a.attrs[key]]) !== JSON.stringify([...b.attrs[key]]))) continue;
+      if (JSON.stringify([...a.numbers].sort()) !== JSON.stringify([...b.numbers].sort())) continue;
+      const match = compare(a.f, b.f); if (!match || match.score < 80) continue;
+      const warnings = [...match.warnings, commonWarning]; if (Object.keys(a.attrs).some((key) => Boolean(a.attrs[key].size) !== Boolean(b.attrs[key].size))) warnings.unshift("部分材质/处理/头型等属性只在一条记录中注明，须补充核实。");
+      add("similar", [indexes[x], indexes[y]], Math.min(match.score, 90), "规格表达相同，名称存在词序、重复词或标签别名差异。", warnings);
+    }
+  }
+  onProgress({ stage: "完成", processedItems: changedIndexes.size, totalItems: rows.length, processedBlocks: blocks.size, totalBlocks: blocks.size });
+  return finishGroups(rows, groups, comparedPairs, skippedBlocks, skippedPairs);
+}
+
+export function scanRows(source: MaterialCandidate[], onProgress: (progress: Record<string, unknown>) => void = () => undefined) {
+  return scanPreparedRows(source.map(prepareMaterial), onProgress);
 }
 
 export function stableHash(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }

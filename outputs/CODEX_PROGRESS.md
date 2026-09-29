@@ -2203,3 +2203,84 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 ## 最终状态
 
 已完成。未执行 migration、FULL/INCREMENTAL 同步、watermark 变更、数据库业务数据写入或历史扫描重建。
+
+# 当前任务：KDOS-RD-HISTORY-SCAN-PERF-005
+
+任务目标：在不缩小当前租户 574,544 条物料扫描范围、不改变历史查重规则和结果语义的前提下，将历史扫描重构为一次全量基线、日常增量维护和可手工全量重建，并完成阶段 profiling、等价性测试、部署与运行核验。
+
+当前状态：已完成现状 profiling、特征缓存/增量扫描/批量快照实现、真实 migration、全库/增量性能验收、完整测试、API/Web 部署、健康检查和浏览器核验。
+
+## 当前阶段
+
+当前阶段：真实数据验收与交付
+
+当前子任务：完成全量/增量扫描关系等价、前后端回归验证和最终部署。
+
+## 已完成
+
+- [x] 确认当前租户 `KAINAN` 的 `rd_items` 数量为 574,544。
+- [x] 确认已有完整结果未被删除：98,926 个分组、284,021 个成员，规则版本 `history-1`。
+- [x] 真实历史扫描实测完成一次：扫描记录显示 574,544 行、588,583 个比较候选对、56 个跳过分组、18,158,444 个跳过候选对。
+- [x] 离线阶段 profiling：PostgreSQL 读取约 1.13 秒；normalize/feature 准备约 8.96 秒；exact/missing/code 分组约 1.85 秒；候选桶建立约 0.50 秒；候选比较约 1.33 秒；`scanRows` 端到端约 12.41 秒。
+- [x] 发现当前持久化逻辑对每个分组、每个成员执行独立查询，存在约 98,926 次分组写入、约 284,021 次成员定位查询和约 284,021 次成员写入的 round-trip 风险。
+- [x] 增加 `rd_item_features` 特征缓存，按物料版本和 `history-1` 复用特征；只为新增/变化/缓存缺失物料重新准备特征。
+- [x] 增加全量基线/增量扫描元数据：扫描模式、base scan、source watermark、source version、item count 和真实进度字段。
+- [x] 增量扫描只重新计算 changedItems 与完整物料库的关系，并通过新快照复制未涉及 changedItems 的旧关系；名称/规格变化会清除旧关系后重建。
+- [x] 全量和增量结果写入改为 JSON recordset 分块批量插入，避免逐组/逐成员独立 SQL round-trip。
+- [x] 增加“更新查重”和“全量重建”入口、无变化提示、规则版本变更提示、扫描阶段和进度展示。
+- [x] 固定数据集覆盖新增、改名形成/解除关系、改规格解除关系、物料失效清除关系等全量/增量关系集合等价测试。
+- [x] 执行 migration 并验证 `rd_item_features`、扫描元数据字段和 RLS 策略；未改 E10 或物料业务数据。
+- [x] 真实全量重建覆盖 574,544 条物料；首次建立特征缓存耗时 91.19 秒，缓存复用全量重建耗时 16.86 秒。
+- [x] 真实 20 条增量耗时 15.20 秒、100 条增量耗时 14.64 秒；两者均保留全库覆盖和完整关系规模。
+- [x] 无变化请求耗时 0.21 秒，直接返回无需重新扫描。
+- [x] 全量/增量结果均为 98,926 组、284,021 成员，统计均为 588,583 compared、56 skipped blocks、18,158,444 skipped pairs，分类计数完全一致。
+- [x] 修复内部全量重建入口未传递 mode、批量 JSON recordset 驼峰/下划线字段映射问题，并重新部署 API 验证。
+
+## 正在进行
+
+- [x] 增加规则版本/数据版本/特征缓存/当前结果维护的数据结构。
+- [x] 实现 changedItems 增量扫描和全量重建统一后台任务。
+- [x] 添加固定小数据集全量/增量关系集合等价测试。
+
+## 待完成
+
+- [x] 真实测试无变化、20 条变化、100 条变化和 574,544 条全量重建耗时。
+- [x] API/Web tests、typecheck、lint、build、API/Web 部署、健康检查和浏览器核验。
+
+## 修改文件
+
+- `apps/api/src/migrations/1722920080000-RdDuplicateScanMaintenance.ts`
+- `apps/api/src/modules/rd/rd-duplicate-algorithm.ts`
+- `apps/api/src/modules/rd/rd-duplicate-algorithm.spec.ts`
+- `apps/api/src/modules/rd/rd-history-scan.service.ts`
+- `apps/api/src/modules/rd/rd.application.service.ts`
+- `apps/api/src/modules/rd/rd.controller.ts`
+- `apps/api/src/modules/rd/rd.module.ts`
+- `apps/api/src/modules/rd/rd.query.service.ts`
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 已新增研发中心查重特征缓存表、扫描元数据和进度字段；不修改 E10 数据、既有物料字段、同步 watermark 语义或历史结果。
+
+## 当前已知问题
+
+- 首次全量重建需要建立 574,544 条特征缓存，实测约 91 秒；后续复用缓存约 17 秒。
+- 本轮未做多次重复样本的正式 P50/P95 统计；已记录 20/100 条增量和缓存复用全量的实际单次耗时。
+
+## 下一步
+
+1. [x] 运行 API/Web 完整测试、typecheck、lint 和 build。
+2. [x] 部署最终 Web，执行健康检查和研发中心浏览器核验。
+3. [x] 更新最终交付记录并确认工作区干净。
+
+## 最终交付记录
+
+- 提交：最终交付提交（以仓库 HEAD 为准）。
+- Migration：已执行 `1722920080000-RdDuplicateScanMaintenance`；未执行 FULL/INCREMENTAL E10 同步。
+- API/Web：最终 API 与 Web 均部署，版本一致性检查通过。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 浏览器：研发中心一物多码检测、物料数据页 2/2 通过。

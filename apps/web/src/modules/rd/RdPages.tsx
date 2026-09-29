@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Empty, Input, InputNumber, Segmented, Select, Space, Statistic, Tag, Typography, message } from "antd";
+import { Alert, Button, Empty, Input, InputNumber, Popconfirm, Progress, Segmented, Select, Space, Statistic, Tag, Typography, message } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
 import { KdosDataTable, kdosDefaultPageSize } from "../../shared/KdosDataTable";
@@ -23,6 +23,7 @@ type DuplicateGroup = {
 type Scan = {
   id: string;
   status: "IDLE" | "RUNNING" | "COMPLETE" | "FAILED" | string;
+  scanMode?: "FULL" | "INCREMENTAL" | string;
   stage?: string;
   rows?: number;
   counts?: Record<string, number>;
@@ -37,6 +38,12 @@ type Scan = {
   skippedBlocks?: number;
   skippedPairs?: number;
   errorMessage?: string;
+  itemCount?: number;
+  processedItems?: number;
+  totalItems?: number;
+  processedBlocks?: number;
+  totalBlocks?: number;
+  progressPercent?: number;
 };
 
 const kindOptions = [
@@ -137,6 +144,7 @@ export function RdDuplicatesPage() {
   const [nameFilter, setNameFilter] = useState("");
   const [specFilter, setSpecFilter] = useState("");
   const [minScore, setMinScore] = useState<number | null>(null);
+  const latestScan = useQuery({ queryKey: ["rd-latest-scan"], queryFn: () => api<Scan | null>("/rd/material-duplicates/scans/latest") });
 
   const updateHistoryFilter = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -151,16 +159,18 @@ export function RdDuplicatesPage() {
     return params.toString();
   }, [codeFilter, historyPage, historyPageSize, kind, minScore, nameFilter, specFilter]);
   const scanQuery = useQuery({
-    queryKey: ["rd-scan", scan?.id, queryParams],
-    enabled: Boolean(scan?.id),
-    queryFn: () => api<Scan>(`/rd/material-duplicates/scans/${scan?.id}?${queryParams}`),
+    queryKey: ["rd-scan", scan?.id ?? latestScan.data?.id, queryParams],
+    enabled: Boolean(scan?.id ?? latestScan.data?.id),
+    queryFn: () => api<Scan>(`/rd/material-duplicates/scans/${scan?.id ?? latestScan.data?.id}?${queryParams}`),
     refetchInterval: (query) => query.state.data?.status === "RUNNING" ? 1200 : false,
   });
-  const current = scanQuery.data ?? scan;
+  const current = scanQuery.data ?? scan ?? latestScan.data;
   const status = current?.status ?? "IDLE";
-  const start = async () => {
+  const start = async (mode: "FULL" | "INCREMENTAL") => {
     try {
-      const result = await api<Scan>("/rd/material-duplicates/scans", { method: "POST" });
+      const result = await api<Scan & { message?: string; scanId?: string }>("/rd/material-duplicates/scans", { method: "POST", body: JSON.stringify({ mode }) });
+      if (result.status === "NO_CHANGES") { message.info(result.message ?? "当前物料数据无变化，无需重新扫描。"); if (result.scanId) setScan({ ...result, id: result.scanId, status: "COMPLETE" }); return; }
+      if (result.status === "RULE_MISMATCH") { message.warning(result.message ?? "查重规则已更新，请执行全量重建。"); return; }
       setScan(result);
       setHistoryPage(1);
     } catch (error) {
@@ -176,10 +186,11 @@ export function RdDuplicatesPage() {
     <Typography.Paragraph type="secondary" className="rd-full-scan-description">对当前物料库全部物料进行查重分析，识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况，结果供人工核对。</Typography.Paragraph>
 
     <section className="rd-history-section">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>全量查重</Typography.Title><Typography.Text type="secondary">当前租户物料库全部物料参与查重分析，继续使用现有查重规则和候选分组结果。</Typography.Text></div><Button type="primary" onClick={() => void start()} disabled={status === "RUNNING"}>{status === "COMPLETE" ? "重新扫描" : "开始扫描"}</Button></div>
-      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{scanStatusLabels[status] ?? "未知状态"}</Tag>{status === "IDLE" && "点击‘开始扫描’，对当前物料库全部物料进行查重分析。"}{status === "RUNNING" && "正在进行全量物料查重，请稍候。"}{status === "COMPLETE" && "全量物料查重已完成。"}{status === "FAILED" && (current?.errorMessage || "扫描失败，请查看错误信息后重新扫描。")}</div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>全量查重</Typography.Title><Typography.Text type="secondary">更新查重只处理上次成功扫描后新增或修改的物料，但结果始终覆盖当前物料库全部物料。</Typography.Text></div><Space><Button type="primary" onClick={() => void start("INCREMENTAL")} disabled={status === "RUNNING"}>更新查重</Button><Popconfirm title="确认全量重建？" description="重新计算当前物料库全部查重结果，耗时较长，仅在规则调整或数据异常时使用。" okText="确认重建" cancelText="取消" onConfirm={() => void start("FULL")}><Button disabled={status === "RUNNING"}>全量重建</Button></Popconfirm></Space></div>
+      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{scanStatusLabels[status] ?? "未知状态"}</Tag>{status === "IDLE" && "点击‘更新查重’，处理新增或修改的物料并更新全部查重结果。"}{status === "RUNNING" && `正在${current?.scanMode === "FULL" ? "进行全量重建" : "更新查重"}，请稍候。`}{status === "COMPLETE" && `${current?.scanMode === "FULL" ? "全量重建" : "查重更新"}已完成。`}{status === "FAILED" && (current?.errorMessage || "扫描失败，请查看错误信息后重新扫描。")}</div>
+      {status === "RUNNING" && <div className="rd-scan-progress"><Progress percent={Math.round(Number(current?.progressPercent ?? 0))} status="active" /><Typography.Text type="secondary">阶段：{current?.stage || "处理中"} · 已处理物料 {formatCount(current?.processedItems)} / {formatCount(current?.totalItems)} · 已处理候选分组 {formatCount(current?.processedBlocks)} / {formatCount(current?.totalBlocks)}</Typography.Text></div>}
       <div className="rd-scan-stats">
-        <Statistic title="物料总数" value={formatCount(current?.rows)} />
+        <Statistic title="物料总数" value={formatCount(current?.itemCount ?? current?.rows)} />
         <Statistic title="扫描时间" value={formatTime(current?.finishedAt || current?.startedAt)} />
         <Statistic title="已比较候选对" value={formatCount(current?.comparedPairs)} />
         <Statistic title="已跳过候选分组" value={formatCount(current?.skippedBlocks)} />
@@ -196,7 +207,7 @@ export function RdDuplicatesPage() {
         <Button onClick={resetHistory}>重置</Button>
       </div>
       {scanQuery.isError && <Alert type="error" showIcon message={(scanQuery.error as Error).message} />}
-      {status === "RUNNING" ? <div className="rd-scan-running"><Typography.Text>扫描正在运行，页面会自动刷新状态。</Typography.Text></div> : status === "COMPLETE" ? <>
+      {status === "RUNNING" ? <div className="rd-scan-running"><Typography.Text>后台任务正在运行，页面会自动刷新进度。</Typography.Text></div> : status === "COMPLETE" ? <>
         <div className="rd-results-summary">{rdKindLabel(kind)}共 {formatCount(current?.totalGroups)} 组 · 第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</div>
         {(current?.groups ?? []).length ? <div className="rd-history-results">{(current?.groups ?? []).map((group) => <ComparisonCard key={group.id} group={group} />)}</div> : <Empty description="当前条件没有候选；不代表不存在重复物料。" />}
         <div className="rd-history-pager"><Button disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>上一页</Button><Typography.Text>第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</Typography.Text><Button disabled={historyPage >= (current?.pages ?? 1)} onClick={() => setHistoryPage((page) => page + 1)}>下一页</Button></div>

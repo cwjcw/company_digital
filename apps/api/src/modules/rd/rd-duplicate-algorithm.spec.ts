@@ -1,4 +1,4 @@
-import { compare, diffParts, features, scanRows } from "./rd-duplicate-algorithm";
+import { compare, diffParts, features, prepareMaterial, scanChangedPreparedRows, scanRows } from "./rd-duplicate-algorithm";
 
 describe("研发中心一物多码规则迁移", () => {
   it("keeps the legacy label order case as a high-scoring candidate with warning", () => {
@@ -35,5 +35,45 @@ describe("研发中心一物多码规则迁移", () => {
     expect(parts[1]?.filter((part) => part.changed).map((part) => part.text).join("")).toBe("85");
     expect(diffParts("", "规格")).toEqual([[], [{ text: "规格", changed: true }]]);
     expect(diffParts("😀H", "😀I")).toEqual([[{ text: "😀", changed: false }, { text: "H", changed: true }], [{ text: "😀", changed: false }, { text: "I", changed: true }]]);
+  });
+
+  it.each([
+    {
+      name: "新增重复物料",
+      baseline: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }],
+      current: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*50" }],
+      changed: ["b"],
+    },
+    {
+      name: "修改名称形成重复",
+      baseline: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "钢板", spec: "T1*20*50" }],
+      current: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*50" }],
+      changed: ["b"],
+    },
+    {
+      name: "修改名称解除重复",
+      baseline: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*50" }],
+      current: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "钢板", spec: "T1*20*50" }],
+      changed: ["b"],
+    },
+    {
+      name: "修改规格解除重复",
+      baseline: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*50" }],
+      current: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*60" }],
+      changed: ["b"],
+    },
+    {
+      name: "物料失效后清除关系",
+      baseline: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }, { row: 2, sourceId: "b", code: "B", name: "圆管", spec: "T1*20*50" }],
+      current: [{ row: 1, sourceId: "a", code: "A", name: "圆管", spec: "T1*20*50" }],
+      changed: ["b"],
+    },
+  ])("增量结果与全量结果对变化关系等价：$name", ({ baseline, current, changed }) => {
+    const oldReport = scanRows(baseline);
+    const fullReport = scanRows(current);
+    const incrementalReport = scanChangedPreparedRows(current.map(prepareMaterial), new Set(changed));
+    const oldUnchanged = oldReport.groups.filter((group) => !group.records.some((record) => changed.includes(record.sourceId ?? "")) && group.records.every((record) => current.some((item) => item.sourceId === record.sourceId)));
+    const signature = (group: { kind: string; records: Array<{ sourceId?: string }> }) => `${group.kind}|${group.records.map((record) => record.sourceId).sort().join(",")}`;
+    expect([...oldUnchanged, ...incrementalReport.groups].map(signature).sort()).toEqual(fullReport.groups.map(signature).sort());
   });
 });

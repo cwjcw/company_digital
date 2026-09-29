@@ -295,6 +295,8 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .rd-scan-status { min-height: 34px; padding: 7px 10px; border-radius: 6px; background: #f5f8f8; }
 .rd-scan-status-running { color: #286c72; background: #eef8f7; }
 .rd-scan-status-failed { color: #a13936; background: #fff3f2; }
+.rd-scan-progress { margin: 10px 0 12px; padding: 8px 10px; border: 1px solid #dcebed; border-radius: 7px; background: #f8fcfc; }
+.rd-scan-progress .ant-progress { margin-bottom: 2px; }
 .rd-scan-stats { display: grid; grid-template-columns: repeat(8, minmax(110px, 1fr)); gap: 8px; margin: 10px 0; }
 .rd-scan-stats .ant-statistic { min-width: 0; padding: 8px 10px; border: 1px solid #e6edef; border-radius: 7px; background: #fbfdfd; }
 .rd-scan-stats .ant-statistic-title { margin-bottom: 2px; overflow: hidden; color: #718287; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
