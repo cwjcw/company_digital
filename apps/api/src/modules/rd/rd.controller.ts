@@ -35,4 +35,10 @@ export class RdInternalController {
     if (!tenantId || tenantId !== (process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN")) throw new UnauthorizedException("租户不匹配");
     return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", { tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-sync", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-${Date.now()}`, source: "api" });
   }
+
+  @Post("material-duplicates/scans") startScan(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined) {
+    if (!process.env.KDOS_RD_INTERNAL_TOKEN || token !== process.env.KDOS_RD_INTERNAL_TOKEN) throw new UnauthorizedException("内部同步凭据无效");
+    if (!tenantId || tenantId !== (process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN")) throw new UnauthorizedException("租户不匹配");
+    return this.application.startScan({ tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-scan", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-scan-${Date.now()}`, source: "api" });
+  }
 }
