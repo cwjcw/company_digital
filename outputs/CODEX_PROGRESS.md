@@ -1,3 +1,114 @@
+# 当前任务：KDOS-RD-FRONTEND-UI-001
+
+任务目标：在不修改 E10 同步、PostgreSQL 表结构、查重/score/history scan 算法、API 业务逻辑、权限、RLS、n8n 或 migration 的前提下，将旧 Demo 的一物多码检测交互与物料数据页信息结构迁移到 KDOS 前端。
+
+当前状态：前端适配、定向测试、Web typecheck、lint、build、Web-only 部署和部署后浏览器验收已完成。
+
+最后更新时间：2026-09-29
+
+## 旧界面 vs 当前 KDOS 对照清单
+
+| 旧界面功能 | 旧文件 | 当前 KDOS 实现 | 是否一致 | 本轮处理 |
+| --- | --- | --- | --- | --- |
+| 快速查重布局 | `preview/duplicates.html` | 独立 Card，手动点击“开始检测” | 否 | 品名/规格置顶，结果紧邻输入区 |
+| debounce | `preview/duplicates.html`，350ms | 无，只有手动请求 | 否 | 恢复 350ms 自动检索 |
+| 近期 5000 | `preview/duplicates.html`，输入时 `window=5000` | 未显式区分窗口 | 否 | 保留自动预览并显示检索范围 |
+| 最近 20000 | `preview/duplicates.html`，按钮/Enter `window=20000` | 未显式区分窗口 | 否 | 按当前 API 的 `limit=10` 等价调用 |
+| Top N | `preview/duplicates.html`，Top 5 | 只有 InputNumber，默认 5 | 部分一致 | 增加 Top 5/Top 10 选择并保持 API limit |
+| 开始扫描 | `preview/duplicates.html` | 有开始扫描 | 基本一致 | 保留并补齐扫描区结构 |
+| 重新扫描 | `preview/duplicates.html`，完成后改名 | 始终显示“开始扫描” | 否 | 完成后显示“重新扫描” |
+| 扫描状态 | `preview/duplicates.html`，idle/running/complete/failed | 仅有部分状态文字 | 否 | 明确显示四态与运行中反馈 |
+| 扫描统计 | `preview/duplicates.html`，summary/coverage | 仅物料、比较、跳过的简略文字 | 否 | 统计条展示物料、时间、四类数量、pairs、skips |
+| exact/similar/missing/code | `preview/duplicates.html`，默认 similar，其他在说明/统计 | 只渲染当前 groups，无分类切换 | 否 | Segmented 分类切换，默认 similar |
+| 筛选 | `preview/duplicates.html`，品号/品名/规格/最低分/重置 | 无历史筛选控件 | 否 | 恢复紧凑筛选并接当前扫描查询参数 |
+| 分页 | `preview/duplicates.html`，20/50/100 | 历史结果固定 pageSize=50，无分页 UI | 否 | 恢复 20/50/100 与翻页状态 |
+| A/B 对比 | `preview/duplicates.html`，候选组上下两行 | 扁平 `rd-ab-row`，多记录索引比较 | 否 | 候选组卡片内固定 A vs B 双栏 |
+| 字符差异 | `preview/duplicates.html` + `test_diff_highlight.cjs`，LCS | 仅共同前缀后的字符全标红 | 否 | 前端复刻 LCS diffParts；不改算法/API |
+| 空值标识 | `preview/duplicates.html`，差异时红色“（空）” | 仅空左侧有简单标记 | 否 | 两侧空值明确显示“（空）”并标记差异 |
+| reason | `preview/duplicates.html` | 只在 live 小字中拼接，历史弱化 | 否 | A/B 候选卡片显式展示判断依据 |
+| warnings | `preview/duplicates.html` | 历史未独立展示 | 否 | 候选卡片显式展示 warnings |
+| 说明文案 | `preview/duplicates.html` | 只有简短 Alert | 部分一致 | 补充“分数非概率、不自动删除/合并、需人工确认” |
+| 物料总数/当前筛选数 | `preview/index.html` | 仅 PageHeader 标签显示有效物料数 | 否 | 增加紧凑数据条，保留 KDOS 外层 |
+| 搜索字段选择 | `preview/index.html` | KdosDataTable 自带通用搜索，未提供选择器 | 否 | 增加品号/品名/规格/全部选择；不改变现有 API |
+| 品号/品名/规格及原始字段 | `preview/index.html` | 已有 KDOS 表格列，字段更完整 | 基本一致 | 保持 KdosDataTable，优化密度与空值显示 |
+| 25/50/100 分页 | `preview/index.html` | 继承 KDOS 统一分页能力 | 有意不同 | 保留 KDOS 统一 50/100/200/500/1000 选项，避免修改公共表格标准 |
+
+## 当前阶段
+
+当前阶段：前端页面适配
+
+当前子任务：实现快速检索 debounce、扫描统计/筛选/分类、A/B LCS 对比和物料页紧凑搜索条。
+
+## 已完成
+
+- [x] 完整阅读旧 `duplicates.html`、`index.html`、`import.html`、候选组测试和差异高亮测试。
+- [x] 完成旧界面与当前 KDOS 页面逐项对照并记录上表。
+
+## 正在进行
+
+- [x] 仅修改 Web 前端展示与交互；未修改 `apps/api/**`、数据库、migration、n8n 或 E10 链路。
+- [x] 快速检索恢复 350ms debounce、近期 5000/最近 20000、Top 5/Top 10、reason 和 warnings。
+- [x] 历史扫描恢复 idle/running/complete/failed、统计条、四类 Segmented、筛选、分页和 A/B 候选卡片。
+- [x] 前端 LCS 字符差异、空值“（空）”标识已迁移，未改变后端 score 或查重算法。
+- [x] 物料页保留 `KdosDataTable`，增加总数/筛选数和搜索字段入口。
+
+## 待完成
+
+- [x] 添加前端 LCS 展示工具测试和 R&D 浏览器验收场景。
+- [x] `./scripts/deploy.sh web` 成功，最终 Web build 与仓库 HEAD 一致；API 未重启，未运行 FULL 同步、migration 或数据库写入。
+- [x] 部署后浏览器验收 2/2 通过，Web/API/PostgreSQL 健康检查通过。
+
+## 修改文件
+
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/modules/rd/rd-display.ts`
+- `apps/web/src/modules/rd/rd-display.spec.ts`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无；本轮禁止修改。
+
+## 新增或修改测试
+
+- `apps/web/src/modules/rd/rd-display.spec.ts`：旧 diff 高亮用例、Unicode、空值、长文本。
+- `apps/web/e2e/rd-ui.spec.ts`：快速检索、历史 A/B、统计和物料页入口浏览器验收。
+
+## 已运行测试
+
+- Web 全量：27 个测试文件、164 个测试通过。
+- 浏览器：R&D UI 2 个场景通过。
+- Web typecheck：通过。
+- Web lint：通过，保留项目原有 `ModulePortal.tsx` Fast Refresh warning。
+- Web build：通过，保留项目原有大 chunk warning。
+- `git diff --check`：通过。
+
+## 当前已知问题
+
+- 当前 `rd-items` API 的 `search` 是统一搜索参数，旧 Demo 的 field-specific 查询不能通过新增后端参数实现；前端保留字段选择入口并明确当前接口行为，不修改 API 业务逻辑。
+
+## 等待用户确认
+
+- 无。
+
+## 下一步
+
+1. 只提交 `apps/web/**` 与本进度文件。
+2. 执行 `./scripts/deploy.sh web`，不重启 API，不运行 FULL 同步。
+3. 部署后执行 health/version check 与浏览器页面核验，确认 Git diff 未触及后端。
+
+## 最终部署记录
+
+- Web：最终 Web-only 部署完成，版本检查通过。
+- API：保持既有线上版本 `7dff48f`，本轮未重启、未修改；因此全量 `deploy.sh check` 的 API/Repository SHA 不一致是本轮禁止 API 变更的预期结果。
+- 数据库/E10：未执行 migration、同步或写入；既有扫描结果未重建。
+
+## 恢复执行说明
+
+新的 Codex 会话开始后先读取本任务段、执行 `git status` 与 `git diff --stat`，从“下一步”的第一项未完成工作继续；不重新运行 FULL 同步，不重复历史扫描。
+
 # Codex 工作进度
 
 ## 当前任务：KDOS-RD-MATERIAL-DUPLICATE-001
