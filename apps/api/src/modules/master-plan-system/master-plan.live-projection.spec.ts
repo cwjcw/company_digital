@@ -58,7 +58,7 @@ describe("KN-MPS-LIVE-002 master plan projection boundaries", () => {
     expect(sql).toContain(`AND source_database='${KEJIA}'`);
     expect(sql).not.toContain("UFTData741219_000012");
     /* 多交期 FIFO：客户最新交期 → 交期编码 → id，最早交期优先吃入库数量。 */
-    expect(sql).toContain("ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number,w.id");
+    expect(sql).toContain("ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number::numeric,w.id");
     expect(sql).toContain("least(inbound_quantity-prior_planned,planned_quantity)");
   });
 

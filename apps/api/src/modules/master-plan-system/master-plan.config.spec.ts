@@ -24,6 +24,9 @@ describe("master plan manual-entry configuration", () => {
     expect(fields.find((field) => field.key === "itemCode")?.label).toBe("品项编码");
     expect(fields.find((field) => field.key === "itemName")?.label).toBe("品项名称");
     expect(fields.find((field) => field.key === "deliveryNumber")?.label).toBe("交期编码");
+    expect(fields.find((field) => field.key === "deliveryNumber")?.type).toBe("text");
+    expect(fields.find((field) => field.key === "deliveryNumber")?.editable).toBe(false);
+    expect(fields.find((field) => field.key === "deliveryNumber")?.required).toBe(false);
     expect(fields.find((field) => field.key === "modelAge")?.label).toBe("新旧款");
     expect(fields.filter((field) => ["itemName", "divisionId"].includes(field.key)).every((field) => field.required)).toBe(true);
     expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);

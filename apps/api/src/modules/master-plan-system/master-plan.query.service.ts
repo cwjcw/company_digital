@@ -114,7 +114,7 @@ export class MasterPlanQueryService {
     if (requestedSort && !allColumns[requestedSort]) throw new BadRequestException("排序字段无效");
     if (requestedSort && !visibleFields.includes(requestedSort)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortColumn = visibleFields.includes(requestedSort) ? allColumns[requestedSort] : "";
-    const orderBy = sortColumn ? `${this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
+    const orderBy = sortColumn ? `${requestedSort === "deliveryNumber" ? `${this.expression(sortColumn)}::numeric` : this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
     const dataParams = [...params];
     const updateAllowed = hasMasterPlanPermission(actor, code, "update")
       ? this.scopeClause(resource, actor, "update", allColumns, dataParams)
@@ -255,7 +255,7 @@ export class MasterPlanQueryService {
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", columns, params)];
     const search = String(searchInput ?? "").trim();
     if (search) { params.push(`%${search}%`); clauses.push(`concat_ws('/',record.order_number,record.item_code,record.item_name,record.delivery_number::text) ILIKE $${params.length}`); }
-    return this.dataSource.query(`SELECT record.id,concat_ws(' / ',record.order_number,record.item_code,record.item_name,'交期编码'||record.delivery_number::text) label FROM mps_weekly_plans record WHERE ${clauses.join(" AND ")} ORDER BY record.latest_review_due_date DESC,record.order_number,record.item_code,record.delivery_number LIMIT 100`, params);
+    return this.dataSource.query(`SELECT record.id,concat_ws(' / ',record.order_number,record.item_code,record.item_name,'交期编码'||record.delivery_number::text) label FROM mps_weekly_plans record WHERE ${clauses.join(" AND ")} ORDER BY record.latest_review_due_date DESC,record.order_number,record.item_code,record.delivery_number::numeric LIMIT 100`, params);
   }
 
   private async processReportTasks(input: ListInput, actor: MasterPlanActor) {
@@ -306,7 +306,7 @@ export class MasterPlanQueryService {
     }
     const where = clauses.join(" AND "); const [{ count }] = await this.dataSource.query(`WITH record AS (${source}) SELECT count(*)::integer count FROM record WHERE ${where}`, params);
     const selected = visibleFields.map((field) => `${this.expression(columns[field]!)} "${field}"`); const dataParams = [...params, pageSize, (page - 1) * pageSize];
-    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,record."weeklyPlanId",false "canUpdate",false "canDelete",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.order_number,record.item_code,record.delivery_number,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const rows = await this.dataSource.query(`WITH record AS (${source}) SELECT record.id,record.version,record."weeklyPlanId",false "canUpdate",false "canDelete",true "pendingTask",${selected.join(",")} FROM record WHERE ${where} ORDER BY record.order_number,record.item_code,record.delivery_number::numeric,record.process_code LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
     const paths = new Map(organizations.map((option) => [option.id, option.pathLabel]));
     for (const row of rows) {
       if (visibleFields.includes("divisionId")) row.divisionName = paths.get(String(row.divisionId ?? "")) ?? null;

@@ -38,12 +38,17 @@ export function reverseSchedule(anchorDate: string, cycles: ProcessCycleInput) {
   return result.reverse();
 }
 
-export type FifoDelivery = { id: string; dueDate: string; deliveryNumber: number; plannedQuantity: string | number };
+export type FifoDelivery = { id: string; dueDate: string; deliveryNumber: string | number; plannedQuantity: string | number };
+
+const compareDeliveryNumbers = (left: string | number, right: string | number) => {
+  const a = BigInt(String(left)); const b = BigInt(String(right));
+  return a < b ? -1 : a > b ? 1 : 0;
+};
 
 export function allocateInboundFifo(deliveries: FifoDelivery[], inboundQuantity: string | number) {
   let remaining = Decimal.max(new Decimal(inboundQuantity || 0), 0);
   return [...deliveries]
-    .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.deliveryNumber - right.deliveryNumber || left.id.localeCompare(right.id))
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || compareDeliveryNumbers(left.deliveryNumber, right.deliveryNumber) || left.id.localeCompare(right.id))
     .map((delivery) => {
       const planned = Decimal.max(new Decimal(delivery.plannedQuantity || 0), 0);
       const allocated = Decimal.min(remaining, planned);

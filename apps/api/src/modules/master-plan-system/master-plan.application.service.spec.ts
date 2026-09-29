@@ -3,6 +3,32 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-111111111111", username: "tester", permissions: ["*"], isSystemAdmin: true, moduleAdminCodes: [], tableDataScopes: [], requestId: "request-import", source: "web" as const };
 
 describe("MasterPlanApplicationService imports", () => {
+  it("generates a three-digit delivery code in the backend and rejects manual PATCH", async () => {
+    const inserted = { id: "22222222-2222-4222-8222-222222222222", version: 1, order_number: "SO-1", item_code: "ITEM-1", delivery_number: "001" };
+    const query = jest.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO mps_delivery_code_counters")) return [{ generated: "1" }];
+      if (sql.startsWith("INSERT INTO mps_base_plans")) return [inserted];
+      return [];
+    });
+    const manager = { query }; const dataSource = { transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query };
+    const service = new MasterPlanApplicationService(dataSource as never, { processOutbox: jest.fn().mockResolvedValue(undefined) } as never);
+    const values = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+
+    await expect(service.create("mps-base-plans", values, actor)).resolves.toEqual(expect.objectContaining({ delivery_number: "001" }));
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("pg_advisory_xact_lock"))).toBe(true);
+    await expect(service.update("mps-base-plans", inserted.id, { deliveryNumber: "002", expectedVersion: 1 }, actor)).rejects.toThrow("字段 deliveryNumber 不允许写入");
+  });
+
+  it("allows multiple same-order/item import rows because the server assigns each code", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
+    const values = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+    await expect(service.validateImportUpdates("mps-base-plans", [
+      { row: 2, id: null, expectedVersion: null, values },
+      { row: 3, id: null, expectedVersion: null, values: { ...values, latestCustomerDueDate: "2026-10-02" } }
+    ], actor)).resolves.toEqual([]);
+  });
+
   it.each(["自制", "自制+外协", "外协", "中心外购"])("allows packaging task and report source for %s", async (manufacturingMethod) => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: manufacturingMethod };
     const query = jest.fn().mockResolvedValue([weekly]);
@@ -27,7 +53,7 @@ describe("MasterPlanApplicationService imports", () => {
     const query = jest.fn().mockResolvedValue([]); const manager = { query };
     const service = new MasterPlanApplicationService({ query, manager, transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never, { processOutbox: jest.fn() } as never);
     const values = {
-      orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1,
+      orderNumber: "SO-1", itemCode: "ITEM-1",
       latestCustomerDueDate: "2026-10-01", latestReviewDueDate: "2026-09-20", plannedQuantity: 1
     };
 
@@ -47,7 +73,7 @@ describe("MasterPlanApplicationService imports", () => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 0, planned_quantity: 0, manufacturing_method: "自制" };
     const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : []);
     const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
-    await expect(service.validateImportUpdates("mps-shipping-plans", [{ row: 1, id: null, expectedVersion: null, values: { customerCode: "C1", orderNumber: "SO-1", itemCode: "ITEM-1", itemName: "品项", deliveryNumber: 0, latestCustomerDueDate: "2026-10-01", plannedQuantity: 0, divisionId: "22222222-2222-4222-8222-222222222222" } }], actor)).resolves.toEqual([]);
+    await expect(service.validateImportUpdates("mps-shipping-plans", [{ row: 1, id: null, expectedVersion: null, values: { customerCode: "C1", orderNumber: "SO-1", itemCode: "ITEM-1", itemName: "品项", latestCustomerDueDate: "2026-10-01", plannedQuantity: 0, divisionId: "22222222-2222-4222-8222-222222222222" } }], actor)).resolves.toEqual([]);
     await expect(service.validateImportUpdates("mps-process-reports", [{ row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "cutting", productionDate: "2026-09-15", productionQuantity: 0 } }], actor)).resolves.toEqual([]);
     await expect(service.validateImportUpdates("mps-process-reports", [{ row: 3, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "cutting", productionDate: "2026-09-15", productionQuantity: -1 } }], actor)).resolves.toEqual([{ row: 3, reason: "报工数量必须为非负数字" }]);
     await expect(service.validateImportUpdates("mps-process-reports", [{ row: 4, id: "22222222-2222-4222-8222-222222222222", expectedVersion: 0, values: { productionQuantity: 0 } }], actor)).resolves.toEqual([{ row: 4, reason: "版本必须为正整数" }]);
@@ -56,7 +82,7 @@ describe("MasterPlanApplicationService imports", () => {
 
   it.each([
     ["customerCode", "客户编码"], ["orderNumber", "订单编号"], ["itemCode", "品项编码"], ["itemName", "品项名称"],
-    ["deliveryNumber", "交期编码"], ["latestCustomerDueDate", "最迟客户交期"], ["plannedQuantity", "计划数量"], ["divisionId", "承接事业部"]
+    ["latestCustomerDueDate", "最迟客户交期"], ["plannedQuantity", "计划数量"], ["divisionId", "承接事业部"]
   ])("rejects clearing required shipping field %s during import update", async (field, label) => {
     const current = { id: "22222222-2222-4222-8222-222222222222", version: 2, customer_code: "C1", order_number: "SO-1", item_code: "I1", item_name: "品项", delivery_number: 0, latest_customer_due_date: "2026-10-01", planned_quantity: 0, division_id: "33333333-3333-4333-8333-333333333333" };
     const query = jest.fn(async (sql: string) => sql.startsWith("SELECT * FROM mps_shipping_plans") ? [current] : []);
@@ -108,7 +134,7 @@ describe("MasterPlanApplicationService imports", () => {
   it("enforces base-plan required fields and dictionary values on the backend", async () => {
     const query = jest.fn().mockResolvedValue([]);
     const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
-    const common = { orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1, latestCustomerDueDate: "2026-10-01", plannedQuantity: 1 };
+    const common = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1 };
 
     await expect(service.create("mps-base-plans", common, actor)).rejects.toThrow("最迟评审交期不能为空");
     await expect(service.create("mps-base-plans", {
@@ -122,7 +148,7 @@ describe("MasterPlanApplicationService imports", () => {
       const query = jest.fn().mockResolvedValue([]);
       return { instance: new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never), query };
     };
-    const basePlanValues = { orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1, latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+    const basePlanValues = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
 
     it.each([
       ["productAttribute", "1", "产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料"],

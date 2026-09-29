@@ -505,7 +505,7 @@ export class MasterPlanSyncService {
         SELECT w.id,w.planned_quantity,COALESCE(t.quantity,0) inbound_quantity,
           COALESCE(sum(w.planned_quantity) OVER (
             PARTITION BY w.order_number,w.item_code
-            ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number,w.id
+            ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number::numeric,w.id
             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
           ),0) prior_planned
         FROM mps_weekly_plans w

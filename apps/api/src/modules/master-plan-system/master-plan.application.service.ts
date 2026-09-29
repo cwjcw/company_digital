@@ -53,11 +53,13 @@ export class MasterPlanApplicationService {
     this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
     this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      const columns = columnsFor(resource); const entries = Object.entries(values);
-      if (!entries.length) throw new BadRequestException("没有可写入的业务字段");
+      const columns = columnsFor(resource);
+      await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
+      const generatedEntries = Object.entries(values);
+      if (!generatedEntries.length) throw new BadRequestException("没有可写入的业务字段");
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
-      const params = [actor.tenantId, actorId, actorId, ...entries.map(([, value]) => value)];
-      const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$3,${entries.map((_, index) => `$${index + 4}`).join(",")}) RETURNING *`, params);
+      const params = [actor.tenantId, actorId, actorId, ...generatedEntries.map(([, value]) => value)];
+      const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${generatedEntries.map(([field]) => columns[field]).join(",")}) VALUES($1,$2::uuid,$3,${generatedEntries.map((_, index) => `$${index + 4}`).join(",")}) RETURNING *`, params);
       await this.audit(manager, actor, code, inserted[0].id, `${code}.created`, null, inserted[0]);
       await this.enqueueReconciliation(manager, resource, actor, inserted[0].id, inserted[0]);
       return inserted[0];
@@ -213,6 +215,7 @@ export class MasterPlanApplicationService {
           await this.fillReportSource(resource, values, actor.tenantId, manager, shippingMonthlyPlanIds);
           this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
+          await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actorId);
           const columns = columnsFor(resource); const entries = Object.entries(values);
           if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
           const params: unknown[] = [actor.tenantId, actorId, ...entries.map(([, value]) => value)];
@@ -368,6 +371,8 @@ export class MasterPlanApplicationService {
 
   private businessKey(resource: MasterPlanResource, values: Record<string, unknown>) {
     if (!resource.uniqueKeyFields?.length) return null;
+    /* 新增主计划的交期编码由确认事务生成；预览阶段不能用空编码把同一订单+品项的拆分行误判为重复。 */
+    if (["mps-shipping-plans", "mps-base-plans"].includes(resource.code) && values.deliveryNumber == null) return null;
     return resource.uniqueKeyFields.map((field) => `${field}:${String(values[field] ?? "")}`).join("\u0000");
   }
 
@@ -447,6 +452,31 @@ export class MasterPlanApplicationService {
       values.processName = process[1];
     }
     this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
+  }
+
+  /**
+   * 交期编码唯一生成入口：只给可直接新增的源/基础计划分配号码。
+   * 周计划和各类报工快照从上游 UUID 复制编码，不能另行编号。
+   * advisory xact lock 使同一租户+订单+品项的并发新增串行；counter 永久前进，删除不会复用。
+   */
+  private async assignDeliveryCode(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query">, actorId: string) {
+    if (!["mps-shipping-plans", "mps-base-plans"].includes(resource.code)) return;
+    if (values.deliveryNumber != null) throw new BadRequestException("交期编码由系统自动生成，不能人工填写");
+    const orderNumber = String(values.orderNumber ?? "").trim();
+    const itemCode = String(values.itemCode ?? "").trim();
+    if (!orderNumber || !itemCode) throw new BadRequestException("生成交期编码前必须先填写订单编号和品项编码");
+    const lockKey = `mps-delivery-code:${tenantId}:${orderNumber}:${itemCode}`;
+    await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    const [counter] = await manager.query(`
+      INSERT INTO mps_delivery_code_counters(tenant_id,order_number,item_code,next_number,created_by,updated_by)
+      VALUES($1,$2,$3,2,$4::uuid,$4)
+      ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET
+        next_number=mps_delivery_code_counters.next_number+1,updated_at=now(),updated_by=$4
+      RETURNING next_number-1 AS generated
+    `, [tenantId, orderNumber, itemCode, actorId]);
+    const generated = String(counter?.generated ?? "");
+    if (!/^\d+$/.test(generated) || BigInt(generated) < 1n) throw new BadRequestException("系统无法生成有效的交期编码");
+    values.deliveryNumber = generated.padStart(3, "0");
   }
 
   private async translateDatabaseError<T>(operation: () => Promise<T>): Promise<T> {
