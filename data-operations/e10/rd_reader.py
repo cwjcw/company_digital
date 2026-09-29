@@ -4,7 +4,7 @@ Credentials and connection settings are loaded only by the shared basic_code
 MSSQLDatabase utility. This process emits NDJSON and never executes source
 writes or DDL.
 """
-import argparse, json, os, sys
+import argparse, json, os, re, sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +26,13 @@ def value(v):
     return v
 
 
+def uuid_literal(raw):
+    candidate = str(raw or "00000000-0000-0000-0000-000000000000")
+    if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", candidate):
+        raise ValueError("invalid E10 watermark id")
+    return candidate
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("FULL", "INCREMENTAL"), required=True)
@@ -35,7 +42,8 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.batch_size <= 10000:
         raise ValueError("invalid batch size")
-    config = MSSQLDatabase(autoconnect=False)
+    env_file = ROOT / ".env"
+    config = MSSQLDatabase(env_path=str(env_file) if os.access(env_file, os.R_OK) else "/dev/null", autoconnect=False)
     connection = pytds.connect(server=config.server, port=int(config.port), database=config.database,
                                 user=config.user, password=config.password, timeout=60, login_timeout=30,
                                 bytes_to_unicode=False, readonly=True)
@@ -48,10 +56,10 @@ def main():
             if args.mode == "INCREMENTAL" and args.since_at:
                 since = datetime.fromisoformat(args.since_at.replace("Z", "+00:00")).replace(tzinfo=None) - timedelta(minutes=2)
                 literal = since.strftime("%Y-%m-%d %H:%M:%S.%f")
-                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND CONVERT(varchar(36), i.ITEM_BUSINESS_ID) > '{args.since_id or ''}'))")
+                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(args.since_id)}')))" )
             if last_at is not None:
                 literal = last_at.strftime("%Y-%m-%d %H:%M:%S.%f")
-                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND CONVERT(varchar(36), i.ITEM_BUSINESS_ID) > '{last_id}'))")
+                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(last_id)}')))" )
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
             sql = f"""
               SELECT TOP {args.batch_size}
@@ -79,8 +87,12 @@ def main():
             for row in rows:
                 print(json.dumps(row, ensure_ascii=False), flush=True)
             last = rows[-1]
-            last_at = datetime.fromisoformat(str(last["last_modified_at_source"]))
-            last_id = str(last["source_id"])
+            next_at = datetime.fromisoformat(str(last["last_modified_at_source"]))
+            next_id = uuid_literal(last["source_id"])
+            if last_at == next_at and last_id == next_id:
+                raise RuntimeError("E10 watermark did not advance")
+            last_at = next_at
+            last_id = next_id
             if len(rows) < args.batch_size:
                 break
     finally:
