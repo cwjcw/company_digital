@@ -322,7 +322,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/rd/items" element={<RdItemsPage />} />
-          <Route path="/rd/material-duplicates" element={<RdDuplicatesPage />} />
+          <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />
           <Route path="/hr/recruitment" element={<HrFolderPage title="招聘与配置" />} />
           <Route path="/hr/training" element={<HrFolderPage title="培训与开发" />} />

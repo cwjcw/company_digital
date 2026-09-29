@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffParts } from "./rd-display";
+import { diffParts, displayParts } from "./rd-display";
 
 const changed = (parts: ReturnType<typeof diffParts>[0]) => parts.filter((part) => part.changed).map((part) => part.text).join("");
 
@@ -29,5 +29,23 @@ describe("研发中心 A/B 字符差异展示", () => {
     expect(diffParts(null, "规格")[0]).toEqual([]);
     expect(diffParts(null, null)).toEqual([[], []]);
     expect(changed(diffParts("a".repeat(600), "b".repeat(600))[0])).toHaveLength(600);
+  });
+
+  it("把查询命中与 A/B 差异作为两种可重叠的展示状态", () => {
+    const parts = displayParts("左直段外不锈钢折板", "直段外不锈钢折板", "不锈钢");
+    expect(parts.filter((part) => part.queryMatched).map((part) => part.text).join("")).toBe("不锈钢");
+    expect(parts.filter((part) => part.changed).map((part) => part.text).join("")).toBe("左");
+    expect(parts.find((part) => part.queryMatched)?.changed).toBe(false);
+  });
+
+  it("只在对应字段高亮品号或规格查询词", () => {
+    expect(displayParts("RXDZ0119-01", "RXDZ0119-02", "RXDZ0119").filter((part) => part.queryMatched).map((part) => part.text).join("")).toBe("RXDZ0119");
+    expect(displayParts("M6*20", "M8*20", "M6").filter((part) => part.queryMatched).map((part) => part.text).join("")).toBe("M6");
+    expect(displayParts("不锈钢折板", "不锈钢板", "M6").some((part) => part.queryMatched)).toBe(false);
+  });
+
+  it("查询词与差异重叠时保留两种状态", () => {
+    const overlap = displayParts("不锈钢A", "不锈钢B", "A");
+    expect(overlap.find((part) => part.text === "A")).toEqual({ text: "A", changed: true, queryMatched: true });
   });
 });

@@ -2284,3 +2284,62 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - API/Web：最终 API 与 Web 均部署，版本一致性检查通过。
 - 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
 - 浏览器：研发中心一物多码检测、物料数据页 2/2 通过。
+
+# 当前任务：KDOS-RD-QUERY-PERMISSION-HIGHLIGHT-LAYOUT-006
+
+任务目标：限制一物多码全量计算权限，普通用户只查询已保存结果；修复查询关键词与 A/B 差异高亮语义；将 A/B 物料基础字段调整为桌面端单行对照布局，并完成测试、部署和页面核验。
+
+当前状态：已完成代码修改、API/Web 回归测试、浏览器测试和构建，待提交并部署本轮 API/Web 变更。
+
+## 当前阶段
+
+当前阶段：交付前部署
+
+当前子任务：提交权限、高亮、布局调整并执行部署后的健康检查。
+
+## 已完成
+
+- [x] 普通用户页面仅保留查询/重置；管理员按现有 `rd-material-duplicates` 更新权限显示全量计算入口。
+- [x] 后端 FULL 计算统一使用 `canRd(..., "rd-material-duplicates", "update")`，普通只读调用直接返回 403；未改算法、同步、watermark、数据库业务数据或 migration。
+- [x] 查询改为只读取已保存结果，草稿筛选不会自动请求，点击查询后才应用字段筛选。
+- [x] 增加字段级查询关键词黄色高亮，保留原 A/B 差异红色下划线；同一字符可同时具有两种高亮。
+- [x] A/B 品号、品名、规格改为每个物料一行的横向布局，品名占主要空间，窄屏下仅按布局规则换行。
+- [x] 增加/调整权限、查询高亮、差异高亮、重叠高亮、A/B 单行与窄屏布局测试。
+- [x] API 完整测试：76 个套件通过、1 个跳过；584 个测试通过、1 个跳过。
+- [x] Web 完整测试：27 个文件通过、167 个测试通过；研发中心 Playwright 4/4 通过。
+- [x] API/Web typecheck、lint、build 通过；lint 仅保留既有 Fast Refresh 警告。
+
+## 正在进行
+
+- [ ] 提交并部署本轮 API/Web 变更。
+- [ ] 部署后执行健康检查、版本一致性和研发中心页面核验。
+
+## 待完成
+
+- [ ] 更新本任务最终交付记录并确认工作区干净。
+
+## 修改文件
+
+- `apps/api/src/modules/rd/rd-history-scan.service.ts`
+- `apps/api/src/modules/rd/rd-history-scan.service.spec.ts`
+- `apps/web/src/App.tsx`
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/modules/rd/rd-display.ts`
+- `apps/web/src/modules/rd/rd-display.spec.ts`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无。本轮未修改 PostgreSQL 表结构，也未重新执行同步或历史扫描。
+
+## 当前已知问题
+
+- 无新增已知问题；Web lint 的既有 Fast Refresh 提示不影响通过结果。
+
+## 下一步
+
+1. [ ] 提交本轮修改。
+2. [ ] 部署 API/Web 并执行健康检查。
+3. [ ] 完成最终交付记录。

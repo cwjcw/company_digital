@@ -38,7 +38,7 @@ export class RdHistoryScanService {
 
   async start(actor: RdActor, requestedMode: RdScanMode = "INCREMENTAL", changedItemIds?: string[]) {
     if (!canRd(actor, "rd-material-duplicates", "read")) throw new ForbiddenException("当前权限组没有一物多码查看权限");
-    if (requestedMode === "FULL" && !actor.isSystemAdmin && !actor.permissions.includes("*") && !actor.moduleAdminCodes.includes("rd")) {
+    if (requestedMode === "FULL" && !canRd(actor, "rd-material-duplicates", "update")) {
       throw new ForbiddenException("只有研发中心管理员可以执行全量重建");
     }
     const [current] = await this.dataSource.query(`SELECT id,status,scan_mode AS "scanMode" FROM rd_duplicate_scans WHERE tenant_id=$1 ORDER BY started_at DESC LIMIT 1`, [actor.tenantId]);

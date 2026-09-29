@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Empty, Input, InputNumber, Popconfirm, Progress, Segmented, Select, Space, Statistic, Tag, Typography, message } from "antd";
 import { api } from "../../api";
 import { PageHeader } from "../../shared/legacy-ui";
-import { KdosDataTable, kdosDefaultPageSize } from "../../shared/KdosDataTable";
-import { diffParts, rdKindLabel } from "./rd-display";
+import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize } from "../../shared/KdosDataTable";
+import { displayParts, rdKindLabel } from "./rd-display";
 
 type TablePage = { rows: any[]; total: number; page: number; pageSize: number };
 type MaterialRecord = { row?: number; code?: string | null; name?: string | null; spec?: string | null };
@@ -46,6 +46,9 @@ type Scan = {
   progressPercent?: number;
 };
 
+type RdSession = { isSystemAdmin?: boolean; permissions?: string[]; moduleAdminCodes?: string[] };
+type DuplicateFilters = { kind: string; code: string; name: string; spec: string; minScore: number | null };
+
 const kindOptions = [
   { label: "高相似", value: "similar" },
   { label: "名称规格一致", value: "exact" },
@@ -54,30 +57,29 @@ const kindOptions = [
 ];
 
 const scanStatusLabels: Record<string, string> = {
-  IDLE: "待扫描",
-  RUNNING: "扫描中",
-  COMPLETE: "扫描完成",
-  FAILED: "扫描失败",
+  IDLE: "待计算",
+  RUNNING: "计算中",
+  COMPLETE: "计算完成",
+  FAILED: "计算失败",
 };
 
 const formatCount = (value: unknown) => typeof value === "number" ? value.toLocaleString("zh-CN") : "—";
 const formatTime = (value?: string | null) => value ? value.replace("T", " ").replace(/\.\d+Z?$/, "") : "—";
 
-function DiffText({ value, other }: { value: unknown; other: unknown }) {
-  const parts = diffParts(value, other)[0];
+function DiffText({ value, other, query }: { value: unknown; other: unknown; query?: string }) {
+  const parts = displayParts(value, other, query);
   if (!parts.length) return <span className={String(other ?? "") ? "rd-diff-empty" : "rd-empty-value"}>（空）</span>;
-  return <>{parts.map((part, index) => <span key={`${index}-${part.changed ? "diff" : "same"}`} className={part.changed ? "rd-diff-char" : undefined}>{part.text}</span>)}</>;
+  return <>{parts.map((part, index) => <span key={`${index}-${part.changed ? "diff" : "same"}-${part.queryMatched ? "query" : "plain"}`} className={[part.changed ? "rd-diff-char" : "", part.queryMatched ? "rd-query-highlight" : ""].filter(Boolean).join(" ") || undefined}>{part.text}</span>)}</>;
 }
 
-function FieldDiff({ label, left, right }: { label: string; left: unknown; right: unknown }) {
-  return <div className="rd-compare-field">
-    <div className="rd-compare-label">{label}</div>
-    <div className="rd-compare-value"><DiffText value={left} other={right} /></div>
-    <div className="rd-compare-value"><DiffText value={right} other={left} /></div>
+function InlineField({ label, value, other, query, className }: { label: string; value: unknown; other: unknown; query?: string; className: string }) {
+  return <div className={`rd-compare-inline-field ${className}`}>
+    <span className="rd-compare-inline-label">{label}：</span>
+    <span className="rd-compare-inline-value" title={String(value ?? "") || "（空）"}><DiffText value={value} other={other} query={query} /></span>
   </div>;
 }
 
-function ComparisonCard({ group }: { group: DuplicateGroup }) {
+function ComparisonCard({ group, filters }: { group: DuplicateGroup; filters: DuplicateFilters }) {
   const records = group.records ?? [];
   const left = records[0] ?? {};
   const right = records[1] ?? {};
@@ -93,11 +95,19 @@ function ComparisonCard({ group }: { group: DuplicateGroup }) {
         <Typography.Text type="secondary">{group.memberCount ?? records.length} 条记录 · {group.distinctCodes ?? "—"} 个品号</Typography.Text>
       </Space>
     </div>
-    <div className="rd-compare-grid rd-compare-grid-header"><span /> <strong>A · {left.code || "未提供品号"}</strong><strong>B · {right.code || "未提供品号"}</strong></div>
-    <div className="rd-compare-grid rd-compare-grid-body">
-      <FieldDiff label="品号" left={left.code} right={right.code} />
-      <FieldDiff label="品名" left={left.name} right={right.name} />
-      <FieldDiff label="规格" left={left.spec} right={right.spec} />
+    <div className="rd-compare-rows">
+      <div className="rd-compare-row" data-testid="rd-compare-row-a">
+        <strong className="rd-compare-side">A物料</strong>
+        <InlineField label="品号" value={left.code} other={right.code} query={filters.code} className="rd-compare-code" />
+        <InlineField label="品名" value={left.name} other={right.name} query={filters.name} className="rd-compare-name" />
+        <InlineField label="规格" value={left.spec} other={right.spec} query={filters.spec} className="rd-compare-spec" />
+      </div>
+      <div className="rd-compare-row" data-testid="rd-compare-row-b">
+        <strong className="rd-compare-side">B物料</strong>
+        <InlineField label="品号" value={right.code} other={left.code} query={filters.code} className="rd-compare-code" />
+        <InlineField label="品名" value={right.name} other={left.name} query={filters.name} className="rd-compare-name" />
+        <InlineField label="规格" value={right.spec} other={left.spec} query={filters.spec} className="rd-compare-spec" />
+      </div>
     </div>
     <div className="rd-compare-meta">
       <Typography.Text strong>判断依据：</Typography.Text> {group.reason || "—"}
@@ -135,29 +145,28 @@ export function RdItemsPage() {
   </div>;
 }
 
-export function RdDuplicatesPage() {
+const emptyDuplicateFilters: DuplicateFilters = { kind: "similar", code: "", name: "", spec: "", minScore: null };
+
+export function RdDuplicatesPage({ user }: { user: RdSession }) {
   const [scan, setScan] = useState<Scan | null>(null);
-  const [kind, setKind] = useState("similar");
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
-  const [codeFilter, setCodeFilter] = useState("");
-  const [nameFilter, setNameFilter] = useState("");
-  const [specFilter, setSpecFilter] = useState("");
-  const [minScore, setMinScore] = useState<number | null>(null);
+  const [draftFilters, setDraftFilters] = useState<DuplicateFilters>(emptyDuplicateFilters);
+  const [appliedFilters, setAppliedFilters] = useState<DuplicateFilters>(emptyDuplicateFilters);
   const latestScan = useQuery({ queryKey: ["rd-latest-scan"], queryFn: () => api<Scan | null>("/rd/material-duplicates/scans/latest") });
+  const canRunFullCalculation = hasSessionResourcePermission(user, "rd-material-duplicates", "update");
 
-  const updateHistoryFilter = (setter: (value: string) => void, value: string) => {
-    setter(value);
-    setHistoryPage(1);
+  const updateDraftFilter = <K extends keyof DuplicateFilters>(key: K, value: DuplicateFilters[K]) => {
+    setDraftFilters((current) => ({ ...current, [key]: value }));
   };
   const queryParams = useMemo(() => {
-    const params = new URLSearchParams({ page: String(historyPage), pageSize: String(historyPageSize), kind });
-    if (codeFilter.trim()) params.set("code", codeFilter.trim());
-    if (nameFilter.trim()) params.set("name", nameFilter.trim());
-    if (specFilter.trim()) params.set("spec", specFilter.trim());
-    if (minScore != null) params.set("minScore", String(minScore));
+    const params = new URLSearchParams({ page: String(historyPage), pageSize: String(historyPageSize), kind: appliedFilters.kind });
+    if (appliedFilters.code.trim()) params.set("code", appliedFilters.code.trim());
+    if (appliedFilters.name.trim()) params.set("name", appliedFilters.name.trim());
+    if (appliedFilters.spec.trim()) params.set("spec", appliedFilters.spec.trim());
+    if (appliedFilters.minScore != null) params.set("minScore", String(appliedFilters.minScore));
     return params.toString();
-  }, [codeFilter, historyPage, historyPageSize, kind, minScore, nameFilter, specFilter]);
+  }, [appliedFilters, historyPage, historyPageSize]);
   const scanQuery = useQuery({
     queryKey: ["rd-scan", scan?.id ?? latestScan.data?.id, queryParams],
     enabled: Boolean(scan?.id ?? latestScan.data?.id),
@@ -166,19 +175,23 @@ export function RdDuplicatesPage() {
   });
   const current = scanQuery.data ?? scan ?? latestScan.data;
   const status = current?.status ?? "IDLE";
-  const start = async (mode: "FULL" | "INCREMENTAL") => {
+  const applyQuery = () => {
+    setAppliedFilters({ ...draftFilters, code: draftFilters.code.trim(), name: draftFilters.name.trim(), spec: draftFilters.spec.trim() });
+    setHistoryPage(1);
+  };
+  const resetHistory = () => {
+    setDraftFilters(emptyDuplicateFilters);
+    setAppliedFilters(emptyDuplicateFilters);
+    setHistoryPage(1);
+  };
+  const runFullCalculation = async () => {
     try {
-      const result = await api<Scan & { message?: string; scanId?: string }>("/rd/material-duplicates/scans", { method: "POST", body: JSON.stringify({ mode }) });
-      if (result.status === "NO_CHANGES") { message.info(result.message ?? "当前物料数据无变化，无需重新扫描。"); if (result.scanId) setScan({ ...result, id: result.scanId, status: "COMPLETE" }); return; }
-      if (result.status === "RULE_MISMATCH") { message.warning(result.message ?? "查重规则已更新，请执行全量重建。"); return; }
+      const result = await api<Scan>("/rd/material-duplicates/scans", { method: "POST", body: JSON.stringify({ mode: "FULL" }) });
       setScan(result);
       setHistoryPage(1);
     } catch (error) {
       message.error((error as Error).message);
     }
-  };
-  const resetHistory = () => {
-    setCodeFilter(""); setNameFilter(""); setSpecFilter(""); setMinScore(null); setHistoryPage(1);
   };
   return <div className="rd-page rd-duplicates-page">
     <PageHeader title="一物多码检测" />
@@ -186,8 +199,8 @@ export function RdDuplicatesPage() {
     <Typography.Paragraph type="secondary" className="rd-full-scan-description">对当前物料库全部物料进行查重分析，识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况，结果供人工核对。</Typography.Paragraph>
 
     <section className="rd-history-section">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>全量查重</Typography.Title><Typography.Text type="secondary">更新查重只处理上次成功扫描后新增或修改的物料，但结果始终覆盖当前物料库全部物料。</Typography.Text></div><Space><Button type="primary" onClick={() => void start("INCREMENTAL")} disabled={status === "RUNNING"}>更新查重</Button><Popconfirm title="确认全量重建？" description="重新计算当前物料库全部查重结果，耗时较长，仅在规则调整或数据异常时使用。" okText="确认重建" cancelText="取消" onConfirm={() => void start("FULL")}><Button disabled={status === "RUNNING"}>全量重建</Button></Popconfirm></Space></div>
-      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{scanStatusLabels[status] ?? "未知状态"}</Tag>{status === "IDLE" && "点击‘更新查重’，处理新增或修改的物料并更新全部查重结果。"}{status === "RUNNING" && `正在${current?.scanMode === "FULL" ? "进行全量重建" : "更新查重"}，请稍候。`}{status === "COMPLETE" && `${current?.scanMode === "FULL" ? "全量重建" : "查重更新"}已完成。`}{status === "FAILED" && (current?.errorMessage || "扫描失败，请查看错误信息后重新扫描。")}</div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>全量查重</Typography.Title><Typography.Text type="secondary">普通用户只能查询已保存的查重结果；研发中心管理员可以重新计算当前物料库全部查重结果。</Typography.Text></div><Space>{canRunFullCalculation && <Popconfirm title="确认全量计算？" description="将重新计算当前物料库全部查重结果，可能需要一定时间。确认继续吗？" okText="确认继续" cancelText="取消" onConfirm={() => void runFullCalculation()}><Button disabled={status === "RUNNING"}>全量计算</Button></Popconfirm>}</Space></div>
+      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{scanStatusLabels[status] ?? "未知状态"}</Tag>{status === "IDLE" && "当前暂无已保存的查重结果。"}{status === "RUNNING" && "正在计算全量查重，请稍候。"}{status === "COMPLETE" && "全量查重已完成。"}{status === "FAILED" && (current?.errorMessage || "计算失败，请查看错误信息后联系管理员重新计算。")}</div>
       {status === "RUNNING" && <div className="rd-scan-progress"><Progress percent={Math.round(Number(current?.progressPercent ?? 0))} status="active" /><Typography.Text type="secondary">阶段：{current?.stage || "处理中"} · 已处理物料 {formatCount(current?.processedItems)} / {formatCount(current?.totalItems)} · 已处理候选分组 {formatCount(current?.processedBlocks)} / {formatCount(current?.totalBlocks)}</Typography.Text></div>}
       <div className="rd-scan-stats">
         <Statistic title="物料总数" value={formatCount(current?.itemCount ?? current?.rows)} />
@@ -198,20 +211,20 @@ export function RdDuplicatesPage() {
       </div>
       <div className="rd-results-heading"><Typography.Title level={5}>查重结果</Typography.Title></div>
       <div className="rd-history-filters">
-        <Segmented options={kindOptions} value={kind} onChange={(value) => { setKind(String(value)); setHistoryPage(1); }} />
-        <Input value={codeFilter} onChange={(event) => updateHistoryFilter(setCodeFilter, event.target.value)} onPressEnter={() => setHistoryPage(1)} placeholder="品号" allowClear />
-        <Input value={nameFilter} onChange={(event) => updateHistoryFilter(setNameFilter, event.target.value)} onPressEnter={() => setHistoryPage(1)} placeholder="品名" allowClear />
-        <Input value={specFilter} onChange={(event) => updateHistoryFilter(setSpecFilter, event.target.value)} onPressEnter={() => setHistoryPage(1)} placeholder="规格" allowClear />
-        <InputNumber min={0} max={100} value={minScore ?? undefined} onChange={(value) => { setMinScore(value); setHistoryPage(1); }} placeholder="最低匹配分" />
+        <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
+        <Input value={draftFilters.code} onChange={(event) => updateDraftFilter("code", event.target.value)} placeholder="品号" allowClear />
+        <Input value={draftFilters.name} onChange={(event) => updateDraftFilter("name", event.target.value)} placeholder="品名" allowClear />
+        <Input value={draftFilters.spec} onChange={(event) => updateDraftFilter("spec", event.target.value)} placeholder="规格" allowClear />
+        <InputNumber min={0} max={100} value={draftFilters.minScore ?? undefined} onChange={(value) => updateDraftFilter("minScore", value)} placeholder="最低匹配分" />
         <Select value={historyPageSize} onChange={(value) => { setHistoryPageSize(value); setHistoryPage(1); }} options={[{ value: 20, label: "每页 20" }, { value: 50, label: "每页 50" }, { value: 100, label: "每页 100" }]} />
-        <Button onClick={resetHistory}>重置</Button>
+        <Button onClick={resetHistory}>重置</Button><Button type="primary" onClick={applyQuery}>查询</Button>
       </div>
       {scanQuery.isError && <Alert type="error" showIcon message={(scanQuery.error as Error).message} />}
       {status === "RUNNING" ? <div className="rd-scan-running"><Typography.Text>后台任务正在运行，页面会自动刷新进度。</Typography.Text></div> : status === "COMPLETE" ? <>
-        <div className="rd-results-summary">{rdKindLabel(kind)}共 {formatCount(current?.totalGroups)} 组 · 第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</div>
-        {(current?.groups ?? []).length ? <div className="rd-history-results">{(current?.groups ?? []).map((group) => <ComparisonCard key={group.id} group={group} />)}</div> : <Empty description="当前条件没有候选；不代表不存在重复物料。" />}
+        <div className="rd-results-summary">{rdKindLabel(appliedFilters.kind)}共 {formatCount(current?.totalGroups)} 组 · 第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</div>
+        {(current?.groups ?? []).length ? <div className="rd-history-results">{(current?.groups ?? []).map((group) => <ComparisonCard key={group.id} group={group} filters={appliedFilters} />)}</div> : <Empty description="当前条件没有候选；不代表不存在重复物料。" />}
         <div className="rd-history-pager"><Button disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>上一页</Button><Typography.Text>第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</Typography.Text><Button disabled={historyPage >= (current?.pages ?? 1)} onClick={() => setHistoryPage((page) => page + 1)}>下一页</Button></div>
-      </> : status === "IDLE" ? <Empty description="尚未开始扫描" /> : <Alert type="error" showIcon message="历史扫描失败，请点击“重新扫描”重试。" />}
+      </> : status === "IDLE" ? <Empty description="暂无已保存的查重结果" /> : <Alert type="error" showIcon message="查重计算失败，请联系管理员重新计算。" />}
     </section>
     <Typography.Paragraph type="secondary" className="rd-footnote">同一物料可能匹配多个候选，因此可能出现在多个候选组。这里只展示结果，不会自动删除、合并或放行新建；自制件仍须人工核对图纸、孔位和版本。</Typography.Paragraph>
   </div>;
