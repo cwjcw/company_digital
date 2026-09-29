@@ -55,6 +55,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       KDOS_NOTIFICATION_INTERNAL_TOKEN: ${KDOS_NOTIFICATION_INTERNAL_TOKEN:?KDOS_NOTIFICATION_INTERNAL_TOKEN is required}
+      KDOS_RD_INTERNAL_TOKEN: ${KDOS_RD_INTERNAL_TOKEN:?KDOS_RD_INTERNAL_TOKEN is required}
       RD_BASIC_CODE_ROOT: /opt/kdos/basic_code
       RD_E10_PYTHON: /usr/bin/python3
       RD_E10_READER: /app/data-operations/e10/rd_reader.py
