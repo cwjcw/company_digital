@@ -115,4 +115,26 @@ describe("KN-MPS-UI-001 主计划主表精简与辅助字段防泄露", () => {
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
     expect(headers).toContain("异常");
   }, 20_000);
+
+  it("只给周计划页面启用 compact density，月计划保持 default", async () => {
+    const fields = [{ key: "orderNumber", label: "订单编号", type: "text", editable: false }];
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-weekly-plans", fields, createFields: [], actions: { create: false, update: false, delete: false, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/") && path.includes("?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const weekly = renderPage("mps-weekly-plans");
+    await waitFor(() => expect(weekly.container.querySelector(".kdos-data-table-shell")).toHaveAttribute("data-density", "compact"));
+    weekly.unmount();
+
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-monthly-plans", fields, createFields: [], actions: { create: false, update: false, delete: false, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/") && path.includes("?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const monthly = renderPage("mps-monthly-plans");
+    await waitFor(() => expect(monthly.container.querySelector(".kdos-data-table-shell")).toHaveAttribute("data-density", "default"));
+  }, 20_000);
 });

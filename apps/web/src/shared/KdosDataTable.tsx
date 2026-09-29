@@ -155,6 +155,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   resource: string;
   columns: ColumnsType<RecordType>;
   dataSource?: readonly RecordType[];
+  /** Optional visual density; default keeps the platform table dimensions unchanged. */
+  density?: KdosTableDensity;
   systemFields?: boolean;
   toolbar?: ReactNode;
   searchPlaceholder?: string;
@@ -186,6 +188,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   };
 };
 
+export type KdosTableDensity = "default" | "compact";
+
 export type KdosTableSelection<RecordType extends DataRecord> = {
   selectedRowKeys: Key[];
   selectedRows: RecordType[];
@@ -201,7 +205,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, editable = false, simple = false, viewKey,
+  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "default", editable = false, simple = false, viewKey,
   filterFields, onFilterGroupChange, printContext, selectable, selectionActions,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
@@ -497,7 +501,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       onOk={() => void confirmPrint()} onCancel={() => setPendingPrint(null)}>
       {pendingPrint ? printConfirmMessage(pendingPrint.manifest) : null}
     </Modal>
-    <section className={["kdos-data-table-shell", internalVerticalScroll ? "kdos-data-table-shell-internal" : "", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
+    <section className={["kdos-data-table-shell", density === "compact" ? "kdos-data-table-shell-compact" : "", internalVerticalScroll ? "kdos-data-table-shell-internal" : "", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-density={density} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
         {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
@@ -531,7 +535,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     </Flex>}
     <Table<RecordType>
       {...tableProps}
-      className={["kdos-data-table", className].filter(Boolean).join(" ")}
+      className={["kdos-data-table", density === "compact" ? "kdos-data-table-compact" : "", className].filter(Boolean).join(" ")}
       rowKey={tableProps.rowKey ?? "id"}
       rowSelection={effectiveRowSelection}
       dataSource={rows}

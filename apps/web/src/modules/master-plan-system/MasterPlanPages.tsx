@@ -257,17 +257,37 @@ export function formatWorkOrderSyncResult(result: { created: number; updated: nu
   return `同步完成：新增 ${result.created} 条，更新 ${result.updated} 条，未变化 ${result.unchanged} 条${result.skipped ? `，跳过 ${result.skipped} 条` : ""}`;
 }
 
-function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups, onSaveRange?: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void) {
+function masterPlanColumnWidth(field: TablePermissionFieldDefinition, density: "default" | "compact") {
+  const normalWidth = Math.max(105, Math.min(240, field.label.length * 18 + 54));
+  if (density !== "compact") return normalWidth;
+  if (field.key === "orderNumber") return 132;
+  if (field.key === "itemCode") return 120;
+  if (field.key === "itemName") return 150;
+  if (["remark", "processingRemark"].includes(field.key)) return 180;
+  if (field.type === "date") return 112;
+  if (field.type === "number") return 88;
+  if (field.type === "boolean") return 82;
+  if (field.type === "dictionary") return 100;
+  return Math.max(96, Math.min(180, field.label.length * 14 + 32));
+}
+
+function compactCellValue(value: unknown, rendered: unknown, field: TablePermissionFieldDefinition, density: "default" | "compact") {
+  if (density !== "compact" || field.type !== "text" || typeof value !== "string" || typeof rendered !== "string" || value.length <= 14) return rendered;
+  return <Tooltip title={value}><span className="kdos-compact-cell-text">{rendered}</span></Tooltip>;
+}
+
+function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups, onSaveRange?: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void, density: "default" | "compact" = "default") {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
     dataIndex: field.key,
-    width: Math.max(105, Math.min(240, field.label.length * 18 + 54)),
-    render: (value: unknown, row: any) => renderCell ? renderCell(value, field, row) : display(value, field, row)
+    width: masterPlanColumnWidth(field, density),
+    ellipsis: density === "compact" && field.type === "text" ? { showTitle: false } as const : undefined,
+    render: (value: unknown, row: any) => compactCellValue(value, renderCell ? renderCell(value, field, row) : display(value, field, row), field, density)
   });
   const progressColumn = (field: TablePermissionFieldDefinition, process: ProcessOption, resourceCode: string) => ({
     title: "生产进度",
     dataIndex: field.key,
-    width: 120,
+    width: density === "compact" ? 105 : 120,
     className: processColorClass(process.code),
     onCell: (row: any) => ({ className: progressCellClass(row?.[field.key]), style: progressCellStyle(row?.[field.key]) }),
     render: (value: unknown, row: any) => <MasterPlanProgressCell process={process} row={row} value={value} resource={resourceCode} />
@@ -596,7 +616,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values)), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes]);
+  const tableDensity = resource === "mps-weekly-plans" ? "compact" as const : "default" as const;
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values), tableDensity), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes, tableDensity]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
   const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);
@@ -716,7 +737,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}
-      scroll={{ x: "max-content" }} />
+      density={tableDensity} scroll={{ x: "max-content" }} />
     <Modal title="确认同步到周计划？" open={baseSyncConfirmOpen} onCancel={() => { if (!syncMutation.isPending) setBaseSyncConfirmOpen(false); }} onOk={() => void executeBaseToWeeklySync()}
       okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
       <p>将把所有满足周计划准入条件的事业部基础计划同步到事业部周计划，并重新计算相关工序执行状态。</p>

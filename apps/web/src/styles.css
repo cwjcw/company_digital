@@ -412,6 +412,49 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .kdos-data-table .ant-table-cell {
   border-color: #e8edef;
 }
+.kdos-data-table-shell-compact .kdos-data-table {
+  font-size: 13px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-table-thead > tr > th {
+  padding: 6px 8px !important;
+  height: 34px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-table-tbody > tr > td {
+  padding: 2px 8px !important;
+  height: 32px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-table-cell {
+  vertical-align: middle;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-input,
+.kdos-data-table-shell-compact .kdos-data-table .ant-input-number,
+.kdos-data-table-shell-compact .kdos-data-table .ant-picker,
+.kdos-data-table-shell-compact .kdos-data-table .ant-select-single.ant-select-sm .ant-select-selector {
+  min-height: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-input-number-input {
+  height: 26px;
+  font-size: 13px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-select-single.ant-select-sm .ant-select-selector {
+  padding: 0 7px;
+}
+.kdos-data-table-shell-compact .kdos-data-table .ant-picker-input > input {
+  font-size: 13px;
+}
+.kdos-compact-cell-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .kdos-data-table .ant-table-pagination {
   min-height: 42px;
   margin: 12px 14px !important;
