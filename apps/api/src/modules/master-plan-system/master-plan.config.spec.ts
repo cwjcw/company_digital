@@ -46,6 +46,7 @@ describe("master plan manual-entry configuration", () => {
       const field = tablePermissionFieldsFor(code).find((candidate) => candidate.key === "modelAge");
       if (!field) throw new Error(`missing ${code}.modelAge`);
       expect(field?.required).toBe(false);
+      expect(field?.editable).toBe(code !== "mps-three-day-work-orders");
     }
     const weekly = fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")!);
     expect(weekly.find((field) => field.key === "productAttribute")?.options?.map((option) => option.value)).toEqual(["五金", "木作", "亚克力", "五金+木作", "其他", "五金+亚克力", "塑料"]);
