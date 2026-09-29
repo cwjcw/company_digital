@@ -283,7 +283,7 @@ function Shell({ logout }: { logout: () => void }) {
   return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}`}>
     <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
-      {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}><span>{activeModule.englishTitle}</span><strong>{activeModule.title}</strong></div>}
+      {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}>{activeModule.id !== "rd" && <span>{activeModule.englishTitle}</span>}<strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
       <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />

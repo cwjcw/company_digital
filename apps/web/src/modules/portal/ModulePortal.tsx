@@ -183,7 +183,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
               <Button type="text" size="small" icon={<ArrowDownOutlined />} disabled={index === visibleModules.length - 1} aria-label={`下移${module.title}`} onClick={() => moveModule(module.id, 1)} />
               <HolderOutlined className="portal-module-drag-handle" />
             </span> : <ArrowRightOutlined className="portal-module-arrow" />}</span>
-            <span className="portal-module-name"><small>{module.englishTitle}</small><strong>{module.title}</strong></span>
+            <span className="portal-module-name">{module.id !== "rd" && <small>{module.englishTitle}</small>}<strong>{module.title}</strong></span>
             <span className="portal-module-description">{module.description}</span>
             <span className="portal-module-features">{module.features.map((feature) => <Tag key={feature}>{feature}</Tag>)}</span>
           </>;

@@ -202,7 +202,7 @@ export function RdDuplicatesPage() {
     <Alert type="warning" showIcon message="匹配分仅用于排序和辅助判断，不是重复概率。系统不会自动删除、合并或认定两个品号相同，请由研发人员人工确认。" className="rd-notice" />
 
     <section className="rd-quick-search">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>新物料快速检索</Typography.Title><Typography.Text type="secondary">输入品名、规格后自动检索近期物料；结果直接显示在输入区下方。</Typography.Text></div><Space size={8}><Typography.Text type="secondary">Top</Typography.Text><Select size="small" value={liveLimit} onChange={setLiveLimit} options={[{ value: 5, label: "5" }, { value: 10, label: "10（2万条）" }]} /></Space></div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>新物料快速检索</Typography.Title><Typography.Text type="secondary">输入品名、规格后，系统自动按最后修改时间倒序，在当前物料库最近 5,000 条物料中检索相似候选；点击“查找最近 2 万条”可将检索范围扩大至最近 20,000 条物料。</Typography.Text></div><Space size={8}><Typography.Text type="secondary">Top</Typography.Text><Select size="small" value={liveLimit} onChange={setLiveLimit} options={[{ value: 5, label: "5" }, { value: 10, label: "10（2万条）" }]} /></Space></div>
       <div className="rd-quick-fields">
         <Input value={itemName} onChange={(event) => setItemName(event.target.value)} onPressEnter={() => void runLive(20000)} placeholder="品名（主要输入）" aria-label="新物料品名" />
         <Input value={specification} onChange={(event) => setSpecification(event.target.value)} onPressEnter={() => void runLive(20000)} placeholder="规格（主要输入）" aria-label="新物料规格" />
@@ -220,7 +220,7 @@ export function RdDuplicatesPage() {
     </section>
 
     <section className="rd-history-section">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>历史物料全库检测</Typography.Title><Typography.Text type="secondary">结果按旧 Demo 的候选对照结构展示，默认聚焦高相似候选。</Typography.Text></div><Button type="primary" onClick={() => void start()} disabled={status === "RUNNING"}>{status === "COMPLETE" ? "重新扫描" : "开始扫描"}</Button></div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>历史物料检测</Typography.Title><Typography.Text type="secondary">用于对历史物料进行相似性检测，帮助识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况。默认展示高相似候选，供人工核对。</Typography.Text></div><Button type="primary" onClick={() => void start()} disabled={status === "RUNNING"}>{status === "COMPLETE" ? "重新扫描" : "开始扫描"}</Button></div>
       <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{status.toLowerCase()}</Tag>{status === "IDLE" && "点击“开始扫描”读取当前数据库候选。"}{status === "RUNNING" && `正在扫描${current?.stage ? `：${current.stage}` : ""}，请稍候…`}{status === "COMPLETE" && `扫描完成 · ${formatCount(current?.rows)} 条物料 · ${formatTime(current?.finishedAt)}`}{status === "FAILED" && (current?.errorMessage || "扫描失败，请重新扫描。")}</div>
       <div className="rd-scan-stats">
         <Statistic title="物料总数" value={formatCount(current?.rows)} />

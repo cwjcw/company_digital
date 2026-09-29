@@ -16,16 +16,19 @@ async function mockRdApi(page: Page) {
   await page.route("**/api/v1/rd/material-duplicates/scans/rd-test-scan?*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", rows: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634, groups: [{ id: "g-1", groupNo: 1, kind: "similar", score: 93.2, reason: "名称和规格接近", warnings: ["材质需确认"], memberCount: 2, distinctCodes: 2, records: [{ row: 10, code: "A-304", name: "304内六角螺钉", spec: "M6*20" }, { row: 20, code: "B-201", name: "201内六角螺钉", spec: "M6*20" }] }] }) }));
 }
 
-test("研发中心物料检测页面保留旧 Demo 的快速检索与 A/B 对照", async ({ page }) => {
+test("研发中心物料检测页面快速检索与 A/B 对照", async ({ page }) => {
   await mockRdApi(page);
   await page.goto("/");
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("test");
   await page.locator('button[type="submit"]').click();
   await expect(page.locator(".portal-module-grid")).toBeVisible();
+  await expect(page.getByText("R&D CENTER", { exact: true })).toHaveCount(0);
 
   await page.goto("/rd/material-duplicates");
   await expect(page.getByText("新物料快速检索", { exact: true })).toBeVisible();
+  await expect(page.getByText("历史物料检测", { exact: true })).toBeVisible();
+  await expect(page.getByText("历史物料全库检测", { exact: true })).toHaveCount(0);
   await page.getByPlaceholder("品名（主要输入）").fill("304内六角螺钉");
   await expect(page.getByText(/判断依据：名称规格接近/)).toBeVisible();
   await expect(page.getByText(/核查提示：请人工确认材质/)).toBeVisible();

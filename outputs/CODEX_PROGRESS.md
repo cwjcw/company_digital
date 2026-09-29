@@ -1,3 +1,82 @@
+# 当前任务：KDOS-RD-FRONTEND-COPY-002
+
+任务目标：仅调整研发中心前端用户可见文案，明确快速检索的真实排序依据，移除研发中心英文模块标题和开发过程描述；不修改 API、算法、业务逻辑、路由、moduleCode、数据库或同步。
+
+当前状态：已完成前端文案调整、验证及 Web-only 部署。
+
+最后更新时间：2026-09-29
+
+## 文案对照
+
+| 位置 | 原文 | 新文案 |
+| --- | --- | --- |
+| 快速检索说明 | 输入品名、规格后自动检索近期物料；结果直接显示在输入区下方。 | 输入品名、规格后，系统自动按最后修改时间倒序，在当前物料库最近 5,000 条物料中检索相似候选；点击“查找最近 2 万条”可将检索范围扩大至最近 20,000 条物料。 |
+| 历史检测说明 | 结果按旧 Demo 的候选对照结构展示，默认聚焦高相似候选。 | 用于对历史物料进行相似性检测，帮助识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况。默认展示高相似候选，供人工核对。 |
+| 历史检测标题 | 历史物料全库检测 | 历史物料检测 |
+| 研发中心门户卡片/侧栏 | R&D CENTER / 研发中心 | 研发中心 |
+
+## 后端排序核对
+
+- 快速检索 API 使用 `last_modified_at_source DESC NULLS LAST, id DESC`。
+- `last_modified_at_source` 来源于 E10 `LastModifiedDate`，不是 `ModifiedDate`。
+- `limit` 非 10 时读取最近 5,000 条；`limit=10` 读取最近 20,000 条。
+- 以上仅用于确定展示文案，本轮未修改后端。
+
+## 当前阶段
+
+当前阶段：前端展示文案适配
+
+当前子任务：更新研发中心说明、标题及浏览器文案回归断言。
+
+## 已完成
+
+- [x] 核对后端最近 5,000/20,000 条真实排序与字段映射。
+- [x] 修改研发中心用户可见说明和历史检测标题。
+- [x] 隐藏研发中心门户卡片和侧栏英文标题，保留内部 `englishTitle` 字段不变。
+
+## 正在进行
+
+- [x] Web-only deploy、健康检查和浏览器核验。
+
+## 待完成
+
+- [x] 部署后浏览器核验并记录结果。
+
+## 修改文件
+
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/modules/portal/ModulePortal.tsx`
+- `apps/web/src/App.tsx`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无。
+
+## API / 算法
+
+- 无修改。
+
+## 已运行测试
+
+- Web 全量：27 个测试文件、164 个测试通过。
+- Web typecheck：通过。
+- Web lint：通过，保留项目原有 `ModulePortal.tsx` Fast Refresh warning。
+- Web build：通过，保留项目原有大 chunk warning。
+- `git diff --check`：通过。
+- Web-only deploy：成功，Web Build 与仓库 HEAD 一致。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 部署后浏览器：R&D UI 2 个场景通过。
+
+## 当前已知问题
+
+- 无。本轮 API 仍保持线上版本 `7dff48f`，未重启 API。
+
+## 下一步
+
+1. 后续如继续研发中心前端工作，先读取本进度文件和当前 Git 状态。
+
 # 当前任务：KDOS-RD-FRONTEND-UI-001
 
 任务目标：在不修改 E10 同步、PostgreSQL 表结构、查重/score/history scan 算法、API 业务逻辑、权限、RLS、n8n 或 migration 的前提下，将旧 Demo 的一物多码检测交互与物料数据页信息结构迁移到 KDOS 前端。
