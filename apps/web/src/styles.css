@@ -14,7 +14,7 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .topbar-context { display: flex; flex-direction: column; gap: 5px; }
 .topbar-context > .ant-typography { font-size: 12px; letter-spacing: .08em; }
 .topbar-user { display: flex; align-items: center; gap: 18px; text-align: right; line-height: 1.2; }
-.content { padding: 22px 24px; overflow: auto; }
+.content { padding: 22px 24px; overflow: visible; }
 .sidebar-home { width: calc(100% - 20px); height: 38px !important; margin: 2px 10px 8px; color: #c4d7dd !important; text-align: left; }
 .sidebar-home:hover { color: #fff !important; background: rgba(255,255,255,.09) !important; }
 .sidebar-is-collapsed .sidebar-home { width: 44px; padding-inline: 0 !important; text-align: center; }

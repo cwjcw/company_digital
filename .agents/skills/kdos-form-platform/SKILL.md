@@ -69,6 +69,7 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 - 标准业务表采用页面纵向滚动时，字段标题必须保持 sticky；向下滚动超过表头后仍固定在可视区域顶部，且不得被固定顶栏、Tabs 或 Toolbar 遮挡。
 - 标准组合必须同时满足页面纵向滚动、sticky 字段标题和表格按需横向滚动；不得为了实现 sticky 表头恢复 `scroll.y` 并重新制造双纵向滚动。
 - 横向滚动时 sticky 表头必须与数据列同步对齐；fixed columns、编辑模式、Select/DatePicker/成员下拉不得因表头 z-index 被破坏。`internalVerticalScroll` 例外继续允许自己的内部 sticky 表头。
+- Sticky 验收不能只看 `sticky` prop 或 JSX 配置：必须在真实浏览器向下滚动后确认表头仍可见、位置稳定，并确认表头绑定的 scroll container 与页面实际纵向 scroll owner 一致；自定义 `main/content` 若不是实际滚动节点，不得用 `overflow:auto/scroll` 充当 sticky ancestor。
 
 #### 标准业务表导出能力（强制）
 
