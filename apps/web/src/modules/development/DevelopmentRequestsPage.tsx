@@ -177,7 +177,7 @@ export function DevelopmentRequestsPage() {
         <Select value={scope} onChange={setScope} style={{ width: 170 }} options={[{ value: "all", label: "全部可见需求" }, { value: "todo", label: "待我处理" }, { value: "mine", label: "我提报的需求" }]} />
         <Input.Search allowClear placeholder="搜索编号、标题、类型或需求说明" onSearch={setSearch} style={{ width: 360 }} />
       </Flex>
-      <KdosDataTable resource="development-requests" style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} onFilterGroupChange={setFilterGroup} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 2260 }} />
+      <KdosDataTable resource="development-requests" style={{ marginTop: 14 }} rowKey="id" dataSource={rows} loading={requests.isLoading} onFilterGroupChange={setFilterGroup} columns={columns} pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 2260 }} />
     </Card>
 
     <Modal title={editingDraft ? `编辑需求草稿 · ${editingDraft.requestNumber}` : "提报新需求"} width={720} open={requestOpen} onCancel={() => { setRequestOpen(false); setEditingDraft(undefined); }} footer={<Space>

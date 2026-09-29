@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Table, Tag, Typography } from "antd";
 import { DownloadOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
@@ -53,8 +53,99 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
 
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 const emptyHeaderRules: AdvancedFilterRule[] = [];
-export const kdosPageSizeOptions = [20, 50, 100, 200] as const;
-export const kdosDefaultPageSize = 50;
+export const kdosPageSizeOptions = [50, 100, 200, 500, 1000] as const;
+export const kdosDefaultPageSize = 100;
+
+type KdosResizableHeaderProps = HTMLAttributes<HTMLTableCellElement> & {
+  "data-kdos-resizable"?: "true";
+  "data-kdos-column-key"?: string;
+  "data-kdos-column-width"?: number;
+  "data-kdos-column-min-width"?: number;
+};
+
+type KdosResizeStart = (event: ReactMouseEvent<HTMLSpanElement>, key: string, width: number, minWidth: number) => void;
+
+function KdosResizableHeaderCell({ onResizeStart, children, ...rawProps }: KdosResizableHeaderProps & { onResizeStart: KdosResizeStart }) {
+  const { "data-kdos-resizable": resizable, "data-kdos-column-key": key, "data-kdos-column-width": width, "data-kdos-column-min-width": minWidth, style, ...props } = rawProps;
+  if (resizable !== "true" || !key) return <th {...props} style={style}>{children}</th>;
+  return <th {...props} data-kdos-resizable="true" data-kdos-column-key={key} data-kdos-column-width={width} data-kdos-column-min-width={minWidth} style={{ ...style, position: style?.position ?? "relative" }}>
+    {children}
+    <span
+      className="kdos-table-column-resizer"
+      data-testid={`kdos-column-resizer-${key}`}
+      role="separator"
+      aria-label={`调整${key}列宽`}
+      title="拖动调整列宽"
+      onMouseDown={(event) => onResizeStart(event, key, Number(width), Number(minWidth))}
+    />
+  </th>;
+}
+
+function sessionPreferenceScope() {
+  try {
+    const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}") as { sub?: unknown; tenantId?: unknown; tenantCode?: unknown };
+    return {
+      tenantKey: String(session.tenantId ?? session.tenantCode ?? "KAINAN"),
+      userKey: String(session.sub ?? "anonymous")
+    };
+  } catch {
+    return { tenantKey: "KAINAN", userKey: "anonymous" };
+  }
+}
+
+function preferenceStorageKey(prefix: string, tenantKey: string, userKey: string, resource: string, viewKey?: string) {
+  const view = viewKey ? `${resource}:${viewKey}` : resource;
+  return `${prefix}:${encodeURIComponent(tenantKey)}:${encodeURIComponent(userKey)}:${encodeURIComponent(view)}`;
+}
+
+function legacyPreferenceStorageKey(prefix: string, userKey: string, resource: string, viewKey?: string) {
+  const view = viewKey ? `${resource}:${viewKey}` : resource;
+  return `${prefix}:${userKey}:${view}`;
+}
+
+function readColumnWidths(storageKey: string): Record<string, number> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as unknown;
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 10000));
+  } catch {
+    return {};
+  }
+}
+
+function numericWidth(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function platformColumnMinWidth(field?: TablePermissionFieldDefinition) {
+  switch (field?.type) {
+    case "boolean": return 72;
+    case "number": return 76;
+    case "date": return 96;
+    case "datetime": return 128;
+    case "dictionary": return 96;
+    case "member": return 112;
+    case "department": return 128;
+    case "attachment": return 112;
+    case "structured": return 140;
+    default: return 96;
+  }
+}
+
+function platformColumnDefaultWidth(field?: TablePermissionFieldDefinition, label?: string) {
+  switch (field?.type) {
+    case "boolean": return 82;
+    case "number": return 88;
+    case "date": return 112;
+    case "datetime": return 150;
+    case "dictionary": return 100;
+    case "member": return 130;
+    case "department": return 150;
+    case "attachment": return 120;
+    case "structured": return 180;
+    default: return Math.max(120, Math.min(220, (label?.length ?? 4) * 16 + 40));
+  }
+}
 
 export function shouldResetServerTablePage(action: "paginate" | "sort" | "filter") {
   return action === "sort" || action === "filter";
@@ -217,10 +308,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
    */
   const resolvedFilterFields = filterFields ?? tablePermissionFieldsFor(resource as TableResourceCode);
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
-  const userKey = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
-  const preferenceKey = viewKey ? `${resource}:${viewKey}` : resource;
-  const storageKey = `kdos-form-view:${userKey}:${preferenceKey}`;
-  const pageSizeStorageKey = `kdos-form-page-size:${userKey}:${preferenceKey}`;
+  const { tenantKey, userKey } = sessionPreferenceScope();
+  const storageKey = preferenceStorageKey("kdos-form-view", tenantKey, userKey, resource, viewKey);
+  const pageSizeStorageKey = preferenceStorageKey("kdos-form-page-size", tenantKey, userKey, resource, viewKey);
+  const columnWidthsStorageKey = preferenceStorageKey("kdos-form-column-widths", tenantKey, userKey, resource, viewKey);
+  const legacyStorageKey = legacyPreferenceStorageKey("kdos-form-view", userKey, resource, viewKey);
+  const legacyPageSizeStorageKey = legacyPreferenceStorageKey("kdos-form-page-size", userKey, resource, viewKey);
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -325,8 +418,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const requestedPagination = pagination && typeof pagination === "object" ? pagination : undefined;
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
-    const saved = Number(localStorage.getItem(pageSizeStorageKey));
-    return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number]) ? saved : Number(requestedPagination?.pageSize ?? kdosDefaultPageSize);
+    const saved = Number(localStorage.getItem(pageSizeStorageKey) ?? localStorage.getItem(legacyPageSizeStorageKey));
+    const requested = Number(requestedPagination?.pageSize);
+    return kdosPageSizeOptions.includes(saved as (typeof kdosPageSizeOptions)[number])
+      ? saved
+      : kdosPageSizeOptions.includes(requested as (typeof kdosPageSizeOptions)[number]) ? requested : kdosDefaultPageSize;
   });
   const canEdit = editable && hasResourcePermission(resource, "update");
   useEffect(() => {
@@ -346,12 +442,44 @@ export function KdosDataTable<RecordType extends DataRecord>({
     return [...withoutClientAuditColumns, ...systemAuditColumns] as ColumnsType<RecordType>;
   }, [columns, simple, systemFields, systemAuditColumns]);
   const fields = useMemo(() => flatten(allColumns), [allColumns]);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => readColumnWidths(columnWidthsStorageKey));
+  const columnWidthsRef = useRef(columnWidths);
+  useEffect(() => {
+    const loaded = readColumnWidths(columnWidthsStorageKey);
+    columnWidthsRef.current = loaded;
+    setColumnWidths(loaded);
+  }, [columnWidthsStorageKey]);
+  const startColumnResize = useCallback<KdosResizeStart>((event, key, width, minWidth) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = Math.max(width, minWidth);
+    document.body.classList.add("kdos-column-resizing");
+    const move = (nextEvent: MouseEvent) => {
+      const nextWidth = Math.max(minWidth, Math.round(startWidth + nextEvent.clientX - startX));
+      setColumnWidths((current) => {
+        if (current[key] === nextWidth) return current;
+        const next = { ...current, [key]: nextWidth };
+        columnWidthsRef.current = next;
+        return next;
+      });
+    };
+    const stop = () => {
+      document.body.classList.remove("kdos-column-resizing");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", stop);
+      localStorage.setItem(columnWidthsStorageKey, JSON.stringify(columnWidthsRef.current));
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
+  }, [columnWidthsStorageKey]);
   const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
-    try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); return Array.isArray(saved) ? saved : []; } catch { return []; }
+    try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey) ?? "null"); return Array.isArray(saved) ? saved : []; } catch { return []; }
   });
-  const pinnedStorageKey = `kdos-form-pinned:${userKey}:${preferenceKey}`;
+  const pinnedStorageKey = preferenceStorageKey("kdos-form-pinned", tenantKey, userKey, resource, viewKey);
+  const legacyPinnedStorageKey = legacyPreferenceStorageKey("kdos-form-pinned", userKey, resource, viewKey);
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
-    try { const saved = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? "[]"); return Array.isArray(saved) ? saved : []; } catch { return []; }
+    try { const saved = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? localStorage.getItem(legacyPinnedStorageKey) ?? "[]"); return Array.isArray(saved) ? saved : []; } catch { return []; }
   });
   const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key).filter((key) => !defaultHiddenFields.includes(key));
   useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
@@ -369,10 +497,28 @@ export function KdosDataTable<RecordType extends DataRecord>({
       if (column.children?.length) return { ...column, children: wrap(column.children) };
       const key = columnKey(column);
       const field = metadata.get(key) ?? (typeof column.title === "string" ? metadataByLabel.get(column.title) : undefined);
-      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasFieldPermission(resource, field.key, "read")) return column;
+      const resizable = Boolean(key && !key.startsWith("__") && column.dataIndex != null);
+      const minWidth = Math.max(numericWidth(column.minWidth) ?? platformColumnMinWidth(field), 1);
+      const defaultWidth = numericWidth(column.width) ?? platformColumnDefaultWidth(field, typeof column.title === "string" ? column.title : undefined);
+      const width = Math.max(columnWidths[key] ?? defaultWidth, minWidth);
+      const baseColumn = {
+        ...column,
+        width,
+        minWidth,
+        onHeaderCell: (headerColumn: ColumnType<RecordType>) => ({
+          ...(column.onHeaderCell?.(headerColumn as never) ?? {}),
+          ...(resizable ? {
+            "data-kdos-resizable": "true",
+            "data-kdos-column-key": key,
+            "data-kdos-column-width": width,
+            "data-kdos-column-min-width": minWidth
+          } : {})
+        })
+      } as ColumnType<RecordType>;
+      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasFieldPermission(resource, field.key, "read")) return baseColumn;
       const systemFixed = Boolean(column.fixed);
       const pinned = pinnedKeys.includes(key);
-      return { ...column, fixed: column.fixed ?? (pinned ? "left" : undefined),
+      return { ...baseColumn, fixed: column.fixed ?? (pinned ? "left" : undefined),
         title: <KdosColumnMenu title={typeof column.title === "function" ? field.label : column.title ?? field.label}
           resource={resource} field={field} systemFixed={systemFixed} pinned={pinned}
           sortOrder={sortField === key ? sortOrder : undefined} filtered={Boolean(headerFilters[field.key]?.length)} rules={headerFilters[field.key] ?? emptyHeaderRules}
@@ -384,7 +530,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
     return filterColumns(wrap(allColumns), visible);
-  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, printContext, effectiveVisible]);
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, printContext, effectiveVisible, columnWidths]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -495,6 +641,17 @@ export function KdosDataTable<RecordType extends DataRecord>({
       requestedPagination?.onChange?.(sizeChanged ? 1 : page, nextPageSize);
     }
   };
+  const suppliedTableComponents = tableProps.components as { header?: Record<string, unknown> } | undefined;
+  const tableComponents = useMemo(() => {
+    const existing = suppliedTableComponents;
+    return {
+      ...existing,
+      header: {
+        ...(existing?.header ?? {}),
+        cell: (props: KdosResizableHeaderProps) => <KdosResizableHeaderCell {...props} onResizeStart={startColumnResize} />
+      }
+    };
+  }, [suppliedTableComponents, startColumnResize]);
 
   return <KdosTableEditContext.Provider value={{ editing: editing && canEdit, canEdit }}><>
     <Modal open={Boolean(pendingPrint)} title="确认打印" okText="继续打印" cancelText="取消" confirmLoading={printing}
@@ -535,6 +692,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     </Flex>}
     <Table<RecordType>
       {...tableProps}
+      components={tableComponents as TableProps<RecordType>["components"]}
       className={["kdos-data-table", density === "compact" ? "kdos-data-table-compact" : "", className].filter(Boolean).join(" ")}
       rowKey={tableProps.rowKey ?? "id"}
       rowSelection={effectiveRowSelection}

@@ -6,6 +6,7 @@ import { OrganizationDirectoryService } from "../organization-directory/organiza
 import { standardProcesses } from "@tracker/shared";
 import { MasterPlanFilterCompiler } from "./master-plan.filter";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { tableSupportFieldsFor } from "@kdos/contracts";
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
@@ -57,7 +58,7 @@ export class MasterPlanQueryService {
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const requestedPageSize = Math.floor(Number(input.pageSize) || 100);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100;
+    const pageSize = normalizeKdosPageSize(requestedPageSize);
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
@@ -266,7 +267,7 @@ export class MasterPlanQueryService {
     const pendingInputKeys = processReportPendingInputKeys();
     const visibleFields = processReportPendingFields().map((field) => field.key).filter((field) => this.visible(actor, resource.code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
-    const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 100); const pageSize = [20,50,100,200].includes(requested) ? requested : 100;
+    const page = Math.max(1, Math.floor(Number(input.page) || 1)); const requested = Math.floor(Number(input.pageSize) || 100); const pageSize = normalizeKdosPageSize(requested);
     const source = processReportPendingSourceSql;
     const params: unknown[] = [actor.tenantId]; const clauses = ["record.tenant_id=$1", this.scopeClause(resource, actor, "read", columns, params)];
     const organizations = visibleFields.includes("divisionId") ? await this.directory.listEnabled() : [];

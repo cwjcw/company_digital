@@ -4,6 +4,7 @@ import { Brackets, IsNull, Not, Repository } from "typeorm";
 import { tablePermissionFieldsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { OrganizationUnit, Permission, Role, RoleGroup, User, UserRole } from "../../entities";
 import { applyTypedFilterToQueryBuilder } from "../../common/filtering/typeorm-filter";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { USERS_SORT_COLUMNS, usersFilterColumns } from "./users-filter";
 
 export type AdminUserPageQuery = {
@@ -80,7 +81,7 @@ export class AdminQueryService {
   async listUsersPage(query: AdminUserPageQuery, actor: { isSystemAdmin?: boolean; permissions: string[] }): Promise<AdminUserPage> {
     const requestedPageSize = Number(query.pageSize);
     const batchSize = Math.min(500, Math.max(1, Number(query.batchSize) || 0));
-    const pageSize = batchSize > 200 ? batchSize : ([20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100);
+    const pageSize = batchSize > 200 ? Math.min(batchSize, 1000) : normalizeKdosPageSize(requestedPageSize);
     const page = Math.max(Number(query.page) || 1, 1);
     const builder = this.users.createQueryBuilder("row");
 

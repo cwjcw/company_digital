@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
 import { tablePermissionFieldsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { MARKETING_REPOSITORY, type MarketingRepository } from "./marketing.repository";
 import { MarketingDirectoryQueryService } from "./marketing-directory-query.service";
 import type { BusinessCustomerMappingInput, DirectoryOrganizationOption, MappingImportSummary, MarketingActor, OrderScheduleInput, ResolvedBusinessCustomerMappingInput } from "./marketing.types";
@@ -181,7 +182,7 @@ export class MarketingApplicationService {
 
   private pageRows<T extends Record<string, unknown>>(rows: T[], input: MarketingPageInput, allowedFields: string[]) {
     const page = Math.max(Number(input.page) || 1, 1);
-    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 100;
+    const pageSize = normalizeKdosPageSize(input.pageSize);
     const allowed = new Set(allowedFields);
     const filtered = rows.filter((row) => Object.entries(input.filters ?? {}).every(([key, raw]) => {
       const value = raw.trim().toLocaleLowerCase();
@@ -384,7 +385,7 @@ export class MarketingApplicationService {
       : (resource === "business-customer-mapping" ? "mapping.department,mapping.section,mapping.customer_code" : "schedule.customer_due_date NULLS LAST,schedule.order_number,schedule.item_number");
     const page = Math.max(Number(input.page) || 1, 1);
     const requested = Number(input.pageSize);
-    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 100;
+    const pageSize = normalizeKdosPageSize(requested);
     return { whereSql: clauses.join(" AND "), params, orderBy, page, pageSize };
   }
 

@@ -177,10 +177,10 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     fireEvent.click(trigger);
     const panel = await screen.findByTestId("column-menu-orderNumber");
     fireEvent.click(within(panel).getByRole("button", { name: /冻结到左侧/ }));
-    expect(JSON.parse(localStorage.getItem("kdos-form-pinned:u1:mps-weekly-plans") ?? "[]")).toContain("orderNumber");
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("kdos-form-pinned:KAINAN:u1:mps-weekly-plans") ?? "[]")).toContain("orderNumber"));
     fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
     fireEvent.click(within(panel).getByRole("button", { name: "隐藏此列" }));
-    expect(JSON.parse(localStorage.getItem("kdos-form-pinned:u1:mps-weekly-plans") ?? "[]")).not.toContain("orderNumber");
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("kdos-form-pinned:KAINAN:u1:mps-weekly-plans") ?? "[]")).not.toContain("orderNumber"));
     expect(screen.queryByRole("button", { name: "订单编号列菜单" })).not.toBeInTheDocument();
   });
 });

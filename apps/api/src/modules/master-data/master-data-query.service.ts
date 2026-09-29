@@ -4,6 +4,7 @@ import { ObjectLiteral, Repository, SelectQueryBuilder } from "typeorm";
 import { tablePermissionFieldsFor, type TableResourceCode } from "@kdos/contracts";
 import { FinishedGoodsInbound, FinishedGoodsOutbound, SalesOrder } from "../../entities";
 import { applyTypedFilterToQueryBuilder } from "../../common/filtering/typeorm-filter";
+import { normalizeKdosPageSize } from "../../common/pagination";
 
 export type MasterDataPageQuery = {
   page?: unknown;
@@ -87,7 +88,7 @@ export class MasterDataQueryService {
     actor: MasterDataActor
   ): Promise<MasterDataPage<T>> {
     const page = Math.max(1, Math.trunc(Number(query.page) || 1));
-    const pageSize = Math.min(200, Math.max(10, Math.trunc(Number(query.pageSize) || 100)));
+    const pageSize = normalizeKdosPageSize(query.pageSize);
     const search = String(query.search ?? "").trim();
     const filters = this.parseFilters(query.filters);
     const builder = repository.createQueryBuilder("row");

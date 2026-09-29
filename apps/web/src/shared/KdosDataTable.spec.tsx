@@ -28,11 +28,11 @@ describe("KdosDataTable server pagination", () => {
       />
     </QueryClientProvider>);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 100 })));
     onQueryChange.mockClear();
     fireEvent.click(view.container.querySelector(".ant-pagination-item-2")!);
 
-    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 50 })));
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 100 })));
     expect(view.container.querySelector(".ant-pagination-item-2")).toHaveClass("ant-pagination-item-active");
   });
 
@@ -81,6 +81,42 @@ describe("KdosDataTable server pagination", () => {
       columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[{ id: "1", orderNumber: "A001" }]} /></QueryClientProvider>);
     expect(explicitDefault.container.querySelector("section")).not.toHaveClass("kdos-data-table-shell-compact");
     expect(explicitDefault.container.querySelector("section")?.getAttribute("data-density")).toBe("default");
+  });
+
+  it("标准表默认支持拖动列宽，并按租户、用户和资源保存宽度", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-a", tenantCode: "TENANT-A", permissions: ["*"] }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
+    const header = view.container.querySelector('th[data-kdos-column-key="equipmentCode"]');
+    expect(header?.getAttribute("data-kdos-column-width")).toBe("120");
+    fireEvent.mouseDown(await screen.findByTestId("kdos-column-resizer-equipmentCode"), { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 220 });
+    fireEvent.mouseUp(window);
+    await waitFor(() => expect(header?.getAttribute("data-kdos-column-width")).toBe("240"));
+    expect(JSON.parse(localStorage.getItem("kdos-form-column-widths:TENANT-A:user-a:equipment-register") ?? "{}"))
+      .toMatchObject({ equipmentCode: 240 });
+
+    cleanup();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-b", tenantCode: "TENANT-A", permissions: ["*"] }));
+    render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
+    expect(document.querySelector('th[data-kdos-column-key="equipmentCode"]')?.getAttribute("data-kdos-column-width")).toBe("120");
+  });
+
+  it("用户宽度覆盖业务初始宽度，隐藏后重新显示仍可恢复", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-a", tenantCode: "TENANT-A", permissions: ["*"] }));
+    localStorage.setItem("kdos-form-column-widths:TENANT-A:user-a:mps-group-plans", JSON.stringify({ orderNumber: 260 }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KdosDataTable resource="mps-group-plans" rowKey="id"
+      columns={[{ title: "订单编号", dataIndex: "orderNumber" }, { title: "品项", dataIndex: "itemName" }]}
+      dataSource={[{ id: "1", orderNumber: "A001", itemName: "品项" }]} /></QueryClientProvider>);
+    expect(document.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260");
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    const orderCheckbox = await screen.findByRole("checkbox", { name: "订单编号" });
+    fireEvent.click(orderCheckbox);
+    fireEvent.click(orderCheckbox);
+    await waitFor(() => expect(document.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260"));
   });
 
   it("allows stable record selection in browse mode and clears it explicitly", async () => {

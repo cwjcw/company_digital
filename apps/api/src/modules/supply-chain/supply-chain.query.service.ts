@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { hasSupplierListPermission, SupplyChainActor } from "./supply-chain.types";
 
 type QueryInput = {
@@ -31,7 +32,7 @@ export class SupplyChainQueryService {
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有供应商清单可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const requestedPageSize = Math.floor(Number(input.pageSize) || 100);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 100;
+    const pageSize = normalizeKdosPageSize(requestedPageSize);
     const params: unknown[] = [actor.tenantId];
     const clauses = ["supplier.tenant_id=$1", this.scopeClause(actor, params)];
     const search = String(input.search ?? "").trim();

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { DataSource, type EntityManager } from "typeorm";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionColumnExpressions, supervisionScopeClause } from "./supervision.scope";
 import type { SupervisionActor, SupervisionPageInput } from "./supervision.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
@@ -223,7 +224,7 @@ export class SupervisionQueryService {
     }
   }
   private period(startRaw: unknown, endRaw: unknown) { const today = shanghaiDate(); const monthStart = `${today.slice(0, 7)}-01`; const [year, month] = monthStart.split("-").map(Number); const monthEnd = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10); const start = String(startRaw ?? monthStart); const end = String(endRaw ?? monthEnd); if (!datePattern.test(start) || !datePattern.test(end) || start > end) throw new BadRequestException("统计周期无效"); return { startDate: start, endDate: end }; }
-  private page(query: SupervisionPageInput) { const requested = Number(query.pageSize); return { page: Math.max(Number(query.page) || 1, 1), pageSize: [20, 50, 100, 200].includes(requested) ? requested : 50 }; }
+  private page(query: SupervisionPageInput) { return { page: Math.max(Number(query.page) || 1, 1), pageSize: normalizeKdosPageSize(query.pageSize) }; }
   private taskSort(field: unknown, order: unknown) { const allowed: Record<string, string> = { taskCode: "task.task_code", projectName: "project.project_name", taskName: "task.task_name", priority: "task.priority", dueDate: "task.due_date", progress: "task.progress" }; const key = String(field ?? "dueDate"); return `${allowed[key] ?? allowed.dueDate} ${String(order).toLowerCase() === "desc" ? "DESC" : "ASC"},task.task_code ASC`; }
   private searchReportRows<T extends Record<string, unknown>>(rows: T[], raw: unknown, actor: SupervisionActor) {
     const keyword = String(raw ?? "").trim().toLocaleLowerCase(); if (!keyword) return rows;

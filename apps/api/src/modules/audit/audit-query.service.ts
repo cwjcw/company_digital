@@ -4,6 +4,7 @@ import type { Repository } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import { applyTypedFilterToQueryBuilder } from "../../common/filtering/typeorm-filter";
+import { normalizeKdosPageSize } from "../../common/pagination";
 
 @Injectable()
 export class AuditQueryService {
@@ -11,7 +12,7 @@ export class AuditQueryService {
 
   async list(input: { page?: number; pageSize?: number; search?: string; filters?: Record<string, string>; filterGroup?: unknown; sortField?: string; sortOrder?: string }) {
     const page = Math.max(Number(input.page) || 1, 1);
-    const pageSize = [20, 50, 100, 200].includes(Number(input.pageSize)) ? Number(input.pageSize) : 100;
+    const pageSize = normalizeKdosPageSize(input.pageSize);
     const columns: Record<string, string> = { actorName:"actor_name",resource:"resource",action:"action",recordId:"record_id",source:"source",requestId:"request_id",createdBy:"created_by",createdAt:"created_at",updatedBy:"updated_by",updatedAt:"updated_at" };
     const sortColumn = columns[String(input.sortField ?? "")] ?? "created_at";
     const query = this.audits.createQueryBuilder("a").orderBy(`a.${sortColumn}`, input.sortOrder === "asc" ? "ASC" : "DESC");

@@ -41,7 +41,7 @@ describe("用户管理服务端查询上下文 + FilterGroup（KN-FILTER-002）"
   it("J: 部门 + 状态 + 快速搜索 + FilterGroup 全部 AND，并且行与总数共用同一 WHERE", async () => {
     const users = fakeUsersRepository();
     await service(users, [{ id: "org-2", name: "计划中心", parentId: "org-1" }, { id: "org-1", name: "凯南", parentId: null }]).listUsersPage({
-      page: 2, pageSize: 20, search: "admin", status: "disabled", departmentId: "org-2",
+      page: 2, pageSize: 50, search: "admin", status: "disabled", departmentId: "org-2",
       filterGroup: { logic: "AND", rules: [{ field: "position", operator: "is_not_empty" }] }
     }, actor);
     const where = users.calls.map((call) => call.clause).join(" AND ");
@@ -50,9 +50,9 @@ describe("用户管理服务端查询上下文 + FilterGroup（KN-FILTER-002）"
     /* 快速搜索以 Brackets 形式加入（内部是 username/display_name/... 的 OR 组）。 */
     expect(where).toContain("BRACKETS");
     expect(where).toContain("position");                      /* FilterGroup */
-    /* 分页在条件之后：page=2/pageSize=20 → skip 20, take 20 */
-    expect(users.state.skip).toBe(20);
-    expect(users.state.take).toBe(20);
+    /* 分页在条件之后：page=2/pageSize=50 → skip 50, take 50 */
+    expect(users.state.skip).toBe(50);
+    expect(users.state.take).toBe(50);
   });
 
   it("没有搜索词时不会加入搜索条件（快速搜索只在有输入时生效）", async () => {

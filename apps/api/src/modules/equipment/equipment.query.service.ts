@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { EquipmentActor, equipmentCreateScopeClause, equipmentScopeClause, hasEquipmentPermission } from "./equipment.types";
 
 type PageInput = {
@@ -575,7 +576,7 @@ export class EquipmentQueryService {
 
   private page(input: PageInput) {
     const page = Math.max(1, Number(input.page ?? 1)); const requested = Number(input.pageSize ?? 100);
-    const pageSize = [20, 50, 100, 200].includes(requested) ? requested : 100;
+    const pageSize = normalizeKdosPageSize(requested);
     return { page, pageSize, offset: (page - 1) * pageSize };
   }
 

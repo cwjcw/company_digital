@@ -9,6 +9,7 @@ import { TableFilterRegistry, type TableFilterActor } from "./table-filter.regis
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
 import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf, tableResourceRegistry, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { normalizeKdosPageSize } from "../pagination";
 
 type FilterRequest = Request & { user: any; requestId: string };
 
@@ -115,8 +116,7 @@ export class TableFilterController {
     if (sortKey && (!sortColumn && !sortAlias || !source.fields.some((field) => field.key === (sortAlias?.permissionField ?? sortKey)))) throw new BadRequestException("排序字段无效");
     if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortExpression = sortKey ? sortAlias?.expression ?? this.expressions(source)[sortKey] : undefined;
-    const requestedPageSize = Number(query.pageSize);
-    const pageSize = [20, 50, 100, 200].includes(requestedPageSize) ? requestedPageSize : 50;
+    const pageSize = normalizeKdosPageSize(query.pageSize);
     const page = Math.max(Number(query.page) || 1, 1);
     const selected = [
       /* id/version 是受控并发元数据，不进入字段权限、筛选、打印或业务列，但已获 resource read 时列表必须返回。 */

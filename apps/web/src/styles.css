@@ -406,6 +406,20 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
   font-weight: 600;
   white-space: nowrap;
 }
+.kdos-table-column-resizer {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.kdos-table-column-resizer:hover,
+.kdos-column-resizing .kdos-table-column-resizer { background: rgba(43, 125, 145, .22); }
+.kdos-column-resizing,
+.kdos-column-resizing * { cursor: col-resize !important; }
 .kdos-data-table .ant-table-tbody > tr:hover > td {
   background: #eef7f8 !important;
 }

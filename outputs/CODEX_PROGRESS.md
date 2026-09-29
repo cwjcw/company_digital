@@ -1,10 +1,63 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001 追加：标准业务表手工调整列宽与分页标准
+
+任务目标：在既有标准业务表 compact 默认能力基础上，由 `KdosDataTable` 公共层统一提供可拖动列宽、个人列宽偏好持久化与字段/页面隔离；同时落实默认每页 100 条、可选 50/100/200/500/1000、后端最大 1000 的统一分页标准。
+
+当前状态：公共实现、Skill/roadmap 同步、定向与全量测试、typecheck、lint、build 已完成；待提交、备份、正式部署和用户人工验收。
+
+开始 HEAD：`fcc24f960d257863776774d7616f9a7bf6a7ee9d`
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：公共列宽调整、个人偏好持久化与分页标准实现
+
+当前子任务：确认所有标准 `KdosDataTable` 继承同一 resize 行为，保留 compact 初始宽度和 default 例外。
+
+### 已完成
+
+- [x] 已读取追加需求、项目 AGENTS、`kdos-form-platform` Skill、当前进度和工作区。
+- [x] 已确认现有个人视图偏好使用 Web `localStorage`，已有字段显示、固定列和每页条数保存；没有服务端 personalization 表，故不新增数据库系统。
+- [x] 已确认当前分页仍为默认 50、选项 20/50/100/200、部分后端上限 200，需按追加要求统一升级。
+- [x] `KdosDataTable` 公共层已增加表头右侧 resize handle；列宽按字段类型提供初始宽度和 `minWidth`，用户宽度优先，拖动过程中不写业务数据，释放鼠标后保存个人偏好。
+- [x] 列宽偏好键包含租户、用户、resource、viewKey，值按 fieldKey 保存；刷新、重新挂载、隐藏/显示、查询条件变化后可恢复；保留旧个人视图键的读取兼容。
+- [x] 分页统一为默认 100、选项 50/100/200/500/1000、后端最大 1000；API 模块复用 `apps/api/src/common/pagination.ts`。
+- [x] 已同步 `.agents/skills/kdos-form-platform/SKILL.md` 与 `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md`。
+- [x] 定向 Web：2 files / 20 tests passed；API 分页：2 tests passed。
+- [x] Web 全量：26 files / 162 tests passed；API 全量：73 suites passed、1 skipped，567 tests passed、1 skipped。
+- [x] Web/API typecheck、lint、build 通过；lint 仅保留既有 `ModulePortal.tsx` Fast Refresh warning，build 仅保留既有大 chunk warning。
+
+### 正在进行
+
+- [x] 在 `KdosDataTable` 公共层实现列宽拖动、minWidth、宽度恢复和跨查询稳定性。
+- [x] 更新统一分页常量及后端页大小校验，补充 Skill、roadmap 和回归测试。
+
+### 待完成
+
+- [x] 定向/全量测试、typecheck、lint、build。
+- [ ] 备份、正式部署、健康检查及人工验收。
+
+### 数据库 Migration
+
+- 无：本追加需求禁止数据库修改；列宽偏好第一阶段复用浏览器个人偏好。
+
+### 当前已知问题
+
+- 尚未提交、部署；未通过用户真实人工验收前不得将任务判定为 PASS。
+
+### 下一步
+
+1. 提交公共列宽、分页、Skill、roadmap 和测试变更。
+2. 备份、正式部署并核验运行环境未发生数据库变化。
+3. 等待用户按主计划、项目、任务、设备页面执行拖动/刷新/隐藏/筛选/分页/编辑验收。
+
 ## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001
 
 任务目标：将已通过人工验收的周计划 compact 表格模式推广为所有标准 `KdosDataTable` 的默认密度，并清理标准业务页面自动显示的用途、数据模型、权限、编辑模式和技术实现说明；保留 default 例外能力，不修改数据库。
 
-当前状态：代码、Skill、roadmap 修改完成，待测试、提交、部署和线上人工验收。
+当前状态：代码、测试、备份、正式部署和运行检查完成；等待用户线上人工验收。
 
 开始 HEAD：`56507cea8d97427fd47be3f5fc929a4c2e23f2d1`
 
@@ -24,11 +77,19 @@
 - [x] Dashboard/特殊汇总表显式保留 `density="default"`，不把大字号展示页机械压缩。
 - [x] `.agents/skills/kdos-form-platform/SKILL.md` 已加入标准业务页面说明文字禁用规则和 compact 强制标准。
 - [x] `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md` 已记录 Demo PASS 和本轮标准化任务状态。
+- [x] 定向 Web 回归测试：7 files / 70 tests passed；覆盖 `KdosDataTable`、主计划、工单、辅助分组、督办、设备等。
+- [x] Web 全量测试：26 files / 160 tests passed。
+- [x] Web typecheck、lint、build 通过；lint 保留既有 `ModulePortal.tsx` Fast Refresh warning，build 保留既有大 chunk warning。
+- [x] 已提交实现：`fcc24f960d257863776774d7616f9a7bf6a7ee9d`（`feat(KDOS-TABLE-COMPACT-STANDARD-001): standardize compact business tables`）。
+- [x] 部署前备份：`data/backups/four_department_tracker_20260929_160346.backup`=`03c2228a6757a7238c6900f1c3351c7e11885016f36a61dd0de460eaf7750d59`；`data/backups/kdos_20260929_160346.backup`=`85b10be87983ac438e39893497bad6a1577f3d9a6f28765f39889369b5bf4ac2`；`data/backups/uploads_20260929_160346.tar.gz`=`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`，文件均可读。
+- [x] 正式 `./scripts/deploy.sh all` 成功；Repository/Web/API 均为 `fcc24f9`，`./scripts/deploy.sh check` 为 `STATUS=CONSISTENT`。
+- [x] 部署后 `scripts/healthcheck.sh` 通过；API/Web/Postgres 均 healthy；PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`。
+- [x] 只读数据库核验：migration 数量仍为 76，本任务未执行 migration、未修改业务数据；部署后 API 最近 10 分钟无新的 500、23514、constraint、QueryFailedError 或 exception 日志。
 
 ### 正在进行
 
-- [ ] 运行定向与 Web 全量测试、typecheck、lint、build。
-- [ ] 提交本轮源码、Skill、roadmap 和测试，正式部署并做健康检查。
+- [x] 运行定向与 Web 全量测试、typecheck、lint、build。
+- [x] 提交本轮源码、Skill、roadmap 和测试，正式部署并做健康检查。
 
 ### 待完成
 
@@ -40,14 +101,15 @@
 
 ### 当前已知问题
 
-- 尚未完成本轮测试、部署和用户人工验收；在用户查看前不得判定 PASS。
+- 用户人工验收尚未完成；在用户查看前不得判定 PASS。
 - 保留上一轮既有 Node v22 engine、Web Fast Refresh 和大 chunk warnings。
 
 ### 下一步
 
-1. 完成本轮 Web 验证并提交。
-2. 正式部署，核对 PostgreSQL 不重建、Dispatcher active、inbound-allocation 不变。
-3. 等待用户人工验收，最终状态保持“等待人工验收”。
+1. 用户人工查看主计划、项目、任务、设备页面的 compact 可读性与完整交互。
+2. 确认 1080P 下显示更多行/列、编辑控件不撑高、sticky/单纵向滚动/横向滚动、搜索筛选分页导入导出均无回归。
+3. 确认主计划页面不再显示“新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段”。
+4. 根据用户验收结果将本任务更新为 PASS 或记录 NO-GO/FAIL；验收前不得自报 PASS。
 
 ## 当前任务：KDOS-TABLE-COMPACT-DEMO-001
 
