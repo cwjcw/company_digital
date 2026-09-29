@@ -56,12 +56,12 @@ export function diffParts(left: unknown, right: unknown): [RdDiffPart[], RdDiffP
 }
 
 export const rdKindLabels: Record<string, string> = {
-  similar: "高相似候选",
+  similar: "高相似",
   exact: "名称规格一致",
-  missing: "同名规格缺失",
+  missing: "同名缺规格",
   code: "同品号多记录",
 };
 
 export function rdKindLabel(kind: string) {
-  return rdKindLabels[kind] ?? kind;
+  return rdKindLabels[kind] ?? "其他结果";
 }

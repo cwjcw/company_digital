@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Empty, Input, InputNumber, Segmented, Select, Space, Statistic, Tag, Typography, message } from "antd";
 import { api } from "../../api";
@@ -40,11 +40,18 @@ type Scan = {
 };
 
 const kindOptions = [
-  { label: "高相似候选", value: "similar" },
+  { label: "高相似", value: "similar" },
   { label: "名称规格一致", value: "exact" },
-  { label: "同名规格缺失", value: "missing" },
+  { label: "同名缺规格", value: "missing" },
   { label: "同品号多记录", value: "code" },
 ];
+
+const scanStatusLabels: Record<string, string> = {
+  IDLE: "待扫描",
+  RUNNING: "扫描中",
+  COMPLETE: "扫描完成",
+  FAILED: "扫描失败",
+};
 
 const formatCount = (value: unknown) => typeof value === "number" ? value.toLocaleString("zh-CN") : "—";
 const formatTime = (value?: string | null) => value ? value.replace("T", " ").replace(/\.\d+Z?$/, "") : "—";
@@ -122,13 +129,6 @@ export function RdItemsPage() {
 }
 
 export function RdDuplicatesPage() {
-  const [itemName, setItemName] = useState("");
-  const [specification, setSpecification] = useState("");
-  const [liveLimit, setLiveLimit] = useState(5);
-  const [live, setLive] = useState<any>();
-  const [liveLoading, setLiveLoading] = useState(false);
-  const [liveError, setLiveError] = useState("");
-  const liveRequest = useRef<AbortController | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
   const [kind, setKind] = useState("similar");
   const [historyPage, setHistoryPage] = useState(1);
@@ -137,37 +137,6 @@ export function RdDuplicatesPage() {
   const [nameFilter, setNameFilter] = useState("");
   const [specFilter, setSpecFilter] = useState("");
   const [minScore, setMinScore] = useState<number | null>(null);
-
-  const runLive = useCallback(async () => {
-    if (!itemName.trim() && !specification.trim()) {
-      liveRequest.current?.abort();
-      setLive(undefined);
-      setLiveError("");
-      return;
-    }
-    liveRequest.current?.abort();
-    const request = new AbortController();
-    liveRequest.current = request;
-    setLiveLoading(true);
-    setLiveError("");
-    try {
-      const result = await api<any>("/rd/material-duplicates/check", { method: "POST", body: JSON.stringify({ itemName, specification, limit: liveLimit }), signal: request.signal });
-      if (liveRequest.current === request) setLive(result);
-    } catch (error) {
-      const details = (error as { details?: { name?: string } }).details;
-      if (details?.name !== "AbortError") {
-        setLiveError((error as Error).message);
-        setLive(undefined);
-      }
-    } finally {
-      if (liveRequest.current === request) setLiveLoading(false);
-    }
-  }, [itemName, specification, liveLimit]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void runLive(), 350);
-    return () => { window.clearTimeout(timer); liveRequest.current?.abort(); };
-  }, [runLive]);
 
   const updateHistoryFilter = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -189,7 +158,6 @@ export function RdDuplicatesPage() {
   });
   const current = scanQuery.data ?? scan;
   const status = current?.status ?? "IDLE";
-  const counts = current?.counts ?? {};
   const start = async () => {
     try {
       const result = await api<Scan>("/rd/material-duplicates/scans", { method: "POST" });
@@ -202,42 +170,22 @@ export function RdDuplicatesPage() {
   const resetHistory = () => {
     setCodeFilter(""); setNameFilter(""); setSpecFilter(""); setMinScore(null); setHistoryPage(1);
   };
-  const liveResults = live?.results ?? [];
-
   return <div className="rd-page rd-duplicates-page">
     <PageHeader title="一物多码检测" />
     <Alert type="warning" showIcon message="匹配分仅用于排序和辅助判断，不是重复概率。系统不会自动删除、合并或认定两个品号相同，请由研发人员人工确认。" className="rd-notice" />
-
-    <section className="rd-quick-search">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>新物料快速检索</Typography.Title><Typography.Text type="secondary">输入品名、规格后，系统将在当前物料库全部物料中检索相似候选，结果按匹配分排序，供人工核对。</Typography.Text></div><Space size={8}><Typography.Text type="secondary">Top</Typography.Text><Select size="small" value={liveLimit} onChange={setLiveLimit} options={[{ value: 5, label: "5" }, { value: 10, label: "10" }]} /></Space></div>
-      <div className="rd-quick-fields">
-        <Input value={itemName} onChange={(event) => setItemName(event.target.value)} onPressEnter={() => void runLive()} placeholder="品名（主要输入）" aria-label="新物料品名" />
-        <Input value={specification} onChange={(event) => setSpecification(event.target.value)} onPressEnter={() => void runLive()} placeholder="规格（主要输入）" aria-label="新物料规格" />
-      </div>
-      {liveError && <Typography.Text type="danger">{liveError}</Typography.Text>}
-      {liveLoading && !live && <div className="rd-live-state">正在检索当前物料库…</div>}
-      {live && <div className="rd-live-results" aria-live="polite">
-        <div className="rd-live-summary">已检索当前物料库全部 {formatCount(live.rowsScanned)} 条物料，返回 {liveResults.length} 条候选</div>
-        {liveResults.length === 0 ? <div className="rd-live-state">未找到足够接近的候选；这不代表一定可以新建。</div> : liveResults.map((item: any, index: number) => <div className="rd-live-item" key={`${item.code ?? "empty"}-${index}`}>
-          <strong className="rd-live-score">{Number(item.score).toFixed(1)} 分</strong><span className="rd-live-code">{item.code || "（无品号）"}</span><span>{item.name || "（无品名）"}</span><span>{item.spec || "（无规格）"}</span>
-          <span className="rd-live-reason">判断依据：{item.reason || "—"}{item.warnings?.length ? `；核查提示：${item.warnings.join("；")}` : ""}</span>
-        </div>)}
-      </div>}
-    </section>
+    <Typography.Paragraph type="secondary" className="rd-full-scan-description">对当前物料库全部物料进行查重分析，识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况，结果供人工核对。</Typography.Paragraph>
 
     <section className="rd-history-section">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>历史物料检测</Typography.Title><Typography.Text type="secondary">用于对历史物料进行相似性检测，帮助识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况。默认展示高相似候选，供人工核对。</Typography.Text></div><Button type="primary" onClick={() => void start()} disabled={status === "RUNNING"}>{status === "COMPLETE" ? "重新扫描" : "开始扫描"}</Button></div>
-      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{status.toLowerCase()}</Tag>{status === "IDLE" && "点击“开始扫描”读取当前数据库候选。"}{status === "RUNNING" && `正在扫描${current?.stage ? `：${current.stage}` : ""}，请稍候…`}{status === "COMPLETE" && `扫描完成 · ${formatCount(current?.rows)} 条物料 · ${formatTime(current?.finishedAt)}`}{status === "FAILED" && (current?.errorMessage || "扫描失败，请重新扫描。")}</div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>全量查重</Typography.Title><Typography.Text type="secondary">当前租户物料库全部物料参与查重分析，继续使用现有查重规则和候选分组结果。</Typography.Text></div><Button type="primary" onClick={() => void start()} disabled={status === "RUNNING"}>{status === "COMPLETE" ? "重新扫描" : "开始扫描"}</Button></div>
+      <div className={`rd-scan-status rd-scan-status-${status.toLowerCase()}`} role="status" aria-live="polite"><Tag color={status === "COMPLETE" ? "success" : status === "FAILED" ? "error" : status === "RUNNING" ? "processing" : "default"}>{scanStatusLabels[status] ?? "未知状态"}</Tag>{status === "IDLE" && "点击‘开始扫描’，对当前物料库全部物料进行查重分析。"}{status === "RUNNING" && "正在进行全量物料查重，请稍候。"}{status === "COMPLETE" && "全量物料查重已完成。"}{status === "FAILED" && (current?.errorMessage || "扫描失败，请查看错误信息后重新扫描。")}</div>
       <div className="rd-scan-stats">
         <Statistic title="物料总数" value={formatCount(current?.rows)} />
         <Statistic title="扫描时间" value={formatTime(current?.finishedAt || current?.startedAt)} />
-        <Statistic title="exact · 名称规格一致" value={formatCount(counts.exact)} />
-        <Statistic title="similar · 高相似" value={formatCount(counts.similar)} />
-        <Statistic title="missing · 同名缺规格" value={formatCount(counts.missing)} />
-        <Statistic title="code · 同品号多记录" value={formatCount(counts.code)} />
-        <Statistic title="compared pairs" value={formatCount(current?.comparedPairs)} />
-        <Statistic title="skipped blocks / pairs" value={`${formatCount(current?.skippedBlocks)} / ${formatCount(current?.skippedPairs)}`} />
+        <Statistic title="已比较候选对" value={formatCount(current?.comparedPairs)} />
+        <Statistic title="已跳过候选分组" value={formatCount(current?.skippedBlocks)} />
+        <Statistic title="已跳过候选对" value={formatCount(current?.skippedPairs)} />
       </div>
+      <div className="rd-results-heading"><Typography.Title level={5}>查重结果</Typography.Title></div>
       <div className="rd-history-filters">
         <Segmented options={kindOptions} value={kind} onChange={(value) => { setKind(String(value)); setHistoryPage(1); }} />
         <Input value={codeFilter} onChange={(event) => updateHistoryFilter(setCodeFilter, event.target.value)} onPressEnter={() => setHistoryPage(1)} placeholder="品号" allowClear />

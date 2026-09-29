@@ -2134,3 +2134,72 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
 - 浏览器验收：研发中心 UI 2 个场景通过。
 - 未执行 migration、FULL 同步、watermark 变更或数据库业务数据写入。
+
+# 当前任务：KDOS-RD-FULL-SCAN-UI-004
+
+任务目标：删除研发中心一物多码检测页面的新物料实时查重入口，仅保留全量物料查重扫描和历史结果展示；用户可见状态、分类和统计全部使用中文，不修改实时查重 API、历史查重算法、同步链路或数据库。
+
+当前状态：已完成前端代码、测试、构建、Web-only 部署、健康检查和部署后浏览器核验。
+
+## 当前阶段
+
+当前阶段：前端功能收敛
+
+当前子任务：删除实时检索 UI/状态/请求逻辑，更新全量扫描页面和浏览器断言。
+
+## 已完成
+
+- [x] 删除新物料品名/规格输入、350ms debounce、Top 5/Top 10、实时请求取消和实时结果渲染。
+- [x] 保留后端 `/rd/material-duplicates/check` API 未改，避免影响其他调用方；当前页面不再请求该接口。
+- [x] 将页面主结构调整为“全量查重”和“查重结果”，保留全量扫描、筛选、分页、A/B 对照、字符差异、判断依据和提示信息。
+- [x] 将扫描状态、分类、候选统计改为中文用户文案，并清理实时检索相关死样式。
+- [x] 更新 R&D 浏览器测试，覆盖实时入口不存在、全量扫描中文状态和统计展示。
+
+## 正在进行
+
+- [x] Web tests、typecheck、lint、build。
+- [x] Web-only 部署、健康检查和部署后浏览器核验。
+
+## 待完成
+
+- [x] 记录最终测试、部署和线上核验结果。
+
+## 修改文件
+
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/modules/rd/rd-display.ts`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无。
+
+## API / 算法 / 同步
+
+- API、历史查重算法、score、candidate bucket、E10 同步、watermark、数据库业务数据和已有扫描结果均未修改。
+
+## 已运行测试
+
+- `git diff --check`：通过。
+- Web 全量：27 个测试文件、164 个测试通过；首次运行有 1 个非研发中心 AdminWorkspace 时序超时，重跑后通过。
+- Web typecheck：通过。
+- Web lint：通过，保留项目原有 `ModulePortal.tsx` Fast Refresh warning。
+- Web build：通过，保留项目原有大 chunk warning。
+- 部署后研发中心浏览器：2 个场景通过，确认实时检索入口不存在、全量扫描中文状态/统计、A/B 对照可见。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- Web-only deploy：成功；部署时 Web Build 与仓库 HEAD 一致。
+- `./scripts/deploy.sh check` 的 API 版本保持 `e8675fa`，与本次仅 Web 部署的新 HEAD 不一致是预期结果，API 未重启。
+
+## 当前已知问题
+
+- 无。
+
+## 下一步
+
+1. 后续如继续研发中心前端工作，先读取本进度文件和当前 Git 状态。
+
+## 最终状态
+
+已完成。未执行 migration、FULL/INCREMENTAL 同步、watermark 变更、数据库业务数据写入或历史扫描重建。
