@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Empty, Input, InputNumber, Segmented, Select, Space, Statistic, Tag, Typography, message } from "antd";
 import { api } from "../../api";
@@ -128,6 +128,7 @@ export function RdDuplicatesPage() {
   const [live, setLive] = useState<any>();
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
+  const liveRequest = useRef<AbortController | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
   const [kind, setKind] = useState("similar");
   const [historyPage, setHistoryPage] = useState(1);
@@ -137,29 +138,35 @@ export function RdDuplicatesPage() {
   const [specFilter, setSpecFilter] = useState("");
   const [minScore, setMinScore] = useState<number | null>(null);
 
-  const runLive = useCallback(async (windowSize: 5000 | 20000) => {
+  const runLive = useCallback(async () => {
     if (!itemName.trim() && !specification.trim()) {
+      liveRequest.current?.abort();
       setLive(undefined);
       setLiveError("");
       return;
     }
+    liveRequest.current?.abort();
+    const request = new AbortController();
+    liveRequest.current = request;
     setLiveLoading(true);
     setLiveError("");
     try {
-      // The current API deliberately uses limit=10 as the equivalent 20,000-row window switch.
-      const result = await api<any>("/rd/material-duplicates/check", { method: "POST", body: JSON.stringify({ itemName, specification, limit: windowSize === 20000 ? 10 : liveLimit }) });
-      setLive({ ...result, requestedWindow: windowSize === 20000 || liveLimit === 10 ? 20000 : 5000 });
+      const result = await api<any>("/rd/material-duplicates/check", { method: "POST", body: JSON.stringify({ itemName, specification, limit: liveLimit }), signal: request.signal });
+      if (liveRequest.current === request) setLive(result);
     } catch (error) {
-      setLiveError((error as Error).message);
-      setLive(undefined);
+      const details = (error as { details?: { name?: string } }).details;
+      if (details?.name !== "AbortError") {
+        setLiveError((error as Error).message);
+        setLive(undefined);
+      }
     } finally {
-      setLiveLoading(false);
+      if (liveRequest.current === request) setLiveLoading(false);
     }
   }, [itemName, specification, liveLimit]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void runLive(5000), 350);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => void runLive(), 350);
+    return () => { window.clearTimeout(timer); liveRequest.current?.abort(); };
   }, [runLive]);
 
   const updateHistoryFilter = (setter: (value: string) => void, value: string) => {
@@ -202,16 +209,15 @@ export function RdDuplicatesPage() {
     <Alert type="warning" showIcon message="匹配分仅用于排序和辅助判断，不是重复概率。系统不会自动删除、合并或认定两个品号相同，请由研发人员人工确认。" className="rd-notice" />
 
     <section className="rd-quick-search">
-      <div className="rd-section-heading"><div><Typography.Title level={5}>新物料快速检索</Typography.Title><Typography.Text type="secondary">输入品名、规格后，系统自动按最后修改时间倒序，在当前物料库最近 5,000 条物料中检索相似候选；点击“查找最近 2 万条”可将检索范围扩大至最近 20,000 条物料。</Typography.Text></div><Space size={8}><Typography.Text type="secondary">Top</Typography.Text><Select size="small" value={liveLimit} onChange={setLiveLimit} options={[{ value: 5, label: "5" }, { value: 10, label: "10（2万条）" }]} /></Space></div>
+      <div className="rd-section-heading"><div><Typography.Title level={5}>新物料快速检索</Typography.Title><Typography.Text type="secondary">输入品名、规格后，系统将在当前物料库全部物料中检索相似候选，结果按匹配分排序，供人工核对。</Typography.Text></div><Space size={8}><Typography.Text type="secondary">Top</Typography.Text><Select size="small" value={liveLimit} onChange={setLiveLimit} options={[{ value: 5, label: "5" }, { value: 10, label: "10" }]} /></Space></div>
       <div className="rd-quick-fields">
-        <Input value={itemName} onChange={(event) => setItemName(event.target.value)} onPressEnter={() => void runLive(20000)} placeholder="品名（主要输入）" aria-label="新物料品名" />
-        <Input value={specification} onChange={(event) => setSpecification(event.target.value)} onPressEnter={() => void runLive(20000)} placeholder="规格（主要输入）" aria-label="新物料规格" />
-        <Button type="primary" onClick={() => void runLive(20000)} loading={liveLoading}>查找最近 2 万条</Button>
+        <Input value={itemName} onChange={(event) => setItemName(event.target.value)} onPressEnter={() => void runLive()} placeholder="品名（主要输入）" aria-label="新物料品名" />
+        <Input value={specification} onChange={(event) => setSpecification(event.target.value)} onPressEnter={() => void runLive()} placeholder="规格（主要输入）" aria-label="新物料规格" />
       </div>
       {liveError && <Typography.Text type="danger">{liveError}</Typography.Text>}
-      {liveLoading && !live && <div className="rd-live-state">正在检索近期物料…</div>}
+      {liveLoading && !live && <div className="rd-live-state">正在检索当前物料库…</div>}
       {live && <div className="rd-live-results" aria-live="polite">
-        <div className="rd-live-summary">已检索最近 {formatCount(live.rowsScanned)} 条，返回 {liveResults.length} 条候选{live.requestedWindow === 5000 ? "（输入中实时预览）" : "（最近 2 万条）"}</div>
+        <div className="rd-live-summary">已检索当前物料库全部 {formatCount(live.rowsScanned)} 条物料，返回 {liveResults.length} 条候选</div>
         {liveResults.length === 0 ? <div className="rd-live-state">未找到足够接近的候选；这不代表一定可以新建。</div> : liveResults.map((item: any, index: number) => <div className="rd-live-item" key={`${item.code ?? "empty"}-${index}`}>
           <strong className="rd-live-score">{Number(item.score).toFixed(1)} 分</strong><span className="rd-live-code">{item.code || "（无品号）"}</span><span>{item.name || "（无品名）"}</span><span>{item.spec || "（无规格）"}</span>
           <span className="rd-live-reason">判断依据：{item.reason || "—"}{item.warnings?.length ? `；核查提示：${item.warnings.join("；")}` : ""}</span>

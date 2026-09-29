@@ -2070,3 +2070,67 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 1. 读取当前适用的 AGENTS.md、`.agents/skills/kdos-form-platform/SKILL.md` 和本进度文件。
 2. 执行 `git status`、`git diff --stat`，保留用户修改。
 3. 从“下一步”的第一项未完成任务继续，不重复已完成工作。
+# 当前任务：KDOS-RD-FULL-LIVE-CHECK-003
+
+任务目标：将研发中心新物料快速检索的数据源改为当前租户 `rd_items` 全库；Top 5/Top 10 只控制最终返回数量；保持既有 normalize、category、attribute conflict、specification、score、threshold、reason、warnings 规则不变。
+
+当前状态：全库查询、性能验证、完整测试、API/Web 部署、健康检查和浏览器验收均已完成。
+
+最后更新时间：2026-09-29
+
+## 实现对照
+
+| 项目 | 当前实现 |
+| --- | --- |
+| 全库定义 | `rd_items WHERE tenant_id=$1`，保留既有租户边界；当前数据库 `KAINAN` 为 574,544 条 |
+| 数据源截断 | 已删除 5,000/20,000 limit、修改时间排序和对应分支 |
+| Top N | API `limit` 仅用于 `rankRecent(..., limit)` 最终返回数量，前端保留 Top 5 / Top 10 |
+| 算法 | 未改变 `normalize`、`features`、`compare`、`rankRecent` 的业务规则及 score/reason/warnings 结果；仅做等价实现优化 |
+| debounce | 保留 350ms；前端 AbortController 取消旧请求，只提交最后一次输入请求 |
+| 性能优化 | 缓存租户全库标准化特征，使用物料数量与最大 `updated_at` 校验新鲜度；LCS 改为等价的单行 DP，避免每轮候选重复分配数组 |
+
+## 修改文件
+
+- `apps/api/src/modules/rd/rd.query.service.ts`
+- `apps/api/src/modules/rd/rd-duplicate-algorithm.ts`
+- `apps/api/src/modules/rd/rd.controller.ts`
+- `apps/api/src/modules/rd/rd.query.service.spec.ts`
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 / 同步边界
+
+- 无 migration、无数据库业务数据写入。
+- 未修改 E10 同步、watermark、历史扫描结果或历史扫描算法。
+
+## 已完成
+
+- [x] 核对原 5,000/20,000 限制位于 `apps/api/src/modules/rd/rd.query.service.ts:40`，由 `LastModifiedDate` 映射字段排序并 `LIMIT` 截断。
+- [x] 将实时查重 API 改为读取当前租户物料全库。
+- [x] 将实时查重前端改为全库文案，删除“查找最近 2 万条”和范围分支。
+- [x] 增加 API 单元测试：验证全库 SQL、无旧限制、Top N 只控制返回数量及全库后部候选仍可排序返回。
+- [x] API 研发中心定向测试 10/10 通过。
+- [x] API typecheck、Web typecheck 通过。
+- [x] 真实全库查询：每次返回 `rowsScanned=574544`；冷启动约 13.34 秒，缓存命中 Top 5 约 2.16–2.34 秒、Top 10 约 2.21–2.26 秒；缓存命中样本 P50 约 2.23 秒、P95 约 2.34 秒。
+- [x] 旧排序位置第 300,001 条真实物料 `RXDZ0119-01-09` 全库检索命中，score=100。
+- [x] API 全量测试：75 个测试套件通过、1 个跳过，577 个测试通过。
+- [x] Web 全量测试：27 个测试文件、164 个测试通过；一次并发超时重跑后通过。
+- [x] API lint、Web lint、API typecheck、Web typecheck 通过；Web lint 保留项目原有 Fast Refresh warning。
+
+## 正在进行
+
+- [x] 真实 574,544 条物料全库 Top 5 / Top 10 查询耗时与 P50/P95 验证。
+- [x] Web build、最终部署、健康检查和浏览器验收。
+
+## 下一步
+
+1. 后续如继续研发中心工作，先读取本进度文件和当前 Git 状态。
+
+## 最终部署记录
+
+- 提交：本轮最终提交，部署版本与仓库 HEAD 一致。
+- API/Web：`./scripts/deploy.sh all` 成功，API Build、Web Build 与仓库 HEAD 一致。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 浏览器验收：研发中心 UI 2 个场景通过。
+- 未执行 migration、FULL 同步、watermark 变更或数据库业务数据写入。

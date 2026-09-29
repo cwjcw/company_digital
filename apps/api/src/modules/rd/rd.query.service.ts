@@ -4,11 +4,32 @@ import { normalizeKdosPageSize } from "../../common/pagination";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import type { RdActor } from "./rd.types";
 import { canReadRd } from "./rd.types";
-import { rankRecent, type MaterialCandidate } from "./rd-duplicate-algorithm";
+import { prepareMaterial, rankPreparedCancellable, type MaterialCandidate, type PreparedMaterialCandidate } from "./rd-duplicate-algorithm";
 
 @Injectable()
 export class RdQueryService {
+  private readonly libraryCache = new Map<string, { signature: string; rows?: PreparedMaterialCandidate[]; loading?: Promise<PreparedMaterialCandidate[]> }>();
+
   constructor(private readonly dataSource: DataSource) {}
+
+  private async fullLibrary(tenantId: string) {
+    const [state] = await this.dataSource.query(`SELECT count(*)::int AS count,COALESCE(max(updated_at),'epoch'::timestamptz) AS "maxUpdatedAt" FROM rd_items WHERE tenant_id=$1`, [tenantId]);
+    const signature = `${state?.count ?? 0}:${state?.maxUpdatedAt ?? "epoch"}`;
+    const cached = this.libraryCache.get(tenantId);
+    if (cached?.signature === signature && cached.rows) return cached.rows;
+    if (cached?.signature === signature && cached.loading) return cached.loading;
+    const loading = this.dataSource.query(`SELECT id::text AS "sourceId",version,0::int row,item_code AS code,item_name AS name,specification AS spec FROM rd_items WHERE tenant_id=$1`, [tenantId])
+      .then((rows: MaterialCandidate[]) => rows.map(prepareMaterial));
+    this.libraryCache.set(tenantId, { signature, loading });
+    try {
+      const rows = await loading;
+      this.libraryCache.set(tenantId, { signature, rows });
+      return rows;
+    } catch (error) {
+      if (this.libraryCache.get(tenantId)?.loading === loading) this.libraryCache.delete(tenantId);
+      throw error;
+    }
+  }
 
   async listItems(input: Record<string, unknown>, actor: RdActor) {
     if (!canReadRd(actor, "rd-items")) throw new ForbiddenException("当前权限组没有物料数据查看权限");
@@ -32,14 +53,16 @@ export class RdQueryService {
     return { ...(row ?? { activeItemCount: 0, lastSuccessfulSyncAt: null }), latestSync: run ?? null };
   }
 
-  async check(input: { itemName?: string; specification?: string; limit?: number }, actor: RdActor) {
+  async check(input: { itemName?: string; specification?: string; limit?: number }, actor: RdActor, signal?: AbortSignal) {
     if (!canReadRd(actor, "rd-material-duplicates")) throw new ForbiddenException("当前权限组没有一物多码查看权限");
     const itemName = String(input.itemName ?? "").trim(), specification = String(input.specification ?? "").trim();
     if (!itemName && !specification) throw new BadRequestException("请输入品名或规格");
     if (itemName.length > 200 || specification.length > 500) throw new BadRequestException("品名最多200字，规格最多500字");
-    const rows = await this.dataSource.query(`SELECT row_number() over (ORDER BY last_modified_at_source DESC NULLS LAST,id DESC)::int row,item_code AS code,item_name AS name,specification AS spec FROM rd_items WHERE tenant_id=$1 ORDER BY last_modified_at_source DESC NULLS LAST,id DESC LIMIT $2`, [actor.tenantId, String(input.limit) === "10" ? 20000 : 5000]);
+    // The candidate source is the complete tenant-scoped material library. The
+    // limit is only the number of ranked results returned to the caller.
+    const rows = await this.fullLibrary(actor.tenantId);
     const limit = Math.min(20, Math.max(1, Number(input.limit) || 5));
-    return { window: rows.length, rowsScanned: rows.length, limit, results: rankRecent(itemName, specification, rows as MaterialCandidate[], limit), note: "实验性匹配分，不是重复概率；未找到候选不代表可以新建。" };
+    return { rowsScanned: rows.length, limit, results: await rankPreparedCancellable(itemName, specification, rows, limit, signal), note: "实验性匹配分，不是重复概率；未找到候选不代表可以新建。" };
   }
 
   async scan(scanId: string, input: Record<string, unknown>, actor: RdActor) {

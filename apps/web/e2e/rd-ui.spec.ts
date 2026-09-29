@@ -8,7 +8,7 @@ async function mockRdApi(page: Page) {
   await page.route("**/api/v1/table-filters/resources", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify([]) }));
   await page.route("**/api/v1/rd/items**", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [], total: 0, page: 1, pageSize: 100 }) }));
   await page.route("**/api/v1/rd/items/status", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ activeItemCount: 574544, lastSuccessfulSyncAt: "2026-09-29 19:11:57", latestSync: { status: "SUCCESS", finishedAt: "2026-09-29 19:11:57" } }) }));
-  await page.route("**/api/v1/rd/material-duplicates/check", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ window: 5000, rowsScanned: 5000, limit: 5, results: [{ code: "RD-304", name: "304内六角螺钉", spec: "M6*20", score: 96.4, reason: "名称规格接近", warnings: ["请人工确认材质"] }] }) }));
+  await page.route("**/api/v1/rd/material-duplicates/check", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rowsScanned: 574544, limit: 5, results: [{ code: "RD-304", name: "304内六角螺钉", spec: "M6*20", score: 96.4, reason: "名称规格接近", warnings: ["请人工确认材质"] }] }) }));
   await page.route("**/api/v1/rd/material-duplicates/scans", async (route: any) => {
     if (route.request().method() === "POST") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "RUNNING", stage: "读取物料" }) });
     return route.continue();

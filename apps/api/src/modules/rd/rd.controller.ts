@@ -18,7 +18,12 @@ export class RdController {
   @Get("items") listItems(@Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.listItems(query, this.actor(request)); }
   @Get("items/status") status(@Req() request: RdRequest) { return this.queries.status(this.actor(request)); }
   @Post("items/sync") sync(@Body() body: { mode?: "FULL" | "INCREMENTAL" }, @Req() request: RdRequest) { return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", this.actor(request)); }
-  @Post("material-duplicates/check") check(@Body() body: { itemName?: string; specification?: string; limit?: number }, @Req() request: RdRequest) { return this.queries.check(body, this.actor(request)); }
+  @Post("material-duplicates/check") async check(@Body() body: { itemName?: string; specification?: string; limit?: number }, @Req() request: RdRequest) {
+    const abort = new AbortController(); const onAbort = () => abort.abort();
+    request.on("aborted", onAbort); request.on("close", onAbort);
+    try { return await this.queries.check(body, this.actor(request), abort.signal); }
+    finally { request.off("aborted", onAbort); request.off("close", onAbort); }
+  }
   @Post("material-duplicates/scans") startScan(@Req() request: RdRequest) { return this.application.startScan(this.actor(request)); }
   @Get("material-duplicates/scans/:id") scan(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.scan(id, query, this.actor(request)); }
   @Get("material-duplicates/scans/:id/results") scanResults(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() request: RdRequest) { return this.queries.scan(id, query, this.actor(request)); }
