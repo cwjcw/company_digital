@@ -46,15 +46,22 @@ services:
     env_file:
       - .env
       - .env.smtp
+      # E10 credentials stay in the shared basic_code tool package; they are
+      # injected into the adapter process without copying them into this repo.
+      - /data/automation/code/work/basci/basic_code/.env
     environment:
       NODE_ENV: production
       API_PORT: 15173
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       KDOS_NOTIFICATION_INTERNAL_TOKEN: ${KDOS_NOTIFICATION_INTERNAL_TOKEN:?KDOS_NOTIFICATION_INTERNAL_TOKEN is required}
+      RD_BASIC_CODE_ROOT: /opt/kdos/basic_code
+      RD_E10_PYTHON: /usr/bin/python3
+      RD_E10_READER: /app/data-operations/e10/rd_reader.py
       UPLOAD_DIR: /app/data/uploads
     volumes:
       - ./data/uploads:/app/data/uploads
+      - /data/automation/code/work/basci/basic_code:/opt/kdos/basic_code:ro
     expose:
       - "15173"
     depends_on:

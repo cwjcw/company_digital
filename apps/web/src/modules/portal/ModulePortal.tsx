@@ -10,7 +10,7 @@ import { BuildVersionLabel } from "../../shared/BuildVersion";
 const { Text, Title } = Typography;
 
 export type PortalModule = {
-  id: "cockpit" | "project-task" | "planning" | "data" | "marketing" | "hr" | "workflow" | "system" | "profile";
+  id: "cockpit" | "project-task" | "planning" | "data" | "marketing" | "hr" | "workflow" | "rd" | "system" | "profile";
   title: string;
   englishTitle: string;
   description: string;
@@ -56,6 +56,7 @@ export const portalModules: PortalModule[] = [
     description: "承载公司业务需求、审批流转与开发过程协同。",
     features: ["需求提报与审批", "审批流程配置"], path: "/development-requests", tone: "orange"
   },
+  { id: "rd", title: "研发中心", englishTitle: "R&D CENTER", description: "统一管理 E10 物料资料与一物多码辅助检测。", features: ["物料数据", "一物多码检测"], path: "/rd/items", tone: "violet" },
   {
     id: "system", title: "系统管理", englishTitle: "SYSTEM ADMIN",
     description: "维护基础资料、系统审计、用户角色与接口账户。",
@@ -76,6 +77,7 @@ const moduleIcons = {
   marketing: <ShopOutlined />,
   hr: <UserOutlined />,
   workflow: <ApartmentOutlined />,
+  rd: <DatabaseOutlined />,
   system: <SettingOutlined />,
   profile: <UserOutlined />
 };

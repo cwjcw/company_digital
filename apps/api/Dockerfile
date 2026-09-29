@@ -19,6 +19,7 @@ COPY packages/workflow-sdk/package.json packages/workflow-sdk/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY apps/api apps/api
+COPY data-operations/e10 data-operations/e10
 COPY packages/shared packages/shared
 COPY packages/contracts packages/contracts
 COPY packages/database packages/database
@@ -30,6 +31,10 @@ RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/databa
 
 FROM node:24-bookworm-slim AS runtime
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-tds ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 ARG KDOS_BUILD_SHA=unknown
 ENV NODE_ENV=production
 ENV KDOS_BUILD_SHA=$KDOS_BUILD_SHA
@@ -39,6 +44,7 @@ COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/apps/api/node_modules ./node_modules
 COPY --from=build /app/apps/api/package.json ./package.json
 COPY --from=build /app/apps/api/dist ./dist
+COPY --from=build /app/data-operations/e10 /app/data-operations/e10
 COPY --from=build /app/packages/shared/package.json /app/packages/shared/package.json
 COPY --from=build /app/packages/shared/dist /app/packages/shared/dist
 COPY --from=build /app/packages/contracts /app/packages/contracts

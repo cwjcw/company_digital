@@ -27,7 +27,8 @@ export const administrableModuleRegistry = [
   { code: "data", label: "数据中心" },
   { code: "marketing", label: "营销中心" },
   { code: "hr", label: "人力资源" },
-  { code: "workflow", label: "流程审批" }
+  { code: "workflow", label: "流程审批" },
+  { code: "rd", label: "研发中心" }
 ] as const;
 export type AdministrableModuleCode = typeof administrableModuleRegistry[number]["code"];
 
@@ -88,6 +89,8 @@ export const supervisionProgressUpdateTypeOptions = [
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
+  { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
+  { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
   { code: "supervision-project-dashboard", label: "项目管理大屏", module: "项目与任务", moduleCode: "project-task" },
   { code: "supervision-employee-dashboard", label: "员工待办大屏", module: "项目与任务", moduleCode: "project-task" },
@@ -200,6 +203,18 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "rd-items": fields([
+    ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
+    ["remark", "备注", "text", false], ["isGroupItem", "归类品", "boolean", false], ["sourceCreatedAt", "创建日期", "datetime", false],
+    ["sourceLastModifiedAt", "最后修改日期", "datetime", false], ["sourceModifiedAt", "修改日期", "datetime", false],
+    ["createdByName", "创建人", "text", false], ["lastModifiedByName", "最后修改人", "text", false], ["modifiedByName", "修改人", "text", false],
+    ["status", "状态", "text", false]
+  ]),
+  "rd-material-duplicates": [
+    { key: "kind", label: "分类", type: "dictionary", editable: false }, { key: "score", label: "匹配分", type: "number", editable: false },
+    { key: "reason", label: "判断依据", type: "text", editable: false }, { key: "warnings", label: "核查提示", type: "text", editable: false },
+    { key: "records", label: "物料记录", type: "structured", editable: false, filterable: false }
+  ],
   "sales-summary-dashboard": fields([["customer", "客户", "text", false], ["orderCount", "订单数", "number", false], ["orderQuantity", "订单数量", "number", false], ["completedQuantity", "完成数量", "number", false], ["balanceQuantity", "欠数", "number", false], ["completionRate", "完成比例", "number", false]]),
   "supervision-project-dashboard": [
     { key: "projectCode", label: "项目编号", type: "text", editable: false },
@@ -767,7 +782,9 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   roles: { status: "NOT_APPLICABLE", reason: "角色管理采用角色树配置模式（左侧角色组+角色树），不存在以角色记录为行的标准 KdosDataTable；页面右侧表格展示的是所选角色的用户成员（users 上下文视图），不是 role records。因此角色 resource 不适用标准表格高级筛选，其成员视图按 users 资源接入。" },
   organization: { status: "REGISTERED_AND_FILTERABLE" },
   contacts: { status: "REGISTERED_AND_FILTERABLE" },
-  "api-keys": { status: "REGISTERED_AND_FILTERABLE" }
+  "api-keys": { status: "REGISTERED_AND_FILTERABLE" },
+  "rd-items": { status: "REGISTERED_AND_FILTERABLE" },
+  "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
 /**

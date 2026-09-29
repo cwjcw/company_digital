@@ -1,5 +1,81 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-RD-MATERIAL-DUPLICATE-001
+
+任务目标：在现有 KDOS 中新增“研发中心（R&D CENTER，moduleCode=rd）”，接入 E10 只读物料同步、物料浏览、一物多码实时检测与持久化历史扫描；忠实迁移旧 Python Demo 实际已有的规则、分类、候选桶、批量测试语义和 A/B 差异展示，并完成测试、构建、部署与运行核验。
+
+当前状态：Phase 2/3/4 本地实现与回归已完成；迁移和部署前的容器运行条件已补齐并通过 API 镜像构建，尚未执行 PostgreSQL migration、FULL 同步或正式部署。
+
+开始 HEAD：`891d56f`
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：PHASE 5 生产迁移与运行核验准备
+
+当前子任务：完成提交前审计，随后备份、执行 PostgreSQL migration、验证 n8n 内部同步与增量水位，再进行正式部署和页面核验。
+
+### 已完成
+
+- [x] 已读取用户需求、项目 AGENTS、`kdos-form-platform` Skill、`ARCHITECTURE.md`、`SECURITY.md`、`README.md`、`docs/runbook.md`、`docs/integration-guide.md` 和现有工作区状态。
+- [x] 已确认 `.codex-reference/**` 为只读；未修改旧项目或 E10 字典。
+- [x] 已读取旧项目 `DEVELOPMENT_ARCHITECTURE.md`、`README.md`、历史扫描/导入文档、`preview/import_testing.py`、`preview/history_scan.py`、旧测试和脚本；源码确认旧项目未实现规则后台、AI、Embedding、向量检索、ERP 写入、正式持久化历史结果，本次不新增这些功能。
+- [x] 旧 Python 测试基线：`test_history_scan.py` 及可运行的规则测试共 7 项通过；2 项 XLSX 测试因执行环境缺少 `openpyxl` 失败；Node 候选组测试因旧 `duplicates.html` 函数提取脚本在当前源码布局下未解析到 `groupCandidates`，未判定为迁移实现失败，需在 TypeScript 中建立等价测试。
+- [x] 已通过正确的统一工具 `/data/automation/code/work/basci/basic_code` 的 `MSSQLDatabase` 读取 E10 配置；默认 `pytds` 的中文大字段路径存在编码异常，已确认工具包支持的 `pymssql/pyodbc` 在当前服务器不可用，后续只读抽样使用同一 `MSSQLDatabase` 配置和其已支持的 `pytds` 只读连接参数 `bytes_to_unicode=False`，未使用项目自建 SQL Server 连接或执行写操作。
+- [x] E10 数据库真实连接：`E10_6.0.0.1.NEW.CHS`；SQL Server 实例名 `WIN-NGTCT9QIOMF`。
+- [x] E10 字典真实解析：逻辑聚合实体 `GROUP_ITEM` 含 Complex `GI`；`GI` 主键/业务字段为 `ITEM_BUSINESS_ID`、`ITEM_CODE`、`ITEM_NAME`、`ITEM_SPECIFICATION`、`REMARK`，状态字段含 `STATUS`/`ApproveStatus`；聚合审计字段为 `CreateDate`、`LastModifiedDate`、`ModifiedDate` 和 `CreateBy`/`LastModifiedBy`/`ModifiedBy` Reference `USER`。
+- [x] E10 物理元数据：`dbo.ITEM` 是 GI 品号数据表（574,494 行），`dbo.ITEM_GROUP` 是独立的 Item Group 表（3 行），数据库中不存在名为 `GROUP_ITEM` 或 `GI` 的物理表；`ITEM_GROUP_BUSINESS_ID` 与 `ITEM_BUSINESS_ID` 的真实抽样 JOIN 为 0 行，因此不能把 `ITEM_GROUP` 错当成物料主表。当前同步物料字段以 `dbo.ITEM` 为准，并保留逻辑 `GROUP_ITEM → GI` 映射说明。
+- [x] E10 人员真实映射：`dbo.[USER].USER_ID → USER_NAME`；用户还关联 `EMPLOYEE_ID → dbo.EMPLOYEE.EMPLOYEE_ID → EMPLOYEE_NAME/EMPLOYEE_CODE`。真实抽样已确认普通用户能通过 Employee 取得姓名；系统集成账户可能无 Employee，必须回退 E10 `USER_NAME`，绝不向前端显示 Guid/人员代码。
+- [x] E10 日期水位候选已确认 `dbo.ITEM.LastModifiedDate` 具备最新变化时间；同秒增量必须使用 `(LastModifiedDate, ITEM_BUSINESS_ID)` 复合游标并保留重叠窗口，FULL/INCREMENTAL 设计不得只用单一时间戳。
+- [x] E10 只读抽样：`dbo.ITEM` 总量 574,494；抽样已返回真实品号、品名、规格、备注、状态、审核状态、创建/最后修改/修改日期及人员 Guid；未执行任何 INSERT/UPDATE/DELETE/MERGE/DDL/存储过程写操作。
+- [x] 新增 `RdMaterialDuplicateDetection1722920076000` migration 草案：租户隔离的 `rd_items`、`rd_sync_runs`、`rd_duplicate_scans`、`rd_duplicate_groups`、`rd_duplicate_members`，均启用 RLS；尚未运行。
+- [x] 新增 E10 只读适配器 `data-operations/e10/rd_reader.py`：通过共享 `MSSQLDatabase` 读取配置，使用其已支持的 pytds 只读连接参数处理中文，按 `LastModifiedDate + ITEM_BUSINESS_ID` 键集分页输出 NDJSON；已用 2026-09-29 17:49 水位抽样验证姓名、物料字段和增量结果。
+- [x] 旧算法已迁移至 `apps/api/src/modules/rd/rd-duplicate-algorithm.ts`：NFKC/符号标准化、规格 token/数字、类别/材质/扳拧/头型/表面处理/语言属性、冲突、score/reason/warnings、实时 Top N、exact/similar/missing/code、120 大桶保护、A/B 差异 LCS。
+- [x] 已新增 TypeScript Golden Tests：9 项通过，覆盖旧标签案例、规格/属性冲突、exact/missing/code、大桶跳过、差异字符/空值/Unicode。
+- [x] 已新增研发中心 API 初版、资源注册、模块管理员代码 `rd`、Portal 模块/侧栏和两个 Web 页面；API typecheck 与 Web typecheck 已通过。
+- [x] 已补齐 `rd-items` 与 `rd-material-duplicates` 的筛选能力登记；Web 全量回归 26 个测试文件、162 个测试通过。
+- [x] API 全量回归 74 个测试套件通过、576 个测试通过（1 套件/1 测试按项目既有规则跳过）；API/Web build、API lint、Web lint、`git diff --check` 通过，Web 仅保留既有 Fast Refresh 警告。
+- [x] API 镜像已验证可构建 Python 3 + `python3-tds`，只读挂载共享 `basic_code`；E10 读取器支持容器路径环境变量，未复制共享工具包密钥进仓库。
+
+### 正在进行
+
+- [x] 完成当前 KDOS Portal、App 路由、资源注册、权限模块管理员校验、数据库 schema/迁移和 Integration Adapter 入口盘点。
+- [x] 将旧 Python `normalize/features/compare/rank_recent/scan_rows/get_result` 与 `diffParts` 的真实行为转成 TypeScript 纯函数和 Golden Tests；旧源码实际没有可解析的 `groupCandidates`，未凭测试脚本臆造该功能。
+- [x] 完成 API 查询/同步/历史扫描代码审计：历史成员按 `rd_items.id` 回写，内部同步使用固定系统审计用户。
+- [ ] 完成生产数据库迁移实测和部署后 API/页面核验。
+
+### 待完成
+
+- [x] PostgreSQL 物料、同步运行、历史扫描运行/结果/成员持久化表及 migration 草案。
+- [x] E10 FULL/INCREMENTAL 读取适配器、hash、水位、失败不推进、幂等和内部同步 API 初版。
+- [x] 研发中心 API、Web Portal/导航、物料页、实时检测、历史扫描、A/B 差异初版。
+- [ ] 批量检测：旧源码实际存在文本/CSV/XLSX 隔离测试，但当前总需求明确禁止 XLSX/CSV 正式物料导入；需按“仅文本粘贴或明确隔离测试”做最终范围确认和实现。
+- [ ] n8n 调用验证、生产同步和历史扫描实测。
+- [ ] 备份、migration、部署、health check、FULL/INCREMENTAL 实测和页面/查重/历史扫描实测。
+
+### 数据库 Migration
+
+- [ ] `1722920076000-RdMaterialDuplicateDetection.ts` 已新增但尚未正式执行；E10 仍只读。
+
+### 当前已知问题
+
+- 旧项目 XLSX 测试依赖缺失，旧 Node 测试脚本与当前 HTML 函数布局不兼容；迁移测试必须在 KDOS TypeScript 中独立建立，不修改只读参考项目。
+- `MSSQLDatabase.get_from_query()` 默认 pytds 中文数据路径存在编码异常；实现阶段必须复用统一工具配置/只读连接边界并集中处理 `bytes_to_unicode=False`，避免在业务模块直接依赖 SQL Server 客户端。
+- E10 字典的逻辑 `GROUP_ITEM` 不是同名物理表；当前真实物料主表已确认是 `dbo.ITEM`，`dbo.ITEM_GROUP` 不与现存物料行建立有效 ID JOIN，必须在字段映射和最终报告中明确这一事实。
+- Web 初版仍缺研发中心专属页面测试；历史扫描全量执行 574k 物料前需先完成迁移、增量/水位和资源权限集成核验。
+- 当前项目 `.env` 尚未配置 `KDOS_RD_INTERNAL_TOKEN`；正式启用 n8n 内部同步前必须在部署环境设置独立 token，不能复用通知 token。
+
+### 下一步
+
+1. 提交当前源码后执行备份和 PostgreSQL migration；迁移前确认 `KDOS_RD_INTERNAL_TOKEN` 已配置。
+2. 部署 API/Web，调用 n8n 内部同步做 INCREMENTAL/必要时 FULL；核验租户、姓名、hash、水位和失败不推进。
+3. 执行页面、实时查重、历史扫描实测，更新最终字段映射报告和本进度状态。
+
+---
+
+# Codex 工作进度
+
 ## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001 追加：标准业务表手工调整列宽与分页标准
 
 任务目标：在既有标准业务表 compact 默认能力基础上，由 `KdosDataTable` 公共层统一提供可拖动列宽、个人列宽偏好持久化与字段/页面隔离；同时落实默认每页 100 条、可选 50/100/200/500/1000、后端最大 1000 的统一分页标准。
@@ -30,7 +106,7 @@
 - [x] Web/API typecheck、lint、build 通过；lint 仅保留既有 `ModulePortal.tsx` Fast Refresh warning，build 仅保留既有大 chunk warning。
 - [x] 实现 commit：`00ce83f`（`feat(KDOS-TABLE-COMPACT-STANDARD-001): add shared column resizing`）。
 - [x] 备份：`data/backups/four_department_tracker_20260929_163020.backup`=`d97d0e5a88f8534f073e43e9ac38d483b80cba918f88b505c87d11a1b63f466b`；`data/backups/kdos_20260929_163020.backup`=`61fcbc351c0cc65089df99bb669d56fb7ca66203b1a78004e7c297f76c1da0c3`；`data/backups/uploads_20260929_163020.tar.gz`=`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
-- [x] 正式 `./scripts/deploy.sh all` 成功；Repository/Web/API=`00ce83f`，`./scripts/deploy.sh check` 为 `STATUS=CONSISTENT`。
+- [x] 正式 `./scripts/deploy.sh all` 成功；实现提交 `00ce83f`，最终部署记录提交 `891d56f`，Repository/Web/API=`891d56f`，`./scripts/deploy.sh check` 为 `STATUS=CONSISTENT`。
 - [x] 部署后 API/Web/Postgres healthy，PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；migration 数量仍为 76；API 最近 10 分钟无新的 500、23514、constraint、QueryFailedError 或 exception 日志。
 
 ### 正在进行
@@ -54,8 +130,8 @@
 
 ### 下一步
 
-1. 提交 roadmap 最终部署记录并再次保持部署 SHA 一致。
-2. 等待用户按主计划、项目、任务、设备页面执行拖动/刷新/隐藏/筛选/分页/编辑验收。
+1. 等待用户按主计划、项目、任务、设备页面执行拖动/刷新/隐藏/筛选/分页/编辑验收。
+2. 根据用户真实验收结果将本任务更新为 PASS 或记录 NO-GO/FAIL；验收前不得自报 PASS。
 
 ## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001
 

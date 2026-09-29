@@ -39,6 +39,7 @@ import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources"
 import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sources";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { SupervisionModule } from "./modules/supervision/supervision.module";
+import { RdModule } from "./modules/rd/rd.module";
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { SupervisionModule } from "./modules/supervision/supervision.module";
     MasterPlanSystemModule,
     NotificationsModule,
     SupervisionModule,
+    RdModule,
     TableFilterModule
   ],
   controllers: [

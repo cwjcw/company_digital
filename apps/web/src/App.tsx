@@ -35,6 +35,7 @@ import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPag
 import { KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
+import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
 import {
   OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
   SupervisionOwnerReportPage, SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage
@@ -169,6 +170,7 @@ function Shell({ logout }: { logout: () => void }) {
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
+    : location.pathname.startsWith("/rd/") ? "rd"
     : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
     : location.pathname === "/profile" ? "profile" : "system";
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
@@ -235,6 +237,10 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
       { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }
     ] }],
+    rd: [{ key: "rd-root", label: "研发中心", children: [
+      { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
+      { key: "/rd/material-duplicates", icon: <ReadOutlined />, label: "一物多码检测" }
+    ] }],
     system: [{ key: "system-root", label: "系统管理", children: isSystemAdmin ? [
       { key: "system-master", label: "基础资料", children: [
         { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" }
@@ -268,6 +274,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
+      "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
       "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
@@ -314,6 +321,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
+          <Route path="/rd/items" element={<RdItemsPage />} />
+          <Route path="/rd/material-duplicates" element={<RdDuplicatesPage />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />
           <Route path="/hr/recruitment" element={<HrFolderPage title="招聘与配置" />} />
           <Route path="/hr/training" element={<HrFolderPage title="培训与开发" />} />

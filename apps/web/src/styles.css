@@ -281,6 +281,12 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .portal-tone-orange { --tone: #c8752c; --tone-soft: #fff1e5; }
 .portal-tone-blue { --tone: #2877a8; --tone-soft: #eaf5fb; }
 .portal-tone-violet { --tone: #7b58a7; --tone-soft: #f4edfb; }
+.rd-live-results { margin-top: 12px; color: #5c6b73; }
+.rd-live-item { display: grid; grid-template-columns: 80px 180px 1fr 1fr; gap: 10px; align-items: center; margin-top: 6px; padding: 8px 10px; border: 1px solid #e1e8eb; border-radius: 6px; background: #fff; }
+.rd-live-item small { grid-column: 2 / -1; color: #7d6c4b; }
+.rd-history-group { margin-top: 14px; padding: 10px; border: 1px solid #e1e8eb; border-radius: 6px; background: #fff; }
+.rd-ab-row { display: grid; grid-template-columns: 34px 180px minmax(180px, 1fr) minmax(180px, 1fr); gap: 8px; padding: 5px 0; border-top: 1px solid #eef2f3; white-space: pre-wrap; }
+.rd-diff-char, .rd-diff-empty { color: #c52222; background: #fff0f0; font-weight: 700; text-decoration: underline; }
 
 .module-portal { min-height: 100vh; color: #173d49; background: radial-gradient(circle at 82% 2%, rgba(42, 144, 148, .1), transparent 28%), linear-gradient(180deg, #f8fbfb 0%, #f1f5f6 100%); }
 .portal-header { height: 78px; display: flex; align-items: center; justify-content: space-between; padding: 0 max(36px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid rgba(27, 67, 80, .1); background: rgba(255,255,255,.84); backdrop-filter: blur(16px); }
