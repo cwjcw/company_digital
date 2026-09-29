@@ -1,18 +1,560 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001
+
+任务目标：将已通过人工验收的周计划 compact 表格模式推广为所有标准 `KdosDataTable` 的默认密度，并清理标准业务页面自动显示的用途、数据模型、权限、编辑模式和技术实现说明；保留 default 例外能力，不修改数据库。
+
+当前状态：代码、Skill、roadmap 修改完成，待测试、提交、部署和线上人工验收。
+
+开始 HEAD：`56507cea8d97427fd47be3f5fc929a4c2e23f2d1`
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：平台默认密度与页面说明规范推广
+
+当前子任务：默认 compact、清理标准页 PageHeader subtitle、保留 Dashboard/特殊页面显式 default 例外。
+
+### 已完成
+
+- [x] 已读取任务要求、AGENTS、`kdos-form-platform` Skill、roadmap 和当前工作区；确认上一任务 `KDOS-TABLE-COMPACT-DEMO-001` 已由用户人工验收 PASS。
+- [x] `KdosDataTable` 默认 density 从 `default` 改为 `compact`，`density="default"` 与 `density="compact"` 双模式保留。
+- [x] 主计划页面移除“新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段”说明；标准业务页同类 PageHeader subtitle 已清理。
+- [x] Dashboard/特殊汇总表显式保留 `density="default"`，不把大字号展示页机械压缩。
+- [x] `.agents/skills/kdos-form-platform/SKILL.md` 已加入标准业务页面说明文字禁用规则和 compact 强制标准。
+- [x] `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md` 已记录 Demo PASS 和本轮标准化任务状态。
+
+### 正在进行
+
+- [ ] 运行定向与 Web 全量测试、typecheck、lint、build。
+- [ ] 提交本轮源码、Skill、roadmap 和测试，正式部署并做健康检查。
+
+### 待完成
+
+- [ ] 用户人工验收主计划、项目、任务、设备页面的 compact 可读性与完整交互，并确认计划管理说明文字消失。
+
+### 数据库 Migration
+
+- 无：本任务禁止数据库修改、migration、schema 调整和业务数据修改。
+
+### 当前已知问题
+
+- 尚未完成本轮测试、部署和用户人工验收；在用户查看前不得判定 PASS。
+- 保留上一轮既有 Node v22 engine、Web Fast Refresh 和大 chunk warnings。
+
+### 下一步
+
+1. 完成本轮 Web 验证并提交。
+2. 正式部署，核对 PostgreSQL 不重建、Dispatcher active、inbound-allocation 不变。
+3. 等待用户人工验收，最终状态保持“等待人工验收”。
+
+## 当前任务：KDOS-TABLE-COMPACT-DEMO-001
+
+任务目标：仅将事业部周计划页面作为紧凑表格 Demo，降低表格字体、行高、单元格留白和部分合理列宽；保留默认表格密度，待用户人工验收后再决定是否推广。
+
+当前状态：用户真实人工视觉验收 PASS；任务已收口并作为全平台 compact 标准基线。
+
+开始 HEAD：`c61004ce6d3cd7141dbae21ccd8f5a90e02a2cb7`
+
+结束 HEAD：`56507cea8d97427fd47be3f5fc929a4c2e23f2d1`
+
+实现提交：`56507ce`（`feat(ui): add weekly plan compact table demo`，含表头/数据行稳定高度微调）
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：紧凑 Demo 已完成并通过人工验收
+
+当前子任务：确认周计划真实使用 `KdosDataTable`，增加 opt-in `density="compact"`，保持其它页面 `default`。
+
+### 已完成
+
+- [x] 已读取项目 AGENTS、`kdos-form-platform` Skill、实际周计划页面和公共表格实现；确认周计划使用 `KdosDataTable`，不是独立 Ant Table。
+- [x] 未修改数据库、未新增 migration、未修改业务数据，也未修改平台 Skill 默认标准。
+- [x] `KdosDataTable` 新增可选 `density="default" | "compact"`，默认行为保持不变；周计划显式使用 compact，月计划及其它页面保持 default。
+- [x] compact 仅作用于周计划表格：正文/表头 13px、正文 line-height 20px、表头约 34px、紧凑单元格 padding、Input/Select/DatePicker 约 28px；未压缩左侧菜单、顶部导航、KPI、Dashboard、Modal 或系统管理。
+- [x] 周计划合理压缩部分横向列宽：订单 132、品项 120/150、日期 112、数字 88、字典 100、布尔 82、生产进度 105；备注保留 180，异常列保留 280；长文本单行 ellipsis 并支持 Tooltip。
+- [x] 增加 compact opt-in、周计划启用/月计划保持 default 的回归测试。
+- [x] 定向 Web 测试：2 files / 14 tests passed。
+- [x] Web 全量测试：26 files / 160 tests passed。
+- [x] Web typecheck、lint、build 通过；lint 仅保留既有 `ModulePortal.tsx` Fast Refresh warning，build 仅保留既有大 chunk warning。
+
+### 正在进行
+
+- [x] 提交源码：`56507ce`。
+- [x] 正式部署：`./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`56507ce`、`STATUS=CONSISTENT`。
+- [x] 部署前备份：`data/backups/four_department_tracker_20260929_154201.backup`=`74e5a745a9336f29d52879d8bd3bc4ceeec28cfeb900a4c39424dd343c8bd670`；`kdos_20260929_154201.backup`=`d6d6793d7d5cd30b8510ba554fb0014127d9d96f88c53f79113466727e2ef16d`；`uploads_20260929_154201.tar.gz`=`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+- [x] 部署后 API/Web/Postgres 均 healthy，`scripts/healthcheck.sh` 通过；PostgreSQL 容器 ID 未变化，仍为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`。
+- [x] 数据库只读核验：migration 仍停留在既有 #76，本任务未新增 migration；主计划行数仍为 shipping/base/weekly=`478/1405/1169`；未主动触发同步；部署后 API 最近 10 分钟无 500/23514/constraint/exception 日志。
+
+### 待完成
+
+- [x] 用户真实人工查看周计划 Demo：字体清晰、行高/留白明显降低、1080P 显示更多行和字段、编辑控件协调、横向滚动、sticky header、长文本 ellipsis/Tooltip、搜索/筛选/分页/导入/导出/编辑均通过。
+
+### 数据库 Migration
+
+- 无：本任务明确禁止数据库修改。
+
+### 当前已知问题
+
+- Demo 已完成用户人工视觉验收 PASS；本轮标准化任务不得擅自改变已验收参数。
+- Node 当前为 v22，项目声明目标为 v24；测试命令会显示既有 engine warning。
+
+### 下一步
+
+1. 本轮标准化任务完成测试、部署和人工验收。
+2. 若用户验收发现回归，仅在标准密度或说明文字范围内修复。
+
+## 当前任务：KDOS-DELIVERY-CODE-AUTO-001
+
+任务目标：复用主计划现有 UUID 主键，改由服务端为同一租户订单+品项生成并持久化并发安全、删除不复用的交期编码；保持交期日期编辑不改变记录身份，覆盖页面、API、Excel 导入及下游同步。
+
+当前状态：实现、migration、正式部署与运行检查完成；等待线上人工验收。
+
+开始 HEAD：`017521b8f44862d3883cb7b75878e6d49d7806c7`
+
+最后更新时间：2026-09-29
+
+实现提交：`c61004c`（`feat(mps): auto-generate stable delivery codes`）
+
+### 当前阶段
+
+当前阶段：线上人工验收
+
+当前子任务：完成主计划表/主键/字段/约束/关联/导入链路确认，随后新增正式计数器 migration 与应用层统一生成逻辑。
+
+### 已完成
+
+- [x] 已读取项目 AGENTS、`kdos-form-platform` Skill、架构、安全、runbook、进度文件及实际 Roadmap（实际路径：`docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md`）。
+- [x] Git/部署预检：当前分支 `main`，HEAD=`017521b`；仅有 `outputs/CODEX_PROGRESS.md` 进度修改；`./scripts/deploy.sh check` 为 Repository/Web/API=`017521b`、`STATUS=CONSISTENT`。
+- [x] 已确认主计划真实来源表为 `mps_shipping_plans`；`mps_base_plans` 通过 `shipping_plan_id`、`mps_weekly_plans` 通过 `base_plan_id` 使用内部 UUID 关联；3天工单使用周计划 UUID，不使用交期编码定位。
+- [x] 已确认当前各相关表的技术主键均为 `id uuid PRIMARY KEY DEFAULT uuidv7()`；交期日期实际业务字段为 `latest_customer_due_date`，当前可由正式编辑链路修改。
+- [x] 已确认真实业务字段：订单=`orderNumber/order_number`，品项=`itemCode/item_code`，交期编码=`deliveryNumber/delivery_number`，交期日期=`latestCustomerDueDate/latest_customer_due_date`。
+- [x] 已确认当前源表、基础计划、周计划及报工快照的交期编码仍为 `integer`；源/基础/周计划唯一约束均为同租户订单+品项+交期编码，未发现计数器基础设施。
+- [x] 生产只读一致性检查：主计划行数 shipping/base/weekly=`478/1405/1169`；交期编码均非空、非负且现存重复组为 0；shipping→base、base→weekly、各报工快照与周计划关联字段不一致数量均为 0；所有 shipping 均有 base。
+- [x] 已确认所有正式新增/导入入口汇聚到 `MasterPlanApplicationService.create/importUpdates`，现有实现仍把交期编码列当作用户必填/可编辑字段；网页模板由同一 metadata 生成。
+
+### 正在进行
+
+- [x] 新增 `mps_delivery_code_counters` 正式 migration，并将相关交期编码列迁移为可容纳 `001…999、1000…` 的字符串；migration 只规范现有数值的显示格式并初始化计数器，不重排业务序号、不修改计划日期或内部 ID。
+- [x] 应用层在 shipping/base 创建与新增导入中统一生成编码；加入事务级租户+订单+品项锁、唯一约束保护与删除不复用规则。
+- [x] 更新 metadata、查询排序/显示、导入模板、下游数值排序及回归测试。
+
+### 待完成
+
+- [x] 定向测试、API/Web 全量测试、typecheck、lint、build。
+- [x] 备份与正式 migration 已完成：`scripts/migrate.sh` 于 2026-09-29 15:27 执行；备份为 `data/backups/four_department_tracker_20260929_152715.backup`、`data/backups/kdos_20260929_152715.backup`、`data/backups/uploads_20260929_152715.tar.gz`，SHA256 已由脚本记录；migration #76 已应用。
+- [x] migration 只读验证：7 张相关表的 `delivery_number` 均为 `varchar(32) NOT NULL`，新增正数字符串 CHECK，`mps_delivery_code_counters` 已初始化 1357 行；计划表行数仍为 shipping/base/weekly=`478/1405/1169`。
+- [x] 备份文件可读且 SHA256 已复核：`four_department_tracker_20260929_152715.backup`=`ccb3d2e3e2c73acdcd54c72ef0c118cd3b7738e1a8e386c314f344f178bea363`；`kdos_20260929_152715.backup`=`30c9488b449e8f00b0007159ab7a163ba01130d020bed3d5f98027ec44f9372e`；`uploads_20260929_152715.tar.gz`=`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+- [x] 正式 `./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`c61004c`、`STATUS=CONSISTENT`。
+- [x] 部署后 API/Web/Postgres 均 healthy；PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；未主动触发主计划同步。
+- [x] 部署后 API 最近 10 分钟无新的 500、23514、constraint、QueryFailedError 或 exception 日志。
+- [ ] 用户线上人工验收：首条 001、第二条 002、删除后新建 004、日期修改 ID/编码不变、编码不可编辑、Excel 不填编码可新增。
+
+### 数据库 Migration
+
+- [x] 已提交并正式执行 `1722920075000-MasterPlanDeliveryCodeAuto.ts`；`migrations` 中存在 `MasterPlanDeliveryCodeAuto1722920075000`，未重建 PostgreSQL 容器。
+
+### 当前已知问题
+
+- 线上人工验收尚未完成；在用户确认首条/第二条生成、删除不复用、日期编辑保持 ID/编码、编码不可编辑和 Excel 导入后，才能决定最终 PASS。
+- 当前工作区已有的 `outputs/CODEX_PROGRESS.md` 修改属于本任务/既有恢复记录；部署前仍须确保除此之外无未提交源码、配置或文档修改。
+- migration 后只读复核：shipping/base/weekly 行数仍为 `478/1405/1169`，无非法编码、无租户+订单+品项+编码重复组；编码数值范围分别为 1..2、1..2、1..1。migration 未重排 ID、日期或业务序号。
+- 自动化验证：API 全量 72 suites / 565 tests passed、1 suite / 1 test skipped；Web 26 files / 158 tests passed；API/Web typecheck、lint、build passed。保留既有 Node v22 engine、Fast Refresh 与大 chunk warnings。
+
+### 下一步
+
+1. 用户线上验收首条/第二条自动编码、删除不复用、日期修改保持 ID/编码、编码不可编辑及 Excel 不填编码可新增。
+2. 根据用户验收结果将本任务更新为 PASS 或记录 NO-GO/FAIL；验收前不得自报 PASS。
+
+---
+
+## 当前任务：KDOS-WEEKLY-PLAN-FIELD-OPTIONS-001
+
+任务目标：扩展周计划产品属性/表面性质合法选项，并将系统所有标准业务表的 `modelAge`（新旧款）字段改为非必填；保持 API、筛选、内联、批量和 Excel 链路一致。
+
+当前状态：等待人工验收（代码、测试、备份、正式部署和运行检查已完成）。
+
+开始 HEAD：`eb2f37b9c3343cd7b25d8cb7168ab28397df3269`
+
+结束 HEAD：`017521b8f44862d3883cb7b75878e6d49d7806c7`
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：字段选项与可选语义已部署，等待线上人工验收
+
+当前子任务：等待用户使用正常授权账号验收周计划下拉、空新旧保存/清空及 Excel 导入。
+
+### 已完成
+
+- [x] 已关闭上一任务 `KDOS-UI-PAGE-SCROLL-STANDARD-001`：用户生产人工验收 PASS 已记录；本任务未修改滚动代码。
+- [x] 已确认真实 field key：`modelAge`、`productAttribute`、`surfaceNature`；API `fieldsFor()` metadata 是主计划页面、筛选、模板/导入及 Application option 校验的正式来源。
+- [x] 已确认 `modelAge` 的标准 metadata 使用点：月计划、出货计划、基础计划、周计划、3天生产工单；数据库相关列均 nullable，未发现必填 DTO/Application 分支。
+- [x] 已将共享选项集中到 `@tracker/shared`：产品属性保留原 4 项并新增“其他/五金+亚克力/塑料”；表面性质保留原 2 项并新增“热转印/毛坯/其他”；modelAge 保留“新/旧”。
+- [x] 已将周计划 metadata 暴露三字段并设为可编辑、非必填；出货计划/基础计划 `modelAge` 保持可编辑并明确 `required=false`。
+- [x] 已更新 API 选项校验、筛选解析、同步复制守卫以及 Excel 模板/导入共用 metadata 链路；非法值仍拒绝。
+- [x] 数据库只读检查确认 `model_age`（以及相关产品/表面列）为 nullable；未新增 migration、未修改历史业务数据。
+- [x] 共享字典、主计划 metadata/config、integration/填写说明文档已同步新选项与可选语义。
+- [x] 定向 API 主计划测试：5 suites / 138 tests passed；shared/contracts 测试及构建通过。
+- [x] API 全量：71 suites / 561 tests passed，1 suite skipped；Web 全量：26 files / 158 tests passed。
+- [x] API/Web typecheck、lint、全 workspace build 通过；保留 Node v22 engine warning、Web Fast Refresh warning 和既有大 chunk warning。
+- [x] 正式提交：`c2e8ac01cd442c605f978defa0439c2f54c9d50a`，消息为 `fix(mps): expand weekly field options and make model age optional`。
+- [x] 修正月计划 `modelAge` 可编辑语义并提交：`017521b8f44862d3883cb7b75878e6d49d7806c7`；新增 config 回归断言，3天工单仍为来源只读。
+- [x] 生产备份：`data/backups/four_department_tracker_20260929_144911.backup`、`kdos_20260929_144911.backup`、`uploads_20260929_144911.tar.gz`；custom dump/tar 可读并已记录 SHA256。
+- [x] 正式 `./scripts/deploy.sh all` 成功；`./scripts/deploy.sh check` 为 Repository/Web/API=`017521b`、`STATUS=CONSISTENT`。
+- [x] 部署后 API/Web/Postgres healthy；PostgreSQL container ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`。
+- [x] 部署后 API 最近 10 分钟无新的 500、23514、constraint、QueryFailedError 或 exception 日志；未执行 migration、未主动触发任何主计划同步。
+
+### 正在进行
+
+- [x] API/Web 全量测试、typecheck、lint、build。
+- [x] 生产备份、正式 `./scripts/deploy.sh all`、一致性/健康检查。
+
+### 待完成
+
+- [ ] 等待用户线上人工验收：周计划三个下拉、空新旧新增/编辑/内联/导入及其它新旧表。
+
+### 数据库 Migration
+
+- 无：相关字段已为 nullable，本任务不执行 migration。
+
+### 当前已知问题
+
+- Node 当前为 v22，项目声明目标为 v24；既有测试命令会显示 engine warning。
+
+### 下一步
+
+1. 用户完成线上人工验收后，按结果将本任务更新为 PASS 或记录 NO-GO。
+2. 若验收发现问题，仅在本任务字段/选项范围内修复并重新验证。
+
+## 当前任务：KDOS-UI-PAGE-SCROLL-STANDARD-001
+
+任务目标：统一 KDOS 标准业务页面标题/说明与表格滚动规范；标准表默认由页面承担纵向滚动、表格保留横向滚动。
+
+当前状态：已完成（用户生产人工验收 PASS）。
+
+开始 HEAD：`436fdb7354b7ff322ae74951ea8b94e229991e36`
+
+结束 HEAD：`eb2f37b9c3343cd7b25d8cb7168ab28397df3269`
+
+最后更新时间：2026-09-29
+
+### 当前阶段
+
+当前阶段：标准页面与公共表格滚动规范交付
+
+当前子任务：用户已完成生产人工验收，本任务正式关闭；后续不再修改滚动代码。
+
+### 已完成
+
+- [x] 已读取项目规范、架构、安全、运行手册和 `kdos-form-platform` Skill；确认工作区未知源码修改不存在。
+- [x] 已删除项目管理大屏、员工待办大屏、责任人任务完成报表主体中的重复标题和用途副标题；保留导航/顶部页面身份。
+- [x] 已确认双纵向滚动根因：页面 `.content` 滚动与 `KdosDataTable` 默认 `scroll.y` 同时存在。
+- [x] `KdosDataTable` 标准模式默认不再创建内部纵向滚动，仅保留横向 `scroll.x`；新增显式 `internalVerticalScroll` 例外。
+- [x] 已移除主计划、设备、数据中心、营销、人力、组织、基础数据、通讯录等标准表的显式 `scroll.y`；用户/角色管理固定嵌入成员表保留显式内部滚动。
+- [x] 已调整标准表 shell，避免默认 `height:100% + overflow:hidden` 截断页面内容；内部滚动例外保持固定 viewport。
+- [x] 已将页面标题/说明和标准业务表滚动规则写入 `.agents/skills/kdos-form-platform/SKILL.md`。
+- [x] 提交：`90d2bc70f1071b37e500a4bf76e915aaaff95b35`，消息为 `fix(KDOS-UI-PAGE-SCROLL-STANDARD-001): unify page content and table scrolling`。
+- [x] 定向测试：4 files / 26 tests 通过；Web 全量：26 files / 158 tests 通过；typecheck、lint、build 通过。
+- [x] 备份：`data/backups/*_20260928_182704.*`，数据库 dump 文件格式、上传 tar 可读性和 SHA256 已核验。
+- [x] 正式 `./scripts/deploy.sh all` 成功；`./scripts/deploy.sh check` 为 Repository/Web/API=`90d2bc7`、`STATUS=CONSISTENT`。
+- [x] API/Web/Postgres healthy；PostgreSQL 未重建；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；部署后 API 日志无相关错误。
+- [x] 上一轮曾怀疑全局 `.ant-table-wrapper { overflow: hidden }` 约束 rc-table sticky holder；本轮真实 Chrome 复验确认该因素并非唯一根因，实际阻断来自非滚动 `.content` 的 `overflow:auto` sticky ancestor（详见本轮调查记录）。
+- [x] 标准模式改为 `sticky={{ offsetHeader: 0 }}` 并仅对非 `internalVerticalScroll` 的 KDOS 表格解除 wrapper overflow 裁剪；未恢复 `scroll.y`，内部纵向滚动例外保持原行为。
+- [x] 已将 sticky 表头、横向同步、fixed columns、编辑/下拉以及 `internalVerticalScroll` 例外规则补入 `kdos-form-platform` Skill。
+- [x] 本轮提交：`aa479e23e65bf76d431baf978cc9376148a800a6`，消息为 `fix(ui): keep standard table headers sticky`。
+- [x] 本轮定向测试：KdosDataTable 8 tests、KdosDataTable+Supervision 13 tests 通过；Web 全量 26 files / 158 tests 通过；typecheck、lint、build 通过。
+- [x] 本轮备份：`data/backups/*_20260928_184734.*`；两个 PostgreSQL custom dump 经容器内 `pg_restore --list` 校验，上传 tar 可读。
+- [x] 本轮正式 `./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`aa479e2`、`STATUS=CONSISTENT`。
+- [x] 本轮部署后 API/Web/Postgres healthy；PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；API 最近 10 分钟无 500/23514/constraint/error/exception 匹配项。
+- [x] 用户人工验收确认单纵向滚动、横向同步、固定列、搜索、筛选、分页、编辑和弹层均正常，唯一失败为页面下滚后字段表头消失。
+- [x] 已重新用真实 Chrome 调查：实际 vertical scroll owner 是 `window/document`；`.content` 的 `overflow:auto` 虽自身不滚动（`scrollHeight === clientHeight`），仍成为 sticky ancestor；`.ant-table-sticky-holder` 滚动前 `top=197`、`window.scrollY=500` 后 `top=-303`。上一轮仅解除 `.ant-table-wrapper` 裁剪并不足以修复。
+- [x] 最终修复将 `.content` 改为 `overflow: visible`，使 sticky 绑定到实际的 window 页面滚动；`.ant-table-body` 仍为横向 `overflow-x:auto`、纵向 `overflow-y:hidden`。
+- [x] 本轮提交：`eb2f37b9c3343cd7b25d8cb7168ab28397df3269`，消息为 `fix(ui): align table sticky headers with page scroll`；新增真实 Chrome sticky E2E。
+- [x] 本轮定向测试：KdosDataTable 8 tests、KdosDataTable+Supervision 13 tests、真实 Chrome E2E 1 test 通过；Web 全量第二次 26 files / 158 tests 通过（首次有既有 AdminWorkspace 时序超时，单独重跑通过）；typecheck、lint、build 通过。
+- [x] 本轮备份：`data/backups/*_20260929_141749.*`；两个 PostgreSQL custom dump 经容器内 `pg_restore --list` 校验，上传 tar 可读。
+- [x] 本轮正式 `./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`eb2f37b`、`STATUS=CONSISTENT`；指向生产 Web 容器的真实 Chrome E2E 1/1 通过。
+- [x] 用户生产人工验收 PASS：页面右侧只有一个纵向滚动条，标准表无内部纵向滚动；sticky 表头、横向滚动、搜索、筛选、分页、编辑和弹层均正常。
+
+### 正在进行
+
+- [x] 完成页面规范、公共滚动层、测试、构建、备份和部署。
+- [x] 使用授权账号完成线上人工验收，确认真实页面下滚后表头保持可见。
+
+### 待完成
+
+- [ ] 确认三个大屏无重复标题/副标题，页面直接进入筛选、KPI、图表或表格。
+- [x] 用户已确认标准表右侧只有页面纵向滚动条，宽表横向滚动、搜索、筛选、分页、编辑和弹层保持正常。
+- [x] 用户确认本轮修复后的 sticky 表头。
+
+### 修改文件
+
+- `.agents/skills/kdos-form-platform/SKILL.md`
+- `apps/web/src/shared/KdosDataTable.tsx`
+- `apps/web/src/shared/KdosDataTable.spec.tsx`
+- `apps/web/src/styles.css`
+- `apps/web/src/modules/supervision/SupervisionPages.tsx`
+- `apps/web/src/modules/supervision/SupervisionPages.spec.tsx`
+- 标准表调用方：`App.tsx`、主计划、设备、数据中心、营销、人力、组织、开发请求、管理员页面
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 无；未修改数据库 schema、业务数据或 inbound-allocation；未主动触发同步。
+
+### 已运行测试
+
+- 定向：KdosDataTable、监督大屏、筛选能力共 4 files / 26 tests passed。
+- Web 全量：26 files / 158 tests passed；首次并发运行有 1 个既有 AdminWorkspace 时序超时，单独重跑和第二次全量均通过。
+- Web typecheck：PASS。
+- Web lint：PASS，保留既有 Fast Refresh warning。
+- Web build：PASS，保留既有大 chunk warning。
+
+### 当前已知问题
+
+- 上一项滚动规范任务已由用户生产人工验收确认 PASS；本节不再有该任务遗留阻塞。
+- Node 运行环境为 v22，项目目标为 Node 24；测试、类型检查、lint 和 build 均已通过。
+- 真实 Chrome 已验证部署 bundle 的 scroll owner、sticky holder 实际位置和横向滚动容器；仍不能替代用户对真实业务账号和实际数据的最终视觉确认。
+
+### 下一步
+
+1. 本任务已完成；后续不再修改滚动代码。
+
+## 当前任务：KDOS-PROJECT-TASK-UX-PERM-001
+
+任务目标：修复项目与任务模块导航、权限、表格编辑、甘特图体验，并补齐标准业务表统一导出；完成后最多恢复一个真实未完成的 Roadmap TASK。
+
+当前状态：等待人工验收（本轮两个线上 UI 失败项已修复、验证并部署；尚未重新人工确认）。
+
+开始 HEAD：`f91470b84ef761295187b72898d990d2cc832200`
+
+结束 HEAD：`436fdb7354b7ff322ae74951ea8b94e229991e36`
+
+最后更新时间：2026-09-28
+
+### 当前阶段
+
+当前阶段：项目/任务 UX 最终线上验收
+
+当前子任务：修复重复大标题与甘特图 ISO 日期显示，完成 Web 回归、备份、正式部署；等待用户再次人工验收。
+
+### 已完成
+
+- [x] 已读取项目规范、`kdos-form-platform` 技能与实际 roadmap；roadmap 已被 Git 跟踪。
+- [x] 已移除项目/任务标准页长期解释性副标题，并将“标准页不自动增加说明文字”写入平台技能规则。
+- [x] 已基于统一 `TableFilterRegistry`/打印取数框架增加 XLSX 导出；项目 `supervision-projects` 与任务 `supervision-tasks` 共用平台入口。
+- [x] 导出后端强制校验 export/read、字段权限、租户、数据范围、搜索、筛选、排序和全部匹配记录；排除操作列并解析成员、部门、字典和日期展示值。
+- [x] 业务代码提交：`c5fefa3`；Roadmap/TASK-001 独立提交：`f91470b`。
+- [x] TASK-001 已完成：新增 `packages/ui-schema`，提供 Field/Option/Form/Detail/Table/Resource Schema、结构校验辅助函数与督办任务 Schema 测试；未启动 TASK-002。
+- [x] API 专项：2 suites / 21 tests；Web 专项：3 files / 24 tests；ui-schema：2 tests，均通过。
+- [x] API 全量：71 suites / 560 tests 通过，1 suite / 1 test 既有 skip；Web 全量复跑：26 files / 155 tests 通过。
+- [x] API/Web/全 workspace typecheck、lint、build 通过；保留既有 Web Fast Refresh warning 和大 chunk warning。
+- [x] 生产备份：`data/backups/*_20260928_112045.*`，pg_restore/tar 可读，SHA256 已核验：主库 `2c91d5...`、KDOS `80c904...`、uploads `089222...`。
+- [x] 第三次正式 `./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`f91470b`、`STATUS=CONSISTENT`。
+- [x] 部署前后 PostgreSQL 容器 ID 均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`，未重建；API/Web/Postgres 均 healthy。
+- [x] Dispatcher=`active`；数据库只读确认 `inbound-allocation=true`、状态 `SUCCESS`；未主动触发主计划同步。
+- [x] 数据库无本轮 migration；业务数据未修改。目标设备状态记录已存在，且 `KN-020YK005 / 2026-09-26` 的 planned/runtime/fault 均为 `0`，未重复创建或导入。
+- [x] 部署后 API 最近 10 分钟日志无 `500`、`23514`、目标 constraint 或 error/exception 匹配项。
+- [x] 上次真实线上人工验收已确认：首页角色身份隐藏、导航提升、说明文字移除、项目/任务编辑和导出均通过；仅发现标准页重复大标题与甘特图 ISO 时间戳两项失败。
+- [x] 已移除 `SupervisionProjectsPage` 与 `SupervisionTasksPage` 主体中重复的“项目管理/任务管理”大标题；保留左侧导航和仪表盘标题层级。
+- [x] 已将甘特图日期范围、风险卡片交付日期、任务交付日期提示及相关日期列统一改用 `formatDateOnly`/`formatDateRange`，避免时区转换和 ISO 时间泄露。
+- [x] 已将“左侧导航已明确身份时不重复显示同名主体大标题”写入 `.agents/skills/kdos-form-platform/SKILL.md`。
+- [x] 本轮修复提交：`436fdb7354b7ff322ae74951ea8b94e229991e36`。
+- [x] 本轮定向测试：2 files / 7 tests 通过；Web 全量：26 files / 156 tests 通过；typecheck、lint、build 通过。
+- [x] 本轮备份：`data/backups/*_20260928_155204.*`；数据库 custom dump、上传 tar 均存在且已校验文件格式与 SHA256。
+- [x] 本轮正式 `./scripts/deploy.sh all` 成功；最终 `./scripts/deploy.sh check` 为 Repository/Web/API=`436fdb7`、`STATUS=CONSISTENT`。
+- [x] 本轮部署后 API/Web/Postgres healthy；PostgreSQL 容器 ID 未变；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；API 最近 10 分钟无相关错误。
+
+### 正在进行
+
+- [x] 完成实现、提交、备份、部署与自动化验证。
+- [ ] 使用授权账号重新完成项目/任务页面人工验收，重点确认主体不再重复显示同名大标题、甘特图显示 `2026-09-21 → 2026-09-30` 且风险显示 `交付 2026-09-30`。
+
+### 待完成
+
+- [x] 当前代码与 Roadmap 交付已完成。
+- [ ] 线上人工复验；完成前保持“等待人工验收”，不得提前标记 PASS。
+
+### 修改文件
+
+- `apps/api/src/common/filtering/table-filter.module.ts`
+- `apps/api/src/common/filtering/table-filter.registry.ts`
+- `apps/api/src/common/printing/table-export.controller.ts`
+- `apps/api/src/common/printing/table-print.service.ts`
+- `apps/api/src/common/printing/table-print.service.spec.ts`
+- `apps/api/src/modules/supervision/supervision.filter-sources.ts`
+- `apps/web/src/shared/table-export.ts`
+- `apps/web/src/shared/KdosDataTable.tsx`
+- `apps/web/src/shared/KdosDataTable.spec.tsx`
+- `apps/web/src/modules/supervision/SupervisionPages.tsx`
+- `apps/web/src/modules/supervision/SupervisionPages.spec.tsx`
+- `.agents/skills/kdos-form-platform/SKILL.md`
+- `packages/ui-schema/*`
+- `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md`
+- `pnpm-lock.yaml`
+- `apps/web/src/shared/date-format.ts`
+- `apps/web/src/shared/date-format.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration
+
+- 本轮无新 migration、无 schema 变更、无业务数据写入；正式部署使用 `--no-deps`，PostgreSQL 未重建。
+
+### 新增或修改测试
+
+- 标准导出覆盖 export 权限、API 拒绝、搜索/筛选/排序继承、全部匹配记录、字段权限和 XLSX 列输出。
+- 项目/任务页覆盖副标题移除、只读、字段权限、自动保存和失败回滚。
+- 项目/任务页覆盖标准页同名主体标题不渲染；项目大屏覆盖 ISO 日期范围、风险交付日期格式和 ISO 字符串不泄露。
+- `@kdos/ui-schema` 覆盖督办任务主要字段 Schema 与非法结构校验。
+
+### 已运行测试
+
+- `pnpm test`：API 71 suites / 560 tests passed（1 skip）；Web 首次全量有 1 个既有 AdminWorkspace 超时，单独复跑 8/8 通过；随后 Web 全量 26 files / 155 tests passed；其他 workspace 均通过。
+- `pnpm typecheck`：PASS；`pnpm lint`：PASS（1 条既有 warning）；`pnpm build`：PASS（既有大 chunk warning）。
+- `./scripts/deploy.sh all`：最终 PASS；此前两次仅因 npm registry 网络超时失败，未切换容器。
+- 最终 `./scripts/deploy.sh check`：Repository/Web/API=`f91470b`，`STATUS=CONSISTENT`。
+- `docker compose ps`：API/Web/Postgres healthy；Dispatcher active；`inbound-allocation=true`。
+- API 日志：部署后无新的 500/23514/目标 constraint/error/exception。
+- 本轮 `./scripts/deploy.sh all`：PASS；本轮 `./scripts/deploy.sh check`：Repository/Web/API=`436fdb7`，`STATUS=CONSISTENT`。
+
+### 当前已知问题
+
+- 当前仅等待用户重新进行线上人工验收；自动化、备份、正式部署和运行检查均已完成，未代替用户将其判定为 PASS。
+- `TASK-002 KdosSchemaForm` 仍为 Roadmap 下一推荐任务。
+
+### 下一步
+
+1. 通过正常 UI 重新验收项目/任务页面，重点确认两个本轮修复项。
+2. 将人工复验结果补入本进度文件；在验收完成前不将本任务标记 PASS。
+
+## 当前任务：KN-EQUIP-STATUS-ZERO-RUNTIME-001
+
+任务目标：修复设备状态导入计划运行时间为 0 时预览通过但确认写入被 PostgreSQL 约束拒绝的问题，并让确认失败在导入预览 Modal 内持续可见。
+
+当前状态：migration 与正式部署完成；真实 planned=0 导入验收因缺少用户原始 Excel 未执行，整体仍为 NO-GO。
+
+开始 HEAD：`29453bf3b48d2f1a87f88e660da353c88eb711d6`
+
+最后更新时间：2026-09-28
+
+### 当前阶段
+
+当前阶段：生产验收收尾
+
+当前子任务：等待用户提供原始设备状态 Excel 后完成一次真实 planned=0 导入验收。
+
+### 已完成
+
+- [x] 已读取项目规范、架构/安全文档、运行手册、集成说明和 KDOS 表单技能规范。
+- [x] 已完成 Git 预检：分支 `main`；HEAD=`29453bf3b48d2f1a87f88e660da353c88eb711d6`。
+- [x] 已确认工作区既有修改只有 `outputs/CODEX_PROGRESS.md`，另有未跟踪的任务范围外文档 `docs/开发/KDOS_PLATFORM_REFACTOR_ROADMAP.md`，未覆盖、未删除、未提交。
+- [x] 已确认 API/Web/PostgreSQL 当前容器健康；PostgreSQL 容器 ID=`ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`。
+- [x] 已只读确认生产约束为 `planned_runtime_minutes IS NULL OR planned_runtime_minutes > 0`。
+- [x] 已只读确认设备状态数据分布：NULL 1741、正数 908、零 0、负数 0；未执行任何业务数据写入。
+- [x] 已确认旧 migration `EquipmentStatusPlannedRuntimeMinutes1722920066000` 已执行，当前最大 migration 编号为 `1722920073000`。
+- [x] 已确认应用层 `requiredMinutes`、导入 duration、`saveStatus` 已允许 0；稼动率对计划时间 0 的既有语义为 NULL，不在本任务修改。
+- [x] 继续执行预检：当前 HEAD=`c3844e6f2db16130e191db858bb8d51c9c55632c`，`bae69b1` ancestry 成功，roadmap 已由 `c3844e6` 跟踪，只有 outputs 记录未提交。
+- [x] `deploy.sh check` 显示生产基线仍为 `29453bf`，待本次部署更新；无未知工作区文件。
+- [x] 迁移前只读核验：旧约束、migration 未执行、数据分布 NULL=1741/0=0/>0=908/<0=0；目标设备日期记录不存在。
+- [x] 备份 `20260928_090229` 三份文件存在、可读、SHA256 与原记录一致，PostgreSQL dump 可由 `pg_restore --list` 读取。
+- [x] 正式 TypeORM migration 执行成功，migration 记录为 id=75；约束已变为 `NULL OR >= 0`。
+- [x] `./scripts/deploy.sh all` 成功；随后 `./scripts/deploy.sh check` 判定 Repository/Web/API 均为 `c3844e6`、`STATUS=CONSISTENT`。
+- [x] 部署后 API/Web/PostgreSQL healthy；PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`，未重建。
+- [x] 部署后 Dispatcher=`active`、`inbound-allocation=true`；API 重启后的日志无新的 constraint/500/23514 错误。
+- [x] 部署后只读数据复核仍为 NULL=1741/0=0/>0=908/<0=0，目标记录仍不存在。
+
+### 正在进行
+
+- [x] 新增 allow-zero migration，并补充应用/导入/迁移测试。
+- [x] 在设备状态导入预览 Modal 增加确认失败持久 Alert 和清理时机。
+
+### 待完成
+
+- [x] 运行设备专项、API/Web 全量测试、typecheck、lint、build。
+- [x] 生产备份；迁移前只读校验约束与数据未变化。
+- [x] 提交修复；roadmap 已由用户提交，未绕过保护机制。
+- [ ] 使用用户原始 Excel 完成目标记录的真实 planned=0 导入验收。
+
+### 修改文件
+
+- `outputs/CODEX_PROGRESS.md`
+- `apps/api/src/migrations/1722920074000-EquipmentStatusPlannedRuntimeAllowZero.ts`
+- `apps/api/src/modules/equipment/equipment-status-runtime.migration.spec.ts`
+- `apps/api/src/modules/equipment/equipment.spec.ts`
+- `apps/web/src/modules/equipment/EquipmentPages.tsx`
+- `apps/web/src/modules/equipment/EquipmentPages.spec.tsx`
+
+### 数据库 Migration
+
+- 新增：`1722920074000-EquipmentStatusPlannedRuntimeAllowZero.ts`；UP 保留约束名并改为 `NULL OR >= 0`，不回填、不修改现有数据。
+- 尚未执行生产 migration；当前生产约束仍为 `NULL OR > 0`。
+
+### 新增或修改测试
+
+- 已补充：计划运行时间 0 的应用/预览/确认路径、迁移约束语义、确认失败 Alert 及重试/换文件清理。
+
+### 已运行测试
+
+- API 专项：设备测试与迁移测试共 2 suites / 21 tests 通过。
+- Web 设备专项：确认失败持久 Alert、失败后重试、换文件清理及既有预览错误共 11 tests 通过（Node 22 环境，pnpm 提示项目目标 Node 24）。
+- API 全量：71 suites / 557 tests 通过，1 suite/1 test 既有 skip。
+- Web 全量：25 files / 148 tests 通过。
+- API/Web typecheck：通过；API/Web lint：0 error，Web 保留 1 条既有 Fast Refresh warning。
+- Monorepo build：15 个工作区构建通过；Web 仅有既有大 chunk warning。
+- `git diff --check`：通过。
+- 生产备份：`data/backups/*_20260928_090229.*`，三份均成功并生成 SHA256。
+- 迁移前只读复核：约束为 `NULL OR > 0`；数据 NULL=1741、0=0、正数=908、负数=0。
+- 迁移后只读复核：约束为 `NULL OR >= 0`；migration id=75；数据计数未变化。
+- 正式部署与复核：Repository/Web/API=`c3844e6`，`STATUS=CONSISTENT`。
+- 真实 planned=0 导入：未执行；当前未找到用户原始设备状态 Excel，未生成或伪造业务文件。
+
+### 当前已知问题
+
+- 真实 planned=0 导入验收仍待用户提供原始 Excel；不能用其他出货 Excel 或人工生成文件替代。
+
+### 等待用户确认
+
+- 需要提供或配置一个可安全使用的授权账号，以完成线上 UI 实际操作验收；不需要提供密码给进度文件或最终报告。
+
+### 下一步
+
+1. 用户提供本次实际失败的设备状态 Excel。
+2. 通过正常 UI 完成一次上传→预览→确认导入，并核验目标记录 planned/runtime/fault 均为 0。
+3. 保留当前已完成的 migration、部署和日志核验结果，最终将本任务标记 PASS。
+
+### 本阶段最终报告
+
+- 结果：NO-GO（migration、部署和运行环境核验完成，真实 planned=0 导入验收缺少原始 Excel）。
+- 开始 HEAD：`29453bf3b48d2f1a87f88e660da353c88eb711d6`。
+- 结束 HEAD：`bae69b1fc323e9caeee106f109abd2d9092e2219`。
+- Commit：`bae69b1 fix(KN-EQUIP-STATUS-ZERO-RUNTIME-001): allow zero planned runtime`。
+- 生产 PostgreSQL 容器：`ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`，健康且未重建；Dispatcher=`active`。
+- 新 migration：已执行并记录 id=75；旧 migration 未修改；业务数据未修改。
+- 备份：`20260928_090229`，legacy/KDOS/uploads 均已成功备份并校验。
+- Web/API SHA：均为 `c3844e6`，deploy check=`CONSISTENT`。
+- 当前运行基线：API/Web/PostgreSQL 均 healthy，本任务已上线。
+- 只读安全复核：`inbound-allocation`=`true`；Dispatcher=`active`；API 重启后的日志无新的 constraint/500/23514 错误。
+- planned=0 实际验收：未执行，目标记录不存在且未提供原始 Excel。
+
+---
+
 ## 当前任务：SUPERVISION-FORM-USABILITY-002
 
 任务目标：为督办项目/任务表单显示必填红色星号，移除项目与任务的“紧急”优先级，并将任务管理页的权限管理入口收敛为一个。
 
-当前状态：部署重试中；最终修正与完整回归已完成，首次新镜像构建因 npm 镜像超时失败，线上旧版本保持健康。
+当前状态：已完成；最终修正、完整回归、备份、migration、部署与线上核验均已完成。
 
 最后更新时间：2026-09-27
 
 ### 当前阶段
 
-当前阶段：部署构建缓存修复与重试
+当前阶段：交付完成
 
-当前子任务：修复 Web 镜像依赖缓存失效问题，重新构建后执行 migration 与切换。
+当前子任务：无。
 
 ### 已完成
 
@@ -31,12 +573,14 @@
 
 ### 正在进行
 
-- [ ] 提交修正并重新部署当前运行环境。
+- 无。
 
 ### 待完成
 
 - [x] 运行专项测试、lint、typecheck、全量测试和构建。
 - [x] 备份、提交、部署当前运行环境并执行健康检查和线上效果核验。
+- [x] 执行 `SupervisionFormUsability1722920073000` 并核验数据库列与约束。
+- [x] 修复 Web 镜像依赖缓存，完成最终 Web/API 切换与三方 SHA 一致性检查。
 
 ### 修改文件
 
@@ -75,10 +619,13 @@
 - `pnpm build`：15 个工作区构建通过；Web 仅有既有大 chunk 提示。
 - `git diff --check`：通过。
 - 上线前备份：`data/backups/*_20260927_154945.*`，三份备份均已生成 SHA256。
-- 生产部署：Repository / Web / API 均为 `18b0329`，部署脚本判定 `CONSISTENT`。
+- 最终生产部署：Repository / Web / API 均为 `29453bf`，部署脚本判定 `CONSISTENT`。
 - 线上健康检查：API、Web、PostgreSQL 容器均为 healthy，`/api/v1/health` 返回 `status=ok`。
-- 线上资源核验：加载的 `index-DUargegM.js` 包含督办项目/任务页面与高/中/低优先级字典。
+- 线上资源核验：加载的 `index-WbeUmHSv.js` 包含督办项目/任务页面、高/中/低优先级字典及可清空的非必填督办人字段。
 - 最终修正首次部署构建：API 新镜像成功；Web 依赖下载至 1078/1081 后因外部 registry timeout 失败，未执行 migration 或切换，线上 `18b0329` 保持健康。
+- 最终数据库核验：`supervision_projects.supervisor_id` 为 nullable；项目/任务 priority CHECK 均只包含 `HIGH/MEDIUM/LOW`；migration 记录存在。
+- 最终健康检查：API、Web、PostgreSQL 容器均为 healthy，API health 返回 `status=ok`。
+- 最终上线前备份：`data/backups/*_20260927_161326.*`，三份备份均已生成 SHA256。
 
 ### 当前已知问题
 
@@ -90,14 +637,16 @@
 
 ### 下一步
 
-1. 完成督办人非必填的代码与 migration 测试。
-2. 提交代码，执行 migration 并重新部署。
+1. 无。
 
 ### 最终报告
 
-- 提交：`18b0329 fix(supervision): clarify required fields and priorities`
-- 备份：`data/backups/*_20260927_154945.*`
-- 线上版本：Repository / Web / API 均为 `18b0329`。
+- 功能提交：`18b0329 fix(supervision): clarify required fields and priorities`
+- 必填清单修正：`45a602d fix(supervision): align supervisor requirement`
+- 部署缓存修正：`29453bf build(web): preserve dependency cache across versions`
+- 备份：`data/backups/*_20260927_161326.*`
+- Migration：`SupervisionFormUsability1722920073000` 已执行。
+- 线上版本：Repository / Web / API 均为 `29453bf`。
 
 ---
 

@@ -276,7 +276,7 @@ function compactCellValue(value: unknown, rendered: unknown, field: TablePermiss
   return <Tooltip title={value}><span className="kdos-compact-cell-text">{rendered}</span></Tooltip>;
 }
 
-function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups, onSaveRange?: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void, density: "default" | "compact" = "default") {
+function groupedColumns(resource: string, fields: TablePermissionFieldDefinition[], renderCell?: (value: unknown, field: TablePermissionFieldDefinition, row: any) => React.ReactNode, processes: ProcessOption[] = fallbackProcessGroups, onSaveRange?: (row: any, values: { productionStartDate: string | null; productionEndDate: string | null }) => void, density: "default" | "compact" = "compact") {
   const column = (field: TablePermissionFieldDefinition) => ({
     title: field.label.includes("·") ? field.label.split("·")[1] : field.label,
     dataIndex: field.key,
@@ -616,8 +616,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const tableDensity = resource === "mps-weekly-plans" ? "compact" as const : "default" as const;
-  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values), tableDensity), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes, tableDensity]);
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values)), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
   const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);
@@ -719,7 +718,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     setBaseSyncConfirmOpen(false);
   };
   return <div>
-    <PageHeader title={info.label} subtitle={`${info.area} · 新版主计划独立数据模型；默认只读浏览，进入编辑模式后方可维护获权字段`} actions={<Space>
+    <PageHeader title={info.label} actions={<Space>
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
@@ -737,7 +736,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}
-      density={tableDensity} scroll={{ x: "max-content" }} />
+      scroll={{ x: "max-content" }} />
     <Modal title="确认同步到周计划？" open={baseSyncConfirmOpen} onCancel={() => { if (!syncMutation.isPending) setBaseSyncConfirmOpen(false); }} onOk={() => void executeBaseToWeeklySync()}
       okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
       <p>将把所有满足周计划准入条件的事业部基础计划同步到事业部周计划，并重新计算相关工序执行状态。</p>

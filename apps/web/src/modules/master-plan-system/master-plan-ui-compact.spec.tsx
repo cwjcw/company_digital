@@ -116,7 +116,7 @@ describe("KN-MPS-UI-001 主计划主表精简与辅助字段防泄露", () => {
     expect(headers).toContain("异常");
   }, 20_000);
 
-  it("只给周计划页面启用 compact density，月计划保持 default", async () => {
+  it("周计划与月计划都继承标准 compact density", async () => {
     const fields = [{ key: "orderNumber", label: "订单编号", type: "text", editable: false }];
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
@@ -135,6 +135,6 @@ describe("KN-MPS-UI-001 主计划主表精简与辅助字段防泄露", () => {
       throw new Error(`unexpected request: ${path}`);
     });
     const monthly = renderPage("mps-monthly-plans");
-    await waitFor(() => expect(monthly.container.querySelector(".kdos-data-table-shell")).toHaveAttribute("data-density", "default"));
+    await waitFor(() => expect(monthly.container.querySelector(".kdos-data-table-shell")).toHaveAttribute("data-density", "compact"));
   }, 20_000);
 });

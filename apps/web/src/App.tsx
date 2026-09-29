@@ -396,7 +396,7 @@ function DataOperations() {
     ...auditColumns
   ];
 
-  return <div><PageHeader title="基础数据维护" subtitle="表格内容可直接编辑；复选框支持多选" actions={<Space>
+  return <div><PageHeader title="基础数据维护" actions={<Space>
     <Button onClick={() => setDictionaryOpen(true)}>新增字典值</Button>
     <Button onClick={() => setProcessOpen(true)}>新增工序</Button>
   </Space>} />
@@ -518,7 +518,7 @@ function FinishedGoodsInboundPage() {
   }));
 
   return <div>
-    <PageHeader title="入库表" subtitle="统一展示三个来源的入库明细；来源系统、账套和源主键只读可追溯" />
+    <PageHeader title="入库表" />
     <Space wrap className="master-data-toolbar">
       <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增入库记录</Button>
       <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}>
@@ -570,7 +570,7 @@ function FinishedGoodsInboundPage() {
 function AuditLogs() {
   const [tableQuery,setTableQuery]=useState<InboundTableQuery>({page:1,pageSize:kdosDefaultPageSize,search:"",filters:{}});
   const logs = useQuery({ queryKey: ["audit",tableQuery], queryFn: () => {const params=new URLSearchParams({page:String(tableQuery.page),pageSize:String(tableQuery.pageSize)});if(tableQuery.search)params.set("search",tableQuery.search);if(Object.values(tableQuery.filters).some((value)=>value.trim()))params.set("filters",JSON.stringify(tableQuery.filters));if(tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length)params.set("filterGroup",JSON.stringify(tableQuery.filterGroup));if(tableQuery.sortField)params.set("sortField",tableQuery.sortField);if(tableQuery.sortOrder)params.set("sortOrder",tableQuery.sortOrder);return api<InboundTablePage>(`/audit-logs?${params}`);} });
-  return <div><PageHeader title="审计日志" subtitle="所有业务修改均记录操作者、请求号与变更前后值" />
+  return <div><PageHeader title="审计日志" />
     <KdosDataTable resource="audit-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data?.rows} serverData={{total:logs.data?.total??0,onQueryChange:setTableQuery}} columns={[
       { title: "用户", dataIndex: "actorName", width: 120 }, { title: "资源", dataIndex: "resource", width: 130 },
       { title: "动作", dataIndex: "action", width: 90 }, { title: "记录 ID", dataIndex: "recordId", ellipsis: true },
@@ -625,7 +625,7 @@ function ApiKeyCenter() {
       setRegenerating(false);
     }
   };
-  return <div><PageHeader title="API Key 管理" subtitle="仅系统管理员可创建、关联用户并设置只读或读写权限" actions={<Button type="primary" onClick={() => setOpen(true)}>新增 API Key</Button>} />
+  return <div><PageHeader title="API Key 管理" actions={<Button type="primary" onClick={() => setOpen(true)}>新增 API Key</Button>} />
     <Alert type="info" showIcon style={{ marginBottom: 12 }} message="完整 API KEY 仅在新建或重新生成后显示；刷新页面后将自动隐藏，请及时复制保存。" />
     <KdosDataTable resource="api-keys" rowKey="id" dataSource={keys.data?.rows} loading={keys.isLoading} serverData={{ total: keys.data?.total ?? 0, onQueryChange: setKeyQuery }} columns={[
       { title: "名称", dataIndex: "name" },
@@ -664,7 +664,7 @@ function ContactDirectory() {
     { title: "状态", dataIndex: "enabled", render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "在职" : "停用"}</Tag> },
     ...auditColumns
   ];
-  return <div><PageHeader title="通讯录" subtitle="企业微信通讯录同步目录，只读展示，不允许手工编辑。" actions={<Text type="secondary">共 {contacts.data?.total ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data?.rows} loading={contacts.isLoading} columns={columns} serverData={{ total: contacts.data?.total ?? 0, onQueryChange: setContactQuery }} scroll={{ x: "max-content" }} /></div>;
+  return <div><PageHeader title="通讯录" actions={<Text type="secondary">共 {contacts.data?.total ?? 0} 位员工</Text>} /><KdosDataTable resource="contacts" rowKey="id" dataSource={contacts.data?.rows} loading={contacts.isLoading} columns={columns} serverData={{ total: contacts.data?.total ?? 0, onQueryChange: setContactQuery }} scroll={{ x: "max-content" }} /></div>;
 }
 
 function ForcePasswordChange({ done }: { done: () => void }) {

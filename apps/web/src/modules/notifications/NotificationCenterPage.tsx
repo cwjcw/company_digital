@@ -51,7 +51,7 @@ export function NotificationCenterPage() {
   ];
   const eventOptions = (events.data ?? []).map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }));
   return <div className="notification-center-page">
-    <PageHeader title="消息中心" subtitle="统一管理已注册的实时通知规则、发送记录和失败消息" actions={<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>} />
+    <PageHeader title="消息中心" actions={<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>} />
     <Alert type="warning" showIcon message="当前处于企业微信测试模式，实际企业微信消息仅发送给崔玮杰。" style={{ marginBottom: 16 }} />
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "rules", label: "消息规则" }, { key: "logs", label: "发送记录" }, { key: "failures", label: "失败消息" }]} />
     {activeTab === "rules" ? <>

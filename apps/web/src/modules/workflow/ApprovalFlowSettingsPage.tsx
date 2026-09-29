@@ -68,7 +68,7 @@ export function ApprovalFlowSettingsPage() {
   ];
 
   return <div>
-    <PageHeader title="审批流程配置" subtitle="统一管理流程启停、表单能力、退回拒绝规则、处理角色和节点名称" />
+    <PageHeader title="审批流程配置" />
     <Alert type="info" showIcon message="系统保护规则" description="退回和拒绝原因始终必填；配置页权限固定为系统管理员/集团管理员，避免误配置导致流程无法管理。流程停用只禁止新建，已有单据仍可继续处理。" style={{ marginBottom: 16 }} />
     <Card bordered={false}><KdosDataTable resource="approval-flow-configs" rowKey="flowKey" loading={flows.isLoading} dataSource={flows.data?.rows ?? []} columns={columns} serverData={{ total: flows.data?.total ?? 0, onQueryChange: setTableQuery }} /></Card>
 

@@ -906,8 +906,28 @@ Phase 1：COMPLETED
 当前部署 Repository HEAD：`eb2f37b`；部署一致性与健康检查已完成，API/Web/Postgres healthy，PostgreSQL 未重建。
 上一项项目/任务业务修复仍按既有记录保留，未在本次滚动任务中重新改动。
 
+KDOS-TABLE-COMPACT-DEMO-001 已完成并经用户真实人工视觉验收 PASS；其 compact 参数现作为标准业务表密度基线。
+KDOS-TABLE-COMPACT-STANDARD-001 正在收口：KdosDataTable 默认 compact，标准业务页面移除自动说明文字，Skill 规则已同步；当前等待本轮部署后的人工回归验收。
+当前部署 Repository HEAD：`56507ce`；数据库未修改，PostgreSQL 未重建。
+
 本轮最多恢复一个平台改造任务：TASK-001 已完成；不提前启动 TASK-002。
 ```
+
+### KDOS-TABLE-COMPACT-DEMO-001
+
+- 状态：`COMPLETED`。
+- 用户真实人工视觉验收：PASS。
+- 验收结论：周计划 compact 的字体、行高、cell padding、编辑控件、列宽、ellipsis/Tooltip、sticky header、横向滚动、搜索、筛选、分页、导入、导出和编辑均通过。
+- 该任务的 `density="default" | "compact"` 双模式能力保留；本标准任务只改变公共默认值，不修改已验收参数。
+
+### KDOS-TABLE-COMPACT-STANDARD-001
+
+- 状态：`WAITING_MANUAL_ACCEPTANCE`。
+- 已完成：KdosDataTable 默认 `density="compact"`；`density="default"` 仍可供 Portal、Dashboard、帮助页、特殊 Modal 表格等例外显式使用。
+- 已完成：标准业务页面默认不再渲染用途、数据模型、权限机制、编辑模式或技术实现说明；计划管理原说明已删除，标准业务页同类 PageHeader subtitle 已清理。
+- 已同步：`.agents/skills/kdos-form-platform/SKILL.md` 增加标准业务页面说明文字和标准业务表密度强制规则。
+- 当前 HEAD：`56507cea8d97427fd47be3f5fc929a4c2e23f2d1`；本任务不涉及数据库、migration、ERP、Dispatcher 或 inbound-allocation。
+- 待人工验收：主计划、项目管理、任务管理、设备管理的 compact 可读性、编辑控件、sticky、单纵向滚动、横向滚动、搜索、筛选、分页、导入、导出及计划管理说明文字已消失。
 
 ### KDOS-UI-PAGE-SCROLL-STANDARD-001（业务修复收口）
 

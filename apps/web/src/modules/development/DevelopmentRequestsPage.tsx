@@ -164,7 +164,7 @@ export function DevelopmentRequestsPage() {
   const currentStep = statusMeta[detailRow?.status ?? ""]?.step ?? 0;
 
   return <div className="development-page">
-    <PageHeader title="需求与开发" subtitle="需求提报、领导审批、管理员分配、开发资源与工期评估的统一工作台" actions={<Button type="primary" disabled={flowConfig.data?.enabled === false} onClick={openNew}>提报新需求</Button>} />
+    <PageHeader title="需求与开发" actions={<Button type="primary" disabled={flowConfig.data?.enabled === false} onClick={openNew}>提报新需求</Button>} />
     {flowConfig.data?.enabled === false && <Alert type="warning" showIcon message="该审批流程当前已停用，不能提报新需求；已有需求仍可继续处理。" style={{ marginBottom: 16 }} />}
     <div className="development-stats">
       <Card><Statistic title="当前可见需求" value={counters.total} /></Card>

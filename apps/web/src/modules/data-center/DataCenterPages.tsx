@@ -67,7 +67,7 @@ export function SalesOrdersPage() {
     render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={isDueDateLabel(field.label) ? DUE_DATE_DISPLAY_FORMAT : undefined} value={value} onSave={(next) => update(row, field.key, next)} />
     }))
   ];
-  return <div><PageHeader title="订单表" subtitle="统一展示 E10、T+凯南智能、T+科加智能的全部客户订单；来源字段只读可追溯" actions={<Space>
+  return <div><PageHeader title="订单表" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增订单</Button>
     <Upload accept=".csv,.xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入订单</Button></Upload>
     <Button onClick={() => void downloadApiFile("/master-data/templates/sales-orders?format=xlsx", "订单表导入模板.xlsx")}>下载模板</Button>
@@ -127,7 +127,7 @@ export function FinishedGoodsOutboundPage() {
     render: (value: unknown, row: any) => <InlineText type={field.type ?? "text"} dateDisplayFormat={field.type === "date" ? DUE_DATE_DISPLAY_FORMAT : undefined}
       value={value} onSave={(next) => update(row, field.key, next)} /> }))
   ];
-  return <div><PageHeader title="出库表" subtitle="统一展示三个来源的出库明细；保留来源账套和源主键，不稳定关联不自动冲减订单欠数" actions={<Space>
+  return <div><PageHeader title="出库表" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增出库记录</Button>
     <Button onClick={() => { const params = new URLSearchParams(); if (tableQuery.search) params.set("search", tableQuery.search); if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup)); if (tableQuery.sortField) params.set("sortField", tableQuery.sortField); if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder); void downloadApiFile(`/master-data/finished-goods-outbound/export${params.toString() ? `?${params}` : ""}`, "出库数据.xlsx"); }}>导出 XLSX</Button>
   </Space>} />
@@ -183,7 +183,7 @@ export function SupplierListPage() {
     hasFieldPermission("supplier-list", String(column.dataIndex), "read")
   );
   return <div>
-    <PageHeader title="供应商清单" subtitle="来源于 T+ 凯南智能、科加智能账套；清单只读并保留来源追溯信息" />
+    <PageHeader title="供应商清单" />
     <KdosDataTable resource="supplier-list" systemFields={false} rowKey="id" loading={rows.isLoading}
       dataSource={rows.data?.rows} columns={visibleColumns}
       serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}

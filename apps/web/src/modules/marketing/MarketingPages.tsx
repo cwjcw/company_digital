@@ -101,7 +101,7 @@ export function BusinessCustomerMappingsPage() {
     { title: "业务员", dataIndex: "salespersonUserIds", width: 360, render: (value: string[], row: any) => <UserMultiSelectCell value={value ?? []} users={usersInDepartment(row.departmentId)} selectedUsers={row.salespersonUsers ?? []} onSave={(ids) => update(row, "salespersonUserIds", ids)} /> },
     { title: "操作", width: 80, render: (_: unknown, row: any) => <MappingDeleteAction row={row} onRemove={remove} /> }
   ];
-  return <div><PageHeader title="业务人员与客户对应表" subtitle="每个客户一行；业务员从通讯录中多选" actions={<Space wrap>
+  return <div><PageHeader title="业务人员与客户对应表" actions={<Space wrap>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增对应关系</Button>
     <Upload accept=".xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入业务接单周报</Button></Upload>
     {hasResourcePermission("business-customer-mapping", "import") ? <Button loading={syncingDirectory} onClick={() => void syncDepartments()}>按通讯录更新部门</Button> : null}
@@ -195,7 +195,7 @@ export function OrderSchedulePage() {
     { title: "生产单位", dataIndex: "productionUnit", width: 160 }, { title: "订单完成比例", dataIndex: "completionRatio", width: 150, render: (value: unknown) => `${Number(value ?? 0).toFixed(2)}%` },
     { title: "状态", dataIndex: "status", width: 100, render: (value: unknown) => value === "VOID" ? <Tag color="red">作废</Tag> : <Tag color="green">正常</Tag> }
   ];
-  return <div><PageHeader title="订单排期" subtitle="维护客户订单的品项、交期、数量、生产单位和完成状态" actions={<Space wrap>
+  return <div><PageHeader title="订单排期" actions={<Space wrap>
     <Select value={completion} onChange={setCompletion} style={{ width: 130 }} options={[{ value: "all", label: "全部完成度" }, { value: "unfinished", label: "未完成" }, { value: "completed", label: "已完成" }]} />
     <DatePicker.RangePicker format={DUE_DATE_DISPLAY_FORMAT} value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
     <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>

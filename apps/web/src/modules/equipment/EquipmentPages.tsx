@@ -195,7 +195,7 @@ export function EquipmentRegisterPage() {
   ];
 
   return <div>
-    <PageHeader title="设备总台账" subtitle=""
+    <PageHeader title="设备总台账"
       actions={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} />
     <KdosDataTable resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
       loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1670 }} />
@@ -615,7 +615,7 @@ export function EquipmentDashboardPage() {
         </div>
       </Card>
       <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}事业部填报与稼动情况`}>
-        <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+        <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey="divisionId" dataSource={monitoring?.yesterdayDivisionRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 110, render: dashboardDivisionName },
             { title: "应填设备", dataIndex: "expectedEquipmentCount", width: 85, align: "center" }, { title: "已填设备", dataIndex: "filledEquipmentCount", width: 85, align: "center" },
@@ -626,7 +626,7 @@ export function EquipmentDashboardPage() {
           ]} />
       </Card>
       <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}部门填报与稼动情况`}>
-        <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+        <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey={(row) => `${row.divisionId}-${row.departmentId ?? row.department}`} dataSource={monitoring?.yesterdayDepartmentRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 105, render: dashboardDivisionName },
             { title: "使用部门/车间", dataIndex: "department", width: 140 },
@@ -655,7 +655,7 @@ export function EquipmentDashboardPage() {
       <Card><Statistic title="故障日均" value={durationText(metrics.faultDailyAverageMinutes)} valueStyle={{ color: Number(metrics.faultDailyAverageMinutes) > 0 ? "#cf3f3f" : undefined }} /></Card>
     </div>
     <Card className="equipment-analysis-card" title="按事业部设备运行分析" loading={dashboard.isLoading}>
-      <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false} rowKey="division" dataSource={data?.divisionRows} scroll={{ x: 1300 }} columns={[
+      <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false} rowKey="division" dataSource={data?.divisionRows} scroll={{ x: 1300 }} columns={[
         { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
         { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
         { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
@@ -668,7 +668,7 @@ export function EquipmentDashboardPage() {
       ]} />
     </Card>
     <Card className="equipment-analysis-card" title="按车间/使用部门设备运行分析" loading={dashboard.isLoading}>
-      <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+      <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey={(row) => `${row.division}-${row.departmentId ?? `unassigned-${row.department}`}`} dataSource={data?.departmentRows} scroll={{ x: 1450 }} columns={[
           { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
           { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
@@ -682,7 +682,7 @@ export function EquipmentDashboardPage() {
         ]} />
     </Card>
     <Card className="equipment-analysis-card" title="设备稼动率明细" loading={dashboard.isLoading}>
-      <KdosDataTable resource="equipment-dashboard" simple systemFields={false} pagination={false}
+      <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey="equipmentId" dataSource={data?.equipmentRows} scroll={{ x: 1250 }} columns={[
           { title: "事业部", dataIndex: "division", width: 150, fixed: "left" },
           { title: "使用部门/车间", dataIndex: "department", width: 170, fixed: "left" },

@@ -155,7 +155,7 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   resource: string;
   columns: ColumnsType<RecordType>;
   dataSource?: readonly RecordType[];
-  /** Optional visual density; default keeps the platform table dimensions unchanged. */
+  /** Visual density; standard business tables use compact by default, special views may opt into default. */
   density?: KdosTableDensity;
   systemFields?: boolean;
   toolbar?: ReactNode;
@@ -205,7 +205,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "default", editable = false, simple = false, viewKey,
+  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
   filterFields, onFilterGroupChange, printContext, selectable, selectionActions,
   internalVerticalScroll = false,
   defaultHiddenFields = [],

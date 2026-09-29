@@ -51,7 +51,7 @@ export function HrDepartureCheckPage() {
     { title: "状态", dataIndex: "status", width: 140, render: (status: CheckRow["status"]) => <Tag color={status === "入职" ? "green" : "default"}>{status}</Tag> }
   ];
   return <div>
-    <PageHeader title="离职人员检查" subtitle="上传或手工录入账号和姓名，与最新企业微信通讯录中的在职状态进行核对" actions={<Space>
+    <PageHeader title="离职人员检查" actions={<Space>
       {hasResourcePermission("hr-departure-check", "create") && <Button icon={<PlusOutlined />} onClick={() => setManualOpen(true)}>手工新增</Button>}
       {hasResourcePermission("hr-departure-check", "import") && <Upload accept=".xlsx,.csv" showUploadList={false} beforeUpload={(file) => check(file as File)}><Button type="primary" icon={<UploadOutlined />} loading={checking}>上传检查文件</Button></Upload>}
       <Button disabled={!rows.length} onClick={exportCsv}>导出检查结果</Button>

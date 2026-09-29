@@ -70,16 +70,17 @@ describe("KdosDataTable server pagination", () => {
     expect(document.querySelector(".ant-table-body")?.getAttribute("style")).toMatch(/overflow-y: (auto|scroll)/);
   });
 
-  it("compact density is opt-in and scoped to the table instance", () => {
+  it("compact density is the standard default and explicit default remains available", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const standard = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
       columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
-    expect(standard.container.querySelector("section")).not.toHaveClass("kdos-data-table-shell-compact");
+    expect(standard.container.querySelector("section")).toHaveClass("kdos-data-table-shell-compact");
+    expect(standard.container.querySelector("section")?.getAttribute("data-density")).toBe("compact");
     standard.unmount();
-    const compact = render(<QueryClientProvider client={client}><KdosDataTable density="compact" resource="mps-weekly-plans" rowKey="id"
+    const explicitDefault = render(<QueryClientProvider client={client}><KdosDataTable density="default" resource="mps-weekly-plans" rowKey="id"
       columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[{ id: "1", orderNumber: "A001" }]} /></QueryClientProvider>);
-    expect(compact.container.querySelector("section")).toHaveClass("kdos-data-table-shell-compact");
-    expect(compact.container.querySelector("section")?.getAttribute("data-density")).toBe("compact");
+    expect(explicitDefault.container.querySelector("section")).not.toHaveClass("kdos-data-table-shell-compact");
+    expect(explicitDefault.container.querySelector("section")?.getAttribute("data-density")).toBe("default");
   });
 
   it("allows stable record selection in browse mode and clears it explicitly", async () => {

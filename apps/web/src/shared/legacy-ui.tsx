@@ -26,7 +26,7 @@ export function statusClass(rate: number | null, dueDate?: string | null) {
   return "";
 }
 
-export function PageHeader({ title, subtitle, actions, showTitle = false }: { title: string; subtitle: string; actions?: React.ReactNode; showTitle?: boolean }) {
+export function PageHeader({ title, subtitle, actions, showTitle = false }: { title: string; subtitle?: string; actions?: React.ReactNode; showTitle?: boolean }) {
   return <Flex justify="space-between" align="flex-start" className={`page-header${showTitle ? " page-header-show-title" : ""}`}>
     <div className="page-header-title"><Title level={3}>{title}</Title>{subtitle && <Text type="secondary">{subtitle}</Text>}</div>
     {actions && <div className="page-header-actions">{actions}</div>}
