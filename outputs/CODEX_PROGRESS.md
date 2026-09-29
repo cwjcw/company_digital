@@ -4,7 +4,7 @@
 
 任务目标：在既有标准业务表 compact 默认能力基础上，由 `KdosDataTable` 公共层统一提供可拖动列宽、个人列宽偏好持久化与字段/页面隔离；同时落实默认每页 100 条、可选 50/100/200/500/1000、后端最大 1000 的统一分页标准。
 
-当前状态：公共实现、Skill/roadmap 同步、定向与全量测试、typecheck、lint、build 已完成；待提交、备份、正式部署和用户人工验收。
+当前状态：公共实现、Skill/roadmap 同步、定向与全量测试、typecheck、lint、build、备份、正式部署和运行检查完成；等待用户人工验收。
 
 开始 HEAD：`fcc24f960d257863776774d7616f9a7bf6a7ee9d`
 
@@ -28,6 +28,10 @@
 - [x] 定向 Web：2 files / 20 tests passed；API 分页：2 tests passed。
 - [x] Web 全量：26 files / 162 tests passed；API 全量：73 suites passed、1 skipped，567 tests passed、1 skipped。
 - [x] Web/API typecheck、lint、build 通过；lint 仅保留既有 `ModulePortal.tsx` Fast Refresh warning，build 仅保留既有大 chunk warning。
+- [x] 实现 commit：`00ce83f`（`feat(KDOS-TABLE-COMPACT-STANDARD-001): add shared column resizing`）。
+- [x] 备份：`data/backups/four_department_tracker_20260929_163020.backup`=`d97d0e5a88f8534f073e43e9ac38d483b80cba918f88b505c87d11a1b63f466b`；`data/backups/kdos_20260929_163020.backup`=`61fcbc351c0cc65089df99bb669d56fb7ca66203b1a78004e7c297f76c1da0c3`；`data/backups/uploads_20260929_163020.tar.gz`=`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+- [x] 正式 `./scripts/deploy.sh all` 成功；Repository/Web/API=`00ce83f`，`./scripts/deploy.sh check` 为 `STATUS=CONSISTENT`。
+- [x] 部署后 API/Web/Postgres healthy，PostgreSQL 容器 ID 前后均为 `ce46d464a78a01dde5c31cb3e39ce4b33c67b055876599429c2185a3274ec04e`；Dispatcher=`active`；`inbound-allocation=true`、状态 `SUCCESS`；migration 数量仍为 76；API 最近 10 分钟无新的 500、23514、constraint、QueryFailedError 或 exception 日志。
 
 ### 正在进行
 
@@ -37,7 +41,8 @@
 ### 待完成
 
 - [x] 定向/全量测试、typecheck、lint、build。
-- [ ] 备份、正式部署、健康检查及人工验收。
+- [x] 备份、正式部署、健康检查及运行状态核验。
+- [ ] 用户人工验收。
 
 ### 数据库 Migration
 
@@ -45,13 +50,12 @@
 
 ### 当前已知问题
 
-- 尚未提交、部署；未通过用户真实人工验收前不得将任务判定为 PASS。
+- 用户人工验收尚未完成；在用户查看前不得判定 PASS。
 
 ### 下一步
 
-1. 提交公共列宽、分页、Skill、roadmap 和测试变更。
-2. 备份、正式部署并核验运行环境未发生数据库变化。
-3. 等待用户按主计划、项目、任务、设备页面执行拖动/刷新/隐藏/筛选/分页/编辑验收。
+1. 提交 roadmap 最终部署记录并再次保持部署 SHA 一致。
+2. 等待用户按主计划、项目、任务、设备页面执行拖动/刷新/隐藏/筛选/分页/编辑验收。
 
 ## 当前任务：KDOS-TABLE-COMPACT-STANDARD-001
 

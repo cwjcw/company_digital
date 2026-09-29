@@ -907,8 +907,8 @@ Phase 1：COMPLETED
 上一项项目/任务业务修复仍按既有记录保留，未在本次滚动任务中重新改动。
 
 KDOS-TABLE-COMPACT-DEMO-001 已完成并经用户真实人工视觉验收 PASS；其 compact 参数现作为标准业务表密度基线。
-KDOS-TABLE-COMPACT-STANDARD-001 正在收口：KdosDataTable 默认 compact，标准业务页面移除自动说明文字，Skill 规则已同步；当前等待本轮部署后的人工回归验收。
-当前部署 Repository HEAD：`56507ce`；数据库未修改，PostgreSQL 未重建。
+KDOS-TABLE-COMPACT-STANDARD-001 正在收口：KdosDataTable 默认 compact，标准业务页面移除自动说明文字，公共列宽调整与统一分页规则已同步；当前等待用户人工回归验收。
+当前部署 Repository HEAD：`00ce83f`；数据库未修改，PostgreSQL 未重建。
 
 追加需求已并入本任务：标准 `KdosDataTable` 由公共层默认支持拖动调整列宽，第一阶段复用 Web 个人视图 `localStorage` 按租户、用户、resource、viewKey、fieldKey 隔离保存；标准分页统一为默认 100、可选 50/100/200/500/1000、后端最大 1000。列宽和分页均待本轮测试、部署及用户人工验收。
 
@@ -933,11 +933,11 @@ KDOS-TABLE-COMPACT-STANDARD-001 正在收口：KdosDataTable 默认 compact，�
 
 #### 标准列宽与分页追加
 
-- 状态：`IN_PROGRESS_WAITING_DEPLOYMENT`。
+- 状态：`WAITING_MANUAL_ACCEPTANCE`。
 - `KdosDataTable` 公共层增加表头右侧拖动 handle；保留业务显式 width、compact 类型化初始宽度和 default 例外，用户宽度优先并受字段类型 `minWidth` 约束。
 - 列宽偏好复用 Web `localStorage`，键包含租户、用户、resource/table、viewKey 和 fieldKey；字段隐藏后重新显示、刷新、翻页、搜索、筛选、排序、编辑保存和数据刷新不丢失，不存在字段安全忽略。
 - 标准分页统一为默认 100 条，可选 50/100/200/500/1000，API 后端最大 1000；未新增数据库表、migration 或业务数据修改。
-- 已补充 `KdosDataTable` 列宽/隔离/隐藏恢复测试和 API 分页标准测试；当前尚未部署，必须等待主计划、项目、任务、设备页面人工拖动列宽与分页验收后才能判定 PASS。
+- 已补充 `KdosDataTable` 列宽/隔离/隐藏恢复测试和 API 分页标准测试；正式 `./scripts/deploy.sh all` 已完成，Repository/Web/API=`00ce83f`、`STATUS=CONSISTENT`，必须等待主计划、项目、任务、设备页面人工拖动列宽与分页验收后才能判定 PASS。
 
 ### KDOS-UI-PAGE-SCROLL-STANDARD-001（业务修复收口）
 
