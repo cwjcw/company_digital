@@ -30,10 +30,15 @@ export interface PlanPeriod {
   status: string;
 }
 
+/** 主计划字典选项的单一代码来源；metadata、筛选和种子都从这里派生。 */
+export const modelAgeOptions = ["新", "旧"] as const;
+export const productAttributeOptions = ["五金", "木作", "亚克力", "五金+木作", "其他", "五金+亚克力", "塑料"] as const;
+export const surfaceNatureOptions = ["烤漆", "电镀", "热转印", "毛坯", "其他"] as const;
+
 export const dictionarySeeds = {
-  modelAge: ["新", "旧"],
-  productAttribute: ["五金", "木作", "五金+木作"],
-  surfaceNature: ["烤漆", "电镀"],
+  modelAge: [...modelAgeOptions],
+  productAttribute: [...productAttributeOptions],
+  surfaceNature: [...surfaceNatureOptions],
   specialItem: ["亚克力"],
   handlingMethod: ["自制", "中心外购", "外协", "自制+外协"],
   outsourcingMethod: ["成品", "毛坯", "部件"],

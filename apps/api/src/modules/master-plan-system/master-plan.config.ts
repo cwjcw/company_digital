@@ -1,5 +1,5 @@
 import { tablePermissionFieldsFor, tableSupportFieldsFor, type TablePermissionFieldDefinition, type TableResourceCode } from "@kdos/contracts";
-import { standardProcesses } from "@tracker/shared";
+import { modelAgeOptions, productAttributeOptions, standardProcesses, surfaceNatureOptions } from "@tracker/shared";
 
 export type MasterPlanResource = {
   code: TableResourceCode; table: string; create: boolean; remove: boolean; defaultOrder: string;
@@ -39,7 +39,7 @@ export const MASTER_PLAN_RESOURCE_MAP = new Map(MASTER_PLAN_RESOURCES.map((resou
 const commonOptions: Record<string, Array<{ value: string; label: string }>> = {
   manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"].map((value) => ({ value, label: value })),
   materialName: ["五金", "木作"].map((value) => ({ value, label: value })), outsourcingMethod: ["成品", "毛坯", "部件"].map((value) => ({ value, label: value })),
-  modelAge: ["新", "旧"].map((value) => ({ value, label: value })), productAttribute: ["五金", "木作", "亚克力", "五金+木作"].map((value) => ({ value, label: value })), surfaceNature: ["烤漆", "电镀"].map((value) => ({ value, label: value })),
+  modelAge: modelAgeOptions.map((value) => ({ value, label: value })), productAttribute: productAttributeOptions.map((value) => ({ value, label: value })), surfaceNature: surfaceNatureOptions.map((value) => ({ value, label: value })),
   /* 工序选项唯一来源：@tracker/shared canonical registry（含毛坯，顺序与正式工序一致）。 */
   processCode: standardProcesses.map((process) => ({ value: process.code, label: process.name }))
 };

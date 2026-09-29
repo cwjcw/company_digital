@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dictionarySeeds, formatProductionProgress, processDefinitions, productionProgressRatio, standardProcessCodes, standardProcesses } from "./index";
+import { dictionarySeeds, formatProductionProgress, modelAgeOptions, processDefinitions, productAttributeOptions, productionProgressRatio, standardProcessCodes, standardProcesses, surfaceNatureOptions } from "./index";
 
 describe("canonical KDOS process registry", () => {
   it("formats production progress with the shared frontend/export percentage口径", () => {
@@ -44,5 +44,13 @@ describe("canonical KDOS process registry", () => {
   it("keeps the shared dictionary seeds used by templates, seeds and reference data", () => {
     expect(dictionarySeeds.handlingMethod).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
     expect(dictionarySeeds.outsourcingMethod).toEqual(["成品", "毛坯", "部件"]);
+  });
+
+  it("keeps master-plan dictionary options in one shared source", () => {
+    expect(modelAgeOptions).toEqual(["新", "旧"]);
+    expect(productAttributeOptions).toEqual(["五金", "木作", "亚克力", "五金+木作", "其他", "五金+亚克力", "塑料"]);
+    expect(surfaceNatureOptions).toEqual(["烤漆", "电镀", "热转印", "毛坯", "其他"]);
+    expect(dictionarySeeds.productAttribute).toEqual([...productAttributeOptions]);
+    expect(dictionarySeeds.surfaceNature).toEqual([...surfaceNatureOptions]);
   });
 });

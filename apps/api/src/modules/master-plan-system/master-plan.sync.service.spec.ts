@@ -159,8 +159,8 @@ describe("MasterPlanSyncService execution matrix", () => {
     await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const insert = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.includes("INSERT INTO mps_weekly_plans"))!;
 
-    expect(insert).toContain("WHEN base.product_attribute::text IN ('五金','木作','亚克力','五金+木作') THEN base.product_attribute::text ELSE weekly.product_attribute END");
-    expect(insert).toContain("WHEN base.surface_nature::text IN ('烤漆','电镀') THEN base.surface_nature::text ELSE weekly.surface_nature END");
+    expect(insert).toContain("WHEN base.product_attribute::text IN ('五金','木作','亚克力','五金+木作','其他','五金+亚克力','塑料') THEN base.product_attribute::text ELSE weekly.product_attribute END");
+    expect(insert).toContain("WHEN base.surface_nature::text IN ('烤漆','电镀','热转印','毛坯','其他') THEN base.surface_nature::text ELSE weekly.surface_nature END");
     expect(insert).toContain("WHEN base.manufacturing_method::text IN ('自制','中心外购','外协','自制+外协') THEN base.manufacturing_method::text ELSE weekly.manufacturing_method END");
     expect(insert).toContain("LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id");
     expect(insert).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE");
@@ -173,8 +173,8 @@ describe("MasterPlanSyncService execution matrix", () => {
     await (service as any).shippingToBase("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const insert = String(query.mock.calls[0][0]);
 
-    expect(insert).toContain("WHEN m.product_attribute::text IN ('五金','木作','亚克力','五金+木作') THEN m.product_attribute::text ELSE existing.product_attribute END");
-    expect(insert).toContain("WHEN m.surface_nature::text IN ('烤漆','电镀') THEN m.surface_nature::text ELSE existing.surface_nature END");
+    expect(insert).toContain("WHEN m.product_attribute::text IN ('五金','木作','亚克力','五金+木作','其他','五金+亚克力','塑料') THEN m.product_attribute::text ELSE existing.product_attribute END");
+    expect(insert).toContain("WHEN m.surface_nature::text IN ('烤漆','电镀','热转印','毛坯','其他') THEN m.surface_nature::text ELSE existing.surface_nature END");
     expect(insert).toContain("WHEN m.manufacturing_method::text IN ('自制','中心外购','外协','自制+外协') THEN m.manufacturing_method::text ELSE existing.manufacturing_method END");
     expect(insert).toContain("WHEN s.model_age::text IN ('新','旧') THEN s.model_age::text ELSE existing.model_age END");
     expect(insert).toContain("LEFT JOIN mps_base_plans existing ON existing.tenant_id=s.tenant_id AND existing.order_number=s.order_number AND existing.item_code=s.item_code AND existing.delivery_number=s.delivery_number");

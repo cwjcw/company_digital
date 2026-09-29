@@ -35,10 +35,22 @@ describe("master plan manual-entry configuration", () => {
     expect(fields.filter((field) => requiredKeys.includes(field.key)).every((field) => field.required)).toBe(true);
     expect(fields.find((field) => field.key === "productAttribute")?.type).toBe("dictionary");
     expect(fields.find((field) => field.key === "surfaceNature")?.type).toBe("dictionary");
-    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "productAttribute")?.options?.map((option) => option.value)).toEqual(["五金", "木作", "亚克力", "五金+木作"]);
-    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "surfaceNature")?.options?.map((option) => option.value)).toEqual(["烤漆", "电镀"]);
+    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "productAttribute")?.options?.map((option) => option.value)).toEqual(["五金", "木作", "亚克力", "五金+木作", "其他", "五金+亚克力", "塑料"]);
+    expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "surfaceNature")?.options?.map((option) => option.value)).toEqual(["烤漆", "电镀", "热转印", "毛坯", "其他"]);
     expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
     expect(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!).find((field) => field.key === "manufacturingMethod")?.options?.map((option) => option.value)).toEqual(["自制", "中心外购", "外协", "自制+外协"]);
+  });
+
+  it("makes every standard model-age field optional and exposes weekly dictionary fields from the same metadata", () => {
+    for (const code of ["mps-monthly-plans", "mps-shipping-plans", "mps-base-plans", "mps-weekly-plans", "mps-three-day-work-orders"] as const) {
+      const field = tablePermissionFieldsFor(code).find((candidate) => candidate.key === "modelAge");
+      if (!field) throw new Error(`missing ${code}.modelAge`);
+      expect(field?.required).toBe(false);
+    }
+    const weekly = fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")!);
+    expect(weekly.find((field) => field.key === "productAttribute")?.options?.map((option) => option.value)).toEqual(["五金", "木作", "亚克力", "五金+木作", "其他", "五金+亚克力", "塑料"]);
+    expect(weekly.find((field) => field.key === "surfaceNature")?.options?.map((option) => option.value)).toEqual(["烤漆", "电镀", "热转印", "毛坯", "其他"]);
+    expect(weekly.filter((field) => ["modelAge", "productAttribute", "surfaceNature"].includes(field.key)).every((field) => field.required === false)).toBe(true);
   });
 
   it("separates weekly admission fields from ordinary update required fields", () => {

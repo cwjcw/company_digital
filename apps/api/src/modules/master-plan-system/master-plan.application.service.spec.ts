@@ -112,8 +112,8 @@ describe("MasterPlanApplicationService imports", () => {
 
     await expect(service.create("mps-base-plans", common, actor)).rejects.toThrow("最迟评审交期不能为空");
     await expect(service.create("mps-base-plans", {
-      ...common, latestReviewDueDate: "2026-09-20", productAttribute: "塑料", modelAge: "新", surfaceNature: "烤漆", manufacturingMethod: "自制"
-    }, actor)).rejects.toThrow("产品属性只能选择：五金、木作、亚克力、五金+木作");
+      ...common, latestReviewDueDate: "2026-09-20", productAttribute: "玻璃", modelAge: "新", surfaceNature: "烤漆", manufacturingMethod: "自制"
+    }, actor)).rejects.toThrow("产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料");
   });
 
   describe("dictionary values outside the field options", () => {
@@ -125,10 +125,10 @@ describe("MasterPlanApplicationService imports", () => {
     const basePlanValues = { orderNumber: "SO-1", itemCode: "ITEM-1", deliveryNumber: 1, latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
 
     it.each([
-      ["productAttribute", "1", "产品属性只能选择：五金、木作、亚克力、五金+木作"],
-      ["productAttribute", "塑料", "产品属性只能选择：五金、木作、亚克力、五金+木作"],
-      ["surfaceNature", "1", "表面性质只能选择：烤漆、电镀"],
-      ["surfaceNature", "喷粉", "表面性质只能选择：烤漆、电镀"],
+      ["productAttribute", "1", "产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料"],
+      ["productAttribute", "玻璃", "产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料"],
+      ["surfaceNature", "1", "表面性质只能选择：烤漆、电镀、热转印、毛坯、其他"],
+      ["surfaceNature", "喷粉", "表面性质只能选择：烤漆、电镀、热转印、毛坯、其他"],
       ["manufacturingMethod", "自制+喷漆", "生产方式只能选择：自制、中心外购、外协、自制+外协"]
     ])("rejects illegal dictionary value %s=%s on base-plan create", async (field, value, reason) => {
       const { instance, query } = buildService();
@@ -151,8 +151,8 @@ describe("MasterPlanApplicationService imports", () => {
         { row: 2, id: null, expectedVersion: null, values: { ...basePlanValues, productAttribute: "1" } },
         { row: 3, id: null, expectedVersion: null, values: { ...basePlanValues, surfaceNature: "1" } }
       ], importActor)).resolves.toEqual([
-        { row: 2, reason: "产品属性只能选择：五金、木作、亚克力、五金+木作" },
-        { row: 3, reason: "表面性质只能选择：烤漆、电镀" }
+        { row: 2, reason: "产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料" },
+        { row: 3, reason: "表面性质只能选择：烤漆、电镀、热转印、毛坯、其他" }
       ]);
     });
 
@@ -160,7 +160,7 @@ describe("MasterPlanApplicationService imports", () => {
       const { instance } = buildService();
       const importActor = dictionaryActor;
       await expect(instance.validateImportUpdates("mps-base-plans", [
-        { row: 2, id: null, expectedVersion: null, values: { ...basePlanValues, productAttribute: "亚克力", surfaceNature: "电镀" } }
+        { row: 2, id: null, expectedVersion: null, values: { ...basePlanValues, productAttribute: "五金+亚克力", surfaceNature: "热转印" } }
       ], importActor)).resolves.toEqual([]);
 
       /* processCode 的 label（折弯）与 value（bending）不同：label 不得被直接持久化。 */
