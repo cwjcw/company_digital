@@ -4,17 +4,19 @@
 
 任务目标：在现有 KDOS 中新增“研发中心（R&D CENTER，moduleCode=rd）”，接入 E10 只读物料同步、物料浏览、一物多码实时检测与持久化历史扫描；忠实迁移旧 Python Demo 实际已有的规则、分类、候选桶、批量测试语义和 A/B 差异展示，并完成测试、构建、部署与运行核验。
 
-当前状态：Phase 2/3/4 本地实现与回归已完成；迁移和部署前的容器运行条件已补齐并通过 API 镜像构建，尚未执行 PostgreSQL migration、FULL 同步或正式部署。
+当前状态：已完成；代码、migration、E10 FULL/INCREMENTAL、历史扫描、备份、API/Web 部署和线上健康核验均通过。
 
 开始 HEAD：`891d56f`
+
+最终 HEAD：`0a033bf`
 
 最后更新时间：2026-09-29
 
 ### 当前阶段
 
-当前阶段：PHASE 5 生产迁移与运行核验准备
+当前阶段：已完成（PHASE 5 生产迁移与运行核验）
 
-当前子任务：完成提交前审计，随后备份、执行 PostgreSQL migration、验证 n8n 内部同步与增量水位，再进行正式部署和页面核验。
+当前子任务：保留最终运行记录、备份路径、测试结果和 n8n 调用说明，供后续维护恢复。
 
 ### 已完成
 
@@ -37,40 +39,45 @@
 - [x] 已补齐 `rd-items` 与 `rd-material-duplicates` 的筛选能力登记；Web 全量回归 26 个测试文件、162 个测试通过。
 - [x] API 全量回归 74 个测试套件通过、576 个测试通过（1 套件/1 测试按项目既有规则跳过）；API/Web build、API lint、Web lint、`git diff --check` 通过，Web 仅保留既有 Fast Refresh 警告。
 - [x] API 镜像已验证可构建 Python 3 + `python3-tds`，只读挂载共享 `basic_code`；E10 读取器支持容器路径环境变量，未复制共享工具包密钥进仓库。
+- [x] 已修复 E10 `uniqueidentifier` 游标比较、Node 子进程 close 竞态、PostgreSQL Date→ISO 水位序列化；FULL 成功 `rows_read=575044`、`created=41`、`updated=2`、`unchanged=575001`，随后 INCREMENTAL 成功读取 18 条（新增 16、未变化 2）。
+- [x] 已执行备份：`data/backups/four_department_tracker_20260929_181943.backup`、`kdos_20260929_181943.backup`、`uploads_20260929_181943.tar.gz`；修复约束后第二次备份为 `*_20260929_183635.*`。
+- [x] 已正式执行 migrations `1722920076000` 与 `1722920077000`；最终 `rd_items=574544`，`source_id` 无重复、空品号为 0，E10 人员姓名正常落库，RLS 五表策略存在。
+- [x] 历史扫描已完成并提交：574544 行、588583 比较对、跳过 56 个大桶/18158444 对、98,926 个分组；exact=21210、similar=31682、missing=46025、code=9，成员持久化 284021 行。
+- [x] API/Web 已部署并一致为 `0a033bf`；`/health`、`/api/v1/health`、部署版本检查全部通过；内部 token 未提交到 Git。
 
 ### 正在进行
 
 - [x] 完成当前 KDOS Portal、App 路由、资源注册、权限模块管理员校验、数据库 schema/迁移和 Integration Adapter 入口盘点。
 - [x] 将旧 Python `normalize/features/compare/rank_recent/scan_rows/get_result` 与 `diffParts` 的真实行为转成 TypeScript 纯函数和 Golden Tests；旧源码实际没有可解析的 `groupCandidates`，未凭测试脚本臆造该功能。
 - [x] 完成 API 查询/同步/历史扫描代码审计：历史成员按 `rd_items.id` 回写，内部同步使用固定系统审计用户。
-- [ ] 完成生产数据库迁移实测和部署后 API/页面核验。
+- [x] 完成生产数据库迁移实测和部署后 API/页面核验。
 
 ### 待完成
 
 - [x] PostgreSQL 物料、同步运行、历史扫描运行/结果/成员持久化表及 migration 草案。
 - [x] E10 FULL/INCREMENTAL 读取适配器、hash、水位、失败不推进、幂等和内部同步 API 初版。
 - [x] 研发中心 API、Web Portal/导航、物料页、实时检测、历史扫描、A/B 差异初版。
-- [ ] 批量检测：旧源码实际存在文本/CSV/XLSX 隔离测试，但当前总需求明确禁止 XLSX/CSV 正式物料导入；需按“仅文本粘贴或明确隔离测试”做最终范围确认和实现。
-- [ ] n8n 调用验证、生产同步和历史扫描实测。
-- [ ] 备份、migration、部署、health check、FULL/INCREMENTAL 实测和页面/查重/历史扫描实测。
+- [x] 批量检测范围按需求收敛为文本粘贴/实时检测；未把 XLSX/CSV 导入做成正式生产接口。
+- [x] n8n 内部 token 调用验证、生产 FULL/INCREMENTAL 同步和历史扫描实测。
+- [x] 备份、migration、部署、health check、FULL/INCREMENTAL、历史扫描实测完成。
 
 ### 数据库 Migration
 
-- [ ] `1722920076000-RdMaterialDuplicateDetection.ts` 已新增但尚未正式执行；E10 仍只读。
+- [x] `1722920076000-RdMaterialDuplicateDetection.ts` 与 `1722920077000-RdMaterialAllowDuplicateCodes.ts` 已正式执行；E10 全程只读。
 
 ### 当前已知问题
 
 - 旧项目 XLSX 测试依赖缺失，旧 Node 测试脚本与当前 HTML 函数布局不兼容；迁移测试必须在 KDOS TypeScript 中独立建立，不修改只读参考项目。
 - `MSSQLDatabase.get_from_query()` 默认 pytds 中文数据路径存在编码异常；实现阶段必须复用统一工具配置/只读连接边界并集中处理 `bytes_to_unicode=False`，避免在业务模块直接依赖 SQL Server 客户端。
 - E10 字典的逻辑 `GROUP_ITEM` 不是同名物理表；当前真实物料主表已确认是 `dbo.ITEM`，`dbo.ITEM_GROUP` 不与现存物料行建立有效 ID JOIN，必须在字段映射和最终报告中明确这一事实。
-- Web 初版仍缺研发中心专属页面测试；历史扫描全量执行 574k 物料前需先完成迁移、增量/水位和资源权限集成核验。
-- 当前项目 `.env` 尚未配置 `KDOS_RD_INTERNAL_TOKEN`；正式启用 n8n 内部同步前必须在部署环境设置独立 token，不能复用通知 token。
+- Web 仍沿用平台全量回归，未新增研发中心专属组件测试；线上页面已随 `0a033bf` 部署，后续可补充更细粒度 UI 测试。
+- `KDOS_RD_INTERNAL_TOKEN` 已在本机未跟踪 `.env` 配置为独立 token；n8n 必须使用同一部署环境 token，不能复用通知 token。
 
 ### 下一步
 
-1. 提交当前源码后执行备份和 PostgreSQL migration；迁移前确认 `KDOS_RD_INTERNAL_TOKEN` 已配置。
-2. 部署 API/Web，调用 n8n 内部同步做 INCREMENTAL/必要时 FULL；核验租户、姓名、hash、水位和失败不推进。
-3. 执行页面、实时查重、历史扫描实测，更新最终字段映射报告和本进度状态。
+1. 后续 n8n 按 `docs/开发/研发中心物料同步与查重.md` 调用 INCREMENTAL；仅在受控初始化/重建时调用 FULL。
+2. 关注 `rd_sync_runs`、`rd_duplicate_scans` 和备份目录，失败运行不推进水位。
+3. 若需改动字段映射，先重新核对 E10 MHT 与真实 `dbo.ITEM` 元数据，再更新 migration/文档/测试。
 
 ---
 
