@@ -14,10 +14,11 @@ export class RdApplicationService {
     const sourceDatabase = process.env.RD_E10_DATABASE ?? "E10_6.0.0.1.NEW.CHS";
     const [previous] = await this.dataSource.query(`SELECT watermark_after_at AS "at",watermark_after_id AS "id" FROM rd_sync_runs WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY finished_at DESC LIMIT 1`, [actor.tenantId]);
     const run = await this.dataSource.query(`INSERT INTO rd_sync_runs(tenant_id,mode,source_database,watermark_before_at,watermark_before_id,actor_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`, [actor.tenantId, mode, sourceDatabase, previous?.at ?? null, previous?.id ?? null, actor.userId]);
-    const runId = run[0].id; let rowsRead = 0, rowsCreated = 0, rowsUpdated = 0, rowsUnchanged = 0; let watermarkAt: string | null = previous?.at ?? null, watermarkId: string | null = previous?.id ?? null;
+    const previousAt = previous?.at ? new Date(previous.at).toISOString() : null;
+    const runId = run[0].id; let rowsRead = 0, rowsCreated = 0, rowsUpdated = 0, rowsUnchanged = 0; let watermarkAt: string | null = previousAt, watermarkId: string | null = previous?.id ?? null;
     try {
       const buffer: E10ItemRow[] = [];
-      for await (const row of this.reader.read(mode, previous ? { at: previous.at, id: previous.id } : undefined)) {
+      for await (const row of this.reader.read(mode, previous ? { at: previousAt, id: previous.id } : undefined)) {
         buffer.push(row); rowsRead++; if (!watermarkAt || String(row.last_modified_at_source ?? "") > watermarkAt || (String(row.last_modified_at_source ?? "") === watermarkAt && row.source_id > String(watermarkId))) { watermarkAt = row.last_modified_at_source; watermarkId = row.source_id; }
         if (buffer.length >= 250) { const result = await this.upsertItems(buffer.splice(0), actor, sourceDatabase); rowsCreated += result.created; rowsUpdated += result.updated; rowsUnchanged += result.unchanged; }
       }
