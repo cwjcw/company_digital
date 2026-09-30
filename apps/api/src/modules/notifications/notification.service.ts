@@ -1,10 +1,16 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { DataSource, EntityManager } from "typeorm";
+import {
+  EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
+  FIXED_USERS_RECIPIENT_RULE,
+  notificationEventDefinition
+} from "./notification-event.registry";
 import type {
   NotificationActor,
   NotificationClaim,
   NotificationDeliveryResult,
   NotificationEnqueueResult,
+  NotificationEventDefinition,
   NotificationEventInput,
   NotificationOutboxInput,
   NotificationRuleInput,
@@ -13,12 +19,8 @@ import type {
 
 const MAX_ERROR_LENGTH = 4000;
 const DEFAULT_LOCK_TIMEOUT_SECONDS = 300;
-const EQUIPMENT_RESOURCE = "equipment-status-report";
-const EQUIPMENT_FAULT_RECIPIENT_RULE = "EQUIPMENT_RESPONSIBLE";
-const FIXED_USERS_RECIPIENT_RULE = "FIXED_USERS";
 const TEST_RECIPIENT_WECHAT_ID = "CuiWeiJie";
 const TEST_RECIPIENT_NAME = "崔玮杰";
-const EQUIPMENT_FAULT_TEMPLATE = "【设备故障提醒】\n\n事业部：{divisionName}\n设备编号：{equipmentCode}\n设备名称：{equipmentName}\n\n故障时间：{oldFaultMinutes}分钟 → {newFaultMinutes}分钟\n故障原因：{faultReason}\n\n填报人：{actorName}\n时间：{occurredAt}\n\n请及时处理。";
 
 type NotificationRuleRow = Record<string, unknown> & {
   id: string;
@@ -99,17 +101,27 @@ export class NotificationService {
       const rows = this.rowsOf(await manager.query(this.claimSql(), [tenantId, workerId, this.normalizeLimit(limit), this.normalizeTimeout(lockTimeoutSeconds)]));
       const claims: NotificationClaim[] = [];
       for (const outbox of rows as Array<Record<string, unknown>>) {
+        const eventDefinition = notificationEventDefinition(String(outbox.event_type ?? ""));
+        if (!eventDefinition) {
+          await this.quarantine(manager, tenantId, outbox, workerId, "UNREGISTERED_NOTIFICATION_EVENT", "通知事件未在 Notification Event Registry 注册");
+          continue;
+        }
         const rule = await this.resolveRule(manager, tenantId, outbox);
         if (!rule) {
           await this.quarantine(manager, tenantId, outbox, workerId, "NO_MATCHING_RULE", "没有匹配的启用通知规则");
           continue;
         }
-        if (rule.resource !== EQUIPMENT_RESOURCE || ![EQUIPMENT_FAULT_RECIPIENT_RULE, FIXED_USERS_RECIPIENT_RULE].includes(String(rule.recipient_rule))) {
-          await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知规则的资源或接收人规则不受当前 Dispatcher 支持");
+        if (rule.resource !== eventDefinition.resourceCode) {
+          await this.quarantine(manager, tenantId, outbox, workerId, "NOTIFICATION_EVENT_RESOURCE_MISMATCH", "通知规则资源与注册事件资源不一致");
+          continue;
+        }
+        const recipientRule = String(rule.recipient_rule ?? "");
+        if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) {
+          await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知事件不允许使用该接收人规则");
           continue;
         }
         const payload = this.objectPayload(outbox.payload);
-        const users = await this.resolveBusinessRecipients(manager, tenantId, rule, payload);
+        const users = await this.resolveRecipients(manager, tenantId, rule, eventDefinition, payload);
         const testRecipient = this.testMode() ? await this.resolveTestRecipient(manager) : null;
         const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users, testRecipient);
         await manager.query(`
@@ -119,7 +131,7 @@ export class NotificationService {
           await this.completeWithoutDelivery(manager, tenantId, outbox, workerId);
           continue;
         }
-        claims.push({ notificationId: String(outbox.id), messageType: "text", content: this.renderContent(rule, payload), recipients: deliveryRecipients });
+        claims.push({ notificationId: String(outbox.id), messageType: eventDefinition.messageType, content: this.renderContent(rule, eventDefinition, payload), recipients: deliveryRecipients });
       }
       return claims;
     });
@@ -209,10 +221,15 @@ export class NotificationService {
     return rows[0] ?? null;
   }
 
-  private async resolveBusinessRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, payload: Record<string, unknown>) {
-    if (rule.recipient_rule === FIXED_USERS_RECIPIENT_RULE) {
-      return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config));
-    }
+  private async resolveRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, eventDefinition: NotificationEventDefinition, payload: Record<string, unknown>) {
+    const recipientRule = String(rule.recipient_rule ?? "");
+    if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) throw new ConflictException("通知事件不允许使用该接收人规则");
+    if (recipientRule === EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE) return this.resolveEquipmentResponsible(manager, tenantId, payload);
+    if (recipientRule === FIXED_USERS_RECIPIENT_RULE) return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config));
+    throw new ConflictException("通知接收人解析器未实现");
+  }
+
+  private async resolveEquipmentResponsible(manager: EntityManager, tenantId: string, payload: Record<string, unknown>) {
     const equipmentId = this.requiredPayloadText(payload.equipmentId, "equipmentId");
     return manager.query(`
       SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
@@ -389,10 +406,10 @@ export class NotificationService {
     const ids = [result.deliveryId, ...(result.deliveryIds ?? [])].map((id) => String(id).trim()).filter(Boolean);
     return [...new Set(ids)].slice(0, 500);
   }
-  private renderContent(rule: NotificationRuleRow, payload: Record<string, unknown>) {
+  private renderContent(rule: NotificationRuleRow, eventDefinition: NotificationEventDefinition, payload: Record<string, unknown>) {
     const config = rule.config ?? {};
-    if (config.messageType != null && config.messageType !== "text") throw new ConflictException("当前 Dispatcher 只支持文本通知");
-    const template = typeof config.template === "string" && config.template.trim() ? config.template : EQUIPMENT_FAULT_TEMPLATE;
+    if (config.messageType != null && config.messageType !== eventDefinition.messageType) throw new ConflictException("当前 Dispatcher 只支持文本通知");
+    const template = typeof config.template === "string" && config.template.trim() ? config.template : eventDefinition.defaultTemplate;
     return template.replace(/\{\{?([A-Za-z][A-Za-z0-9_]*)\}\}?/g, (_match, key: string) => String(payload[key] ?? "—"));
   }
   private async withManager<T>(tenantId: string, manager: EntityManager | undefined, work: (scoped: EntityManager) => Promise<T>) {

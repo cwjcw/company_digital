@@ -1,4 +1,5 @@
 import { NotificationService } from "./notification.service";
+import { notificationEventDefinition } from "./notification-event.registry";
 
 const tenantId = "KAINAN";
 const ruleId = "00000000-0000-7000-8000-000000000001";
@@ -40,10 +41,10 @@ describe("NotificationService", () => {
     const { manager, source } = dataSource();
     manager.query.mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", enabled: true, wechatUserId: "zhang" }]);
     const service = new NotificationService(source as never);
-    await expect((service as any).resolveBusinessRecipients(manager, tenantId, {
+    await expect((service as any).resolveRecipients(manager, tenantId, {
       recipient_rule: "FIXED_USERS",
       config: { recipientUserIds: ["00000000-0000-7000-8000-000000000011"] }
-    }, {})).resolves.toEqual([expect.objectContaining({ userId: "00000000-0000-7000-8000-000000000011" })]);
+    }, notificationEventDefinition("equipment.status.fault_changed"), {})).resolves.toEqual([expect.objectContaining({ userId: "00000000-0000-7000-8000-000000000011" })]);
     expect(manager.query.mock.calls[0][1]).toEqual([["00000000-0000-7000-8000-000000000011"]]);
   });
 
@@ -69,6 +70,50 @@ describe("NotificationService", () => {
     ]);
     expect(String(manager.query.mock.calls[2]?.[0])).toContain("SELECT DISTINCT u.id");
     expect(String(manager.query.mock.calls[2]?.[0])).toContain("department_paths");
+  });
+
+  it("resolves an organization target from the current organization subtree", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([
+      { id: "org-root", parent_id: null, name: "事业一部", enabled: true },
+      { id: "org-child", parent_id: "org-root", name: "五金车间", enabled: true }
+    ]).mockResolvedValueOnce([{ userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true }]);
+    const service = new NotificationService(source as never);
+    await expect((service as any).resolveConfiguredRecipients(manager, [
+      { type: "ORGANIZATION", organizationUnitId: "org-root", includeDescendants: true }
+    ])).resolves.toEqual([{ userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true }]);
+    expect(String(manager.query.mock.calls[1]?.[0])).toContain("department_paths");
+    expect(manager.query.mock.calls[1]?.[1]).toContainEqual(JSON.stringify([["事业一部", "五金车间"]]));
+  });
+
+  it("resolves a role from direct membership and its current organization scopes", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([
+      { id: "org-root", parent_id: null, name: "事业一部", enabled: true }
+    ]).mockResolvedValueOnce([{ organization_unit_id: "org-root" }])
+      .mockResolvedValueOnce([{ userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true }]);
+    const service = new NotificationService(source as never);
+    await expect((service as any).resolveConfiguredRecipients(manager, [
+      { type: "ROLE", roleId: "role-1" }
+    ])).resolves.toEqual([{ userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true }]);
+    expect(String(manager.query.mock.calls[1]?.[0])).toContain("role_organization_scopes");
+    expect(String(manager.query.mock.calls[2]?.[0])).toContain("user_roles direct_role");
+    expect(String(manager.query.mock.calls[2]?.[0])).toContain("SELECT DISTINCT u.id");
+  });
+
+  it("keeps the existing equipment fault default message format", () => {
+    const { source } = dataSource();
+    const service = new NotificationService(source as never);
+    const content = (service as any).renderContent(
+      { config: {} },
+      notificationEventDefinition("equipment.status.fault_changed"),
+      {
+        divisionName: "事业一部", equipmentCode: "EQ-01", equipmentName: "冲床",
+        oldFaultMinutes: 0, newFaultMinutes: 60, faultReason: "卡料",
+        actorName: "填报人", occurredAt: "2026-09-23T10:00:00+08:00"
+      }
+    );
+    expect(content).toBe("【设备故障提醒】\n\n事业部：事业一部\n设备编号：EQ-01\n设备名称：冲床\n\n故障时间：0分钟 → 60分钟\n故障原因：卡料\n\n填报人：填报人\n时间：2026-09-23T10:00:00+08:00\n\n请及时处理。");
   });
 
   it("upserts a tenant-scoped rule and uses a stable rule key", async () => {
@@ -140,6 +185,42 @@ describe("NotificationService", () => {
     expect(String(manager.query.mock.calls[3]?.[0])).toContain("next_retry_at=NULL");
     expect(String(manager.query.mock.calls[4]?.[0])).toContain("SKIPPED");
     expect(String(manager.query.mock.calls[1]?.[0])).toContain("historical_delivery.errcode='RECIPIENT_NOT_ALLOWED'");
+  });
+
+  it("quarantines an unregistered notification event before rule matching", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, event_type: "shipping_plan.key_fields_changed", channel: "WECHAT_WORK", payload: {} }])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: deliveryId }]);
+    const service = new NotificationService(source as never);
+    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([]);
+    expect(manager.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("UNREGISTERED_NOTIFICATION_EVENT"))).toBe(true);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("FROM notification_rules"))).toBe(false);
+  });
+
+  it("quarantines a rule whose resource differs from the registered event", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: {} }])
+      .mockResolvedValueOnce([{ id: ruleId, resource: "another-resource", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} }])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: deliveryId }]);
+    const service = new NotificationService(source as never);
+    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([]);
+    expect(manager.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("NOTIFICATION_EVENT_RESOURCE_MISMATCH"))).toBe(true);
+  });
+
+  it("quarantines a recipient rule not allowed by the registered event", async () => {
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: {} }])
+      .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "ORDER_SALESPERSON", config: {} }])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ id: deliveryId }]);
+    const service = new NotificationService(source as never);
+    await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([]);
+    expect(manager.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("UNSUPPORTED_RECIPIENT_RULE"))).toBe(true);
   });
 
   it("resolves enabled equipment responsibles and creates one pending delivery per wechat user", async () => {

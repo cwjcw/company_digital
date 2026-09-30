@@ -1,0 +1,59 @@
+# KDOS 企业微信通知开发总控
+
+## 安全与架构基线
+
+- 企业微信统一通过 `/data/automation/code/work/basci/basic_code` 的 `WeChatPusher` 发送；密钥只保存在该工具包自己的 `.env`。
+- KDOS 业务写入只负责在同一 PostgreSQL 事务中写入通知 outbox；API 在 Dispatcher claim 阶段完成事件注册校验、规则匹配和接收人动态解析。
+- Python Dispatcher 只理解 `notificationId`、`content`、`recipients` 以及投递回调，不理解设备、出货、订单或计划业务。
+- 当前 TEST MODE 强制开启：真实业务接收人照常解析并写日志，实际企业微信接收人只允许启用的崔玮杰（`CuiWeiJie`）；多个业务接收人合并为一次实际发送。
+- 通知规则、outbox 和 delivery log 均保持租户隔离、幂等、审计和失败重试语义。
+
+## 阶段总览
+
+### 阶段 1：通知内核通用化
+
+状态：🟨 进行中（任务 `KDOS-NOTIFICATION-EVENT-REGISTRY-006`）
+
+目标：建立唯一 Notification Event Registry，将现有 `equipment.status.fault_changed` 迁入注册中心，移除 claim 主流程中的设备资源硬编码，并保持现有设备通知、动态接收人、消息格式与 TEST MODE 零回归。
+
+设计结果：
+
+- Registry：`apps/api/src/modules/notifications/notification-event.registry.ts`
+- 正式事件：仅 `equipment.status.fault_changed`
+- 正式渠道：仅 `WECHAT_WORK`
+- 正式接收规则：`EQUIPMENT_RESPONSIBLE`、`FIXED_USERS`
+- `FIXED_USERS` 继续支持 `ORGANIZATION`、`ROLE`、`USER` 混合选择、组织子树和 `users.id` 去重，并兼容旧 `recipientUserIds` 读取。
+- 未注册事件、事件资源不匹配、事件不允许的接收规则均在 API 内安全隔离，不交给 Dispatcher。
+
+修改文件：
+
+- `apps/api/src/modules/notifications/notification-event.registry.ts`
+- `apps/api/src/modules/notifications/notification-event.registry.spec.ts`
+- `apps/api/src/modules/notifications/notification.types.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`
+- `apps/api/src/modules/notifications/notification.service.spec.ts`
+- `docs/integration-guide.md`
+- `docs/KDOS_企业微信通知开发总控.md`
+- `outputs/CODEX_PROGRESS.md`
+
+测试：通知专项 5 suites / 35 tests；API 全量 79 suites / 607 tests 通过（另有 1 suite / 1 test 按既有规则跳过）；Web 全量 27 files / 167 tests；Dispatcher Python 6 tests；全仓 lint、typecheck、build 全部通过。
+
+部署、真实验证、Git SHA：待提交与 API-only 部署后补录。
+
+已知问题：本机 Node.js v22.23.1 低于项目目标 Node.js 24，pnpm 有 engine warning，但全部本地门禁实际通过；正式容器继续使用项目规定运行时。
+
+### 阶段 2：出货 / 备货计划变化
+
+状态：⬜ 下一步
+
+本阶段尚未开始；不得在阶段 1 中注册 `shipping_plan.key_fields_changed` 或扩展其他业务事件/渠道。
+
+## 后续事件接入规则
+
+1. 先在 Notification Event Registry 登记事件元数据、资源、渠道、接收规则、模板与变量。
+2. 业务 Application Command 在正式事务中调用 `NotificationService.enqueueEvent()`，不得由控制器或 Dispatcher 拼装业务查询。
+3. 新接收规则只在 API recipient resolver 层实现；claim 主流程和 Python Dispatcher 不增加业务分支。
+4. 管理端事件列表和模板变量只读取服务端 Registry，前端不得维护第二份事件定义。
+5. 每个阶段完成后更新本文件的状态、修改文件、测试、部署、验证、提交 SHA 与已知问题。

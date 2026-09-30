@@ -2,8 +2,14 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import { tableResourceRegistry } from "@kdos/contracts";
+import {
+  EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
+  FIXED_USERS_RECIPIENT_RULE,
+  notificationEventDefinition,
+  notificationEventDefinitions
+} from "./notification-event.registry";
 import { NotificationService } from "./notification.service";
-import type { NotificationRecipientTarget } from "./notification.types";
+import type { NotificationEventDefinition, NotificationRecipientTarget } from "./notification.types";
 
 export type NotificationAdminActor = {
   tenantId: string;
@@ -16,23 +22,9 @@ export type NotificationAdminActor = {
 };
 
 export const NOTIFICATION_TEST_MODE_MESSAGE = "当前处于企业微信测试模式，实际企业微信消息仅发送给崔玮杰。";
-const CHANNEL = "WECHAT_WORK";
-const RECIPIENT = "EQUIPMENT_RESPONSIBLE";
-const FIXED_RECIPIENT = "FIXED_USERS";
+const RECIPIENT = EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE;
+const FIXED_RECIPIENT = FIXED_USERS_RECIPIENT_RULE;
 const RECIPIENT_LABELS = { [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
-const EVENT = {
-  eventType: "equipment.status.fault_changed",
-  label: "设备故障变化",
-  condition: "故障时长发生变化且新值大于0时触发",
-  resource: "equipment-status-report",
-  moduleCode: "planning",
-  recipientRules: [RECIPIENT, FIXED_RECIPIENT],
-  variables: [
-    "equipmentId", "equipmentCode", "equipmentName", "divisionId", "divisionName",
-    "oldFaultMinutes", "newFaultMinutes", "faultReason", "actorUserId", "actorName", "occurredAt"
-  ]
-} as const;
-const EVENTS = [EVENT];
 const resourceLabel = (code: string) => tableResourceRegistry.find((resource) => resource.code === code)?.label ?? code;
 
 @Injectable()
@@ -41,16 +33,23 @@ export class NotificationAdminService {
 
   availableEvents(actor: NotificationAdminActor) {
     this.assertAnyAccess(actor);
-    return EVENTS.filter((event) => this.canManageResource(actor, event.resource)).map((event) => ({
-      ...event, module: "PMC中心", resourceLabel: resourceLabel(event.resource), channel: CHANNEL,
+    return notificationEventDefinitions().filter((event) => this.canManageResource(actor, event.resourceCode)).map((event) => ({
+      eventType: event.eventType,
+      label: event.label,
+      condition: event.conditionDescription,
+      resource: event.resourceCode,
+      moduleCode: event.moduleCode,
+      recipientRules: event.allowedRecipientRules,
+      variables: event.templateVariables.map(({ key }) => key),
+      module: "PMC中心", resourceLabel: resourceLabel(event.resourceCode), channel: event.defaultChannel,
       channelLabel: "企业微信工作通知", recipientLabels: RECIPIENT_LABELS,
-      templateVariables: event.variables.map((key) => ({ key, label: this.variableLabel(key) }))
+      templateVariables: event.templateVariables
     }));
   }
 
   templateVariables(actor: NotificationAdminActor, eventType: string) {
-    const event = this.event(eventType); this.assertResourceAccess(actor, event.resource);
-    return event.variables.map((key) => ({ key, label: this.variableLabel(key) }));
+    const event = this.event(eventType); this.assertResourceAccess(actor, event.resourceCode);
+    return event.templateVariables;
   }
 
   async recipientUsers(actor: NotificationAdminActor) {
@@ -125,7 +124,7 @@ export class NotificationAdminService {
       await this.validateRecipientTargets(manager, input.recipientTargets);
       const rows = await manager.query(`INSERT INTO notification_rules(tenant_id,rule_key,name,event_type,channel,module_code,resource,recipient_rule,enabled,config,created_by,updated_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::uuid,$11::uuid) RETURNING *`,
-      [actor.tenantId, ruleKey, input.name, input.eventType, CHANNEL, EVENT.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId]);
+      [actor.tenantId, ruleKey, input.name, input.eventType, input.event.defaultChannel, input.event.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId]);
       const row = rows[0]; await this.audit(manager, actor, row.id, "notification_rule.created", null, row); return this.ruleView(row);
     });
   }
@@ -141,7 +140,7 @@ export class NotificationAdminService {
       await this.validateRecipientTargets(manager, input.recipientTargets);
       const rows = await manager.query(`UPDATE notification_rules SET name=$3,event_type=$4,module_code=$5,resource=$6,recipient_rule=$7,enabled=$8,config=$9::jsonb,updated_by=$10::uuid,updated_at=now(),version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$11 RETURNING *`,
-      [actor.tenantId, id, input.name, input.eventType, EVENT.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId, Number(current.version)]);
+      [actor.tenantId, id, input.name, input.eventType, input.event.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId, Number(current.version)]);
       const row = this.rowsOf(rows)[0]; if (!row) throw new ConflictException("规则已被其他用户修改，请刷新后重试");
       await this.audit(manager, actor, id, "notification_rule.updated", current, row); return this.ruleView(row);
     });
@@ -177,7 +176,9 @@ export class NotificationAdminService {
   async retry(actor: NotificationAdminActor, outboxId: string) {
     return this.write(actor, async (manager) => {
       const [row] = await manager.query(`SELECT o.*,r.resource FROM notification_outbox o LEFT JOIN notification_rules r ON r.tenant_id=o.tenant_id AND r.id=o.notification_rule_id WHERE o.tenant_id=$1 AND o.id=$2::uuid`, [actor.tenantId, outboxId]);
-      if (!row) throw new NotFoundException("通知任务不存在"); this.assertResourceAccess(actor, String(row.resource ?? EVENT.resource));
+      if (!row) throw new NotFoundException("通知任务不存在");
+      const event = notificationEventDefinition(String(row.event_type ?? ""));
+      this.assertResourceAccess(actor, String(row.resource ?? event?.resourceCode ?? ""));
       const skipped = await manager.query("SELECT errcode,errmsg FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND status='SKIPPED'", [actor.tenantId, outboxId]);
       if (skipped.some((entry: Record<string, unknown>) => ["SKIPPED_MISSING_WECHAT_ID", "SKIPPED_DISABLED"].includes(String(entry.errcode)))) throw new ConflictException("缺少企业微信 UserId 或用户处于禁用状态，不能重试");
       const updated = this.rowsOf(await manager.query("UPDATE notification_outbox SET status='PENDING',next_retry_at=now(),last_error=NULL,failed_at=NULL,locked_at=NULL,locked_by=NULL,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND status='FAILED' RETURNING *", [actor.tenantId, outboxId]))[0];
@@ -190,8 +191,8 @@ export class NotificationAdminService {
     const rule = await this.detail(actor, id); const event = this.event(String(rule.eventType));
     const payload = body.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new BadRequestException("测试发送需要提供事件 payload");
-    const allowed = new Set<string>(event.variables); for (const key of Object.keys(payload as Record<string, unknown>)) if (!allowed.has(key)) throw new BadRequestException(`测试 payload 包含未授权变量：${key}`);
-    const result = await this.notifications.enqueueEvent(actor.tenantId, { eventType: event.eventType, channel: CHANNEL, dedupKey: `test:${id}:${randomUUID()}`, payload: payload as Record<string, unknown>, createdBy: actor.userId });
+    const allowed = new Set(event.templateVariables.map(({ key }) => key)); for (const key of Object.keys(payload as Record<string, unknown>)) if (!allowed.has(key)) throw new BadRequestException(`测试 payload 包含未授权变量：${key}`);
+    const result = await this.notifications.enqueueEvent(actor.tenantId, { eventType: event.eventType, channel: event.defaultChannel, dedupKey: `test:${id}:${randomUUID()}`, payload: payload as Record<string, unknown>, createdBy: actor.userId });
     await this.dataSource.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,'notification.test_requested',$4::jsonb,$5,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, id, JSON.stringify({ testMode: true, outboxId: result.row.id }), actor.requestId]);
     return { ...result, testMode: true, message: NOTIFICATION_TEST_MODE_MESSAGE };
   }
@@ -199,10 +200,10 @@ export class NotificationAdminService {
   private validRule(body: Record<string, unknown>) {
     const eventType = String(body.eventType ?? "").trim(); const event = this.event(eventType);
     const name = String(body.name ?? "").trim(); if (!name || name.length > 255) throw new BadRequestException("请输入规则名称");
-    const resource = String(body.resource ?? event.resource).trim(); if (resource !== event.resource) throw new BadRequestException("资源与通知事件不匹配");
+    const resource = String(body.resource ?? event.resourceCode).trim(); if (resource !== event.resourceCode) throw new BadRequestException("资源与通知事件不匹配");
     const template = String(body.template ?? (body.config as Record<string, unknown> | undefined)?.template ?? "").trim();
     const recipientRule = String(body.recipientRule ?? body.recipient_rule ?? RECIPIENT).trim();
-    if (![RECIPIENT, FIXED_RECIPIENT].includes(recipientRule)) throw new BadRequestException("当前事件不支持该接收人规则");
+    if (!event.allowedRecipientRules.includes(recipientRule)) throw new BadRequestException("当前事件不支持该接收人规则");
     const sourceConfig = { ...((body.config as Record<string, unknown> | undefined) ?? {}) };
     const rawTargets = body.recipientTargets ?? sourceConfig.recipientTargets;
     const rawIds = body.recipientUserIds ?? sourceConfig.recipientUserIds;
@@ -212,9 +213,9 @@ export class NotificationAdminService {
       sourceConfig.recipientTargets = targets;
       delete sourceConfig.recipientUserIds;
     } else { delete sourceConfig.recipientUserIds; delete sourceConfig.recipientTargets; }
-    const configTemplate = template ? this.normalizeTemplate(template, event.variables) : undefined;
+    const configTemplate = template ? this.normalizeTemplate(template, event.templateVariables.map(({ key }) => key)) : undefined;
     const recipientTargets = recipientRule === FIXED_RECIPIENT ? this.normalizeRecipientTargets(rawTargets, rawIds) : [];
-    return { name, eventType, resource, recipientRule, enabled: body.enabled !== false, recipientTargets, config: { messageType: "text", ...sourceConfig, ...(recipientRule === FIXED_RECIPIENT ? { recipientTargets } : {}), ...(configTemplate ? { template: configTemplate } : {}) } };
+    return { name, eventType, event, resource, recipientRule, enabled: body.enabled !== false, recipientTargets, config: { messageType: event.messageType, ...sourceConfig, ...(recipientRule === FIXED_RECIPIENT ? { recipientTargets } : {}), ...(configTemplate ? { template: configTemplate } : {}) } };
   }
 
   private normalizeTemplate(template: string, variables: readonly string[]) {
@@ -224,12 +225,11 @@ export class NotificationAdminService {
     });
   }
 
-  private event(eventType: string) { const event = EVENTS.find((candidate) => candidate.eventType === eventType); if (!event) throw new BadRequestException("当前数据表暂未注册可用的实时通知事件。"); return event; }
+  private event(eventType: string): NotificationEventDefinition { const event = notificationEventDefinition(eventType); if (!event) throw new BadRequestException("当前数据表暂未注册可用的实时通知事件。"); return event; }
   private canManageResource(actor: NotificationAdminActor, resource: string) { const entry = tableResourceRegistry.find((item) => item.code === resource); return Boolean(entry && (actor.isSystemAdmin || actor.moduleAdminCodes.includes(entry.moduleCode))); }
   private assertResourceAccess(actor: NotificationAdminActor, resource: string) { if (!this.canManageResource(actor, resource)) throw new ForbiddenException("当前管理员无权管理该模块的消息规则"); }
   private assertAnyAccess(actor: NotificationAdminActor) { if (!actor.isSystemAdmin && !actor.moduleAdminCodes.length) throw new ForbiddenException("仅系统管理员或模块管理员可以访问消息中心"); }
   private scopeWhere(actor: NotificationAdminActor, where: string[], values: unknown[], alias: string) { if (!actor.isSystemAdmin) { values.push(actor.moduleAdminCodes); where.push(`${alias}.module_code = ANY($${values.length}::varchar[])`); } }
-  private variableLabel(key: string) { return ({ equipmentId: "设备 ID", equipmentCode: "设备编号", equipmentName: "设备名称", divisionId: "事业部 ID", divisionName: "事业部", oldFaultMinutes: "原故障时长", newFaultMinutes: "新故障时长", faultReason: "故障原因", actorUserId: "填报人 ID", actorName: "填报人", occurredAt: "发生时间" } as Record<string, string>)[key] ?? key; }
   private normalizeRecipientTargets(rawTargets: unknown, legacyUserIds: unknown): NotificationRecipientTarget[] {
     const uuid = (value: unknown, label: string) => {
       const id = String(value ?? "").trim();
@@ -278,13 +278,15 @@ export class NotificationAdminService {
   private ruleView(row: Record<string, unknown>) {
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const config = (row.config as Record<string, unknown> | undefined) ?? {};
+    const event = notificationEventDefinition(String(row.event_type ?? ""));
     const recipientTargets = Array.isArray(config.recipientTargets) ? config.recipientTargets : Array.isArray(config.recipientUserIds) ? config.recipientUserIds.map((userId) => ({ type: "USER", userId })) : [];
-    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: "PMC中心", resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientTargets, recipientUserIds: recipientTargets.filter((target: any) => target.type === "USER").map((target: any) => target.userId), condition: EVENT.condition, enabled: row.enabled, config: { ...config, recipientTargets }, latestSendAt: row.latest_send_at ?? null, version: row.version };
+    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: "PMC中心", resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientTargets, recipientUserIds: recipientTargets.filter((target: any) => target.type === "USER").map((target: any) => target.userId), condition: event?.conditionDescription ?? "—", enabled: row.enabled, config: { ...config, recipientTargets }, latestSendAt: row.latest_send_at ?? null, version: row.version };
   }
   private logView(row: Record<string, unknown>) {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
-    return { id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? EVENT.resource, eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", actualRecipient: row.actual_recipient ?? row.resolved_recipient ?? "—", wechatUserId: row.actual_wechat_user_id ?? row.wechat_user_id ?? "—", testMode: row.test_mode === true, status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
+    const event = notificationEventDefinition(String(row.event_type ?? ""));
+    return { id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", actualRecipient: row.actual_recipient ?? row.resolved_recipient ?? "—", wechatUserId: row.actual_wechat_user_id ?? row.wechat_user_id ?? "—", testMode: row.test_mode === true, status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
   private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId]); }

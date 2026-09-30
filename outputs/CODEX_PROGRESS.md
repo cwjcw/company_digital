@@ -1,5 +1,138 @@
 # Codex 工作进度
 
+## 任务
+
+任务名称：KDOS-NOTIFICATION-EVENT-REGISTRY-006 通知事件注册中心与通知内核通用化
+
+任务目标：建立唯一 Notification Event Registry，将现有设备故障事件迁入注册中心，移除通知 claim 主流程的设备资源硬编码，并保持接收人动态解析、TEST MODE、Dispatcher 契约和消息格式兼容。
+
+当前状态：代码、文档和全部本地质量门禁已完成；待提交、推送、API-only 部署与线上核验。
+
+最后更新时间：2026-09-30
+
+---
+
+## 当前阶段
+
+当前阶段：交付与部署
+
+当前子任务：提交推送后执行 API-only 部署、健康检查、Dispatcher 状态及安全链路验证。
+
+---
+
+## 已完成
+
+- [x] 阅读任务说明、项目架构、安全与集成边界、KDOS 专项技能和现有进度。
+- [x] 检查 Git：开始时工作区干净，HEAD 为 `44f8ced`。
+- [x] 定位设备专用硬编码和现有接收人、TEST MODE、Dispatcher 边界。
+- [x] 确认无数据库结构变化，不创建 migration。
+- [x] 新增唯一 Notification Event Registry，并仅注册 `equipment.status.fault_changed`。
+- [x] 管理端事件列表、模板变量、规则校验、测试发送统一读取 Registry。
+- [x] claim 流程按 Registry 先隔离未注册事件，再校验规则资源和允许的接收规则。
+- [x] 接收人解析拆分为统一 dispatcher、设备责任人 resolver 和配置对象 resolver。
+- [x] 保持 FIXED_USERS 的 USER / ORGANIZATION / ROLE、混合选择、动态关系、去重和旧 `recipientUserIds` 读取兼容。
+- [x] 保持设备触发条件、消息格式、强制 TEST MODE 和 Python Dispatcher 业务无感。
+- [x] 建立并维护 `docs/KDOS_企业微信通知开发总控.md`，阶段 2 仅标记为下一步。
+- [x] 完成通知专项及全量质量门禁。
+
+---
+
+## 正在进行
+
+- [ ] 提交、推送、API-only 部署与运行环境核验。
+
+---
+
+## 待完成
+
+- [ ] 更新总控与本进度的部署、验证和 Git SHA，形成最终报告。
+
+---
+
+## 修改文件
+
+- `apps/api/src/modules/notifications/notification-event.registry.ts`
+- `apps/api/src/modules/notifications/notification-event.registry.spec.ts`
+- `apps/api/src/modules/notifications/notification.types.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`
+- `apps/api/src/modules/notifications/notification.service.spec.ts`
+- `docs/integration-guide.md`
+- `docs/KDOS_企业微信通知开发总控.md`
+- `outputs/CODEX_PROGRESS.md`
+
+---
+
+## 数据库 Migration
+
+- 无；本任务只调整应用层注册与路由。
+
+---
+
+## 新增或修改测试
+
+- Registry 唯一事件、正式元数据和变量标签。
+- availableEvents / templateVariables 的 Registry 来源。
+- 已注册事件正常 claim；未注册事件明确隔离。
+- 规则资源不匹配和接收规则不允许时拒绝发送。
+- EQUIPMENT_RESPONSIBLE 与 FIXED_USERS 的 USER / ORGANIZATION / ROLE / 混合去重。
+- 原设备消息格式与 TEST MODE 多业务接收人单次实际投递。
+
+---
+
+## 已运行测试
+
+测试名称：通知专项、API 全量、Web 全量、Dispatcher Python、全仓 lint/typecheck/build
+
+结果：
+
+- 通知专项：5 suites / 35 tests 通过。
+- API 全量：79 suites 通过，1 suite 按既有规则跳过；607 tests 通过，1 test 跳过。
+- Web 全量：27 files / 167 tests 通过；第一次并行负载下 1 个无关管理页用例超时，单测复跑与无并行负载全量复跑均通过。
+- Dispatcher Python：6 tests 通过。
+- 全仓 lint：通过（保留既有 `ModulePortal.tsx` fast-refresh warning，无 error）。
+- 全仓 typecheck：通过。
+- 全仓 build：通过（保留既有 Web chunk-size warning）。
+- `git diff --check`：通过。
+
+---
+
+## 当前已知问题
+
+- 本机 Node.js 为 v22.23.1，低于项目目标 Node.js 24，pnpm 输出 engine warning；测试、类型检查、lint 和构建均实际通过，正式 Docker 构建继续使用项目规定运行时。
+
+---
+
+## 等待用户确认
+
+- 无。
+
+---
+
+## 下一步
+
+1. 提交并推送 `github/main`。
+2. 执行 `./scripts/deploy.sh api` 与 `./scripts/deploy.sh check`。
+3. 检查健康状态、Dispatcher active/running 和安全通知链路，再补录最终 SHA/验证结果。
+
+---
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取当前适用的 AGENTS.md
+2. 读取 `.agents/skills/kdos-form-platform/SKILL.md`
+3. 读取本进度文件顶部本任务
+4. 执行 `git status` 与 `git diff --stat`
+5. 检查未完成修改
+6. 从“下一步”的第一项未完成任务继续
+
+---
+
+# Codex 工作进度
+
 ## 当前任务：KDOS-RD-INCREMENTAL-WATERMARK-MICROSECOND-003
 
 任务目标：修复 E10 INCREMENTAL 复合 watermark 在时间格式不一致时不推进的问题，保留微秒精度、稳定复合游标语义，验证 E10 reader，并完成部署后的两次真实 INCREMENTAL 核验。

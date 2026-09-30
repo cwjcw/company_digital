@@ -1,5 +1,21 @@
 export type NotificationStatus = "PENDING" | "PROCESSING" | "SENT" | "FAILED";
 
+export type NotificationEventDefinition = {
+  eventType: string;
+  moduleCode: string;
+  resourceCode: string;
+  label: string;
+  conditionDescription: string;
+  defaultChannel: string;
+  messageType: "text";
+  defaultTemplate: string;
+  allowedRecipientRules: readonly string[];
+  templateVariables: ReadonlyArray<{
+    key: string;
+    label: string;
+  }>;
+};
+
 export type NotificationActor = {
   userId: string | null;
 };

@@ -9,6 +9,9 @@ describe("NotificationAdminService", () => {
   it("only exposes registered events and supports the planning module administrator", () => {
     const service = new NotificationAdminService({} as never, {} as never);
     expect(service.availableEvents(planningActor)).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "equipment.status.fault_changed", resource: "equipment-status-report", channel: "WECHAT_WORK", condition: "故障时长发生变化且新值大于0时触发", recipientLabels: { EQUIPMENT_RESPONSIBLE: "设备责任人", FIXED_USERS: "组织架构 / 角色 / 员工" } })]));
+    expect(service.templateVariables(planningActor, "equipment.status.fault_changed")).toEqual(
+      expect.arrayContaining([{ key: "equipmentCode", label: "设备编号" }, { key: "occurredAt", label: "发生时间" }])
+    );
     expect(() => service.availableEvents(ordinaryActor)).toThrow(ForbiddenException);
   });
 
