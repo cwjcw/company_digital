@@ -24,9 +24,23 @@ export class RdApplicationService {
       }
       if (buffer.length) { const result = await this.upsertItems(buffer, actor, sourceDatabase); rowsCreated += result.created; rowsUpdated += result.updated; rowsUnchanged += result.unchanged; changedItemIds.push(...result.changedItemIds); }
       if (mode === "FULL") { const [max] = await this.dataSource.query(`SELECT max(last_modified_at_source) AS "at" FROM rd_items WHERE tenant_id=$1`, [actor.tenantId]); watermarkAt = max?.at ?? watermarkAt; }
-      await this.dataSource.query(`UPDATE rd_sync_runs SET status='SUCCESS',finished_at=now(),rows_read=$2,rows_created=$3,rows_updated=$4,rows_unchanged=$5,watermark_after_at=$6,watermark_after_id=$7 WHERE id=$1 AND tenant_id=$8`, [runId, rowsRead, rowsCreated, rowsUpdated, rowsUnchanged, watermarkAt, watermarkId, actor.tenantId]);
+      const watermarkUpdate = await this.dataSource.query(`UPDATE rd_sync_runs SET status='SUCCESS',finished_at=now(),rows_read=$2,rows_created=$3,rows_updated=$4,rows_unchanged=$5,watermark_after_at=$6,watermark_after_id=$7 WHERE id=$1 AND tenant_id=$8 RETURNING id`, [runId, rowsRead, rowsCreated, rowsUpdated, rowsUnchanged, watermarkAt, watermarkId, actor.tenantId]);
+      const watermarkRows = Array.isArray(watermarkUpdate?.[0]) ? watermarkUpdate[0] : watermarkUpdate;
+      if (!watermarkRows?.[0]?.id) throw new Error("E10 同步 watermark 未成功提交");
       await this.audit(actor, "rd-items", runId, "rd.items.sync_succeeded", null, { mode, rowsRead, rowsCreated, rowsUpdated, rowsUnchanged });
-      const duplicateScan = changedItemIds.length ? await this.historyScan.start(actor, "INCREMENTAL", changedItemIds) : null;
+      let duplicateScan = null;
+      try {
+        const retryPending = mode === "INCREMENTAL" && await this.historyScan.hasFailedMaintenance(actor.tenantId);
+        if (mode === "FULL" || changedItemIds.length || retryPending) {
+          duplicateScan = await this.historyScan.start(actor, mode === "FULL" ? "FULL" : "INCREMENTAL", retryPending ? undefined : changedItemIds);
+        }
+      } catch (error) {
+        try {
+          duplicateScan = await this.historyScan.recordFailure(actor, error instanceof Error ? error.message : "增量查重维护失败");
+        } catch {
+          duplicateScan = { status: "FAILED", scanMode: "INCREMENTAL", errorMessage: "增量查重维护失败，且失败状态记录未成功写入" };
+        }
+      }
       return { runId, mode, status: "SUCCESS", rowsRead, rowsCreated, rowsUpdated, rowsUnchanged, changedItems: changedItemIds.length, duplicateScan, watermark: { at: watermarkAt, id: watermarkId } };
     } catch (error) {
       await this.dataSource.query(`UPDATE rd_sync_runs SET status='FAILED',finished_at=now(),rows_read=$2,rows_created=$3,rows_updated=$4,rows_unchanged=$5,error_message=$6 WHERE id=$1 AND tenant_id=$7`, [runId, rowsRead, rowsCreated, rowsUpdated, rowsUnchanged, error instanceof Error ? error.message.slice(0, 1000) : "同步失败", actor.tenantId]);

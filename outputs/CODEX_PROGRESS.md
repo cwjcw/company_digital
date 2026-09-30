@@ -1,10 +1,77 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-RD-INCREMENTAL-DUPLICATE-MAINTENANCE-001
+
+任务目标：核对并完善 E10 INCREMENTAL 成功后的研发中心一物多码增量维护闭环；只让本批新增/修改物料进入增量计算，比较当前租户全库，维护 rd_item_features 与历史重复关系，保留 E10 watermark 语义，不自动触发 FULL。
+
+当前状态：已完成源码核对、失败隔离与自动重试补齐，待提交并进行 API-only 部署。
+
+最后更新时间：2026-09-30
+
+### 当前阶段
+
+当前阶段：E10 增量同步与历史查重维护链路核对
+
+当前子任务：验证自动触发、全库比较、特征维护、旧关系替换、失败重试和 watermark 边界。
+
+### 已完成
+
+- [x] 确认 E10 RdApplicationService.sync() 收集 upsertItems() 返回的 changedItemIds。
+- [x] 确认已有同步成功后的自动调用：historyScan.start(actor, "INCREMENTAL", changedItemIds)。
+- [x] 确认历史扫描读取租户全量 rd_items，scanChangedPreparedRows 只重算变化相关关系。
+- [x] 确认 rd_item_features 按 item version/hash 更新，增量持久化保留未受影响组、重建受影响组。
+- [x] 读取当前 PostgreSQL 运行状态：rd_items 特征覆盖 574,544/574,544；最近成功 E10 INCREMENTAL 为 18 行、16 新增；最近已完成扫描记录包含 INCREMENTAL。
+- [x] 发现当前代码在后台查重失败后缺少下一次无变更同步的自动重试，且 INCREMENTAL 无历史基线会回退 FULL。
+- [x] 增加 watermark 成功更新命中校验，未命中时不标记同步成功。
+
+### 正在进行
+
+- [x] 让 INCREMENTAL 无基线记录失败而不自动 FULL。
+- [x] 让查重维护失败不影响 E10 已提交数据，并在 rd_duplicate_scans 记录失败。
+- [x] 让下一次 E10 INCREMENTAL 在无新变更时自动重试最近失败维护；重试按历史基线时间找回之前失败批次。
+- [x] 完成 API 全量回归、构建、部署前检查。
+- [ ] 完成 API-only 部署和部署后运行核验。
+
+### 修改文件
+
+- apps/api/src/modules/rd/rd.application.service.ts
+- apps/api/src/modules/rd/rd.application.service.spec.ts
+- apps/api/src/modules/rd/rd-history-scan.service.ts
+- apps/api/src/common/filtering/table-filter-registry.spec.ts
+- outputs/CODEX_PROGRESS.md
+
+### 数据库 Migration / E10
+
+- 无 migration。
+- 未执行 E10 FULL/INCREMENTAL，不修改 SQL Server、rd_items、watermark 或历史结果。
+
+### 测试
+
+- 定向 API：3 suites，20 tests 通过。
+- API 全量：77 suites 通过，1 suite 按项目既有规则跳过；591 tests 通过，1 test 按项目既有规则跳过。
+- API typecheck：通过。
+- API lint：通过。
+- API build：通过。
+- `git diff --check`：通过。
+
+### 当前已知问题
+
+- 线上 API 当前健康版本为 6117587；需要部署本轮 API 变更后，下一次真实 E10 INCREMENTAL 才会使用增强后的失败隔离与自动重试逻辑。
+- 本轮未运行 E10 同步和 FULL 查重，因此未做真实同步触发压力/耗时测试。
+
+### 下一步
+
+1. 提交并 API-only 部署；不执行同步、不执行 FULL 扫描。
+2. 健康检查、查询运行状态和部署后 API 核验。
+3. 完成最终报告。
+
+---
+
 ## 当前任务：KDOS-RD-MATERIAL-DUPLICATES-PERMISSIONS-001
 
 任务目标：在现有 KDOS resource/action 权限体系中补齐研发中心“一物多码查询”独立 read 权限的注册展示，并确保菜单、路由、查询 API 与全量计算 API 按 `rd-material-duplicates:read/update` 一致拦截；不修改查重算法、同步、数据库结果或 RLS。
 
-当前状态：权限注册展示、前端入口拦截、API/Web 测试、类型检查、lint、构建和研发中心浏览器验收已完成，待提交并 Web-only 部署。
+当前状态：已完成权限注册展示、前端入口拦截、API/Web 测试、类型检查、lint、构建、Web-only 部署和部署后浏览器验收。
 
 最后更新时间：2026-09-30
 
@@ -29,7 +96,7 @@
 ### 待完成
 
 - [x] Web tests、API tests、typecheck、lint、build。
-- [ ] Web-only/API 按实际改动部署与健康检查。
+- [x] Web-only 部署与健康检查。
 - [x] 三类权限用户浏览器验收并形成最终报告。
 
 ### 修改文件
@@ -66,9 +133,16 @@
 
 ### 下一步
 
-1. 提交当前权限注册与验收变更。
-2. 执行 Web-only 部署并做健康检查。
-3. 部署后复核权限管理页和三类用户浏览器行为。
+1. 保留部署记录，后续若继续研发中心权限工作从本节恢复。
+
+### 最终部署记录
+
+- 提交：4349f0b fix(rd): register duplicate query permissions
+- Web-only deploy：成功；Web Build 与仓库 HEAD 均为 4349f0b。
+- API：未修改生产源码、未重启，继续运行原版本。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 部署后浏览器：E2E_BASE_URL 指向 127.0.0.1:15172，rd-ui.spec.ts 6/6 通过。
+- 数据库、E10 同步、watermark、历史扫描结果：未修改。
 
 ### 恢复执行说明
 

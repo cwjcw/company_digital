@@ -46,14 +46,17 @@ export class RdHistoryScanService {
 
     const [base] = await this.dataSource.query(`SELECT id,rule_version AS "ruleVersion",finished_at AS "finishedAt",item_count AS "itemCount",source_version AS "sourceVersion" FROM rd_duplicate_scans WHERE tenant_id=$1 AND status='COMPLETE' ORDER BY finished_at DESC LIMIT 1`, [actor.tenantId]);
     const source = await this.sourceState(actor.tenantId);
-    let mode = requestedMode;
-    if (mode === "INCREMENTAL" && !base) mode = "FULL";
+    const mode = requestedMode;
+    if (mode === "INCREMENTAL" && !base) {
+      return this.recordFailure(actor, "没有可用的历史查重基线，未自动触发全量查重；请由管理员执行一次全量计算。");
+    }
     if (mode === "INCREMENTAL" && base?.ruleVersion !== RD_DUPLICATE_RULE_VERSION) {
       return { status: "RULE_MISMATCH", message: "查重规则已更新，请执行全量重建。", ruleVersion: RD_DUPLICATE_RULE_VERSION, previousRuleVersion: base?.ruleVersion ?? null };
     }
 
+    const retryingFailedScan = current?.status === "FAILED";
     const changed = mode === "INCREMENTAL"
-      ? await this.changedItems(actor.tenantId, base?.finishedAt, changedItemIds)
+      ? await this.changedItems(actor.tenantId, base?.finishedAt, retryingFailedScan ? undefined : changedItemIds)
       : [];
     if (mode === "INCREMENTAL" && changed.length === 0) {
       return { status: "NO_CHANGES", message: "当前物料数据无变化，无需重新扫描。", scanId: base?.id ?? null, itemCount: source.itemCount };
@@ -67,6 +70,23 @@ export class RdHistoryScanService {
     `, [actor.tenantId, mode, mode === "INCREMENTAL" ? base.id : null, source.watermarkAt, source.watermarkId, source.sourceVersion, source.itemCount, actor.userId]);
     setImmediate(() => void this.run(scan.id, actor, mode, changed, base?.id ?? null, source).catch(() => undefined));
     return { ...scan, changedItems: changed.length, message: mode === "FULL" ? "全量重建已开始。" : "查重更新已开始。" };
+  }
+
+  async hasFailedMaintenance(tenantId: string) {
+    const [scan] = await this.dataSource.query(
+      `SELECT status FROM rd_duplicate_scans WHERE tenant_id=$1 ORDER BY started_at DESC LIMIT 1`,
+      [tenantId],
+    );
+    return scan?.status === "FAILED";
+  }
+
+  async recordFailure(actor: RdActor, errorMessage: string) {
+    const [scan] = await this.dataSource.query(`
+      INSERT INTO rd_duplicate_scans(tenant_id,status,scan_mode,stage,error_message,created_by)
+      VALUES($1,'FAILED','INCREMENTAL','失败',$2,$3)
+      RETURNING id,status,scan_mode AS "scanMode",error_message AS "errorMessage"
+    `, [actor.tenantId, errorMessage.slice(0, 1000), actor.userId]);
+    return scan ?? { status: "FAILED", scanMode: "INCREMENTAL", errorMessage: errorMessage.slice(0, 1000) };
   }
 
   private async sourceState(tenantId: string): Promise<ScanSource> {
