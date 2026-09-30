@@ -1,5 +1,55 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-RD-INCREMENTAL-WATERMARK-MICROSECOND-003
+
+任务目标：修复 E10 INCREMENTAL 复合 watermark 在时间格式不一致时不推进的问题，保留微秒精度、稳定复合游标语义，验证 E10 reader，并完成部署后的两次真实 INCREMENTAL 核验。
+
+当前状态：代码修复、测试和构建已完成，准备部署 API 并执行两次真实 INCREMENTAL；未手工修改数据库 watermark。
+
+最后更新时间：2026-09-30
+
+### 已完成
+
+- [x] 定位根因：源时间 `YYYY-MM-DD HH:mm:ss.ffffff` 与 JS ISO 时间字符串直接比较，导致字典序错误；TypeORM `Date` 还会丢失微秒。
+- [x] 增加固定六位微秒的 watermark 规范化与复合 cursor 比较，保留 `(LastModifiedDate, ITEM_BUSINESS_ID)` 语义及 SQL Server GUID 排序。
+- [x] 使用 PostgreSQL `to_char(...US)` 读取水位，写入时显式 UTC，API 返回保留六位微秒。
+- [x] E10 reader 保留 2 分钟 overlap、`TOP 1000` 分批循环和 keyset 续读；时间条件、投影、排序统一到 `datetime2(6)`。
+- [x] 增加源时间推进、微秒比较、同时间 GUID、overlap 重读、成功最大 cursor、失败不推进测试。
+- [x] API 全量测试：78 suites 通过，1 suite 按项目规则跳过；599 tests 通过，1 test 按项目规则跳过。
+- [x] API typecheck、lint、build、reader `py_compile`、同步脚本 `bash -n` 通过。
+
+### 正在进行
+
+- [ ] API-only 部署、健康检查。
+- [ ] 从现有旧 watermark 执行第一次真实 INCREMENTAL，核对前后水位和同步行数。
+- [ ] 立即执行第二次真实 INCREMENTAL，确认 overlap 重读不回退水位。
+
+### 修改文件
+
+- `apps/api/src/modules/rd/rd-watermark.ts`
+- `apps/api/src/modules/rd/rd-watermark.spec.ts`
+- `apps/api/src/modules/rd/rd.application.service.ts`
+- `apps/api/src/modules/rd/rd.application.service.spec.ts`
+- `apps/api/src/modules/rd/rd-history-scan.service.ts`
+- `data-operations/e10/rd_reader.py`
+- `outputs/CODEX_PROGRESS.md`
+
+### 数据库 Migration / 生产数据
+
+- 无 migration。
+- 未手工修改 watermark；未触发 FULL；未修改 E10 只读规则、rd_items 业务字段、查重算法或 n8n 调用方式。
+
+### 下一步
+
+1. 检查最终 diff 并提交修复。
+2. 执行 API-only 部署和健康检查。
+3. 执行两次生产脚本并只读查询 `rd_sync_runs`、`rd_duplicate_scans`，记录结果。
+4. 更新本节为完成并输出最终报告。
+
+---
+
+# Codex 工作进度
+
 ## 当前任务：KDOS-RD-INCREMENTAL-CHANGED-ID-AND-WAIT-002
 
 任务目标：修复 E10 增量同步中 updated 物料 ID 未完整传入一物多码维护的问题，并让生产 shell 脚本等待增量查重真正完成后再返回退出码。

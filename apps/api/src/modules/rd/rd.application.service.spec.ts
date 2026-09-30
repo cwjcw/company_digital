@@ -60,8 +60,8 @@ describe("E10 增量同步与一物多码维护串联", () => {
   });
 
   it("214 条新增加 13 条修改时，增量查重接收全部 227 个真实变化物料", async () => {
-    const createdSources = Array.from({ length: 214 }, (_, index) => `created-${index + 1}`);
-    const updatedSources = Array.from({ length: 13 }, (_, index) => `updated-${index + 1}`);
+    const createdSources = Array.from({ length: 214 }, (_, index) => `00000000-0000-7000-8000-${(index + 1).toString(16).padStart(12, "0")}`);
+    const updatedSources = Array.from({ length: 13 }, (_, index) => `00000000-0000-7001-8000-${(index + 1).toString(16).padStart(12, "0")}`);
     const updatedSourceSet = new Set(updatedSources);
     const rows = [...createdSources, ...updatedSources].map(itemWithSource);
     const transactionManager = {
@@ -99,6 +99,59 @@ describe("E10 增量同步与一物多码维护串联", () => {
       ...createdSources.map((sourceId) => `created-id-${sourceId}`),
       ...updatedSources.map((sourceId) => `updated-id-${sourceId}`),
     ]);
+  });
+
+  it("成功后 watermark_after 等于本批最大时间和 ITEM_BUSINESS_ID cursor", async () => {
+    const rows = [
+      { ...item, source_id: "00000001-0000-0000-0000-000000000000", last_modified_at_source: "2026-09-30 14:45:14.000978" },
+      { ...item, source_id: "01000000-0000-0000-0000-000000000000", last_modified_at_source: "2026-09-30 14:45:14.000978" },
+    ];
+    const transactionManager = {
+      query: jest.fn().mockImplementation((sql: string) => sql.includes("SELECT id,content_hash") ? [] : [{ id: "target-id" }]),
+    };
+    const dataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "run-max" }])
+        .mockResolvedValueOnce([[{ id: "run-max" }], 1])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      transaction: jest.fn(async (work: (manager: typeof transactionManager) => unknown) => work(transactionManager)),
+    };
+    const historyScan = {
+      hasFailedMaintenance: jest.fn().mockResolvedValue(false),
+      start: jest.fn().mockResolvedValue({ status: "RUNNING", scanMode: "INCREMENTAL" }),
+      recordFailure: jest.fn(),
+    };
+    const service = new RdApplicationService(dataSource as never, readerOf(rows) as never, historyScan as never);
+
+    const result = await service.sync("INCREMENTAL", actor);
+    const successUpdate = dataSource.query.mock.calls.find(([sql]) => String(sql).includes("UPDATE rd_sync_runs SET status='SUCCESS'"));
+
+    expect(successUpdate?.[1]).toEqual(["run-max", 2, 2, 0, 0, "2026-09-30 14:45:14.000978+00:00", "00000001-0000-0000-0000-000000000000", "KAINAN"]);
+    expect(result).toMatchObject({ watermark: { at: "2026-09-30T14:45:14.000978Z", id: "00000001-0000-0000-0000-000000000000" } });
+  });
+
+  it("reader 或目标写入失败时不提交 watermark_after", async () => {
+    const failingReader = {
+      async *read() {
+        if (process.env.NODE_ENV === "__never__") yield item;
+        throw new Error("E10 mock read failed");
+      },
+    };
+    const dataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "run-failed" }])
+        .mockResolvedValue([]),
+      transaction: jest.fn(),
+    };
+    const historyScan = { hasFailedMaintenance: jest.fn(), start: jest.fn(), recordFailure: jest.fn() };
+    const service = new RdApplicationService(dataSource as never, failingReader as never, historyScan as never);
+
+    await expect(service.sync("INCREMENTAL", actor)).rejects.toThrow("E10 mock read failed");
+    expect(dataSource.query.mock.calls.some(([sql]) => String(sql).includes("UPDATE rd_sync_runs SET status='SUCCESS'"))).toBe(false);
+    expect(dataSource.query.mock.calls.some(([sql]) => String(sql).includes("UPDATE rd_sync_runs SET status='FAILED'"))).toBe(true);
   });
 
   it("查重维护失败不回滚已成功同步的物料，并记录失败以便后续重试", async () => {

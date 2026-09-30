@@ -56,17 +56,17 @@ def main():
             if args.mode == "INCREMENTAL" and args.since_at:
                 since = datetime.fromisoformat(args.since_at.replace("Z", "+00:00")).replace(tzinfo=None) - timedelta(minutes=2)
                 literal = since.strftime("%Y-%m-%d %H:%M:%S.%f")
-                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(args.since_id)}')))" )
+                clauses.append(f"(CAST(i.LastModifiedDate AS datetime2(6)) > CONVERT(datetime2(6), '{literal}', 121) OR (CAST(i.LastModifiedDate AS datetime2(6)) = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(args.since_id)}')))" )
             if last_at is not None:
                 literal = last_at.strftime("%Y-%m-%d %H:%M:%S.%f")
-                clauses.append(f"(i.LastModifiedDate > CONVERT(datetime2(6), '{literal}', 121) OR (i.LastModifiedDate = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(last_id)}')))" )
+                clauses.append(f"(CAST(i.LastModifiedDate AS datetime2(6)) > CONVERT(datetime2(6), '{literal}', 121) OR (CAST(i.LastModifiedDate AS datetime2(6)) = CONVERT(datetime2(6), '{literal}', 121) AND i.ITEM_BUSINESS_ID > CONVERT(uniqueidentifier, '{uuid_literal(last_id)}')))" )
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
             sql = f"""
               SELECT TOP {args.batch_size}
                 CONVERT(varchar(36), i.ITEM_BUSINESS_ID) source_id, i.ITEM_CODE item_code,
                 i.ITEM_NAME item_name, i.ITEM_SPECIFICATION specification, i.REMARK remark,
                 CAST(NULL AS bit) is_group_item, i.STATUS status, i.ApproveStatus approve_status,
-                i.CreateDate created_at_source, i.LastModifiedDate last_modified_at_source, i.ModifiedDate modified_at_source,
+                i.CreateDate created_at_source, CAST(i.LastModifiedDate AS datetime2(6)) last_modified_at_source, i.ModifiedDate modified_at_source,
                 CONVERT(varchar(36), i.CreateBy) created_by_source, CONVERT(varchar(36), i.LastModifiedBy) last_modified_by_source,
                 CONVERT(varchar(36), i.ModifiedBy) modified_by_source,
                 COALESCE(uc.USER_NAME, ec.EMPLOYEE_NAME) created_by_name,
@@ -77,7 +77,7 @@ def main():
               LEFT JOIN dbo.[USER] ul ON ul.USER_ID=i.LastModifiedBy LEFT JOIN dbo.EMPLOYEE el ON el.EMPLOYEE_ID=ul.EMPLOYEE_ID
               LEFT JOIN dbo.[USER] um ON um.USER_ID=i.ModifiedBy LEFT JOIN dbo.EMPLOYEE em ON em.EMPLOYEE_ID=um.EMPLOYEE_ID
               {where}
-              ORDER BY i.LastModifiedDate, i.ITEM_BUSINESS_ID
+              ORDER BY CAST(i.LastModifiedDate AS datetime2(6)), i.ITEM_BUSINESS_ID
             """
             cursor.execute(sql)
             columns = [item[0] for item in cursor.description or []]

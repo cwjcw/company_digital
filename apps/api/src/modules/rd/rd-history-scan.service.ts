@@ -14,6 +14,7 @@ import {
 } from "./rd-duplicate-algorithm";
 import type { RdActor } from "./rd.types";
 import { canRd } from "./rd.types";
+import { normalizeRdTimestamp, postgresRdTimestamp } from "./rd-watermark";
 
 export const RD_DUPLICATE_RULE_VERSION = "history-1";
 export type RdScanMode = "FULL" | "INCREMENTAL";
@@ -67,7 +68,7 @@ export class RdHistoryScanService {
         item_count,total_items,stage,created_by
       ) VALUES($1,'RUNNING',$2,$3,$4,$5::uuid,$6,$7,$7,'读取物料',$8)
       RETURNING id,status,scan_mode AS "scanMode",item_count AS "itemCount",total_items AS "totalItems"
-    `, [actor.tenantId, mode, mode === "INCREMENTAL" ? base.id : null, source.watermarkAt, source.watermarkId, source.sourceVersion, source.itemCount, actor.userId]);
+    `, [actor.tenantId, mode, mode === "INCREMENTAL" ? base.id : null, postgresRdTimestamp(source.watermarkAt), source.watermarkId, source.sourceVersion, source.itemCount, actor.userId]);
     setImmediate(() => void this.run(scan.id, actor, mode, changed, base?.id ?? null, source).catch(() => undefined));
     return { ...scan, changedItems: changed.length, message: mode === "FULL" ? "全量重建已开始。" : "查重更新已开始。" };
   }
@@ -92,11 +93,11 @@ export class RdHistoryScanService {
   private async sourceState(tenantId: string): Promise<ScanSource> {
     const [[items], [watermark]] = await Promise.all([
       this.dataSource.query(`SELECT count(*)::int AS "itemCount",max(updated_at) AS "maxUpdatedAt" FROM rd_items WHERE tenant_id=$1`, [tenantId]),
-      this.dataSource.query(`SELECT watermark_after_at AS "watermarkAt",watermark_after_id AS "watermarkId" FROM rd_sync_runs WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY finished_at DESC LIMIT 1`, [tenantId]),
+      this.dataSource.query(`SELECT to_char(watermark_after_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') AS "watermarkAt",watermark_after_id AS "watermarkId" FROM rd_sync_runs WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY finished_at DESC LIMIT 1`, [tenantId]),
     ]);
     const itemCount = Number(items?.itemCount ?? 0);
     const maxUpdatedAt = items?.maxUpdatedAt ? new Date(items.maxUpdatedAt).toISOString() : null;
-    const watermarkAt = watermark?.watermarkAt ? new Date(watermark.watermarkAt).toISOString() : null;
+    const watermarkAt = watermark?.watermarkAt ? normalizeRdTimestamp(watermark.watermarkAt) : null;
     const watermarkId = watermark?.watermarkId ? String(watermark.watermarkId) : null;
     return { itemCount, maxUpdatedAt, watermarkAt, watermarkId, sourceVersion: [watermarkAt ?? "", watermarkId ?? "", maxUpdatedAt ?? "", itemCount].join(":") };
   }
@@ -238,7 +239,7 @@ export class RdHistoryScanService {
       UPDATE rd_duplicate_scans SET status='COMPLETE',stage='完成',finished_at=now(),rows=$2,item_count=$2,processed_items=$2,total_items=$2,
         compared_pairs=$3,skipped_blocks=$4,skipped_pairs=$5,counts=$6::jsonb,source_watermark_at=$7,source_watermark_id=$8::uuid,source_version=$9,progress_percent=100
       WHERE id=$1 AND tenant_id=$10
-    `, [scanId, report.rows, report.comparedPairs, report.skippedBlocks, report.skippedPairs, JSON.stringify(counts), source.watermarkAt, source.watermarkId, source.sourceVersion, tenantId]);
+    `, [scanId, report.rows, report.comparedPairs, report.skippedBlocks, report.skippedPairs, JSON.stringify(counts), postgresRdTimestamp(source.watermarkAt), source.watermarkId, source.sourceVersion, tenantId]);
   }
 
   private async reportAlgorithmProgress(scanId: string, tenantId: string, progress: Record<string, unknown>, basePercent: number) {
