@@ -45,4 +45,12 @@ describe("RdQueryService 实时一物多码检索", () => {
     await expect(service.latestScan(readOnlyActor)).resolves.toBeNull();
     expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
+
+  it("可以按扫描 ID 查询增量维护状态而不加载结果明细", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValue([{ id: "scan-1", status: "RUNNING", scanMode: "INCREMENTAL" }]) };
+    const service = new RdQueryService(dataSource as never);
+
+    await expect(service.scanStatus("scan-1", readOnlyActor)).resolves.toMatchObject({ id: "scan-1", status: "RUNNING", scanMode: "INCREMENTAL" });
+    expect(dataSource.query).toHaveBeenCalledWith(expect.stringContaining("WHERE tenant_id=$1 AND id=$2"), ["KAINAN", "scan-1"]);
+  });
 });

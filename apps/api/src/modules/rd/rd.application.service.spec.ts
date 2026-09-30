@@ -21,6 +21,10 @@ function readerOf(rows: unknown[]) {
   };
 }
 
+function itemWithSource(sourceId: string) {
+  return { ...item, source_id: sourceId, item_code: sourceId };
+}
+
 function dataSourceOf() {
   const transactionManager = {
     query: jest.fn()
@@ -53,6 +57,48 @@ describe("E10 增量同步与一物多码维护串联", () => {
     expect(historyScan.start).toHaveBeenCalledWith(actor, "INCREMENTAL", ["item-1"]);
     expect(historyScan.start).not.toHaveBeenCalledWith(actor, "FULL", expect.anything());
     expect(result).toMatchObject({ status: "SUCCESS", changedItems: 1, duplicateScan: { scanMode: "INCREMENTAL" } });
+  });
+
+  it("214 条新增加 13 条修改时，增量查重接收全部 227 个真实变化物料", async () => {
+    const createdSources = Array.from({ length: 214 }, (_, index) => `created-${index + 1}`);
+    const updatedSources = Array.from({ length: 13 }, (_, index) => `updated-${index + 1}`);
+    const updatedSourceSet = new Set(updatedSources);
+    const rows = [...createdSources, ...updatedSources].map(itemWithSource);
+    const transactionManager = {
+      query: jest.fn().mockImplementation((sql: string, params: unknown[]) => {
+        const sourceId = String(params?.[2] ?? "");
+        if (sql.includes("SELECT id,content_hash")) return updatedSourceSet.has(sourceId) ? [{ id: `existing-${sourceId}`, content_hash: "old-hash" }] : [];
+        if (sql.includes("INSERT INTO rd_items")) return [{ id: `created-id-${sourceId}` }];
+        if (sql.includes("UPDATE rd_items SET")) return [[{ id: `updated-id-${sourceId}` }], 1];
+        throw new Error(`未预期的事务 SQL：${sql.slice(0, 80)}`);
+      }),
+    };
+    const dataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "run-227" }])
+        .mockResolvedValueOnce([[{ id: "run-227" }], 1])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      transaction: jest.fn(async (work: (manager: typeof transactionManager) => unknown) => work(transactionManager)),
+    };
+    const historyScan = {
+      hasFailedMaintenance: jest.fn().mockResolvedValue(false),
+      start: jest.fn().mockImplementation(async (_actor: unknown, _mode: string, changedItemIds: string[]) => ({ status: "RUNNING", scanMode: "INCREMENTAL", changedItems: changedItemIds.length })),
+      recordFailure: jest.fn(),
+    };
+    const service = new RdApplicationService(dataSource as never, readerOf(rows) as never, historyScan as never);
+
+    const result = await service.sync("INCREMENTAL", actor);
+
+    expect(result).toMatchObject({ rowsCreated: 214, rowsUpdated: 13, changedItems: 227, duplicateScan: { changedItems: 227 } });
+    const changedItemIds = historyScan.start.mock.calls[0][2] as string[];
+    expect(changedItemIds).toHaveLength(227);
+    expect(changedItemIds).not.toContain(undefined);
+    expect(changedItemIds).toEqual([
+      ...createdSources.map((sourceId) => `created-id-${sourceId}`),
+      ...updatedSources.map((sourceId) => `updated-id-${sourceId}`),
+    ]);
   });
 
   it("查重维护失败不回滚已成功同步的物料，并记录失败以便后续重试", async () => {

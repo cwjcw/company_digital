@@ -34,17 +34,29 @@ export class RdController {
 
 @Controller("internal/rd")
 export class RdInternalController {
-  constructor(private readonly application: RdApplicationService) {}
+  constructor(private readonly application: RdApplicationService, private readonly queries: RdQueryService) {}
 
   @Post("items/sync") sync(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined, @Body() body: { mode?: "FULL" | "INCREMENTAL" }) {
-    if (!process.env.KDOS_RD_INTERNAL_TOKEN || token !== process.env.KDOS_RD_INTERNAL_TOKEN) throw new UnauthorizedException("内部同步凭据无效");
-    if (!tenantId || tenantId !== (process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN")) throw new UnauthorizedException("租户不匹配");
-    return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", { tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-sync", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-${Date.now()}`, source: "api" });
+    this.assertInternal(token, tenantId);
+    return this.application.sync(body.mode === "FULL" ? "FULL" : "INCREMENTAL", this.internalActor(tenantId!, "rd-n8n-sync"));
   }
 
   @Post("material-duplicates/scans") startScan(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined, @Body() body: { mode?: "FULL" | "INCREMENTAL"; changedItemIds?: string[] }) {
+    this.assertInternal(token, tenantId);
+    return this.application.startScan(this.internalActor(tenantId!, "rd-n8n-scan"), body?.mode === "FULL" ? "FULL" : "INCREMENTAL", body?.changedItemIds);
+  }
+
+  @Get("material-duplicates/scans/:id") scanStatus(@Headers("x-kdos-internal-token") token: string | undefined, @Headers("x-kdos-tenant-id") tenantId: string | undefined, @Param("id") scanId: string) {
+    this.assertInternal(token, tenantId);
+    return this.queries.scanStatus(scanId, this.internalActor(tenantId!, "rd-n8n-scan-status"));
+  }
+
+  private assertInternal(token: string | undefined, tenantId: string | undefined) {
     if (!process.env.KDOS_RD_INTERNAL_TOKEN || token !== process.env.KDOS_RD_INTERNAL_TOKEN) throw new UnauthorizedException("内部同步凭据无效");
     if (!tenantId || tenantId !== (process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN")) throw new UnauthorizedException("租户不匹配");
-    return this.application.startScan({ tenantId, userId: "0199e000-0000-7000-8000-000000000001", username: "rd-n8n-scan", permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-scan-${Date.now()}`, source: "api" }, body?.mode === "FULL" ? "FULL" : "INCREMENTAL", body?.changedItemIds);
+  }
+
+  private internalActor(tenantId: string, username: string): RdActor {
+    return { tenantId, userId: "0199e000-0000-7000-8000-000000000001", username, permissions: ["*"], moduleAdminCodes: ["rd"], isSystemAdmin: true, tableDataScopes: [], requestId: `n8n-${Date.now()}`, source: "api" };
   }
 }

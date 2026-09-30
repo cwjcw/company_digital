@@ -1,5 +1,48 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-RD-INCREMENTAL-CHANGED-ID-AND-WAIT-002
+
+任务目标：修复 E10 增量同步中 updated 物料 ID 未完整传入一物多码维护的问题，并让生产 shell 脚本等待增量查重真正完成后再返回退出码。
+
+当前状态：已完成代码修复、内部状态轮询接口、定向/全量 API 验证和脚本 mock 验证，待提交并 API-only 部署。
+
+最后更新时间：2026-09-30
+
+### 已完成
+
+- [x] 修复 TypeORM `UPDATE ... RETURNING` 的 `[rows, affectedCount]` 返回形状，确保 updated item ID 不再变成 `undefined`。
+- [x] 增加 214 created + 13 updated = 227 changed IDs 回归测试。
+- [x] 增加 token 保护的内部扫描状态查询，供 SSH 脚本轮询现有扫描状态数据。
+- [x] 脚本等待 `RUNNING` 扫描，`COMPLETE` 返回 0，`FAILED`/超时返回非 0；不触发 FULL。
+
+### 修改文件
+
+- `apps/api/src/modules/rd/rd.application.service.ts`
+- `apps/api/src/modules/rd/rd.application.service.spec.ts`
+- `apps/api/src/modules/rd/rd.controller.ts`
+- `apps/api/src/modules/rd/rd.query.service.ts`
+- `apps/api/src/modules/rd/rd.query.service.spec.ts`
+- `data-operations/rd-sync/sync-rd-items.sh`
+- `outputs/CODEX_PROGRESS.md`
+
+### 测试
+
+- 定向 API：3 suites，12 tests 通过。
+- API 全量：77 suites 通过，1 suite 按项目既有规则跳过；593 tests 通过，1 test 按项目既有规则跳过。
+- API typecheck/lint/build：通过。
+- shell syntax：通过。
+- mock 脚本 RUNNING→COMPLETE：退出码 0。
+- mock 脚本 RUNNING→FAILED：退出码非 0。
+- 未执行真实 E10 同步或 FULL 查重。
+
+### 下一步
+
+1. 提交代码并执行 API-only 部署。
+2. 健康检查和部署后版本核验。
+3. 完成最终报告。
+
+---
+
 ## 当前任务：KDOS-RD-DAILY-INCREMENTAL-SYNC-SCRIPT-001
 
 任务目标：新增生产用 `data-operations/rd-sync/sync-rd-items.sh`，调用研发中心 E10 INCREMENTAL 内部同步接口，复用生产 token/租户配置，并以可靠退出码供 n8n SSH Command 调用。
