@@ -2351,3 +2351,57 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - API/Web：API 与 Web 均部署，版本一致性检查通过。
 - 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
 - 浏览器：研发中心相关 Playwright 用例 4/4 通过。
+
+# 当前任务：KDOS-RD-FILTER-LAYOUT-007
+
+任务目标：将研发中心一物多码检测查询条件调整为桌面端单行紧凑布局，保留现有查询语义、API 参数、关键词高亮和权限逻辑，并完成 Web 测试、构建与 Web-only 部署。
+
+当前状态：已完成前端布局调整、专项浏览器测试、完整 Web tests、typecheck、lint 和 build，待 Web-only 部署。
+
+## 当前阶段
+
+当前阶段：交付前部署
+
+当前子任务：部署 Web 构建并执行健康检查和研发中心页面核验。
+
+## 已完成
+
+- [x] 读取当前项目进度、工作区状态和 KDOS 表单/筛选规范。
+- [x] 确认当前查询仍由 `draftFilters` / `appliedFilters` 驱动，未发现需要修改 API 参数或后端逻辑。
+- [x] 将品号、品名、规格、最低匹配分、分类、每页条数和查询/重置按钮改为紧凑 Grid 筛选条，桌面端保持单行。
+- [x] 窄屏使用响应式网格换行；查询、关键词高亮和管理员全量计算逻辑未改变。
+- [x] 专项浏览器测试 4/4 通过。
+- [x] Web 完整测试：27 个测试文件、167 个测试通过。
+- [x] Web typecheck、lint、build 通过；lint 仅保留既有 Fast Refresh 警告。
+
+## 正在进行
+
+- [x] 修改筛选区 JSX/CSS 布局。
+- [x] 补充桌面单行、紧凑间距和窄屏响应式测试。
+
+## 待完成
+
+- [x] 运行 Web tests、typecheck、lint、build。
+- [ ] Web-only 部署、健康检查和页面核验。
+- [ ] 更新最终交付记录并确认工作区干净。
+
+## 修改文件
+
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无。本轮只调整前端展示布局。
+
+## 当前已知问题
+
+- 无。
+
+## 下一步
+
+1. [x] 修改查询区布局并补充测试。
+2. [x] 运行 Web 验证。
+3. [ ] Web-only 部署并完成交付记录。

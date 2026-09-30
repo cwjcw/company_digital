@@ -211,13 +211,34 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
       </div>
       <div className="rd-results-heading"><Typography.Title level={5}>查重结果</Typography.Title></div>
       <div className="rd-history-filters">
-        <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
-        <Input value={draftFilters.code} onChange={(event) => updateDraftFilter("code", event.target.value)} placeholder="品号" allowClear />
-        <Input value={draftFilters.name} onChange={(event) => updateDraftFilter("name", event.target.value)} placeholder="品名" allowClear />
-        <Input value={draftFilters.spec} onChange={(event) => updateDraftFilter("spec", event.target.value)} placeholder="规格" allowClear />
-        <InputNumber min={0} max={100} value={draftFilters.minScore ?? undefined} onChange={(value) => updateDraftFilter("minScore", value)} placeholder="最低匹配分" />
-        <Select value={historyPageSize} onChange={(value) => { setHistoryPageSize(value); setHistoryPage(1); }} options={[{ value: 20, label: "每页 20" }, { value: 50, label: "每页 50" }, { value: 100, label: "每页 100" }]} />
-        <Button onClick={resetHistory}>重置</Button><Button type="primary" onClick={applyQuery}>查询</Button>
+        <label className="rd-history-filter-item rd-history-filter-code" data-testid="rd-filter-code">
+          <span className="rd-history-filter-label">品号</span>
+          <Input value={draftFilters.code} onChange={(event) => updateDraftFilter("code", event.target.value)} placeholder="品号" allowClear />
+        </label>
+        <label className="rd-history-filter-item rd-history-filter-name" data-testid="rd-filter-name">
+          <span className="rd-history-filter-label">品名</span>
+          <Input value={draftFilters.name} onChange={(event) => updateDraftFilter("name", event.target.value)} placeholder="品名" allowClear />
+        </label>
+        <label className="rd-history-filter-item rd-history-filter-spec" data-testid="rd-filter-spec">
+          <span className="rd-history-filter-label">规格</span>
+          <Input value={draftFilters.spec} onChange={(event) => updateDraftFilter("spec", event.target.value)} placeholder="规格" allowClear />
+        </label>
+        <label className="rd-history-filter-item rd-history-filter-score" data-testid="rd-filter-score">
+          <span className="rd-history-filter-label">最低匹配分</span>
+          <InputNumber min={0} max={100} value={draftFilters.minScore ?? undefined} onChange={(value) => updateDraftFilter("minScore", value)} placeholder="分数" />
+        </label>
+        <div className="rd-history-filter-item rd-history-filter-category" data-testid="rd-filter-category">
+          <span className="rd-history-filter-label">分类</span>
+          <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
+        </div>
+        <label className="rd-history-filter-item rd-history-filter-page-size" data-testid="rd-filter-page-size">
+          <span className="rd-history-filter-label">每页</span>
+          <Select aria-label="每页条数" value={historyPageSize} onChange={(value) => { setHistoryPageSize(value); setHistoryPage(1); }} options={[{ value: 20, label: "20 条" }, { value: 50, label: "50 条" }, { value: 100, label: "100 条" }]} />
+        </label>
+        <div className="rd-history-filter-actions" data-testid="rd-filter-actions">
+          <Button type="primary" onClick={applyQuery}>查询</Button>
+          <Button onClick={resetHistory}>重置</Button>
+        </div>
       </div>
       {scanQuery.isError && <Alert type="error" showIcon message={(scanQuery.error as Error).message} />}
       {status === "RUNNING" ? <div className="rd-scan-running"><Typography.Text>后台任务正在运行，页面会自动刷新进度。</Typography.Text></div> : status === "COMPLETE" ? <>

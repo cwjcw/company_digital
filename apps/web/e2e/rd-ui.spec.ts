@@ -38,6 +38,14 @@ test("研发中心一物多码检测全量扫描与 A/B 对照", async ({ page }
   await expect(page.getByTitle("高相似")).toBeVisible();
 
   await expect(page.getByRole("button", { name: /查\s*询/ })).toBeVisible();
+  const desktopFilterLayout = await page.evaluate(() => ["code", "name", "spec", "score", "category", "page-size", "actions"].map((key) => {
+    const element = document.querySelector(`[data-testid="rd-filter-${key}"]`);
+    if (!element) throw new Error(`missing filter ${key}`);
+    const rect = element.getBoundingClientRect();
+    return { key, top: Math.round(rect.top), width: Math.round(rect.width) };
+  }));
+  expect(new Set(desktopFilterLayout.map((item) => item.top)).size).toBe(1);
+  expect(desktopFilterLayout.find((item) => item.key === "name")!.width).toBeGreaterThan(desktopFilterLayout.find((item) => item.key === "code")!.width);
   await expect(page.getByRole("button", { name: "更新查重" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "全量重建" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "全量计算" })).toBeVisible();
@@ -91,6 +99,12 @@ test("研发中心一物多码对照在窄屏下保留两条物料行并允许�
   await expect(page.getByTestId("rd-compare-row-b")).toBeVisible();
   await expect(page.locator(".rd-compare-row")).toHaveCount(2);
   await expect(page.locator(".rd-compare-grid-body")).toHaveCount(0);
+  const narrowFilterTops = await page.evaluate(() => ["code", "name", "spec", "score", "category", "page-size", "actions"].map((key) => {
+    const element = document.querySelector(`[data-testid="rd-filter-${key}"]`);
+    if (!element) throw new Error(`missing filter ${key}`);
+    return Math.round(element.getBoundingClientRect().top);
+  }));
+  expect(new Set(narrowFilterTops).size).toBeGreaterThan(1);
 });
 
 test("研发中心物料数据页保留总数与搜索字段入口", async ({ page }) => {
