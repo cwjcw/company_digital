@@ -12,7 +12,7 @@
 
 ### 阶段 1：通知内核通用化
 
-状态：🟨 进行中（任务 `KDOS-NOTIFICATION-EVENT-REGISTRY-006`）
+状态：✅ 完成（任务 `KDOS-NOTIFICATION-EVENT-REGISTRY-006`）
 
 目标：建立唯一 Notification Event Registry，将现有 `equipment.status.fault_changed` 迁入注册中心，移除 claim 主流程中的设备资源硬编码，并保持现有设备通知、动态接收人、消息格式与 TEST MODE 零回归。
 
@@ -40,9 +40,13 @@
 
 测试：通知专项 5 suites / 35 tests；API 全量 79 suites / 607 tests 通过（另有 1 suite / 1 test 按既有规则跳过）；Web 全量 27 files / 167 tests；Dispatcher Python 6 tests；全仓 lint、typecheck、build 全部通过。
 
-部署、真实验证、Git SHA：待提交与 API-only 部署后补录。
+部署：无数据库结构变化、无 migration；实施提交 `83a9fe1` 已推送 `github/main`，`./scripts/deploy.sh api` 成功，API Build 与实施提交一致。Web 无代码修改，按任务约束未做无意义重建；因此全量 SHA check 会保留旧 Web Build，但 Web、API、PostgreSQL 三个服务均为 healthy。
 
-已知问题：本机 Node.js v22.23.1 低于项目目标 Node.js 24，pnpm 有 engine warning，但全部本地门禁实际通过；正式容器继续使用项目规定运行时。
+验证：Web、API health、OpenAPI、Swagger 均返回 HTTP 200；部署容器内 Registry 只包含 `equipment.status.fault_changed` 及 11 个正式模板变量；Dispatcher user-systemd 为 `active/running`、`NRestarts=0` 并持续空队列轮询。生产数据只读核验显示最近三条投递均为 `equipment.status.fault_changed / SENT / TEST MODE / CuiWeiJie`。本任务未制造新业务数据，也未重复发送企业微信。
+
+Git SHA：核心实现提交 `83a9fe1`（`refactor(notifications): add event registry`）；总控与部署结果补录使用后续文档提交，详见 Git 历史。
+
+已知问题：本机 Node.js v22.23.1 低于项目目标 Node.js 24，pnpm 有 engine warning，但全部本地门禁实际通过；正式 API 容器已使用 Node.js 24 构建。无本任务新增运行问题。
 
 ### 阶段 2：出货 / 备货计划变化
 

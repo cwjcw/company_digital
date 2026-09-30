@@ -6,7 +6,7 @@
 
 任务目标：建立唯一 Notification Event Registry，将现有设备故障事件迁入注册中心，移除通知 claim 主流程的设备资源硬编码，并保持接收人动态解析、TEST MODE、Dispatcher 契约和消息格式兼容。
 
-当前状态：代码、文档和全部本地质量门禁已完成；待提交、推送、API-only 部署与线上核验。
+当前状态：已完成
 
 最后更新时间：2026-09-30
 
@@ -14,9 +14,9 @@
 
 ## 当前阶段
 
-当前阶段：交付与部署
+当前阶段：交付完成
 
-当前子任务：提交推送后执行 API-only 部署、健康检查、Dispatcher 状态及安全链路验证。
+当前子任务：阶段 1 已收口；阶段 2 出货 / 备货计划变化为下一任务，本次未开始。
 
 ---
 
@@ -34,18 +34,24 @@
 - [x] 保持设备触发条件、消息格式、强制 TEST MODE 和 Python Dispatcher 业务无感。
 - [x] 建立并维护 `docs/KDOS_企业微信通知开发总控.md`，阶段 2 仅标记为下一步。
 - [x] 完成通知专项及全量质量门禁。
+- [x] 核心实现提交 `83a9fe1` 已推送 `github/main`。
+- [x] API-only 部署成功；API Build 与实施提交一致，正式容器使用 Node.js 24。
+- [x] Web/API/OpenAPI/Swagger HTTP 200，API/Web/PostgreSQL healthy。
+- [x] Dispatcher user-systemd `active/running`、`NRestarts=0`，持续正常空队列轮询。
+- [x] 部署容器 Registry 只包含设备故障正式事件和 11 个模板变量。
+- [x] 生产数据只读确认最近正式链路为 `equipment.status.fault_changed / SENT / TEST MODE / CuiWeiJie`；本轮未制造新业务数据或重复实发。
 
 ---
 
 ## 正在进行
 
-- [ ] 提交、推送、API-only 部署与运行环境核验。
+- 无。
 
 ---
 
 ## 待完成
 
-- [ ] 更新总控与本进度的部署、验证和 Git SHA，形成最终报告。
+- 无；阶段 2 属于下一独立任务。
 
 ---
 
@@ -100,7 +106,8 @@
 
 ## 当前已知问题
 
-- 本机 Node.js 为 v22.23.1，低于项目目标 Node.js 24，pnpm 输出 engine warning；测试、类型检查、lint 和构建均实际通过，正式 Docker 构建继续使用项目规定运行时。
+- 本机 Node.js 为 v22.23.1，低于项目目标 Node.js 24，pnpm 输出 engine warning；全部门禁实际通过，正式 API 镜像使用 Node.js 24 构建。
+- Web 无代码修改，按任务要求未重建，因此 `deploy.sh check` 显示 Web Build 仍为 `4349f0b`；这不影响本次 API-only 交付，Web 服务健康。
 
 ---
 
@@ -112,9 +119,9 @@
 
 ## 下一步
 
-1. 提交并推送 `github/main`。
-2. 执行 `./scripts/deploy.sh api` 与 `./scripts/deploy.sh check`。
-3. 检查健康状态、Dispatcher active/running 和安全通知链路，再补录最终 SHA/验证结果。
+1. 下一独立任务为阶段 2：出货 / 备货计划变化。
+2. 开始阶段 2 前先读取 `docs/KDOS_企业微信通知开发总控.md` 和本进度顶部记录。
+3. 不在本任务继续扩展其他事件或渠道。
 
 ---
 
