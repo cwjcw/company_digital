@@ -44,7 +44,9 @@ test("研发中心一物多码检测全量扫描与 A/B 对照", async ({ page }
     const rect = element.getBoundingClientRect();
     return { key, top: Math.round(rect.top), width: Math.round(rect.width) };
   }));
-  expect(new Set(desktopFilterLayout.map((item) => item.top)).size).toBe(1);
+  const firstRowTop = desktopFilterLayout.find((item) => item.key === "code")!.top;
+  expect(new Set(desktopFilterLayout.filter((item) => item.key !== "category").map((item) => item.top)).size).toBe(1);
+  expect(desktopFilterLayout.find((item) => item.key === "category")!.top).toBeGreaterThan(firstRowTop);
   expect(desktopFilterLayout.find((item) => item.key === "name")!.width).toBeGreaterThan(desktopFilterLayout.find((item) => item.key === "code")!.width);
   await expect(page.getByRole("button", { name: "更新查重" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "全量重建" })).toHaveCount(0);

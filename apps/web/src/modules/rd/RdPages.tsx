@@ -227,10 +227,6 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
           <span className="rd-history-filter-label">最低匹配分</span>
           <InputNumber min={0} max={100} value={draftFilters.minScore ?? undefined} onChange={(value) => updateDraftFilter("minScore", value)} placeholder="分数" />
         </label>
-        <div className="rd-history-filter-item rd-history-filter-category" data-testid="rd-filter-category">
-          <span className="rd-history-filter-label">分类</span>
-          <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
-        </div>
         <label className="rd-history-filter-item rd-history-filter-page-size" data-testid="rd-filter-page-size">
           <span className="rd-history-filter-label">每页</span>
           <Select aria-label="每页条数" value={historyPageSize} onChange={(value) => { setHistoryPageSize(value); setHistoryPage(1); }} options={[{ value: 20, label: "20 条" }, { value: 50, label: "50 条" }, { value: 100, label: "100 条" }]} />
@@ -238,6 +234,10 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
         <div className="rd-history-filter-actions" data-testid="rd-filter-actions">
           <Button type="primary" onClick={applyQuery}>查询</Button>
           <Button onClick={resetHistory}>重置</Button>
+        </div>
+        <div className="rd-history-filter-item rd-history-filter-category" data-testid="rd-filter-category">
+          <span className="rd-history-filter-label">分类</span>
+          <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
         </div>
       </div>
       {scanQuery.isError && <Alert type="error" showIcon message={(scanQuery.error as Error).message} />}

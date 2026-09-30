@@ -2414,3 +2414,63 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - API：保持已部署版本不变；本轮无 API 修改。
 - 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
 - 浏览器：研发中心筛选布局、权限、查询高亮与 A/B 布局专项 Playwright 4/4 通过。
+
+# 当前任务：KDOS-RD-FILTER-LAYOUT-008
+
+任务目标：将研发中心一物多码检测查询区调整为两行布局：第一行放品号、品名、规格、最低匹配分、每页条数及查询/重置，第二行单独放四项分类筛选；保持查询、分类状态、关键词高亮、A/B 结果和权限逻辑不变。
+
+当前状态：已完成布局修改、专项浏览器测试、完整 Web tests、typecheck、lint、build、Web-only 部署和健康检查。
+
+## 当前阶段
+
+当前阶段：已完成
+
+当前子任务：记录最终交付结果。
+
+## 已完成
+
+- [x] 保留现有 `Segmented` 分类组件和筛选逻辑，仅调整其布局位置。
+- [x] 第一行恢复可读宽度，品号、品名、规格、最低匹配分、每页条数及查询/重置同排。
+- [x] 四项分类独立放到第二行，窄屏按响应式规则自然换行。
+- [x] A/B 对照卡片及差异/关键词高亮未修改。
+- [x] 专项浏览器测试 4/4 通过。
+- [x] Web 完整测试：27 个测试文件、167 个测试通过。
+- [x] Web typecheck、lint、build 通过；lint 仅保留既有 Fast Refresh 警告。
+
+## 正在进行
+
+- [x] Web-only 部署、健康检查和页面核验。
+
+## 待完成
+
+- [x] 更新最终交付记录并确认工作区干净。
+
+## 修改文件
+
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+- `outputs/CODEX_PROGRESS.md`
+
+## 数据库 Migration
+
+- 无。本轮只调整前端布局，未修改 API、数据库、同步、watermark 或查重算法。
+
+## 当前已知问题
+
+- 无新增问题；完整 Web 测试首次并发运行时出现的非相关 AdminWorkspace 超时已通过重跑确认通过。
+
+## 下一步
+
+1. [x] 修改两行查询布局并补充测试。
+2. [x] 运行 Web tests、typecheck、lint、build。
+3. [x] Web-only 部署并完成交付记录。
+
+## 最终交付记录
+
+- 提交：最终交付提交（以仓库 HEAD 为准）。
+- Migration：无；未修改 API、数据库、同步、watermark 或查重算法。
+- Web：Web-only 部署成功，Web build 与仓库 HEAD 一致。
+- API：保持已部署版本不变；本轮无 API 修改。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 浏览器：两行筛选布局与研发中心回归用例 4/4 通过。
