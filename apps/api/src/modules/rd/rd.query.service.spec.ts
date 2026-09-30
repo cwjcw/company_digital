@@ -1,9 +1,13 @@
+import { ForbiddenException } from "@nestjs/common";
 import { RdQueryService } from "./rd.query.service";
 
 describe("RdQueryService 实时一物多码检索", () => {
   const actor = {
     tenantId: "KAINAN", userId: "user-1", username: "研发管理员", permissions: ["*"], moduleAdminCodes: ["rd"],
     isSystemAdmin: true, tableDataScopes: [], requestId: "request-1", source: "web" as const,
+  };
+  const readOnlyActor = {
+    ...actor, isSystemAdmin: false, moduleAdminCodes: [], permissions: ["rd-material-duplicates:*:read"],
   };
 
   it("扫描租户物料全库，limit 只控制 Top N 返回数量", async () => {
@@ -22,5 +26,23 @@ describe("RdQueryService 实时一物多码检索", () => {
     expect(dataSource.query.mock.calls[1]?.[1]).toEqual(["KAINAN"]);
     expect(result).toMatchObject({ rowsScanned: 2, limit: 10 });
     expect(result.results[0]).toMatchObject({ code: "LATE-304", score: 100 });
+  });
+
+  it("没有一物多码查询权限时，查询接口在数据库访问前返回 403", async () => {
+    const dataSource = { query: jest.fn() };
+    const service = new RdQueryService(dataSource as never);
+    const noReadActor = { ...readOnlyActor, permissions: ["rd-items:*:read"] };
+
+    await expect(service.latestScan(noReadActor)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.check({ itemName: "304内六角螺钉" }, noReadActor)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it("只有一物多码查询权限时，可以查询已保存结果", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValue([]) };
+    const service = new RdQueryService(dataSource as never);
+
+    await expect(service.latestScan(readOnlyActor)).resolves.toBeNull();
+    expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
 });

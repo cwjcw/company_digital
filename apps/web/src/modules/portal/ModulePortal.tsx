@@ -6,6 +6,7 @@ import { App as AntApp, Button, Space, Tag, Typography } from "antd";
 import { useState } from "react";
 import { api } from "../../api";
 import { BuildVersionLabel } from "../../shared/BuildVersion";
+import { hasSessionResourcePermission } from "../../shared/KdosDataTable";
 
 const { Text, Title } = Typography;
 
@@ -113,6 +114,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   const [savingOrder, setSavingOrder] = useState(false);
   const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
   const canSee = (module: PortalModule) => module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
+  const canSeeRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);
   const visibleModules = orderedModules.filter(canSee);
   const mergeVisibleOrder = (visibleOrder: PortalModuleId[]) => {
@@ -185,7 +187,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
             </span> : <ArrowRightOutlined className="portal-module-arrow" />}</span>
             <span className="portal-module-name">{module.id !== "rd" && <small>{module.englishTitle}</small>}<strong>{module.title}</strong></span>
             <span className="portal-module-description">{module.description}</span>
-            <span className="portal-module-features">{module.features.map((feature) => <Tag key={feature}>{feature}</Tag>)}</span>
+            <span className="portal-module-features">{module.features.filter((feature) => feature !== "一物多码检测" || canSeeRdDuplicates).map((feature) => <Tag key={feature}>{feature}</Tag>)}</span>
           </>;
           return ordering
             ? <div key={module.id} draggable className={`portal-module-card portal-module-card-ordering portal-tone-${module.tone}${draggingId === module.id ? " dragging" : ""}`} aria-label={`排列${module.title}`}

@@ -3,6 +3,24 @@ import { standardProcesses } from "@tracker/shared";
 export const tablePermissionActions = ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"] as const;
 export type TablePermissionAction = typeof tablePermissionActions[number];
 
+/** 用户可见的通用操作名称；权限键仍只使用稳定的英文 action。 */
+export const tablePermissionActionLabels: Record<TablePermissionAction, string> = {
+  read: "查看", create: "添加", copy: "复制", update: "编辑", delete: "删除",
+  batch_print: "批量打印", batch_update: "批量修改", import: "导入", export: "导出"
+};
+
+/** 资源可以声明业务化的操作名称，但仍复用同一组 read/update 权限动作。 */
+export const tableResourcePermissionActionLabels: Partial<Record<string, Partial<Record<TablePermissionAction, string>>>> = {
+  "rd-material-duplicates": {
+    read: "一物多码查询",
+    update: "一物多码全量计算"
+  }
+};
+
+export function tablePermissionActionLabel(resource: string, action: TablePermissionAction) {
+  return tableResourcePermissionActionLabels[resource]?.[action] ?? tablePermissionActionLabels[action];
+}
+
 export const presetPermissionGroupTypes = ["ADD_ONLY", "ADD_MANAGE_OWN", "ADD_VIEW_ALL", "MANAGE_ALL", "VIEW_ALL"] as const;
 export type PresetPermissionGroupType = typeof presetPermissionGroupTypes[number];
 

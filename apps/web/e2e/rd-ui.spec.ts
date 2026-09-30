@@ -2,14 +2,16 @@ import { expect, test, type Page } from "@playwright/test";
 
 const user = { sub: "u-rd-admin", username: "admin", displayName: "研发管理员", roles: ["系统管理员"], isSystemAdmin: true, moduleAdminCodes: ["rd"], permissions: ["*"], divisions: "*", mustChangePassword: false };
 const ordinaryUser = { sub: "u-rd-reader", username: "reader", displayName: "研发查询人员", roles: ["研发查询"], isSystemAdmin: false, moduleAdminCodes: [], permissions: ["rd-material-duplicates:*:read"], divisions: [], mustChangePassword: false };
+const calculatorUser = { sub: "u-rd-calculator", username: "calculator", displayName: "研发计算人员", roles: ["研发计算"], isSystemAdmin: false, moduleAdminCodes: [], permissions: ["rd-material-duplicates:*:read", "rd-material-duplicates:*:update"], divisions: [], mustChangePassword: false };
+const noReadUser = { sub: "u-rd-no-read", username: "no-read", displayName: "研发其他人员", roles: ["研发其他"], isSystemAdmin: false, moduleAdminCodes: [], permissions: ["rd-items:*:read"], divisions: [], mustChangePassword: false };
 
-async function mockRdApi(page: Page, sessionUser = user) {
+async function mockRdApi(page: Page, sessionUser = user, requestLog: string[] = []) {
   await page.route("**/api/v1/auth/login", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ accessToken: "rd-test-token", refreshToken: "refresh", user: sessionUser }) }));
   await page.route("**/api/v1/auth/me", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify(sessionUser) }));
   await page.route("**/api/v1/table-filters/resources", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify([]) }));
   await page.route("**/api/v1/rd/items**", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [], total: 0, page: 1, pageSize: 100 }) }));
   await page.route("**/api/v1/rd/items/status", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ activeItemCount: 574544, lastSuccessfulSyncAt: "2026-09-29 19:11:57", latestSync: { status: "SUCCESS", finishedAt: "2026-09-29 19:11:57" } }) }));
-  await page.route("**/api/v1/rd/material-duplicates/scans/latest", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", scanMode: "FULL", rows: 574544, itemCount: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634 }) }));
+  await page.route("**/api/v1/rd/material-duplicates/scans/latest", (route: any) => { requestLog.push("latest"); return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", scanMode: "FULL", rows: 574544, itemCount: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634 }) }); });
   await page.route("**/api/v1/rd/material-duplicates/scans", async (route: any) => {
     if (route.request().method() === "POST") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "RUNNING", stage: "读取物料" }) });
     return route.continue();
@@ -17,10 +19,15 @@ async function mockRdApi(page: Page, sessionUser = user) {
   await page.route("**/api/v1/rd/material-duplicates/scans/rd-test-scan?*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", rows: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634, groups: [{ id: "g-1", groupNo: 1, kind: "similar", score: 93.2, reason: "名称和规格接近", warnings: ["材质需确认"], memberCount: 2, distinctCodes: 2, records: [{ row: 10, code: "A-304", name: "左直段外不锈钢折板", spec: "M6*20" }, { row: 20, code: "B-201", name: "直段外不锈钢折板", spec: "M6*20" }] }] }) }));
 }
 
+async function mockPermissionConfig(page: Page) {
+  await page.route("**/api/v1/admin/table-permission-groups*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify([]) }));
+  await page.route("**/api/v1/admin/table-permission-context*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ roles: [], roleGroups: [], users: [], organizations: [] }) }));
+}
+
 test("研发中心一物多码检测全量扫描与 A/B 对照", async ({ page }) => {
-  await mockRdApi(page);
+  await mockRdApi(page, calculatorUser);
   await page.goto("/");
-  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("用户名").fill("calculator");
   await page.getByLabel("密码").fill("test");
   await page.locator('button[type="submit"]').click();
   await expect(page.locator(".portal-module-grid")).toBeVisible();
@@ -87,6 +94,31 @@ test("研发中心普通用户只能查询已有结果", async ({ page }) => {
   await expect(page.getByRole("button", { name: /重\s*置/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "全量计算" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "更新查重" })).toHaveCount(0);
+});
+
+test("没有一物多码查询权限时不显示入口且直接访问被拦截", async ({ page }) => {
+  const requestLog: string[] = [];
+  await mockRdApi(page, noReadUser, requestLog);
+  await page.goto("/");
+  await page.getByLabel("用户名").fill("no-read");
+  await page.getByLabel("密码").fill("test");
+  await page.locator('button[type="submit"]').click();
+  await expect(page.getByText("一物多码检测", { exact: true })).toHaveCount(0);
+  await page.goto("/rd/material-duplicates");
+  await expect(page).toHaveURL(/\/$/);
+  expect(requestLog).toEqual([]);
+});
+
+test("权限管理界面显示一物多码独立查询和全量计算权限", async ({ page }) => {
+  await mockRdApi(page);
+  await mockPermissionConfig(page);
+  await page.goto("/");
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("test");
+  await page.locator('button[type="submit"]').click();
+  await page.goto("/permissions/rd-material-duplicates?from=/rd/material-duplicates");
+  await expect(page.getByTestId("permission-resource-actions")).toContainText("一物多码查询");
+  await expect(page.getByTestId("permission-resource-actions")).toContainText("一物多码全量计算");
 });
 
 test("研发中心一物多码对照在窄屏下保留两条物料行并允许换行", async ({ page }) => {

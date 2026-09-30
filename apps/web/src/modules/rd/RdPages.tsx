@@ -155,6 +155,7 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
   const [appliedFilters, setAppliedFilters] = useState<DuplicateFilters>(emptyDuplicateFilters);
   const latestScan = useQuery({ queryKey: ["rd-latest-scan"], queryFn: () => api<Scan | null>("/rd/material-duplicates/scans/latest") });
   const canRunFullCalculation = hasSessionResourcePermission(user, "rd-material-duplicates", "update");
+  const canManagePermission = user.isSystemAdmin === true || user.moduleAdminCodes?.includes("rd") === true;
 
   const updateDraftFilter = <K extends keyof DuplicateFilters>(key: K, value: DuplicateFilters[K]) => {
     setDraftFilters((current) => ({ ...current, [key]: value }));
@@ -194,7 +195,7 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
     }
   };
   return <div className="rd-page rd-duplicates-page">
-    <PageHeader title="一物多码检测" />
+    <PageHeader title="一物多码检测" actions={canManagePermission ? <Button href="/permissions/rd-material-duplicates?from=/rd/material-duplicates">权限管理</Button> : undefined} />
     <Alert type="warning" showIcon message="匹配分仅用于排序和辅助判断，不是重复概率。系统不会自动删除、合并或认定两个品号相同，请由研发人员人工确认。" className="rd-notice" />
     <Typography.Paragraph type="secondary" className="rd-full-scan-description">对当前物料库全部物料进行查重分析，识别可能存在的一物多码、名称规格一致、同名规格缺失及同品号多记录等情况，结果供人工核对。</Typography.Paragraph>
 

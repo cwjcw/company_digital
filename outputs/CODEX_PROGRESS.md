@@ -1,3 +1,81 @@
+# Codex 工作进度
+
+## 当前任务：KDOS-RD-MATERIAL-DUPLICATES-PERMISSIONS-001
+
+任务目标：在现有 KDOS resource/action 权限体系中补齐研发中心“一物多码查询”独立 read 权限的注册展示，并确保菜单、路由、查询 API 与全量计算 API 按 `rd-material-duplicates:read/update` 一致拦截；不修改查重算法、同步、数据库结果或 RLS。
+
+当前状态：权限注册展示、前端入口拦截、API/Web 测试、类型检查、lint、构建和研发中心浏览器验收已完成，待提交并 Web-only 部署。
+
+最后更新时间：2026-09-30
+
+### 当前阶段
+
+当前阶段：权限注册与前后端权限边界核对
+
+当前子任务：增加资源级动作显示名，接入研发中心一物多码菜单/路由 read 校验，并补充三类权限用户测试。
+
+### 已完成
+
+- [x] 确认 `rd-material-duplicates` 已在统一 `tableResourceRegistry` 注册，`moduleCode=rd`。
+- [x] 确认后端查询相关接口已经使用 `rd-material-duplicates:read`，FULL 扫描已经额外使用 `rd-material-duplicates:update`。
+- [x] 确认前端目前仅用 update 控制“全量计算”，但研发中心一物多码菜单和路由尚未使用 read 控制。
+
+### 正在进行
+
+- [x] 补齐资源动作中文名称并接入现有权限配置页。
+- [x] 补齐前端菜单、路由和权限管理入口的现有体系复用。
+- [x] 增加 API/Web/权限 UI 测试并完成部署前验收。
+
+### 待完成
+
+- [x] Web tests、API tests、typecheck、lint、build。
+- [ ] Web-only/API 按实际改动部署与健康检查。
+- [x] 三类权限用户浏览器验收并形成最终报告。
+
+### 修改文件
+
+- packages/contracts/src/index.ts
+- packages/contracts/src/index.test.ts
+- apps/web/src/App.tsx
+- apps/web/src/modules/portal/ModulePortal.tsx
+- apps/web/src/modules/permissions/TablePermissionsPage.tsx
+- apps/web/src/modules/rd/RdPages.tsx
+- apps/web/e2e/rd-ui.spec.ts
+- apps/api/src/modules/rd/rd.query.service.spec.ts
+- apps/api/src/modules/rd/rd-history-scan.service.spec.ts
+- outputs/CODEX_PROGRESS.md
+
+### 数据库 Migration
+
+- Contracts：22/22 通过。
+- API 研发中心权限定向测试：2 suites、6 tests 通过。
+- Web 单元测试：27 files、167 tests 通过。
+- Web E2E rd-ui.spec.ts：6/6 通过（管理员计算、read-only 查询、无 read 拦截、权限管理展示及既有 UI）。
+- Web/API/contracts typecheck：通过。
+- Web/API lint：通过；保留项目既有 ModulePortal.tsx Fast Refresh warning。
+- workspace build：通过；保留既有 Web 大 chunk warning。
+- git diff --check：通过。
+
+### API / 算法 / 同步
+
+- 无计划修改。
+
+### 当前已知问题
+
+- 首次错误传入 E2E grep 参数导致启动全量 E2E，已中止；其中其他模块登录测试失败与本任务无关，之后直接运行 rd-ui.spec.ts 6/6 通过。
+
+### 下一步
+
+1. 提交当前权限注册与验收变更。
+2. 执行 Web-only 部署并做健康检查。
+3. 部署后复核权限管理页和三类用户浏览器行为。
+
+### 恢复执行说明
+
+继续本任务时，先检查本节、`git status` 与 `git diff --stat`；沿用现有权限注册和后端校验，不重做已完成的查重、扫描或同步实现。
+
+---
+
 # 当前任务：KDOS-RD-FRONTEND-COPY-002
 
 任务目标：仅调整研发中心前端用户可见文案，明确快速检索的真实排序依据，移除研发中心英文模块标题和开发过程描述；不修改 API、算法、业务逻辑、路由、moduleCode、数据库或同步。

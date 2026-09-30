@@ -32,7 +32,7 @@ import { OrganizationPage } from "./modules/admin/OrganizationPage";
 import { TablePermissionsPage } from "./modules/permissions/TablePermissionsPage";
 import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesPages";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
-import { KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
+import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
@@ -159,9 +159,11 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
   const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
+  const canReadRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
   if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
+  if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
@@ -239,7 +241,7 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     rd: [{ key: "rd-root", label: "研发中心", children: [
       { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
-      { key: "/rd/material-duplicates", icon: <ReadOutlined />, label: "一物多码检测" }
+      ...(canReadRdDuplicates ? [{ key: "/rd/material-duplicates", icon: <ReadOutlined />, label: "一物多码检测" }] : [])
     ] }],
     system: [{ key: "system-root", label: "系统管理", children: isSystemAdmin ? [
       { key: "system-master", label: "基础资料", children: [

@@ -3,7 +3,7 @@ import {
   auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
   isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
-  supervisionPriorityOptions, tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
+  supervisionPriorityOptions, tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionActionLabel, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
 } from "./index";
 import { standardProcesses } from "@tracker/shared";
 
@@ -76,6 +76,16 @@ describe("KN-FILTER-001 field metadata audit gate", () => {
     expect(field.type).toBe("dictionary");
     expect(isTableFieldFilterable(field)).toBe(true);
     expect(tableFilterOperatorsFor(field).map((entry) => entry.operator)).toContain("in");
+  });
+});
+
+describe("研发中心一物多码权限注册", () => {
+  it("在统一资源动作体系中注册独立的查询和全量计算显示名称", () => {
+    const resource = tableResourceRegistry.find((entry) => entry.code === "rd-material-duplicates");
+    expect(resource).toMatchObject({ label: "一物多码检测", module: "研发中心", moduleCode: "rd" });
+    expect(tablePermissionActionLabel("rd-material-duplicates", "read")).toBe("一物多码查询");
+    expect(tablePermissionActionLabel("rd-material-duplicates", "update")).toBe("一物多码全量计算");
+    expect(tablePermissionActionLabel("rd-items", "read")).toBe("查看");
   });
 });
 
