@@ -4,7 +4,7 @@
 
 任务目标：核对并完善 E10 INCREMENTAL 成功后的研发中心一物多码增量维护闭环；只让本批新增/修改物料进入增量计算，比较当前租户全库，维护 rd_item_features 与历史重复关系，保留 E10 watermark 语义，不自动触发 FULL。
 
-当前状态：已完成源码核对、失败隔离与自动重试补齐，待提交并进行 API-only 部署。
+当前状态：已完成源码核对、失败隔离、自动重试补齐、API-only 部署和部署后核验。
 
 最后更新时间：2026-09-30
 
@@ -30,7 +30,7 @@
 - [x] 让查重维护失败不影响 E10 已提交数据，并在 rd_duplicate_scans 记录失败。
 - [x] 让下一次 E10 INCREMENTAL 在无新变更时自动重试最近失败维护；重试按历史基线时间找回之前失败批次。
 - [x] 完成 API 全量回归、构建、部署前检查。
-- [ ] 完成 API-only 部署和部署后运行核验。
+- [x] 完成 API-only 部署和部署后运行核验。
 
 ### 修改文件
 
@@ -56,14 +56,20 @@
 
 ### 当前已知问题
 
-- 线上 API 当前健康版本为 6117587；需要部署本轮 API 变更后，下一次真实 E10 INCREMENTAL 才会使用增强后的失败隔离与自动重试逻辑。
 - 本轮未运行 E10 同步和 FULL 查重，因此未做真实同步触发压力/耗时测试。
+- 线上真实 E10 INCREMENTAL 最近一次仍为 18 行、16 新增，发生在本轮部署前；下一次真实增量同步才会执行本轮增强后的闭环。
 
 ### 下一步
 
-1. 提交并 API-only 部署；不执行同步、不执行 FULL 扫描。
-2. 健康检查、查询运行状态和部署后 API 核验。
-3. 完成最终报告。
+1. 保留本节作为后续真实 E10 INCREMENTAL 运行后的复核入口。
+
+### 部署记录
+
+- 提交：6511fee fix(rd): maintain duplicate results after incremental sync
+- API-only deploy：成功；API Build 与仓库 HEAD 均为 6511fee。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 部署后只读核验：rd_items=574,544；rd_item_features=574,544，覆盖 574,544 个物料；部署前后最新同步/扫描记录未变化。
+- 未执行 E10 INCREMENTAL/FULL，不触发新增业务扫描，不运行 migration。
 
 ---
 
