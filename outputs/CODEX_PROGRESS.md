@@ -2356,13 +2356,13 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 
 任务目标：将研发中心一物多码检测查询条件调整为桌面端单行紧凑布局，保留现有查询语义、API 参数、关键词高亮和权限逻辑，并完成 Web 测试、构建与 Web-only 部署。
 
-当前状态：已完成前端布局调整、专项浏览器测试、完整 Web tests、typecheck、lint 和 build，待 Web-only 部署。
+当前状态：已完成前端布局调整、专项浏览器测试、完整 Web tests、typecheck、lint、build、Web-only 部署和健康检查。
 
 ## 当前阶段
 
-当前阶段：交付前部署
+当前阶段：已完成
 
-当前子任务：部署 Web 构建并执行健康检查和研发中心页面核验。
+当前子任务：记录最终交付结果。
 
 ## 已完成
 
@@ -2382,7 +2382,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 ## 待完成
 
 - [x] 运行 Web tests、typecheck、lint、build。
-- [ ] Web-only 部署、健康检查和页面核验。
+- [x] Web-only 部署、健康检查和页面核验。
 - [ ] 更新最终交付记录并确认工作区干净。
 
 ## 修改文件
@@ -2404,4 +2404,13 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 
 1. [x] 修改查询区布局并补充测试。
 2. [x] 运行 Web 验证。
-3. [ ] Web-only 部署并完成交付记录。
+3. [x] Web-only 部署并完成交付记录。
+
+## 最终交付记录
+
+- 提交：最终交付提交（以仓库 HEAD 为准）。
+- Migration：无；未修改 API、数据库、同步或历史查重结果。
+- Web：Web-only 部署成功，Web build 与仓库 HEAD 一致。
+- API：保持已部署版本不变；本轮无 API 修改。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 浏览器：研发中心筛选布局、权限、查询高亮与 A/B 布局专项 Playwright 4/4 通过。
