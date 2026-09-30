@@ -1,5 +1,41 @@
 # Codex 工作进度
 
+## 当前任务：KDOS-RD-DAILY-INCREMENTAL-SYNC-SCRIPT-001
+
+任务目标：新增生产用 `data-operations/rd-sync/sync-rd-items.sh`，调用研发中心 E10 INCREMENTAL 内部同步接口，复用生产 token/租户配置，并以可靠退出码供 n8n SSH Command 调用。
+
+当前状态：已完成脚本、语法检查、成功/失败路径验证，待提交。
+
+最后更新时间：2026-09-30
+
+### 已完成
+
+- [x] 从当前运行环境或项目根目录 `.env` 读取 `KDOS_RD_INTERNAL_TOKEN`。
+- [x] 从 `KDOS_DEFAULT_TENANT_CODE` 读取租户；未配置时沿用 API 默认租户 `KAINAN`。
+- [x] 固定调用 `POST /api/v1/internal/rd/items/sync` 和 `{"mode":"INCREMENTAL"}`。
+- [x] HTTP、JSON 同步状态和重复维护失败均返回非 0；成功返回 0。
+- [x] 增加并发锁，避免 n8n 重复触发 E10 增量同步。
+- [x] 未执行真实 E10 同步；使用 mock API 验证成功路径，使用不可用 API 验证失败路径。
+
+### 修改文件
+
+- `data-operations/rd-sync/sync-rd-items.sh`
+- `outputs/CODEX_PROGRESS.md`
+
+### 测试
+
+- `bash -n data-operations/rd-sync/sync-rd-items.sh`：通过。
+- mock API：请求头、路径、请求体正确，退出码 0。
+- 不可用 API：退出码非 0。
+- `git diff --check`：通过。
+
+### 部署说明
+
+- 无 API/Web/数据库变更，不需要重启服务或运行 migration。
+- 脚本位于生产共享路径，提交后 n8n 可直接通过绝对路径执行。
+
+---
+
 ## 当前任务：KDOS-RD-INCREMENTAL-DUPLICATE-MAINTENANCE-001
 
 任务目标：核对并完善 E10 INCREMENTAL 成功后的研发中心一物多码增量维护闭环；只让本批新增/修改物料进入增量计算，比较当前租户全库，维护 rd_item_features 与历史重复关系，保留 E10 watermark 语义，不自动触发 FULL。
