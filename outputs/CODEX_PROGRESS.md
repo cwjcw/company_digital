@@ -4,7 +4,7 @@
 
 任务目标：修复 E10 INCREMENTAL 复合 watermark 在时间格式不一致时不推进的问题，保留微秒精度、稳定复合游标语义，验证 E10 reader，并完成部署后的两次真实 INCREMENTAL 核验。
 
-当前状态：代码修复、测试和构建已完成，准备部署 API 并执行两次真实 INCREMENTAL；未手工修改数据库 watermark。
+当前状态：已完成代码修复、测试、API-only 部署、健康检查及真实 INCREMENTAL 核验；未手工修改数据库 watermark。
 
 最后更新时间：2026-09-30
 
@@ -18,11 +18,12 @@
 - [x] API 全量测试：78 suites 通过，1 suite 按项目规则跳过；599 tests 通过，1 test 按项目规则跳过。
 - [x] API typecheck、lint、build、reader `py_compile`、同步脚本 `bash -n` 通过。
 
-### 正在进行
+### 已完成
 
-- [ ] API-only 部署、健康检查。
-- [ ] 从现有旧 watermark 执行第一次真实 INCREMENTAL，核对前后水位和同步行数。
-- [ ] 立即执行第二次真实 INCREMENTAL，确认 overlap 重读不回退水位。
+- [x] API-only 部署至 `5df12ba`，API Build 与仓库 HEAD 一致；健康检查通过。
+- [x] 第一次真实 INCREMENTAL：run `01a0f120-26d2-70c3-aa0a-d03c771c2f2e`，185/16/81/88，watermark 从 `2026-09-30 13:47:09.000000` 推进到 `2026-09-30 15:01:11.000863`，增量查重 COMPLETE。
+- [x] 后续真实 INCREMENTAL：run `01a0f121-d856-7054-8305-fa2c457133d6` 读取 overlap 并发现 25 个变化，查重 COMPLETE；再次验证 run `01a0f122-6891-7bbb-95f4-cab2dca4fd63` 为 25/0/0/25、无查重任务，脚本退出码 0，水位保持不回退。
+- [x] 当前数据库有效水位为 `2026-09-30 15:04:49.000992` + `a9a61eeb-eeea-4fdc-c761-1dfd01e4921a`，rd_items 共 574,951 条，正好对应当前最大源 cursor。
 
 ### 修改文件
 
@@ -41,10 +42,7 @@
 
 ### 下一步
 
-1. 检查最终 diff 并提交修复。
-2. 执行 API-only 部署和健康检查。
-3. 执行两次生产脚本并只读查询 `rd_sync_runs`、`rd_duplicate_scans`，记录结果。
-4. 更新本节为完成并输出最终报告。
+1. 保留本节作为 watermark 修复和生产核验记录。
 
 ---
 
@@ -74,6 +72,14 @@
 - `apps/api/src/modules/rd/rd.query.service.spec.ts`
 - `data-operations/rd-sync/sync-rd-items.sh`
 - `outputs/CODEX_PROGRESS.md`
+
+### 部署与真实核验
+
+- API-only deploy：成功；无 migration。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 第一次查重：scan `01a0f120-2af7-75a6-95cd-2899bbb6242d`，COMPLETE，574,926 条物料。
+- 后续查重：scan `01a0f121-db14-7588-80a5-c26c9d0537cd`，COMPLETE，574,951 条物料。
+- 未触发 FULL；n8n 调用路径保持不变。
 
 ### 测试
 
