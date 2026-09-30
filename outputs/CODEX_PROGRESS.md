@@ -4,7 +4,7 @@
 
 任务目标：修复 E10 增量同步中 updated 物料 ID 未完整传入一物多码维护的问题，并让生产 shell 脚本等待增量查重真正完成后再返回退出码。
 
-当前状态：已完成代码修复、内部状态轮询接口、定向/全量 API 验证和脚本 mock 验证，待提交并 API-only 部署。
+当前状态：已完成代码修复、内部状态轮询接口、定向/全量 API 验证、脚本 mock 验证和 API-only 部署。
 
 最后更新时间：2026-09-30
 
@@ -37,9 +37,15 @@
 
 ### 下一步
 
-1. 提交代码并执行 API-only 部署。
-2. 健康检查和部署后版本核验。
-3. 完成最终报告。
+1. 保留本节，后续真实 E10 增量执行后复核 214+13=227 的生产结果。
+
+### 部署记录
+
+- 提交：b552ce4 fix(rd): preserve updated items and wait for scan
+- API-only deploy：成功；API Build 与仓库 HEAD 均为 b552ce4。
+- 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
+- 部署后只读状态接口验证：已存在的 INCREMENTAL 扫描返回 COMPLETE。
+- 未执行真实 E10 同步、FULL 查重或 migration。
 
 ---
 
