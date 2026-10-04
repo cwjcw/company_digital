@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import { KdosDataTable } from "./KdosDataTable";
+import { KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
 
 afterEach(() => cleanup());
 
@@ -81,6 +81,77 @@ describe("KdosDataTable server pagination", () => {
       columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[{ id: "1", orderNumber: "A001" }]} /></QueryClientProvider>);
     expect(explicitDefault.container.querySelector("section")).not.toHaveClass("kdos-data-table-shell-compact");
     expect(explicitDefault.container.querySelector("section")?.getAttribute("data-density")).toBe("default");
+  });
+
+  it("最终列模型按 left + normal + right 稳定分组，并保持多个固定列的相对顺序", () => {
+    const ordered = orderKdosFixedColumns([
+      { title: "普通甲", key: "normal-a" },
+      { title: "右甲", key: "right-a", fixed: "right" },
+      { title: "左甲", key: "left-a", fixed: "left" },
+      { title: "普通乙", key: "normal-b" },
+      { title: "右乙", key: "right-b", fixed: "right" },
+      { title: "左乙", key: "left-b", fixed: "left" }
+    ]);
+    expect(ordered.map((column) => String(column.key))).toEqual([
+      "left-a", "left-b", "normal-a", "normal-b", "right-a", "right-b"
+    ]);
+  });
+
+  it("审计列追加和个人视图处理后，右固定操作列仍是最终最右列", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[
+        { title: "设备名称", dataIndex: "equipmentName" },
+        { title: "左固定", key: "__left", width: 52, fixed: "left", className: "test-left-column" },
+        { title: "右操作甲", key: "__rightA", width: 52, fixed: "right", className: "test-right-a" },
+        { title: "右操作乙", key: "__rightB", width: 52, fixed: "right", className: "test-right-b" }
+      ]} dataSource={[{ id: "1", equipmentName: "设备一" }]} scroll={{ x: "max-content" }} /></QueryClientProvider>);
+
+    const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
+    const labels = headers.map((header) => header.textContent?.trim() ?? "");
+    expect(labels.indexOf("左固定")).toBeLessThan(labels.indexOf("设备名称"));
+    expect(labels.indexOf("创建人")).toBeLessThan(labels.indexOf("右操作甲"));
+    expect(labels.indexOf("更新时间")).toBeLessThan(labels.indexOf("右操作甲"));
+    expect(labels.slice(-2)).toEqual(["右操作甲", "右操作乙"]);
+    expect(headers.at(-2)).toHaveClass("ant-table-cell-fix-right");
+    expect(headers.at(-1)).toHaveClass("ant-table-cell-fix-right");
+    expect(view.container.querySelector(".ant-table-body")).toHaveStyle({ overflowX: "auto" });
+    expect(view.container.querySelector(".ant-table-sticky-holder")).toHaveStyle({ top: "0px" });
+  });
+
+  it("个人视图隐藏审计列后，技术操作列仍保留并位于最终可见列最右端", () => {
+    localStorage.setItem("kdos-form-view:KAINAN:anonymous:equipment-register", JSON.stringify(["equipmentName"]));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[
+        { title: "设备名称", dataIndex: "equipmentName" },
+        { title: "", key: "__rowActions", width: 52, fixed: "right", className: "test-row-actions" }
+      ]} dataSource={[{ id: "1", equipmentName: "设备一" }]} /></QueryClientProvider>);
+    const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
+    expect(headers.some((header) => header.textContent?.includes("创建人"))).toBe(false);
+    expect(headers.at(-1)).toHaveClass("test-row-actions", "ant-table-cell-fix-right");
+  });
+
+  it("技术操作列尊重 52px 显式宽度，普通业务字段仍执行类型化 minWidth", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id" systemFields={false}
+      columns={[
+        { title: "设备编号", dataIndex: "equipmentCode", width: 40 },
+        { title: "未注册业务字段", dataIndex: "unregisteredBusinessField", width: 40 },
+        { title: "", key: "__rowActions", width: 52, fixed: "right", className: "test-row-actions" }
+      ]} dataSource={[{ id: "1", equipmentCode: "A001", unregisteredBusinessField: "业务值" }]} /></QueryClientProvider>);
+    const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
+    const columns = Array.from(view.container.querySelectorAll(".ant-table colgroup col"));
+    const businessIndex = headers.findIndex((header) => header.textContent?.includes("设备编号"));
+    const unregisteredBusinessIndex = headers.findIndex((header) => header.textContent?.includes("未注册业务字段"));
+    const actionIndex = headers.findIndex((header) => header.classList.contains("test-row-actions"));
+    expect(businessIndex).toBeGreaterThanOrEqual(0);
+    expect(unregisteredBusinessIndex).toBeGreaterThanOrEqual(0);
+    expect(actionIndex).toBeGreaterThanOrEqual(0);
+    expect((columns[businessIndex] as HTMLElement | undefined)?.style.width).toBe("96px");
+    expect((columns[unregisteredBusinessIndex] as HTMLElement | undefined)?.style.width).toBe("96px");
+    expect((columns[actionIndex] as HTMLElement | undefined)?.style.width).toBe("52px");
+    expect((columns[actionIndex] as HTMLElement | undefined)?.style.minWidth).toBe("52px");
   });
 
   it("标准表默认支持拖动列宽，并按租户、用户和资源保存宽度", async () => {

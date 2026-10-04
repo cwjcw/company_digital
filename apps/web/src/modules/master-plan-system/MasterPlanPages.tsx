@@ -699,7 +699,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   /* KN-MPS-WO-001：3天生产工单不生成最右侧行操作列（新增/删除均不适用，编辑靠编辑模式 + 单元格控件）。 */
   const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
   const withActions = hasRowActions ? [...activeColumns, {
-    title: null, key: "__rowActions", width: 52, fixed: "right" as const,
+    title: null, key: "__rowActions", width: 52, fixed: "right" as const, className: "kdos-row-actions-column",
+    onHeaderCell: () => ({ className: "kdos-row-actions-column" }),
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
       onDelete={async () => { try { const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); await refresh(); if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(deleted?.reconciliation, "删除成功；事业部计划已刷新"); } else message.success("删除成功"); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}

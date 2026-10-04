@@ -231,6 +231,25 @@ function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Se
   });
 }
 
+/**
+ * Ant Table 的 fixed 列必须在最终列模型两端连续排列。业务页提供的列还会在公共层追加审计列、
+ * 应用个人视图和用户冻结，因此只能在所有 augmentation 完成后做一次稳定分组。
+ * 分组内保持调用方原始顺序；分组列的 children 同样遵守该规则，但不拆散业务分组表头。
+ */
+export function orderKdosFixedColumns<RecordType>(columns: ColumnsType<RecordType>): ColumnsType<RecordType> {
+  const left: ColumnsType<RecordType> = [];
+  const normal: ColumnsType<RecordType> = [];
+  const right: ColumnsType<RecordType> = [];
+  for (const raw of columns) {
+    const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
+    const next = column.children?.length ? { ...column, children: orderKdosFixedColumns(column.children) } : column;
+    if (column.fixed === "right") right.push(next);
+    else if (column.fixed === "left" || column.fixed === true) left.push(next);
+    else normal.push(next);
+  }
+  return [...left, ...normal, ...right];
+}
+
 export type KdosFilterField = { key: string; label: string };
 
 /* KN-FILTER-002：工具栏只保留快速搜索（Excel“查找”语义）。旧“筛选”抽屉（legacy Record<string,string>）已删除。 */
@@ -498,8 +517,16 @@ export function KdosDataTable<RecordType extends DataRecord>({
       const key = columnKey(column);
       const field = metadata.get(key) ?? (typeof column.title === "string" ? metadataByLabel.get(column.title) : undefined);
       const resizable = Boolean(key && !key.startsWith("__") && column.dataIndex != null);
-      const minWidth = Math.max(numericWidth(column.minWidth) ?? platformColumnMinWidth(field), 1);
-      const defaultWidth = numericWidth(column.width) ?? platformColumnDefaultWidth(field, typeof column.title === "string" ? column.title : undefined);
+      const explicitWidth = numericWidth(column.width);
+      const explicitMinWidth = numericWidth(column.minWidth);
+      /*
+       * __* / 操作列等平台技术列没有业务字段 metadata，且通常不可拖拽。它们的显式 width
+       * 就是正式紧凑宽度，不能再被普通业务字段的默认 96px minWidth 放大。
+       * 优先级：显式 minWidth > 技术列显式 width > 业务字段类型 minWidth。
+       */
+      const technicalColumn = key.startsWith("__") || column.dataIndex == null;
+      const minWidth = Math.max(explicitMinWidth ?? (technicalColumn ? explicitWidth : undefined) ?? platformColumnMinWidth(field), 1);
+      const defaultWidth = explicitWidth ?? platformColumnDefaultWidth(field, typeof column.title === "string" ? column.title : undefined);
       const width = Math.max(columnWidths[key] ?? defaultWidth, minWidth);
       const baseColumn = {
         ...column,
@@ -529,7 +556,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           onHide={() => { setVisibleKeys(effectiveVisible.filter((item) => item !== key)); setPinnedKeys((current) => current.filter((item) => item !== key)); }}
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
-    return filterColumns(wrap(allColumns), visible);
+    return orderKdosFixedColumns(filterColumns(wrap(allColumns), visible));
   }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, printContext, effectiveVisible, columnWidths]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
