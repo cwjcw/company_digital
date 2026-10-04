@@ -8,7 +8,7 @@ import type { Dayjs } from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { formatProductionProgress as sharedFormatProductionProgress } from "@tracker/shared";
 import { api } from "../../api";
-import { hasFieldPermission, hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
+import { deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/OrganizationSelect";
 import type { AuditDirectoryUser } from "../../shared/audit-fields";
@@ -398,15 +398,14 @@ export function MasterPlanProgressCell({ process, row, value, resource }: { proc
   </Tooltip>;
 }
 
-function RowActions({ metadata, row, onEdit, onDelete, onSync, onRefreshExecution, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onDelete: () => void; onSync?: () => void; onRefreshExecution?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
+function RowActions({ metadata, row, onEdit, onSync, onRefreshExecution, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onSync?: () => void; onRefreshExecution?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
   const { editing } = useKdosTableEditMode();
   const items = [
     onViewWeekly ? { key: "viewWeekly", label: "查看周计划", onClick: onViewWeekly } : null,
     editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
     editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
     editing && onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
-    onRefreshExecution ? { key: "refreshExecution", label: "刷新工序任务", onClick: onRefreshExecution } : null,
-    metadata.actions.delete && row.canDelete !== false && !row.pendingTask ? { key: "delete", label: "删除", danger: true, onClick: () => Modal.confirm({ title: "确认删除这条记录？", content: "删除后不可恢复。", okText: "删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: onDelete }) } : null
+    onRefreshExecution ? { key: "refreshExecution", label: "刷新工序任务", onClick: onRefreshExecution } : null
   ].filter(Boolean) as Array<{ key: string; label: string; danger?: boolean; onClick: () => void }>;
   if (!items.length) return null;
   return <Dropdown trigger={["click"]} menu={{ items }} placement="bottomRight">
@@ -697,12 +696,11 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   if (!info) return null;
   const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
   /* KN-MPS-WO-001：3天生产工单不生成最右侧行操作列（新增/删除均不适用，编辑靠编辑模式 + 单元格控件）。 */
-  const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || metadata.data!.actions.delete || (resource === "mps-process-reports" && metadata.data!.actions.create));
+  const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (canViewWeekly || metadata.data!.actions.update || (resource === "mps-process-reports" && metadata.data!.actions.create));
   const withActions = hasRowActions ? [...activeColumns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const, className: "kdos-row-actions-column",
     onHeaderCell: () => ({ className: "kdos-row-actions-column" }),
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
-      onDelete={async () => { try { const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }); await refresh(); if (reportResources.has(resource)) { await refreshExecutionPlans(); applyReconciliationFeedback(deleted?.reconciliation, "删除成功；事业部计划已刷新"); } else message.success("删除成功"); } catch (error) { message.error((error as Error).message); } }}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined}
@@ -734,6 +732,28 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       printContext={{ view: isPendingView ? "PENDING" : "ACTUAL" }}
       toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
+      deleteAction={!isPendingView && metadata.data?.actions.delete ? {
+        permitted: true,
+        canDelete: (row) => row.canDelete !== false && !row.pendingTask,
+        onDelete: async (selectedRows) => {
+          let reconciliation: Reconciliation | undefined;
+          const result = await deleteTableRowsSequentially(selectedRows, (row) => row.id, async (row) => {
+            const deleted = await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" });
+            reconciliation = deleted?.reconciliation ?? reconciliation;
+          });
+          await refresh();
+          if (reportResources.has(resource) && result.deletedKeys?.length) await refreshExecutionPlans();
+          if (!result.failures?.length) {
+            result.message = reportResources.has(resource)
+              ? reconciliation?.status === "FAILED" ? reconciliation.message ?? "数据已删除，但事业部计划刷新失败"
+                : reconciliation && reconciliation.status !== "SUCCESS" ? reconciliation.message ?? "数据已删除，事业部计划正在刷新"
+                  : `已删除 ${result.deletedKeys?.length ?? 0} 条数据；事业部计划已刷新`
+              : `已删除 ${result.deletedKeys?.length ?? 0} 条数据`;
+            if (reportResources.has(resource) && reconciliation?.status !== "SUCCESS") result.feedback = "warning";
+          }
+          return result;
+        }
+      } : undefined}
       selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
         ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
         : null}

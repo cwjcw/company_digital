@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { DeleteOutlined, DownloadOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import {
   Alert, Button, Card, DatePicker, Flex, Form, Input, InputNumber, Modal,
   Select, Space, Statistic, Switch, Tag, Typography, Upload, message
 } from "antd";
 import dayjs from "dayjs";
 import { api } from "../../api";
-import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission, kdosDefaultPageSize } from "../../shared/KdosDataTable";
+import { deleteTableRowsSequentially, KdosDataTable, TablePermissionButton, hasSessionResourcePermission, kdosDefaultPageSize } from "../../shared/KdosDataTable";
 import { PageHeader, downloadApiFile } from "../../shared/legacy-ui";
 import { OrganizationSelect } from "../../shared/OrganizationSelect";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
@@ -168,17 +168,6 @@ export function EquipmentRegisterPage() {
       if (!Array.isArray(error?.errorFields)) message.error(errorText(error));
     } finally { setSaving(false); }
   };
-  const remove = (row: EquipmentAsset) => Modal.confirm({
-    title: `停用设备 ${row.equipmentCode}？`, content: "历史状态填报会保留，停用后不再出现在新填报设备列表中。", okText: "确认停用", okButtonProps: { danger: true },
-    onOk: async () => {
-      try {
-        await api(`/equipment/assets/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" });
-        await refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-options"] });
-        message.success("设备已停用");
-      } catch (error) { message.error(errorText(error)); throw error; }
-    }
-  });
-
   const columns: any[] = [
     { title: "事业部", dataIndex: "divisionName", width: 110, fixed: "left" },
     { title: "使用部门", dataIndex: "usageDepartmentName", width: 130 },
@@ -188,9 +177,8 @@ export function EquipmentRegisterPage() {
     { title: "设备计划开机时间", dataIndex: "plannedStartupMinutes", width: 170, render: durationText },
     { title: "状态填报", dataIndex: "monitored", width: 110, render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "需要填报" : "无需填报"}</Tag> },
     { title: "责任人（可多选）", dataIndex: "responsibleUserIds", width: 240, render: (_ids: string[], row: EquipmentAsset) => row.responsibleUsers?.length ? row.responsibleUsers.map((user) => <Tag key={user.id}>{user.displayName}</Tag>) : <Typography.Text type="warning">未指定</Typography.Text> },
-    ...(canUpdate || canDelete ? [{ title: "操作", key: "actions", width: 150, fixed: "right", render: (_: unknown, row: EquipmentAsset) => <Space>
+    ...(canUpdate ? [{ title: "操作", key: "actions", width: 90, fixed: "right", render: (_: unknown, row: EquipmentAsset) => <Space>
       {canUpdate && <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>}
-      {canDelete && <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(row)}>停用</Button>}
     </Space> }] : [])
   ];
 
@@ -198,6 +186,21 @@ export function EquipmentRegisterPage() {
     <PageHeader title="设备总台账"
       actions={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} />
     <KdosDataTable resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
+      deleteAction={canDelete ? {
+        permitted: true,
+        label: "停用",
+        confirmTitle: (count) => `确认停用选中的 ${count} 台设备？`,
+        confirmContent: "历史状态填报会保留，停用后不再出现在新填报设备列表中。",
+        canDelete: (row) => (row as EquipmentAsset & { canDelete?: boolean }).canDelete !== false,
+        onDelete: async (selectedRows) => {
+          const result = await deleteTableRowsSequentially(selectedRows, (row) => row.id, (row) => api(`/equipment/assets/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }));
+          await refresh();
+          void queryClient.invalidateQueries({ queryKey: ["equipment-options"] });
+          void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
+          if (!result.failures?.length) result.message = `已停用 ${result.deletedKeys?.length ?? 0} 台设备`;
+          return result;
+        }
+      } : undefined}
       loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1670 }} />
     <Modal title={editing ? "编辑设备" : "新增设备"} width={760} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} confirmLoading={saving} destroyOnHidden>
       <Form form={form} layout="vertical" requiredMark={false}>
@@ -324,16 +327,6 @@ export function EquipmentStatusReportPage() {
       message.error(text);
     } finally { setSaving(false); }
   };
-  const remove = (row: EquipmentStatus) => Modal.confirm({
-    title: `删除 ${row.equipmentCode} 在 ${row.reportDate} 的填报？`, okText: "确认删除", okButtonProps: { danger: true },
-    onOk: async () => {
-      try {
-        await api(`/equipment/status-reports/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" });
-        await refresh(); void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
-        message.success("填报记录已删除");
-      } catch (error) { message.error(errorText(error)); throw error; }
-    }
-  });
   const columns: any[] = [
     { title: "设备编号", dataIndex: "equipmentCode", width: 150, fixed: "left" }, { title: "设备名称", dataIndex: "equipmentName", width: 210 },
     { title: "使用部门", dataIndex: "usageDepartmentName", width: 130 }, { title: "事业部", dataIndex: "divisionName", width: 110 },
@@ -346,14 +339,25 @@ export function EquipmentStatusReportPage() {
     { title: "稼动率", dataIndex: "utilizationRate", width: 110, render: utilizationText },
     { title: "故障时长", dataIndex: "faultMinutes", width: 130, render: (value: number) => <Typography.Text type={value > 0 ? "danger" : undefined}>{durationText(value)}</Typography.Text> },
     { title: "故障原因", dataIndex: "faultReason", width: 150, render: (value: string | null) => value ? <Tag color="red">{value}</Tag> : "—" },
-    ...(canUpdate || canDelete ? [{ title: "操作", key: "actions", width: 150, fixed: "right", render: (_: unknown, row: EquipmentStatus) => <Space>
+    ...(canUpdate ? [{ title: "操作", key: "actions", width: 90, fixed: "right", render: (_: unknown, row: EquipmentStatus) => <Space>
       {canUpdate && <Button type="link" size="small" icon={<EditOutlined />} onClick={() => setInitial(row)}>编辑</Button>}
-      {canDelete && <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(row)}>删除</Button>}
     </Space> }] : [])
   ];
 
   return <div>
     <KdosDataTable resource="equipment-status-report" rowKey="id" columns={columns} dataSource={records.data?.rows} defaultHiddenFields={["responsibleUserIds"]}
+      deleteAction={canDelete ? {
+        permitted: true,
+        canDelete: (row) => (row as EquipmentStatus & { canDelete?: boolean }).canDelete !== false,
+        confirmTitle: (count) => `确认删除选中的 ${count} 条设备状态填报？`,
+        onDelete: async (selectedRows) => {
+          const result = await deleteTableRowsSequentially(selectedRows, (row) => row.id, (row) => api(`/equipment/status-reports/${row.id}?expectedVersion=${row.version}`, { method: "DELETE" }));
+          await refresh();
+          void queryClient.invalidateQueries({ queryKey: ["equipment-dashboard"] });
+          if (!result.failures?.length) result.message = `已删除 ${result.deletedKeys?.length ?? 0} 条填报记录`;
+          return result;
+        }
+      } : undefined}
       toolbar={<>
         {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setInitial(); }}>填报设备状态</Button>}
         {canImport && <Upload accept=".xlsx,.csv" showUploadList={false} beforeUpload={(file) => previewImport(file as File)}><Button icon={<UploadOutlined />} loading={importing}>导入</Button></Upload>}

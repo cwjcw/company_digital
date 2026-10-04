@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Table, Tag, Typography } from "antd";
-import { DownloadOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, DownloadOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
@@ -289,6 +289,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
   selectionActions?: (selection: KdosTableSelection<RecordType>) => ReactNode;
+  /** Standard destructive action: select records, use the top toolbar, confirm, then call formal application APIs. */
+  deleteAction?: KdosTableDeleteAction<RecordType>;
   /** Explicit exception for embedded/fixed-viewport tables that need their own vertical scroll area. */
   internalVerticalScroll?: boolean;
   /** Server-backed paging/search/filtering for ERP-sized tables. */
@@ -307,7 +309,51 @@ export type KdosTableSelection<RecordType extends DataRecord> = {
   editing: boolean;
   canEdit: boolean;
   clearSelection: () => void;
+  replaceSelection: (rows: RecordType[]) => void;
 };
+
+export type KdosTableDeleteFailure = { key: Key; reason: string };
+
+export type KdosTableDeleteResult = {
+  /** Stable keys successfully deleted. Omit when every requested record succeeded. */
+  deletedKeys?: Key[];
+  failures?: KdosTableDeleteFailure[];
+  message?: string;
+  feedback?: "success" | "warning";
+};
+
+export type KdosTableDeleteAction<RecordType extends DataRecord> = {
+  /** Must come from the current resource's server-authorized delete operation state. */
+  permitted: boolean;
+  canDelete?: (row: RecordType) => boolean;
+  onDelete: (rows: RecordType[]) => Promise<void | KdosTableDeleteResult>;
+  label?: string;
+  confirmTitle?: (count: number, rows: RecordType[]) => ReactNode;
+  confirmContent?: ReactNode;
+};
+
+/**
+ * Compatibility path for resources that only expose a formal single-record delete command.
+ * Every row still passes through its Application Service/API; partial failures are explicit.
+ */
+export async function deleteTableRowsSequentially<RecordType extends DataRecord>(
+  rows: RecordType[],
+  rowKey: (row: RecordType) => Key,
+  deleteOne: (row: RecordType) => Promise<void>
+): Promise<KdosTableDeleteResult> {
+  const deletedKeys: Key[] = [];
+  const failures: KdosTableDeleteFailure[] = [];
+  for (const row of rows) {
+    const key = rowKey(row);
+    try {
+      await deleteOne(row);
+      deletedKeys.push(key);
+    } catch (error) {
+      failures.push({ key, reason: error instanceof Error ? error.message : "删除失败" });
+    }
+  }
+  return { deletedKeys, failures };
+}
 
 function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: TableProps<RecordType>["rowKey"]): Key {
   if (typeof rowKey === "function") return rowKey(row);
@@ -316,7 +362,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
-  filterFields, onFilterGroupChange, printContext, selectable, selectionActions,
+  filterFields, onFilterGroupChange, printContext, selectable, selectionActions, deleteAction,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
@@ -362,12 +408,14 @@ export function KdosDataTable<RecordType extends DataRecord>({
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
   const { message: exportMessage } = AntApp.useApp();
+  const { message: deleteMessage, modal: deleteModal } = AntApp.useApp();
   const [printing, setPrinting] = useState(false);
   const printCapabilities = useTablePrintCapabilities();
   const printingSupported = tablePrintAllowed(printCapabilities.data, resource);
   const exportCapabilities = useTableExportCapabilities();
   const exportingSupported = tableExportAllowed(exportCapabilities.data, resource);
   const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const printableColumnKeys = useMemo(() => {
     const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
     return keys.length ? keys : undefined;
@@ -597,8 +645,14 @@ export function KdosDataTable<RecordType extends DataRecord>({
     if (currentPage > lastPage) setCurrentPage(lastPage);
   }, [currentPage, pageSize, rows.length, serverData?.total]);
   const isRegisteredForm = registeredTableResources.has(resource);
-  const selectionEnabled = selectable ?? (isRegisteredForm && !simple);
+  const selectionEnabled = selectable ?? (Boolean(deleteAction?.permitted) || (isRegisteredForm && !simple));
   const clearSelection = () => { setSelectedRowKeys([]); selectedRecords.current.clear(); };
+  const replaceSelection = (selectedRows: RecordType[]) => {
+    const next = new Map<Key, RecordType>();
+    for (const row of selectedRows) next.set(recordKey(row, tableProps.rowKey), row);
+    selectedRecords.current = next;
+    setSelectedRowKeys([...next.keys()]);
+  };
   const selectionState: KdosTableSelection<RecordType> = {
     selectedRowKeys,
     selectedRows: selectedRowKeys.flatMap((key) => {
@@ -608,7 +662,57 @@ export function KdosDataTable<RecordType extends DataRecord>({
     total: serverData?.total ?? clientRows.length,
     editing: editing && canEdit,
     canEdit,
-    clearSelection
+    clearSelection,
+    replaceSelection
+  };
+  const selectedRows = selectionState.selectedRows;
+  const selectedRowsResolved = selectedRows.length === selectedRowKeys.length;
+  const selectedRowsDeletable = selectedRowsResolved && selectedRows.every((row) => deleteAction?.canDelete?.(row) !== false);
+  const deleteDisabledReason = !selectedRowKeys.length
+    ? "请先勾选要删除的记录"
+    : !selectedRowsResolved
+      ? "部分选中记录已失效，请刷新后重新选择"
+      : !selectedRowsDeletable
+        ? "选中记录中包含无删除权限的数据"
+        : undefined;
+  const removeDeletedSelection = (keys: Key[]) => {
+    const removed = new Set(keys.map(String));
+    for (const key of selectedRecords.current.keys()) if (removed.has(String(key))) selectedRecords.current.delete(key);
+    setSelectedRowKeys((current) => current.filter((key) => !removed.has(String(key))));
+  };
+  const confirmDelete = () => {
+    if (!deleteAction || deleting || deleteDisabledReason) return;
+    const rowsToDelete = [...selectedRows];
+    const count = rowsToDelete.length;
+    deleteModal.confirm({
+      title: deleteAction.confirmTitle?.(count, rowsToDelete) ?? `确认删除选中的 ${count} 条数据？`,
+      content: deleteAction.confirmContent ?? "删除后不可恢复。",
+      okText: deleteAction.label ?? "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeleting(true);
+        try {
+          const result = await deleteAction.onDelete(rowsToDelete);
+          const failures = result?.failures ?? [];
+          const deletedKeys = result?.deletedKeys ?? (failures.length ? [] : rowsToDelete.map((row) => recordKey(row, tableProps.rowKey)));
+          removeDeletedSelection(deletedKeys);
+          if (failures.length) {
+            const reasons = failures.slice(0, 3).map((failure) => `${String(failure.key)}：${failure.reason}`).join("；");
+            deleteMessage.warning(result?.message ?? `删除完成：成功 ${deletedKeys.length} 条，失败 ${failures.length} 条。${reasons}`);
+          } else if (result?.feedback === "warning") {
+            deleteMessage.warning(result.message ?? `已删除 ${deletedKeys.length} 条数据`);
+          } else {
+            deleteMessage.success(result?.message ?? `已删除 ${deletedKeys.length} 条数据`);
+          }
+        } catch (error) {
+          deleteMessage.error(error instanceof Error ? error.message : "删除失败，请稍后重试");
+          throw error;
+        } finally {
+          setDeleting(false);
+        }
+      }
+    });
   };
   const internalRowSelection: TableProps<RecordType>["rowSelection"] = selectionEnabled ? {
     selectedRowKeys,
@@ -703,6 +807,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
         {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void runExport()}>导出</Button>}
+        {deleteAction?.permitted && <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={Boolean(deleteDisabledReason)}
+          aria-label={deleteAction.label ?? "删除"} title={deleteDisabledReason} onClick={confirmDelete}>{deleteAction.label ?? "删除"}</Button>}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
           {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
         </Button>}

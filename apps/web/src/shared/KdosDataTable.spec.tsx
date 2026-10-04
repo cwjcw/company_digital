@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { App as AntApp } from "antd";
 import { api } from "../api";
 import { KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
 
@@ -225,6 +226,59 @@ describe("KdosDataTable server pagination", () => {
     fireEvent.click(secondPageCheckboxes[secondPageCheckboxes.length - 1]!);
     expect(await view.findByText("已选 3/120")).toBeInTheDocument();
     expect(Array.from(secondPageCheckboxes).filter((node) => (node as HTMLInputElement).checked)).toHaveLength(1);
+  });
+
+  it("shows the standard top delete only with permission and keeps it disabled until selection", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = {
+      resource: "equipment-register", rowKey: "id" as const,
+      columns: [{ title: "设备编号", dataIndex: "equipmentCode" }],
+      dataSource: [{ id: "asset-1", equipmentCode: "A001", canDelete: true }]
+    };
+    const view = render(<AntApp><QueryClientProvider client={client}><KdosDataTable {...props}
+      deleteAction={{ permitted: false, onDelete: vi.fn() }} /></QueryClientProvider></AntApp>);
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+
+    view.rerender(<AntApp><QueryClientProvider client={client}><KdosDataTable {...props}
+      deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete: vi.fn() }} /></QueryClientProvider></AntApp>);
+    const button = await screen.findByRole("button", { name: "删除" });
+    expect(button).toBeDisabled();
+    const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
+    expect(button).toBeEnabled();
+    expect(view.container.querySelector("section")?.getAttribute("data-edit-mode")).toBe("readonly");
+  });
+
+  it("blocks the whole delete when any selected row has canDelete=false", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<AntApp><QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]}
+      dataSource={[{ id: "asset-1", equipmentCode: "A001", canDelete: true }, { id: "asset-2", equipmentCode: "A002", canDelete: false }]}
+      deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete: vi.fn() }} />
+    </QueryClientProvider></AntApp>);
+    const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 2]!);
+    expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除" })).toHaveAttribute("title", "选中记录中包含无删除权限的数据");
+  });
+
+  it("confirms the selected count, calls the formal delete callback, and clears successful selection", async () => {
+    const onDelete = vi.fn(async () => undefined);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<AntApp><QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]}
+      dataSource={[{ id: "asset-1", equipmentCode: "A001", canDelete: true }]}
+      deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete }} />
+    </QueryClientProvider></AntApp>);
+    const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    const dialog = await screen.findByRole("dialog", { name: "确认删除选中的 1 条数据？" });
+    fireEvent.click(dialog.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith([expect.objectContaining({ id: "asset-1" })]));
+    await waitFor(() => expect(screen.queryByText("已选 1/1")).not.toBeInTheDocument());
   });
 
   it("仅在服务端返回 export 权限时显示标准导出按钮", async () => {

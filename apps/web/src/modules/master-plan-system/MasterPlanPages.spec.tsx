@@ -203,7 +203,7 @@ describe("MasterPlanResourcePage create feedback", () => {
   }, 15_000);
 });
 
-describe("KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划独立行操作列", () => {
+describe("KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除", () => {
   const shippingRow = {
     id: "shipping-row-1", version: 4, customerCode: "C001", orderNumber: "O001", itemCode: "I001", itemName: "品项一",
     deliveryNumber: "1", orderDate: "2026-09-30", latestCustomerDueDate: "2026-10-15", plannedQuantity: "10",
@@ -229,37 +229,46 @@ describe("KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划独立行操作列", (
     });
   }
 
-  it("orderDate 单元格不含操作按钮，更多菜单位于审计列之后的独立最右列", async () => {
+  it("orderDate 和行级菜单均不承载删除，顶部删除在勾选后启用", async () => {
     mockShipping(true);
     const { container } = renderPage("mps-shipping-plans");
     const date = await screen.findByText("2026-09-30");
-    const more = await screen.findByRole("button", { name: "更多操作" });
     const dateCell = date.closest("td");
-    const actionCell = more.closest("td");
-    expect(dateCell).not.toBe(actionCell);
     expect(dateCell?.querySelector('[aria-label="更多操作"]')).toBeNull();
     expect(dateCell).not.toHaveClass("kdos-row-actions-column");
-    expect(actionCell).toHaveClass("kdos-row-actions-column", "ant-table-cell-fix-right");
-
-    const headers = Array.from(container.querySelectorAll(".ant-table-thead th"));
-    const orderDateHeader = container.querySelector('th[data-kdos-column-key="orderDate"]');
-    const actionHeader = container.querySelector("th.kdos-row-actions-column");
-    expect(orderDateHeader).not.toBeNull();
-    expect(actionHeader).not.toBeNull();
-    expect(actionHeader).toHaveClass("ant-table-cell-fix-right");
-    expect(headers.indexOf(actionHeader!)).toBeGreaterThan(headers.findIndex((header) => header.textContent?.includes("更新时间")));
-    expect(headers.at(-1)).toBe(actionHeader);
-
-    fireEvent.click(more);
-    expect(await screen.findByText("删除")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
+    const deleteButton = screen.getByRole("button", { name: "删除" });
+    expect(deleteButton).toBeDisabled();
+    const rowCheckboxes = container.querySelectorAll("tbody tr input[type=checkbox]");
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
+    expect(deleteButton).toBeEnabled();
   }, 15_000);
 
-  it("没有 delete operation permission 时不显示删除菜单或更多触发器", async () => {
+  it("没有 delete operation permission 时不显示顶部删除，也没有行内删除入口", async () => {
     mockShipping(false);
     renderPage("mps-shipping-plans");
     expect(await screen.findByText("2026-09-30")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
-    expect(screen.queryByText("删除")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+  }, 15_000);
+
+  it("选中 canDelete=false 的出货计划时顶部删除保持禁用", async () => {
+    mockShipping(true);
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) {
+        const fields = tablePermissionFieldsFor("mps-shipping-plans");
+        return { resource: "mps-shipping-plans", fields, createFields: [], actions: { create: false, update: true, delete: true, import: false, export: false, batchUpdate: false } } as never;
+      }
+      if (path.startsWith("/master-plan-system/resources/mps-shipping-plans?")) return { rows: [{ ...shippingRow, canDelete: false }], total: 1 } as never;
+      return [] as never;
+    });
+    const { container } = renderPage("mps-shipping-plans");
+    await screen.findByText("2026-09-30");
+    const rowCheckboxes = container.querySelectorAll("tbody tr input[type=checkbox]");
+    fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除" })).toHaveAttribute("title", "选中记录中包含无删除权限的数据");
   }, 15_000);
 
   it("进入编辑模式后 orderDate 仍使用正式日期编辑器", async () => {
@@ -270,6 +279,12 @@ describe("KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划独立行操作列", (
     const dateInput = await screen.findByDisplayValue("2026-09-30");
     expect(dateInput.closest("td")).not.toHaveClass("kdos-row-actions-column");
     expect(dateInput.closest("td")?.querySelector('[aria-label="更多操作"]')).toBeNull();
+    const more = await screen.findByRole("button", { name: "更多操作" });
+    fireEvent.click(more);
+    expect(await screen.findByText("编辑")).toBeInTheDocument();
+    const menu = document.querySelector(".ant-dropdown-menu");
+    expect(menu).not.toBeNull();
+    expect(within(menu as HTMLElement).queryByText("删除")).not.toBeInTheDocument();
   }, 15_000);
 });
 

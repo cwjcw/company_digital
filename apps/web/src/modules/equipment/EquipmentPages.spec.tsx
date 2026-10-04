@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Modal } from "antd";
+import { App as AntApp } from "antd";
 import { api } from "../../api";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
 import { downloadApiFile } from "../../shared/legacy-ui";
@@ -36,7 +36,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><EquipmentStatusReportPage /></QueryClientProvider>);
+  return render(<AntApp><QueryClientProvider client={client}><EquipmentStatusReportPage /></QueryClientProvider></AntApp>);
 }
 
 function renderDashboard() {
@@ -129,14 +129,20 @@ describe("EquipmentStatusReportPage live permissions", () => {
       throw new Error(`unexpected request: ${path}`);
     });
 
-    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({} as ReturnType<typeof Modal.confirm>);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /删除/ }, { timeout: 10_000 }));
-    expect(confirm).toHaveBeenCalledOnce();
-    await confirm.mock.calls[0]![0].onOk?.();
+    const deleteButton = await screen.findByRole("button", { name: "删除" }, { timeout: 10_000 });
+    expect(deleteButton).toBeDisabled();
+    const equipmentCode = await screen.findByText("A001");
+    const rowCheckbox = equipmentCode.closest("tr")?.querySelector("input[type=checkbox]");
+    expect(rowCheckbox).not.toBeNull();
+    fireEvent.click(rowCheckbox!);
+    await waitFor(() => expect(deleteButton).toBeEnabled());
+    fireEvent.click(deleteButton);
+    const dialog = await screen.findByRole("dialog", { name: "确认删除选中的 1 条设备状态填报？" });
+    fireEvent.click(dialog.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
 
     await waitFor(() => expect(api).toHaveBeenCalledWith("/equipment/status-reports/status-1?expectedVersion=3", { method: "DELETE" }));
-  });
+  }, 15_000);
 
   it("keeps an old-template preview failure visible and offers the latest template", async () => {
     const legacyMessage = "当前导入文件使用的是旧版设备状态模板，缺少“计划运行时间”字段。设备状态模板已升级，请重新下载最新模板，填写“计划运行时间”后再上传。";

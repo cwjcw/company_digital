@@ -1,5 +1,384 @@
 # Codex 工作进度
 
+## 当前任务（最终交互标准，覆盖下方旧版“右固定操作列”验收口径）
+
+任务名称：KDOS-SHIPPING-ORDER-DATE-ACTION-001 标准业务表顶部删除统一化
+
+任务目标：将所有支持删除的 KDOS 标准业务表统一为“勾选记录 → 顶部删除 → 二次确认 → 正式后端删除”，移除出货计划及其它标准表的行内删除，并把规则写入平台技能。
+
+当前状态：公共能力、页面迁移、全量验证均已完成；正在提交并部署当前运行环境，最终仍须用户人工验收。
+
+最后更新时间：2026-10-04
+
+---
+
+## 当前阶段
+
+当前阶段：提交与部署
+
+当前子任务：提交已验证修改，部署 Web，执行健康检查和线上版本/产物核验。
+
+---
+
+## 已完成
+
+- [x] 读取用户最终交互要求、项目 AGENTS.md、完整 kdos-form-platform 技能、现有进度和 Git 状态。
+- [x] 确认开始 HEAD 为 `2be04d3`；工作区仅有上次任务留下的 `outputs/CODEX_PROGRESS.md` 进度修改，无未知源码修改。
+- [x] 审计 KdosDataTable：已有默认 checkbox、稳定 ID、跨页选择和选择状态，但没有统一顶部删除 capability。
+- [x] 审计现有删除页面：主计划资源使用 `__rowActions → 删除`；设备总台账/设备状态和业务人员对应表使用行内删除；订单排期已有页面私有顶部批量删除。
+- [x] 确认主计划与设备当前仅有正式单条 DELETE Application Service/API，订单排期已有正式 batch-delete；本任务不需要数据库 Migration。
+- [x] `KdosDataTable` 新增公共 `deleteAction`：权限控制、自动 checkbox、稳定多选、全部 `canDelete` 校验、数量确认、loading、成功移除选择及部分失败保留选择。
+- [x] 新增逐条正式 DELETE 兼容助手；没有批量命令的资源仍逐条经过原 Application Service/API，并明确汇总部分失败，不绕过后端权限、数据范围、版本和审计。
+- [x] 出货/主计划资源移除 `⋯ → 删除`，改接顶部删除；其余合法行级动作保留，3 天生产工单仍无操作列。
+- [x] 设备总台账、设备状态填报、业务人员与客户对应关系移除行内删除；设备停用保留准确业务文案，但复用同一顶部危险操作标准。
+- [x] 订单排期删除从页面私有选择/顶栏实现迁移到公共能力，继续复用正式 batch-delete API。
+- [x] 平台技能新增“标准业务表删除交互（强制）”及最低验收项，明确标准表不得使用行内删除。
+- [x] 最终静态审计确认剩余行级删除仅位于角色/角色组、系统/模块管理员、权限组和筛选规则等非标准业务表或局部配置例外。
+- [x] 定向测试覆盖公共表格、主计划、设备和营销迁移页；Web 全量测试 28 文件、180/180 通过。
+- [x] Web typecheck 通过；lint 通过（0 error，1 个既有 Fast Refresh warning）；生产 build 通过。
+
+---
+
+## 正在进行
+
+- [ ] 提交、部署、健康检查和线上产物核验。
+
+---
+
+## 待完成
+
+- [x] 更新 `.agents/skills/kdos-form-platform/SKILL.md` 强制规则与最低验收项。
+- [x] 增加公共组件和各迁移页面回归测试。
+- [x] 运行定向测试、Web 全量测试、typecheck、lint、build。
+- [x] 检查 diff、API/权限/审计边界与数据库无变更。
+- [ ] 提交、部署当前运行环境并完成健康检查和线上效果核验。
+- [ ] 等待用户人工验收；验收前保持“等待人工验收 / NO-GO”。
+
+---
+
+## 修改文件
+
+- `.agents/skills/kdos-form-platform/SKILL.md`
+- `apps/web/src/shared/KdosDataTable.tsx`
+- `apps/web/src/shared/KdosDataTable.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx`
+- `apps/web/src/modules/equipment/EquipmentPages.tsx`
+- `apps/web/src/modules/equipment/EquipmentPages.spec.tsx`
+- `apps/web/src/modules/marketing/MarketingPages.tsx`
+- `apps/web/src/modules/marketing/MarketingPages.spec.tsx`
+- `outputs/CODEX_PROGRESS.md`
+
+---
+
+## 数据库 Migration
+
+- 无；预计复用现有删除 API/Application Service，不修改数据库结构。
+
+---
+
+## 新增或修改测试
+
+- 公共顶部删除：无权限隐藏、有权限无选择禁用、浏览模式可用、混入 `canDelete=false` 时整体禁用、确认显示数量、调用正式回调并清除成功选择。
+- 出货计划专项：`orderDate` 不承载删除、行级菜单无删除、顶部删除权限/选择/`canDelete`、编辑模式日期控件不回归。
+- 设备状态：勾选后从顶部确认删除，并携带 optimistic `expectedVersion` 调用正式 API。
+- 营销：业务人员与客户对应关系从顶部逐条调用带版本的正式 DELETE；订单排期从顶部复用正式 batch-delete API，均无行内删除列。
+
+---
+
+## 已运行测试
+
+测试名称：Web 定向测试
+
+结果：公共表格、主计划、设备定向 3 文件 63/63 通过；营销迁移页补充 2/2 通过。
+
+测试名称：Web 全量测试
+
+结果：28 文件、180/180 通过。
+
+测试名称：Web typecheck / lint / build
+
+结果：全部通过；lint 0 error，保留 1 个既有 Fast Refresh warning；build 仅有既有大 chunk 提示。本机 Node v22.23.1 低于项目声明的 Node >=24，但未影响本轮验证结果。
+
+---
+
+## 当前已知问题
+
+- 主计划和设备仍没有统一批量删除 API；当前公共兼容路径逐条调用正式 DELETE，部分失败会明确显示成功/失败数量与原因，并只保留失败选择。
+- 用户尚未完成真实线上交互验收，因此即使部署和健康检查通过，最终结论仍必须为“等待人工验收 / NO-GO”。
+
+---
+
+## 等待用户确认
+
+- 无；按用户已明确的最终标准继续实现。最终真实线上验收前不得判 PASS。
+
+---
+
+## 下一步
+
+1. 提交本轮修改并执行正式 Web 部署。
+2. 确认线上 Repository/Web 版本一致、Web/API/PostgreSQL/Dispatcher 健康，生产 bundle 包含顶部删除能力。
+3. 交付用户人工验收；未验收前保持 NO-GO。
+
+---
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取当前适用的 AGENTS.md 与 `.agents/skills/kdos-form-platform/SKILL.md`
+2. 读取本进度文件顶部“当前任务”
+3. 执行 `git status` 与 `git diff --stat`
+4. 从顶部“下一步”的第一项未完成任务继续
+
+---
+
+## 任务
+
+任务名称：KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划右固定操作列错位修复
+
+任务目标：在公共 KdosDataTable 层保证 fixed left / 普通列 / fixed right 的最终稳定顺序，修复特殊操作列显式 52px 宽度被业务字段默认 96px minWidth 放大的问题，并完成出货计划及受影响标准表回归、部署和线上健康核验。
+
+当前状态：代码修复、验证、提交和正式部署均已完成；等待用户线上人工验收，验收前不判 PASS。
+
+最后更新时间：2026-10-04
+
+---
+
+## 当前阶段
+
+当前阶段：已部署，等待人工验收
+
+当前子任务：请用户在线验证出货计划普通/编辑模式、无/有删除权限及横向滚动后的固定列位置。
+
+---
+
+## 已完成
+
+- [x] 读取当前任务、项目 AGENTS.md 与完整 kdos-form-platform 技能规范。
+- [x] 重新确认基线：HEAD `fec4cf23d4bd86f0a72dd1e9a57873751ebf5357`，无未知源码修改。
+- [x] 确认生产基线仍为 Web `4349f0b` / API `fec4cf2` / Repository `fec4cf2`，状态 MISMATCH。
+- [x] 第一阶段确认：`orderDate` 单元格与 `__rowActions` 是不同 DOM 单元格；错误来自 right-fixed 列位于审计列之前及特殊列宽被放大。
+- [x] 公共 `KdosDataTable` 在审计列、个人视图、冻结等 augmentation 完成后稳定分组为 left-fixed → normal → right-fixed，各组保持原相对顺序。
+- [x] 平台技术列按“显式 minWidth → 显式 width → 平台默认”计算最小宽度，`__rowActions` 恢复为 52px。
+- [x] 出货计划操作列增加稳定 `kdos-row-actions-column` 语义 class，未改变删除权限或显示语义。
+- [x] 增加公共列模型、审计列顺序、多右固定列、左固定列、隐藏审计列、特殊/业务列宽、出货计划 DOM/权限/日期编辑回归。
+- [x] 审计所有公共表格 right-fixed 使用点；各页面操作内容和权限语义保持不变。
+- [x] Web 全量测试 27/27 文件、174/174 测试通过；typecheck、lint、build 通过。
+- [x] 提交 `2be04d3 fix(web): stabilize fixed action columns`。
+- [x] 执行 `./scripts/deploy.sh all`，Repository/Web/API 均为 `2be04d3`，状态 CONSISTENT。
+- [x] Web、API、PostgreSQL 均 healthy；Dispatcher active/running、NRestarts=0。
+- [x] 线上 build-info 为完整提交 `2be04d3a97ac4174eea35a862736184e4478e4bf`，生产 bundle 已包含 `kdos-row-actions-column`。
+
+---
+
+## 正在进行
+
+- [ ] 等待用户线上人工验收。
+
+---
+
+## 待完成
+
+- [x] 运行公共组件、主计划及其它受影响表格定向测试。
+- [x] 运行 Web full tests、typecheck、lint、build。
+- [x] 检查 diff、安全边界和无数据库变更。
+- [x] 提交并执行正式 `./scripts/deploy.sh all`。
+- [x] 确认 Repository/Web/API SHA 一致及 Web/API/PostgreSQL/Dispatcher 健康。
+- [ ] 等待用户线上人工验收；未验收前不得判 PASS。
+
+---
+
+## 修改文件
+
+- `apps/web/src/shared/KdosDataTable.tsx`
+- `apps/web/src/shared/KdosDataTable.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx`
+- `outputs/CODEX_PROGRESS.md`
+
+---
+
+## 数据库 Migration
+
+- 无；本任务未修改数据库结构或业务数据。
+
+---
+
+## 新增或修改测试
+
+- 公共最终列稳定分组：left + normal + right、多个 right 相对顺序。
+- 审计列追加后操作列仍在最右，隐藏审计列后同样成立。
+- `__rowActions width=52` 不再被 96px 默认 minWidth 放大，普通业务字段继续应用类型化 minWidth。
+- 出货计划 `orderDate` 与操作列 DOM 分离、有/无删除权限、日期编辑器不回归。
+
+---
+
+## 已运行测试
+
+测试名称：基线检查；KdosDataTable 定向；MasterPlanPages 定向；项目/任务、设备、消息规则、成员管理回归
+
+结果：公共组件 15/15、主计划 33/33、其它受影响页面 25/25、Web 全量 27 文件 174/174 全部通过；typecheck 通过；lint 0 error（1 条既有 Fast Refresh warning）；build 通过（仅既有 chunk size warning）。正式部署后 Repository/Web/API 均为 `2be04d3` 且 CONSISTENT，全部相关服务健康。
+
+---
+
+## 当前已知问题
+
+- 本机测试使用 Node.js 22 并出现项目要求 Node.js 24 的 engine warning；正式部署镜像使用 Node.js 24 且构建通过。
+- lint 保留 1 条既有 `ModulePortal.tsx` Fast Refresh warning；build 保留既有大 chunk warning，均非本任务引入且没有 error。
+
+---
+
+## 等待用户确认
+
+- 等待用户线上人工验收；验收前状态保持“等待人工验收”，不得标记 PASS。
+
+---
+
+## 下一步
+
+1. 用户在线验证出货计划普通模式、编辑模式、有/无 delete permission、横向滚动与窗口变化。
+2. 人工确认下单日期旁不再出现 `⋯`，独立最右操作列保持正常后，再将任务判为 PASS。
+
+---
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取当前适用的 AGENTS.md 与 `.agents/skills/kdos-form-platform/SKILL.md`
+2. 读取本进度文件顶部本任务
+3. 执行 `git status` 与 `git diff --stat`
+4. 从“下一步”的第一项未完成任务继续
+
+---
+
+# Codex 工作进度
+
+## 任务
+
+任务名称：主计划 Excel 与现有周计划差集导入出货计划表
+
+任务目标：读取 `/home/Jerry/下载/主计划.xlsx`，按“订单号 + 品号”与当前运行环境的事业部周计划比较，只将周计划中不存在且满足正式字段校验的记录通过应用导入链路写入出货计划表。
+
+当前状态：已完成；533 条差集记录已通过正式预览/确认链路导入当前运行环境，并完成逐键逐字段、审计、幂等和健康核验。
+
+最后更新时间：2026-09-30
+
+---
+
+## 当前阶段
+
+当前阶段：交付完成
+
+当前子任务：无。
+
+---
+
+## 已完成
+
+- [x] 读取当前适用的 AGENTS.md 与 KDOS 表单/导入技能。
+- [x] 检查 Git 状态与现有进度文件；开始时工作区无源码或配置修改。
+- [x] 确认出货计划正式新增必填字段与统一 Excel 预览/确认入口。
+- [x] 使用平台统一检测器检查源文件，结果为未加密，文件大小 313473 字节。
+- [x] 只读确认源工作簿为“主计划”，1183 行；业务表头位于第 1/2 行。
+- [x] 通过 MasterPlanQueryService 只读确认当前事业部周计划共 1169 条。
+- [x] 标准化源表：1181 个非空行中，1107 条满足订单号、品号、品名、数量、客户编码和交期等业务字段要求；74 行为分组标题、备注或不完整行，不作为业务数据。
+- [x] 按订单号 + 品号比较：538 个源行不在周计划；其中 2 行已经存在于出货计划表，按防重原则跳过。
+- [x] 净新增为 536 个源行、533 个唯一业务键；3 个重复键分别为 `2026A027409 + TGH640KB-1/1`（7+4）、`2026A027409 + TGH642KB-1/1`（10+4）、`2026A027409 + TGJ535BD1-1/1`（9+5）。
+- [x] 只读确认出货计划当前 478 条；已存在并跳过的 2 条为 `2026A027399 + GKP391KB-1/1`、`2026A027399 + GFE753KB-1/1`。
+- [x] 确认当前出货计划导入窗口开放，应用未返回 blockedReason。
+- [x] 用户确认 533 个业务键全部属于“凯南 / 事业四部”，3 个重复键合并累加，`/` 新旧款留空。
+- [x] 重新读取当前组织目录并唯一解析“凯南 / 事业四部”为稳定 ID `d23442f9-4862-4641-b4a7-c8d470bc56ea`。
+- [x] 导入前完成正式备份并校验 SHA256：`four_department_tracker_20260930_170942.backup`、`kdos_20260930_170942.backup`、`uploads_20260930_170942.tar.gz`。
+- [x] 按当前系统模板生成 533 条差集记录；源文件 SHA256 为 `34fe06afc1acaabe0c4eaeecabb4d4cf288455fe095139e4cda7c2ca3b1b0c17`，导入文件 SHA256 为 `891122ebbcae9348385e0514705146753406e4e868b6b2a7d27bbe362fb8b13e`。
+- [x] 服务端导入预览 `01a0f198-8221-7e55-a244-aae97992d889`：533 行、0 错误、无 blockedReason。
+- [x] 事务确认结果：`total=533 / created=533 / updated=0 / repeated=false`。
+- [x] 导入后逐键逐字段核验 533/533 通过；客户编码、订单编号、品项编码、品项名称、日期、数量、事业部、新旧款、交期编码与周计划状态均无差异。
+- [x] 出货计划从 478 条增至 1011 条（+533）；事业部周计划保持 1169 条不变。
+- [x] 审计核验：533 条 `mps-shipping-plans.import_created` + 1 条 `mps-shipping-plans.import_confirmed`。
+- [x] 重复确认返回 `repeated=true`，出货计划总数不变，幂等保护有效。
+- [x] Web、API、PostgreSQL 均 healthy，API 与 Web 健康接口正常。
+
+---
+
+## 正在进行
+
+- 无。
+
+---
+
+## 待完成
+
+- 无。
+
+---
+
+## 修改文件
+
+- `outputs/CODEX_PROGRESS.md`
+
+---
+
+## 数据库 Migration
+
+- 无；本次是受控业务数据导入，没有结构变化。
+
+生产数据：`mps_shipping_plans` 478 → 1011（新增 533）；`mps_weekly_plans` 保持 1169。
+
+---
+
+## 新增或修改测试
+
+- 无代码改动；本任务使用导入预览、差集核对和导入后线上读回验证。
+
+---
+
+## 已运行测试
+
+测试名称：统一 Excel 加密检测；差集与防重；系统预览/确认；逐键逐字段读回；审计；幂等；运行健康
+
+结果：全部通过。导入预览 533/533、0 错误；确认新增 533；读回 533/533 无差异；审计 534 条；重复确认未二次写入；所有服务健康。
+
+---
+
+## 当前已知问题
+
+- 无未解决问题。
+- 源表 74 行分组标题、备注或不完整行未作为业务数据；2 条已存在出货计划的记录按防重原则跳过。
+- 源表 `新旧款=/` 已按用户确认规范为空值，没有编造“旧”。
+
+---
+
+## 等待用户确认
+
+- 无。
+
+---
+
+## 下一步
+
+1. 用户可直接在“计划管理 → 出货计划表”查看新增记录。
+2. 后续重复处理同一源文件时必须继续按周计划与出货计划双重防重，不得再次新增这 533 条。
+
+---
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取当前适用的 AGENTS.md
+2. 读取 `.agents/skills/kdos-form-platform/SKILL.md`
+3. 读取本进度文件顶部本任务
+4. 执行 `git status` 与 `git diff --stat`
+5. 检查源文件仍为 `/home/Jerry/下载/主计划.xlsx`
+6. 从“下一步”的第一项未完成任务继续
+
+---
+
+# Codex 工作进度
+
 ## 任务
 
 任务名称：KDOS-NOTIFICATION-EVENT-REGISTRY-006 通知事件注册中心与通知内核通用化
