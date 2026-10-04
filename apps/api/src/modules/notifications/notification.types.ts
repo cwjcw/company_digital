@@ -61,12 +61,9 @@ export type NotificationEnqueueResult = {
 
 export type NotificationRecipient = {
   deliveryId: string;
-  deliveryIds?: string[];
   userId: string;
   displayName: string;
   wechatUserId: string;
-  resolvedRecipientUserIds?: string[];
-  testMode?: boolean;
 };
 
 export type NotificationClaim = {
@@ -78,7 +75,6 @@ export type NotificationClaim = {
 
 export type NotificationDeliveryResult = {
   deliveryId: string;
-  deliveryIds?: string[];
   providerMessageId?: string;
   errcode?: string;
   errmsg?: string;

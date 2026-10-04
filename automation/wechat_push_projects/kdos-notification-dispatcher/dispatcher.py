@@ -3,8 +3,7 @@
 
 This process owns only HTTP polling and the final WeCom call. It deliberately
 does not connect to PostgreSQL, resolve business recipients, or contain a
-recipient list. A deployment must set the single-recipient validation gate
-before ``--once`` can send anything.
+recipient list. The API claim response is the authoritative delivery list.
 """
 
 from __future__ import annotations
@@ -34,14 +33,10 @@ class DispatcherConfig:
     token: str
     tenant_id: str
     worker_id: str
-    allowed_recipient_name: str
-    allowed_user_id: str
 
     def __post_init__(self) -> None:
         if not self.token:
             raise RuntimeError("缺少 KDOS_NOTIFICATION_INTERNAL_TOKEN，拒绝运行")
-        if not self.allowed_recipient_name and not self.allowed_user_id:
-            raise RuntimeError("缺少单人验证接收人门禁，拒绝发送")
         if not self.tenant_id or not self.worker_id:
             raise RuntimeError("租户或 worker 配置无效")
 
@@ -52,8 +47,6 @@ class DispatcherConfig:
             token=os.getenv("KDOS_NOTIFICATION_INTERNAL_TOKEN", "").strip(),
             tenant_id=os.getenv("KDOS_DEFAULT_TENANT_CODE", "KAINAN").strip(),
             worker_id=os.getenv("KDOS_NOTIFICATION_WORKER_ID", socket.gethostname()).strip(),
-            allowed_recipient_name=os.getenv("KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME", "").strip(),
-            allowed_user_id=os.getenv("KDOS_DISPATCHER_ALLOWED_USER_ID", "").strip(),
         )
         return config
 
@@ -74,7 +67,6 @@ class KdosNotificationDispatcher:
         notifications = claim.get("notifications", claim if isinstance(claim, list) else [])
         sent = 0
         failed = 0
-        skipped = 0
         for notification in notifications:
             try:
                 notification_id = str(notification.get("notificationId", ""))
@@ -85,29 +77,24 @@ class KdosNotificationDispatcher:
                     delivery_id = str(recipient.get("deliveryId", ""))
                     if not delivery_id:
                         continue
-                    if not self._allowed(recipient):
-                        self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "RECIPIENT_TARGET_MISMATCH", "Dispatcher 实际接收人未通过 TEST MODE 单人门禁")
-                        skipped += 1
-                        continue
                     try:
                         response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
                         if int(response.get("errcode", 0)) != 0:
                             raise RuntimeError(str(response.get("errmsg", "企业微信返回失败")))
                         self.http_post(f"/internal/notifications/{notification_id}/success", {
                             "deliveryId": delivery_id,
-                            "deliveryIds": recipient.get("deliveryIds", []),
                             "providerMessageId": response.get("msgid"),
                             "errcode": str(response.get("errcode", 0)),
                             "errmsg": response.get("errmsg"),
                         })
                         sent += 1
                     except Exception as exc:  # noqa: BLE001 - the delivery must be reported for retry
-                        self._report_failure(notification_id, delivery_id, recipient.get("deliveryIds", []), "WECHAT_SEND_FAILED", str(exc))
+                        self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", str(exc))
                         failed += 1
             except Exception:  # noqa: BLE001 - one malformed notification must not stop the batch
                 LOGGER.exception("处理通知 %s 失败，继续处理下一条", notification.get("notificationId"))
                 failed += 1
-        return {"claimed": len(notifications), "sent": sent, "failed": failed, "skipped": skipped}
+        return {"claimed": len(notifications), "sent": sent, "failed": failed}
 
     def run_forever(self, limit: int = 10, poll_interval: float = 1.0, stop_event: threading.Event | None = None) -> None:
         """常驻轮询；单次 API/消息异常只记录并等待下一轮，不退出进程。"""
@@ -120,12 +107,6 @@ class KdosNotificationDispatcher:
                 LOGGER.exception("通知轮询失败，%ss 后继续", poll_interval)
             event.wait(max(0.1, poll_interval))
 
-    def _allowed(self, recipient: dict[str, Any]) -> bool:
-        return (
-            bool(self.config.allowed_recipient_name and recipient.get("displayName") == self.config.allowed_recipient_name)
-            or bool(self.config.allowed_user_id and recipient.get("userId") == self.config.allowed_user_id)
-        )
-
     def _get_pusher(self) -> Any:
         if self.pusher is None:
             sys.path.insert(0, str(BASIC_CODE_ROOT))
@@ -134,10 +115,9 @@ class KdosNotificationDispatcher:
             self.pusher = WeChatPusher()
         return self.pusher
 
-    def _report_failure(self, notification_id: str, delivery_id: str, delivery_ids: list[Any], code: str, message: str) -> None:
+    def _report_failure(self, notification_id: str, delivery_id: str, code: str, message: str) -> None:
         self.http_post(f"/internal/notifications/{notification_id}/failure", {
             "deliveryId": delivery_id,
-            "deliveryIds": delivery_ids,
             "errcode": code,
             "errmsg": message[:4000],
         })

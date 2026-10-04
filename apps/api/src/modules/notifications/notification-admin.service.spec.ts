@@ -1,5 +1,5 @@
 import { ForbiddenException } from "@nestjs/common";
-import { NotificationAdminService, NOTIFICATION_TEST_MODE_MESSAGE } from "./notification-admin.service";
+import { NotificationAdminService } from "./notification-admin.service";
 
 const systemActor = { tenantId: "KAINAN", userId: "00000000-0000-7000-8000-000000000010", name: "管理员", username: "admin", requestId: "req-1", isSystemAdmin: true, moduleAdminCodes: [] };
 const planningActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: ["planning"] };
@@ -22,10 +22,6 @@ describe("NotificationAdminService", () => {
     await expect(service.create(planningActor, { name: "故障", eventType: "not.registered", resource: "equipment-status-report" })).rejects.toThrow("当前数据表暂未注册可用的实时通知事件。");
     await expect(service.create(planningActor, { name: "故障", eventType: "equipment.status.fault_changed", resource: "other" })).rejects.toThrow("资源与通知事件不匹配");
     expect((service as any).normalizeTemplate("设备{{equipmentCode}}变化{{newFaultMinutes}}", ["equipmentCode", "newFaultMinutes"])).toBe("设备{equipmentCode}变化{newFaultMinutes}");
-  });
-
-  it("keeps the test-mode contract visible to callers", () => {
-    expect(NOTIFICATION_TEST_MODE_MESSAGE).toBe("当前处于企业微信测试模式，实际企业微信消息仅发送给崔玮杰。");
   });
 
   it("validates and stores fixed recipient user IDs without accepting names", () => {
@@ -84,5 +80,20 @@ describe("NotificationAdminService", () => {
       roles: [expect.objectContaining({ id: "role-1" })],
       users: [expect.objectContaining({ id: "user-1" })]
     });
+  });
+
+  it("test send enqueues a real notification for the rule recipients without a mode field", async () => {
+    const dataSource = { query: jest.fn()
+      .mockResolvedValueOnce([{ id: "00000000-0000-7000-8000-000000000099", event_type: "equipment.status.fault_changed", resource: "equipment-status-report", recipient_rule: "FIXED_USERS", config: {}, enabled: true, version: 1 }])
+      .mockResolvedValueOnce(undefined) };
+    const notifications = { enqueueEvent: jest.fn().mockResolvedValue({ row: { id: "00000000-0000-7000-8000-000000000088" }, created: true }) };
+    const service = new NotificationAdminService(dataSource as never, notifications as never);
+    const result = await service.testSend(planningActor, "00000000-0000-7000-8000-000000000099", {
+      payload: { equipmentId: "00000000-0000-7000-8000-000000000010" }
+    });
+    expect(result).toEqual({ row: { id: "00000000-0000-7000-8000-000000000088" }, created: true, message: "已创建规则测试通知，将发送给当前规则实际接收人。" });
+    expect(notifications.enqueueEvent).toHaveBeenCalledTimes(1);
+    expect(notifications.enqueueEvent).toHaveBeenCalledWith("KAINAN", expect.objectContaining({ ruleId: "00000000-0000-7000-8000-000000000099" }));
+    expect(JSON.parse(String(dataSource.query.mock.calls[1]?.[1]?.[3]))).toEqual({ outboxId: "00000000-0000-7000-8000-000000000088" });
   });
 });

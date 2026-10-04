@@ -122,11 +122,11 @@ T+ source SQL remains isolated in integration adapters; sales-order reads stay i
 
 Monthly rollover runs with a `SYSTEM` actor and calls Planning query/application services. It creates a period and draft idempotently and carries previous outstanding items through normal commands.
 
-KDOS notifications use the same transactional-outbox boundary: an application command may enqueue a tenant-scoped notification through `NotificationService` in its current transaction. The outbox supports `PENDING`, `PROCESSING`, `SENT` and `FAILED`, records `next_retry_at`, and writes recipient-level delivery attempts. The internal Dispatcher API performs rule resolution and equipment-responsible lookup before returning text to the host adapter; the host adapter only calls the default `basic_code` `WeChatPusher`, with an environment-controlled single-recipient validation gate. The authenticated `/notifications` administration API and `/system/notifications` page expose only registered event metadata and real rule/delivery data; template variables are allowlisted and test sends remain in the Cui WeiJie test gate. There is no broker, Redis, RabbitMQ or Kafka.
+KDOS notifications use the same transactional-outbox boundary: an application command may enqueue a tenant-scoped notification through `NotificationService` in its current transaction. The outbox supports `PENDING`, `PROCESSING`, `SENT` and `FAILED`, records `next_retry_at`, and writes recipient-level delivery attempts. The internal Dispatcher API performs rule resolution and equipment-responsible lookup before returning text and authoritative recipients to the host adapter; every enabled user with an Enterprise WeChat UserId receives an independent delivery ID, while disabled users and missing IDs are skipped independently. The host adapter only calls the default `basic_code` `WeChatPusher` once per returned recipient and reports that delivery ID alone. The authenticated `/notifications` administration API and `/system/notifications` page expose only registered event metadata and real rule/delivery data; template variables are allowlisted and test sends explicitly warn that they send to the rule's current recipients. There is no broker, Redis, RabbitMQ or Kafka.
 
 ## Events, workflow and AI
 
-通知 TEST MODE 当前由 API 强制开启：规则仍先解析 `EQUIPMENT_RESPONSIBLE` 或 `FIXED_USERS` 的真实业务用户，实际投递覆盖到启用的崔玮杰/CuiWeiJie；多业务用户通过一条 Dispatcher 实际发送和多个 delivery ID 回写，日志保留两层接收人信息。
+通知已启用正式接收人直发：API 按 `EQUIPMENT_RESPONSIBLE` 或 `FIXED_USERS` 动态解析当前业务用户，每位可发送用户的 `users.id`、企业微信 UserId 和 delivery ID 一一对应；不同接收人的成功、失败和重试互不覆盖。
 
 Socket.IO receives minimal events such as tenant, period, version, entity id, optimistic version and change type; clients invalidate queries and refetch authorized data.
 

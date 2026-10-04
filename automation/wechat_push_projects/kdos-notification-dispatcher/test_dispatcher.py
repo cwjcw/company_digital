@@ -1,5 +1,4 @@
 import importlib.util
-import os
 import sys
 import threading
 import unittest
@@ -31,8 +30,6 @@ class DispatcherTest(unittest.TestCase):
             "token": "secret",
             "tenant_id": "KAINAN",
             "worker_id": "test-worker",
-            "allowed_recipient_name": "崔玮杰",
-            "allowed_user_id": "",
         }
         values.update(kwargs)
         return dispatcher.DispatcherConfig(**values)
@@ -42,12 +39,12 @@ class DispatcherTest(unittest.TestCase):
             "notificationId": "notification-1",
             "content": "设备故障提醒",
             "recipients": [
-                {"deliveryId": "delivery-cui", "userId": "user-cui", "displayName": "崔玮杰", "wechatUserId": "wx-cui"},
+                {"deliveryId": "delivery-zhang", "userId": "user-zhang", "displayName": "张三", "wechatUserId": "wx-zhang"},
                 {"deliveryId": "delivery-other", "userId": "user-other", "displayName": "其他人", "wechatUserId": "wx-other"},
             ],
         }
 
-    def test_actual_test_recipient_reaches_wechat_and_business_recipient_is_not_sent(self):
+    def test_every_claimed_recipient_is_sent_separately(self):
         calls = []
         pusher = FakePusher()
 
@@ -56,36 +53,32 @@ class DispatcherTest(unittest.TestCase):
             return {"notifications": [self.notification()]} if path.endswith("/claim") else {}
 
         result = dispatcher.KdosNotificationDispatcher(self.config(), http_post, pusher).run_once()
-        self.assertEqual(result, {"claimed": 1, "sent": 1, "failed": 0, "skipped": 1})
-        self.assertEqual(pusher.calls, [("设备故障提醒", "wx-cui")])
-        self.assertEqual(calls[-1][0], "/internal/notifications/notification-1/failure")
-        self.assertEqual(calls[-1][1]["errcode"], "RECIPIENT_TARGET_MISMATCH")
+        self.assertEqual(result, {"claimed": 1, "sent": 2, "failed": 0})
+        self.assertEqual(pusher.calls, [("设备故障提醒", "wx-zhang"), ("设备故障提醒", "wx-other")])
+        callbacks = [(path, body) for path, body in calls if path.endswith("/success")]
+        self.assertEqual([body["deliveryId"] for _, body in callbacks], ["delivery-zhang", "delivery-other"])
+        self.assertTrue(all(set(body) == {"deliveryId", "providerMessageId", "errcode", "errmsg"} for _, body in callbacks))
 
-    def test_one_actual_test_message_carries_multiple_business_delivery_ids(self):
+    def test_one_recipient_failure_does_not_prevent_other_recipient_send(self):
         calls = []
-        pusher = FakePusher()
-        notification = {
-            "notificationId": "notification-1",
-            "content": "设备故障提醒",
-            "recipients": [{
-                "deliveryId": "delivery-1",
-                "deliveryIds": ["delivery-1", "delivery-2", "delivery-3"],
-                "userId": "user-cui",
-                "displayName": "崔玮杰",
-                "wechatUserId": "wx-cui",
-                "testMode": True,
-                "resolvedRecipientUserIds": ["zhang", "li", "wang"],
-            }],
-        }
+        class OneFailurePusher(FakePusher):
+            def send_app_text(self, content, touser):
+                self.calls.append((content, touser))
+                if touser == "wx-zhang":
+                    return {"errcode": 500, "errmsg": "temporary"}
+                return {"errcode": 0, "errmsg": "ok", "msgid": "msg-other"}
+        pusher = OneFailurePusher()
 
         def http_post(path, body):
             calls.append((path, body))
-            return {"notifications": [notification]} if path.endswith("/claim") else {}
+            return {"notifications": [self.notification()]} if path.endswith("/claim") else {}
 
         result = dispatcher.KdosNotificationDispatcher(self.config(), http_post, pusher).run_once()
-        self.assertEqual(result, {"claimed": 1, "sent": 1, "failed": 0, "skipped": 0})
-        self.assertEqual(len(pusher.calls), 1)
-        self.assertEqual(calls[-1][1]["deliveryIds"], ["delivery-1", "delivery-2", "delivery-3"])
+        self.assertEqual(result, {"claimed": 1, "sent": 1, "failed": 1})
+        failure = next(body for path, body in calls if path.endswith("/failure"))
+        success = next(body for path, body in calls if path.endswith("/success"))
+        self.assertEqual(failure["deliveryId"], "delivery-zhang")
+        self.assertEqual(success["deliveryId"], "delivery-other")
 
     def test_wechat_failure_is_reported_for_retry(self):
         calls = []
@@ -96,8 +89,9 @@ class DispatcherTest(unittest.TestCase):
             return {"notifications": [self.notification()]} if path.endswith("/claim") else {}
 
         result = dispatcher.KdosNotificationDispatcher(self.config(), http_post, pusher).run_once()
-        self.assertEqual(result["failed"], 1)
-        self.assertTrue(any(body.get("errcode") == "WECHAT_SEND_FAILED" for _, body in calls))
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual([body["deliveryId"] for path, body in calls if path.endswith("/failure")], ["delivery-zhang", "delivery-other"])
+        self.assertTrue(all(body.get("errcode") == "WECHAT_SEND_FAILED" for path, body in calls if path.endswith("/failure")))
 
     def test_resident_mode_survives_one_api_failure_and_keeps_polling(self):
         calls = []
@@ -130,22 +124,10 @@ class DispatcherTest(unittest.TestCase):
         runner.run_forever(poll_interval=0.001, stop_event=stop_event)
         self.assertGreaterEqual(len(calls), 2)
 
-    def test_config_requires_token_and_recipient_gate(self):
+    def test_config_requires_token_but_has_no_recipient_gate(self):
         with self.assertRaisesRegex(RuntimeError, "TOKEN"):
-            dispatcher.DispatcherConfig("http://api", "", "KAINAN", "worker", "崔玮杰", "")
-        old = {key: os.environ.get(key) for key in ("KDOS_NOTIFICATION_INTERNAL_TOKEN", "KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME", "KDOS_DISPATCHER_ALLOWED_USER_ID")}
-        try:
-            os.environ["KDOS_NOTIFICATION_INTERNAL_TOKEN"] = "secret"
-            os.environ.pop("KDOS_DISPATCHER_ALLOWED_RECIPIENT_NAME", None)
-            os.environ.pop("KDOS_DISPATCHER_ALLOWED_USER_ID", None)
-            with self.assertRaisesRegex(RuntimeError, "单人验证"):
-                dispatcher.DispatcherConfig.from_env()
-        finally:
-            for key, value in old.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+            dispatcher.DispatcherConfig("http://api", "", "KAINAN", "worker")
+        self.assertEqual(self.config().worker_id, "test-worker")
 
 
 if __name__ == "__main__":

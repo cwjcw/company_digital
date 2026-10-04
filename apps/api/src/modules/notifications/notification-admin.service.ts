@@ -21,7 +21,6 @@ export type NotificationAdminActor = {
   moduleAdminCodes: string[];
 };
 
-export const NOTIFICATION_TEST_MODE_MESSAGE = "当前处于企业微信测试模式，实际企业微信消息仅发送给崔玮杰。";
 const RECIPIENT = EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE;
 const FIXED_RECIPIENT = FIXED_USERS_RECIPIENT_RULE;
 const RECIPIENT_LABELS = { [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
@@ -158,17 +157,15 @@ export class NotificationAdminService {
     for (const [column, input] of [["r.id", query.ruleId], ["r.resource", query.resource], ["l.status", query.status]] as Array<[string, unknown]>) {
       const text = String(input ?? "").trim(); if (!text) continue; values.push(text); where.push(`${column}=$${values.length}`);
     }
-    const recipient = String(query.recipient ?? "").trim(); if (recipient) { values.push(`%${recipient}%`); where.push("(COALESCE(l.wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.actual_wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.recipient_user_id::text,'') ILIKE $" + values.length + ")"); }
+    const recipient = String(query.recipient ?? "").trim(); if (recipient) { values.push(`%${recipient}%`); where.push("(COALESCE(l.wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.recipient_user_id::text,'') ILIKE $" + values.length + ")"); }
     const from = String(query.from ?? "").trim(); if (from) { values.push(from); where.push(`l.created_at >= $${values.length}::timestamptz`); }
     const to = String(query.to ?? "").trim(); if (to) { values.push(to); where.push(`l.created_at < ($${values.length}::date + interval '1 day')`); }
-    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.status,l.recipient_user_id,l.wechat_user_id,l.actual_recipient_user_id,l.actual_wechat_user_id,l.test_mode,l.errcode,l.errmsg,l.error_message,l.provider_message_id,
+    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.status,l.recipient_user_id,l.wechat_user_id,l.errcode,l.errmsg,l.error_message,l.provider_message_id,
       COALESCE(NULLIF(u.display_name,''),u.username,l.recipient_user_id::text) resolved_recipient,
-      COALESCE(NULLIF(actual_user.display_name,''),actual_user.username,l.actual_recipient_user_id::text) actual_recipient,
       r.id rule_id,r.name rule_name,r.module_code,r.resource,r.event_type,r.recipient_rule,o.id outbox_id,o.payload,o.status outbox_status
       FROM notification_delivery_logs l JOIN notification_outbox o ON o.tenant_id=l.tenant_id AND o.id=l.notification_outbox_id
       LEFT JOIN notification_rules r ON r.tenant_id=o.tenant_id AND r.id=o.notification_rule_id
       LEFT JOIN users u ON u.id=l.recipient_user_id
-      LEFT JOIN users actual_user ON actual_user.id=l.actual_recipient_user_id
       WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC LIMIT 500`, values);
     return rows.map((row: Record<string, unknown>) => this.logView(row));
   }
@@ -192,9 +189,9 @@ export class NotificationAdminService {
     const payload = body.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new BadRequestException("测试发送需要提供事件 payload");
     const allowed = new Set(event.templateVariables.map(({ key }) => key)); for (const key of Object.keys(payload as Record<string, unknown>)) if (!allowed.has(key)) throw new BadRequestException(`测试 payload 包含未授权变量：${key}`);
-    const result = await this.notifications.enqueueEvent(actor.tenantId, { eventType: event.eventType, channel: event.defaultChannel, dedupKey: `test:${id}:${randomUUID()}`, payload: payload as Record<string, unknown>, createdBy: actor.userId });
-    await this.dataSource.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,'notification.test_requested',$4::jsonb,$5,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, id, JSON.stringify({ testMode: true, outboxId: result.row.id }), actor.requestId]);
-    return { ...result, testMode: true, message: NOTIFICATION_TEST_MODE_MESSAGE };
+    const result = await this.notifications.enqueueEvent(actor.tenantId, { ruleId: id, eventType: event.eventType, channel: event.defaultChannel, dedupKey: `test:${id}:${randomUUID()}`, payload: payload as Record<string, unknown>, createdBy: actor.userId });
+    await this.dataSource.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,'notification.test_requested',$4::jsonb,$5,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, id, JSON.stringify({ outboxId: result.row.id }), actor.requestId]);
+    return { ...result, message: "已创建规则测试通知，将发送给当前规则实际接收人。" };
   }
 
   private validRule(body: Record<string, unknown>) {
@@ -286,7 +283,7 @@ export class NotificationAdminService {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const event = notificationEventDefinition(String(row.event_type ?? ""));
-    return { id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", actualRecipient: row.actual_recipient ?? row.resolved_recipient ?? "—", wechatUserId: row.actual_wechat_user_id ?? row.wechat_user_id ?? "—", testMode: row.test_mode === true, status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
+    return { id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
   private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId]); }

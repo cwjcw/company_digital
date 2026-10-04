@@ -1,12 +1,12 @@
 # Codex 工作进度
 
-## 当前任务（最终交互标准，覆盖下方旧版“右固定操作列”验收口径）
+## 当前任务：KDOS-NOTIFICATION-PRODUCTION-CUTOVER-007
 
-任务名称：KDOS-SHIPPING-ORDER-DATE-ACTION-001 标准业务表顶部删除统一化
+任务名称：彻底移除企业微信 TEST MODE，切换为正式接收人直接发送
 
-任务目标：将所有支持删除的 KDOS 标准业务表统一为“勾选记录 → 顶部删除 → 二次确认 → 正式后端删除”，移除出货计划及其它标准表的行内删除，并把规则写入平台技能。
+任务目标：删除 API、Web、Dispatcher、systemd 和数据库运行模型中的验证期机制，使通知规则解析出的有效业务接收人直接成为企业微信接收人。
 
-当前状态：公共能力、页面迁移、全量验证均已完成；正在提交并部署当前运行环境，最终仍须用户人工验收。
+当前状态：已完成。代码、数据库 migration、严格顺序部署、实际 user-systemd 更新、单人/双人真实实发、规则恢复和生产健康核验均已完成。
 
 最后更新时间：2026-10-04
 
@@ -14,9 +14,125 @@
 
 ## 当前阶段
 
-当前阶段：提交与部署
+当前阶段：已完成
 
-当前子任务：提交已验证修改，部署 Web，执行健康检查和线上版本/产物核验。
+当前子任务：无。下一任务仅登记为 `KDOS-NOTIFICATION-SHIPPING-PLAN-008`，本任务未开发出货计划通知。
+
+---
+
+## 已完成
+
+- [x] API 删除替代接收人常量/解析/分支、模式契约、多 delivery ID 聚合和历史特殊领取过滤；每个有效用户只对应一条 delivery。
+- [x] 禁用用户和缺失企微 ID 用户分别记录 `SKIPPED_DISABLED` / `SKIPPED_MISSING_WECHAT_ID`，不影响其他接收人。
+- [x] Dispatcher 删除单人环境门禁、不匹配失败码和多 delivery 回调，逐个发送 API claim 返回的正式接收人。
+- [x] Web 删除验证期顶部警告、模式列和替代接收人列；人工测试发送明确提示会真实发给当前规则接收人。
+- [x] 新增并在生产执行 `NotificationProductionCutover1722920081000`；退役字段/索引已不存在，80 个 migration 全部已应用。
+- [x] 保留已执行的历史 `NotificationTestModeDelivery1722920070000`，仅作为不可变 migration history，不代表保留运行功能。
+- [x] 切换前非终态队列为 `PENDING=0`、`PROCESSING=0`、可重试 `FAILED=0`；隔离数为 0，1 条旧终态 FAILED 和 7 条历史 SENT 未改动。
+- [x] 备份已完成且通过 `pg_restore --list` 校验：`data/backups/four_department_tracker_20261004_205409.backup` (600492479 bytes，2026-10-04 20:55:27 +0800，SHA-256 `3248b2e1e5c8644cd3c3dd78530c70dd44a64c2e5e557a34714e7d2415ec853c`)；`data/backups/kdos_20261004_205409.backup` (8155720 bytes，20:55:29 +0800，SHA-256 `d2d70aabb94f68ee6d987c359804070bd13e0bc3ec03c1ba66a0bea99d375a8d`)；`data/backups/uploads_20261004_205409.tar.gz` (38271 bytes，20:55:30 +0800，SHA-256 `089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`)。
+- [x] 严格按停 Dispatcher、队列检查、备份、migration、API、Web、实际 user-systemd、启动与健康检查的顺序上线。
+- [x] 实际 user-systemd 删除两个单人门禁变量并 daemon-reload；Dispatcher 为 `active/running`、`NRestarts=0`。
+- [x] 单人正式实发：outbox `01a10700-171c-7d01-93d4-fa79fc28f5c4`，1 条独立 SENT delivery，1 个 provider message ID，`errcode=0`、`errmsg=ok`。
+- [x] 双人正式实发：outbox `01a10700-dbb4-7d43-bcaf-6b7545bb15d8`，2 条独立 SENT delivery，2 个不同接收人与 provider message ID，均为 `errcode=0`、`errmsg=ok`。
+- [x] 测试规则已恢复为原单人配置（version 4）；实发后无非终态 outbox。
+- [x] API 79/79 suites、610/610 可执行测试；Web 28/28 files、180/180；Shared 7/7；Dispatcher 6/6；lint、typecheck、build 全部通过。
+- [x] Web、API、Swagger、OpenAPI、PostgreSQL 健康；线上 bundle 无旧顶部警告，包含“确认真实发送”提示。
+- [x] 架构、安全、集成、Dispatcher README 和企业微信通知总控已更新。
+
+---
+
+## 正在进行
+
+- 无。
+
+---
+
+## 待完成
+
+- 无。
+
+---
+
+## 修改文件
+
+- `apps/api/src/migrations/1722920081000-NotificationProductionCutover.ts`
+- `apps/api/src/modules/notifications/*`
+- `apps/web/src/modules/notifications/NotificationCenterPage.tsx` 及测试
+- `automation/wechat_push_projects/kdos-notification-dispatcher/*`
+- `ARCHITECTURE.md`、`SECURITY.md`、`docs/integration-guide.md`
+- `docs/KDOS_企业微信通知开发总控.md`
+- `outputs/CODEX_PROGRESS.md`
+- 实际 user-systemd 单元：`/home/Jerry/.config/systemd/user/kdos-notification-dispatcher.service`
+
+---
+
+## 数据库 Migration
+
+- 已执行 `NotificationProductionCutover1722920081000`，删除 `idx_notification_delivery_actual_recipient`、`actual_recipient_user_id`、`actual_wechat_user_id`、`test_mode`。
+- 历史 `NotificationTestModeDelivery1722920070000` 保留不改，以保证新库、旧库升级和 migration history 可重复。
+
+---
+
+## 新增或修改测试
+
+- 覆盖 USER、ROLE 多人、ORGANIZATION 多人、ORGANIZATION + ROLE + USER 去重、禁用/缺企微 ID、多用户独立 delivery、单 delivery 成功/失败隔离、Dispatcher 逐人发送和 internal API 权限/租户/worker 回归。
+
+---
+
+## 已运行测试
+
+测试名称：通知 API 专项 / API 全量 / Web 全量 / Dispatcher Python / Shared / lint / typecheck / build
+
+结果：通知 API 5 suites 38/38；API 79/79 suites、610/610 可执行测试（1 skipped）；Web 28/28 files、180/180；Shared 7/7；Dispatcher 6/6。全仓 lint、typecheck、build 通过；lint 仅 1 个既有 Fast Refresh warning，build 仅既有大 chunk 提示。本机 Node v22.23.1 低于项目声明 Node >=24，生产 Docker 使用 Node 24。
+
+---
+
+## 当前已知问题
+
+- 无本任务新增运行问题。
+
+---
+
+## 等待用户确认
+
+- 无。
+
+---
+
+## 下一步
+
+1. 本任务结束。
+2. 后续另行启动 `KDOS-NOTIFICATION-SHIPPING-PLAN-008`；本任务不开始其开发。
+
+---
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取当前项目 AGENTS.md、kdos-form-platform Skill 和本节。
+2. 执行 `git status`、`git diff --stat`。
+3. 本任务已完成，不重复实发；若用户启动下一任务，从 `KDOS-NOTIFICATION-SHIPPING-PLAN-008` 的新需求开始。
+
+---
+
+## 当前任务（最终交互标准，覆盖下方旧版“右固定操作列”验收口径）
+
+任务名称：KDOS-SHIPPING-ORDER-DATE-ACTION-001 标准业务表顶部删除统一化
+
+任务目标：将所有支持删除的 KDOS 标准业务表统一为“勾选记录 → 顶部删除 → 二次确认 → 正式后端删除”，移除出货计划及其它标准表的行内删除，并把规则写入平台技能。
+
+当前状态：公共能力、页面迁移、全量验证、提交和正式部署均已完成；等待用户真实线上人工验收，验收前保持 NO-GO。
+
+最后更新时间：2026-10-04
+
+---
+
+## 当前阶段
+
+当前阶段：已部署，等待人工验收
+
+当前子任务：请用户在线验证出货计划及其它标准业务表的勾选、顶部删除、权限、`canDelete` 和二次确认行为。
 
 ---
 
@@ -36,12 +152,17 @@
 - [x] 最终静态审计确认剩余行级删除仅位于角色/角色组、系统/模块管理员、权限组和筛选规则等非标准业务表或局部配置例外。
 - [x] 定向测试覆盖公共表格、主计划、设备和营销迁移页；Web 全量测试 28 文件、180/180 通过。
 - [x] Web typecheck 通过；lint 通过（0 error，1 个既有 Fast Refresh warning）；生产 build 通过。
+- [x] 提交 `b0e5439 feat(web): standardize top-level table deletion`。
+- [x] 执行 `./scripts/deploy.sh all`；Repository/Web/API 均为 `b0e5439`，状态 `CONSISTENT`。
+- [x] `scripts/healthcheck.sh` 通过；Web、API、Swagger、OpenAPI、PostgreSQL 均健康，PostgreSQL 容器未重建。
+- [x] Dispatcher 正式 user-systemd 单元 `kdos-notification-dispatcher.service` 为 enabled、active/running、`NRestarts=0`。
+- [x] 线上入口引用 `assets/index-7AB5NqVY.js`，生产 bundle 已包含顶部删除确认、未选择禁用和 `canDelete` 阻止文案。
 
 ---
 
 ## 正在进行
 
-- [ ] 提交、部署、健康检查和线上产物核验。
+- [ ] 等待用户真实线上人工验收。
 
 ---
 
@@ -51,7 +172,7 @@
 - [x] 增加公共组件和各迁移页面回归测试。
 - [x] 运行定向测试、Web 全量测试、typecheck、lint、build。
 - [x] 检查 diff、API/权限/审计边界与数据库无变更。
-- [ ] 提交、部署当前运行环境并完成健康检查和线上效果核验。
+- [x] 提交、部署当前运行环境并完成健康检查和线上产物核验。
 - [ ] 等待用户人工验收；验收前保持“等待人工验收 / NO-GO”。
 
 ---
@@ -111,15 +232,16 @@
 
 ## 等待用户确认
 
-- 无；按用户已明确的最终标准继续实现。最终真实线上验收前不得判 PASS。
+- 请按最终人工验收清单验证：出货计划无行内删除；顶部删除与筛选同区；未选禁用；单选/多选可用；无权限隐藏；存在 `canDelete=false` 时整体阻止；确认后才调用删除；其它已迁移标准表行为一致。
+- 当前任务结论：`等待人工验收 / NO-GO`，不得在用户验收前判 PASS。
 
 ---
 
 ## 下一步
 
-1. 提交本轮修改并执行正式 Web 部署。
-2. 确认线上 Repository/Web 版本一致、Web/API/PostgreSQL/Dispatcher 健康，生产 bundle 包含顶部删除能力。
-3. 交付用户人工验收；未验收前保持 NO-GO。
+1. 用户执行真实线上人工验收。
+2. 若发现交互偏差，按本节测试和验收清单继续修复并重新部署。
+3. 用户明确验收通过后，才将任务改判 PASS。
 
 ---
 
