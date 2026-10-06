@@ -45,7 +45,7 @@
 
 任务目标：仅为 `mps_shipping_plans` / `mps-shipping-plans` 的既有 Web/API 单条 PATCH 接入 `shipping_plan.key_fields_changed`；关键字段为 `orderNumber`、`itemCode`、`latestCustomerDueDate`、`plannedQuantity`、`divisionId`。本阶段不接入新建、删除、批量、Excel、shipping-to-base、base-to-weekly 或 ERP 同步。
 
-当前状态：实施中，尚未修改通知 Registry、业务源码、数据库或生产数据。
+当前状态：单条 PATCH 代码、Registry、测试和部署已完成；生产 FIXED_USERS 规则与真实企业微信实发仍待完成。
 
 最后更新时间：2026-10-06
 
@@ -60,27 +60,25 @@
 ## 已完成
 
 - [x] 已读取用户确认的 008 任务边界：只处理 `mps_shipping_plans` 单条 PATCH。
-- [x] 已确认基线 HEAD 为 `542892b4f2e175610f68010f273cd2bdd8d0d6fa`，工作区既有未提交变更仅为进度文件。
+- [x] 已确认基线 HEAD 为 `542892b4f2e175610f68010f273cd2bdd8d0d6fa`；实现已合并至当前部署提交。
 - [x] 已重新读取 `kdos-form-platform` 技能并确认必须复用现有事务、审计、字段权限、乐观锁和 NotificationService。
 
 ## 正在进行
 
-- [ ] 注册 `shipping_plan.key_fields_changed`，限定 `FIXED_USERS`。
-- [ ] 在 `MasterPlanApplicationService.update` 同一 EntityManager 事务中比较关键字段、写 audit 后 enqueue 一次。
-- [ ] 增加 Registry、Application、Notification 管线回归测试。
+- [ ] 生产创建仅含崔玮杰的 `FIXED_USERS` 规则并进行一次安全实发核验。
 
 ## 待完成
 
-- [ ] API/Web/Shared/Dispatcher 测试、lint、typecheck、build。
-- [ ] 部署当前运行环境并健康检查。
+- [x] API/Web/Shared/Dispatcher 测试、lint、typecheck、build 已执行；历史 Web marketing 测试超时已单独记录。
+- [x] 已部署当前运行环境并通过健康检查。
 - [ ] 创建正式 FIXED_USERS 规则并进行单条安全记录真实企业微信验证。
-- [ ] 更新企业微信通知总控文件、进度文件、提交并推送。
+- [x] 已更新企业微信通知总控文件和进度文件。
 
 ## 修改文件
 
-- 计划修改：`apps/api/src/modules/notifications/notification-event.registry.ts` 及测试。
-- 计划修改：`apps/api/src/modules/master-plan-system/master-plan.application.service.ts`、`master-plan.module.ts` 及测试。
-- 计划修改：`docs/KDOS_企业微信通知开发总控.md`、本进度文件。
+- `apps/api/src/modules/notifications/notification-event.registry.ts` 及测试。
+- `apps/api/src/modules/master-plan-system/master-plan.application.service.ts`、`master-plan.module.ts` 及测试。
+- `docs/KDOS_企业微信通知开发总控.md`、本进度文件。
 
 ## 数据库 Migration
 
@@ -94,12 +92,11 @@
 
 ## 已运行测试
 
-- 尚未运行本任务新增测试。
+- API 全量 79 suites / 617 tests 通过（1 skipped）；Shared 7 tests 通过；Dispatcher 6 tests 通过；API/Web build、typecheck、lint 通过；RD 任务期间 Web 全量有 2 个既有 marketing 超时。
 
 ## 当前已知问题
 
-- 真实企业微信规则、发送和部署尚未执行。
-- `shipping_plan.key_fields_changed` 当前尚未注册。
+- 生产尚未创建 `shipping_plan.key_fields_changed` 规则，也未执行真实企业微信发送；当前环境缺少可安全使用的管理员登录凭据，不能绕过正式 API 直接写规则或业务数据。
 
 ## 等待用户确认
 
@@ -107,10 +104,9 @@
 
 ## 下一步
 
-1. 完成代码与定向测试。
-2. 运行全量验证并部署。
-3. 配置仅包含崔玮杰的 FIXED_USERS 正式规则，完成一次真实发送核验。
-4. 更新总控文档并提交推送。
+1. 在消息中心正式创建仅包含崔玮杰的 FIXED_USERS 规则。
+2. 选择安全出货计划执行一次单条关键字段修改并核验真实 delivery/SENT/provider_message_id。
+3. 补录总控文档、进度文件和最终提交 SHA；不要扩大到批量/Excel/同步入口。
 
 ---
 

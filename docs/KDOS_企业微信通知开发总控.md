@@ -68,11 +68,23 @@ Git SHA：核心实现提交 `83a9fe1`（`refactor(notifications): add event reg
 
 已知问题：本机 Node.js v22.23.1 低于项目声明的 Node.js 24，但本轮门禁均通过，生产容器使用 Node.js 24。无本任务新增运行问题。
 
-### 阶段 3：出货 / 备货计划变化
+### 阶段 3：出货计划变化
 
-状态：⬜ 下一任务（`KDOS-NOTIFICATION-SHIPPING-PLAN-008`）
+状态：🟡 单条人工修改已实现，生产规则与真实企业微信实发待完成（`KDOS-NOTIFICATION-SHIPPING-PLAN-008`）
 
-本阶段尚未开始；不得在阶段 2 中注册 `shipping_plan.key_fields_changed` 或扩展其他业务事件/渠道。
+已实现范围：
+
+- Event Registry：`shipping_plan.key_fields_changed`
+- resource：`mps-shipping-plans`
+- 仅覆盖 `PATCH /master-plan-system/resources/mps-shipping-plans/:id`。
+- 关键字段：`orderNumber`、`itemCode`、`latestCustomerDueDate`、`plannedQuantity`、`divisionId`。
+- 业务 UPDATE、审计、`notification_outbox` 使用同一 `EntityManager` 事务；一次保存多个关键字段只入队一个事件。
+- 接收规则仅允许 `FIXED_USERS`，复用组织/角色/员工解析与去重。
+- 事件 payload 包含 `recordId`、订单/品项/客户/事业部信息、`changeSummary`、修改人和时间。
+
+明确未覆盖：新建、删除、批量修改、Excel 导入、`shipping-to-base`、`base-to-weekly`、ERP 同步，以及动态销售/生管接收人。
+
+待完成：在生产消息中心创建仅含崔玮杰的正式 `FIXED_USERS` 规则，选择安全出货计划单条修改一项关键字段，核验 outbox、recipient、delivery、provider message ID 和企业微信实收；完成后补录实际验证与最终 SHA。
 
 ## 后续事件接入规则
 
