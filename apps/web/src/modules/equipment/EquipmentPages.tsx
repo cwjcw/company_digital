@@ -13,6 +13,7 @@ import { OrganizationSelect } from "../../shared/OrganizationSelect";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 import { KdosChart, formatChartDate, formatChartDuration, formatChartPercent } from "../../shared/charts";
 import type { EChartsOption } from "echarts";
+import { equipmentStatusReportDateDisabled } from "./equipment-status-date-window";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PageResult<T> = { rows: T[]; total: number; page: number; pageSize: number };
@@ -381,7 +382,7 @@ export function EquipmentStatusReportPage() {
           <Form.Item label="使用部门"><Input readOnly value={selectedEquipment?.usageDepartmentName ?? editing?.usageDepartmentName ?? ""} /></Form.Item>
           <Form.Item label="事业部"><Input readOnly value={selectedEquipment?.divisionName ?? editing?.divisionName ?? ""} /></Form.Item>
           <Form.Item name="reportDate" label="填报日期" rules={[{ required: true, message: "请选择填报日期" }]}>
-            <DatePicker allowClear={false} style={{ width: "100%" }} format="YYYY-MM-DD" disabledDate={(date) => date.startOf("day").isAfter(dayjs().startOf("day")) || date.startOf("day").isBefore(dayjs().subtract(6, "day").startOf("day"))} />
+            <DatePicker allowClear={false} style={{ width: "100%" }} format="YYYY-MM-DD" disabledDate={(date) => equipmentStatusReportDateDisabled(date)} />
           </Form.Item>
           <DurationFields prefix="plannedRuntime" label="计划运行时间" />
           <DurationFields prefix="runtime" label="实际运行时长" />

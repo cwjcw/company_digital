@@ -13,6 +13,7 @@ it.each(["create", "import", "export"])("allows %s users to download a blank tem
   expect(sheet.getColumn(3).numFmt).toBe("@"); expect(workbook.getWorksheet("填写说明")).toBeDefined();
   expect(workbook.getWorksheet("填写说明")!.getColumn(1).values.some((value) => String(value).includes("实际运行时长、故障时长支持“10小时”“10小时10分钟”“10分钟”和空值"))).toBe(true);
   expect(workbook.getWorksheet("填写说明")!.getColumn(1).values.some((value) => String(value).includes("计划运行时间为必填项"))).toBe(true);
+  expect(workbook.getWorksheet("填写说明")!.getColumn(1).values.some((value) => String(value).includes("近10天（含今天，即今天及之前9天，北京时间）"))).toBe(true);
   expect(workbook.getWorksheet("填写说明")!.getColumn(1).values.some((value) => String(value).includes("稼动率 = 实际运行时长 ÷ 计划运行时间 × 100%"))).toBe(true);
 });
 it("rejects read-only users and permissions for another table", async () => {

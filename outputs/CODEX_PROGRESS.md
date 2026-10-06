@@ -1,5 +1,83 @@
 # Codex 工作进度
 
+## 当前任务：KN-EQUIP-IMPORT-DATE-WINDOW-010
+
+任务名称：设备状态管理导入日期限制由7天调整为10天
+
+任务目标：保持上海自然日、上下界包含和未来日期拒绝语义不变，仅把设备状态填报/Excel 导入可选窗口从“当天+前6天”调整为“当天+前9天”，同步前端日期控件、后端最终校验、模板说明和测试；不修改设备大屏近7天统计。
+
+当前状态：实现、验证、提交和正式部署均已完成；等待人工使用8/9/10天及超界数据验收，当前结论为“等待人工验收 / NO-GO”。
+
+最后更新时间：2026-10-06
+
+### 已确认
+
+- [x] 开始 HEAD：`42f863b65c517349ac4c4b0c4d0ff589d9abdb4d`，工作区起始干净。
+- [x] 后端限制位于 `EquipmentApplicationService.reportDate()`，判断字段为 `reportDate` / 填报日期。
+- [x] 原口径为上海当天至前6天，两个边界均允许，未来日期拒绝；预览与确认写入均复用该校验。
+- [x] 前端人工填报 DatePicker 重复相同日期窗口；Excel 内容由后端预览校验。
+- [x] 导入模板说明写明“今天及之前6天（北京时间）”。
+- [x] 已识别设备大屏“最近7天”趋势，明确不修改。
+
+### 已完成
+
+- [x] 在 `@kdos/contracts` 提取 `EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS = 10`，后端、前端和模板说明复用同一业务常量。
+- [x] 后端最终校验改为上海当天至前9天（共10个自然日、两端包含），未来日期仍拒绝。
+- [x] 前端人工填报 DatePicker 同步为相同边界；Excel 导入继续由后端 preview/confirm 两阶段最终校验。
+- [x] 模板说明更新为“近10天（含今天，即今天及之前9天，北京时间）”。
+- [x] 补齐当天、第8/9/10个日历日、超界1日、未来日期和多行部分错误策略测试。
+- [x] 定向测试：API 2 suites / 24 tests、Web 12 tests、Contracts 22 tests，全部通过。
+- [x] 全量测试：API 79 suites / 618 tests 通过（另 1 suite / 1 test skipped）；Web 28 files / 181 tests 全部通过。
+- [x] API、Web、Contracts typecheck 通过；API lint 通过；Web lint 0 errors，仅保留无关既有 `ModulePortal.tsx` Fast Refresh warning。
+- [x] API、Web、Contracts build 通过；Web 仅有既有 chunk-size warning。
+- [x] 已复查设备大屏“最近7天”趋势和督办“7天内需交付”，均与本任务无关且未修改。
+
+### 正在进行
+
+- [ ] 无；等待人工验收。
+
+### 待完成
+
+- [ ] 输出“等待人工验收 / NO-GO”报告，等待人工以8/9/10天边界及超界数据验收。
+
+### 修改文件
+
+- `packages/contracts/src/index.ts`
+- `apps/api/src/modules/equipment/equipment.application.service.ts`
+- `apps/api/src/modules/equipment/equipment-export.service.ts`
+- `apps/api/src/modules/equipment/equipment.spec.ts`
+- `apps/api/src/modules/equipment/equipment-export.service.spec.ts`
+- `apps/web/src/modules/equipment/equipment-status-date-window.ts`
+- `apps/web/src/modules/equipment/EquipmentPages.tsx`
+- `apps/web/src/modules/equipment/EquipmentPages.spec.tsx`
+- `outputs/CODEX_PROGRESS.md`
+
+### 已运行测试
+
+- API 定向：2 suites / 24 tests passed。
+- Web 设备页定向：12 tests passed。
+- Contracts：22 tests passed。
+- API 全量：79 suites / 618 tests passed，1 suite / 1 test skipped。
+- Web 全量：28 files / 181 tests passed。
+- API、Web、Contracts typecheck、lint、build：通过；仅有既有非阻断 warning。
+
+### 部署验证
+
+- [x] `./scripts/deploy.sh all` 成功，Web/API 容器已更新。
+- [x] `./scripts/healthcheck.sh`：Web、API、Swagger、OpenAPI、PostgreSQL 全部健康。
+- [x] Notification Dispatcher：`active / running`。
+- [x] `./scripts/deploy.sh check`：Repository SHA = Web SHA = API SHA，`STATUS=CONSISTENT`（进度记录回填后将 amend 并以最终 SHA 再部署核对）。
+
+### 等待用户确认
+
+- 人工验证8天前、9天前、10日窗口边界（今天-9天）应允许；超出窗口1天（今天-10天）应拒绝。部署后不自行判 PASS。
+
+### 数据库 Migration
+
+- 无。
+
+---
+
 ## 当前任务：研发中心 / 一物多码检测查询体验改造
 
 任务名称：RD duplicate query UX overhaul

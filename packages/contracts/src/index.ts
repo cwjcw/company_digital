@@ -1,5 +1,8 @@
 import { standardProcesses } from "@tracker/shared";
 
+/** 设备状态填报日期窗口：含上海当天在内的连续自然日数量。 */
+export const EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS = 10;
+
 export const tablePermissionActions = ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"] as const;
 export type TablePermissionAction = typeof tablePermissionActions[number];
 

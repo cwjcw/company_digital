@@ -99,7 +99,8 @@ describe("equipment permissions and validation", () => {
     }), "equipment-status-report", "update", "division-1", "another-user")).toThrow(ForbiddenException);
   });
 
-  it("accepts today and the previous six days but rejects dates outside the rolling week", () => {
+  it("accepts the ten-day inclusive Shanghai window and keeps future dates rejected", () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-10-06T04:00:00.000Z"));
     const service = new EquipmentApplicationService({} as never) as any;
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const date = new Date(`${today}T00:00:00+08:00`);
@@ -108,9 +109,40 @@ describe("equipment permissions and validation", () => {
       return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
     };
     expect(service.reportDate(today)).toBe(today);
-    expect(service.reportDate(offset(-6))).toBe(offset(-6));
-    expect(() => service.reportDate(offset(-7))).toThrow(BadRequestException);
+    expect(service.reportDate(offset(-7))).toBe(offset(-7));
+    expect(service.reportDate(offset(-8))).toBe(offset(-8));
+    expect(service.reportDate(offset(-9))).toBe(offset(-9));
+    expect(() => service.reportDate(offset(-10))).toThrow(BadRequestException);
     expect(() => service.reportDate(offset(1))).toThrow(BadRequestException);
+    jest.useRealTimers();
+  });
+
+  it("keeps multi-row import preview partial when one row is older than the ten-day window", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-10-06T04:00:00.000Z"));
+    const asset = {
+      id: "asset-window", tenantId: "KAINAN", divisionOrganizationUnitId: "division-1", divisionNameSnapshot: "事业一部",
+      equipmentCode: "A001", equipmentName: "设备甲", active: true, monitored: true
+    };
+    const manager = {
+      find: jest.fn().mockResolvedValue([asset]),
+      findOneBy: jest.fn().mockResolvedValue(null),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getMany: jest.fn().mockResolvedValue([])
+      })
+    };
+    const service = new EquipmentApplicationService({ manager } as never);
+    const importActor = actor({ permissions: ["equipment-status-report:*:import"], isSystemAdmin: true });
+    const common = { divisionName: "事业一部", equipmentCode: "A001", plannedRuntimeMinutes: 480, runtimeMinutes: 420, faultMinutes: 0, faultReason: null };
+
+    const preview = await service.previewStatusImport([
+      { ...common, rowNumber: 2, reportDate: "2026-09-27" },
+      { ...common, rowNumber: 3, reportDate: "2026-09-26" }
+    ], importActor);
+
+    expect(preview).toMatchObject({ total: 2, createCount: 1, errors: [{ rowNumber: 3 }] });
+    expect(preview.rows).toEqual([expect.objectContaining({ rowNumber: 2, reportDate: "2026-09-27" })]);
+    expect(preview.errors[0]?.message).toContain("填报日期只能选择 2026-09-27 至 2026-10-06");
+    jest.useRealTimers();
   });
 
   it("stores durations as exact non-negative integer minutes", () => {

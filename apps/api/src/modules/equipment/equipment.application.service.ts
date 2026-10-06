@@ -7,6 +7,7 @@ import {
 } from "../../entities";
 import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentCreateAllowed, equipmentScope, hasEquipmentPermission } from "./equipment.types";
 import { NotificationService } from "../notifications/notification.service";
+import { EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS } from "@kdos/contracts";
 
 type AssetInput = {
   divisionId: string;
@@ -378,7 +379,7 @@ export class EquipmentApplicationService {
   private reportDate(value: unknown) {
     const text = this.optionalDate(value, "填报日期"); if (!text) throw new BadRequestException("填报日期不能为空");
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    const minimum = new Date(`${today}T00:00:00+08:00`); minimum.setDate(minimum.getDate() - 6);
+    const minimum = new Date(`${today}T00:00:00+08:00`); minimum.setDate(minimum.getDate() - (EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS - 1));
     const minText = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(minimum);
     if (text > today || text < minText) throw new BadRequestException(`填报日期只能选择 ${minText} 至 ${today}`);
     return text;

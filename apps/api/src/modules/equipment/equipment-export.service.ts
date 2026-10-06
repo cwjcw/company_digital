@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { EquipmentApplicationService } from "./equipment.application.service";
 import { EquipmentQueryService } from "./equipment.query.service";
 import { EquipmentActor, hasEquipmentPermission } from "./equipment.types";
+import { EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS } from "@kdos/contracts";
 
 @Injectable()
 export class EquipmentExportService {
@@ -36,7 +37,7 @@ export class EquipmentExportService {
       notes.addRows([
         ["请在“设备状态填报”工作表填写数据，保留原表头。设备编号按文本填写，保留前导零。"],
         ["事业部、设备编号、填报日期必填；事业部与设备编号须匹配设备总台账。设备名称和使用部门由系统关联，不作为匹配键。"],
-        ["填报日期格式为 YYYY-MM-DD，仅允许今天及之前6天（北京时间）。"],
+        [`填报日期格式为 YYYY-MM-DD，仅允许近${EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS}天（含今天，即今天及之前${EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS - 1}天，北京时间）。`],
         ["计划运行时间为必填项，格式与实际运行时长一致，支持“0小时0分钟”“10小时”“10小时30分钟”“30分钟”和“10:30”，允许填写0小时0分钟。"],
         ["实际运行时长、故障时长支持“10小时”“10小时10分钟”“10分钟”和空值，空值按0分钟处理；故障时长大于0时必须填写有效故障原因。"],
         ["稼动率 = 实际运行时长 ÷ 计划运行时间 × 100%；计划运行时间有效时允许超过100%，没有计划运行时间时显示为“—”。"],

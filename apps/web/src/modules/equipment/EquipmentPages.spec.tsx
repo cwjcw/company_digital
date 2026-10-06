@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App as AntApp } from "antd";
+import dayjs from "dayjs";
 import { api } from "../../api";
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./EquipmentPages";
+import { equipmentStatusReportDateDisabled } from "./equipment-status-date-window";
 import { downloadApiFile } from "../../shared/legacy-ui";
 
 const chartProps = vi.hoisted(() => [] as Array<{ option: any; ariaLabel: string; empty?: boolean }>);
@@ -76,6 +78,19 @@ const dashboardResponse = {
     }
   }
 };
+
+describe("equipment status report date window", () => {
+  const today = dayjs("2026-10-06");
+
+  it("matches the backend ten-day inclusive boundary", () => {
+    expect(equipmentStatusReportDateDisabled(today, today)).toBe(false);
+    expect(equipmentStatusReportDateDisabled(today.subtract(7, "day"), today)).toBe(false);
+    expect(equipmentStatusReportDateDisabled(today.subtract(8, "day"), today)).toBe(false);
+    expect(equipmentStatusReportDateDisabled(today.subtract(9, "day"), today)).toBe(false);
+    expect(equipmentStatusReportDateDisabled(today.subtract(10, "day"), today)).toBe(true);
+    expect(equipmentStatusReportDateDisabled(today.add(1, "day"), today)).toBe(true);
+  });
+});
 
 describe("EquipmentStatusReportPage live permissions", () => {
   beforeEach(() => {
