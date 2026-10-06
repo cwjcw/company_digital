@@ -29,6 +29,8 @@ type Scan = {
   counts?: Record<string, number>;
   groups?: DuplicateGroup[];
   totalGroups?: number;
+  materialMatchCount?: number;
+  groupCounts?: { all: number; similar: number; exact: number; missing: number; code: number };
   page?: number;
   pages?: number;
   pageSize?: number;
@@ -50,6 +52,7 @@ type RdSession = { isSystemAdmin?: boolean; permissions?: string[]; moduleAdminC
 type DuplicateFilters = { kind: string; code: string; name: string; spec: string; minScore: number | null };
 
 const kindOptions = [
+  { label: "全部", value: "all" },
   { label: "高相似", value: "similar" },
   { label: "名称规格一致", value: "exact" },
   { label: "同名缺规格", value: "missing" },
@@ -145,7 +148,7 @@ export function RdItemsPage() {
   </div>;
 }
 
-const emptyDuplicateFilters: DuplicateFilters = { kind: "similar", code: "", name: "", spec: "", minScore: null };
+const emptyDuplicateFilters: DuplicateFilters = { kind: "all", code: "", name: "", spec: "", minScore: null };
 
 export function RdDuplicatesPage({ user }: { user: RdSession }) {
   const [scan, setScan] = useState<Scan | null>(null);
@@ -176,6 +179,12 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
   });
   const current = scanQuery.data ?? scan ?? latestScan.data;
   const status = current?.status ?? "IDLE";
+  const groupCounts = current?.groupCounts ?? { all: 0, similar: 0, exact: 0, missing: 0, code: 0 };
+  const categoryOptions = kindOptions.map((option) => ({ ...option, label: `${option.label} ${formatCount(groupCounts[option.value as keyof typeof groupCounts])}` }));
+  const hasMaterialFilters = [appliedFilters.code, appliedFilters.name, appliedFilters.spec].some(Boolean);
+  const emptyDescription = Number(current?.materialMatchCount ?? 0) > 0
+    ? `物料库中找到 ${formatCount(current?.materialMatchCount)} 条符合条件的物料，但当前分类下没有已保存的疑似重复组。`
+    : hasMaterialFilters ? "当前物料库中未找到符合条件的物料。" : "当前分类没有已保存的疑似重复组。";
   const applyQuery = () => {
     setAppliedFilters({ ...draftFilters, code: draftFilters.code.trim(), name: draftFilters.name.trim(), spec: draftFilters.spec.trim() });
     setHistoryPage(1);
@@ -238,13 +247,14 @@ export function RdDuplicatesPage({ user }: { user: RdSession }) {
         </div>
         <div className="rd-history-filter-item rd-history-filter-category" data-testid="rd-filter-category">
           <span className="rd-history-filter-label">分类</span>
-          <Segmented options={kindOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
+          <Segmented options={categoryOptions} value={draftFilters.kind} onChange={(value) => updateDraftFilter("kind", String(value))} />
         </div>
       </div>
+      {status === "COMPLETE" && <div className="rd-query-summary" data-testid="rd-query-summary"><Tag color="blue">物料库命中：{formatCount(current?.materialMatchCount)}</Tag><Tag color="geekblue">疑似重复组：{formatCount(current?.totalGroups)}</Tag></div>}
       {scanQuery.isError && <Alert type="error" showIcon message={(scanQuery.error as Error).message} />}
       {status === "RUNNING" ? <div className="rd-scan-running"><Typography.Text>后台任务正在运行，页面会自动刷新进度。</Typography.Text></div> : status === "COMPLETE" ? <>
         <div className="rd-results-summary">{rdKindLabel(appliedFilters.kind)}共 {formatCount(current?.totalGroups)} 组 · 第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</div>
-        {(current?.groups ?? []).length ? <div className="rd-history-results">{(current?.groups ?? []).map((group) => <ComparisonCard key={group.id} group={group} filters={appliedFilters} />)}</div> : <Empty description="当前条件没有候选；不代表不存在重复物料。" />}
+        {(current?.groups ?? []).length ? <div className="rd-history-results">{(current?.groups ?? []).map((group) => <ComparisonCard key={group.id} group={group} filters={appliedFilters} />)}</div> : <Empty description={emptyDescription}>{Number(current?.materialMatchCount ?? 0) > 0 && <Typography.Text type="secondary" className="rd-empty-note">这不代表物料不存在，也不代表不存在其他类型的疑似重复，请尝试“全部”或其他分类。</Typography.Text>}</Empty>}
         <div className="rd-history-pager"><Button disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>上一页</Button><Typography.Text>第 {current?.page ?? historyPage} / {current?.pages ?? 1} 页</Typography.Text><Button disabled={historyPage >= (current?.pages ?? 1)} onClick={() => setHistoryPage((page) => page + 1)}>下一页</Button></div>
       </> : status === "IDLE" ? <Empty description="暂无已保存的查重结果" /> : <Alert type="error" showIcon message="查重计算失败，请联系管理员重新计算。" />}
     </section>

@@ -84,12 +84,40 @@ export class RdQueryService {
     if (!scan) throw new BadRequestException("扫描记录不存在");
     if (scan.status !== "COMPLETE") return scan;
     const page = Math.max(1, Number(input.page) || 1), pageSize = [20, 50, 100].includes(Number(input.pageSize)) ? Number(input.pageSize) : 50;
-    const kind = String(input.kind ?? "all"), minScore = Number(input.minScore) || 0, params: unknown[] = [scanId, actor.tenantId];
-    const clauses = ["g.scan_id=$1", "g.tenant_id=$2", kind === "all" ? "1=1" : (params.push(kind), `g.kind=$${params.length}`), `COALESCE(g.score,0)>=$${params.push(minScore)}`];
-    for (const [field, column] of [["code", "i.item_code"], ["name", "i.item_name"], ["spec", "i.specification"]] as const) { const value = String(input[field] ?? "").trim(); if (value) { params.push(`%${value}%`); clauses.push(`EXISTS (SELECT 1 FROM rd_duplicate_members fm JOIN rd_items i ON i.id=fm.rd_item_id WHERE fm.group_id=g.id AND ${column} ILIKE $${params.length})`); } }
-    const [{ count }] = await this.dataSource.query(`SELECT count(*)::int count FROM rd_duplicate_groups g WHERE ${clauses.join(" AND ")}`, params);
-    params.push(pageSize, (page - 1) * pageSize);
-    const groups = await this.dataSource.query(`SELECT g.id,g.group_no AS "groupNo",g.kind,g.score,g.reason,g.warnings,g.member_count AS "memberCount",g.distinct_codes AS "distinctCodes",g.members_truncated AS "membersTruncated",COALESCE(jsonb_agg(jsonb_build_object('row',m.source_row,'code',i.item_code,'name',i.item_name,'spec',i.specification) ORDER BY m.member_order) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) records FROM rd_duplicate_groups g LEFT JOIN rd_duplicate_members m ON m.group_id=g.id LEFT JOIN rd_items i ON i.id=m.rd_item_id WHERE ${clauses.join(" AND ")} GROUP BY g.id ORDER BY CASE g.kind WHEN 'exact' THEN 0 WHEN 'similar' THEN 1 WHEN 'missing' THEN 2 ELSE 3 END,g.score DESC NULLS LAST,g.group_no LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-    return { ...scan, totalGroups: Number(count), page, pageSize, pages: Math.max(1, Math.ceil(Number(count) / pageSize)), groups };
+    const kind = String(input.kind ?? "all"), minScore = Number(input.minScore) || 0;
+    const groupParams: unknown[] = [scanId, actor.tenantId];
+    const groupFilterClauses = ["g.scan_id=$1", "g.tenant_id=$2", `COALESCE(g.score,0)>=$${groupParams.push(minScore)}`];
+    const memberFilters = ["fm.group_id=g.id", "fm.tenant_id=g.tenant_id", "i.tenant_id=g.tenant_id"];
+    const itemClauses = ["i.tenant_id=$1"];
+    const itemParams: unknown[] = [actor.tenantId];
+    for (const [field, column, itemColumn] of [["code", "i.item_code", "item_code"], ["name", "i.item_name", "item_name"], ["spec", "i.specification", "specification"]] as const) {
+      const value = String(input[field] ?? "").trim();
+      if (!value) continue;
+      groupParams.push(`%${value}%`);
+      memberFilters.push(`${column} ILIKE $${groupParams.length}`);
+      itemParams.push(`%${value}%`);
+      itemClauses.push(`i.${itemColumn} ILIKE $${itemParams.length}`);
+    }
+    if (memberFilters.length > 3) groupFilterClauses.push(`EXISTS (SELECT 1 FROM rd_duplicate_members fm JOIN rd_items i ON i.id=fm.rd_item_id WHERE ${memberFilters.join(" AND ")})`);
+    const [{ count: materialMatchCount }] = await this.dataSource.query(`SELECT count(*)::int AS count FROM rd_items i WHERE ${itemClauses.join(" AND ")}`, itemParams);
+    const [groupCountsRow] = await this.dataSource.query(`SELECT count(*)::int AS "all",count(*) FILTER (WHERE g.kind='similar')::int AS similar,count(*) FILTER (WHERE g.kind='exact')::int AS exact,count(*) FILTER (WHERE g.kind='missing')::int AS missing,count(*) FILTER (WHERE g.kind='code')::int AS code FROM rd_duplicate_groups g WHERE ${groupFilterClauses.join(" AND ")}`, groupParams);
+    const groupCounts = {
+      all: Number(groupCountsRow?.all ?? 0),
+      similar: Number(groupCountsRow?.similar ?? 0),
+      exact: Number(groupCountsRow?.exact ?? 0),
+      missing: Number(groupCountsRow?.missing ?? 0),
+      code: Number(groupCountsRow?.code ?? 0)
+    };
+    const listParams = [...groupParams];
+    const listClauses = [...groupFilterClauses];
+    if (kind !== "all") { listParams.push(kind); listClauses.push(`g.kind=$${listParams.length}`); }
+    let totalGroups = groupCounts.all;
+    if (kind !== "all") {
+      const [filteredCount] = await this.dataSource.query(`SELECT count(*)::int AS count FROM rd_duplicate_groups g WHERE ${listClauses.join(" AND ")}`, listParams);
+      totalGroups = Number(filteredCount?.count ?? 0);
+    }
+    listParams.push(pageSize, (page - 1) * pageSize);
+    const groups = await this.dataSource.query(`SELECT g.id,g.group_no AS "groupNo",g.kind,g.score,g.reason,g.warnings,g.member_count AS "memberCount",g.distinct_codes AS "distinctCodes",g.members_truncated AS "membersTruncated",COALESCE(jsonb_agg(jsonb_build_object('row',m.source_row,'code',i.item_code,'name',i.item_name,'spec',i.specification) ORDER BY m.member_order) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) records FROM rd_duplicate_groups g LEFT JOIN rd_duplicate_members m ON m.group_id=g.id AND m.tenant_id=g.tenant_id LEFT JOIN rd_items i ON i.id=m.rd_item_id AND i.tenant_id=g.tenant_id WHERE ${listClauses.join(" AND ")} GROUP BY g.id ORDER BY CASE g.kind WHEN 'exact' THEN 0 WHEN 'similar' THEN 1 WHEN 'missing' THEN 2 ELSE 3 END,g.score DESC NULLS LAST,g.group_no LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`, listParams);
+    return { ...scan, totalGroups, materialMatchCount: Number(materialMatchCount ?? 0), groupCounts, page, pageSize, pages: Math.max(1, Math.ceil(totalGroups / pageSize)), groups };
   }
 }

@@ -87,6 +87,7 @@ export function displayParts(value: unknown, other: unknown, query?: unknown): R
 }
 
 export const rdKindLabels: Record<string, string> = {
+  all: "全部",
   similar: "高相似",
   exact: "名称规格一致",
   missing: "同名缺规格",

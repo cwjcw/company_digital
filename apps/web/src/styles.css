@@ -330,6 +330,8 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .rd-query-highlight { padding: 0 2px; border-radius: 3px; background: #fff3b0; color: inherit; }
 .rd-diff-char.rd-query-highlight { color: #c52222; background: #fff3b0; text-decoration-color: #e8aaaa; }
 .rd-empty-value { color: #8d9a9e; }
+.rd-query-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.rd-empty-note { display: block; margin-top: 8px; }
 .rd-scan-running { margin: 16px 0; padding: 30px; text-align: center; border: 1px dashed #bfd9d8; border-radius: 8px; background: #f7fbfb; }
 .rd-history-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
 .rd-footnote { margin: 10px 2px 0; font-size: 12px; }

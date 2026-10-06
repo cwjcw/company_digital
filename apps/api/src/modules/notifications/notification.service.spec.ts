@@ -205,7 +205,7 @@ describe("NotificationService", () => {
   it("quarantines an unregistered notification event before rule matching", async () => {
     const { manager, source } = dataSource();
     manager.query.mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, event_type: "shipping_plan.key_fields_changed", channel: "WECHAT_WORK", payload: {} }])
+      .mockResolvedValueOnce([{ id: outboxId, attempts: 1, event_type: "notification.event.not_registered", channel: "WECHAT_WORK", payload: {} }])
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: deliveryId }]);
     const service = new NotificationService(source as never);

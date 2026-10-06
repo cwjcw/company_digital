@@ -1,5 +1,209 @@
 # Codex 工作进度
 
+## 当前任务：研发中心 / 一物多码检测查询体验改造
+
+任务名称：RD duplicate query UX overhaul
+
+任务目标：在不修改查重算法、同步流程、查询权限和公共表格组件的前提下，为已保存的一物多码结果增加“全部”分类、物料库命中数、分类聚合计数、同一物料组合筛选及分层空状态，并完成测试、构建与部署核验。
+
+当前状态：已完成实现、测试、构建、部署和“展示架”真实查询核对。
+
+最后更新时间：2026-10-06
+
+### 已完成
+
+- [x] 后端 `GET /rd/material-duplicates/scans/:id` 增加 `materialMatchCount`、`groupCounts`。
+- [x] code/name/spec 改为同一 `rd_items` 成员行的组合 `EXISTS`，保留租户隔离。
+- [x] 前端默认分类改为“全部”，增加统计标签、分类计数和三类空状态文案。
+- [x] 增加 API scan 查询聚合/组合筛选测试，更新 RD E2E mock 与统计断言。
+- [x] API RD 定向测试通过（6 tests），Web typecheck 通过。
+- [x] API 全量测试通过（79 suites / 617 tests，1 skipped）。
+- [x] Web/API build、部署、healthcheck 和版本一致性通过（commit `c1fbea7`）。
+- [x] “展示架”直接 SQL 核对：物料 881 条；候选组 all=184、similar=0、exact=0、missing=184、code=0。
+
+### 待完成
+
+- [x] Web 单元测试执行；RD E2E 6 项通过（全量 E2E 另有 1 个历史 `knm-audit` 登录环境失败）。
+- [x] 部署 Web/API，执行健康检查与版本一致性核对。
+- [x] 对真实“展示架”查询执行 SQL 对照，确认 184 = 0 + 0 + 184 + 0。
+- [x] 输出最终 13 项核对报告；未修改算法、同步、水位线、FULL、Top5/Top10。
+
+### 修改文件
+
+- `apps/api/src/modules/rd/rd.query.service.ts`
+- `apps/api/src/modules/rd/rd.query.service.spec.ts`
+- `apps/web/src/modules/rd/RdPages.tsx`
+- `apps/web/src/modules/rd/rd-display.ts`
+- `apps/web/src/styles.css`
+- `apps/web/e2e/rd-ui.spec.ts`
+
+---
+
+## 当前任务：KDOS-NOTIFICATION-SHIPPING-PLAN-008
+
+任务名称：出货计划关键字段变化企业微信通知
+
+任务目标：仅为 `mps_shipping_plans` / `mps-shipping-plans` 的既有 Web/API 单条 PATCH 接入 `shipping_plan.key_fields_changed`；关键字段为 `orderNumber`、`itemCode`、`latestCustomerDueDate`、`plannedQuantity`、`divisionId`。本阶段不接入新建、删除、批量、Excel、shipping-to-base、base-to-weekly 或 ERP 同步。
+
+当前状态：实施中，尚未修改通知 Registry、业务源码、数据库或生产数据。
+
+最后更新时间：2026-10-06
+
+---
+
+## 当前阶段
+
+当前阶段：API 事件注册、事务 enqueue、测试与验证
+
+当前子任务：先完成 Registry 与 Application Service 单条 PATCH 接入，再执行 API/Web/Shared/Dispatcher 回归、构建、部署和生产实发验证。
+
+## 已完成
+
+- [x] 已读取用户确认的 008 任务边界：只处理 `mps_shipping_plans` 单条 PATCH。
+- [x] 已确认基线 HEAD 为 `542892b4f2e175610f68010f273cd2bdd8d0d6fa`，工作区既有未提交变更仅为进度文件。
+- [x] 已重新读取 `kdos-form-platform` 技能并确认必须复用现有事务、审计、字段权限、乐观锁和 NotificationService。
+
+## 正在进行
+
+- [ ] 注册 `shipping_plan.key_fields_changed`，限定 `FIXED_USERS`。
+- [ ] 在 `MasterPlanApplicationService.update` 同一 EntityManager 事务中比较关键字段、写 audit 后 enqueue 一次。
+- [ ] 增加 Registry、Application、Notification 管线回归测试。
+
+## 待完成
+
+- [ ] API/Web/Shared/Dispatcher 测试、lint、typecheck、build。
+- [ ] 部署当前运行环境并健康检查。
+- [ ] 创建正式 FIXED_USERS 规则并进行单条安全记录真实企业微信验证。
+- [ ] 更新企业微信通知总控文件、进度文件、提交并推送。
+
+## 修改文件
+
+- 计划修改：`apps/api/src/modules/notifications/notification-event.registry.ts` 及测试。
+- 计划修改：`apps/api/src/modules/master-plan-system/master-plan.application.service.ts`、`master-plan.module.ts` 及测试。
+- 计划修改：`docs/KDOS_企业微信通知开发总控.md`、本进度文件。
+
+## 数据库 Migration
+
+- 无。本任务复用现有 `notification_outbox`，不新增 migration。
+
+## 新增或修改测试
+
+- Registry 事件/模板变量/资源/接收规则。
+- 单条 PATCH 关键字段变化、不变值、非关键字段、多字段合并为一个 outbox、dedupKey、同一 manager。
+- 既有 Notification/固定接收对象/Dispatcher 回归。
+
+## 已运行测试
+
+- 尚未运行本任务新增测试。
+
+## 当前已知问题
+
+- 真实企业微信规则、发送和部署尚未执行。
+- `shipping_plan.key_fields_changed` 当前尚未注册。
+
+## 等待用户确认
+
+- 无；008 任务边界已由用户明确确认。
+
+## 下一步
+
+1. 完成代码与定向测试。
+2. 运行全量验证并部署。
+3. 配置仅包含崔玮杰的 FIXED_USERS 正式规则，完成一次真实发送核验。
+4. 更新总控文档并提交推送。
+
+---
+
+## 当前任务：KDOS-NOTIFICATION-SHIPPING-PLAN-008A
+
+任务名称：出货 / 备货计划企业微信通知——实施前只读业务核对
+
+任务目标：基于当前生产基线 `542892b4f2e175610f68010f273cd2bdd8d0d6fa`，只读核对出货计划与事业部基础计划的真实表、字段、写入口、权限、同步关系、事务和通知接入点；不修改通知底座、业务源码、数据库或生产数据。
+
+当前状态：已完成只读分析；未修改源码、数据库、生产数据、通知 Registry、Dispatcher 或通知规则。
+
+最后更新时间：2026-10-06
+
+---
+
+## 当前阶段
+
+当前阶段：实施前业务核对完成，等待业务确认
+
+当前子任务：整理并交付 008A 分析；企业微信通知总控文件阶段状态未修改。
+
+## 已完成
+
+- [x] 已阅读项目规范、架构、安全、集成指南、企业微信通知总控和既有进度。
+- [x] 已确认 Git 工作区起始干净，HEAD 为 `542892b4f2e175610f68010f273cd2bdd8d0d6fa`。
+- [x] 已核对 `mps_shipping_plans`、`mps_base_plans`、`mps_weekly_plans` 迁移、资源配置、Contracts 字段、Query/Application/Sync/Spreadsheet/Controller/Web 页面与测试。
+- [x] 已确认没有 TypeORM Entity 类；主计划资源通过 `MasterPlanResource` + raw SQL/EntityManager 操作。
+- [x] 已确认 `mps-base-plans` 是代码中的正式名称“事业部基础计划表”，代码中没有名为“备货计划”的独立 resource/table；该术语需业务确认。
+- [x] 已确认 Web 单条、批量、Excel 导入确认、删除、计划同步、定时同步等真实写入口及权限/数据范围/乐观锁/审计行为。
+- [x] 已确认 Web/Application 写事务目前只写业务表、审计和 `mps_reconciliation_outbox`；当前没有 shipping 事件入队。`shippingToBase` 使用 `dataSource.query`，未与通知 outbox 形成同一事务。
+- [x] 已形成通知触发矩阵、关键字段建议、自动同步通知结论、建议事件和 payload；尚未新增 Registry 事件。
+
+## 正在进行
+
+- [ ] 无源码实施；等待用户确认角色字段归属、自动同步通知意图及批量事件粒度。
+
+## 待完成
+
+- [ ] 用户确认“备货计划”是否就是 `mps-base-plans`。
+- [ ] 用户确认销售/生管角色与字段所有权。
+- [ ] 用户确认自动 `shipping-to-base` 是否通知及接收范围。
+- [ ] 用户确认多记录批量/导入应采用逐记录事件还是聚合事件。
+- [ ] 用户确认后，另行启动事件 Registry/规则/业务接入实施任务；本阶段不实施。
+
+## 修改文件
+
+- `outputs/CODEX_PROGRESS.md`（仅追加本 008A 只读分析记录）
+
+## 数据库 Migration
+
+- 无。
+
+## 新增或修改测试
+
+- 无（本阶段只读分析）。
+
+## 已运行测试
+
+测试名称：代码/迁移/服务/页面静态核对、Git 状态检查。
+
+结果：完成；未执行会修改状态的测试、迁移、部署或通知发送。
+
+## 当前已知问题
+
+- 代码没有销售与生管的显式字段归属模型，不能仅凭代码给出权威角色结论。
+- “备货计划”不是现有 resource 名称；只能确认其可能对应 `mps-base-plans`，需用户确认。
+- 自动 `shipping-to-base` 当前没有标准 `audit_logs` 业务行审计，也没有通知 outbox；只有同步日志/计数，且其 upsert 不在显式事务中。
+- `shipping_plan.key_fields_changed` 当前在 Registry 中不存在，现有测试明确期望其未注册；本阶段未修改。
+
+## 等待用户确认
+
+- “备货计划”是否正式指 `mps-base-plans`（事业部基础计划表）。
+- 销售与生管的角色/权限组，以及各字段的正式填写人和接收人。
+- 自动同步改变关键字段时是否通知销售、生管，是否只在实际值变化时通知。
+- 批量修改/Excel 整批中多记录事件的粒度。
+- 删除、同步覆盖和派生字段是否需要单独事件类型。
+
+## 下一步
+
+1. 用户确认上述业务问题。
+2. 依据确认结果另建实施任务，设计 Registry、规则、payload 和事务接入。
+3. 实施任务中保持“一次业务保存 → 一个事件 → 一条消息”，并补齐自动同步事务边界和审计要求。
+
+## 恢复执行说明
+
+新的 Codex 会话开始后：
+
+1. 读取项目 AGENTS.md、`kdos-form-platform/SKILL.md` 和本节。
+2. 执行 `git status`、`git diff --stat`，确认只有进度记录变更。
+3. 先取得用户对“备货计划”、角色字段归属、自动同步通知和批量粒度的确认，再开始实施；不要重新分析已完成的 008A 核对。
+
+---
+
 ## 当前任务：KDOS-NOTIFICATION-PRODUCTION-CUTOVER-007
 
 任务名称：彻底移除企业微信 TEST MODE，切换为正式接收人直接发送

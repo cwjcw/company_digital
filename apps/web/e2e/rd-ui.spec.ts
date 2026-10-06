@@ -11,12 +11,12 @@ async function mockRdApi(page: Page, sessionUser = user, requestLog: string[] = 
   await page.route("**/api/v1/table-filters/resources", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify([]) }));
   await page.route("**/api/v1/rd/items**", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [], total: 0, page: 1, pageSize: 100 }) }));
   await page.route("**/api/v1/rd/items/status", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ activeItemCount: 574544, lastSuccessfulSyncAt: "2026-09-29 19:11:57", latestSync: { status: "SUCCESS", finishedAt: "2026-09-29 19:11:57" } }) }));
-  await page.route("**/api/v1/rd/material-duplicates/scans/latest", (route: any) => { requestLog.push("latest"); return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", scanMode: "FULL", rows: 574544, itemCount: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634 }) }); });
+  await page.route("**/api/v1/rd/material-duplicates/scans/latest", (route: any) => { requestLog.push("latest"); return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", scanMode: "FULL", rows: 574544, itemCount: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, materialMatchCount: 574544, groupCounts: { all: 77926, similar: 31682, exact: 21210, missing: 46025, code: 9 }, totalGroups: 77926, page: 1, pages: 1559 }) }); });
   await page.route("**/api/v1/rd/material-duplicates/scans", async (route: any) => {
     if (route.request().method() === "POST") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "RUNNING", stage: "读取物料" }) });
     return route.continue();
   });
-  await page.route("**/api/v1/rd/material-duplicates/scans/rd-test-scan?*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", rows: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, totalGroups: 31682, page: 1, pages: 634, groups: [{ id: "g-1", groupNo: 1, kind: "similar", score: 93.2, reason: "名称和规格接近", warnings: ["材质需确认"], memberCount: 2, distinctCodes: 2, records: [{ row: 10, code: "A-304", name: "左直段外不锈钢折板", spec: "M6*20" }, { row: 20, code: "B-201", name: "直段外不锈钢折板", spec: "M6*20" }] }] }) }));
+  await page.route("**/api/v1/rd/material-duplicates/scans/rd-test-scan?*", (route: any) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "rd-test-scan", status: "COMPLETE", rows: 574544, finishedAt: "2026-09-29 19:20:00", counts: { exact: 21210, similar: 31682, missing: 46025, code: 9 }, comparedPairs: 588583, skippedBlocks: 56, skippedPairs: 18158444, materialMatchCount: 574544, groupCounts: { all: 77926, similar: 31682, exact: 21210, missing: 46025, code: 9 }, totalGroups: 77926, page: 1, pages: 1559, groups: [{ id: "g-1", groupNo: 1, kind: "similar", score: 93.2, reason: "名称和规格接近", warnings: ["材质需确认"], memberCount: 2, distinctCodes: 2, records: [{ row: 10, code: "A-304", name: "左直段外不锈钢折板", spec: "M6*20" }, { row: 20, code: "B-201", name: "直段外不锈钢折板", spec: "M6*20" }] }] }) }));
 }
 
 async function mockPermissionConfig(page: Page) {
@@ -45,6 +45,9 @@ test("研发中心一物多码检测全量扫描与 A/B 对照", async ({ page }
   await expect(page.getByTitle("高相似")).toBeVisible();
 
   await expect(page.getByRole("button", { name: /查\s*询/ })).toBeVisible();
+  await expect(page.getByTestId("rd-query-summary")).toContainText("物料库命中：574,544");
+  await expect(page.getByTestId("rd-query-summary")).toContainText("疑似重复组：77,926");
+  await expect(page.getByTestId("rd-filter-category")).toContainText("全部 77,926");
   const desktopFilterLayout = await page.evaluate(() => ["code", "name", "spec", "score", "category", "page-size", "actions"].map((key) => {
     const element = document.querySelector(`[data-testid="rd-filter-${key}"]`);
     if (!element) throw new Error(`missing filter ${key}`);

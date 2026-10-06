@@ -391,4 +391,71 @@ describe("MasterPlanApplicationService imports", () => {
     expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.batch_item_updated"))).toBe(true);
     expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("mps-process-cycles.batch_updated"))).toBe(true);
   });
+
+  describe("shipping plan key-field notification", () => {
+    const shippingId = "22222222-2222-4222-8222-222222222222";
+    const oldDivision = "33333333-3333-4333-8333-333333333333";
+    const newDivision = "44444444-4444-4444-8444-444444444444";
+    const current = {
+      id: shippingId, version: 4, customer_code: "C1", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项",
+      delivery_number: 1, latest_customer_due_date: "2026-10-08", planned_quantity: "500.0000", division_id: oldDivision,
+      created_by: actor.userId
+    };
+
+    const buildShippingService = (updated: Record<string, unknown>) => {
+      const query = jest.fn(async (sql: string) => {
+        if (sql.startsWith("SELECT setting_key,value_json FROM mps_system_settings")) return [{ setting_key: "shipping_edit_weekday", value_json: "1,2,3,4,5,6,7" }];
+        if (sql.startsWith("SELECT * FROM mps_shipping_plans")) return [current];
+        if (sql.startsWith("UPDATE mps_shipping_plans")) return [[updated], 1];
+        if (sql.startsWith("SELECT id,name FROM organization_units")) return [{ id: oldDivision, name: "事业三部" }, { id: newDivision, name: "事业四部" }];
+        return [];
+      });
+      const manager = { query };
+      const notifications = { enqueueEvent: jest.fn().mockResolvedValue({ created: true, row: {} }) };
+      const sync = { processOutbox: jest.fn().mockResolvedValue(undefined) };
+      const dataSource = { transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query };
+      return { service: new MasterPlanApplicationService(dataSource as never, sync as never, notifications as never), query, manager, notifications };
+    };
+
+    it.each([
+      ["plannedQuantity", { planned_quantity: "450.0000" }, "计划数量：500 → 450"],
+      ["latestCustomerDueDate", { latest_customer_due_date: "2026-10-10" }, "最迟客户交期：2026-10-08 → 2026-10-10"],
+      ["divisionId", { division_id: newDivision }, "承接事业部：事业三部 → 事业四部"]
+    ])("enqueues one event when %s changes", async (_field, change, summary) => {
+      const updated = { ...current, ...change, version: 5 };
+      const { service, notifications, manager } = buildShippingService(updated);
+      const divisionChanged = _field === "divisionId";
+      await service.update("mps-shipping-plans", shippingId, { ...Object.fromEntries(Object.entries(change).map(([key, value]) => [
+        key === "planned_quantity" ? "plannedQuantity" : key === "latest_customer_due_date" ? "latestCustomerDueDate" : "divisionId", value
+      ])), expectedVersion: 4 }, actor);
+      expect(notifications.enqueueEvent).toHaveBeenCalledTimes(1);
+      const [tenantId, input, eventManager] = notifications.enqueueEvent.mock.calls[0]!;
+      expect(tenantId).toBe(actor.tenantId);
+      expect(input).toMatchObject({
+        eventType: "shipping_plan.key_fields_changed",
+        channel: "WECHAT_WORK",
+        dedupKey: `mps-shipping-plans:${shippingId}:5:shipping_plan.key_fields_changed`,
+        payload: expect.objectContaining({ recordId: shippingId, customerCode: "C1", orderNumber: "SO-1", itemCode: "ITEM-1", itemName: "品项", divisionName: divisionChanged ? "事业四部" : "事业三部", actorName: actor.username })
+      });
+      expect(input.payload.changeSummary).toBe(summary);
+      expect(eventManager).toBe(manager);
+    });
+
+    it("combines multiple changed key fields into one event and ignores non-key changes", async () => {
+      const updated = { ...current, order_number: "SO-2", planned_quantity: "450.0000", latest_customer_due_date: "2026-10-10", item_name: "新品项", version: 5 };
+      const { service, notifications } = buildShippingService(updated);
+      await service.update("mps-shipping-plans", shippingId, {
+        orderNumber: "SO-2", plannedQuantity: "450", latestCustomerDueDate: "2026-10-10", itemName: "新品项", expectedVersion: 4
+      }, actor);
+      expect(notifications.enqueueEvent).toHaveBeenCalledTimes(1);
+      expect(notifications.enqueueEvent.mock.calls[0]![1].payload.changeSummary).toBe("订单编号：SO-1 → SO-2\n最迟客户交期：2026-10-08 → 2026-10-10\n计划数量：500 → 450");
+    });
+
+    it("does not enqueue for non-key changes or numerically equal values", async () => {
+      const unchanged = { ...current, item_name: "新品项", planned_quantity: "500", version: 5 };
+      const { service, notifications } = buildShippingService(unchanged);
+      await service.update("mps-shipping-plans", shippingId, { itemName: "新品项", plannedQuantity: "500.00", expectedVersion: 4 }, actor);
+      expect(notifications.enqueueEvent).not.toHaveBeenCalled();
+    });
+  });
 });

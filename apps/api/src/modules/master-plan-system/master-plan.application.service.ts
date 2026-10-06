@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import { DataSource, EntityManager } from "typeorm";
@@ -7,6 +7,7 @@ import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanA
 import { shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master-plan.domain";
 import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
+import { NotificationService } from "../notifications/notification.service";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -37,9 +38,22 @@ const WEEKLY_EXECUTION_REFRESH_FIELDS = new Set([
   "latestReviewDueDate", "plannedQuantity", "manufacturingMethod"
 ]);
 
+const SHIPPING_PLAN_KEY_FIELDS = [
+  { key: "orderNumber", column: "order_number", label: "订单编号", kind: "text" },
+  { key: "itemCode", column: "item_code", label: "品项编码", kind: "text" },
+  { key: "latestCustomerDueDate", column: "latest_customer_due_date", label: "最迟客户交期", kind: "date" },
+  { key: "plannedQuantity", column: "planned_quantity", label: "计划数量", kind: "number" },
+  { key: "divisionId", column: "division_id", label: "承接事业部", kind: "division" }
+] as const;
+const SHIPPING_PLAN_KEY_FIELDS_CHANGED_EVENT = "shipping_plan.key_fields_changed";
+
 @Injectable()
 export class MasterPlanApplicationService {
-  constructor(private readonly dataSource: DataSource, private readonly sync: MasterPlanSyncService) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly sync: MasterPlanSyncService,
+    @Optional() private readonly notifications?: NotificationService
+  ) {}
 
   async create(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     const resource = this.resource(code);
@@ -100,6 +114,7 @@ export class MasterPlanApplicationService {
         [committedRow] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, id]);
       }
       await this.audit(manager, actor, code, id, `${code}.updated`, current, committedRow);
+      if (resource.code === "mps-shipping-plans") await this.enqueueShippingPlanKeyFieldsChanged(manager, actor, current, committedRow);
       await this.enqueueReconciliation(manager, resource, actor, id, committedRow);
       return {
         id: committedRow.id,
@@ -602,6 +617,75 @@ export class MasterPlanApplicationService {
       VALUES($1,$2,$3::uuid,$4,$5::jsonb,$6,$7::uuid,$8,$7::uuid,$7::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
     [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+  }
+
+  private async enqueueShippingPlanKeyFieldsChanged(
+    manager: EntityManager,
+    actor: MasterPlanActor,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>
+  ) {
+    const changedFields = SHIPPING_PLAN_KEY_FIELDS.filter((field) => this.shippingFieldChanged(field, before[field.column], after[field.column]));
+    if (!changedFields.length) return;
+    if (!this.notifications) throw new ConflictException("通知基础设施未配置");
+    const divisionIds = [before.division_id, after.division_id]
+      .map((value) => String(value ?? "").trim())
+      .filter((value, index, values) => uuidPattern.test(value) && values.indexOf(value) === index);
+    const divisionNames = await this.shippingDivisionNames(manager, divisionIds);
+    const changeSummary = changedFields.map((field) => {
+      const beforeValue = this.shippingDisplayValue(field, before[field.column], divisionNames);
+      const afterValue = this.shippingDisplayValue(field, after[field.column], divisionNames);
+      return `${field.label}：${beforeValue} → ${afterValue}`;
+    }).join("\n");
+    const recordId = String(after.id ?? before.id ?? "");
+    const version = Number(after.version);
+    const divisionId = String(after.division_id ?? "").trim();
+    const occurredAt = new Date().toISOString();
+    await this.notifications.enqueueEvent(actor.tenantId, {
+      eventType: SHIPPING_PLAN_KEY_FIELDS_CHANGED_EVENT,
+      channel: "WECHAT_WORK",
+      dedupKey: `mps-shipping-plans:${recordId}:${version}:${SHIPPING_PLAN_KEY_FIELDS_CHANGED_EVENT}`,
+      payload: {
+        recordId,
+        customerCode: after.customer_code ?? null,
+        orderNumber: after.order_number ?? null,
+        itemCode: after.item_code ?? null,
+        itemName: after.item_name ?? null,
+        deliveryNumber: after.delivery_number ?? null,
+        divisionName: divisionNames.get(divisionId) ?? (divisionId || null),
+        changeSummary,
+        actorName: actor.username,
+        occurredAt
+      },
+      createdBy: actor.userId
+    }, manager);
+  }
+
+  private shippingFieldChanged(field: (typeof SHIPPING_PLAN_KEY_FIELDS)[number], before: unknown, after: unknown) {
+    if (field.kind === "date") return this.dateText(before) !== this.dateText(after);
+    if (field.kind === "number") {
+      try { return new Decimal(String(before ?? "0")).eq(new Decimal(String(after ?? "0"))) === false; }
+      catch { return String(before ?? "") !== String(after ?? ""); }
+    }
+    return String(before ?? "") !== String(after ?? "");
+  }
+
+  private shippingDisplayValue(field: (typeof SHIPPING_PLAN_KEY_FIELDS)[number], value: unknown, divisionNames: Map<string, string>) {
+    if (value == null || value === "") return "空";
+    if (field.kind === "date") return this.dateText(value) ?? "空";
+    if (field.kind === "number") {
+      try { return new Decimal(String(value)).toString(); } catch { return String(value); }
+    }
+    if (field.kind === "division") return divisionNames.get(String(value)) ?? String(value);
+    return String(value);
+  }
+
+  private async shippingDivisionNames(manager: Pick<EntityManager, "query">, ids: string[]) {
+    const names = new Map<string, string>();
+    if (!ids.length) return names;
+    const rows = await manager.query("SELECT id,name FROM organization_units WHERE id=ANY($1::uuid[])", [ids]);
+    for (const row of rows) names.set(String(row.id), String(row.name));
+    return names;
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {

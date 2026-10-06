@@ -53,4 +53,40 @@ describe("RdQueryService 实时一物多码检索", () => {
     await expect(service.scanStatus("scan-1", readOnlyActor)).resolves.toMatchObject({ id: "scan-1", status: "RUNNING", scanMode: "INCREMENTAL" });
     expect(dataSource.query).toHaveBeenCalledWith(expect.stringContaining("WHERE tenant_id=$1 AND id=$2"), ["KAINAN", "scan-1"]);
   });
+
+  it("查询已保存结果时返回物料命中数和分类聚合，并要求同一物料满足组合筛选", async () => {
+    const dataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce([{ id: "scan-1", status: "COMPLETE", rows: 3 }])
+        .mockResolvedValueOnce([{ count: 2 }])
+        .mockResolvedValueOnce([{ all: 4, similar: 2, exact: 1, missing: 1, code: 0 }])
+        .mockResolvedValueOnce([{ id: "group-1", kind: "similar", records: [] }]),
+    };
+    const service = new RdQueryService(dataSource as never);
+
+    const result = await service.scan("scan-1", { kind: "all", code: "A", name: "展示架", spec: "304" }, readOnlyActor);
+    const groupSql = dataSource.query.mock.calls[2]?.[0] as string;
+    const listSql = dataSource.query.mock.calls[3]?.[0] as string;
+
+    expect(groupSql).toContain("EXISTS (SELECT 1 FROM rd_duplicate_members fm JOIN rd_items i ON i.id=fm.rd_item_id");
+    expect(groupSql.match(/EXISTS \(/g)).toHaveLength(1);
+    expect(result).toMatchObject({ materialMatchCount: 2, totalGroups: 4, page: 1, pageSize: 50, pages: 1, groupCounts: { all: 4, similar: 2, exact: 1, missing: 1, code: 0 } });
+    expect(listSql).toMatch(/LIMIT \$\d+ OFFSET \$\d+/);
+  });
+
+  it("分类筛选只影响列表总数，不重复执行各分类聚合", async () => {
+    const dataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce([{ id: "scan-1", status: "COMPLETE" }])
+        .mockResolvedValueOnce([{ count: 1 }])
+        .mockResolvedValueOnce([{ all: 4, similar: 2, exact: 1, missing: 1, code: 0 }])
+        .mockResolvedValueOnce([{ count: 2 }])
+        .mockResolvedValueOnce([]),
+    };
+    const service = new RdQueryService(dataSource as never);
+
+    const result = await service.scan("scan-1", { kind: "similar" }, readOnlyActor);
+    expect(result).toMatchObject({ totalGroups: 2, groupCounts: { all: 4, similar: 2, exact: 1, missing: 1, code: 0 } });
+    expect(dataSource.query).toHaveBeenCalledTimes(5);
+  });
 });
