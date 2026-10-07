@@ -243,7 +243,7 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
       await openSelect(page, "客户");
       const customerCandidates = page.waitForResponse(response => response.url().includes("field=customerName") && response.url().includes("search=") && response.ok());
       await page.getByRole("combobox", { name: "客户" }).fill(customer); await customerCandidates;
-      await page.locator(".ant-select-dropdown:visible").getByText(customer, { exact: true }).first().click();
+      await page.locator(".ant-select-dropdown:visible").getByText(customer, { exact: true }).and(page.locator(".ant-select-item-option-content")).click();
       await page.getByRole("button", { name: /^查\s*询$/ }).click();
       await expect.poll(() => new URL(page.url()).searchParams.get("customer")).toBe(customer);
     }
