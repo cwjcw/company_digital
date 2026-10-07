@@ -17,7 +17,7 @@
 
 文件名追加所选区间结束日期`_YYYY-MM-DD.xlsx`，直接使用已验证的业务日期文本，不做UTC转换。忽略page/pageSize，导出全部匹配行。空表返回400“当前筛选条件下暂无可导出数据”，未知table返回400。
 
-查看与导出分别校验现有equipment-dashboard read/export权限，SQL同时执行两种数据范围的交集；宽导出授权不能突破窄查看范围。字段由现有read授权裁剪，新增的责任人和已存在分析计数字段登记在现有资源中；未填报明细字段隐藏不改变记录数量。事业部授权继续复用equipmentScopeClause；不支持的部门授权规则仍按原逻辑失败关闭，没有新增或扩大权限算法。成功导出写equipment.dashboard.exported审计，只包含表类型、行数和业务日期范围。
+查看与导出分别校验现有equipment-dashboard read/export权限，SQL同时执行两种数据范围的交集；宽导出授权不能突破窄查看范围。字段由现有read授权裁剪，新增的责任人和已存在分析计数字段登记在现有资源中；未填报明细字段隐藏不改变记录数量。事业部授权继续复用equipmentScopeClause；不支持的部门授权规则仍按原逻辑失败关闭，没有新增或扩大权限算法。成功导出写equipment.dashboard.exported审计，显式记录当前tenantId，只包含表类型、行数和业务日期范围；不修改旧设备审计助手。
 
 六个标题右侧按钮复用Ant Design Button、公共downloadApiFile和完全相同dashboardQuery参数。无导出权限隐藏；空数据、筛选读取中或导出进行中禁用；共享点击锁避免重复请求；使用现有AntApp消息上下文提示成功/失败。
 

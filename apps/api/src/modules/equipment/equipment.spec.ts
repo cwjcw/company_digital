@@ -315,3 +315,16 @@ describe("equipment permissions and validation", () => {
     expect(application.previewStatusImport).toHaveBeenCalledTimes(1);
   });
 });
+
+
+it("records dashboard export audit under the actual tenant without changing legacy audit helpers", async () => {
+  const manager = { save: jest.fn().mockResolvedValue({}) };
+  const service = new EquipmentApplicationService({ transaction: jest.fn(work => work(manager)) } as any);
+  const exporter = actor({ tenantId: "TENANT_EXPORT", permissions: ["equipment-dashboard:*:export"] });
+  await service.recordDashboardExport("utilization_detail", 100, "2026-10-01", "2026-10-06", exporter);
+  expect(manager.save).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+    tenantId: "TENANT_EXPORT", resource: "equipment-dashboard", action: "equipment.dashboard.exported", requestId: "test",
+    afterJson: { table: "utilization_detail", rowCount: 100, windowStart: "2026-10-01", windowEnd: "2026-10-06" }
+  }));
+  await expect(service.recordDashboardExport("unreported", 3, "2026-10-06", "2026-10-06", actor())).rejects.toThrow("权限");
+});

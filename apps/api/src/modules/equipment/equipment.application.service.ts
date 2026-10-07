@@ -204,7 +204,12 @@ export class EquipmentApplicationService {
 
   async recordDashboardExport(table: string, rowCount: number, windowStart: string, windowEnd: string, actor: EquipmentActor) {
     this.assert(actor, "equipment-dashboard", "export");
-    return this.dataSource.transaction((manager) => this.audit(manager, actor, "equipment-dashboard", null, "equipment.dashboard.exported", null, { table, rowCount, windowStart, windowEnd }));
+    return this.dataSource.transaction((manager) => manager.save(AuditLog, {
+      tenantId: actor.tenantId, actorId: actor.userId, actorName: actor.username,
+      resource: "equipment-dashboard", recordId: null, action: "equipment.dashboard.exported", beforeJson: null,
+      afterJson: { table, rowCount, windowStart, windowEnd }, requestId: actor.requestId,
+      source: actor.source ?? "web", updatedBy: actor.userId ?? actor.username
+    }));
   }
 
   async importWorkbookRows(rows: Array<AssetInput & { sourceSheetRow: number }>, actor: EquipmentActor) {
