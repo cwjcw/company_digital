@@ -38,7 +38,7 @@
 
 - `ObjectStorage` isolates Planning from storage implementation. Phase one uses `LocalObjectStorage`; keys are generated, path traversal is rejected, and files are written with restricted permissions.
 - Images are MIME allowlisted to JPEG/PNG/WebP, size-limited, decoded through Sharp when compression is needed, and capped at two per item.
-- Static uploads currently inherit application access at the Nginx route; do not store secrets or identity documents there. Signed/private object delivery is phase-two work.
+- Existing public uploads retain their legacy behavior. Knowledge attachments/images use ObjectStorage private objects under uploads/.private; Nginx and API static delivery deny this path, and authenticated Knowledge queries authorize tenant, table/field/data scope, article ACL and version relation before delivery. Never place private Knowledge content in the public upload path.
 - Excel accepts standard `.xlsx`/`.csv`; do not bypass DRM. Temporary plaintext and snapshots containing business data must not be committed.
 
 ## Secrets and logging
@@ -60,3 +60,7 @@
 ## PMC研发进度
 
 `pmc-rd-progress` 属于planning资源，读取复用表/字段权限与数据范围；两个独立表启用tenant RLS，Application/Query和平台候选/导出执行器设置租户事务上下文并带显式tenant条件。只读API无普通用户同步入口，内部同步复用专用RD internal token并校验租户（常量时间比较token）。FULL/INCREMENTAL以租户session锁互斥，批量写入、逐行/批次审计和成功水位同事务；失败回滚，不推进水位。源数据捕获和Oracle差异明细只能放ignored私有data目录，不能暴露到Web。源库未启用事务SNAPSHOT，不将观察时间宣称为历史快照。参见 [研发进度边界](docs/pmc-rd-progress.md)。
+
+## Knowledge
+
+工作副本与发布正文/ACL/标签/附件分离；历史快照及版本附件关系不可变。KnowledgeAccessService 在 SQL 中统一 tenant/read/data scope/ACL，非管理员历史还需当前发布授权与历史ACL。正文只接受严格allowlist JSON，服务端提取纯文本/hash；附件响应no-store/nosniff，图片Sharp重编码。日志/审计不存完整正文。详见 [知识库安全边界](docs/knowledge-base.md)。

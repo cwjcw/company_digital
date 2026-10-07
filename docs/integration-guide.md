@@ -128,3 +128,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ## PMC研发进度 E10同步
 
 新增 `/api/v1/internal/pmc/rd-progress/sync`，沿用 `x-kdos-internal-token`（KDOS_RD_INTERNAL_TOKEN）与 `x-kdos-tenant-id`，请求必须显式指定FULL/INCREMENTAL。SQL Server adapter只读并复用basic_code凭据，Python仅作为驱动，业务状态由TypeScript Calculator计算。包括BOM/路线及标准路线引用者的影响集合，订单候选日期独立自2026-09-01，水位保持微秒文本与源UUID。整批成功后才提交水位，源删除保留软失效快照，不重写现有主订单/rd业务。详见 [研发进度模型、API与验证](pmc-rd-progress.md)。
+
+## Knowledge Base
+
+知识库 API/状态/ACL/私有附件与发布版本契约见 [Knowledge Phase 1](knowledge-base.md)。所有写入调用 Application Commands；普通浏览读取发布快照，平台管理表与标准导出复用同源权限和搜索。未来AI引用稳定articleId + publishedVersion + contentHash，不在Phase 1新增RAG接口。

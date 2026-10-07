@@ -1,3 +1,5 @@
+export * from "./knowledge";
+import { knowledgeStatusOptions } from "./knowledge";
 import { pmcRdProgressFields } from "./pmc-rd-progress";
 export { pmcRdProgressFields } from "./pmc-rd-progress";
 import { standardProcesses } from "@tracker/shared";
@@ -52,7 +54,8 @@ export const administrableModuleRegistry = [
   { code: "marketing", label: "营销中心" },
   { code: "hr", label: "人力资源" },
   { code: "workflow", label: "流程审批" },
-  { code: "rd", label: "研发中心" }
+  { code: "rd", label: "研发中心" },
+  { code: "knowledge", label: "知识库" }
 ] as const;
 export type AdministrableModuleCode = typeof administrableModuleRegistry[number]["code"];
 
@@ -113,6 +116,8 @@ export const supervisionProgressUpdateTypeOptions = [
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
+  { code: "knowledge-categories", label: "知识分类", module: "知识库", moduleCode: "knowledge" },
+  { code: "knowledge-articles", label: "知识文章", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
@@ -228,6 +233,26 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "knowledge-categories": fields([
+    ["code", "分类编码", "text", false], ["name", "分类名称", "text", true, true],
+    ["parentId", "父分类", "reference", false, false, { filterBinding: { kind: "relation", referenceResource: "knowledge-categories", valueField: "id", labelField: "name" } }],
+    ["level", "层级", "number", false, false, { format: "integer" }], ["description", "说明"],
+    ["sortOrder", "排序", "number", true, false, { format: "integer" }], ["enabled", "启用", "boolean"]
+  ]),
+  "knowledge-articles": fields([
+    ["title", "标题", "text", true, true], ["summary", "摘要"],
+    ["categoryId", "分类", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "knowledge-categories", valueField: "id", labelField: "name" } }],
+    ["tags", "标签", "text", true, false, { multiple: true, filterBinding: { kind: "virtual" } }],
+    ["content", "正文", "structured", true, false, { filterable: false }],
+    ["contentText", "正文纯文本", "text", false, false, { filterable: false }],
+    ["visibility", "可见范围", "structured", true, false, { filterable: false }],
+    ["attachmentIds", "附件", "attachment", true, false, { filterable: false }],
+    ["status", "状态", "dictionary", true, false, { options: knowledgeStatusOptions }],
+    ["workingRevision", "工作修订", "number", false, false, { format: "integer" }],
+    ["publishedVersion", "发布版本", "number", false, false, { format: "integer" }],
+    ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false],
+    ["viewCount", "浏览量", "number", false, false, { format: "integer" }]
+  ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
@@ -771,6 +796,8 @@ const mpsFilterCapabilities = Object.fromEntries(
 );
 
 export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
+  "knowledge-categories": { status: "REGISTERED_AND_FILTERABLE" },
+  "knowledge-articles": { status: "REGISTERED_AND_FILTERABLE" },
   ...mpsFilterCapabilities,
   "supervision-projects": { status: "REGISTERED_AND_FILTERABLE" },
   "supervision-tasks": { status: "REGISTERED_AND_FILTERABLE" },
@@ -823,6 +850,7 @@ export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
 export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
 
 const printNotApplicable: Record<string, string> = {
+  "knowledge-categories": "知识分类以两级树维护，没有独立业务打印需求。",
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
   "supervision-employee-dashboard": "员工待办大屏是当前用户的实时工作视图，任务明细通过督办任务资源打印。",

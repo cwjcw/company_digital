@@ -224,10 +224,17 @@ describe("AuthService portal module preferences", () => {
   it("stores a normalized order for only the current user and audits the preference change", async () => {
     const { service, user, users, audits } = setup();
     await expect(service.updatePortalModuleOrder("user-1", ["profile", "planning", "profile"], "request-1"))
-      .resolves.toMatchObject({ order: ["profile", "planning", "cockpit", "project-task", "data", "marketing", "hr", "workflow", "system"] });
+      .resolves.toMatchObject({ order: ["profile", "planning", "cockpit", "project-task", "data", "marketing", "hr", "workflow", "rd", "knowledge", "system"] });
     expect(user.portalModuleOrder.slice(0, 2)).toEqual(["profile", "planning"]);
     expect(users.save).toHaveBeenCalledWith(user);
     expect(audits.save).toHaveBeenCalledWith(expect.objectContaining({ actorId: "user-1", action: "portal.module_order.updated", requestId: "request-1" }));
+  });
+
+  it("accepts existing RD and new Knowledge module IDs", async () => {
+    const { service } = setup();
+    const result = await service.updatePortalModuleOrder("user-1", ["knowledge", "rd"], "knowledge-order");
+    expect(result.order.slice(0, 2)).toEqual(["knowledge", "rd"]);
+    expect(new Set(result.order).size).toBe(result.order.length);
   });
 
   it("rejects unknown module identifiers", async () => {

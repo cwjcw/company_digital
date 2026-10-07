@@ -129,3 +129,7 @@ The importer maps workbook “研发” to the stable “研发中心” organiz
 ## PMC研发进度 Phase 4
 
 先备份并在隔离库验证 `PmcRdProgress1722920082000`，确认E10源SQL、candidate count和源库sourceSnapshotAt，再应用迁移/构建部署。正式FULL/INCREMENTAL使用内部API或同一Application Command的 `data-operations/e10/run-pmc-rd-progress-sync.cjs` 管理员CLI；生产不调用Python Oracle。用私有捕获事实跑离线逐行Oracle对比，核验最新批次、status/KPI/分页、401权限和两租户RLS。遗留RUNNING由下次持session锁的同步恢复为FAILED；审计缺失、SQL/连接或事务错误均整批失败且水位不变。没有自动定时器，BOM/路线无审计硬删除通过人工FULL校正。详情见 [PMC研发进度运行说明](pmc-rd-progress.md)。
+
+## Knowledge Base Phase 1
+
+新增 TypeORM migration `KnowledgeBasePhaseOne1722920084000`，只初始化默认tenant HR根分类，不初始化二级分类或默认权限组。按标准备份→migrate→deploy all→healthcheck执行，uploads备份必须包含.private目录。新镜像运行Sharp生成PNG检查通过后才能上线。普通用户没有权限时由管理员使用现有表权限管理页授权，禁止用临时JWT或生产密码重置替代验收。详见 [知识库](knowledge-base.md)。

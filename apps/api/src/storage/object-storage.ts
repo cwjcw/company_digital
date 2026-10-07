@@ -4,6 +4,8 @@ export interface PutObjectInput {
   key: string;
   body: Buffer;
   contentType: string;
+  /** Private objects stay in the uploads backup but never receive a public URL. */
+  visibility?: "public" | "private";
 }
 
 export interface StoredObject {

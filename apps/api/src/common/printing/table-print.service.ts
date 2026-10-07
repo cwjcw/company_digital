@@ -122,7 +122,7 @@ export class TablePrintService {
       }
     }
     const keyField = recordKeyOf(source).field;
-    const resolved = await this.resolveLabels(source, rows, fields, keyField);
+    const resolved = await this.resolveLabels(source, rows, fields, keyField, actor);
     const formatted = rows.map((row) => {
       const output: Record<string, string> = {};
       for (const field of fields) {
@@ -181,7 +181,7 @@ export class TablePrintService {
     }
 
     const keyField = recordKeyOf(source).field;
-    const resolved = await this.resolveLabels(source, rows, fields, keyField);
+    const resolved = await this.resolveLabels(source, rows, fields, keyField, actor);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "KDOS 平台";
     const sheet = workbook.addWorksheet(resource.label.slice(0, 31));
@@ -395,8 +395,10 @@ export class TablePrintService {
   /** 通用 SQL 打印查询：复用注册表列绑定 + 平台编译器（无第二套 FilterCompiler）。 */
   private async genericRows(source: TableFilterSource, query: TablePrintRowQuery) {
     const params: unknown[] = [query.actor.tenantId];
-    const clauses = [this.scopedWhere(source, source.buildScope(query.actor, params, query.action ?? "read")), await source.buildContext?.(query.context, params) ?? "1=1"];
-    if (query.search) {
+    const clauses = [this.scopedWhere(source, await source.buildScope(query.actor, params, query.action ?? "read")), await source.buildContext?.(query.context, params) ?? "1=1"];
+    if (query.search && source.buildSearch) {
+      clauses.push(await source.buildSearch(query.search, query.actor, params));
+    } else if (query.search) {
       const searchKeys = source.searchColumns?.length
         ? source.searchColumns
         : tablePermissionFieldsFor(source.code as TableResourceCode)
@@ -461,14 +463,14 @@ export class TablePrintService {
   }
 
   /** 批量 label 解析（dictionary/member/department/reference），禁止 N+1。 */
-  private async resolveLabels(source: TableFilterSource, rows: Array<Record<string, unknown>>, fields: TablePermissionFieldDefinition[], keyField = "id") {
+  private async resolveLabels(source: TableFilterSource, rows: Array<Record<string, unknown>>, fields: TablePermissionFieldDefinition[], keyField = "id", actor?: TableFilterActor) {
     const resolved = new Map<string, Record<string, unknown>>();
     const labelFields = fields.filter((field) => ["dictionary", "member", "department", "reference"].includes(field.type));
     const resolvers: Array<Promise<void>> = [];
     for (const field of labelFields) {
       const resolver = source.printResolvers?.[field.key] ?? this.defaultResolver(field, source);
       if (!resolver) continue;
-      resolvers.push(resolver(rows).then((values) => {
+      resolvers.push(resolver(rows, actor).then((values) => {
         for (const row of rows) {
           const id = String(row[keyField] ?? "");
           const value = values.get(id);

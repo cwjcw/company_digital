@@ -40,6 +40,7 @@ import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sou
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { SupervisionModule } from "./modules/supervision/supervision.module";
 import { PmcRdProgressModule } from "./modules/pmc-rd-progress/pmc-rd-progress.module";
+import { KnowledgeModule } from "./modules/knowledge/knowledge.module";
 import { RdModule } from "./modules/rd/rd.module";
 
 @Module({
@@ -64,6 +65,7 @@ import { RdModule } from "./modules/rd/rd.module";
     NotificationsModule,
     SupervisionModule,
     RdModule,
+    KnowledgeModule,
     PmcRdProgressModule,
     TableFilterModule
   ],

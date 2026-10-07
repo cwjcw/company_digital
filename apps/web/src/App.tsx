@@ -35,6 +35,7 @@ import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPag
 import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
+import { KnowledgeHome, KnowledgeReader, KnowledgeManagement, KnowledgeCategoryManagement, KnowledgeEditor } from "./modules/knowledge/KnowledgePages";
 import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
 import {
   OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
@@ -172,11 +173,17 @@ function Shell({ logout }: { logout: () => void }) {
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
+    : location.pathname.startsWith("/knowledge") ? "knowledge"
     : location.pathname.startsWith("/rd/") ? "rd"
     : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
     : location.pathname === "/profile" ? "profile" : "system";
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
+    knowledge: [
+      { key: "/knowledge", icon: <ReadOutlined />, label: "知识文章与搜索" },
+      ...(["create", "update", "delete"].some((action) => hasSessionResourcePermission(user, "knowledge-articles", action)) ? [{ key: "/knowledge/manage/articles", icon: <FileTextOutlined />, label: "文章管理" }] : []),
+      ...(["create", "update", "delete"].some((action) => hasSessionResourcePermission(user, "knowledge-categories", action)) ? [{ key: "/knowledge/manage/categories", icon: <FolderOpenOutlined />, label: "分类管理" }] : [])
+    ],
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
@@ -276,6 +283,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
+      "/knowledge": "知识文章与搜索", "/knowledge/manage/articles": "文章管理", "/knowledge/manage/categories": "分类管理",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
@@ -323,6 +331,12 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
+          <Route path="/knowledge" element={<KnowledgeHome />} />
+          <Route path="/knowledge/articles/:id" element={<KnowledgeReader />} />
+          <Route path="/knowledge/manage/articles" element={<KnowledgeManagement />} />
+          <Route path="/knowledge/manage/articles/new" element={<KnowledgeEditor />} />
+          <Route path="/knowledge/manage/articles/:id/edit" element={<KnowledgeEditor />} />
+          <Route path="/knowledge/manage/categories" element={<KnowledgeCategoryManagement />} />
           <Route path="/rd/items" element={<RdItemsPage />} />
           <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />

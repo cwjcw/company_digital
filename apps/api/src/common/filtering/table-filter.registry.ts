@@ -71,6 +71,8 @@ export type TableFilterSource = {
   authorize?: (actor: TableFilterActor) => void;
   /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
   searchColumns?: string[];
+  /** 资源自己的索引匹配搜索谓词；必须在这里检查参与搜索的字段权限。 */
+  buildSearch?: (search: string, actor: TableFilterActor, params: unknown[]) => string | Promise<string>;
   /** 列表快速搜索中的展示/派生表达式，必须绑定一个正式可读字段。 */
   searchAliases?: Array<{ expression: string; permissionField: string }>;
   /**
@@ -84,13 +86,13 @@ export type TableFilterSource = {
    */
   printRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
   /** KN-PRINT-001：批量 label 解析器（member/department/reference/dictionary），禁止 N+1。 */
-  printResolvers?: Record<string, (rows: Array<Record<string, unknown>>) => Promise<Map<string, unknown>>>;
+  printResolvers?: Record<string, (rows: Array<Record<string, unknown>>, actor?: TableFilterActor) => Promise<Map<string, unknown>>>;
   /** KN-PRINT-001：可选的打印分组表头（有业务意义的分组，例如工序/时间）。 */
   printHeaderGroups?: Array<{ label: string; columns: string[] }>;
   /** 该资源的字段定义（默认取 tablePermissionFieldsFor）。 */
   fields: TablePermissionFieldDefinition[];
   /** 生成带租户与数据范围的 WHERE 片段（params 顺序追加）。 */
-  buildScope: (actor: TableFilterActor, params: unknown[], action?: string) => string;
+  buildScope: (actor: TableFilterActor, params: unknown[], action?: string) => string | Promise<string>;
   /** 页面上下文由服务端资源注册表解释并强制 AND；未知键不得被客户端当作 SQL 发送。 */
   buildContext?: (context: Record<string, unknown>, params: unknown[]) => string | Promise<string>;
   /** 同一 resource 的上下文视图可选择另一真实行来源（如待报工任务）。 */

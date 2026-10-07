@@ -1,6 +1,6 @@
 import {
   ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, CalendarOutlined, DashboardOutlined,
-  DatabaseOutlined, HolderOutlined, ProjectOutlined, ShopOutlined, SettingOutlined, UserOutlined
+  DatabaseOutlined, ReadOutlined, HolderOutlined, ProjectOutlined, ShopOutlined, SettingOutlined, UserOutlined
 } from "@ant-design/icons";
 import { App as AntApp, Button, Space, Tag, Typography } from "antd";
 import { useState } from "react";
@@ -11,7 +11,7 @@ import { hasSessionResourcePermission } from "../../shared/KdosDataTable";
 const { Text, Title } = Typography;
 
 export type PortalModule = {
-  id: "cockpit" | "project-task" | "planning" | "data" | "marketing" | "hr" | "workflow" | "rd" | "system" | "profile";
+  id: "cockpit" | "project-task" | "planning" | "data" | "marketing" | "hr" | "workflow" | "rd" | "knowledge" | "system" | "profile";
   title: string;
   englishTitle: string;
   description: string;
@@ -57,6 +57,7 @@ export const portalModules: PortalModule[] = [
     description: "承载公司业务需求、审批流转与开发过程协同。",
     features: ["需求提报与审批", "审批流程配置"], path: "/development-requests", tone: "orange"
   },
+  { id: "knowledge", title: "知识库", englishTitle: "KNOWLEDGE BASE", description: "统一沉淀公司制度、流程、规范与业务知识。", features: ["知识文章", "全文搜索"], path: "/knowledge", tone: "teal" },
   { id: "rd", title: "研发中心", englishTitle: "R&D CENTER", description: "统一管理 E10 物料资料与一物多码辅助检测。", features: ["物料数据", "一物多码检测"], path: "/rd/items", tone: "violet" },
   {
     id: "system", title: "系统管理", englishTitle: "SYSTEM ADMIN",
@@ -79,6 +80,7 @@ const moduleIcons = {
   hr: <UserOutlined />,
   workflow: <ApartmentOutlined />,
   rd: <DatabaseOutlined />,
+  knowledge: <ReadOutlined />,
   system: <SettingOutlined />,
   profile: <UserOutlined />
 };

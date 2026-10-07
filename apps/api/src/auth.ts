@@ -13,7 +13,7 @@ import { MailService } from "./mail.service";
 
 export const PASSWORD_RULE_TEXT = "密码须为 8–64 位，至少包含一个字母和一个数字，不能包含空格，且不能与当前密码相同";
 const PASSWORD_PATTERN = /^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/;
-const PORTAL_MODULE_IDS = ["cockpit", "project-task", "planning", "data", "marketing", "hr", "workflow", "system", "profile"] as const;
+const PORTAL_MODULE_IDS = ["cockpit", "project-task", "planning", "data", "marketing", "hr", "workflow", "rd", "knowledge", "system", "profile"] as const;
 
 @Injectable()
 export class AuthService {

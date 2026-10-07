@@ -38,10 +38,12 @@ export class TableFilterController {
     source.authorize?.(actor);
     this.assertReadResource(actor, source.code);
     const params: unknown[] = [actor.tenantId];
-    const scope = source.buildScope(actor, params);
+    const scope = await source.buildScope(actor, params);
     const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params) ?? "1=1"];
     const tableSearch = String(query.tableSearch ?? "").trim();
-    if (tableSearch) {
+    if (tableSearch && source.buildSearch) {
+      clauses.push(await source.buildSearch(tableSearch, actor, params));
+    } else if (tableSearch) {
       const columns = this.searchExpressions(source, actor);
       params.push(`%${tableSearch}%`);
       clauses.push(columns.length ? `(${columns.map((column) => `COALESCE(${column}::text,'') ILIKE $${params.length}`).join(" OR ")})` : "1=0");
@@ -91,9 +93,11 @@ export class TableFilterController {
     source.authorize?.(actor);
     this.assertReadResource(actor, source.code);
     const params: unknown[] = [actor.tenantId];
-    const clauses = [this.scopedWhere(source, source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params) ?? "1=1"];
+    const clauses = [this.scopedWhere(source, await source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params) ?? "1=1"];
     const search = String(query.search ?? "").trim();
-    if (search) {
+    if (search && source.buildSearch) {
+      clauses.push(await source.buildSearch(search, actor, params));
+    } else if (search) {
       params.push(`%${search}%`);
       const columns = this.searchExpressions(source, actor);
       clauses.push(columns.length
@@ -231,7 +235,7 @@ export class TableFilterController {
     const target = this.registry.get(referenceResource);
     target.authorize?.(actor);
     const params: unknown[] = [actor.tenantId];
-    let clause = this.scopedWhere(target, target.buildScope(actor, params));
+    let clause = this.scopedWhere(target, await target.buildScope(actor, params));
     /* 标签列来自字段显式 labelField 或目标资源的标签定义；缺失时直接拒绝，不允许猜测。 */
     const labelColumns = referenceLabelFieldsFor(referenceResource, binding?.labelField);
     if (!labelColumns.length) throw new BadRequestException(`关联字段缺少标签定义：${referenceResource}`);

@@ -9,6 +9,8 @@ import { MarketingFilterSourceProvider } from "../../modules/marketing/marketing
 import { SupervisionFilterSourceProvider } from "../../modules/supervision/supervision.filter-sources";
 import { PmcRdProgressFilterSources } from "../../modules/pmc-rd-progress/pmc-rd-progress.filter-sources";
 import { RdFilterSourceProvider } from "../../modules/rd/rd.filter-sources";
+import { KnowledgeFilterSourceProvider } from "../../modules/knowledge/knowledge.filter-sources";
+import { KnowledgeAccessService } from "../../modules/knowledge/knowledge.scope";
 import { SystemFilterSourceProvider } from "./system-filter-sources";
 
 /**
@@ -30,6 +32,7 @@ function buildRegistry() {
   new SupervisionFilterSourceProvider(registry, {} as never).onModuleInit();
   new RdFilterSourceProvider(registry).onModuleInit();
   new PmcRdProgressFilterSources(registry, {} as never).onModuleInit();
+  new KnowledgeFilterSourceProvider(registry, new KnowledgeAccessService({} as never)).onModuleInit();
   return registry;
 }
 
@@ -67,11 +70,11 @@ describe("平台筛选资源注册表（KN-FILTER-001）", () => {
     expect(() => registry.get("sales-summary-dashboard")).toThrow(/暂未接入/);
   });
 
-  it("数据范围构造必须返回确定的谓词（true 或带租户/范围的条件）", () => {
+  it("数据范围构造必须返回确定的谓词（true 或带租户/范围的条件）", async () => {
     const actor = { tenantId: "KAINAN", userId: null, permissions: ["*"], isSystemAdmin: true };
     for (const code of registry.codes()) {
       const params: unknown[] = [actor.tenantId];
-      const clause = registry.get(code).buildScope(actor, params);
+      const clause = await registry.get(code).buildScope(actor, params);
       expect(typeof clause).toBe("string");
       expect(clause.length).toBeGreaterThan(0);
     }
