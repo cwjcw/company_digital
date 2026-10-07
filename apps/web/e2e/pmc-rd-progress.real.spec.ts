@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 // This suite uses an existing account. Disable all browser artifacts that could record identity or tokens.
@@ -73,19 +73,20 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
     const filtered = await read(page, `${basePath}/items?onlyIncomplete=true&pageSize=100`);
     expect(filtered.total).toBeGreaterThan(filtered.rows.length);
     const exported = page.waitForResponse(response => response.url().includes("/table-exports/pmc-rd-progress?") && response.ok());
-    const downloadPromise = page.waitForEvent("download"); await page.getByRole("button", { name: /^导\s*出$/ }).click();
+    const downloadPromise = page.waitForEvent("download"); await page.getByRole("button", { name: /导\s*出/ }).click();
     const download = await downloadPromise; expect(download.suggestedFilename()).toBe("pmc-rd-progress.xlsx"); expect(await download.failure()).toBeNull();
     const response = await exported;
     const context = JSON.parse(new URL(response.url()).searchParams.get("context")!); expect(context.onlyIncomplete).toBe("true");
     const columns = new URL(response.url()).searchParams.get("columnKeys")!; expect(columns).not.toContain("sourceOrderLineId");
     // Count XLSX rows using the already installed API ExcelJS library. The workbook holds business fields only.
     const { default: ExcelJS } = await import("../../api/node_modules/exceljs/excel.js");
-    const book = new ExcelJS.Workbook(); await book.xlsx.load(await response.body()); expect(book.worksheets[0].rowCount - 1).toBe(filtered.total);
+    const book = new ExcelJS.Workbook(); await book.xlsx.load(await readFile((await download.path())!)); expect(book.worksheets[0].rowCount - 1).toBe(filtered.total);
+    await writeFile(resolve("../../outputs/pmc-phase5-export.json"), JSON.stringify({ filter: "onlyIncomplete=true", pageSize: 100, total: filtered.total, exportedRows: book.worksheets[0].rowCount - 1, filename: download.suggestedFilename(), headers: book.worksheets[0].getRow(1).values }, null, 2));
     await page.reload(); await expect(page.getByLabel("仅未完成")).toBeChecked();
     await page.getByRole("button", { name: "筛选异常品项" }).click();
     const abnormal = await read(page, `${basePath}/items?rdStatus=ABNORMAL`); expect(abnormal.total).toBeGreaterThan(0);
     for (const entry of abnormal.rows) { const row = page.locator(".ant-table-tbody tr").filter({ hasText: entry.itemCode }).first(); await expect(row).toContainText(entry.reasonText); }
-    await expect(page.locator(".pmc-rd-status-filters")).toContainText("异常");
+    await expect(page.locator(".pmc-rd-status-filters")).toContainText(/异\s*常/);
   });
   test("客户/事业部/品项/环节/日期组合筛选与汇总一致", async ({ page }) => {
     await login(page); await page.goto(basePath);
