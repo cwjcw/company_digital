@@ -6,6 +6,7 @@ const apiRoot = process.env.PMC_RD_API_ROOT || path.resolve(__dirname,'../../app
 const load = name => require(path.join(apiRoot,'dist',name));
 const dataSource = load('data-source').default;
 const {PmcRdProgress1722920082000} = load('migrations/1722920082000-PmcRdProgress');
+const {PmcRdProgressOrderCloseRaw1722920083000} = load('migrations/1722920083000-PmcRdProgressOrderCloseRaw');
 const {PmcRdProgressCalculator} = load('modules/pmc-rd-progress/pmc-rd-progress.calculator');
 const {PmcRdProgressApplicationService} = load('modules/pmc-rd-progress/pmc-rd-progress.application.service');
 const {PmcRdProgressQueryService} = load('modules/pmc-rd-progress/pmc-rd-progress.query.service');
@@ -14,7 +15,7 @@ const actor = tenantId => ({tenantId,userId:'0199e000-0000-7000-8000-00000000000
   assert.match(process.env.DATABASE_NAME || '',/^pmc_rd_phase4_test_/,'Only isolated scratch databases are allowed');
   await dataSource.initialize();
   const runner=dataSource.createQueryRunner();await runner.connect();await runner.startTransaction();
-  try {await runner.query("DROP TABLE IF EXISTS pmc_rd_progress_sync_runs,pmc_rd_progress_items");await new PmcRdProgress1722920082000().up(runner);await runner.commitTransaction();}catch(error){await runner.rollbackTransaction();throw error;}finally{await runner.release();}
+  try {await runner.query("DROP TABLE IF EXISTS pmc_rd_progress_sync_runs,pmc_rd_progress_items");await new PmcRdProgress1722920082000().up(runner);await new PmcRdProgressOrderCloseRaw1722920083000().up(runner);await runner.commitTransaction();}catch(error){await runner.rollbackTransaction();throw error;}finally{await runner.release();}
   const facts=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));let current=facts;
   const reader={read:async()=>current};
   const calc=new PmcRdProgressCalculator();const app=new PmcRdProgressApplicationService(dataSource,reader,calc);const query=new PmcRdProgressQueryService(dataSource);

@@ -161,6 +161,7 @@ class E10Repository:
               CONVERT(varchar(36),so.Owner_Dept) AS owner_dept_id,
               dept.ADMIN_UNIT_NAME AS owner_dept_name,
               so.ApproveStatus AS order_status_raw,
+              so.[CLOSE] AS order_close_raw,
               CONVERT(varchar(36), so.CUSTOMER_ID) AS customer_id,
               c.CUSTOMER_CODE AS customer_code,
               c.CUSTOMER_NAME AS customer_name,

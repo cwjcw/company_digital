@@ -9,6 +9,7 @@ describe('PMC研发进度 Phase 3共用Oracle场景',()=>{
     const [actual]=new PmcRdProgressCalculator().calculate(facts);
     for (const [key,oracleKey] of Object.entries(mappings)) expect(key === 'rdLastModifiedAt' ? timestamp(actual![key]) : actual![key]).toEqual(key === 'rdLastModifiedAt' ? timestamp(expected[oracleKey]) : expected[oracleKey]);
   });
+  it('CLOSE原始值保留但不影响研发判定',()=>{const facts=structuredClone(cases.find(c=>c.name==='COMPLETE')!.facts);facts.orders[0]!.order_close_raw='1';expect(new PmcRdProgressCalculator().calculate(facts)[0]).toMatchObject({rdStatus:'COMPLETE',orderCloseRaw:'1'});});
   it('规范化零GUID与保留微秒和上海时区',()=>{expect(guid('00000000-0000-0000-0000-000000000000')).toBeNull();expect(guid('6FEE95FC-CD25-46A3-AC94-1BE37EFEB273')).toBe('6fee95fc-cd25-46a3-ac94-1be37efeb273');expect(timestamp('2026-10-06T12:00:00.000978')).toBe('2026-10-06 12:00:00.000978');expect(sourceInstant('2026-10-06 12:00:00.000978')).toBe('2026-10-06T12:00:00.000978+08:00');});
   it('完成可以倒退为待工艺和设计进行中',()=>{const calc=new PmcRdProgressCalculator();expect(calc.calculate(cases.find(c=>c.name==='COMPLETE')!.facts)[0]!.rdStatus).toBe('COMPLETE');expect(calc.calculate(cases.find(c=>c.name==='WAITING_ROUTING')!.facts)[0]!.rdStatus).toBe('WAITING_ROUTING');expect(calc.calculate(cases.find(c=>c.name==='BOM_NOT_APPROVED_N')!.facts)[0]!.rdStatus).toBe('DESIGN_IN_PROGRESS');});
   it('排除不适用品项、路线控制0的分母并将异常计入未完成',()=>{

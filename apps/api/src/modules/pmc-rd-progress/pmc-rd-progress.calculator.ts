@@ -70,7 +70,7 @@ export class PmcRdProgressCalculator {
         sourceOrderId: guid(row.order_id)!, sourceOrderLineId: guid(row.order_line_id)!, orderNo: row.order_no, lineNumber: row.line_number,
         customerId: guid(row.customer_id), customerCode: row.customer_code, customerName: row.customer_name,
         orderDate: row.order_date ? String(row.order_date).slice(0,10) : null, orderCreateDate: timestamp(row.order_created_at), orderLastModifiedDate: timestamp(row.order_last_modified_at),
-        ownerDeptId: guid(row.owner_dept_id), ownerDeptName: row.owner_dept_name ?? null, orderStatusRaw: row.order_status_raw ?? null,
+        ownerDeptId: guid(row.owner_dept_id), ownerDeptName: row.owner_dept_name ?? null, orderStatusRaw: row.order_status_raw ?? null, orderCloseRaw: row.order_close_raw ?? null,
         itemId, itemCode: row.item_code, itemName: row.item_name, itemSpec: row.item_specification, itemFeatureId: feature, businessQty: String(row.quantity ?? '0'),
         itemProperty: property, routingControl: control, standardRoutingId: standard, plantOrgId: plantId,
         designBomStatus: design.status, bomId: bom?.bom_id ?? null, bomVersion: bom?.version_times ?? null, bomECode: bom?.e_code ?? null, bomApproveStatus: bom?.approve_status ?? null, validBomDetailCount: design.count,

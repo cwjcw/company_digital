@@ -4199,3 +4199,17 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - [x] 上线前E10只读核对 `sourceSnapshotAt=2026-10-07 09:23:58.972811`：2540订单/17627行；独立候选SQL仍为CreateDate OR LastModifiedDate自2026-09-01。
 - [x] 源码/配置边界审查与git diff --check通过：迁移仅新建PMC专属两表，源SQL只读，正式状态保持Oracle一致，源库配置未改，无删除旧业务数据操作。
 - [ ] Web单worker全量回归即将完成；随后提交并标准构建→migration→deploy→healthcheck→正式FULL/INCREMENTAL及逐行Oracle验收。
+
+### Phase 4 正式上线进行中
+- [x] Web单worker/运行时15秒超时完整回归：28 files / 181 tests全部通过；失败复核已结束，未修改既有业务测试逻辑。
+- [x] API最终完整684 passed、Python34 passed（含37共用fixtures）、Contracts22 passed，其余工作区测试已执行。
+- [x] 代码提交 `4dcf121`，34文件，含保留的Phase3前置工具；未提交任何data、凭据、源快照、业务图片，没有push。
+- [x] API/Web Node24正式镜像构建成功（SHA=`4dcf121`）。
+- [ ] 正在执行标准 `scripts/migrate.sh`（会再次备份后只应用待执行新migration）；完成后运行 `scripts/deploy.sh all` / healthcheck。
+- [ ] 上线后正式FULL → 捕获事实与PostgreSQL实际查询逐行Oracle回归 → 真实INCREMENTAL与内部HTTP接口、权限状态和性能核验。
+
+### Phase 4 迁移与CLOSE原始值补全
+- [x] 标准migrate脚本成功：`PmcRdProgress1722920082000` 已应用，正式迁移数量80→81，新两表已存在；尚未执行正式FULL。
+- [x] 部署前复核现有 `data-operations/order-sync/sync.py` / `sources.json` 发现已稳定读取 `SALES_ORDER_DOC.[CLOSE]`。为避免仅保留ApproveStatus遗漏关闭资料，新增中性 `orderCloseRaw` 字段及 `orderClose` 筛选；仍不解释状态、不排除任何关闭单。
+- [x] 不改已执行迁移历史，新增 `1722920083000-PmcRdProgressOrderCloseRaw.ts`，仅给新快照表增加一列；Calculator最终状态规则完全不变。
+- [ ] 补充迁移/字段专项测试、隔离库验证、构建提交后应用补充迁移，再部署与正式同步。

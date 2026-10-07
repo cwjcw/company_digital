@@ -24,7 +24,7 @@ export class PmcRdProgressQueryService {
     for (const [parameter,field] of [['orderNo','orderNo'],['itemCode','itemCode'],['itemName','itemName'],['customer','customerName']] as const) {
       const value=String(input[parameter] ?? '').trim(); if (value) { this.requireField(actor,field); rules.push({field,operator:'contains',value}); }
     }
-    for (const [parameter,field] of [['division','divisionId'],['rdStatus','rdStatus'],['designBomStatus','designBomStatus'],['routingStatus','routingStatus'],['orderStatus','orderStatusRaw']] as const) { if (input[parameter] != null && input[parameter] !== '') { this.requireField(actor,field); rules.push({field,operator:'eq',value:input[parameter]}); } }
+    for (const [parameter,field] of [['division','divisionId'],['rdStatus','rdStatus'],['designBomStatus','designBomStatus'],['routingStatus','routingStatus'],['orderStatus','orderStatusRaw'],['orderClose','orderCloseRaw']] as const) { if (input[parameter] != null && input[parameter] !== '') { this.requireField(actor,field); rules.push({field,operator:'eq',value:input[parameter]}); } }
     for (const [parameter,operator] of [['orderDateFrom','gte'],['orderDateTo','lte']] as const) { if (input[parameter]) { this.requireField(actor,'orderDate'); rules.push({field:'orderDate',operator,value:input[parameter]}); } }
     if (input.onlyIncomplete != null && !['true','false',true,false].includes(input.onlyIncomplete as string | boolean)) throw new BadRequestException('onlyIncomplete必须为true或false');
     if (input.onlyIncomplete === true || input.onlyIncomplete === 'true') { this.requireField(actor,'rdStatus'); clauses.push(`record.rd_status NOT IN ('COMPLETE','NOT_APPLICABLE')`); }

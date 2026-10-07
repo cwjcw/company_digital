@@ -10,7 +10,7 @@
 - 五个非重复 partial 查询索引覆盖订单、研发状态+日期、品号、事业部+客户和日期。小规模单组件状态筛选暂不另建索引；后续根据查询计划调整。
 - 两表启用 RLS。所有查询显式限制 tenant，事务设置 `app.tenant_id`。状态筛选、汇总、订单汇总、详情及平台导出均执行数据范围；字段隐藏同时约束返回和筛选，隐藏状态不输出对应 KPI。
 - 事业部复用 `mps_customer_division_mappings` 的启用客户编码→主责事业部映射。无映射保留 NULL；保留 E10 `Owner_Dept`。增量也处理映射更新时间带来的受影响客户。
-- 正式候选条件独立固定为 `SALES_ORDER_DOC.CreateDate >= 2026-09-01 OR LastModifiedDate >= 2026-09-01`，不排除关闭或非 Y 订单，保存订单原始 `ApproveStatus`。主订单 `2026-09-17` 准入不变。
+- 正式候选条件独立固定为 `SALES_ORDER_DOC.CreateDate >= 2026-09-01 OR LastModifiedDate >= 2026-09-01`，不排除关闭或非 Y 订单，保存订单原始 `ApproveStatus` 和 `[CLOSE]`（`orderStatusRaw` / `orderCloseRaw`）。主订单 `2026-09-17` 准入不变。
 
 ## 状态与一致性
 
@@ -54,7 +54,7 @@ FULL 批量取候选行、ITEM_PLANT、BOM/明细、Routing/明细/OPERATION。I
 | POST `/internal/pmc/rd-progress/sync` | 内部token+tenant，`{"mode":"FULL"}` 或 INCREMENTAL，返回批次计数及水位 |
 | GET `/table-exports/pmc-rd-progress` | 平台标准XLSX导出；需要独立export权限，按字段与数据范围裁剪 |
 
-查询参数：`page/pageSize/orderNo/customer/division/itemCode/itemName/rdStatus/designBomStatus/routingStatus/orderStatus/orderDateFrom/orderDateTo/onlyIncomplete`，以及统一 `search/filterGroup/sortField/sortOrder`。状态字段接受权威枚举值或中文标签。`orderStatus` 对应未解释的源审核状态原始值。日期筛选两端包含；onlyIncomplete 排除 COMPLETE/NOT_APPLICABLE。字段无查看权限时禁止按它筛选或排序。
+查询参数：`page/pageSize/orderNo/customer/division/itemCode/itemName/rdStatus/designBomStatus/routingStatus/orderStatus/orderClose/orderDateFrom/orderDateTo/onlyIncomplete`，以及统一 `search/filterGroup/sortField/sortOrder`。状态字段接受权威枚举值或中文标签。`orderStatus` 对应未解释的源审核状态原始值，`orderClose` 对应原始CLOSE值。日期筛选两端包含；onlyIncomplete 排除 COMPLETE/NOT_APPLICABLE。字段无查看权限时禁止按它筛选或排序。
 
 资源代码 `pmc-rd-progress`，归属 `planning`，查看权限沿用 `pmc-rd-progress:*:read`，字段为 `pmc-rd-progress:<fieldKey>:read`；系统/PMC模块管理员复用现有授权。没有普通用户触发FULL的路由。内部接口复用 `KDOS_RD_INTERNAL_TOKEN`（兼容现有内部同步凭据），并严格校验 `x-kdos-tenant-id`；不得打印token。
 
@@ -69,6 +69,6 @@ pnpm --filter @tracker/api test -- pmc-rd-progress
 
 正式执行可使用内部API，或 `run-pmc-rd-progress-sync.cjs FULL|INCREMENTAL [private capture directory]` 的管理员CLI。CLI所有写入仍通过同一 Application Command。捕获目录必须在ignored `data/` 下且不可通过Web公开。`pmc_rd_progress_regression.py facts.json typescript.json --output report.json` 只用于离线验收，不在生产API/runtime调用。
 
-迁移和部署前先运行标准备份，验证隔离库迁移/源SQL/候选数/sourceSnapshotAt，然后应用 `1722920082000-PmcRdProgress`、构建部署API及使用更新Contracts的Web、健康检查和正式FULL/INCREMENTAL。保留原Phase3工具，不运行seed、不删除历史数据库、不改变主订单或rd同步、不发送企业微信。
+迁移和部署前先运行标准备份，验证隔离库迁移/源SQL/候选数/sourceSnapshotAt，然后应用 `1722920082000-PmcRdProgress` 和 `1722920083000-PmcRdProgressOrderCloseRaw`、构建部署API及使用更新Contracts的Web、健康检查和正式FULL/INCREMENTAL。保留原Phase3工具，不运行seed、不删除历史数据库、不改变主订单或rd同步、不发送企业微信。
 
 待确认业务项保持原临时规则：P+1/M+0异常、V为不满足当前已审核条件（不翻译为作废）、关闭订单保留；Phase5再确认页面默认范围。

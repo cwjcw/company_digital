@@ -1,5 +1,6 @@
 import type { TablePermissionFieldDefinition } from "./index";
 export const pmcRdProgressFields: TablePermissionFieldDefinition[] = [
+  {key: "orderCloseRaw", label: "订单CLOSE原始值", type: "text", editable: false},
   {
     "key": "sourceOrderId",
     "label": "来源订单ID",
