@@ -15,7 +15,7 @@ type PageInput = {
   createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
   sortField?: string; sortOrder?: string;
 };
-type DashboardInput = { periodType?: string; period?: string; startDate?: string; endDate?: string; divisionId?: string; departmentId?: string | string[] };
+export type DashboardInput = { periodType?: string; period?: string; startDate?: string; endDate?: string; divisionId?: string; departmentId?: string | string[] };
 
 @Injectable()
 export class EquipmentQueryService {
@@ -189,13 +189,17 @@ export class EquipmentQueryService {
     };
   }
 
-  async dashboard(input: DashboardInput, actor: EquipmentActor) {
+  async dashboard(input: DashboardInput, actor: EquipmentActor, action: "read" | "export" = "read") {
     this.assert(actor, "equipment-dashboard", "read");
     const dashboardInput = this.dashboardInput(input);
-    const params: unknown[] = [actor.tenantId]; const scope = this.scopeClause(actor, "equipment-dashboard", "read", "asset", params);
+    const params: unknown[] = [actor.tenantId];
+    const scope = this.scopeClause(actor, "equipment-dashboard", "read", "asset", params);
+    // Export is a subset of the dashboard's read scope, even if export scope is wider.
+    const exportScope = action === "export" ? this.scopeClause(actor, "equipment-dashboard", "export", "asset", params) : "1=1";
+    if (action === "export") this.assert(actor, "equipment-dashboard", "export");
     params.push(dashboardInput.windowStart, dashboardInput.windowEnd, dashboardInput.windowDays);
     const [windowStartParam, windowEndParam, windowDaysParam] = [params.length - 2, params.length - 1, params.length];
-    const scopedFilters = ["asset.tenant_id=$1", "asset.active=true", scope];
+    const scopedFilters = ["asset.tenant_id=$1", "asset.active=true", scope, exportScope];
     const eligibleFilters: string[] = [];
     const departmentOptionFilters: string[] = [];
     if (dashboardInput.divisionId) {
@@ -375,6 +379,15 @@ export class EquipmentQueryService {
           'normalEquipment',(SELECT count(*) FROM asset_state WHERE state='正常运行'),'faultEquipment',(SELECT count(*) FROM asset_state WHERE state='存在故障'),
           'idleEquipment',(SELECT count(*) FROM asset_state WHERE state='未运行')
         ),
+        'unreportedEquipmentRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'equipmentId',asset.id,'divisionName',asset.division_name_snapshot,
+          'usageDepartmentName',asset.usage_department_name_snapshot,
+          'equipmentCode',asset.equipment_code,'equipmentName',asset.equipment_name,
+          'responsibleUsers',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',u.id,'displayName',u.display_name) ORDER BY u.display_name,u.id)
+            FROM equipment_responsibles responsible JOIN users u ON u.id=responsible.user_id
+            WHERE responsible.tenant_id=asset.tenant_id AND responsible.equipment_id=asset.id),'[]'::jsonb)
+        ) ORDER BY asset.division_name_snapshot,asset.usage_department_name_snapshot,asset.equipment_code,asset.id)
+          FROM asset_state state JOIN monitored asset ON asset.id=state.id WHERE state.state='未填报'),'[]'::jsonb),
         'divisionRows',COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'division',division,'equipmentCount',equipment_count,'normalCount',normal_count,'faultCount',fault_count,
           'idleCount',idle_count,'unreportedCount',unreported_count,'plannedRuntimeMinutes',planned_runtime_minutes,'runtimeMinutes',runtime_minutes,'utilizationRate',utilization_rate,'faultMinutes',fault_minutes,
@@ -438,7 +451,19 @@ export class EquipmentQueryService {
         )
       ) payload
     `, params);
-    return payload.payload;
+    const result = payload.payload;
+    if (Array.isArray(result.unreportedEquipmentRows)) {
+      const fields: Record<string, string> = { divisionName: "divisionId", usageDepartmentName: "departmentId", equipmentCode: "equipmentCode", equipmentName: "equipmentName", responsibleUsers: "responsibleUserIds" };
+      result.unreportedEquipmentRows = result.unreportedEquipmentRows.map((row: Record<string, unknown>) => Object.fromEntries(
+        Object.entries(row).filter(([key]) => key === "equipmentId" || this.dashboardFieldReadable(actor, fields[key] ?? key))
+      ));
+    }
+    return result;
+  }
+
+  dashboardFieldReadable(actor: EquipmentActor, field: string) {
+    return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
+      || actor.permissions.includes(`equipment-dashboard:${field}:read`);
   }
 
   private dashboardInput(input: DashboardInput) {

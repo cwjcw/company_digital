@@ -43,7 +43,7 @@ function renderPage() {
 
 function renderDashboard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><EquipmentDashboardPage /></QueryClientProvider>);
+  return render(<AntApp><QueryClientProvider client={client}><EquipmentDashboardPage /></QueryClientProvider></AntApp>);
 }
 
 function shanghaiYesterday() {
@@ -379,4 +379,51 @@ describe("EquipmentDashboardPage date filters", () => {
     fireEvent.click(screen.getByRole("button", { name: "清空筛选" }));
     await waitFor(() => expect(dashboardPaths().at(-1)).toBe(`/equipment/dashboard?periodType=day&period=${expected}`));
   }, 15_000);
+});
+
+describe("equipment dashboard detail and six exports", () => {
+  const asset = { equipmentId: "asset-1", divisionName: "事业四部", usageDepartmentName: "木作车间", equipmentCode: "00001", equipmentName: "未填设备甲", responsibleUsers: [{ id: "user-1", displayName: "责任人甲" }] };
+  let response: any;
+  let permissions: string[];
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear(); chartProps.length = 0;
+    permissions = ["*"];
+    response = { ...dashboardResponse, windowEnd: "2026-10-06", unreportedEquipmentRows: [asset], divisionRows: [{ division: "事业四部", equipmentCount: 100 }], departmentRows: [{ division: "事业四部", department: "木作车间" }], equipmentRows: Array.from({ length: 2 }, (_, i) => ({ ...asset, equipmentId: `equipment-${i}`, division: "事业四部", department: "木作车间", equipmentCode: String(i).padStart(5, "0") })) };
+    vi.mocked(downloadApiFile).mockResolvedValue(undefined);
+    vi.mocked(api).mockImplementation(async path => {
+      if (path === "/auth/me") return { permissions } as never;
+      if (String(path).startsWith("/equipment/dashboard?")) return response as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+  });
+  const card = (title: string) => within(screen.getByText(title).closest(".ant-card")! as HTMLElement);
+  it("shows master-data fields and all six title-level export buttons with a common full-filter URL", async () => {
+    renderDashboard(); await waitFor(() => expect(card("未填报设备明细").getByText("未填设备甲")).toBeTruthy()); expect(card("未填报设备明细").getByText("责任人甲")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /导出 Excel/ })).toHaveLength(6));
+    const tables = ["division_reporting", "department_reporting", "unreported", "division_operation", "department_operation", "utilization_detail"];
+    for (let index = 0; index < 6; index++) { fireEvent.click(screen.getAllByRole("button", { name: /导出 Excel/ })[index]!); await waitFor(() => expect(vi.mocked(downloadApiFile)).toHaveBeenCalledTimes(index + 1)); await waitFor(() => expect(screen.getAllByRole("button", { name: /导出 Excel/ })[index]).not.toBeDisabled()); }
+    const query = vi.mocked(api).mock.calls.map(([path]) => String(path)).find(path => path.startsWith("/equipment/dashboard?"))!.split("?")[1];
+    vi.mocked(downloadApiFile).mock.calls.forEach(([url, filename], index) => { expect(url).toBe(`/equipment/dashboard/export/${tables[index]}?${query}`); expect(filename).toMatch(/^equipment_[a-z_]+_2026-10-06\.xlsx$/); expect(url).not.toContain("pageSize"); });
+  });
+  it("prevents repeat clicks, restores the button, and displays download failures", async () => {
+    let rejectDownload!: (error: Error) => void;
+    vi.mocked(downloadApiFile).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectDownload = reject; }));
+    renderDashboard(); await waitFor(() => expect(card("未填报设备明细").getByText("未填设备甲")).toBeTruthy()); const button = card("未填报设备明细").getByRole("button", { name: /导出 Excel/ });
+    fireEvent.click(button); fireEvent.click(button); expect(vi.mocked(downloadApiFile)).toHaveBeenCalledTimes(1); expect(button).toBeDisabled();
+    rejectDownload(new Error("设备导出连接失败")); await screen.findByText("设备导出连接失败"); await waitFor(() => expect(button).not.toBeDisabled());
+  });
+  it("hides exports without export permission and disables empty data exports", async () => {
+    permissions = ["equipment-dashboard:*:read", "equipment-dashboard:equipmentCode:read"];
+    const view = renderDashboard(); await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/auth/me")); expect(screen.queryByRole("button", { name: /导出 Excel/ })).toBeNull(); view.unmount();
+    permissions = ["*"]; response = { ...response, unreportedEquipmentRows: [], divisionRows: [], departmentRows: [], equipmentRows: [], operationsMonitoring: { ...response.operationsMonitoring, yesterdayDivisionRows: [], yesterdayDepartmentRows: [] } };
+    renderDashboard(); await waitFor(() => expect(screen.getAllByRole("button", { name: /导出 Excel/ })).toHaveLength(6)); expect(screen.getAllByRole("button", { name: /导出 Excel/ }).every(button => (button as HTMLButtonElement).disabled)).toBe(true); expect(vi.mocked(downloadApiFile)).not.toHaveBeenCalled();
+  });
+  it("exports the same division and department filters as the dashboard request", async () => {
+    response.filters = { divisions: [{ id: "division-4", name: "事业四部" }], departments: [{ id: "department-4", name: "木作车间" }] };
+    renderDashboard(); await waitFor(() => expect(card("未填报设备明细").getByText("未填设备甲")).toBeTruthy());
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "设备驾驶舱事业部筛选" })); fireEvent.click((await screen.findAllByText("事业四部")).find(element => element.classList.contains("ant-select-item-option-content"))!);
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "设备驾驶舱部门筛选" })); fireEvent.click((await screen.findAllByText("木作车间")).find(element => element.classList.contains("ant-select-item-option-content"))!);
+    await waitFor(() => expect(card("未填报设备明细").getByRole("button", { name: /导出 Excel/ })).not.toBeDisabled()); fireEvent.click(card("未填报设备明细").getByRole("button", { name: /导出 Excel/ }));
+    await waitFor(() => expect(vi.mocked(downloadApiFile)).toHaveBeenCalled()); const [url] = vi.mocked(downloadApiFile).mock.calls[0]!; const params = new URL(url, "http://test").searchParams; expect(params.get("divisionId")).toBe("division-4"); expect(params.getAll("departmentId")).toEqual(["department-4"]);
+  });
 });

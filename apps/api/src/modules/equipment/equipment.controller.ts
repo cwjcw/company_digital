@@ -62,6 +62,11 @@ export class EquipmentController {
   @Get("options") options(@Req() request: EquipmentRequest) { return this.queries.assetFormOptions(this.actor(request)); }
   @Get("status-options") statusOptions(@Req() request: EquipmentRequest) { return this.queries.statusFormOptions(this.actor(request)); }
   @Get("dashboard") dashboard(@Query() query: Record<string, unknown>, @Req() request: EquipmentRequest) { return this.queries.dashboard(query, this.actor(request)); }
+  @Get("dashboard/export/:table")
+  async dashboardExport(@Param("table") table: string, @Query() query: Record<string, unknown>, @Req() request: EquipmentRequest, @Res() response: Response) {
+    const result = await this.exports.dashboardExport(table, query, this.actor(request));
+    this.sendWorkbook(response, result.filename, result.buffer);
+  }
 
   private sendWorkbook(response: Response, filename: string, buffer: Buffer) {
     response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

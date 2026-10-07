@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DownloadOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import {
-  Alert, Button, Card, DatePicker, Flex, Form, Input, InputNumber, Modal,
+  Alert, App as AntApp, Button, Card, DatePicker, Flex, Form, Input, InputNumber, Modal,
   Select, Space, Statistic, Switch, Tag, Typography, Upload, message
 } from "antd";
 import dayjs from "dayjs";
@@ -13,6 +13,7 @@ import { OrganizationSelect } from "../../shared/OrganizationSelect";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 import { KdosChart, formatChartDate, formatChartDuration, formatChartPercent } from "../../shared/charts";
 import type { EChartsOption } from "echarts";
+import { equipmentDashboardExportDefinitions, equipmentDashboardFilename, equipmentDashboardDivisionName, type EquipmentDashboardExportTable } from "@kdos/contracts";
 import { equipmentStatusReportDateDisabled } from "./equipment-status-date-window";
 
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
@@ -109,10 +110,10 @@ function DurationFields({ prefix, label }: { prefix: "plannedStartup" | "planned
   </Form.Item>;
 }
 
-function useEquipmentPermissions(resource: "equipment-register" | "equipment-status-report") {
-  const session = useQuery({ queryKey: ["auth-session"], queryFn: () => api<{ permissions?: string[] }>("/auth/me"), retry: false, staleTime: 0, refetchOnMount: "always" });
+function useEquipmentPermissions(resource: "equipment-register" | "equipment-status-report" | "equipment-dashboard") {
+  const session = useQuery({ queryKey: ["auth-session"], queryFn: () => api<{ permissions?: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[] }>("/auth/me"), retry: false, staleTime: 0, refetchOnMount: "always" });
   const allows = (action: string) => hasSessionResourcePermission(session.data, resource, action);
-  return { canRead: allows("read"), canCreate: allows("create"), canUpdate: allows("update"), canDelete: allows("delete"), canImport: allows("import"), canExport: allows("export") };
+  return { canReadField: (field: string) => session.data?.isSystemAdmin === true || session.data?.permissions?.includes("*") === true || session.data?.moduleAdminCodes?.includes("planning") === true || session.data?.permissions?.includes(`${resource}:${field}:read`) === true, canRead: allows("read"), canCreate: allows("create"), canUpdate: allows("update"), canDelete: allows("delete"), canImport: allows("import"), canExport: allows("export") };
 }
 
 function useEquipmentOptions(kind: "asset" | "status", enabled: boolean) {
@@ -422,6 +423,7 @@ type DashboardData = {
     division: string; departmentId: string | null; department: string; equipmentCount: number; normalCount: number; faultCount: number; idleCount: number; unreportedCount: number;
     plannedRuntimeMinutes: number; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number; runtimeDailyAverageMinutes: number; faultDailyAverageMinutes: number;
   }>;
+  unreportedEquipmentRows?: Array<Pick<EquipmentAsset, "divisionName" | "usageDepartmentName" | "equipmentCode" | "equipmentName" | "responsibleUsers"> & { equipmentId: string }>;
   equipmentRows: Array<{ division: string; departmentId: string | null; department: string; equipmentId: string; equipmentCode: string; equipmentName: string; plannedRuntimeMinutes: number | null; runtimeMinutes: number; utilizationRate: number | null; faultMinutes: number }>;
   operationsMonitoring?: {
     yesterday: MonitoringMetric | null;
@@ -525,18 +527,13 @@ function EquipmentTrendChart({ points, yAxisMax, compact, ariaLabel }: { points:
   return <KdosChart className={compact ? "equipment-monitoring-trend equipment-monitoring-trend-compact" : "equipment-monitoring-trend"} height={compact ? 250 : 330} ariaLabel={ariaLabel} option={option} empty={!points.length} emptyText="暂无最近 7 天数据" />;
 }
 
-const dashboardDivisionDisplayNames = new Map([
-  ["凯南事业一部", "事业一部"], ["凯南事业二部", "事业二部"], ["凯南事业三部", "事业三部"], ["凯南事业四部", "事业四部"]
-]);
-
-function dashboardDivisionName(value: string) {
-  return dashboardDivisionDisplayNames.get(value) ?? value;
-}
+const dashboardDivisionName = equipmentDashboardDivisionName;
 
 type DashboardPeriodType = "day" | "month" | "year" | "custom";
 const { RangePicker } = DatePicker;
 
 export function EquipmentDashboardPage() {
+  const { message: exportMessage } = AntApp.useApp();
   const [periodType, setPeriodType] = useState<DashboardPeriodType>("day");
   const [period, setPeriod] = useState(() => shanghaiYesterday());
   const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>(() => {
@@ -545,21 +542,37 @@ export function EquipmentDashboardPage() {
   });
   const [divisionId, setDivisionId] = useState<string>();
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
+  const { canExport, canReadField } = useEquipmentPermissions("equipment-dashboard");
+  const [exportingTable, setExportingTable] = useState<EquipmentDashboardExportTable | null>(null);
+  const exportInFlight = useRef(false);
+  const dashboardQuery = useMemo(() => {
+    const query = new URLSearchParams({ periodType });
+    if (periodType === "day") query.set("period", period.format("YYYY-MM-DD"));
+    if (periodType === "month") query.set("period", period.format("YYYY-MM"));
+    if (periodType === "year") query.set("period", period.format("YYYY"));
+    if (periodType === "custom") { query.set("startDate", customRange[0].format("YYYY-MM-DD")); query.set("endDate", customRange[1].format("YYYY-MM-DD")); }
+    if (divisionId) query.set("divisionId", divisionId);
+    for (const departmentId of departmentIds) query.append("departmentId", departmentId);
+    return query.toString();
+  }, [periodType, period, customRange, divisionId, departmentIds]);
   const dashboard = useQuery({
-    queryKey: ["equipment-dashboard", periodType, period.format("YYYY-MM-DD"), customRange[0].format("YYYY-MM-DD"), customRange[1].format("YYYY-MM-DD"), divisionId, departmentIds.join("|")],
-    queryFn: () => {
-      const query = new URLSearchParams({ periodType });
-      if (periodType === "day") query.set("period", period.format("YYYY-MM-DD"));
-      if (periodType === "month") query.set("period", period.format("YYYY-MM"));
-      if (periodType === "year") query.set("period", period.format("YYYY"));
-      if (periodType === "custom") { query.set("startDate", customRange[0].format("YYYY-MM-DD")); query.set("endDate", customRange[1].format("YYYY-MM-DD")); }
-      if (divisionId) query.set("divisionId", divisionId);
-      for (const departmentId of departmentIds) query.append("departmentId", departmentId);
-      return api<DashboardData>(`/equipment/dashboard?${query.toString()}`);
-    },
+    queryKey: ["equipment-dashboard", dashboardQuery],
+    queryFn: () => api<DashboardData>(`/equipment/dashboard?${dashboardQuery}`),
     refetchInterval: 30 * 60_000
   });
   const data = dashboard.data;
+  const exportTable = async (table: EquipmentDashboardExportTable) => {
+    if (exportInFlight.current || !data || !canExport) return;
+    exportInFlight.current = true; setExportingTable(table);
+    try {
+      await downloadApiFile(`/equipment/dashboard/export/${table}?${dashboardQuery}`, equipmentDashboardFilename(table, data.windowEnd));
+      exportMessage.success(`${equipmentDashboardExportDefinitions[table].title}已导出`);
+    } catch (error) { exportMessage.error(errorText(error)); }
+    finally { exportInFlight.current = false; setExportingTable(null); }
+  };
+  const exportButton = (table: EquipmentDashboardExportTable, rowCount: number) => canExport ? <Button icon={<DownloadOutlined />}
+    loading={exportingTable === table} disabled={!rowCount || dashboard.isFetching || exportingTable !== null}
+    title={!rowCount ? "当前筛选条件下暂无可导出数据" : undefined} onClick={() => void exportTable(table)}>导出 Excel</Button> : null;
   const metrics = data?.metrics ?? {};
   const monitoring = data?.operationsMonitoring;
   const yesterdayMonitoring = monitoring?.yesterday;
@@ -619,7 +632,7 @@ export function EquipmentDashboardPage() {
           </Card>)}
         </div>
       </Card>
-      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}事业部填报与稼动情况`}>
+      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}事业部填报与稼动情况`} extra={exportButton("division_reporting", monitoring?.yesterdayDivisionRows.length ?? 0)}>
         <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey="divisionId" dataSource={monitoring?.yesterdayDivisionRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 110, render: dashboardDivisionName },
@@ -630,7 +643,7 @@ export function EquipmentDashboardPage() {
             { title: "稼动率", dataIndex: "utilizationRate", width: 100, align: "center", render: utilizationText }
           ]} />
       </Card>
-      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}部门填报与稼动情况`}>
+      <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}部门填报与稼动情况`} extra={exportButton("department_reporting", monitoring?.yesterdayDepartmentRows.length ?? 0)}>
         <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey={(row) => `${row.divisionId}-${row.departmentId ?? row.department}`} dataSource={monitoring?.yesterdayDepartmentRows ?? []} columns={[
             { title: "所属事业部", dataIndex: "division", width: 105, render: dashboardDivisionName },
@@ -642,6 +655,18 @@ export function EquipmentDashboardPage() {
             { title: "稼动率", dataIndex: "utilizationRate", width: 95, align: "center", render: utilizationText }
           ]} />
       </Card>
+    </Card>
+    <Card className="equipment-analysis-card" title="未填报设备明细" loading={dashboard.isLoading}
+      extra={exportButton("unreported", data?.unreportedEquipmentRows?.length ?? 0)}>
+      <KdosDataTable resource="equipment-dashboard" viewKey="unreported" simple systemFields={false}
+        rowKey="equipmentId" dataSource={data?.unreportedEquipmentRows ?? []} scroll={{ x: 850 }} columns={[
+          { title: "所属事业部", dataIndex: "divisionName", key: "divisionId", width: 150 },
+          { title: "所属部门", dataIndex: "usageDepartmentName", key: "departmentId", width: 170 },
+          { title: "设备编码", dataIndex: "equipmentCode", key: "equipmentCode", width: 150 },
+          { title: "设备名称", dataIndex: "equipmentName", key: "equipmentName", width: 220 },
+          { title: "责任人", dataIndex: "responsibleUsers", key: "responsibleUserIds", width: 180,
+            render: (users: EquipmentAsset["responsibleUsers"] | undefined) => (users ?? []).map((user) => user.displayName).join("、") }
+        ].filter((column) => canReadField(column.key))} />
     </Card>
     <Typography.Title level={4}>设备情况统计</Typography.Title>
     <Typography.Text type="secondary">稼动率 = 实际运行时长 ÷ 计划运行时间 × 100%</Typography.Text>
@@ -659,7 +684,7 @@ export function EquipmentDashboardPage() {
       <Card><Statistic title="故障总时长" value={durationText(metrics.faultMinutes)} valueStyle={{ color: Number(metrics.faultMinutes) > 0 ? "#cf3f3f" : undefined }} /></Card>
       <Card><Statistic title="故障日均" value={durationText(metrics.faultDailyAverageMinutes)} valueStyle={{ color: Number(metrics.faultDailyAverageMinutes) > 0 ? "#cf3f3f" : undefined }} /></Card>
     </div>
-    <Card className="equipment-analysis-card" title="按事业部设备运行分析" loading={dashboard.isLoading}>
+    <Card className="equipment-analysis-card" title="按事业部设备运行分析" loading={dashboard.isLoading} extra={exportButton("division_operation", data?.divisionRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false} rowKey="division" dataSource={data?.divisionRows} scroll={{ x: 1300 }} columns={[
         { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
         { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
@@ -672,7 +697,7 @@ export function EquipmentDashboardPage() {
         { title: "故障日均", dataIndex: "faultDailyAverageMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> }
       ]} />
     </Card>
-    <Card className="equipment-analysis-card" title="按车间/使用部门设备运行分析" loading={dashboard.isLoading}>
+    <Card className="equipment-analysis-card" title="按车间/使用部门设备运行分析" loading={dashboard.isLoading} extra={exportButton("department_operation", data?.departmentRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey={(row) => `${row.division}-${row.departmentId ?? `unassigned-${row.department}`}`} dataSource={data?.departmentRows} scroll={{ x: 1450 }} columns={[
           { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
@@ -686,7 +711,7 @@ export function EquipmentDashboardPage() {
           { title: "故障日均", dataIndex: "faultDailyAverageMinutes", width: 140, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{durationText(value)}</Typography.Text> }
         ]} />
     </Card>
-    <Card className="equipment-analysis-card" title="设备稼动率明细" loading={dashboard.isLoading}>
+    <Card className="equipment-analysis-card" title="设备稼动率明细" loading={dashboard.isLoading} extra={exportButton("utilization_detail", data?.equipmentRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey="equipmentId" dataSource={data?.equipmentRows} scroll={{ x: 1250 }} columns={[
           { title: "事业部", dataIndex: "division", width: 150, fixed: "left" },

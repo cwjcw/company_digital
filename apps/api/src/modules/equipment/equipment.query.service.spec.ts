@@ -204,3 +204,26 @@ describe("EquipmentQueryService typed filtering (KN-FILTER-001)", () => {
     }, actor)).rejects.toThrow(/不支持该筛选方式/);
   });
 });
+
+
+describe("equipment dashboard detail and export boundaries", () => {
+  const division = "0199e000-0000-7000-8000-000000000004";
+  const actor = { tenantId: "TENANT_A", userId: null, username: "restricted", permissions: ["equipment-dashboard:*:read", "equipment-dashboard:*:export", "equipment-dashboard:equipmentCode:read"], tableDataScopes: [
+    { resource: "equipment-dashboard", scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: division }] },
+    { resource: "equipment-dashboard", scope: "ALL", actions: ["export"] }
+  ], requestId: "export-boundaries" };
+  it("projects details from the existing asset_state and masks unreadable master fields without dropping records", async () => {
+    const ds = { query: jest.fn().mockResolvedValue([{ payload: { unreportedEquipmentRows: [{ equipmentId: "id", equipmentCode: "00001", equipmentName: "hidden", responsibleUsers: [{ displayName: "hidden" }] }] } }]) };
+    const result = await new EquipmentQueryService(ds as any).dashboard({ periodType: "day", period: "2026-10-06", departmentId: "0199e000-0000-7000-8000-000000000002" }, actor);
+    expect(result.unreportedEquipmentRows).toEqual([{ equipmentId: "id", equipmentCode: "00001" }]);
+    const [sql, params] = ds.query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("FROM asset_state state JOIN monitored asset ON asset.id=state.id WHERE state.state='未填报'");
+    expect(sql).toContain("responsible.tenant_id=asset.tenant_id"); expect(sql).toContain("asset.usage_department_organization_unit_id=ANY"); expect(params[0]).toBe("TENANT_A");
+  });
+  it("keeps read scope even when export has ALL scope, and rejects missing export permission", async () => {
+    const ds = { query: jest.fn().mockResolvedValue([{ payload: {} }]) };
+    const q = new EquipmentQueryService(ds as any); await q.dashboard({ periodType: "day", period: "2026-10-06" }, actor, "export");
+    expect(ds.query.mock.calls[0]).toEqual([expect.stringContaining("asset.division_organization_unit_id=ANY($2::uuid[])"), expect.arrayContaining([[division]])]);
+    await expect(q.dashboard({}, { ...actor, permissions: ["equipment-dashboard:*:read"] }, "export")).rejects.toThrow("权限"); expect(ds.query).toHaveBeenCalledTimes(1);
+  });
+});

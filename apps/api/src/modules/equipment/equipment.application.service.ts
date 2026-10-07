@@ -202,6 +202,11 @@ export class EquipmentApplicationService {
     return this.dataSource.transaction((manager) => this.audit(manager, actor, "equipment-status-report", null, "equipment.status.exported", null, { rowCount }));
   }
 
+  async recordDashboardExport(table: string, rowCount: number, windowStart: string, windowEnd: string, actor: EquipmentActor) {
+    this.assert(actor, "equipment-dashboard", "export");
+    return this.dataSource.transaction((manager) => this.audit(manager, actor, "equipment-dashboard", null, "equipment.dashboard.exported", null, { table, rowCount, windowStart, windowEnd }));
+  }
+
   async importWorkbookRows(rows: Array<AssetInput & { sourceSheetRow: number }>, actor: EquipmentActor) {
     this.assert(actor, "equipment-register", "import");
     return this.dataSource.transaction(async (manager) => {

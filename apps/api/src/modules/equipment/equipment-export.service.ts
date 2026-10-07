@@ -1,9 +1,9 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import ExcelJS from "exceljs";
 import { EquipmentApplicationService } from "./equipment.application.service";
-import { EquipmentQueryService } from "./equipment.query.service";
+import { EquipmentQueryService, type DashboardInput } from "./equipment.query.service";
 import { EquipmentActor, hasEquipmentPermission } from "./equipment.types";
-import { EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS } from "@kdos/contracts";
+import { EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS, equipmentDashboardExportDefinitions, equipmentDashboardExportTables, equipmentDashboardFilename, equipmentDashboardDivisionName, type EquipmentDashboardExportColumn, type EquipmentDashboardExportTable } from "@kdos/contracts";
 
 @Injectable()
 export class EquipmentExportService {
@@ -18,6 +18,45 @@ export class EquipmentExportService {
     const rows = await this.queries.exportStatus(input, actor);
     await this.application.recordStatusExport(rows.length, actor);
     return this.workbook(rows);
+  }
+
+  async dashboardExport(table: string, input: Record<string, unknown>, actor: EquipmentActor) {
+    if (!equipmentDashboardExportTables.includes(table as EquipmentDashboardExportTable)) throw new BadRequestException("不支持的设备大屏导出表");
+    const key = table as EquipmentDashboardExportTable;
+    // Exactly the same SQL, date validation and filters as the screen; read ∩ export scope.
+    const data = await this.queries.dashboard(input as DashboardInput, actor, "export");
+    const rows: Record<string, unknown>[] = ({
+      unreported: data.unreportedEquipmentRows,
+      division_reporting: data.operationsMonitoring?.yesterdayDivisionRows,
+      department_reporting: data.operationsMonitoring?.yesterdayDepartmentRows,
+      division_operation: data.divisionRows,
+      department_operation: data.departmentRows,
+      utilization_detail: data.equipmentRows
+    } satisfies Record<EquipmentDashboardExportTable, unknown>)[key] ?? [];
+    if (!rows.length) throw new BadRequestException("当前筛选条件下暂无可导出数据");
+    const definition = equipmentDashboardExportDefinitions[key];
+    const columns = definition.columns.filter((column) => this.queries.dashboardFieldReadable(actor, column.permissionField));
+    if (!columns.length) throw new ForbiddenException("当前权限组没有可导出字段");
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(definition.title.replace(/[\\/*?:[\]]/g, " ").slice(0, 31));
+    sheet.columns = columns.map((column) => ({ header: column.label, key: column.key, width: column.kind === "members" ? 26 : 20 }));
+    for (const column of columns) {
+      sheet.getColumn(column.key).numFmt = column.kind === "percentage" ? "0.0%" : column.kind === "duration" ? '0"分钟"' : column.kind === "number" ? "0" : "@";
+    }
+    for (const row of rows) sheet.addRow(Object.fromEntries(columns.map((column) => [column.key, this.dashboardCell(row[column.key], column)])));
+    const buffer = await this.finishWorkbook(workbook, sheet, columns.length);
+    await this.application.recordDashboardExport(key, rows.length, data.windowStart, data.windowEnd, actor);
+    return { buffer, filename: equipmentDashboardFilename(key, data.windowEnd) };
+  }
+
+  private dashboardCell(value: unknown, column: EquipmentDashboardExportColumn): ExcelJS.CellValue {
+    if (value === null || value === undefined) return null;
+    if (column.kind === "members") return Array.isArray(value) ? value.map((user) => String(user?.displayName ?? "")).filter(Boolean).join("、") : null;
+    if (["number", "duration", "percentage"].includes(column.kind)) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? column.kind === "percentage" ? numeric / 100 : numeric : null;
+    }
+    return column.kind === "division" ? equipmentDashboardDivisionName(String(value)) : String(value);
   }
 
   private async workbook(rows: any[], template = false) {
@@ -46,9 +85,13 @@ export class EquipmentExportService {
     }
     const duration = (minutes: unknown) => `${Math.floor(Number(minutes ?? 0) / 60)}小时${Number(minutes ?? 0) % 60}分钟`;
     for (const row of rows) sheet.addRow({ ...row, plannedRuntimeMinutes: duration(row.plannedRuntimeMinutes), runtimeMinutes: duration(row.runtimeMinutes), utilizationRate: row.utilizationRate == null ? "—" : `${Number(row.utilizationRate).toFixed(1)}%`, faultMinutes: duration(row.faultMinutes) });
+    return this.finishWorkbook(workbook, sheet, template ? 9 : 10);
+  }
+
+  private async finishWorkbook(workbook: ExcelJS.Workbook, sheet: ExcelJS.Worksheet, columnCount: number) {
     const header = sheet.getRow(1); header.font = { name: "微软雅黑", bold: true, color: { argb: "FFFFFFFF" } };
     header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4B70" } }; header.alignment = { horizontal: "center" };
-    sheet.views = [{ state: "frozen", ySplit: 1 }]; sheet.autoFilter = { from: "A1", to: template ? "I1" : "J1" };
+    sheet.views = [{ state: "frozen", ySplit: 1 }]; sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columnCount } };
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 }
