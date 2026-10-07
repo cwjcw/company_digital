@@ -84,3 +84,11 @@ pnpm --filter @tracker/api test -- pmc-rd-progress
 E10源时间按上海业务墙钟文本显示，不经UTC转换；带时区的同步时间按Asia/Shanghai展示。客户名称缺失回退客户编码，事业部名称缺失显示“未映射”，不展示裸来源UUID。V仍是原始审核值，不翻译为“作废”。空值和Excel格式保持平台标准（空值展示“—”、业务字典中文）。
 
 生产E2E运行时读取外部凭据文件：`PMC_E2E_ENV_FILE=/secure/path/to/file E2E_BASE_URL=http://127.0.0.1:15172 node scripts/test-pmc-rd-progress-e2e.cjs`。文件字段PMC_E2E_USERNAME/PMC_E2E_PASSWORD/PMC_E2E_BASE_URL映射到现有Playwright运行环境，不落地凭据、token、storageState；专项测试关闭trace、截图、视频与页面失败快照，以避免记录登录身份。仅现有账号登录及只读查询/下载，不创建账号或调整权限。
+
+## Phase 5.1 页面筛选
+
+当前研发进度分为默认“图表看板”和“明细报表”；此分栏只用于本页。图表只放汇总、环节指标与状态分布，明细保留标准表格、订单Drawer、品项详情和Excel。共享已应用条件及已访问表格的搜索/高级/列筛选在Tab间保留。
+
+事业部、客户使用平台候选接口的可搜索下拉，状态使用契约中文字典；“未完成”提供全部/只看未完成。明细额外保留订单号、品项编码/名称输入。
+
+日期沿用orderDate（下单日期）的包含式orderDateFrom/orderDateTo。日/月/年/自定义在前端转换为完整日历区间，API不接收周期模式。首次默认及重置恢复Asia/Shanghai昨天；URL保存period、periodValue（自定义为开始日,结束日）与tab，刷新恢复。兼容既有完整from/to链接。周期模式无全部/空日期，日期转换不经过UTC。标准导出继续使用同一已应用筛选和全量匹配记录。

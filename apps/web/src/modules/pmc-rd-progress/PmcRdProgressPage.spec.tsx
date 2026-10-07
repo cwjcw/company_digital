@@ -7,6 +7,7 @@ import { api } from "../../api";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { PmcRdProgressPage } from "./PmcRdProgressPage";
 import { businessTime, orderFilter, parseFilters, percentText, reportNavigation, reportUrl } from "./rd-progress.model";
+import { defaultPeriod, periodBounds, periodForMode, readReportPeriod } from "./rd-progress.period";
 import { rdStatuses, statusMeta } from "./rd-progress.constants";
 vi.mock("../../api", () => ({ api: vi.fn() }));
 vi.mock("../../shared/charts/KdosChart", () => ({ KdosChart: ({ option }: { option: unknown }) => <div data-testid="chart">{JSON.stringify(option)}</div> }));
@@ -16,7 +17,8 @@ const row = { id: "row-1", sourceOrderId: "order-id", orderNo: "ORDER-1", custom
 const summary = { orderCount: 88, itemCount: 201, completeItemCount: 71, incompleteItemCount: 123, notApplicableItemCount: 7, abnormalItemCount: 6, overallCompletionRate: "36.60", designBomCompletionRate: "62.31", routingCompletionRate: "38.40", statusCounts: Object.fromEntries(rdStatuses.map((status, index) => [status.value, index + 1])) };
 let itemError = false, summaryError = false, empty = false;
 function Location() { return <div data-testid="location">{useLocation().search}</div>; }
-function mount(path = "/pmc/reports/rd-progress", permissions?: string[]) {
+function mount(path = "/pmc/reports/rd-progress", permissions?: string[], dashboard = false) {
+  if (!dashboard) path += `${path.includes("?") ? "&" : "?"}tab=detail`;
   localStorage.setItem("sessionUser", JSON.stringify(permissions ? { sub: "worker", permissions } : { sub: "admin", permissions: ["*"], isSystemAdmin: true }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><AntApp><MemoryRouter initialEntries={[path]}><Location /><PmcRdProgressPage /></MemoryRouter></AntApp></QueryClientProvider>);
@@ -29,18 +31,21 @@ beforeEach(() => {
     if (path.endsWith("sync-status")) return { latestSync: { status: "SUCCESS", mode: "INCREMENTAL", sourceSnapshotAt: "2026-10-07 14:30:00.000001", completedAt: "2026-10-07T06:31:00Z" } } as never;
     if (path.startsWith("/pmc/reports/rd-progress/orders")) return { rows: [{ sourceOrderId: "order-id", orderNo: "ORDER-1", totalItemCount: 201, applicableItemCount: 194, completeItemCount: 71, incompleteItemCount: 123, abnormalItemCount: 6, completionRate: "36.60", orderRdStatus: "IN_PROGRESS" }], total: 1 } as never;
     if (path === "/table-filters/resources") return [{ code: "pmc-rd-progress", filterableFields: tablePermissionFieldsFor("pmc-rd-progress") }] as never;
-    if (path.startsWith("/table-filters/candidates")) return { options: [{ value: "division-id", label: "事业一部" }] } as never;
+    if (path.startsWith("/table-filters/candidates")) return { options: path.includes("customerName") ? [{ value: "客户甲", label: "客户甲" }] : [{ value: "division-id", label: "事业一部" }], hasMore: false } as never;
     return [] as never;
   });
 });
 afterEach(cleanup);
 const calls = (endpoint: string) => vi.mocked(api).mock.calls.map(([path]) => path).filter(path => path.startsWith(`/pmc/reports/rd-progress/${endpoint}?`));
 describe("PMC研发正式报表", () => {
-  it("使用API汇总、七个状态和源时间，默认全部品项并保留服务端小数", async () => {
+  it("图表和明细分离，使用API汇总、七个状态和源时间并保留服务端小数", async () => {
     mount(); expect(await screen.findByText("品项甲")).toBeInTheDocument();
-    expect(screen.getAllByText("36.60%", { exact: false })).toHaveLength(2);
+    expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "图表看板" }));
+    expect(await screen.findAllByText("36.60%", { exact: false })).toHaveLength(2);
     expect(screen.getByText("同步成功")).toBeInTheDocument(); expect(screen.getByText("2026-10-06 18:05:01")).toBeInTheDocument();
     expect(screen.getByText("12.500000")).toBeInTheDocument(); expect(screen.getByTestId("chart")).toHaveTextContent("设计 BOM 进行中");
+    expect(screen.getByText("品项甲").closest(".pmc-rd-detail")).toHaveAttribute("hidden");
     expect(calls("items")[0]).toContain("pageSize=100"); expect(calls("items")[0]).not.toContain("onlyIncomplete");
     expect(screen.queryByRole("button", { name: /编辑模式|同步数据|新增/ })).not.toBeInTheDocument();
   });
@@ -50,7 +55,7 @@ describe("PMC研发正式报表", () => {
     fireEvent.change(screen.getByPlaceholderText("请输入品项编码"), { target: { value: "P009" } });
     expect(calls("items")).toHaveLength(before); fireEvent.click(screen.getByRole("button", { name: "查 询" }));
     await waitFor(() => expect(calls("items").at(-1)).toContain("orderNo=SO-9"));
-    expect(calls("summary").at(-1)).toContain("itemCode=P009"); expect(screen.getByTestId("location")).toHaveTextContent("orderNo=SO-9");
+    expect(calls("summary").at(-1)).toContain("itemCode=P009"); await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("orderNo=SO-9"));
   });
   it("URL恢复全部核心筛选，导出传当前上下文和业务可见列", async () => {
     mount("/pmc/reports/rd-progress?orderNo=SO-9&customer=C&division=division-id&itemCode=P&itemName=N&rdStatus=ABNORMAL&designBomStatus=ABNORMAL&routingStatus=NOT_STARTED&orderDateFrom=2026-09-01&orderDateTo=2026-10-07&onlyIncomplete=true");
@@ -63,13 +68,15 @@ describe("PMC研发正式报表", () => {
   it.each([["筛选已完成品项", "rdStatus=COMPLETE"], ["筛选异常品项", "rdStatus=ABNORMAL"], ["筛选未完成品项", "onlyIncomplete=true"]])("KPI %s 调用后端且回第一页", async (button, expected) => {
     mount(); await screen.findByText("品项甲"); fireEvent.click(screen.getByTitle("2"));
     await waitFor(() => expect(calls("items").some(path => path.includes("page=2"))).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: button }));
+    fireEvent.click(screen.getByRole("tab", { name: "图表看板" }));
+    fireEvent.click(await screen.findByRole("button", { name: button }));
+    fireEvent.click(screen.getByRole("tab", { name: "明细报表" }));
     await waitFor(() => expect(calls("items").at(-1)).toContain(expected)); expect(calls("items").at(-1)).toContain("page=1");
   });
   it("从COMPLETE切到未完成清除冲突状态，快捷状态清除onlyIncomplete", async () => {
-    mount("/pmc/reports/rd-progress?rdStatus=COMPLETE"); await screen.findByText("品项甲");
-    fireEvent.click(screen.getByRole("button", { name: "筛选未完成品项" })); await waitFor(() => expect(calls("items").at(-1)).toContain("onlyIncomplete=true")); expect(calls("items").at(-1)).not.toContain("rdStatus=");
-    fireEvent.click(screen.getByRole("button", { name: /^异\s*常$/ })); await waitFor(() => expect(calls("items").at(-1)).toContain("rdStatus=ABNORMAL")); expect(calls("items").at(-1)).not.toContain("onlyIncomplete");
+    mount("/pmc/reports/rd-progress?rdStatus=COMPLETE", undefined, true); await screen.findAllByText("36.60%", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "筛选未完成品项" })); await waitFor(() => expect(calls("summary").at(-1)).toContain("onlyIncomplete=true")); expect(calls("summary").at(-1)).not.toContain("rdStatus=");
+    fireEvent.click(screen.getByRole("button", { name: /^异\s*常$/ })); await waitFor(() => expect(calls("summary").at(-1)).toContain("rdStatus=ABNORMAL")); expect(calls("summary").at(-1)).not.toContain("onlyIncomplete");
   });
   it("打开订单按稳定ID重新请求全部授权品项，关闭Drawer不改主表筛选", async () => {
     mount("/pmc/reports/rd-progress?rdStatus=WAITING_ROUTING"); await screen.findByText("品项甲");
@@ -85,7 +92,7 @@ describe("PMC研发正式报表", () => {
     expect(screen.queryByText("研发状态分布")).not.toBeInTheDocument(); expect(screen.queryByPlaceholderText("请输入品项编码")).not.toBeInTheDocument(); expect(screen.queryByText("品项甲")).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "ORDER-1" })).not.toBeInTheDocument();
   });
   it.each([[true, false, "研发明细加载失败"], [false, true, "研发汇总加载失败"]])("错误彼此独立，并且有重试按钮", async (a, b, message) => {
-    itemError = a; summaryError = b; mount(); expect(await screen.findByText(message)).toBeInTheDocument(); expect(screen.getByRole("button", { name: "重 试" })).toBeInTheDocument(); if (!a) expect(await screen.findByText("品项甲")).toBeInTheDocument();
+    itemError = a; summaryError = b; mount(); if (b) fireEvent.click(screen.getByRole("tab", { name: "图表看板" })); expect(await screen.findByText(message)).toBeInTheDocument(); expect(screen.getByRole("button", { name: "重 试" })).toBeInTheDocument(); if (!a && !b) expect(await screen.findByText("品项甲")).toBeInTheDocument();
   });
   it("空数据允许清空所有筛选", async () => {
     empty = true; mount("/pmc/reports/rd-progress?orderNo=no-match"); expect(await screen.findByText("当前筛选条件下暂无研发品项")).toBeInTheDocument();
@@ -96,4 +103,62 @@ describe("展示与参数边界", () => {
   it("不转换E10墙钟时间，只将带时区同步时间转为上海时间", () => { expect(businessTime("2026-10-06 23:59:59.999999")).toBe("2026-10-06 23:59:59"); expect(businessTime("2026-10-06T16:01:00Z")).toBe("2026-10-07 00:01:00"); expect(percentText(null)).toBe("—"); });
   it("字典中文直接来自契约，V保持原始值", () => { expect(statusMeta("COMPLETE").label).toBe("研发完成"); expect(statusMeta("V", "designBomStatus").label).toBe("V"); expect(rdStatuses).toHaveLength(7); });
   it("汇总无分页，筛选只有获权字段，菜单需要read", () => { localStorage.setItem("sessionUser", JSON.stringify({ permissions: ["pmc-rd-progress:*:read", "pmc-rd-progress:orderNo:read"] })); expect(parseFilters(new URLSearchParams("orderNo=A&rdStatus=ABNORMAL&onlyIncomplete=true"))).toEqual({ orderNo: "A" }); expect(reportNavigation()[0]!.children[0]!.label).toBe("研发进度"); expect(reportUrl("summary", { orderNo: "A" }, { page: 2, pageSize: 100, search: "", filters: {} })).not.toContain("page="); });
+});
+
+describe("Phase 5.1 周期与共享筛选", () => {
+  it("上海日期跨UTC日界仍默认昨天，非法值安全回退", () => {
+    expect(defaultPeriod(new Date("2026-10-06T16:01:00Z"))).toEqual({ mode: "day", value: "2026-10-06" });
+    expect(defaultPeriod(new Date("2026-10-06T15:59:59Z"))).toEqual({ mode: "day", value: "2026-10-05" });
+    expect(readReportPeriod(new URLSearchParams("period=day&periodValue=2026-02-30"), new Date("2026-10-06T16:01:00Z"))).toEqual({ mode: "day", value: "2026-10-06" });
+  });
+  it.each([
+    ["day", "2026-10-05", "2026-10-05", "2026-10-05"],
+    ["month", "2026-09", "2026-09-01", "2026-09-30"],
+    ["year", "2026", "2026-01-01", "2026-12-31"],
+    ["custom", "2026-09-15,2026-10-05", "2026-09-15", "2026-10-05"]
+  ] as const)("%s 模式归一化、URL恢复，API不接收UI模式", async (mode, value, from, to) => {
+    mount(`/pmc/reports/rd-progress?period=${mode}&periodValue=${value}`, undefined, true);
+    await waitFor(() => expect(calls("summary").at(-1)).toContain(`orderDateTo=${to}`));
+    expect(calls("summary").at(-1)).toContain(`orderDateFrom=${from}`);
+    expect(calls("summary").at(-1)).not.toContain("period=");
+    expect(screen.getByTestId("location")).toHaveTextContent(`period=${mode}`);
+    expect(calls("items")).toHaveLength(0); expect(screen.queryByPlaceholderText("请输入订单号")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "明细报表" })); await screen.findByText("品项甲");
+    expect(calls("items").at(-1)).toContain(`orderDateFrom=${from}`);
+    expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
+  });
+  it("周期切换正确支持闰月，自定义使用完整区间", () => {
+    expect(periodBounds({ mode: "month", value: "2024-02" })).toEqual({ orderDateFrom: "2024-02-01", orderDateTo: "2024-02-29" });
+    expect(periodForMode("month", { mode: "day", value: "2026-10-05" })).toEqual({ mode: "month", value: "2026-10" });
+    expect(periodBounds({ mode: "custom", value: "2026-10-05,2026-09-15" })).toBeUndefined();
+  });
+  it("默认和任意条件重置均为按日+上海昨天，并清除维度", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-06T16:01:00Z"));
+    try {
+      mount("/pmc/reports/rd-progress?period=year&periodValue=2026&division=division-id&rdStatus=ABNORMAL&onlyIncomplete=true", undefined, true);
+      await waitFor(() => expect(calls("summary").length).toBeGreaterThan(0));
+      fireEvent.click(screen.getByRole("button", { name: "重 置" }));
+      await waitFor(() => expect(calls("summary").at(-1)).toContain("orderDateFrom=2026-10-06"));
+      expect(calls("summary").at(-1)).toContain("orderDateTo=2026-10-06");
+      expect(calls("summary").at(-1)).not.toMatch(/division=|rdStatus=|onlyIncomplete=/);
+      expect(screen.getByTestId("location")).toHaveTextContent("period=day");
+      cleanup(); mount(undefined, undefined, true);
+      await waitFor(() => expect(calls("summary").at(-1)).toContain("orderDateFrom=2026-10-06"));
+    } finally { vi.useRealTimers(); }
+  });
+  it("维度使用候选下拉，提交和跨Tab导出继承完整日期/事业部/状态/未完成", async () => {
+    mount("/pmc/reports/rd-progress?period=month&periodValue=2026-09&division=division-id&customer=客户甲&rdStatus=ABNORMAL&designBomStatus=COMPLETE&routingStatus=NOT_STARTED&onlyIncomplete=true", undefined, true);
+    for (const label of ["事业部", "客户", "研发状态", "设计BOM状态", "工艺路线状态", "未完成", "日期周期"]) expect(screen.getByRole("combobox", { name: label })).toBeInTheDocument();
+    await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining("field=customerName"), expect.anything()));
+    fireEvent.click(screen.getByRole("button", { name: "查 询" }));
+    await waitFor(() => expect(calls("summary").at(-1)).toContain("designBomStatus=COMPLETE"));
+    fireEvent.click(screen.getByRole("tab", { name: "明细报表" })); await screen.findByText("品项甲");
+    fireEvent.click(screen.getByTitle("2")); await waitFor(() => expect(calls("items").at(-1)).toContain("page=2"));
+    fireEvent.click(await screen.findByRole("button", { name: /导出/ })); await waitFor(() => expect(exportTable).toHaveBeenCalled());
+    const request = vi.mocked(exportTable).mock.calls[0]![0];
+    expect(request.context).toEqual(expect.objectContaining({ division: "division-id", customer: "客户甲", rdStatus: "ABNORMAL", onlyIncomplete: "true", orderDateFrom: "2026-09-01", orderDateTo: "2026-09-30" }));
+    expect(request.context).not.toHaveProperty("period"); expect(request).not.toHaveProperty("pageSize");
+    fireEvent.click(screen.getByRole("tab", { name: "图表看板" })); fireEvent.click(screen.getByRole("tab", { name: "明细报表" }));
+    expect(screen.getByTitle("2")).toHaveClass("ant-pagination-item-active");
+  });
 });
