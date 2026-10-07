@@ -1,3 +1,5 @@
+import { PmcRdProgressPage } from "./modules/pmc-rd-progress/PmcRdProgressPage";
+import { reportNavigation, reportPath } from "./modules/pmc-rd-progress/rd-progress.model";
 import { PageScrollReset } from "./shared/PageScrollReset";
 import { useEffect, useState } from "react";
 import {
@@ -160,16 +162,18 @@ function Shell({ logout }: { logout: () => void }) {
   const permissionResourceCode = location.pathname.startsWith("/permissions/") ? decodeURIComponent(location.pathname.slice("/permissions/".length)) : undefined;
   const permissionResource = tableResourceRegistry.find((resource) => resource.code === permissionResourceCode);
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
+  const canReadPmcProgress = hasSessionResourcePermission(user, "pmc-rd-progress", "read");
   const canReadRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
   if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
+  if (location.pathname === reportPath && !canReadPmcProgress) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
     : location.pathname.startsWith("/project-task/") ? "project-task"
-    : location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") ? "planning"
+    : location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") || location.pathname.startsWith("/pmc/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
@@ -202,6 +206,7 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/project-task/order-projects", icon: <FolderOpenOutlined />, label: "订单项目管理（第二阶段）" }
     ],
     planning: [
+      ...reportNavigation(user).map(group => ({ ...group, icon: <FolderOpenOutlined />, children: group.children.map(entry => ({ ...entry, icon: <ReadOutlined /> })) })),
       { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
         { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
           { key: "/equipment-dashboard", icon: <DashboardOutlined />, label: "集团设备大屏" }
@@ -285,6 +290,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/knowledge": "知识文章与搜索", "/knowledge/manage/articles": "文章管理", "/knowledge/manage/categories": "分类管理",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
+      [reportPath]: "研发进度",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
       "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
@@ -318,6 +324,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
+          <Route path={reportPath} element={<PmcRdProgressPage />} />
           <Route path="/master-plan-system/:resource" element={<MasterPlanResourceRoute />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />

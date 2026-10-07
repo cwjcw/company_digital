@@ -72,3 +72,15 @@ pnpm --filter @tracker/api test -- pmc-rd-progress
 迁移和部署前先运行标准备份，验证隔离库迁移/源SQL/候选数/sourceSnapshotAt，然后应用 `1722920082000-PmcRdProgress` 和 `1722920083000-PmcRdProgressOrderCloseRaw`、构建部署API及使用更新Contracts的Web、健康检查和正式FULL/INCREMENTAL。保留原Phase3工具，不运行seed、不删除历史数据库、不改变主订单或rd同步、不发送企业微信。
 
 待确认业务项保持原临时规则：P+1/M+0异常、V为不满足当前已审核条件（不翻译为作废）、关闭订单保留；Phase5再确认页面默认范围。
+
+## Phase 5 正式页面
+
+入口为 PMC中心 → 报表 → 研发进度，URL `/pmc/reports/rd-progress`。资源 `pmc-rd-progress` 的 read 权限同时控制菜单、页面与后端读取。页面展示只读品项进度，不提供同步、编辑或审批入口。
+
+页面复用 Phase 4 的 items/summary/orders/sync-status：六项 KPI、研发环节完成率、七状态分布、核心筛选、标准高级筛选及服务端分页。订单数、各状态数、完成率、异常原因和订单状态全部来自服务端；KPI/状态按钮只提交筛选条件。分页默认100，选项50/100/200/500/1000。URL恢复核心筛选；清空筛选会一并清除表格搜索/高级筛选。订单 Drawer 按 sourceOrderId 精确查询所有获权订单品项，不继承主表的品项/状态限制，其内嵌分页可查看后续品项。
+
+导出继续使用 `/table-exports/pmc-rd-progress` 与平台 ExcelJS，不新增Excel框架。页面将核心筛选作为context，标准搜索/FilterGroup/sort独立传入；资源printRows适配器直接调用同一个 QueryService.list，以保证日期、客户、事业部、状态、onlyIncomplete口径一致。导出查询同时满足read范围ANDexport范围、tenant/active条件及字段读权限。客户端page/pageSize不能覆盖标准导出的分批页码；输出所有匹配行。列显示/宽度/冻结继续沿用KdosDataTable个人偏好（localStorage tenant+user+resource+viewKey），导出只发送可见业务列，不发送UI操作或来源UUID。
+
+E10源时间按上海业务墙钟文本显示，不经UTC转换；带时区的同步时间按Asia/Shanghai展示。客户名称缺失回退客户编码，事业部名称缺失显示“未映射”，不展示裸来源UUID。V仍是原始审核值，不翻译为“作废”。空值和Excel格式保持平台标准（空值展示“—”、业务字典中文）。
+
+生产E2E运行时读取外部凭据文件：`PMC_E2E_ENV_FILE=/secure/path/to/file E2E_BASE_URL=http://127.0.0.1:15172 node scripts/test-pmc-rd-progress-e2e.cjs`。文件字段PMC_E2E_USERNAME/PMC_E2E_PASSWORD/PMC_E2E_BASE_URL映射到现有Playwright运行环境，不落地凭据、token、storageState；专项测试关闭trace、截图、视频与页面失败快照，以避免记录登录身份。仅现有账号登录及只读查询/下载，不创建账号或调整权限。

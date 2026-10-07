@@ -295,6 +295,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   internalVerticalScroll?: boolean;
   /** Server-backed paging/search/filtering for ERP-sized tables. */
   serverData?: {
+    /** Reset paging when an external report filter changes, preserving table preferences. */
+    resetKey?: string;
     total: number;
     onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" }) => void;
   };
@@ -496,7 +498,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
   }, [resource]);
-  useEffect(() => { setCurrentPage(1); }, [filters, search, effectiveFilterGroup]);
+  useEffect(() => { setCurrentPage(1); }, [filters, search, effectiveFilterGroup, serverData?.resetKey]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);
   const filterGroupCallback = useRef(onFilterGroupChange);
   useEffect(() => { filterGroupCallback.current = onFilterGroupChange; }, [onFilterGroupChange]);
