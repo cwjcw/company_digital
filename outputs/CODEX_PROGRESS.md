@@ -4114,9 +4114,9 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 ## Phase 4 - PMC研发进度正式数据模型、同步服务与API
 
 任务目标：独立 E10 只读批量取数 → TypeScript Calculator → PostgreSQL 当前快照 → PMC 查询/KPI/订单汇总；不开发 React 页面，不改现有订单/rd 同步，不修改 E10。
-当前状态：正在进行。
+当前状态：已完成。
 最后更新时间：2026-10-07（Asia/Shanghai）。
-当前阶段：数据模型与同步架构已确定，开始实现。
+当前阶段：正式部署、真实FULL/INCREMENTAL与一致性验收完成，Phase 4 PASS。
 
 ### 已完成
 - [x] 阅读 Phase 1/2/2.5/3 进度、完整 Phase 3 Oracle 与27项测试，检查现有 RD reader、水位、Application/Query/Controller、迁移、权限注册和主责事业部映射。
@@ -4127,24 +4127,24 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - [x] 同步设计：源库时间、各表高精度复合游标、2分钟 overlap、批量受影响集合（含标准路线反向引用）、集中重算、单 PostgreSQL事务批量UPSERT、内容hash、软失效、成功才推进水位、事务审计、租户级并发锁。
 
 ### 正在进行
-- [ ] 新表 migration、集中 Calculator、独立源读取适配器、同步服务、API与权限契约。
+- [x] 新表 migration、集中 Calculator、独立源读取适配器、同步服务、API与权限契约。
 
 ### 待完成
-- [ ] 单元/集成测试、共享事实上的 Python/TS逐行一致性回归。
-- [ ] 备份、migration验证/应用、构建、部署、健康检查、真实 FULL/INCREMENTAL 与API核验。
-- [ ] 性能/指定及额外样本/全量状态计数报告与最终 PASS/FAIL。
+- [x] 单元/集成测试、共享事实上的 Python/TS逐行一致性回归。
+- [x] 备份、migration验证/应用、构建、部署、健康检查、真实 FULL/INCREMENTAL 与API核验。
+- [x] 性能/指定及额外样本/全量状态计数报告与最终 PASS/FAIL。
 
 ### 修改文件
-- 当前：本进度文件；实现文件随后追加。
+- 最终文件见 `outputs/PMC研发进度Phase4验收报告.md` 第1节；代码提交 `4dcf121` / `5d2faa1`，outputs验收记录保留工作区。
 
 ### 数据库 Migration
-- 计划：新增两张 PMC 研发进度专属表，不改既有模块表。
+- 已应用 `1722920082000-PmcRdProgress` 与 `1722920083000-PmcRdProgressOrderCloseRaw`；只影响新两表，正式迁移80→82。
 
 ### 新增或修改测试 / 已运行测试
-- 待执行。
+- API686/Contracts22/Web181/Python34通过；真实隔离集成及生产验收PASS，完整结果见最终报告。
 
 ### 当前已知问题
-- 源库 snapshot isolation/审计字段正在按本阶段需要做定向检查，不重做 Phase 2 调查。
+- 源库RCSI不是整个事务历史冻结；无修改审计的BOM/路线硬删除需FULL。四项业务待确认按临时规则保留，详见最终报告。
 - 当前会话不能自行切换主模型；未声称已切换到用户指定 GPT-5.6 Sol High。
 
 ### 等待用户确认
@@ -4152,9 +4152,9 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - 业务待确认（不阻塞）：P+1/M+0继续异常；V保持中性原始值；关闭订单保留；事业部采用已存在客户主责映射。
 
 ### 下一步
-1. 实现新 migration、Calculator和事实读取器。
-2. 实现批量事务同步、查询权限/字段/数据范围与API。
-3. 测试、一致性验证、备份迁移部署、真实同步验收并记录结果。
+1. Phase 4已完成，恢复时先阅读最终报告，不重新实现。
+2. 用户启动Phase 5后确认四项业务默认展示并开发标准PMC只读页面。
+3. 后续维护按现有内部API执行同步；无调度器，硬删除通过人工FULL校正。
 
 ### 恢复执行说明
 先读 AGENTS.md、kdos-form-platform/SKILL.md、本节，再执行 git status / git diff --stat，继续已有实现；不要重做 Phase 1—3，不覆盖用户已有修改，不删除 Python Oracle。
@@ -4213,3 +4213,291 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - [x] 部署前复核现有 `data-operations/order-sync/sync.py` / `sources.json` 发现已稳定读取 `SALES_ORDER_DOC.[CLOSE]`。为避免仅保留ApproveStatus遗漏关闭资料，新增中性 `orderCloseRaw` 字段及 `orderClose` 筛选；仍不解释状态、不排除任何关闭单。
 - [x] 不改已执行迁移历史，新增 `1722920083000-PmcRdProgressOrderCloseRaw.ts`，仅给新快照表增加一列；Calculator最终状态规则完全不变。
 - [ ] 补充迁移/字段专项测试、隔离库验证、构建提交后应用补充迁移，再部署与正式同步。
+
+### Phase 4 补充字段验证完成
+- [x] CLOSE原始值补充迁移及字段专项通过；PMC定向5 suites / 68 tests通过，Python34项通过，隔离库重新执行真实集成PASS（总耗时12.184秒）。
+- [x] 补充字段后的API/Contracts/Web typecheck、lint、build通过；代码提交 `5d2faa1`，最终API/Web Node24镜像构建完成。
+- [ ] 正在标准migrate再次备份并应用仅新快照表增加一列的 `1722920083000`，随后部署同SHA镜像。
+- [ ] 正式FULL、PostgreSQL逐行Oracle核验及真实INCREMENTAL尚待执行，当前不得标为已交付。
+
+### Phase 4 生产部署已完成，正式同步验收开始
+- [x] 最终API全量复核：84 suites / 686 tests passed，另1 suite / 1 test skipped，30.903秒。
+- [x] 标准备份成功并验证目录：`four_department_tracker_20261007_093425.backup` SHA256 `9779ccf72d710013686b747014584bee26d259c897b90001b7cfd5a77c67171c`；`kdos_20261007_093425.backup` SHA256 `63e8d60286485c4b2bd86cea889fa9bebfb7bec03944c1740cc77c71cfd5449a`；uploads SHA256 `089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。
+- [x] 补充migration成功，正式库迁移81→82；只新增新快照CLOSE原始值列。
+- [x] 标准 `scripts/deploy.sh all`成功，Repository HEAD / Web / API均为 `5d2faa1`，CONSISTENT；没有push。
+- [x] 隔离库3行变化增量Application Command耗时0.181秒，无变更0.136秒（不包含E10读取，不能冒充端到端）。
+- [ ] 正在生产执行FULL并捕获事实，随后检查真实PostgreSQL全量、样本、审计、Oracle0差异，再真实INCREMENTAL及内部HTTP成功调用。
+- [ ] 验收报告草稿已创建 `outputs/PMC研发进度Phase4验收报告.md`；完成所有生产验证后才标记PASS。
+
+### Phase 4 真实FULL与全量一致性已通过
+- [x] 正式FULL：sourceSnapshotAt=2026-10-07 09:37:32.281503，2544订单/17644行；created=17644、updated=0、unchanged=0、failed=0、abnormal=6；源读取15.775秒、端到端25.876秒。
+- [x] 同一捕获事实上的Python vs TypeScript、Python vs PostgreSQL正式QueryService结果，均17644行×20关键字段、差异0；四指定样本及12额外真实样本全部一致，新增审计17644条/批次审计1条。
+- [x] 状态数量：{"NOT_APPLICABLE": 835, "NOT_STARTED": 2995, "DESIGN_IN_PROGRESS": 0, "WAITING_ROUTING": 2722, "ROUTING_IN_PROGRESS": 4, "COMPLETE": 11082, "ABNORMAL": 6}；总体完成率65.93%，设计82.15%，路线66.33%。
+- [x] 正式INCREMENTAL第一次：rowsRead=31，created=0、updated=0、unchanged=31、failed=0；源读取17.857秒、端到端18.059秒，逐行Oracle差异0。
+- [x] 标准healthcheck通过；真实匿名GET=401，内部错误token/tenant=401，合法凭据但缺mode=400；OpenAPI已出现所有6条新路由。
+- [x] 实际查询计划使用订单/状态/品号索引，执行0.132/0.163/0.300ms；新两表RLS均开启。
+- [ ] 第二次真实增量及内部HTTP成功同步、最终验收记录与隔离测试库移除待完成。
+
+### Phase 4 最终交付记录（2026-10-07）
+当前状态：已完成。Phase 4：PASS。
+最终报告：`outputs/PMC研发进度Phase4验收报告.md`。
+- [x] 正式内部HTTP INCREMENTAL成功（201）：sourceSnapshotAt=2026-10-07 09:39:21.889206，rowsRead=41、created=3、updated=18、unchanged=20、failed=0，端到端25.659秒；少量变化是真实E10自然生产变化，不是人为写源库。
+- [x] 第二次无内容变化正式CLI增量：12.936秒，31行全未变，Oracle逐行差异0。
+- [x] 最终查询确认2545订单/17647行；四指定及12额外样本仍一致；审计created=17647、updated=18、成功batch=4。
+- [x] 最终部署版本检查Repository/Web/API均5d2faa1，CONSISTENT；标准健康检查通过。
+- [x] 自建临时隔离库pmc_rd_phase4_test_20261007已移除；未删除正式数据，无额外永久数据库/角色。
+- [x] 测试、模型、迁移、索引、FULL/INCREMENTAL、水位、源观察一致性、Calculator、权限、API、Oracle0差异和性能均已写入最终报告。
+- [x] git diff --check通过，源码全部提交；仅outputs最终记录未提交，没有push。
+当前仍存在的问题：四个业务项维持安全临时规则；源RCSI限制与无审计硬删除需FULL；无React页面/调度器（本阶段范围）；普通用户带JWT的线上成功GET未单独运行，真实QueryService与自动权限/RLS测试已通过。
+等待用户确认：无Phase 4阻塞；后续Phase 5页面默认展示规则由业务确认。
+下一步：用户启动Phase 5后接入既有数据/API；不要重新分析或重做已通过的Phase 4实现。
+
+## 设备大屏未填报明细与六表Excel导出（2026-10-07）
+
+### 任务
+任务名称：设备大屏未填报明细与六表Excel导出。
+任务目标：复用现有dashboard SQL、筛选与权限，添加未填报设备明细及六表全部匹配数据xlsx导出，不重构、不改业务公式，最终部署。
+当前状态：已完成。
+最后更新时间：2026-10-07（Asia/Shanghai）。
+
+### 当前阶段
+已阅读equipment Query/Application/Controller/types、EquipmentPages/测试、权限scope、现有ExcelJS导出和公共下载、平台表导出；现有聚合大屏未注册独立记录来源，最小扩展现有EquipmentExportService，六表共享列规格和一个写表方法。
+当前子任务：代码、测试、备份部署、健康检查、原口径全字段比较、六表Excel及租户审计验收均完成。
+
+### 已完成
+- [x] 阅读项目AGENTS、kdos-form-platform技能及架构/安全/运维边界，检查Git状态。
+- [x] 保留上一任务未提交outputs记录；不覆盖PMC研发进度代码或报告。
+- [x] 确认统计口径：active+monitored设备，所选区间windowEnd当天没有active填报记录才未填报；零运行仍已填报。
+- [x] 设计：在同一dashboard SQL的asset_state上投影unreportedEquipmentRows，和KPI/分组统计共享monitored/daily_reports；导出调用同一dashboard读模型，无分页截断。
+
+### 正在进行
+- [x] 代码与自动化测试。
+
+### 待完成
+- [x] 定向/阶段/完整回归、typecheck/lint/build。
+- [x] 标准备份、无需迁移确认、部署、健康检查与线上核验。
+- [x] 验收报告（含13项清单和人工步骤）。
+
+### 修改文件
+- 最终14个源码/测试/文档文件，提交f8b7387/743cad7；完整清单见outputs/设备大屏明细与Excel导出验收报告.md，另修改进度/报告。
+
+### 数据库Migration
+- 无需数据库结构改动；新增数据均复用equipment_assets/equipment_responsibles/users。
+
+### 新增或修改测试
+- 计划：10/7数量一致、全填报、事业部/部门筛选、六表导出头/类型/空值/文件名/100行不受20分页限制、权限、按钮交互。
+
+### 已运行测试
+- API699/Contracts22通过；Web设备16通过，完整184/185通过且唯一波动文件独立34/34复核通过；真实SQL/XLSX及部署验收PASS。
+
+### 当前已知问题
+- 现有dashboard仅支持事业部数据授权，含不支持部门规则的权限配置按原helper失败关闭，不扩大授权。
+- 公共平台导出当前将展示数值格式化为字符串，不改公共框架以免影响无关模块；复用已有设备ExcelJS服务导出聚合视图，数值/百分比以真实Excel类型输出。
+
+### 等待用户确认
+- 无，已授权完整实现与部署。
+
+### 下一步
+1. 本任务已完成，恢复时读取最终报告，不重新实现。
+2. 按报告人工验收授权账号的页面与下载。
+3. 有现有E2E凭据后可运行保留的线上登录态Playwright；无需创建账号或更改生产权限。
+
+### 恢复执行说明
+读取AGENTS/技能/本节，git status与git diff --stat，检查当前修改，从下一步首个未完事项继续；不要重新实现Phase4或覆盖已有outputs。
+
+### 设备大屏实现与首组验收
+- [x] 同一dashboard SQL的asset_state投影未填报明细；责任人实时关联equipment_responsibles/users，新字段服从字段read权限且不因隐藏字段减少记录数量。
+- [x] 六表共享contracts导出规格与EquipmentExportService.dashboardExport；复用ExcelJS/原设备workbook样式、公共downloadApiFile/Button/KdosDataTable，无新依赖/迁移，不改其他统计公式。
+- [x] 导出复用dashboard方法，read ∩ export数据范围，字段白名单与权限裁剪，后台拒绝无export权限和空数据。
+- [x] 六按钮统一标题右侧/loading/重复点击锁；筛选URL与dashboard完全共用，不传分页。
+- [x] API设备专项7 suites / 70 tests通过；Contracts22通过，API/Web typecheck已通过。
+- [x] 真实PostgreSQL临时表事务验收PASS：10/7/3、全填报0、事业部/部门筛选、0运行算已填、失效/无需填/其他租户排除、责任人、read/export范围交集、六表头与文件名、pageSize20导出100行。事务已rollback，未修改正式业务数据。
+- [x] 修复Excel工作表名不允许斜杠（仅输出sheet名替换，不改页面标题），修复lint正则无用转义。
+- [ ] Web交互测试复核中；之后完整API/Web/Contracts回归、构建、备份部署与线上核验。
+
+### 设备大屏阶段验证通过，准备部署
+- [x] Web设备16项通过，含六按钮、字段、相同筛选URL、禁用/loading/重复点击、失败消息、无权限隐藏与空表禁用；改用项目AntApp消息上下文确保React19显示。
+- [x] API全量84 suites / 698 tests passed（另1 suite / 1 test skipped）；Contracts22通过；API/Web/Contracts类型检查、API/Web lint和生产构建通过（Web既有Fast Refresh/chunk提示保留）。
+- [x] 临时表真实SQL增加日期/按月末口径和文件名验收后再次PASS；从未提交临时业务记录。
+- [x] 两项设备Playwright用例因没有现有登录凭据明确skipped，未创建测试用户或修改生产权限；线上业务查询/Excel验证将使用同一已部署服务，并检查匿名HTTP401。
+- [ ] Web单worker全量回归与标准备份正在执行；最终通过后提交本任务源码并部署API/Web，保留上一任务outputs记录。
+
+### 设备大屏上线准备检查
+- [x] 本任务13个源码/测试/文档文件提交为f8b7387；上一任务outputs未纳入本提交，未push。
+- [x] 标準备份20261007_125638完成并经pg_restore目录验证：
+- f4c989952ea0638644e2eeb05c4b0ecefae4d05aaa7f160488d9eb792e0ae41c  data/backups/four_department_tracker_20261007_125638.backup
+- cdb8448257943a72a9b221bfdf90c5f58517634ec2e8d6df767e9cc014d3c8f7  data/backups/kdos_20261007_125638.backup
+- 089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533  data/backups/uploads_20261007_125638.tar.gz
+- [x] 升级前正式dashboard基线（2026-10-06）：396应填/179已填/217未填，稼动率明细396行。
+- [ ] 最终Node24镜像构建和Web全量回归进行中；通过后部署、全部旧字段基线对照及真实六表XLSX核验。
+
+### 设备大屏镜像与迁移检查
+- [x] 最终API/Web Node24镜像构建成功，版本f8b7387。
+- [x] 正式库migration:show为82 applied / 0 pending；本需求无新增migration，无seed。
+- [ ] Web全量回归尚在运行，未通过前不切换服务；标准备份已成功，部署后执行原有dashboard全字段对比和六份Excel线上服务验收。
+
+### 设备大屏完整回归复核
+- [x] Web完整28文件/185项已执行：184通过，唯一失败为未修改的MasterPlanPages.spec.tsx Case3（错误提示后立即断言loading类已移除的异步时序）；本需求设备16项全部通过。
+- [ ] 正在独立复核该主计划测试文件；不更改无关业务代码或测试断言，不把初次完整回归描述为185全通过。
+
+### 设备大屏回归复核结束，开始生产部署
+- [x] 独立MasterPlanPages.spec.tsx复核34/34全部通过（71.40秒），无代码/断言改动；原完整Web184/185通过+失败文件复核通过，明确保留首轮波动记录。
+- [x] API698/Contracts22/Web设备16与真实SQL+XLSX验收均通过；备份与最终镜像已准备，migration无pending。
+- [ ] 正在标准scripts/deploy.sh all部署f8b7387；随后healthcheck、旧口径全字段比较、396行明细完整Excel及六表实际服务验收。
+
+### 设备大屏首次上线验收与审计租户补充
+- [x] 首次上线f8b7387健康/版本一致，原有dashboard所有字段与基线完全一致；六份真实xlsx217/5/20/5/20/396行，未填报统计=明细=Excel217，pageSize20没有截断。
+- [x] 新导出接口匿名401，OpenAPI路由已注册。
+- [ ] 审计复核发现原设备private audit助手不填tenantId，新导出应显式写租户；仅修改本次新增recordDashboardExport，补专属测试，不修改旧助手和已有审计。首次六条审计保留原记录，最终重新验收使用独立requestId。
+- [ ] 该补充修复测试/备份/重新部署及最终报告待完成，不能在当前记录中直接标最终交付完成。
+
+### 设备大屏审计租户修复验证与重新部署
+- [x] 仅新recordDashboardExport显式manager.save tenantId，旧audit助手及已有记录保持不变；新增测试验证租户和export权限。
+- [x] 最终API84 suites/699 passed（1 skipped），typecheck/lint/build通过；代码743cad7，Node24 API/Web最终镜像成功。
+- [x] 标准最终备份20261007_130645已验证，SHA256见data/equipment-dashboard-validation/backup-final.log；无migration/seed。
+- [ ] 正在部署743cad7，随后重新验收六份实际Excel和带tenant的六条导出审计，再更新最终报告与完成状态。
+
+### 设备大屏最终交付（2026-10-07）
+当前状态：已完成。最终报告：outputs/设备大屏明细与Excel导出验收报告.md。
+- [x] 最终版本743cad7：Repository/Web/API一致，标准healthcheck通过，备份20261007_130645已校验，无migration/依赖/seed/push。
+- [x] 2026-10-06正式查询396应填/179已填/217未填，未填报明细与Excel217；所有旧dashboard字段与升级前基线完全一致，运行/计划/稼动率公式未改。
+- [x] 六xlsx实际217/5/20/5/20/396行，pageSize20不截断；文件重新读取校验成功，新导出tenant审计6条（KAINAN、独立equipment-online-final请求）。
+- [x] 最终API699通过/1跳过；Contracts22，Web设备16通过；完整Web184/185通过，唯一无关异步时序波动文件独立34/34复核通过。
+- [x] 类型/lint/build/Node24镜像与git diff --check通过，源码均已提交，工作区仅outputs最终记录。
+仍存在的问题：缺现有E2E凭据，两项登录态Playwright skipped，普通JWT线上成功下载未单独运行；既有主计划测试存在独立复核已通过的时序波动。首轮旧助手产生的审计保持原样，最终新导出方法显式写tenant。
+等待用户确认：无交付阻塞。
+下一步：按报告第13节人工验收；后续沿用同源dashboard/列规格/导出方法，勿建立第二套判断口径。
+
+
+## Knowledge Base / 知识库 Phase 1（2026-10-07）
+
+### 任务
+任务名称：知识库 Phase 1。
+任务目标：独立 knowledge 模块，两级分类、文章工作副本/不可变发布快照、可信富文本、标签、ACL、私有附件、搜索、平台权限/表格、测试与正式部署。
+当前状态：已正式部署，生产登录态验收待现有账号。
+最后更新时间：2026-10-07 14:13 Asia/Shanghai。
+
+### 当前阶段
+当前阶段：开发、备份、正式迁移部署及健康/公开入口验收完成。
+当前子任务：等待现有管理员/员工账号补充生产登录态业务验收。
+
+### 已完成
+- [x] 完整读取用户粘贴需求（2760行，原文件末尾为线上检查第9项），确认新任务取代已完成设备需求。
+- [x] 读取已有进度和 git 状态；HEAD 743cad7，源码干净，仅先前任务 outputs 待提交，全部保留。
+
+### 正在进行
+- [x] 核对真实运行边界、权限/存储/表格/组织成员与迁移机制，实施最小复用。
+
+### 待完成
+- [x] migration / contracts / 授权 / application / query / controller / filter source。
+- [x] Portal / 路由 / 分类 / 编辑阅读 / 私有附件 / 管理表。
+- [x] 后端、前端和真实数据库测试（含RLS、EXPLAIN、中文搜索、权限隔离）。
+- [x] 自动验证、标准双库/uploads备份、迁移、提交、标准部署、健康及线上公开入口/安全核验。
+- [ ] 生产管理员与员工登录态业务验收（缺现有测试账号）。
+- [x] 验收报告 outputs/知识库Phase1验收报告.md，含明确待验范围。
+
+### 修改文件
+- outputs/CODEX_PROGRESS.md（新增本任务恢复入口，保留历史）。
+
+### 数据库 Migration
+- 1722920084000-KnowledgeBasePhaseOne.ts，已正式执行，7表/pg_trgm/RLS/GIN/HR根；不更改已应用迁移。
+
+### 新增或修改测试
+- 新增Knowledge API安全/权限、真实DB 52项、Web21项、Chrome3项、私有存储6项；详见验收报告。
+
+### 已运行测试
+测试名称：API全量、Web全量、其他workspace、真实DB、Chrome、typecheck/lint/build、部署健康/线上安全。
+结果：API733通过/1跳过；Web206通过；DB52通过；Chrome3通过/1账号项跳过；其他全部通过；lint0错误/1既有警告。
+
+### 当前已知问题
+- LocalObjectStorage默认返回 /uploads 公共路径；知识附件必须在该实现做最小私有扩展，不能暴露storage key或公共URL。
+- 不假定线上登录凭据可用；不得伪造JWT、重置生产密码或改变生产权限用于验收。
+
+### 等待用户确认
+- 无；用户授权实施、迁移和正式部署。
+
+### 下一步
+1. 获得现有管理员与员工测试账号后，通过正式前端完成分类创建、草稿、上传、发布及员工读取。
+2. 更新验收报告及本进度状态；不要重做已经完成的实现、迁移或测试。
+
+### 恢复执行说明
+项目AGENTS → .agents/skills/kdos-form-platform/SKILL.md → 本节 → git status / git diff --stat → 检查半成品 → 从下一步首个未完事项继续。不要重做此前PMC和设备任务，不覆盖原outputs。
+
+### Knowledge 后端首轮实现（未验证，不是交付完成）
+- [x] 新增contracts知识资源/字段/状态协议；注册knowledge管理员模块，最小补齐Auth Portal白名单rd/knowledge。
+- [x] 新增1722920084000 migration：7张知识表，UUIDv7/复合tenant FK/RLS/GIN，幂等HR根分类，不变更已应用migration。
+- [x] Application/Query/Access/Controller/FilterSource首版：工作副本、不可变发布快照、ACL、版本、审计、中文trigram搜索和受控附件。
+- [x] ObjectStorage兼容private参数，文件在uploads/.private内备份但无公共URL；API静态与Nginx拒绝私有路径。
+- [x] 筛选平台buildScope增加Promise兼容（现有sync不变），用于知识ACL按现有组织成员helper即时解析；需回归平台筛选/导出。
+- [ ] 首轮API类型检查中。尚未迁移正式库、尚未部署。
+- [ ] 需要真实库验证原始SQL参数类型、历史权限、发布状态、字段裁剪和附件事务，前端/测试尚未实现。
+已知复用注意：通用buildDataScopeClause存在planning模块管理员短路，知识入口清除该moduleAdminCodes后复用通用规则，避免跨模块越权；不修改其他模块行为。
+下一步：先修复首轮类型错误，完成前端和专属测试；真实隔离库验收后再正式备份/迁移/部署。
+
+### Knowledge 第一组验证结果
+- [x] API首组4 suites / 44 tests通过（正文安全、ACL/组织成员、平台注册和Portal顺序）；Contracts22通过；API/Web类型检查通过。
+- [x] 真实隔离库knowledge_test_phase1_20261007验收38项PASS（data/knowledge-validation/database-third.json），含发布快照、工作副本隔离、四类ACL、附件历史、字段裁剪、tenant/RLS、标准筛选/导出、审计及自然planner使用GIN的EXPLAIN。该库是本任务创建的可清理测试库，未操作正式文章数据。
+- [x] 前端首版Portal/路由/分类树/TipTap结构化编辑器/管理表/阅读历史/受控附件已实现，新增Web3个TipTap依赖（实际lock3.31.4，package.json三项^3.31.4）。
+- [ ] 新增前端20项测试正在执行；误用pnpm test --路径触发Web全套并发，既有设备测试受资源竞争两项超时，后续用pnpm exec vitest run明确定向和单worker完整回归，不修改无关测试。
+- [ ] 首版真实验收后补强历史访问需同时当前发布ACL与历史ACL、browse数据范围使用已发布字段而非工作字段；这些补强需重新真实库验收。
+- [ ] API lint两处控制字符正则已改为字符码检测；Web目前0错误5个Fast Refresh警告（4个新增待整理，1个既有Portal）。
+- [ ] 旧API镜像缺sharp libvips目录。隔离验收临时只读挂载主机同版libvips；正式新镜像必须完整验证sharp运行库，不依赖此临时挂载，不可未验证上线。
+下一步：完成前端定向测试修复、补强安全边界/真实图片测试、完整回归和构建；随后标准备份、迁移、部署。正式库尚无knowledge迁移。
+
+### Knowledge 搜索/安全补强与第二组验证
+- [x] Web知识库20/20定向测试通过；API首组44通过。前端拆分共享helper以移除新增Fast Refresh告警，分类保存增加同步锁，编辑器防后台刷新覆盖草稿。
+- [x] 管理表/候选/标准导出增加可选资源搜索谓词，知识源与普通首页共用knowledgeSearchClause，真实GIN列搜索覆盖标签；其他资源保持旧行为。标准label resolver可接收可信actor，知识分类按tenant批量解析。
+- [x] 历史权限补强为当前发布完整read/category/data scope/ACL AND历史ACL；导出read范围ANDexport范围，普通browse数据范围使用发布快照字段。
+- [x] 新API预检镜像实际Sharp PNG生成PASS（92bytes），无主机libvips临时挂载；旧镜像依赖问题通过全新frozen install构建解决，不新增API依赖。
+- [x] 扩展真实隔离库验收目前47项PASS，含三入口索引搜索、导出交集、历史ACL收紧、组织角色立即撤权、真实PNG重编码/伪图拒绝、跨文章文件、审计失败回滚+存储补偿；新加并发409与字段写入校验需要最后再跑。
+- [ ] 全量API/Web回归、lint正在执行；新DB测试runner一个候选union类型编译错误已改数组断言，等待build。
+- [x] 新增docs/knowledge-base.md，更新Architecture/Security/Integration/Runbook真实边界，正式兼容主库不等于文档理想kdos库；不复制第二套schema。
+正式migration/deploy仍未执行。下一步：全部验证通过，备份→正式migration→提交后的标准all部署→健康/线上核验；已请求现有测试账号，尚无回复，不伪造JWT或改生产权限。
+
+### Knowledge 最终开发验证（正式部署前）
+- [x] API完整87 suites通过，733 tests通过/1既有跳过；其他非Web workspace test全部通过。
+- [x] Web全量30文件/206项通过（单worker、testTimeout15000）；知识库定向21项通过。初次默认5秒超时的既有设备DOM测试最终回归通过，不修改无关测试。
+- [x] 真实隔离PostgreSQL 52项通过；七表UUIDv7/tenant/审计/version、自然planner GIN中文短词、分页100 vs全部4000导出验证通过。
+- [x] Chrome知识库浏览器3项通过/1现有账号登录项跳过；这些测试拦截API，不冒充生产登录态验收。
+- [x] 全workspace typecheck、lint（0错误/1既有Portal Fast Refresh警告）、build通过。
+- [x] 编辑器发布失败保留已提交工作副本最新version；初始查询未完成禁用上传，防路由快速切换旧文章状态。
+- [ ] 正式备份、migration084、部署、SHA一致、健康/公开入口线上检查尚未执行。
+当前已知问题：未收到现有管理员/员工验收账号；不会伪造生产JWT、重置密码、调整权限或通过CLI创建正式二级分类/文章。
+下一步：提交本需求源码→带SHA镜像构建→标准备份迁移→标准all部署→线上验证→清理本任务隔离测试库→验收报告。
+
+### Knowledge 正式迁移、部署与线上核验（2026-10-07 14:13）
+- [x] 源码44文件提交8ca9330，Node24 API/Web镜像build通过，最终镜像Sharp PNG92bytes实际运行PASS。
+- [x] scripts/migrate.sh标准备份双库/uploads 20261007_140954；SHA256重新核验全部OK，备份完整路径/hash见验收报告。唯一pending084迁移成功，无seed。
+- [x] scripts/deploy.sh all成功；Repository/Web/API均8ca93306f76619f2fc22a897ca9cc87d8632cbd0；scripts/healthcheck.sh通过，所有容器healthy。
+- [x] 正式只读schema核验7表/RLS/审计、GIN、immutable trigger；唯一HR一级分类，无二级分类/文章/附件生产fixture。
+- [x] 26线上检查通过：17知识操作匿名401、统一导出401、私有普通/编码404、路由与编译入口/OpenAPI、SHA一致。
+- [x] 实际私有storage canary无public URL，API/Nginx各普通/编码路径404；canary已清理。
+- [x] 部署资产Chrome 3通过/1账号项跳过；接口fixture全部拦截，未伪造生产身份。
+- [x] 本任务隔离测试库knowledge_test_phase1_20261007已清理；正式数据、用户/权限不改。
+- [x] 验收报告：outputs/知识库Phase1验收报告.md；模块文档docs/knowledge-base.md。
+- [ ] 唯一待验：现有管理员/普通员工生产登录态创建分类、文章草稿、上传附件、发布与员工阅读。未收到账号；不会伪造JWT/重置密码/改变权限来测试，因此状态不标“全部已完成”。
+修改文件：详见验收报告44文件清单及本进度；新增Web三项TipTap^3.31.4依赖，API无新增依赖。
+下一步（恢复唯一入口）：获得现有测试账号→按验收报告人工步骤完成生产登录态验证→补记结果并将本任务状态改为已完成。已部署URL http://192.168.1.249:15172/knowledge。
+
+## PostgreSQL 本机回环访问（2026-10-07）
+
+任务目标：只为 knplan PostgreSQL 增加 `127.0.0.1:15433:5432` 映射，保留历史数据与 API 容器内连接。
+当前状态：已完成并验证。
+
+已完成：
+- [x] Compose 标签确认实际配置 `/data/automation/code/work/PMC/knweb/compose.yaml`，project `knplan`、service `postgres`。
+- [x] 修改前检查宿主监听与Docker发布端口均显示15433空闲。15432冲突处理遵循用户新指示：不修改/停止Smart Stock，knweb使用15433。
+- [x] 修改前价格基线和重建后宿主直连SQL均为 `1078|1078|13|98|2026-05-06|2026-09-30`，过滤tenant KAINAN、source MYSTEEL。
+- [x] 修改前标准备份：`data/backups/four_department_tracker_20261007_174001.backup`、`kdos_20261007_174001.backup`、`uploads_20261007_174001.tar.gz`；SHA256已记在终端执行记录。Postgres备份有效性由脚本pg_restore --list核验。
+- [x] Compose effective config只有目标 `127.0.0.1:15433:5432`；image postgres:18、volume源 `data/postgres`→`/var/lib/postgresql`、数据库环境与network/healthcheck保持原值；API DATABASE_HOST/PORT仍为postgres/5432。
+- [x] 更新命令：`docker compose up -d --no-deps postgres`。仅knplan PostgreSQL容器重建，仍挂载原bind mount；没有执行down、volume删除或prune命令。
+- [x] Docker最终端口为 `127.0.0.1:15433->5432/tcp`；ss仅监听 `127.0.0.1:15433`，无wildcard IPv4/IPv6监听。
+- [x] Ubuntu宿主机Node pg客户端用项目既有 `.env` 安全读取凭据，通过127.0.0.1:15433连为 `four_department_tracker` / `knplan` 并成功执行查询；未打印数据库密码。
+- [x] Knweb API从容器内部到postgres:5432 TCP成功，env为postgres/5432；API/Postgres/Web均healthy；标准healthcheck通过。
+- [x] Smart Stock TimescaleDB保持原容器和原`0.0.0.0:15432`发布不变。
+- [x] `git diff --check`及Compose invariants通过。
+
+修改文件：`compose.yaml`仅新增postgres端口mapping；`outputs/CODEX_PROGRESS.md`任务记录。
+异常：无。15432继续由Smart Stock使用；本任务不改变其监听。
+
+下一步：无。

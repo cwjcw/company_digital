@@ -3,6 +3,8 @@ name: ${COMPOSE_PROJECT_NAME:-kdos}
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18}
+    ports:
+      - "127.0.0.1:15433:5432"
     restart: unless-stopped
     shm_size: 1gb
     command:
