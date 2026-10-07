@@ -133,3 +133,7 @@ Socket.IO receives minimal events such as tenant, period, version, entity id, op
 Planning exposes a `WorkflowGateway` boundary for publish, major changes, delivery-date changes, unlock and period close. Phase one records the contract but does not deploy Flowable.
 
 The MCP skeleton exposes five read-only tool contracts: plan search/get, order progress, process progress and risk summary. Tool execution must call Query/Application services, never SQL.
+
+## PMC研发进度投影（Phase 4）
+
+`modules/pmc-rd-progress` 独立承载研发进度当前快照/批次，不复用主订单准入或研发中心查重表。E10只读事实适配器 → TypeScript集中Calculator → Application Command整批事务/hash UPSERT/审计 → tenant/字段/数据范围受控Query API；候选范围是独立CreateDate OR LastModifiedDate自2026-09-01，主订单2026-09-17准入不变。源库观察时点来自E10数据库时间，水位为各源表高精度复合游标，标准路线变化反查全部引用品项。没有React页面、状态历史系统或额外消息基础设施。细节见 [PMC研发进度](docs/pmc-rd-progress.md)。

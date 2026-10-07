@@ -3692,3 +3692,510 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - API：保持已部署版本不变；本轮无 API 修改。
 - 健康检查：Web、API、Swagger、OpenAPI、PostgreSQL 通过。
 - 浏览器：两行筛选布局与研发中心回归用例 4/4 通过。
+
+# 当前任务：PMC研发进度报表（Phase 1 + Phase 2 + Phase 2.5 + Phase 3）
+
+任务目标：在不改变主计划科加订单 `2026-09-17` 准入规则的前提下，核对 PMC中心 → 报表 → 研发进度所需的现有架构和 E10 真实数据关系；本阶段只读分析，不开发正式页面。
+
+当前状态：Phase 1、Phase 2、Phase 2.5、Phase 3 已完成；E10 只读验证工具、纯状态算法、指定生产样本、额外真实样本和正式候选范围全量统计均已通过。Phase 3 PASS，建议进入 Phase 4 正式数据模型、同步服务与 API 设计。
+
+最后更新时间：2026-10-06
+
+## 当前阶段
+
+当前阶段：Phase 3 PASS / 建议进入 Phase 4
+
+当前子任务：Phase 3 结论归档；等待用户授权进入 Phase 4，当前仍未开发正式页面、菜单、PostgreSQL 模型或同步服务。
+
+## Phase 1：当前架构
+
+- PMC 模块稳定代码为 `planning`，显示名称为“PMC中心”；导航树在 `apps/web/src/App.tsx`，表/报表资源统一注册在 `packages/contracts/src/index.ts`。
+- 新报表应注册独立只读资源，建议资源代码 `pmc-rd-progress`、显示名“研发进度”、`moduleCode=planning`；正式命名在 Phase 4 前最终确认。
+- 标准权限、字段权限、数据范围、高级筛选、打印/导出能力均由现有 Table Permission / `KdosDataTable` / `TableFilterModule` 体系承载，不能只靠前端隐藏。
+- 可复用 `rd` 模块的设计思想：`MSSQLDatabase` 只读子进程、FULL/INCREMENTAL、复合 watermark、2 分钟 overlap、批量 upsert、失败不推进游标、同步运行记录；不得耦合或改动研发中心“一物多码”业务表和算法。
+- 可复用 `data-operations/order-sync` 的只读 SQL 防护、staging/change-event/idempotency 思想，但其 E10 初始化范围按 `ORDER_DATE`/未关闭订单，不满足本报表 `CreateDate OR LastModifiedDate` 的独立候选范围，不能直接当作完整候选源。
+- 推荐数据流：E10 SQL Server（独立只读批量读取） → 独立研发进度同步与集中状态计算 → PostgreSQL 租户隔离投影 → PMC 只读 Query Service/API → KPI、订单汇总和品项明细页面。
+- PostgreSQL 现有 `rd_items`/`rd_sync_runs` 属于研发中心物料查重；`erp_*` 属于通用订单 staging；均不应承载本报表的业务状态。后续建议新增独立 `pmc_rd_progress_items`、`pmc_rd_progress_sync_runs`（最终表名以 migration 评审为准），核心粒度为 `tenant_id + source_database + order_line_id`，并启用 RLS、必要索引和版本/审计字段。
+- 事业部可候选复用现有 `mps_customer_division_mappings`（按客户编码映射主责事业部），但必须先确认报表中的“事业部”是承接事业部还是 E10 销售部门祖先；不能直接复用主计划订单准入结果。
+
+## 可以复用的代码
+
+- `data-operations/e10/rd_reader.py` 和 `apps/api/src/modules/rd/rd-e10-reader.ts`：共享 basic_code 凭据、只读连接和 NDJSON 子进程边界。
+- `apps/api/src/modules/rd/rd.application.service.ts`、`rd-watermark.ts`：FULL/INCREMENTAL、成功 watermark、失败记录和批量事务模式。
+- `data-operations/order-sync/sync.py`：SELECT-only 守卫、批量读取、重叠窗口、游标精度与幂等模式。
+- `TableFilterModule`、`KdosDataTable`、表权限页、标准导出/打印能力以及现有设备大屏/销售汇总页面的 KPI、筛选、空态、错误态实现。
+- `mps_customer_division_mappings`：仅在业务确认“事业部=客户主责事业部”后作为映射来源。
+
+## 不能修改的代码/规则
+
+- `master-plan.erp-admission.ts` 和主计划同步服务中的科加订单下单日期 `>= 2026-09-17` 规则。
+- 研发中心 `rd_*` 物料同步、一物多码算法、watermark 和已有数据。
+- E10 数据及 basic_code 凭据；E10 连接继续保持只读。
+- 现有 `erp_*` staging 的业务范围和正式订单投影语义，不能为了研发报表扩大或改写。
+
+## Phase 2：E10 真实字段与关系
+
+- 用户提示中的 `CreatedDate` 在真实表中不存在；候选范围必须使用 `SALES_ORDER_DOC.CreateDate >= '2026-09-01' OR SALES_ORDER_DOC.LastModifiedDate >= '2026-09-01'`。
+- 订单：`SALES_ORDER_DOC.SALES_ORDER_DOC_ID` → `SALES_ORDER_DOC_D.SALES_ORDER_DOC_ID`；行主键 `SALES_ORDER_DOC_D_ID`，物料键 `ITEM_ID`，特征键 `ITEM_FEATURE_ID`，订单数量 `BUSINESS_QTY`。
+- 物料：`SALES_ORDER_DOC_D.ITEM_ID = ITEM.ITEM_BUSINESS_ID`；`ITEM_PLANT.ITEM_ID = ITEM.ITEM_BUSINESS_ID`。`ITEM_PLANT.ITEM_BUSINESS_ID` 是 ITEM_PLANT 自身主键，不是 ITEM 外键。
+- 设计 BOM：`BOM.BOM_ID` → `BOM_D.BOM_ID`；`BOM.ITEM_ID` 为主件。Schema 业务键为 `BOM(ITEM_ID, Owner_Org_ROid)`；当前 BOM 全部属于唯一“凯南工厂”。
+- 工艺路线：`ITEM_ROUTING.ITEM_ROUTING_ID` → `ITEM_ROUTING_D.ITEM_ROUTING_ID`；工序键为 `ITEM_ROUTING_D.OPERATION_ID = OPERATION.OPERATION_ID`。Schema 业务键为 `ITEM_ROUTING(ITEM_ID, Owner_Org_ROid, ITEM_FEATURE_ID, ROUTING_CODE)`。
+- `ITEM_PLANT.STANDARD_ROUTING_ID` 明确引用 `ITEM_ROUTING`。候选物料中有 23 个标准路线引用的路线主件与当前物料不同，说明不能额外强加“标准路线的 ITEM_ID 必须相同”；该字段可能表达复用标准路线，需由 E10 业务方确认。
+- E10 只有一个工厂：`PLANT_ID=262F19F9-4050-4065-C93A-1715DD9EDA8B`、代码 `1`、名称“凯南工厂”。当前 `ITEM_PLANT` 每个 ITEM 恰好一行。
+- 销售订单 `Owner_Org_RTK=SALES_CENTER`，BOM/Route `Owner_Org_RTK=PLANT`，不能按 `Owner_Org_ROid` 直接连接。销售部门可由 `SALES_ORDER_DOC.Owner_Dept → ADMIN_UNIT.ADMIN_UNIT_ID` 获取并沿 `SUPER_ADMIN_UNIT_ID` 向上找组织祖先。
+- `SALES_ORDER_DOC_D.ITEM_FEATURE_ID` 当前全部为零 GUID；`ITEM_ROUTING.ITEM_FEATURE_ID` 当前也全部为零 GUID；`ITEM_FEATURE_PLANT` 仅 1 行。零 GUID 必须正规化为 NULL，当前生产数据不能验证按特征码的状态推导。
+- 当前候选范围快照：2,502 个订单头、17,405 个订单品项、8,779 个左右的不同物料；其中 1,470 个订单在 2026-09-01 前创建、之后修改，证明不能依赖现有 PMC 主订单投影或只按创建日期取数。E10 在核对期间仍有业务写入，数量是 2026-10-06 的只读快照。
+
+## ApproveStatus 确认结果
+
+- 实际值只有 `Y / N / V`。现有正式客户导入代码把 `ApproveStatus='Y'` 作为“已审核”；生产数据中 BOM 的 Y 全部有真实审核时间和非零审核人，N 全部为 `1900-01-01` 且审核人零 GUID，因此本报表可把 Y 作为已审核、N 作为未审核。
+- V 行普遍保留历史审核时间；Schema 对同类基础资料状态给出 `V=失效`、`Y=生效`，但 `ApproveStatus` 字段本身没有提供独立枚举说明。状态计算可以安全地把 V 视为“非当前有效/不满足已审核”，但 V 的正式中文业务名称仍需 E10 管理员确认，不能在 UI 中擅自固定为“作废”或“失效”。
+- 2026-10-06 快照：BOM `Y=282132/N=31/V=14`；BOM_D `Y=975151/N=45/V=53`；ITEM_ROUTING `Y=360891/N=859/V=13890`；ITEM_ROUTING_D `Y=518638/N=993/V=1550`。
+
+## 建议状态判断规则（当前可确认部分）
+
+- 是否需研发：`ITEM_PROPERTY=P` 且 `ITEM_ROUTING_CONTROL=0` 可判 `NOT_APPLICABLE`。`M` 可作为需研发候选；`S/Y/F/O/T` 及 `P+routingControl=1` 需要业务确认后才能固化。当前候选实际只有 M/P，另有 4 个 P+control=1 和 1 个 M+control=0 的异常/例外组合。
+- 设计 BOM：需设计 BOM的物料，没有 BOM → `NOT_STARTED`；存在 BOM 但没有 Y 头 → `DESIGN_IN_PROGRESS`；至少一个 Y 的 BOM，且存在 Y、`EFFECTIVE_DATE <= 统计时点 <= EXPRITY_DATE` 的 BOM_D → 设计 BOM完成。`E_CODE` 只显示工程版/正式版，不作为完成条件。当前生产 BOM 全部 `E_CODE=P`，没有可验证的工程版样本。
+- 工艺路线：`ITEM_ROUTING_CONTROL=0` → 不适用；control=1 时优先核对非零 `STANDARD_ROUTING_ID` 指向的路线头 Y、至少一个路线明细 Y、明细 `OPERATION_ID` 能在 OPERATION 找到。未设置标准路线时，按 ITEM/工厂找路线；0 条为待工艺，唯一 Y 路线可继续，多条 Y 路线必须标异常或先确认选择规则。control=2 应加入 ITEM_FEATURE/ITEM_FEATURE_PLANT，但当前无真实样本可验证。
+- 工艺 BOM：理论上应对有效 BOM_D 统计 `总数/已挂工序/未挂工序/无效工序`，并确认 BOM_D.OPERATION_ID 属于适用路线；但当前数据不满足实施条件，见下方阻塞项。
+- 最后研发更新时间：取参与判定的 BOM、BOM_D、ITEM_ROUTING、ITEM_ROUTING_D 的 `LastModifiedDate` 最大值，不使用订单更新时间冒充研发更新时间。
+
+## Phase 2 阶段的核心阻塞与风险（已由 Phase 2.5 调查解除）
+
+- 现行 `BOM_D` 975,249 行的 `OPERATION_ID` 非零数量为 0；所有值都是零 GUID。`HISTORY_BOM_D`、`BOM_AUTO_CONFIG(_D)`、`BOM_MANUAL_CONFIG(_D)` 当前也都是空表。
+- 带时间戳的 `BM_R049_QueryExpandBom...` 表属于查询临时结果，仅一张临时表有 375 行，不能作为稳定业务数据源；`MO_ROUTING_MATERIAL` 是生产工单执行数据，第一版按需求不应引入。
+- 因此不能把“非 NULL”当成已挂工序，也不能证明生产现场使用另一张正式表维护 BOM→工序。若机械执行提示中的规则，所有有 BOM 的品项都会被判未挂工序，这是明显高风险结论。
+- Phase 2 当时只允许将工艺 BOM 标记为 `ABNORMAL/待确认`；Phase 2.5 已证明该指标在当前 E10 中不存在，后续应移除工艺 BOM 门槛，并按设计 BOM + 工艺路线判断 `COMPLETE`。
+- 事业部口径不清：E10 销售部门组织路径与 PMC 的客户→主责事业部不是同一概念，正式筛选/汇总前必须选定口径。
+- 候选订单是否排除 N/V、关闭单也未由需求定义；候选日期条件本身不应偷偷附加审核/关闭过滤。
+
+## 实际只读样本
+
+- `2304-202610060005 / 行1 / 601000110`：P、routingControl=0，无 BOM/Route；按已确认规则为“不适用”。
+- `2301-2026C1101-B061 / 行1 / ABL370CC0C375-1/1`：M、control=1，无 BOM、无 Route；可判“未开始”，原因“未找到设计 BOM”。
+- `2307-260930008 / 行2 / RXA500J-V5-1/1`：M、有效正式 BOM 及 11 条有效 BOM_D，但无有效 Route；可判“待工艺”。
+- `2307-260930008 / 行1 / RXA505F-HLLV5-1/1`：M、正式 BOM、1 条有效 BOM_D、标准路线 Y 且有 1 条有效工序；BOM_D.OPERATION_ID 仍为零 GUID，所以设计 BOM和路线可判完成，工艺 BOM只能判“待确认/异常”，不能判研发完成。
+- 当前候选范围未找到可验证的工程 BOM、仅 N/V BOM、已审核 BOM 无有效明细、control=2 特征路线样本；这些场景后续需要固定测试夹具覆盖，不能用缺失的生产样本反推规则。
+
+## Phase 2 新增文件预案（Phase 3 状态已更新）
+
+- `data-operations/e10/pmc_rd_progress_probe.py`：[Phase 3 已创建] 输入 `--order-no` 的只读验证工具。
+- `apps/api/src/migrations/*-PmcRdProgress.ts`
+- `apps/api/src/modules/pmc-rd-progress/`：reader、calculator、application service、query service、controller、module、tests。
+- `apps/web/src/modules/planning/pages/PmcRdProgressPage.tsx` 及对应测试。
+- 还需修改 `apps/api/src/app.module.ts`、`apps/web/src/App.tsx`、`packages/contracts/src/index.ts` 和必要样式/端到端测试。
+
+## 数据库 Migration
+
+- 无。本阶段仅执行 E10 与 PostgreSQL 只读查询，没有修改任何数据库数据或结构。
+
+## 新增或修改测试
+
+- 无。Phase 1/2/2.5 均为只读分析；尚未进入 Phase 3。
+
+## 已运行测试/验证
+
+- E10 INFORMATION_SCHEMA/sys catalog 字段、主键候选、业务键、状态分布、组织/工厂、特征码、有效期、标准路线和 BOM 工序挂接只读核对：完成。
+- E10 全库 OPERATION_ID 对象、MO/工单工艺/工单材料/领退料值域关系、5 个完工产品样本及 295,383 张符合条件完工工单的只读核对：完成。
+- E10 候选日期范围和真实订单样本查询：完成。
+- PostgreSQL `rd_*`、`erp_*`、`sales_orders` 表结构与 RLS 只读核对：完成。
+- 未运行代码 tests/build/deploy；本阶段没有业务代码修改。
+
+## Phase 2 当时等待用户/业务确认（当前以 Phase 2.5 清单为准）
+
+1. [已完成调查] 当前没有实际维护 BOM 子件→工序的可靠数据源；具体管理/历史根因无法从数据库确定，但不再作为第一版阻塞项。
+2. [不再适用] 第一版不计算工艺 BOM，因而无需定义哪些 BOM_D 行必须挂工序。
+3. `ITEM_PROPERTY` 中 M/S/Y/F/O/T 哪些属于“需要研发”；4 个 P+control=1 和 1 个 M+control=0 如何处理？
+4. `STANDARD_ROUTING_ID` 指向其他 ITEM 的路线是否是合法的标准路线复用；未设置标准路线但存在多条 Y 路线时如何选适用路线？
+5. 报表“事业部”使用 E10 销售部门/祖先，还是现有 `mps_customer_division_mappings` 的客户主责事业部？
+6. 候选日期命中但订单/行 `ApproveStatus=N/V` 或订单已关闭时，是保留显示、单独标状态，还是排除？
+7. `ApproveStatus=V` 的正式中文名称请 E10 管理员确认。
+
+## Phase 2 当时的下一步（已由 Phase 2.5 结论取代）
+
+1. [已完成] 通过全库元数据和值域关系调查确认 BOM→工序不存在可靠来源。
+2. 后续行动以下方 Phase 2.5 的“下一步”为准。
+
+## 恢复执行说明
+
+继续本任务时先读取本节以及下方 Phase 2.5/Phase 3，执行 `git status` / `git diff --stat`，不要重做 Phase 1/2/2.5/3。Phase 3 已 PASS；仍待确认的事业部、订单状态纳入范围等口径不得擅自固化。
+
+## Phase 2.5 - 工艺BOM真实数据来源调查
+
+### 调查范围与安全边界
+
+- 调查时间：2026-10-06；E10 是持续写入的生产系统，以下数量是本次只读核对快照。
+- 连接方式：统一使用 `/data/automation/code/work/basci/basic_code` 的 `MSSQLDatabase` 配置，以 pytds `readonly=True` 连接；查询使用 `READ COMMITTED`。
+- 已反向搜索 `sys.tables`、`sys.views`、`sys.columns`、扩展属性和 E10 Schema，覆盖 `OPERATION / ROUTING / MATERIAL / ITEM / BOM / MO / ISSUE / FEED / PICK` 及“工序用料/工艺用料/工序物料/投料/发料/领料/材料”等名称和字段。
+- 本阶段没有修改业务源码、E10/PostgreSQL 数据或结构、主计划同步规则；没有 migration、测试构建、提交或部署。
+
+### 元数据搜索结论
+
+- 没有找到一张已实际使用、同时具备“投入物料身份 + 工序身份 + 产品/路线或 BOM 来源”的基础资料表。
+- E10 当前不存在 `PLM` 前缀业务对象；`BM` 前缀只发现 7 张 `BM_R049_QueryExpandBom...` 时间戳临时查询结果表，仅 1 张有 375 行且 `OPERATION_ID` 全零，不能作为稳定数据源。
+- `sys.sql_modules` 中没有存储过程、函数或视图引用 `MO_ROUTING_MATERIAL` / `MO_ROUTING_WIP_MATERIAL`，没有发现由另一张基础资料表生成它们的数据库端逻辑。
+- SQL Server 未为本次涉及的 BOM/MO/Routing 对象声明可用外键，因此同时做了值域关联：`MO_ROUTING.MO_ID → MO`、`MO_ROUTING_D.MO_ROUTING_ID → MO_ROUTING`、`MO_ROUTING_D.OPERATION_ID → OPERATION` 均 100% 匹配；`MO_D.MO_ID` 和 `MO_D.ITEM_ID` 也均可关联，但它的工序字段全零。
+
+### 所有有实际记录的 OPERATION_ID 对象
+
+| 表 | 总数 | OPERATION_ID 非零 | ITEM_ID | BOM 键 | Routing 键 | 业务判断 |
+|---|---:|---:|:---:|:---:|:---:|---|
+| `APS_OUT_DAILY_OP` | 17,496 | 17,496 | 否 | 否 | 否 | APS 每日工序产出计划；工序为字符串编号，无投入物料 |
+| `APS_OUT_MO_D` | 15,120 | 0 | 否 | 否 | 否 | APS 工单明细，当前工序字段未使用 |
+| `BM_R049_QueryExpandBom1702572825934` | 375 | 0 | 是 | 是 | 否 | 时间戳查询临时结果，不是稳定源 |
+| `BOM_D` | 975,249 | 0 | 否（子件在 `SOURCE_ID`） | 是 | 否 | BOM 子件；工序字段当前未使用 |
+| `ECN_SD` | 35,516 | 0 | 否 | 否 | 否 | 工程变更明细，当前工序字段未使用 |
+| `INQUIRIES_D` | 72 | 0 | 是 | 否 | 否 | 询价明细，当前工序字段未使用 |
+| `ISSUE_RECEIPT_D` | 764,641 | 0 | 是 | 否 | 是 | 领退料执行明细，工序/工单工序字段全零 |
+| `ISSUE_RECEIPT_REQ_D` | 493,341 | 0 | 是 | 否 | 是 | 领退料申请明细，工序/工单工序字段全零 |
+| `ITEM_ROUTING_D` | 521,181 | 521,181 | 否 | 否 | 是 | 产品工艺路线工序定义，不含投入物料 |
+| `ITEM_SUPPLIER_PRICE` | 282,878 | 3,923 | 是 | 否 | 否 | 3,923 行全部为 `PRICE_TYPE=3` 工序委外价格，不是 BOM 投料关系 |
+| `MO_CHANGE_D` | 40,211 | 0 | 是 | 否 | 是 | 工单变更明细，工序字段未使用 |
+| `MO_D` | 1,858,966 | 0 | 是 | 否 | 是 | 工单材料行；`OPERATION_ID`、`MO_ROUTING_D_ID` 全零 |
+| `MO_ROUTING_D` | 1,408,545 | 1,408,545 | 否 | 否 | 是 | 工单工艺工序定义，不含投入物料 |
+| `OPERATION` | 185 | 185 | 否 | 否 | 否 | 工序主档 |
+| `OPERATION_D` | 197 | 197 | 否 | 否 | 否 | 工序明细/关联资料 |
+| `PO_CHANGE_D` | 173 | 1 | 是 | 否 | 否 | 采购变更；唯一非零行为工艺委外执行资料 |
+| `PURCHASE_ARRIVAL_D` | 591,937 | 12,131 | 是 | 否 | 否 | 工艺委外到货，不是产品 BOM 投料定义 |
+| `PURCHASE_ORDER_D` | 565,112 | 18,057 | 是 | 否 | 否 | 非零行全部 `PURCHASE_TYPE=3`，来源 `MO_ROUTING.MO_ROUTING_D`，属于工艺委外采购 |
+| `SF_DATA_COLLECT_D` | 735,939 | 735,939 | 是 | 否 | 是 | 生产报工/资料收集执行事实，不是设计阶段投入物料分配 |
+| `SUGGESTION_PLAN_BOM` | 1,457,001 | 0 | 是 | 否 | 否 | 建议计划 BOM，工序字段未使用 |
+| `WIP_FACT_TABLE` | 68 | 68 | 否 | 否 | 否 | 在制量分析事实，不含物料 |
+
+注：`PURCHASE_ORDER_D`、`PURCHASE_ARRIVAL_D`、`ITEM_SUPPLIER_PRICE` 中同时存在 ITEM 与 OPERATION 的非零数据，均由工艺委外采购/价格业务解释，不能误判为 BOM 子件在哪道工序投入。
+
+### MO_ROUTING_MATERIAL 分析
+
+- Schema 业务名称为“工单工艺用料信息”；主键 `MO_ROUTING_MATERIAL_ID`，唯一业务父键为 `MO_ROUTING_D_ID`。
+- 数量字段只有 `SUM_QTY`、`ISSUED_QTY`、`TRNSFERED_QTY`、`SECEND_QTY`、`RESERVE_QTY`；另有 `CreateDate`、`LastModifiedDate`、`ApproveStatus` 和通用审计/UDF 字段。
+- 不存在 `ITEM_ID`、`OPERATION_ID`、`MO_ID`、`MO_ROUTING_ID`、`BOM_ID`、`BOM_D_ID`、`SOURCE_ID`、`SOURCE_D_ID`、`SOURCE_TYPE`、`SOURCE_DOC_ID`、`SOURCE_DOC_D_ID`、`ITEM_ROUTING_ID` 或 `ITEM_ROUTING_D_ID`。
+- 当前生产库行数为 **0**。同构的 `MO_ROUTING_WIP_MATERIAL`（工作中心生产用料信息）也为 **0**。
+- 即使未来有记录，它也只能通过 `MO_ROUTING_D_ID` 表示某工单工序下的汇总数量，本表自身没有“哪个物料”的字段，无法表达或恢复 BOM 子件 → 工序关系。
+- `MO_ROUTING_PRODUCT_D` 有 `MO_ROUTING_D_ID + ITEM_ID` 且有 604,048 行，但 Schema 明确它是“工单工艺期间产出信息单身”，`PRODUCT_TYPE` 表示主/联/副/回收产出，属于工序产出而非投入物料。
+- 结论：`MO_ROUTING_MATERIAL` 属于**生产工单派生/执行域的空置汇总子表**，不是基础工艺资料。其实际生成时点因生产库从未产生记录而无法验证，但可以确定它不能作为研发阶段工艺 BOM 的数据源。
+
+### 真实数据来源链与断点
+
+```text
+基础资料：BOM → BOM_D（有子件，无有效工序）
+基础资料：ITEM_ROUTING → ITEM_ROUTING_D → OPERATION（有工序，无投入子件）
+
+生产工单：MO → MO_D（有实际材料，工序键全零）
+生产工单：MO → MO_ROUTING → MO_ROUTING_D → OPERATION（有实际工序，无投入子件）
+                                       └→ MO_ROUTING_MATERIAL（0 行，且无 ITEM_ID）
+生产执行：ISSUE_RECEIPT(_REQ)_D（有材料，工序键全零）
+生产执行：SF_DATA_COLLECT_D（报工事实，不是 BOM 投入关系）
+```
+
+- `MO_ROUTING` 当前 715,089 行，全部 `MO_ID` 可匹配 `MO`；`MO_ROUTING_D` 1,408,545 行，父键和 `OPERATION_ID` 均可完整匹配。
+- `MO_D` 1,858,966 行，材料 `ITEM_ID` 和父工单可完整匹配，但 `OPERATION_ID`、`MO_ROUTING_D_ID` 全为零 GUID。
+- `ISSUE_RECEIPT_REQ_D` 493,341 行、`ISSUE_RECEIPT_D` 764,641 行，两者的工序和工单工序字段也全为零 GUID。
+- `MO.ISSUE_BY_OP_SEQ` 只有 193 张工单为真；这些工单的 `MO_D.MO_ROUTING_D_ID` 仍全为零，不能形成结构化关系。
+- `ITEM_PLANT.ISSUE_DESTINATION_TYPE` 的 Schema 枚举为 `1=工艺、2=工作中心/委外供应商、3=自定义、4=工单`。当前所有自制 `M` 物料都配置为 `4=工单`，没有配置为 `1=工艺`；这是当前按工单发料、未形成工序投料关系的直接配置证据。
+
+### 已完工产品反查
+
+以下 5 个自制产品都具备当前有效 BOM、有效标准路线和实际完工工单；均可看到工单材料、部分已领料、报工记录和工单工艺，但不存在任何材料 → 工单工序关联：
+
+| 工单 | 产品 | BOM 子件 | 标准路线/工序 | MO_D | 已领料材料行 | 报工记录 | 工单工序 | 材料→工序 | MO_ROUTING_MATERIAL |
+|---|---|---:|---|---:|---:|---:|---:|---:|---:|
+| `5103-202609280033` | `HK004-1/1` 1m收银前台抽屉柜 | 5 | `1000009` / 1 | 5 | 4 | 1 | 1 | 0 | 0 |
+| `5103-202609280035` | `QCS206-1/1` 收银前台抽屉柜 | 5 | `1000207` / 1 | 5 | 4 | 1 | 1 | 0 | 0 |
+| `5103-202609280097` | `CSHK001-1/1` 前柜1m | 19 | `1000122` / 1 | 19 | 11 | 1 | 1 | 0 | 0 |
+| `5103-202609290006` | `CS700500001-A-1/1` 药妆&收银前台带抽屉 | 5 | `1000010` / 1 | 5 | 3 | 1 | 1 | 0 | 0 |
+| `5103-202609300026` | `UGGL567-1/1` 谷歌终端展示桌 | 98 | `1000010` / 1 | 94 | 11 | 1 | 1 | 0 | 0 |
+
+具体材料例证：`HK004-1/1` 工单包含 `5030200721 珍珠棉护角`（需求/领料 4/4）和 `5060101743 珍珠棉片`（2/2）；`QCS206-1/1` 包含 `5010216208 五层中封箱`（1/1）和 `5040101044 PE袋`（1/1）。这些材料都能按 `ITEM_ID`/数量与当前 BOM 对应，但其 `MO_D.OPERATION_ID`、`MO_D.MO_ROUTING_D_ID` 均为零 GUID。
+
+全量量化结果：限定 `MO.ApproveStatus=Y`、`MO.STATUS=Y`、完成数量大于 0，并要求产品当前存在已审核 BOM/明细与已审核标准路线/工序，共得到 **295,383 张已完工工单、77,967 个产品**；其中 **156,799** 张有已领料材料，**182,325** 张有报工记录，**183,284** 张有工单工艺，但 `MO_D` 存在材料→工单工序链接的工单为 **0**。因此 `BOM_D.OPERATION_ID` 不是凯南当前正常领料、报工和完工的必要条件。
+
+### 已知样本 2307-260930008 / RXA505F-HLLV5-1/1
+
+- 当前基础资料仍为：有效正式 BOM（1 条子件）+ 有效标准路线 `1000000`（1 道工序）+ `BOM_D.OPERATION_ID=零 GUID`。
+- 找到多张历史完工工单，包括 `5128-260924106`、`5128-260924101`、`5128-260918064`。以 `5128-260924106` 为例：计划/完成数量 1/1，工单材料为 `RXA505F-HLLV5`，可与当前 BOM 子件按 `ITEM_ID` 对应，但 `MO_D.OPERATION_ID` 和 `MO_D.MO_ROUTING_D_ID` 都为零。
+- 这些历史工单本身没有 `MO_ROUTING` / `MO_ROUTING_D`，`MO_ROUTING_MATERIAL` 也没有记录；因此该产品在真实生产工单中**不存在可识别的“物料 → 工序”关系**。
+- 用户要求“若存在则输出至少 10 条关系样例”；实际关系不存在，所以不能伪造 10 条样例。上述工单和材料行是反证样本。
+
+### BOM_D.OPERATION_ID 全零的可确认边界
+
+- 可以确定的技术事实：975,249 行 `BOM_D` 全部为零 GUID；自制物料统一按工单而不是按工艺作为发料目的；工单材料、领退料和变更明细的工序键也全零；大量产品在这种状态下已经正常领料、报工、完工。
+- **无法从数据库确定**具体是 E10 功能从未启用、公司流程刻意不维护，还是客户端界面/版本配置所致；数据库也不能证明设计/工艺人员实际操作的 E10 菜单名称。不能把上述管理原因写成确定事实。
+- 因此最严谨的结论是：凯南当前生产数据采用工单级材料管理，没有结构化维护 BOM 子件 → 工序；具体人为和历史原因需要 E10 管理员/工艺业务方补充，但不再阻塞第一版研发进度。
+
+### 最终业务模型与 Phase 3 决策
+
+1. 是否找到品号级工序用料表：**NO**。
+2. `MO_ROUTING_MATERIAL` 性质：生产工单派生/执行域的空置汇总子表，不是基础工艺资料，也不能表示具体物料。
+3. `BOM_D.OPERATION_ID` 全零原因：技术现状与工单级发料配置可以确认；具体管理/历史根因**无法从数据库确定**。
+4. 推荐模型：**模型 C**。凯南当前 E10 没有可靠的“BOM 物料 → 工序”结构化数据，第一版不得展示或计算“工艺 BOM 完成率”，也不得把它设为研发完成门槛。
+5. `Phase 3：GO`。Phase 3 的核心状态应调整为：
+   - `NOT_APPLICABLE`：不适用；
+   - `NOT_STARTED`：未开始；
+   - `DESIGN_IN_PROGRESS`：设计 BOM 进行中；
+   - `WAITING_ROUTING`：待工艺；
+   - `ROUTING_IN_PROGRESS`：工艺设计中；
+   - `COMPLETE`：研发完成（设计 BOM 已审核且适用工艺路线已审核）；
+   - `ABNORMAL`：多有效 BOM/路线无法唯一选择、引用失效、缺失主数据等无法安全判定的异常。
+- 正常主流程为：`未开始 → 设计 BOM 进行中 → 待工艺 → 工艺设计中 → 研发完成`。不适用和异常是旁路状态；不再保留 `PROCESS_BOM_IN_PROGRESS` 或任何工艺 BOM 完成状态。
+- 数据事实支持“已审核设计 BOM + 已审核适用 Routing”作为当前 E10 可可靠识别的研发资料完成条件。它代表资料齐套信号，不应扩大解释为生产一定可下达或所有生产准备均已完成。
+
+### Phase 2.5 后仍需业务确认
+
+1. 报表“事业部”采用 E10 销售部门/组织祖先，还是 PMC `mps_customer_division_mappings` 的客户主责事业部。
+2. `ITEM_PROPERTY` 中 M/S/Y/F/O/T 哪些属于“需要研发”，以及少量 P+control=1、M+control=0 例外如何处理。
+3. `STANDARD_ROUTING_ID` 合法复用其他 ITEM 路线的规则；未设标准路线但存在多条 Y 路线时如何选用。
+4. 候选日期命中但订单/行状态为 N/V 或订单已关闭时，保留、单列状态还是排除。
+5. `ApproveStatus=V` 的正式中文业务名称。
+
+### 下一步
+
+1. [已完成] 按模型 C 实现 `--order-no` 只读 Phase 3 验证工具及固定规则测试。
+2. [已完成] 用指定业务订单和额外生产样本逐行核对状态，未确认组合统一进入 `ABNORMAL`。
+3. 下一阶段单独评审正式数据投影、权限、同步、API 和页面实施。
+
+## Phase 3 - PMC研发进度验证工具
+
+### 阶段结论
+
+- `Phase 3：PASS`。
+- 已实现单订单只读验证、机器可读 JSON、调试路径和正式候选范围只读汇总。
+- 最终模型继续严格采用“设计 BOM + 工艺路线”，没有读取或判断 `BOM_D.OPERATION_ID`、`MO_ROUTING_MATERIAL` 或“工艺 BOM 完成率”。
+- 建议进入 Phase 4 正式数据模型 + 同步服务 + API；正式上线前仍需确认事业部、订单 N/V/关闭状态等产品口径。
+
+### 新增文件
+
+- `data-operations/e10/pmc_rd_progress_probe.py`
+  - `--order-no <订单号>`：不受正式日期范围限制，输出该订单全部品项。
+  - `--json`：输出机器可读 JSON。
+  - `--debug`：输出 ITEM 组合规则、全部 BOM/Route 候选、选择原因和最终判断路径。
+  - `--candidate-summary`：按正式候选范围做全量只读统计并抽样。
+  - `--as-of <ISO datetime>`：固定 BOM 有效期判断时点，便于可重复验证。
+- `data-operations/e10/test_pmc_rd_progress_probe.py`：纯逻辑单元测试 27 项。
+
+### 只读、安全与性能实现
+
+- 使用 `/data/automation/code/work/basci/basic_code` 的 `MSSQLDatabase` 加载连接配置，pytds 连接固定 `readonly=True`，事务隔离为 `READ COMMITTED`，没有任何写 SQL 或 DDL。
+- 单订单/候选订单先批量取得订单、客户、品项；随后按最多 500 个 ID 分批读取 `ITEM_PLANT`、BOM/BOM_D、Routing/Routing_D/OPERATION，不逐订单行连接数据库，也不逐 ITEM 执行 5—10 条查询。
+- 所有外部输入参数化；动态 SQL 只生成固定数量的 `%s` 占位符。
+- 正式候选范围作为唯一常量保留：`SALES_ORDER_DOC.CreateDate >= 2026-09-01 OR SALES_ORDER_DOC.LastModifiedDate >= 2026-09-01`；`--order-no` 直接查询不受此范围限制。
+- `normalize_guid()` 是零 GUID 正规化的唯一入口；订单特征码、标准路线、路线特征码和所有实体 ID 共用。
+- SQL 只批量取事实；BOM 多版本、Routing 选择、状态和异常解释均在 Python 纯函数中完成。不存在无排序 `TOP 1` 或其他随机选择。
+
+### 最终状态模型
+
+```text
+NOT_APPLICABLE / 不适用
+NOT_STARTED / 未开始
+DESIGN_IN_PROGRESS / 设计 BOM 进行中
+WAITING_ROUTING / 待工艺
+ROUTING_IN_PROGRESS / 工艺设计中
+COMPLETE / 研发完成
+ABNORMAL / 异常
+```
+
+- 订单状态为 `NOT_APPLICABLE / IN_PROGRESS / COMPLETE / ABNORMAL`。
+- 订单 `COMPLETE` 要求全部需研发品项完成；任一品项异常则订单异常；完成率分母排除 `NOT_APPLICABLE`，异常仍计入未完成。
+
+### ITEM_PROPERTY / ITEM_ROUTING_CONTROL 组合规则
+
+| ITEM_PROPERTY | ITEM_ROUTING_CONTROL | 规则 |
+|---|---|---|
+| `P` | `0` | 已验证为整体研发不适用 |
+| `M` | `1` | 已验证为需要设计 BOM + 普通工艺路线 |
+| `M` | `2` | 设计 BOM 正常判断；特征码路线因无真实生产样本进入 `ABNORMAL / UNSUPPORTED_FEATURE_ROUTING` |
+| 其他组合 | 任意 | 不猜测，进入 `ABNORMAL / UNSUPPORTED_ITEM_RULE_COMBINATION` |
+
+- 正式候选范围的未确认组合共 6 行：`P+1` 为 5 行，`M+0` 为 1 行。
+
+### BOM 选择算法
+
+1. 按订单品项 `ITEM_ID` 和唯一 `ITEM_PLANT.Owner_Org_ROid` 限定适用工厂。
+2. 没有 BOM：`NOT_STARTED / NO_BOM`。
+3. 有 BOM、没有审核状态 Y 的 BOM：`IN_PROGRESS / BOM_NOT_APPROVED`。
+4. 头为 Y 后，明细必须为 Y，且 `EFFECTIVE_DATE <= asOf <= EXPRITY_DATE`；生产数据中的 `9998-12-31` 自然兼容，无需特殊魔法判断。
+5. 唯一一个“已审核头 + 至少一条当前有效已审核明细”时才选择并判完成。
+6. 多个同时满足的 BOM 不按 E_CODE、版次或修改时间猜优先级，直接 `ABNORMAL / MULTIPLE_ACTIVE_BOMS`。
+7. `E_CODE` 和 `VERSION_TIMES` 只输出用于审计，不作为完成条件。
+
+### Routing 选择算法
+
+1. `control=0`：路线不适用；它与“整个品项研发不适用”分开判断。
+2. `control=1` 且标准路线 ID 非零：只按该稳定 ID 读取，允许标准路线的 ITEM 与当前 ITEM 不同；来源标记 `STANDARD_ROUTING_REFERENCE`。
+3. 标准路线必须存在、头为 Y、至少一条明细为 Y，且所有已审核明细的 `OPERATION_ID` 均能匹配 OPERATION。
+4. 标准路线引用不存在：`ABNORMAL / STANDARD_ROUTING_NOT_FOUND`；头未审核、无已审核工序或工序引用无效则为路线进行中并返回精确 reasonCode。
+5. 没有标准路线时，按 `ITEM_ID + Owner_Org_ROid + 正规化后的 ITEM_FEATURE_ID` 找候选；0 条为未开始，唯一已审核路线继续核验，多条已审核路线直接 `ABNORMAL / MULTIPLE_ACTIVE_ROUTINGS`。
+6. `control=2` 当前固定 `ABNORMAL / UNSUPPORTED_FEATURE_ROUTING`，不伪装支持。
+
+### 4 个指定真实样本
+
+固定 `asOf=2026-10-06 12:00:00`：
+
+| 订单 / 行 / 品号 | 设计 BOM | Routing | 最终状态 | 结果 |
+|---|---|---|---|---|
+| `2304-202610060005 / 1 / 601000110` | 不适用 | 不适用 | `NOT_APPLICABLE` | 符合预期 |
+| `2301-2026C1101-B061 / 1 / ABL370CC0C375-1/1` | 未开始 | 未开始 | `NOT_STARTED` | 符合预期 |
+| `2307-260930008 / 2 / RXA500J-V5-1/1` | 完成（11 条有效明细） | 未开始 | `WAITING_ROUTING` | 符合预期 |
+| `2307-260930008 / 1 / RXA505F-HLLV5-1/1` | 完成（1 条有效明细） | 完成（标准路线 `1000000`、1 工序） | `COMPLETE` | 符合预期；未读取 BOM_D.OPERATION_ID |
+
+### 额外真实生产样本
+
+| 订单 / 行 / 品号 | 状态 | reasonCode |
+|---|---|---|
+| `2301-2025A012020 / 1 / 401031194` | `NOT_APPLICABLE` | `PURCHASE_ITEM_WITHOUT_ROUTING` |
+| `2301-2025A012020 / 2 / 401040193` | `NOT_APPLICABLE` | `PURCHASE_ITEM_WITHOUT_ROUTING` |
+| `2301-2021C001064 / 36 / VMA327G(9049ZA504888A00)-1/1` | `NOT_STARTED` | `NO_BOM` |
+| `2301-2023A027018 / 1 / MJCOP014125` | `NOT_STARTED` | `NO_BOM` |
+| `2301-2025A012008-7 / 3 / UMPI385-01-516F-1/1` | `WAITING_ROUTING` | `NO_ROUTING` |
+| `2301-2025A012008-7 / 4 / UMPI385-01-524F-1/1` | `WAITING_ROUTING` | `NO_ROUTING` |
+| `2301-2026A009022 / 18 / ROSS122-1/1` | `ROUTING_IN_PROGRESS` | `ROUTING_NOT_APPROVED` |
+| `2301-2026A071017 / 4 / A23-1/1` | `ROUTING_IN_PROGRESS` | `ROUTING_NOT_APPROVED` |
+| `2301-2021C001064 / 1 / C00138B-1/1` | `COMPLETE` | `RD_COMPLETE` |
+| `2301-2021C001064 / 2 / VMA084A-1/1` | `COMPLETE` | `RD_COMPLETE` |
+| `2304-202607090004 / 3 / 304010515` | `ABNORMAL` | `UNSUPPORTED_ITEM_RULE_COMBINATION`（M+0） |
+| `2304-202609010012 / 1 / 301010304` | `ABNORMAL` | `UNSUPPORTED_ITEM_RULE_COMBINATION`（P+1） |
+
+- 已覆盖 12 个额外真实品项和 6 种当前实际存在的最终状态。
+- 当前正式候选数据中没有 `DESIGN_IN_PROGRESS` 真实样本；没有伪造生产数据，该状态由 `BOM 未审核`、`BOM 无已审核明细`、`BOM 无当前有效明细`等纯逻辑测试覆盖。
+
+### 正式候选范围全量统计
+
+E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点固定为 `2026-10-06 12:00:00`：
+
+| 品项研发状态 | 数量 |
+|---|---:|
+| `NOT_APPLICABLE` | 823 |
+| `NOT_STARTED` | 2,908 |
+| `DESIGN_IN_PROGRESS` | 0 |
+| `WAITING_ROUTING` | 2,706 |
+| `ROUTING_IN_PROGRESS` | 4 |
+| `COMPLETE` | 11,015 |
+| `ABNORMAL` | 6 |
+| 合计 | 17,462 |
+
+候选订单共 2,511 张；订单状态：`NOT_APPLICABLE=229`、`IN_PROGRESS=1,402`、`COMPLETE=874`、`ABNORMAL=6`。
+
+### 异常类型与数量
+
+- 当前生产候选范围只有 `UNSUPPORTED_ITEM_RULE_COMBINATION=6`：`P+1` 5 行、`M+0` 1 行。
+- 当前未命中但已有显式算法和单元测试保护的异常包括：多有效 BOM、多有效 Routing、标准路线引用不存在、control=2 无验证样本、ITEM/ITEM_PLANT 缺失或多工厂行、未知路线控制值。
+- 工序引用失效按需求归入 `ROUTING_IN_PROGRESS / INVALID_OPERATION_REFERENCE`，不是随机选路或静默完成。
+
+### 测试与验证
+
+- `python3 -m unittest discover -s data-operations/e10 -p 'test_pmc_rd_progress_probe.py' -v`：27/27 通过。
+- `python3 -m py_compile data-operations/e10/pmc_rd_progress_probe.py data-operations/e10/test_pmc_rd_progress_probe.py`：通过。
+- `--order-no`、`--json`、`--debug`、`--candidate-summary` 对生产 E10 只读验证：通过。
+- 四个指定样本：4/4 符合预期。
+- 额外真实品项：12 个，覆盖当前生产库实际存在的 6 种状态。
+- 正式候选范围：2,511 订单 / 17,462 品项批量计算成功。
+- `git diff --check`：通过。
+- 未运行 Web/API tests、typecheck、lint、build：本阶段未修改 Web/API/TypeScript，且用户明确禁止正式页面和服务实施。
+
+### 本阶段未执行
+
+- 无 PostgreSQL migration，无数据库写入，无 E10 修改。
+- 无正式同步表、同步服务、API、菜单或 React 页面。
+- 未修改主计划订单同步及其 `2026-09-17` 规则。
+- 未部署、未 commit、未 push。
+
+### Phase 4 前仍需确认
+
+1. 报表“事业部”使用 E10 销售部门祖先，还是 PMC 客户主责事业部映射。
+2. 候选日期命中但订单/行状态为 N/V 或订单已关闭时，是保留展示、单列状态还是排除。
+3. `P+1` 与 `M+0` 六个异常品项的正式业务含义；未确认前继续保留异常是安全策略。
+4. `ApproveStatus=V` 的正式中文业务名称。
+
+### 下一步
+
+1. 用户确认是否启动 Phase 4。
+2. 启动后先固化正式只读资源契约、租户/权限/筛选/导出边界和独立同步投影，再创建 migration 与 API。
+3. 正式页面继续遵守 PMC 树形菜单和 KDOS 标准只读报表规范；不得把本验证脚本直接接到 Web 请求链路。
+
+## Phase 4 - PMC研发进度正式数据模型、同步服务与API
+
+任务目标：独立 E10 只读批量取数 → TypeScript Calculator → PostgreSQL 当前快照 → PMC 查询/KPI/订单汇总；不开发 React 页面，不改现有订单/rd 同步，不修改 E10。
+当前状态：正在进行。
+最后更新时间：2026-10-07（Asia/Shanghai）。
+当前阶段：数据模型与同步架构已确定，开始实现。
+
+### 已完成
+- [x] 阅读 Phase 1/2/2.5/3 进度、完整 Phase 3 Oracle 与27项测试，检查现有 RD reader、水位、Application/Query/Controller、迁移、权限注册和主责事业部映射。
+- [x] 起始工作区已有 `outputs/CODEX_PROGRESS.md` 修改和两份未跟踪的 Phase 3 Python 文件，全部保留。
+- [x] 采用独立 `pmc_rd_progress_items` + `pmc_rd_progress_sync_runs`，TypeORM raw SQL；UUIDv7、tenant/RLS、数量 numeric、业务键 tenant + source_order_line_id。
+- [x] 复用 PMC `mps_customer_division_mappings` 客户主责事业部；缺映射为NULL，保留 E10 Owner_Dept，不猜组织祖先。
+- [x] E10 适配器只提供原始事实；Python仅用于共享 MSSQLDatabase 的读取驱动，不运行 Oracle 或业务计算。生产状态统一由 TypeScript Calculator 计算。
+- [x] 同步设计：源库时间、各表高精度复合游标、2分钟 overlap、批量受影响集合（含标准路线反向引用）、集中重算、单 PostgreSQL事务批量UPSERT、内容hash、软失效、成功才推进水位、事务审计、租户级并发锁。
+
+### 正在进行
+- [ ] 新表 migration、集中 Calculator、独立源读取适配器、同步服务、API与权限契约。
+
+### 待完成
+- [ ] 单元/集成测试、共享事实上的 Python/TS逐行一致性回归。
+- [ ] 备份、migration验证/应用、构建、部署、健康检查、真实 FULL/INCREMENTAL 与API核验。
+- [ ] 性能/指定及额外样本/全量状态计数报告与最终 PASS/FAIL。
+
+### 修改文件
+- 当前：本进度文件；实现文件随后追加。
+
+### 数据库 Migration
+- 计划：新增两张 PMC 研发进度专属表，不改既有模块表。
+
+### 新增或修改测试 / 已运行测试
+- 待执行。
+
+### 当前已知问题
+- 源库 snapshot isolation/审计字段正在按本阶段需要做定向检查，不重做 Phase 2 调查。
+- 当前会话不能自行切换主模型；未声称已切换到用户指定 GPT-5.6 Sol High。
+
+### 等待用户确认
+- 无。本阶段用户已授权直接编码、迁移、测试和验证。
+- 业务待确认（不阻塞）：P+1/M+0继续异常；V保持中性原始值；关闭订单保留；事业部采用已存在客户主责映射。
+
+### 下一步
+1. 实现新 migration、Calculator和事实读取器。
+2. 实现批量事务同步、查询权限/字段/数据范围与API。
+3. 测试、一致性验证、备份迁移部署、真实同步验收并记录结果。
+
+### 恢复执行说明
+先读 AGENTS.md、kdos-form-platform/SKILL.md、本节，再执行 git status / git diff --stat，继续已有实现；不要重做 Phase 1—3，不覆盖用户已有修改，不删除 Python Oracle。
+
+### Phase 4 实现与第一组验证（2026-10-07）
+- [x] 新增 `1722920082000-PmcRdProgress.ts`：当前快照/批次两表、5个实用查询索引、租户业务唯一键、RUNNING唯一索引、RLS。
+- [x] TypeScript Calculator 迁移 Phase 3 的所有实际规则、原 reasonCode/reasonText/ITEM_PLANT_MATCH，允许完成状态倒退；没有增加工艺BOM字段。
+- [x] 独立 `pmc_rd_progress_reader.py` 只读取原始事实，复用共享MSSQLDatabase；源表时间均为datetime2，按各表LastModifiedDate+UUID keyset/2分钟overlap扫描，含标准路线反查、OPERATION、客户/部门以及BOM有效期边界。
+- [x] `PmcRdProgressApplicationService`：租户session advisory lock、崩溃RUNNING恢复、单事务250行JSON recordset批量UPSERT、内容hash、逐行/批次审计、失败回滚且水位不推进、保留软失效记录。
+- [x] 注册 `pmc-rd-progress` / planning资源，字段只读，read权限遵循原 `resource:*:read`；查询复用平台字段权限/筛选/数据范围。
+- [x] API：`/pmc/reports/rd-progress/items`、`items/:id`、`summary`、`orders`、`sync-status`；内部token+tenant的 `/internal/pmc/rd-progress/sync`。
+- [x] 37组共用 JSON Oracle fixtures；62项API定向测试、原27项Python+新增6项适配器/fixtures测试通过；API typecheck/build通过，lint已修复未使用import，继续总体验证。
+- [x] 原始全量采集观察时间 `2026-10-07 09:09:36.645056`（E10）：2539订单/17625行；Python与TS逐行20个字段对比0差异。
+- [x] 该采集状态数量：NOT_APPLICABLE=834、NOT_STARTED=2979、DESIGN_IN_PROGRESS=0、WAITING_ROUTING=2721、ROUTING_IN_PROGRESS=4、COMPLETE=11081、ABNORMAL=6。
+- [x] 确认源库snapshot_isolation_state=0、RCSI=true；不修改源库配置。`sourceSnapshotAt`明确是源库观察/游标截止时点，不能声称是时间旅行快照。全量Oracle比较复用同一采集事实，禁止对比两次实时读取后宣称完全相同时点。
+- [x] 备份脚本已完成，结果位于ignored `data/pmc-rd-validation/backup-result.log`；正式数据库仍未应用新migration、未执行研发FULL。
+- [ ] 隔离库 `pmc_rd_phase4_test_20261007` 已复制现有schema及必要用户/组织/映射，正在测试真实migration、FULL重放、倒退、分块回滚、软失效和非owner RLS。
+- [ ] API全量/Contracts/Web兼容检查、最终构建、正式migration与部署、真实FULL/INCREMENTAL和最终验收报告。
+
+下一步：先修正隔离集成测试发现的真实问题，再执行已授权的正式迁移/部署/真实同步；不要把当前仅本地实现表述为已交付。
+
+### Phase 4 隔离验收与部署准备（2026-10-07）
+- [x] 隔离PostgreSQL真实测试PASS（报告：ignored `data/pmc-rd-validation/integration-report.json`）：migration、17625行FULL、17625行全未变重放、INCREMENTAL、两种状态倒退、第二分块失败原子回滚/水位不推进、软失效/重新激活、同订单同品号不同源行分别保存、字段/表权限、CUSTOM/OWN范围、A/B租户和真实非owner RLS。
+- [x] API全量：82 suites / 680 tests passed，另1 skipped；Contracts 22 tests passed，Web typecheck通过。首次全量测试识别新资源缺少聚合测试注册，已补充provider注册并重新通过。
+- [x] API源datetime响应使用六位微秒墙上时间文本；统一筛选/导出绑定明确上海时区，避免运行机器UTC造成8小时偏移。
+- [x] 平台筛选/导出provider设置租户事务上下文，动作数据范围保留read/export区别；不另写Excel导出逻辑。
+- [x] 新增高精度游标不回退保护，GUID同时间排序直接采用SQL Server比较，不自行猜UUID排序。
+- [x] 备份完成：`four_department_tracker_20261007_091204.backup` SHA256 `dd413dc40d2f595e215868ee54f447317ad32a3f916a75c2aff53af644543761`；`kdos_20261007_091204.backup` SHA256 `402b84c38ac2a51c750b74691261db5ad0c997be366809126fc92529a4ad81aa`；uploads SHA256 `089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`，均pg_restore目录验证成功。
+- [x] 更新架构、安全、集成、runbook和专属 `docs/pmc-rd-progress.md`；明确源RCSI观察限制、无修改审计的BOM/路线硬删除需FULL校正、无新增定时器。
+- [ ] 工作区源码/配置变更需要按标准deploy.sh提交后部署（脚本拒绝未提交源码）。用户未要求Git自行管理；只提交本任务源码和Phase3前置文件，不包含私有data、凭据或快照。
+- [ ] 迁移与部署前再次确认结构仅新增PMC两表、同步SQL独立候选范围和源观察时点/候选数，随后正式迁移、上线与真实FULL/INCREMENTAL核验。
+
+### Phase 4 最终回归复核
+- [x] 标准导出专项2项通过，验证export操作权限、隐藏字段裁剪和租户RLS执行器；UTF8分块读取专项2项通过，防止中文跨stdout chunk损坏。
+- [x] 全仓其他package测试已执行；Web初轮180/181通过，营销页面旧5秒超时；与构建并发后的API复跑发生主计划Spreadsheet旧5秒超时（此前完整680项通过）。不改无关业务代码，现以较宽运行时超时/API单进程、Web单worker复核。
+- [x] 新实现不更改React源码，不改E10、主订单同步、rd水位与查重、不增加Redis/队列/历史表、不发企业微信。
+- [ ] 最终测试完成后按标准部署脚本上线，再通过正式运行事实逐行比较Oracle与落库结果。
+
+### Phase 4 上线前最后核对
+- [x] API最终全量：84 suites / 684 tests passed（另1 suite / 1 test skipped），运行时单进程15秒测试超时复核，未更改测试业务断言。
+- [x] API/Contracts/Web typecheck、lint、build通过；Web仅既有Fast Refresh与大chunk提示，本机Node22与声明Node24的提示保留，部署镜像使用Node24。
+- [x] 上线前E10只读核对 `sourceSnapshotAt=2026-10-07 09:23:58.972811`：2540订单/17627行；独立候选SQL仍为CreateDate OR LastModifiedDate自2026-09-01。
+- [x] 源码/配置边界审查与git diff --check通过：迁移仅新建PMC专属两表，源SQL只读，正式状态保持Oracle一致，源库配置未改，无删除旧业务数据操作。
+- [ ] Web单worker全量回归即将完成；随后提交并标准构建→migration→deploy→healthcheck→正式FULL/INCREMENTAL及逐行Oracle验收。

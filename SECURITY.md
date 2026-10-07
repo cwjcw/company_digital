@@ -56,3 +56,7 @@
 - Do not run `docker compose down -v`, destructive database cleanup or recursive deletion against broad paths.
 - Run dependency, lint, type, unit, build and Playwright checks before release.
 - Report vulnerabilities privately to the repository owner; include affected route/module, reproduction, impact and recommended mitigation without production credentials.
+
+## PMC研发进度
+
+`pmc-rd-progress` 属于planning资源，读取复用表/字段权限与数据范围；两个独立表启用tenant RLS，Application/Query和平台候选/导出执行器设置租户事务上下文并带显式tenant条件。只读API无普通用户同步入口，内部同步复用专用RD internal token并校验租户（常量时间比较token）。FULL/INCREMENTAL以租户session锁互斥，批量写入、逐行/批次审计和成功水位同事务；失败回滚，不推进水位。源数据捕获和Oracle差异明细只能放ignored私有data目录，不能暴露到Web。源库未启用事务SNAPSHOT，不将观察时间宣称为历史快照。参见 [研发进度边界](docs/pmc-rd-progress.md)。

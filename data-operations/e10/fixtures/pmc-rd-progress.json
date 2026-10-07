@@ -1,0 +1,4375 @@
+[
+  {
+    "name": "NO_BOM",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [],
+      "routings": []
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "NOT_STARTED",
+      "designBomStatusLabel": "未开始",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "NOT_STARTED",
+      "routingStatusLabel": "未开始",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "NOT_STARTED",
+      "rdStatusLabel": "未开始",
+      "reasonCode": "NO_BOM",
+      "reasonText": "未建立设计 BOM",
+      "rdLastModifiedAt": null
+    }
+  },
+  {
+    "name": "COMPLETE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "WAITING_ROUTING",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": []
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "NOT_STARTED",
+      "routingStatusLabel": "未开始",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "WAITING_ROUTING",
+      "rdStatusLabel": "待工艺",
+      "reasonCode": "NO_ROUTING",
+      "reasonText": "尚未建立有效工艺路线",
+      "rdLastModifiedAt": "2026-10-06 10:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NOT_APPROVED_N",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "N",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "N",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "BOM_NOT_APPROVED",
+      "reasonText": "存在 BOM，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "ROUTING_NOT_APPROVED_N",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "N",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "N",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NOT_APPROVED",
+      "reasonText": "存在工艺路线，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NOT_APPROVED_V",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "V",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "V",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "BOM_NOT_APPROVED",
+      "reasonText": "存在 BOM，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "ROUTING_NOT_APPROVED_V",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "V",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "V",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NOT_APPROVED",
+      "reasonText": "存在工艺路线，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NOT_APPROVED_None",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": null,
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "BOM_NOT_APPROVED",
+      "reasonText": "存在 BOM，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "ROUTING_NOT_APPROVED_None",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": null,
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NOT_APPROVED",
+      "reasonText": "存在工艺路线，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NO_DETAILS",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": []
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "BOM_NO_APPROVED_DETAILS",
+      "reasonText": "BOM 已审核，但没有已审核 BOM 明细",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NO_APPROVED_DETAILS",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "N",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "BOM_NO_APPROVED_DETAILS",
+      "reasonText": "BOM 已审核，但没有已审核 BOM 明细",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_FUTURE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-06 12:00:00.123457",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "NO_EFFECTIVE_BOM_DETAIL",
+      "reasonText": "BOM 已审核，但没有当前有效的已审核 BOM 明细",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_EXPIRED",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "2026-10-06 12:00:00.123455",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "NO_EFFECTIVE_BOM_DETAIL",
+      "reasonText": "BOM 已审核，但没有当前有效的已审核 BOM 明细",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_NO_EFFECTIVE_DATE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": null,
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "IN_PROGRESS",
+      "designBomStatusLabel": "进行中",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "DESIGN_IN_PROGRESS",
+      "rdStatusLabel": "设计 BOM 进行中",
+      "reasonCode": "NO_EFFECTIVE_BOM_DETAIL",
+      "reasonText": "BOM 已审核，但没有当前有效的已审核 BOM 明细",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_BOUNDARIES",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-06 12:00:00.123456",
+              "expiry_date": "2026-10-06 12:00:00.123456",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "BOM_OPEN_EXPIRY",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": null,
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "MULTIPLE_ACTIVE_BOMS",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        },
+        {
+          "bom_id": "bom-2",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "MULTIPLE_ACTIVE_BOMS",
+      "reasonText": "发现多个同时有效且已审核的 BOM，无法确定当前使用版本",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "ONE_ACTIVE_BOM",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        },
+        {
+          "bom_id": "bom-2",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "N",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "ROUTING_NO_DETAILS",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": []
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NO_APPROVED_OPERATIONS",
+      "reasonText": "工艺路线已审核，但没有已审核工序",
+      "rdLastModifiedAt": "2026-10-06 10:00:00.000978"
+    }
+  },
+  {
+    "name": "ROUTING_NO_APPROVED_OPERATION",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "N",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NO_APPROVED_OPERATIONS",
+      "reasonText": "工艺路线已审核，但没有已审核工序",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "INVALID_OPERATION_NULL",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": null,
+              "operation_exists": false,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "INVALID_OPERATION_REFERENCE",
+      "reasonText": "工艺路线包含无法匹配工序主档的已审核工序",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "INVALID_OPERATION_MISSING",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": false,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "INVALID_OPERATION_REFERENCE",
+      "reasonText": "工艺路线包含无法匹配工序主档的已审核工序",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "STANDARD_OTHER_ITEM",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": "route-1"
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "shared-item",
+          "owner_org_id": "other-plant",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": "route-1",
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "STANDARD_ROUTING_REFERENCE",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "MISSING_STANDARD",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": "missing"
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": "missing",
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "STANDARD_ROUTING_REFERENCE",
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "STANDARD_ROUTING_NOT_FOUND",
+      "reasonText": "STANDARD_ROUTING_ID 指向的工艺路线不存在",
+      "rdLastModifiedAt": "2026-10-06 10:00:00.000978"
+    }
+  },
+  {
+    "name": "MULTIPLE_ACTIVE_ROUTES",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        },
+        {
+          "routing_id": "route-2",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "MULTIPLE_ACTIVE_ROUTINGS",
+      "reasonText": "发现多条已审核工艺路线且没有标准路线引用，无法安全选择",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "UNAPPROVED_MULTIPLE_ROUTES",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "N",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        },
+        {
+          "routing_id": "route-2",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "V",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "IN_PROGRESS",
+      "routingStatusLabel": "进行中",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "ROUTING_IN_PROGRESS",
+      "rdStatusLabel": "工艺设计中",
+      "reasonCode": "ROUTING_NOT_APPROVED",
+      "reasonText": "存在工艺路线，但尚未审核",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "FEATURE_ROUTING",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "2",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "2",
+      "standardRoutingId": null,
+      "designBomStatus": "NOT_STARTED",
+      "designBomStatusLabel": "未开始",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "UNSUPPORTED_FEATURE_ROUTING",
+      "reasonText": "特征码路线控制当前缺少已验证生产样本",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "PURCHASE_NOT_APPLICABLE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "P",
+          "item_routing_control": "0",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [],
+      "routings": []
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "P",
+      "itemRoutingControl": "0",
+      "standardRoutingId": null,
+      "designBomStatus": "NOT_APPLICABLE",
+      "designBomStatusLabel": "不适用",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "NOT_APPLICABLE",
+      "routingStatusLabel": "不适用",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "NOT_APPLICABLE",
+      "rdStatusLabel": "不适用",
+      "reasonCode": "PURCHASE_ITEM_WITHOUT_ROUTING",
+      "reasonText": "采购件且未启用工艺路线，研发不适用",
+      "rdLastModifiedAt": null
+    }
+  },
+  {
+    "name": "P1_UNSUPPORTED",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "P",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "P",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "UNSUPPORTED_ITEM_RULE_COMBINATION",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "M0_UNSUPPORTED",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "0",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "0",
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "UNSUPPORTED_ITEM_RULE_COMBINATION",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=M, ITEM_ROUTING_CONTROL=0",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "UNKNOWN_CONTROL",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "9",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "9",
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "UNSUPPORTED_ITEM_RULE_COMBINATION",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=M, ITEM_ROUTING_CONTROL=9",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "MISSING_ITEM",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": null,
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": null,
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": null,
+      "itemRoutingControl": null,
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "MISSING_ITEM",
+      "reasonText": "订单品项引用的 ITEM 不存在",
+      "rdLastModifiedAt": null
+    }
+  },
+  {
+    "name": "MISSING_ITEM_PLANT",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": null,
+      "itemRoutingControl": null,
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "MISSING_ITEM_PLANT",
+      "reasonText": "未找到品项对应的 ITEM_PLANT",
+      "rdLastModifiedAt": null
+    }
+  },
+  {
+    "name": "MULTIPLE_ITEM_PLANT",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        },
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": null,
+      "itemRoutingControl": null,
+      "standardRoutingId": null,
+      "designBomStatus": "ABNORMAL",
+      "designBomStatusLabel": "异常",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "ABNORMAL",
+      "routingStatusLabel": "异常",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": null,
+      "rdStatus": "ABNORMAL",
+      "rdStatusLabel": "异常",
+      "reasonCode": "MULTIPLE_ITEM_PLANT_ROWS",
+      "reasonText": "同一品项存在多条 ITEM_PLANT，无法确定适用工厂",
+      "rdLastModifiedAt": null
+    }
+  },
+  {
+    "name": "WRONG_PLANT",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "other-plant",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "NOT_STARTED",
+      "designBomStatusLabel": "未开始",
+      "bomId": null,
+      "bomVersion": null,
+      "bomECode": null,
+      "bomApproveStatus": null,
+      "validBomDetailCount": 0,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "NOT_STARTED",
+      "rdStatusLabel": "未开始",
+      "reasonCode": "NO_BOM",
+      "reasonText": "未建立设计 BOM",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  },
+  {
+    "name": "WRONG_FEATURE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": null,
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": "other-feature",
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "NOT_STARTED",
+      "routingStatusLabel": "未开始",
+      "itemRoutingId": null,
+      "routingCode": null,
+      "routingApproveStatus": null,
+      "validOperationCount": 0,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "WAITING_ROUTING",
+      "rdStatusLabel": "待工艺",
+      "reasonCode": "NO_ROUTING",
+      "reasonText": "尚未建立有效工艺路线",
+      "rdLastModifiedAt": "2026-10-06 10:00:00.000978"
+    }
+  },
+  {
+    "name": "ZERO_GUID_FEATURE",
+    "facts": {
+      "sourceSnapshotAt": "2026-10-06 12:00:00.123456",
+      "orders": [
+        {
+          "order_id": "order-1",
+          "order_no": "SO-1",
+          "order_line_id": "line-1",
+          "line_number": 1,
+          "item_id": "item-1",
+          "item_feature_id": "00000000-0000-0000-0000-000000000000",
+          "item_code": "ITEM-1",
+          "item_name": "物料",
+          "item_specification": "",
+          "quantity": "1.00000000",
+          "customer_id": null,
+          "customer_code": "C1",
+          "customer_name": "客户",
+          "order_date": null,
+          "order_created_at": null,
+          "order_last_modified_at": null
+        }
+      ],
+      "plants": [
+        {
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_property": "M",
+          "item_routing_control": "1",
+          "standard_routing_id": null
+        }
+      ],
+      "boms": [
+        {
+          "bom_id": "bom-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "version_times": "0000",
+          "e_code": "P",
+          "approve_status": "Y",
+          "created_at": "2026-10-04 12:00:00.000111",
+          "last_modified_at": null,
+          "details": [
+            {
+              "bom_detail_id": "bd-1",
+              "approve_status": "Y",
+              "effective_date": "2026-10-05 12:00:00",
+              "expiry_date": "9998-12-31 00:00:00",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 10:00:00.000978"
+            }
+          ]
+        }
+      ],
+      "routings": [
+        {
+          "routing_id": "route-1",
+          "item_id": "item-1",
+          "owner_org_id": "plant-1",
+          "item_feature_id": null,
+          "routing_code": "1000000",
+          "approve_status": "Y",
+          "created_at": null,
+          "last_modified_at": null,
+          "details": [
+            {
+              "routing_detail_id": "rd-1",
+              "approve_status": "Y",
+              "operation_id": "operation-1",
+              "operation_exists": true,
+              "operation_seq": "1",
+              "created_at": null,
+              "last_modified_at": "2026-10-06 11:00:00.000978"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "orderId": "order-1",
+      "orderNo": "SO-1",
+      "orderLineId": "line-1",
+      "lineNumber": 1,
+      "customerId": null,
+      "customerCode": "C1",
+      "customer": "客户",
+      "orderDate": null,
+      "orderCreatedAt": null,
+      "orderLastModifiedAt": null,
+      "itemId": "item-1",
+      "itemCode": "ITEM-1",
+      "itemName": "物料",
+      "itemSpecification": null,
+      "itemFeatureId": null,
+      "quantity": "1.00000000",
+      "itemProperty": "M",
+      "itemRoutingControl": "1",
+      "standardRoutingId": null,
+      "designBomStatus": "COMPLETE",
+      "designBomStatusLabel": "完成",
+      "bomId": "bom-1",
+      "bomVersion": "0000",
+      "bomECode": "P",
+      "bomApproveStatus": "Y",
+      "validBomDetailCount": 1,
+      "routingStatus": "COMPLETE",
+      "routingStatusLabel": "完成",
+      "itemRoutingId": "route-1",
+      "routingCode": "1000000",
+      "routingApproveStatus": "Y",
+      "validOperationCount": 1,
+      "routingSource": "ITEM_PLANT_MATCH",
+      "rdStatus": "COMPLETE",
+      "rdStatusLabel": "研发完成",
+      "reasonCode": "RD_COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "rdLastModifiedAt": "2026-10-06 11:00:00.000978"
+    }
+  }
+]

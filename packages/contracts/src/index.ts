@@ -1,3 +1,5 @@
+import { pmcRdProgressFields } from "./pmc-rd-progress";
+export { pmcRdProgressFields } from "./pmc-rd-progress";
 import { standardProcesses } from "@tracker/shared";
 
 /** 设备状态填报日期窗口：含上海当天在内的连续自然日数量。 */
@@ -14,6 +16,7 @@ export const tablePermissionActionLabels: Record<TablePermissionAction, string> 
 
 /** 资源可以声明业务化的操作名称，但仍复用同一组 read/update 权限动作。 */
 export const tableResourcePermissionActionLabels: Partial<Record<string, Partial<Record<TablePermissionAction, string>>>> = {
+  "pmc-rd-progress": { read: "查看研发进度报表" },
   "rd-material-duplicates": {
     read: "一物多码查询",
     update: "一物多码全量计算"
@@ -110,6 +113,7 @@ export const supervisionProgressUpdateTypeOptions = [
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
+  { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
@@ -224,6 +228,7 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
     ["remark", "备注", "text", false], ["isGroupItem", "归类品", "boolean", false], ["sourceCreatedAt", "创建日期", "datetime", false],
@@ -804,6 +809,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   organization: { status: "REGISTERED_AND_FILTERABLE" },
   contacts: { status: "REGISTERED_AND_FILTERABLE" },
   "api-keys": { status: "REGISTERED_AND_FILTERABLE" },
+  "pmc-rd-progress": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-items": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" }
 };

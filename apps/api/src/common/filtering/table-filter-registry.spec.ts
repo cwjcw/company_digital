@@ -7,6 +7,7 @@ import { SupplyChainFilterSourceProvider } from "../../modules/supply-chain/supp
 import { AuditFilterSourceProvider } from "../../modules/audit/audit.filter-sources";
 import { MarketingFilterSourceProvider } from "../../modules/marketing/marketing.filter-sources";
 import { SupervisionFilterSourceProvider } from "../../modules/supervision/supervision.filter-sources";
+import { PmcRdProgressFilterSources } from "../../modules/pmc-rd-progress/pmc-rd-progress.filter-sources";
 import { RdFilterSourceProvider } from "../../modules/rd/rd.filter-sources";
 import { SystemFilterSourceProvider } from "./system-filter-sources";
 
@@ -28,6 +29,7 @@ function buildRegistry() {
   } as never).onModuleInit();
   new SupervisionFilterSourceProvider(registry, {} as never).onModuleInit();
   new RdFilterSourceProvider(registry).onModuleInit();
+  new PmcRdProgressFilterSources(registry, {} as never).onModuleInit();
   return registry;
 }
 

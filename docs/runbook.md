@@ -125,3 +125,7 @@ The importer maps workbook “研发” to the stable “研发中心” organiz
 ## 2026-09-10 T+ 供应商清单交付核验
 
 上线前备份标记为 20260910_165357；legacy、KDOS、uploads 的 SHA256 分别为 `a10d89ac18e0d89a27aa7dd42f0bd7dbd161cfcbcfcc8214e8cc52883a899d8d`、`7c98818e889236311c62555a83eef95cacc55a6c87321d7129fcadc1d8563a51`、`089222cfad078dc359b16a61911385c71a334fea89919de2906e350e3054e533`。TypeORM 迁移 `SupplyChainSuppliers1722920046000` 已应用；T+ 只读提取共876条，Application Command 首次新增876条，再次重放命中幂等且未新增审计。正式库为凯南智能552条（启用549、停用3）、科加智能324条（全部启用），来源主键重复0、空编码/名称0、创建人缺失0；逐行新增审计876条、批次审计1条。线上默认分页返回50/876，停用筛选返回3条，未认证接口返回401，Web产物包含“供应链/供应商清单”，Web、API、Swagger、OpenAPI、PostgreSQL健康检查通过。
+
+## PMC研发进度 Phase 4
+
+先备份并在隔离库验证 `PmcRdProgress1722920082000`，确认E10源SQL、candidate count和源库sourceSnapshotAt，再应用迁移/构建部署。正式FULL/INCREMENTAL使用内部API或同一Application Command的 `data-operations/e10/run-pmc-rd-progress-sync.cjs` 管理员CLI；生产不调用Python Oracle。用私有捕获事实跑离线逐行Oracle对比，核验最新批次、status/KPI/分页、401权限和两租户RLS。遗留RUNNING由下次持session锁的同步恢复为FAILED；审计缺失、SQL/连接或事务错误均整批失败且水位不变。没有自动定时器，BOM/路线无审计硬删除通过人工FULL校正。详情见 [PMC研发进度运行说明](pmc-rd-progress.md)。

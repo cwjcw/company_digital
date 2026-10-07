@@ -124,3 +124,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 销售接单明细读取必须使用 `rolling-plan` 自身的数据权限。该资源具有可读的 `ALL` 数据范围时，即使成员没有旧版 `divisions` 声明，也必须返回全部授权数据；公司驾驶舱的 `sales-summary-dashboard` 范围不能串授给销售接单明细，反之亦然。
 
 设备状态填报“导出模板”下载空白xlsx（含填写说明、文本格式设备编号）。模板接口允许当前用户具备该表 create、import 或 export 任一权限；不包含现有业务记录。正式导入仍单独要求 import 权限，数据导出仍要求 export 权限。
+
+## PMC研发进度 E10同步
+
+新增 `/api/v1/internal/pmc/rd-progress/sync`，沿用 `x-kdos-internal-token`（KDOS_RD_INTERNAL_TOKEN）与 `x-kdos-tenant-id`，请求必须显式指定FULL/INCREMENTAL。SQL Server adapter只读并复用basic_code凭据，Python仅作为驱动，业务状态由TypeScript Calculator计算。包括BOM/路线及标准路线引用者的影响集合，订单候选日期独立自2026-09-01，水位保持微秒文本与源UUID。整批成功后才提交水位，源删除保留软失效快照，不重写现有主订单/rd业务。详见 [研发进度模型、API与验证](pmc-rd-progress.md)。

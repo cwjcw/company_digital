@@ -39,6 +39,7 @@ import { AuditFilterSourceProvider } from "./modules/audit/audit.filter-sources"
 import { SystemFilterSourceProvider } from "./common/filtering/system-filter-sources";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { SupervisionModule } from "./modules/supervision/supervision.module";
+import { PmcRdProgressModule } from "./modules/pmc-rd-progress/pmc-rd-progress.module";
 import { RdModule } from "./modules/rd/rd.module";
 
 @Module({
@@ -63,6 +64,7 @@ import { RdModule } from "./modules/rd/rd.module";
     NotificationsModule,
     SupervisionModule,
     RdModule,
+    PmcRdProgressModule,
     TableFilterModule
   ],
   controllers: [

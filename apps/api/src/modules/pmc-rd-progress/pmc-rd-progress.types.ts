@@ -1,0 +1,20 @@
+export const rdStatuses = ['NOT_APPLICABLE','NOT_STARTED','DESIGN_IN_PROGRESS','WAITING_ROUTING','ROUTING_IN_PROGRESS','COMPLETE','ABNORMAL'] as const;
+export type RdStatus = typeof rdStatuses[number];
+export type ComponentStatus = 'NOT_APPLICABLE' | 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE' | 'ABNORMAL';
+export type Cursor = { at: string; id: string };
+export type Watermark = { snapshotAt: string; sources: Record<string, Cursor | null> };
+export type Fact = Record<string, string | number | boolean | null>;
+export type BomDetail = { bom_detail_id: string; approve_status: string | null; effective_date: string | null; expiry_date: string | null; created_at: string | null; last_modified_at: string | null };
+export type Bom = { bom_id: string; item_id: string; owner_org_id: string | null; version_times: string | null; e_code: string | null; approve_status: string | null; created_at: string | null; last_modified_at: string | null; details: BomDetail[] };
+export type RoutingDetail = { routing_detail_id: string; approve_status: string | null; operation_id: string | null; operation_exists: boolean; created_at: string | null; last_modified_at: string | null };
+export type Routing = { routing_id: string; item_id: string; owner_org_id: string | null; item_feature_id: string | null; routing_code: string | null; approve_status: string | null; created_at: string | null; last_modified_at: string | null; details: RoutingDetail[] };
+export type SourceBundle = { sourceSnapshotAt: string; consistency: 'READ_COMMITTED_CAPTURE'; watermark: Watermark; candidateLineIds: string[]; affectedItemIds: string[]; affectedOrderIds: string[]; orders: Fact[]; plants: Fact[]; boms: Bom[]; routings: Routing[] };
+export type ProgressItem = Record<string, string | number | boolean | null> & { sourceOrderLineId: string; sourceOrderId: string; rdStatus: RdStatus; designBomStatus: ComponentStatus; routingStatus: ComponentStatus; reasonCode: string; reasonText: string };
+export type ProgressActor = { tenantId: string; userId: string | null; username: string; permissions: string[]; moduleAdminCodes?: string[]; isSystemAdmin?: boolean; tableDataScopes: Array<{ resource: string; scope: string; match?: string; actions?: string[]; rules?: Array<{fieldKey?: string;operator?: string;value?: unknown}> }>; requestId: string; source: 'web' | 'system' };
+export const resourceCode = 'pmc-rd-progress';
+export const isAdmin = (actor: ProgressActor) => actor.isSystemAdmin === true || actor.permissions.includes('*') || actor.moduleAdminCodes?.includes('planning') === true;
+export const canRead = (actor: ProgressActor, field?: string) => isAdmin(actor) || actor.permissions.includes(`${resourceCode}:${field ?? '*'}:read`);
+export const guid = (value: unknown): string | null => { const text = String(value ?? '').trim().toLowerCase(); return !text || text === '00000000-0000-0000-0000-000000000000' ? null : text; };
+/** E10 wall clock stays as sortable microsecond text (never a JS Date). */
+export const timestamp = (value: unknown): string | null => { if (value == null || value === '') return null; const match = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d{1,7}))?$/.exec(String(value)); if (!match) throw new Error('无效的E10源时间'); return `${match[1]} ${match[2]}.${(match[3] ?? '').padEnd(6,'0').slice(0,6)}`; };
+export const sourceInstant = (value: unknown) => { const at = timestamp(value); return at ? at.replace(' ','T') + '+08:00' : null; };
