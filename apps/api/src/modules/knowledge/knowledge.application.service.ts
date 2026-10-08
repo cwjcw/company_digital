@@ -1,232 +1,1224 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import { Interval } from "@nestjs/schedule";
 import { createHash } from "node:crypto";
 import { v7 as uuidv7 } from "uuid";
-import sharp from "sharp";
 import type { EntityManager } from "typeorm";
-import type { KnowledgeArticleInput, KnowledgeVisibility } from "@kdos/contracts";
+import type { KnowledgeAccessEntry, KnowledgePageInput } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
-import { OBJECT_STORAGE, type ObjectStorage } from "../../storage/object-storage";
-import { KnowledgeAccessService, assertKnowledgeAction, assertKnowledgeFields, knowledgeDataScope } from "./knowledge.scope";
-import { canonicalKnowledgeContent, knowledgeId, knowledgeIds, knowledgeTags, knowledgeText, knowledgeVisibility } from "./knowledge.content";
-import { articleColumns, type KnowledgeActor, type KnowledgeRow } from "./knowledge.types";
+import {
+  OBJECT_STORAGE,
+  type ObjectStorage,
+} from "../../storage/object-storage";
+import {
+  KnowledgeAuthorizationService,
+  knowledgeAdministrator,
+  assertKnowledgeAction,
+  assertKnowledgeFields,
+  knowledgeDataScope,
+} from "./knowledge.scope";
+import {
+  canonicalKnowledgeContent,
+  knowledgeId,
+  knowledgeTags,
+  knowledgeText,
+} from "./knowledge.content";
+import { knowledgeFile } from "./knowledge.file";
+import {
+  publishedJoin,
+  type KnowledgeActor,
+  type KnowledgeMode,
+  type KnowledgeRow,
+} from "./knowledge.types";
 
-const articleFields = ["title", "summary", "categoryId", "content", "tags", "visibility", "attachmentIds"];
-const categoryFields = ["name", "description", "sortOrder", "enabled"];
+const pageFields = ["title", "content", "tags", "sortOrder"];
+const spaceFields = [
+  "code",
+  "name",
+  "description",
+  "icon",
+  "sortOrder",
+  "status",
+];
 @Injectable()
 export class KnowledgeApplicationService {
   private readonly logger = new Logger(KnowledgeApplicationService.name);
-  constructor(private readonly access: KnowledgeAccessService, @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage) {}
-  createCategory(input: Record<string, unknown>, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-categories", "create"); this.keys(input, [...categoryFields, "parentId"]);
-    return this.command(actor, async (manager) => {
-      const parentId = knowledgeId(input.parentId); const parent = await this.lockCategory(manager, parentId, actor, "read");
-      if (parent.level !== 1 || !parent.enabled) throw new BadRequestException("只能在启用的一级分类下新增二级分类");
-      const value = this.categoryInput(input); const id = uuidv7();
-      await manager.query(`INSERT INTO knowledge_categories(id,tenant_id,parent_id,level,code,name,description,sort_order,enabled,created_by,updated_by) VALUES($1,$2,$3,2,$4,$5,$6,$7,$8,$9::uuid,$9::text)`, [id, actor.tenantId, parentId, `CAT-${id}`, value.name, value.description, value.sortOrder, value.enabled, actor.userId]);
-      await this.assertCategoryScope(manager, id, actor, "create");
-      await this.audit(manager, actor, "knowledge-categories", id, "category.created", null, value); return { id, version: 1 };
+  constructor(
+    private readonly access: KnowledgeAuthorizationService,
+    @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
+  ) {}
+  command<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>) {
+    return this.access
+      .transaction(actor, async (m) => {
+        await m.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+          `knowledge-tree:${actor.tenantId}`,
+        ]);
+        return work(m);
+      })
+      .catch((e: { code?: string }) => {
+        if (e.code === "23505")
+          throw new BadRequestException("知识空间编码、页面路径或标签重复");
+        if (["23503", "23514", "22P02"].includes(e.code ?? ""))
+          throw new BadRequestException("知识库关联或树结构无效");
+        throw e;
+      });
+  }
+  createSpace(input: Record<string, unknown>, actor: KnowledgeActor) {
+    assertKnowledgeAction(actor, "knowledge-spaces", "create");
+    this.keys(input, spaceFields);
+    assertKnowledgeFields(actor, "knowledge-spaces", Object.keys(input));
+    return this.command(actor, async (m) => {
+      const id = uuidv7(),
+        code = knowledgeText(input.code, "空间编码", 64, true),
+        name = knowledgeText(input.name, "空间名称", 100, true);
+      if (!/^[A-Za-z0-9_-]+$/.test(code))
+        throw new BadRequestException(
+          "空间编码仅使用英文字母、数字、下划线和连字符",
+        );
+      await m.query(
+        `INSERT INTO knowledge_spaces(id,tenant_id,code,name,description,icon,sort_order,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::text)`,
+        [
+          id,
+          actor.tenantId,
+          code,
+          name,
+          knowledgeText(input.description, "说明", 2000),
+          knowledgeText(input.icon ?? "book", "图标", 50),
+          this.sort(input.sortOrder),
+          actor.userId,
+        ],
+      );
+      // The creator can manage the new space; this does not grant platform actions.
+      if (actor.userId)
+        await m.query(
+          `INSERT INTO knowledge_space_access(tenant_id,space_id,subject_type,subject_id,access_level,created_by,updated_by) VALUES($1,$2,'USER',$3::uuid,'FULL_ACCESS',$3::uuid,$3::text)`,
+          [actor.tenantId, id, actor.userId],
+        );
+      const params: unknown[] = [actor.tenantId, id];
+      const scope = knowledgeDataScope(
+        actor,
+        "knowledge-spaces",
+        "create",
+        params,
+      );
+      if (
+        !(
+          await m.query(
+            `SELECT 1 FROM knowledge_spaces record WHERE tenant_id=$1 AND id=$2 AND (${scope})`,
+            params,
+          )
+        ).length
+      )
+        throw new BadRequestException("新空间不在授权数据范围内");
+      await this.audit(m, actor, "knowledge-spaces", id, "space.created", {
+        code,
+        name,
+      });
+      return { id, version: 1 };
     });
   }
-  updateCategory(id: string, input: Record<string, unknown>, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-categories", "update"); this.keys(input, [...categoryFields, "expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockCategory(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-      const changed = categoryFields.filter((key) => key in input); assertKnowledgeFields(actor, "knowledge-categories", changed);
-      const value = this.categoryInput({ name: row.name, description: row.description, sortOrder: row.sort_order, enabled: row.enabled, ...input });
-      await manager.query(`UPDATE knowledge_categories SET name=$3,description=$4,sort_order=$5,enabled=$6,version=version+1,updated_by=$7,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, value.name, value.description, value.sortOrder, value.enabled, actor.userId]);
-      await this.assertCategoryScope(manager, id, actor, "update");
-      await this.audit(manager, actor, "knowledge-categories", id, value.enabled !== row.enabled ? "category.enabled_changed" : "category.updated", { name: row.name, enabled: row.enabled, version: row.version }, value); return { id, version: row.version + 1 };
-    });
-  }
-  deleteCategory(id: string, input: { expectedVersion?: unknown }, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-categories", "delete");
-    this.keys(input, ["expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockCategory(manager, id, actor, "delete"); this.version(row.version, input.expectedVersion);
-      const used = await manager.query(`SELECT 1 FROM knowledge_categories WHERE tenant_id=$1 AND parent_id=$2 UNION ALL SELECT 1 FROM knowledge_articles WHERE tenant_id=$1 AND category_id=$2 UNION ALL SELECT 1 FROM knowledge_article_versions WHERE tenant_id=$1 AND category_id=$2 LIMIT 1`, [actor.tenantId, id]);
-      if (used.length || row.level === 1) throw new BadRequestException("一级分类或已使用分类不能删除，请停用");
-      await manager.query(`DELETE FROM knowledge_categories WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id]); await this.audit(manager, actor, "knowledge-categories", id, "category.deleted", { name: row.name }, null); return { id };
-    });
-  }
-  createArticle(input: KnowledgeArticleInput, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "create"); this.keys(input, articleFields);
-    return this.command(actor, async (manager) => {
-      const id = uuidv7(); const value = await this.articleInput(manager, id, input, actor);
-      if (value.attachmentIds.length) throw new BadRequestException("请先保存草稿再上传附件");
-      await manager.query(`INSERT INTO knowledge_articles(id,tenant_id,category_id,title,summary,content,content_text,content_hash,search_text,visibility,attachment_ids,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12::uuid,$12::text)`, [id, actor.tenantId, value.categoryId, value.title, value.summary, JSON.stringify(value.content), value.contentText, value.contentHash, value.searchText, JSON.stringify(value.visibility), "[]", actor.userId]);
-      await this.tags(manager, id, value.tags, actor); await this.lockArticle(manager, id, actor, "create");
-      await this.audit(manager, actor, "knowledge-articles", id, "article.created", null, this.summary(value)); return { id, version: 1 };
-    });
-  }
-  updateArticle(id: string, input: Partial<KnowledgeArticleInput>, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "update"); this.keys(input, [...articleFields, "expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockArticle(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-      const fields = articleFields.filter((key) => key in input); assertKnowledgeFields(actor, "knowledge-articles", fields);
-      const oldTags = await this.tagNames(manager, id, actor);
-      const value = await this.articleInput(manager, id, { ...this.workingInput(row), tags: oldTags, ...input } as KnowledgeArticleInput, actor);
-      await manager.query(`UPDATE knowledge_articles SET category_id=$3,title=$4,summary=$5,content=$6::jsonb,content_text=$7,content_hash=$8,search_text=$9,visibility=$10::jsonb,attachment_ids=$11::jsonb,version=version+1,working_revision=working_revision+1,updated_by=$12,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, value.categoryId, value.title, value.summary, JSON.stringify(value.content), value.contentText, value.contentHash, value.searchText, JSON.stringify(value.visibility), JSON.stringify(value.attachmentIds), actor.userId]);
-      await this.tags(manager, id, value.tags, actor); await this.lockArticle(manager, id, actor, "update");
-      const before = { title: row.title, contentHash: row.content_hash, version: row.version, status: row.status, workingRevision: row.working_revision };
-      await this.audit(manager, actor, "knowledge-articles", id, "article.working_copy_updated", before, { ...this.summary(value), version: row.version + 1, changedFields: fields });
-      if (fields.includes("visibility")) await this.audit(manager, actor, "knowledge-articles", id, "article.visibility_updated", row.visibility, value.visibility);
+  updateSpace(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
+    this.keys(input, [...spaceFields, "expectedVersion"]);
+    assertKnowledgeFields(
+      actor,
+      "knowledge-spaces",
+      Object.keys(input).filter((k) => k !== "expectedVersion"),
+    );
+    return this.command(actor, async (m) => {
+      const row = await this.lockSpace(m, id, actor, "update", 3);
+      this.version(row.version, input.expectedVersion);
+      const merged = {
+        ...Object.fromEntries(
+          spaceFields.map((k) => [
+            k,
+            k === "sortOrder" ? row.sort_order : row[k],
+          ]),
+        ),
+        ...input,
+      };
+      const code = knowledgeText(merged.code, "空间编码", 64, true);
+      if (!/^[A-Za-z0-9_-]+$/.test(code))
+        throw new BadRequestException("空间编码无效");
+      const status = merged.status;
+      if (!["ACTIVE", "ARCHIVED"].includes(String(status)))
+        throw new BadRequestException("空间状态无效");
+      await m.query(
+        `UPDATE knowledge_spaces SET code=$3,name=$4,description=$5,icon=$6,sort_order=$7,status=$8,version=version+1,updated_by=$9,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [
+          actor.tenantId,
+          id,
+          code,
+          knowledgeText(merged.name, "空间名称", 100, true),
+          knowledgeText(merged.description, "说明", 2000),
+          knowledgeText(merged.icon, "图标", 50),
+          this.sort(merged.sortOrder),
+          status,
+          actor.userId,
+        ],
+      );
+      if ("name" in input) await this.rebuildSearch(m, actor, undefined, id);
+      await this.audit(m, actor, "knowledge-spaces", id, "space.updated", {
+        changedFields: Object.keys(input).filter(
+          (k) => k !== "expectedVersion",
+        ),
+        status,
+      });
       return { id, version: row.version + 1 };
     });
   }
-  publish(id: string, input: { expectedVersion?: unknown }, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "update"); assertKnowledgeFields(actor, "knowledge-articles", ["status"]);
-    assertKnowledgeFields(actor, "knowledge-articles", articleFields, "read");
+  archiveSpace(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
     this.keys(input, ["expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockArticle(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-      const value = await this.articleInput(manager, id, { ...this.workingInput(row), tags: await this.tagNames(manager, id, actor) }, actor);
-      if (!value.contentText) throw new BadRequestException("发布前请填写正文");
-      if (row.status === "PUBLISHED") {
-        const [previous] = await manager.query(`SELECT working_revision FROM knowledge_article_versions WHERE tenant_id=$1 AND article_id=$2 AND version_no=$3`, [actor.tenantId, id, row.published_version]);
-        if (previous?.working_revision === row.working_revision) throw new BadRequestException("工作副本未变化，无需重新发布");
+    assertKnowledgeFields(actor, "knowledge-spaces", ["status"]);
+    return this.command(actor, async (m) => {
+      const row = await this.lockSpace(m, id, actor, "delete", 3);
+      this.version(row.version, input.expectedVersion);
+      await m.query(
+        "UPDATE knowledge_spaces SET status='ARCHIVED',version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+        [actor.tenantId, id, actor.userId],
+      );
+      await this.audit(m, actor, "knowledge-spaces", id, "space.archived", {
+        retainedPages: true,
+      });
+      return { id, version: row.version + 1, status: "ARCHIVED" };
+    });
+  }
+  setAccess(
+    kind: "space" | "page",
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
+    this.keys(input, ["entries", "restricted", "expectedVersion"]);
+    const resource = kind === "space" ? "knowledge-spaces" : "knowledge-pages";
+    assertKnowledgeFields(actor, resource, ["access"]);
+    return this.command(actor, async (m) => {
+      const row =
+        kind === "space"
+          ? await this.lockSpace(m, id, actor, "update", 3)
+          : await this.lockPage(m, id, actor, "update", 3);
+      this.version(row.version, input.expectedVersion);
+      const entries = await this.accessEntries(m, input.entries);
+      if (kind === "page" && typeof input.restricted !== "boolean")
+        throw new BadRequestException("请指定继承或限制页面权限");
+      const table =
+          kind === "space" ? "knowledge_space_access" : "knowledge_page_access",
+        column = kind === "space" ? "space_id" : "page_id";
+      await m.query(
+        `DELETE FROM ${table} WHERE tenant_id=$1 AND ${column}=$2`,
+        [actor.tenantId, id],
+      );
+      if (kind === "space" || input.restricted)
+        for (const e of entries)
+          await m.query(
+            `INSERT INTO ${table}(tenant_id,${column},subject_type,subject_id,access_level,created_by,updated_by) VALUES($1,$2,$3,$4::uuid,$5,$6::uuid,$6::text)`,
+            [
+              actor.tenantId,
+              id,
+              e.subjectType,
+              e.subjectId,
+              e.accessLevel,
+              actor.userId,
+            ],
+          );
+      await m.query(
+        `UPDATE ${kind === "space" ? "knowledge_spaces" : "knowledge_pages"} SET ${kind === "page" ? "access_restricted=$4," : ""}version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        kind === "space"
+          ? [actor.tenantId, id, actor.userId]
+          : [actor.tenantId, id, actor.userId, input.restricted],
+      );
+      await this.audit(m, actor, resource, id, `${kind}.access_changed`, {
+        restricted: input.restricted,
+        entries,
+      });
+      return { id, version: row.version + 1 };
+    });
+  }
+  createPage(input: KnowledgePageInput, actor: KnowledgeActor) {
+    return this.command(actor, (m) => this.createPageIn(m, input, actor));
+  }
+  async createPageIn(
+    m: EntityManager,
+    input: KnowledgePageInput,
+    actor: KnowledgeActor,
+    action = "create",
+  ) {
+    assertKnowledgeAction(actor, "knowledge-pages", action);
+    assertKnowledgeFields(actor, "knowledge-pages", [
+      "spaceId",
+      ...Object.keys(input).filter(
+        (k) => pageFields.includes(k) || k === "parentId",
+      ),
+    ]);
+    this.keys(input, ["spaceId", "parentId", ...pageFields]);
+    const space = await this.lockSpace(
+      m,
+      knowledgeId(input.spaceId),
+      actor,
+      "read",
+      2,
+    );
+    if (space.status !== "ACTIVE") throw new BadRequestException("空间已归档");
+    const parentId =
+      input.parentId == null ? null : knowledgeId(input.parentId);
+    if (parentId) {
+      const parent = await this.lockPage(m, parentId, actor, action, 2);
+      if (parent.space_id !== space.id)
+        throw new BadRequestException("父页面必须属于同一空间");
+    }
+    const id = uuidv7(),
+      title = knowledgeText(input.title ?? "未命名页面", "标题", 300, true),
+      canonical = canonicalKnowledgeContent(
+        input.content ?? { type: "doc", content: [] },
+      );
+    if (canonical.imageIds.length)
+      throw new BadRequestException("新页面图片须先上传到该页面");
+    await m.query(
+      `INSERT INTO knowledge_pages(id,tenant_id,space_id,parent_id,title,slug,sort_order,working_content,working_content_text,working_content_hash,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::uuid,$11::text)`,
+      [
+        id,
+        actor.tenantId,
+        space.id,
+        parentId,
+        title,
+        `page-${id}`,
+        this.sort(input.sortOrder),
+        JSON.stringify(canonical.content),
+        canonical.contentText,
+        canonical.contentHash,
+        actor.userId,
+      ],
+    );
+    await this.tags(m, id, knowledgeTags(input.tags ?? []), actor);
+    await this.lockPage(m, id, actor, action, 2);
+    await this.audit(m, actor, "knowledge-pages", id, "page.created", {
+      spaceId: space.id,
+      parentId,
+      title,
+      contentHash: canonical.contentHash,
+    });
+    return { id, version: 1 };
+  }
+  updatePage(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
+    this.keys(input, [...pageFields, "expectedVersion"]);
+    assertKnowledgeFields(
+      actor,
+      "knowledge-pages",
+      Object.keys(input).filter((k) => k !== "expectedVersion"),
+    );
+    return this.command(actor, (m) => this.updatePageIn(m, id, input, actor));
+  }
+  async updatePageIn(
+    m: EntityManager,
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
+    const row = await this.lockPage(m, id, actor, "update", 2);
+    this.version(row.version, input.expectedVersion);
+    const canonical = canonicalKnowledgeContent(
+      input.content ?? row.working_content,
+    );
+    await this.validateImages(m, id, canonical.imageIds, actor);
+    const title = knowledgeText(input.title ?? row.title, "标题", 300, true);
+    const sort =
+      input.sortOrder == null ? row.sort_order : this.sort(input.sortOrder);
+    await m.query(
+      `UPDATE knowledge_pages SET title=$3,sort_order=$4,working_content=$5::jsonb,working_content_text=$6,working_content_hash=$7,version=version+1,updated_by=$8,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+      [
+        actor.tenantId,
+        id,
+        title,
+        sort,
+        JSON.stringify(canonical.content),
+        canonical.contentText,
+        canonical.contentHash,
+        actor.userId,
+      ],
+    );
+    if ("tags" in input)
+      await this.tags(m, id, knowledgeTags(input.tags), actor);
+    await this.lockPage(m, id, actor, "update", 2);
+    await this.audit(m, actor, "knowledge-pages", id, "page.edited", {
+      contentHash: canonical.contentHash,
+      changedFields: Object.keys(input).filter((k) => k !== "expectedVersion"),
+    });
+    return { id, version: row.version + 1 };
+  }
+  publish(id: string, input: Record<string, unknown>, actor: KnowledgeActor) {
+    this.keys(input, ["expectedVersion"]);
+    assertKnowledgeFields(actor, "knowledge-pages", ["status"]);
+    assertKnowledgeFields(
+      actor,
+      "knowledge-pages",
+      ["title", "content", "contentText", "tags", "attachmentIds"],
+      "read",
+    );
+    return this.command(actor, async (m) => {
+      const row = await this.lockPage(m, id, actor, "update", 2);
+      this.version(row.version, input.expectedVersion);
+      const canonical = canonicalKnowledgeContent(row.working_content);
+      await this.validateImages(m, id, canonical.imageIds, actor);
+      const ancestry = await this.access.ancestors(m, id, actor);
+      if (
+        ancestry.some(
+          (p: KnowledgeRow) => p.id !== id && p.status !== "PUBLISHED",
+        )
+      )
+        throw new BadRequestException("请先发布上级页面，再发布子页面");
+      const [space] = await m.query(
+        "SELECT id,name FROM knowledge_spaces WHERE tenant_id=$1 AND id=$2",
+        [actor.tenantId, row.space_id],
+      );
+      const breadcrumb = [
+        { id: space.id, title: space.name },
+        ...ancestry.map((p: KnowledgeRow) => ({
+          id: p.id,
+          title: p.id === id ? row.title : p.published_title,
+        })),
+      ];
+      const grants = await m.query(
+        `SELECT subject_type AS "subjectType",subject_id AS "subjectId",access_level AS "accessLevel" FROM knowledge_space_access WHERE tenant_id=$1 AND space_id=$2`,
+        [actor.tenantId, row.space_id],
+      );
+      const restricted = ancestry
+        .filter((p: KnowledgeRow) => p.access_restricted)
+        .map((p: KnowledgeRow) => p.id);
+      const pageGrants = restricted.length
+        ? await m.query(
+            `SELECT page_id,subject_type AS "subjectType",subject_id AS "subjectId",access_level AS "accessLevel" FROM knowledge_page_access WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])`,
+            [actor.tenantId, restricted],
+          )
+        : [];
+      const snapshot = [
+        grants,
+        ...restricted.map((pageId: string) =>
+          pageGrants
+            .filter((g: KnowledgeRow) => g.page_id === pageId)
+            .map((g: KnowledgeRow) => ({
+              subjectType: g.subjectType,
+              subjectId: g.subjectId,
+              accessLevel: g.accessLevel,
+            })),
+        ),
+      ];
+      const [{ n }] = await m.query(
+        "SELECT COALESCE(max(version_no),0)+1 n FROM knowledge_page_versions WHERE tenant_id=$1 AND page_id=$2",
+        [actor.tenantId, id],
+      );
+      const tags = await this.tagNames(m, id, actor),
+        versionId = uuidv7();
+      const searchText = [
+        row.title,
+        canonical.contentText,
+        ...tags,
+        ...breadcrumb.map((b) => b.title),
+      ].join("\n");
+      await m.query(
+        `INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13::uuid,$13::uuid,$13::text)`,
+        [
+          versionId,
+          actor.tenantId,
+          id,
+          n,
+          row.title,
+          JSON.stringify(canonical.content),
+          canonical.contentText,
+          canonical.contentHash,
+          JSON.stringify(tags),
+          JSON.stringify(breadcrumb),
+          JSON.stringify(snapshot),
+          searchText,
+          actor.userId,
+        ],
+      );
+      await m.query(
+        `INSERT INTO knowledge_page_version_attachments(tenant_id,page_id,version_id,attachment_id,created_by,updated_by) SELECT tenant_id,page_id,$3::uuid,id,$4::uuid,$4::text FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND detached_at IS NULL`,
+        [actor.tenantId, id, versionId, actor.userId],
+      );
+      await m.query(
+        `UPDATE knowledge_pages SET status='PUBLISHED',published_version_id=$3,version=version+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [actor.tenantId, id, versionId, actor.userId],
+      );
+      await this.rebuildSearch(m, actor, id);
+      await this.audit(m, actor, "knowledge-pages", id, "page.published", {
+        versionId,
+        versionNo: n,
+        contentHash: canonical.contentHash,
+      });
+      return {
+        id,
+        version: row.version + 1,
+        publishedVersion: n,
+        publishedVersionId: versionId,
+      };
+    });
+  }
+  move(id: string, input: Record<string, unknown>, actor: KnowledgeActor) {
+    this.keys(input, ["parentId", "spaceId", "sortOrder", "expectedVersion"]);
+    assertKnowledgeFields(actor, "knowledge-pages", [
+      "parentId",
+      "spaceId",
+      "sortOrder",
+    ]);
+    return this.command(actor, async (m) => {
+      const row = await this.lockPage(m, id, actor, "update", 2);
+      this.version(row.version, input.expectedVersion);
+      const spaceId =
+          input.spaceId == null ? row.space_id : knowledgeId(input.spaceId),
+        parentId = input.parentId == null ? null : knowledgeId(input.parentId);
+      if (parentId === id)
+        throw new BadRequestException("不能将页面移到自己下面");
+      const descendants = await this.descendants(m, id, actor),
+        ids = descendants.map((r: KnowledgeRow) => r.id);
+      if (parentId && ids.includes(parentId))
+        throw new BadRequestException("不能将页面移到自己的后代下面");
+      const destination = await this.lockSpace(m, spaceId, actor, "read", 2);
+      if (destination.status !== "ACTIVE")
+        throw new BadRequestException("目标空间已归档");
+      if (parentId) {
+        const parent = await this.lockPage(m, parentId, actor, "create", 2);
+        if (parent.space_id !== spaceId)
+          throw new BadRequestException("目标父页面不属于目标空间");
       }
-      const number = Number(row.published_version ?? 0) + 1; const versionId = uuidv7();
-      const [category] = await manager.query(`SELECT child.name,COALESCE(parent.name,child.name) root FROM knowledge_categories child LEFT JOIN knowledge_categories parent ON parent.tenant_id=child.tenant_id AND parent.id=child.parent_id WHERE child.tenant_id=$1 AND child.id=$2`, [actor.tenantId, value.categoryId]);
-      await manager.query(`INSERT INTO knowledge_article_versions(id,tenant_id,article_id,version_no,working_revision,category_id,category_name,root_category_name,title,summary,content,content_text,content_hash,search_text,tags,visibility,published_by,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15::jsonb,$16::jsonb,$17::uuid,$17::uuid,$17::text)`, [versionId, actor.tenantId, id, number, row.working_revision, value.categoryId, category.name, category.root, value.title, value.summary, JSON.stringify(value.content), value.contentText, value.contentHash, value.searchText, JSON.stringify(value.tags), JSON.stringify(value.visibility), actor.userId]);
-      for (const attachmentId of value.attachmentIds) await manager.query(`INSERT INTO knowledge_version_attachments(tenant_id,article_id,version_id,attachment_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5::uuid,$5::text)`, [actor.tenantId, id, versionId, attachmentId, actor.userId]);
-      await manager.query(`UPDATE knowledge_articles SET status='PUBLISHED',published_version=$3,published_by=$4::uuid,published_at=now(),version=version+1,updated_by=$4::text,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, number, actor.userId]);
-      await this.audit(manager, actor, "knowledge-articles", id, number === 1 ? "article.published" : "article.republished", { status: row.status, publishedVersion: row.published_version }, { ...this.summary(value), publishedVersion: number, versionId });
-      return { id, version: row.version + 1, publishedVersion: number };
+      const sourceParams: unknown[] = [actor.tenantId, ids],
+        sourceScope = await this.access.clause(
+          actor,
+          sourceParams,
+          "working",
+          "update",
+          2,
+          m,
+        );
+      if (
+        (
+          await m.query(
+            `SELECT record.id FROM knowledge_pages record ${publishedJoin} WHERE record.id=ANY($2::uuid[]) AND (${sourceScope})`,
+            sourceParams,
+          )
+        ).length !== ids.length
+      )
+        throw new BadRequestException("移动需要整个子树的编辑权限");
+      if (spaceId !== row.space_id) {
+        assertKnowledgeAction(actor, "knowledge-pages", "create");
+        const params: unknown[] = [actor.tenantId, ids];
+        const allowed = await this.access.clause(
+          actor,
+          params,
+          "working",
+          "update",
+          3,
+          m,
+        );
+        const visible = await m.query(
+          `SELECT record.id FROM knowledge_pages record ${publishedJoin} WHERE record.id=ANY($2::uuid[]) AND (${allowed})`,
+          params,
+        );
+        if (visible.length !== ids.length)
+          throw new BadRequestException("跨空间移动需要整个子树的完全管理权限");
+        await this.lockSpace(m, spaceId, actor, "read", 3);
+      }
+      await m.query(
+        `UPDATE knowledge_pages SET parent_id=$3,sort_order=$4,version=version+1,updated_by=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [
+          actor.tenantId,
+          id,
+          parentId,
+          this.sort(input.sortOrder ?? row.sort_order),
+          actor.userId,
+        ],
+      );
+      if (spaceId !== row.space_id)
+        await m.query(
+          `UPDATE knowledge_pages SET space_id=$3,version=version+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
+          [actor.tenantId, ids, spaceId, actor.userId],
+        );
+      await this.lockPage(m, id, actor, "update", 2);
+      // Enforce destination platform scopes for the whole moved subtree, not just the root.
+      if (spaceId !== row.space_id) {
+        const params: unknown[] = [actor.tenantId, ids];
+        const scope = await this.access.clause(
+          actor,
+          params,
+          "working",
+          "create",
+          2,
+          m,
+        );
+        if (
+          (
+            await m.query(
+              `SELECT record.id FROM knowledge_pages record ${publishedJoin} WHERE record.id=ANY($2::uuid[]) AND (${scope})`,
+              params,
+            )
+          ).length !== ids.length
+        )
+          throw new BadRequestException("目标子树不在授权数据范围内");
+      }
+      await this.rebuildSearch(m, actor, id);
+      await this.audit(m, actor, "knowledge-pages", id, "page.moved", {
+        fromSpaceId: row.space_id,
+        toSpaceId: spaceId,
+        parentId,
+        affectedCount: ids.length,
+      });
+      return {
+        id,
+        version: row.version + 1 + (spaceId !== row.space_id ? 1 : 0),
+      };
     });
   }
-  disable(id: string, input: { expectedVersion?: unknown }, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "update"); assertKnowledgeFields(actor, "knowledge-articles", ["status"]);
+  transition(
+    id: string,
+    kind: "archive" | "unarchive" | "trash" | "restore",
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
     this.keys(input, ["expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockArticle(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-      if (row.status !== "PUBLISHED") throw new BadRequestException("只有已发布文章可以停用");
-      await manager.query(`UPDATE knowledge_articles SET status='DISABLED',version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, actor.userId]);
-      await this.audit(manager, actor, "knowledge-articles", id, "article.disabled", { status: row.status }, { status: "DISABLED", version: row.version + 1 }); return { id, version: row.version + 1 };
+    const action = kind === "trash" ? "delete" : "update";
+    assertKnowledgeFields(actor, "knowledge-pages", ["status"]);
+    return this.command(actor, async (m) => {
+      const mode = kind === "restore" ? "trash" : "working";
+      const row = await this.lockPage(m, id, actor, action, 3, mode);
+      this.version(row.version, input.expectedVersion);
+      if (kind === "unarchive" && row.status !== "ARCHIVED")
+        throw new BadRequestException("仅归档页面可以恢复发布状态");
+      const descendants = await this.descendants(m, id, actor);
+      // Restore only nodes trashed by this batch; earlier separately trashed children stay in Trash.
+      const targets =
+        kind === "restore"
+          ? descendants.filter(
+              (r: KnowledgeRow) =>
+                r.status === "TRASHED" &&
+                r.trash_batch_id === row.trash_batch_id,
+            )
+          : descendants.filter((r: KnowledgeRow) => r.status !== "TRASHED");
+      const ids = targets.map((r: KnowledgeRow) => r.id),
+        params: unknown[] = [actor.tenantId, ids];
+      const scope = await this.access.clause(actor, params, mode, action, 3, m);
+      const allowed = await m.query(
+        `SELECT record.id FROM knowledge_pages record ${publishedJoin} WHERE record.id=ANY($2::uuid[]) AND (${scope})`,
+        params,
+      );
+      if (allowed.length !== targets.length)
+        throw new BadRequestException("操作需要整个受影响子树的完全管理权限");
+      if (
+        kind === "archive" &&
+        targets.some((r: KnowledgeRow) => r.status !== "PUBLISHED")
+      )
+        throw new BadRequestException(
+          "仅已发布的完整子树可以归档，请先发布草稿",
+        );
+      if ((kind === "restore" || kind === "unarchive") && row.parent_id) {
+        const parent = await this.lockPage(
+          m,
+          row.parent_id,
+          actor,
+          "update",
+          3,
+        );
+        if (kind === "unarchive" && parent.status !== "PUBLISHED")
+          throw new BadRequestException("请先恢复上级页面的发布状态");
+      }
+      const state =
+        kind === "archive"
+          ? "status='ARCHIVED'"
+          : kind === "unarchive"
+            ? "status=CASE WHEN status='ARCHIVED' THEN 'PUBLISHED' ELSE status END"
+            : kind === "trash"
+              ? "status_before_trash=status,status='TRASHED',trashed_at=now(),trash_batch_id=$4::uuid"
+              : "status=COALESCE(status_before_trash,'DRAFT'),status_before_trash=NULL,trashed_at=NULL,trash_batch_id=NULL";
+      await m.query(
+        `UPDATE knowledge_pages SET ${state},version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
+        kind === "trash"
+          ? [actor.tenantId, ids, actor.userId, uuidv7()]
+          : [actor.tenantId, ids, actor.userId],
+      );
+      await this.audit(m, actor, "knowledge-pages", id, `page.${kind}`, {
+        affectedCount: targets.length,
+      });
+      return { id, version: row.version + 1 };
     });
   }
-  deleteArticle(id: string, input: { expectedVersion?: unknown }, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "delete");
+  async purge(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
     this.keys(input, ["expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockArticle(manager, id, actor, "delete"); this.version(row.version, input.expectedVersion);
-      if (row.published_version != null || row.status !== "DRAFT") throw new BadRequestException("已发布过的文章不能删除，请停用");
-      // Tombstone retains attachment ownership/audit; no public or orphaned files are created.
-      await manager.query(`UPDATE knowledge_articles SET deleted_at=now(),version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, actor.userId]);
-      await this.audit(manager, actor, "knowledge-articles", id, "article.draft_deleted", { title: row.title, contentHash: row.content_hash }, { attachmentRetention: "private-owned-tombstone" }); return { id };
+    const keys: string[] = [];
+    const result = await this.command(actor, async (m) => {
+      const row = await this.lockPage(m, id, actor, "delete", 3, "trash");
+      this.version(row.version, input.expectedVersion);
+      const ids = (await this.descendants(m, id, actor)).map(
+        (r: KnowledgeRow) => r.id,
+      );
+      const params: unknown[] = [actor.tenantId, ids];
+      const scope = await this.access.clause(
+        actor,
+        params,
+        "trash",
+        "delete",
+        3,
+        m,
+      );
+      if (
+        (
+          await m.query(
+            `SELECT record.id FROM knowledge_pages record ${publishedJoin} WHERE record.id=ANY($2::uuid[]) AND (${scope})`,
+            params,
+          )
+        ).length !== ids.length
+      )
+        throw new BadRequestException("只能永久删除整个已授权的回收站子树");
+      const files = await m.query(
+        "SELECT storage_key FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])",
+        [actor.tenantId, ids],
+      );
+      keys.push(...files.map((f: KnowledgeRow) => f.storage_key));
+      await m.query(
+        "SELECT set_config('app.knowledge_purge','authorized',true)",
+      );
+      await m.query(
+        "DELETE FROM knowledge_page_version_attachments WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])",
+        [actor.tenantId, ids],
+      );
+      await m.query(
+        "UPDATE knowledge_pages SET published_version_id=NULL WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
+        [actor.tenantId, ids],
+      );
+      await m.query(
+        "DELETE FROM knowledge_pages WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
+        [actor.tenantId, ids],
+      );
+      await this.enqueueCleanup(m, keys, actor);
+      await this.audit(
+        m,
+        actor,
+        "knowledge-pages",
+        id,
+        "page.permanently_deleted",
+        { pageCount: ids.length, storageObjects: keys.length },
+      );
+      return { id };
     });
+    const cleanup = await this.processCleanup(actor);
+    return { ...result, cleanupPending: cleanup.pending };
   }
-  async upload(id: string, input: { expectedVersion?: unknown }, file: Express.Multer.File, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "update"); assertKnowledgeFields(actor, "knowledge-articles", ["attachmentIds"]);
+  async upload(
+    id: string,
+    input: Record<string, unknown>,
+    file: Express.Multer.File,
+    actor: KnowledgeActor,
+  ) {
     this.keys(input, ["expectedVersion"]);
+    assertKnowledgeFields(actor, "knowledge-pages", ["attachmentIds"]);
     let key: string | undefined;
     try {
-      return await this.command(actor, async (manager) => {
-        const row = await this.lockArticle(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-        if (row.attachment_ids.length >= 20) throw new BadRequestException("每篇文章最多 20 个附件");
-        const value = await this.file(file); const attachmentId = uuidv7();
-        const stored = await this.storage.put({ key: `knowledge/${Buffer.from(actor.tenantId).toString("hex")}/${id}/${attachmentId}`, body: value.body, contentType: value.contentType, visibility: "private" }); key = stored.key;
-        const sha256 = createHash("sha256").update(value.body).digest("hex");
-        const [metadata] = await manager.query(`INSERT INTO knowledge_attachments(id,tenant_id,article_id,original_name,storage_key,content_type,size,sha256,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::text) RETURNING created_at AS "createdAt"`, [attachmentId, actor.tenantId, id, value.name, key, value.contentType, value.body.length, sha256, actor.userId]);
-        await manager.query(`UPDATE knowledge_articles SET attachment_ids=attachment_ids || $3::jsonb,version=version+1,working_revision=working_revision+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, JSON.stringify([attachmentId]), actor.userId]);
-        await this.audit(manager, actor, "knowledge-articles", id, "attachment.uploaded", null, { attachmentId, originalName: value.name, size: value.body.length, sha256 });
-        return { attachment: { id: attachmentId, articleId: id, originalName: value.name, contentType: value.contentType, size: value.body.length, sha256, createdAt: metadata.createdAt }, version: row.version + 1 };
+      return await this.command(actor, async (m) => {
+        const row = await this.lockPage(m, id, actor, "update", 2);
+        this.version(row.version, input.expectedVersion);
+        const result = await this.uploadIn(m, id, file, actor);
+        key = result.key;
+        await m.query(
+          "UPDATE knowledge_pages SET version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [actor.tenantId, id, actor.userId],
+        );
+        return { attachment: result.attachment, version: row.version + 1 };
       });
-    } catch (error) {
-      if (key) try { await this.storage.delete(key); } catch { this.logger.error("知识附件事务回滚后的存储清理失败，请检查私有存储"); }
-      throw error;
+    } catch (e) {
+      if (key)
+        await this.storage
+          .delete(key)
+          .catch(() => this.logger.error("知识附件回滚清理失败"));
+      throw e;
     }
   }
-  removeAttachment(id: string, attachmentId: string, input: { expectedVersion?: unknown }, actor: KnowledgeActor) {
-    assertKnowledgeAction(actor, "knowledge-articles", "update"); assertKnowledgeFields(actor, "knowledge-articles", ["attachmentIds"]); knowledgeId(attachmentId);
+  async uploadIn(
+    m: EntityManager,
+    id: string,
+    file: Express.Multer.File,
+    actor: KnowledgeActor,
+  ) {
+    const [{ count }] = await m.query(
+      "SELECT count(*)::int count FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND detached_at IS NULL",
+      [actor.tenantId, id],
+    );
+    if (count >= 20) throw new BadRequestException("每页面最多20个附件");
+    const f = await knowledgeFile(file),
+      attachmentId = uuidv7();
+    let key: string | undefined;
+    try {
+      key = (
+        await this.storage.put({
+          key: `knowledge/${Buffer.from(actor.tenantId).toString("hex")}/${id}/${attachmentId}`,
+          body: f.body,
+          contentType: f.contentType,
+          visibility: "private",
+        })
+      ).key;
+      const sha256 = createHash("sha256").update(f.body).digest("hex");
+      const [row] = await m.query(
+        `INSERT INTO knowledge_attachments(id,tenant_id,page_id,original_name,storage_key,content_type,size,sha256,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::text) RETURNING created_at AS "createdAt"`,
+        [
+          attachmentId,
+          actor.tenantId,
+          id,
+          f.name,
+          key,
+          f.contentType,
+          f.body.length,
+          sha256,
+          actor.userId,
+        ],
+      );
+      await this.audit(m, actor, "knowledge-pages", id, "attachment.uploaded", {
+        attachmentId,
+        originalName: f.name,
+        size: f.body.length,
+        sha256,
+      });
+      return {
+        key,
+        attachment: {
+          id: attachmentId,
+          pageId: id,
+          originalName: f.name,
+          contentType: f.contentType,
+          size: f.body.length,
+          sha256,
+          createdAt: row.createdAt,
+        },
+      };
+    } catch (e) {
+      if (key)
+        await this.storage
+          .delete(key)
+          .catch(() => this.logger.error("知识附件创建失败清理异常"));
+      throw e;
+    }
+  }
+  removeAttachment(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
     this.keys(input, ["expectedVersion"]);
-    return this.command(actor, async (manager) => {
-      const row = await this.lockArticle(manager, id, actor, "update"); this.version(row.version, input.expectedVersion);
-      if (!row.attachment_ids.includes(attachmentId)) throw new NotFoundException("附件不存在于工作副本");
-      if (canonicalKnowledgeContent(row.content).imageIds.includes(attachmentId)) throw new BadRequestException("请先从正文移除图片并保存，再移除附件");
-      await manager.query(`UPDATE knowledge_articles SET attachment_ids=attachment_ids - $3::text,version=version+1,working_revision=working_revision+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id, attachmentId, actor.userId]);
-      await manager.query(`UPDATE knowledge_attachments SET detached_at=now(),updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 AND article_id=$4`, [actor.tenantId, attachmentId, actor.userId, id]);
-      await this.audit(manager, actor, "knowledge-articles", id, "attachment.removed_from_working_copy", { attachmentId }, { retainedForPublishedHistory: true }); return { id, version: row.version + 1 };
+    assertKnowledgeFields(actor, "knowledge-pages", ["attachmentIds"]);
+    return this.command(actor, async (m) => {
+      const [file] = await m.query(
+        "SELECT * FROM knowledge_attachments WHERE tenant_id=$1 AND id=$2 AND detached_at IS NULL",
+        [actor.tenantId, knowledgeId(id)],
+      );
+      if (!file) throw new NotFoundException("附件不存在");
+      const page = await this.lockPage(m, file.page_id, actor, "update", 2);
+      this.version(page.version, input.expectedVersion);
+      if (canonicalKnowledgeContent(page.working_content).imageIds.includes(id))
+        throw new BadRequestException(
+          "请先从正文移除图片并等待自动保存，再移除附件",
+        );
+      await m.query(
+        "UPDATE knowledge_attachments SET detached_at=now(),updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2",
+        [actor.tenantId, id, actor.userId],
+      );
+      await m.query(
+        "UPDATE knowledge_pages SET version=version+1,updated_at=now(),updated_by=$3 WHERE tenant_id=$1 AND id=$2",
+        [actor.tenantId, page.id, actor.userId],
+      );
+      await this.audit(
+        m,
+        actor,
+        "knowledge-pages",
+        page.id,
+        "attachment.detached",
+        { attachmentId: id, retainedForHistory: true },
+      );
+      return { id, version: page.version + 1 };
     });
   }
-  private command<T>(actor: KnowledgeActor, work: (manager: EntityManager) => Promise<T>): Promise<T> {
-    return this.access.transaction(actor, work).catch((error: { code?: string }) => {
-      if (error.code === "23505") throw new BadRequestException("同一父分类下名称重复或业务编码已存在");
-      if (["23503", "23514", "22P02"].includes(error.code ?? "")) throw new BadRequestException("知识库数据引用或业务规则无效"); throw error;
+  async cleanOrphans(actor: KnowledgeActor) {
+    assertKnowledgeAction(actor, "knowledge-pages", "delete");
+    const keys = await this.command(actor, async (m) => {
+      const params: unknown[] = [actor.tenantId];
+      const scope = await this.access.clause(
+        actor,
+        params,
+        "working",
+        "delete",
+        3,
+        m,
+      );
+      const files = await m.query(
+        `SELECT file.id,file.storage_key,record.id page_id FROM knowledge_attachments file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${publishedJoin}
+        WHERE (${scope}) AND file.detached_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM knowledge_page_version_attachments link WHERE link.tenant_id=file.tenant_id AND link.attachment_id=file.id) FOR UPDATE OF file`,
+        params,
+      );
+      if (files.length)
+        await m.query(
+          "DELETE FROM knowledge_attachments WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
+          [actor.tenantId, files.map((f: KnowledgeRow) => f.id)],
+        );
+      await this.enqueueCleanup(
+        m,
+        files.map((f: KnowledgeRow) => f.storage_key),
+        actor,
+      );
+      await this.audit(
+        m,
+        actor,
+        "knowledge-pages",
+        null,
+        "attachment.orphans_cleaned",
+        { count: files.length },
+      );
+      return files.map((f: KnowledgeRow) => f.storage_key) as string[];
+    });
+    await this.reconcileStorageOrphans(actor);
+    const cleanup = await this.processCleanup(actor);
+    return { removed: keys.length, cleanupPending: cleanup.pending };
+  }
+  /** Mutable search projection references immutable published bodies; draft text never enters it. */
+  async rebuildSearch(
+    m: EntityManager,
+    actor: KnowledgeActor,
+    pageId?: string,
+    spaceId?: string,
+  ) {
+    await m.query(
+      `WITH RECURSIVE targets AS (
+      SELECT id FROM knowledge_pages WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id=$2) AND ($3::uuid IS NULL OR space_id=$3)
+      UNION ALL SELECT child.id FROM knowledge_pages child JOIN targets parent ON child.parent_id=parent.id WHERE child.tenant_id=$1 AND $2::uuid IS NOT NULL)
+      UPDATE knowledge_pages page SET published_search_text=concat_ws(E'\n',v.title,v.content_text,(SELECT string_agg(tag,E'\n') FROM jsonb_array_elements_text(v.tags) tag),space.name,
+        (WITH RECURSIVE ancestors AS (SELECT parent_id FROM knowledge_pages WHERE tenant_id=page.tenant_id AND id=page.id UNION ALL SELECT p.parent_id FROM knowledge_pages p JOIN ancestors a ON p.id=a.parent_id WHERE p.tenant_id=page.tenant_id)
+        SELECT string_agg(published.title,E'\n') FROM ancestors a JOIN knowledge_pages p ON p.tenant_id=page.tenant_id AND p.id=a.parent_id JOIN knowledge_page_versions published ON published.tenant_id=p.tenant_id AND published.id=p.published_version_id))
+      FROM knowledge_page_versions v,knowledge_spaces space WHERE page.tenant_id=$1 AND page.id IN (SELECT id FROM targets) AND v.tenant_id=page.tenant_id AND v.id=page.published_version_id AND space.tenant_id=page.tenant_id AND space.id=page.space_id`,
+      [actor.tenantId, pageId ?? null, spaceId ?? null],
+    );
+  }
+  async enqueueCleanup(
+    m: EntityManager,
+    keys: string[],
+    actor: KnowledgeActor,
+  ) {
+    if (keys.length)
+      await m.query(
+        `INSERT INTO knowledge_storage_cleanup(tenant_id,storage_key,created_by,updated_by) SELECT $1::varchar,key,$3::uuid,$3::text FROM unnest($2::text[]) key ON CONFLICT(storage_key) DO NOTHING`,
+        [actor.tenantId, keys, actor.userId],
+      );
+  }
+  async processCleanup(actor: KnowledgeActor) {
+    return this.access.transaction(actor, async (m) => {
+      const p: unknown[] = [actor.tenantId];
+      const own = knowledgeAdministrator(actor)
+        ? "true"
+        : `created_by=$${p.push(actor.userId)}::uuid`;
+      const entries = await m.query(
+        `SELECT id,storage_key FROM knowledge_storage_cleanup WHERE tenant_id=$1 AND (${own}) ORDER BY created_at,id LIMIT 100 FOR UPDATE SKIP LOCKED`,
+        p,
+      );
+      let removed = 0;
+      for (const row of entries) {
+        try {
+          await this.storage.delete(row.storage_key);
+          await m.query(
+            "DELETE FROM knowledge_storage_cleanup WHERE tenant_id=$1 AND id=$2",
+            [actor.tenantId, row.id],
+          );
+          removed++;
+        } catch {
+          await m.query(
+            "UPDATE knowledge_storage_cleanup SET attempts=attempts+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+            [actor.tenantId, row.id],
+          );
+          this.logger.warn("知识库私有对象清理失败，任务已保留待重试");
+        }
+      }
+      const [{ pending }] = await m.query(
+        `SELECT count(*)::int pending FROM knowledge_storage_cleanup WHERE tenant_id=$1 AND (${own})`,
+        p,
+      );
+      return { removed, pending };
     });
   }
-  private async lockArticle(manager: EntityManager, id: string, actor: KnowledgeActor, action: string) {
-    knowledgeId(id); const params: unknown[] = [actor.tenantId]; const scope = await this.access.clause(actor, params, "manage", action, manager); const i = params.push(id);
-    const [row] = await manager.query(`SELECT record.* FROM knowledge_articles record WHERE ${scope} AND record.id=$${i}::uuid FOR UPDATE`, params);
-    if (!row) throw new NotFoundException("文章不存在或不在当前权限范围内"); return row as KnowledgeRow;
+  async reconcileStorageOrphans(actor: KnowledgeActor) {
+    if (!knowledgeAdministrator(actor) || !this.storage.listPrivateKeys)
+      return { queued: 0 };
+    return this.command(actor, async (m) => {
+      const known = new Set<string>(
+        (
+          await m.query(
+            "SELECT storage_key FROM knowledge_attachments WHERE tenant_id=$1 UNION SELECT storage_key FROM knowledge_storage_cleanup WHERE tenant_id=$1",
+            [actor.tenantId],
+          )
+        ).map((r: KnowledgeRow) => r.storage_key),
+      );
+      let queued = 0;
+      let batch: string[] = [];
+      const flush = async () => {
+        if (batch.length) {
+          await this.enqueueCleanup(m, batch, actor);
+          queued += batch.length;
+          batch = [];
+        }
+      };
+      // This tenant lock excludes in-flight uploads, whose storage object may precede its DB insert.
+      for await (const key of this.storage.listPrivateKeys!(
+        `knowledge/${Buffer.from(actor.tenantId).toString("hex")}`,
+      )) {
+        if (known.has(key)) continue;
+        known.add(key);
+        batch.push(key);
+        if (batch.length === 200) await flush();
+      }
+      await flush();
+      if (queued)
+        await this.audit(
+          m,
+          actor,
+          "knowledge-pages",
+          null,
+          "attachment.storage_orphans_reconciled",
+          { count: queued },
+        );
+      return { queued };
+    });
   }
-  private async lockCategory(manager: EntityManager, id: string, actor: KnowledgeActor, action: string) {
-    knowledgeId(id); assertKnowledgeAction(actor, "knowledge-categories", action); const params: unknown[] = [actor.tenantId]; const scope = knowledgeDataScope(actor, "knowledge-categories", action, params); const i = params.push(id);
-    const [row] = await manager.query(`SELECT record.* FROM knowledge_categories record WHERE record.tenant_id=$1 AND record.id=$${i} AND (${scope}) FOR UPDATE`, params);
-    if (!row) throw new NotFoundException("分类不存在或不在当前权限范围内"); return row as KnowledgeRow;
-  }
-  private async assertCategoryScope(manager: EntityManager, id: string, actor: KnowledgeActor, action: string) {
-    const params: unknown[] = [actor.tenantId]; const scope = knowledgeDataScope(actor, "knowledge-categories", action, params); const i = params.push(id);
-    const rows = await manager.query(`SELECT 1 FROM knowledge_categories record WHERE record.tenant_id=$1 AND record.id=$${i} AND (${scope})`, params);
-    if (!rows.length) throw new BadRequestException("分类不在当前操作的数据范围内");
-  }
-  private async articleInput(manager: EntityManager, id: string, input: KnowledgeArticleInput, actor: KnowledgeActor) {
-    const categoryId = knowledgeId(input.categoryId);
-    const [category] = await manager.query(`SELECT child.enabled,parent.enabled AS parent_enabled FROM knowledge_categories child LEFT JOIN knowledge_categories parent ON parent.tenant_id=child.tenant_id AND parent.id=child.parent_id WHERE child.tenant_id=$1 AND child.id=$2 FOR SHARE OF child`, [actor.tenantId, categoryId]);
-    if (!category?.enabled || category.parent_enabled === false) throw new BadRequestException("所属分类不存在或已停用");
-    // Lock the parent too, preventing a concurrent disable between validation and publish.
-    const parent = await manager.query(`SELECT parent.enabled FROM knowledge_categories parent JOIN knowledge_categories child ON child.tenant_id=parent.tenant_id AND child.parent_id=parent.id WHERE child.tenant_id=$1 AND child.id=$2 FOR SHARE OF parent`, [actor.tenantId, categoryId]);
-    if (parent[0]?.enabled === false) throw new BadRequestException("一级分类已停用");
-    const title = knowledgeText(input.title, "标题", 300, true); const summary = knowledgeText(input.summary, "摘要", 2000); const tags = knowledgeTags(input.tags ?? []);
-    const canonical = canonicalKnowledgeContent(input.content); const visibility = knowledgeVisibility(input.visibility ?? { type: "ALL", subjectIds: [] }); const attachmentIds = knowledgeIds(input.attachmentIds ?? []);
-    await this.visibilitySubjects(manager, visibility);
-    const files = attachmentIds.length ? await manager.query(`SELECT id,content_type FROM knowledge_attachments WHERE tenant_id=$1 AND article_id=$2 AND id=ANY($3::uuid[]) AND detached_at IS NULL FOR SHARE`, [actor.tenantId, id, attachmentIds]) : [];
-    if (files.length !== attachmentIds.length || canonical.imageIds.some((image) => !files.some((file: KnowledgeRow) => file.id === image && ["image/png", "image/jpeg", "image/webp"].includes(file.content_type)))) throw new BadRequestException("附件/图片不属于当前文章、已移除或不可用");
-    return { categoryId, title, summary, tags, ...canonical, visibility, attachmentIds, searchText: [title, summary, canonical.contentText, ...tags].join("\n") };
-  }
-  private async visibilitySubjects(manager: EntityManager, value: KnowledgeVisibility) {
-    if (value.type === "ALL") return;
-    const table = value.type === "USER" ? "users" : value.type === "ROLE" ? "roles" : "organization_units";
-    const enabled = value.type === "ROLE" ? " AND permission_group_resource IS NULL" : " AND enabled=true";
-    const rows = await manager.query(`SELECT id FROM ${table} WHERE id=ANY($1::uuid[])${enabled} FOR SHARE`, [value.subjectIds]);
-    if (rows.length !== value.subjectIds.length) throw new BadRequestException("可见范围包含不存在或停用的成员、组织或角色");
-  }
-  private async tags(manager: EntityManager, id: string, tags: string[], actor: KnowledgeActor) {
-    await manager.query(`DELETE FROM knowledge_article_tags WHERE tenant_id=$1 AND article_id=$2`, [actor.tenantId, id]);
-    for (const name of tags) {
-      const [tag] = await manager.query(`INSERT INTO knowledge_tags(tenant_id,name,created_by,updated_by) VALUES($1,$2,$3::uuid,$3::text) ON CONFLICT(tenant_id,name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, [actor.tenantId, name, actor.userId]);
-      await manager.query(`INSERT INTO knowledge_article_tags(tenant_id,article_id,tag_id,created_by,updated_by) VALUES($1,$2,$3,$4::uuid,$4::text)`, [actor.tenantId, id, tag.id, actor.userId]);
+  @Interval(60000)
+  async retryStorageCleanup() {
+    const actor: KnowledgeActor = {
+      tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN",
+      userId: null,
+      username: "knowledge-cleanup",
+      permissions: ["*"],
+      isSystemAdmin: true,
+      requestId: "knowledge-storage-cleanup",
+      source: "api",
+    };
+    try {
+      await this.reconcileStorageOrphans(actor);
+      await this.processCleanup(actor);
+    } catch {
+      this.logger.warn("知识库清理任务暂不可用，将稍后重试");
     }
   }
-  private tagNames(manager: EntityManager, id: string, actor: KnowledgeActor): Promise<string[]> { return manager.query(`SELECT tag.name FROM knowledge_article_tags link JOIN knowledge_tags tag ON tag.tenant_id=link.tenant_id AND tag.id=link.tag_id WHERE link.tenant_id=$1 AND link.article_id=$2 ORDER BY tag.name`, [actor.tenantId, id]).then((rows: KnowledgeRow[]) => rows.map((row) => row.name)); }
-  private workingInput(row: KnowledgeRow): KnowledgeArticleInput { return Object.fromEntries(Object.entries(articleColumns).map(([key, col]) => [key, row[col]])) as KnowledgeArticleInput; }
-  private categoryInput(input: Record<string, unknown>) {
-    const sortOrder = input.sortOrder ?? 0; const enabled = input.enabled ?? true;
-    if (!Number.isInteger(sortOrder) || Math.abs(Number(sortOrder)) > 1_000_000 || typeof enabled !== "boolean") throw new BadRequestException("排序或状态无效");
-    return { name: knowledgeText(input.name, "分类名称", 100, true), description: knowledgeText(input.description, "分类说明", 2000), sortOrder, enabled };
+  async lockSpace(
+    m: EntityManager,
+    id: string,
+    actor: KnowledgeActor,
+    action: string,
+    minimum: number,
+  ) {
+    knowledgeId(id);
+    const params: unknown[] = [actor.tenantId, id];
+    const scope = await this.access.spaceClause(
+      actor,
+      params,
+      action,
+      minimum,
+      m,
+    );
+    const [row] = await m.query(
+      `SELECT record.* FROM knowledge_spaces record WHERE record.id=$2 AND (${scope}) FOR UPDATE`,
+      params,
+    );
+    if (!row) throw new NotFoundException("知识空间不存在或不在授权范围内");
+    return row as KnowledgeRow;
   }
-  private version(current: number, expected: unknown) { const value = Number(expected); if (!Number.isInteger(value) || value < 1) throw new BadRequestException("缺少有效的数据版本，请刷新后重试"); if (current !== value) throw new ConflictException({ message: "数据已被其他人修改，请刷新后重试", currentVersion: current }); }
-  private keys(input: unknown, allowed: string[]) { if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !allowed.includes(key))) throw new BadRequestException("请求包含不支持的字段"); }
-  private summary(value: KnowledgeRow) { return { title: value.title, categoryId: value.categoryId, tags: value.tags, contentHash: value.contentHash, textLength: value.contentText?.length, attachmentCount: value.attachmentIds?.length, visibility: value.visibility }; }
-  private audit(manager: EntityManager, actor: KnowledgeActor, resource: string, recordId: string, action: string, beforeJson: unknown, afterJson: unknown) { return manager.save(AuditLog, { tenantId: actor.tenantId, actorId: actor.userId, actorName: actor.displayName ?? actor.username, resource, recordId, action: `knowledge.${action}`, beforeJson, afterJson, requestId: actor.requestId, source: actor.source ?? "web", updatedBy: actor.userId ?? actor.username }); }
-  private async file(file: Express.Multer.File) {
-    if (!file?.buffer?.length || file.buffer.length > 20 * 1024 * 1024) throw new BadRequestException("请选择 20MB 以内的非空附件");
-    const name = knowledgeText(file.originalname, "文件名", 255, true).replace(/[/\\]/g, "_").split("").map((char) => char.charCodeAt(0) < 32 ? "_" : char).join("");
-    const extension = name.split(".").pop()?.toLowerCase() ?? "";
-    const types: Record<string, string> = { pdf: "application/pdf", doc: "application/msword", xls: "application/vnd.ms-excel", ppt: "application/vnd.ms-powerpoint", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", txt: "text/plain", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
-    const contentType = types[extension]; if (!contentType) throw new BadRequestException("仅支持 PDF、Word、Excel、PPT、TXT 和 PNG/JPEG/WebP 图片");
-    let body = file.buffer;
-    if (contentType.startsWith("image/")) {
-      const png = body.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
-      const jpeg = body.subarray(0, 3).equals(Buffer.from("ffd8ff", "hex"));
-      const webp = body.subarray(0, 4).toString() === "RIFF" && body.subarray(8, 12).toString() === "WEBP";
-      if (!(contentType === "image/png" ? png : contentType === "image/jpeg" ? jpeg : webp)) throw new BadRequestException("图片实际格式与扩展名不一致");
-      try { body = await sharp(body, { limitInputPixels: 40_000_000 }).rotate().toFormat(extension === "jpg" || extension === "jpeg" ? "jpeg" : extension as "png" | "webp").toBuffer(); }
-      catch { throw new BadRequestException("图片内容无效或尺寸过大"); }
-    } else {
-      const zip = ["docx", "xlsx", "pptx"].includes(extension); const ole = ["doc", "xls", "ppt"].includes(extension);
-      if (zip && !body.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 3, 4])) || ole && !body.subarray(0, 8).equals(Buffer.from("d0cf11e0a1b11ae1", "hex")) || extension === "pdf" && !body.subarray(0, 5).equals(Buffer.from("%PDF-")) || extension === "txt" && body.includes(0)) throw new BadRequestException("附件实际格式与扩展名不一致");
+  async lockPage(
+    m: EntityManager,
+    id: string,
+    actor: KnowledgeActor,
+    action: string,
+    minimum: number,
+    mode: KnowledgeMode = "working",
+  ) {
+    knowledgeId(id);
+    const params: unknown[] = [actor.tenantId, id];
+    const scope = await this.access.clause(
+      actor,
+      params,
+      mode,
+      action,
+      minimum,
+      m,
+    );
+    const [row] = await m.query(
+      `SELECT record.* FROM knowledge_pages record ${publishedJoin} WHERE record.id=$2 AND (${scope}) FOR UPDATE OF record`,
+      params,
+    );
+    if (!row) throw new NotFoundException("页面不存在或不在授权范围内");
+    return row as KnowledgeRow;
+  }
+  descendants(m: EntityManager, id: string, actor: KnowledgeActor) {
+    return m.query(
+      `WITH RECURSIVE descendants AS (SELECT *,ARRAY[id] visited FROM knowledge_pages WHERE tenant_id=$1 AND id=$2
+    UNION ALL SELECT p.*,d.visited||p.id FROM knowledge_pages p JOIN descendants d ON p.parent_id=d.id AND p.tenant_id=d.tenant_id WHERE NOT p.id=ANY(d.visited)) SELECT * FROM descendants`,
+      [actor.tenantId, id],
+    );
+  }
+  async validateImages(
+    m: EntityManager,
+    id: string,
+    ids: string[],
+    actor: KnowledgeActor,
+  ) {
+    if (!ids.length) return;
+    const files = await m.query(
+      "SELECT id FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND id=ANY($3::uuid[]) AND detached_at IS NULL AND content_type IN ('image/png','image/jpeg','image/webp')",
+      [actor.tenantId, id, ids],
+    );
+    if (files.length !== ids.length)
+      throw new BadRequestException("正文图片必须是当前页面的有效私有图片");
+  }
+  async tags(
+    m: EntityManager,
+    id: string,
+    tags: string[],
+    actor: KnowledgeActor,
+  ) {
+    await m.query(
+      "DELETE FROM knowledge_page_tags WHERE tenant_id=$1 AND page_id=$2",
+      [actor.tenantId, id],
+    );
+    if (!tags.length) return;
+    await m.query(
+      `INSERT INTO knowledge_tags(tenant_id,name,created_by,updated_by) SELECT $1::varchar,name,$3::uuid,$3::text FROM unnest($2::text[]) name ON CONFLICT(tenant_id,name) DO NOTHING`,
+      [actor.tenantId, tags, actor.userId],
+    );
+    await m.query(
+      `INSERT INTO knowledge_page_tags(tenant_id,page_id,tag_id,created_by,updated_by) SELECT $1::varchar,$2::uuid,id,$4::uuid,$4::text FROM knowledge_tags WHERE tenant_id=$1 AND name=ANY($3::text[])`,
+      [actor.tenantId, id, tags, actor.userId],
+    );
+  }
+  async tagNames(
+    m: EntityManager,
+    id: string,
+    actor: KnowledgeActor,
+  ): Promise<string[]> {
+    return (
+      await m.query(
+        "SELECT tag.name FROM knowledge_page_tags link JOIN knowledge_tags tag ON tag.tenant_id=link.tenant_id AND tag.id=link.tag_id WHERE link.tenant_id=$1 AND link.page_id=$2 ORDER BY tag.name",
+        [actor.tenantId, id],
+      )
+    ).map((r: KnowledgeRow) => r.name);
+  }
+  async accessEntries(
+    m: EntityManager,
+    value: unknown,
+  ): Promise<KnowledgeAccessEntry[]> {
+    if (!Array.isArray(value) || value.length > 200)
+      throw new BadRequestException("权限成员列表无效或过长");
+    const entries: KnowledgeAccessEntry[] = [];
+    const seen = new Set<string>();
+    for (const raw of value) {
+      if (
+        !raw ||
+        typeof raw !== "object" ||
+        !["ALL", "USER", "ROLE", "ORGANIZATION"].includes(raw.subjectType) ||
+        !["VIEWER", "EDITOR", "FULL_ACCESS"].includes(raw.accessLevel)
+      )
+        throw new BadRequestException("权限成员无效");
+      const id = raw.subjectType === "ALL" ? null : knowledgeId(raw.subjectId);
+      const key = raw.subjectType + id;
+      if (seen.has(key)) throw new BadRequestException("权限成员重复");
+      seen.add(key);
+      entries.push({
+        subjectType: raw.subjectType,
+        subjectId: id,
+        accessLevel: raw.accessLevel,
+      });
     }
-    if (body.length > 20 * 1024 * 1024) throw new BadRequestException("附件处理后超过 20MB");
-    return { name, body, contentType };
+    for (const type of ["USER", "ROLE", "ORGANIZATION"]) {
+      const ids = entries
+        .filter((e) => e.subjectType === type)
+        .map((e) => e.subjectId);
+      if (!ids.length) continue;
+      const table =
+          type === "USER"
+            ? "users"
+            : type === "ROLE"
+              ? "roles"
+              : "organization_units",
+        valid =
+          type === "ROLE"
+            ? "permission_group_resource IS NULL"
+            : "enabled=true";
+      if (
+        (
+          await m.query(
+            `SELECT id FROM ${table} WHERE id=ANY($1::uuid[]) AND ${valid}`,
+            [ids],
+          )
+        ).length !== ids.length
+      )
+        throw new BadRequestException("权限成员不存在、已停用或不是普通角色");
+    }
+    return entries;
+  }
+  sort(value: unknown = 0) {
+    if (!Number.isInteger(value) || Math.abs(Number(value)) > 1000000)
+      throw new BadRequestException("排序无效");
+    return Number(value);
+  }
+  version(current: number, expected: unknown) {
+    const n = Number(expected);
+    if (
+      !["number", "string"].includes(typeof expected) ||
+      !Number.isInteger(n) ||
+      n < 1
+    )
+      throw new BadRequestException("缺少有效数据版本");
+    if (n !== current)
+      throw new ConflictException({
+        message: "数据已被其他人修改，请保留本地修改并重新加载",
+        currentVersion: current,
+      });
+  }
+  keys(input: unknown, allowed: string[]) {
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.keys(input).some((k) => !allowed.includes(k))
+    )
+      throw new BadRequestException("请求包含不支持的字段");
+  }
+  audit(
+    m: EntityManager,
+    actor: KnowledgeActor,
+    resource: string,
+    id: string | null,
+    action: string,
+    after: unknown,
+  ) {
+    return m.save(AuditLog, {
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      actorName: actor.displayName ?? actor.username,
+      resource,
+      recordId: id,
+      action: `knowledge.${action}`,
+      afterJson: after,
+      requestId: actor.requestId,
+      source: actor.source ?? "web",
+      updatedBy: actor.userId ?? actor.username,
+    });
   }
 }

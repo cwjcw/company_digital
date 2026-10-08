@@ -1,32 +1,121 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { TableFilterRegistry } from "../../common/filtering/table-filter.registry";
-import { KnowledgeAccessService, assertKnowledgeAction, knowledgeDataScope, knowledgeSearchClause } from "./knowledge.scope";
-import { articleColumns, categoryColumns, knowledgeExpressions, type KnowledgeActor } from "./knowledge.types";
+import {
+  KnowledgeAuthorizationService,
+  assertKnowledgeAction,
+  assertKnowledgeFields,
+} from "./knowledge.scope";
+import { KnowledgeQueryService } from "./knowledge.query.service";
+import { spaceColumns, type KnowledgeActor } from "./knowledge.types";
 
 @Injectable()
 export class KnowledgeFilterSourceProvider implements OnModuleInit {
-  constructor(private readonly registry: TableFilterRegistry, private readonly access: KnowledgeAccessService) {}
+  constructor(
+    private readonly registry: TableFilterRegistry,
+    private readonly access: KnowledgeAuthorizationService,
+    private readonly queries: KnowledgeQueryService,
+  ) {}
   onModuleInit() {
-    for (const code of ["knowledge-categories", "knowledge-articles"] as const) {
-      this.registry.register({ code, table: code === "knowledge-categories" ? "knowledge_categories" : "knowledge_articles",
-        columns: code === "knowledge-categories" ? categoryColumns : articleColumns,
-        expressions: code === "knowledge-articles" ? { tags: knowledgeExpressions(code).tags! } : {},
-        fields: tablePermissionFieldsFor(code), searchColumns: code === "knowledge-categories" ? ["name", "code", "description"] : ["title", "summary", "contentText"],
-        buildSearch: code === "knowledge-articles" ? (search, actor, params) => knowledgeSearchClause(search, actor as KnowledgeActor, params) : undefined,
-        printResolvers: code === "knowledge-articles" ? { categoryId: async (rows, actor) => {
-          if (!actor) return new Map();
-          const ids = [...new Set(rows.map((row) => String(row.categoryId ?? "")).filter(Boolean))];
-          if (!ids.length) return new Map();
-          const categories = await this.access.transaction(actor as KnowledgeActor, (manager) => manager.query(`SELECT id,name FROM knowledge_categories WHERE tenant_id=$1 AND id=ANY($2::uuid[])`, [actor.tenantId, ids]));
-          const labels = new Map(categories.map((category: { id: string; name: string }) => [category.id, category.name]));
-          return new Map(rows.map((row) => [String(row.id), labels.get(String(row.categoryId)) ?? ""]));
-        } } : undefined,
-        authorize: (actor) => assertKnowledgeAction(actor as KnowledgeActor, code, "read"),
-        buildScope: async (actor, params, action = "read") => code === "knowledge-articles"
-          ? this.access.clause(actor as KnowledgeActor, params, "manage", action)
-          : knowledgeDataScope(actor as KnowledgeActor, code, action, params),
-        runQuery: (sql, params) => this.access.transaction({ tenantId: String(params[0]), userId: null, permissions: [], username: "query", requestId: "query" }, (manager) => manager.query(sql, params))
+    const pageColumns = {
+      id: "id",
+      version: "version",
+      spaceId: "space_id",
+      parentId: "parent_id",
+      title: "title",
+      slug: "slug",
+      status: "status",
+      sortOrder: "sort_order",
+      content: "content",
+      contentText: "content_text",
+      tags: "tags",
+      attachmentIds: "attachment_ids",
+      publishedVersion: "published_version",
+      publishedBy: "published_by",
+      publishedAt: "published_at",
+      createdBy: "created_by",
+      createdAt: "created_at",
+      updatedBy: "updated_by",
+      updatedAt: "updated_at",
+    };
+    for (const code of ["knowledge-spaces", "knowledge-pages"] as const) {
+      const columns = code === "knowledge-spaces" ? spaceColumns : pageColumns,
+        expressions = Object.fromEntries(
+          Object.entries(columns).map(([k, v]) => [k, `record.${v}`]),
+        );
+      this.registry.register({
+        code,
+        table:
+          code === "knowledge-spaces"
+            ? "knowledge_spaces"
+            : "knowledge_page_read_model",
+        columns,
+        fields: tablePermissionFieldsFor(code),
+        searchColumns:
+          code === "knowledge-spaces"
+            ? ["name", "code", "description"]
+            : ["title", "contentText"],
+        buildSearch:
+          code === "knowledge-pages"
+            ? (search, actor, params) => {
+                assertKnowledgeFields(
+                  actor as KnowledgeActor,
+                  "knowledge-pages",
+                  ["title", "contentText", "tags", "parentId"],
+                  "read",
+                );
+                assertKnowledgeFields(
+                  actor as KnowledgeActor,
+                  "knowledge-spaces",
+                  ["name"],
+                  "read",
+                );
+                return `record.search_text ILIKE $${params.push(`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)}`;
+              }
+            : undefined,
+        authorize: (a) =>
+          assertKnowledgeAction(a as KnowledgeActor, code, "read"),
+        buildScope: (a, p, action = "read") =>
+          code === "knowledge-spaces"
+            ? this.access.spaceClause(a as KnowledgeActor, p, action)
+            : this.access.clause(
+                a as KnowledgeActor,
+                p,
+                "published",
+                action,
+                1,
+                undefined,
+                expressions,
+              ),
+        printRows:
+          code === "knowledge-pages"
+            ? (q) =>
+                this.queries.list(
+                  {
+                    search: q.search,
+                    filterGroup: q.filterGroup,
+                    sortField: q.sortField,
+                    sortOrder: q.sortOrder,
+                    ids: q.ids,
+                    page: q.page,
+                    pageSize: q.pageSize,
+                    mode: "published",
+                  },
+                  q.actor as KnowledgeActor,
+                  q.action ?? "read",
+                )
+            : undefined,
+        runQuery: (sql, params) =>
+          this.access.transaction(
+            {
+              tenantId: String(params[0]),
+              userId: null,
+              permissions: [],
+              username: "platform-query",
+              requestId: "platform-query",
+            },
+            (m) => m.query(sql, params),
+          ),
       });
     }
   }

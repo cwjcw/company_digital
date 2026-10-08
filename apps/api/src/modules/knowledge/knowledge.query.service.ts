@@ -1,132 +1,541 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import type { EntityManager } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
-import { type EntityManager } from "typeorm";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
-import { normalizeKdosPageSize } from "../../common/pagination";
-import { KnowledgeAccessService, assertKnowledgeAction, assertKnowledgeFields, canKnowledgeField, canManageKnowledge, knowledgeDataScope, knowledgeSearchClause } from "./knowledge.scope";
+import {
+  KnowledgeAuthorizationService,
+  assertKnowledgeAction,
+  assertKnowledgeFields,
+  canKnowledge,
+  canKnowledgeField,
+} from "./knowledge.scope";
 import { knowledgeId, knowledgeText } from "./knowledge.content";
-import { categoryColumns, knowledgeExpressions, type KnowledgeActor, type KnowledgePageInput, type KnowledgeRow } from "./knowledge.types";
-
-export function knowledgeReadExpressions(mode: "browse" | "manage") {
-  return knowledgeExpressions("knowledge-articles", mode);
-}
-export const knowledgePublishedJoin = `JOIN knowledge_article_versions published ON published.tenant_id=record.tenant_id AND published.article_id=record.id AND published.version_no=record.published_version`;
+import {
+  knowledgeExpressions,
+  publishedJoin,
+  type KnowledgeActor,
+  type KnowledgeMode,
+  type KnowledgeRow,
+} from "./knowledge.types";
 
 @Injectable()
 export class KnowledgeQueryService {
-  constructor(private readonly access: KnowledgeAccessService) {}
-  categories(actor: KnowledgeActor, manage = false) {
-    assertKnowledgeAction(actor, "knowledge-categories", "read");
-    if (manage && !["create", "update", "delete"].some((action) => actor.permissions.includes(`knowledge-categories:*:${action}`)) && !actor.isSystemAdmin && !actor.permissions.includes("*") && !actor.moduleAdminCodes?.includes("knowledge")) throw new ForbiddenException("当前权限组没有分类管理权限");
-    return this.access.transaction(actor, async (manager) => {
-      const params: unknown[] = [actor.tenantId]; const scope = knowledgeDataScope(actor, "knowledge-categories", "read", params);
-      const rows = await manager.query(`SELECT ${Object.entries(categoryColumns).filter(([key]) => ["id", "version"].includes(key) || canKnowledgeField(actor, "knowledge-categories", key, "read")).map(([key, col]) => `record.${col} AS "${key}"`).join(",")} FROM knowledge_categories record WHERE record.tenant_id=$1 AND (${scope}) ${manage ? "" : `AND record.enabled=true AND (record.parent_id IS NULL OR EXISTS(SELECT 1 FROM knowledge_categories parent WHERE parent.tenant_id=record.tenant_id AND parent.id=record.parent_id AND parent.enabled=true))`} ORDER BY record.level,record.sort_order,record.name,record.id`, params);
-      return rows;
+  constructor(private readonly access: KnowledgeAuthorizationService) {}
+  spaces(actor: KnowledgeActor, includeArchived = false) {
+    return this.access.transaction(actor, async (m) => {
+      const params: unknown[] = [actor.tenantId];
+      const scope = await this.access.spaceClause(actor, params, "read", 1, m);
+      const membership = await this.access.membership(actor, m);
+      const rank = this.access.spaceRank(actor, membership, params);
+      const fields = Object.entries(
+        knowledgeExpressions("knowledge-spaces"),
+      ).filter(
+        ([k]) =>
+          ["id", "version"].includes(k) ||
+          canKnowledgeField(actor, "knowledge-spaces", k, "read"),
+      );
+      const rows = await m.query(
+        `SELECT ${fields.map(([k, v]) => `${v} AS "${k}"`).join(",")},${rank} effective_rank FROM knowledge_spaces record WHERE (${scope}) ${includeArchived ? "" : "AND record.status='ACTIVE'"} ORDER BY record.sort_order,record.name,record.id`,
+        params,
+      );
+      return rows.map((r: KnowledgeRow) => {
+        const { effective_rank, ...row } = r;
+        return {
+          ...row,
+          accessLevel: ["", "VIEWER", "EDITOR", "FULL_ACCESS"][effective_rank],
+          canManage:
+            effective_rank >= 3 &&
+            canKnowledge(actor, "knowledge-spaces", "update"),
+          canCreate:
+            effective_rank >= 2 &&
+            canKnowledge(actor, "knowledge-pages", "create"),
+        };
+      });
+    });
+  }
+  spaceAccess(id: string, actor: KnowledgeActor) {
+    return this.access.transaction(actor, async (m) => {
+      assertKnowledgeFields(actor, "knowledge-spaces", ["access"], "read");
+      const p: unknown[] = [actor.tenantId, knowledgeId(id)];
+      const scope = await this.access.spaceClause(actor, p, "read", 3, m);
+      if (
+        !(
+          await m.query(
+            `SELECT 1 FROM knowledge_spaces record WHERE record.id=$2 AND (${scope})`,
+            p,
+          )
+        ).length
+      )
+        throw new NotFoundException("空间不存在或不可管理");
+      return m.query(
+        `SELECT subject_type AS "subjectType",subject_id AS "subjectId",access_level AS "accessLevel" FROM knowledge_space_access WHERE tenant_id=$1 AND space_id=$2 ORDER BY subject_type,subject_id`,
+        [actor.tenantId, id],
+      );
     });
   }
   options(actor: KnowledgeActor) {
-    if (!canManageKnowledge(actor)) throw new ForbiddenException("当前权限组没有文章编辑权限");
-    return this.access.transaction(actor, async (manager) => {
-      const users = await manager.query(`SELECT id,COALESCE(NULLIF(display_name,''),username) label FROM users WHERE enabled=true ORDER BY label`);
-      const organizations = await manager.query(`SELECT id,name label,parent_id AS "parentId" FROM organization_units WHERE enabled=true ORDER BY level,sort_order,name`);
-      const roles = await manager.query(`SELECT id,name label FROM roles WHERE permission_group_resource IS NULL ORDER BY name`);
-      return { users, organizations, roles };
-    });
+    assertKnowledgeAction(actor, "knowledge-spaces", "read");
+    if (
+      !(["knowledge-spaces", "knowledge-pages"] as const).some(
+        (resource) =>
+          canKnowledge(actor, resource, "update") &&
+          canKnowledgeField(actor, resource, "access", "read") &&
+          canKnowledgeField(actor, resource, "access", "update"),
+      )
+    )
+      throw new BadRequestException("无成员配置权限");
+    return this.access.transaction(actor, async (m) => ({
+      organizations: await m.query(
+        "SELECT id,name AS label FROM organization_units WHERE enabled=true ORDER BY name,id",
+      ),
+      roles: await m.query(
+        "SELECT id,name AS label FROM roles WHERE permission_group_resource IS NULL ORDER BY name,id",
+      ),
+      users: await m.query(
+        "SELECT id,display_name AS label FROM users WHERE enabled=true ORDER BY display_name,id",
+      ),
+    }));
   }
-  list(input: KnowledgePageInput, actor: KnowledgeActor, mode: "browse" | "manage" = "browse") {
-    assertKnowledgeAction(actor, "knowledge-articles", "read");
-    return this.access.transaction(actor, async (manager) => {
-      const params: unknown[] = [actor.tenantId]; const clauses = [await this.access.clause(actor, params, mode, "read", manager)];
-      const expressions = knowledgeReadExpressions(mode);
-      const search = knowledgeText(input.search, "搜索词", 200);
-      let relevance = "0::float8";
+  tree(spaceId: string, input: Record<string, unknown>, actor: KnowledgeActor) {
+    return this.list(
+      { ...input, spaceId: knowledgeId(spaceId), tree: true },
+      actor,
+    );
+  }
+  list(input: Record<string, unknown>, actor: KnowledgeActor, action = "read") {
+    const search = knowledgeText(input.search, "搜索词", 200);
+    const mode = search ? "published" : this.mode(input.mode);
+    if (search) {
+      assertKnowledgeFields(
+        actor,
+        "knowledge-pages",
+        ["title", "contentText", "tags", "parentId"],
+        "read",
+      );
+      assertKnowledgeFields(actor, "knowledge-spaces", ["name"], "read");
+    }
+    const page = Number(input.page ?? 1),
+      pageSize = Number(input.pageSize ?? 100);
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 1000000 ||
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > 1000
+    )
+      throw new BadRequestException("分页无效");
+    return this.access.transaction(actor, async (m) => {
+      const params: unknown[] = [actor.tenantId],
+        clauses = [
+          await this.access.clause(actor, params, mode, action, undefined, m),
+        ];
+      const expressions = knowledgeExpressions("knowledge-pages", mode);
+      if (input.spaceId) {
+        assertKnowledgeFields(actor, "knowledge-pages", ["spaceId"], "read");
+        clauses.push(
+          `record.space_id=$${params.push(knowledgeId(input.spaceId))}::uuid`,
+        );
+      }
+      if (input.tree) {
+        assertKnowledgeFields(
+          actor,
+          "knowledge-pages",
+          ["parentId", "title"],
+          "read",
+        );
+        if (input.parentId)
+          clauses.push(
+            `record.parent_id=$${params.push(knowledgeId(input.parentId))}::uuid`,
+          );
+        else clauses.push("record.parent_id IS NULL");
+      }
+      if (input.status) {
+        assertKnowledgeFields(actor, "knowledge-pages", ["status"], "read");
+        if (
+          !["DRAFT", "PUBLISHED", "ARCHIVED", "TRASHED"].includes(
+            String(input.status),
+          )
+        )
+          throw new BadRequestException("页面状态无效");
+        clauses.push(`record.status=$${params.push(input.status)}`);
+      } else if (mode === "published")
+        clauses.push("record.status='PUBLISHED'");
+      if (input.tag) {
+        assertKnowledgeFields(actor, "knowledge-pages", ["tags"], "read");
+        clauses.push(
+          `${expressions.tags} ? $${params.push(knowledgeText(input.tag, "标签", 100, true))}::text`,
+        );
+      }
+      if (input.ids) {
+        if (!Array.isArray(input.ids))
+          throw new BadRequestException("页面列表无效");
+        clauses.push(
+          `record.id=ANY($${params.push(input.ids.map(knowledgeId))}::uuid[])`,
+        );
+      }
       if (search) {
-        clauses.push(knowledgeSearchClause(search, actor, params, mode));
-        const matchIndex = params.length;
-        relevance = `similarity(${mode === "browse" ? "published" : "record"}.search_text,trim(both '%' from $${matchIndex}))::float8`;
+        const keyword = `%${search.replace(/[\\%_]/g, (v) => `\\${v}`)}%`;
+        clauses.push(
+          `record.published_search_text ILIKE $${params.push(keyword)}`,
+        );
       }
-      if (input.categoryId) { assertKnowledgeFields(actor, "knowledge-articles", ["categoryId"], "read"); const i = params.push(knowledgeId(input.categoryId)); clauses.push(`(${expressions.categoryId}=$${i}::uuid OR EXISTS(SELECT 1 FROM knowledge_categories child WHERE child.tenant_id=record.tenant_id AND child.id=${expressions.categoryId} AND child.parent_id=$${i}::uuid))`); }
-      if (input.tag) { assertKnowledgeFields(actor, "knowledge-articles", ["tags"], "read"); const i = params.push(knowledgeText(input.tag, "标签", 100, true)); clauses.push(`${expressions.tags} ? $${i}::text`); }
-      clauses.push(new SqlFilterCompiler(tablePermissionFieldsFor("knowledge-articles"), expressions, (key) => canKnowledgeField(actor, "knowledge-articles", key, "read"), (column) => column).compile(input.filterGroup, params));
-      const page = Math.max(1, Math.floor(Number(input.page) || 1)); const pageSize = normalizeKdosPageSize(input.pageSize);
-      if (!Number.isSafeInteger(page) || page > 1_000_000) throw new BadRequestException("页码无效");
-      const where = clauses.join(" AND "); const from = `knowledge_articles record ${mode === "browse" ? knowledgePublishedJoin : ""}`;
-      const [{ count }] = await manager.query(`SELECT count(*)::integer count FROM ${from} WHERE ${where}`, params);
-      const sort = String(input.sortField ?? ""); if (sort && (!expressions[sort] || !canKnowledgeField(actor, "knowledge-articles", sort, "read") || ["content", "visibility", "attachmentIds"].includes(sort))) throw new BadRequestException("排序字段无效或无权访问");
-      const select = Object.entries(expressions).filter(([key]) => ["id", "version"].includes(key) || (canKnowledgeField(actor, "knowledge-articles", key, "read") && !["content", "contentText", "visibility", "attachmentIds"].includes(key))).map(([key, expr]) => `${expr} AS "${key}"`);
-      if (canKnowledgeField(actor, "knowledge-articles", "categoryId", "read")) select.push(`(SELECT name FROM knowledge_categories WHERE tenant_id=record.tenant_id AND id=${expressions.categoryId}) AS "categoryName"`, `(SELECT COALESCE(parent.name,category.name) FROM knowledge_categories category LEFT JOIN knowledge_categories parent ON parent.tenant_id=category.tenant_id AND parent.id=category.parent_id WHERE category.tenant_id=record.tenant_id AND category.id=${expressions.categoryId}) AS "rootCategoryName"`);
-      if (canKnowledgeField(actor, "knowledge-articles", "publishedBy", "read")) select.push(`(SELECT display_name FROM users WHERE id=${expressions.publishedBy}) AS "publisherName"`);
-      if (canKnowledgeField(actor, "knowledge-articles", "contentText", "read")) select.push(`left(${expressions.contentText},200) AS snippet`);
-      select.push(`${relevance} AS relevance`);
-      const paged = [...params, pageSize, (page - 1) * pageSize];
-      const rows = await manager.query(`SELECT ${select.join(",")} FROM ${from} WHERE ${where} ORDER BY ${sort ? `${expressions[sort]} ${input.sortOrder === "asc" ? "ASC" : "DESC"}` : "relevance DESC,record.updated_at DESC"},record.id LIMIT $${paged.length - 1} OFFSET $${paged.length}`, paged);
-      return { rows, total: Number(count), page, pageSize };
+      clauses.push(
+        new SqlFilterCompiler(
+          tablePermissionFieldsFor("knowledge-pages"),
+          expressions,
+          (k) => canKnowledgeField(actor, "knowledge-pages", k, "read"),
+          (column) => column,
+        ).compile(input.filterGroup, params),
+      );
+      const from = `knowledge_pages record ${publishedJoin}`,
+        where = clauses.map((c) => `(${c})`).join(" AND ");
+      const [{ total }] = await m.query(
+        `SELECT count(*)::int total FROM ${from} WHERE ${where}`,
+        params,
+      );
+      const fields = this.select(actor, expressions, false);
+      if (canKnowledgeField(actor, "knowledge-pages", "contentText", "read"))
+        fields.push(`left(${expressions.contentText},200) AS snippet`);
+      if (
+        canKnowledgeField(actor, "knowledge-pages", "title", "read") &&
+        canKnowledgeField(actor, "knowledge-pages", "parentId", "read") &&
+        canKnowledgeField(actor, "knowledge-pages", "spaceId", "read") &&
+        canKnowledgeField(actor, "knowledge-spaces", "name", "read")
+      )
+        fields.push(
+          `${this.breadcrumbExpression(mode)} AS breadcrumb`,
+          `(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=record.space_id) AS "spaceName"`,
+        );
+      if (canKnowledgeField(actor, "knowledge-pages", "publishedBy", "read"))
+        fields.push(
+          `(SELECT display_name FROM users WHERE id=published.published_by) AS "publisherName"`,
+        );
+      if (search)
+        fields.push(
+          `similarity(record.published_search_text,$${params.push(search)}) AS relevance`,
+        );
+      let order = input.tree
+        ? "record.sort_order,record.id"
+        : search
+          ? `relevance DESC,record.id`
+          : "record.updated_at DESC,record.id";
+      if (input.sortField) {
+        const key = String(input.sortField);
+        if (
+          !expressions[key] ||
+          !["asc", "desc"].includes(String(input.sortOrder))
+        )
+          throw new BadRequestException("排序无效");
+        assertKnowledgeFields(actor, "knowledge-pages", [key], "read");
+        order = `${expressions[key]} ${input.sortOrder},record.id`;
+      }
+      const limit = params.push(pageSize),
+        offset = params.push((page - 1) * pageSize);
+      const rows = await m.query(
+        `SELECT ${fields.join(",")},false AS "hasChildren" FROM ${from} WHERE ${where} ORDER BY ${order} LIMIT $${limit} OFFSET $${offset}`,
+        params,
+      );
+      // Never disclose the existence of unauthorized children in the lazy tree.
+      if (input.tree && rows.length) {
+        const p: unknown[] = [
+          actor.tenantId,
+          rows.map((r: KnowledgeRow) => r.id),
+        ];
+        const childScope = await this.access.clause(
+          actor,
+          p,
+          mode,
+          "read",
+          undefined,
+          m,
+        );
+        const children = await m.query(
+          `SELECT DISTINCT record.parent_id FROM knowledge_pages record ${publishedJoin} WHERE record.parent_id=ANY($2::uuid[]) AND (${childScope})`,
+          p,
+        );
+        const parents = new Set(children.map((r: KnowledgeRow) => r.parent_id));
+        for (const row of rows) row.hasChildren = parents.has(row.id);
+      }
+      return { rows, total, page, pageSize };
     });
   }
-  detail(id: string, actor: KnowledgeActor, mode: "browse" | "manage" = "browse", publishedVersion?: number) {
-    knowledgeId(id); assertKnowledgeAction(actor, "knowledge-articles", "read");
-    return this.access.transaction(actor, async (manager) => {
-      const params: unknown[] = [actor.tenantId]; let scope = await this.access.clause(actor, params, publishedVersion != null ? "manage" : mode, "read", manager); const i = params.push(id);
-      let from = `knowledge_articles record ${mode === "browse" ? knowledgePublishedJoin : ""}`; const expressions = knowledgeReadExpressions(mode);
-      if (publishedVersion != null) {
-        if (!canManageKnowledge(actor) || !Number.isInteger(publishedVersion) || publishedVersion < 1) throw new ForbiddenException("当前权限组不能查看历史版本");
-        // Always require current published access AND historical ACL, even when the historical ACL was wider.
-        const n = params.push(publishedVersion);
-        from = `knowledge_articles record ${knowledgePublishedJoin} JOIN knowledge_article_versions historical ON historical.tenant_id=record.tenant_id AND historical.article_id=record.id AND historical.version_no=$${n}`;
-        scope += ` AND ${await this.access.historicalClause(actor, params, manager)}`;
-        for (const [key, expression] of Object.entries(knowledgeReadExpressions("browse"))) expressions[key] = expression.replace(/^published\./, "historical.");
-        expressions.publishedVersion = "historical.version_no";
+  detail(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+    action = "read",
+  ) {
+    const mode = this.mode(input.mode),
+      versionId = input.versionId == null ? null : knowledgeId(input.versionId);
+    return this.access.transaction(actor, async (m) => {
+      const params: unknown[] = [actor.tenantId, knowledgeId(id)];
+      const scope = await this.access.clause(
+        actor,
+        params,
+        mode,
+        action,
+        undefined,
+        m,
+      );
+      let join = publishedJoin,
+        expressions = knowledgeExpressions("knowledge-pages", mode),
+        historic = "1=1";
+      if (versionId) {
+        assertKnowledgeFields(
+          actor,
+          "knowledge-pages",
+          ["publishedVersion", "content"],
+          "read",
+        );
+        const v = params.push(versionId);
+        join = `${publishedJoin} JOIN knowledge_page_versions historical ON historical.tenant_id=record.tenant_id AND historical.page_id=record.id AND historical.id=$${v}`;
+        historic = this.access.historicalClause(
+          actor,
+          await this.access.membership(actor, m),
+          params,
+        );
+        expressions = Object.fromEntries(
+          Object.entries(
+            knowledgeExpressions("knowledge-pages", "published"),
+          ).map(([k, v]) => [k, v.replace(/published\./g, "historical.")]),
+        );
       }
-      const select = Object.entries(expressions).filter(([key]) => ["id", "version"].includes(key) || canKnowledgeField(actor, "knowledge-articles", key, "read")).map(([key, expr]) => `${expr} AS "${key}"`);
-      if (canKnowledgeField(actor, "knowledge-articles", "content", "read")) select.push(`${publishedVersion ? "historical" : mode === "browse" ? "published" : "record"}.content_hash AS "contentHash"`);
-      const [row] = await manager.query(`SELECT ${select.join(",")} FROM ${from} WHERE ${scope} AND record.id=$${i}::uuid`, params);
-      if (!row) throw new NotFoundException("文章不存在或无权访问");
-      if (canKnowledgeField(actor, "knowledge-articles", "categoryId", "read")) {
-        const [category] = publishedVersion != null
-          ? await manager.query(`SELECT category_name AS "categoryName",root_category_name AS "rootCategoryName" FROM knowledge_article_versions WHERE tenant_id=$1 AND article_id=$2 AND version_no=$3`, [actor.tenantId, id, publishedVersion])
-          : await manager.query(`SELECT child.name AS "categoryName",COALESCE(parent.name,child.name) AS "rootCategoryName" FROM knowledge_categories child LEFT JOIN knowledge_categories parent ON parent.tenant_id=child.tenant_id AND parent.id=child.parent_id WHERE child.tenant_id=$1 AND child.id=$2`, [actor.tenantId, row.categoryId]);
-        Object.assign(row, category);
+      const expr = versionId
+        ? "historical"
+        : mode !== "published"
+          ? "record"
+          : "published";
+      const fields = this.select(actor, expressions, true);
+      if (canKnowledgeField(actor, "knowledge-pages", "content", "read"))
+        fields.push(
+          `${expr}.${expr === "record" ? "working_content_hash" : "content_hash"} AS "contentHash"`,
+        );
+      fields.push(
+        'record.published_version_id AS "internalPublishedVersionId"',
+      );
+      if (canKnowledgeField(actor, "knowledge-pages", "publishedBy", "read"))
+        fields.push(
+          `(SELECT display_name FROM users WHERE id=${versionId ? "historical" : "published"}.published_by) AS "publisherName"`,
+        );
+      const [row] = await m.query(
+        `SELECT ${fields.join(",")} FROM knowledge_pages record ${join} WHERE record.id=$2 AND (${scope}) AND (${historic})`,
+        params,
+      );
+      if (!row) throw new NotFoundException("页面不存在或不在授权范围内");
+      if (
+        canKnowledgeField(actor, "knowledge-pages", "title", "read") &&
+        canKnowledgeField(actor, "knowledge-pages", "parentId", "read") &&
+        canKnowledgeField(actor, "knowledge-pages", "spaceId", "read") &&
+        canKnowledgeField(actor, "knowledge-spaces", "name", "read")
+      ) {
+        const ancestors = await this.access.ancestors(m, id, actor),
+          [space] = await m.query(
+            "SELECT id,name FROM knowledge_spaces WHERE tenant_id=$1 AND id=$2",
+            [actor.tenantId, row.spaceId],
+          );
+        row.spaceName = space.name;
+        row.breadcrumb = [
+          { id: space.id, title: space.name },
+          ...ancestors.map((p: KnowledgeRow) => ({
+            id: p.id,
+            title:
+              p.id === id
+                ? row.title
+                : mode !== "published"
+                  ? p.title
+                  : p.published_title,
+          })),
+        ];
       }
-      if (canKnowledgeField(actor, "knowledge-articles", "publishedBy", "read") && row.publishedBy) { const [user] = await manager.query(`SELECT display_name AS "publisherName" FROM users WHERE id=$1`, [row.publishedBy]); Object.assign(row, user); }
-      if (canKnowledgeField(actor, "knowledge-articles", "attachmentIds", "read")) {
-        row.attachments = await this.attachments(manager, actor, id, mode, publishedVersion);
-        row.attachmentIds = row.attachments.map((file: KnowledgeRow) => file.id);
+      if (
+        canKnowledgeField(actor, "knowledge-pages", "tags", "read") &&
+        mode !== "published" &&
+        !versionId
+      )
+        row.tags = await this.tagNames(m, id, actor);
+      if (canKnowledgeField(actor, "knowledge-pages", "attachmentIds", "read"))
+        row.attachments = await this.files(
+          m,
+          id,
+          actor,
+          versionId ? "published" : mode,
+          versionId ?? row.internalPublishedVersionId,
+        );
+      row.canEdit = await this.allowed(m, id, actor, "update", 2);
+      row.canManage = await this.allowed(
+        m,
+        id,
+        actor,
+        "update",
+        3,
+        mode === "trash" ? "trash" : "working",
+      );
+      if (
+        row.canManage &&
+        canKnowledgeField(actor, "knowledge-pages", "access", "read")
+      ) {
+        const [r] = await m.query(
+          "SELECT access_restricted FROM knowledge_pages WHERE tenant_id=$1 AND id=$2",
+          [actor.tenantId, id],
+        );
+        row.accessRestricted = r.access_restricted;
+        row.access = await m.query(
+          'SELECT subject_type AS "subjectType",subject_id AS "subjectId",access_level AS "accessLevel" FROM knowledge_page_access WHERE tenant_id=$1 AND page_id=$2',
+          [actor.tenantId, id],
+        );
       }
-      if (mode === "browse" && !publishedVersion) {
-        const [view] = await manager.query(`UPDATE knowledge_articles SET view_count=view_count+1 WHERE tenant_id=$1 AND id=$2 RETURNING view_count AS "viewCount"`, [actor.tenantId, id]);
-        if (canKnowledgeField(actor, "knowledge-articles", "viewCount", "read")) row.viewCount = Number(view.viewCount);
-      }
+      if (
+        canKnowledgeField(actor, "knowledge-pages", "publishedVersion", "read")
+      )
+        row.publishedVersionId = versionId ?? row.internalPublishedVersionId;
+      delete row.internalPublishedVersionId;
       return row;
     });
   }
-  versions(id: string, actor: KnowledgeActor) {
-    knowledgeId(id); return this.access.transaction(actor, async (manager) => {
-      if (!canManageKnowledge(actor)) throw new ForbiddenException("当前权限组不能查看历史版本");
-      assertKnowledgeFields(actor, "knowledge-articles", ["publishedVersion", "publishedAt", "publishedBy"], "read");
-      const params: unknown[] = [actor.tenantId]; const scope = await this.access.clause(actor, params, "manage", "read", manager); const i = params.push(id);
-      const historic = await this.access.historicalClause(actor, params, manager);
-      const [record] = await manager.query(`SELECT record.id FROM knowledge_articles record WHERE ${scope} AND record.id=$${i}`, params.slice(0, i));
-      if (!record) throw new NotFoundException("文章不存在或无权访问");
-      return manager.query(`SELECT historical.version_no AS "publishedVersion",historical.published_at AS "publishedAt",historical.published_by AS "publishedBy" FROM knowledge_articles record JOIN knowledge_article_versions historical ON historical.tenant_id=record.tenant_id AND historical.article_id=record.id WHERE ${scope} AND record.id=$${i} AND (${historic}) ORDER BY historical.version_no DESC`, params);
+  versions(id: string, actor: KnowledgeActor, rawMode: unknown = "published") {
+    assertKnowledgeFields(
+      actor,
+      "knowledge-pages",
+      ["publishedVersion", "publishedAt", "publishedBy", "title"],
+      "read",
+    );
+    return this.access.transaction(actor, async (m) => {
+      const p: unknown[] = [actor.tenantId, knowledgeId(id)];
+      const mode = this.mode(rawMode);
+      const scope = await this.access.clause(
+          actor,
+          p,
+          mode,
+          "read",
+          undefined,
+          m,
+        ),
+        historical = this.access.historicalClause(
+          actor,
+          await this.access.membership(actor, m),
+          p,
+        );
+      const rows = await m.query(
+        `SELECT historical.id,historical.version_no AS "publishedVersion",historical.title,historical.published_at AS "publishedAt",historical.published_by AS "publishedBy",u.display_name AS "publisherName" FROM knowledge_pages record ${publishedJoin} JOIN knowledge_page_versions historical ON historical.tenant_id=record.tenant_id AND historical.page_id=record.id LEFT JOIN users u ON u.id=historical.published_by WHERE record.id=$2 AND (${scope}) AND (${historical}) ORDER BY historical.version_no DESC`,
+        p,
+      );
+      return rows;
     });
   }
-  attachment(id: string, actor: KnowledgeActor, mode: "browse" | "manage" = "browse", publishedVersion?: number) {
-    knowledgeId(id); assertKnowledgeFields(actor, "knowledge-articles", ["attachmentIds"], "read");
-    return this.access.transaction(actor, async (manager) => {
-      const params: unknown[] = [actor.tenantId]; const scope = await this.access.clause(actor, params, mode, "read", manager); const i = params.push(id);
-      const [row] = await manager.query(`SELECT file.id,file.article_id AS "articleId",file.storage_key AS key,file.original_name AS "originalName",file.content_type AS "contentType" FROM knowledge_articles record ${mode === "browse" ? knowledgePublishedJoin : ""} JOIN knowledge_attachments file ON file.tenant_id=record.tenant_id AND file.article_id=record.id WHERE ${scope} AND file.id=$${i}`, params);
-      if (!row) throw new NotFoundException("附件不存在或无权访问");
-      if (publishedVersion) {
-        if (!canManageKnowledge(actor) || !Number.isInteger(publishedVersion) || publishedVersion < 1) throw new ForbiddenException("当前权限组不能查看历史附件");
-        const p: unknown[] = [actor.tenantId, row.articleId, publishedVersion, id]; const historic = await this.access.historicalClause(actor, p, manager);
-        const found = await manager.query(`SELECT 1 FROM knowledge_article_versions historical JOIN knowledge_version_attachments link ON link.tenant_id=historical.tenant_id AND link.version_id=historical.id AND link.article_id=historical.article_id WHERE historical.tenant_id=$1 AND historical.article_id=$2 AND historical.version_no=$3 AND link.attachment_id=$4 AND (${historic})`, p);
-        if (!found.length) throw new NotFoundException("附件不属于此发布版本或无权访问");
-      } else if (!(await this.attachments(manager, actor, row.articleId, mode)).some((file: KnowledgeRow) => file.id === id)) throw new NotFoundException("附件不属于当前文章版本");
-      return row;
+  attachment(
+    id: string,
+    input: Record<string, unknown>,
+    actor: KnowledgeActor,
+  ) {
+    assertKnowledgeFields(actor, "knowledge-pages", ["attachmentIds"], "read");
+    const mode = this.mode(input.mode);
+    return this.access.transaction(actor, async (m) => {
+      const p: unknown[] = [actor.tenantId, knowledgeId(id)];
+      const scope = await this.access.clause(
+        actor,
+        p,
+        mode,
+        "read",
+        undefined,
+        m,
+      );
+      let relation = "file.detached_at IS NULL";
+      const join = publishedJoin;
+      if (mode !== "working" || input.versionId) {
+        const index = p.push(
+          input.versionId ? knowledgeId(input.versionId) : null,
+        );
+        const historical = input.versionId
+          ? this.access.historicalClause(
+              actor,
+              await this.access.membership(actor, m),
+              p,
+            )
+          : "true";
+        relation = `EXISTS(SELECT 1 FROM knowledge_page_version_attachments link JOIN knowledge_page_versions historical ON historical.tenant_id=link.tenant_id AND historical.id=link.version_id WHERE link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.attachment_id=file.id AND historical.id=COALESCE($${index}::uuid,record.published_version_id) AND (${historical}))`;
+      }
+      const [file] = await m.query(
+        `SELECT file.storage_key AS key,file.original_name AS "originalName",file.content_type AS "contentType" FROM knowledge_attachments file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${join} WHERE file.tenant_id=$1 AND file.id=$2 AND (${scope}) AND (${relation})`,
+        p,
+      );
+      if (!file) throw new NotFoundException("附件不存在或不在授权范围内");
+      return file;
     });
   }
-  private attachments(manager: EntityManager, actor: KnowledgeActor, articleId: string, mode: "browse" | "manage", version?: number) {
-    const relation = mode === "manage" && !version ? `JOIN knowledge_articles article ON article.tenant_id=file.tenant_id AND article.id=file.article_id AND article.attachment_ids ? file.id::text` : `JOIN knowledge_version_attachments link ON link.tenant_id=file.tenant_id AND link.article_id=file.article_id AND link.attachment_id=file.id JOIN knowledge_article_versions snapshot ON snapshot.tenant_id=link.tenant_id AND snapshot.article_id=link.article_id AND snapshot.id=link.version_id JOIN knowledge_articles article ON article.tenant_id=snapshot.tenant_id AND article.id=snapshot.article_id AND snapshot.version_no=${version ? "$3" : "article.published_version"}`;
-    return manager.query(`SELECT file.id,file.article_id AS "articleId",file.original_name AS "originalName",file.content_type AS "contentType",file.size,file.sha256,file.created_at AS "createdAt" FROM knowledge_attachments file ${relation} WHERE file.tenant_id=$1 AND file.article_id=$2 ORDER BY file.created_at,file.id`, version ? [actor.tenantId, articleId, version] : [actor.tenantId, articleId]);
+  private breadcrumbExpression(mode: KnowledgeMode) {
+    return `(jsonb_build_array(jsonb_build_object('id',record.space_id,'title',(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=record.space_id))) ||
+    (${this.access.chain()} SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'title',${mode !== "published" ? "p.title" : "v.title"}) ORDER BY cardinality(chain.visited) DESC),'[]'::jsonb)
+      FROM chain JOIN knowledge_pages p ON p.tenant_id=chain.tenant_id AND p.id=chain.id LEFT JOIN knowledge_page_versions v ON v.tenant_id=p.tenant_id AND v.id=p.published_version_id))`;
+  }
+  private select(
+    actor: KnowledgeActor,
+    expressions: Record<string, string>,
+    detail: boolean,
+  ) {
+    return Object.entries(expressions)
+      .filter(
+        ([k]) =>
+          ["id", "version"].includes(k) ||
+          (canKnowledgeField(actor, "knowledge-pages", k, "read") &&
+            (detail ||
+              !["content", "contentText", "attachmentIds"].includes(k))),
+      )
+      .map(([k, v]) => `${v} AS "${k}"`);
+  }
+  private async allowed(
+    m: EntityManager,
+    id: string,
+    actor: KnowledgeActor,
+    action: string,
+    minimum: number,
+    mode: KnowledgeMode = "working",
+  ) {
+    if (
+      !canKnowledge(actor, "knowledge-pages", action) ||
+      !canKnowledge(actor, "knowledge-spaces", "read")
+    )
+      return false;
+    const p: unknown[] = [actor.tenantId, id],
+      scope = await this.access.clause(actor, p, mode, action, minimum, m);
+    return (
+      (
+        await m.query(
+          `SELECT 1 FROM knowledge_pages record ${publishedJoin} WHERE record.id=$2 AND (${scope})`,
+          p,
+        )
+      ).length > 0
+    );
+  }
+  private files(
+    m: EntityManager,
+    id: string,
+    actor: KnowledgeActor,
+    mode: KnowledgeMode,
+    versionId: string | null,
+  ) {
+    return m.query(
+      `SELECT file.id,file.page_id AS "pageId",file.original_name AS "originalName",file.content_type AS "contentType",file.size,file.sha256,file.created_at AS "createdAt" FROM knowledge_attachments file WHERE file.tenant_id=$1 AND file.page_id=$2 AND ${mode !== "published" && !versionId ? "file.detached_at IS NULL" : mode !== "published" ? "file.detached_at IS NULL" : "EXISTS(SELECT 1 FROM knowledge_page_version_attachments link WHERE link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.attachment_id=file.id AND link.version_id=$3::uuid)"} ORDER BY file.created_at,file.id`,
+      mode !== "published"
+        ? [actor.tenantId, id]
+        : [actor.tenantId, id, versionId],
+    );
+  }
+  private async tagNames(m: EntityManager, id: string, actor: KnowledgeActor) {
+    return (
+      await m.query(
+        "SELECT tag.name FROM knowledge_page_tags link JOIN knowledge_tags tag ON tag.tenant_id=link.tenant_id AND tag.id=link.tag_id WHERE link.tenant_id=$1 AND link.page_id=$2 ORDER BY tag.name",
+        [actor.tenantId, id],
+      )
+    ).map((r: KnowledgeRow) => r.name);
+  }
+  mode(raw: unknown): KnowledgeMode {
+    if (raw == null || raw === "published") return "published";
+    if (raw === "working" || raw === "trash") return raw;
+    throw new BadRequestException("知识库读取模式无效");
   }
 }

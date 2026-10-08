@@ -37,7 +37,8 @@ import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPag
 import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
-import { KnowledgeHome, KnowledgeReader, KnowledgeManagement, KnowledgeCategoryManagement, KnowledgeEditor } from "./modules/knowledge/KnowledgePages";
+import { clearKnowledgeDraftCache, flushKnowledgeDrafts } from "./modules/knowledge/knowledge-autosave";
+import { KnowledgeWiki } from "./modules/knowledge/KnowledgePages";
 import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
 import {
   OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
@@ -184,9 +185,9 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     knowledge: [
-      { key: "/knowledge", icon: <ReadOutlined />, label: "知识文章与搜索" },
-      ...(["create", "update", "delete"].some((action) => hasSessionResourcePermission(user, "knowledge-articles", action)) ? [{ key: "/knowledge/manage/articles", icon: <FileTextOutlined />, label: "文章管理" }] : []),
-      ...(["create", "update", "delete"].some((action) => hasSessionResourcePermission(user, "knowledge-categories", action)) ? [{ key: "/knowledge/manage/categories", icon: <FolderOpenOutlined />, label: "分类管理" }] : [])
+      {key:"/knowledge",icon:<ReadOutlined/>,label:"知识空间与页面"},
+      ...(["create","update"].some(action=>hasSessionResourcePermission(user,"knowledge-spaces",action))?[{key:"/knowledge/settings",icon:<FolderOpenOutlined/>,label:"空间设置"}]:[]),
+      ...(hasSessionResourcePermission(user,"knowledge-pages","delete")?[{key:"/knowledge/trash",icon:<FileTextOutlined/>,label:"回收站"}]:[])
     ],
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
@@ -288,7 +289,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
-      "/knowledge": "知识文章与搜索", "/knowledge/manage/articles": "文章管理", "/knowledge/manage/categories": "分类管理",
+      "/knowledge": "知识空间与页面", "/knowledge/settings": "空间设置", "/knowledge/trash": "回收站",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       [reportPath]: "研发进度",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
@@ -338,12 +339,11 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
-          <Route path="/knowledge" element={<KnowledgeHome />} />
-          <Route path="/knowledge/articles/:id" element={<KnowledgeReader />} />
-          <Route path="/knowledge/manage/articles" element={<KnowledgeManagement />} />
-          <Route path="/knowledge/manage/articles/new" element={<KnowledgeEditor />} />
-          <Route path="/knowledge/manage/articles/:id/edit" element={<KnowledgeEditor />} />
-          <Route path="/knowledge/manage/categories" element={<KnowledgeCategoryManagement />} />
+          <Route path="/knowledge" element={<KnowledgeWiki />}/>
+          <Route path="/knowledge/pages/:id" element={<KnowledgeWiki />}/>
+          <Route path="/knowledge/settings" element={<KnowledgeWiki />}/>
+          <Route path="/knowledge/trash" element={<KnowledgeWiki />}/>
+          <Route path="/knowledge/archive" element={<KnowledgeWiki />}/>
           <Route path="/rd/items" element={<RdItemsPage />} />
           <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />
@@ -726,7 +726,13 @@ export default function App() {
   const queryClient = useQueryClient();
   const [authenticated, setAuthenticated] = useState(Boolean(localStorage.getItem("accessToken")));
   const [mustChange, setMustChange] = useState(Boolean(JSON.parse(localStorage.getItem("sessionUser") ?? "{}").mustChangePassword));
-  const logout = () => {
+  const logout = async () => {
+    try { await flushKnowledgeDrafts(); }
+    catch {
+      window.alert("知识页面自动保存失败，本地修改已保留；请返回知识页面处理后再退出。");
+      return;
+    }
+    clearKnowledgeDraftCache();
     queryClient.clear();
     localStorage.removeItem("accessToken"); localStorage.removeItem("refreshToken"); localStorage.removeItem("sessionUser");
     window.location.assign("/");

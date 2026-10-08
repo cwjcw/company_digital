@@ -1,64 +1,72 @@
-# Knowledge Base Phase 1
+# KDOS Knowledge 2.0
 
-知识库是独立 `knowledge` 模块，canonical 首页 `/knowledge`。它复用现有本地 JWT/API Key、实时管理员与表权限声明、稳定用户/组织/普通角色 ID、组织成员 helper、公共表格/筛选/导出、AuditLog 和 ObjectStorage；不新增 HR、人事系统、身份体系、AI 或 RAG 服务。
+知识库是现有 `knowledge` 模块，入口 `/knowledge`。Space 是业务与权限边界，Page 是唯一内容节点；标题页、目录页、正文页和带附件的页面都使用同一模型，支持任意深度父子树。Phase 1 的 Category/Article 模型、路由、前端及权限资源已撤销，不提供两套正式业务契约。
 
-## 数据库与分类
+## 数据与发布
 
-正式运行的设备、督办、研发等新兼容模块仍使用 TypeORM 主连接 `four_department_tracker`；知识库跟随这条实际边界，不将相同表再复制到 `kdos`。新增 migration `KnowledgeBasePhaseOne1722920084000` 创建 pg_trgm 和 7 张表：`knowledge_categories`、`knowledge_articles`、`knowledge_tags`、`knowledge_article_tags`、`knowledge_attachments`、`knowledge_article_versions`、`knowledge_version_attachments`。全部具有UUIDv7主键、tenant及标准创建/更新审计和version字段，启用 tenant RLS，查询仍显式 tenant 条件，事务设置 `app.tenant_id`。
+沿用实际兼容边界 TypeORM / `four_department_tracker.public`，不复制到 KDOS 库。历史 `1722920084000-KnowledgeBasePhaseOne` 保持原样；新增 `1722920085000-Knowledge2SpacePageModel` 撤销旧7表，建立 Space、Space access、Page、Page access、Page versions、Attachments、Version attachments、Tags、Page tags、Storage cleanup 共10表及 `knowledge_page_read_model` 发布只读视图。
 
-仅初始化当前默认租户唯一一级分类 `HR / 人力资源`，UUIDv7 + tenant/code 防重复。没有预置二级分类；管理员从前端手工创建，最多两层，同父分类名称唯一。启停、排序、重命名使用 expectedVersion；已引用分类及一级分类不能删除。
+全部表具备 UUIDv7、tenant、标准审计字段和 version，并启用 `app.tenant_id` RLS；SQL 同时显式过滤 tenant。默认仅幂等初始化稳定 code=HR 的人力资源 Space，不初始化业务页面或默认权限组。同空间父节点复合外键、循环触发器、Application 校验和 tenant 树事务锁共同保护树。跨空间移动检查整个子树与目标权限。
 
-## 工作副本与发布
+新建立即保存 DRAFT 并返回 pageId，可以直接上传。工作副本保存规范 JSON / 可信纯文本 / SHA256；发布才追加不可变版本及附件快照，员工读取当前发布版本。历史记录及历史附件关系禁止更新/普通删除，旧版本也不能追加新附件。永久删除仅在已授权的回收站子树命令内解除引用并删除。审计保留动作、ID、计数、字段名和 hash，不存完整正文。
 
-`knowledge_articles` 保存可编辑工作副本，`working_revision` 与并发 `version` 分开。状态只有 DRAFT / PUBLISHED / DISABLED。发布由现有 update 权限执行，要求 status 字段可编辑、发布所需字段可读及合法正文/分类/ACL/附件。没有新增 publish 权限动作。
+DRAFT、PUBLISHED、ARCHIVED、TRASHED 分开。归档子树保留阅读和历史，在已归档页面入口查阅；恢复归档沿用原发布版本。回收站恢复按删除批次恢复，之前单独删除的子页面不会误恢复。永久删除清理子树、版本、标签关系、ACL 与文件；存储清理失败保留 tenant 隔离任务，每分钟重试默认tenant，也可调用附件清理命令重试自己已授权的任务。Space 删除接口执行归档，保留页面和历史。默认租户管理员清理任务还通过现有 ObjectStorage 的私有前缀枚举，核对文件和数据库引用，回收事务提交前进程中断遗留的孤儿对象；枚举与上传共用租户事务锁，其他租户和仍被引用的文件不受影响。
 
-首次发布写入 v1；重新发布追加 v2、v3，不更新历史版本。数据库 trigger 拒绝修改或删除已发布正文快照和版本附件关系。快照保留可信 JSON、服务器提取 plain text、SHA256、分类名称、标签、ACL、发布时间/人和附件集合。保存工作副本不改变员工当前发布版本的标题、正文、搜索、标签、ACL 或文件。历史分类名称来自发布快照。
+## 权限
 
-从未发布的草稿可逻辑删除；文章 tombstone 与文件 metadata 保留私有所有权和审计，所有读取/下载入口拒绝访问。已发布过文章只能停用。工作副本移除附件不删除历史版本文件；未来清理只能按明确保留政策执行，不能直接删除历史引用。
+资源为 `knowledge-spaces`、`knowledge-pages`；旧两个资源从平台注册和权限声明撤销，旧 Knowledge 专属权限组停用，用户、普通角色及其他模块权限保留。管理员使用现有表权限管理页配置新资源，不自动给普通用户扩权。发布/归档/恢复沿用 update，回收站/永久删除沿用 delete；不新增全局 publish/archive 动作。
 
-## 授权
+`KnowledgeAuthorizationService` 统一树、列表、正文、搜索、版本、附件、导入提交、导出和平台候选值的 SQL 边界：tenant + 表动作 + 字段权限 + 数据范围 + Space grant + 每一层祖先限制 + 状态。Space grant 使用稳定 USER/ROLE/ORGANIZATION/ALL 和 VIEWER/EDITOR/FULL_ACCESS；Page 限制逐层取交集，子节点不能扩大空间或上级授权。组织及普通角色从平台实时成员关系解析。系统/Knowledge 管理员沿用平台管理员能力，其他模块管理员无 Knowledge 提权，管理员仍受 tenant 限制。
 
-两资源 `knowledge-categories` / `knowledge-articles` 注册现有 contracts 与表权限管理页。分类树复用公共权限按钮；文章管理使用 KdosDataTable。系统/知识库模块管理员仅按既有 claims 授权，其他模块管理员不获得知识权限；普通角色不冒充管理员。
+只读角色不能请求工作副本。历史查看额外与当时的权限成员快照取交集，并继续检查当前页面和祖先权限。正文、纯文本、标签、附件和路径按平台字段权限裁剪；搜索不可使用隐藏正文或祖先字段作为侧信道。导航可切换已发布/工作页面，较窄只读授权仍可在已发布树阅读。平台行/筛选候选/标准 Excel 导出只访问发布视图，不暴露未发布的工作副本。
 
-服务端 `KnowledgeAccessService` 统一构造 tenant、表操作、数据范围、状态与 ACL 条件，列表、正文、搜索、历史、文件、平台候选/导出复用。ALL 仍要求表 read；ORGANIZATION 使用稳定组织 ID、完整子树及现有 `createOrganizationMembershipIndex`，ROLE 解析实时直接/部门角色，USER 使用稳定用户 ID。字段按 read 裁剪，搜索需标题/摘要/正文纯文本/标签全部可读。导出叠加 read 与 export 的数据范围。平台文章源是管理视图，普通只读员工不能通过通用表格入口读取工作副本。
+## 搜索与文件
 
-非管理员历史访问同时要求当前发布文章完整授权与该历史版本 ACL。停用后的历史仅管理员可读取。受控文件先查文章及版本关系，再读 ObjectStorage；猜文件 ID 不足以下载。
+`published_search_text` 是当前发布内容的搜索投影，包含发布标题、可信正文纯文本、发布标签、当前空间和上级发布标题。发布/上级发布/移动/空间改名用同一事务刷新受影响投影，不修改不可变版本，也不包含工作副本文字。PostgreSQL pg_trgm GIN 索引 `idx_knowledge_pages_search` 支持参数化 ILIKE；先执行 tenant/ACL/数据范围/筛选，再计数、相关度排序和分页。使用平台唯一 SqlFilterCompiler 处理 FilterGroup。路径显示当前已授权祖先，避免移动后显示旧私密路径。
 
-## 正文与私有文件
+文件复用 ObjectStorage private，位于 uploads/.private，继续由 API 和 Nginx 拒绝静态访问；只经认证 Knowledge 下载接口返回，no-store/nosniff。图片经 Sharp 真实解析/重编码；名称移除路径和控制字符；Office 校验真实类型并对 ZIP 目录和实际解压流限制大小。正文只接受严格 JSON allowlist，React 安全渲染；HTML 导入先 sanitize 再转规范 JSON，无脚本、危险 URL 或事件属性。
 
-前端 TipTap JSON 编辑器和 React allowlist 阅读器；不接受 HTML，不使用 dangerouslySetInnerHTML。后端严格限制节点、结构、属性与 marks，只允许 http/https/mailto 链接，拒绝 script/iframe、事件属性、客户端 contentText 和远程图片。服务器生成可信 plain text/hash；图片节点只引用本文章已上传且有效的附件 UUID。
+## 自动保存与导入导出
 
-现有 LocalObjectStorage 扩展可选 `visibility=private`，知识文件保存到 uploads/.private，返回 key 给服务内部、不给公共 URL。API 静态层与 Nginx 拒绝该路径。原有 public 行为保留。浏览器通过认证 API 拉取 Blob，图片 Object URL 在切换/卸载时释放；敏感文件响应 no-store/nosniff。上传最多20个、每个20MB，允许 Office/PDF/TXT/PNG/JPEG/WebP，拒绝不符格式；图片由既有 Sharp 解码重编码、像素限制40M。存储写入后数据库失败会补偿删除新对象。
+前端 1200ms 防抖，单队列串行保存/上传/发布，expectedVersion 409 不覆盖、不自动重试，保留本地输入；普通失败可以重试，显示等待/保存中/已保存/失败/冲突。发布前及本模块跳转前 flush，浏览器关闭有未保存提示；跨模块离开后的失败草稿仅保存在当前账号/权限范围的内存中，返回编辑器可恢复，退出登录先flush，清理后不跨账号复用。新建不存在“先手动保存才能上传”的步骤。内容编辑器复用 TipTap，包含 H1/H2/H3、基础标记、列表、引用、提示块、链接、表格、代码、私有图片、分割线、撤销/重做及粘贴图片上传。
 
-## 搜索、筛选与导出
+DOCX、Markdown、HTML：预览 → 选择空间/父页面/标签/继承或限制权限 → 提交为 DRAFT → 人工发布。DOCX 用 Mammoth 保留标题、常规粗斜体、列表、表格、链接和 PNG/JPEG/WebP 内嵌图；Markdown 支持 GFM 表格、代码和链接；HTML 清洗后转结构化正文。预览 token 绑定用户及tenant，有效10分钟，限内存容量且提交后消耗，重启需重新预览。上传解析前统一调用加密检测，原样提示“该文件被加密,请解密后再导入.”。
 
-工作副本和发布快照各有 `search_text` trigram GIN 索引，内容为标题+摘要+服务器可信正文纯文本+标签。查询直接 `search_text ILIKE $n` 匹配索引；列表、管理表、筛选候选及标准导出共用 `knowledgeSearchClause`。标准字段使用唯一 SqlFilterCompiler，不另建解析器。中文请假、绩效考核、标签搜索与自然 planner GIN EXPLAIN 在隔离库测试。
+限制：源文档20MB；转换正文2MB，规范正文500KB/10000节点；Office单项解压30MB、总100MB、最多2000项；页面最多20个附件，预览内嵌图最多20张；不保留 DOCX 页眉页脚、分页、浮动排版、字体精确版式或 HTML CSS。外部/相对图片不下载（避免SSRF），提示导入后手动上传；仅支持 PNG/JPEG/WebP 图片。不提供 Excel 内容导入。
 
-服务端分页默认100，可选50/100/200/500/1000。前端使用项目统一5分钟查询缓存及写后失效，退出/权限变化沿用全局缓存清除。标准管理表导出通过既有 `/table-exports/knowledge-articles` 跨页取全部匹配记录，分类 label 批量按 actor tenant 解析。该公共导出仍沿用现有平台的单元格文本格式，不另建知识库 Excel 框架。
+单页导出 Markdown / HTML，使用同一授权查询并内嵌当前已授权图片，无私有 storage key 或公共URL。非图片附件经页面认证下载单独获取。DOCX/PDF 导出不在本轮实现。标准平台 Excel 导出复用已有 TablePrintService，导出全部当前筛选后的发布页面，不是当前分页。
 
 ## API
 
-统一前缀 `/api/v1/knowledge`，全部 AuthGuard：
+统一前缀 `/api/v1/knowledge`，所有接口 AuthGuard：
 
-| 方法 | 路径 | 用途 |
+|方法|路径|作用|
 |---|---|---|
-| GET/POST | /categories | 分类读取/手工新增二级分类 |
-| PATCH/DELETE | /categories/:id | 并发修改/删除未使用二级分类 |
-| GET | /options | 编辑器稳定用户/组织/普通角色选项 |
-| GET/POST | /articles | 授权分页搜索/创建草稿 |
-| GET/PATCH/DELETE | /articles/:id | 发布阅读或 mode=manage / 工作副本修改 / 删除纯草稿 |
-| POST | /articles/:id/publish | 首次或重新发布 |
-| POST | /articles/:id/disable | 停用 |
-| GET | /articles/:id/versions | 授权历史版本列表 |
-| GET | /articles/:id/versions/:number | 不可变历史正文 |
-| POST | /articles/:id/attachments | multipart file + expectedVersion |
-| DELETE | /articles/:id/attachments/:attachmentId | 从工作副本移除 |
-| GET | /attachments/:id | 受控文件；mode=manage 或 version=N |
+|GET / POST|`/spaces`|可见空间 / 新建|
+|PATCH / DELETE|`/spaces/:id`|修改（包括归档/恢复）/ 归档保留|
+|GET / PATCH|`/spaces/:id/access`|完全管理者查询 / 配置成员|
+|GET|`/spaces/:id/tree`|当前空间的根/子节点，服务端分页|
+|GET|`/pages` / `/search`|列表/已发布搜索，FilterGroup|
+|POST|`/pages`|立即创建草稿|
+|GET / PATCH / DELETE|`/pages/:id`|正文 / 自动保存 / 移入回收站|
+|PATCH|`/pages/:id/access`|限制或继承|
+|POST|`/pages/:id/move`|移动/排序|
+|POST|`/pages/:id/publish`|发布新版本|
+|POST|`/pages/:id/archive` / `/unarchive`|归档 / 恢复归档|
+|POST|`/pages/:id/restore`|回收站恢复|
+|DELETE|`/pages/:id/permanent`|永久删除已授权子树|
+|GET|`/pages/:id/versions` / `/versions/:versionId`|版本列表 / 版本正文|
+|POST|`/pages/:id/attachments`|立即私有上传|
+|GET / DELETE|`/attachments/:id`|认证下载 / 工作副本解绑|
+|POST|`/attachments/cleanup`|清理未被版本引用的已解绑文件/重试|
+|POST|`/imports/preview` / `/imports/commit`|解析预览 / 新草稿提交|
+|GET|`/pages/:id/export?format=md（或html）`|单页导出|
+|GET|`/options`|有权限配置字段授权的编辑者获取现有平台成员选项|
 
-所有写入使用 Application Service，审计仅存 tenant、元数据、版本、hash、变更字段与附件信息，不保存整篇正文。编辑/发布/停用/移除文件必须传 expectedVersion，冲突409，不能盲目增加版本重试。
+读取默认 mode=published；working 必须有平台 update 及有效 EDITOR，trash 必须 FULL_ACCESS；versionId 指定不可变历史UUID。所有已有记录写入必须 expectedVersion。
 
 ## 验证与上线
 
-先跑相关 Jest / Vitest、全量回归、typecheck/lint/build，再标准双库/uploads备份、核验 SHA256。只新增本迁移，不改旧迁移、不执行 seed。使用 scripts/migrate.sh 和 scripts/deploy.sh all，要求 Repository/Web/API SHA 一致、健康检查及线上路由验证。
+`pnpm --filter @tracker/api build` 后运行 `node scripts/validate-knowledge.mjs`，只创建、使用、删除 `knowledge_test_*` 隔离数据库；验证旧→新模型、全部历史迁移重放、真实 RLS/树/ACL/发布/附件/导入/搜索/审计及 EXPLAIN。报告 `outputs/KNOWLEDGE_2_DATABASE_VALIDATION.json`。API/Web 单测及 Chrome 场景见 Knowledge 测试文件；生产账号验收只接受本轮授权的运行时凭据，禁止临时JWT、生产密码/权限改动或复用仅授权PMC Phase5的凭据。
 
-`knowledge.database-validation.ts` 是真实 PostgreSQL 自动验收入口，仅接受名称前缀 knowledge_test_ 的隔离空数据库，绝不运行在正式库；覆盖发布、ACL、权限字段/范围、历史附件、并发、审计、RLS 与 EXPLAIN。其文件对象替身用于验证业务边界；LocalObjectStorage 单元测试及新镜像 Sharp 运行检查补充存储/图片实际能力。
+上线按标准双库+uploads备份/SHA256 → 新API镜像migration → deploy all → healthcheck，源码HEAD、API和Web版本应一致。执行过的历史 migration 不修改，自动回退新 migration 被明确禁止，应按已校验的升级前备份恢复。人工检查清单及真实结果在 `outputs/KNOWLEDGE_2_ACCEPTANCE.md`，未实际验收的项目不得标为PASS。

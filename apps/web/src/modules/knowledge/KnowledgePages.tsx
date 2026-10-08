@@ -1,83 +1,944 @@
-import { useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, App, Button, Dropdown, Empty, Input, List, Pagination, Space, Spin, Tag, Typography } from "antd";
-import { MoreOutlined } from "@ant-design/icons";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Alert,
+  App,
+  Breadcrumb,
+  Button,
+  Dropdown,
+  Empty,
+  Input,
+  List,
+  Modal,
+  Pagination,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Tree,
+  Typography,
+} from "antd";
+import type { DataNode } from "antd/es/tree";
+import { MoreOutlined, PlusOutlined } from "@ant-design/icons";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import dayjs from "dayjs";
-import { knowledgeStatusOptions, type KnowledgeArticle } from "@kdos/contracts";
+import type {
+  KnowledgeContentNode,
+  KnowledgePage,
+  KnowledgeSpace,
+} from "@kdos/contracts";
 import { api } from "../../api";
-import { hasFieldPermission, hasResourcePermission, KdosDataTable, TablePermissionButton } from "../../shared/KdosDataTable";
-import { blankPlatformQuery, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
-import { formatAuditUser, useAuditIdentityDirectory } from "../../shared/audit-fields";
+import {
+  hasFieldPermission,
+  hasResourcePermission,
+  KdosDataTable,
+} from "../../shared/KdosDataTable";
 import { downloadApiFile } from "../../shared/legacy-ui";
-import { KnowledgeCategories } from "./KnowledgeCategories";
+import {
+  blankPlatformQuery,
+  type PlatformTableQuery,
+} from "../../shared/platform-table";
 import { KnowledgeContent } from "./KnowledgeContent";
-import { useKnowledgeCategories, KnowledgeFileContext, knowledgeFileUrl } from "./knowledge-ui";
-export { KnowledgeEditor } from "./KnowledgeEditor";
-
-const canManage = () => ["create", "update", "delete"].some((action) => hasResourcePermission("knowledge-articles", action));
-function KnowledgeActions() {
-  const navigate = useNavigate();
-  return <Space wrap>{hasResourcePermission("knowledge-articles", "create") && <Button type="primary" onClick={() => navigate("/knowledge/manage/articles/new")}>新建文章</Button>}{canManage() && hasResourcePermission("knowledge-articles", "read") && <Button onClick={() => navigate("/knowledge/manage/articles")}>文章管理</Button>}</Space>;
+import { KnowledgeEditor } from "./KnowledgeEditor";
+import { KnowledgeAccess } from "./KnowledgeAccess";
+import { KnowledgeImport } from "./KnowledgeImport";
+import { KnowledgePageSelect } from "./KnowledgePageSelect";
+import { KnowledgeSettings } from "./KnowledgeSettings";
+import {
+  KnowledgeFileContext,
+  knowledgeFileUrl,
+  copyKnowledgeLink,
+} from "./knowledge-ui";
+import type { KnowledgeDraftSession } from "./knowledge-autosave";
+import "./knowledge.css";
+type PageResult = {
+  rows: KnowledgePage[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+const readable = (field: string) =>
+  hasFieldPermission("knowledge-pages", field, "read");
+const appendTree = (
+  old: DataNode[],
+  parent: string | undefined,
+  more: DataNode[],
+): DataNode[] =>
+  parent
+    ? old.map((n) =>
+        String(n.key) === parent
+          ? {
+              ...n,
+              children: [
+                ...(n.children ?? []).filter(
+                  (c) => !String(c.key).startsWith("more:"),
+                ),
+                ...more,
+              ],
+            }
+          : {
+              ...n,
+              ...(n.children
+                ? { children: appendTree(n.children, parent, more) }
+                : {}),
+            },
+      )
+    : [...old.filter((n) => !String(n.key).startsWith("more:")), ...more];
+function PageTree({
+  space,
+  working,
+  refresh,
+  onOpen,
+}: {
+  space: KnowledgeSpace;
+  working: boolean;
+  refresh: number;
+  onOpen: (page: KnowledgePage) => void;
+}) {
+  const [nodes, setNodes] = useState<DataNode[]>([]),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  const load = useCallback(
+    async (parentId?: string, page = 1): Promise<DataNode[]> => {
+      const p = new URLSearchParams({
+        mode: working ? "working" : "published",
+        pageSize: "100",
+        page: String(page),
+      });
+      if (parentId) p.set("parentId", parentId);
+      const result = await api<PageResult>(
+        `/knowledge/spaces/${space.id}/tree?${p}`,
+      );
+      const rows: DataNode[] = result.rows.map((row) => ({
+        key: row.id,
+        isLeaf: !row.hasChildren,
+        title: (
+          <button className="knowledge-tree-link" onClick={() => onOpen(row)}>
+            {row.title}
+            {row.status === "DRAFT" && <Tag>草稿</Tag>}
+          </button>
+        ),
+      }));
+      if (page * 100 < result.total)
+        rows.push({
+          key: `more:${parentId ?? "root"}:${page}`,
+          isLeaf: true,
+          title: (
+            <Button
+              size="small"
+              onClick={() =>
+                void load(parentId, page + 1).then((more) =>
+                  setNodes((old) => appendTree(old, parentId, more)),
+                )
+              }
+            >
+              加载更多
+            </Button>
+          ),
+        });
+      return rows;
+    },
+    [space.id, working, onOpen],
+  );
+  useEffect(() => {
+    const current = ++generation.current;
+    setNodes([]);
+    setBusy(true);
+    setError("");
+    void load()
+      .then((rows) => {
+        if (current === generation.current) setNodes(rows);
+      })
+      .catch((e) => {
+        if (current === generation.current) setError((e as Error).message);
+      })
+      .finally(() => {
+        if (current === generation.current) setBusy(false);
+      });
+  }, [load, refresh]);
+  return error ? (
+    <Alert type="error" message={error} />
+  ) : busy ? (
+    <Spin />
+  ) : (
+    <Tree
+      blockNode
+      treeData={nodes}
+      loadData={async (node) => {
+        if (String(node.key).startsWith("more:")) return;
+        try {
+          const children = await load(String(node.key));
+          setNodes((old) => appendTree(old, String(node.key), children));
+        } catch (e) {
+          setError((e as Error).message);
+        }
+      }}
+    />
+  );
 }
-export function KnowledgeHome() {
-  const navigate = useNavigate(); const [search, setSearch] = useState(""); const [categoryId, setCategoryId] = useState<string>(); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(100);
-  const articles = useQuery({ queryKey: ["knowledge", "browse", search, categoryId, page, pageSize], queryFn: () => {
-    const params = new URLSearchParams({ search, page: String(page), pageSize: String(pageSize) }); if (categoryId) params.set("categoryId", categoryId); return api<PlatformTablePage<KnowledgeArticle>>(`/knowledge/articles?${params}`);
-  }, enabled: hasResourcePermission("knowledge-articles", "read"), retry: false });
-  if (!hasResourcePermission("knowledge-articles", "read")) return <Space direction="vertical"><Alert type="warning" message="当前权限组没有知识文章查看权限" /><KnowledgeActions /></Space>;
-  return <div className="knowledge-layout"><KnowledgeCategories selectedId={categoryId} onSelect={(id) => { setCategoryId(id); setPage(1); }} /><div>
-    <Space wrap style={{ width: "100%", marginBottom: 16 }}><Input.Search className="knowledge-search" placeholder="搜索标题、摘要、正文和标签" aria-label="搜索知识" allowClear enterButton="搜索" onSearch={(value) => { setSearch(value); setPage(1); }} /><KnowledgeActions /></Space>
-    {articles.error ? <Alert type="error" message={(articles.error as Error).message} /> : <List className="knowledge-article-list" loading={articles.isLoading} dataSource={articles.data?.rows ?? []} locale={{ emptyText: <Empty description="当前条件下暂无可见知识文章" /> }} renderItem={(row) => <List.Item>
-      <div><h3><Button type="link" style={{ padding: 0, height: "auto", fontSize: 18 }} onClick={() => navigate(`/knowledge/articles/${row.id}`)}>{row.title ?? "知识文章"}</Button></h3>
-        <Typography.Paragraph>{row.summary || row.snippet}</Typography.Paragraph>
-        <Space wrap>{row.rootCategoryName && <Typography.Text type="secondary">{row.rootCategoryName}{row.categoryName !== row.rootCategoryName ? ` / ${row.categoryName}` : ""}</Typography.Text>}{row.tags?.map((tag) => <Tag key={tag}>{tag}</Tag>)}<Typography.Text type="secondary">{row.publisherName} {row.publishedAt && dayjs(row.publishedAt).format("YYYY-MM-DD HH:mm")}</Typography.Text></Space>
-      </div>
-    </List.Item>} />}
-    <Pagination total={articles.data?.total ?? 0} current={page} pageSize={pageSize} pageSizeOptions={[50, 100, 200, 500, 1000]} showSizeChanger onChange={(page, size) => { setPage(size === pageSize ? page : 1); setPageSize(size); }} style={{ marginTop: 16 }} />
-  </div></div>;
-}
-export function KnowledgeReader() {
-  const { id } = useParams(); const [params, setParams] = useSearchParams(); const { message } = App.useApp(); const navigate = useNavigate();
-  const mode = params.get("mode") === "manage" ? "manage" as const : undefined; const version = params.has("version") ? Number(params.get("version")) : undefined;
-  const [showHistory, setShowHistory] = useState(false);
-  const article = useQuery({ queryKey: ["knowledge", "detail", id, mode, version], queryFn: () => api<KnowledgeArticle>(version ? `/knowledge/articles/${id}/versions/${version}` : `/knowledge/articles/${id}${mode ? "?mode=manage" : ""}`), retry: false, refetchOnWindowFocus: false, placeholderData: undefined });
-  const versions = useQuery({ queryKey: ["knowledge", "versions", id], queryFn: () => api<{ publishedVersion: number; publishedAt: string }[]>(`/knowledge/articles/${id}/versions`), enabled: showHistory, retry: false });
-  if (article.isLoading) return <Spin />; if (article.error) return <Alert type="error" message={(article.error as Error).message} />; const row = article.data; if (!row) return null;
-  return <KnowledgeFileContext.Provider value={{ mode, version }}><article className="knowledge-reader">
-    <Space wrap><Button onClick={() => navigate("/knowledge")}>返回知识库</Button>{canManage() && hasFieldPermission("knowledge-articles", "publishedVersion", "read") && <Button onClick={() => setShowHistory(!showHistory)}>历史版本</Button>}{hasResourcePermission("knowledge-articles", "update") && <Button onClick={() => navigate(`/knowledge/manage/articles/${id}/edit`)}>编辑工作副本</Button>}</Space>
-    {showHistory && <div style={{ marginTop: 12 }}>{versions.error ? <Alert type="error" message={(versions.error as Error).message} /> : <Space wrap>{versions.data?.map((item) => <Button key={item.publishedVersion} onClick={() => setParams({ version: String(item.publishedVersion) })}>v{item.publishedVersion} · {dayjs(item.publishedAt).format("YYYY-MM-DD HH:mm")}</Button>)}<Button onClick={() => setParams({})}>当前发布版本</Button></Space>}</div>}
-    {mode && !version && <Tag>工作副本预览</Tag>}<Typography.Title level={2}>{row.title}</Typography.Title>
-    <Space wrap className="knowledge-meta"><span>{row.rootCategoryName}{row.categoryName !== row.rootCategoryName ? ` / ${row.categoryName ?? ""}` : ""}</span>{row.tags?.map((tag) => <Tag key={tag}>{tag}</Tag>)}<span>{row.publisherName}</span>{row.publishedAt && <span>{dayjs(row.publishedAt).format("YYYY-MM-DD HH:mm:ss")}</span>}{row.publishedVersion != null && <span>版本 v{row.publishedVersion}</span>}{row.viewCount != null && <span>浏览量 {row.viewCount}</span>}</Space>
-    <KnowledgeContent content={row.content} />
-    {row.attachments?.length ? <Space direction="vertical" style={{ marginTop: 20 }}><Typography.Text strong>附件</Typography.Text>{row.attachments.map((file) => <Button key={file.id} type="link" onClick={() => void downloadApiFile(knowledgeFileUrl(file.id, { mode, version }), file.originalName).catch((error: Error) => message.error(error.message))}>{file.originalName}</Button>)}</Space> : null}
-  </article></KnowledgeFileContext.Provider>;
-}
-export function KnowledgeManagement() {
-  const navigate = useNavigate(); const { message, modal } = App.useApp(); const client = useQueryClient(); const [query, setQuery] = useState<PlatformTableQuery>(blankPlatformQuery()); const [busy, setBusy] = useState(false); const lock = useRef(false);
-  const categories = useKnowledgeCategories(); const memberNames = useAuditIdentityDirectory();
-  const articles = useQuery({ queryKey: ["knowledge", "manage", query], queryFn: () => api<PlatformTablePage<KnowledgeArticle>>(platformRowsUrl("knowledge-articles", query)), enabled: canManage() && hasResourcePermission("knowledge-articles", "read"), retry: false });
-  const action = async (row: KnowledgeArticle, operation: "publish" | "disable") => {
-    if (lock.current) return; lock.current = true; setBusy(true);
-    try { await api(`/knowledge/articles/${row.id}/${operation}`, { method: "POST", body: JSON.stringify({ expectedVersion: row.version }) }); await client.invalidateQueries({ queryKey: ["knowledge"] }); message.success(operation === "publish" ? "文章已发布" : "文章已停用"); }
-    catch (error) { message.error((error as Error).message); throw error; } finally { lock.current = false; setBusy(false); }
+function toc(content?: KnowledgeContentNode) {
+  const items: { title: string; index: number }[] = [];
+  let index = 0;
+  const walk = (n: KnowledgeContentNode) => {
+    if (n.type === "heading")
+      items.push({
+        title: (n.content ?? []).map((c) => c.text ?? "").join(""),
+        index: index++,
+      });
+    for (const c of n.content ?? []) walk(c);
   };
-  if (!canManage() || !hasResourcePermission("knowledge-articles", "read")) return <Alert type="error" message="当前权限组没有文章管理权限" />;
-  const fields = ["title", "summary", "categoryId", "content", "tags", "visibility", "attachmentIds"];
-  const canPublish = hasResourcePermission("knowledge-articles", "update") && hasFieldPermission("knowledge-articles", "status", "update") && fields.every((field) => hasFieldPermission("knowledge-articles", field, "read"));
-  return <div>{articles.error && <Alert type="error" message={(articles.error as Error).message} />}<KdosDataTable<KnowledgeArticle> resource="knowledge-articles" rowKey="id" dataSource={articles.data?.rows} loading={articles.isLoading} serverData={{ total: articles.data?.total ?? 0, onQueryChange: setQuery }} toolbar={<KnowledgeActions />} deleteAction={{ permitted: hasResourcePermission("knowledge-articles", "delete"), canDelete: (row) => row.status === "DRAFT" && !row.publishedVersion, confirmContent: "仅删除从未发布的草稿；附件保留为私有审计资料。", onDelete: async (rows) => { for (const row of rows) await api(`/knowledge/articles/${row.id}`, { method: "DELETE", body: JSON.stringify({ expectedVersion: row.version }) }); await client.invalidateQueries({ queryKey: ["knowledge"] }); } }} columns={[
-    { title: "标题", dataIndex: "title", width: 320, render: (title: string, row) => <Space><Button type="link" onClick={() => navigate(`/knowledge/articles/${row.id}?mode=manage`)}>{title}</Button><Dropdown menu={{ items: [
-      ...(hasResourcePermission("knowledge-articles", "update") ? [{ key: "edit", label: "编辑工作副本", onClick: () => navigate(`/knowledge/manage/articles/${row.id}/edit`) }] : []),
-      ...(canPublish ? [{ key: "publish", label: row.publishedVersion ? "重新发布" : "发布", disabled: busy, onClick: () => modal.confirm({ title: row.publishedVersion ? "重新发布工作副本？" : "发布文章？", onOk: () => action(row, "publish") }) }] : []),
-      ...(row.status === "PUBLISHED" && hasResourcePermission("knowledge-articles", "update") && hasFieldPermission("knowledge-articles", "status", "update") ? [{ key: "disable", label: "停用", danger: true, disabled: busy, onClick: () => modal.confirm({ title: "停用此文章？", onOk: () => action(row, "disable") }) }] : [])
-    ] }}><Button type="text" size="small" icon={<MoreOutlined />} aria-label="文章更多操作" /></Dropdown></Space> },
-    { title: "摘要", dataIndex: "summary", width: 250, ellipsis: true },
-    { title: "分类", dataIndex: "categoryId", width: 160, render: (id) => categories.data?.find((node) => node.id === id)?.name ?? "" },
-    { title: "标签", dataIndex: "tags", width: 180, render: (tags?: string[]) => tags?.map((tag) => <Tag key={tag}>{tag}</Tag>) },
-    { title: "状态", dataIndex: "status", width: 100, render: (status) => knowledgeStatusOptions.find((option) => option.value === status)?.label },
-    { title: "工作修订", dataIndex: "workingRevision", width: 90 }, { title: "发布版本", dataIndex: "publishedVersion", width: 90 },
-    { title: "发布人", dataIndex: "publishedBy", width: 140, render: (value) => value ? formatAuditUser(value, memberNames) : "" }, { title: "发布时间", dataIndex: "publishedAt", width: 160, render: (value) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "" },
-    { title: "浏览量", dataIndex: "viewCount", width: 90 }
-  ]} scroll={{ x: "max-content" }} /></div>;
+  if (content) walk(content);
+  return items;
 }
-export function KnowledgeCategoryManagement() { return <><TablePermissionButton resource="knowledge-categories" /><KnowledgeCategories /></>; }
+export function KnowledgeWiki() {
+  const { id } = useParams(),
+    location = useLocation(),
+    navigate = useNavigate(),
+    [params, setParams] = useSearchParams();
+  const { message, modal } = App.useApp(),
+    client = useQueryClient();
+  const [spaceId, setSpaceId] = useState<string>(),
+    [refresh, setRefresh] = useState(0),
+    [importing, setImporting] = useState(false),
+    [accessing, setAccessing] = useState(false),
+    [history, setHistory] = useState(false),
+    [moving, setMoving] = useState(false),
+    [destination, setDestination] = useState<string>(),
+    [parent, setParent] = useState<string>(),
+    [sort, setSort] = useState("0"),
+    [busy, setBusy] = useState(false),
+    [search, setSearch] = useState(""),
+    [searchPage, setSearchPage] = useState(1),
+    [tag, setTag] = useState(""),
+    [showWorking, setShowWorking] = useState(false);
+  const draft = useRef<KnowledgeDraftSession | null>(null);
+  const onSession = useCallback((s: KnowledgeDraftSession | null) => {
+    draft.current = s;
+  }, []);
+  const editing = params.get("edit") === "1",
+    mode =
+      params.get("mode") === "working" || editing ? "working" : "published",
+    versionId = params.get("versionId") ?? undefined;
+  useEffect(() => {
+    if (editing) setShowWorking(true);
+  }, [editing]);
+  const spaces = useQuery({
+    queryKey: ["knowledge", "spaces"],
+    queryFn: () => api<KnowledgeSpace[]>("/knowledge/spaces"),
+    enabled: hasResourcePermission("knowledge-spaces", "read"),
+    retry: false,
+  });
+  const page = useQuery({
+    queryKey: ["knowledge", "page", id, mode, versionId],
+    queryFn: () =>
+      api<KnowledgePage>(
+        `/knowledge/pages/${id}?${new URLSearchParams({ mode, ...(versionId ? { versionId } : {}) })}`,
+      ),
+    enabled: Boolean(id && hasResourcePermission("knowledge-pages", "read")),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  useEffect(() => {
+    if (page.data?.spaceId) setSpaceId(page.data.spaceId);
+    else if (!spaceId && spaces.data?.length) setSpaceId(spaces.data[0]!.id);
+  }, [page.data?.spaceId, spaces.data, spaceId]);
+  const selected = spaces.data?.find((s) => s.id === spaceId),
+    row = page.data;
+  const versions = useQuery({
+    queryKey: ["knowledge", "versions", id, mode],
+    queryFn: () =>
+      api<
+        {
+          id: string;
+          publishedVersion: number;
+          title: string;
+          publisherName: string;
+          publishedAt: string;
+        }[]
+      >(`/knowledge/pages/${id}/versions?mode=${mode}`),
+    enabled: Boolean(id && history),
+    retry: false,
+  });
+  const results = useQuery({
+    queryKey: ["knowledge", "search", spaceId, search, tag, searchPage],
+    queryFn: () =>
+      api<PageResult>(
+        `/knowledge/search?${new URLSearchParams({ search, tag, page: String(searchPage), pageSize: "20", ...(spaceId ? { spaceId } : {}) })}`,
+      ),
+    enabled: Boolean(search),
+    retry: false,
+  });
+  const invalidate = () => {
+    void client.invalidateQueries({ queryKey: ["knowledge"] });
+    setRefresh((n) => n + 1);
+  };
+  const safely = useCallback(
+    async (work: () => void) => {
+      try {
+        if (draft.current?.isOperating()) {
+          message.info("文件或页面操作正在进行，请稍后切换");
+          return;
+        }
+        await draft.current?.flush();
+        work();
+      } catch (e) {
+        message.error((e as Error).message);
+      }
+    },
+    [message],
+  );
+  const open = useCallback(
+    (p: KnowledgePage) => {
+      void safely(() => {
+        setSearch("");
+        setHistory(false);
+        navigate(
+          `/knowledge/pages/${p.id}${p.status === "DRAFT" ? "?mode=working" : ""}`,
+        );
+      });
+    },
+    [navigate, safely],
+  );
+  const create = async (parentId?: string) => {
+    if (!selected || busy) return;
+    setBusy(true);
+    try {
+      await draft.current?.flush();
+      const p = await api<{ id: string }>("/knowledge/pages", {
+        method: "POST",
+        body: JSON.stringify({
+          spaceId: selected.id,
+          parentId: parentId ?? null,
+        }),
+      });
+      invalidate();
+      setShowWorking(true);
+      navigate(`/knowledge/pages/${p.id}?edit=1`);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const operation = async (
+    kind: "archive" | "trash" | "restore" | "permanent",
+  ) => {
+    if (!row || busy) return;
+    setBusy(true);
+    try {
+      await draft.current?.flush();
+      await api(
+        `/knowledge/pages/${row.id}${kind === "trash" ? "" : `/${kind}`}`,
+        {
+          method: kind === "trash" || kind === "permanent" ? "DELETE" : "POST",
+          body: JSON.stringify({
+            expectedVersion: draft.current?.version ?? row.version,
+          }),
+        },
+      );
+      invalidate();
+      navigate("/knowledge");
+      message.success("操作成功");
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const move = async () => {
+    if (!row) return;
+    setBusy(true);
+    try {
+      await api(`/knowledge/pages/${row.id}/move`, {
+        method: "POST",
+        body: JSON.stringify({
+          spaceId: destination,
+          parentId: parent ?? null,
+          sortOrder: Number(sort),
+          expectedVersion: row.version,
+        }),
+      });
+      setMoving(false);
+      invalidate();
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (
+    !hasResourcePermission("knowledge-spaces", "read") ||
+    !hasResourcePermission("knowledge-pages", "read")
+  )
+    return (
+      <Alert type="warning" message="当前权限组没有知识空间 / 页面查看权限" />
+    );
+  const menu = row
+    ? [
+        ...(row.canEdit && hasResourcePermission("knowledge-pages", "update")
+          ? [
+              {
+                key: "edit",
+                label: "编辑页面",
+                onClick: () => setParams({ edit: "1" }),
+              },
+            ]
+          : []),
+        ...(selected?.canCreate
+          ? [
+              {
+                key: "child",
+                label: "新建子页面",
+                onClick: () => void create(row.id),
+              },
+            ]
+          : []),
+        ...(row.canEdit &&
+        hasFieldPermission("knowledge-pages", "parentId", "update")
+          ? [
+              {
+                key: "move",
+                label: "移动 / 调整顺序",
+                onClick: () => {
+                  setDestination(row.spaceId);
+                  setParent(row.parentId ?? undefined);
+                  setSort(String(row.sortOrder));
+                  setMoving(true);
+                },
+              },
+            ]
+          : []),
+        ...(readable("publishedVersion")
+          ? [
+              {
+                key: "history",
+                label: "历史版本",
+                onClick: () => setHistory(true),
+              },
+            ]
+          : []),
+        ...(row.canManage &&
+        hasFieldPermission("knowledge-pages", "access", "update") &&
+        readable("access")
+          ? [
+              {
+                key: "access",
+                label: "页面权限",
+                onClick: () => setAccessing(true),
+              },
+            ]
+          : []),
+        ...(row.canManage &&
+        hasFieldPermission("knowledge-pages", "status", "update") &&
+        row.status === "PUBLISHED"
+          ? [
+              {
+                key: "archive",
+                label: "归档子树",
+                onClick: () =>
+                  modal.confirm({
+                    title: "归档页面及全部子页面？",
+                    onOk: () => operation("archive"),
+                  }),
+              },
+            ]
+          : []),
+        ...(row.canManage && hasResourcePermission("knowledge-pages", "delete")
+          ? [
+              {
+                key: "trash",
+                label: "移到回收站",
+                danger: true,
+                onClick: () =>
+                  modal.confirm({
+                    title: "页面及子页面移入回收站？",
+                    onOk: () => operation("trash"),
+                  }),
+              },
+            ]
+          : []),
+        ...(hasResourcePermission("knowledge-pages", "export")
+          ? [
+              {
+                key: "md",
+                label: "导出 Markdown",
+                onClick: () =>
+                  void downloadApiFile(
+                    `/knowledge/pages/${row.id}/export?format=md&mode=${mode}${versionId ? `&versionId=${versionId}` : ""}`,
+                    `knowledge_page_${row.id}.md`,
+                  ).catch((e) => message.error((e as Error).message)),
+              },
+              {
+                key: "html",
+                label: "导出 HTML",
+                onClick: () =>
+                  void downloadApiFile(
+                    `/knowledge/pages/${row.id}/export?format=html&mode=${mode}${versionId ? `&versionId=${versionId}` : ""}`,
+                    `knowledge_page_${row.id}.html`,
+                  ).catch((e) => message.error((e as Error).message)),
+              },
+            ]
+          : []),
+        {
+          key: "link",
+          label: "复制链接",
+          onClick: () =>
+            void copyKnowledgeLink(row.id)
+              .then(() => message.success("链接已复制"))
+              .catch(() => message.error("复制失败，请复制浏览器地址")),
+        },
+      ]
+    : [];
+  let body: ReactNode;
+  if (location.pathname === "/knowledge/settings") body = <KnowledgeSettings />;
+  else if (location.pathname === "/knowledge/archive")
+    body = <KnowledgeTrash archived onRefresh={invalidate} />;
+  else if (location.pathname === "/knowledge/trash")
+    body = <KnowledgeTrash onRefresh={invalidate} />;
+  else if (search)
+    body = (
+      <>
+        <Typography.Title level={3}>搜索已发布页面</Typography.Title>
+        <Input
+          placeholder="标签（可选）"
+          value={tag}
+          onChange={(e) => {
+            setTag(e.target.value);
+            setSearchPage(1);
+          }}
+          style={{ width: 220 }}
+        />
+        {results.error && (
+          <Alert type="error" message={(results.error as Error).message} />
+        )}
+        <List
+          loading={results.isLoading}
+          dataSource={results.data?.rows}
+          renderItem={(p) => (
+            <List.Item>
+              <div>
+                <Button type="link" onClick={() => open(p)}>
+                  {p.title}
+                </Button>
+                <div>{p.snippet}</div>
+                <Space wrap>
+                  {p.breadcrumb?.map((b) => b.title).join(" / ")}
+                  {p.tags?.map((t) => (
+                    <Tag key={t}>{t}</Tag>
+                  ))}
+                  {p.publisherName}
+                  <span>
+                    {p.publishedAt &&
+                      dayjs(p.publishedAt).format("YYYY-MM-DD HH:mm")}
+                  </span>
+                </Space>
+              </div>
+            </List.Item>
+          )}
+        />
+        <Pagination
+          current={searchPage}
+          pageSize={20}
+          total={results.data?.total ?? 0}
+          onChange={setSearchPage}
+        />
+      </>
+    );
+  else if (page.isLoading && id) body = <Spin />;
+  else if (page.error)
+    body = <Alert type="error" message={(page.error as Error).message} />;
+  else if (row && editing && row.canEdit)
+    body = (
+      <KnowledgeEditor
+        key={row.id}
+        page={row}
+        onSession={onSession}
+        onClose={() => {
+          invalidate();
+          setParams(row.status === "DRAFT" ? { mode: "working" } : {});
+        }}
+        onPublished={() => {
+          invalidate();
+          setParams({});
+        }}
+      />
+    );
+  else if (row)
+    body = (
+      <KnowledgeFileContext.Provider value={{ mode, versionId }}>
+        <article className="knowledge-reader">
+          <Space style={{ display: "flex", justifyContent: "space-between" }}>
+            <Breadcrumb
+              items={row.breadcrumb?.map((b, i) => ({
+                title:
+                  i === 0 ? (
+                    <span>{b.title}</span>
+                  ) : (
+                    <Button
+                      type="link"
+                      onClick={() =>
+                        navigate(
+                          `/knowledge/pages/${b.id}${mode === "working" ? "?mode=working" : ""}`,
+                        )
+                      }
+                    >
+                      {b.title}
+                    </Button>
+                  ),
+              }))}
+            />
+            <Dropdown menu={{ items: menu }}>
+              <Button icon={<MoreOutlined />} aria-label="页面更多操作" />
+            </Dropdown>
+          </Space>
+          <Typography.Title level={1}>{row.title}</Typography.Title>
+          <Space wrap>
+            {mode === "working" && <Tag>工作副本</Tag>}
+            {row.tags?.map((t) => (
+              <Tag key={t}>{t}</Tag>
+            ))}
+            {row.publishedVersion && (
+              <span>发布版本 v{row.publishedVersion}</span>
+            )}
+            <span>
+              {row.publisherName}{" "}
+              {row.publishedAt &&
+                dayjs(row.publishedAt).format("YYYY-MM-DD HH:mm")}
+            </span>
+          </Space>
+          <div className="knowledge-reading-grid">
+            <div>
+              <KnowledgeContent content={row.content} />
+              {row.attachments?.map((f) => (
+                <div key={f.id}>
+                  <Button
+                    type="link"
+                    onClick={() =>
+                      void downloadApiFile(
+                        knowledgeFileUrl(f.id, { mode, versionId }),
+                        f.originalName,
+                      ).catch((e) => message.error((e as Error).message))
+                    }
+                  >
+                    {f.originalName}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <aside className="knowledge-toc">
+              <strong>目录</strong>
+              {toc(row.content).map((h) => (
+                <a key={h.index} href={`#knowledge-heading-${h.index}`}>
+                  {h.title}
+                </a>
+              ))}
+            </aside>
+          </div>
+        </article>
+      </KnowledgeFileContext.Provider>
+    );
+  else body = <Empty description="选择左侧页面阅读，或新建页面开始编写" />;
+  return (
+    <div className="knowledge-wiki">
+      <aside className="knowledge-sidebar">
+        <Select
+          aria-label="知识空间"
+          value={spaceId}
+          loading={spaces.isLoading}
+          style={{ width: "100%" }}
+          options={spaces.data?.map((s) => ({ value: s.id, label: s.name }))}
+          onChange={(id) =>
+            void safely(() => {
+              setSpaceId(id);
+              setSearch("");
+              navigate("/knowledge");
+            })
+          }
+        />
+        {spaces.error && (
+          <Alert type="error" message={(spaces.error as Error).message} />
+        )}
+        <Space wrap style={{ margin: "16px 0" }}>
+          {selected?.canCreate && (
+            <Button
+              aria-label="新建页面"
+              icon={<PlusOutlined />}
+              loading={busy}
+              onClick={() => void create()}
+            >
+              新建页面
+            </Button>
+          )}
+          {selected?.canCreate &&
+            hasResourcePermission("knowledge-pages", "import") && (
+              <Button onClick={() => void safely(() => setImporting(true))}>
+                导入
+              </Button>
+            )}
+        </Space>
+        {selected &&
+          ["EDITOR", "FULL_ACCESS"].includes(selected.accessLevel ?? "") &&
+          hasResourcePermission("knowledge-pages", "update") && (
+            <Select
+              aria-label="页面树视图"
+              value={showWorking ? "working" : "published"}
+              onChange={(v) => setShowWorking(v === "working")}
+              options={[
+                { value: "published", label: "已发布页面" },
+                { value: "working", label: "工作页面（含草稿）" },
+              ]}
+              style={{ width: "100%", marginBottom: 12 }}
+            />
+          )}
+        {selected && (
+          <PageTree
+            space={selected}
+            working={showWorking}
+            refresh={refresh}
+            onOpen={open}
+          />
+        )}
+        <div className="knowledge-sidebar-footer">
+          <Button
+            type="link"
+            onClick={() => void safely(() => navigate("/knowledge/archive"))}
+          >
+            已归档页面
+          </Button>
+          <Button
+            type="link"
+            onClick={() => void safely(() => navigate("/knowledge/settings"))}
+          >
+            空间设置
+          </Button>
+          {hasResourcePermission("knowledge-pages", "delete") && (
+            <Button
+              type="link"
+              onClick={() => void safely(() => navigate("/knowledge/trash"))}
+            >
+              回收站
+            </Button>
+          )}
+        </div>
+      </aside>
+      <main className="knowledge-main">
+        <Input.Search
+          aria-label="搜索知识页面"
+          placeholder="搜索已发布标题、正文、标签、上级标题"
+          allowClear
+          enterButton
+          onSearch={(s) =>
+            void safely(() => {
+              setSearch(s.trim());
+              setSearchPage(1);
+            })
+          }
+          style={{ marginBottom: 24 }}
+        />
+        {body}
+      </main>
+      {importing && selected && (
+        <KnowledgeImport
+          spaces={spaces.data ?? []}
+          spaceId={selected.id}
+          parentId={row?.id}
+          onClose={() => setImporting(false)}
+          onCreated={(id) => {
+            setImporting(false);
+            invalidate();
+            navigate(`/knowledge/pages/${id}?edit=1`);
+          }}
+        />
+      )}
+      {accessing && row && (
+        <KnowledgeAccess
+          kind="page"
+          id={row.id}
+          version={row.version}
+          entries={row.access ?? []}
+          restricted={row.accessRestricted}
+          onClose={() => setAccessing(false)}
+          onSaved={() => {
+            setAccessing(false);
+            invalidate();
+          }}
+        />
+      )}
+      <Modal
+        open={moving}
+        title="移动页面及子树 / 调整顺序"
+        onCancel={() => setMoving(false)}
+        onOk={() => void move()}
+        confirmLoading={busy}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Select
+            aria-label="目标空间"
+            value={destination}
+            style={{ width: "100%" }}
+            options={spaces.data
+              ?.filter((s) => s.canCreate)
+              .map((s) => ({ value: s.id, label: s.name }))}
+            onChange={(s) => {
+              setDestination(s);
+              setParent(undefined);
+            }}
+          />
+          {destination && (
+            <KnowledgePageSelect
+              spaceId={destination}
+              value={parent}
+              onChange={setParent}
+              excludeId={row?.id}
+            />
+          )}
+          <Input
+            type="number"
+            aria-label="页面排序"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+          />
+        </Space>
+      </Modal>
+      <Modal
+        open={history}
+        title="不可变发布历史"
+        onCancel={() => setHistory(false)}
+        footer={null}
+      >
+        {versions.error && (
+          <Alert type="error" message={(versions.error as Error).message} />
+        )}
+        <List
+          loading={versions.isLoading}
+          dataSource={versions.data}
+          renderItem={(v) => (
+            <List.Item>
+              <Button
+                type="link"
+                onClick={() => {
+                  setHistory(false);
+                  setParams({ versionId: v.id });
+                }}
+              >
+                v{v.publishedVersion} · {v.title} · {v.publisherName} ·{" "}
+                {dayjs(v.publishedAt).format("YYYY-MM-DD HH:mm")}
+              </Button>
+            </List.Item>
+          )}
+        />
+        <Button
+          onClick={() => {
+            setHistory(false);
+            setParams({});
+          }}
+        >
+          当前发布版本
+        </Button>
+      </Modal>
+    </div>
+  );
+}
+function KnowledgeTrash({
+  onRefresh,
+  archived = false,
+}: {
+  onRefresh: () => void;
+  archived?: boolean;
+}) {
+  const [query, setQuery] = useState<PlatformTableQuery>(blankPlatformQuery()),
+    { message, modal } = App.useApp();
+  const rows = useQuery({
+    queryKey: ["knowledge", archived ? "archive" : "trash", query],
+    queryFn: () =>
+      api<PageResult>(
+        `/knowledge/pages?${new URLSearchParams({ mode: archived ? "published" : "trash", ...(archived ? { status: "ARCHIVED" } : {}), page: String(query.page), pageSize: String(query.pageSize), filterGroup: JSON.stringify(query.filterGroup), ...(query.sortField ? { sortField: query.sortField, sortOrder: query.sortOrder ?? "asc" } : {}) })}`,
+      ),
+    retry: false,
+  });
+  const action = async (p: KnowledgePage, permanent: boolean) => {
+    try {
+      await api(
+        `/knowledge/pages/${p.id}/${permanent ? "permanent" : archived ? "unarchive" : "restore"}`,
+        {
+          method: permanent ? "DELETE" : "POST",
+          body: JSON.stringify({ expectedVersion: p.version }),
+        },
+      );
+      onRefresh();
+    } catch (e) {
+      message.error((e as Error).message);
+      throw e;
+    }
+  };
+  return (
+    <>
+      <Typography.Title level={3}>
+        {archived ? "已归档页面" : "回收站"}
+      </Typography.Title>
+      {rows.error && (
+        <Alert type="error" message={(rows.error as Error).message} />
+      )}
+      <KdosDataTable<KnowledgePage>
+        resource="knowledge-pages"
+        rowKey="id"
+        dataSource={rows.data?.rows}
+        loading={rows.isLoading}
+        serverData={{ total: rows.data?.total ?? 0, onQueryChange: setQuery }}
+        columns={[
+          {
+            title: "页面标题",
+            dataIndex: "title",
+            render: (title, p) => (
+              <Space>
+                <span>
+                  {archived ? (
+                    <a href={`/knowledge/pages/${p.id}`}>{title}</a>
+                  ) : (
+                    title
+                  )}
+                </span>
+                {hasResourcePermission("knowledge-pages", "update") && (
+                  <Button onClick={() => void action(p, false)}>恢复</Button>
+                )}
+                {!archived &&
+                  hasResourcePermission("knowledge-pages", "delete") && (
+                    <Button
+                      danger
+                      onClick={() =>
+                        modal.confirm({
+                          title:
+                            "永久删除该页面、子树及历史附件？此操作无法恢复。",
+                          onOk: () => action(p, true),
+                        })
+                      }
+                    >
+                      永久删除
+                    </Button>
+                  )}
+              </Space>
+            ),
+          },
+          { title: "状态", dataIndex: "status" },
+          {
+            title: "更新时间",
+            dataIndex: "updatedAt",
+            render: (v) => (v ? dayjs(v).format("YYYY-MM-DD HH:mm") : ""),
+          },
+        ]}
+      />
+    </>
+  );
+}

@@ -1,17 +1,42 @@
 import { createContext } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { KnowledgeCategory, KnowledgeContentNode } from "@kdos/contracts";
-import { api } from "../../api";
-import { hasResourcePermission } from "../../shared/KdosDataTable";
-
-export const KnowledgeFileContext = createContext<{ mode?: "manage"; version?: number }>({});
-export function knowledgeFileUrl(id: string, context: { mode?: "manage"; version?: number } = {}) {
-  const params = new URLSearchParams(); if (context.mode) params.set("mode", context.mode); if (context.version) params.set("version", String(context.version));
-  return `/knowledge/attachments/${encodeURIComponent(id)}${params.size ? `?${params}` : ""}`;
+import type { KnowledgeContentNode } from "@kdos/contracts";
+export type KnowledgeFileScope = {
+  mode?: "published" | "working" | "trash";
+  versionId?: string;
+};
+export const KnowledgeFileContext = createContext<KnowledgeFileScope>({});
+export function knowledgeFileUrl(id: string, scope: KnowledgeFileScope = {}) {
+  const p = new URLSearchParams();
+  if (scope.mode) p.set("mode", scope.mode);
+  if (scope.versionId) p.set("versionId", scope.versionId);
+  return `/knowledge/attachments/${encodeURIComponent(id)}${p.size ? `?${p}` : ""}`;
 }
-export const emptyKnowledgeContent: KnowledgeContentNode = { type: "doc", content: [{ type: "paragraph" }] };
+export const emptyKnowledgeContent: KnowledgeContentNode = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
-export function useKnowledgeCategories() {
-  const manage = ["create", "update", "delete"].some((action) => hasResourcePermission("knowledge-categories", action));
-  return useQuery({ queryKey: ["knowledge", "categories", manage], queryFn: () => api<KnowledgeCategory[]>(`/knowledge/categories${manage ? "?mode=manage" : ""}`), enabled: hasResourcePermission("knowledge-categories", "read") });
+/** Supports the current HTTP LAN deployment where the secure clipboard API is unavailable. */
+export async function copyKnowledgeLink(id: string) {
+  const value = `${window.location.origin}/knowledge/pages/${encodeURIComponent(id)}`;
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    /* Use the browser's user-gesture fallback below. */
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.style.position = "fixed";
+  input.style.left = "-10000px";
+  document.body.append(input);
+  input.select();
+  try {
+    if (!document.execCommand("copy"))
+      throw new Error("复制失败，请复制浏览器地址");
+  } finally {
+    input.remove();
+  }
 }

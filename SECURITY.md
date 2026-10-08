@@ -38,7 +38,7 @@
 
 - `ObjectStorage` isolates Planning from storage implementation. Phase one uses `LocalObjectStorage`; keys are generated, path traversal is rejected, and files are written with restricted permissions.
 - Images are MIME allowlisted to JPEG/PNG/WebP, size-limited, decoded through Sharp when compression is needed, and capped at two per item.
-- Existing public uploads retain their legacy behavior. Knowledge attachments/images use ObjectStorage private objects under uploads/.private; Nginx and API static delivery deny this path, and authenticated Knowledge queries authorize tenant, table/field/data scope, article ACL and version relation before delivery. Never place private Knowledge content in the public upload path.
+- Existing public uploads retain their legacy behavior. Knowledge attachments/images use ObjectStorage private objects under uploads/.private; Nginx and API static delivery deny this path, and authenticated Knowledge queries authorize tenant, table/field/data scope, Space/ancestor/Page ACL and version relation before delivery. Never place private Knowledge content in the public upload path.
 - Excel accepts standard `.xlsx`/`.csv`; do not bypass DRM. Temporary plaintext and snapshots containing business data must not be committed.
 
 ## Secrets and logging
@@ -63,4 +63,4 @@
 
 ## Knowledge
 
-工作副本与发布正文/ACL/标签/附件分离；历史快照及版本附件关系不可变。KnowledgeAccessService 在 SQL 中统一 tenant/read/data scope/ACL，非管理员历史还需当前发布授权与历史ACL。正文只接受严格allowlist JSON，服务端提取纯文本/hash；附件响应no-store/nosniff，图片Sharp重编码。日志/审计不存完整正文。详见 [知识库安全边界](docs/knowledge-base.md)。
+工作副本与发布正文/ACL/标签/附件分离；历史快照及版本附件关系不可变。KnowledgeAuthorizationService 在 SQL 中统一 tenant/表动作/字段/data scope/Space与祖先收紧ACL，非管理员历史还需当前页面授权与历史成员快照；版本附件禁止事后追加，永久删除保留私有对象清理重试。正文只接受严格allowlist JSON，服务端提取纯文本/hash；附件响应no-store/nosniff，图片Sharp重编码。日志/审计不存完整正文。详见 [知识库安全边界](docs/knowledge-base.md)。

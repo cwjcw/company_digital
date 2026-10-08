@@ -16,3 +16,17 @@
 .knowledge-editor-form { max-width: 1100px; }
 .knowledge-editor-form .knowledge-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 @media (max-width: 800px) { .knowledge-layout { grid-template-columns: 1fr; } .knowledge-editor-form .knowledge-form-grid { grid-template-columns: 1fr; } }
+.knowledge-wiki{display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px;align-items:start;min-height:70vh}
+.knowledge-sidebar{background:#fff;border:1px solid #e8ecef;border-radius:8px;padding:16px;position:sticky;top:12px;max-height:85vh;overflow:auto}
+.knowledge-sidebar-footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;display:flex;flex-wrap:wrap}
+.knowledge-main{background:#fff;border-radius:8px;padding:24px;min-width:0}
+.knowledge-tree-link{border:0;background:none;color:inherit;cursor:pointer;text-align:left;max-width:210px;overflow-wrap:anywhere;padding:4px 0}
+.knowledge-reading-grid{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:24px;margin-top:24px}
+.knowledge-toc{border-left:1px solid #eee;padding-left:16px;align-self:start;position:sticky;top:16px}
+.knowledge-toc a{display:block;margin-top:10px;overflow-wrap:anywhere}
+.knowledge-content table,.tiptap table{border-collapse:collapse;width:100%;margin:16px 0}
+.knowledge-content td,.knowledge-content th,.tiptap td,.tiptap th{border:1px solid #ccc;padding:8px;vertical-align:top}
+.knowledge-callout,.tiptap aside{background:#eff6ff;border-left:4px solid #1677ff;padding:12px;margin:16px 0}
+.knowledge-import-preview{white-space:pre-wrap;max-height:340px;overflow:auto;padding:16px;background:#f8fafc}
+@media(max-width:1000px){.knowledge-reading-grid{grid-template-columns:1fr}.knowledge-toc{position:static}}
+@media(max-width:800px){.knowledge-wiki{grid-template-columns:1fr}.knowledge-sidebar{position:static;max-height:350px}.knowledge-main{padding:16px}}

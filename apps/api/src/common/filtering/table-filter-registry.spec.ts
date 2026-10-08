@@ -10,7 +10,7 @@ import { SupervisionFilterSourceProvider } from "../../modules/supervision/super
 import { PmcRdProgressFilterSources } from "../../modules/pmc-rd-progress/pmc-rd-progress.filter-sources";
 import { RdFilterSourceProvider } from "../../modules/rd/rd.filter-sources";
 import { KnowledgeFilterSourceProvider } from "../../modules/knowledge/knowledge.filter-sources";
-import { KnowledgeAccessService } from "../../modules/knowledge/knowledge.scope";
+import { KnowledgeAuthorizationService } from "../../modules/knowledge/knowledge.scope";
 import { SystemFilterSourceProvider } from "./system-filter-sources";
 
 /**
@@ -32,7 +32,7 @@ function buildRegistry() {
   new SupervisionFilterSourceProvider(registry, {} as never).onModuleInit();
   new RdFilterSourceProvider(registry).onModuleInit();
   new PmcRdProgressFilterSources(registry, {} as never).onModuleInit();
-  new KnowledgeFilterSourceProvider(registry, new KnowledgeAccessService({} as never)).onModuleInit();
+  new KnowledgeFilterSourceProvider(registry, new KnowledgeAuthorizationService({} as never), {} as never).onModuleInit();
   return registry;
 }
 

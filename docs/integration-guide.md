@@ -131,4 +131,4 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 
 ## Knowledge Base
 
-知识库 API/状态/ACL/私有附件与发布版本契约见 [Knowledge Phase 1](knowledge-base.md)。所有写入调用 Application Commands；普通浏览读取发布快照，平台管理表与标准导出复用同源权限和搜索。未来AI引用稳定articleId + publishedVersion + contentHash，不在Phase 1新增RAG接口。
+知识库 API/状态/ACL/私有附件与发布版本契约见 [Knowledge 2.0](knowledge-base.md)。所有写入调用 Application Commands；普通浏览读取发布快照，平台发布表、候选值与标准导出复用统一Space/祖先授权和发布搜索投影。未来AI引用稳定pageId + publishedVersionId + contentHash，本轮不新增RAG接口。

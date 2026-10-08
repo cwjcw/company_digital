@@ -138,6 +138,6 @@ The MCP skeleton exposes five read-only tool contracts: plan search/get, order p
 
 `modules/pmc-rd-progress` 独立承载研发进度当前快照/批次，不复用主订单准入或研发中心查重表。E10只读事实适配器 → TypeScript集中Calculator → Application Command整批事务/hash UPSERT/审计 → tenant/字段/数据范围受控Query API；候选范围是独立CreateDate OR LastModifiedDate自2026-09-01，主订单2026-09-17准入不变。源库观察时点来自E10数据库时间，水位为各源表高精度复合游标，标准路线变化反查全部引用品项。没有React页面、状态历史系统或额外消息基础设施。细节见 [PMC研发进度](docs/pmc-rd-progress.md)。
 
-## Knowledge Base Phase 1
+## Knowledge 2.0 — Space + Page Tree
 
-独立 `knowledge` 模块沿用当前兼容 TypeORM 主库及现有认证、表/字段/数据权限。Application 写工作副本与不可变发布快照，Query/Access 统一 ACL 与 indexed search，私有文件由 ObjectStorage + 认证下载交付。没有新 HR、数据库实例、AI/RAG 服务；详见 [知识库](docs/knowledge-base.md)。
+独立 `knowledge` 模块沿用当前兼容 TypeORM 主库及现有认证、表/字段/数据权限。Space 是权限边界、Page 是任意深度唯一内容节点；Application 写工作副本与不可变发布快照，Query/KnowledgeAuthorizationService 统一继承收紧 ACL 与发布搜索投影，私有文件由 ObjectStorage + 认证下载交付。没有新 HR、数据库实例、AI/RAG 服务；详见 [知识库](docs/knowledge-base.md)。

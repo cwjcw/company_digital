@@ -1,185 +1,1206 @@
-/** Isolated real PostgreSQL acceptance runner. Never runs against a business database. */
+/** Real PostgreSQL acceptance, guarded against running on any business database. */
+import "reflect-metadata";
 import assert from "node:assert/strict";
+import { DataSource } from "typeorm";
+import { v7 as uuidv7 } from "uuid";
 import sharp from "sharp";
 import ExcelJS from "exceljs";
-import { v7 as uuidv7 } from "uuid";
-import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import { KnowledgeBasePhaseOne1722920084000 } from "../../migrations/1722920084000-KnowledgeBasePhaseOne";
-import { KnowledgeAccessService } from "./knowledge.scope";
+import { Knowledge2SpacePageModel1722920085000 } from "../../migrations/1722920085000-Knowledge2SpacePageModel";
+import { KnowledgeAuthorizationService } from "./knowledge.scope";
 import { KnowledgeApplicationService } from "./knowledge.application.service";
 import { KnowledgeQueryService } from "./knowledge.query.service";
-import { TableFilterRegistry } from "../../common/filtering/table-filter.registry";
+import { createKnowledgeDocxFixture } from "./knowledge.test-documents";
+import { KnowledgeImportService } from "./knowledge.import.service";
+import { KnowledgeExportService } from "./knowledge.export.service";
 import { KnowledgeFilterSourceProvider } from "./knowledge.filter-sources";
+import { TableFilterRegistry } from "../../common/filtering/table-filter.registry";
 import { TableFilterController } from "../../common/filtering/table-filter.controller";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 import { TablePrintService } from "../../common/printing/table-print.service";
 import type { KnowledgeActor } from "./knowledge.types";
 
 export async function validateKnowledgeDatabase(ds: DataSource) {
-  if (!String(ds.options.database).startsWith("knowledge_test_")) throw new Error("Knowledge validation requires an isolated knowledge_test_* database");
-  const checks: string[] = []; const check = (label: string) => { checks.push(label); if (require.main === module) process.stderr.write(`PASS ${checks.length}: ${label}\n`); };
+  if (!String(ds.options.database).startsWith("knowledge_test_"))
+    throw new Error("Use isolated knowledge_test_* database only");
+  const checks: string[] = [],
+    check = (s: string) => {
+      checks.push(s);
+      process.stderr.write(`PASS ${checks.length}: ${s}\n`);
+    };
   await ds.query(`CREATE TABLE users(id uuid PRIMARY KEY,username varchar NOT NULL,display_name varchar NOT NULL,enabled boolean NOT NULL DEFAULT true,department_paths jsonb NOT NULL DEFAULT '[]');
     CREATE TABLE organization_units(id uuid PRIMARY KEY,name varchar NOT NULL,parent_id uuid,enabled boolean NOT NULL DEFAULT true,level integer DEFAULT 1,sort_order integer DEFAULT 0);
-    CREATE TABLE roles(id uuid PRIMARY KEY,name varchar NOT NULL,permission_group_resource varchar);
+    CREATE TABLE roles(id uuid PRIMARY KEY,name varchar NOT NULL,permission_group_resource varchar,permission_group_enabled boolean DEFAULT true);
+    CREATE TABLE permissions(id uuid DEFAULT uuidv7(),resource varchar);
     CREATE TABLE user_roles(user_id uuid NOT NULL,role_id uuid NOT NULL);
     CREATE TABLE role_organization_scopes(role_id uuid NOT NULL,organization_unit_id uuid NOT NULL);
     CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id varchar,actor_id uuid,actor_name varchar,resource varchar,record_id varchar,action varchar,before_json jsonb,after_json jsonb,request_id varchar,source varchar,created_by uuid,created_at timestamptz DEFAULT now(),updated_by varchar DEFAULT 'system',updated_at timestamptz DEFAULT now(),version integer DEFAULT 1);`);
-  const a = uuidv7(), b = uuidv7(), org = uuidv7(), child = uuidv7(), other = uuidv7(), role = uuidv7(); const tenantId = "KNOWLEDGE_TEST";
-  await ds.query(`INSERT INTO users(id,username,display_name,department_paths) VALUES($1,'knowledge-a','甲','[["公司","人力资源","招聘"]]'),($2,'knowledge-b','乙','[["其他"]]')`, [a, b]);
-  await ds.query(`INSERT INTO roles(id,name) VALUES($1,'测试角色')`, [role]);
-  const rootOrg = uuidv7(); await ds.query(`INSERT INTO organization_units(id,name,parent_id) VALUES($1,'公司',NULL),($2,'人力资源',$1),($3,'招聘',$2),($4,'其他',NULL)`, [rootOrg, org, child, other]);
+  const a = uuidv7(),
+    b = uuidv7(),
+    org = uuidv7(),
+    rootOrg = uuidv7(),
+    childOrg = uuidv7(),
+    role = uuidv7(),
+    tenantId = "KNOWLEDGE_TEST";
+  await ds.query(
+    `INSERT INTO users(id,username,display_name,department_paths) VALUES($1,'test-a','甲','[["公司","人力资源","招聘"]]'),($2,'test-b','乙','[["其他"]]')`,
+    [a, b],
+  );
+  await ds.query(`INSERT INTO roles(id,name) VALUES($1,'知识测试普通角色')`, [
+    role,
+  ]);
+  await ds.query(
+    `INSERT INTO organization_units(id,name,parent_id) VALUES($1,'公司',NULL),($2,'人力资源',$1),($3,'招聘',$2)`,
+    [rootOrg, org, childOrg],
+  );
   await ds.query(`INSERT INTO user_roles VALUES($1,$2)`, [a, role]);
-  const savedTenant = process.env.KDOS_DEFAULT_TENANT_CODE; process.env.KDOS_DEFAULT_TENANT_CODE = tenantId;
-  try { const runner = ds.createQueryRunner(); await runner.connect(); await runner.startTransaction(); try { await new KnowledgeBasePhaseOne1722920084000().up(runner); await runner.commitTransaction(); } catch (error) { await runner.rollbackTransaction(); throw error; } finally { await runner.release(); } }
-  finally { if (savedTenant == null) delete process.env.KDOS_DEFAULT_TENANT_CODE; else process.env.KDOS_DEFAULT_TENANT_CODE = savedTenant; }
-  const stored = new Map<string, Buffer>(); const storage = { put: async (input: { key: string; body: Buffer; visibility?: string }) => { assert.equal(input.visibility, "private"); const key = `.private/${input.key}`; stored.set(key, input.body); return { key, url: "" }; }, get: async (key: string) => ({ key, body: stored.get(key), contentType: "text/plain" }), delete: async (key: string) => { stored.delete(key); } };
-  const access = new KnowledgeAccessService(ds); const application = new KnowledgeApplicationService(access, storage as never); const queries = new KnowledgeQueryService(access);
-  const admin: KnowledgeActor = { tenantId, userId: a, username: "knowledge-a", isSystemAdmin: true, permissions: ["*"], requestId: "knowledge-db-validation", source: "api" };
-  const ordinary = (userId: string): KnowledgeActor => ({ ...admin, userId, isSystemAdmin: false, permissions: ["knowledge-articles:*:read", "knowledge-categories:*:read", ...["knowledge-articles", "knowledge-categories"].flatMap((code) => tablePermissionFieldsFor(code as never).map((field) => `${code}:${field.key}:read`))], tableDataScopes: ["knowledge-articles", "knowledge-categories"].map((resource) => ({ resource, scope: "ALL", actions: ["read"] })) });
-  const editor = { ...ordinary(a), permissions: [...ordinary(a).permissions, "knowledge-articles:*:create", "knowledge-articles:*:update", ...tablePermissionFieldsFor("knowledge-articles").filter((field) => field.editable).map((field) => `knowledge-articles:${field.key}:update`)], tableDataScopes: [{ resource: "knowledge-articles", scope: "ALL", actions: ["read", "create", "update"] }, { resource: "knowledge-categories", scope: "ALL", actions: ["read"] }] };
-  const moduleAdmin = { ...ordinary(a), moduleAdminCodes: ["knowledge"] };
-  const [{ id: root }] = await ds.query(`SELECT id FROM knowledge_categories WHERE tenant_id=$1`, [tenantId]);
-  assert.equal((await queries.categories(admin)).length, 1); check("migration seeds only stable HR root");
-  await ds.query(`INSERT INTO knowledge_categories(tenant_id,level,code,name) VALUES($1,1,'HR','人力资源') ON CONFLICT(tenant_id,code) DO NOTHING`, [tenantId]); assert.equal((await queries.categories(admin)).length, 1); check("root seed idempotent");
-  const category = await application.createCategory({ parentId: root, name: "公司制度", sortOrder: 2, enabled: true }, moduleAdmin); check("module administrator creates category");
-  await assert.rejects(() => application.createCategory({ parentId: root, name: "公司制度" }, admin), /重复/); check("duplicate siblings rejected");
-  await assert.rejects(() => application.createCategory({ parentId: category.id, name: "第三层" }, admin), /一级分类/); check("category max level two");
-  await assert.rejects(async () => application.createCategory({ parentId: root, name: "未授权" }, editor), /权限/); check("article editor cannot create category");
-  const content = (text: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
-  const draft = await application.createArticle({ title: "员工请假管理办法", categoryId: category.id, content: content("请假流程和绩效考核制度"), tags: ["休假"] }, editor); check("editor creates draft");
-  assert.equal((await queries.list({}, ordinary(a))).total, 0); await assert.rejects(() => queries.detail(draft.id, ordinary(a)), /不存在/); check("draft invisible to ordinary list/detail");
-  let version = (await application.publish(draft.id, { expectedVersion: 1 }, editor)).version; assert.equal((await queries.detail(draft.id, ordinary(a))).publishedVersion, 1); check("publish creates readable v1");
-  version = (await application.updateArticle(draft.id, { title: "未发布标题", content: content("工作副本秘密"), tags: ["新标签"], expectedVersion: version }, editor)).version;
-  assert.equal((await queries.detail(draft.id, ordinary(a))).title, "员工请假管理办法"); assert.equal((await queries.list({ search: "工作副本秘密" }, ordinary(a))).total, 0); assert.equal((await queries.list({ tag: "新标签" }, ordinary(a))).total, 0); check("published content/title/tags/search isolated from working copy");
-  await assert.rejects(() => application.updateArticle(draft.id, { title: "stale", expectedVersion: 1 }, editor), (error: any) => error.getStatus() === 409); check("stale expectedVersion 409");
-  const file = { originalname: "制度.txt", mimetype: "text/plain", buffer: Buffer.from("办公文件"), size: 12 } as Express.Multer.File;
-  const upload = await application.upload(draft.id, { expectedVersion: version }, file, editor); version = upload.version; check("private attachment upload metadata/hash/audit");
-  await assert.rejects(() => queries.attachment(upload.attachment.id, ordinary(a)), /当前文章版本/); check("draft-only attachment cannot be downloaded from published article");
-  const republish = await application.publish(draft.id, { expectedVersion: version }, editor); version = republish.version; assert.equal(republish.publishedVersion, 2); check("republish appends v2");
-  assert.equal((await queries.detail(draft.id, editor, "manage", 1)).title, "员工请假管理办法"); assert.equal((await queries.detail(draft.id, editor, "manage", 1)).attachments.length, 0); assert.equal((await queries.detail(draft.id, editor, "manage", 2)).attachments.length, 1); check("historical version content and attachment set frozen");
-  await assert.rejects(() => ds.query(`UPDATE knowledge_article_versions SET title='tampered' WHERE tenant_id=$1 AND article_id=$2`, [tenantId, draft.id]), /immutable/); check("database rejects published snapshot mutation");
-  const removed = await application.removeAttachment(draft.id, upload.attachment.id, { expectedVersion: version }, editor); version = removed.version;
-  assert.equal((await queries.attachment(upload.attachment.id, ordinary(a))).id, upload.attachment.id); check("removing working file preserves published download");
-  await application.publish(draft.id, { expectedVersion: version }, editor); assert.equal((await queries.detail(draft.id, ordinary(a))).attachments.length, 0); assert.equal((await queries.detail(draft.id, editor, "manage", 2)).attachments.length, 1); check("new snapshot excludes removed attachment while old retains it");
-  for (const type of ["ALL", "ORGANIZATION", "ROLE", "USER"] as const) {
-    const subjects = type === "ALL" ? [] : [type === "ORGANIZATION" ? org : type === "ROLE" ? role : a];
-    const article = await application.createArticle({ title: `授权文章${type}`, categoryId: category.id, content: content(`授权全文${type}`), visibility: { type, subjectIds: subjects } }, admin);
-    const aclFile = await application.upload(article.id, { expectedVersion: 1 }, file, admin); await application.publish(article.id, { expectedVersion: aclFile.version }, admin);
-    assert.equal((await queries.detail(article.id, ordinary(a))).title, `授权文章${type}`);
-    if (type !== "ALL") {
-      await assert.rejects(() => queries.detail(article.id, ordinary(b)), /不存在/);
-      assert.equal((await queries.list({ search: `授权文章${type}` }, ordinary(b))).total, 0);
-      await assert.rejects(() => queries.attachment(aclFile.attachment.id, ordinary(b)), /不存在/);
-      await assert.rejects(() => queries.versions(article.id, ordinary(b)), /权限/);
-      await assert.rejects(() => queries.detail(article.id, { ...editor, userId: b }, "manage", 1), /不存在/);
-    }
-    check(`${type} visibility: allowed and unauthorized search/detail/attachment/version`);
+  process.env.KDOS_DEFAULT_TENANT_CODE = tenantId;
+  const qr = ds.createQueryRunner();
+  await qr.connect();
+  await qr.startTransaction();
+  try {
+    await new KnowledgeBasePhaseOne1722920084000().up(qr);
+    await qr.query(
+      `INSERT INTO permissions(resource) VALUES('knowledge-articles'),('equipment-ledger');INSERT INTO roles(id,name,permission_group_resource) VALUES(uuidv7(),'retired','knowledge-articles')`,
+    );
+    await new Knowledge2SpacePageModel1722920085000().up(qr);
+    await qr.commitTransaction();
+  } catch (e) {
+    await qr.rollbackTransaction();
+    throw e;
+  } finally {
+    await qr.release();
   }
-  await assert.rejects(async () => application.publish(draft.id, { expectedVersion: 1 }, ordinary(a)), /权限/); await assert.rejects(async () => application.disable(draft.id, { expectedVersion: 1 }, ordinary(a)), /权限/); await assert.rejects(async () => application.createArticle({ title: "无权", categoryId: category.id, content: content("无权") }, ordinary(a)), /权限/); check("ordinary table group cannot create/publish/disable");
-  const paginationArticle = await application.createArticle({ title: "年度员工绩效考核制度", categoryId: category.id, content: content("员工请假管理办法及年度员工绩效考核制度"), tags: ["搜索标签"] }, admin); await application.publish(paginationArticle.id, { expectedVersion: 1 }, admin);
-  assert.equal((await queries.list({ search: "请假" }, ordinary(a))).total, 1); assert.equal((await queries.list({ search: "绩效考核" }, ordinary(a))).total, 1); assert.equal((await queries.list({ search: "搜索标签" }, ordinary(a))).total, 1); check("Chinese and tag trigram search");
-  const page = await queries.list({ page: 2, pageSize: 50 }, ordinary(a)); assert.equal(page.page, 2); assert.equal(page.rows.length, 0); assert.equal(page.total, 6); check("server pagination/count");
-  const hidden = { ...ordinary(a), permissions: ordinary(a).permissions.filter((p) => !["title:read", "content:read", "contentText:read"].some((field) => p.endsWith(field))) };
-  const hiddenRow = await queries.detail(paginationArticle.id, hidden); assert.equal(hiddenRow.title, undefined); assert.equal(hiddenRow.content, undefined); await assert.rejects(() => queries.list({ search: "秘密" }, hidden), /权限/); check("field crop and hidden-field search fail closed");
-  const otherTenant = { ...admin, tenantId: "OTHER_TENANT" }; assert.equal((await queries.list({}, otherTenant)).total, 0); await assert.rejects(() => queries.detail(draft.id, otherTenant), /不存在/); await assert.rejects(() => application.updateArticle(draft.id, { title: "跨租户", expectedVersion: 4 }, otherTenant), /不存在/); await assert.rejects(() => queries.attachment(upload.attachment.id, otherTenant), /不存在/); check("explicit tenant isolation across reads/writes/files");
-  const registry = new TableFilterRegistry(); new KnowledgeFilterSourceProvider(registry, access).onModuleInit();
-  const platform = new TableFilterController(new FieldCandidateService(ds), registry, {} as never, ds);
-  const request = (actor: KnowledgeActor) => ({ user: { ...actor, sub: actor.userId }, requestId: actor.requestId }) as never;
-  const priorDefault = process.env.KDOS_DEFAULT_TENANT_CODE; process.env.KDOS_DEFAULT_TENANT_CODE = tenantId;
+  assert.equal(
+    (
+      await ds.query(
+        "SELECT 1 FROM information_schema.tables WHERE table_name IN ('knowledge_articles','knowledge_categories','knowledge_article_versions')",
+      )
+    ).length,
+    0,
+  );
+  assert.equal(
+    (await ds.query("SELECT resource FROM permissions"))[0].resource,
+    "equipment-ledger",
+  );
+  assert.equal(
+    (
+      await ds.query(
+        "SELECT permission_group_enabled FROM roles WHERE name='retired'",
+      )
+    )[0].permission_group_enabled,
+    false,
+  );
+  check(
+    "old-to-new migration retires old model and grants without touching unrelated permission",
+  );
+  const stored = new Map<string, Buffer>();
+  const storage = {
+    listPrivateKeys: async function* (prefix: string) {
+      for (const key of stored.keys())
+        if (key.startsWith(`.private/${prefix}/`)) yield key;
+    },
+    put: async (i: { key: string; body: Buffer; visibility?: string }) => {
+      assert.equal(i.visibility, "private");
+      const key = `.private/${i.key}`;
+      stored.set(key, i.body);
+      return { key, url: "" };
+    },
+    get: async (key: string) =>
+      stored.has(key)
+        ? { key, body: stored.get(key)!, contentType: "text/plain" }
+        : null,
+    delete: async (key: string) => {
+      stored.delete(key);
+    },
+  };
+  const access = new KnowledgeAuthorizationService(ds),
+    app = new KnowledgeApplicationService(access, storage),
+    query = new KnowledgeQueryService(access),
+    imports = new KnowledgeImportService(app, storage),
+    exports = new KnowledgeExportService(query, storage);
+  const admin: KnowledgeActor = {
+    tenantId,
+    userId: a,
+    username: "test",
+    permissions: ["*"],
+    isSystemAdmin: true,
+    requestId: "knowledge-test",
+    source: "api",
+  };
+  const actor = (userId: string, actions = ["read"]): KnowledgeActor => ({
+    ...admin,
+    userId,
+    isSystemAdmin: false,
+    permissions: [
+      "knowledge-spaces:*:read",
+      ...tablePermissionFieldsFor("knowledge-spaces").map(
+        (f) => `knowledge-spaces:${f.key}:read`,
+      ),
+      ...actions.map((act) => `knowledge-pages:*:${act}`),
+      ...tablePermissionFieldsFor("knowledge-pages").flatMap((f) => [
+        `knowledge-pages:${f.key}:read`,
+        ...(actions.includes("update") && f.editable
+          ? [`knowledge-pages:${f.key}:update`]
+          : []),
+      ]),
+    ],
+    tableDataScopes: [
+      { resource: "knowledge-spaces", scope: "ALL", actions: ["read"] },
+      { resource: "knowledge-pages", scope: "ALL", actions },
+    ],
+  });
+  const viewer = actor(b),
+    editor = actor(a, [
+      "read",
+      "create",
+      "update",
+      "delete",
+      "import",
+      "export",
+    ]),
+    otherEditor = actor(b, [
+      "read",
+      "create",
+      "update",
+      "delete",
+      "import",
+      "export",
+    ]);
+  const [hr] = await query.spaces(admin);
+  assert.equal(hr.code, "HR");
+  assert.equal((await query.spaces(admin)).length, 1);
+  check("only stable HR space seeded");
+  await ds.query(
+    `INSERT INTO knowledge_spaces(tenant_id,code,name) VALUES($1,'HR','人力资源') ON CONFLICT DO NOTHING`,
+    [tenantId],
+  );
+  assert.equal((await query.spaces(admin)).length, 1);
+  check("HR code is idempotent");
+  const second = await app.createSpace(
+    { code: "OPS", name: "运营知识", sortOrder: 10 },
+    admin,
+  );
+  let sv = await app.setAccess(
+    "space",
+    hr.id,
+    {
+      expectedVersion: 1,
+      entries: [
+        { subjectType: "ALL", subjectId: null, accessLevel: "VIEWER" },
+        { subjectType: "USER", subjectId: a, accessLevel: "EDITOR" },
+      ],
+    },
+    admin,
+  );
+  assert.equal(
+    (await query.spaces(editor)).find((s: any) => s.id === hr.id).accessLevel,
+    "EDITOR",
+  );
+  check("Space effective viewer/editor levels");
+  await assert.rejects(
+    async () => app.createPage({ spaceId: hr.id }, otherEditor),
+    /不存在/,
+  );
+  check("platform create cannot bypass Space viewer level");
+  const body = (text: string) => ({
+    type: "doc",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const root = await app.createPage(
+    { spaceId: hr.id, title: "员工制度" },
+    editor,
+  );
+  assert.equal(root.version, 1);
+  const immediate = await query.detail(root.id, { mode: "working" }, editor);
+  assert.equal(immediate.status, "DRAFT");
+  check("New Page immediately creates a persistent pageId and draft");
+  await assert.rejects(async () => query.detail(root.id, {}, viewer), /不存在/);
+  assert.equal((await query.tree(hr.id, {}, viewer)).total, 0);
+  check("draft hidden from viewer detail/tree/list");
+  let rootVersion = (await app.publish(root.id, { expectedVersion: 1 }, editor))
+    .version;
+  assert.equal((await query.detail(root.id, {}, viewer)).title, "员工制度");
+  check("title-only directory can publish");
+  const page = await app.createPage(
+    {
+      spaceId: hr.id,
+      parentId: root.id,
+      title: "员工请假管理办法",
+      content: body("年度绩效考核和请假制度"),
+      tags: ["休假"],
+    },
+    editor,
+  );
+  let version = (await app.publish(page.id, { expectedVersion: 1 }, editor))
+    .version;
+  const first = await query.detail(page.id, {}, viewer);
+  assert.equal(first.publishedVersion, 1);
+  check("publish V1 snapshot");
+  version = (
+    await app.updatePage(
+      page.id,
+      {
+        title: "工作副本秘密",
+        content: body("仅草稿内容"),
+        tags: ["草稿标签"],
+        expectedVersion: version,
+      },
+      editor,
+    )
+  ).version;
+  assert.equal(
+    (await query.detail(page.id, {}, viewer)).title,
+    "员工请假管理办法",
+  );
+  assert.equal((await query.list({ search: "仅草稿内容" }, viewer)).total, 0);
+  assert.equal((await query.list({ tag: "草稿标签" }, viewer)).total, 0);
+  check("autosave title/body/tags never changes published V1 or search");
+  await assert.rejects(
+    async () =>
+      app.updatePage(page.id, { title: "stale", expectedVersion: 1 }, editor),
+    (e) => (e as any).status === 409,
+  );
+  check("stale autosave returns 409");
+  const beforeFailure = version;
+  await assert.rejects(async () =>
+    app.updatePage(
+      page.id,
+      { content: { type: "script" }, expectedVersion: version },
+      editor,
+    ),
+  );
+  assert.equal(
+    (await query.detail(page.id, { mode: "working" }, editor)).version,
+    beforeFailure,
+  );
+  check("failed save rolls back data and version");
+  version = (await app.publish(page.id, { expectedVersion: version }, editor))
+    .version;
+  assert.equal((await query.detail(page.id, {}, viewer)).publishedVersion, 2);
+  assert.equal(
+    (
+      await query.detail(
+        page.id,
+        { versionId: first.publishedVersionId },
+        viewer,
+      )
+    ).title,
+    first.title,
+  );
+  assert.equal((await query.versions(page.id, viewer)).length, 2);
+  check("V2 publish retains immutable V1 and history");
+  await assert.rejects(
+    async () =>
+      ds.query(
+        "UPDATE knowledge_page_versions SET title='tamper' WHERE id=$1",
+        [first.publishedVersionId],
+      ),
+    /immutable/,
+  );
+  check("database rejects snapshot mutation");
+  let deep = page.id;
+  for (let i = 0; i < 12; i++) {
+    const p = await app.createPage(
+      { spaceId: hr.id, parentId: deep, title: `深层${i}` },
+      admin,
+    );
+    await app.publish(p.id, { expectedVersion: 1 }, admin);
+    deep = p.id;
+  }
+  assert.equal((await query.detail(deep, {}, viewer)).breadcrumb.length, 15);
+  check("12 additional levels work with no two-level contract");
+  await assert.rejects(
+    async () =>
+      app.move(
+        root.id,
+        { parentId: deep, expectedVersion: rootVersion },
+        admin,
+      ),
+    /后代/,
+  );
+  await assert.rejects(
+    async () =>
+      ds.query("UPDATE knowledge_pages SET parent_id=$2 WHERE id=$1", [
+        root.id,
+        deep,
+      ]),
+    /cycle/,
+  );
+  check("application and database reject cycles");
+  rootVersion = (
+    await app.updatePage(
+      root.id,
+      { title: "制度目录", expectedVersion: rootVersion },
+      admin,
+    )
+  ).version;
+  await assert.rejects(
+    async () =>
+      app.createPage({ spaceId: second.id, parentId: root.id }, admin),
+    /同一空间/,
+  );
+  check("same-Space parent validation");
+  const detached = await app.createPage(
+    { spaceId: hr.id, title: "待移动" },
+    admin,
+  );
+  const moved = await app.move(
+    detached.id,
+    { spaceId: second.id, parentId: null, sortOrder: 20, expectedVersion: 1 },
+    admin,
+  );
+  assert.equal(
+    (await query.detail(detached.id, { mode: "working" }, admin)).spaceId,
+    second.id,
+  );
+  check("authorized cross-Space move and sort");
+  await assert.rejects(
+    async () =>
+      app.move(
+        page.id,
+        { spaceId: second.id, expectedVersion: version },
+        editor,
+      ),
+    /不存在|权限/,
+  );
+  check("cross-Space move enforces destination and whole-subtree permissions");
+  const pdf = {
+    originalname: "流程.pdf",
+    buffer: Buffer.from("%PDF-1.7\nexample"),
+  } as Express.Multer.File;
+  const uploaded = await app.upload(
+    page.id,
+    { expectedVersion: version },
+    pdf,
+    editor,
+  );
+  version = uploaded.version;
+  assert.ok(stored.size);
+  await assert.rejects(
+    async () => query.attachment(uploaded.attachment.id, {}, viewer),
+    /不存在/,
+  );
+  assert.ok(
+    await query.attachment(uploaded.attachment.id, { mode: "working" }, editor),
+  );
+  check("new private attachment invisible until publish");
+  version = (await app.publish(page.id, { expectedVersion: version }, editor))
+    .version;
+  const withFile = await query.detail(page.id, {}, viewer);
+  assert.equal(withFile.attachments.length, 1);
+  assert.ok(await query.attachment(uploaded.attachment.id, {}, viewer));
+  check("published attachment download uses authorized API only");
+  version = (
+    await app.removeAttachment(
+      uploaded.attachment.id,
+      { expectedVersion: version },
+      editor,
+    )
+  ).version;
+  assert.equal(
+    (await query.detail(page.id, { mode: "working" }, editor)).attachments
+      .length,
+    0,
+  );
+  assert.equal(
+    (
+      await query.detail(
+        page.id,
+        { versionId: withFile.publishedVersionId },
+        viewer,
+      )
+    ).attachments.length,
+    1,
+  );
+  check("detaching working attachment retains immutable history file");
+  const imageBytes = await sharp({
+    create: { width: 4, height: 4, channels: 3, background: "white" },
+  })
+    .png()
+    .toBuffer();
+  const image = await app.upload(
+    page.id,
+    { expectedVersion: version },
+    { originalname: "图片.png", buffer: imageBytes } as Express.Multer.File,
+    editor,
+  );
+  version = image.version;
+  version = (
+    await app.updatePage(
+      page.id,
+      {
+        content: {
+          type: "doc",
+          content: [
+            {
+              type: "attachmentImage",
+              attrs: { attachmentId: image.attachment.id, alt: "图" },
+            },
+          ],
+        },
+        expectedVersion: version,
+      },
+      editor,
+    )
+  ).version;
+  await assert.rejects(
+    async () =>
+      app.updatePage(
+        detached.id,
+        {
+          content: {
+            type: "doc",
+            content: [
+              {
+                type: "attachmentImage",
+                attrs: { attachmentId: image.attachment.id },
+              },
+            ],
+          },
+          expectedVersion: moved.version,
+        },
+        admin,
+      ),
+    /当前页面/,
+  );
+  check("private image belongs to its page and cannot cross-reference");
+  await assert.rejects(
+    async () =>
+      app.upload(
+        page.id,
+        { expectedVersion: version },
+        {
+          originalname: "伪.png",
+          buffer: Buffer.from("<script>"),
+        } as Express.Multer.File,
+        editor,
+      ),
+    /图片/,
+  );
+  check("MIME/image spoof rejected by real Sharp validator");
+  await assert.rejects(
+    async () =>
+      ds.query(
+        "INSERT INTO knowledge_page_version_attachments(tenant_id,page_id,version_id,attachment_id) VALUES($1,$2,$3,$4)",
+        [tenantId, page.id, first.publishedVersionId, image.attachment.id],
+      ),
+    /immutable/,
+  );
+  check(
+    "new files cannot be inserted into an already-published attachment snapshot",
+  );
+  version = (await app.publish(page.id, { expectedVersion: version }, editor))
+    .version;
+  const exp = await exports.page(page.id, { format: "html" }, editor);
+  assert.match(exp.body.toString(), /data:image\/png;base64/);
+  assert.match(exp.filename, /^knowledge_page_.+\.html$/);
+  const md = await exports.page(page.id, { format: "md" }, editor);
+  assert.match(md.body.toString(), /!\[图\]/);
+  await assert.rejects(async () => exports.page(page.id, {}, viewer), /权限/);
+  check(
+    "Markdown/HTML exports preserve content and authorized embedded image; require export grant",
+  );
+  for (const type of ["USER", "ROLE", "ORGANIZATION", "ALL"]) {
+    sv = await app.setAccess(
+      "space",
+      hr.id,
+      {
+        expectedVersion: sv.version,
+        entries: [
+          {
+            subjectType: type,
+            subjectId:
+              type === "USER"
+                ? a
+                : type === "ROLE"
+                  ? role
+                  : type === "ORGANIZATION"
+                    ? org
+                    : null,
+            accessLevel: "EDITOR",
+          },
+        ],
+      },
+      admin,
+    );
+    assert.ok((await query.list({}, editor)).total);
+    if (type !== "ALL") assert.equal((await query.list({}, viewer)).total, 0);
+    check(`live Space ${type} grant governs all published pages`);
+  }
+  sv = await app.setAccess(
+    "space",
+    hr.id,
+    {
+      expectedVersion: sv.version,
+      entries: [
+        { subjectType: "ALL", subjectId: null, accessLevel: "FULL_ACCESS" },
+      ],
+    },
+    admin,
+  );
+  rootVersion = (
+    await app.setAccess(
+      "page",
+      root.id,
+      {
+        expectedVersion: rootVersion,
+        restricted: true,
+        entries: [
+          { subjectType: "USER", subjectId: a, accessLevel: "FULL_ACCESS" },
+        ],
+      },
+      admin,
+    )
+  ).version;
+  version = (
+    await app.setAccess(
+      "page",
+      page.id,
+      {
+        expectedVersion: version,
+        restricted: true,
+        entries: [
+          { subjectType: "ALL", subjectId: null, accessLevel: "FULL_ACCESS" },
+        ],
+      },
+      admin,
+    )
+  ).version;
+  assert.equal((await query.list({}, viewer)).total, 0);
+  assert.equal((await query.tree(hr.id, {}, viewer)).total, 0);
+  await assert.rejects(async () => query.detail(deep, {}, viewer), /不存在/);
+  await assert.rejects(
+    async () => query.attachment(image.attachment.id, {}, viewer),
+    /不存在/,
+  );
+  assert.equal((await query.versions(page.id, viewer)).length, 0);
+  check(
+    "child ALL never broadens restricted ancestor across list/tree/detail/files/history",
+  );
+  await assert.rejects(
+    async () =>
+      query.detail(page.id, { versionId: first.publishedVersionId }, viewer),
+    /不存在/,
+  );
+  check("current ancestor restriction also blocks old version");
+  rootVersion = (
+    await app.setAccess(
+      "page",
+      root.id,
+      { expectedVersion: rootVersion, restricted: false, entries: [] },
+      admin,
+    )
+  ).version;
+  const viewerWithUpdate = {
+    ...viewer,
+    permissions: [...viewer.permissions, "knowledge-pages:*:update"],
+  };
+  assert.equal((await query.versions(page.id, viewerWithUpdate)).length, 4);
+  check("published history read does not require Space editor level");
+  const noBody = {
+    ...viewer,
+    permissions: viewer.permissions.filter(
+      (p) =>
+        !p.startsWith("knowledge-pages:content") &&
+        !p.startsWith("knowledge-pages:tags") &&
+        !p.startsWith("knowledge-pages:parentId"),
+    ),
+  };
+  const hidden = await query.detail(page.id, {}, noBody);
+  assert.equal(hidden.content, undefined);
+  assert.equal(hidden.contentText, undefined);
+  assert.equal(hidden.contentHash, undefined);
+  assert.equal(hidden.breadcrumb, undefined);
+  await assert.rejects(
+    async () => query.list({ search: "图" }, noBody),
+    /权限/,
+  );
+  check(
+    "field permissions prune content and breadcrumbs, prevent search side channels",
+  );
+  const scoped = {
+    ...viewer,
+    tableDataScopes: [
+      { resource: "knowledge-spaces", scope: "ALL", actions: ["read"] },
+      {
+        resource: "knowledge-pages",
+        scope: "CUSTOM",
+        actions: ["read"],
+        rules: [{ fieldKey: "title", operator: "EQ", value: "工作副本秘密" }],
+      },
+    ],
+  };
+  assert.equal((await query.list({}, scoped)).total, 0);
+  check("ancestor data scope cannot leak parent breadcrumb");
+  const alien = { ...admin, tenantId: "ANOTHER_TENANT" };
+  assert.equal((await query.spaces(alien)).length, 0);
+  await assert.rejects(
+    async () => query.detail(page.id, { mode: "working" }, alien),
+    /不存在/,
+  );
+  check("even administrators cannot cross tenant");
+  const registry = new TableFilterRegistry();
+  new KnowledgeFilterSourceProvider(registry, access, query).onModuleInit();
+  const platform = new TableFilterController(
+    new FieldCandidateService(ds),
+    registry,
+    {} as never,
+    ds,
+  );
+  const request = (u: KnowledgeActor) =>
+    ({
+      user: {
+        sub: u.userId,
+        username: u.username,
+        permissions: u.permissions,
+        isSystemAdmin: u.isSystemAdmin,
+        moduleAdminCodes: u.moduleAdminCodes,
+        tableDataScopes: u.tableDataScopes,
+      },
+    }) as never;
+  const standard = await platform.rows(
+    { resource: "knowledge-pages" },
+    request(viewer),
+  );
+  assert.ok(standard.rows.length);
+  assert.ok(standard.rows.every((r: any) => !("working_content" in r)));
+  check("platform row API reads published-only view");
+  rootVersion = (
+    await app.setAccess(
+      "page",
+      root.id,
+      {
+        expectedVersion: rootVersion,
+        restricted: true,
+        entries: [
+          { subjectType: "USER", subjectId: a, accessLevel: "FULL_ACCESS" },
+        ],
+      },
+      admin,
+    )
+  ).version;
+  assert.equal(
+    (await platform.rows({ resource: "knowledge-pages" }, request(viewer)))
+      .total,
+    0,
+  );
+  assert.equal(
+    (
+      (await platform.candidateOptions(
+        { resource: "knowledge-pages", field: "title" },
+        request(viewer),
+      )) as any[]
+    ).length,
+    0,
+  );
+  check("standard rows and field candidates inherit ancestor ACL");
+  rootVersion = (
+    await app.setAccess(
+      "page",
+      root.id,
+      { expectedVersion: rootVersion, restricted: false, entries: [] },
+      admin,
+    )
+  ).version;
+  for (const format of ["md", "html", "docx"]) {
+    let buffer: Buffer;
+    if (format === "docx") {
+      buffer = await createKnowledgeDocxFixture();
+    } else
+      buffer = Buffer.from(
+        format === "md"
+          ? "# 导入标题\n\n**导入正文**\n\n|A|B|\n|-|-|\n|1|2|\n\n```js\nconst n=1\n```"
+          : '<h1>导入标题</h1><p><b>导入正文</b><script>alert(1)</script><a href="javascript:alert(1)">安全</a></p><table><tr><td>格</td></tr></table>',
+      );
+    const preview = await imports.preview(
+      { originalname: `文档.${format}`, buffer } as Express.Multer.File,
+      editor,
+    );
+    assert.match(preview.contentText, /导入/);
+    if (format === "docx") {
+      assert.equal(preview.images.length, 1);
+      for (const kind of [
+        "heading",
+        "bold",
+        "italic",
+        "bulletList",
+        "table",
+        "link",
+        "attachmentImage",
+      ])
+        assert.match(JSON.stringify(preview.content), new RegExp(kind));
+    }
+    assert.doesNotMatch(
+      JSON.stringify(preview.content),
+      /script|javascript:|alert\(1\)/,
+    );
+    const imported = await imports.commit(
+      {
+        token: preview.token,
+        spaceId: hr.id,
+        parentId: root.id,
+        tags: ["导入"],
+      },
+      editor,
+    );
+    assert.equal(imported.status, "DRAFT");
+    await assert.rejects(
+      async () => query.detail(imported.id, {}, viewer),
+      /不存在/,
+    );
+    await assert.rejects(
+      async () =>
+        imports.commit({ token: preview.token, spaceId: hr.id }, editor),
+      /过期/,
+    );
+    check(
+      `${format} preview/commit uses commands, sanitizes content, saves draft only, consumes token`,
+    );
+  }
+  const htmlImage = await imports.preview(
+    {
+      originalname: "图片.html",
+      buffer: Buffer.from(
+        `<p>嵌入</p><img src="data:image/png;base64,${imageBytes.toString("base64")}">`,
+      ),
+    } as Express.Multer.File,
+    editor,
+  );
+  assert.equal(htmlImage.images.length, 1);
+  const importedImage = await imports.commit(
+    { token: htmlImage.token, spaceId: hr.id },
+    editor,
+  );
+  assert.equal(
+    (await query.detail(importedImage.id, { mode: "working" }, editor))
+      .attachments.length,
+    1,
+  );
+  check("HTML data-image preview becomes immediate private page attachment");
+  const foreignPreview = await imports.preview(
+    {
+      originalname: "其他.md",
+      buffer: Buffer.from("正文"),
+    } as Express.Multer.File,
+    editor,
+  );
+  await assert.rejects(
+    async () =>
+      imports.commit(
+        { token: foreignPreview.token, spaceId: hr.id },
+        otherEditor,
+      ),
+    /不存在/,
+  );
+  await assert.rejects(
+    async () =>
+      imports.preview(
+        {
+          originalname: "加密.docx",
+          buffer: Buffer.from([0x88, 0x7d, 0x1c, 0xd6]),
+        } as Express.Multer.File,
+        editor,
+      ),
+    /该文件被加密,请解密后再导入./,
+  );
+  check(
+    "preview bound to actor and unified encryption detection runs before parsing",
+  );
+  const remote = await imports.preview(
+    {
+      originalname: "外链.html",
+      buffer: Buffer.from(
+        '<img src="http://127.0.0.1/internal"><iframe src="file:///etc/passwd"></iframe><p>安全</p>',
+      ),
+    } as Express.Multer.File,
+    editor,
+  );
+  assert.equal(remote.images.length, 0);
+  assert.match(remote.warnings.join(""), /外部/);
+  check("import cannot fetch external images or iframe/file URLs (SSRF)");
+  const junk = await app.createPage(
+    { spaceId: hr.id, title: "回收站测试" },
+    admin,
+  );
+  const junkChild = await app.createPage(
+    { spaceId: hr.id, parentId: junk.id, title: "回收站子页" },
+    admin,
+  );
+  let junkVersion = (
+    await app.transition(junk.id, "trash", { expectedVersion: 1 }, admin)
+  ).version;
+  assert.equal(
+    (await query.detail(junkChild.id, { mode: "trash" }, admin)).status,
+    "TRASHED",
+  );
+  junkVersion = (
+    await app.transition(
+      junk.id,
+      "restore",
+      { expectedVersion: junkVersion },
+      admin,
+    )
+  ).version;
+  assert.equal(
+    (await query.detail(junkChild.id, { mode: "working" }, admin)).status,
+    "DRAFT",
+  );
+  check("trash/restore operates on full subtree and retains prior state");
+  const nested = await app.createPage(
+    { spaceId: hr.id, parentId: junk.id, title: "此前单独删除" },
+    admin,
+  );
+  await app.transition(nested.id, "trash", { expectedVersion: 1 }, admin);
+  junkVersion = (
+    await app.transition(
+      junk.id,
+      "trash",
+      { expectedVersion: junkVersion },
+      admin,
+    )
+  ).version;
+  junkVersion = (
+    await app.transition(
+      junk.id,
+      "restore",
+      { expectedVersion: junkVersion },
+      admin,
+    )
+  ).version;
+  assert.equal(
+    (await query.detail(nested.id, { mode: "trash" }, admin)).status,
+    "TRASHED",
+  );
+  check(
+    "restoring a parent does not restore an earlier independently trashed child",
+  );
+  const orphan = await app.upload(
+    junk.id,
+    { expectedVersion: junkVersion },
+    pdf,
+    admin,
+  );
+  junkVersion = (
+    await app.removeAttachment(
+      orphan.attachment.id,
+      { expectedVersion: orphan.version },
+      admin,
+    )
+  ).version;
+  const orphanCount = await app.cleanOrphans(admin);
+  assert.equal(orphanCount.removed, 1);
+  await assert.rejects(
+    async () =>
+      query.attachment(orphan.attachment.id, { mode: "working" }, admin),
+    /不存在/,
+  );
+  check(
+    "unreferenced detached orphan storage/database cleaned; published history retained",
+  );
+  const crashKey = `.private/knowledge/${Buffer.from(tenantId).toString("hex")}/crash/file`;
+  const otherTenantKey = `.private/knowledge/${Buffer.from("OTHER").toString("hex")}/crash/file`;
+  stored.set(crashKey, Buffer.from("crash orphan"));
+  stored.set(otherTenantKey, Buffer.from("other tenant"));
+  const referencedBefore = new Map(stored);
+  assert.equal((await app.reconcileStorageOrphans(viewer)).queued, 0);
+  assert.equal(stored.has(crashKey), true);
+  assert.equal((await app.reconcileStorageOrphans(admin)).queued, 1);
+  await app.processCleanup(admin);
+  assert.equal(stored.has(crashKey), false);
+  assert.equal(stored.has(otherTenantKey), true);
+  for (const key of referencedBefore.keys())
+    if (key !== crashKey) assert.equal(stored.has(key), true);
+  stored.delete(otherTenantKey);
+  check(
+    "crash-before-DB orphan reconciliation is admin-only and preserves referenced and other-tenant files",
+  );
+  junkVersion = (
+    await app.transition(
+      junk.id,
+      "trash",
+      { expectedVersion: junkVersion },
+      admin,
+    )
+  ).version;
+  await app.purge(junk.id, { expectedVersion: junkVersion }, admin);
+  await assert.rejects(
+    async () => query.detail(junkChild.id, { mode: "trash" }, admin),
+    /不存在/,
+  );
+  check("permanent deletion removes trashed subtree");
+  const archive = await app.createPage(
+    { spaceId: hr.id, title: "历史规范" },
+    admin,
+  );
+  const av = (await app.publish(archive.id, { expectedVersion: 1 }, admin))
+    .version;
+  await app.transition(archive.id, "archive", { expectedVersion: av }, admin);
+  assert.equal((await query.detail(archive.id, {}, viewer)).status, "ARCHIVED");
+  assert.equal((await query.list({ search: "历史规范" }, viewer)).total, 0);
+  check("archive retains readable published history and leaves default search");
+  await app.transition(
+    archive.id,
+    "unarchive",
+    { expectedVersion: av + 1 },
+    admin,
+  );
+  assert.equal(
+    (await query.detail(archive.id, {}, viewer)).status,
+    "PUBLISHED",
+  );
+  check(
+    "unarchive restores published subtree without adding fake content versions",
+  );
+  sv = await app.updateSpace(
+    hr.id,
+    { status: "ARCHIVED", expectedVersion: sv.version },
+    admin,
+  );
+  assert.equal((await query.list({}, viewer)).total, 0);
+  sv = await app.updateSpace(
+    hr.id,
+    { status: "ACTIVE", expectedVersion: sv.version },
+    admin,
+  );
+  check("Space archive blocks normal browsing without deleting its data");
+  const columns = await ds.query(
+    "SELECT count(*)::int n FROM information_schema.columns WHERE table_name LIKE 'knowledge_%' AND table_name<>'knowledge_page_read_model' AND column_name IN ('id','tenant_id','created_by','created_at','updated_by','updated_at','version')",
+  );
+  assert.equal(columns[0].n, 70);
+  check(
+    "all ten Knowledge tables retain UUIDv7/tenant and standard audit/version columns",
+  );
+  rootVersion = (
+    await app.publish(root.id, { expectedVersion: rootVersion }, admin)
+  ).version;
+  assert.ok((await query.list({ search: "制度目录" }, viewer)).total >= 13);
+  assert.equal(
+    (await query.detail(page.id, {}, viewer)).breadcrumb[1].title,
+    "制度目录",
+  );
+  check(
+    "parent publication refreshes descendant search and live breadcrumbs without changing their content versions",
+  );
+  const moveSearch = await app.createPage(
+    { spaceId: hr.id, parentId: root.id, title: "移动检索" },
+    admin,
+  );
+  const msv = (await app.publish(moveSearch.id, { expectedVersion: 1 }, admin))
+    .version;
+  await app.move(
+    moveSearch.id,
+    { parentId: null, expectedVersion: msv },
+    admin,
+  );
+  assert.equal(
+    (await query.list({ search: "制度目录", ids: [moveSearch.id] }, viewer))
+      .total,
+    0,
+  );
+  assert.equal(
+    (await query.detail(moveSearch.id, {}, viewer)).breadcrumb.length,
+    2,
+  );
+  check(
+    "move rebuilds published ancestor search and breadcrumb, without old-parent leakage",
+  );
+  const rlsRole = `knowledge_rls_${Date.now()}`;
+  await ds.query(
+    `CREATE ROLE ${rlsRole} NOLOGIN;GRANT USAGE ON SCHEMA public TO ${rlsRole};GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ${rlsRole}`,
+  );
+  const transaction = ds.createQueryRunner();
+  await transaction.connect();
+  await transaction.startTransaction();
   try {
-    const managed = await platform.rows({ resource: "knowledge-articles", filterGroup: JSON.stringify({ logic: "AND", rules: [{ field: "status", operator: "eq", value: "PUBLISHED" }] }) }, request(editor)); assert.equal(managed.total, 6);
-    await assert.rejects(() => platform.rows({ resource: "knowledge-articles" }, request(ordinary(a))), /管理权限/);
-    const scopeEditor = { ...editor, tableDataScopes: [{ resource: "knowledge-articles", scope: "OWN", actions: ["read", "update", "export"] }] };
-    const managedOwn = await platform.rows({ resource: "knowledge-articles" }, request(scopeEditor)); assert.equal(managedOwn.total, 6);
-    const printing = new TablePrintService(registry, ds); const exportActor = { ...editor, permissions: [...editor.permissions, "knowledge-articles:*:export"], tableDataScopes: [{ resource: "knowledge-articles", scope: "ALL", actions: ["read", "update", "export"] }] };
-    const exported = await printing.exportXlsx("knowledge-articles", {}, exportActor as never); assert.ok(exported); check("platform rows/filter/export share management ACL and permissions");
-    const byTag = await platform.rows({ resource: "knowledge-articles", search: "搜索标签" }, request(editor)); assert.equal(byTag.total, 1);
-    const candidates = await platform.candidateOptions({ resource: "knowledge-articles", field: "title", tableSearch: "搜索标签" }, request(editor)); assert.ok(Array.isArray(candidates)); assert.equal(candidates.length, 1);
-    await assert.rejects(() => platform.rows({ resource: "knowledge-articles", search: "正文" }, request({ ...editor, permissions: editor.permissions.filter((permission) => permission !== "knowledge-articles:contentText:read") })), /权限/);
-    const tagWorkbook = new ExcelJS.Workbook(); await tagWorkbook.xlsx.load(await printing.exportXlsx("knowledge-articles", { search: "搜索标签", columnKeys: ["title", "categoryId"] }, exportActor as never) as never);
-    assert.equal(tagWorkbook.worksheets[0].rowCount, 2); assert.equal(tagWorkbook.worksheets[0].getCell("B2").value, "公司制度"); check("indexed search and tag filtering shared by platform rows/candidates/export with tenant labels");
-    const restrictedExport = { ...exportActor, tableDataScopes: [{ resource: "knowledge-articles", scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "title", operator: "EQ", value: "年度员工绩效考核制度" }] }, { resource: "knowledge-articles", scope: "ALL", actions: ["update", "export"] }] };
-    const restrictedWorkbook = new ExcelJS.Workbook(); await restrictedWorkbook.xlsx.load(await printing.exportXlsx("knowledge-articles", { columnKeys: ["title"] }, restrictedExport as never) as never);
-    assert.equal(restrictedWorkbook.worksheets[0].rowCount, 2); check("export intersects read and export data scopes");
-  } finally { if (priorDefault == null) delete process.env.KDOS_DEFAULT_TENANT_CODE; else process.env.KDOS_DEFAULT_TENANT_CODE = priorDefault; }
-  const historyArticle = await application.createArticle({ title: "历史ACL收紧", categoryId: category.id, content: content("版本一"), visibility: { type: "ALL", subjectIds: [] } }, admin);
-  const historyFile = await application.upload(historyArticle.id, { expectedVersion: 1 }, file, admin);
-  let historyVersion = (await application.publish(historyArticle.id, { expectedVersion: historyFile.version }, admin)).version;
-  historyVersion = (await application.updateArticle(historyArticle.id, { visibility: { type: "USER", subjectIds: [b] }, expectedVersion: historyVersion }, admin)).version;
-  historyVersion = (await application.publish(historyArticle.id, { expectedVersion: historyVersion }, admin)).version;
-  await application.updateArticle(historyArticle.id, { visibility: { type: "ALL", subjectIds: [] }, expectedVersion: historyVersion }, admin);
-  await assert.rejects(() => queries.detail(historyArticle.id, editor, "manage", 1), /不存在/); assert.equal((await queries.versions(historyArticle.id, editor)).length, 0);
-  await assert.rejects(() => queries.attachment(historyFile.attachment.id, editor, "manage", 1), /无权/); check("historical broad ACL cannot bypass narrowed current published ACL even when working ACL differs");
-  const scopeArticle = await application.createArticle({ title: "发布分类范围", categoryId: root, content: content("发布正文") }, admin);
-  const scopeVersion = (await application.publish(scopeArticle.id, { expectedVersion: 1 }, admin)).version;
-  await application.updateArticle(scopeArticle.id, { categoryId: category.id, expectedVersion: scopeVersion }, admin);
-  const categoryScope = { ...ordinary(a), tableDataScopes: [{ resource: "knowledge-articles", scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "categoryId", operator: "EQ", value: root }] }] };
-  assert.equal((await queries.list({}, categoryScope)).total, 1); assert.equal((await queries.detail(scopeArticle.id, categoryScope)).categoryId, root); check("ordinary data scope follows published category while working copy changes");
-  await ds.query(`UPDATE users SET department_paths='[]' WHERE id=$1`, [a]); assert.equal((await queries.list({ search: "授权文章ORGANIZATION" }, ordinary(a))).total, 0);
-  await ds.query(`DELETE FROM user_roles WHERE user_id=$1`, [a]); assert.equal((await queries.list({ search: "授权文章ROLE" }, ordinary(a))).total, 0);
-  await ds.query(`UPDATE users SET department_paths='[["公司","人力资源","招聘"]]' WHERE id=$1`, [a]); await ds.query(`INSERT INTO user_roles VALUES($1,$2)`, [a, role]); check("organization and role revocation applied immediately");
-  const imageDraft = await application.createArticle({ title: "图片验证", categoryId: root, content: content("图片") }, admin);
-  const imageBytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: "white" } }).png().toBuffer();
-  const imageUpload = await application.upload(imageDraft.id, { expectedVersion: 1 }, { originalname: "图片.png", buffer: imageBytes } as Express.Multer.File, admin);
-  assert.equal(imageUpload.attachment.contentType, "image/png"); assert.ok(imageUpload.attachment.createdAt);
-  const object = stored.get((await queries.attachment(imageUpload.attachment.id, admin, "manage")).key)!;
-  assert.equal((await sharp(object).metadata()).width, 4);
-  await assert.rejects(() => application.upload(imageDraft.id, { expectedVersion: imageUpload.version }, { originalname: "伪图.png", buffer: Buffer.from("<svg onload=alert(1) />") } as Express.Multer.File, admin), /图片/); check("real Sharp private PNG decode/re-encode and forged image rejection");
-  await assert.rejects(() => application.updateArticle(scopeArticle.id, { expectedVersion: 3, attachmentIds: [imageUpload.attachment.id] }, admin), /不属于/); check("attachments cannot be assigned across articles");
-  await ds.query(`CREATE FUNCTION knowledge_test_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.after_json->>'originalName'='failed.txt' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER knowledge_test_audit_failure BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION knowledge_test_audit_failure()`);
-  const objectCount = stored.size;
-  await assert.rejects(() => application.upload(imageDraft.id, { expectedVersion: imageUpload.version }, { originalname: "failed.txt", buffer: Buffer.from("rollback") } as Express.Multer.File, admin), /test audit failure/);
-  assert.equal(stored.size, objectCount); assert.equal((await queries.detail(imageDraft.id, admin, "manage")).version, imageUpload.version);
-  await ds.query(`DROP TRIGGER knowledge_test_audit_failure ON audit_logs; DROP FUNCTION knowledge_test_audit_failure()`); check("audit failure rolls back metadata/version and compensates uploaded object");
-  const concurrent = await Promise.allSettled([application.updateArticle(imageDraft.id, { title: "并发甲", expectedVersion: imageUpload.version }, admin), application.updateArticle(imageDraft.id, { title: "并发乙", expectedVersion: imageUpload.version }, admin)]);
-  assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
-  const conflict = concurrent.find((result) => result.status === "rejected") as PromiseRejectedResult; assert.equal(conflict.reason.getStatus(), 409); check("concurrent commands with same expectedVersion commit once and return 409");
-  await assert.rejects(() => application.updateArticle(scopeArticle.id, { title: "禁止编辑", expectedVersion: 3 }, { ...editor, permissions: editor.permissions.filter((permission) => permission !== "knowledge-articles:title:update") }), /权限/);
-  await assert.rejects(async () => application.updateArticle(scopeArticle.id, { contentText: "伪造纯文本", expectedVersion: 3 } as never, admin), /不支持/); check("field update and forged trusted metadata denied by commands");
-  const disabled = await application.disable(paginationArticle.id, { expectedVersion: 2 }, editor); await assert.rejects(() => queries.detail(paginationArticle.id, ordinary(a)), /不存在/); assert.equal((await queries.detail(paginationArticle.id, admin, "manage", 1)).title, "年度员工绩效考核制度"); check("disabled hidden; administrator retains immutable history");
-  await assert.rejects(() => application.deleteArticle(paginationArticle.id, { expectedVersion: disabled.version }, admin), /不能删除/); check("ever-published article cannot be deleted");
-  await application.updateCategory(category.id, { enabled: false, expectedVersion: 1 }, admin); await assert.rejects(() => application.createArticle({ title: "停用分类", categoryId: category.id, content: content("正文") }, editor), /停用/); check("disabled category rejects create/publish");
-  await assert.rejects(() => application.deleteCategory(category.id, { expectedVersion: 2 }, admin), /不能删除/); check("used category cannot be deleted");
-  const unused = await application.createCategory({ parentId: root, name: "未用分类" }, admin); await application.deleteCategory(unused.id, { expectedVersion: 1 }, admin); check("unused child category delete");
-  const draftOnly = await application.createArticle({ title: "纯草稿", categoryId: root, content: content("草稿") }, admin); const draftFile = await application.upload(draftOnly.id, { expectedVersion: 1 }, file, admin); await application.deleteArticle(draftOnly.id, { expectedVersion: draftFile.version }, admin); await assert.rejects(() => queries.attachment(draftFile.attachment.id, admin, "manage"), /不存在/); check("draft deletion retains private ownership and blocks downloads");
-  const [{ audits, missing, giant }] = await ds.query(`SELECT count(*)::int audits,count(*) FILTER(WHERE tenant_id IS NULL)::int missing,count(*) FILTER(WHERE length(COALESCE(after_json::text,''))>10000)::int giant FROM audit_logs WHERE action LIKE 'knowledge.%'`); assert.ok(audits >= 20); assert.equal(missing, 0); assert.equal(giant, 0); check("tenant-aware metadata audits without giant article body");
-  const [{ policies }] = await ds.query(`SELECT count(*)::int policies FROM pg_policies WHERE tablename LIKE 'knowledge_%'`); assert.equal(policies, 7);
-  const runner = ds.createQueryRunner(); await runner.connect(); await runner.startTransaction();
-  try {
-    await runner.query(`CREATE ROLE knowledge_test_rls NOLOGIN; GRANT USAGE ON SCHEMA public TO knowledge_test_rls; GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA public TO knowledge_test_rls; SET LOCAL ROLE knowledge_test_rls`);
-    await runner.query(`SELECT set_config('app.tenant_id','OTHER_TENANT',true)`); assert.equal((await runner.query(`SELECT * FROM knowledge_articles`)).length, 0);
-    await assert.rejects(() => runner.query(`INSERT INTO knowledge_categories(tenant_id,level,code,name) VALUES('KNOWLEDGE_TEST',1,'RLS','RLS')`), /row-level security/); check("real non-owner RLS read/write isolation");
-  } finally { await runner.rollbackTransaction(); await runner.release(); }
-  const [{ auditColumns }] = await ds.query(`SELECT count(*)::int AS "auditColumns" FROM information_schema.columns WHERE table_schema='public' AND table_name LIKE 'knowledge_%' AND column_name IN ('id','tenant_id','created_by','created_at','updated_by','updated_at','version')`);
-  assert.equal(auditColumns, 49); check("all seven knowledge tables retain UUIDv7 tenant and standard audit/version columns");
-  assert.ok((await ds.query(`SELECT 1 FROM pg_extension WHERE extname='pg_trgm'`)).length); check("pg_trgm extension installed by migration");
-  // Performance fixtures exist only in this disposable database.
-  await ds.query(`INSERT INTO knowledge_articles(tenant_id,category_id,title,content_hash,content_text,search_text) SELECT $1,$2,'性能样本'||n,repeat('0',64),repeat('普通业务文档说明',200),repeat('普通业务文档说明',200) FROM generate_series(1,4000) n`, [tenantId, root]);
-  await ds.query(`INSERT INTO knowledge_article_versions(tenant_id,article_id,version_no,working_revision,category_id,category_name,root_category_name,title,summary,content,content_text,content_hash,search_text,tags,visibility,published_by) SELECT tenant_id,id,1,1,category_id,'人力资源','人力资源',title,summary,content,content_text,content_hash,search_text,'[]',visibility,$2 FROM knowledge_articles WHERE tenant_id=$1 AND published_version IS NULL AND deleted_at IS NULL`, [tenantId, a]);
-  await ds.query(`UPDATE knowledge_articles SET status='PUBLISHED',published_version=1 WHERE tenant_id=$1 AND published_version IS NULL AND deleted_at IS NULL`, [tenantId]);
-  await ds.query(`ANALYZE knowledge_articles; ANALYZE knowledge_article_versions`);
-  const explain = await ds.query(`EXPLAIN (FORMAT JSON) SELECT record.id FROM knowledge_articles record JOIN knowledge_article_versions published ON published.tenant_id=record.tenant_id AND published.article_id=record.id AND published.version_no=record.published_version WHERE record.tenant_id=$1 AND record.status='PUBLISHED' AND published.search_text ILIKE '%绩效考核%'`, [tenantId]);
-  const plan = JSON.stringify(explain); assert.match(plan, /idx_knowledge_versions_search/); check("natural planner uses GIN for typical Chinese query (EXPLAIN)");
-  const workingExplain = await ds.query(`EXPLAIN (FORMAT JSON) SELECT id FROM knowledge_articles record WHERE tenant_id=$1 AND search_text ILIKE '%绩效考核%'`, [tenantId]);
-  assert.match(JSON.stringify(workingExplain), /idx_knowledge_articles_search/); check("natural planner uses working-copy GIN search index");
-  const shortExplain = await ds.query(`EXPLAIN (FORMAT JSON) SELECT id FROM knowledge_article_versions WHERE tenant_id=$1 AND search_text ILIKE '%请假%'`, [tenantId]);
-  assert.match(JSON.stringify(shortExplain), /idx_knowledge_versions_search/); check("natural planner uses GIN for short Chinese leave search");
-  const exportFilter = { logic: "AND", rules: [{ field: "title", operator: "contains", value: "性能样本" }] };
-  const savedDefault = process.env.KDOS_DEFAULT_TENANT_CODE; process.env.KDOS_DEFAULT_TENANT_CODE = tenantId;
-  try {
-    const pagedRows = await platform.rows({ resource: "knowledge-articles", pageSize: "100", filterGroup: JSON.stringify(exportFilter) }, request(admin));
-    assert.equal(pagedRows.rows.length, 100); assert.equal(pagedRows.total, 4000);
-    const allWorkbook = new ExcelJS.Workbook(); await allWorkbook.xlsx.load(await new TablePrintService(registry, ds).exportXlsx("knowledge-articles", { filterGroup: exportFilter, columnKeys: ["title"] }, admin) as never);
-    assert.equal(allWorkbook.worksheets[0].rowCount, 4001); check("standard management export returns all 4000 filtered rows while page returns 100");
-  } finally { if (savedDefault == null) delete process.env.KDOS_DEFAULT_TENANT_CODE; else process.env.KDOS_DEFAULT_TENANT_CODE = savedDefault; }
-  return { status: "PASS", checks, count: checks.length, audits, explain: explain[0] };
+    await transaction.query(`SET LOCAL ROLE ${rlsRole}`);
+    await transaction.query("SELECT set_config('app.tenant_id','OTHER',true)");
+    for (const table of [
+      "knowledge_spaces",
+      "knowledge_space_access",
+      "knowledge_pages",
+      "knowledge_page_access",
+      "knowledge_page_versions",
+      "knowledge_attachments",
+      "knowledge_page_version_attachments",
+      "knowledge_tags",
+      "knowledge_page_tags",
+      "knowledge_page_read_model",
+      "knowledge_storage_cleanup",
+    ]) {
+      assert.equal(
+        (await transaction.query(`SELECT count(*)::int n FROM ${table}`))[0].n,
+        0,
+      );
+    }
+    await assert.rejects(
+      async () =>
+        transaction.query(
+          "INSERT INTO knowledge_spaces(tenant_id,code,name) VALUES($1,'X','跨租户')",
+          [tenantId],
+        ),
+      /row-level security/,
+    );
+    await transaction.rollbackTransaction();
+    check(
+      "real non-owner role enforces RLS on all ten tables and security-invoker view",
+    );
+  } finally {
+    if (transaction.isTransactionActive)
+      await transaction.rollbackTransaction();
+    await transaction.release();
+    await ds.query(`DROP OWNED BY ${rlsRole};DROP ROLE ${rlsRole}`);
+  }
+  await ds.query(
+    `INSERT INTO knowledge_pages(tenant_id,space_id,title,slug,working_content_hash) SELECT $1,$2,'性能样本'||n,'perf-'||n,repeat('0',64) FROM generate_series(1,4000) n`,
+    [tenantId, hr.id],
+  );
+  await ds.query(
+    `INSERT INTO knowledge_page_versions(tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by) SELECT tenant_id,id,1,title,working_content,repeat('普通业务文档说明',20),working_content_hash,'[]','[]','[]',repeat('普通业务文档说明',20),$2 FROM knowledge_pages WHERE tenant_id=$1 AND slug LIKE 'perf-%'`,
+    [tenantId, a],
+  );
+  await ds.query(
+    `UPDATE knowledge_pages p SET status='PUBLISHED',published_version_id=v.id FROM knowledge_page_versions v WHERE p.tenant_id=$1 AND v.tenant_id=p.tenant_id AND v.page_id=p.id AND p.slug LIKE 'perf-%'`,
+    [tenantId],
+  );
+  await app.rebuildSearch(ds.manager, admin);
+  await ds.query("ANALYZE knowledge_pages;ANALYZE knowledge_page_versions");
+  const explain = await ds.query(
+    `EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) SELECT record.id FROM knowledge_pages record JOIN knowledge_page_versions published ON published.tenant_id=record.tenant_id AND published.id=record.published_version_id WHERE record.tenant_id=$1 AND record.status='PUBLISHED' AND record.published_search_text ILIKE '%工作副本秘密%'`,
+    [tenantId],
+  );
+  assert.match(JSON.stringify(explain), /idx_knowledge_pages_search/);
+  check(
+    "natural PostgreSQL planner uses pg_trgm GIN for Chinese query with EXPLAIN ANALYZE",
+  );
+  const filter = {
+    logic: "AND",
+    rules: [{ field: "title", operator: "contains", value: "性能样本" }],
+  };
+  const paged = await platform.rows(
+    {
+      resource: "knowledge-pages",
+      pageSize: "100",
+      filterGroup: JSON.stringify(filter),
+    },
+    request(admin),
+  );
+  assert.equal(paged.total, 4000);
+  assert.equal(paged.rows.length, 100);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    (await new TablePrintService(registry, ds).exportXlsx(
+      "knowledge-pages",
+      {
+        filterGroup: filter,
+        columnKeys: ["title"],
+        sortField: "title",
+        sortOrder: "desc",
+      },
+      admin,
+    )) as never,
+  );
+  assert.equal(workbook.worksheets[0].rowCount, 4001);
+  assert.equal(
+    workbook.worksheets[0].getRow(2).getCell(1).value,
+    "性能样本999",
+  );
+  check(
+    "standard full-data export preserves the current authorized descending title sort",
+  );
+  check(
+    "platform export includes all 4000 filtered published pages, not current 100 rows",
+  );
+  const pageVersion = (await query.detail(page.id, { mode: "working" }, admin))
+    .version;
+  const trashed = await app.transition(
+    page.id,
+    "trash",
+    { expectedVersion: pageVersion },
+    admin,
+  );
+  const realDelete = storage.delete;
+  storage.delete = async () => {
+    throw new Error("synthetic storage outage");
+  };
+  const purged = await app.purge(
+    page.id,
+    { expectedVersion: trashed.version },
+    admin,
+  );
+  assert.ok(purged.cleanupPending > 0);
+  assert.equal(
+    (
+      await ds.query("SELECT 1 FROM knowledge_page_versions WHERE page_id=$1", [
+        page.id,
+      ])
+    ).length,
+    0,
+  );
+  assert.equal(
+    (
+      await ds.query("SELECT 1 FROM knowledge_attachments WHERE page_id=$1", [
+        page.id,
+      ])
+    ).length,
+    0,
+  );
+  storage.delete = realDelete;
+  const cleanup = await app.processCleanup(admin);
+  assert.ok(cleanup.removed > 0);
+  assert.equal(cleanup.pending, 0);
+  check(
+    "published subtree purge removes immutable versions/files and persists storage outage cleanup for retry",
+  );
+  const [{ audits }] = await ds.query(
+    "SELECT count(*)::int audits FROM audit_logs WHERE resource LIKE 'knowledge-%'",
+  );
+  assert.ok(audits > 50);
+  assert.equal(
+    (
+      await ds.query(
+        "SELECT 1 FROM audit_logs WHERE after_json ? 'content' OR after_json ? 'password'",
+      )
+    ).length,
+    0,
+  );
+  check(
+    "critical commands audited by metadata/hash, never full body or credentials",
+  );
+  imports.onModuleDestroy();
+  return {
+    status: "PASS",
+    checks,
+    count: checks.length,
+    audits,
+    explain: explain[0],
+  };
 }
-
 if (require.main === module) {
   const database = process.env.KDOS_KNOWLEDGE_TEST_DATABASE;
-  if (!database?.startsWith("knowledge_test_")) throw new Error("Set KDOS_KNOWLEDGE_TEST_DATABASE to a disposable knowledge_test_* database");
-  const ds = new DataSource({ type: "postgres", host: process.env.DATABASE_HOST, port: Number(process.env.DATABASE_PORT ?? 5432), username: process.env.DATABASE_USER, password: process.env.DATABASE_PASSWORD, database, entities: [AuditLog], logging: false });
-  void ds.initialize().then(() => validateKnowledgeDatabase(ds)).then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "Knowledge DB validation failed"}\n`); process.exitCode = 1; }).finally(() => ds.isInitialized ? ds.destroy() : undefined);
+  if (!database?.startsWith("knowledge_test_"))
+    throw new Error("Set isolated KDOS_KNOWLEDGE_TEST_DATABASE");
+  const ds = new DataSource({
+    type: "postgres",
+    host: process.env.DATABASE_HOST,
+    port: Number(process.env.DATABASE_PORT ?? 5432),
+    username: process.env.DATABASE_USER,
+    password: process.env.DATABASE_PASSWORD,
+    database,
+    entities: [AuditLog],
+    logging: false,
+  });
+  void ds
+    .initialize()
+    .then(() => validateKnowledgeDatabase(ds))
+    .then((r) => process.stdout.write(JSON.stringify(r, null, 2) + "\n"))
+    .catch((e) => {
+      process.stderr.write(
+        (e instanceof Error ? e.message : "DB validation failed") + "\n",
+      );
+      process.exitCode = 1;
+    })
+    .finally(() => (ds.isInitialized ? ds.destroy() : undefined));
 }
