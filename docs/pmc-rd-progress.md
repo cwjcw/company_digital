@@ -77,9 +77,9 @@ pnpm --filter @tracker/api test -- pmc-rd-progress
 
 入口为 PMC中心 → 报表 → 研发进度，URL `/pmc/reports/rd-progress`。资源 `pmc-rd-progress` 的 read 权限同时控制菜单、页面与后端读取。页面展示只读品项进度，不提供同步、编辑或审批入口。
 
-页面复用 Phase 4 的 items/summary/orders/sync-status：六项 KPI、研发环节完成率、七状态分布、核心筛选、标准高级筛选及服务端分页。订单数、各状态数、完成率、异常原因和订单状态全部来自服务端；KPI/状态按钮只提交筛选条件。分页默认100，选项50/100/200/500/1000。URL恢复核心筛选；清空筛选会一并清除表格搜索/高级筛选。订单 Drawer 按 sourceOrderId 精确查询所有获权订单品项，不继承主表的品项/状态限制，其内嵌分页可查看后续品项。
+页面复用 Phase 4 的 items/summary/orders：六项 KPI、研发环节完成率、七状态分布、核心筛选、标准高级筛选及服务端分页。订单数、各状态数、完成率、异常原因和订单状态全部来自服务端；KPI/状态按钮只提交筛选条件。分页默认100，选项50/100/200/500/1000。URL恢复核心筛选；清空筛选会一并清除表格搜索/高级筛选。订单 Drawer 按 sourceOrderId 精确查询所有获权订单品项，不继承主表的品项/状态限制，其内嵌分页可查看后续品项。
 
-导出继续使用 `/table-exports/pmc-rd-progress` 与平台 ExcelJS，不新增Excel框架。页面将核心筛选作为context，标准搜索/FilterGroup/sort独立传入；资源printRows适配器直接调用同一个 QueryService.list，以保证日期、客户、事业部、状态、onlyIncomplete口径一致。导出查询同时满足read范围ANDexport范围、tenant/active条件及字段读权限。客户端page/pageSize不能覆盖标准导出的分批页码；输出所有匹配行。列显示/宽度/冻结继续沿用KdosDataTable个人偏好（localStorage tenant+user+resource+viewKey），导出只发送可见业务列，不发送UI操作或来源UUID。
+导出继续使用 `/table-exports/pmc-rd-progress` 与平台 ExcelJS，不新增Excel框架。页面将日期/未完成等核心条件作为context，多选与标准高级/列筛选合并为FilterGroup传入；资源printRows适配器直接调用同一个 QueryService.list，以保证日期、客户、事业部、状态、onlyIncomplete口径一致。导出查询同时满足read范围ANDexport范围、tenant/active条件及字段读权限。客户端page/pageSize不能覆盖标准导出的分批页码；输出所有匹配行。列显示/宽度/冻结继续沿用KdosDataTable个人偏好（localStorage tenant+user+resource+viewKey），导出只发送可见业务列，不发送UI操作或来源UUID。
 
 E10源时间按上海业务墙钟文本显示，不经UTC转换；带时区的同步时间按Asia/Shanghai展示。客户名称缺失回退客户编码，事业部名称缺失显示“未映射”，不展示裸来源UUID。V仍是原始审核值，不翻译为“作废”。空值和Excel格式保持平台标准（空值展示“—”、业务字典中文）。
 
@@ -89,6 +89,10 @@ E10源时间按上海业务墙钟文本显示，不经UTC转换；带时区的�
 
 当前研发进度分为默认“图表看板”和“明细报表”；此分栏只用于本页。图表只放汇总、环节指标与状态分布，明细保留标准表格、订单Drawer、品项详情和Excel。共享已应用条件及已访问表格的搜索/高级/列筛选在Tab间保留。
 
-事业部、客户使用平台候选接口的可搜索下拉，状态使用契约中文字典；“未完成”提供全部/只看未完成。明细额外保留订单号、品项编码/名称输入。
+Phase 5.3：图表看板的订单号、品号、品名、客户、事业部复用 `/table-filters/candidates?resource=pmc-rd-progress&field=...&search=...&limit=50&withMeta=1`，200ms搜索防抖、限量远程候选、多选及已选值保留。候选来自当前active研发进度授权数据集，不读取ITEM主数据或浏览器分页。品名按名称DISTINCT，同名品号由同一名称IN匹配全部相关项；option沿用真实值，事业部显示组织路径。
+
+八个业务维度支持多选，远程维度沿用平台单规则最多50个值的限制（UI阻止超选），同维度OR（IN）、跨维度AND。前端URL将所选值保存为JSON数组（兼容旧单值链接）；API多选直接复用现有 `filterGroup` JSON契约，不新增数组query协议/路由。KPI、环节完成率、状态分布、列表和平台Excel共用已应用条件，标准规则与列条件继续AND合并。
+
+明细不渲染顶部常驻筛选卡片、快速搜索或同步状态。现有平台高级筛选Popover承载完整业务条件与其他类型化规则；打开恢复已应用值、编辑仅改变草稿、应用后关闭继续生效，取消不提交。按钮显示“高级筛选(N)”（按有值维度计数，日期一个周期计1项，再加高级规则及列筛选数量）。重置清除业务/高级/列条件并恢复上海昨天。导出与字段显示仍在工具栏；已访问明细的分页、列偏好及筛选在Tab间保持，改变条件返回第一页。
 
 日期沿用orderDate（下单日期）的包含式orderDateFrom/orderDateTo。日/月/年/自定义在前端转换为完整日历区间，API不接收周期模式。首次默认及重置恢复Asia/Shanghai昨天；URL保存period、periodValue（自定义为开始日,结束日）与tab，刷新恢复。兼容既有完整from/to链接。周期模式无全部/空日期，日期转换不经过UTC。标准导出继续使用同一已应用筛选和全量匹配记录。

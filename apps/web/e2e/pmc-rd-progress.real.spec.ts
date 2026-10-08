@@ -26,11 +26,52 @@ async function read<T = any>(page: Page, path: string): Promise<T> {
 }
 async function applied(page: Page) {
   await expect.poll(() => new URL(page.url()).searchParams.get("orderDateFrom")).not.toBeNull();
-  const params = new URL(page.url()).searchParams; params.delete("period"); params.delete("periodValue"); params.delete("tab"); return params;
+  const params = new URL(page.url()).searchParams; params.delete("period"); params.delete("periodValue"); params.delete("tab");
+  const fields: Record<string,string> = {orderNo:"orderNo",itemCode:"itemCode",itemName:"itemName",customer:"customerName",division:"divisionId",rdStatus:"rdStatus",designBomStatus:"designBomStatus",routingStatus:"routingStatus"};
+  const rules = Object.entries(fields).flatMap(([key,field]) => {
+    const value = params.get(key); if (!value?.startsWith("[")) return [];
+    params.delete(key); return [{field,operator:"in",values:JSON.parse(value)}];
+  });
+  if (rules.length) params.set("filterGroup",JSON.stringify({logic:"AND",rules}));
+  return params;
 }
 async function openSelect(page: Page, label: string) {
   // Non-searchable Ant Select overlays its readonly input with the selected label.
   await page.locator(".ant-select").filter({ has: page.getByRole("combobox", { name: label, exact: true }) }).click();
+}
+async function openAdvanced(page: Page) {
+  await page.getByRole("button",{name:/高级筛选/}).click();
+  await expect(page.getByTestId("advanced-filter-panel")).toBeVisible();
+}
+async function applyConditions(page: Page) {
+  const panel = page.getByTestId("advanced-filter-panel");
+  if (await panel.isVisible()) await panel.getByRole("button",{name:/^应\s*用$/}).click();
+  else await page.getByRole("button",{name:/^查\s*询$/}).click();
+}
+async function chooseValues(page: Page, label: string, values: string[], searchValues = values) {
+  const input = page.getByRole("combobox",{name:label,exact:true});
+  await openSelect(page,label);
+  for (let index=0;index<values.length;index++) {
+    if (["订单号","品号","品名","客户","事业部"].includes(label)) await input.fill(searchValues[index]);
+    await page.locator(".ant-select-dropdown:visible").getByText(values[index],{exact:true}).and(page.locator(".ant-select-item-option-content")).click();
+  }
+  await input.press("Escape");
+}
+async function clearValues(page: Page, label: string) {
+  const select = page.locator(".ant-select").filter({has:page.getByRole("combobox",{name:label,exact:true})});
+  await select.locator('.ant-select-clear').click({force:true});
+}
+async function selectedValues(page: Page, key: string): Promise<string[]> {
+  const raw = new URL(page.url()).searchParams.get(key); return raw?.startsWith('[') ? JSON.parse(raw) : raw ? [raw] : [];
+}
+async function chartSignature(page: Page) {
+  return page.getByRole('img',{name:'研发状态分布',exact:true}).evaluate(element=>{
+    const canvas=element.querySelector('canvas'); if(!canvas||element.querySelector('.kdos-chart-loading'))return null;
+    const context=canvas.getContext('2d');if(!context)return null;
+    const data=context.getImageData(0,0,canvas.width,canvas.height).data;
+    let hash=2166136261;for(let index=0;index<data.length;index+=4)hash=Math.imul(hash^data[index],16777619);
+    return hash>>>0;
+  });
 }
 async function choosePeriod(page: Page, label: string, value: string, end?: string) {
   await openSelect(page, "日期周期");
@@ -40,7 +81,7 @@ async function choosePeriod(page: Page, label: string, value: string, end?: stri
   await inputs.nth(1).fill(value);
   if (end) { await inputs.nth(1).press("Tab"); await inputs.nth(2).fill(end); await inputs.nth(2).press("Enter"); }
   else await inputs.nth(1).press("Enter");
-  await page.getByRole("button", { name: /^查\s*询$/ }).click();
+  await applyConditions(page);
 }
 const cases = [
   ["2304-202610060005", "601000110", "不适用", "NOT_APPLICABLE"],
@@ -62,18 +103,19 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
     expect(summary.itemCount).toBe(items.total); expect(items.rows.length).toBe(Math.min(100, items.total));
     await expect(page.locator(".pmc-rd-kpis")).toContainText(String(summary.itemCount));
     await expect(page.locator(".pmc-rd-kpis")).toContainText(`${summary.overallCompletionRate}%`);
-    await expect(page.getByText("同步成功", { exact: true })).toBeVisible();
+    await expect(page.getByText("同步成功", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /进入编辑模式|新增|全量同步|增量同步/ })).toHaveCount(0);
     const sidebar = page.locator(".ant-layout-sider"); await sidebar.getByText("报表", { exact: true }).click();
     await expect(sidebar.getByText("研发进度", { exact: true })).toBeVisible();
-    await writeFile(resolve("../../outputs/pmc-phase51-browser-summary.json"), JSON.stringify({ loginPermission: "PASS", summary, detailTotal: items.total, pageSize: 100 }, null, 2));
+    await writeFile(resolve("../../outputs/pmc-phase53-browser-summary.json"), JSON.stringify({ loginPermission: "PASS", summary, detailTotal: items.total, pageSize: 100 }, null, 2));
   });
   for (const [orderNo, itemCode, label, status] of cases) {
     test(`业务样本 ${orderNo} / ${itemCode}`, async ({ page }) => {
       await login(page); await page.goto(`${basePath}?period=year&periodValue=2026&tab=detail`);
-      await page.getByPlaceholder("请输入订单号").fill(orderNo);
-      await page.getByPlaceholder("请输入品项编码").fill(itemCode);
-      await page.getByRole("button", { name: /^查\s*询$/ }).click();
+      await openAdvanced(page);
+      await chooseValues(page,"订单号",[orderNo]);
+      await chooseValues(page,"品号",[itemCode]);
+      await applyConditions(page);
       const row = page.locator(".ant-table-tbody tr").filter({ hasText: itemCode }).first();
       await expect(row).toBeVisible(); await expect(row.locator('.ant-tag').last()).toContainText(label);
       const data = await read(page, `${basePath}/items?${new URLSearchParams({ orderNo, itemCode })}`);
@@ -84,7 +126,7 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
       const allOrderItems = await read(page, `${basePath}/items?filterGroup=${encodeURIComponent(JSON.stringify({ logic: "AND", rules: [{ field: "sourceOrderId", operator: "eq", value: data.rows[0].sourceOrderId }] }))}`);
       await expect(drawer.getByText(`共 ${allOrderItems.total} 条`, { exact: true })).toBeVisible();
       await drawer.locator(".ant-drawer-close").click();
-      await expect.poll(() => new URL(page.url()).searchParams.get("itemCode")).toBe(itemCode);
+      await expect.poll(() => selectedValues(page,"itemCode")).toEqual([itemCode]);
     });
   }
   test("仅未完成、异常原因、URL恢复和筛选导出超过当前页", async ({ page }) => {
@@ -104,8 +146,9 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
     // Count XLSX rows using the already installed API ExcelJS library. The workbook holds business fields only.
     const { default: ExcelJS } = await import("../../api/node_modules/exceljs/excel.js");
     const book = new ExcelJS.Workbook(); await book.xlsx.load(await readFile((await download.path())!)); expect(book.worksheets[0].rowCount - 1).toBe(filtered.total);
-    await writeFile(resolve("../../outputs/pmc-phase51-export.json"), JSON.stringify({ filter: Object.fromEntries(params), pageSize: 100, total: filtered.total, exportedRows: book.worksheets[0].rowCount - 1, filename: download.suggestedFilename(), headers: book.worksheets[0].getRow(1).values }, null, 2));
-    await page.reload(); await expect(page.locator(".ant-select").filter({ has: page.getByRole("combobox", { name: "未完成", exact: true }) })).toContainText("只看未完成");
+    await writeFile(resolve("../../outputs/pmc-phase53-export.json"), JSON.stringify({ filter: Object.fromEntries(params), pageSize: 100, total: filtered.total, exportedRows: book.worksheets[0].rowCount - 1, filename: download.suggestedFilename(), headers: book.worksheets[0].getRow(1).values }, null, 2));
+    await page.reload(); await openAdvanced(page); await expect(page.locator(".ant-select").filter({ has: page.getByRole("combobox", { name: "未完成", exact: true }) })).toContainText("只看未完成");
+    await page.getByRole("button",{name:/高级筛选/}).click();
     await page.getByRole("tab", { name: "图表看板" }).click();
     await page.getByRole("button", { name: "筛选异常品项" }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("rdStatus")).toBe("ABNORMAL");
@@ -127,8 +170,9 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
     expect(result.total).toBeGreaterThan(0);
     for (const entry of result.rows) { expect(entry.orderNo).toContain(item.orderNo); expect(entry.itemCode).toContain(item.itemCode); expect(entry.designBomStatus).toBe(item.designBomStatus); expect(entry.routingStatus).toBe(item.routingStatus); if(item.divisionId) expect(entry.divisionId).toBe(item.divisionId); }
     const summary = await read(page, `${basePath}/summary?${params}`); expect(summary.itemCount).toBe(result.total);
-    await expect(page.getByPlaceholder("请输入订单号")).toHaveValue(item.orderNo);
-    await page.getByRole("button", { name: /^查\s*询$/ }).click(); await expect.poll(() => new URL(page.url()).searchParams.get("orderDateFrom")).toBe(item.orderDate.slice(0, 10));
+    await openAdvanced(page);
+    await expect(page.getByTestId("advanced-filter-panel")).toContainText(item.orderNo);
+    await applyConditions(page); await expect.poll(() => new URL(page.url()).searchParams.get("orderDateFrom")).toBe(item.orderDate.slice(0, 10));
   });
   test("两个桌面尺寸、横向滚动、sticky表头与前后分页", async ({ page }) => {
     await login(page); await page.goto(basePath);
@@ -197,55 +241,98 @@ test.describe("PMC研发进度现有账号生产页面验收", () => {
       await page.reload(); await expect.poll(() => new URL(page.url()).searchParams.get("orderDateFrom")).toBe(from);
     });
   }
-  test("事业四部/客户搜索/未完成跨Tab保持，完整组合筛选实际Excel", async ({ page }) => {
+  test("多维OR/AND、跨Tab高级面板、草稿取消、修改后实际Excel", async ({page}) => {
     await login(page); await page.goto(`${basePath}?period=year&periodValue=2026`);
-    const candidates = await read(page, "/table-filters/candidates?resource=pmc-rd-progress&field=divisionId&limit=100&withMeta=1");
-    expect(candidates.options.some((entry: any) => entry.label.includes("事业四部"))).toBe(true);
-    await openSelect(page, "事业部");
-    await page.locator(".ant-select-dropdown:visible").getByText(/事业四部/).click();
-    await openSelect(page, "未完成");
-    await page.locator(".ant-select-dropdown:visible").getByText("只看未完成", { exact: true }).click();
-    await page.getByRole("button", { name: /^查\s*询$/ }).click();
-    await expect.poll(() => new URL(page.url()).searchParams.get("division")).not.toBeNull();
-    const params = await applied(page); const summary = await read(page, `${basePath}/summary?${params}`);
-    await page.getByRole("tab", { name: "明细报表" }).click();
-    await expect.poll(() => new URL(page.url()).searchParams.get("division")).toBe(params.get("division"));
-    const items = await read(page, `${basePath}/items?${params}`); expect(items.total).toBe(summary.itemCount); expect(items.total).toBeGreaterThan(0);
-    for (const row of items.rows) { expect(row.divisionName).toBe("事业四部"); expect(["COMPLETE", "NOT_APPLICABLE"]).not.toContain(row.rdStatus); }
-    // Apply the third status dimension and verify the same context reaches the existing export API.
-    await openSelect(page, "研发状态");
-    const chosenStatus = items.rows[0].rdStatus;
-    const labels: Record<string, string> = { NOT_STARTED: "未开始", DESIGN_IN_PROGRESS: "设计 BOM 进行中", WAITING_ROUTING: "待工艺", ROUTING_IN_PROGRESS: "工艺设计中", ABNORMAL: "异常" };
-    await page.locator(".ant-select-dropdown:visible").getByText(labels[chosenStatus], { exact: true }).click();
-    await page.getByRole("button", { name: /^查\s*询$/ }).click();
-    await expect.poll(() => new URL(page.url()).searchParams.get("rdStatus")).toBe(chosenStatus);
-    const current = await applied(page); const filtered = await read(page, `${basePath}/items?${current}&pageSize=100`);
-    const responsePromise = page.waitForResponse(response => response.url().includes("/table-exports/pmc-rd-progress?") && response.ok());
-    const downloadPromise = page.waitForEvent("download"); await page.getByRole("button", { name: /导\s*出/ }).click();
-    const download = await downloadPromise; const response = await responsePromise;
-    const context = JSON.parse(new URL(response.url()).searchParams.get("context")!);
-    for (const [key, value] of current) expect(context[key]).toBe(value);
-    const { default: ExcelJS } = await import("../../api/node_modules/exceljs/excel.js");
-    const book = new ExcelJS.Workbook(); await book.xlsx.load(await readFile((await download.path())!));
-    const sheet = book.worksheets[0]; expect(sheet.rowCount - 1).toBe(filtered.total);
-    const headers = sheet.getRow(1).values as Array<string>;
-    for (let index = 2; index <= sheet.rowCount; index++) {
-      const excelRow = sheet.getRow(index);
-      expect(String(excelRow.getCell(headers.indexOf("事业部")).value)).toContain("事业四部");
-      expect(excelRow.getCell(headers.indexOf("研发状态")).value).toBe(labels[chosenStatus]);
-      const date = String(excelRow.getCell(headers.indexOf("下单日期")).value);
-      expect(date >= current.get("orderDateFrom")! && date <= current.get("orderDateTo")!).toBe(true);
+    const divisions = await read(page,"/table-filters/candidates?resource=pmc-rd-progress&field=divisionId&limit=50&withMeta=1");
+    const division = divisions.options.find((option:any)=>option.label.includes("事业四部")); expect(division).toBeTruthy();
+    const pool = await read(page,`${basePath}/items?division=${division.value}&orderDateFrom=2026-01-01&orderDateTo=2026-12-31&pageSize=1000`);
+    const rows = pool.rows.filter((row:any)=>["NOT_STARTED","WAITING_ROUTING"].includes(row.rdStatus)); expect(rows.length).toBeGreaterThan(1);
+    const orders = [...new Set(rows.map((row:any)=>row.orderNo))].slice(0,2) as string[];
+    const codes = [...new Set(rows.map((row:any)=>row.itemCode))].slice(0,2) as string[];
+    await chooseValues(page,"订单号",orders); await chooseValues(page,"品号",codes);
+    await chooseValues(page,"事业部",[division.label],["事业四部"]);
+    await chooseValues(page,"研发状态",["未开始","待工艺"]); await applyConditions(page);
+    await expect.poll(()=>selectedValues(page,"rdStatus")).toEqual(["NOT_STARTED","WAITING_ROUTING"]);
+    const params = await applied(page); const result = await read(page,`${basePath}/items?${params}&pageSize=1000`);
+    const expected = rows.filter((row:any)=>orders.includes(row.orderNo)&&codes.includes(row.itemCode));
+    expect(result.total).toBe(expected.length); expect(result.total).toBeGreaterThan(0);
+    const summary = await read(page,`${basePath}/summary?${params}`); expect(summary.itemCount).toBe(result.total);
+    await expect(page.locator('.pmc-rd-kpi').filter({hasText:'订单品项数'}).locator('strong')).toHaveText(String(result.total));
+    await page.getByRole("tab",{name:"明细报表"}).click();
+    await expect(page.locator('.pmc-rd-filters')).toHaveCount(0);
+    await expect(page.getByRole("combobox",{name:"订单号"})).toHaveCount(0);
+    await expect(page.getByRole("button",{name:/高级筛选/})).toContainText('(5)');
+    await expect(page.locator('.ant-pagination-total-text')).toContainText(`共 ${result.total} 条`);
+    const originalDownload=page.waitForEvent('download'); await page.getByRole('button',{name:/导\s*出/}).click();
+    const originalFile=await originalDownload;
+    const {default:OriginalExcelJS}=await import('../../api/node_modules/exceljs/excel.js');
+    const originalBook=new OriginalExcelJS.Workbook();await originalBook.xlsx.load(await readFile((await originalFile.path())!));
+    const originalSheet=originalBook.worksheets[0];expect(originalSheet.rowCount-1).toBe(result.total);
+    const originalHeaders=originalSheet.getRow(1).values as string[];
+    for(let index=2;index<=originalSheet.rowCount;index++) {
+      expect(orders).toContain(originalSheet.getRow(index).getCell(originalHeaders.indexOf('订单号')).value);
+      expect(codes).toContain(originalSheet.getRow(index).getCell(originalHeaders.indexOf('品号')).value);
     }
-    await writeFile(resolve("../../outputs/pmc-phase51-division-export.json"), JSON.stringify({ filters: Object.fromEntries(current), pageRows: filtered.rows.length, total: filtered.total, exportedRows: book.worksheets[0].rowCount - 1, filename: download.suggestedFilename() }, null, 2));
-    // Search candidates dynamically; no free-text customer filter or hard-coded customer list.
-    const customer = filtered.rows.find((row: any) => row.customerName)?.customerName;
-    if (customer) {
-      await openSelect(page, "客户");
-      const customerCandidates = page.waitForResponse(response => response.url().includes("field=customerName") && response.url().includes("search=") && response.ok());
-      await page.getByRole("combobox", { name: "客户" }).fill(customer); await customerCandidates;
-      await page.locator(".ant-select-dropdown:visible").getByText(customer, { exact: true }).and(page.locator(".ant-select-item-option-content")).click();
-      await page.getByRole("button", { name: /^查\s*询$/ }).click();
-      await expect.poll(() => new URL(page.url()).searchParams.get("customer")).toBe(customer);
+    await openAdvanced(page);
+    const panel=page.getByTestId("advanced-filter-panel");
+    for(const value of [...orders,...codes,division.label,"未开始","待工艺"]) await expect(panel).toContainText(value);
+    await clearValues(page,"品号");
+    // Closing without apply leaves all applied filters intact, and reopening restores them.
+    await page.getByRole("button",{name:/高级筛选/}).click(); expect(await selectedValues(page,"itemCode")).toEqual(codes);
+    await openAdvanced(page); for(const code of codes) await expect(panel).toContainText(code);
+    await clearValues(page,"品号"); await clearValues(page,"订单号");
+    await applyConditions(page); await expect(panel).toHaveCount(0);
+    await expect.poll(()=>selectedValues(page,"itemCode")).toEqual([]); await expect.poll(()=>selectedValues(page,"orderNo")).toEqual([]);
+    const current=await applied(page); const filtered=await read(page,`${basePath}/items?${current}&pageSize=1000`);
+    expect(filtered.total).toBe(rows.length);
+    const exportResponse=page.waitForResponse(response=>response.url().includes('/table-exports/pmc-rd-progress?')&&response.ok());
+    const downloadPromise=page.waitForEvent('download'); await page.getByRole('button',{name:/导\s*出/}).click();
+    const download=await downloadPromise; const response=await exportResponse; expect(download.suggestedFilename()).toBe('pmc-rd-progress.xlsx');
+    const url=new URL(response.url()); expect(JSON.stringify(JSON.parse(url.searchParams.get('filterGroup')!))).toContain('WAITING_ROUTING');
+    const {default:ExcelJS}=await import('../../api/node_modules/exceljs/excel.js'); const book=new ExcelJS.Workbook();
+    await book.xlsx.load(await readFile((await download.path())!)); const sheet=book.worksheets[0]; expect(sheet.rowCount-1).toBe(filtered.total);
+    const headers=sheet.getRow(1).values as string[];
+    for(let index=2;index<=sheet.rowCount;index++) {
+      expect(String(sheet.getRow(index).getCell(headers.indexOf('事业部')).value)).toContain('事业四部');
+      expect(['未开始','待工艺']).toContain(sheet.getRow(index).getCell(headers.indexOf('研发状态')).value);
     }
+    // Verify customer is still a remote multi-select within the advanced panel.
+    await openAdvanced(page); const customer=filtered.rows.find((row:any)=>row.customerName)?.customerName;
+    if(customer) { await chooseValues(page,'客户',[customer]); await applyConditions(page); await expect.poll(()=>selectedValues(page,'customer')).toEqual([customer]); }
+    await openAdvanced(page); await page.getByTestId('advanced-filter-panel').getByRole('button',{name:/^重\s*置$/}).click();
+    await expect.poll(()=>new URL(page.url()).searchParams.get('period')).toBe('day');
+    for(const key of ['orderNo','itemCode','division','rdStatus','customer'])expect(await selectedValues(page,key)).toEqual([]);
+    await page.getByRole('tab',{name:'图表看板'}).click();
+    await expect(page.getByRole('textbox',{name:'统计日期'})).toHaveValue(new URL(page.url()).searchParams.get('periodValue')!);
+    await writeFile(resolve('../../outputs/pmc-phase53-combined-export.json'),JSON.stringify({loginPermission:'PASS',combinationTotal:result.total,combinationExportRows:originalSheet.rowCount-1,editedTotal:filtered.total,exportedRows:sheet.rowCount-1,filename:download.suggestedFilename(),headers},null,2));
   });
+  for(const [label,field] of [["订单号","orderNo"],["品号","itemCode"],["品名","itemName"]]) {
+    test(`Phase5.3 ${label}远程搜索多选、保留选择与KPI图表`,async({page})=>{
+      await login(page); await page.goto(`${basePath}?period=year&periodValue=2026`);
+      const baseline=await read(page,`${basePath}/summary?orderDateFrom=2026-01-01&orderDateTo=2026-12-31`);
+      // Fixtures must exist in the selected year; the active dataset also retains earlier orders.
+      const yearGroup=encodeURIComponent(JSON.stringify({logic:'AND',rules:[{field:'orderDate',operator:'gte',value:'2026-01-01'},{field:'orderDate',operator:'lte',value:'2026-12-31'}]}));
+      const candidates=await read(page,`/table-filters/candidates?resource=pmc-rd-progress&field=${field}&limit=50&withMeta=1&advancedFilterGroup=${yearGroup}`);
+      const choices=candidates.options.slice(0,2).map((option:any)=>option.value) as string[]; expect(choices).toHaveLength(2);
+      await expect.poll(()=>chartSignature(page)).not.toBeNull();
+      const beforeChart=await chartSignature(page);
+      const searches:string[]=[];
+      page.on('request',request=>{const url=new URL(request.url());if(url.pathname.includes('table-filters/candidates')&&url.searchParams.get('field')===field) {expect(url.searchParams.get('limit')).toBe('50'); searches.push(url.searchParams.get('search')??'');}});
+      await chooseValues(page,label,choices,choices.map(value=>value.slice(0,Math.max(1,value.length-2))));
+      const select=page.locator('.ant-select').filter({has:page.getByRole('combobox',{name:label,exact:true})});
+      for(const value of choices) await expect(select).toContainText(value);
+      await applyConditions(page); await expect.poll(()=>selectedValues(page,field)).toEqual(choices);
+      const params=await applied(page); const result=await read(page,`${basePath}/items?${params}&pageSize=1000`);
+      const summary=await read(page,`${basePath}/summary?${params}`); expect(summary.itemCount).toBe(result.total); expect(result.total).toBeGreaterThan(0); expect(result.total).toBeLessThan(baseline.itemCount);
+      for(const row of result.rows)expect(choices).toContain(row[field]);
+      expect(Object.values(summary.statusCounts).reduce((sum:number,n)=>sum+Number(n),0)).toBe(result.total);
+      await expect(page.locator('.pmc-rd-kpi').filter({hasText:'订单品项数'}).locator('strong')).toHaveText(String(result.total));
+      await expect(page.locator('.pmc-rd-analysis')).toContainText('研发状态分布'); expect(searches.some(Boolean)).toBe(true);
+      await expect.poll(()=>chartSignature(page)).not.toBe(beforeChart);
+      // Individual remove and clear remain functional.
+      await select.locator('.ant-select-selection-item-remove').first().click(); await applyConditions(page);
+      await expect.poll(()=>selectedValues(page,field)).toEqual([choices[1]]);
+      await clearValues(page,label); await applyConditions(page); await expect.poll(()=>selectedValues(page,field)).toEqual([]);
+    });
+  }
 });

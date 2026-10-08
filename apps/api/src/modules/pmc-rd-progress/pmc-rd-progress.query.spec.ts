@@ -7,6 +7,19 @@ function serviceWith(rows: unknown[][]) { const query=jest.fn().mockImplementati
 describe('PMC查询权限分页与汇总',()=>{
   it('关闭原始值可筛选且不会成为默认过滤',async()=>{const {service,query}=serviceWith([[],[{total:1}],[{orderCloseRaw:'1'}]]);await service.list({orderClose:'1'},actor);expect(query.mock.calls.at(-1)![0]).toContain('record.order_close_raw');expect(query.mock.calls.at(-1)![1]).toContainEqual(['1']);});
   it('分页、订单号和状态条件在数据库层应用租户与统一筛选',async()=>{const {service,query}=serviceWith([[],[{total:7}],[{id:'1'}]]);const result=await service.list({page:2,pageSize:50,orderNo:'SO-1',rdStatus:'待工艺',onlyIncomplete:'true'},actor);expect(result).toMatchObject({total:7,page:2,pageSize:50});const call=query.mock.calls.at(-1)!;expect(call[0]).toContain('record.tenant_id=$1');expect(call[0]).toContain("NOT IN ('COMPLETE','NOT_APPLICABLE')");expect(call[1]).toContain('A');expect(call[1]).toContainEqual(['WAITING_ROUTING']);expect(call[1].slice(-2)).toEqual([50,50]);});
+  it('订单/品号/品名/事业部/三状态多选通过既有IN组成AND，列表与汇总一致',async()=>{
+    const filterGroup={logic:'AND',rules:[{field:'orderNo',operator:'in',values:['A','B']},{field:'itemCode',operator:'in',values:['X','Y']},{field:'itemName',operator:'in',values:['同名','名称乙']},{field:'divisionId',operator:'in',values:['0199e000-0000-7000-8000-000000000002','0199e000-0000-7000-8000-000000000003']},{field:'rdStatus',operator:'in',values:['NOT_STARTED','WAITING_ROUTING']},{field:'designBomStatus',operator:'in',values:['NOT_STARTED','COMPLETE']},{field:'routingStatus',operator:'in',values:['NOT_STARTED','COMPLETE']}]};
+    const list=serviceWith([[],[{total:2}],[{orderNo:'A',itemCode:'X'},{orderNo:'B',itemCode:'Y'}]]);
+    expect((await list.service.list({filterGroup,pageSize:100},actor)).total).toBe(2);
+    const count=list.query.mock.calls[1]!;
+    for(const rule of filterGroup.rules) expect(count[1]).toContainEqual(rule.values);
+    expect(count[0]).toContain('ANY('); expect(count[0]).not.toContain(' OR '); expect(count[0]).toContain('record.tenant_id=$1');
+    const summary=serviceWith([[],[{rdStatus:'NOT_STARTED',designBomStatus:'NOT_STARTED',routingStatus:'NOT_STARTED',routingControl:'1',count:2}],[{orderCount:2}]]);
+    expect((await summary.service.summary({filterGroup},actor)).itemCount).toBe(2);
+    expect(summary.query.mock.calls[1]![1]).toEqual(count[1].slice(0,-2));
+    const restricted={...actor,permissions:['pmc-rd-progress:*:read','pmc-rd-progress:orderNo:read'],tableDataScopes:[{resource:'pmc-rd-progress',scope:'ALL'}]};
+    await expect(serviceWith([[]]).service.list({filterGroup},restricted)).rejects.toThrow();
+  });
   it('最大每页1000且不允许获取全部',async()=>{const {service}=serviceWith([[],[{total:0}],[]]);expect((await service.list({pageSize:0},actor)).pageSize).toBe(100);});
   it('Tenant A查询不绑定Tenant B且设置RLS上下文',async()=>{const {service,query}=serviceWith([[],[{total:0}],[]]);await service.list({},actor);expect(query.mock.calls[0]).toEqual(["SELECT set_config('app.tenant_id',$1,true)",['A']]);expect(query.mock.calls.slice(1).every(call=>call[1][0]==='A')).toBe(true);});
   it('无表读取权限拒绝且不访问数据库',async()=>{const {service,dataSource}=serviceWith([]);await expect(service.list({},{...actor,permissions:[]})).rejects.toThrow('查看权限');expect(dataSource.transaction).not.toHaveBeenCalled();});

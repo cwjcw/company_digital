@@ -7,18 +7,18 @@ import { resource, sessionCacheScope } from "./rd-progress.model";
 import { defaultPeriod, periodBounds, periodForMode, periodOptions, type ReportPeriod } from "./rd-progress.period";
 
 /** Thin controlled Select over the existing permission-aware platform candidate API. */
-export function ReportCandidateSelect({ field, label, value = "", onChange }: { field: "divisionId" | "customerName"; label: string; value?: string; onChange?: (value: string) => void }) {
+export function ReportCandidateSelect({ field, label, value = [], onChange }: { field: "divisionId" | "customerName" | "orderNo" | "itemCode" | "itemName"; label: string; value?: string[]; onChange?: (value: string[]) => void }) {
   const [search, setSearch] = useState("");
   const [keyword, setKeyword] = useState("");
   const [known, setKnown] = useState<Array<{ value: string; label: string }>>([]);
   useEffect(() => { const timer = setTimeout(() => setKeyword(search), 200); return () => clearTimeout(timer); }, [search]);
-  const candidates = useQuery({ queryKey: [resource, sessionCacheScope(), "candidates", field, keyword], queryFn: ({ signal }) => api<{ options: Array<{ value: string; label: string }>; hasMore: boolean }>(`/table-filters/candidates?${new URLSearchParams({ resource, field, search: keyword, limit: "100", withMeta: "1" })}`, { signal }), staleTime: 300_000, retry: false });
+  const candidates = useQuery({ queryKey: [resource, sessionCacheScope(), "candidates", field, keyword], queryFn: ({ signal }) => api<{ options: Array<{ value: string; label: string }>; hasMore: boolean }>(`/table-filters/candidates?${new URLSearchParams({ resource, field, search: keyword, limit: "50", withMeta: "1" })}`, { signal }), staleTime: 300_000, retry: false });
   useEffect(() => { if (candidates.data) setKnown(previous => Array.from(new Map([...previous, ...candidates.data.options].map(option => [option.value, option])).values())); }, [candidates.data]);
   const options = candidates.data?.options ?? [];
-  const selected = known.find(option => option.value === value);
-  return <Select aria-label={label} allowClear showSearch value={value} loading={candidates.isPending} filterOption={false} onSearch={setSearch}
-    onOpenChange={open => { if (!open) setSearch(""); }} onChange={next => onChange?.(next ?? "")}
-    options={[{ value: "", label: "全部" }, ...(value && !options.some(option => option.value === value) ? [selected ?? { value, label: field === "customerName" ? value : "已选事业部" }] : []), ...options]}
+  const selected = value.filter(entry => !options.some(option => option.value === entry)).map(entry => known.find(option => option.value === entry) ?? { value: entry, label: field === "divisionId" ? "已选事业部" : entry });
+  return <Select aria-label={label} mode="multiple" maxCount={50} placeholder="全部" allowClear showSearch value={value} loading={candidates.isPending} filterOption={false} onSearch={setSearch}
+    onOpenChange={open => { if (!open) setSearch(""); }} onChange={next => onChange?.(next ?? [])}
+    options={[...selected, ...options]}
     notFoundContent={candidates.error ? "选项加载失败" : undefined}
     popupRender={menu => <>{menu}{candidates.data?.hasMore && <Typography.Text type="secondary">候选值较多，请输入关键词搜索</Typography.Text>}{candidates.error && <Typography.Text type="danger">{label}选项加载失败：{candidates.error.message}</Typography.Text>}</>} />;
 }

@@ -22,23 +22,50 @@ export type OrderProgress = {
   incompleteItemCount: number; abnormalItemCount: number; completionRate: string | null; orderRdStatus: string;
 };
 export type SyncStatus = { latestSync: null | { mode: string; status: string; sourceSnapshotAt: string | null; completedAt: string | null; startedAt: string } };
-export type ReportFilters = Record<string, string>;
+export type ReportFilters = Record<string, string | string[]>;
+export const dimensionKeys = ["orderNo", "customer", "division", "itemCode", "itemName", "rdStatus", "designBomStatus", "routingStatus"] as const;
+export const filterValues = (value: string | string[] | undefined): string[] => Array.isArray(value) ? value : value ? [value] : [];
+/** Arrays are URL UI state only; API multi-values use the platform FilterGroup contract. */
+export const serializeFilters = (filters: ReportFilters): Record<string, string> => Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, Array.isArray(value) ? JSON.stringify(value) : value]));
+export const reportContext = (filters: ReportFilters): Record<string, string> => Object.fromEntries(Object.entries(filters).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+export function reportFilterGroup(filters: ReportFilters): AdvancedFilterGroup {
+  return { logic: "AND", rules: Object.entries(filters).flatMap(([key, value]) => Array.isArray(value) && value.length ? [{ field: filterFields[key]!, operator: "in" as const, values: value }] : []) };
+}
+/** Flatten only AND groups, preserving user-authored OR groups; avoid duplicate report context. */
+export function mergeFilterGroups(...groups: Array<AdvancedFilterGroup | undefined>): AdvancedFilterGroup {
+  const rules = new Map<string, AdvancedFilterGroup["rules"][number]>(), children = new Map<string, AdvancedFilterGroup>();
+  const add = (group?: AdvancedFilterGroup) => {
+    if (!hasFilterGroup(group)) return;
+    if (group!.logic === "OR") { children.set(JSON.stringify(group), group!); return; }
+    group!.rules.forEach(rule => rules.set(JSON.stringify(rule), rule)); group!.groups?.forEach(add);
+  };
+  groups.forEach(add);
+  return { logic: "AND", rules: [...rules.values()], ...(children.size ? { groups: [...children.values()] } : {}) };
+}
 const filterFields: Record<string, string> = {
   orderNo: "orderNo", customer: "customerName", division: "divisionId", itemCode: "itemCode", itemName: "itemName",
   rdStatus: "rdStatus", designBomStatus: "designBomStatus", routingStatus: "routingStatus",
   orderDateFrom: "orderDate", orderDateTo: "orderDate", onlyIncomplete: "rdStatus"
 };
 export function parseFilters(params: URLSearchParams): ReportFilters {
-  return Object.fromEntries(Object.entries(filterFields).flatMap(([key, field]) => {
+  return Object.fromEntries(Object.entries(filterFields).flatMap<[string, string | string[]]>(([key, field]) => {
     const value = params.get(key)?.trim();
     if (!readable(field) || !value || (key === "onlyIncomplete" && value !== "true")) return [];
+    if (value.startsWith("[")) {
+      try {
+        const values: unknown = JSON.parse(value);
+        if (!dimensionKeys.includes(key as typeof dimensionKeys[number]) || !Array.isArray(values) || values.some(entry => typeof entry !== "string")) return [];
+        const clean = [...new Set(values.map(entry => entry.trim()).filter(Boolean))];
+        return clean.length ? [[key, clean]] : [];
+      } catch { return []; }
+    }
     return [[key, value]];
   }));
 }
 export function reportUrl(endpoint: "items" | "summary" | "orders", filters: ReportFilters, query?: PlatformTableQuery, group?: AdvancedFilterGroup) {
-  const params = new URLSearchParams(filters);
+  const params = new URLSearchParams(reportContext(filters));
   if (query?.search.trim()) params.set("search", query.search.trim());
-  const filterGroup = group ?? query?.filterGroup;
+  const filterGroup = mergeFilterGroups(reportFilterGroup(filters), group ?? query?.filterGroup);
   if (hasFilterGroup(filterGroup)) params.set("filterGroup", JSON.stringify(filterGroup));
   if (endpoint !== "summary") {
     params.set("page", String(query?.page ?? 1)); params.set("pageSize", String(query?.pageSize ?? 100));

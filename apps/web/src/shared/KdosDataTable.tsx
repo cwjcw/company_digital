@@ -8,7 +8,7 @@ import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/co
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
-import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup } from "./advanced-filter";
+import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup, type AdvancedFilterSection } from "./advanced-filter";
 import type { AdvancedFilterRule } from "./advanced-filter";
 import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
@@ -257,6 +257,7 @@ export function KdosTableQuickSearch({ search, onSearchChange, searchPlaceholder
   search: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
+
 }) {
   return <Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} style={{ width: 280 }} />;
 }
@@ -270,6 +271,11 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   systemFields?: boolean;
   toolbar?: ReactNode;
   searchPlaceholder?: string;
+  /** Hide quick search for reports whose complete conditions live in the advanced panel. */
+  quickSearch?: boolean;
+  advancedFilterSection?: AdvancedFilterSection;
+  /** AND report conditions into platform export/print; the page query builder supplies the same context for rows. */
+  contextFilterGroup?: AdvancedFilterGroup;
   shellClassName?: string;
   /** Minimal read-only list without search, filter or field-view controls. */
   simple?: boolean;
@@ -364,7 +370,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
-  filterFields, onFilterGroupChange, printContext, selectable, selectionActions, deleteAction,
+  filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
@@ -392,8 +398,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [headerFilters, setHeaderFilters] = useState<Record<string, AdvancedFilterRule[]>>({});
   const headerGroup = useMemo<AdvancedFilterGroup>(() => ({ logic: "AND", rules: [], groups: Object.values(headerFilters)
     .filter((rules) => rules.length).map((rules) => ({ logic: "OR", rules })) }), [headerFilters]);
-  const effectiveFilterGroup = useMemo<AdvancedFilterGroup>(() => headerGroup.groups?.length
+  const tableFilterGroup = useMemo<AdvancedFilterGroup>(() => headerGroup.groups?.length
     ? { logic: "AND", rules: [], groups: [filterGroup, headerGroup] } : filterGroup, [filterGroup, headerGroup]);
+  const effectiveFilterGroup = useMemo<AdvancedFilterGroup>(() => contextFilterGroup
+    ? { logic: "AND", rules: [], groups: [tableFilterGroup, contextFilterGroup] } : tableFilterGroup, [tableFilterGroup, contextFilterGroup]);
   const headerFilterCount = Object.values(headerFilters).filter((rules) => rules.length).length;
   /* KN-FILTER-001 capability：只有已接入平台筛选的资源才显示正式高级筛选，避免“可填写但服务端忽略”。 */
   const filterCapabilities = useQuery({
@@ -498,7 +506,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
   }, [resource]);
-  useEffect(() => { setCurrentPage(1); }, [filters, search, effectiveFilterGroup, serverData?.resetKey]);
+  const contextFilterKey = JSON.stringify(contextFilterGroup ?? emptyFilterGroup());
+  useEffect(() => { setCurrentPage(1); }, [filters, search, tableFilterGroup, contextFilterKey, serverData?.resetKey]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);
   const filterGroupCallback = useRef(onFilterGroupChange);
   useEffect(() => { filterGroupCallback.current = onFilterGroupChange; }, [onFilterGroupChange]);
@@ -600,14 +609,14 @@ export function KdosDataTable<RecordType extends DataRecord>({
           resource={resource} field={field} systemFixed={systemFixed} pinned={pinned}
           sortOrder={sortField === key ? sortOrder : undefined} filtered={Boolean(headerFilters[field.key]?.length)} rules={headerFilters[field.key] ?? emptyHeaderRules}
           filterable={Boolean(supportedFilterFields?.some((candidate) => candidate.key === field.key))}
-          tableSearch={search} advancedGroup={filterGroup} headerGroup={headerGroup} context={printContext}
+          tableSearch={search} advancedGroup={contextFilterGroup ? { logic: "AND", rules: [], groups: [filterGroup, contextFilterGroup] } : filterGroup} headerGroup={headerGroup} context={printContext}
           onSort={(order) => { setSortField(order ? key : ""); setSortOrder(order); setCurrentPage(1); }}
           onPin={() => setPinnedKeys((current) => pinned ? current.filter((item) => item !== key) : [...current, key])}
           onHide={() => { setVisibleKeys(effectiveVisible.filter((item) => item !== key)); setPinnedKeys((current) => current.filter((item) => item !== key)); }}
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
     return orderKdosFixedColumns(filterColumns(wrap(allColumns), visible));
-  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, printContext, effectiveVisible, columnWidths]);
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -637,11 +646,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => {
     if (!serverMode) return;
     const timer = window.setTimeout(() => serverQueryCallback.current?.({
-      page: currentPage, pageSize, search: search.trim(), filters, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
+      page: currentPage, pageSize, search: search.trim(), filters, filterGroup: tableFilterGroup, sortField: sortField || undefined,
       sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
     }), 250);
     return () => window.clearTimeout(timer);
-  }, [serverMode, currentPage, filters, effectiveFilterGroup, pageSize, search, sortField, sortOrder]);
+  }, [serverMode, currentPage, filters, tableFilterGroup, pageSize, search, sortField, sortOrder]);
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil((serverData?.total ?? rows.length) / pageSize));
     if (currentPage > lastPage) setCurrentPage(lastPage);
@@ -801,9 +810,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
         {toolbar}
       </Space>
       <Space wrap>
-        <KdosTableQuickSearch search={search} onSearchChange={setSearch} searchPlaceholder={searchPlaceholder} />
+        {quickSearch && <KdosTableQuickSearch search={search} onSearchChange={setSearch} searchPlaceholder={searchPlaceholder} />}
         {typedFilteringSupported ? <KdosAdvancedFilter resource={resource} fields={supportedFilterFields ?? []} value={filterGroup}
-          headerFilterCount={headerFilterCount} onClearHeaderFilters={() => setHeaderFilters({})}
+          section={advancedFilterSection} headerFilterCount={headerFilterCount} onClearHeaderFilters={() => setHeaderFilters({})}
           onApply={(group) => { setFilters({}); setFilterGroup(group); }} />
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>

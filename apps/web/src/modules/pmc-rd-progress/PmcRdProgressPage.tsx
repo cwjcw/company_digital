@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { Alert, Button, Card, Empty, Form, Input, Progress, Select, Space, Spin, Tabs, Tag, Tooltip, Typography, theme } from "antd";
+import { Alert, Button, Card, Empty, Form, Progress, Select, Space, Tabs, Typography, theme } from "antd";
 import type { EChartsOption } from "echarts";
 import { api } from "../../api";
 import { hasResourcePermission, KdosDataTable } from "../../shared/KdosDataTable";
 import { KdosChart } from "../../shared/charts/KdosChart";
 import { blankPlatformQuery, type PlatformTablePage } from "../../shared/platform-table";
-import { businessTime, fields, parseFilters, percentText, readable, reportUrl, resource, sessionCacheScope, type ProgressRow, type ReportFilters, type Summary, type SyncStatus } from "./rd-progress.model";
+import { dimensionKeys, fields, filterValues, parseFilters, reportContext, reportFilterGroup, serializeFilters, percentText, readable, reportUrl, resource, sessionCacheScope, type ProgressRow, type ReportFilters, type Summary } from "./rd-progress.model";
 import { rdStatuses, statusMeta, statusOptions } from "./rd-progress.constants";
 import { ItemDetails, OrderDrawer } from "./ProgressDetails";
 import { progressColumns } from "./progress-columns";
@@ -44,31 +44,36 @@ function ProgressReport() {
   }, [params, period, updateParams]);
   const filterKey = JSON.stringify(filters);
   const [form] = Form.useForm();
+  const [advancedForm] = Form.useForm();
+  const contextGroup = useMemo(() => reportFilterGroup(filters), [filters]);
   const [query, setQuery] = useState(blankPlatformQuery());
   const [resetEpoch, setResetEpoch] = useState(0);
   const [order, setOrder] = useState<ProgressRow | null>(null);
   const [item, setItem] = useState<ProgressRow | null>(null);
   const { token } = theme.useToken();
-  useEffect(() => {
-    // resetFields remounts custom controls and can close an open picker during URL normalization.
-    form.setFieldsValue({ ...Object.fromEntries(["orderNo", "customer", "division", "itemCode", "itemName", "rdStatus", "designBomStatus", "routingStatus"].map(key => [key, filters[key] ?? ""])), onlyIncomplete: filters.onlyIncomplete ?? "", datePeriod: period });
-  }, [filters, form, period]); // URL remains the applied filter source, including browser back/refresh.
+  const restoreForm = useCallback((target: typeof form) => target.setFieldsValue({
+    ...Object.fromEntries(dimensionKeys.map(key => [key, filterValues(filters[key])])),
+    onlyIncomplete: filters.onlyIncomplete ?? "", datePeriod: period
+  }), [filters, period]);
+  useEffect(() => { if (tab === "dashboard") restoreForm(form); }, [restoreForm, form, tab]);
   const sessionScope = sessionCacheScope();
   const columns = useMemo(() => progressColumns(setOrder, setItem), []);
   const itemsUrl = reportUrl("items", filters, query);
   const summaryUrl = reportUrl("summary", filters, query);
   const items = useQuery({ queryKey: [resource, sessionScope, "items", itemsUrl], queryFn: ({ signal }) => api<PlatformTablePage<ProgressRow>>(itemsUrl, { signal }), retry: false, enabled: tab === "detail" });
   const summary = useQuery({ queryKey: [resource, sessionScope, "summary", summaryUrl], queryFn: ({ signal }) => api<Summary>(summaryUrl, { signal }), retry: false });
-  const sync = useQuery({ queryKey: [resource, sessionScope, "sync-status"], queryFn: ({ signal }) => api<SyncStatus>("/pmc/reports/rd-progress/sync-status", { signal }), retry: false, staleTime: 60_000 });
-  const apply = (next: ReportFilters, nextPeriod = period) => { setQuery(previous => ({ ...previous, page: 1 })); updateParams({ ...next, ...(readable("orderDate") ? periodParams(nextPeriod) : {}), tab }); };
+  const apply = (next: ReportFilters, nextPeriod = period) => { setQuery(previous => ({ ...previous, page: 1 })); updateParams({ ...serializeFilters(next), ...(readable("orderDate") ? periodParams(nextPeriod) : {}), tab }); };
   const selectStatus = (status?: string) => { const next = { ...filters }; delete next.onlyIncomplete; if (status) next.rdStatus = status; else delete next.rdStatus; apply(next); };
   const incomplete = () => { const next: ReportFilters = { ...filters, onlyIncomplete: "true" }; delete next.rdStatus; apply(next); };
   const clear = () => { setQuery(blankPlatformQuery()); setResetEpoch(previous => previous + 1); updateParams({ ...(readable("orderDate") ? periodParams(defaultPeriod()) : {}), tab }); };
   const submit = (values: Record<string, any>) => {
     const next: ReportFilters = {};
-    for (const key of ["orderNo", "customer", "division", "itemCode", "itemName", "rdStatus", "designBomStatus", "routingStatus"]) if (String(values[key] ?? "").trim()) next[key] = String(values[key]).trim();
+    for (const key of dimensionKeys) {
+      const selected = filterValues(values[key]).map(value => value.trim()).filter(Boolean);
+      if (selected.length) next[key] = selected;
+    }
     if (values.onlyIncomplete === "true") next.onlyIncomplete = "true";
-    apply(parseFilters(new URLSearchParams(next)), values.datePeriod as ReportPeriod ?? period);
+    apply(parseFilters(new URLSearchParams(serializeFilters(next))), values.datePeriod as ReportPeriod ?? period);
   };
   const lastTotal = useRef(0);
   if (items.data) lastTotal.current = items.data.total;
@@ -85,25 +90,28 @@ function ProgressReport() {
     xAxis: { type: "value", minInterval: 1 }, yAxis: { type: "category", inverse: true, data: rdStatuses.map(status => status.label) },
     series: [{ type: "bar", barMaxWidth: 22, label: { show: true, position: "right" }, data: rdStatuses.map(status => ({ value: data?.statusCounts?.[String(status.value)] ?? 0, itemStyle: { color: ({ default: token.colorTextTertiary, processing: token.colorPrimary, warning: token.colorWarning, success: token.colorSuccess, error: token.colorError })[statusMeta(status.value).tone] } })) }]
   };
-  const run = sync.data?.latestSync;
-  const syncLabel = run?.status === "SUCCESS" ? "同步成功" : run?.status === "FAILED" ? "同步失败" : run?.status === "RUNNING" ? "同步中" : "尚无同步记录";
+  const filterControls = <div className="pmc-rd-filter-grid">
+    {([["orderNo", "订单号"], ["itemCode", "品号"], ["itemName", "品名"], ["division", "事业部"], ["customer", "客户"]] as const).map(([key, label]) => {
+      const field = key === "division" ? "divisionId" : key === "customer" ? "customerName" : key;
+      return readable(field) ? <Form.Item key={key} name={key} label={label}><ReportCandidateSelect field={field} label={label} /></Form.Item> : null;
+    })}
+    {([["rdStatus", "研发状态"], ["designBomStatus", "设计BOM状态"], ["routingStatus", "工艺路线状态"]] as const).filter(([key]) => readable(key)).map(([key, label]) => <Form.Item key={key} name={key} label={label}><Select aria-label={label} mode="multiple" allowClear placeholder="全部" options={statusOptions(key)} /></Form.Item>)}
+    {readable("rdStatus") && <Form.Item name="onlyIncomplete" label="未完成"><Select aria-label="未完成" allowClear options={[{ value: "", label: "全部" }, { value: "true", label: "只看未完成" }]} /></Form.Item>}
+    {readable("orderDate") && <Form.Item name="datePeriod" label="下单日期" className="pmc-rd-date-filter"><ReportPeriodPicker /></Form.Item>}
+  </div>;
+  const advancedSection = {
+    content: <Form form={advancedForm} layout="vertical">{filterControls}</Form>,
+    activeCount: dimensionKeys.filter(key => filterValues(filters[key]).length).length + Number(Boolean(filters.onlyIncomplete)) + Number(readable("orderDate")),
+    onOpen: () => restoreForm(advancedForm),
+    onApply: () => submit(advancedForm.getFieldsValue()),
+    onReset: clear
+  };
   return <div className="pmc-rd-progress">
-    <div className="pmc-rd-header"><Space wrap>
-      {sync.isPending ? <Spin size="small" /> : sync.error ? <Tooltip title={sync.error.message}><Tag color="error">同步状态读取失败</Tag></Tooltip> : <Tooltip title={<div>同步方式：{run?.mode === "FULL" ? "全量" : run?.mode === "INCREMENTAL" ? "增量" : "—"}<br />来源观察时间：{businessTime(run?.sourceSnapshotAt)}<br />完成时间：{businessTime(run?.completedAt)}</div>}><Tag color={run?.status === "SUCCESS" ? "success" : run?.status === "FAILED" ? "error" : "default"}>{syncLabel}</Tag></Tooltip>}
-      <Typography.Text type="secondary">来源观察时间：{businessTime(run?.sourceSnapshotAt)}</Typography.Text>
-    </Space></div>
     <Tabs activeKey={tab} onChange={switchTab} items={[{ key: "dashboard", label: "图表看板" }, { key: "detail", label: "明细报表" }]} />
-    <Card size="small" className="pmc-rd-filters"><Form form={form} layout="vertical" onFinish={submit}>
-      <div className="pmc-rd-filter-grid">
-        {tab === "detail" && ([["orderNo", "订单号"], ["itemCode", "品项编码"], ["itemName", "品项名称"]] as const).filter(([key]) => readable(key)).map(([key, label]) => <Form.Item key={key} name={key} label={label}><Input allowClear placeholder={`请输入${label}`} /></Form.Item>)}
-        {readable("divisionId") && <Form.Item name="division" label="事业部"><ReportCandidateSelect field="divisionId" label="事业部" /></Form.Item>}
-        {readable("customerName") && <Form.Item name="customer" label="客户"><ReportCandidateSelect field="customerName" label="客户" /></Form.Item>}
-        {([["rdStatus", "研发状态"], ["designBomStatus", "设计BOM状态"], ["routingStatus", "工艺路线状态"]] as const).filter(([key]) => readable(key)).map(([key, label]) => <Form.Item key={key} name={key} label={label}><Select aria-label={label} allowClear placeholder="全部" options={[{ value: "", label: "全部" }, ...statusOptions(key)]} /></Form.Item>)}
-        {readable("rdStatus") && <Form.Item name="onlyIncomplete" label="未完成"><Select aria-label="未完成" allowClear options={[{ value: "", label: "全部" }, { value: "true", label: "只看未完成" }]} /></Form.Item>}
-        {readable("orderDate") && <Form.Item name="datePeriod" label="下单日期" className="pmc-rd-date-filter"><ReportPeriodPicker /></Form.Item>}
-      </div>
+    {tab === "dashboard" && <Card size="small" className="pmc-rd-filters"><Form form={form} layout="vertical" onFinish={submit}>
+      {filterControls}
       <Space wrap><Button type="primary" htmlType="submit">查询</Button><Button onClick={clear}>重置</Button></Space>
-    </Form></Card>
+    </Form></Card>}
     {tab === "dashboard" && <>
     {summary.error && <Alert showIcon type="error" message="研发汇总加载失败" description={summary.error.message} action={<Button onClick={() => summary.refetch()}>重试</Button>} />}
     <div className="pmc-rd-kpis" aria-label="研发进度汇总">{kpis.filter(kpi => data?.[kpi.key] !== undefined || (kpi.key === "orderCount" || kpi.key === "itemCount") || readable("rdStatus")).map(kpi => <Card key={kpi.key} size="small" className={kpi.key === "abnormalItemCount" ? "pmc-rd-abnormal" : undefined}>
@@ -115,11 +123,11 @@ function ProgressReport() {
       {readable("routingStatus") && readable("routingControl") && readable("rdStatus") && <Typography.Text>工艺路线完成率：{percentText(data?.routingCompletionRate)}</Typography.Text>}
       {readable("rdStatus") && <Typography.Text>不适用品项数：{data?.notApplicableItemCount ?? "—"}</Typography.Text>}
     </Space></Card>{readable("rdStatus") && <Card size="small" title="研发状态分布"><KdosChart ariaLabel="研发状态分布" option={chart} height={240} loading={summary.isPending} empty={!data?.itemCount || Boolean(summary.error)} /></Card>}</div>
-    {readable("rdStatus") && <Space wrap className="pmc-rd-status-filters" aria-label="状态快捷筛选"><Button size="small" type={!filters.rdStatus && !filters.onlyIncomplete ? "primary" : "default"} onClick={() => selectStatus()}>全部状态</Button>{rdStatuses.map(status => <Button key={String(status.value)} size="small" type={filters.rdStatus === status.value ? "primary" : "default"} onClick={() => selectStatus(String(status.value))}>{status.label}</Button>)}</Space>}
+    {readable("rdStatus") && <Space wrap className="pmc-rd-status-filters" aria-label="状态快捷筛选"><Button size="small" type={!filters.rdStatus && !filters.onlyIncomplete ? "primary" : "default"} onClick={() => selectStatus()}>全部状态</Button>{rdStatuses.map(status => <Button key={String(status.value)} size="small" type={filterValues(filters.rdStatus).includes(String(status.value)) ? "primary" : "default"} onClick={() => selectStatus(String(status.value))}>{status.label}</Button>)}</Space>}
     </>}
     {(visitedDetail || tab === "detail") && <div hidden={tab !== "detail"} className="pmc-rd-detail">
     {items.error && <Alert showIcon type="error" message="研发明细加载失败" description={items.error.message} action={<Button onClick={() => items.refetch()}>重试</Button>} />}
-    <KdosDataTable<ProgressRow> key={resetEpoch} resource={resource} viewKey="pmc-report" systemFields={false} selectable={false} rowKey="id" columns={columns} dataSource={items.data?.rows ?? []} loading={items.isPending} printContext={filters} filterFields={fields} serverData={{ total: items.data?.total ?? lastTotal.current, resetKey: filterKey, onQueryChange: setQuery }} scroll={{ x: "max-content" }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下暂无研发品项"><Button onClick={clear}>清空筛选</Button></Empty> }} />
+    <KdosDataTable<ProgressRow> key={resetEpoch} resource={resource} viewKey="pmc-report" systemFields={false} selectable={false} rowKey="id" columns={columns} dataSource={items.data?.rows ?? []} loading={items.isPending} printContext={reportContext(filters)} contextFilterGroup={contextGroup} quickSearch={false} advancedFilterSection={advancedSection} filterFields={fields} serverData={{ total: items.data?.total ?? lastTotal.current, resetKey: filterKey, onQueryChange: setQuery }} scroll={{ x: "max-content" }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下暂无研发品项"><Button onClick={clear}>清空筛选</Button></Empty> }} />
     </div>}
     {tab === "detail" && order && <OrderDrawer key={String(order.sourceOrderId)} row={order} close={() => setOrder(null)} />}
     {tab === "detail" && item && <ItemDetails row={item} close={() => setItem(null)} />}

@@ -6,7 +6,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { PmcRdProgressPage } from "./PmcRdProgressPage";
-import { businessTime, orderFilter, parseFilters, percentText, reportNavigation, reportUrl } from "./rd-progress.model";
+import { businessTime, orderFilter, parseFilters, percentText, reportNavigation, reportUrl, reportFilterGroup, serializeFilters, mergeFilterGroups } from "./rd-progress.model";
 import { defaultPeriod, periodBounds, periodForMode, readReportPeriod } from "./rd-progress.period";
 import { rdStatuses, statusMeta } from "./rd-progress.constants";
 vi.mock("../../api", () => ({ api: vi.fn() }));
@@ -31,7 +31,11 @@ beforeEach(() => {
     if (path.endsWith("sync-status")) return { latestSync: { status: "SUCCESS", mode: "INCREMENTAL", sourceSnapshotAt: "2026-10-07 14:30:00.000001", completedAt: "2026-10-07T06:31:00Z" } } as never;
     if (path.startsWith("/pmc/reports/rd-progress/orders")) return { rows: [{ sourceOrderId: "order-id", orderNo: "ORDER-1", totalItemCount: 201, applicableItemCount: 194, completeItemCount: 71, incompleteItemCount: 123, abnormalItemCount: 6, completionRate: "36.60", orderRdStatus: "IN_PROGRESS" }], total: 1 } as never;
     if (path === "/table-filters/resources") return [{ code: "pmc-rd-progress", filterableFields: tablePermissionFieldsFor("pmc-rd-progress") }] as never;
-    if (path.startsWith("/table-filters/candidates")) return { options: path.includes("customerName") ? [{ value: "客户甲", label: "客户甲" }] : [{ value: "division-id", label: "事业一部" }], hasMore: false } as never;
+    if (path.startsWith("/table-filters/candidates")) {
+      const params = new URLSearchParams(path.split("?")[1]); const field = params.get("field")!;
+      const options = field === "customerName" ? [{ value: "客户甲", label: "客户甲" }] : field === "divisionId" ? [{ value: "division-id", label: "事业一部" }] : [1, 2].map(index => ({ value: `${field}-${index}`, label: `${field}-${index}` }));
+      return { options: options.filter(option => option.label.includes(params.get("search") ?? "")), hasMore: true } as never;
+    }
     return [] as never;
   });
 });
@@ -43,23 +47,32 @@ describe("PMC研发正式报表", () => {
     expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "图表看板" }));
     expect(await screen.findAllByText("36.60%", { exact: false })).toHaveLength(2);
-    expect(screen.getByText("同步成功")).toBeInTheDocument(); expect(screen.getByText("2026-10-06 18:05:01")).toBeInTheDocument();
+    expect(screen.queryByText("同步成功")).not.toBeInTheDocument(); expect(screen.getByText("2026-10-06 18:05:01")).toBeInTheDocument();
     expect(screen.getByText("12.500000")).toBeInTheDocument(); expect(screen.getByTestId("chart")).toHaveTextContent("设计 BOM 进行中");
     expect(screen.getByText("品项甲").closest(".pmc-rd-detail")).toHaveAttribute("hidden");
     expect(calls("items")[0]).toContain("pageSize=100"); expect(calls("items")[0]).not.toContain("onlyIncomplete");
     expect(screen.queryByRole("button", { name: /编辑模式|同步数据|新增/ })).not.toBeInTheDocument();
   });
-  it("输入不逐键请求，提交订单和品项筛选同时影响汇总与明细", async () => {
-    mount(); await screen.findByText("品项甲"); const before = calls("items").length;
-    fireEvent.change(screen.getByPlaceholderText("请输入订单号"), { target: { value: " SO-9 " } });
-    fireEvent.change(screen.getByPlaceholderText("请输入品项编码"), { target: { value: "P009" } });
-    expect(calls("items")).toHaveLength(before); fireEvent.click(screen.getByRole("button", { name: "查 询" }));
-    await waitFor(() => expect(calls("items").at(-1)).toContain("orderNo=SO-9"));
-    expect(calls("summary").at(-1)).toContain("itemCode=P009"); await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("orderNo=SO-9"));
+  it("明细不渲染常驻条件，现有高级筛选包含全部条件，取消不会应用草稿", async () => {
+    const { container } = mount(); await screen.findByText("品项甲");
+    expect(container.querySelector(".pmc-rd-filters")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "订单号" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /高级筛选/ }));
+    const panel = await screen.findByTestId("advanced-filter-panel");
+    for (const label of ["订单号", "品号", "品名", "客户", "事业部", "研发状态", "设计BOM状态", "工艺路线状态", "未完成", "日期周期", "统计日期"])
+      expect(within(panel).getByRole(label === "统计日期" ? "textbox" : "combobox", { name: label })).toBeInTheDocument();
+    const before = calls("items").length;
+    fireEvent.change(within(panel).getByRole("combobox", { name: "订单号" }), { target: { value: "SEARCH" } });
+    await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining("search=SEARCH"), expect.anything()));
+    expect(calls("items")).toHaveLength(before);
+    fireEvent.click(screen.getByRole("button", { name: /高级筛选/ }));
+    expect(calls("items")).toHaveLength(before);
   });
   it("URL恢复全部核心筛选，导出传当前上下文和业务可见列", async () => {
     mount("/pmc/reports/rd-progress?orderNo=SO-9&customer=C&division=division-id&itemCode=P&itemName=N&rdStatus=ABNORMAL&designBomStatus=ABNORMAL&routingStatus=NOT_STARTED&orderDateFrom=2026-09-01&orderDateTo=2026-10-07&onlyIncomplete=true");
-    await screen.findByText("品项甲"); expect(screen.getByPlaceholderText("请输入订单号")).toHaveValue("SO-9");
+    await screen.findByText("品项甲"); fireEvent.click(await screen.findByRole("button", { name: /高级筛选/ }));
+    expect(within(await screen.findByTestId("advanced-filter-panel")).getByText("SO-9")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /高级筛选/ }));
     fireEvent.click(await screen.findByRole("button", { name: /导出/ }));
     await waitFor(() => expect(exportTable).toHaveBeenCalled()); const request = vi.mocked(exportTable).mock.calls[0]![0];
     expect(request.context).toEqual(expect.objectContaining({ onlyIncomplete: "true", orderDateFrom: "2026-09-01", division: "division-id", itemName: "N", customer: "C" }));
@@ -151,14 +164,64 @@ describe("Phase 5.1 周期与共享筛选", () => {
     for (const label of ["事业部", "客户", "研发状态", "设计BOM状态", "工艺路线状态", "未完成", "日期周期"]) expect(screen.getByRole("combobox", { name: label })).toBeInTheDocument();
     await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining("field=customerName"), expect.anything()));
     fireEvent.click(screen.getByRole("button", { name: "查 询" }));
-    await waitFor(() => expect(calls("summary").at(-1)).toContain("designBomStatus=COMPLETE"));
+    await waitFor(() => expect(decodeURIComponent(calls("summary").at(-1)!)).toContain('"field":"designBomStatus","operator":"in","values":["COMPLETE"]'));
     fireEvent.click(screen.getByRole("tab", { name: "明细报表" })); await screen.findByText("品项甲");
     fireEvent.click(screen.getByTitle("2")); await waitFor(() => expect(calls("items").at(-1)).toContain("page=2"));
     fireEvent.click(await screen.findByRole("button", { name: /导出/ })); await waitFor(() => expect(exportTable).toHaveBeenCalled());
     const request = vi.mocked(exportTable).mock.calls[0]![0];
-    expect(request.context).toEqual(expect.objectContaining({ division: "division-id", customer: "客户甲", rdStatus: "ABNORMAL", onlyIncomplete: "true", orderDateFrom: "2026-09-01", orderDateTo: "2026-09-30" }));
+    expect(request.context).toEqual(expect.objectContaining({ onlyIncomplete: "true", orderDateFrom: "2026-09-01", orderDateTo: "2026-09-30" }));
+    expect(JSON.stringify(request.filterGroup)).toContain('"field":"divisionId","operator":"in","values":["division-id"]');
     expect(request.context).not.toHaveProperty("period"); expect(request).not.toHaveProperty("pageSize");
     fireEvent.click(screen.getByRole("tab", { name: "图表看板" })); fireEvent.click(screen.getByRole("tab", { name: "明细报表" }));
     expect(screen.getByTitle("2")).toHaveClass("ant-pagination-item-active");
+  });
+});
+
+
+describe("Phase 5.3 多选与完整高级筛选", () => {
+  it("多值URL恢复生成IN/AND，重复品名按名称归组，隐藏字段不能进入请求", () => {
+    localStorage.setItem("sessionUser", JSON.stringify({permissions:["*"],isSystemAdmin:true}));
+    const filters = parseFilters(new URLSearchParams(serializeFilters({orderNo:["A","B"],itemCode:["X","Y"],itemName:["同名","同名"],rdStatus:["NOT_STARTED","WAITING_ROUTING"]})));
+    const group = reportFilterGroup(filters);
+    expect(group.logic).toBe("AND"); expect(group.rules).toHaveLength(4);
+    expect(group.rules[0]).toEqual({field:"orderNo",operator:"in",values:["A","B"]});
+    expect(group.rules[2]?.values).toEqual(["同名"]);
+    const params = new URLSearchParams(reportUrl("summary",filters).split("?")[1]);
+    expect(JSON.parse(params.get("filterGroup")!)).toEqual(group); expect(params.has("pageSize")).toBe(false);
+    expect(mergeFilterGroups(group,group).rules).toHaveLength(4);
+    const or = {logic:"OR" as const,rules:[{field:"itemSpec",operator:"contains" as const,value:"S"}]};
+    expect(mergeFilterGroups(group,or).groups).toEqual([or]);
+    localStorage.setItem("sessionUser", JSON.stringify({permissions:["pmc-rd-progress:*:read","pmc-rd-progress:orderNo:read"]}));
+    expect(parseFilters(new URLSearchParams(serializeFilters(filters)))).toEqual({orderNo:["A","B"]});
+    expect(parseFilters(new URLSearchParams('orderNo=[invalid'))).toEqual({});
+  });
+  it.each([["订单号","orderNo"],["品号","itemCode"],["品名","itemName"]])("%s远程限量多选，跨搜索保留已选值并影响汇总、明细、导出", async (label, field) => {
+    const {container} = mount("/pmc/reports/rd-progress?period=year&periodValue=2026",undefined,true);
+    const input = screen.getByRole("combobox", {name:label});
+    fireEvent.mouseDown(input); fireEvent.change(input,{target:{value:`${field}-1`}});
+    const option = await screen.findByText(`${field}-1`,{selector:'.ant-select-item-option-content'}); fireEvent.click(option);
+    fireEvent.change(input,{target:{value:`${field}-2`}});
+    fireEvent.click(await screen.findByText(`${field}-2`,{selector:'.ant-select-item-option-content'}));
+    const candidateCalls = vi.mocked(api).mock.calls.filter(([path]) => path.includes(`field=${field}`));
+    expect(candidateCalls.every(([path]) => path.includes("limit=50") && path.includes("resource=pmc-rd-progress"))).toBe(true);
+    expect(input.closest('.ant-select')).toHaveTextContent(`${field}-1`); expect(input.closest('.ant-select')).toHaveTextContent(`${field}-2`);
+    fireEvent.click(screen.getByRole("button",{name:"查 询"}));
+    await waitFor(() => expect(decodeURIComponent(calls("summary").at(-1)!)).toContain(`"values":["${field}-1","${field}-2"]`));
+    fireEvent.click(screen.getByRole("tab",{name:"明细报表"})); await screen.findByText("品项甲");
+    expect(container.querySelector('.pmc-rd-filters')).toBeNull();
+    fireEvent.click(await screen.findByRole("button",{name:/高级筛选/}));
+    const panel = await screen.findByTestId("advanced-filter-panel");
+    expect(within(panel).getByText(`${field}-1`)).toBeInTheDocument(); expect(within(panel).getByText(`${field}-2`)).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button",{name:"应 用"}));
+    await waitFor(() => expect(screen.queryByTestId("advanced-filter-panel")).not.toBeInTheDocument());
+    expect(screen.getByRole("button",{name:/高级筛选/})).toHaveTextContent('(2)');
+    await waitFor(() => expect(decodeURIComponent(calls("items").at(-1)!)).toContain(`"values":["${field}-1","${field}-2"]`));
+    fireEvent.click(await screen.findByRole("button",{name:/导出/})); await waitFor(() => expect(exportTable).toHaveBeenCalled());
+    expect(JSON.stringify(vi.mocked(exportTable).mock.calls[0]![0].filterGroup)).toContain(`"values":["${field}-1","${field}-2"]`);
+    expect(vi.mocked(exportTable).mock.calls[0]![0]).not.toHaveProperty("pageSize");
+    fireEvent.click(screen.getByRole("button",{name:/高级筛选/}));
+    fireEvent.click(within(await screen.findByTestId("advanced-filter-panel")).getByRole("button",{name:"重 置"}));
+    await waitFor(() => expect(calls("items").at(-1)).not.toContain("filterGroup"));
+    expect(calls("items").at(-1)).toContain(`orderDateFrom=${defaultPeriod().value}`);
   });
 });

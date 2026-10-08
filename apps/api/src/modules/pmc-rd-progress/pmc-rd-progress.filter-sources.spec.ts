@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
 import { TableFilterRegistry } from '../../common/filtering/table-filter.registry';
 import { TablePrintService } from '../../common/printing/table-print.service';
+import { FieldCandidateService } from '../../common/filtering/field-candidate.service';
+import { TableFilterController } from '../../common/filtering/table-filter.controller';
 import { PmcRdProgressFilterSources } from './pmc-rd-progress.filter-sources';
 const actor={tenantId:'A',userId:'0199e000-0000-7000-8000-000000000001',permissions:['pmc-rd-progress:*:read','pmc-rd-progress:*:export','pmc-rd-progress:orderNo:read'],tableDataScopes:[{resource:'pmc-rd-progress',scope:'ALL',actions:['read','export']}]};
 describe('PMC平台筛选导出授权',()=>{
@@ -47,6 +49,30 @@ describe('PMC平台筛选导出授权',()=>{
     expect(query.mock.calls.some(([sql])=>sql.includes('record.id=ANY('))).toBe(true);
   });
 
+  it.each(['orderNo','itemCode','itemName','customerName'])('PMC %s候选只读active授权集，模糊搜索最多50并设置tenant/RLS',async(field)=>{
+    const registry=new TableFilterRegistry(),query=jest.fn(async(sql:string)=>sql.includes('SELECT DISTINCT')?Array.from({length:51},(_,index)=>({value:`value-${index}`})):[]);
+    const dataSource={transaction:jest.fn(async(first:any,second:any)=>(second??first)({query}))};new PmcRdProgressFilterSources(registry,dataSource as never).onModuleInit();
+    const controller=new TableFilterController(new FieldCandidateService({} as never),registry,{} as never,{} as never);
+    const request={user:{sub:actor.userId,permissions:['pmc-rd-progress:*:read',`pmc-rd-progress:${field}:read`],tableDataScopes:[{resource:'pmc-rd-progress',scope:'OWN'}]}} as never;
+    const result=await controller.candidateOptions({resource:'pmc-rd-progress',field,search:'part',limit:'50',withMeta:'1'},request);
+    expect(result).toMatchObject({hasMore:true});expect((result as any).options).toHaveLength(50);
+    const [sql,params]=query.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT'))! as unknown as [string,unknown[]];
+    expect(sql).toContain('pmc_rd_progress_items record');expect(sql).toContain('record.tenant_id=$1');expect(sql).toContain('record.is_active');expect(sql).toContain('created_by');expect(sql).toContain('ILIKE');
+    expect(params).toEqual(expect.arrayContaining([actor.userId,'%part%',51]));expect(query.mock.calls[0]?.[0]).toContain("set_config('app.tenant_id'");
+    await expect(controller.candidateOptions({resource:'pmc-rd-progress',field:'itemSpec'},request)).rejects.toThrow();
+    await expect(controller.candidateOptions({resource:'pmc-rd-progress',field},{user:{permissions:[]}} as never)).rejects.toThrow('查看权限');
+  });
+  it('全量401行导出继承订单/品号/品名及双状态IN，read/export范围AND且页100不截断',async()=>{
+    const registry=new TableFilterRegistry(),query=jest.fn(async(sql:string,params:unknown[]=[])=>{
+      if(sql.startsWith('SELECT set_config'))return [];if(sql.includes('count(*)'))return [{total:401}];
+      const size=Number(params.at(-2)),offset=Number(params.at(-1));return Array.from({length:Math.min(size,401-offset)},(_,i)=>({orderNo:(i+offset)%2?'B':'A',itemCode:(i+offset)%2?'Y':'X',itemName:'同名',rdStatus:'WAITING_ROUTING'}));
+    }),dataSource={transaction:jest.fn(async(first:any,second:any)=>(second??first)({query}))};new PmcRdProgressFilterSources(registry,dataSource as never).onModuleInit();
+    const rules=[{field:'orderNo',operator:'in',values:['A','B']},{field:'itemCode',operator:'in',values:['X','Y']},{field:'itemName',operator:'in',values:['同名','名称乙']},{field:'rdStatus',operator:'in',values:['NOT_STARTED','WAITING_ROUTING']}];
+    const exportActor={...actor,permissions:[...actor.permissions,...['itemCode','itemName','rdStatus'].map(key=>`pmc-rd-progress:${key}:read`)],tableDataScopes:[{resource:'pmc-rd-progress',scope:'CUSTOM',actions:['read'],rules:[{fieldKey:'orderNo',operator:'STARTS_WITH',value:'READ'}]},{resource:'pmc-rd-progress',scope:'CUSTOM',actions:['export'],rules:[{fieldKey:'orderNo',operator:'STARTS_WITH',value:'EXPORT'}]}]};
+    const buffer=await new TablePrintService(registry,dataSource as never).exportXlsx('pmc-rd-progress',{filterGroup:{logic:'AND',rules},context:{page:2,pageSize:100},columnKeys:['orderNo','itemCode','itemName','rdStatus']},exportActor);
+    const book=new ExcelJS.Workbook();await book.xlsx.load(buffer as any);expect(book.worksheets[0]!.rowCount-1).toBe(401);
+    const [,params]=query.mock.calls.find(([sql])=>sql.includes('count(*)'))!;for(const rule of rules)expect(params).toContainEqual(rule.values);expect(params).toEqual(expect.arrayContaining(['A','READ%','EXPORT%']));
+  });
   it('源墙钟时间导出不因服务器TZ而偏移，客户名称空值只在授权编码时回退',async()=>{
     const registry=new TableFilterRegistry(),query=jest.fn(async(sql:string)=>sql.includes('count(*)')?[{total:1}]:sql.startsWith('SELECT set_config')?[]:[{id:'1',orderNo:'SO-1',rdLastModifiedAt:'2026-10-06 23:59:59.123456',customerName:null,customerCode:'C01'}]);
     const dataSource={transaction:jest.fn(async(first:any,second:any)=>(second??first)({query}))};new PmcRdProgressFilterSources(registry,dataSource as never).onModuleInit();

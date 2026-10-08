@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- shared filter helpers are intentionally co-located with the component */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, Button, DatePicker, InputNumber, Input, Popover, Select, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -175,8 +175,11 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
  * 操作符完全来自正式 registry（tableFilterOperatorsFor），值控件按字段类型/格式选择，
  * 切换字段或操作符时清除不兼容的操作数。
  */
-export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledFields = [], headerFilterCount = 0, onClearHeaderFilters }: {
+/** Business conditions hosted inside the same draft/apply/reset lifecycle as standard rules. */
+export type AdvancedFilterSection = { content: ReactNode; activeCount: number; onOpen: () => void; onApply: () => void; onReset: () => void };
+export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledFields = [], headerFilterCount = 0, onClearHeaderFilters, section }: {
   resource: string;
+  section?: AdvancedFilterSection;
   fields: TablePermissionFieldDefinition[];
   value: AdvancedFilterGroup;
   onApply: (group: AdvancedFilterGroup) => void;
@@ -191,7 +194,7 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
     () => fields.filter((field) => field.filterable !== false && field.type !== "structured" && !disabledFields.includes(field.key) && visibleOperators(field).length > 0),
     [fields, disabledFields]
   );
-  const appliedCount = filterGroupRuleCount(value);
+  const appliedCount = filterGroupRuleCount(value) + (section?.activeCount ?? 0) + (section ? headerFilterCount : 0);
   const update = (index: number, patch: Partial<AdvancedFilterRule>) =>
     setDraft((current) => ({ ...current, rules: current.rules.map((rule, itemIndex) => itemIndex === index ? { ...rule, ...patch } : rule) }));
   const changeField = (index: number, fieldKey: string) => {
@@ -202,14 +205,15 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
     update(index, { field: fieldKey, operator: operator as TableFilterOperator, value: undefined, values: [], min: undefined, max: undefined, dynamic: undefined });
   };
   const changeOperator = (index: number, operator: TableFilterOperator) => update(index, { operator, value: undefined, values: [], min: undefined, max: undefined, dynamic: undefined });
-  const apply = () => { onApply({ logic: draft.logic, rules: draft.rules.filter((rule) => rule.field && rule.operator) }); setOpen(false); };
-  const clear = () => { const empty = emptyFilterGroup(); setDraft(empty); onApply(empty); setOpen(false); };
+  const apply = () => { section?.onApply(); onApply({ logic: draft.logic, rules: draft.rules.filter((rule) => rule.field && rule.operator) }); setOpen(false); };
+  const clear = () => { section?.onReset(); if (section) onClearHeaderFilters?.(); const empty = emptyFilterGroup(); setDraft(empty); onApply(empty); setOpen(false); };
 
   const panel = <div className="kdos-advanced-filter" style={{ width: 620 }} data-testid="advanced-filter-panel">
     {headerFilterCount > 0 && <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 8 }}>
       <Typography.Text>列头筛选：{headerFilterCount}列</Typography.Text>
       <Button type="link" onClick={onClearHeaderFilters}>清除所有列头筛选</Button>
     </Space>}
+    {section?.content}
     <Space size={8} wrap>
       <Typography.Text>筛选出符合以下</Typography.Text>
       <Select size="small" value={draft.logic} style={{ width: 92 }}
@@ -239,14 +243,14 @@ export function KdosAdvancedFilter({ resource, fields, value, onApply, disabledF
       </Button>
     </Space>
     <Space style={{ width: "100%", justifyContent: "flex-end", marginTop: 12 }}>
-      <Button onClick={clear}>清空</Button>
-      <Button type="primary" onClick={apply}>筛选</Button>
+      <Button onClick={clear}>{section ? "重置" : "清空"}</Button>
+      <Button type="primary" onClick={apply}>{section ? "应用" : "筛选"}</Button>
     </Space>
   </div>;
 
-  return <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(value); }} trigger="click" placement="bottomLeft" content={panel}>
+  return <Popover destroyOnHidden={Boolean(section)} open={open} onOpenChange={(next) => { setOpen(next); if (next) { setDraft(value); section?.onOpen(); } }} trigger="click" placement="bottomLeft" content={panel}>
     <Badge count={appliedCount} size="small">
-      <Button icon={<FilterOutlined />}>{appliedCount ? <Tag color="blue" style={{ marginInlineStart: 4 }}>{appliedCount} 条条件</Tag> : "高级筛选"}</Button>
+      <Button icon={<FilterOutlined />}>{section ? `高级筛选${appliedCount ? ` (${appliedCount})` : ""}` : appliedCount ? <Tag color="blue" style={{ marginInlineStart: 4 }}>{appliedCount} 条条件</Tag> : "高级筛选"}</Button>
     </Badge>
   </Popover>;
 }
