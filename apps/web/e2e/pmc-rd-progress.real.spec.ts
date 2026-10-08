@@ -59,7 +59,10 @@ async function chooseValues(page: Page, label: string, values: string[], searchV
 }
 async function clearValues(page: Page, label: string) {
   const select = page.locator(".ant-select").filter({has:page.getByRole("combobox",{name:label,exact:true})});
-  await select.locator('.ant-select-clear').click({force:true});
+  await select.hover();
+  await expect(select.locator('.ant-select-clear')).toBeVisible();
+  await select.locator('.ant-select-clear').click();
+  await expect(select.locator('.ant-select-selection-item')).toHaveCount(0);
 }
 async function selectedValues(page: Page, key: string): Promise<string[]> {
   const raw = new URL(page.url()).searchParams.get(key); return raw?.startsWith('[') ? JSON.parse(raw) : raw ? [raw] : [];
