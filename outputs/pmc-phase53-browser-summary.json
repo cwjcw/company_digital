@@ -1,0 +1,30 @@
+{
+  "loginPermission": "PASS",
+  "summary": {
+    "orderCount": 3,
+    "itemCount": 5,
+    "applicableItemCount": 5,
+    "notApplicableItemCount": 0,
+    "completeItemCount": 1,
+    "incompleteItemCount": 4,
+    "abnormalItemCount": 0,
+    "overallCompletionRate": "20.00",
+    "statusCounts": {
+      "NOT_APPLICABLE": 0,
+      "NOT_STARTED": 4,
+      "DESIGN_IN_PROGRESS": 0,
+      "WAITING_ROUTING": 0,
+      "ROUTING_IN_PROGRESS": 0,
+      "COMPLETE": 1,
+      "ABNORMAL": 0
+    },
+    "designBomCompleteCount": 1,
+    "designApplicableCount": 5,
+    "designBomCompletionRate": "20.00",
+    "routingCompleteCount": 1,
+    "routingApplicableCount": 5,
+    "routingCompletionRate": "20.00"
+  },
+  "detailTotal": 5,
+  "pageSize": 100
+}

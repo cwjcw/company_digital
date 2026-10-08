@@ -1,0 +1,13 @@
+{
+  "filters": {
+    "division": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+    "rdStatus": "NOT_STARTED",
+    "onlyIncomplete": "true",
+    "orderDateFrom": "2026-01-01",
+    "orderDateTo": "2026-12-31"
+  },
+  "pageRows": 3,
+  "total": 3,
+  "exportedRows": 3,
+  "filename": "pmc-rd-progress.xlsx"
+}

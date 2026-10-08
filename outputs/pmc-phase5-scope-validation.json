@@ -1,0 +1,23 @@
+{
+  "scopedItems": 147,
+  "scopedSummary": 147,
+  "scopedExport": 147,
+  "readScopeAndExportScope": true,
+  "disjointExportScopeEmpty": true,
+  "crossTenantEmpty": true,
+  "hiddenFieldsClipped": true,
+  "summaryStatusClipped": true,
+  "noExportPermissionDenied": true,
+  "hiddenFilterDenied": true,
+  "divisionPopulation": [
+    {
+      "label": "事业四部",
+      "count": 38
+    },
+    {
+      "label": "未映射",
+      "count": 17609
+    }
+  ],
+  "divisionFilterApplied": true
+}

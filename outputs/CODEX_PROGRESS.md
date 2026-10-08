@@ -1,5 +1,28 @@
 # Codex 工作进度
 
+## 当前阶段入口：Phase 5.3 - 图表筛选补充与明细筛选精简
+
+任务名称：PMC研发进度Phase 5.3。
+任务目标：三项远程多选、明细仅高级筛选、共享全量导出与Skill标准。
+当前状态：已完成 / Phase 5.3 PASS。
+最后更新时间：2026-10-08 09:11:13（Asia/Shanghai）。
+当前阶段：已完成；当前子任务：无。
+已完成：三项远程多选及其他维度多选、明细移除常驻Card与快速搜索、现有高级面板完整条件/草稿/重置/计数、两Tab共享、OR/AND、完整平台导出、Skill/文档、全部验证、备份正式部署及生产18项/健康。
+正在进行：无。
+待完成：无。
+修改文件：12个源码/测试/Skill/文档文件及outputs进度、报告和4个验收JSON；详见最终报告18文件清单。
+数据库Migration：无。新增npm依赖：无。新增API：无；复用现有候选/FilterGroup/导出契约。
+新增或修改测试：页面27、API专项79；远程候选限量/权限、多值OR/AND、高级面板/Tab/导出与既有真实账号E2E扩展。
+已运行测试：Web全量31文件/233项、API全量87 suites/744项（1既有skip）、其他workspace、typecheck/lint/build、Skill validator及diff检查通过；Chrome预验收18/18、清空专项重复8/8、最终生产18/18（1.9分钟）通过。
+部署：标准backup20261008_085215双库/uploads已校验；deploy all最终77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5，API/Web/HEAD一致；healthcheck/check全部通过，Postgres未重建、原volume和内部postgres:5432保留。
+当前已知问题：无未解决异常；候选/单维最多50、同名品名按名称聚合、历史未映射事业部保留、外部HTTPS本机受限而以生产LAN验收，见报告。
+等待用户确认：无。
+下一步：无开发遗留；可按报告人工步骤验收生产页面。
+最终报告：outputs/PMC研发进度Phase5.3验收报告.md。
+恢复执行说明：项目规范→本进度→git status/diff；本阶段已完成，保留全部历史，不重做或覆盖已有输出。
+
+---
+
 ## 当前任务：KN-EQUIP-IMPORT-DATE-WINDOW-010
 
 任务名称：设备状态管理导入日期限制由7天调整为10天
@@ -4501,3 +4524,237 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 异常：无。15432继续由Smart Stock使用；本任务不改变其监听。
 
 下一步：无。
+
+## Phase 5 - PMC研发进度正式页面
+
+任务目标：PMC → 报表 → 研发进度，复用Phase4 items/summary/orders/sync-status/标准导出及平台权限，开发只读正式页面并测试、部署、真实样本验收。
+当前状态：已完成。
+当前阶段：开发、测试、备份、正式部署、生产页面与下载文件验收全部通过。
+最后更新时间：2026-10-07 18:55（Asia/Shanghai）。
+已完成：
+- [x] 完整读取2074行Phase5需求、Phase4验收报告及Phase4最终进度。
+- [x] 实际HEAD 8ca9330；已有localhost15433 Compose改动与历史outputs保留，不回退至5d2faa1。
+- [x] 确認Phase4 API默认100分页、可选50/100/200/500/1000；按现有标准实现（需求50和20为建议）。
+- [x] 状态/完成率/未完成原因全部来自服务端，不按BOM/路线字段或百分比推导。
+- [x] 已请求现有生产PMC测试账号的安全凭据位置；不中止独立开发，不伪造生产JWT或改权限。
+实现决定：新增/pmc/reports/rd-progress路由和PMC“报表”树组，KdosDataTable/KdosChart/React Query/URL参数。核心API参数通过导出context传递；Phase4当前通用导出没有消费这组参数，需要证明问题并最小衔接同一QueryService，不改Calculator/同步。
+正在进行：前端状态meta、筛选、KPI、图表、明细、订单Drawer与标准导出同源衔接。
+待完成：自动化测试、真实当前数据/指定样本、lint/typecheck/build、标准备份/必要API+Web部署/健康、Phase5验收报告。
+数据库Migration：无计划。
+新增npm依赖：无计划。
+修改文件：待实现；不覆盖既有Compose localhost改动。
+下一步：完成页面与必要导出契约适配→专项测试→全量回归/构建→正式部署/样本验收。
+
+### Phase 5 首组开发与验证
+- [x] 正式页面/PMC报表菜单/直接路由read保护、六KPI与三项环节指标、七状态图表、核心/URL/标准高级筛选、标准分页/列偏好、订单Drawer/品项Modal已实现。
+- [x] 状态标签集中复用contract字典；原始V不翻译，原因/比例/订单状态直接使用API。E10墙钟源时间不经UTC转换。
+- [x] 先新增测试复现标准导出忽略context问题，再增加资源printRows薄适配器复用QueryService.list；read与export范围强制取交集，无算法或同步改动。
+- [x] API PMC5 suites/72 tests通过，含401行跨3批完整Excel、业务筛选/高级筛选/排序、tenant与字段权限、选中打印范围。Web15项专项通过，覆盖分页回第一页、URL、API错误与Drawer。
+- [x] 现有账号E2E登录/只读权限验证通过；真实summary为2545订单/17647品项、65.92%、6异常，四样本API状态符合要求。敏感信息仅运行时读取，未记录账号/token/密码。
+- [ ] 尚待最后全量回归、build、备份部署、Chrome正式页面业务/导出验收。
+已知环境限制：凭据指定外部HTTPS地址本机TLS连接失败；本机同一生产15172端口健康，使用它进行本次E2E，不修改凭据文件或系统入口配置。
+数据库Migration：无。新增依赖：无。HEAD现为用户提交6c1f025，已含之前Compose localhost15433，本任务不重复修改Compose。
+下一步：全量自动化→构建/提交→标准备份→必要API+Web部署→现有账号实际Chrome验收与报告。
+
+### Phase 5 全量验证与部署准备
+- [x] 最终API全量87 suites/738 tests通过，1既有跳过；其他非Web workspace测试通过。PMC专项73项通过。
+- [x] Web全量31文件/221项通过，含15个新增报表交互用例；lint/typecheck/build全workspace通过，0 lint error/1既有Portal告警。
+- [x] 修复报表标准导出源时间附加上海时区，客户名称空值在授权时回退编码，新增真实workbook跨日回归。
+- [x] 标准备份20261007_182625：legacy/kdos/uploads均成功，脚本pg_restore --list通过，hash见最终验收报告。
+- [ ] Chrome预验收中：已验证真实登录/PMC菜单/汇总/默认分页；正在验证四样本和详情。
+- [ ] 提交并scripts/deploy.sh all（后端只部署context/export/time薄适配，Calculator/E10同步不改），随后生产Chrome全套与健康。
+最终源码范围：PMC报表新目录、App导航、KdosDataTable external resetKey、PMC Query/export适配与测试、专属E2E运行器、docs/pmc-rd-progress.md。无新增migration/依赖，未修改账号权限/密码。
+下一步：完成浏览器检查→源码提交→部署API/Web→现有账号生产全套E2E/健康→验收报告。
+
+### Phase 5 正式上线与端到端验证
+- [x] scripts/deploy.sh all已部署API/Web f8d0b0e；标准healthcheck通过，Postgres/API/Web均healthy，localhost15433仍保持原映射。
+- [x] 正式Chrome页面/四样本/Drawer/筛选/URL/桌面尺寸/sticky/未认证401等8项通过；专项实际下载文件验收也已通过（导出5730行，页面100行）。
+- [x] 真实Chrome事业四部筛选与Excel均为38行；生产只读QueryService验证147行read范围，summary与全部export一致，export/read不相交为0；跨tenant为0、字段/状态汇总裁剪、隐藏筛选和无export权限拒绝通过。该项为服务层受限actor测试，不伪造HTTP JWT或调整生产账户。
+- [x] 异常6条按API原因展示；P+1/M+0不改写为系统错误。未映射17609条，遵循Phase4数据，未猜测事业部。
+- [x] 修正E2E与公共按钮图标/中文间距匹配，以及Chrome网络响应body为空时读取实际下载文件；产品导出本身正常。E2E只记录PASS/FAIL与业务计数，不含身份/凭据。
+- [ ] E2E验收修正独立提交后，按SHA一致规则重新部署同一产品代码；随后最终9项Chrome与健康检查、写最终报告/将本任务改已完成。
+下一步：最终SHA一致与9项Chrome→验收报告outputs/PMC研发进度Phase5验收报告.md→更新本进度已完成。
+
+### Phase 5 最终交付（2026-10-07 18:55）
+状态：已完成 / Phase 5 PASS。
+- [x] 源码f8d0b0e与E2E补强ce0d659均已提交；最后scripts/deploy.sh all成功，API/Web/HEAD ce0d659（完整SHA见验收报告）。无push。
+- [x] 最终生产Chrome 9/9通过（1.1分钟）：真实登录/菜单/7状态总数/默认分页、四样本/订单Drawer、onlyIncomplete/实际文件5730行/异常6条/URL、组合筛选、1920/1366/sticky/分页、匿名401和实际账号字段裁剪。
+- [x] Chrome事业部实际筛选与导出38行；真实受限actor服务层147行、read/export交集/跨tenant/隐藏字段/汇总/拒绝过滤和export验证通过，不伪造生产JWT。
+- [x] API87 suites/738 tests + PMC73、Web31文件/221 tests + 最终专项15、其余workspace全部通过；lint/typecheck/build、git diff --check通过。仅既有API1跳过/Portal1lint warning/Vite大bundle/宿主Nodeengine提示。
+- [x] 标准备份20261007_182625的双库/uploads已验证pg_restore --list与SHA256；無migration/seed、无新增依赖，无业务算法/ERP同步/角色权限/密码/Compose/.env修改。
+- [x] 最终scripts/healthcheck.sh与scripts/deploy.sh check通过；PostgreSQL/API/Web均healthy，SHA一致；保留postgres:5432内部连接与原localhost15433。
+- [x] 临时开发5173服务已停止、临时Vite代理文件删除；未修改正式网络配置或其它项目。
+最终报告：outputs/PMC研发进度Phase5验收报告.md。
+最终修改：16个源码/测试/文档文件（报告完整清单）+本进度/报告/5份不含凭据的验收JSON。源码无未提交修改，仅outputs记录。
+数据库Migration：无。新增npm依赖：无。新增API：无（只复用既有接口，补齐标准导出context）。
+已知限制：映射现有事业四部38条/未映射17609条，未补猜；外部HTTPS入口本机TLS/直连失败，本次用同一已部署系统localhost15172与LAN入口；标准Excel格式沿用平台。详见报告。
+等待用户确认：无。下一步：无；用户可按报告人工步骤直接验收使用。其它历史任务待验事项仍保留，不误改为完成。
+
+## Phase 5.1 - 研发进度页面与报表Skill标准优化
+
+任务目标：仅拆分当前研发进度图表看板/明细报表、下拉与四周期筛选、合并现有Skill标准，并测试部署。
+当前状态：已完成 / Phase 5.1 PASS。最后更新时间：2026-10-07 21:30（Asia/Shanghai）。
+当前阶段：开发、测试、备份、部署、LAN生产Chrome与健康检查全部完成；历史阶段记录保留，最终恢复入口见末尾。
+已完成：
+- [x] 读取当前AGENTS、实际生效kdos-form-platform/skill-creator、Phase5进度和报告、当前页面/标准筛选/导出/Chrome配置。
+- [x] 确认既有后端日期口径为orderDate包含式from/to；候选客户名称和divisionId来自平台接口；不修改后端算法/同步/权限。
+实现决定：前端周期归一化为既有API参数，URL保留周期/值/Tab；共享已应用条件和标准表格筛选；默认及重置使用上海昨天。明细延迟显示、保持已访问表格状态；复用平台Excel，不新增依赖。
+正在进行：页面与周期/候选下拉实现，合并已有Skill而非追加重复导出规范。
+待完成：专项/回归测试、Chrome六场景及实际XLSX、typecheck/lint/build、备份/部署/健康、Phase5.1报告。
+修改文件：待实现。数据库Migration：无。新增npm依赖：无。
+新增或修改测试：将补周期/时区/Tab/下拉/导出用例并更新既有真实账号E2E。
+已运行测试：尚未运行本阶段测试。
+当前已知问题：既有外部HTTPS本机无法访问，继续同一生产localhost15172验收；未映射事业部保持原数据。
+等待用户确认：无。
+下一步：完成最小前端和Skill→专项回归→构建备份→正式部署与Chrome下载验收→报告。
+恢复执行说明：读取适用AGENTS/Skill、本阶段进度，git status及diff后继续第一项未完成工作。
+
+### Phase 5.1 首组实现与验证
+- [x] 当前页面两个Tab已实现，默认图表无大明细；已访问明细表状态保留，订单Drawer/品项详情仍在明细。
+- [x] 客户/事业部由权限受控候选API动态搜索；状态复用contract中文；未完成改为全部/只看未完成下拉。
+- [x] 四周期只转换包含式orderDateFrom/To，URL恢复模式/值；默认/重置上海昨天，UTC日界与闰月通过专项测试。
+- [x] Skill合并维度下拉/周期/联动中文规则，并扩充原导出条款；没有全局强制两个Tab。quick_validate通过。
+- [x] Web专项23项、PMC后端5 suites/73项通过；全workspace typecheck/lint通过（既有Portal warning1项）。
+- [ ] 全量Web回归及15项Chrome预验收正在运行；构建和标准备份开始。
+修改文件：PmcRdProgressPage.tsx/spec、ReportFilterControls.tsx（新增）、rd-progress.period.ts（新增）、rd-progress.css、既有PMC E2E、docs/pmc-rd-progress.md、.agents/skills/kdos-form-platform/SKILL.md和outputs记录。
+数据库Migration/新增依赖/新增API：均无。未修改Calculator/ERP同步/候选订单/账号密码或权限/Compose/env。
+下一步：完成全量回归与真实Chrome→按标准提交备份部署→生产15项与健康→报告。
+
+### Phase 5.1 全量验证与浏览器问题修正
+- [x] Web全量31文件/229项通过；API全量87 suites/738项通过，1项既有跳过；其他workspace通过。
+- [x] TZ=UTC实际运行上海边界测试通过；全workspace typecheck/lint/build通过。
+- [x] 标准备份20261007_205113双库与uploads成功，pg_restore --list与SHA256核验，hash将记录最终报告。
+- [x] 真实Chrome下载全年只看未完成：页面100/总数5361/Excel5361，业务表头、文件名正确。
+- [x] 预验收发现快速KPI→Tab可能用旧handler恢复旧URL筛选；增加最新已应用URL引用保护，并在真实Chrome断言切换后rdStatus仍ABNORMAL。首个针对性浏览器复测通过。
+- [ ] 继续八项针对性Chrome（含四周期/默认重置/事业部组合/布局）；随后完整15项预验收。
+- [ ] 小修后专项测试、lint/build、提交部署和生产最终验收。
+异常处理：只修本页切换竞态与E2E的Ant下拉点击/等待，未修改公共组件、业务算法或API。
+下一步：完成浏览器复测→提交标准部署all（保持API/Web/HEAD SHA一致）→生产15项/健康→报告。
+
+### Phase 5.1 日期/组合导出最终预验收
+- [x] 默认/重置/按日/按月/按年/自定义实际操作通过；自定义输入遵循RangePicker开始日Tab→结束日Enter提交。
+- [x] URL归一化不再resetFields重挂控件；按新URL立即提交本地已应用快照，避免BrowserRouter transition期间马上导出使用旧context。浏览器断言context包含全部新状态通过。
+- [x] 事业部候选沿用真实“凯南 / 事业四部”组织路径，不另造label；客户动态搜索实际请求/选择通过。
+- [x] 实际组合导出：事业四部+2026全年+未开始+只看未完成，页面3/总数3/Excel3，逐行事业部、中文状态、下单日期核对通过。
+- [x] 所有针对性Chrome问题已闭环；现在运行完整15项Chrome预验收和最终专项/lint/build。
+下一步：全部通过后提交8个源码/测试/文档/Skill文件，标准deploy all，不更改数据库或运行同步；生产15项及健康检查后报告。
+
+### Phase 5.1 部署准备（2026-10-07 21:19）
+- [x] 完整真实账号Chrome预验收15/15通过（2.2分钟），客户搜索/全部周期/Tab/快速筛选导出/四样本/Drawer/两尺寸/sticky/匿名401均覆盖。
+- [x] 最终页面专项23/23通过；最终build、typecheck、lint、git diff --check及Skill quick_validate通过。全量回归记录Web229/API738/其他workspace全通过。
+- [x] 只提交本轮8个源码/测试/文档/Skill文件；outputs历史记录保留，不提交凭据/env/测试浏览器产物，无push。
+- [ ] 标准deploy all→生产15项Chrome与健康/SHA一致→Phase5.1验收报告/进度已完成。
+数据库Migration：无，未执行seed或同步。新增依赖/API：无。
+下一步：部署并完成生产验收。
+
+### Phase 5.1 正式部署与健康
+- [x] 提交ac84fe3完成（8个源码/测试/文档/Skill文件）；scripts/deploy.sh all成功，API/Web/Repository SHA一致。API业务代码缓存构建未变，仅更新版本标识；未重建Postgres。
+- [x] 标准healthcheck通过，Postgres/API/Web均healthy；LAN15172健康。API仍postgres:5432，Postgres保留localhost15433及原volume。
+- [x] 本任务临时Vite5173进程已停止、代理临时文件已删除；正式env/Compose未修改。
+- [ ] LAN正式入口192.168.1.249:15172正在运行15项Chrome生产验收；全部通过后将报告及本阶段状态改已完成。
+最终报告草稿：outputs/PMC研发进度Phase5.1验收报告.md（含8文件清单、备份hash、测试、Skill和人工步骤；当前明确为部署中，等待最终Chrome）。
+下一步：生产15项Chrome→最终健康/版本核对→报告/进度已完成。
+
+### Phase 5.1 生产Chrome定位修正
+- [x] ac84fe3生产Chrome14/15通过；第15项实际Excel已通过，只在客户选项点击时选中Ant虚拟列表隐藏ARIA节点。
+- [x] E2E定位改为实际.ant-select-item-option-content；LAN生产专项1/1（8.3秒）通过，产品代码没有改动。
+- [ ] 测试定位独立提交后按统一SHA规则再次部署相同产品代码；最终LAN15项与健康/SHA核验。
+下一步：最终版本部署与15项→报告/进度已完成。
+
+### Phase 5.1 最终交付（2026-10-07 21:30）
+状态：已完成 / Phase 5.1 PASS。
+- [x] 23项验收条件全部满足：本页两个Tab、维度下拉/动态客户事业部、四周期/上海昨天默认与重置/URL、标准明细分页搜索筛选导出、KPI联动、全部匹配记录及权限保留、Skill合并无全局两个Tab。
+- [x] 最终LAN生产Chrome15/15通过（1.4分钟）；真实登录/权限验证通过，不输出或保存凭据。默认10-06汇总67订单/323品项，数据及七状态与API一致。
+- [x] 最终生产实际XLSX：2026全年只看未完成，页面100/总数5361/Excel5361；事业四部+2026全年+未开始+只看未完成，页面3/总数3/Excel3，逐行业务值及日期通过。动态客户搜索通过。
+- [x] Web全量31文件/229项通过；最终专项23项通过；API全量87 suites/738项通过（1既有skip）、PMC专项73及其他workspace通过；TZ=UTC边界验证、typecheck/lint/build、Skill validator与diff检查通过。
+- [x] 标准备份20261007_205113双库与uploads已验证；两次标准deploy all成功，最终Repository/API/Web均7c320bcecd863126b8792275f34284654839d6d6，标准healthcheck/版本check通过，三服务healthy。
+- [x] 提交ac84fe3产品与7c320bc可见选项E2E定位；无push。产品代码最终只涉及8个源码/测试/文档/Skill文件；源码工作区干净，仅outputs验收记录。
+- [x] 临时Vite5173/代理文件已清理；没有修改Compose/env/数据库/账号权限或密码，未迁移/seed/运行同步，Postgres原volume及localhost15433保留，API仍内部postgres:5432。
+数据库Migration：无。新增npm依赖：无。新增API：无。
+最终修改文件：PmcRdProgressPage.tsx/spec、ReportFilterControls.tsx（新增）、rd-progress.period.ts（新增）、rd-progress.css、既有PMC E2E、docs/pmc-rd-progress.md、.agents/skills/kdos-form-platform/SKILL.md；加本进度/验收报告/3个phase51业务验收JSON。完整清单见报告。
+最终报告：outputs/PMC研发进度Phase5.1验收报告.md（含备份hash、23项完成说明、自动测试/生产Chrome、导出计数与人工步骤）。
+已知限制：保留既有未映射事业部数据、外部HTTPS本机连通问题、KdosChart无点击事件接口及既有构建/lint提示；LAN当前运行环境已验证，详见报告。
+等待用户确认：无。下一步：无，本阶段已交付；其他历史任务状态保持原记录。
+恢复执行说明：本阶段无需继续开发；后续任务先读取适用AGENTS/Skill、本进度最终记录及git状态，不重做已交付功能。
+
+
+## Phase 5.3 - 图表筛选补充与明细筛选精简
+任务名称：Phase 5.3 图表筛选补充与明细筛选精简
+任务目标：三项远程多选、共享条件、明细仅保留现有高级筛选、完整筛选导出及Skill两条规范。
+当前状态：进行中；最后更新时间：2026-10-08。
+当前阶段：实现；当前子任务：复用平台候选与FilterGroup，扩充现有高级筛选面板。
+已完成：读取需求/规范/现有进度/Git；确认源码Phase5.1，无Phase5.2；确认候选API及IN多值支持。
+正在进行：前端多选和公共面板最小扩展。
+待完成：专项与全量测试、真实Chrome、build、备份部署、健康及报告。
+修改文件：实现后列出。数据库Migration：无。新增npm依赖：无。新增API：无，沿用filterGroup。
+新增或修改测试：将覆盖候选、多值OR/AND、面板、共享和导出。
+已运行测试：本阶段尚未运行。当前已知问题：无新增阻塞。等待用户确认：无。
+下一步：实现→专项验证→回归和真实Chrome→构建备份部署→生产验收报告。
+恢复执行说明：读取AGENTS/适用Skill/本进度、git status及diff后继续下一步首个未完成项。
+
+### Phase 5.3 首组验证（2026-10-08）
+- [x] 前端页面27项、公共高级筛选9项通过；API专项79项（新增6项）及全量744项通过，1项既有跳过。
+- [x] 多选直接复用FilterGroup，core和标准条件AND到API与平台导出；同名品名按稳定名称DISTINCT/IN。候选keyword+50、RLS/active/OWN与读字段权限测试通过。
+- [x] 全workspace typecheck/lint/build通过；保留Portal lint warning与Vite大chunk提示。Skill Creator validator通过。
+- [x] 标准备份20261008_085215完成，双库pg_restore --list及hash核验；无migration/seed/ERP同步。
+- [x] Chrome预验收16/18通过；两项样本错误是active全集的往年候选在2026日期范围内无匹配，已用同一候选API按2026取正样本。组合页面2条、修改后3条、Excel3条通过；新增原完整多选组合实际Excel核验。
+- [ ] Web最终单线程全量、四项Chrome复测；随后完整Chrome与正式部署。
+当前问题：最初Web完整回归命令多传分隔符导致没有限制worker，产生资源竞争/超时；已只停止自己的测试进程，正确单worker重跑，不修改无关测试。
+下一步：完成Chrome及全量回归→部署→生产验收和报告。
+
+### Phase 5.3 最终预验收与部署准备
+- [x] 最终真实账号Chrome预验收18/18通过（3.0分钟）；新增三项远程多选、KPI及图表canvas变化、OR/AND真实结果、Tab无常驻卡片、高级草稿取消/恢复/修改/重置、客户动态搜索通过。
+- [x] 实际XLSX：完整多选组合页面2/Excel2；清订单/品号保留事业部+双状态后页面3/Excel3；全年未完成分页100/总数5361/Excel5361。
+- [x] 最终typecheck/lint通过；正式build通过，backup20261008_085215保留且600权限。
+- [ ] Web全量最后若干文件→只提交本轮12源码/测试/Skill/文档文件（不push）→标准deploy all→LAN生产18项及健康/SHA一致→报告。
+等待用户确认：无。未修改账号、密码、权限或数据库业务数据。
+
+### Phase 5.3 全量验证通过（准备正式部署）
+- [x] Web全量31文件/233项全部通过（单worker，419.83秒）；公共表格18项、公共高级9项和其他模块回归通过。
+- [x] API全量87 suites/744项通过，1既有skip；其他workspace通过。
+- [x] 最终Chrome预验收18/18、typecheck/lint/build、Skill validator与git diff --check通过。
+- [ ] 只提交本轮12源码/测试/文档/Skill文件，标准scripts/deploy.sh all（不改Compose/Postgres/DB）→生产Chrome18项及健康/SHA一致。
+
+### Phase 5.3 部署执行
+- [x] 本轮12文件提交c235856ecf91f7b14b189d2641a49541ff300c7c；不push；outputs历史与报告保留未提交，未提交env/凭据/浏览器产物。
+- [ ] scripts/deploy.sh all正在构建更新API/Web，等待健康及一致版本。
+- [x] Postgres容器基线b679ba44dd75，启动时间2026-10-07T09:41:29.703189989Z，原挂载data/postgres→/var/lib/postgresql；部署不更新Postgres。
+下一步：部署返回成功→标准healthcheck及LAN生产18项→完整验收报告。
+
+### Phase 5.3 正式部署成功（生产验收进行中）
+- [x] scripts/deploy.sh all完成，API/Web/Repository均c235856，STATUS CONSISTENT；只重建API和Web。
+- [x] API、Web、Postgres均healthy；API仍内部15173/tcp，Postgres仍127.0.0.1:15433→5432，原挂载及容器保留。
+- [x] 本次临时Vite5173已停止、临时代理文件按apply_patch删除；正式配置未改。
+- [ ] scripts/healthcheck.sh与LAN真实账号Chrome18项正在运行；完成后将状态改为已完成并发布报告。
+下一步：生产18项与最终health/SHA核验→报告及进度已完成。
+
+### Phase 5.3 生产清空交互复核
+- [x] 生产首轮15/18通过；原组合2/2、修改组合3/3及全年未完成5361/5361实际Excel均通过，健康/版本一致。
+- [ ] 订单多选“移除单项→清空→查询”用例未清空到URL（保留一项），另两项因max-failures未执行；暂不PASS。
+- [ ] 将E2E清空由force点击改为hover显示清空图标、正常点击、断言UI标签0后再应用；重复两次四项复测，以区分测试命中与真实状态覆盖。
+下一步：定位清空问题→必要的最小修复/验证→最终统一SHA部署和完整生产18项。
+
+### Phase 5.3 清空测试修正闭环
+- [x] 产品代码不变；清空测试改为真实hover→可见图标普通点击→标签0断言，生产相关四项重复两轮8/8通过（56.7秒）。
+- [x] 先前force点击没有保证命中可见清空控件；未发现需要变更业务组件的问题。
+- [ ] 只提交E2E定位修正，按项目统一SHA规则再次deploy all；随后完整LAN生产18项及健康/SHA核验。
+下一步：最终版本部署→生产18项→报告PASS与进度已完成。
+
+### Phase 5.3 最终统一版本部署
+- [x] E2E清空修正提交77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5（不push）；产品实现保持c235856。
+- [x] 最终scripts/deploy.sh all成功；Web/API/Repository均77e7a8c，STATUS CONSISTENT；仍只更新API/Web。
+- [ ] 最终LAN正式Chrome18项正在运行；健康及check复核执行后完成报告。
+下一步：最终生产18项→健康/版本与Postgres保留确认→报告和进度已完成。
+
+### Phase 5.3 最终交付（2026-10-08 09:11:13 Asia/Shanghai）
+状态：已完成 / Phase 5.3 PASS。
+- [x] 用户26项条件全部满足；候选/IN/业务查询/权限/日期/导出均复用现有平台，不改Calculator/E10/同步/DB模型。
+- [x] 最终LAN生产Chrome18/18通过（1.9分钟）；实际组合导出2/2、修改后3/3、全年度未完成5361/5361（页面100）。
+- [x] Web全量233、API全量744（1既有skip）、其他workspace、typecheck/lint/build、Skill validator与diff检查通过。
+- [x] backup20261008_085215保留600权限；最终deploy all后Web/API/Repository完整SHA均77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5。
+- [x] 最终标准healthcheck与deploy check通过；API/Web/Postgres healthy，Postgres原容器b679ba44dd75、原挂载与localhost15433保留，API继续postgres:5432。
+- [x] E2E登录/权限验证通过；只读查询下载，不记录凭据，不修改账号/密码/权限，未push；临时5173与代理文件已清理。
+修改文件：最终报告列出12源码/测试/Skill/文档及6个outputs记录，共18文件；历史Phase5/5.1记录保留。Migration/新依赖/新API：无。
+已知问题：无未解决异常；平台50值/候选限制、同名名称语义与既有数据/外网边界见报告。
+等待用户确认/待完成：均无。最终报告：outputs/PMC研发进度Phase5.3验收报告.md。
+下一步：无开发遗留，用户可按报告人工验收。

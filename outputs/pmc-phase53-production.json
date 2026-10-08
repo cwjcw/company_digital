@@ -1,0 +1,22 @@
+{
+  "baseUrl": "http://192.168.1.249:15172",
+  "healthStatus": "ok",
+  "webCommit": "77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5",
+  "apiCommit": "77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5",
+  "repositoryCommit": "77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5",
+  "postgresHealthy": "healthy",
+  "postgresId": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+  "postgresStartedAt": "2026-10-07T09:41:29.703189989Z",
+  "postgresVolume": "data/postgres -> /var/lib/postgresql",
+  "internalApiHost": "postgres",
+  "internalApiPort": 5432,
+  "localhostPostgresPort": 15433,
+  "chromeE2E": "PASS",
+  "chromeTests": 18,
+  "chromeDuration": "1.9m",
+  "loginPermission": "PASS",
+  "verifiedAtShanghai": "2026-10-08 09:11:13",
+  "fullExportRows": 5361,
+  "combinationExportRows": 2,
+  "editedCombinationExportRows": 3
+}

@@ -1,0 +1,30 @@
+{
+  "loginPermission": "PASS",
+  "summary": {
+    "orderCount": 2545,
+    "itemCount": 17647,
+    "applicableItemCount": 16812,
+    "notApplicableItemCount": 835,
+    "completeItemCount": 11082,
+    "incompleteItemCount": 5730,
+    "abnormalItemCount": 6,
+    "overallCompletionRate": "65.92",
+    "statusCounts": {
+      "NOT_APPLICABLE": 835,
+      "NOT_STARTED": 2998,
+      "DESIGN_IN_PROGRESS": 0,
+      "WAITING_ROUTING": 2722,
+      "ROUTING_IN_PROGRESS": 4,
+      "COMPLETE": 11082,
+      "ABNORMAL": 6
+    },
+    "designBomCompleteCount": 13808,
+    "designApplicableCount": 16812,
+    "designBomCompletionRate": "82.13",
+    "routingCompleteCount": 11149,
+    "routingApplicableCount": 16811,
+    "routingCompletionRate": "66.32"
+  },
+  "detailTotal": 17647,
+  "pageSize": 100
+}

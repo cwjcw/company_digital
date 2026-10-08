@@ -1,0 +1,125 @@
+{
+  "login": "PASS",
+  "summary": {
+    "orderCount": 2545,
+    "itemCount": 17647,
+    "applicableItemCount": 16812,
+    "notApplicableItemCount": 835,
+    "completeItemCount": 11082,
+    "incompleteItemCount": 5730,
+    "abnormalItemCount": 6,
+    "overallCompletionRate": "65.92",
+    "statusCounts": {
+      "NOT_APPLICABLE": 835,
+      "NOT_STARTED": 2998,
+      "DESIGN_IN_PROGRESS": 0,
+      "WAITING_ROUTING": 2722,
+      "ROUTING_IN_PROGRESS": 4,
+      "COMPLETE": 11082,
+      "ABNORMAL": 6
+    },
+    "designBomCompleteCount": 13808,
+    "designApplicableCount": 16812,
+    "designBomCompletionRate": "82.13",
+    "routingCompleteCount": 11149,
+    "routingApplicableCount": 16811,
+    "routingCompletionRate": "66.32"
+  },
+  "sync": {
+    "latestSync": {
+      "id": "01a11403-e3d0-7bfd-9c5f-a64f73611a54",
+      "mode": "INCREMENTAL",
+      "status": "SUCCESS",
+      "startedAt": "2026-10-07T01:39:21.675Z",
+      "sourceSnapshotAt": "2026-10-07 09:39:21.889206",
+      "completedAt": "2026-10-07T01:39:47.121Z",
+      "rowsRead": 41,
+      "rowsCreated": 3,
+      "rowsUpdated": 18,
+      "rowsUnchanged": 20,
+      "rowsFailed": 0,
+      "rowsDeactivated": 0,
+      "sourceConsistency": "READ_COMMITTED_CAPTURE"
+    }
+  },
+  "samples": [
+    {
+      "orderNo": "2304-202610060005",
+      "itemCode": "601000110",
+      "rdStatus": "NOT_APPLICABLE",
+      "designBomStatus": "NOT_APPLICABLE",
+      "routingStatus": "NOT_APPLICABLE",
+      "reasonText": "采购件且未启用工艺路线，研发不适用",
+      "bomApproveStatus": null,
+      "routingApproveStatus": null
+    },
+    {
+      "orderNo": "2301-2026C1101-B061",
+      "itemCode": "ABL370CC0C375-1/1",
+      "rdStatus": "NOT_STARTED",
+      "designBomStatus": "NOT_STARTED",
+      "routingStatus": "NOT_STARTED",
+      "reasonText": "未建立设计 BOM",
+      "bomApproveStatus": null,
+      "routingApproveStatus": null
+    },
+    {
+      "orderNo": "2307-260930008",
+      "itemCode": "RXA500J-V5-1/1",
+      "rdStatus": "WAITING_ROUTING",
+      "designBomStatus": "COMPLETE",
+      "routingStatus": "NOT_STARTED",
+      "reasonText": "尚未建立有效工艺路线",
+      "bomApproveStatus": "Y",
+      "routingApproveStatus": null
+    },
+    {
+      "orderNo": "2307-260930008",
+      "itemCode": "RXA505F-HLLV5-1/1",
+      "rdStatus": "COMPLETE",
+      "designBomStatus": "COMPLETE",
+      "routingStatus": "COMPLETE",
+      "reasonText": "设计 BOM 和所需工艺路线均已完成",
+      "bomApproveStatus": "Y",
+      "routingApproveStatus": "Y"
+    }
+  ],
+  "abnormal": [
+    {
+      "orderNo": "2304-202607090004",
+      "itemCode": "304010515",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=M, ITEM_ROUTING_CONTROL=0"
+    },
+    {
+      "orderNo": "2304-202609010012",
+      "itemCode": "301010304",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1"
+    },
+    {
+      "orderNo": "2304-202609040006",
+      "itemCode": "303040033",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1"
+    },
+    {
+      "orderNo": "2304-202609160002",
+      "itemCode": "301060005",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1"
+    },
+    {
+      "orderNo": "2304-202610060002",
+      "itemCode": "303040055",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1"
+    },
+    {
+      "orderNo": "2304-202610060007",
+      "itemCode": "303040055",
+      "rdStatus": "ABNORMAL",
+      "reasonText": "物料属性与工艺路线控制组合尚未经过业务验证：ITEM_PROPERTY=P, ITEM_ROUTING_CONTROL=1"
+    }
+  ]
+}
