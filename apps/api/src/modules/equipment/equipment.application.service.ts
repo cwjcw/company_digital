@@ -121,6 +121,16 @@ export class EquipmentApplicationService {
     const assets = await this.dataSource.manager.find(EquipmentAsset, { where: { tenantId: actor.tenantId, active: true, monitored: true } });
     const scope = equipmentScope(actor, "equipment-status-report", "import");
     const accessibleAssets = scope.unrestricted ? assets : assets.filter((asset) => scope.divisionIds.includes(asset.divisionOrganizationUnitId));
+    const divisions = scope.unrestricted || scope.divisionIds.length
+      ? await this.dataSource.manager.find(OrganizationUnit, {
+        where: { enabled: true, ...(scope.unrestricted ? {} : { id: In(scope.divisionIds) }) }
+      }) : [];
+    // Keep existing equipment snapshots as valid names; organization names also
+    // distinguish an existing division with no reportable equipment from a typo.
+    const divisionNames = new Set([
+      ...divisions.map((division) => division.name.trim()),
+      ...accessibleAssets.map((asset) => asset.divisionNameSnapshot.trim())
+    ]);
     const assetsByBusinessKey = new Map<string, EquipmentAsset[]>();
     for (const asset of accessibleAssets) {
       const key = `${asset.divisionNameSnapshot.trim()}\u0000${asset.equipmentCode.trim().toLocaleUpperCase()}`;
@@ -134,6 +144,9 @@ export class EquipmentApplicationService {
     const seen = new Set<string>();
     for (const row of rows) {
       try {
+        const divisionName = row.divisionName.trim();
+        if (!divisionName) throw new BadRequestException("事业部名称不能为空");
+        if (!divisionNames.has(divisionName)) throw new BadRequestException(`找不到事业部名称“${divisionName}”，请按当前导入权限范围内的设备总台账填写`);
         const reportDate = this.reportDate(row.reportDate);
       const plannedRuntimeMinutes = this.requiredMinutes(row.plannedRuntimeMinutes, "计划运行时间");
         const runtimeMinutes = this.minutes(row.runtimeMinutes, "实际运行时长"); const faultMinutes = this.minutes(row.faultMinutes, "故障时长");
@@ -142,7 +155,7 @@ export class EquipmentApplicationService {
         if (faultReason && !faultReasons.has(faultReason)) throw new BadRequestException("故障原因不在有效选项中");
         const key = `${row.divisionName.trim()}\u0000${row.equipmentCode.trim().toLocaleUpperCase()}`;
         const matches = assetsByBusinessKey.get(key) ?? [];
-        if (!matches.length) throw new BadRequestException("未找到当前权限范围内匹配的监控设备");
+        if (!matches.length) throw new BadRequestException(`未找到事业部“${divisionName}”下设备编号“${row.equipmentCode.trim()}”对应的可填报设备，请核对编号、设备启用状态和监控设置`);
         if (matches.length > 1) throw new BadRequestException("事业部和设备编号匹配到多台设备，无法自动判断");
         const asset = matches[0]!; const businessKey = `${asset.id}\u0000${reportDate}`;
         if (seen.has(businessKey)) throw new BadRequestException("文件内存在相同设备、相同日期的重复记录");

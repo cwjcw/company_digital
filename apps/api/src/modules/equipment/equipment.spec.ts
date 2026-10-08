@@ -124,7 +124,9 @@ describe("equipment permissions and validation", () => {
       equipmentCode: "A001", equipmentName: "设备甲", active: true, monitored: true
     };
     const manager = {
-      find: jest.fn().mockResolvedValue([asset]),
+      find: jest.fn().mockImplementation((entity: { name?: string }) => Promise.resolve(
+        entity.name === "OrganizationUnit" ? [{ id: "division-1", name: "事业一部", enabled: true }] : [asset]
+      )),
       findOneBy: jest.fn().mockResolvedValue(null),
       createQueryBuilder: jest.fn().mockReturnValue({
         innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getMany: jest.fn().mockResolvedValue([])
@@ -173,7 +175,9 @@ describe("equipment permissions and validation", () => {
     const reportQuery = { setLock: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null) };
     const dictionaryQuery = { innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getMany: jest.fn().mockResolvedValue([]) };
     const manager = {
-      find: jest.fn().mockResolvedValue([asset]),
+      find: jest.fn().mockImplementation((entity: { name?: string }) => Promise.resolve(
+        entity.name === "OrganizationUnit" ? [{ id: "division-1", name: "事业一部", enabled: true }] : [asset]
+      )),
       findOneBy: jest.fn().mockImplementation((entity: { name?: string }) => Promise.resolve(entity.name === "EquipmentAsset" ? asset : null)),
       createQueryBuilder: jest.fn()
         .mockReturnValueOnce(dictionaryQuery)
@@ -327,4 +331,102 @@ it("records dashboard export audit under the actual tenant without changing lega
     afterJson: { table: "utilization_detail", rowCount: 100, windowStart: "2026-10-01", windowEnd: "2026-10-06" }
   }));
   await expect(service.recordDashboardExport("unreported", 3, "2026-10-06", "2026-10-06", actor())).rejects.toThrow("权限");
+});
+
+describe("equipment status import matching errors", () => {
+  const divisionId = "00000000-0000-7000-8000-000000000021";
+  const otherDivisionId = "00000000-0000-7000-8000-000000000022";
+  const sourceRow = {
+    rowNumber: 2, divisionName: "研发中心", equipmentCode: "KN-020Y003", reportDate: "2026-10-08",
+    plannedRuntimeMinutes: 600, runtimeMinutes: 600, faultMinutes: 0, faultReason: null
+  };
+  const asset = {
+    id: "asset-import", tenantId: "KAINAN", divisionOrganizationUnitId: divisionId,
+    divisionNameSnapshot: "研发中心", equipmentCode: "KN-020Y003", equipmentName: "设备甲", active: true, monitored: true
+  };
+  const setup = (assets = [asset], divisions = [{ id: divisionId, name: "研发中心", enabled: true }]) => {
+    const manager = {
+      find: jest.fn().mockImplementation((entity: { name?: string }, options: any) => Promise.resolve(
+        entity.name === "OrganizationUnit"
+          ? divisions.filter(d => d.enabled && (!options.where.id || options.where.id.value.includes(d.id)))
+          : assets.filter(a => a.active && a.monitored)
+      )),
+      findOneBy: jest.fn().mockResolvedValue(null),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), getMany: jest.fn().mockResolvedValue([])
+      })
+    };
+    return { manager, service: new EquipmentApplicationService({ manager } as never) };
+  };
+  const importer = actor({ permissions: ["equipment-status-report:*:import"], isSystemAdmin: true });
+
+  beforeEach(() => { jest.useFakeTimers().setSystemTime(new Date("2026-10-08T04:00:00.000Z")); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  it("reports a missing division name before attempting equipment lookup", async () => {
+    const { service, manager } = setup();
+    const preview = await service.previewStatusImport([{ ...sourceRow, divisionName: "研发" }], importer);
+    expect(preview.errors).toEqual([{ rowNumber: 2, message: "找不到事业部名称“研发”，请按当前导入权限范围内的设备总台账填写" }]);
+    expect(preview.rows).toEqual([]);
+    expect(manager.findOneBy).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a blank division name", async () => {
+    const { service } = setup();
+    const preview = await service.previewStatusImport([{ ...sourceRow, divisionName: " " }], importer);
+    expect(preview.errors).toEqual([{ rowNumber: 2, message: "事业部名称不能为空" }]);
+  });
+
+  it.each([
+    ["an unknown equipment number", "UNKNOWN", [asset]],
+    ["an unmonitored equipment", asset.equipmentCode, [{ ...asset, monitored: false }]],
+    ["an inactive equipment", asset.equipmentCode, [{ ...asset, active: false }]],
+    ["a division with no equipment", asset.equipmentCode, []]
+  ])("reports equipment eligibility for %s rather than a missing division", async (_label, equipmentCode, assets) => {
+    const { service } = setup(assets);
+    const preview = await service.previewStatusImport([{ ...sourceRow, equipmentCode }], importer);
+    expect(preview.errors).toEqual([{ rowNumber: 2, message: `未找到事业部“研发中心”下设备编号“${equipmentCode}”对应的可填报设备，请核对编号、设备启用状态和监控设置` }]);
+    expect(preview.rows).toEqual([]);
+  });
+
+  it("keeps valid rows in a mixed preview and trims names without accepting aliases", async () => {
+    const { service } = setup();
+    const preview = await service.previewStatusImport([
+      { ...sourceRow, divisionName: "研发" },
+      { ...sourceRow, rowNumber: 3, divisionName: " 研发中心 ", equipmentCode: "kn-020y003" }
+    ], importer);
+    expect(preview).toMatchObject({ total: 2, createCount: 1, errors: [{ rowNumber: 2, message: expect.stringContaining("找不到事业部名称“研发”") }] });
+    expect(preview.rows).toEqual([expect.objectContaining({ rowNumber: 3, equipmentId: asset.id })]);
+  });
+
+  it("does not disclose or match a division outside import scope", async () => {
+    const otherAsset = { ...asset, id: "other-asset", divisionOrganizationUnitId: otherDivisionId, divisionNameSnapshot: "事业四部" };
+    const { service, manager } = setup([asset, otherAsset], [
+      { id: divisionId, name: "研发中心", enabled: true },
+      { id: otherDivisionId, name: "事业四部", enabled: true }
+    ]);
+    const scoped = actor({ permissions: ["equipment-status-report:*:import"], tableDataScopes: [{
+      resource: "equipment-status-report", scope: "CUSTOM", actions: ["import"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: divisionId }]
+    }] });
+    const preview = await service.previewStatusImport([{ ...sourceRow, divisionName: "事业四部" }], scoped);
+    expect(preview.rows).toEqual([]);
+    expect(preview.errors[0]?.message).toBe("找不到事业部名称“事业四部”，请按当前导入权限范围内的设备总台账填写");
+    expect(manager.find).toHaveBeenCalledWith(expect.any(Function), { where: { enabled: true, id: expect.objectContaining({ _value: [divisionId] }) } });
+    expect(manager.find).toHaveBeenCalledWith(expect.any(Function), { where: { tenantId: "KAINAN", active: true, monitored: true } });
+  });
+
+  it("does not query all organizations when no division is authorized", async () => {
+    const { service, manager } = setup();
+    const preview = await service.previewStatusImport([sourceRow], actor({ permissions: ["equipment-status-report:*:import"] }));
+    expect(preview.rows).toEqual([]);
+    expect(preview.errors[0]?.message).toContain("找不到事业部名称“研发中心”");
+    expect(manager.find).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the accepted equipment snapshot name when the organization is renamed", async () => {
+    const { service } = setup([asset], [{ id: divisionId, name: "研发新名称", enabled: true }]);
+    const preview = await service.previewStatusImport([sourceRow], importer);
+    expect(preview.errors).toEqual([]);
+    expect(preview.rows).toHaveLength(1);
+  });
 });
