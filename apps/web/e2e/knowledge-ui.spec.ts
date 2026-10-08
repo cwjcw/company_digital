@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
+// Runtime account credentials must never enter traces, screenshots or recordings.
+test.use({ trace: "off", screenshot: "off", video: "off" });
 const admin = {
   sub: "fixture-admin",
   username: "fixture-admin",
@@ -250,7 +252,6 @@ test("ordinary employee has Space tree without editor and creation controls", as
   ).toHaveCount(0);
 });
 test.describe("production credential acceptance", () => {
-  test.use({ trace: "off", screenshot: "off", video: "off" });
   test("production existing login and Knowledge permissions", async ({
     page,
   }) => {
