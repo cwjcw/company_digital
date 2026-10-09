@@ -1,5 +1,116 @@
 # Codex 工作进度
 
+## 当前任务：10091在手未完成订单补入出货计划
+
+任务目标：核对用户文件与当前事业部周计划，仅把未体现记录通过正式API预览/确认导入出货计划，交期使用源“订单交期”。
+当前状态：正式预览PASS（新增222/仅交期更新69），备份校验PASS，准备API确认。
+最后更新时间：2026-10-09（Asia/Shanghai）。
+当前阶段：现行字段/API/数据核对；当前子任务：全量周计划、出货计划及正式事业部来源查询。
+已完成：读取项目/Skill/进度、Git status/diff；原Excel统一加密检查PASS；识别两行旧表头，原文件保留；私有源事实写ignored data/operations/shipping-import-10091。
+正在进行：确认前重新读取周计划/出货计划以防并发变化；正式API确认两份预览并逐行回读验证及相同预览重放幂等。
+待完成：确定候选和异常；标准模板转换/预览；备份；正式API确认；重读验证与最终报告。
+修改文件：本进度；忽略目录内临时数据，产品源码无修改。
+数据库Migration：无。
+新增或修改测试：无产品修改，执行统一加密/字段/匹配/预览/幂等/落库核验。
+已运行测试：原文件统一加密/ExcelJS解析PASS；全量API周计划1169、出货计划1011、月计划1493、分配1684、客户映射3完整分页核对。838有效明细/179已有周计划/659未体现；其中437源行对应436已有出货项，222需新增，69已有项仅需校准交期。源重复9+5已对应同一既有14数量，保留；2个说明行跳过。
+当前已知问题：不采用人员名或#N/A推断事业部；新增222条均按正式启用A027客户映射事业四部。新行生产数量=欠数；已有数量/品名保留，仅69交期按订单交期更新。
+等待用户确认：暂无，先读实际API来源。
+下一步：1.读取全量周计划/出货计划和正式组织来源；2.输出匹配与字段来源；3.预览校验→备份→API确认→核验。
+恢复执行说明：项目规范→本进度→Git状态→ignored数据与实际API核对；防止重复导入，未确认前不得当作已导入。
+
+---
+
+## 当前任务：KDOS Knowledge 2.0 — Space + Page Tree
+
+任务名称：KDOS Knowledge 2.0正式基线。
+任务目标：替换未验收Phase1，交付Space/Page树、工作草稿/自动保存、不可变发布、继承ACL、私有文件、标签搜索、导入导出及生产验收。
+当前状态：已完成 / PASS（用户明确仅验收管理员）。
+最后更新时间：2026-10-09 12:58:32（Asia/Shanghai）。
+当前阶段：正式部署及管理员真实生产验收完成；当前子任务：无。
+已完成：51源码文件的Knowledge2.0实现、既有迁移保留、新迁移、权限与私有文件、导入/导出/搜索、备份/测试/部署；本轮真实管理员登录发现并修复工作副本缓存初始化及TipTap可编辑切换虚假PATCH的版本冲突；23项实际Chrome验收全部通过。
+正在进行：无。
+待完成：无本轮遗留；员工11/13及另一已认证员工有效ACL场景按用户范围不执行，未冒充实际生产PASS。
+修改文件：初始51文件清单详见最终报告；本轮仅KnowledgePages.tsx/spec.tsx、KnowledgeContent.tsx/spec.tsx四个源码/回归文件；outputs进度、最终报告、管理员JSON、LIVE、backup manifest更新。提交9885859/2abf76c/8ee5c4f/5e89cd7均未push。
+数据库Migration：原1722920084000未改；新Knowledge2SpacePageModel1722920085000已于初始交付上线；本轮补修无新migration、新依赖或API改动。
+新增或修改测试：缓存版本进入编辑的等待/新expectedVersion；真实TipTap busy/editable切换不触发正文onChange；专用录制关闭的生产管理员Chrome运行时runner不含凭据值，仅放/tmp。
+已运行测试：初始API89 suites777PASS/1既有skip、其他workspace43PASS、隔离DB61场景91审计/84迁移PASS；最终Web32文件235PASS，Knowledge专项23PASS，Chrome fixture3PASS/1环境门控skip，另专用真实管理员Chrome23PASS。初次默认多worker11个既有5秒超时，最终2workers/15秒完整回归全部通过，无其他模块改动。根build及最终Webtypecheck/lint/build、Node24部署构建、diff检查PASS。
+当前已知问题：无管理员范围遗留；员工线上隔离未执行（用户范围）；既有引擎/AntD/Portal/Vite warnings保留，未影响测试和构建。未保存正文在浏览器终止后不恢复，见报告限制。
+等待用户确认：无。未改账号密码或授权；实际值仅运行时消费，无trace/video/screenshot/storageState。
+部署：初始backup20261008_184441及本轮20261009_124217/124902双库/uploads均校验；最后./scripts/deploy.sh all、healthcheck、deploy check PASS，HEAD/API/Web=5e89cd7c853611202ba865b20ba4aa0ece4823d6。原Postgres b679ba44、volume、127.0.0.1:15433及API内部postgres:5432不变。
+线上验证：23项管理员真实API/UI全部PASS（V1→草稿编辑→V2→V1历史附件、三层树、ACL配置/匿名401、中文搜索、三种导入、归档/回收站恢复）；仅自建测试树通过API永久清理，最终Pages0/versions0/files0/cleanup0/privateObjects0，元数据审计保留。原钢价截至2026-09-30的1078/1078/13/98及起止日一致；当前全表另含2026-10-08的11条，总1089/99天，本任务未写intelligence。
+下一步：无管理员验收范围任务；用户后续若需要可使用已有员工账号补实际隔离验收，不修改账号授权。
+最终报告：outputs/KNOWLEDGE_2_ACCEPTANCE.md（15项/25表格，23PASS、2员工项明确未执行）；outputs/KNOWLEDGE_2_ADMIN_ACCEPTANCE.json；DB/LIVE/backup manifest同目录。
+恢复执行说明：项目规范→本进度→Git status/diff→用户的新任务；不重做已完成Knowledge2.0。保留之前设备/Phase5.4输出，后者仍待正式来源澄清。
+---
+
+## 当前任务：设备状态导入错误提示区分事业部与编号
+
+任务目标：事业部名称匹配失败时明确提示事业部问题，名称有效但设备匹配失败时提示设备编号/填报资格；不扩大数据权限或改变导入计算。
+当前状态：已完成 / PASS，API已正式上线。
+最后更新时间：2026-10-08（Asia/Shanghai）。
+当前阶段：已完成；当前子任务：无。
+已完成：名称预检与设备错误分开；组织名称查询受导入division scope约束，继续保留设备快照有效名称；不改变设备匹配键及监控资格。新增10项回归、设备专项45项及API全量754项通过。
+正在进行：无。
+待完成：无开发遗留；用户可刷新后重新上传。
+修改文件：equipment.application.service.ts、equipment.spec.ts、本进度、outputs/EQUIPMENT_STATUS_IMPORT_ERROR_ACCEPTANCE.md、outputs/EQUIPMENT_STATUS_IMPORT_ERROR_LIVE.json。源码仅2文件提交fe004db5b15a8482ee6bd00724168bba09597fb9，未push。
+数据库Migration：无。新增npm依赖：无。
+新增或修改测试：10项名称/编号/监控/停用/空事业部/空设备/部分预览/权限/快照兼容回归；两处现有manager mock适配。
+已运行测试：设备专项2 suites/45项；API全量87 suites/754项通过，另1既有skip；API typecheck/lint/build及git diff --check通过。
+当前已知问题：无新失败；保留既有Node22引擎提示和ts-jest allowJs警告。
+等待用户确认：无。
+部署：backup20261008_110130双库/uploads校验通过；scripts/deploy.sh api成功，API/HEAD=fe004db，Web保持既有77e7a8c（没有前端改动）；healthcheck全部通过，PostgreSQL未重建，原volume和15433端口保留。
+线上验证：实际部署Service+真实DB只读预览原文件17行全部提示找不到事业部名称“研发”；修正版17行全部有效，无错误；未confirm，状态记录数前后均5141。未使用用户凭据或执行账号Chrome验收，权限分支单测通过。
+最终报告：outputs/EQUIPMENT_STATUS_IMPORT_ERROR_ACCEPTANCE.md。
+下一步：无；人工按报告上传原文件/修正版核对提示。
+恢复执行说明：保留Phase5.4及文件核查记录；仅继续本轮未完成步骤。
+
+---
+
+## 当前任务：设备状态导入文件1008失败核查
+
+任务名称：设备状态Excel设备编号匹配失败检查。
+任务目标：核对用户文件、真实设备台账与导入匹配规则，提供可重新预览的修正副本。
+当前状态：已完成（文件核查与修正副本），未代用户确认导入。
+最后更新时间：2026-10-08（Asia/Shanghai）。
+当前阶段：完成；当前子任务：无。
+已完成：读取适用规范和Skill；先调用统一加密检测，再使用项目ExcelJS/实际EquipmentImportService解析；逐一比对生产台账；全部17个编号存在且启用/监控，但Excel事业部“研发”与台账“研发中心”不一致；另存只改17个事业部单元格的副本，并重新解析和逐单元格对比。
+正在进行：无。
+待完成：无开发遗留，用户可上传修正副本预览；本人账号权限未实际登录验证。
+修改文件：本进度；新副本/home/Jerry/下载/equipment_status_import_2026-10-08_fixed.xlsx；用户原文件保留，产品代码无修改。
+数据库Migration：无。npm依赖/新API/生产数据写入/部署：无。
+新增或修改测试：无测试源码变更。
+已运行测试：实际解析17行、17台唯一匹配且active/monitored均true；修正后17行事业部统一研发中心，其他所有单元格值与工作表结构不变；填报日期2026-10-06。没有产品更改，不运行build或重部署。
+当前已知问题：无未解决文件内容问题；未验证用户当前账号导入权限。
+等待用户确认：无。
+下一步：用户上传修正副本查看预览，再按正常流程确认导入。
+最终报告：本记录及最终回复；修正副本如上。
+恢复执行说明：此文件核查已完成；Phase5.4仍保持下方的停止条件状态，不因本次设备核查自动继续或重做。
+
+---
+
+## 当前阶段入口：Phase 5.4 - 研发进度事业部归属核查与修正
+
+任务名称：PMC研发进度Phase 5.4。
+任务目标：核实订单品项正式事业部分配、客户fallback，再最小修复并完成部署验收。
+当前状态：调查完成，触发用户停止条件1；等待正式来源/稳定关联规则确认，未完成开发 / FAIL。
+最后更新时间：2026-10-08（Asia/Shanghai）。
+当前阶段：只读调查已完成；当前子任务：等待来源澄清。
+已完成：源码/真实Schema/索引、覆盖与冲突、8条业务样本、重复品号、跨事业部样本查找、实时E10 Owner_Dept核查、现有增量与MPS投影流程；现有生产健康检查通过。
+正在进行：无业务修改；用户问题已提出。
+待完成：确认正式E10订单行关联来源；resolver/本地变更刷新；必要测试/Skill；备份部署/FULL/INCREMENTAL/Chrome/Excel完整验收。
+修改文件：本进度、outputs/PMC_RD_PROGRESS_PHASE5_4_ACCEPTANCE.md、outputs/PMC_RD_PROGRESS_PHASE5_4_INVESTIGATION.json。
+数据库Migration：无。新增npm依赖：无。产品代码/Skill/权限/账号/数据改动：无。
+新增或修改测试：无；停止条件触发后未实施测试代码。
+已运行测试：只读PostgreSQL来源统计和E10组织查询；scripts/healthcheck.sh全部通过。产品自动测试/build/typecheck/lint未运行，本轮没有产品更改。
+当前已知问题：研发17647条仅38映射；allocation完整订单号+品号及单订单号均0命中、没有E10行ID；443组重复键涉及1057行；没有真实跨事业部allocation样本。客户映射仅3条，A027命中35、C235命中3、C234命中0，其余115客户17609条均无可验证来源。组合理论覆盖仍0.2153%。
+等待用户确认：E10订单品项的正式承接事业部实际维护表/页面，或已有E10↔T+稳定订单行关联规则；不允许猜前缀强行匹配。
+下一步：1.获取用户确认的正式来源/稳定关联规则；2.复用调查JSON核验键和真实跨事业部样本；3.安全最小修复与完整交付。
+部署状态：未部署新版本，运行API/Web均77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5，服务健康；未执行FULL/INCREMENTAL或生产写入。
+最终报告：outputs/PMC_RD_PROGRESS_PHASE5_4_ACCEPTANCE.md（调查报告，尚非开发PASS）。
+恢复执行说明：项目规范→本进度→Git status/diff→从用户来源确认继续；不要重复调查或重做Phase5.3；3份输出为本轮未提交记录，保留。
+
+---
+
 ## 当前阶段入口：Phase 5.3 - 图表筛选补充与明细筛选精简
 
 任务名称：PMC研发进度Phase 5.3。

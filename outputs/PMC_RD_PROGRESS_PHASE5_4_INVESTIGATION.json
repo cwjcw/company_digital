@@ -1,0 +1,1449 @@
+{
+  "phase": "5.4",
+  "mode": "READ_ONLY",
+  "date": "2026-10-08",
+  "database": "four_department_tracker",
+  "tenant": "KAINAN",
+  "columns": [
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "tenant_id",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "customer_code",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "customer_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "primary_division_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "enabled",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "remark",
+      "data_type": "text"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "created_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "updated_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_customer_division_mappings",
+      "column_name": "version",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "tenant_id",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_system",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_database",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_account_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_key",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "salesperson_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "customer_code",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "customer_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "order_number",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "order_type",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "order_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "customer_due_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "preproduction_review_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "expected_shipping_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "item_code",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "item_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "unit",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "order_quantity",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "tax_included_unit_price",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "tax_included_amount",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "order_status",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_active",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "source_updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "created_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "updated_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_erp_order_lines",
+      "column_name": "version",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "tenant_id",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "order_number",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "item_code",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "salesperson_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "customer_code",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "order_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "expected_shipping_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "item_name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "unit",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "order_quantity",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "allocated_quantity",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "tax_included_unit_price",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "tax_included_amount",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "order_status",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "division_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "remark",
+      "data_type": "text"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "created_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "updated_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "mps_order_allocations",
+      "column_name": "version",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "name",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "level",
+      "data_type": "smallint"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "parent_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "division",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "enabled",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "sort_order",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "updated_by",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "created_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "version",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "wechat_department_id",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "organization_units",
+      "column_name": "leader_user_ids",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "tenant_id",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_order_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_order_line_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_no",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "line_number",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "customer_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "customer_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "customer_name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_create_date",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_last_modified_date",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "owner_dept_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "owner_dept_name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_status_raw",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "division_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "division_name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "division_source",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_spec",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_feature_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "business_qty",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "item_property",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_control",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "standard_routing_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "plant_org_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "design_bom_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "bom_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "bom_version",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "bom_e_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "bom_approve_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "valid_bom_detail_count",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_id",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_approve_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "valid_operation_count",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "routing_source",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "rd_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "reason_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "reason_text",
+      "data_type": "text"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "rd_last_modified_at",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_order_modified_at",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_bom_modified_at",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_routing_modified_at",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_snapshot_at",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "synced_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "content_hash",
+      "data_type": "character"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "is_active",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "source_deleted_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "created_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "updated_by",
+      "data_type": "uuid"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "version",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "pmc_rd_progress_items",
+      "column_name": "order_close_raw",
+      "data_type": "text"
+    }
+  ],
+  "indexes": [
+    {
+      "tablename": "mps_customer_division_mappings",
+      "indexdef": "CREATE UNIQUE INDEX mps_customer_division_mappings_pkey ON public.mps_customer_division_mappings USING btree (id)"
+    },
+    {
+      "tablename": "mps_customer_division_mappings",
+      "indexdef": "CREATE UNIQUE INDEX uq_mps_customer_division ON public.mps_customer_division_mappings USING btree (tenant_id, customer_code)"
+    },
+    {
+      "tablename": "mps_order_allocations",
+      "indexdef": "CREATE INDEX idx_mps_order_allocation_division ON public.mps_order_allocations USING btree (tenant_id, division_id)"
+    },
+    {
+      "tablename": "mps_order_allocations",
+      "indexdef": "CREATE UNIQUE INDEX mps_order_allocations_pkey ON public.mps_order_allocations USING btree (id)"
+    },
+    {
+      "tablename": "mps_order_allocations",
+      "indexdef": "CREATE UNIQUE INDEX uq_mps_order_allocation ON public.mps_order_allocations USING btree (tenant_id, order_number, item_code)"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE INDEX idx_pmc_rd_date ON public.pmc_rd_progress_items USING btree (tenant_id, order_date) WHERE is_active"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE INDEX idx_pmc_rd_division_customer ON public.pmc_rd_progress_items USING btree (tenant_id, division_id, customer_code) WHERE is_active"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE INDEX idx_pmc_rd_item ON public.pmc_rd_progress_items USING btree (tenant_id, item_code) WHERE is_active"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE INDEX idx_pmc_rd_order ON public.pmc_rd_progress_items USING btree (tenant_id, order_no, source_order_id, line_number) WHERE is_active"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE INDEX idx_pmc_rd_status ON public.pmc_rd_progress_items USING btree (tenant_id, rd_status, order_date) WHERE is_active"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE UNIQUE INDEX pmc_rd_progress_items_pkey ON public.pmc_rd_progress_items USING btree (id)"
+    },
+    {
+      "tablename": "pmc_rd_progress_items",
+      "indexdef": "CREATE UNIQUE INDEX pmc_rd_progress_items_tenant_id_source_order_line_id_key ON public.pmc_rd_progress_items USING btree (tenant_id, source_order_line_id)"
+    }
+  ],
+  "baseline": [
+    {
+      "total": 17647,
+      "mapped": 38,
+      "unmapped": 17609,
+      "customers": 117,
+      "orders": 2545
+    }
+  ],
+  "classification": [
+    {
+      "category": "D",
+      "count": 17609
+    }
+  ],
+  "customer_mapping": [
+    {
+      "customer_code": "A027",
+      "enabled": true,
+      "primary_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "name": "事业四部",
+      "matching_rd_lines": 35
+    },
+    {
+      "customer_code": "C234",
+      "enabled": true,
+      "primary_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "name": "事业四部",
+      "matching_rd_lines": 0
+    },
+    {
+      "customer_code": "C235",
+      "enabled": true,
+      "primary_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "name": "事业四部",
+      "matching_rd_lines": 3
+    }
+  ],
+  "allocation_divisions": [
+    {
+      "division_id": null,
+      "name": null,
+      "count": 198
+    },
+    {
+      "division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "name": "事业四部",
+      "count": 1486
+    }
+  ],
+  "erp_sources": [
+    {
+      "source_system": "T+",
+      "source_database": "UFTData418971_000003",
+      "rows": 708,
+      "first_order_date": "2026-09-17",
+      "last_order_date": "2026-10-07"
+    },
+    {
+      "source_system": "KDOS_INIT",
+      "source_database": "FOURTH_DIVISION_20260917",
+      "rows": 1169,
+      "first_order_date": "2026-04-04",
+      "last_order_date": "2026-09-23"
+    }
+  ],
+  "duplicates": [
+    {
+      "keys": 443,
+      "lines": 1057
+    }
+  ],
+  "rd_states": [
+    {
+      "rd_status": "ABNORMAL",
+      "design_bom_status": "ABNORMAL",
+      "routing_status": "ABNORMAL",
+      "reason_code": "UNSUPPORTED_ITEM_RULE_COMBINATION",
+      "rows": 6
+    },
+    {
+      "rd_status": "COMPLETE",
+      "design_bom_status": "COMPLETE",
+      "routing_status": "COMPLETE",
+      "reason_code": "RD_COMPLETE",
+      "rows": 11082
+    },
+    {
+      "rd_status": "NOT_APPLICABLE",
+      "design_bom_status": "NOT_APPLICABLE",
+      "routing_status": "NOT_APPLICABLE",
+      "reason_code": "PURCHASE_ITEM_WITHOUT_ROUTING",
+      "rows": 835
+    },
+    {
+      "rd_status": "NOT_STARTED",
+      "design_bom_status": "NOT_STARTED",
+      "routing_status": "COMPLETE",
+      "reason_code": "NO_BOM",
+      "rows": 67
+    },
+    {
+      "rd_status": "NOT_STARTED",
+      "design_bom_status": "NOT_STARTED",
+      "routing_status": "NOT_STARTED",
+      "reason_code": "NO_BOM",
+      "rows": 2931
+    },
+    {
+      "rd_status": "ROUTING_IN_PROGRESS",
+      "design_bom_status": "COMPLETE",
+      "routing_status": "IN_PROGRESS",
+      "reason_code": "ROUTING_NOT_APPROVED",
+      "rows": 4
+    },
+    {
+      "rd_status": "WAITING_ROUTING",
+      "design_bom_status": "COMPLETE",
+      "routing_status": "NOT_STARTED",
+      "reason_code": "NO_ROUTING",
+      "rows": 2722
+    }
+  ],
+  "owner_departments": [
+    {
+      "owner_dept_id": "e3271c4b-cfb5-48db-bcdb-1ca98f1535b4",
+      "owner_dept_name": "IT",
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "owner_dept_id": "51aae52e-7d2a-42a5-5258-1c1b4ebcd180",
+      "owner_dept_name": "一部生管部",
+      "lines": 168,
+      "orders": 12
+    },
+    {
+      "owner_dept_id": "a8382a3b-f1f6-4dd1-c236-1bd2ddbf3229",
+      "owner_dept_name": "业务一部",
+      "lines": 66,
+      "orders": 2
+    },
+    {
+      "owner_dept_id": "42756223-a99e-4438-f845-1bd2ddbf7384",
+      "owner_dept_name": "业务一部一课",
+      "lines": 988,
+      "orders": 104
+    },
+    {
+      "owner_dept_id": "8ae12908-b4e0-42fa-67c0-1bd2ddbffcf3",
+      "owner_dept_name": "业务一部三课",
+      "lines": 256,
+      "orders": 60
+    },
+    {
+      "owner_dept_id": "d60b335b-53df-44e2-c362-1bd2ddbfbad4",
+      "owner_dept_name": "业务一部二课",
+      "lines": 1342,
+      "orders": 178
+    },
+    {
+      "owner_dept_id": "9f4ab1b7-52a6-4049-8cb6-1bd2ddc03fd5",
+      "owner_dept_name": "业务一部四课",
+      "lines": 1336,
+      "orders": 128
+    },
+    {
+      "owner_dept_id": "97eeed6f-a000-4112-8e8a-1bd2ddc07f34",
+      "owner_dept_name": "业务一部开发课",
+      "lines": 274,
+      "orders": 44
+    },
+    {
+      "owner_dept_id": "12131952-2dfd-472b-554b-1bd2ddc0c328",
+      "owner_dept_name": "业务一部物流课",
+      "lines": 593,
+      "orders": 64
+    },
+    {
+      "owner_dept_id": "854c4fac-eac5-4874-29d1-1bd2ddc18c92",
+      "owner_dept_name": "业务三部",
+      "lines": 8,
+      "orders": 3
+    },
+    {
+      "owner_dept_id": "6c972235-8351-4e6d-c15a-1bd2ddc1ce89",
+      "owner_dept_name": "业务三部一课",
+      "lines": 5692,
+      "orders": 982
+    },
+    {
+      "owner_dept_id": "58340c9c-53c7-48c2-4ed2-1bd2ddc24c84",
+      "owner_dept_name": "业务三部三课",
+      "lines": 1122,
+      "orders": 57
+    },
+    {
+      "owner_dept_id": "90ce703c-049a-40d4-d8b7-1bd2ddc20e0f",
+      "owner_dept_name": "业务三部二课",
+      "lines": 1655,
+      "orders": 217
+    },
+    {
+      "owner_dept_id": "53e3f6a9-66ac-4ce9-6b36-1bd2ddc14a4c",
+      "owner_dept_name": "业务二部一课",
+      "lines": 2363,
+      "orders": 415
+    },
+    {
+      "owner_dept_id": "1f8e0a38-6512-493b-ca82-1ca98f17692c",
+      "owner_dept_name": "业务五部",
+      "lines": 226,
+      "orders": 13
+    },
+    {
+      "owner_dept_id": "d9d7d303-e3da-4749-1ab7-1d6793edbf3d",
+      "owner_dept_name": "业务部",
+      "lines": 23,
+      "orders": 8
+    },
+    {
+      "owner_dept_id": "85ccaca3-e1c8-4f93-7443-1c7a66bfd683",
+      "owner_dept_name": "二部外协采购课",
+      "lines": 266,
+      "orders": 93
+    },
+    {
+      "owner_dept_id": "c22a4b02-8a90-4bfe-8583-1c1b4ec45122",
+      "owner_dept_name": "二部生管部",
+      "lines": 13,
+      "orders": 2
+    },
+    {
+      "owner_dept_id": "f4b11327-3403-443c-ac83-1bd2ddd380e3",
+      "owner_dept_name": "外协课",
+      "lines": 193,
+      "orders": 42
+    },
+    {
+      "owner_dept_id": "eabd6b4b-6ff0-462a-d8b6-1bd2ddd34380",
+      "owner_dept_name": "外贸采购课",
+      "lines": 10,
+      "orders": 4
+    },
+    {
+      "owner_dept_id": "f099409f-bacb-4ca4-3aa6-1c1b4ebd1e01",
+      "owner_dept_name": "生管课",
+      "lines": 9,
+      "orders": 5
+    },
+    {
+      "owner_dept_id": "adb55990-625f-494a-b4c9-1721a4e30a1f",
+      "owner_dept_name": "生管部",
+      "lines": 84,
+      "orders": 37
+    },
+    {
+      "owner_dept_id": "699c07ab-0863-4cb9-f9da-18473e515941",
+      "owner_dept_name": "营销中心",
+      "lines": 170,
+      "orders": 9
+    },
+    {
+      "owner_dept_id": "de9227db-08b9-4c3b-8627-1721a4e31f80",
+      "owner_dept_name": "营销中心",
+      "lines": 714,
+      "orders": 29
+    },
+    {
+      "owner_dept_id": "fe1721e1-f846-45c6-e637-1bd2ddd3029a",
+      "owner_dept_name": "采购部",
+      "lines": 75,
+      "orders": 36
+    }
+  ],
+  "samples": [
+    {
+      "order_no": "2301-2023A027018",
+      "source_order_id": "7c3d79e9-cc3d-47b1-adb1-1aba75582b26",
+      "source_order_line_id": "2f2a163b-25cf-4b19-7de7-1aba7655c7be",
+      "line_number": 1,
+      "item_code": "MJCOP014125",
+      "customer_id": "b12b03ff-5d05-4900-14c9-172f9989f052",
+      "customer_code": "A027",
+      "customer_name": "A027",
+      "current_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "current_division_name": "事业四部",
+      "division_source": "CUSTOMER_OWNER",
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": "01a0a2a3-e6dd-79c7-a1f7-c54a056a2df5",
+      "customer_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "customer_division_name": "事业四部",
+      "owner_dept_id": "de9227db-08b9-4c3b-8627-1721a4e31f80",
+      "owner_dept_name": "营销中心"
+    },
+    {
+      "order_no": "2301-2023A027018",
+      "source_order_id": "7c3d79e9-cc3d-47b1-adb1-1aba75582b26",
+      "source_order_line_id": "14b6b399-f876-4cf4-7d35-1aba7655c7be",
+      "line_number": 2,
+      "item_code": "MJCOP014175",
+      "customer_id": "b12b03ff-5d05-4900-14c9-172f9989f052",
+      "customer_code": "A027",
+      "customer_name": "A027",
+      "current_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "current_division_name": "事业四部",
+      "division_source": "CUSTOMER_OWNER",
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": "01a0a2a3-e6dd-79c7-a1f7-c54a056a2df5",
+      "customer_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "customer_division_name": "事业四部",
+      "owner_dept_id": "de9227db-08b9-4c3b-8627-1721a4e31f80",
+      "owner_dept_name": "营销中心"
+    },
+    {
+      "order_no": "2301-2026C235007",
+      "source_order_id": "a0662491-6060-42dd-cf9e-1d8bd961e51c",
+      "source_order_line_id": "66dac58c-88a6-4124-9997-1d8bdbe37610",
+      "line_number": 1,
+      "item_code": "99997248-1/1",
+      "customer_id": "50831e22-ea57-4e0f-7dfc-1c8b8b56f911",
+      "customer_code": "C235",
+      "customer_name": "C235",
+      "current_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "current_division_name": "事业四部",
+      "division_source": "CUSTOMER_OWNER",
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": "01a0a2bc-d554-718d-bf5c-219df8bb4866",
+      "customer_division_id": "d23442f9-4862-4641-b4a7-c8d470bc56ea",
+      "customer_division_name": "事业四部",
+      "owner_dept_id": "1f8e0a38-6512-493b-ca82-1ca98f17692c",
+      "owner_dept_name": "业务五部"
+    },
+    {
+      "order_no": "2301-2026A001008",
+      "source_order_id": "c9cdbfee-c8f2-49da-928e-1dc2d428b330",
+      "source_order_line_id": "530275cb-8607-4dc3-c7d0-1dc2d511f2d0",
+      "line_number": 1,
+      "item_code": "A3-1/1",
+      "customer_id": "297c1f90-36b8-4bd4-46ed-172c83cc2d61",
+      "customer_code": "A001",
+      "customer_name": "A001",
+      "current_division_id": null,
+      "current_division_name": null,
+      "division_source": null,
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": null,
+      "customer_division_id": null,
+      "customer_division_name": null,
+      "owner_dept_id": "42756223-a99e-4438-f845-1bd2ddbf7384",
+      "owner_dept_name": "业务一部一课"
+    },
+    {
+      "order_no": "2301-2024A002221",
+      "source_order_id": "c2232ac3-24b3-420d-6e93-1c02f03fc9b4",
+      "source_order_line_id": "37919739-33cb-46e1-6277-1c02f07690c0",
+      "line_number": 1,
+      "item_code": "WCJ456-1/1",
+      "customer_id": "4638b6a9-67b2-4b27-e9f9-172c83ff5f32",
+      "customer_code": "A002",
+      "customer_name": "A002",
+      "current_division_id": null,
+      "current_division_name": null,
+      "division_source": null,
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": null,
+      "customer_division_id": null,
+      "customer_division_name": null,
+      "owner_dept_id": "53e3f6a9-66ac-4ce9-6b36-1bd2ddc14a4c",
+      "owner_dept_name": "业务二部一课"
+    },
+    {
+      "order_no": "2301-2025A003191",
+      "source_order_id": "ca354824-74f0-4832-328c-1ca8c655fa7f",
+      "source_order_line_id": "309224c1-0d69-4e8a-6689-1ca8c6c310c1",
+      "line_number": 1,
+      "item_code": "WGH242-1/1",
+      "customer_id": "0b0465e0-01d5-4dd0-5ecb-1721ad792bdc",
+      "customer_code": "A003",
+      "customer_name": "A003",
+      "current_division_id": null,
+      "current_division_name": null,
+      "division_source": null,
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": null,
+      "customer_division_id": null,
+      "customer_division_name": null,
+      "owner_dept_id": "53e3f6a9-66ac-4ce9-6b36-1bd2ddc14a4c",
+      "owner_dept_name": "业务二部一课"
+    },
+    {
+      "order_no": "2301-2025A003369",
+      "source_order_id": "0b9cf07f-ac3c-4d28-bca3-1d29bc78fdd4",
+      "source_order_line_id": "6200391e-78a1-487b-52b7-1d29bde89e5a",
+      "line_number": 1,
+      "item_code": "WEJ283-1/1",
+      "customer_id": "1e41219a-9cbd-4fbc-9c35-1d25abf5421e",
+      "customer_code": "A003-YMJ",
+      "customer_name": "A003-YMJ",
+      "current_division_id": null,
+      "current_division_name": null,
+      "division_source": null,
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": null,
+      "customer_division_id": null,
+      "customer_division_name": null,
+      "owner_dept_id": "53e3f6a9-66ac-4ce9-6b36-1bd2ddc14a4c",
+      "owner_dept_name": "业务二部一课"
+    },
+    {
+      "order_no": "2301-2026A004018",
+      "source_order_id": "b4ec48ed-3eb9-499a-27e6-1dd0cef65666",
+      "source_order_line_id": "d1d7b666-79ab-490d-7839-1dd0d07cb1f6",
+      "line_number": 1,
+      "item_code": "A1380CH-1/1",
+      "customer_id": "d2243b3c-229d-41ac-0720-172c8459ccfb",
+      "customer_code": "A004",
+      "customer_name": "A004",
+      "current_division_id": null,
+      "current_division_name": null,
+      "division_source": null,
+      "allocation_id": null,
+      "allocation_division_id": null,
+      "mapping_id": null,
+      "customer_division_id": null,
+      "customer_division_name": null,
+      "owner_dept_id": "9f4ab1b7-52a6-4049-8cb6-1bd2ddc03fd5",
+      "owner_dept_name": "业务一部四课"
+    }
+  ],
+  "source_aliases": [
+    {
+      "source_system": "T+",
+      "source_database": "UFTData418971_000003",
+      "rows": 1148
+    }
+  ],
+  "weekly_matches": [
+    {
+      "count": 0
+    }
+  ],
+  "split_orders": [
+    {
+      "count": 0
+    }
+  ],
+  "e10_owner_departments_live": [
+    {
+      "department_id": "E3271C4B-CFB5-48DB-BCDB-1CA98F1535B4",
+      "department_name": "IT",
+      "order_lines": 1,
+      "orders": 1
+    },
+    {
+      "department_id": "1F8E0A38-6512-493B-CA82-1CA98F17692C",
+      "department_name": "业务五部",
+      "order_lines": 226,
+      "orders": 13
+    },
+    {
+      "department_id": "42756223-A99E-4438-F845-1BD2DDBF7384",
+      "department_name": "业务一部一课",
+      "order_lines": 992,
+      "orders": 105
+    },
+    {
+      "department_id": "F4B11327-3403-443C-AC83-1BD2DDD380E3",
+      "department_name": "外协课",
+      "order_lines": 193,
+      "orders": 42
+    },
+    {
+      "department_id": "C22A4B02-8A90-4BFE-8583-1C1B4EC45122",
+      "department_name": "二部生管部",
+      "order_lines": 13,
+      "orders": 2
+    },
+    {
+      "department_id": "8AE12908-B4E0-42FA-67C0-1BD2DDBFFCF3",
+      "department_name": "业务一部三课",
+      "order_lines": 278,
+      "orders": 61
+    },
+    {
+      "department_id": "90CE703C-049A-40D4-D8B7-1BD2DDC20E0F",
+      "department_name": "业务三部二课",
+      "order_lines": 1750,
+      "orders": 229
+    },
+    {
+      "department_id": "D60B335B-53DF-44E2-C362-1BD2DDBFBAD4",
+      "department_name": "业务一部二课",
+      "order_lines": 1357,
+      "orders": 183
+    },
+    {
+      "department_id": "D9D7D303-E3DA-4749-1AB7-1D6793EDBF3D",
+      "department_name": "业务部",
+      "order_lines": 23,
+      "orders": 8
+    },
+    {
+      "department_id": "ADB55990-625F-494A-B4C9-1721A4E30A1F",
+      "department_name": "生管部",
+      "order_lines": 84,
+      "orders": 37
+    },
+    {
+      "department_id": "F099409F-BACB-4CA4-3AA6-1C1B4EBD1E01",
+      "department_name": "生管课",
+      "order_lines": 9,
+      "orders": 5
+    },
+    {
+      "department_id": "51AAE52E-7D2A-42A5-5258-1C1B4EBCD180",
+      "department_name": "一部生管部",
+      "order_lines": 168,
+      "orders": 12
+    },
+    {
+      "department_id": "85CCACA3-E1C8-4F93-7443-1C7A66BFD683",
+      "department_name": "二部外协采购课",
+      "order_lines": 275,
+      "orders": 95
+    },
+    {
+      "department_id": "FE1721E1-F846-45C6-E637-1BD2DDD3029A",
+      "department_name": "采购部",
+      "order_lines": 76,
+      "orders": 37
+    },
+    {
+      "department_id": "58340C9C-53C7-48C2-4ED2-1BD2DDC24C84",
+      "department_name": "业务三部三课",
+      "order_lines": 1172,
+      "orders": 64
+    },
+    {
+      "department_id": "A8382A3B-F1F6-4DD1-C236-1BD2DDBF3229",
+      "department_name": "业务一部",
+      "order_lines": 66,
+      "orders": 2
+    },
+    {
+      "department_id": "97EEED6F-A000-4112-8E8A-1BD2DDC07F34",
+      "department_name": "业务一部开发课",
+      "order_lines": 274,
+      "orders": 44
+    },
+    {
+      "department_id": "854C4FAC-EAC5-4874-29D1-1BD2DDC18C92",
+      "department_name": "业务三部",
+      "order_lines": 8,
+      "orders": 3
+    },
+    {
+      "department_id": "EABD6B4B-6FF0-462A-D8B6-1BD2DDD34380",
+      "department_name": "外贸采购课",
+      "order_lines": 11,
+      "orders": 5
+    },
+    {
+      "department_id": "DE9227DB-08B9-4C3B-8627-1721A4E31F80",
+      "department_name": "营销中心",
+      "order_lines": 728,
+      "orders": 31
+    },
+    {
+      "department_id": "699C07AB-0863-4CB9-F9DA-18473E515941",
+      "department_name": "营销中心",
+      "order_lines": 170,
+      "orders": 9
+    },
+    {
+      "department_id": "C83BC30E-C8D4-41E6-00DE-1BD2DDD27A17",
+      "department_name": "业务四部",
+      "order_lines": 44,
+      "orders": 2
+    },
+    {
+      "department_id": "12131952-2DFD-472B-554B-1BD2DDC0C328",
+      "department_name": "业务一部物流课",
+      "order_lines": 599,
+      "orders": 66
+    },
+    {
+      "department_id": "53E3F6A9-66AC-4CE9-6B36-1BD2DDC14A4C",
+      "department_name": "业务二部一课",
+      "order_lines": 2544,
+      "orders": 433
+    },
+    {
+      "department_id": "9F4AB1B7-52A6-4049-8CB6-1BD2DDC03FD5",
+      "department_name": "业务一部四课",
+      "order_lines": 1338,
+      "orders": 130
+    },
+    {
+      "department_id": "6C972235-8351-4E6D-C15A-1BD2DDC1CE89",
+      "department_name": "业务三部一课",
+      "order_lines": 5771,
+      "orders": 995
+    }
+  ],
+  "e10_owner_departments_live_status": "PASS read-only source query",
+  "coverage": [
+    {
+      "total": 17647,
+      "allocation_matches": 0,
+      "assigned_allocation_matches": 0,
+      "null_allocation_matches": 0,
+      "customer_fallback": 38,
+      "matched_customers": 2,
+      "unmatched_customers": 115,
+      "missing_customer_code": 0,
+      "missing_customer_id": 0
+    }
+  ],
+  "allocation_order_only_overlap": [
+    {
+      "allocation_orders": 128,
+      "matching_orders": 0,
+      "rd_line_matches": 0
+    }
+  ],
+  "duplicate_sample": [
+    {
+      "order_no": "2304-202609080001",
+      "item_code": "301040003",
+      "lines": 11,
+      "line_numbers": [
+        13,
+        14,
+        15,
+        16,
+        17,
+        22,
+        23,
+        24,
+        25,
+        26,
+        29
+      ]
+    },
+    {
+      "order_no": "2301-2026A062036",
+      "item_code": "7100289-1-1/1",
+      "lines": 9,
+      "line_numbers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "order_no": "2301-2026C408006",
+      "item_code": "QT-01",
+      "lines": 9,
+      "line_numbers": [
+        31,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42
+      ]
+    }
+  ],
+  "allocation_conflicts": [
+    {
+      "conflicting_keys": 0
+    }
+  ],
+  "latest_sync": [
+    {
+      "mode": "INCREMENTAL",
+      "status": "SUCCESS",
+      "completed_at": "2026-10-07T01:39:47.121127+00:00",
+      "rows_read": 41,
+      "rows_created": 3,
+      "rows_updated": 18
+    }
+  ],
+  "health": {
+    "api": {
+      "http_status": 200,
+      "status": "ok",
+      "git_sha": {
+        "commit": "77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5",
+        "shortCommit": "77e7a8c"
+      }
+    },
+    "web": {
+      "http_status": 200,
+      "status": null,
+      "git_sha": "77e7a8cf40a60f2b743ae7947fdf11aaeb1018a5"
+    }
+  }
+}

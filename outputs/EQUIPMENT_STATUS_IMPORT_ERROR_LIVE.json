@@ -1,0 +1,20 @@
+{
+  "validationMode": "DEPLOYED_SERVICE_READ_ONLY",
+  "accountLoginTest": false,
+  "original": {
+    "total": 17,
+    "validRows": 0,
+    "errorCount": 17,
+    "errorMessage": "找不到事业部名称“研发”，请按当前导入权限范围内的设备总台账填写"
+  },
+  "corrected": {
+    "total": 17,
+    "validRows": 17,
+    "errorCount": 0,
+    "errorMessage": null
+  },
+  "noConfirmCalled": true,
+  "reportCountBefore": 5141,
+  "reportCountAfter": 5141,
+  "readOnly": true
+}

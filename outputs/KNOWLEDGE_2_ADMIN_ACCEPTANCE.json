@@ -1,0 +1,148 @@
+{
+  "validatedAt": "2026-10-09T04:55:56.205Z",
+  "scope": "Administrator only, as explicitly directed by user; employee account scenarios excluded",
+  "baseUrl": "http://192.168.1.249:15172",
+  "login": "PASS",
+  "checks": [
+    {
+      "number": 1,
+      "status": "PASS",
+      "evidence": "Authenticated production Portal -> Knowledge"
+    },
+    {
+      "number": 2,
+      "status": "PASS",
+      "evidence": "HR ACTIVE visible in real UI and authorized API"
+    },
+    {
+      "number": 3,
+      "status": "PASS",
+      "evidence": "Production UI new Page command"
+    },
+    {
+      "number": 4,
+      "status": "PASS",
+      "evidence": "Persistent UUID/pageId and DRAFT returned before manual save"
+    },
+    {
+      "number": 5,
+      "status": "PASS",
+      "evidence": "Actual immediate PNG upload without manual draft save"
+    },
+    {
+      "number": 6,
+      "status": "PASS",
+      "evidence": "Actual immediate TXT upload without manual draft save"
+    },
+    {
+      "number": 7,
+      "status": "PASS",
+      "evidence": "1200ms debounced title/body persisted through actual PATCH"
+    },
+    {
+      "number": 10,
+      "status": "PASS",
+      "evidence": "Publish V1 via production UI; default read reports version1"
+    },
+    {
+      "number": 12,
+      "status": "PASS",
+      "evidence": "Admin edits working body; actual default published API retains V1"
+    },
+    {
+      "number": 14,
+      "status": "PASS",
+      "evidence": "Production UI publishes V2"
+    },
+    {
+      "number": 15,
+      "status": "PASS",
+      "evidence": "Actual V1 history UI/API and its two file snapshots remain intact; authenticated version downloads return200/nonempty"
+    },
+    {
+      "number": 8,
+      "status": "PASS",
+      "evidence": "Actual UI creates child with correct parent"
+    },
+    {
+      "number": 9,
+      "status": "PASS",
+      "evidence": "Three-level real Page hierarchy and lazy sidebar tree"
+    },
+    {
+      "number": 23,
+      "status": "PASS",
+      "evidence": "Live breadcrumb includes authorized Space/parent/child titles"
+    },
+    {
+      "number": 16,
+      "status": "PASS",
+      "evidence": "Admin UI restricts parent; child retains inherited ACL configuration (non-admin effective denial outside scope)"
+    },
+    {
+      "number": 17,
+      "status": "PASS",
+      "evidence": "Actual existing private Page direct API denied to anonymous; other employee accounts outside scope"
+    },
+    {
+      "number": 18,
+      "status": "PASS",
+      "evidence": "Actual existing private image denied401 without authentication"
+    },
+    {
+      "number": 22,
+      "status": "PASS",
+      "evidence": "Real UI search and ACL-filtered published API return test hierarchy"
+    },
+    {
+      "number": 24,
+      "status": "PASS",
+      "evidence": "Archive subtree and restore through actual archive UI without replacing versions"
+    },
+    {
+      "number": 25,
+      "status": "PASS",
+      "evidence": "Actual trash UI restores subtree with existing published versions"
+    },
+    {
+      "number": 19,
+      "status": "PASS",
+      "evidence": "Actual docx preview UI -> commit command -> persisted draft; manual publication required"
+    },
+    {
+      "number": 20,
+      "status": "PASS",
+      "evidence": "Actual md preview UI -> commit command -> persisted draft; manual publication required"
+    },
+    {
+      "number": 21,
+      "status": "PASS",
+      "evidence": "Actual html preview UI -> commit command -> persisted draft; manual publication required"
+    }
+  ],
+  "excluded": [
+    11,
+    13
+  ],
+  "temporaryTestRootIds": [
+    "01a11f04-8eb6-704e-a2f4-40299498bc1c",
+    "01a11f04-89eb-72ef-a33d-7549d852c77b",
+    "01a11f04-84d9-7766-ba10-6f24e133ec2d",
+    "01a11f04-2654-73bc-ad3c-ebf349c67d2b"
+  ],
+  "cleanup": {
+    "removed": 0,
+    "cleanupPending": 0
+  },
+  "credentials": "Runtime stdin only; no credential/token state, traces, recordings or screenshots persisted",
+  "status": "PASS (administrator scope)",
+  "buildSha": "5e89cd7c853611202ba865b20ba4aa0ece4823d6",
+  "cleanupVerification": {
+    "pages": 0,
+    "versions": 0,
+    "attachments": 0,
+    "pendingCleanup": 0,
+    "privateObjects": 0,
+    "method": "Read-only database query and storage count after API purge; metadata audits retained"
+  }
+}

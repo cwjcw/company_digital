@@ -1,0 +1,19 @@
+3918333ee709ce05ab892bafde1d39f947867485486714c2d5c06a1d5445bce1  data/backups/four_department_tracker_20261008_184441.backup
+270b37bc07b88a433f6f69f93b604a44fa38f155c0c171e5a72a20b11122934e  data/backups/kdos_20261008_184441.backup
+b02ccb3b322c497e6181ca830fd8670171eaa2e6619699c0182a25984da50310  data/backups/uploads_20261008_184441.tar.gz
+
+Follow-up editor-cache fix backup 20261009_124217:
+数据库备份：/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261009_124217.backup
+KDOS 数据库备份：/data/automation/code/work/PMC/knweb/data/backups/kdos_20261009_124217.backup
+上传目录备份：/data/automation/code/work/PMC/knweb/data/backups/uploads_20261009_124217.tar.gz
+2f262fc8dfe7d52b2e95077246ba39f7edf54026f5a658259b68d3baae012eb0  data/backups/four_department_tracker_20261009_124217.backup
+d6c4bf2559d9e6fddbf44e7153191dded8e53ee70d421cf3acf386be121ec350  data/backups/kdos_20261009_124217.backup
+67f24c35857c39812813f4c4d9177fb83c09db4489492f059f0a416cde28c79b  data/backups/uploads_20261009_124217.tar.gz
+
+Final editor-availability fix backup 20261009_124902:
+数据库备份：/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261009_124902.backup
+KDOS 数据库备份：/data/automation/code/work/PMC/knweb/data/backups/kdos_20261009_124902.backup
+上传目录备份：/data/automation/code/work/PMC/knweb/data/backups/uploads_20261009_124902.tar.gz
+f9f2a16efe802caf0403162264feabeb84fdc1cb5385abed897d5e03672b92ff  data/backups/four_department_tracker_20261009_124902.backup
+a7adc4ac0a473559c2c1b605ce19a0aae0d15a525976a59698eb05e70208de9d  data/backups/kdos_20261009_124902.backup
+47aee68703c1f5f6555fac266ec2b6980594c5a3aba1fbcdc6d56bd7f447a65f  data/backups/uploads_20261009_124902.tar.gz

@@ -1,0 +1,269 @@
+{
+  "validatedAt": "2026-10-09T04:56:58.723782+00:00",
+  "head": "5e89cd7c853611202ba865b20ba4aa0ece4823d6",
+  "apiSha": "5e89cd7c853611202ba865b20ba4aa0ece4823d6",
+  "webSha": "5e89cd7c853611202ba865b20ba4aa0ece4823d6",
+  "health": "ok",
+  "database": {
+    "spaces": [
+      {
+        "code": "HR",
+        "name": "人力资源",
+        "status": "ACTIVE"
+      }
+    ],
+    "pages": 0,
+    "versions": 0,
+    "attachments": 0,
+    "rlsTables": 10,
+    "retiredPermissionDeclarations": 0,
+    "enabledRetiredGroups": 0,
+    "migration": "Knowledge2SpacePageModel1722920085000",
+    "foreignKeys": 22,
+    "indexes": 35,
+    "steelHistory": {
+      "total_records": 1089,
+      "unique_source_ids": 1089,
+      "price_series": 13,
+      "trading_days": 99,
+      "first_date": "2026-05-06",
+      "last_date": "2026-10-08"
+    },
+    "pendingCleanup": 0,
+    "privateObjects": 0,
+    "steelHistoryOriginalRange": {
+      "total_records": 1078,
+      "unique_source_ids": 1078,
+      "price_series": 13,
+      "trading_days": 98,
+      "first_date": "2026-05-06",
+      "last_date": "2026-09-30",
+      "range": "price_date <= 2026-09-30"
+    }
+  },
+  "postgres": {
+    "id": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+    "health": "healthy",
+    "mounts": [
+      {
+        "Destination": "/var/lib/postgresql",
+        "Mode": "rw",
+        "Propagation": "rprivate",
+        "RW": true,
+        "Source": "/data/automation/code/work/PMC/knweb/data/postgres",
+        "Type": "bind"
+      }
+    ],
+    "ports": {
+      "5432/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "15433"
+        }
+      ]
+    }
+  },
+  "apiDatabaseConnection": {
+    "host": "postgres",
+    "port": "5432"
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/spaces"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/spaces"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/knowledge/spaces/{id}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/knowledge/spaces/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/spaces/{id}/access"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/knowledge/spaces/{id}/access"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/spaces/{id}/tree"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/options"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/pages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/search"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/imports/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/imports/commit"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/attachments/cleanup"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/pages/{id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/knowledge/pages/{id}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/knowledge/pages/{id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/knowledge/pages/{id}/access"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/publish"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/move"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/archive"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/unarchive"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/restore"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/knowledge/pages/{id}/permanent"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/pages/{id}/versions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/pages/{id}/versions/{versionId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/pages/{id}/export"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/pages/{id}/attachments"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/knowledge/attachments/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/attachments/{id}"
+    }
+  ],
+  "anonymous": [
+    {
+      "path": "/api/v1/knowledge/spaces",
+      "status": 401
+    },
+    {
+      "path": "/api/v1/knowledge/search",
+      "status": 401
+    },
+    {
+      "path": "/api/v1/knowledge/pages/019a1111-1111-7111-8111-111111111111",
+      "status": 401
+    },
+    {
+      "path": "/api/v1/knowledge/attachments/019a1111-1111-7111-8111-111111111111",
+      "status": 401
+    },
+    {
+      "path": "/api/v1/knowledge/pages/019a1111-1111-7111-8111-111111111111/versions",
+      "status": 401
+    },
+    {
+      "path": "/uploads/.private/knowledge/test",
+      "status": 404
+    },
+    {
+      "path": "/api/v1/knowledge/articles",
+      "status": 404
+    },
+    {
+      "path": "/api/v1/knowledge/categories",
+      "status": 404
+    }
+  ],
+  "productionAccountAcceptance": "BLOCKED: Knowledge-authorized runtime credentials unavailable",
+  "deploymentRevalidatedAt": "2026-10-08T10:55:47.464Z",
+  "chrome": {
+    "frontendUrl": "http://192.168.1.249:15172",
+    "passedFixtureTests": 3,
+    "skippedAccountTests": 1,
+    "backend": "API fixtures only",
+    "actualProductionLogin": "BLOCKED: authorized runtime credentials unavailable"
+  },
+  "offlineNode24DocumentParsers": {
+    "md": "PASS",
+    "html": "PASS",
+    "docx": "PASS"
+  },
+  "administratorAcceptance": {
+    "status": "PASS",
+    "checksPassed": 23,
+    "excludedByUser": [
+      11,
+      13
+    ],
+    "employeeAclAcceptance": "Not executed; scope excludes employee accounts",
+    "evidence": "outputs/KNOWLEDGE_2_ADMIN_ACCEPTANCE.json",
+    "recordings": "none"
+  },
+  "followup": {
+    "changedSourceFiles": [
+      "apps/web/src/modules/knowledge/KnowledgePages.tsx",
+      "apps/web/src/modules/knowledge/KnowledgePages.spec.tsx",
+      "apps/web/src/modules/knowledge/KnowledgeContent.tsx",
+      "apps/web/src/modules/knowledge/KnowledgeContent.spec.tsx"
+    ],
+    "migration": "none",
+    "npmDependencies": "none",
+    "apiChanges": "none",
+    "webTests": 235,
+    "webTestFiles": 32,
+    "focusedTests": 23,
+    "chromeFixtureChecks": 3,
+    "backupTimestamp": "20261009_124902",
+    "deployCommand": "./scripts/deploy.sh all",
+    "note": "Editor cache initialization and TipTap availability transition autosave race fixed"
+  }
+}
