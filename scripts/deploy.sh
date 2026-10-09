@@ -108,8 +108,13 @@ deploy_document_worker() {
   postgres_id="$("${COMPOSE[@]}" ps -q postgres)"
   network="$(docker inspect "$("${COMPOSE[@]}" ps -aq document-worker)" --format '{{range $name, $details := .NetworkSettings.Networks}}{{$name}}{{end}}')"
   [[ -n "$postgres_id" && -n "$network" ]] || { echo "Worker database network unavailable" >&2; return 1; }
-  if ! docker inspect "$postgres_id" --format '{{json .NetworkSettings.Networks}}' | NETWORK_NAME="$network" node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.exit(JSON.parse(s)[process.env.NETWORK_NAME]?0:1));'; then
-    docker network connect "$network" "$postgres_id"
+  local attached alias_ready
+  attached="$(docker inspect "$postgres_id" --format '{{json .NetworkSettings.Networks}}' | NETWORK_NAME="$network" node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s)[process.env.NETWORK_NAME]?"yes":"no"));')"
+  alias_ready="$(docker inspect "$postgres_id" --format '{{json .NetworkSettings.Networks}}' | NETWORK_NAME="$network" node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s)[process.env.NETWORK_NAME]?.Aliases?.includes("postgres")?"yes":"no"));')"
+  if [[ "$alias_ready" != yes ]]; then
+    # Reattach only the new Worker network; the existing API network stays connected.
+    [[ "$attached" == no ]] || docker network disconnect "$network" "$postgres_id"
+    docker network connect --alias postgres "$network" "$postgres_id"
   fi
   "${COMPOSE[@]}" up -d --no-deps document-worker
   local attempt state
