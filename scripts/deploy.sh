@@ -103,7 +103,7 @@ deploy_web() {
 
 deploy_document_worker() {
   # Create the new internal network without recreating the retained PostgreSQL service.
-  "${COMPOSE[@]}" create --no-deps document-worker
+  "${COMPOSE[@]}" up --no-start --no-deps document-worker
   local postgres_id network
   postgres_id="$("${COMPOSE[@]}" ps -q postgres)"
   network="$(docker inspect "$("${COMPOSE[@]}" ps -aq document-worker)" --format '{{range $name, $details := .NetworkSettings.Networks}}{{$name}}{{end}}')"
