@@ -184,8 +184,9 @@ describe("Knowledge 2 Wiki", () => {
   });
   it("creates a persistent page immediately and enters inline editor", async () => {
     mount();
-    fireEvent.mouseOver(await screen.findByRole("button", { name: "新建" }));
+    fireEvent.mouseOver(await screen.findByRole("button", { name: "新建知识" }));
     fireEvent.click(await screen.findByText("在线编写"));
+    fireEvent.click(await screen.findByRole("button", { name: "创建并编写" }));
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
         "/knowledge/pages",
@@ -199,6 +200,17 @@ describe("Knowledge 2 Wiki", () => {
     expect(
       screen.getByRole("button", { name: "上传附件 / 图片" }),
     ).toBeEnabled();
+  });
+  it.each(["上传文件", "从文档导入为在线文章"])("opens %s from the unified menu with the same root location", async (label) => {
+    mount();
+    const menu = await screen.findByRole("button", { name: "新建知识" });
+    expect(screen.queryByRole("button", { name: "导入" })).toBeNull();
+    fireEvent.mouseOver(menu);
+    fireEvent.click(await screen.findByText(label, { exact: true }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: label })).toBeVisible());
+    expect(screen.getByLabelText("保存位置")).toHaveTextContent("人力资源 > 空间根目录");
+    expect(screen.queryByLabelText("页面标签")).toBeNull();
+    expect(screen.queryByLabelText("导入页面标签")).toBeNull();
   });
   it("waits for fresh working version before mounting a cached draft editor", async () => {
     const client = new QueryClient({
@@ -264,13 +276,13 @@ describe("Knowledge 2 Wiki", () => {
     });
     mount(undefined, viewer, "/knowledge/pages/page");
     await screen.findByText("制度正文");
-    expect(screen.queryByRole("button", { name: "新建" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建知识" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "页面更多操作" }));
     expect(screen.queryByText("编辑页面")).toBeNull();
   });
   it("search sends Chinese term and server pagination", async () => {
     mount();
-    await screen.findByRole("button", { name: "新建" });
+    await screen.findByRole("button", { name: "新建知识" });
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索知识页面" }), {
       target: { value: "请假" },
     });

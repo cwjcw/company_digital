@@ -25,7 +25,7 @@ import { KnowledgePreviewService } from "./knowledge.preview.service";
 import { knowledgeDiskUpload } from "./knowledge.upload";
 import { knowledgeByteRange } from "./knowledge.range";
 import type { Request, Response } from "express";
-import type { KnowledgePageInput } from "@kdos/contracts";
+import type { KnowledgePageInput, KnowledgeSpaceCreateInput } from "@kdos/contracts";
 import { AuthGuard } from "../../auth";
 import {
   OBJECT_STORAGE,
@@ -58,7 +58,7 @@ export class KnowledgeController {
     return this.queries.spaces(this.actor(req), archived === "true");
   }
   @Post("spaces") createSpace(
-    @Body() body: Record<string, unknown>,
+    @Body() body: KnowledgeSpaceCreateInput,
     @Req() req: KnowledgeRequest,
   ) {
     return this.application.createSpace(body, this.actor(req));
@@ -99,6 +99,13 @@ export class KnowledgeController {
   }
   @Get("options") options(@Req() req: KnowledgeRequest) {
     return this.queries.options(this.actor(req));
+  }
+  @Get("spaces/:id/locations") locations(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query() input: Record<string, unknown>,
+    @Req() req: KnowledgeRequest,
+  ) {
+    return this.queries.locations(id, input, this.actor(req));
   }
   @Get("pages") pages(
     @Query() input: Record<string, unknown>,

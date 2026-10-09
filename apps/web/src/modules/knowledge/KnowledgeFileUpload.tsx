@@ -6,7 +6,6 @@ import {
   List,
   Modal,
   Progress,
-  Select,
   Space,
   Upload,
 } from "antd";
@@ -14,7 +13,7 @@ import { InboxOutlined } from "@ant-design/icons";
 import type { KnowledgeSpace } from "@kdos/contracts";
 import { api } from "../../api";
 import { uploadKnowledgeFile } from "./knowledge-file-upload";
-import { KnowledgePageSelect } from "./KnowledgePageSelect";
+import { KnowledgeLocationPicker } from "./KnowledgeLocationPicker";
 type Entry = {
   id: string;
   file: File;
@@ -34,20 +33,19 @@ export function KnowledgeFileUpload({
   spaces,
   spaceId: initial,
   parentId: initialParent,
-  position,
   onClose,
   onCreated,
 }: {
   spaces: KnowledgeSpace[];
   spaceId: string;
   parentId?: string;
-  position?: string;
   onClose: () => void;
   onCreated: (ids: string[]) => void;
 }) {
   const { message } = App.useApp();
   const [spaceId, setSpaceId] = useState(initial),
     [parentId, setParentId] = useState(initialParent),
+    [validLocation, setValidLocation] = useState(false),
     [entries, setEntries] = useState<Entry[]>([]),
     [busy, setBusy] = useState(false),
     [limits, setLimits] = useState<{
@@ -62,7 +60,7 @@ export function KnowledgeFileUpload({
       old.map((e) => (e.id === id ? { ...e, ...changes } : e)),
     );
   const run = async () => {
-    if (running.current) return;
+    if (running.current || !validLocation) return;
     running.current = true;
     setBusy(true);
     try {
@@ -118,7 +116,7 @@ export function KnowledgeFileUpload({
           <Button
             type="primary"
             loading={busy}
-            disabled={!entries.some((e) => e.status !== "done")}
+            disabled={!validLocation || !entries.some((e) => e.status !== "done")}
             onClick={() => void run()}
           >
             上传为草稿 / 重试失败项
@@ -130,37 +128,10 @@ export function KnowledgeFileUpload({
         type="info"
         message="每个文件创建一个独立知识草稿，继承目标位置权限；上传成功后后台生成预览，需要手动发布。"
       />
-      <p>
-        目标位置：
-        {spaceId === initial && parentId === initialParent && position
-          ? position
-          : spaces.find((s) => s.id === spaceId)?.name}
-        {parentId &&
-        !(spaceId === initial && parentId === initialParent && position)
-          ? " > 已选父页面"
-          : ""}
-      </p>
-      <Space direction="vertical" style={{ width: "100%", margin: "12px 0" }}>
-        <Select
-          aria-label="上传目标空间"
-          style={{ width: "100%" }}
-          value={spaceId}
-          disabled={busy || entries.some((e) => e.status === "done")}
-          options={spaces
-            .filter((s) => s.canCreate)
-            .map((s) => ({ value: s.id, label: s.name }))}
-          onChange={(id) => {
-            setSpaceId(id);
-            setParentId(undefined);
-          }}
-        />
-        <KnowledgePageSelect
-          disabled={busy || entries.some((e) => e.status === "done")}
-          spaceId={spaceId}
-          value={parentId}
-          onChange={setParentId}
-        />
-      </Space>
+      <KnowledgeLocationPicker spaces={spaces} value={{ spaceId, parentId }}
+        disabled={busy || entries.some((e) => e.status === "done")}
+        onValidityChange={setValidLocation}
+        onChange={(location) => { setSpaceId(location.spaceId); setParentId(location.parentId); }} />
       <Upload.Dragger
         multiple
         accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.txt"

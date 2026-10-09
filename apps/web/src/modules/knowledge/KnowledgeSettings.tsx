@@ -25,6 +25,7 @@ import {
   type PlatformTableQuery,
 } from "../../shared/platform-table";
 import { KnowledgeAccess } from "./KnowledgeAccess";
+import { KnowledgeSpaceIcon, KnowledgeSpaceIconPicker } from "./KnowledgeSpaceIcon";
 export function KnowledgeSettings() {
   const [query, setQuery] = useState<PlatformTableQuery>(blankPlatformQuery()),
     [editing, setEditing] = useState<Partial<KnowledgeSpace>>(),
@@ -55,11 +56,10 @@ export function KnowledgeSettings() {
   const show = (row: Partial<KnowledgeSpace>) => {
     setEditing(row);
     form.setFieldsValue({
-      code: "",
       name: "",
       description: "",
       icon: "book",
-      sortOrder: 0,
+      sortOrder: undefined,
       ...row,
     });
   };
@@ -131,7 +131,7 @@ export function KnowledgeSettings() {
             width: 240,
             render: (name, row) => (
               <Space>
-                <span>{name}</span>
+                <KnowledgeSpaceIcon value={row.icon} /><span>{name}</span>
                 {manageable.data?.find((s) => s.id === row.id)?.canManage &&
                   hasResourcePermission("knowledge-spaces", "update") && (
                     <>
@@ -202,38 +202,16 @@ export function KnowledgeSettings() {
         confirmLoading={busy}
       >
         <Form form={form} layout="vertical">
-          {["code", "name", "description", "icon"]
-            .filter(
-              (k) =>
-                !editing?.id ||
-                hasFieldPermission("knowledge-spaces", k, "update"),
-            )
-            .map((k) => (
-              <Form.Item
-                key={k}
-                name={k}
-                label={
-                  (
-                    {
-                      code: "编码",
-                      name: "名称",
-                      description: "说明",
-                      icon: "图标",
-                    } as Record<string, string>
-                  )[k]
-                }
-                rules={[{ required: ["code", "name"].includes(k) }]}
-              >
-                <Input />
-              </Form.Item>
-            ))}
-          <Form.Item name="sortOrder" label="顺序">
-            <InputNumber
-              disabled={Boolean(
-                editing?.id &&
-                !hasFieldPermission("knowledge-spaces", "sortOrder", "update"),
-              )}
-            />
+          {["name", "description"].filter((field) => !editing?.id || hasFieldPermission("knowledge-spaces", field, "update")).map((field) => (
+            <Form.Item key={field} name={field} label={field === "name" ? "空间名称" : "空间说明"}
+              rules={[{ required: field === "name", whitespace: true }]}>
+              {field === "name" ? <Input maxLength={100} /> : <Input.TextArea maxLength={2000} />}
+            </Form.Item>
+          ))}
+          {(!editing?.id || hasFieldPermission("knowledge-spaces", "icon", "update")) && <Form.Item name="icon" label="空间图标"><KnowledgeSpaceIconPicker disabled={busy} /></Form.Item>}
+          <Form.Item name="sortOrder" label="显示顺序（可选）">
+            <InputNumber placeholder="自动排列" precision={0}
+              disabled={Boolean(editing?.id && !hasFieldPermission("knowledge-spaces", "sortOrder", "update"))} />
           </Form.Item>
         </Form>
       </Modal>

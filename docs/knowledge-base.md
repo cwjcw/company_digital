@@ -70,3 +70,9 @@ DOCX、Markdown、HTML：预览 → 选择空间/父页面/标签/继承或限�
 `pnpm --filter @tracker/api build` 后运行 `node scripts/validate-knowledge.mjs`，只创建、使用、删除 `knowledge_test_*` 隔离数据库；验证旧→新模型、全部历史迁移重放、真实 RLS/树/ACL/发布/附件/导入/搜索/审计及 EXPLAIN。报告 `outputs/KNOWLEDGE_2_DATABASE_VALIDATION.json`。API/Web 单测及 Chrome 场景见 Knowledge 测试文件；生产账号验收只接受本轮授权的运行时凭据，禁止临时JWT、生产密码/权限改动或复用仅授权PMC Phase5的凭据。
 
 上线按标准双库+uploads备份/SHA256 → 新API镜像migration → deploy all → healthcheck，源码HEAD、API和Web版本应一致。执行过的历史 migration 不修改，自动回退新 migration 被明确禁止，应按已校验的升级前备份恢复。人工检查清单及真实结果在 `outputs/KNOWLEDGE_2_ACCEPTANCE.md`，未实际验收的项目不得标为PASS。
+
+## Knowledge 2.1 创建体验
+
+“新建知识”集中在线编写、上传原始文件、从DOCX/Markdown/HTML导入在线文章；上传与导入保持独立服务。创建前统一显示保存位置，点击“更改位置”才展开Space与懒加载页面树。默认采用当前Space/页面，空间根目录明确显示，移动目标排除本页及后代。`GET /api/v1/knowledge/spaces/:id/locations` 支持 `parentId`、`search`（标题）、`selectedId`、`excludeId`、`page/pageSize`，复用创建动作的数据范围、租户、字段读权限与祖先ACL，分页返回完整breadcrumb；最终写入再次由现有Application Commands授权。
+
+创建Space契约为 `{name, description?, icon?, sortOrder?}`，不接收code/status；code由UUIDv7身份生成`SPACE_<32位UUID>`，保留现有租户唯一约束，唯一冲突在新事务中最多重试两次。未填写顺序时在租户事务锁内按现有最大顺序+10排列。已有空间code不变；更新仍使用expectedVersion与原字段权限。图标选择与侧栏/管理列表共用现有Ant Design图标映射，默认book。数据库结构与依赖不变。

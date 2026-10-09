@@ -106,7 +106,24 @@ export class KnowledgeQueryService {
       actor,
     );
   }
-  list(input: Record<string, unknown>, actor: KnowledgeActor, action = "read") {
+  async locations(spaceId: string, input: Record<string, unknown>, actor: KnowledgeActor) {
+    assertKnowledgeAction(actor, "knowledge-pages", "read");
+    assertKnowledgeFields(actor, "knowledge-pages", ["title", "spaceId", "parentId"], "read");
+    assertKnowledgeFields(actor, "knowledge-spaces", ["name"], "read");
+    const search = knowledgeText(input.search, "搜索词", 200);
+    const result = await this.list({
+      spaceId: knowledgeId(spaceId), mode: "working", page: input.page,
+      pageSize: input.pageSize, parentId: input.parentId,
+      tree: !search && !input.selectedId,
+      ...(input.selectedId ? { ids: [knowledgeId(input.selectedId)] } : {}),
+      ...(search ? { filterGroup: { logic: "AND", rules: [{ field: "title", operator: "contains", value: search }] } } : {}),
+    }, actor, "create", input.excludeId ? knowledgeId(input.excludeId) : undefined);
+    return { ...result, rows: result.rows.map((row: KnowledgeRow) => ({
+      id: row.id, title: row.title, parentId: row.parentId,
+      breadcrumb: row.breadcrumb, hasChildren: row.hasChildren,
+    })) };
+  }
+  list(input: Record<string, unknown>, actor: KnowledgeActor, action = "read", excludeSubtree?: string) {
     const search = knowledgeText(input.search, "搜索词", 200);
     const mode = search ? "published" : this.mode(input.mode);
     if (search) {
@@ -135,6 +152,10 @@ export class KnowledgeQueryService {
           await this.access.clause(actor, params, mode, action, undefined, m),
         ];
       const expressions = knowledgeExpressions("knowledge-pages", mode);
+      if (excludeSubtree) {
+        const index = params.push(excludeSubtree);
+        clauses.push(`NOT EXISTS (${this.access.chain()} SELECT 1 FROM chain WHERE id=$${index}::uuid)`);
+      }
       if (input.spaceId) {
         assertKnowledgeFields(actor, "knowledge-pages", ["spaceId"], "read");
         clauses.push(
@@ -250,7 +271,7 @@ export class KnowledgeQueryService {
           actor,
           p,
           mode,
-          "read",
+          action,
           undefined,
           m,
         );

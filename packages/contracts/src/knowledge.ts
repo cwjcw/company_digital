@@ -87,6 +87,14 @@ export type KnowledgePageInput = {
   tags?: string[];
   sortOrder?: number;
 };
+export type KnowledgeSpaceCreateInput = {
+  name: string;
+  description?: string;
+  icon?: string;
+  sortOrder?: number;
+};
+export type KnowledgeLocation = Pick<KnowledgePage, "id" | "title" | "parentId" | "breadcrumb" | "hasChildren">;
+export type KnowledgeLocationResult = { rows: KnowledgeLocation[]; total: number; page: number; pageSize: number };
 export type KnowledgeImportPreview = {
   token: string;
   title: string;

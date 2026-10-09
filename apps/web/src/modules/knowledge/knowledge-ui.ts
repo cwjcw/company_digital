@@ -56,3 +56,9 @@ export function knowledgeCanRetry() {
     return false;
   }
 }
+
+export function knowledgeLocationUrl(spaceId: string, parameters: Record<string, string | undefined>) {
+  return `/knowledge/spaces/${spaceId}/locations?${new URLSearchParams(
+    Object.entries(parameters).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )}`;
+}

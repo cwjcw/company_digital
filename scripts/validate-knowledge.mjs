@@ -76,7 +76,7 @@ try {
     validatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(
-    path.join(root, "outputs/KNOWLEDGE_2_1_DATABASE_VALIDATION.json"),
+    path.join(root, `outputs/${process.env.KNOWLEDGE_VALIDATION_REPORT ?? "KNOWLEDGE_2_1_DATABASE_VALIDATION.json"}`),
     JSON.stringify(result, null, 2) + "\n",
   );
   console.log(

@@ -14,7 +14,7 @@ import { KnowledgeExportService } from "./knowledge.export.service";
 const fileId = "01926baa-1000-7000-8000-000000000001";
 describe("private file HTTP transport", () => {
   let app: INestApplication;
-  const queries = { attachment: jest.fn() },
+  const queries = { attachment: jest.fn(), locations: jest.fn() },
     previews = { preview: jest.fn() },
     storage = { stat: jest.fn(), openStream: jest.fn() };
   beforeAll(async () => {
@@ -63,6 +63,15 @@ describe("private file HTTP transport", () => {
         ),
       ),
     );
+  });
+  it("location endpoint uses the Query Service and keeps authentication", async () => {
+    queries.locations.mockResolvedValue({ rows: [], total: 0, page: 2, pageSize: 100 });
+    const spaceId = "0199e000-0000-7000-8000-000000000002";
+    await request(app.getHttpServer()).get(`/knowledge/spaces/${spaceId}/locations?page=2`).expect(403);
+    const response = await request(app.getHttpServer()).get(`/knowledge/spaces/${spaceId}/locations?page=2`)
+      .set("Authorization", "Bearer fixture").expect(200);
+    expect(queries.locations).toHaveBeenCalledWith(spaceId, { page: "2" }, expect.any(Object));
+    expect(response.body.page).toBe(2);
   });
   it("rejects unauthenticated Range before querying metadata or storage", async () => {
     await request(app.getHttpServer())

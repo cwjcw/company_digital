@@ -4,7 +4,6 @@ import {
   Button,
   Input,
   Modal,
-  Select,
   Space,
   Switch,
   Upload,
@@ -14,7 +13,7 @@ import type {
   KnowledgeImportPreview,
   KnowledgeSpace,
 } from "@kdos/contracts";
-import { KnowledgePageSelect } from "./KnowledgePageSelect";
+import { KnowledgeLocationPicker } from "./KnowledgeLocationPicker";
 import { KnowledgeAccessFields } from "./KnowledgeAccess";
 import { KnowledgeContent } from "./KnowledgeContent";
 import { hasFieldPermission } from "../../shared/KdosDataTable";
@@ -36,7 +35,7 @@ export function KnowledgeImport({
     [space, setSpace] = useState(spaceId),
     [parent, setParent] = useState(parentId ?? ""),
     [title, setTitle] = useState(""),
-    [tags, setTags] = useState<string[]>([]),
+    [validLocation, setValidLocation] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [restricted, setRestricted] = useState(false),
@@ -61,7 +60,7 @@ export function KnowledgeImport({
     }
   };
   const commit = async () => {
-    if (!preview) return;
+    if (!preview || !validLocation) return;
     setBusy(true);
     setError("");
     try {
@@ -72,7 +71,6 @@ export function KnowledgeImport({
           title,
           spaceId: space,
           parentId: parent || null,
-          tags,
           ...(restricted ? { restricted: true, entries } : {}),
         }),
       });
@@ -86,11 +84,13 @@ export function KnowledgeImport({
   return (
     <Modal
       open
-      title="导入知识页面"
+      title="从文档导入为在线文章"
       onCancel={onClose}
+      closable={!busy}
+      maskClosable={!busy}
       onOk={() => void commit()}
       okText="导入为草稿"
-      okButtonProps={{ disabled: !preview || !title.trim() }}
+      okButtonProps={{ disabled: busy || !validLocation || !preview || !title.trim() }}
       confirmLoading={busy}
       width={760}
     >
@@ -111,39 +111,15 @@ export function KnowledgeImport({
         >
           <Button loading={busy}>选择文档并预览</Button>
         </Upload>
-        <Select
-          aria-label="导入目标空间"
-          value={space}
-          style={{ width: "100%" }}
-          options={spaces
-            .filter((s) => s.canCreate)
-            .map((s) => ({ value: s.id, label: s.name }))}
-          onChange={(id) => {
-            setSpace(id);
-            setParent("");
-            setRestricted(false);
-            setEntries([]);
-          }}
-        />
-        <KnowledgePageSelect
-          label="导入父页面"
-          spaceId={space}
-          value={parent || undefined}
-          onChange={(id) => setParent(id ?? "")}
-        />
+        <KnowledgeLocationPicker spaces={spaces} value={{ spaceId: space, parentId: parent || undefined }} disabled={busy}
+          onValidityChange={setValidLocation} onChange={(location) => {
+            setSpace(location.spaceId); setParent(location.parentId ?? ""); setRestricted(false); setEntries([]);
+          }} />
         <Input
           aria-label="导入页面标题"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="页面标题"
-        />
-        <Select
-          aria-label="导入页面标签"
-          mode="tags"
-          value={tags}
-          onChange={setTags}
-          style={{ width: "100%" }}
-          placeholder="标签"
         />
         {spaces.find((s) => s.id === space)?.accessLevel === "FULL_ACCESS" &&
           hasFieldPermission("knowledge-pages", "access", "update") && (

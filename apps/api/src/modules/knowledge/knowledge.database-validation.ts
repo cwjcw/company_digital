@@ -212,9 +212,64 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   assert.equal((await query.spaces(admin)).length, 1);
   check("HR code is idempotent");
   const second = await app.createSpace(
-    { code: "OPS", name: "运营知识", sortOrder: 10 },
+    { name: "运营知识", sortOrder: 10 },
     admin,
   );
+  // UX acceptance uses a separate tenant; no existing Space codes or icons change.
+  const uxAdmin = { ...admin, tenantId: "KNOWLEDGE_UX_TEST" };
+  const uxEditor = { ...editor, tenantId: uxAdmin.tenantId };
+  const uxViewer = { ...viewer, tenantId: uxAdmin.tenantId };
+  const uxSpaces = await Promise.all(Array.from({ length: 4 }, (_, index) =>
+    app.createSpace({ name: `并发空间${index}`, icon: "research" }, uxAdmin)));
+  const uxSpaceRows = await query.spaces(uxAdmin);
+  assert.equal(new Set(uxSpaceRows.map((space: any) => space.code)).size, 4);
+  assert.deepEqual(uxSpaceRows.map((space: any) => space.sortOrder), [10, 20, 30, 40]);
+  assert(uxSpaceRows.every((space: any) => /^SPACE_[0-9a-f]{32}$/.test(space.code) && space.icon === "research"));
+  check("UX concurrent Space creates generate unique stable codes and automatic order");
+  await assert.rejects(async () => app.createSpace({ code: "MANUAL", name: "不能自填编码" }, uxAdmin), /字段/);
+  const uxSpace = uxSpaces[0]!.id;
+  const uxRoots: Array<{ id: string; version: number }> = [];
+  for (let i = 0; i < 105; i++) uxRoots.push(await app.createPage({ spaceId: uxSpace, title: `位置${i}` }, uxAdmin));
+  const uxChild = await app.createPage({ spaceId: uxSpace, parentId: uxRoots[0]!.id, title: "同名制度" }, uxAdmin);
+  const uxOtherChild = await app.createPage({ spaceId: uxSpace, parentId: uxRoots[1]!.id, title: "同名制度" }, uxAdmin);
+  const uxPage1 = await query.locations(uxSpace, { pageSize: 100 }, uxEditor);
+  const uxPage2 = await query.locations(uxSpace, { pageSize: 100, page: 2 }, uxEditor);
+  assert.equal(uxPage1.total, 105); assert.equal(uxPage1.rows.length, 100); assert.equal(uxPage2.rows.length, 5);
+  assert(uxPage1.rows[0].hasChildren);
+  assert.equal((await query.locations(uxSpace, { parentId: uxRoots[0]!.id }, uxEditor)).rows[0].id, uxChild.id);
+  check("UX lazy target tree pages beyond100 and expands child levels");
+  const uxMatches = await query.locations(uxSpace, { search: "同名制度" }, uxEditor);
+  assert.equal(uxMatches.rows.length, 2);
+  assert.notDeepEqual(uxMatches.rows[0].breadcrumb, uxMatches.rows[1].breadcrumb);
+  assert.equal((await query.locations(uxSpace, { selectedId: uxOtherChild.id }, uxEditor)).rows[0].breadcrumb.length, 3);
+  check("UX target title search preserves drafts and distinguishes same titles by complete path");
+  assert.equal((await query.locations(uxSpace, { search: "同名制度", excludeId: uxRoots[0]!.id }, uxEditor)).rows.length, 1);
+  assert.equal((await query.locations(uxSpace, { selectedId: uxRoots[0]!.id, excludeId: uxRoots[0]!.id }, uxEditor)).rows.length, 0);
+  await assert.rejects(async () => app.move(uxRoots[0]!.id, { parentId: uxChild.id, spaceId: uxSpace, expectedVersion: 1 }, uxAdmin), /后代/);
+  check("UX target query excludes moving page and descendants; command still rejects cycles");
+  await app.setAccess("space", uxSpace, { expectedVersion: 1, entries: [
+    { subjectType: "USER", subjectId: a, accessLevel: "EDITOR" },
+    { subjectType: "ALL", subjectId: null, accessLevel: "VIEWER" },
+  ] }, uxAdmin);
+  assert.equal((await query.locations(uxSpace, {}, { ...otherEditor, tenantId: uxAdmin.tenantId })).total, 0);
+  await assert.rejects(async () => query.locations(uxSpace, {}, uxViewer), /权限/);
+  await app.setAccess("page", uxRoots[0]!.id, { expectedVersion: 1, restricted: true,
+    entries: [{ subjectType: "USER", subjectId: a, accessLevel: "VIEWER" }] }, uxAdmin);
+  assert.equal((await query.locations(uxSpace, { selectedId: uxChild.id }, uxEditor)).rows.length, 0);
+  await assert.rejects(async () => app.createPage({ spaceId: uxSpace, parentId: uxChild.id }, uxEditor), /不存在/);
+  const uxNoTitle = { ...uxEditor, permissions: uxEditor.permissions.filter((permission) => permission !== "knowledge-pages:title:read") };
+  await assert.rejects(async () => query.locations(uxSpace, {}, uxNoTitle), /字段/);
+  await app.setAccess("space", uxSpace, { expectedVersion: 2, entries: [
+    { subjectType: "USER", subjectId: a, accessLevel: "EDITOR" },
+    { subjectType: "USER", subjectId: b, accessLevel: "EDITOR" },
+  ] }, uxAdmin);
+  const uxOwn = { ...uxEditor, userId: b, tableDataScopes: [
+    { resource: "knowledge-spaces", scope: "ALL" as const, actions: ["read"] },
+    { resource: "knowledge-pages", scope: "OWN" as const, actions: ["read", "create", "update"] },
+  ] };
+  assert.equal((await query.locations(uxSpace, {}, uxOwn)).total, 0);
+  assert.equal((await query.spaces(admin))[0].code, "HR");
+  check("UX target permissions/ancestor ACL/field scope/data scope are enforced; existing HR code retained");
   let sv = await app.setAccess(
     "space",
     hr.id,

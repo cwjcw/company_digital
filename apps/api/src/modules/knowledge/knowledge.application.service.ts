@@ -54,7 +54,7 @@ export class KnowledgeApplicationService {
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
   accessTransaction<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>) { return this.access.transaction(actor, work); }
-  command<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>) {
+  command<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>, uniqueRetries = 0): Promise<T> {
     return this.access
       .transaction(actor, async (m) => {
         await m.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
@@ -63,6 +63,8 @@ export class KnowledgeApplicationService {
         return work(m);
       })
       .catch((e: { code?: string }) => {
+        if (e.code === "23505" && uniqueRetries > 0)
+          return this.command(actor, work, uniqueRetries - 1);
         if (e.code === "23505")
           throw new BadRequestException("知识空间编码、页面路径或标签重复");
         if (["23503", "23514", "22P02"].includes(e.code ?? ""))
@@ -72,16 +74,16 @@ export class KnowledgeApplicationService {
   }
   createSpace(input: Record<string, unknown>, actor: KnowledgeActor) {
     assertKnowledgeAction(actor, "knowledge-spaces", "create");
-    this.keys(input, spaceFields);
+    this.keys(input, spaceFields.filter((field) => !["code", "status"].includes(field)));
     assertKnowledgeFields(actor, "knowledge-spaces", Object.keys(input));
     return this.command(actor, async (m) => {
       const id = uuidv7(),
-        code = knowledgeText(input.code, "空间编码", 64, true),
+        code = `SPACE_${id.replace(/-/g, "")}`,
         name = knowledgeText(input.name, "空间名称", 100, true);
-      if (!/^[A-Za-z0-9_-]+$/.test(code))
-        throw new BadRequestException(
-          "空间编码仅使用英文字母、数字、下划线和连字符",
-        );
+      const [{ nextOrder }] = await m.query(
+        'SELECT COALESCE(max(sort_order),0)+10 AS "nextOrder" FROM knowledge_spaces WHERE tenant_id=$1',
+        [actor.tenantId],
+      );
       await m.query(
         `INSERT INTO knowledge_spaces(id,tenant_id,code,name,description,icon,sort_order,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::text)`,
         [
@@ -91,7 +93,7 @@ export class KnowledgeApplicationService {
           name,
           knowledgeText(input.description, "说明", 2000),
           knowledgeText(input.icon ?? "book", "图标", 50),
-          this.sort(input.sortOrder),
+          this.sort(input.sortOrder ?? nextOrder),
           actor.userId,
         ],
       );
@@ -122,7 +124,7 @@ export class KnowledgeApplicationService {
         name,
       });
       return { id, version: 1 };
-    });
+    }, 2);
   }
   updateSpace(
     id: string,

@@ -55,7 +55,8 @@ import { KnowledgeFileUpload } from "./KnowledgeFileUpload";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { KnowledgeAccess } from "./KnowledgeAccess";
 import { KnowledgeImport } from "./KnowledgeImport";
-import { KnowledgePageSelect } from "./KnowledgePageSelect";
+import { KnowledgeLocationPicker, type KnowledgeLocationValue } from "./KnowledgeLocationPicker";
+import { KnowledgeSpaceIcon } from "./KnowledgeSpaceIcon";
 import { KnowledgeSettings } from "./KnowledgeSettings";
 import {
   KnowledgeFileContext,
@@ -214,6 +215,9 @@ export function KnowledgeWiki() {
     client = useQueryClient();
   const [spaceId, setSpaceId] = useState<string>(),
     [refresh, setRefresh] = useState(0),
+    [creating, setCreating] = useState<KnowledgeLocationValue>(),
+    [validCreation, setValidCreation] = useState(false),
+    [validMove, setValidMove] = useState(false),
     [importing, setImporting] = useState(false),
     [fileUploading, setFileUploading] = useState(false),
     [accessing, setAccessing] = useState(false),
@@ -315,18 +319,22 @@ export function KnowledgeWiki() {
     },
     [navigate, safely],
   );
-  const create = async (parentId?: string) => {
-    if (!selected || busy) return;
+  const beginCreate = (parentId?: string) => {
+    if (selected) setCreating({ spaceId: selected.id, parentId });
+  };
+  const create = async () => {
+    if (!creating || !validCreation || busy) return;
     setBusy(true);
     try {
       await draft.current?.flush();
       const p = await api<{ id: string }>("/knowledge/pages", {
         method: "POST",
         body: JSON.stringify({
-          spaceId: selected.id,
-          parentId: parentId ?? null,
+          spaceId: creating.spaceId,
+          parentId: creating.parentId ?? null,
         }),
       });
+      setCreating(undefined);
       invalidate();
       setShowWorking(true);
       navigate(`/knowledge/pages/${p.id}?edit=1`);
@@ -362,7 +370,7 @@ export function KnowledgeWiki() {
     }
   };
   const move = async () => {
-    if (!row) return;
+    if (!row || !validMove || busy) return;
     setBusy(true);
     try {
       await api(`/knowledge/pages/${row.id}/move`, {
@@ -405,7 +413,7 @@ export function KnowledgeWiki() {
               {
                 key: "child",
                 label: "新建子页面",
-                onClick: () => void create(row.id),
+                onClick: () => void safely(() => beginCreate(row.id)),
               },
             ]
           : []),
@@ -692,7 +700,7 @@ export function KnowledgeWiki() {
           value={spaceId}
           loading={spaces.isLoading}
           style={{ width: "100%" }}
-          options={spaces.data?.map((s) => ({ value: s.id, label: s.name }))}
+          options={spaces.data?.map((s) => ({ value: s.id, label: <Space><KnowledgeSpaceIcon value={s.icon} />{s.name}</Space> }))}
           onChange={(id) =>
             void safely(() => {
               setSpaceId(id);
@@ -709,34 +717,24 @@ export function KnowledgeWiki() {
             <Dropdown
               menu={{
                 items: [
-                  { key: "rich", label: "在线编写" },
-                  {
-                    key: "file",
-                    label: "上传文件",
-                    disabled: !hasFieldPermission(
-                      "knowledge-pages",
-                      "attachmentIds",
-                      "update",
-                    ),
-                  },
+                  { key: "rich", label: <div><span>在线编写</span><div className="knowledge-menu-description">直接在网页中编写知识内容。</div></div> },
+                  { key: "file", label: <div><span>上传文件</span><div className="knowledge-menu-description">上传 Word、PDF、PPT、Excel 等原始文件，支持批量上传和在线预览。</div></div>,
+                    disabled: !hasFieldPermission("knowledge-pages", "attachmentIds", "update") },
+                  { key: "import", label: <div><span>从文档导入为在线文章</span><div className="knowledge-menu-description">将 DOCX、Markdown、HTML 转换为可在网页中继续编辑的正文。</div></div>,
+                    disabled: !hasResourcePermission("knowledge-pages", "import") },
                 ],
                 onClick: ({ key }) => {
-                  if (key === "rich") void create();
-                  else void safely(() => setFileUploading(true));
+                  if (key === "rich") void safely(() => beginCreate(row?.spaceId === selected.id ? row.id : undefined));
+                  else if (key === "file") void safely(() => setFileUploading(true));
+                  else void safely(() => setImporting(true));
                 },
               }}
             >
-              <Button aria-label="新建" icon={<PlusOutlined />} loading={busy}>
-                新建
+              <Button aria-label="新建知识" icon={<PlusOutlined />} loading={busy}>
+                新建知识
               </Button>
             </Dropdown>
           )}
-          {selected?.canCreate &&
-            hasResourcePermission("knowledge-pages", "import") && (
-              <Button onClick={() => void safely(() => setImporting(true))}>
-                导入
-              </Button>
-            )}
         </Space>
         {selected &&
           ["EDITOR", "FULL_ACCESS"].includes(selected.accessLevel ?? "") &&
@@ -799,16 +797,17 @@ export function KnowledgeWiki() {
         />
         {body}
       </main>
+      <Modal open={Boolean(creating)} title="在线编写" okText="创建并编写"
+        onCancel={() => setCreating(undefined)} onOk={() => void create()} confirmLoading={busy}
+        okButtonProps={{ disabled: !validCreation }}>
+        {creating && <KnowledgeLocationPicker spaces={spaces.data ?? []} value={creating}
+          onChange={setCreating} onValidityChange={setValidCreation} disabled={busy} />}
+      </Modal>
       {fileUploading && selected && (
         <KnowledgeFileUpload
           spaces={spaces.data ?? []}
           spaceId={selected.id}
           parentId={row?.spaceId === selected.id ? row.id : undefined}
-          position={
-            row?.spaceId === selected.id
-              ? row.breadcrumb?.map((b) => b.title).join(" > ")
-              : selected.name
-          }
           onClose={() => setFileUploading(false)}
           onCreated={(ids) => {
             setFileUploading(false);
@@ -822,7 +821,7 @@ export function KnowledgeWiki() {
         <KnowledgeImport
           spaces={spaces.data ?? []}
           spaceId={selected.id}
-          parentId={row?.id}
+          parentId={row?.spaceId === selected.id ? row.id : undefined}
           onClose={() => setImporting(false)}
           onCreated={(id) => {
             setImporting(false);
@@ -848,31 +847,16 @@ export function KnowledgeWiki() {
       <Modal
         open={moving}
         title="移动页面及子树 / 调整顺序"
+        okButtonProps={{ disabled: !validMove }}
         onCancel={() => setMoving(false)}
         onOk={() => void move()}
         confirmLoading={busy}
       >
         <Space direction="vertical" style={{ width: "100%" }}>
-          <Select
-            aria-label="目标空间"
-            value={destination}
-            style={{ width: "100%" }}
-            options={spaces.data
-              ?.filter((s) => s.canCreate)
-              .map((s) => ({ value: s.id, label: s.name }))}
-            onChange={(s) => {
-              setDestination(s);
-              setParent(undefined);
-            }}
-          />
-          {destination && (
-            <KnowledgePageSelect
-              spaceId={destination}
-              value={parent}
-              onChange={setParent}
-              excludeId={row?.id}
-            />
-          )}
+          {destination && <KnowledgeLocationPicker spaces={spaces.data ?? []}
+            value={{ spaceId: destination, parentId: parent }} disabled={busy}
+            excludeId={row?.id} onValidityChange={setValidMove}
+            onChange={(target) => { setDestination(target.spaceId); setParent(target.parentId); }} />}
           <Input
             type="number"
             aria-label="页面排序"

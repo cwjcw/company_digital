@@ -39,3 +39,7 @@
 .knowledge-file-preview:fullscreen { overflow: auto; padding: 24px; }
 .knowledge-file-preview:fullscreen .knowledge-preview-canvas { max-height: 85vh; }
 .knowledge-preview-image { max-width: 100%; margin: 16px auto; display: block; }
+
+.knowledge-location-picker { margin: 16px 0; }
+.knowledge-location-help, .knowledge-menu-description { font-size: 13px; color: #666; line-height: 1.6; }
+.knowledge-menu-description { max-width: 340px; white-space: normal; }
