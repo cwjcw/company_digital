@@ -19,7 +19,7 @@ import { KnowledgeEditor } from "./KnowledgeEditor";
 import { ModulePortal } from "../portal/ModulePortal";
 vi.mock("./knowledge-file-upload", () => ({ uploadKnowledgeFile: vi.fn() }));
 vi.mock("./KnowledgeFilePreview",()=>({KnowledgeFilePreview:()=> <div>文件预览</div>}));
-vi.mock("../../api", () => ({ api: vi.fn() }));
+vi.mock("../../api", async (original) => ({ ...(await original<object>()), api: vi.fn() }));
 vi.mock("../../shared/legacy-ui", async (original) => ({
   ...(await original<object>()),
   downloadApiFile: vi.fn().mockResolvedValue(undefined),
@@ -61,6 +61,7 @@ const page: KnowledgePage = {
   status: "PUBLISHED",
   version: 4,
   publishedVersion: 2,
+  hasUnpublishedChanges: true,
   publishedVersionId: "v2",
   content,
   tags: ["休假"],
@@ -121,8 +122,10 @@ function mount(
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  let server = { ...page };
   vi.mocked(api).mockImplementation(async (path, init) => {
     if (init?.method) {
+      server = { ...server, ...JSON.parse(typeof init.body === "string" ? init.body : "{}"), version: 5 };
       if (path.endsWith("/files"))
         return {
           attachment: {
@@ -161,7 +164,7 @@ beforeEach(() => {
     if (path.startsWith("/knowledge/pages/page"))
       return path.includes("versionId=v1")
         ? { ...page, title: "历史制度", attachments: [] }
-        : (page as never);
+        : (server as never);
     if (path.startsWith("/knowledge/search"))
       return { rows: [page], total: 1 } as never;
     return [] as never;
@@ -240,7 +243,7 @@ describe("Knowledge 2 Wiki", () => {
     release({ ...page, version: 9 });
     const title = await screen.findByLabelText("页面标题");
     fireEvent.change(title, { target: { value: "最新工作副本" } });
-    fireEvent.click(screen.getByRole("button", { name: "立即保存" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
         "/knowledge/pages/page",
@@ -361,6 +364,7 @@ describe("Knowledge 2 Wiki", () => {
   it("puts FILE preview first and flushes description before primary upload and publish without clearing tags", async () => {
     vi.mocked(api).mockImplementation(async (path, init) => {
       if (path.endsWith("/files")) return { attachment: { id: "primary", role: "PRIMARY", originalName: "制度.pdf" }, version: 6 } as never;
+      if (!init?.method) return { ...page, version: path.includes("mode=working") ? 6 : 4 } as never;
       return { version: init?.method === "PATCH" ? 5 : 7 } as never;
     });
     const onPublished = vi.fn();
@@ -379,7 +383,7 @@ describe("Knowledge 2 Wiki", () => {
     expect(form.has("tags")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "发布新版本" }));
     await waitFor(() => expect(onPublished).toHaveBeenCalledOnce());
-    expect(api).toHaveBeenLastCalledWith("/knowledge/pages/page/publish", expect.objectContaining({ body: '{"expectedVersion":6}' }));
+    expect(api).toHaveBeenCalledWith("/knowledge/pages/page/publish", expect.objectContaining({ body: '{"expectedVersion":6}' }));
     expect(page.tags).toEqual(["休假"]);
   });
   it("409 retains local text and displays conflict rather than overwriting", async () => {
@@ -392,7 +396,7 @@ describe("Knowledge 2 Wiki", () => {
     fireEvent.change(screen.getByLabelText("页面标题"), {
       target: { value: "未保存本地文本" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "立即保存" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     expect(
       (await screen.findAllByText("版本冲突，请保留本地修改")).length,
     ).toBeGreaterThan(0);
@@ -439,4 +443,113 @@ it("shows every successful upload in a reopenable results list instead of naviga
   expect(screen.getByRole("button", { name: "第二份" })).toBeVisible();
   expect(screen.getByRole("button", { name: "查看最近上传结果（2）" })).toBeVisible();
   expect(api).not.toHaveBeenCalledWith("/knowledge/pages/first?mode=working");
+});
+
+describe("Knowledge publishing UX", () => {
+  it.each(["RICH_TEXT", "FILE"] as const)("publishes a %s draft directly from the reader with a fresh lock and one request", async (contentMode) => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    let resolve!: (row: KnowledgePage) => void;
+    const fresh = new Promise<KnowledgePage>((r) => { resolve = r; });
+    const draft = { ...page, status: "DRAFT" as const, contentMode, publishedVersion: undefined, publishedVersionId: null };
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (path === "/knowledge/pages/page?mode=working") return init?.cache === "no-store" ? fresh as never : draft as never;
+      return base(path, init);
+    });
+    mount(undefined, admin, "/knowledge/pages/page?mode=working");
+    const publish = await screen.findByRole("button", { name: "发布" });
+    expect(screen.getByRole("button", { name: "编辑" })).toBeVisible();
+    expect(screen.queryByLabelText("页面标题")).toBeNull();
+    fireEvent.click(publish);
+    fireEvent.click(publish);
+    expect(api).toHaveBeenCalledWith("/knowledge/pages/page?mode=working", { cache: "no-store" });
+    resolve({ ...draft, version: 11 });
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/knowledge/pages/page/publish", expect.objectContaining({ method: "POST", body: '{"expectedVersion":11}' })));
+    expect(vi.mocked(api).mock.calls.filter(([p]) => p.endsWith("/publish"))).toHaveLength(1);
+    expect(vi.mocked(api).mock.calls.some(([,i]) => i?.method === "PATCH")).toBe(false);
+    await screen.findByText("页面已发布");
+    await waitFor(() => expect(vi.mocked(api).mock.calls.filter(([p]) => p.includes("/tree")).length).toBeGreaterThan(1));
+  });
+  it("does not promote repeated publication or claim a draft exists on unchanged published pages", async () => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, hasUnpublishedChanges: false } as never : base(p,i));
+    mount(undefined, admin, "/knowledge/pages/page");
+    await screen.findByRole("button", { name: "编辑" });
+    expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    await screen.findByLabelText("页面标题");
+    expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull();
+    expect(screen.queryByText(/存在工作草稿|有未发布修改/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("页面标题"), { target: { value: "标题单独修改" } });
+    expect(screen.getByRole("button", { name: "发布新版本" })).toBeVisible();
+  });
+  it("labels a published page from its readable status even when version metadata is hidden", async () => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, publishedVersionId: undefined, publishedVersion: undefined } as never : base(p,i));
+    mount(undefined, admin, "/knowledge/pages/page");
+    expect(await screen.findByRole("button", { name: "发布新版本" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "发布" })).toBeNull();
+  });
+  it("keeps save/publish together above the title and body in a sticky toolbar", () => {
+    mount(<KnowledgeEditor page={page} onClose={vi.fn()} onPublished={vi.fn()} />);
+    const toolbar = screen.getByRole("toolbar", { name: "页面编辑操作" });
+    expect(toolbar).toHaveClass("knowledge-editor-actions");
+    expect(toolbar.contains(screen.getByRole("button", { name: "保存" }))).toBe(true);
+    expect(toolbar.contains(screen.getByRole("button", { name: "发布新版本" }))).toBe(true);
+    expect(toolbar.compareDocumentPosition(screen.getByLabelText("页面标题")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it.each(["field", "page", "history"])("hides reader publication for missing %s authority or historical reading", async (condition) => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, canEdit: condition !== "page" } as never : base(p,i));
+    const user = condition === "field" ? { sub: "editor", permissions: [...viewer.permissions, "knowledge-pages:*:update", "knowledge-pages:title:update"] } : admin;
+    mount(undefined, user, `/knowledge/pages/page${condition === "history" ? "?versionId=v1" : ""}`);
+    await screen.findByText("制度正文");
+    expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull();
+    if (condition === "page") expect(screen.queryByRole("button", { name: "编辑" })).toBeNull();
+  });
+  it.each(["最新草稿读取失败", "请先发布上级页面，再发布子页面", "数据已发生变化，请刷新后重试"])("displays publication failure: %s without success", async (reason) => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => {
+      if (i?.cache === "no-store" && reason === "最新草稿读取失败") throw new Error(reason);
+      if (p.endsWith("/publish")) throw Object.assign(new Error(reason), { status: reason.includes("数据") ? 409 : 400 });
+      return base(p,i);
+    });
+    mount(undefined, admin, "/knowledge/pages/page");
+    fireEvent.click(await screen.findByRole("button", { name: "发布新版本" }));
+    await waitFor(() => expect(screen.getAllByText(reason).length).toBeGreaterThan(0));
+    expect(screen.queryByText("页面已发布")).toBeNull();
+    expect(screen.getByRole("button", { name: "发布新版本" })).toBeEnabled();
+  });
+  it.each(["unchanged", "revoked", "unknown"])("rechecks latest %s state before issuing a publish command", async (state) => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => i?.cache === "no-store" ? { ...page, hasUnpublishedChanges: state === "unknown" ? undefined : state !== "unchanged", canEdit: state !== "revoked" } as never : base(p,i));
+    mount(undefined, admin, "/knowledge/pages/page");
+    fireEvent.click(await screen.findByRole("button", { name: "发布新版本" }));
+    await screen.findAllByText(state === "unchanged" ? "没有未发布修改" : state === "unknown" ? "无法确认最新草稿的发布状态，请刷新后重试" : "当前没有此页面的发布权限");
+    expect(vi.mocked(api).mock.calls.some(([p]) => p.endsWith("/publish"))).toBe(false);
+    expect(screen.queryByText("页面已发布")).toBeNull();
+  });
+  it("does not adopt another writer's version after draining editor autosave", async () => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => i?.cache === "no-store" ? { ...page, version: 12 } as never : base(p,i));
+    const onPublished = vi.fn();
+    mount(<KnowledgeEditor page={page} onClose={vi.fn()} onPublished={onPublished} />);
+    fireEvent.change(screen.getByLabelText("页面标题"), { target: { value: "本地标题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发布新版本" }));
+    await screen.findAllByText("页面已被其他用户修改，请保留本地修改并重新加载");
+    expect(screen.getByLabelText("页面标题")).toHaveValue("本地标题");
+    expect(screen.getByRole("button", { name: "发布新版本" })).toBeDisabled();
+    expect(vi.mocked(api).mock.calls.some(([p]) => p.endsWith("/publish"))).toBe(false);
+    expect(onPublished).not.toHaveBeenCalled();
+  });
+  it("removes publication prompt after a saved edit restores exactly the published data", async () => {
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (p,i) => i?.cache === "no-store" ? { ...page, version: 5, hasUnpublishedChanges: false } as never : base(p,i));
+    mount(<KnowledgeEditor page={page} onClose={vi.fn()} onPublished={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("页面标题"), { target: { value: "临时改名" } });
+    fireEvent.change(screen.getByLabelText("页面标题"), { target: { value: page.title } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/knowledge/pages/page?mode=working", expect.objectContaining({ cache: "no-store" })));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull());
+    expect(screen.queryByText(/有未发布修改/)).toBeNull();
+  });
 });

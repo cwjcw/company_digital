@@ -56,6 +56,7 @@ import {
   type CreatedKnowledgeFile,
 } from "./KnowledgeFileUpload";
 import { KnowledgeEditor } from "./KnowledgeEditor";
+import { canPublishKnowledge } from "./knowledge-publish";
 import { KnowledgeAccess } from "./KnowledgeAccess";
 import { KnowledgeImport } from "./KnowledgeImport";
 import {
@@ -240,6 +241,9 @@ export function KnowledgeWiki() {
     [tag, setTag] = useState(""),
     [showWorking, setShowWorking] = useState(false);
   const draft = useRef<KnowledgeDraftSession | null>(null);
+  const publishing = useRef(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishError, setPublishError] = useState("");
   const onSession = useCallback((s: KnowledgeDraftSession | null) => {
     draft.current = s;
   }, []);
@@ -265,7 +269,10 @@ export function KnowledgeWiki() {
     enabled: Boolean(id && hasResourcePermission("knowledge-pages", "read")),
     retry: false,
     refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
+  useEffect(() => setPublishError(""), [id, mode, versionId]);
   useEffect(() => {
     if (page.data?.spaceId) setSpaceId(page.data.spaceId);
     else if (!spaceId && spaces.data?.length) setSpaceId(spaces.data[0]!.id);
@@ -299,6 +306,38 @@ export function KnowledgeWiki() {
   const invalidate = () => {
     void client.invalidateQueries({ queryKey: ["knowledge"] });
     setRefresh((n) => n + 1);
+  };
+  const publishFromReader = async () => {
+    if (!id || !row || versionId || publishing.current || !canPublishKnowledge(row)) return;
+    publishing.current = true;
+    setPublishBusy(true);
+    setPublishError("");
+    try {
+      // A reader has no local edits to drain. Always obtain the working version
+      // directly from the server; the displayed publication/cache is not a lock.
+      const latest = await api<KnowledgePage>(`/knowledge/pages/${id}?mode=working`, { cache: "no-store" });
+      if (!canPublishKnowledge(latest)) throw new Error("当前没有此页面的发布权限");
+      if (latest.hasUnpublishedChanges === undefined) throw new Error("无法确认最新草稿的发布状态，请刷新后重试");
+      if (!latest.hasUnpublishedChanges) {
+        message.info("没有未发布修改");
+        invalidate();
+        return;
+      }
+      await api(`/knowledge/pages/${id}/publish`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: latest.version }),
+      });
+      invalidate();
+      setParams({});
+      message.success("页面已发布");
+    } catch (e) {
+      const reason = (e as Error).message;
+      setPublishError(reason);
+      message.error(reason);
+    } finally {
+      publishing.current = false;
+      setPublishBusy(false);
+    }
   };
   const safely = useCallback(
     async (work: () => void) => {
@@ -407,15 +446,6 @@ export function KnowledgeWiki() {
     );
   const menu = row
     ? [
-        ...(row.canEdit && hasResourcePermission("knowledge-pages", "update")
-          ? [
-              {
-                key: "edit",
-                label: "编辑页面",
-                onClick: () => setParams({ edit: "1" }),
-              },
-            ]
-          : []),
         ...(selected?.canCreate &&
         hasResourcePermission("knowledge-pages", "create")
           ? [
@@ -627,10 +657,21 @@ export function KnowledgeWiki() {
                   ),
               }))}
             />
-            <Dropdown menu={{ items: menu }}>
-              <Button icon={<MoreOutlined />} aria-label="页面更多操作" />
-            </Dropdown>
+            <Space>
+              {row.canEdit && hasResourcePermission("knowledge-pages", "update") && (
+                <Button aria-label="编辑" disabled={publishBusy} onClick={() => setParams({ edit: "1" })}>编辑</Button>
+              )}
+              {!versionId && canPublishKnowledge(row) && row.hasUnpublishedChanges === true && (
+                <Button aria-label={row.status === "PUBLISHED" ? "发布新版本" : "发布"} type="primary" loading={publishBusy} onClick={() => void publishFromReader()}>
+                  {row.status === "PUBLISHED" ? "发布新版本" : "发布"}
+                </Button>
+              )}
+              <Dropdown menu={{ items: menu }}>
+                <Button icon={<MoreOutlined />} aria-label="页面更多操作" disabled={publishBusy} />
+              </Dropdown>
+            </Space>
           </Space>
+          {publishError && <Alert type="error" message={publishError} showIcon />}
           <Typography.Title level={1}>{row.title}</Typography.Title>
           <Space wrap>
             {mode === "working" && <Tag>工作副本</Tag>}

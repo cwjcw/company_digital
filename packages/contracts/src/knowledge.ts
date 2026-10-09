@@ -60,6 +60,8 @@ export type KnowledgePage = {
   attachments?: KnowledgeAttachment[];
   publishedVersionId?: string | null;
   publishedVersion?: number;
+  /** Current working data differs from the publication; only returned to authorized publishers. */
+  hasUnpublishedChanges?: boolean;
   publishedAt?: string;
   publishedBy?: string;
   publisherName?: string;

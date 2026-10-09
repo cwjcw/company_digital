@@ -76,3 +76,11 @@ DOCX、Markdown、HTML：预览 → 选择空间/父页面/标签/继承或限�
 “新建知识”集中在线编写、上传原始文件、从DOCX/Markdown/HTML导入在线文章；上传与导入保持独立服务。创建前统一显示保存位置，点击“更改位置”才展开Space与懒加载页面树。默认采用当前Space/页面，空间根目录明确显示，移动目标排除本页及后代。`GET /api/v1/knowledge/spaces/:id/locations` 支持 `parentId`、`search`（标题）、`selectedId`、`excludeId`、`page/pageSize`，复用创建动作的数据范围、租户、字段读权限与祖先ACL，分页返回完整breadcrumb；最终写入再次由现有Application Commands授权。
 
 创建Space契约为 `{name, description?, icon?, sortOrder?}`，不接收code/status；code由UUIDv7身份生成`SPACE_<32位UUID>`，保留现有租户唯一约束，唯一冲突在新事务中最多重试两次。未填写顺序时在租户事务锁内按现有最大顺序+10排列。已有空间code不变；更新仍使用expectedVersion与原字段权限。图标选择与侧栏/管理列表共用现有Ant Design图标映射，默认book。数据库结构与依赖不变。
+
+## Publishing actions and working changes (Knowledge 2.1.2)
+
+Authorized editors publish directly from the reader header; the editor uses a sticky save/publish toolbar. Publication visibility requires current Page edit authority, resource update and status field write/read, plus the existing publish command's readable content fields. Historical readers never receive the mutable change flag.
+
+`GET /knowledge/pages/:id` adds optional `hasUnpublishedChanges` for authorized publishers. The same scoped detail SELECT compares working title, canonical JSON body, description, content mode, sorted tags and the bidirectional set of file IDs/roles against the immutable current publication. Technical version increments, ordering, ACL and asynchronous preview state alone do not indicate new content. Drafts without a publication return true. The published reader can show old published content while this flag describes its current working changes.
+
+Reader publication fetches `mode=working` with no browser cache immediately before submitting `expectedVersion`; editor publication drains the existing draft queue and additionally checks the server version without adopting another editor's lock. Concurrent changes return409 and retain local input. Existing `KnowledgeApplicationService.publish()`, ACL checks, tenant isolation, audit and immutable version/file snapshots remain authoritative. A false flag suppresses the prominent publish action; the existing explicit API command semantics are unchanged.

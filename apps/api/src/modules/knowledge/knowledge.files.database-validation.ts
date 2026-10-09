@@ -48,6 +48,7 @@ export async function validateKnowledgeFilesDatabase(
     );
     const input = { spaceId, title: "文件知识", idempotencyKey: uuidv7() };
     const created = await files.create(input, pdf, admin);
+    assert.equal((await query.detail(created.id, { mode: "working" }, admin)).hasUnpublishedChanges, true);
     assert.equal(created.status, "DRAFT");
     assert.equal((await query.detail(created.id, { mode: "working" }, admin)).title, input.title);
     for (const title of [" ", "字".repeat(301)]) await assert.rejects(() => files.create({ ...input, title, idempotencyKey: uuidv7() }, pdf, admin), /标题/);
@@ -76,6 +77,9 @@ export async function validateKnowledgeFilesDatabase(
       "file-page upload is persisted, actor/tenant-bound and idempotent; conflicting replay rejected",
     );
     const v1 = await app.publish(created.id, { expectedVersion: 1 }, admin);
+    assert.equal((await query.detail(created.id, { mode: "working" }, admin)).hasUnpublishedChanges, false);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, false);
+    check("publication state: FILE draft=true and freshly published FILE=false despite different working/published content hashes");
     const first = await query.detail(created.id, {}, viewer);
     assert.equal(first.primaryFile.id, created.attachment.id);
     const native = await preview.preview(created.attachment.id, {}, viewer);
@@ -95,6 +99,8 @@ export async function validateKnowledgeFilesDatabase(
       ),
       admin,
     );
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, true);
+    check("publication state: replacing only the primary file requires publication while published preview/original remain immutable");
     assert.equal(
       (await query.detail(created.id, {}, viewer)).primaryFile.id,
       created.attachment.id,
@@ -125,8 +131,23 @@ export async function validateKnowledgeFilesDatabase(
       { expectedVersion: replacement.version },
       admin,
     );
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, false);
     const renamed = await app.updatePage(created.id, { title: "发布后改名", expectedVersion: v2.version }, admin);
     const working = await query.detail(created.id, { mode: "working" }, admin);
+    assert.equal(working.hasUnpublishedChanges, true);
+    const restored = await app.updatePage(created.id, { title: input.title, expectedVersion: renamed.version }, admin);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, false);
+    const supplemental = await files.upload(created.id, { role: "SUPPLEMENTAL", expectedVersion: restored.version }, await disk("附件.txt", Buffer.from("only attachment")), admin);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, true);
+    const removed = await app.removeAttachment(supplemental.attachment.id, { expectedVersion: supplemental.version }, admin);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, false);
+    const attached = await files.upload(created.id, { role: "SUPPLEMENTAL", expectedVersion: removed.version }, await disk("发布附件.txt", Buffer.from("published attachment")), admin);
+    const withAttachment = await app.publish(created.id, { expectedVersion: attached.version }, admin);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, false);
+    const detached = await app.removeAttachment(attached.attachment.id, { expectedVersion: withAttachment.version }, admin);
+    assert.equal((await query.detail(created.id, {}, admin)).hasUnpublishedChanges, true);
+    const finalRename = await app.updatePage(created.id, { title: working.title, expectedVersion: detached.version }, admin);
+    check("publication state: supplemental-only upload/removal detected in both directions; adding then removing an unpublished file resets to unchanged");
     assert.equal(working.title, "发布后改名");
     assert.equal(working.primaryFile.id, replacement.attachment.id);
     assert.equal(working.primaryFile.originalName, "文件制度_v2.pdf");
@@ -282,6 +303,8 @@ export async function validateKnowledgeFilesDatabase(
       "successful derived PDF binds original SHA and retry history without mutating working or published business versions",
     );
     const dv = await app.publish(doc.id, { expectedVersion: 1 }, admin);
+    assert.equal((await query.detail(doc.id, {}, admin)).hasUnpublishedChanges, false);
+    check("publication state: asynchronous preview retry/completion does not create unpublished content changes");
     const updated = await app.updatePage(
       doc.id,
       {
@@ -322,7 +345,7 @@ export async function validateKnowledgeFilesDatabase(
     const trashed = await app.transition(
       created.id,
       "trash",
-      { expectedVersion: renamed.version },
+      { expectedVersion: finalRename.version },
       admin,
     );
     await app.purge(created.id, { expectedVersion: trashed.version }, admin);

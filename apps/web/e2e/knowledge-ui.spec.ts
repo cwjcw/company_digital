@@ -155,6 +155,11 @@ async function fixtures(
         : url.searchParams.get("mode") === "working"
           ? drafts.get(id)
           : published.get(id);
+      if (result && !url.searchParams.get("versionId") && user === admin) {
+        const fields = ["title", "content", "description", "tags", "attachments", "contentMode"];
+        const working = drafts.get(id), snapshot = published.get(id);
+        result = { ...result, hasUnpublishedChanges: !snapshot || fields.some(key => JSON.stringify(working?.[key]) !== JSON.stringify(snapshot[key])) };
+      }
       if (result && user === viewer)
         result = { ...result, canEdit: false, canManage: false };
     } else if (path === "/knowledge/search") {
@@ -214,8 +219,7 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
   ).toBeVisible();
   await page.getByRole("button", { name: /^发\s*布$/ }).click();
   await expect(page.getByText("发布版本 v1", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "页面更多操作" }).click();
-  await page.getByText("编辑页面", { exact: true }).click();
+  await page.getByRole("button", { name: /^编\s*辑$/ }).click();
   await page.getByLabel("页面标题", { exact: true }).fill("V2制度标题");
   await page.locator(".tiptap").fill("第二版正文");
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
@@ -253,7 +257,7 @@ test("real TipTap table/callout/code and child page creation", async ({
   await expect(page.locator(".tiptap table")).toBeVisible();
   await page.getByRole("button", { name: "提示块" }).click();
   await expect(page.locator(".tiptap aside")).toBeVisible();
-  await page.getByRole("button", { name: "立即保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   expect(JSON.stringify(s.drafts.get("page1").content)).toContain("table");
   await page.getByRole("button", { name: /^发\s*布$/ }).click();
   await page.getByRole("button", { name: "页面更多操作" }).click();
@@ -298,4 +302,40 @@ test.describe("production credential acceptance", () => {
       throw new Error("E2E 登录/权限验证失败");
     }
   });
+});
+
+test("sticky editor actions, direct draft publication and title-only reader publication with a fresh server version", async ({ page }) => {
+  const state = await fixtures(page);
+  await page.getByRole("button", { name: "进入知识库" }).click();
+  await page.getByRole("button", { name: "新建知识", exact: true }).hover();
+  await page.getByText("在线编写", { exact: true }).click();
+  await page.getByRole("button", { name: "创建并编写" }).click();
+  await page.getByLabel("页面标题", { exact: true }).fill("直接发布验收");
+  await page.locator(".tiptap").fill(Array.from({ length: 100 }, (_, i) => `第${i}行长正文`).join("\n"));
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect.poll(async () => {
+    const rect = await page.getByRole("toolbar", { name: "页面编辑操作" }).boundingBox();
+    return Boolean(rect && rect.y >= 0 && rect.y < 20);
+  }).toBe(true);
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "发布", exact: true })).toBeInViewport();
+  await page.getByRole("button", { name: "保存并返回" }).click();
+  await expect(page.locator(".knowledge-reader")).toBeVisible();
+  await page.getByRole("button", { name: "发布", exact: true }).click();
+  await expect(page.getByText("发布版本 v1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发布新版本" })).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(page.getByRole("button", { name: "发布新版本" })).toHaveCount(0);
+  await expect(page.getByText(/存在工作草稿|有未发布修改/)).toHaveCount(0);
+  await page.getByLabel("页面标题", { exact: true }).fill("仅修改标题的新版本");
+  await page.getByRole("button", { name: "保存并返回" }).click();
+  await expect(page.locator(".knowledge-reader h1")).toHaveText("直接发布验收");
+  const freshVersion = ++state.drafts.get("page1").version;
+  await page.getByRole("button", { name: "发布新版本" }).click();
+  await expect(page.locator(".knowledge-reader h1")).toHaveText("仅修改标题的新版本");
+  await expect(page.getByText("发布版本 v2", { exact: true })).toBeVisible();
+  expect(state.writes.filter(w => w.path.endsWith("/publish")).at(-1)?.body.expectedVersion).toBe(freshVersion);
+  expect(state.history.get("page1")![0].title).toBe("直接发布验收");
+  await expect(page.getByRole("button", { name: "发布新版本" })).toHaveCount(0);
 });

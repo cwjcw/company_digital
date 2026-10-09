@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, App, Button, Input, Space, Tag, Upload } from "antd";
 import type { KnowledgeAttachment, KnowledgePage } from "@kdos/contracts";
-import { api } from "../../api";
+import { api, ApiError } from "../../api";
+import { canPublishKnowledge } from "./knowledge-publish";
 import {
   hasFieldPermission,
   hasResourcePermission,
@@ -40,6 +41,10 @@ export function KnowledgeEditor({
 }) {
   const { message, modal } = App.useApp();
   const [busy, setBusy] = useState(false);
+  const actionRunning = useRef(false);
+  const [hasChanges, setHasChanges] = useState(page.hasUnpublishedChanges === true);
+  const [publishError, setPublishError] = useState("");
+  const checkedVersion = useRef(page.version);
   const [, render] = useState(0);
   const session = useRef<KnowledgeDraftSession | null>(null);
   if (!session.current)
@@ -57,6 +62,7 @@ export function KnowledgeEditor({
     return { ...page, ...draft.recovery() };
   });
   const allowed = (field: string) =>
+    page.canEdit &&
     hasResourcePermission("knowledge-pages", "update") &&
     hasFieldPermission("knowledge-pages", field, "read") &&
     hasFieldPermission("knowledge-pages", field, "update");
@@ -85,6 +91,26 @@ export function KnowledgeEditor({
         .finally(() => rememberKnowledgeDraft(page.id, draft));
     };
   }, [draft, onSession, page.id]);
+  useEffect(() => {
+    if (busy || draft.state !== "saved" || draft.isOperating() || draft.version === checkedVersion.current) return;
+    const version = draft.version;
+    const controller = new AbortController();
+    void api<KnowledgePage>(`/knowledge/pages/${page.id}?mode=working`, {
+      cache: "no-store", signal: controller.signal,
+    }).then((latest) => {
+      if (controller.signal.aborted || draft.version !== version) return;
+      if (latest.version !== version) {
+        draft.compareServerVersion(latest.version);
+        return;
+      }
+      checkedVersion.current = version;
+      setPublishError("");
+      setHasChanges(latest.hasUnpublishedChanges === true);
+    }).catch((e) => {
+      if (!controller.signal.aborted) setPublishError((e as Error).message);
+    });
+    return () => controller.abort();
+  }, [busy, draft, draft.state, draft.version, page.id]);
   const change = (patch: Partial<KnowledgePage>) => {
     setValue((v) => ({ ...v, ...patch }));
     draft.changed(patch);
@@ -154,31 +180,59 @@ export function KnowledgeEditor({
       setBusy(false);
     }
   };
-  const finish = async (publish: boolean) => {
+  const finish = async (publish: boolean, close = true) => {
+    if (actionRunning.current || busy) return;
+    actionRunning.current = true;
     setBusy(true);
+    setPublishError("");
     try {
-      if (publish)
-        await draft.run((version) =>
-          api<{ version: number }>(`/knowledge/pages/${page.id}/publish`, {
+      if (publish) {
+        const result = await draft.run(async (version) => {
+          const latest = await api<KnowledgePage>(`/knowledge/pages/${page.id}?mode=working`, { cache: "no-store" });
+          if (!canPublishKnowledge(latest)) throw new Error("当前没有此页面的发布权限");
+          // Keep the editor's serialized lock: adopting another writer's version
+          // would silently publish changes that this session did not save.
+          if (latest.version !== version) throw new ApiError("页面已被其他用户修改，请保留本地修改并重新加载", 409);
+          if (latest.hasUnpublishedChanges === undefined) throw new Error("无法确认最新草稿的发布状态，请刷新后重试");
+          if (!latest.hasUnpublishedChanges) return { version, skipped: true };
+          return api<{ version: number; skipped?: boolean }>(`/knowledge/pages/${page.id}/publish`, {
             method: "POST",
             body: JSON.stringify({ expectedVersion: version }),
-          }),
-        );
-      else await draft.flush();
-      if (publish) {
+          });
+        });
+        if (result.skipped) {
+          setHasChanges(false);
+          message.info("没有未发布修改");
+          return;
+        }
         message.success("页面已发布");
         onPublished();
-      } else onClose();
+      } else {
+        await draft.flush();
+        if (close) onClose();
+        else message.success("已保存");
+      }
     } catch (e) {
+      setPublishError((e as Error).message);
       message.error((e as Error).message);
     } finally {
+      actionRunning.current = false;
       setBusy(false);
     }
   };
+  const pendingPublication = hasChanges || draft.hasUnsaved();
   return (
     <KnowledgeFileContext.Provider value={{ mode: "working" }}>
       <div className="knowledge-editor-form">
-        <Space wrap style={{ marginBottom: 16 }}>
+        <div className="knowledge-editor-actions" role="toolbar" aria-label="页面编辑操作">
+          <Space wrap>
+            <Button aria-label="保存" disabled={busy || draft.state === "conflict"} loading={busy} onClick={() => void finish(false, false)}>保存</Button>
+            {canPublishKnowledge(page) && pendingPublication && (
+              <Button aria-label={page.status === "PUBLISHED" ? "发布新版本" : "发布"} type="primary" loading={busy} disabled={draft.state === "conflict"} onClick={() => void finish(true)}>
+                {page.status === "PUBLISHED" ? "发布新版本" : "发布"}
+              </Button>
+            )}
+            <Button disabled={busy || draft.state === "conflict"} onClick={() => void finish(false)}>保存并返回</Button>
           <Tag
             color={
               draft.state === "saved"
@@ -192,9 +246,11 @@ export function KnowledgeEditor({
           </Tag>
 
           {page.publishedVersion && (
-            <span>已发布 V{page.publishedVersion} · 存在工作草稿</span>
+            <span>已发布 V{page.publishedVersion}{pendingPublication ? " · 有未发布修改" : ""}</span>
           )}
-        </Space>
+          </Space>
+        </div>
+        {publishError && <Alert type="error" message={publishError} showIcon />}
         {(draft.state === "failed" || draft.state === "conflict") && (
           <Alert
             type="error"
@@ -338,32 +394,6 @@ export function KnowledgeEditor({
               ))}
           </Space>
         )}
-        <Space style={{ display: "flex", marginTop: 24 }}>
-          <Button loading={busy} onClick={() => void finish(false)}>
-            保存并返回
-          </Button>
-          <Button
-            disabled={busy || draft.state === "conflict"}
-            onClick={() =>
-              void draft
-                .flush()
-                .then(() => message.success("已保存"))
-                .catch((e) => message.error((e as Error).message))
-            }
-          >
-            立即保存
-          </Button>
-          {allowed("status") && (
-            <Button
-              type="primary"
-              loading={busy}
-              disabled={draft.state === "conflict"}
-              onClick={() => void finish(true)}
-            >
-              {page.publishedVersion ? "发布新版本" : "发布"}
-            </Button>
-          )}
-        </Space>
       </div>
     </KnowledgeFileContext.Provider>
   );

@@ -1,3 +1,4 @@
+import { knowledgeUnpublishedChanges } from "./knowledge-publication";
 import {
   BadRequestException,
   Injectable,
@@ -332,6 +333,15 @@ export class KnowledgeQueryService {
           ? "record"
           : "published";
       const fields = this.select(actor, expressions, true);
+      if (
+        !versionId &&
+        canKnowledge(actor, "knowledge-pages", "update") &&
+        canKnowledgeField(actor, "knowledge-pages", "status", "update") &&
+        ["status", "title", "content", "contentText", "tags", "attachmentIds"].every(
+          (field) => canKnowledgeField(actor, "knowledge-pages", field, "read"),
+        )
+      )
+        fields.push(`${knowledgeUnpublishedChanges} AS "hasUnpublishedChanges"`);
       if (canKnowledgeField(actor, "knowledge-pages", "content", "read"))
         fields.push(
           `${expr}.${expr === "record" ? "working_content_hash" : "content_hash"} AS "contentHash"`,
@@ -389,6 +399,7 @@ export class KnowledgeQueryService {
         );
       if (row.attachments) row.primaryFile = row.attachments.find((f: KnowledgeRow) => f.role === "PRIMARY") ?? null;
       row.canEdit = await this.allowed(m, id, actor, "update", 2);
+      if (!row.canEdit) delete row.hasUnpublishedChanges;
       row.canManage = await this.allowed(
         m,
         id,

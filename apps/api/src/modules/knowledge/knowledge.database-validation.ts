@@ -14,6 +14,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { validateKnowledgeFilesDatabase } from "./knowledge.files.database-validation";
+import { validateKnowledgePublication } from "./knowledge.publication.database-validation";
 import { KnowledgeFilesService } from "./knowledge.files.service";
 import { KnowledgePreviewJobs } from "./knowledge.preview.service";
 import type { PutObjectInput } from "../../storage/object-storage";
@@ -1260,6 +1261,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     "critical commands audited by metadata/hash, never full body or credentials",
   );
   await validateKnowledgeFilesDatabase(ds,app,query,storage,admin,viewer,hr.id,check);
+  await validateKnowledgePublication(app,query,admin,viewer,hr.id,check);
   imports.onModuleDestroy();
   return {
     status: "PASS",
