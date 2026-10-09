@@ -1,4 +1,8 @@
 import fs from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Injectable } from "@nestjs/common";
 import type {
@@ -29,7 +33,15 @@ export class LocalObjectStorage implements ObjectStorage {
       input.visibility === "private" ? `.private/${input.key}` : input.key;
     const target = this.safePath(key);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, input.body, { mode: 0o640 });
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await pipeline(Buffer.isBuffer(input.body) ? Readable.from(input.body) : input.body,
+        createWriteStream(temporary, { flags: "wx", mode: 0o640 }));
+      await fs.rename(temporary, target);
+    } catch (error) {
+      await fs.rm(temporary, { force: true });
+      throw error;
+    }
     return { key, url: key.startsWith(".private/") ? "" : `/uploads/${key}` };
   }
   async get(key: string): Promise<StoredObject | null> {
@@ -43,6 +55,24 @@ export class LocalObjectStorage implements ObjectStorage {
       if (error?.code === "ENOENT") return null;
       throw error;
     }
+  }
+  async stat(key: string) {
+    try {
+      const info = await fs.stat(this.safePath(key));
+      if (!info.isFile()) throw new Error("Object is not a file");
+      return { size: info.size };
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  async openStream(key: string, range?: { start: number; end: number }) {
+    const info = await this.stat(key);
+    if (!info) return null;
+    if (range && (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end) ||
+      range.start < 0 || range.end < range.start || range.end >= info.size))
+      throw new Error("Invalid object range");
+    return createReadStream(this.safePath(key), range);
   }
   async delete(key: string) {
     try {

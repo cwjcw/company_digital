@@ -59,7 +59,7 @@ async function fixtures(
     else if (path === "/knowledge/options")
       result = { users: [], roles: [], organizations: [] };
     else if (["POST", "PATCH", "DELETE"].includes(req.method())) {
-      const body = path.endsWith("/attachments") ? null : req.postDataJSON();
+      const body = path.endsWith("/files") ? null : req.postDataJSON();
       writes.push({ path, body });
       if (path === "/knowledge/pages") {
         const id = `page${++count}`;
@@ -83,7 +83,7 @@ async function fixtures(
       } else {
         const id = path.split("/")[3],
           draft = drafts.get(id);
-        if (path.endsWith("/attachments")) {
+        if (path.endsWith("/files")) {
           const attachment = {
             id: `file${id}`,
             pageId: id,
@@ -157,7 +157,7 @@ async function fixtures(
         p.title.includes(url.searchParams.get("search") ?? ""),
       );
       result = { rows, total: rows.length };
-    } else if (path.startsWith("/knowledge/attachments/")) {
+    } else if (path.startsWith("/knowledge/files/")) {
       await route.fulfill({ contentType: "text/plain", body: "制度" });
       return;
     }
@@ -179,7 +179,8 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
   const s = await fixtures(page);
   await page.getByRole("button", { name: "进入知识库" }).click();
   await expect(page.getByText("人力资源", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "新建页面", exact: true }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).hover();
+  await page.getByText("在线编写",{exact:true}).click();
   await expect(page).toHaveURL(/pages\/page1\?edit=1/);
   await expect(
     page.getByRole("button", { name: "上传附件 / 图片" }),
@@ -224,7 +225,8 @@ test("real TipTap table/callout/code and child page creation", async ({
 }) => {
   const s = await fixtures(page);
   await page.goto("/knowledge");
-  await page.getByRole("button", { name: "新建页面", exact: true }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).hover();
+  await page.getByText("在线编写",{exact:true}).click();
   await page.getByLabel("页面标题", { exact: true }).fill("制度目录");
   await page.getByRole("button", { name: /^表\s*格$/ }).click();
   await expect(page.locator(".tiptap table")).toBeVisible();
@@ -245,7 +247,7 @@ test("ordinary employee has Space tree without editor and creation controls", as
   await page.getByRole("button", { name: "进入知识库" }).click();
   await expect(page.getByText("人力资源", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "新建页面", exact: true }),
+    page.getByRole("button", { name: "新建", exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "上传附件 / 图片" }),

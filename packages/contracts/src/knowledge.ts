@@ -1,4 +1,7 @@
-/** KDOS Knowledge 2.0. Content is canonical structured JSON; identities are stable UUIDs. */
+/** KDOS Knowledge 2.1. Content is canonical structured JSON; identities are stable UUIDs. */
+export type KnowledgeContentMode = "RICH_TEXT" | "FILE";
+export type KnowledgeFileRole = "PRIMARY" | "INLINE" | "SUPPLEMENTAL";
+export type KnowledgePreviewStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
 export type KnowledgeStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED" | "TRASHED";
 export type KnowledgeAccessLevel = "VIEWER" | "EDITOR" | "FULL_ACCESS";
 export type KnowledgeAccessEntry = {
@@ -16,6 +19,8 @@ export type KnowledgeContentNode = {
 export type KnowledgeAttachment = {
   id: string;
   pageId: string;
+  role?: KnowledgeFileRole;
+  previewStatus?: KnowledgePreviewStatus;
   originalName: string;
   contentType: string;
   size: number;
@@ -45,6 +50,9 @@ export type KnowledgePage = {
   status: KnowledgeStatus;
   sortOrder: number;
   version: number;
+  contentMode?: KnowledgeContentMode;
+  description?: string;
+  primaryFile?: KnowledgeAttachment | null;
   content?: KnowledgeContentNode;
   contentText?: string;
   contentHash?: string;
@@ -73,6 +81,8 @@ export type KnowledgePageInput = {
   spaceId: string;
   parentId?: string | null;
   title?: string;
+  contentMode?: KnowledgeContentMode;
+  description?: string;
   content?: KnowledgeContentNode;
   tags?: string[];
   sortOrder?: number;
@@ -99,6 +109,6 @@ export const knowledgeAccessLevelOptions = [
 ];
 
 export type KnowledgePageUpdateInput = Partial<
-  Pick<KnowledgePageInput, "title" | "content" | "tags" | "sortOrder">
+  Pick<KnowledgePageInput, "title" | "content" | "tags" | "sortOrder" | "description">
 > & { expectedVersion: number };
 export type KnowledgeVersionCommand = { expectedVersion: number };

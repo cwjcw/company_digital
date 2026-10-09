@@ -89,3 +89,20 @@ describe("LocalObjectStorage private delivery", () => {
     }).rejects.toThrow("Invalid object key");
   });
 });
+
+describe("ObjectStorage streaming and bounded ranges",()=>{
+  it("streams a large private object with an exact inclusive range",async()=>{
+    const { Readable }=await import("node:stream");
+    const directory=await fs.mkdtemp(path.join(os.tmpdir(),"kdos-stream-"));const previous=process.env.UPLOAD_DIR;
+    process.env.UPLOAD_DIR=directory;
+    try{const storage=new LocalObjectStorage();const count=25,size=1024*1024;
+      const source=Readable.from((async function*(){for(let i=0;i<count;i++)yield Buffer.alloc(size,i);})());
+      const object=await storage.put({key:'knowledge/stream/large',body:source,contentType:'application/pdf',visibility:'private'});
+      expect(await storage.stat(object.key)).toEqual({size:count*size});
+      const stream=await storage.openStream(object.key,{start:size-2,end:size+2});const chunks:Buffer[]=[];for await(const chunk of stream!)chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks)).toEqual(Buffer.from([0,0,1,1,1]));
+      await expect(storage.openStream(object.key,{start:0,end:count*size})).rejects.toThrow('Invalid object range');
+      expect(await storage.stat('.private/knowledge/missing')).toBeNull();
+    }finally{if(previous===undefined)delete process.env.UPLOAD_DIR;else process.env.UPLOAD_DIR=previous;await fs.rm(directory,{recursive:true,force:true});}
+  });
+});

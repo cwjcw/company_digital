@@ -113,7 +113,7 @@ export class KnowledgeQueryService {
       assertKnowledgeFields(
         actor,
         "knowledge-pages",
-        ["title", "contentText", "tags", "parentId"],
+        ["title", "contentText", "description", "attachmentIds", "tags", "parentId"],
         "read",
       );
       assertKnowledgeFields(actor, "knowledge-spaces", ["name"], "read");
@@ -366,6 +366,7 @@ export class KnowledgeQueryService {
           versionId ? "published" : mode,
           versionId ?? row.internalPublishedVersionId,
         );
+      if (row.attachments) row.primaryFile = row.attachments.find((f: KnowledgeRow) => f.role === "PRIMARY") ?? null;
       row.canEdit = await this.allowed(m, id, actor, "update", 2);
       row.canManage = await this.allowed(
         m,
@@ -444,7 +445,7 @@ export class KnowledgeQueryService {
         undefined,
         m,
       );
-      let relation = "file.detached_at IS NULL";
+      let relation = "EXISTS(SELECT 1 FROM knowledge_page_files current_file WHERE current_file.tenant_id=file.tenant_id AND current_file.page_id=file.page_id AND current_file.file_id=file.id)";
       const join = publishedJoin;
       if (mode !== "working" || input.versionId) {
         const index = p.push(
@@ -457,10 +458,10 @@ export class KnowledgeQueryService {
               p,
             )
           : "true";
-        relation = `EXISTS(SELECT 1 FROM knowledge_page_version_attachments link JOIN knowledge_page_versions historical ON historical.tenant_id=link.tenant_id AND historical.id=link.version_id WHERE link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.attachment_id=file.id AND historical.id=COALESCE($${index}::uuid,record.published_version_id) AND (${historical}))`;
+        relation = `EXISTS(SELECT 1 FROM knowledge_page_version_files link JOIN knowledge_page_versions historical ON historical.tenant_id=link.tenant_id AND historical.id=link.version_id WHERE link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.file_id=file.id AND historical.id=COALESCE($${index}::uuid,record.published_version_id) AND (${historical}))`;
       }
       const [file] = await m.query(
-        `SELECT file.storage_key AS key,file.original_name AS "originalName",file.content_type AS "contentType" FROM knowledge_attachments file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${join} WHERE file.tenant_id=$1 AND file.id=$2 AND (${scope}) AND (${relation})`,
+        `SELECT file.storage_key AS key,file.original_name AS "originalName",file.content_type AS "contentType",file.id,file.page_id AS "pageId",file.sha256,file.size FROM knowledge_file_assets file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${join} WHERE file.tenant_id=$1 AND file.id=$2 AND (${scope}) AND (${relation})`,
         p,
       );
       if (!file) throw new NotFoundException("附件不存在或不在授权范围内");
@@ -518,13 +519,14 @@ export class KnowledgeQueryService {
     mode: KnowledgeMode,
     versionId: string | null,
   ) {
+    const working = mode !== "published";
     return m.query(
-      `SELECT file.id,file.page_id AS "pageId",file.original_name AS "originalName",file.content_type AS "contentType",file.size,file.sha256,file.created_at AS "createdAt" FROM knowledge_attachments file WHERE file.tenant_id=$1 AND file.page_id=$2 AND ${mode !== "published" && !versionId ? "file.detached_at IS NULL" : mode !== "published" ? "file.detached_at IS NULL" : "EXISTS(SELECT 1 FROM knowledge_page_version_attachments link WHERE link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.attachment_id=file.id AND link.version_id=$3::uuid)"} ORDER BY file.created_at,file.id`,
-      mode !== "published"
-        ? [actor.tenantId, id]
-        : [actor.tenantId, id, versionId],
-    );
+      `SELECT file.id,file.page_id AS "pageId",file.original_name AS "originalName",file.content_type AS "contentType",file.size,file.sha256,file.created_at AS "createdAt",link.role
+      FROM knowledge_file_assets file JOIN ${working ? "knowledge_page_files" : "knowledge_page_version_files"} link ON link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.file_id=file.id
+      WHERE file.tenant_id=$1 AND file.page_id=$2 ${working ? "" : "AND link.version_id=$3::uuid"} ORDER BY file.created_at,file.id`,
+      working ? [actor.tenantId,id] : [actor.tenantId,id,versionId]);
   }
+
   private async tagNames(m: EntityManager, id: string, actor: KnowledgeActor) {
     return (
       await m.query(

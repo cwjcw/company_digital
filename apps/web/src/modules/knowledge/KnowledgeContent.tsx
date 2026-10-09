@@ -120,6 +120,11 @@ export function KnowledgeRichEditor({
     content: value ?? emptyKnowledgeContent,
     editable: !disabled,
     editorProps: {
+      handleDrop: (_view,event,moved) => {
+        if(moved||disabled||!onPasteImage)return false;
+        const file=Array.from(event.dataTransfer?.files??[]).find(f=>f.type.startsWith("image/"));if(!file)return false;
+        event.preventDefault();void onPasteImage(file).then(f=>{if(f)editor?.chain().focus().insertContent({type:"attachmentImage",attrs:{attachmentId:f.id,alt:f.originalName}}).run();}).catch(e=>message.error((e as Error).message));return true;
+      },
       handlePaste: (_view, event) => {
         const file = Array.from(event.clipboardData?.files ?? []).find((f) =>
           f.type.startsWith("image/"),

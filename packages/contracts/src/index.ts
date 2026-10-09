@@ -240,6 +240,8 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["access", "空间成员", "structured", true, false, { filterable: false }]
   ]),
   "knowledge-pages": fields([
+    ["contentMode", "内容模式", "dictionary", false, false, { options: [{ value: "RICH_TEXT", label: "在线文章" }, { value: "FILE", label: "文件" }] }],
+    ["description", "页面说明", "text", true, false],
     ["title", "标题", "text", true, true],
     ["spaceId", "知识空间", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "knowledge-spaces", valueField: "id", labelField: "name" } }],
     ["parentId", "父页面", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "knowledge-pages", valueField: "id", labelField: "title" } }],

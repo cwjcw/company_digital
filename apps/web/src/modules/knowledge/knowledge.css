@@ -30,3 +30,11 @@
 .knowledge-import-preview{white-space:pre-wrap;max-height:340px;overflow:auto;padding:16px;background:#f8fafc}
 @media(max-width:1000px){.knowledge-reading-grid{grid-template-columns:1fr}.knowledge-toc{position:static}}
 @media(max-width:800px){.knowledge-wiki{grid-template-columns:1fr}.knowledge-sidebar{position:static;max-height:350px}.knowledge-main{padding:16px}}
+
+.knowledge-file-preview { background: #f5f5f5; border: 1px solid #ddd; padding: 12px; min-height: 200px; }
+.knowledge-preview-toolbar { position: sticky; top: 0; background: white; padding: 8px; z-index: 2; }
+.knowledge-preview-canvas { overflow: auto; max-height: 75vh; margin-top: 12px; }
+.knowledge-preview-canvas canvas { margin: auto; background: white; }
+.knowledge-file-preview:fullscreen { overflow: auto; padding: 24px; }
+.knowledge-file-preview:fullscreen .knowledge-preview-canvas { max-height: 85vh; }
+.knowledge-preview-image { max-width: 100%; margin: 16px auto; display: block; }

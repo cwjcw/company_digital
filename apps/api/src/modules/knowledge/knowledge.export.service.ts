@@ -33,6 +33,7 @@ export class KnowledgeExportService {
     );
     const page = await this.queries.detail(id, input, actor, "export"),
       images = new Map<string, string>();
+    if(page.contentMode === "FILE")throw new BadRequestException("文件型页面请下载对应版本的原文件");
     for (const file of page.attachments ?? []) {
       if (!file.contentType.startsWith("image/")) continue;
       const meta = await this.queries.attachment(file.id, input, actor),

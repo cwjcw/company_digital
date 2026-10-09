@@ -7,11 +7,13 @@ import {
   hasResourcePermission,
 } from "../../shared/KdosDataTable";
 import { downloadApiFile } from "../../shared/legacy-ui";
+import { KnowledgeFilePreview } from "./KnowledgeFilePreview";
 import { KnowledgeRichEditor } from "./KnowledgeContent";
 import {
   emptyKnowledgeContent,
   KnowledgeFileContext,
   knowledgeFileUrl,
+  knowledgeCanRetry,
 } from "./knowledge-ui";
 import {
   KnowledgeDraftSession,
@@ -89,6 +91,8 @@ export function KnowledgeEditor({
   };
   const upload = async (
     file: File,
+    primary = false,
+    inline = false,
   ): Promise<KnowledgeAttachment | undefined> => {
     if (busy || !allowed("attachmentIds")) return;
     setBusy(true);
@@ -100,14 +104,28 @@ export function KnowledgeEditor({
         const body = new FormData();
         body.append("file", file);
         body.append("expectedVersion", String(version));
-        return api(`/knowledge/pages/${page.id}/attachments`, {
+        body.append(
+          "role",
+          primary
+            ? "PRIMARY"
+            : inline
+              ? "INLINE"
+              : "SUPPLEMENTAL",
+        );
+        return api(`/knowledge/pages/${page.id}/files`, {
           method: "POST",
           body,
         });
       });
       setValue((v) => ({
         ...v,
-        attachments: [...(v.attachments ?? []), result.attachment],
+        attachments: primary
+          ? [
+              ...(v.attachments ?? []).filter((f) => f.role !== "PRIMARY"),
+              result.attachment,
+            ]
+          : [...(v.attachments ?? []), result.attachment],
+        ...(primary ? { primaryFile: result.attachment } : {}),
       }));
       return result.attachment;
     } catch (e) {
@@ -121,7 +139,7 @@ export function KnowledgeEditor({
     setBusy(true);
     try {
       await draft.run((version) =>
-        api<{ version: number }>(`/knowledge/attachments/${file.id}`, {
+        api<{ version: number }>(`/knowledge/files/${file.id}`, {
           method: "DELETE",
           body: JSON.stringify({ expectedVersion: version }),
         }),
@@ -172,9 +190,9 @@ export function KnowledgeEditor({
           >
             {labels[draft.state]}
           </Tag>
-          <span>工作修订 {draft.version}</span>
+
           {page.publishedVersion && (
-            <span>员工仍查看发布版本 v{page.publishedVersion}</span>
+            <span>已发布 V{page.publishedVersion} · 存在工作草稿</span>
           )}
         </Space>
         {(draft.state === "failed" || draft.state === "conflict") && (
@@ -220,6 +238,7 @@ export function KnowledgeEditor({
         {hasFieldPermission("knowledge-pages", "tags", "read") && (
           <Select
             aria-label="页面标签"
+            placeholder="添加标签..."
             mode="tags"
             value={value.tags ?? []}
             tokenSeparators={[",", "，"]}
@@ -228,15 +247,65 @@ export function KnowledgeEditor({
             style={{ width: "100%", marginBottom: 16 }}
           />
         )}
-        {hasFieldPermission("knowledge-pages", "content", "read") && (
-          <KnowledgeRichEditor
-            value={value.content ?? emptyKnowledgeContent}
-            onChange={(content) => change({ content })}
-            disabled={!allowed("content") || busy || draft.state === "conflict"}
-            attachments={value.attachments}
-            onPasteImage={upload}
+        <p>
+          所在位置：
+          {page.breadcrumb
+            ?.slice(0, -1)
+            .map((b) => b.title)
+            .join(" > ") || page.spaceName}
+        </p>
+        {hasFieldPermission("knowledge-pages", "description", "read") && (
+          <Input.TextArea
+            aria-label="页面说明"
+            placeholder="简要说明（可选）"
+            value={value.description ?? ""}
+            maxLength={4000}
+            disabled={!allowed("description") || busy}
+            onChange={(e) => change({ description: e.target.value })}
+            style={{ marginBottom: 16 }}
           />
         )}
+        {value.contentMode === "FILE" &&
+          hasFieldPermission("knowledge-pages", "attachmentIds", "read") && (
+            <Space
+              direction="vertical"
+              style={{ width: "100%", marginBottom: 16 }}
+            >
+              <Upload
+                showUploadList={false}
+                disabled={!allowed("attachmentIds") || busy}
+                accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.txt"
+                beforeUpload={(file) => {
+                  void upload(file, true);
+                  return false;
+                }}
+              >
+                <Button disabled={!allowed("attachmentIds") || busy}>
+                  {value.primaryFile ? "替换主文件" : "上传主文件"}
+                </Button>
+              </Upload>
+              {value.primaryFile && (
+                <KnowledgeFilePreview
+                  key={value.primaryFile.id}
+                  file={value.primaryFile}
+                  scope={{ mode: "working" }}
+                  canRetry={knowledgeCanRetry()}
+                />
+              )}
+            </Space>
+          )}
+        {value.contentMode !== "FILE" &&
+          hasFieldPermission("knowledge-pages", "content", "read") && (
+            <KnowledgeRichEditor
+              value={value.content ?? emptyKnowledgeContent}
+              onChange={(content) => change({ content })}
+              disabled={
+                !allowed("content") || busy || draft.state === "conflict"
+              }
+              attachments={value.attachments}
+              onPasteImage={(file) => upload(file, false, true)}
+            />
+          )}
         {hasFieldPermission("knowledge-pages", "attachmentIds", "read") && (
           <Space direction="vertical" style={{ marginTop: 16 }}>
             <Upload
@@ -253,31 +322,33 @@ export function KnowledgeEditor({
                 上传附件 / 图片
               </Button>
             </Upload>
-            {value.attachments?.map((file) => (
-              <Space key={file.id}>
-                <Button
-                  type="link"
-                  onClick={() =>
-                    void downloadApiFile(
-                      knowledgeFileUrl(file.id, { mode: "working" }),
-                      file.originalName,
-                    ).catch((e) => message.error((e as Error).message))
-                  }
-                >
-                  {file.originalName}
-                </Button>
-                {allowed("attachmentIds") && (
+            {value.attachments
+              ?.filter((file) => file.role !== "PRIMARY")
+              .map((file) => (
+                <Space key={file.id}>
                   <Button
-                    danger
-                    size="small"
-                    disabled={busy}
-                    onClick={() => void remove(file)}
+                    type="link"
+                    onClick={() =>
+                      void downloadApiFile(
+                        knowledgeFileUrl(file.id, { mode: "working" }),
+                        file.originalName,
+                      ).catch((e) => message.error((e as Error).message))
+                    }
                   >
-                    移除
+                    {file.originalName}
                   </Button>
-                )}
-              </Space>
-            ))}
+                  {allowed("attachmentIds") && (
+                    <Button
+                      danger
+                      size="small"
+                      disabled={busy}
+                      onClick={() => void remove(file)}
+                    >
+                      移除
+                    </Button>
+                  )}
+                </Space>
+              ))}
           </Space>
         )}
         <Space style={{ display: "flex", marginTop: 24 }}>

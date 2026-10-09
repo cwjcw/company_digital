@@ -8,12 +8,14 @@ export function KnowledgePageSelect({
   value,
   onChange,
   excludeId,
+  disabled = false,
   label = "父页面",
 }: {
   spaceId: string;
   value?: string;
   onChange: (id: string | undefined) => void;
   excludeId?: string;
+  disabled?: boolean;
   label?: string;
 }) {
   const [search, setSearch] = useState("");
@@ -43,6 +45,7 @@ export function KnowledgePageSelect({
   return (
     <Select
       aria-label={label}
+      disabled={disabled}
       allowClear
       showSearch
       filterOption={false}

@@ -37,7 +37,7 @@ import {
   type KnowledgeRow,
 } from "./knowledge.types";
 
-const pageFields = ["title", "content", "tags", "sortOrder"];
+const pageFields = ["title", "content", "tags", "sortOrder", "description"];
 const spaceFields = [
   "code",
   "name",
@@ -53,6 +53,7 @@ export class KnowledgeApplicationService {
     private readonly access: KnowledgeAuthorizationService,
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
+  accessTransaction<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>) { return this.access.transaction(actor, work); }
   command<T>(actor: KnowledgeActor, work: (m: EntityManager) => Promise<T>) {
     return this.access
       .transaction(actor, async (m) => {
@@ -263,7 +264,8 @@ export class KnowledgeApplicationService {
         (k) => pageFields.includes(k) || k === "parentId",
       ),
     ]);
-    this.keys(input, ["spaceId", "parentId", ...pageFields]);
+    this.keys(input, ["spaceId", "parentId", "contentMode", ...pageFields]);
+    if (input.contentMode && !["RICH_TEXT", "FILE"].includes(input.contentMode)) throw new BadRequestException("内容模式无效");
     const space = await this.lockSpace(
       m,
       knowledgeId(input.spaceId),
@@ -287,7 +289,7 @@ export class KnowledgeApplicationService {
     if (canonical.imageIds.length)
       throw new BadRequestException("新页面图片须先上传到该页面");
     await m.query(
-      `INSERT INTO knowledge_pages(id,tenant_id,space_id,parent_id,title,slug,sort_order,working_content,working_content_text,working_content_hash,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::uuid,$11::text)`,
+      `INSERT INTO knowledge_pages(id,tenant_id,space_id,parent_id,title,slug,sort_order,working_content,working_content_text,working_content_hash,created_by,updated_by,content_mode,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::uuid,$11::text,$12,$13)`,
       [
         id,
         actor.tenantId,
@@ -300,6 +302,8 @@ export class KnowledgeApplicationService {
         canonical.contentText,
         canonical.contentHash,
         actor.userId,
+        input.contentMode ?? "RICH_TEXT",
+        knowledgeText(input.description, "说明", 4000),
       ],
     );
     await this.tags(m, id, knowledgeTags(input.tags ?? []), actor);
@@ -341,7 +345,7 @@ export class KnowledgeApplicationService {
     const sort =
       input.sortOrder == null ? row.sort_order : this.sort(input.sortOrder);
     await m.query(
-      `UPDATE knowledge_pages SET title=$3,sort_order=$4,working_content=$5::jsonb,working_content_text=$6,working_content_hash=$7,version=version+1,updated_by=$8,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+      `UPDATE knowledge_pages SET title=$3,sort_order=$4,working_content=$5::jsonb,working_content_text=$6,working_content_hash=$7,description=$9,version=version+1,updated_by=$8,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
       [
         actor.tenantId,
         id,
@@ -351,6 +355,7 @@ export class KnowledgeApplicationService {
         canonical.contentText,
         canonical.contentHash,
         actor.userId,
+        knowledgeText(input.description ?? row.description, "说明", 4000),
       ],
     );
     if ("tags" in input)
@@ -375,7 +380,10 @@ export class KnowledgeApplicationService {
       const row = await this.lockPage(m, id, actor, "update", 2);
       this.version(row.version, input.expectedVersion);
       const canonical = canonicalKnowledgeContent(row.working_content);
+      const primary = await m.query("SELECT asset.sha256 FROM knowledge_page_files link JOIN knowledge_file_assets asset ON asset.tenant_id=link.tenant_id AND asset.id=link.file_id WHERE link.tenant_id=$1 AND link.page_id=$2 AND link.role='PRIMARY'", [actor.tenantId,id]);
+      if (row.content_mode === "FILE" && primary.length !== 1) throw new BadRequestException("文件页面必须上传主文件后再发布");
       await this.validateImages(m, id, canonical.imageIds, actor);
+      if (row.content_mode === "FILE") canonical.contentHash = createHash("sha256").update(JSON.stringify({content:canonical.contentHash,description:row.description,fileSha256:primary[0].sha256})).digest("hex");
       const ancestry = await this.access.ancestors(m, id, actor);
       if (
         ancestry.some(
@@ -432,7 +440,7 @@ export class KnowledgeApplicationService {
         ...breadcrumb.map((b) => b.title),
       ].join("\n");
       await m.query(
-        `INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13::uuid,$13::uuid,$13::text)`,
+        `INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by,created_by,updated_by,content_mode,description) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13::uuid,$13::uuid,$13::text,$14,$15)`,
         [
           versionId,
           actor.tenantId,
@@ -447,10 +455,12 @@ export class KnowledgeApplicationService {
           JSON.stringify(snapshot),
           searchText,
           actor.userId,
+          row.content_mode,
+          row.description,
         ],
       );
       await m.query(
-        `INSERT INTO knowledge_page_version_attachments(tenant_id,page_id,version_id,attachment_id,created_by,updated_by) SELECT tenant_id,page_id,$3::uuid,id,$4::uuid,$4::text FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND detached_at IS NULL`,
+        `INSERT INTO knowledge_page_version_files(tenant_id,page_id,version_id,file_id,role,created_by,updated_by) SELECT tenant_id,page_id,$3::uuid,file_id,role,$4::uuid,$4::text FROM knowledge_page_files WHERE tenant_id=$1 AND page_id=$2`,
         [actor.tenantId, id, versionId, actor.userId],
       );
       await m.query(
@@ -689,7 +699,7 @@ export class KnowledgeApplicationService {
       )
         throw new BadRequestException("只能永久删除整个已授权的回收站子树");
       const files = await m.query(
-        "SELECT storage_key FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])",
+        "SELECT storage_key FROM knowledge_file_assets WHERE tenant_id=$1 AND page_id=ANY($2::uuid[]) UNION SELECT preview.storage_key FROM knowledge_file_previews preview JOIN knowledge_file_assets asset ON asset.tenant_id=preview.tenant_id AND asset.id=preview.file_id WHERE asset.tenant_id=$1 AND asset.page_id=ANY($2::uuid[]) AND preview.storage_key IS NOT NULL",
         [actor.tenantId, ids],
       );
       keys.push(...files.map((f: KnowledgeRow) => f.storage_key));
@@ -697,7 +707,7 @@ export class KnowledgeApplicationService {
         "SELECT set_config('app.knowledge_purge','authorized',true)",
       );
       await m.query(
-        "DELETE FROM knowledge_page_version_attachments WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])",
+        "DELETE FROM knowledge_page_version_files WHERE tenant_id=$1 AND page_id=ANY($2::uuid[])",
         [actor.tenantId, ids],
       );
       await m.query(
@@ -722,35 +732,6 @@ export class KnowledgeApplicationService {
     const cleanup = await this.processCleanup(actor);
     return { ...result, cleanupPending: cleanup.pending };
   }
-  async upload(
-    id: string,
-    input: Record<string, unknown>,
-    file: Express.Multer.File,
-    actor: KnowledgeActor,
-  ) {
-    this.keys(input, ["expectedVersion"]);
-    assertKnowledgeFields(actor, "knowledge-pages", ["attachmentIds"]);
-    let key: string | undefined;
-    try {
-      return await this.command(actor, async (m) => {
-        const row = await this.lockPage(m, id, actor, "update", 2);
-        this.version(row.version, input.expectedVersion);
-        const result = await this.uploadIn(m, id, file, actor);
-        key = result.key;
-        await m.query(
-          "UPDATE knowledge_pages SET version=version+1,updated_by=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-          [actor.tenantId, id, actor.userId],
-        );
-        return { attachment: result.attachment, version: row.version + 1 };
-      });
-    } catch (e) {
-      if (key)
-        await this.storage
-          .delete(key)
-          .catch(() => this.logger.error("知识附件回滚清理失败"));
-      throw e;
-    }
-  }
   async uploadIn(
     m: EntityManager,
     id: string,
@@ -758,7 +739,7 @@ export class KnowledgeApplicationService {
     actor: KnowledgeActor,
   ) {
     const [{ count }] = await m.query(
-      "SELECT count(*)::int count FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND detached_at IS NULL",
+      "SELECT count(*)::int count FROM knowledge_page_files WHERE tenant_id=$1 AND page_id=$2",
       [actor.tenantId, id],
     );
     if (count >= 20) throw new BadRequestException("每页面最多20个附件");
@@ -776,7 +757,7 @@ export class KnowledgeApplicationService {
       ).key;
       const sha256 = createHash("sha256").update(f.body).digest("hex");
       const [row] = await m.query(
-        `INSERT INTO knowledge_attachments(id,tenant_id,page_id,original_name,storage_key,content_type,size,sha256,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::text) RETURNING created_at AS "createdAt"`,
+        `INSERT INTO knowledge_file_assets(id,tenant_id,page_id,original_name,storage_key,content_type,size,sha256,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::text) RETURNING created_at AS "createdAt"`,
         [
           attachmentId,
           actor.tenantId,
@@ -789,6 +770,7 @@ export class KnowledgeApplicationService {
           actor.userId,
         ],
       );
+      await m.query("INSERT INTO knowledge_page_files(tenant_id,page_id,file_id,role) VALUES($1,$2,$3,$4)", [actor.tenantId,id,attachmentId,f.contentType.startsWith("image/")?"INLINE":"SUPPLEMENTAL"]);
       await this.audit(m, actor, "knowledge-pages", id, "attachment.uploaded", {
         attachmentId,
         originalName: f.name,
@@ -824,7 +806,7 @@ export class KnowledgeApplicationService {
     assertKnowledgeFields(actor, "knowledge-pages", ["attachmentIds"]);
     return this.command(actor, async (m) => {
       const [file] = await m.query(
-        "SELECT * FROM knowledge_attachments WHERE tenant_id=$1 AND id=$2 AND detached_at IS NULL",
+        "SELECT * FROM knowledge_file_assets WHERE tenant_id=$1 AND id=$2 AND EXISTS(SELECT 1 FROM knowledge_page_files link WHERE link.tenant_id=knowledge_file_assets.tenant_id AND link.file_id=knowledge_file_assets.id)",
         [actor.tenantId, knowledgeId(id)],
       );
       if (!file) throw new NotFoundException("附件不存在");
@@ -834,8 +816,10 @@ export class KnowledgeApplicationService {
         throw new BadRequestException(
           "请先从正文移除图片并等待自动保存，再移除附件",
         );
+      if ((await m.query("SELECT 1 FROM knowledge_page_files WHERE tenant_id=$1 AND file_id=$2 AND role='PRIMARY'",[actor.tenantId,id])).length) throw new BadRequestException("请替换主文件，不能直接移除");
+      await m.query("DELETE FROM knowledge_page_files WHERE tenant_id=$1 AND file_id=$2", [actor.tenantId,id]);
       await m.query(
-        "UPDATE knowledge_attachments SET detached_at=now(),updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2",
+        "UPDATE knowledge_file_assets SET updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2",
         [actor.tenantId, id, actor.userId],
       );
       await m.query(
@@ -866,13 +850,15 @@ export class KnowledgeApplicationService {
         m,
       );
       const files = await m.query(
-        `SELECT file.id,file.storage_key,record.id page_id FROM knowledge_attachments file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${publishedJoin}
-        WHERE (${scope}) AND file.detached_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM knowledge_page_version_attachments link WHERE link.tenant_id=file.tenant_id AND link.attachment_id=file.id) FOR UPDATE OF file`,
+        `SELECT file.id,file.storage_key,record.id page_id FROM knowledge_file_assets file JOIN knowledge_pages record ON record.tenant_id=file.tenant_id AND record.id=file.page_id ${publishedJoin}
+        WHERE (${scope}) AND NOT EXISTS(SELECT 1 FROM knowledge_page_files current_file WHERE current_file.tenant_id=file.tenant_id AND current_file.file_id=file.id) AND NOT EXISTS(SELECT 1 FROM knowledge_page_version_files link WHERE link.tenant_id=file.tenant_id AND link.file_id=file.id) FOR UPDATE OF file`,
         params,
       );
+      const derived = files.length ? await m.query("SELECT preview.storage_key FROM knowledge_file_previews preview WHERE preview.tenant_id=$1 AND preview.file_id=ANY($2::uuid[]) AND preview.storage_key IS NOT NULL", [actor.tenantId,files.map((f: KnowledgeRow)=>f.id)]) : [];
+      await this.enqueueCleanup(m, derived.map((f: KnowledgeRow)=>f.storage_key),actor);
       if (files.length)
         await m.query(
-          "DELETE FROM knowledge_attachments WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
+          "DELETE FROM knowledge_file_assets WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
           [actor.tenantId, files.map((f: KnowledgeRow) => f.id)],
         );
       await this.enqueueCleanup(
@@ -905,7 +891,7 @@ export class KnowledgeApplicationService {
       `WITH RECURSIVE targets AS (
       SELECT id FROM knowledge_pages WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id=$2) AND ($3::uuid IS NULL OR space_id=$3)
       UNION ALL SELECT child.id FROM knowledge_pages child JOIN targets parent ON child.parent_id=parent.id WHERE child.tenant_id=$1 AND $2::uuid IS NOT NULL)
-      UPDATE knowledge_pages page SET published_search_text=concat_ws(E'\n',v.title,v.content_text,(SELECT string_agg(tag,E'\n') FROM jsonb_array_elements_text(v.tags) tag),space.name,
+      UPDATE knowledge_pages page SET published_search_text=concat_ws(E'\n',v.title,v.content_text,v.description,(SELECT string_agg(asset.original_name,E'\n') FROM knowledge_page_version_files link JOIN knowledge_file_assets asset ON asset.tenant_id=link.tenant_id AND asset.id=link.file_id WHERE link.tenant_id=v.tenant_id AND link.version_id=v.id AND link.role='PRIMARY'),(SELECT string_agg(tag,E'\n') FROM jsonb_array_elements_text(v.tags) tag),space.name,
         (WITH RECURSIVE ancestors AS (SELECT parent_id FROM knowledge_pages WHERE tenant_id=page.tenant_id AND id=page.id UNION ALL SELECT p.parent_id FROM knowledge_pages p JOIN ancestors a ON p.id=a.parent_id WHERE p.tenant_id=page.tenant_id)
         SELECT string_agg(published.title,E'\n') FROM ancestors a JOIN knowledge_pages p ON p.tenant_id=page.tenant_id AND p.id=a.parent_id JOIN knowledge_page_versions published ON published.tenant_id=p.tenant_id AND published.id=p.published_version_id))
       FROM knowledge_page_versions v,knowledge_spaces space WHERE page.tenant_id=$1 AND page.id IN (SELECT id FROM targets) AND v.tenant_id=page.tenant_id AND v.id=page.published_version_id AND space.tenant_id=page.tenant_id AND space.id=page.space_id`,
@@ -964,7 +950,7 @@ export class KnowledgeApplicationService {
       const known = new Set<string>(
         (
           await m.query(
-            "SELECT storage_key FROM knowledge_attachments WHERE tenant_id=$1 UNION SELECT storage_key FROM knowledge_storage_cleanup WHERE tenant_id=$1",
+            "SELECT storage_key FROM knowledge_file_assets WHERE tenant_id=$1 UNION SELECT storage_key FROM knowledge_storage_cleanup WHERE tenant_id=$1",
             [actor.tenantId],
           )
         ).map((r: KnowledgeRow) => r.storage_key),
@@ -1081,7 +1067,7 @@ export class KnowledgeApplicationService {
   ) {
     if (!ids.length) return;
     const files = await m.query(
-      "SELECT id FROM knowledge_attachments WHERE tenant_id=$1 AND page_id=$2 AND id=ANY($3::uuid[]) AND detached_at IS NULL AND content_type IN ('image/png','image/jpeg','image/webp')",
+      "SELECT id FROM knowledge_file_assets WHERE tenant_id=$1 AND page_id=$2 AND id=ANY($3::uuid[]) AND EXISTS(SELECT 1 FROM knowledge_page_files pf WHERE pf.tenant_id=knowledge_file_assets.tenant_id AND pf.page_id=knowledge_file_assets.page_id AND pf.file_id=knowledge_file_assets.id) AND content_type IN ('image/png','image/jpeg','image/webp')",
       [actor.tenantId, id, ids],
     );
     if (files.length !== ids.length)

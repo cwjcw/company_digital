@@ -37,11 +37,13 @@ services:
       start_period: 15s
     networks:
       - internal
+      - knowledge_conversion
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: runtime
       args:
         KDOS_BUILD_SHA: ${KDOS_BUILD_SHA:-unknown}
     restart: unless-stopped
@@ -83,6 +85,51 @@ services:
     networks:
       - internal
 
+  document-worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: document-worker
+      # Build-time package download only; runtime stays on the isolated internal network.
+      network: host
+      args:
+        KDOS_BUILD_SHA: ${KDOS_BUILD_SHA:-unknown}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:?DATABASE_NAME is required}
+      DATABASE_USER: ${DATABASE_USER:?DATABASE_USER is required}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      KDOS_DEFAULT_TENANT_CODE: ${KDOS_DEFAULT_TENANT_CODE:-KAINAN}
+      UPLOAD_DIR: /app/data/uploads
+      KNOWLEDGE_CONVERSION_TIMEOUT_SECONDS: ${KNOWLEDGE_CONVERSION_TIMEOUT_SECONDS:-120}
+    volumes:
+      - ./data/uploads:/app/data/uploads
+    # Docker embedded DNS resolves postgres; other DNS is restricted to loopback.
+    dns: [127.0.0.1]
+    read_only: true
+    tmpfs:
+      - /tmp:size=536870912,mode=1777
+    cpus: 1.0
+    mem_limit: 1536m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const f=require('fs');process.exit(Date.now()-Number(f.readFileSync('/tmp/knowledge-worker-health','utf8'))<(Number(process.env.KNOWLEDGE_CONVERSION_TIMEOUT_SECONDS||120)+120)*1000?0:1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - knowledge_conversion
+
   web:
     build:
       context: .
@@ -110,3 +157,6 @@ services:
 networks:
   internal:
     driver: bridge
+  knowledge_conversion:
+    driver: bridge
+    internal: true

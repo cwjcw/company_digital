@@ -22,4 +22,6 @@ curl --fail --silent --show-error "$base_url/api/v1/health" >/dev/null
 curl --fail --silent --show-error "$base_url/api/docs" >/dev/null
 curl --fail --silent --show-error "$base_url/api/openapi.json" >/dev/null
 curl --fail --silent --show-error "$base_url/" >/dev/null
-echo "Web、API、Swagger、OpenAPI 与 PostgreSQL 健康检查通过。"
+worker_id="$("${COMPOSE[@]}" ps -q document-worker)"
+[[ -n "$worker_id" && "$(docker inspect "$worker_id" --format '{{.State.Health.Status}}')" == healthy ]] || { echo "Knowledge document worker unhealthy" >&2; exit 1; }
+echo "Document worker、Web、API、Swagger、OpenAPI 与 PostgreSQL 健康检查通过。"

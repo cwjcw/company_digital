@@ -133,3 +133,15 @@ The importer maps workbook “研发” to the stable “研发中心” organiz
 ## Knowledge 2.0
 
 保留已执行 `KnowledgeBasePhaseOne1722920084000`，新增 `Knowledge2SpacePageModel1722920085000` 撤销未验收旧模型、建立Space/Page Tree，仅初始化默认tenant稳定HR空间，不初始化业务页面或默认权限组。按标准备份→migrate→deploy all→healthcheck执行，uploads备份必须包含.private目录。新镜像运行Sharp生成PNG检查通过后才能上线。普通用户没有权限时由管理员使用现有表权限管理页授权，禁止用临时JWT或生产密码重置替代验收。详见 [知识库](knowledge-base.md)。
+
+### Knowledge 2.1 文件预览
+
+Knowledge 页面支持在线文章和文件两种内容模式，原件、工作关系、不可变发布关系与派生 PDF 分开保存。文件端点统一为 `/api/v1/knowledge/files/:id/{original,preview,preview-status,retry-preview}`；历史下载/预览携带 `versionId`，工作文件携带 `mode=working`。每次请求包括 Range 都重新校验原有权限，不接受 URL token。原有富文本导入保留其20MB边界；独立文件上传使用磁盘临时文件，`KNOWLEDGE_MAX_FILE_MB` 默认100，上限100，Nginx104MB用于multipart余量。调低时同时检查代理限制。
+
+`document-worker` 是独立非root容器，单并发、1CPU、1536MB、只读根目录、512MB临时目录和禁止外部出站的 internal 网络。PostgreSQL 保留原网络并加入该内部网络，API数据库地址继续为 `postgres:5432`。`scripts/deploy.sh all/api` 创建Worker网络并连接现有PostgreSQL，避免为了新增网络重建数据库容器；脚本等待Worker健康，`scripts/healthcheck.sh` 同时检查Worker。主API不安装LibreOffice。Worker镜像构建阶段使用宿主机网络和运行时继承的HTTPS_PROXY下载签名包；该预定义构建参数不写入运行镜像，运行容器仍只连接internal网络。Worker只接收数据库配置和共享私有存储，不接收JWT、SMTP、ERP等密钥。
+
+任务存放 `knowledge_file_previews`，唯一键为租户/原件ID/SHA256/转换器版本；SKIP LOCKED领取，超时租约恢复最多3次后明确失败。管理员在页面点击“重试转换”重新排队，累计人工重试次数另行保留。转换超时配置 `KNOWLEDGE_CONVERSION_TIMEOUT_SECONDS` 为10–600秒，默认120；健康门限随其调整。Office宏禁止、外部出站禁止、原件哈希校验、转换进程组超时清理。失败不会删除原件或修改已发布版本；Excel预览按打印区域分页，不保证完整工作簿，下载原件读取全部内容。
+
+迁移前运行备份脚本并保留legacy数据库、KDOS数据库和uploads三份SHA256。2.1迁移原样保留文件ID/key/SHA与历史版本关系，不支持丢弃文件知识的down；回退须使用验证过的完整备份并匹配旧版应用。严禁删除数据卷。停止Worker仅影响预览生成；API和已生成预览继续可用，恢复Worker后自动领取持久任务。只清理明确标识的验收页面子树，严禁清理真实业务文件。
+
+专项检查：`pnpm --filter @tracker/api exec jest --runInBand --testPathPatterns='knowledge|local-object-storage'`，`pnpm --filter @tracker/web exec vitest run src/modules/knowledge --maxWorkers=2`，`node scripts/validate-knowledge.mjs`。最后一项仅创建/删除带 `knowledge_test_` 前缀的隔离数据库，验证已填充2.0升级、ACL/RLS和全量migration重放，不写生产知识内容。浏览器账号通过运行时输入；禁用trace、video、截图和storageState，不将凭据写入报告。

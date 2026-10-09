@@ -30,6 +30,8 @@ export const pageColumns = {
   slug: "slug",
   status: "status",
   sortOrder: "sort_order",
+  contentMode: "content_mode",
+  description: "description",
   content: "working_content",
   contentText: "working_content_text",
   createdBy: "created_by",
@@ -51,6 +53,8 @@ export function knowledgeExpressions(
     ...Object.fromEntries(
       Object.entries(pageColumns).map(([key, col]) => [key, `record.${col}`]),
     ),
+    contentMode: mode !== "published" ? "record.content_mode" : "published.content_mode",
+    description: mode !== "published" ? "record.description" : "published.description",
     title: mode !== "published" ? "record.title" : "published.title",
     content:
       mode !== "published" ? "record.working_content" : "published.content",
@@ -64,8 +68,8 @@ export function knowledgeExpressions(
         : "published.tags",
     attachmentIds:
       mode !== "published"
-        ? `(SELECT COALESCE(jsonb_agg(file.id),'[]'::jsonb) FROM knowledge_attachments file WHERE file.tenant_id=record.tenant_id AND file.page_id=record.id AND file.detached_at IS NULL)`
-        : `(SELECT COALESCE(jsonb_agg(link.attachment_id),'[]'::jsonb) FROM knowledge_page_version_attachments link WHERE link.tenant_id=record.tenant_id AND link.page_id=record.id AND link.version_id=published.id)`,
+        ? `(SELECT COALESCE(jsonb_agg(file.file_id),'[]'::jsonb) FROM knowledge_page_files file WHERE file.tenant_id=record.tenant_id AND file.page_id=record.id)`
+        : `(SELECT COALESCE(jsonb_agg(link.file_id),'[]'::jsonb) FROM knowledge_page_version_files link WHERE link.tenant_id=record.tenant_id AND link.page_id=record.id AND link.version_id=published.id)`,
     publishedVersion: "published.version_no",
     publishedBy: "published.published_by",
     publishedAt: "published.published_at",

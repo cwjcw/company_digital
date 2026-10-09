@@ -50,6 +50,8 @@ import {
   type PlatformTableQuery,
 } from "../../shared/platform-table";
 import { KnowledgeContent } from "./KnowledgeContent";
+import { KnowledgeFilePreview } from "./KnowledgeFilePreview";
+import { KnowledgeFileUpload } from "./KnowledgeFileUpload";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { KnowledgeAccess } from "./KnowledgeAccess";
 import { KnowledgeImport } from "./KnowledgeImport";
@@ -58,6 +60,7 @@ import { KnowledgeSettings } from "./KnowledgeSettings";
 import {
   KnowledgeFileContext,
   knowledgeFileUrl,
+  knowledgeCanRetry,
   copyKnowledgeLink,
 } from "./knowledge-ui";
 import type { KnowledgeDraftSession } from "./knowledge-autosave";
@@ -212,6 +215,7 @@ export function KnowledgeWiki() {
   const [spaceId, setSpaceId] = useState<string>(),
     [refresh, setRefresh] = useState(0),
     [importing, setImporting] = useState(false),
+    [fileUploading, setFileUploading] = useState(false),
     [accessing, setAccessing] = useState(false),
     [history, setHistory] = useState(false),
     [moving, setMoving] = useState(false),
@@ -469,7 +473,7 @@ export function KnowledgeWiki() {
               },
             ]
           : []),
-        ...(hasResourcePermission("knowledge-pages", "export")
+        ...(row.contentMode !== "FILE" && hasResourcePermission("knowledge-pages", "export")
           ? [
               {
                 key: "md",
@@ -626,22 +630,46 @@ export function KnowledgeWiki() {
           </Space>
           <div className="knowledge-reading-grid">
             <div>
-              <KnowledgeContent content={row.content} />
-              {row.attachments?.map((f) => (
-                <div key={f.id}>
-                  <Button
-                    type="link"
-                    onClick={() =>
-                      void downloadApiFile(
-                        knowledgeFileUrl(f.id, { mode, versionId }),
-                        f.originalName,
-                      ).catch((e) => message.error((e as Error).message))
-                    }
-                  >
-                    {f.originalName}
-                  </Button>
-                </div>
-              ))}
+              {row.contentMode === "FILE" ? (
+                row.primaryFile ? (
+                  <KnowledgeFilePreview
+                    file={row.primaryFile}
+                    scope={{ mode, versionId }}
+                    canRetry={knowledgeCanRetry()}
+                  />
+                ) : (
+                  <Alert
+                    type="warning"
+                    message="尚未上传主文件，或当前字段权限不允许查看文件"
+                  />
+                )
+              ) : (
+                <KnowledgeContent content={row.content} />
+              )}
+              {row.description && (
+                <Typography.Paragraph
+                  style={{ whiteSpace: "pre-wrap", marginTop: 16 }}
+                >
+                  {row.description}
+                </Typography.Paragraph>
+              )}
+              {row.attachments
+                ?.filter((f) => f.role !== "PRIMARY")
+                .map((f) => (
+                  <div key={f.id}>
+                    <Button
+                      type="link"
+                      onClick={() =>
+                        void downloadApiFile(
+                          knowledgeFileUrl(f.id, { mode, versionId }),
+                          f.originalName,
+                        ).catch((e) => message.error((e as Error).message))
+                      }
+                    >
+                      {f.originalName}
+                    </Button>
+                  </div>
+                ))}
             </div>
             <aside className="knowledge-toc">
               <strong>目录</strong>
@@ -678,14 +706,30 @@ export function KnowledgeWiki() {
         )}
         <Space wrap style={{ margin: "16px 0" }}>
           {selected?.canCreate && (
-            <Button
-              aria-label="新建页面"
-              icon={<PlusOutlined />}
-              loading={busy}
-              onClick={() => void create()}
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "rich", label: "在线编写" },
+                  {
+                    key: "file",
+                    label: "上传文件",
+                    disabled: !hasFieldPermission(
+                      "knowledge-pages",
+                      "attachmentIds",
+                      "update",
+                    ),
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === "rich") void create();
+                  else void safely(() => setFileUploading(true));
+                },
+              }}
             >
-              新建页面
-            </Button>
+              <Button aria-label="新建" icon={<PlusOutlined />} loading={busy}>
+                新建
+              </Button>
+            </Dropdown>
           )}
           {selected?.canCreate &&
             hasResourcePermission("knowledge-pages", "import") && (
@@ -742,7 +786,7 @@ export function KnowledgeWiki() {
       <main className="knowledge-main">
         <Input.Search
           aria-label="搜索知识页面"
-          placeholder="搜索已发布标题、正文、标签、上级标题"
+          placeholder="搜索已发布标题、说明、标签、路径、文件名和在线正文"
           allowClear
           enterButton
           onSearch={(s) =>
@@ -755,6 +799,25 @@ export function KnowledgeWiki() {
         />
         {body}
       </main>
+      {fileUploading && selected && (
+        <KnowledgeFileUpload
+          spaces={spaces.data ?? []}
+          spaceId={selected.id}
+          parentId={row?.spaceId === selected.id ? row.id : undefined}
+          position={
+            row?.spaceId === selected.id
+              ? row.breadcrumb?.map((b) => b.title).join(" > ")
+              : selected.name
+          }
+          onClose={() => setFileUploading(false)}
+          onCreated={(ids) => {
+            setFileUploading(false);
+            invalidate();
+            setShowWorking(true);
+            navigate(`/knowledge/pages/${ids[0]}?mode=working`);
+          }}
+        />
+      )}
       {importing && selected && (
         <KnowledgeImport
           spaces={spaces.data ?? []}

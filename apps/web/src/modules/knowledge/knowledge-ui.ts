@@ -9,7 +9,7 @@ export function knowledgeFileUrl(id: string, scope: KnowledgeFileScope = {}) {
   const p = new URLSearchParams();
   if (scope.mode) p.set("mode", scope.mode);
   if (scope.versionId) p.set("versionId", scope.versionId);
-  return `/knowledge/attachments/${encodeURIComponent(id)}${p.size ? `?${p}` : ""}`;
+  return `/knowledge/files/${encodeURIComponent(id)}/original${p.size ? `?${p}` : ""}`;
 }
 export const emptyKnowledgeContent: KnowledgeContentNode = {
   type: "doc",
@@ -39,4 +39,9 @@ export async function copyKnowledgeLink(id: string) {
   } finally {
     input.remove();
   }
+}
+
+export function knowledgeCanRetry() {
+  try { const user=JSON.parse(localStorage.getItem("sessionUser")??"{}");return user.isSystemAdmin===true||user.moduleAdminCodes?.includes("knowledge")===true; }
+  catch { return false; }
 }

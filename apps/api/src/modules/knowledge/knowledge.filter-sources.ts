@@ -26,6 +26,8 @@ export class KnowledgeFilterSourceProvider implements OnModuleInit {
       slug: "slug",
       status: "status",
       sortOrder: "sort_order",
+      contentMode: "content_mode",
+      description: "description",
       content: "content",
       contentText: "content_text",
       tags: "tags",
@@ -61,7 +63,7 @@ export class KnowledgeFilterSourceProvider implements OnModuleInit {
                 assertKnowledgeFields(
                   actor as KnowledgeActor,
                   "knowledge-pages",
-                  ["title", "contentText", "tags", "parentId"],
+                  ["title", "contentText", "description", "attachmentIds", "tags", "parentId"],
                   "read",
                 );
                 assertKnowledgeFields(

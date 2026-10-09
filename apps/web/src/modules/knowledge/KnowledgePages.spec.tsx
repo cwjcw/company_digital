@@ -16,6 +16,7 @@ import { clearKnowledgeDraftCache } from "./knowledge-autosave";
 import { KnowledgeWiki } from "./KnowledgePages";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { ModulePortal } from "../portal/ModulePortal";
+vi.mock("./KnowledgeFilePreview",()=>({KnowledgeFilePreview:()=> <div>文件预览</div>}));
 vi.mock("../../api", () => ({ api: vi.fn() }));
 vi.mock("../../shared/legacy-ui", async (original) => ({
   ...(await original<object>()),
@@ -120,7 +121,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api).mockImplementation(async (path, init) => {
     if (init?.method) {
-      if (path.endsWith("/attachments"))
+      if (path.endsWith("/files"))
         return {
           attachment: {
             id: "uploaded",
@@ -183,7 +184,8 @@ describe("Knowledge 2 Wiki", () => {
   });
   it("creates a persistent page immediately and enters inline editor", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "新建页面" }));
+    fireEvent.mouseOver(await screen.findByRole("button", { name: "新建" }));
+    fireEvent.click(await screen.findByText("在线编写"));
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
         "/knowledge/pages",
@@ -241,7 +243,7 @@ describe("Knowledge 2 Wiki", () => {
     expect(screen.getByText("发布版本 v2")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "制度.txt" }));
     expect(downloadApiFile).toHaveBeenCalledWith(
-      "/knowledge/attachments/file?mode=published",
+      "/knowledge/files/file/original?mode=published",
       "制度.txt",
     );
   });
@@ -262,13 +264,13 @@ describe("Knowledge 2 Wiki", () => {
     });
     mount(undefined, viewer, "/knowledge/pages/page");
     await screen.findByText("制度正文");
-    expect(screen.queryByRole("button", { name: "新建页面" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "页面更多操作" }));
     expect(screen.queryByText("编辑页面")).toBeNull();
   });
   it("search sends Chinese term and server pagination", async () => {
     mount();
-    await screen.findByRole("button", { name: "新建页面" });
+    await screen.findByRole("button", { name: "新建" });
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索知识页面" }), {
       target: { value: "请假" },
     });
@@ -341,13 +343,13 @@ describe("Knowledge 2 Wiki", () => {
     });
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
-        "/knowledge/pages/page/attachments",
+        "/knowledge/pages/page/files",
         expect.objectContaining({ body: expect.any(FormData) }),
       ),
     );
     const call = vi
       .mocked(api)
-      .mock.calls.find(([p]) => p.endsWith("/attachments"))!;
+      .mock.calls.find(([p]) => p.endsWith("/files"))!;
     expect((call[1]?.body as FormData).get("expectedVersion")).toBe("1");
   });
 });

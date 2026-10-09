@@ -55,9 +55,9 @@ describe("Knowledge safe reader", () => {
     expect(view.container.querySelector("iframe")).toBeNull();
   });
   it("keeps private image/download routes authenticated and version-specific", () => {
-    expect(knowledgeFileUrl("file")).toBe("/knowledge/attachments/file");
+    expect(knowledgeFileUrl("file")).toBe("/knowledge/files/file/original");
     expect(knowledgeFileUrl("file", { mode: "working", versionId: "v2" })).toBe(
-      "/knowledge/attachments/file?mode=working&versionId=v2",
+      "/knowledge/files/file/original?mode=working&versionId=v2",
     );
   });
 });

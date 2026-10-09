@@ -18,6 +18,12 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import fs from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { KnowledgeFilesService } from "./knowledge.files.service";
+import { KnowledgePreviewService } from "./knowledge.preview.service";
+import { knowledgeDiskUpload } from "./knowledge.upload";
+import { knowledgeByteRange } from "./knowledge.range";
 import type { Request, Response } from "express";
 import type { KnowledgePageInput } from "@kdos/contracts";
 import { AuthGuard } from "../../auth";
@@ -31,12 +37,14 @@ import { KnowledgeImportService } from "./knowledge.import.service";
 import { KnowledgeExportService } from "./knowledge.export.service";
 import type { KnowledgeActor } from "./knowledge.types";
 type KnowledgeRequest = Request & { user: any; requestId: string };
-@ApiTags("Knowledge 2.0")
+@ApiTags("Knowledge 2.1")
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller("knowledge")
 export class KnowledgeController {
   constructor(
+    private readonly files: KnowledgeFilesService,
+    private readonly previews: KnowledgePreviewService,
     private readonly application: KnowledgeApplicationService,
     private readonly queries: KnowledgeQueryService,
     private readonly imports: KnowledgeImportService,
@@ -128,7 +136,7 @@ export class KnowledgeController {
   ) {
     return this.imports.commit(body, this.actor(req));
   }
-  @Post("attachments/cleanup") cleanup(@Req() req: KnowledgeRequest) {
+  @Post("files/cleanup") cleanup(@Req() req: KnowledgeRequest) {
     return this.application.cleanOrphans(this.actor(req));
   }
   @Get("pages/:id") page(
@@ -232,44 +240,119 @@ export class KnowledgeController {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.send(file.body);
   }
-  @Post("pages/:id/attachments")
-  @UseInterceptors(
-    FileInterceptor("file", {
-      limits: { fileSize: 20 * 1024 * 1024, files: 1 },
-    }),
-  )
-  upload(
+  @Get("files/upload-limits") limits() {
+    return this.files.limits();
+  }
+  @Post("pages/files")
+  @UseInterceptors(FileInterceptor("file", knowledgeDiskUpload))
+  async createFile(
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: KnowledgeRequest,
+  ) {
+    try {
+      return await this.files.create(body, file, this.actor(req));
+    } finally {
+      if (file?.path) await fs.rm(file.path, { force: true });
+    }
+  }
+  @Post("pages/:id/files")
+  @UseInterceptors(FileInterceptor("file", knowledgeDiskUpload))
+  async upload(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: Record<string, unknown>,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: KnowledgeRequest,
   ) {
-    return this.application.upload(id, body, file, this.actor(req));
+    try {
+      return await this.files.upload(id, body, file, this.actor(req));
+    } finally {
+      if (file?.path) await fs.rm(file.path, { force: true });
+    }
   }
-  @Delete("attachments/:id") remove(
+  @Delete("files/:id") remove(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: Record<string, unknown>,
     @Req() req: KnowledgeRequest,
   ) {
     return this.application.removeAttachment(id, body, this.actor(req));
   }
-  @Get("attachments/:id") async attachment(
+  @Get("files/:id/preview-status") status(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query() input: Record<string, unknown>,
+    @Req() req: KnowledgeRequest,
+  ) {
+    return this.previews.status(id, input, this.actor(req));
+  }
+  @Post("files/:id/retry-preview") retry(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query() input: Record<string, unknown>,
+    @Req() req: KnowledgeRequest,
+  ) {
+    return this.previews.retry(id, input, this.actor(req));
+  }
+  @Get("files/:id/original") async original(
     @Param("id", ParseUUIDPipe) id: string,
     @Query() input: Record<string, unknown>,
     @Req() req: KnowledgeRequest,
     @Res() res: Response,
   ) {
-    const file = await this.queries.attachment(id, input, this.actor(req)),
-      object = await this.storage.get(file.key);
-    if (!object) throw new NotFoundException("附件文件不存在");
+    const file = await this.queries.attachment(id, input, this.actor(req));
+    await this.deliver(file, req, res, true);
+  }
+  @Get("files/:id/preview") async previewFile(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query() input: Record<string, unknown>,
+    @Req() req: KnowledgeRequest,
+    @Res() res: Response,
+  ) {
+    const file = await this.previews.preview(id, input, this.actor(req));
+    await this.deliver(file, req, res, false);
+  }
+  private async deliver(
+    file: { key: string; contentType: string; originalName: string },
+    req: Request,
+    res: Response,
+    download: boolean,
+  ) {
+    const stat = await this.storage.stat(file.key);
+    if (!stat) throw new NotFoundException("私有文件不存在");
     res.setHeader("Content-Type", file.contentType);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader(
       "Content-Disposition",
-      `${file.contentType.startsWith("image/") ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
+      `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
     );
-    res.send(object.body);
+    let range;
+    try {
+      range = knowledgeByteRange(req.headers.range, stat.size);
+    } catch {
+      res.status(416).setHeader("Content-Range", `bytes */${stat.size}`);
+      res.end();
+      return;
+    }
+    const size = range ? range.end - range.start + 1 : stat.size;
+    res.setHeader("Content-Length", size);
+    if (range) {
+      res.status(206);
+      res.setHeader(
+        "Content-Range",
+        `bytes ${range.start}-${range.end}/${stat.size}`,
+      );
+    }
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    const stream = await this.storage.openStream(file.key, range ?? undefined);
+    if (!stream) throw new NotFoundException("私有文件不存在");
+    try {
+      await pipeline(stream, res);
+    } catch (error) {
+      if (!req.destroyed && !res.destroyed) throw error;
+    }
   }
   private actor(req: KnowledgeRequest): KnowledgeActor {
     return {

@@ -57,3 +57,24 @@ COPY --from=build /app/packages/workflow-sdk /app/packages/workflow-sdk
 USER node
 EXPOSE 15173
 CMD ["node", "dist/main.js"]
+
+# Cache document tools independently of source changes and release SHA.
+FROM alpine:3.22 AS document-certificates
+
+FROM node:24-bookworm-slim AS document-base
+COPY --from=document-certificates /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt
+USER root
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update \
+  && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-cjk fonts-liberation \
+  && rm -rf /var/lib/apt/lists/*
+
+# Isolated conversion runtime; the main API never installs LibreOffice.
+FROM document-base AS document-worker
+ARG KDOS_BUILD_SHA=unknown
+ENV NODE_ENV=production
+ENV KDOS_BUILD_SHA=$KDOS_BUILD_SHA
+WORKDIR /app/apps/api
+COPY --from=build /app /app
+USER node
+CMD ["node", "dist/modules/knowledge/knowledge.worker.js"]

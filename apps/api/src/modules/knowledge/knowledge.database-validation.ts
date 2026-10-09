@@ -8,6 +8,15 @@ import ExcelJS from "exceljs";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import { KnowledgeBasePhaseOne1722920084000 } from "../../migrations/1722920084000-KnowledgeBasePhaseOne";
+import { Knowledge21FilePages1722920086000 } from "../../migrations/1722920086000-Knowledge21FilePages";
+import { Readable } from "node:stream";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { validateKnowledgeFilesDatabase } from "./knowledge.files.database-validation";
+import { KnowledgeFilesService } from "./knowledge.files.service";
+import { KnowledgePreviewJobs } from "./knowledge.preview.service";
+import type { PutObjectInput } from "../../storage/object-storage";
 import { Knowledge2SpacePageModel1722920085000 } from "../../migrations/1722920085000-Knowledge2SpacePageModel";
 import { KnowledgeAuthorizationService } from "./knowledge.scope";
 import { KnowledgeApplicationService } from "./knowledge.application.service";
@@ -66,6 +75,20 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
       `INSERT INTO permissions(resource) VALUES('knowledge-articles'),('equipment-ledger');INSERT INTO roles(id,name,permission_group_resource) VALUES(uuidv7(),'retired','knowledge-articles')`,
     );
     await new Knowledge2SpacePageModel1722920085000().up(qr);
+    // Prove a populated2.0 upgrade preserves file identity, storage key, hash and published relations.
+    const upgradeSpace=uuidv7(),upgradePage=uuidv7(),upgradeFile=uuidv7(),upgradeVersion=uuidv7();
+    await qr.query("INSERT INTO knowledge_spaces(id,tenant_id,code,name) VALUES($1,'UPGRADE_FIXTURE','OLD','升级保留')",[upgradeSpace]);
+    await qr.query("INSERT INTO knowledge_pages(id,tenant_id,space_id,title,slug,working_content_hash) VALUES($1,'UPGRADE_FIXTURE',$2,'旧发布','upgrade-retained',repeat('a',64))",[upgradePage,upgradeSpace]);
+    await qr.query("INSERT INTO knowledge_attachments(id,tenant_id,page_id,original_name,storage_key,content_type,size,sha256) VALUES($1,'UPGRADE_FIXTURE',$2,'保留.txt','.private/knowledge/retained/file','text/plain',1,repeat('b',64))",[upgradeFile,upgradePage]);
+    await qr.query("INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text) VALUES($1,'UPGRADE_FIXTURE',$2,1,'旧发布','{}','',repeat('a',64),'[]','[]','[]','旧发布')",[upgradeVersion,upgradePage]);
+    await qr.query("INSERT INTO knowledge_page_version_attachments(tenant_id,page_id,version_id,attachment_id) VALUES('UPGRADE_FIXTURE',$1,$2,$3)",[upgradePage,upgradeVersion,upgradeFile]);
+    await qr.query("UPDATE knowledge_pages SET status='PUBLISHED',published_version_id=$2 WHERE id=$1",[upgradePage,upgradeVersion]);
+    await qr.commitTransaction();
+    await qr.startTransaction();
+    await new Knowledge21FilePages1722920086000().up(qr);
+    const [retained]=await qr.query("SELECT file.id,file.storage_key,file.sha256,link.file_id,p.content_mode FROM knowledge_file_assets file JOIN knowledge_page_version_files link ON link.tenant_id=file.tenant_id AND link.file_id=file.id JOIN knowledge_pages p ON p.tenant_id=file.tenant_id AND p.id=file.page_id WHERE file.id=$1",[upgradeFile]);
+    assert.equal(retained.id,upgradeFile);assert.equal(retained.file_id,upgradeFile);assert.equal(retained.storage_key,'.private/knowledge/retained/file');assert.equal(retained.sha256,'b'.repeat(64));assert.equal(retained.content_mode,'RICH_TEXT');
+    check("populated2.0 migration preserves original IDs/keys/hashes and immutable published file relations");
     await qr.commitTransaction();
   } catch (e) {
     await qr.rollbackTransaction();
@@ -102,16 +125,19 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
       for (const key of stored.keys())
         if (key.startsWith(`.private/${prefix}/`)) yield key;
     },
-    put: async (i: { key: string; body: Buffer; visibility?: string }) => {
+    put: async (i: PutObjectInput) => {
       assert.equal(i.visibility, "private");
       const key = `.private/${i.key}`;
-      stored.set(key, i.body);
+      const chunks: Buffer[]=[];for await(const chunk of Buffer.isBuffer(i.body)?Readable.from(i.body):i.body) chunks.push(Buffer.from(chunk));
+      stored.set(key, Buffer.concat(chunks));
       return { key, url: "" };
     },
     get: async (key: string) =>
       stored.has(key)
         ? { key, body: stored.get(key)!, contentType: "text/plain" }
         : null,
+    stat: async (key: string) => stored.has(key) ? {size: stored.get(key)!.length} : null,
+    openStream: async (key: string, range?: {start:number;end:number}) => stored.has(key)?Readable.from(range?stored.get(key)!.subarray(range.start,range.end+1):stored.get(key)!):null,
     delete: async (key: string) => {
       stored.delete(key);
     },
@@ -121,6 +147,12 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     query = new KnowledgeQueryService(access),
     imports = new KnowledgeImportService(app, storage),
     exports = new KnowledgeExportService(query, storage);
+  const fileApplication = new KnowledgeFilesService(app,new KnowledgePreviewJobs(ds),storage);
+  const upload = async (pageId:string,input:Record<string,unknown>,file:Express.Multer.File,actor:KnowledgeActor) => {
+    const folder=await fs.mkdtemp(path.join(os.tmpdir(),"knowledge-test-upload-"));const filename=path.join(folder,"source");
+    try{await fs.writeFile(filename,file.buffer);return await fileApplication.upload(pageId,{...input,role:file.originalname.match(/\.(png|jpg|webp)$/i)?"INLINE":"SUPPLEMENTAL"},{...file,path:filename,size:file.buffer.length},actor);}
+    finally{await fs.rm(folder,{recursive:true,force:true});}
+  };
   const admin: KnowledgeActor = {
     tenantId,
     userId: a,
@@ -369,9 +401,9 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   check("cross-Space move enforces destination and whole-subtree permissions");
   const pdf = {
     originalname: "流程.pdf",
-    buffer: Buffer.from("%PDF-1.7\nexample"),
+    buffer: Buffer.from("%PDF-1.7\nexample\n%%EOF"),
   } as Express.Multer.File;
-  const uploaded = await app.upload(
+  const uploaded = await upload(
     page.id,
     { expectedVersion: version },
     pdf,
@@ -421,7 +453,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   })
     .png()
     .toBuffer();
-  const image = await app.upload(
+  const image = await upload(
     page.id,
     { expectedVersion: version },
     { originalname: "图片.png", buffer: imageBytes } as Express.Multer.File,
@@ -469,7 +501,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   check("private image belongs to its page and cannot cross-reference");
   await assert.rejects(
     async () =>
-      app.upload(
+      upload(
         page.id,
         { expectedVersion: version },
         {
@@ -484,7 +516,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   await assert.rejects(
     async () =>
       ds.query(
-        "INSERT INTO knowledge_page_version_attachments(tenant_id,page_id,version_id,attachment_id) VALUES($1,$2,$3,$4)",
+        "INSERT INTO knowledge_page_version_files(tenant_id,page_id,version_id,file_id) VALUES($1,$2,$3,$4)",
         [tenantId, page.id, first.publishedVersionId, image.attachment.id],
       ),
     /immutable/,
@@ -877,7 +909,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   check(
     "restoring a parent does not restore an earlier independently trashed child",
   );
-  const orphan = await app.upload(
+  const orphan = await upload(
     junk.id,
     { expectedVersion: junkVersion },
     pdf,
@@ -969,9 +1001,9 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   const columns = await ds.query(
     "SELECT count(*)::int n FROM information_schema.columns WHERE table_name LIKE 'knowledge_%' AND table_name<>'knowledge_page_read_model' AND column_name IN ('id','tenant_id','created_by','created_at','updated_by','updated_at','version')",
   );
-  assert.equal(columns[0].n, 70);
+  assert.equal(columns[0].n, 91);
   check(
-    "all ten Knowledge tables retain UUIDv7/tenant and standard audit/version columns",
+    "all thirteen Knowledge tables retain UUIDv7/tenant and standard audit/version columns",
   );
   rootVersion = (
     await app.publish(root.id, { expectedVersion: rootVersion }, admin)
@@ -1023,12 +1055,15 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
       "knowledge_pages",
       "knowledge_page_access",
       "knowledge_page_versions",
-      "knowledge_attachments",
-      "knowledge_page_version_attachments",
+      "knowledge_file_assets",
+      "knowledge_page_version_files",
       "knowledge_tags",
       "knowledge_page_tags",
       "knowledge_page_read_model",
       "knowledge_storage_cleanup",
+      "knowledge_page_files",
+      "knowledge_file_previews",
+      "knowledge_file_upload_requests",
     ]) {
       assert.equal(
         (await transaction.query(`SELECT count(*)::int n FROM ${table}`))[0].n,
@@ -1045,7 +1080,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     );
     await transaction.rollbackTransaction();
     check(
-      "real non-owner role enforces RLS on all ten tables and security-invoker view",
+      "real non-owner role enforces RLS on all thirteen tables and security-invoker view",
     );
   } finally {
     if (transaction.isTransactionActive)
@@ -1141,7 +1176,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   );
   assert.equal(
     (
-      await ds.query("SELECT 1 FROM knowledge_attachments WHERE page_id=$1", [
+      await ds.query("SELECT 1 FROM knowledge_file_assets WHERE page_id=$1", [
         page.id,
       ])
     ).length,
@@ -1169,6 +1204,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   check(
     "critical commands audited by metadata/hash, never full body or credentials",
   );
+  await validateKnowledgeFilesDatabase(ds,app,query,storage,admin,viewer,hr.id,check);
   imports.onModuleDestroy();
   return {
     status: "PASS",
