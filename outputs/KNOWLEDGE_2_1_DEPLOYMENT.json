@@ -1,0 +1,45 @@
+{
+  "validatedAt": "2026-10-09T10:38:19.976Z",
+  "status": "PASS",
+  "repositorySha": "2c68cc51e5e2890823a16a8cc30d79ea497d9a5a",
+  "apiSha": "2c68cc51e5e2890823a16a8cc30d79ea497d9a5a",
+  "webSha": "2c68cc51e5e2890823a16a8cc30d79ea497d9a5a",
+  "postgresSameContainer": true,
+  "postgresSameMount": true,
+  "postgresPorts": {
+    "5432/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "15433"
+      }
+    ]
+  },
+  "worker": {
+    "user": "node",
+    "readonly": true,
+    "memory": 1610612736,
+    "nanoCpus": 1000000000,
+    "capDrop": [
+      "ALL"
+    ],
+    "networks": [
+      "knplan_knowledge_conversion"
+    ],
+    "internalOnly": true,
+    "ports": {},
+    "proxyEnvPresent": false,
+    "sha": "2c68cc51e5e2890823a16a8cc30d79ea497d9a5a",
+    "externalTcpCheck": "PASS:1.1.1.1:443 blocked"
+  },
+  "apiDatabaseConnection": [
+    "DATABASE_HOST=postgres",
+    "DATABASE_PORT=5432"
+  ],
+  "health": {
+    "worker": "healthy",
+    "postgres": "healthy",
+    "api": "healthy",
+    "web": "healthy"
+  },
+  "afterWorkerStopRestart": "API remained healthy; final Worker recovered healthy"
+}

@@ -1,0 +1,113 @@
+{
+  "validatedAt": "2026-10-09T10:34:01.964Z",
+  "scope": "Production administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "number": 1,
+      "status": "PASS",
+      "evidence": "Production administrator login and Portal -> Knowledge"
+    },
+    {
+      "number": 2,
+      "status": "PASS",
+      "evidence": "Production HR Space selected; no account permissions changed"
+    },
+    {
+      "number": 3,
+      "status": "PASS",
+      "evidence": "Company-policy directory created through rich-text UI under HR"
+    },
+    {
+      "number": 4,
+      "status": "PASS",
+      "evidence": "Chinese DOCX uploads through UI and creates an independent FILE draft"
+    },
+    {
+      "number": 5,
+      "status": "PASS",
+      "evidence": "Real LibreOffice DOCX PDF is rendered by actual PDF.js canvas"
+    },
+    {
+      "number": 6,
+      "status": "PASS",
+      "evidence": "Native PDF directly renders without a conversion job"
+    },
+    {
+      "number": 7,
+      "status": "PASS",
+      "evidence": "Real PPTX two-page navigation,125% zoom and fullscreen exercised"
+    },
+    {
+      "number": 8,
+      "status": "PASS",
+      "evidence": "Real XLSX preview warning and authenticated original Excel download"
+    },
+    {
+      "number": 9,
+      "status": "PASS",
+      "evidence": "Batch partial success:21MB PDF and image retained as two drafts; disguised PDF rejected; actual206/416 verified"
+    },
+    {
+      "number": 10,
+      "status": "PASS",
+      "evidence": "File page V1 published with metadata/tags and original file relation"
+    },
+    {
+      "number": 11,
+      "status": "PASS",
+      "evidence": "Replace primary in working draft; default published V1 and original stay unchanged"
+    },
+    {
+      "number": 12,
+      "status": "PASS",
+      "evidence": "V2 published; actual V1 history PDF canvas/original remain valid; wrong-version Range denied"
+    },
+    {
+      "number": 13,
+      "status": "PASS",
+      "evidence": "Actual anonymous originals/previews/status/Page/Range all401; employee ACL/RLS separately automated, no employee live claim"
+    },
+    {
+      "number": 14,
+      "status": "PASS",
+      "evidence": "Existing TipTap rich text works with automatic persistence"
+    },
+    {
+      "number": 15,
+      "status": "PASS",
+      "evidence": "Publish then edit/autosave/publish again, no409, technical revision hidden"
+    },
+    {
+      "number": 16,
+      "status": "PASS",
+      "evidence": "Published primary filename/description/tag/path search and authorized Breadcrumb verified"
+    },
+    {
+      "number": 17,
+      "status": "PASS",
+      "evidence": "Actual conversion failure is explicit, administrator retry works, original remains; API stays healthy with Worker stopped"
+    },
+    {
+      "number": 18,
+      "status": "PASS",
+      "evidence": "Only marked acceptance directory subtree purged, original/derived cleanup completed; HR Space and other data retained"
+    }
+  ],
+  "temporaryParentId": "01a12039-0089-7575-8185-832c8271eb3d",
+  "temporaryFilePageIds": [
+    "01a12039-1265-750e-bf8a-e28e680a8511",
+    "01a12039-31d5-73c2-b35a-808a72183cad",
+    "01a12039-3f66-746a-bc13-bc3c4a75e4ec",
+    "01a12039-64b9-7191-a890-f44bca73b316",
+    "01a12039-7eb5-7224-87fc-589e04d6df7e",
+    "01a12039-7fd1-70e9-8777-fd55c37e7495",
+    "01a12039-e9e6-701c-9624-15b3098f7abb"
+  ],
+  "cleanup": {
+    "removed": 0,
+    "cleanupPending": 0
+  },
+  "employeeLiveAcceptance": "NOT RUN: user authorized administrator only; no production user permissions changed",
+  "credentials": "Runtime stdin; no credential values/token/browser state/traces/videos/screenshots persisted"
+}

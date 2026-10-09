@@ -1,0 +1,59 @@
+{
+  "validatedAt": "2026-10-09T10:27:02.420Z",
+  "scope": "Production administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "number": 1,
+      "status": "PASS",
+      "evidence": "Production administrator login and Portal -> Knowledge"
+    },
+    {
+      "number": 2,
+      "status": "PASS",
+      "evidence": "Production HR Space selected; no account permissions changed"
+    },
+    {
+      "number": 3,
+      "status": "PASS",
+      "evidence": "Company-policy directory created through rich-text UI under HR"
+    },
+    {
+      "number": 4,
+      "status": "PASS",
+      "evidence": "Chinese DOCX uploads through UI and creates an independent FILE draft"
+    },
+    {
+      "number": 5,
+      "status": "PASS",
+      "evidence": "Real LibreOffice DOCX PDF is rendered by actual PDF.js canvas"
+    },
+    {
+      "number": 6,
+      "status": "PASS",
+      "evidence": "Native PDF directly renders without a conversion job"
+    },
+    {
+      "checkpoint": "PPT",
+      "status": "FAIL",
+      "evidence": "Actual check failed; raw errors and credentials suppressed"
+    },
+    {
+      "number": 18,
+      "status": "PASS",
+      "evidence": "Only marked acceptance directory subtree purged, original/derived cleanup completed; HR Space and other data retained"
+    }
+  ],
+  "temporaryParentId": "01a12033-6e97-75c9-ae8f-d9af07acafb2",
+  "temporaryFilePageIds": [
+    "01a12033-7ec9-75aa-bfc6-53dd401c3402",
+    "01a12033-966b-72a9-9962-443b18905cb3",
+    "01a12033-a539-7034-807b-f1b69c3a9a35"
+  ],
+  "cleanup": {
+    "removed": 0,
+    "cleanupPending": 0
+  },
+  "employeeLiveAcceptance": "NOT RUN: user authorized administrator only; no production user permissions changed",
+  "credentials": "Runtime stdin; no credential values/token/browser state/traces/videos/screenshots persisted"
+}

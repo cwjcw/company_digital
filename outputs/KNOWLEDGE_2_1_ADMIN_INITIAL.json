@@ -1,0 +1,47 @@
+{
+  "validatedAt": "2026-10-09T10:19:14.828Z",
+  "scope": "Production administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "number": 1,
+      "status": "PASS",
+      "evidence": "Production administrator login and Portal -> Knowledge"
+    },
+    {
+      "number": 2,
+      "status": "PASS",
+      "evidence": "Production HR Space selected; no account permissions changed"
+    },
+    {
+      "number": 3,
+      "status": "PASS",
+      "evidence": "Company-policy directory created through rich-text UI under HR"
+    },
+    {
+      "number": 4,
+      "status": "PASS",
+      "evidence": "Chinese DOCX uploads through UI and creates an independent FILE draft"
+    },
+    {
+      "checkpoint": "word upload",
+      "status": "FAIL",
+      "evidence": "Actual check failed; raw errors and credentials suppressed"
+    },
+    {
+      "number": 18,
+      "status": "PASS",
+      "evidence": "Only marked acceptance directory subtree purged, original/derived cleanup completed; HR Space and other data retained"
+    }
+  ],
+  "temporaryParentId": "01a1202a-34f4-73ed-9eb5-6c903abaadd9",
+  "temporaryFilePageIds": [
+    "01a1202a-46fb-76dd-b34f-1c166663d5e7"
+  ],
+  "cleanup": {
+    "removed": 0,
+    "cleanupPending": 0
+  },
+  "employeeLiveAcceptance": "NOT RUN: user authorized administrator only; no production user permissions changed",
+  "credentials": "Runtime stdin; no credential values/token/browser state/traces/videos/screenshots persisted"
+}

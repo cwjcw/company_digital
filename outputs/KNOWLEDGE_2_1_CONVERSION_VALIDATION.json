@@ -1,0 +1,36 @@
+{
+  "uid": 1001,
+  "network": "none",
+  "records": [
+    {
+      "format": ".docx",
+      "pdfBytes": 9563,
+      "status": "PASS"
+    },
+    {
+      "format": ".doc",
+      "pdfBytes": 9566,
+      "status": "PASS"
+    },
+    {
+      "format": ".pptx",
+      "pdfBytes": 12435,
+      "status": "PASS"
+    },
+    {
+      "format": ".ppt",
+      "pdfBytes": 12307,
+      "status": "PASS"
+    },
+    {
+      "format": ".xlsx",
+      "pdfBytes": 10538,
+      "status": "PASS"
+    },
+    {
+      "format": ".xls",
+      "pdfBytes": 10538,
+      "status": "PASS"
+    }
+  ]
+}
