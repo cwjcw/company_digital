@@ -1,0 +1,21 @@
+{
+  "checkedAt": "2026-10-09T12:41:20.262Z",
+  "scope": "Administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过；仅管理员，账号与权限未修改"
+    },
+    {
+      "status": "FAIL",
+      "evidence": "Actual verification failed at rich page; credential details suppressed"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅永久清理自建验收页面子树；保留正式页面、账号和权限"
+    }
+  ],
+  "temporaryParentId": "01a120ae-a686-728e-8f02-8afb48b7e759",
+  "recordings": "No credentials, tokens, screenshots, videos, traces or browser state persisted"
+}

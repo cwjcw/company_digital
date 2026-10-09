@@ -1,0 +1,74 @@
+{
+  "baselineGitHubMain": "3ee7190d792e015a0860d8fa1557403ce8ae087d",
+  "repositoryHead": "c8e38aa10ed84cc0283c7a2e8fe2458633128ba0",
+  "web": {
+    "commit": "c8e38aa10ed84cc0283c7a2e8fe2458633128ba0",
+    "shortCommit": "c8e38aa"
+  },
+  "api": {
+    "status": "ok",
+    "timestamp": "2026-10-09T12:43:50.094Z",
+    "version": {
+      "commit": "2c68cc51e5e2890823a16a8cc30d79ea497d9a5a",
+      "shortCommit": "2c68cc5"
+    }
+  },
+  "deploymentCommand": "./scripts/deploy.sh web",
+  "containers": [
+    {
+      "name": "knplan-web-1",
+      "id": "224a9e775ce2e06b41d6bac6c9feb974e81e0553889e6289811b99a1acf08f03",
+      "health": "healthy",
+      "created": "2026-10-09T12:40:46.753096268Z"
+    },
+    {
+      "name": "knplan-api-1",
+      "id": "907c3140c074af70ef5158497a8d5d9ecc2e27659f8b029be6f3d32db2ae1a80",
+      "health": "healthy",
+      "created": "2026-10-09T10:26:01.713308755Z"
+    },
+    {
+      "name": "knplan-document-worker-1",
+      "id": "572da85ad3cd91f46aee632237abb7bc645c81be8b0a23c142221e27263d22f4",
+      "health": "healthy",
+      "created": "2026-10-09T10:26:18.980919587Z"
+    },
+    {
+      "name": "knplan-postgres-1",
+      "id": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+      "health": "healthy",
+      "created": "2026-10-07T09:41:28.279713817Z"
+    }
+  ],
+  "databaseContainerAndMountRetained": true,
+  "backups": [
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261009_203617.backup",
+      "sha256": "4dec46989a510ada4d35e842146252dfb5eda57a5177a8012c63917a184f88ea"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/kdos_20261009_203617.backup",
+      "sha256": "e0204409652b30643ca32ae1aa21ed79acab818ef92ba369c27eb08651411751"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/uploads_20261009_203617.tar.gz",
+      "sha256": "8831284d3a65abeee382610420b456bba0f1d702fb596e1b93f972ed3f3e685b"
+    }
+  ],
+  "frontendUnitTests": {
+    "files": 35,
+    "passed": 253
+  },
+  "knowledgeUnitTests": {
+    "files": 6,
+    "passed": 41
+  },
+  "chromeFixture": {
+    "passed": 3,
+    "credentialGatedSkipped": 1
+  },
+  "productionAdministratorChecks": 9,
+  "migration": "None",
+  "newDependencies": "None",
+  "newOrChangedApi": "None"
+}

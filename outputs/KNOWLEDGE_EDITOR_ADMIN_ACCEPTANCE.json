@@ -1,0 +1,45 @@
+{
+  "checkedAt": "2026-10-09T12:42:34.499Z",
+  "scope": "Administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过；仅管理员，账号与权限未修改"
+    },
+    {
+      "status": "PASS",
+      "evidence": "在线文章无标签/位置选择器，Space 路径在标题上方，富文本正文优先"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实富文本/标题 Autosave 与发布 V2 通过；Tags 与已发布 V1 保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "实际 DOCX 文件上传与 PDF.js 画布预览通过；主文件/预览优先，说明位于其后"
+    },
+    {
+      "status": "PASS",
+      "evidence": "文件说明 Autosave 与 V1 发布通过；原有 Tags 保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "待保存标题 → 替换主文件 → 发布 V2 顺序正常；V1 Tags/标题/主文件及历史在线预览不变"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实标签搜索仍命中富文本/文件页面；数据库/API Tags 功能保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "实际并发 PATCH 返回409，保留本地文本/阻止发布/不覆盖服务器；UI 从未提交 tags"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅永久清理自建验收页面子树；保留正式页面、账号和权限"
+    }
+  ],
+  "temporaryParentId": "01a120af-7a79-7414-92ef-ffbe9511aaa8",
+  "recordings": "No credentials, tokens, screenshots, videos, traces or browser state persisted"
+}

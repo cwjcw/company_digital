@@ -1,5 +1,30 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge 2.1 编辑页面精简
+
+任务名称：Knowledge 2.1 编辑页面精简。
+任务目标：删除标签输入，保留Tags数据/API/搜索/发布快照；标题上方显示Space > 父页面，主文件预览/富文本优先；验证保存、409、发布和上传，备份部署并实际验收。
+当前状态：已完成 / PASS。
+最后更新时间：2026-10-09 20:44（Asia/Shanghai）。
+当前阶段：已交付；当前子任务：无。
+已完成：GitHub main/HEAD与本地基线3ee7190一致；精简UI；5项新增前端回归及Chrome断言；专项/全量前端测试与lint/typecheck/build；三份升级备份；仅Web部署；真实管理员9项验收及自建数据清理；最终健康检查。
+正在进行：无。
+待完成：无本轮遗留。
+修改文件：KnowledgeEditor.tsx、knowledge.css、KnowledgePages.spec.tsx、e2e/knowledge-ui.spec.ts（源码提交c8e38aa，未push）；本进度、KNOWLEDGE_EDITOR_ACCEPTANCE.md、ADMIN_ACCEPTANCE.json、ADMIN_FIRST_ATTEMPT.json、LIVE.json。
+数据库 Migration：无。新增依赖/API：无。
+新增或修改测试：5项编辑器回归，Chrome fixture增加无标签/路径位置/已有标签及版本保留断言；临时运行时生产管理员脚本不持久化凭据或浏览器录制。
+已运行测试：Knowledge 6文件/41 PASS；Web全量35文件/253 PASS；Chrome fixture 3 PASS/1凭据门控skip；生产管理员9 PASS；Web lint/typecheck/build、Node24部署构建、diff检查PASS；原Portal/chunk/宿主Node22提示保留。
+当前已知问题：无遗留。首轮验收脚本误判私有图片选择器为位置控件，修正检查范围后9项全通过，首轮自建树也已清理，无产品兼容代码。
+等待用户确认：无。仅管理员验收，未改账号密码/权限，凭据只运行时消费。
+备份：20261009_203617 legacy/KDOS/uploads可读取性、私有目录及最终SHA256复核PASS，详见报告。
+部署：./scripts/deploy.sh web成功，HEAD/Web=c8e38aa10ed84cc0283c7a2e8fe2458633128ba0；API/Worker保持2c68cc5；四服务healthy；原PostgreSQL容器/挂载/15433端口及APIpostgres:5432保留；两次healthcheck PASS。
+线上验收：富文本与FILE新布局、真实Autosave、文件上传/替换、发布V1/V2、历史正文/文件/Tags、标签搜索及实际409均PASS，自建树已通过正式API永久清理。
+下一步：无；用户可进入线上知识库按报告步骤验收。
+最终报告：outputs/KNOWLEDGE_EDITOR_ACCEPTANCE.md；部署/备份证据KNOWLEDGE_EDITOR_LIVE.json；真实管理员证据KNOWLEDGE_EDITOR_ADMIN_ACCEPTANCE.json。
+恢复执行说明：项目规范→本进度最新任务→Git status/diff→用户新的需求；本任务已完成，不重做已有Knowledge2.1、不迁移数据库、不修改其他模块。
+
+---
+
 ## 当前任务：Knowledge 2.1 文件型知识与在线预览
 
 当前状态：已完成 / PASS（代码、测试、migration、部署、管理员验收）。
