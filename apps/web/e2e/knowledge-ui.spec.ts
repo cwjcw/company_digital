@@ -274,6 +274,7 @@ test("ordinary employee has Space tree without editor and creation controls", as
   await expect(
     page.getByRole("button", { name: "上传附件 / 图片" }),
   ).toHaveCount(0);
+  for (const name of ["空间设置", "已归档页面", "回收站"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
 });
 test.describe("production credential acceptance", () => {
   test("production existing login and Knowledge permissions", async ({

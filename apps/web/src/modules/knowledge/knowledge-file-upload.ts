@@ -1,8 +1,9 @@
 import { api, ApiError } from "../../api";
+export type KnowledgeFileUploadInput = { spaceId: string; parentId?: string; title: string; idempotencyKey: string };
 /** XHR is limited to upload progress; auth refresh/error semantics still use the existing API. */
 export async function uploadKnowledgeFile(
   file: File,
-  input: { spaceId: string; parentId?: string; idempotencyKey: string },
+  input: KnowledgeFileUploadInput,
   onProgress: (percent: number) => void,
 ) {
   await api("/auth/me");
@@ -11,6 +12,7 @@ export async function uploadKnowledgeFile(
       form = new FormData();
     form.append("file", file);
     form.append("spaceId", input.spaceId);
+    form.append("title", input.title);
     if (input.parentId) form.append("parentId", input.parentId);
     form.append("idempotencyKey", input.idempotencyKey);
     xhr.open("POST", "/api/v1/knowledge/pages/files");
@@ -29,7 +31,10 @@ export async function uploadKnowledgeFile(
         reject(new ApiError("上传响应异常，请重试", xhr.status));
         return;
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (typeof body?.id !== "string" || !body.id) reject(new ApiError("上传结果尚未确认，请重试原请求", 0));
+        else resolve(body);
+      }
       else
         reject(
           new ApiError(

@@ -51,11 +51,17 @@ import {
 } from "../../shared/platform-table";
 import { KnowledgeContent } from "./KnowledgeContent";
 import { KnowledgeFilePreview } from "./KnowledgeFilePreview";
-import { KnowledgeFileUpload } from "./KnowledgeFileUpload";
+import {
+  KnowledgeFileUpload,
+  type CreatedKnowledgeFile,
+} from "./KnowledgeFileUpload";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { KnowledgeAccess } from "./KnowledgeAccess";
 import { KnowledgeImport } from "./KnowledgeImport";
-import { KnowledgeLocationPicker, type KnowledgeLocationValue } from "./KnowledgeLocationPicker";
+import {
+  KnowledgeLocationPicker,
+  type KnowledgeLocationValue,
+} from "./KnowledgeLocationPicker";
 import { KnowledgeSpaceIcon } from "./KnowledgeSpaceIcon";
 import { KnowledgeSettings } from "./KnowledgeSettings";
 import {
@@ -220,6 +226,8 @@ export function KnowledgeWiki() {
     [validMove, setValidMove] = useState(false),
     [importing, setImporting] = useState(false),
     [fileUploading, setFileUploading] = useState(false),
+    [createdFiles, setCreatedFiles] = useState<CreatedKnowledgeFile[]>([]),
+    [uploadResults, setUploadResults] = useState(false),
     [accessing, setAccessing] = useState(false),
     [history, setHistory] = useState(false),
     [moving, setMoving] = useState(false),
@@ -408,7 +416,8 @@ export function KnowledgeWiki() {
               },
             ]
           : []),
-        ...(selected?.canCreate
+        ...(selected?.canCreate &&
+        hasResourcePermission("knowledge-pages", "create")
           ? [
               {
                 key: "child",
@@ -481,7 +490,8 @@ export function KnowledgeWiki() {
               },
             ]
           : []),
-        ...(row.contentMode !== "FILE" && hasResourcePermission("knowledge-pages", "export")
+        ...(row.contentMode !== "FILE" &&
+        hasResourcePermission("knowledge-pages", "export")
           ? [
               {
                 key: "md",
@@ -700,7 +710,15 @@ export function KnowledgeWiki() {
           value={spaceId}
           loading={spaces.isLoading}
           style={{ width: "100%" }}
-          options={spaces.data?.map((s) => ({ value: s.id, label: <Space><KnowledgeSpaceIcon value={s.icon} />{s.name}</Space> }))}
+          options={spaces.data?.map((s) => ({
+            value: s.id,
+            label: (
+              <Space>
+                <KnowledgeSpaceIcon value={s.icon} />
+                {s.name}
+              </Space>
+            ),
+          }))}
           onChange={(id) =>
             void safely(() => {
               setSpaceId(id);
@@ -713,28 +731,78 @@ export function KnowledgeWiki() {
           <Alert type="error" message={(spaces.error as Error).message} />
         )}
         <Space wrap style={{ margin: "16px 0" }}>
-          {selected?.canCreate && (
-            <Dropdown
-              menu={{
-                items: [
-                  { key: "rich", label: <div><span>在线编写</span><div className="knowledge-menu-description">直接在网页中编写知识内容。</div></div> },
-                  { key: "file", label: <div><span>上传文件</span><div className="knowledge-menu-description">上传 Word、PDF、PPT、Excel 等原始文件，支持批量上传和在线预览。</div></div>,
-                    disabled: !hasFieldPermission("knowledge-pages", "attachmentIds", "update") },
-                  { key: "import", label: <div><span>从文档导入为在线文章</span><div className="knowledge-menu-description">将 DOCX、Markdown、HTML 转换为可在网页中继续编辑的正文。</div></div>,
-                    disabled: !hasResourcePermission("knowledge-pages", "import") },
-                ],
-                onClick: ({ key }) => {
-                  if (key === "rich") void safely(() => beginCreate(row?.spaceId === selected.id ? row.id : undefined));
-                  else if (key === "file") void safely(() => setFileUploading(true));
-                  else void safely(() => setImporting(true));
-                },
-              }}
-            >
-              <Button aria-label="新建知识" icon={<PlusOutlined />} loading={busy}>
-                新建知识
-              </Button>
-            </Dropdown>
-          )}
+          {selected?.canCreate &&
+            hasResourcePermission("knowledge-pages", "create") && (
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: "rich",
+                      label: (
+                        <div>
+                          <span>在线编写</span>
+                          <div className="knowledge-menu-description">
+                            直接在网页中编写知识内容。
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: "file",
+                      label: (
+                        <div>
+                          <span>上传文件</span>
+                          <div className="knowledge-menu-description">
+                            上传 Word、PDF、PPT、Excel
+                            等原始文件，支持批量上传和在线预览。
+                          </div>
+                        </div>
+                      ),
+                      disabled: !hasFieldPermission(
+                        "knowledge-pages",
+                        "attachmentIds",
+                        "update",
+                      ),
+                    },
+                    {
+                      key: "import",
+                      label: (
+                        <div>
+                          <span>从文档导入为在线文章</span>
+                          <div className="knowledge-menu-description">
+                            将 DOCX、Markdown、HTML
+                            转换为可在网页中继续编辑的正文。
+                          </div>
+                        </div>
+                      ),
+                      disabled: !hasResourcePermission(
+                        "knowledge-pages",
+                        "import",
+                      ),
+                    },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "rich")
+                      void safely(() =>
+                        beginCreate(
+                          row?.spaceId === selected.id ? row.id : undefined,
+                        ),
+                      );
+                    else if (key === "file")
+                      void safely(() => setFileUploading(true));
+                    else void safely(() => setImporting(true));
+                  },
+                }}
+              >
+                <Button
+                  aria-label="新建知识"
+                  icon={<PlusOutlined />}
+                  loading={busy}
+                >
+                  新建知识
+                </Button>
+              </Dropdown>
+            )}
         </Space>
         {selected &&
           ["EDITOR", "FULL_ACCESS"].includes(selected.accessLevel ?? "") &&
@@ -759,26 +827,37 @@ export function KnowledgeWiki() {
           />
         )}
         <div className="knowledge-sidebar-footer">
-          <Button
-            type="link"
-            onClick={() => void safely(() => navigate("/knowledge/archive"))}
-          >
-            已归档页面
-          </Button>
-          <Button
-            type="link"
-            onClick={() => void safely(() => navigate("/knowledge/settings"))}
-          >
-            空间设置
-          </Button>
-          {hasResourcePermission("knowledge-pages", "delete") && (
+          {spaces.data?.some((s) => s.canManage) &&
+            hasResourcePermission("knowledge-pages", "update") &&
+            hasFieldPermission("knowledge-pages", "status", "update") && (
+              <Button
+                type="link"
+                onClick={() =>
+                  void safely(() => navigate("/knowledge/archive"))
+                }
+              >
+                已归档页面
+              </Button>
+            )}
+          {(hasResourcePermission("knowledge-spaces", "create") ||
+            (hasResourcePermission("knowledge-spaces", "update") &&
+              spaces.data?.some((s) => s.canManage))) && (
             <Button
               type="link"
-              onClick={() => void safely(() => navigate("/knowledge/trash"))}
+              onClick={() => void safely(() => navigate("/knowledge/settings"))}
             >
-              回收站
+              空间设置
             </Button>
           )}
+          {spaces.data?.some((s) => s.canManage) &&
+            hasResourcePermission("knowledge-pages", "delete") && (
+              <Button
+                type="link"
+                onClick={() => void safely(() => navigate("/knowledge/trash"))}
+              >
+                回收站
+              </Button>
+            )}
         </div>
       </aside>
       <main className="knowledge-main">
@@ -795,13 +874,31 @@ export function KnowledgeWiki() {
           }
           style={{ marginBottom: 24 }}
         />
+        {createdFiles.length > 0 && (
+          <Button onClick={() => setUploadResults(true)}>
+            查看最近上传结果（{createdFiles.length}）
+          </Button>
+        )}
         {body}
       </main>
-      <Modal open={Boolean(creating)} title="在线编写" okText="创建并编写"
-        onCancel={() => setCreating(undefined)} onOk={() => void create()} confirmLoading={busy}
-        okButtonProps={{ disabled: !validCreation }}>
-        {creating && <KnowledgeLocationPicker spaces={spaces.data ?? []} value={creating}
-          onChange={setCreating} onValidityChange={setValidCreation} disabled={busy} />}
+      <Modal
+        open={Boolean(creating)}
+        title="在线编写"
+        okText="创建并编写"
+        onCancel={() => setCreating(undefined)}
+        onOk={() => void create()}
+        confirmLoading={busy}
+        okButtonProps={{ disabled: !validCreation }}
+      >
+        {creating && (
+          <KnowledgeLocationPicker
+            spaces={spaces.data ?? []}
+            value={creating}
+            onChange={setCreating}
+            onValidityChange={setValidCreation}
+            disabled={busy}
+          />
+        )}
       </Modal>
       {fileUploading && selected && (
         <KnowledgeFileUpload
@@ -809,14 +906,44 @@ export function KnowledgeWiki() {
           spaceId={selected.id}
           parentId={row?.spaceId === selected.id ? row.id : undefined}
           onClose={() => setFileUploading(false)}
-          onCreated={(ids) => {
+          onCreated={(pages) => {
             setFileUploading(false);
             invalidate();
             setShowWorking(true);
-            navigate(`/knowledge/pages/${ids[0]}?mode=working`);
+            setCreatedFiles(pages);
+            setUploadResults(true);
           }}
         />
       )}
+      <Modal
+        open={uploadResults}
+        title="本批次已创建的知识页面"
+        footer={null}
+        onCancel={() => setUploadResults(false)}
+      >
+        <p>
+          已创建 {createdFiles.length}{" "}
+          个草稿。选择页面查看或编辑，发布后其他成员才能阅读。
+        </p>
+        <List
+          dataSource={createdFiles}
+          renderItem={(p) => (
+            <List.Item>
+              <Button
+                type="link"
+                onClick={() => {
+                  setUploadResults(false);
+                  void safely(() =>
+                    navigate(`/knowledge/pages/${p.id}?mode=working`),
+                  );
+                }}
+              >
+                {p.title}
+              </Button>
+            </List.Item>
+          )}
+        />
+      </Modal>
       {importing && selected && (
         <KnowledgeImport
           spaces={spaces.data ?? []}
@@ -853,10 +980,20 @@ export function KnowledgeWiki() {
         confirmLoading={busy}
       >
         <Space direction="vertical" style={{ width: "100%" }}>
-          {destination && <KnowledgeLocationPicker spaces={spaces.data ?? []}
-            value={{ spaceId: destination, parentId: parent }} disabled={busy}
-            excludeId={row?.id} onValidityChange={setValidMove}
-            onChange={(target) => { setDestination(target.spaceId); setParent(target.parentId); }} />}
+          {destination && (
+            <KnowledgeLocationPicker
+              operation="move"
+              spaces={spaces.data ?? []}
+              value={{ spaceId: destination, parentId: parent }}
+              disabled={busy}
+              excludeId={row?.id}
+              onValidityChange={setValidMove}
+              onChange={(target) => {
+                setDestination(target.spaceId);
+                setParent(target.parentId);
+              }}
+            />
+          )}
           <Input
             type="number"
             aria-label="页面排序"

@@ -340,8 +340,10 @@ export function KnowledgeRichEditor({
 }
 export function KnowledgeContent({
   content,
+  importPreview = false,
 }: {
   content?: KnowledgeContentNode;
+  importPreview?: boolean;
 }) {
   let headingIndex = 0;
   const render = (node: KnowledgeContentNode, key: number): ReactNode => {
@@ -446,6 +448,7 @@ export function KnowledgeContent({
       case "horizontalRule":
         return <hr key={key} />;
       case "attachmentImage":
+        if (importPreview) return <p key={key} role="note">内嵌图片{node.attrs?.alt ? `：${String(node.attrs.alt)}` : ""}（正式导入后可查看；预览阶段不请求临时图片）</p>;
         return (
           <PrivateKnowledgeImage
             key={key}

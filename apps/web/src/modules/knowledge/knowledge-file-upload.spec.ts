@@ -45,7 +45,7 @@ describe("runtime authenticated file upload", () => {
     const progress = vi.fn();
     const promise = uploadKnowledgeFile(
       new File(["abc"], "制度.docx"),
-      { spaceId: "hr", parentId: "policy", idempotencyKey: "stable" },
+      { title: "中文标题", spaceId: "hr", parentId: "policy", idempotencyKey: "stable" },
       progress,
     );
     await vi.waitFor(() => expect(UploadTransport.instances).toHaveLength(1));
@@ -56,6 +56,8 @@ describe("runtime authenticated file upload", () => {
       "/api/v1/knowledge/pages/files",
     );
     expect(x.headers.Authorization).toBe("Bearer fixture-runtime-token");
+    expect(x.body?.get("title")).toBe("中文标题");
+    expect(x.body?.get("parentId")).toBe("policy");
     expect(x.body?.get("idempotencyKey")).toBe("stable");
     expect((x.body?.get("file") as File).name).toBe("制度.docx");
     x.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 });
@@ -63,12 +65,12 @@ describe("runtime authenticated file upload", () => {
     x.onload?.();
     await expect(promise).resolves.toEqual({ id: "created" });
   });
-  it.each(["network", "timeout", "invalid response", "forbidden"])(
+  it.each(["network", "timeout", "invalid response", "missing page id", "forbidden"])(
     "reports %s failure so a single batch entry can retry",
     async (kind) => {
       const promise = uploadKnowledgeFile(
         new File(["x"], "x.pdf"),
-        { spaceId: "hr", idempotencyKey: "same-key" },
+        { title: "中文标题", spaceId: "hr", idempotencyKey: "same-key" },
         () => {},
       );
       await vi.waitFor(() => expect(UploadTransport.instances).toHaveLength(1));
@@ -76,9 +78,9 @@ describe("runtime authenticated file upload", () => {
       if (kind === "network") x.onerror?.();
       else if (kind === "timeout") x.ontimeout?.();
       else {
-        x.status = kind === "forbidden" ? 403 : 500;
+        x.status = kind === "forbidden" ? 403 : kind === "missing page id" ? 201 : 500;
         x.responseText =
-          kind === "forbidden" ? '{"message":"无权限"}' : "invalid";
+          kind === "forbidden" ? '{"message":"无权限"}' : kind === "missing page id" ? '{}' : "invalid";
         x.onload?.();
       }
       await expect(promise).rejects.toThrow();
@@ -89,7 +91,7 @@ describe("runtime authenticated file upload", () => {
     await expect(
       uploadKnowledgeFile(
         new File(["x"], "x.pdf"),
-        { spaceId: "hr", idempotencyKey: "key" },
+        { title: "中文标题", spaceId: "hr", idempotencyKey: "key" },
         () => {},
       ),
     ).rejects.toThrow("登录已失效");

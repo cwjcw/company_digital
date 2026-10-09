@@ -111,7 +111,7 @@ export function KnowledgeImport({
         >
           <Button loading={busy}>选择文档并预览</Button>
         </Upload>
-        <KnowledgeLocationPicker spaces={spaces} value={{ spaceId: space, parentId: parent || undefined }} disabled={busy}
+        <KnowledgeLocationPicker operation="import" spaces={spaces} value={{ spaceId: space, parentId: parent || undefined }} disabled={busy}
           onValidityChange={setValidLocation} onChange={(location) => {
             setSpace(location.spaceId); setParent(location.parentId ?? ""); setRestricted(false); setEntries([]);
           }} />
@@ -142,15 +142,7 @@ export function KnowledgeImport({
               <Alert key={i} type="warning" message={w} />
             ))}
             <div className="knowledge-import-preview">
-              <KnowledgeContent
-                content={JSON.parse(
-                  JSON.stringify(preview.content),
-                  (key, v) =>
-                    key === "content" && Array.isArray(v)
-                      ? v.filter((n) => n.type !== "attachmentImage")
-                      : v,
-                )}
-              />
+              <KnowledgeContent content={preview.content} importPreview />
             </div>
           </>
         )}

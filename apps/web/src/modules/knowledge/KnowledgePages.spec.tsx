@@ -13,9 +13,11 @@ import { tablePermissionFieldsFor, type KnowledgePage } from "@kdos/contracts";
 import { api } from "../../api";
 import { downloadApiFile } from "../../shared/legacy-ui";
 import { clearKnowledgeDraftCache } from "./knowledge-autosave";
+import { uploadKnowledgeFile } from "./knowledge-file-upload";
 import { KnowledgeWiki } from "./KnowledgePages";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { ModulePortal } from "../portal/ModulePortal";
+vi.mock("./knowledge-file-upload", () => ({ uploadKnowledgeFile: vi.fn() }));
 vi.mock("./KnowledgeFilePreview",()=>({KnowledgeFilePreview:()=> <div>文件预览</div>}));
 vi.mock("../../api", () => ({ api: vi.fn() }));
 vi.mock("../../shared/legacy-ui", async (original) => ({
@@ -277,8 +279,10 @@ describe("Knowledge 2 Wiki", () => {
     mount(undefined, viewer, "/knowledge/pages/page");
     await screen.findByText("制度正文");
     expect(screen.queryByRole("button", { name: "新建知识" })).toBeNull();
+    for (const name of ["空间设置", "已归档页面", "回收站"]) expect(screen.queryByRole("button", { name })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "页面更多操作" }));
     expect(screen.queryByText("编辑页面")).toBeNull();
+    for (const name of ["页面权限", "新建子页面", "归档子树", "移到回收站", "移动 / 调整顺序"]) expect(screen.queryByText(name)).toBeNull();
   });
   it("search sends Chinese term and server pagination", async () => {
     mount();
@@ -417,4 +421,22 @@ describe("Knowledge 2 Wiki", () => {
       .mock.calls.find(([p]) => p.endsWith("/files"))!;
     expect((call[1]?.body as FormData).get("expectedVersion")).toBe("1");
   });
+});
+
+it("shows every successful upload in a reopenable results list instead of navigating only to the first", async () => {
+  mount();
+  fireEvent.mouseOver(await screen.findByRole("button", { name: "新建知识" }));
+  fireEvent.click(await screen.findByText("上传文件", { exact: true }));
+  await waitFor(() => expect(screen.getByRole("dialog", { name: "上传文件" })).toBeVisible());
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [new File(["pdf"], "第一份.pdf"), new File(["pdf"], "第二份.pdf")] } });
+  await screen.findByLabelText("知识页面标题：第二份.pdf");
+  vi.mocked(uploadKnowledgeFile).mockResolvedValueOnce({ id: "first" }).mockResolvedValueOnce({ id: "second" });
+  fireEvent.click(screen.getByRole("button", { name: "上传为草稿 / 重试失败项" }));
+  await waitFor(() => expect(screen.getAllByText("草稿已创建")).toHaveLength(2));
+  fireEvent.click(screen.getByRole("button", { name: /完\s*成/ }));
+  await waitFor(() => expect(screen.getByRole("dialog", { name: "本批次已创建的知识页面" })).toBeVisible());
+  expect(screen.getByRole("button", { name: "第一份" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "第二份" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "查看最近上传结果（2）" })).toBeVisible();
+  expect(api).not.toHaveBeenCalledWith("/knowledge/pages/first?mode=working");
 });

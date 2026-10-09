@@ -71,3 +71,15 @@ it("does not offer a read-only Space and marks an unauthorized selected parent i
   fireEvent.mouseDown(document.querySelector('.ant-select-selector')!);
   expect(screen.queryByText("只读空间")).toBeNull();
 });
+
+it.each([
+  ["upload", "文件将保存到所选空间或父页面下面。"],
+  ["create", "新页面将创建在所选位置。"],
+  ["import", "转换后的在线文章将创建在所选位置。"],
+  ["move", "当前页面及其子页面将移动到所选位置。"],
+] as const)("explains the %s operation accurately without changing target authorization", (operation, description) => {
+  const valid = vi.fn();
+  render(<QueryClientProvider client={new QueryClient()}><KnowledgeLocationPicker operation={operation} spaces={spaces} value={{ spaceId: "hr" }} onChange={vi.fn()} onValidityChange={valid} /></QueryClientProvider>);
+  expect(screen.getByText(new RegExp(description))).toBeVisible();
+  expect(valid).toHaveBeenCalledWith(true);
+});

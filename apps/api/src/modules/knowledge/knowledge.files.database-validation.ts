@@ -49,6 +49,9 @@ export async function validateKnowledgeFilesDatabase(
     const input = { spaceId, title: "文件知识", idempotencyKey: uuidv7() };
     const created = await files.create(input, pdf, admin);
     assert.equal(created.status, "DRAFT");
+    assert.equal((await query.detail(created.id, { mode: "working" }, admin)).title, input.title);
+    for (const title of [" ", "字".repeat(301)]) await assert.rejects(() => files.create({ ...input, title, idempotencyKey: uuidv7() }, pdf, admin), /标题/);
+    check("custom Chinese title is stored independently; empty/overlong upload titles rejected before writes");
     assert.equal(
       (await query.detail(created.id, { mode: "working" }, admin)).contentMode,
       "FILE",
@@ -60,9 +63,12 @@ export async function validateKnowledgeFilesDatabase(
     check(
       "file upload creates FILE draft; ordinary reader cannot discover its original/preview/status",
     );
+    // Discard the first response as a client timeout would, then replay the exact command.
     const repeated = await files.create(input, pdf, admin);
     assert.equal(repeated.id, created.id);
     assert.equal(repeated.repeated, true);
+    assert.equal((await query.list({ ids: [created.id], mode: "working" }, admin)).total, 1);
+    check("response loss after committed upload replays one persisted page and original asset");
     await assert.rejects(() =>
       files.create({ ...input, title: "changed" }, pdf, admin),
     );
@@ -119,6 +125,16 @@ export async function validateKnowledgeFilesDatabase(
       { expectedVersion: replacement.version },
       admin,
     );
+    const renamed = await app.updatePage(created.id, { title: "发布后改名", expectedVersion: v2.version }, admin);
+    const working = await query.detail(created.id, { mode: "working" }, admin);
+    assert.equal(working.title, "发布后改名");
+    assert.equal(working.primaryFile.id, replacement.attachment.id);
+    assert.equal(working.primaryFile.originalName, "文件制度_v2.pdf");
+    assert.equal((await query.detail(created.id, {}, viewer)).title, "文件知识");
+    assert.equal((await query.detail(created.id, { versionId: v1.publishedVersionId }, viewer)).title, "文件知识");
+    assert.equal((await query.attachment(created.attachment.id, { versionId: v1.publishedVersionId }, viewer)).key, native.key);
+    assert.equal((await query.list({ ids: [created.id], mode: "working" }, admin)).rows[0].title, working.title);
+    check("rename after V1/V2 syncs working tree/detail while published titles, original filenames and storage keys remain immutable");
     const current = await query.detail(created.id, {}, viewer);
     assert.equal(current.primaryFile.id, replacement.attachment.id);
     assert.notEqual(current.contentHash, first.contentHash);
@@ -176,6 +192,8 @@ export async function validateKnowledgeFilesDatabase(
       await disk("文件名搜索.docx", await createKnowledgeDocxFixture()),
       admin,
     );
+    assert.equal((await query.detail(doc.id, { mode: "working" }, admin)).title, "文件名搜索");
+    check("upload without custom title defaults to original filename without extension");
     assert.equal(
       (await preview.status(doc.attachment.id, { mode: "working" }, admin))
         .status,
@@ -304,7 +322,7 @@ export async function validateKnowledgeFilesDatabase(
     const trashed = await app.transition(
       created.id,
       "trash",
-      { expectedVersion: v2.version },
+      { expectedVersion: renamed.version },
       admin,
     );
     await app.purge(created.id, { expectedVersion: trashed.version }, admin);
