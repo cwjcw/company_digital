@@ -1,0 +1,36 @@
+{
+  "head": "e16c2f74de1013fdedcec8f69d8b2863ef0d4551",
+  "web": "e16c2f74de1013fdedcec8f69d8b2863ef0d4551",
+  "api": "e16c2f74de1013fdedcec8f69d8b2863ef0d4551",
+  "consistent": true,
+  "health": "ok",
+  "backup": [
+    {
+      "sha256": "7010ba89a9622b1f2a15ed50f7779a5173273a70693e35274aef9aed21560508",
+      "path": "data/backups/four_department_tracker_20261009_224154.backup"
+    },
+    {
+      "sha256": "abb5a4ffc4d3b405f427ff971024005b062ee77eaa4d10a9c0a1d0a9329c22f2",
+      "path": "data/backups/kdos_20261009_224154.backup"
+    },
+    {
+      "sha256": "9a658d4e39f1ba91a58861ff92a4108f1b4029146e98d675b287a10018917daf",
+      "path": "data/backups/uploads_20261009_224154.tar.gz"
+    }
+  ],
+  "backupValidated": true,
+  "postgresContainerMountsPortsPreserved": true,
+  "apiDatabaseHost": "postgres",
+  "apiDatabasePort": 5432,
+  "services": "Web/API/document-worker/PostgreSQL healthy",
+  "productionEmployeePrecheck": {
+    "login": "PASS",
+    "spacesHttpStatus": 200,
+    "pagesHttpStatus": 403,
+    "pageReadAuthorized": false
+  },
+  "browserGroupsPassed": 13,
+  "browserGroupsFailed": 0,
+  "ownTestDataPurged": true,
+  "finalHealthyCheckedAt": "2026-10-09T14:58:47.971967+00:00"
+}

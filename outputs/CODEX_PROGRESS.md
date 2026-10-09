@@ -1,5 +1,29 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge 2.1.2 最终交互审查与修复
+
+任务名称：Knowledge 2.1.2；任务目标：标题、批量状态、不可变重试、位置说明、导入图片占位与权限入口，保持已有业务与发布模型。
+当前状态：已完成 / 已部署；员工正向阅读验收存在权限限制（详见报告）。最后更新时间：2026-10-09 22:57（Asia/Shanghai）。
+当前阶段：最终交付完成，已记录员工权限验收边界。
+已完成：GitHub main=本地HEAD=201956554bac8834ce397dbab79bbc7569a70ee4，服务器Web/API=88f48cb（2019565仅报告变动）；项目/架构/安全/部署规范、现有验收报告与前后端代码审查。
+实际缺陷：上传无逐文件标题/移除；失败复用键但未固定位置；完成无残留提醒且只跳首个页面；共享位置说明仅适合上传；DOCX预览静默删除图片；侧栏空间设置/归档无权限隐藏。
+无需重复修改：后端title默认/300字符校验、事务级租户+操作者幂等/内容哈希校验、编辑改名、原件及历史不可变、Autosave/409、位置分页/懒加载/路径/服务端授权与循环防护。
+正在进行：无。
+待完成：无开发遗留；生产员工获权发布/历史阅读及具体私密ACL隔离，待用户补齐既有knowledge-pages查看权限后可补验，未修改账号权限。
+备份：20261009_224154 legacy/KDOS/uploads，pg_restore --list、上传归档可读性/.private包含及3个SHA256复核PASS。
+源码/部署SHA：e16c2f74de1013fdedcec8f69d8b2863ef0d4551，14个源码/测试文件，未push；./scripts/deploy.sh all PASS，HEAD/Web/API一致；4个服务healthy，原PG容器/挂载/15433端口一致。
+修改文件：KnowledgeFileUpload/transport、KnowledgePages、KnowledgeLocationPicker、KnowledgeImport/Content及专项测试；FilesService生产逻辑无需修改，新增API测试与隔离数据库回归。
+数据库 Migration：无；新增npm依赖/API：无。
+新增或修改测试：8项API标题/幂等/权限、7项新增批量交互、1项全部结果、4种位置说明、导入图片占位/低层title及无结果响应、普通员工入口、4组隔离DB回归。
+已运行测试：API95套826 PASS/1原有skip；Web38文件277 PASS（Knowledge65 PASS）；根typecheck/lint/build PASS；隔离DB85场景/85 fresh migrations PASS；Chrome fixture3 PASS/1运行时凭据门控skip（生产凭据由独立无录制运行时脚本验收）；早期mock类型/Modal定位/误传参数均已纠正，最终全量PASS。
+当前已知问题：产品缺陷已修复且上线；普通员工实际登录成功但knowledge-pages读取403（空间200），无法宣称获权发布阅读验收通过；未修改其账号权限。管理员完整验收PASS；员工登录与未授权拒绝实测PASS，正向阅读/具体私密ACL生产验收未测试，原因如前。
+等待用户确认：无；两个账号运行时使用，不落盘/记录，不修改密码或权限。
+下一步：代码及上线验收已交付；用户若补齐员工现有页面查看权限，再从真实员工正向阅读验收继续，不重复实现。
+恢复执行说明：项目规范→本段进度→git status/diff→继续第一项未完成工作；旧UX已PASS，勿重做；不开发2.2。
+最终报告：outputs/KNOWLEDGE_2_1_2_ACCEPTANCE.md；配套BROWSER_ACCEPTANCE/DATABASE_VALIDATION/LIVE.json；管理员9组、员工3组（登录/入口拒绝/未授权API拒绝）、清理1组共13 PASS。自建验收子树/历史/附件永久清理、审计保留，无新Space。
+
+---
+
 ## 当前任务：Knowledge 2.1 用户体验完善
 
 任务名称：Knowledge 2.1 用户体验完善。

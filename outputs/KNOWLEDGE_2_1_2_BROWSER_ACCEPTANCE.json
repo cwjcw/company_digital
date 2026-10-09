@@ -1,0 +1,82 @@
+{
+  "checks": [
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "普通员工侧栏管理入口隐藏，无账号权限修改"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "默认去扩展名、逐文件中文标题、提交前移除、批量不同标题与保存位置均正确；3成功/1失败，成功草稿保留"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "原失败请求同键重试；明确失败后重新发起使用新键/新标题；完成确认离开并可反复查看全部3个草稿"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "DOCX/PPT/PDF原件可下载，实际PDF.js画布有内容，原始文件名保留"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "真实服务器已创建后在响应交付时模拟超时；修改全局位置后双击原请求重试，参数完全一致、repeated=true且仅1页面"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "草稿改名与Autosave；V1/V2发布后改名仅改工作标题，原文件名/主文件/历史标题不变，实际树与页面同步"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "真实DOCX内嵌图片在导入预览明确占位，未请求外部图片；正式导入后私有图片可见且正文可编辑"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "在线编写、上传、文章导入和移动均显示各自准确的位置说明"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "真实409保留本地标题、阻止发布且未覆盖并发修改"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "实际账号登录通过；无知识页面读取权限，发布页/历史/原件/草稿/伪造新增均被拒绝。未声称员工阅读或具体页面ACL隔离验收通过"
+    },
+    {
+      "scope": "Cleanup",
+      "status": "PASS",
+      "evidence": "仅自建验收子树/版本/附件已永久清理，保留必要审计，没有创建额外Space"
+    }
+  ],
+  "cleanup": {
+    "ownRootAndDescendantsPurged": true,
+    "auditRetained": true,
+    "existingSpacesUnchanged": true
+  },
+  "employeeInitialPageReadAuthorized": false,
+  "employeeFinalPageReadAuthorized": false,
+  "notTested": [
+    "Production employee authorized published/history reading and page-specific private isolation: current account lacks knowledge-pages read; automated reader/ACL/RLS scenarios pass"
+  ],
+  "checkedAt": "2026-10-09T14:55:18.074Z",
+  "scope": "Authorized administrator and ordinary employee",
+  "recordings": "No credentials/tokens/traces/videos/screenshots/browser state persisted"
+}

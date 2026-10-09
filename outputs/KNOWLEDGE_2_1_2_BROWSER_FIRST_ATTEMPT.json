@@ -1,0 +1,24 @@
+{
+  "checks": [
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "status": "FAIL",
+      "stage": "login",
+      "evidence": "Verification failed; credentials and account details suppressed"
+    }
+  ],
+  "cleanup": {},
+  "checkedAt": "2026-10-09T14:47:41.020Z",
+  "scope": "Authorized administrator and ordinary employee",
+  "recordings": "No credentials/tokens/traces/videos/screenshots/browser state persisted",
+  "failureExplanation": "Both logins passed; account lacks knowledge-pages read (403), so Knowledge wiki is intentionally unavailable."
+}

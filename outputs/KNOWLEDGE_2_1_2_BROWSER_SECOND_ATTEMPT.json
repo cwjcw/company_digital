@@ -1,0 +1,44 @@
+{
+  "checks": [
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "scope": "Employee",
+      "status": "PASS",
+      "evidence": "普通员工侧栏管理入口隐藏，无账号权限修改"
+    },
+    {
+      "scope": "Administrator",
+      "status": "PASS",
+      "evidence": "默认去扩展名、逐文件中文标题、提交前移除、批量不同标题与保存位置均正确；3成功/1失败，成功草稿保留"
+    },
+    {
+      "status": "FAIL",
+      "stage": "batch titles/removal/partial failure",
+      "evidence": "Verification failed; credentials and account details suppressed"
+    },
+    {
+      "scope": "Cleanup",
+      "status": "PASS",
+      "evidence": "仅自建验收子树/版本/附件已永久清理，保留必要审计，没有创建额外Space"
+    }
+  ],
+  "cleanup": {
+    "ownRootAndDescendantsPurged": true,
+    "auditRetained": true,
+    "existingSpacesUnchanged": true
+  },
+  "employeeInitialPageReadAuthorized": false,
+  "checkedAt": "2026-10-09T14:50:01.747Z",
+  "scope": "Authorized administrator and ordinary employee",
+  "recordings": "No credentials/tokens/traces/videos/screenshots/browser state persisted",
+  "failureExplanation": "Acceptance selector matched the hidden duplicate Ant Modal header instead of its visible confirmation button."
+}
