@@ -1,6 +1,7 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { KnowledgeContent } from "./KnowledgeContent";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { App } from "antd";
+import { KnowledgeContent, KnowledgeRichEditor } from "./KnowledgeContent";
 import { knowledgeFileUrl } from "./knowledge-ui";
 afterEach(cleanup);
 describe("Knowledge safe reader", () => {
@@ -58,5 +59,54 @@ describe("Knowledge safe reader", () => {
     expect(knowledgeFileUrl("file", { mode: "working", versionId: "v2" })).toBe(
       "/knowledge/attachments/file?mode=working&versionId=v2",
     );
+  });
+});
+
+describe("Knowledge real rich editor", () => {
+  it("does not autosave unchanged content when busy/editable state changes", async () => {
+    const onChange = vi.fn();
+    const value = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "已发布正文" }] },
+      ],
+    };
+    const element = (disabled: boolean) => (
+      <App>
+        <KnowledgeRichEditor
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      </App>
+    );
+    const view = render(element(false));
+    await waitFor(() =>
+      expect(
+        view.container
+          .querySelector(".tiptap")
+          ?.getAttribute("contenteditable"),
+      ).toBe("true"),
+    );
+    view.rerender(element(true));
+    await waitFor(() =>
+      expect(
+        view.container
+          .querySelector(".tiptap")
+          ?.getAttribute("contenteditable"),
+      ).toBe("false"),
+    );
+    view.rerender(element(false));
+    await waitFor(() =>
+      expect(
+        view.container
+          .querySelector(".tiptap")
+          ?.getAttribute("contenteditable"),
+      ).toBe("true"),
+    );
+    expect(view.container.querySelector(".tiptap")?.textContent).toContain(
+      "已发布正文",
+    );
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

@@ -146,7 +146,8 @@ export function KnowledgeRichEditor({
       onChange?.(editor.getJSON() as KnowledgeContentNode),
   });
   useEffect(() => {
-    if (editor) editor.setEditable(!disabled);
+    // Busy/read-only transitions do not change document content.
+    if (editor) editor.setEditable(!disabled, false);
   }, [editor, disabled]);
   useEffect(() => {
     if (
