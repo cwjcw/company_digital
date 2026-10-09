@@ -94,11 +94,14 @@ function mount(
   element: React.ReactNode = <KnowledgeWiki />,
   session: any = admin,
   path = "/knowledge",
+  existingClient?: QueryClient,
 ) {
   localStorage.setItem("sessionUser", JSON.stringify(session));
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const client =
+    existingClient ??
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
   return render(
     <QueryClientProvider client={client}>
       <AntApp>
@@ -194,6 +197,43 @@ describe("Knowledge 2 Wiki", () => {
     expect(
       screen.getByRole("button", { name: "上传附件 / 图片" }),
     ).toBeEnabled();
+  });
+  it("waits for fresh working version before mounting a cached draft editor", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["knowledge", "page", "page", "working", undefined], {
+      ...page,
+      version: 1,
+    });
+    let release!: (value: KnowledgePage) => void;
+    const fresh = new Promise<KnowledgePage>((resolve) => {
+      release = resolve;
+    });
+    const base = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((path, init) =>
+      path === "/knowledge/pages/page?mode=working" && !init?.method
+        ? (fresh as never)
+        : base(path, init),
+    );
+    mount(undefined, admin, "/knowledge/pages/page?edit=1", client);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/knowledge/pages/page?mode=working"),
+    );
+    expect(screen.queryByLabelText("页面标题")).toBeNull();
+    release({ ...page, version: 9 });
+    const title = await screen.findByLabelText("页面标题");
+    fireEvent.change(title, { target: { value: "最新工作副本" } });
+    fireEvent.click(screen.getByRole("button", { name: "立即保存" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        "/knowledge/pages/page",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ title: "最新工作副本", expectedVersion: 9 }),
+        }),
+      ),
+    );
   });
   it("published reader shows breadcrumbs/body/version and private download", async () => {
     mount(undefined, viewer, "/knowledge/pages/page");

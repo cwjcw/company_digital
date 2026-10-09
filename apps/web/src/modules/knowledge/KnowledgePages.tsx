@@ -556,7 +556,13 @@ export function KnowledgeWiki() {
         />
       </>
     );
-  else if (page.isLoading && id) body = <Spin />;
+  // A cached working row can predate uploads/publication. Mount a new draft
+  // session only after its entry refetch; keep an existing session during refetch.
+  else if (
+    id &&
+    (page.isLoading || (editing && page.isFetching && !draft.current))
+  )
+    body = <Spin />;
   else if (page.error)
     body = <Alert type="error" message={(page.error as Error).message} />;
   else if (row && editing && row.canEdit)
