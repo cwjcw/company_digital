@@ -312,6 +312,59 @@ describe("Knowledge 2 Wiki", () => {
       title: "新标题",
       expectedVersion: 4,
     });
+    expect(page.tags).toEqual(["休假"]);
+  });
+  it("omits tag/location inputs and places the authorized parent path above the title", () => {
+    mount(
+      <KnowledgeEditor
+        page={{ ...page, parentId: "parent", breadcrumb: [
+          { id: "hr", title: "人力资源" },
+          { id: "parent", title: "公司制度" },
+          { id: page.id, title: page.title },
+        ] }}
+        onClose={vi.fn()} onPublished={vi.fn()}
+      />,
+    );
+    const path = screen.getByLabelText("页面路径");
+    expect(path).toHaveTextContent("人力资源 > 公司制度");
+    expect(path.compareDocumentPosition(screen.getByLabelText("页面标题")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByLabelText("页面标签")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByLabelText("页面正文").compareDocumentPosition(screen.getByLabelText("页面说明")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(api).not.toHaveBeenCalled();
+  });
+  it.each([
+    { breadcrumb: page.breadcrumb, spaceName: undefined },
+    { breadcrumb: [{ id: "hr", title: "人力资源" }], spaceName: undefined },
+    { breadcrumb: undefined, spaceName: "人力资源" },
+  ])("shows the Space path for a root page without changing metadata: %j", (location) => {
+    mount(<KnowledgeEditor page={{ ...page, ...location }} onClose={vi.fn()} onPublished={vi.fn()} />);
+    expect(screen.getByLabelText("页面路径")).toHaveTextContent(/^人力资源$/);
+    expect(api).not.toHaveBeenCalled();
+  });
+  it("puts FILE preview first and flushes description before primary upload and publish without clearing tags", async () => {
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (path.endsWith("/files")) return { attachment: { id: "primary", role: "PRIMARY", originalName: "制度.pdf" }, version: 6 } as never;
+      return { version: init?.method === "PATCH" ? 5 : 7 } as never;
+    });
+    const onPublished = vi.fn();
+    const view = mount(<KnowledgeEditor page={{ ...page, contentMode: "FILE", primaryFile: { ...page.attachments![0]!, role: "PRIMARY" } }} onClose={vi.fn()} onPublished={onPublished} />);
+    expect(screen.queryByLabelText("页面正文")).toBeNull();
+    expect(screen.getByText("文件预览").compareDocumentPosition(screen.getByLabelText("页面说明")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("页面说明"), { target: { value: "修订说明" } });
+    fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files: [new File(["pdf"], "制度.pdf")] } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "发布新版本" })).toBeEnabled());
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/knowledge/pages/page/files", expect.objectContaining({ body: expect.any(FormData) })));
+    const calls = vi.mocked(api).mock.calls;
+    expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({ description: "修订说明", expectedVersion: 4 });
+    const form = calls[1]![1]?.body as FormData;
+    expect(form.get("expectedVersion")).toBe("5");
+    expect(form.get("role")).toBe("PRIMARY");
+    expect(form.has("tags")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "发布新版本" }));
+    await waitFor(() => expect(onPublished).toHaveBeenCalledOnce());
+    expect(api).toHaveBeenLastCalledWith("/knowledge/pages/page/publish", expect.objectContaining({ body: '{"expectedVersion":6}' }));
+    expect(page.tags).toEqual(["休假"]);
   });
   it("409 retains local text and displays conflict rather than overwriting", async () => {
     vi.mocked(api).mockRejectedValue(

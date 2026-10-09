@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, App, Button, Input, Select, Space, Tag, Upload } from "antd";
+import { Alert, App, Button, Input, Space, Tag, Upload } from "antd";
 import type { KnowledgeAttachment, KnowledgePage } from "@kdos/contracts";
 import { api } from "../../api";
 import {
@@ -226,6 +226,12 @@ export function KnowledgeEditor({
             }
           />
         )}
+        <p className="knowledge-editor-path" aria-label="页面路径">
+          {page.breadcrumb
+            ?.filter((item) => item.id !== page.id)
+            .map((item) => item.title)
+            .join(" > ") || page.spaceName}
+        </p>
         <Input
           aria-label="页面标题"
           size="large"
@@ -235,36 +241,6 @@ export function KnowledgeEditor({
           onChange={(e) => change({ title: e.target.value })}
           style={{ marginBottom: 16 }}
         />
-        {hasFieldPermission("knowledge-pages", "tags", "read") && (
-          <Select
-            aria-label="页面标签"
-            placeholder="添加标签..."
-            mode="tags"
-            value={value.tags ?? []}
-            tokenSeparators={[",", "，"]}
-            disabled={!allowed("tags") || busy}
-            onChange={(tags) => change({ tags })}
-            style={{ width: "100%", marginBottom: 16 }}
-          />
-        )}
-        <p>
-          所在位置：
-          {page.breadcrumb
-            ?.slice(0, -1)
-            .map((b) => b.title)
-            .join(" > ") || page.spaceName}
-        </p>
-        {hasFieldPermission("knowledge-pages", "description", "read") && (
-          <Input.TextArea
-            aria-label="页面说明"
-            placeholder="简要说明（可选）"
-            value={value.description ?? ""}
-            maxLength={4000}
-            disabled={!allowed("description") || busy}
-            onChange={(e) => change({ description: e.target.value })}
-            style={{ marginBottom: 16 }}
-          />
-        )}
         {value.contentMode === "FILE" &&
           hasFieldPermission("knowledge-pages", "attachmentIds", "read") && (
             <Space
@@ -306,6 +282,17 @@ export function KnowledgeEditor({
               onPasteImage={(file) => upload(file, false, true)}
             />
           )}
+        {hasFieldPermission("knowledge-pages", "description", "read") && (
+          <Input.TextArea
+            aria-label="页面说明"
+            placeholder="简要说明（可选）"
+            value={value.description ?? ""}
+            maxLength={4000}
+            disabled={!allowed("description") || busy}
+            onChange={(e) => change({ description: e.target.value })}
+            style={{ marginTop: 16, marginBottom: 16 }}
+          />
+        )}
         {hasFieldPermission("knowledge-pages", "attachmentIds", "read") && (
           <Space direction="vertical" style={{ marginTop: 16 }}>
             <Upload

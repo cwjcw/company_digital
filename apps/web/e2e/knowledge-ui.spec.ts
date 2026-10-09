@@ -185,6 +185,15 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
   await expect(
     page.getByRole("button", { name: "上传附件 / 图片" }),
   ).toBeEnabled();
+  // Simulate pre-existing API metadata; the editor must leave it untouched.
+  s.drafts.get("page1").tags = ["已有标签"];
+  await expect(page.getByLabel("页面标签", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("页面路径")).toHaveText("人力资源");
+  expect(await page.evaluate(() => {
+    const path = document.querySelector('[aria-label="页面路径"]')!;
+    const title = document.querySelector('[aria-label="页面标题"]')!;
+    return Boolean(path.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
   await page.getByLabel("页面标题", { exact: true }).fill("员工请假管理办法");
   await page.locator(".tiptap").fill("年度绩效考核制度与请假流程");
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
@@ -214,6 +223,11 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
     page.getByRole("heading", { name: "员工请假管理办法", exact: true }),
   ).toBeVisible();
   expect(s.history.get("page1")?.length).toBe(2);
+  expect(s.history.get("page1")?.map((version) => version.tags)).toEqual([
+    ["已有标签"], ["已有标签"],
+  ]);
+  expect(s.writes.filter((write) => write.path === "/knowledge/pages/page1")
+    .every((write) => !("tags" in write.body))).toBe(true);
   expect(
     s.writes.some(
       (w) => w.path.includes("articles") || w.path.includes("categories"),
