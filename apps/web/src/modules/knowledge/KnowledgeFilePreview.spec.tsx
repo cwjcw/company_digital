@@ -89,6 +89,21 @@ describe("file reader", () => {
       "制度.docx",
     );
   });
+  it("omits absent history identifiers for normal working/native PDF preview", async () => {
+    vi.mocked(api).mockResolvedValue({
+      status: "SUCCEEDED",
+      native: true,
+      contentType: "application/pdf",
+    });
+    mount({ scope: { mode: "working", versionId: undefined } });
+    await screen.findByText("/ 3");
+    expect(api).toHaveBeenCalledWith(
+      "/knowledge/files/file/preview-status?mode=working",
+    );
+    expect(pdf.getDocument.mock.calls[0]![0].url).toBe(
+      "/api/v1/knowledge/files/file/preview?mode=working",
+    );
+  });
   it("keeps processing explicit instead of claiming a preview is ready", async () => {
     vi.mocked(api).mockResolvedValue({
       status: "RUNNING",

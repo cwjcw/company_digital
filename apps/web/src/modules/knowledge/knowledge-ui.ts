@@ -5,11 +5,15 @@ export type KnowledgeFileScope = {
   versionId?: string;
 };
 export const KnowledgeFileContext = createContext<KnowledgeFileScope>({});
+export function knowledgeFileQuery(scope: KnowledgeFileScope = {}) {
+  const params = new URLSearchParams();
+  if (scope.mode) params.set("mode", scope.mode);
+  if (scope.versionId) params.set("versionId", scope.versionId);
+  return params.toString();
+}
 export function knowledgeFileUrl(id: string, scope: KnowledgeFileScope = {}) {
-  const p = new URLSearchParams();
-  if (scope.mode) p.set("mode", scope.mode);
-  if (scope.versionId) p.set("versionId", scope.versionId);
-  return `/knowledge/files/${encodeURIComponent(id)}/original${p.size ? `?${p}` : ""}`;
+  const query = knowledgeFileQuery(scope);
+  return `/knowledge/files/${encodeURIComponent(id)}/original${query ? `?${query}` : ""}`;
 }
 export const emptyKnowledgeContent: KnowledgeContentNode = {
   type: "doc",
@@ -42,6 +46,13 @@ export async function copyKnowledgeLink(id: string) {
 }
 
 export function knowledgeCanRetry() {
-  try { const user=JSON.parse(localStorage.getItem("sessionUser")??"{}");return user.isSystemAdmin===true||user.moduleAdminCodes?.includes("knowledge")===true; }
-  catch { return false; }
+  try {
+    const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+    return (
+      user.isSystemAdmin === true ||
+      user.moduleAdminCodes?.includes("knowledge") === true
+    );
+  } catch {
+    return false;
+  }
 }

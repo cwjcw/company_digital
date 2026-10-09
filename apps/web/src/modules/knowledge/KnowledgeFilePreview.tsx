@@ -22,7 +22,11 @@ import type {
 } from "@kdos/contracts";
 import { api } from "../../api";
 import { downloadApiFile } from "../../shared/legacy-ui";
-import { knowledgeFileUrl, type KnowledgeFileScope } from "./knowledge-ui";
+import {
+  knowledgeFileQuery,
+  knowledgeFileUrl,
+  type KnowledgeFileScope,
+} from "./knowledge-ui";
 GlobalWorkerOptions.workerSrc = workerUrl;
 type Status = {
   status: KnowledgePreviewStatus;
@@ -52,7 +56,7 @@ export function KnowledgeFilePreview({
     [text, setText] = useState("");
   const canvas = useRef<HTMLCanvasElement>(null),
     container = useRef<HTMLDivElement>(null);
-  const params = new URLSearchParams({ ...scope }).toString();
+  const params = knowledgeFileQuery(scope);
   const base = `/knowledge/files/${file.id}`,
     suffix = params ? `?${params}` : "";
   useEffect(() => {
