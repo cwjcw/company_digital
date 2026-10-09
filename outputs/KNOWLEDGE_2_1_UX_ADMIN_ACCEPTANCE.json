@@ -1,0 +1,77 @@
+{
+  "checkedAt": "2026-10-09T13:34:09.768Z",
+  "scope": "Administrator only",
+  "login": "PASS",
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过；仅管理员，未改账号权限或凭据"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅填写名称/可视图标创建Space；后端自动code和顺序，保存后重新打开图标回显正常"
+    },
+    {
+      "status": "PASS",
+      "evidence": "Space图标与实际侧栏一致；新建知识菜单统一3流程，外部导入按钮移除"
+    },
+    {
+      "status": "PASS",
+      "evidence": "空Space上传不显示空下拉，批量DOCX/PPT/PDF均保存到根目录并保留原件"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实DOCX/PPT/PDF均有实际PDF.js内容画布，原文件认证下载200"
+    },
+    {
+      "status": "PASS",
+      "evidence": "统一在线编写流程采用根目录保存位置，真实富文本Autosave与发布正常，无标签输入"
+    },
+    {
+      "status": "PASS",
+      "evidence": "位于公司制度时上传自动保存到其下面并继承位置权限"
+    },
+    {
+      "status": "PASS",
+      "evidence": "更改位置显示Space和页面树；同名标题按完整路径区分，跨分支选择后实际文件位置一致"
+    },
+    {
+      "status": "PASS",
+      "evidence": "新建子页面共用保存位置，并实际写入正确spaceId/parentId"
+    },
+    {
+      "status": "PASS",
+      "evidence": "从文档导入真实DOCX转换为可编辑富文本并按同一位置保存；原转换/上传服务分离"
+    },
+    {
+      "status": "PASS",
+      "evidence": "主文件替换/Autosave/发布V1-V2/历史预览/已有Tags与搜索全部保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "页面移动共用保存位置，完成跨分支移动；后代排除和循环拒绝已由真实隔离DB验证"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实409保留本地内容/禁用发布/不覆盖并发写入；编辑页无标签控件"
+    },
+    {
+      "status": "PASS",
+      "evidence": "自建页面/版本/附件子树永久清理，验收Space按现有API归档保留审计；已有Space编码/图标/名称/状态不变"
+    }
+  ],
+  "testSpaceId": "01a120de-5ec9-711a-b4c8-9f5b4bea6b35",
+  "rootPageIds": [
+    "01a120de-6c2c-725c-b29e-43366535d9bb",
+    "01a120de-6d0a-72ef-8d85-274f0de9a883",
+    "01a120de-6d9c-76be-a1b2-4bb171d7924d",
+    "01a120de-8d61-74db-b624-db19106d854f",
+    "01a120de-b678-74f0-b1ce-2c399b972fb0"
+  ],
+  "cleanup": {
+    "pagesRemaining": 0,
+    "testSpace": "Archived through existing Application API; Space permanent deletion is not available",
+    "originalSpacesUnchanged": true
+  },
+  "recordings": "No credential values/tokens/screenshots/videos/traces/browser state persisted"
+}

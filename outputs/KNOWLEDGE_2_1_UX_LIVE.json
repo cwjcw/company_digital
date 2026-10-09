@@ -1,0 +1,75 @@
+{
+  "baselineLocalHead": "21b9017",
+  "repositoryHead": "88f48cbdc7536b76686c9342a5a3abde3fe72eba",
+  "web": {
+    "commit": "88f48cbdc7536b76686c9342a5a3abde3fe72eba",
+    "shortCommit": "88f48cb"
+  },
+  "api": {
+    "status": "ok",
+    "timestamp": "2026-10-09T13:38:27.667Z",
+    "version": {
+      "commit": "88f48cbdc7536b76686c9342a5a3abde3fe72eba",
+      "shortCommit": "88f48cb"
+    }
+  },
+  "deployCommand": "./scripts/deploy.sh all",
+  "versionCheck": "CONSISTENT",
+  "containers": [
+    {
+      "name": "knplan-web-1",
+      "id": "3632177b3e7289e0875cb752bc29a87a2530a859d85e8651a3751d95501cf6f4",
+      "health": "healthy"
+    },
+    {
+      "name": "knplan-api-1",
+      "id": "9ec824ed5eaf678d829141d849a454399ae4e3868d7e807e887366638fa05c2e",
+      "health": "healthy"
+    },
+    {
+      "name": "knplan-document-worker-1",
+      "id": "72e652008954c1153e46befb5cb87b306576b6938ac9dd33da03764db357be0b",
+      "health": "healthy"
+    },
+    {
+      "name": "knplan-postgres-1",
+      "id": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+      "health": "healthy"
+    }
+  ],
+  "postgresContainerMountAndLoopbackPortRetained": true,
+  "backups": [
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261009_212104.backup",
+      "sha256": "d7bb2107737dfd86765040acc3c1a84503244371ca8c4c909d613dcbd6f6dd8f"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/kdos_20261009_212104.backup",
+      "sha256": "61e9bb74780dc4de32620f626c5e1410f599636a76155893670d908041cbeb35"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/uploads_20261009_212104.tar.gz",
+      "sha256": "b7910f88823772618f7713ea92a347bb290ebbd56b1f01e4531c775ab271692f"
+    }
+  ],
+  "tests": {
+    "api": {
+      "passed": 818,
+      "originalSkipped": 1
+    },
+    "web": {
+      "files": 38,
+      "passed": 263
+    },
+    "knowledgeApiPassed": 89,
+    "knowledgeWebPassed": 51,
+    "databaseScenariosPassed": 81,
+    "freshMigrationsPassed": 85,
+    "chromeFixturePassed": 3,
+    "chromeCredentialGatedSkipped": 1,
+    "realAdministratorPassed": 14
+  },
+  "migrationAdded": false,
+  "dependenciesAdded": false,
+  "testSpaceCleanup": "All own pages/versions/assets purged; own Space archived via existing API; audit retained"
+}

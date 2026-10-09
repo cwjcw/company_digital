@@ -1,5 +1,31 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge 2.1 用户体验完善
+
+任务名称：Knowledge 2.1 用户体验完善。
+任务目标：统一保存位置与新建知识，Space后端自动编码和可视图标；保留Page Tree/ACL、两个文件业务服务、Tags、Autosave、历史及409；不开发2.2门户。
+当前状态：已完成 / PASS。
+最后更新时间：2026-10-09 21:40（Asia/Shanghai）。
+当前阶段：已交付；当前子任务：无。
+已完成：本地21b9017干净基线/规范审查；创建目标分页与祖先权限查询；通用位置Picker与树/路径/搜索；统一新建知识菜单；Space自动UUID代码/冲突重试/顺序/可視图标；前后端测试/构建、三份备份、deploy all、真实管理员14项验收与清理、最终健康/SHA复核。
+正在进行：无。
+待完成：无本輪开发遗留。
+修改文件：24源码/测试/文档文件，清单见最终报告；提交88f48cb，未push；本进度及UX_ACCEPTANCE/ADMIN_ACCEPTANCE/DATABASE_VALIDATION/LIVE报告。
+数据库Migration：无，沿用现有unique/UUIDv7与Page Tree模型。新增依赖：无。
+API：新GET spaces/:id/locations；POST spaces改为名称/说明/图标/可选顺序，code由后端生成。类型及调用方同步。
+新增或修改测试：后端6项UX+1HTTP、前端10项Picker/空间/导入/菜单、隔离DB5组真实并发/105节点/同名路径/循环/权限、原Chrome创建流程更新。
+已运行测试：API94套818 PASS/1原有skip，Knowledge89 PASS；Web38文件263 PASS，Knowledge51 PASS；DB81场景/85 fresh迁移PASS，临时库/角色清理；Chrome3 PASS/1凭据门控skip；真实生产管理员14 PASS；API/Web lint/typecheck、根build/最终Web build/Node24部署构建及diff PASS。原Portal/chunk/宿主Node22/ts-jest提示保留。
+当前已知问题：无上线故障。测试页面/版本/文件已永久清理；测试空间按现有API归档，因无永久删除Space API保留1条已归档元数据，创建/归档审计保留，报告明确说明。普通员工生产账号与生产100+节点/Markdown-HTML在线重跑未做，自动化对应覆盖及理由见报告。
+等待用户确认：无。管理员运行时凭据无记录；未改账号密码/权限，未读PMC凭据。
+备份：20261009_212104 legacy/KDOS/uploads可读性、.private及最终SHA256复核PASS，详见LIVE/验收报告。
+部署：./scripts/deploy.sh all/check PASS；HEAD/Web/API=88f48cbdc7536b76686c9342a5a3abde3fe72eba；Web/API/Worker/Pg healthy，原PG容器/挂载/15433端口及APIpostgres:5432保留。
+管理员验收：新建Space无code/默认图标与顺序、保存回显；统一3菜单；空Space/根/公司制度上传与DOCX/PPT/PDF实际画布/原件；多层同名路径变更；子页面/DOCX正文导入；移动、Autosave/历史V1-V2/Tags搜索/真实409；已有Space码/图标不变；14项PASS。
+下一步：无；用户进入线上知识库按报告人工验收。
+最终报告：outputs/KNOWLEDGE_2_1_UX_ACCEPTANCE.md；配套ADMIN_ACCEPTANCE.json、DATABASE_VALIDATION.json、LIVE.json。
+恢复执行说明：项目规范→本进度最新任务→git status/diff→用户新需求；此任务已交付，不重做旧2.1、不开发2.2、不清理非验收数据。
+
+---
+
 ## 当前任务：Knowledge 2.1 编辑页面精简
 
 任务名称：Knowledge 2.1 编辑页面精简。
