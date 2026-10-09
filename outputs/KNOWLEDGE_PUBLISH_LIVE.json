@@ -1,0 +1,98 @@
+{
+  "sourceSha": "4e5583474421fd215438d0577cfe9140d85711b5",
+  "postgresBefore": {
+    "id": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+    "health": "healthy",
+    "mounts": [
+      {
+        "source": "/data/automation/code/work/PMC/knweb/data/postgres",
+        "destination": "/var/lib/postgresql"
+      }
+    ],
+    "ports": {
+      "5432/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "15433"
+        }
+      ]
+    }
+  },
+  "migrationCheck": {
+    "typeormApplied": 85,
+    "typeormPending": 0,
+    "addedMigration": false
+  },
+  "backup": {
+    "status": "PASS",
+    "files": [
+      {
+        "file": "data/backups/four_department_tracker_20261009_234851.backup",
+        "sha256": "e7cba1a3dd97a34d5e9f20329256b597941b3edad38b9be3e15959ff59d825cb",
+        "bytes": 686275552
+      },
+      {
+        "file": "data/backups/kdos_20261009_234851.backup",
+        "sha256": "4146b7d0fe304659ae0e967a4609901fd0130aea0f1f6c3da4d6621db957d61d",
+        "bytes": 8155720
+      },
+      {
+        "file": "data/backups/uploads_20261009_234851.tar.gz",
+        "sha256": "53216264af3c8b8a75615c79937c8ea09518067f56808f90f13914fe37d51441",
+        "bytes": 1442515
+      }
+    ],
+    "databaseListsValidatedByBackupScript": true,
+    "uploadsArchiveReadable": true,
+    "privateIncluded": true
+  },
+  "deployment": {
+    "status": "PASS",
+    "command": "./scripts/deploy.sh all",
+    "head": "4e5583474421fd215438d0577cfe9140d85711b5",
+    "web": "4e5583474421fd215438d0577cfe9140d85711b5",
+    "api": "4e5583474421fd215438d0577cfe9140d85711b5",
+    "versionsConsistent": true
+  },
+  "health": {
+    "api": "ok",
+    "postgres": "healthy",
+    "postgresContainerMountPortUnchanged": true,
+    "apiDatabaseHost": "postgres",
+    "apiDatabasePort": 5432,
+    "status": "PASS",
+    "finalHealthcheck": true,
+    "finalDeployCheck": true,
+    "services": {
+      "api": "healthy",
+      "web": "healthy",
+      "document-worker": "healthy",
+      "postgres": "healthy"
+    }
+  },
+  "postgresAfter": {
+    "id": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+    "health": "healthy",
+    "mounts": [
+      {
+        "source": "/data/automation/code/work/PMC/knweb/data/postgres",
+        "destination": "/var/lib/postgresql"
+      }
+    ],
+    "ports": {
+      "5432/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "15433"
+        }
+      ]
+    }
+  },
+  "administratorBrowser": {
+    "status": "PASS",
+    "checks": 11,
+    "ownFixturesPurged": true,
+    "auditRetained": true
+  },
+  "finishedAt": "2026-10-09T23:56:26+08:00"
+}

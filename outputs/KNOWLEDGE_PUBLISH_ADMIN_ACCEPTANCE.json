@@ -1,0 +1,59 @@
+{
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "E2E 登录/权限验证通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "RICH_TEXT草稿顶部直接发布；无需进入编辑器；树/版本/页面刷新，未修改时无重复发布入口"
+    },
+    {
+      "status": "PASS",
+      "evidence": "长文档滚动1000px后保存/发布仍在视口；标题Autosave后顶部发布V1，未重引入Tags控件"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅改标题后阅读页发布V2；缓存之后再次服务端更新，发布采用新GET版本；V1标题正文不变"
+    },
+    {
+      "status": "PASS",
+      "evidence": "FILE草稿阅读页直接发布；实际PDF画布/认证原件可用；发布后无新增修改提示"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅替换主文件提示发布新版本，直接发布V2；DOCX在线预览及PDF V1历史原件保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "仅增加/移除附件均准确提示发布；主文件不变，发布后提示消失"
+    },
+    {
+      "status": "PASS",
+      "evidence": "无内容变化的保存及排序版本递增不会误报需要发布"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实409保留本地标题并禁止发布；不采用另一编辑方的版本覆盖"
+    },
+    {
+      "status": "PASS",
+      "evidence": "阅读页真实发布失败显示服务端具体上级未发布原因；页面仍草稿，无假成功"
+    },
+    {
+      "status": "PASS",
+      "evidence": "自建验收子树/版本/文件永久清理，必要审计保留"
+    }
+  ],
+  "cleanup": {
+    "ownTreeVersionsAndFilesPurged": true,
+    "auditRetained": true,
+    "existingSpaceUnchanged": true
+  },
+  "status": "PASS",
+  "checkedAt": "2026-10-09T15:54:22.523Z",
+  "recordings": "No credentials, traces, video, screenshots or browser storage persisted",
+  "notTested": [
+    "Production ordinary employee scenarios: this task authorizes administrator browser acceptance; field/ACL/RLS rejection covered by automation"
+  ]
+}

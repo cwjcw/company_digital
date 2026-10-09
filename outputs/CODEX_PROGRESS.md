@@ -1,5 +1,31 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge 发布操作体验优化
+
+任务名称：Knowledge 2.1.2 发布操作体验；目标：阅读页直接发布、编辑页固定栏、真实变更判断，保持权限/Autosave/expectedVersion/409/历史。
+当前状态：已完成 / PASS，已部署。最后更新时间：2026-10-09T23:56:26+08:00。
+当前阶段：最终交付完成；当前子任务：无。
+已完成：项目/架构/安全/部署规范与技能、旧验收/进度检查；Git干净，最新GitHub/本地HEAD=283b39d7255583039d41401ca69b2bec1e039161，与运行e16c2f7仅报告差异；审查query/publish/Autosave/FILE关联/现有测试。
+实际缺陷：阅读页发布入口缺失；编辑操作在底部；编辑页无条件显示存在工作草稿；没有可靠草稿与发布快照比较。
+已完成实施：同租户授权详情SELECT计算hasUnpublishedChanges；阅读页最新草稿GET后发布；编辑页sticky操作栏、串行保存发布与并发复核；服务端publish命令保持原样。
+备份：20261009_234851双库+uploads，pg_restore目录、上传归档含.private及三个SHA256复核PASS。
+部署：./scripts/deploy.sh all PASS，HEAD/Web/API=4e5583474421fd215438d0577cfe9140d85711b5，Pg容器/挂载/端口一致、API仍postgres:5432。
+正在进行：无。
+管理员验收：11项PASS（顶部直接发布、sticky长文、最新GET锁、标题/主文件/附件、历史预览/原件、无改动、真实409、具体失败），自建树/版本/文件清理且cleanupPending=0，审计保留。
+健康：四服务healthy，最终healthcheck/deploy check PASS，HEAD/Web/API一致，原PG保留。
+待完成：无本轮遗留。
+修改文件：14个Knowledge源码/测试/契约/文档，清单见验收报告；源码提交4e55834（未push）。
+数据库 Migration：无；生产TypeORM85已应用/0待运行；依赖：无；API：现有详情响应增加权限受控的可选hasUnpublishedChanges，发布路由/业务command不变。
+新增或修改测试：16项前端发布专项、7项后端字段/ACL/历史授权、真实DB富文本/FILE/附件快照状态、Chrome长文sticky与阅读页最新版本发布。
+已运行测试：Knowledge API104/Web81 PASS；API全量96套833PASS/1原有skip；Web最终全量38文件293PASS；Chrome4PASS/1凭据门控skip；根lint/typecheck/build及最终Web build PASS；真实隔离DB94场景/85 fresh migrations PASS（临时库自动清理）。测试开发期mock/中文定位/TS选项及DB清理锁/同步异常wrapper已纠正；无关Excel首轮5s超时，15s全量重跑通过，未改其他模块。
+当前已知问题：无上线故障；旧员工缺knowledge-pages读取权限未改，本轮不声称生产员工发布权限验收通过。网络中断用自动化验证，真实并发409已生产验证。
+等待用户确认：无。凭据仅运行时使用，不落盘/日志，不改密码/权限。
+下一步：无开发遗留；用户可按验收报告人工步骤查看线上效果。
+恢复执行说明：项目规范→本段→git status/diff→用户新需求；本轮已完成，仅outputs记录未提交，不删除记录、不重做旧2.1.2、不开发2.2。
+最终报告：outputs/KNOWLEDGE_PUBLISH_UX_ACCEPTANCE.md；配套ADMIN_ACCEPTANCE/DATABASE_VALIDATION/LIVE.json。源码14文件已提交（未push），报告保留工作区以维持HEAD/Web/API完全一致。
+
+---
+
 ## 当前任务：Knowledge 2.1.2 最终交互审查与修复
 
 任务名称：Knowledge 2.1.2；任务目标：标题、批量状态、不可变重试、位置说明、导入图片占位与权限入口，保持已有业务与发布模型。
