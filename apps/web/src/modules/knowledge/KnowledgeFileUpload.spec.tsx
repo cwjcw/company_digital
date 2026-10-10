@@ -19,13 +19,13 @@ vi.mock("./knowledge-file-upload", () => ({ uploadKnowledgeFile: vi.fn() }));
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api).mockImplementation(async (path) =>
-    path.includes("/locations")
+    path.includes("/folders")
       ? ({
           rows: [
             {
               id: "policy",
               title: "公司制度",
-              parentId: null,
+              folderId: null,
               breadcrumb: [
                 { id: "hr", title: "人力资源" },
                 { id: "policy", title: "公司制度" },
@@ -38,7 +38,7 @@ beforeEach(() => {
   );
 });
 afterEach(cleanup);
-function mount(parentId?: string) {
+function mount(folderId?: string) {
   const created = vi.fn(),
     closed = vi.fn();
   render(
@@ -51,7 +51,7 @@ function mount(parentId?: string) {
         <KnowledgeFileUpload
           spaces={[{ id: "hr", name: "人力资源", canCreate: true } as any]}
           spaceId="hr"
-          parentId={parentId}
+          folderId={folderId}
           onCreated={created}
           onClose={closed}
         />
@@ -192,7 +192,7 @@ it("retries a lost response after server creation with identical file/title/loca
   expect(calls[1]![1]).toMatchObject({
     title: "合同中文标题",
     spaceId: "hr",
-    parentId: "policy",
+    folderId: "policy",
   });
   expect(persisted.size).toBe(1);
 });
@@ -217,7 +217,7 @@ it("permits changing a definitively rejected request only through an explicit ne
   const fresh = vi.mocked(uploadKnowledgeFile).mock.calls[1]![1];
   expect(fresh.idempotencyKey).not.toBe(old.idempotencyKey);
   expect(fresh.title).toBe("重新提交的标题");
-  expect(fresh.parentId).toBeUndefined();
+  expect(fresh.folderId).toBeUndefined();
 });
 it("keeps an unknown outcome locked even if a subsequent retry is rejected", async () => {
   mount();

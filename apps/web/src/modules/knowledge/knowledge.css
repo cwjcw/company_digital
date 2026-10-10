@@ -90,3 +90,9 @@ body:has(.knowledge-shell) { min-width: 0; }
   .knowledge-shell .content { padding: 16px clamp(12px, 4vw, 16px); }
   .knowledge-space-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
+
+.knowledge-folder-tree-link { height: auto; white-space: normal; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.knowledge-directory, .knowledge-location-picker { min-width: 0; overflow-x: auto; }
+.knowledge-folder-contents { min-width: 0; }
+.knowledge-folder-contents .ant-list-item { gap: 12px; }
+.knowledge-legacy-note { font-size: 12px; color: #667085; }

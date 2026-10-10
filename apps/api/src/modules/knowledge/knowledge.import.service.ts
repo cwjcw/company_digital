@@ -59,6 +59,7 @@ export class KnowledgeImportService implements OnModuleDestroy {
       "tags",
       "spaceId",
       "parentId",
+      "folderId",
     ]);
     assertSpreadsheetNotEncrypted(file?.buffer);
     if (!file?.buffer?.length || file.buffer.length > 20 * 1024 * 1024)
@@ -200,6 +201,7 @@ export class KnowledgeImportService implements OnModuleDestroy {
       "token",
       "spaceId",
       "parentId",
+      "folderId",
       "title",
       "tags",
       "restricted",
@@ -219,6 +221,7 @@ export class KnowledgeImportService implements OnModuleDestroy {
           {
             spaceId: String(input.spaceId),
             parentId: input.parentId == null ? null : String(input.parentId),
+            folderId: input.folderId ? String(input.folderId) : null,
             title: knowledgeText(input.title ?? p.title, "标题", 300, true),
             tags: knowledgeTags(input.tags ?? []),
           },

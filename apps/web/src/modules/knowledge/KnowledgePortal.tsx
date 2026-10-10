@@ -2,12 +2,14 @@ import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, App, Breadcrumb, Button, Card, Empty, Input, List, Pagination, Skeleton, Space, Tag, Typography } from "antd";
 import { HomeOutlined, SearchOutlined } from "@ant-design/icons";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import type { KnowledgeContentNode, KnowledgePage, KnowledgePageResult, KnowledgeSpace } from "@kdos/contracts";
 import { api } from "../../api";
 import { hasFieldPermission } from "../../shared/KdosDataTable";
 import { downloadApiFile } from "../../shared/legacy-ui";
+import { KnowledgeFolderContents } from "./KnowledgeFolders";
+import { KnowledgeFolderTree } from "./KnowledgeFolderTree";
 import { KnowledgePageTree } from "./KnowledgePageTree";
 import { KnowledgeSpaceIcon } from "./KnowledgeSpaceIcon";
 import { KnowledgeContent } from "./KnowledgeContent";
@@ -74,9 +76,9 @@ export function KnowledgeHome() {
   </div>;
 }
 export function KnowledgeSpaceBrowse() {
-  const { id } = useParams();
+  const { id } = useParams(), navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const parentId = params.get("parentId") ?? "", search = params.get("search") ?? "", page = Math.max(1, Number(params.get("page")) || 1);
+  const folderId = params.get("folderId") ?? undefined, parentId = params.get("parentId") ?? "", search = params.get("search") ?? "", page = Math.max(1, Number(params.get("page")) || 1);
   const spaces = useSpaces(), space = spaces.data?.find((s) => s.id === id);
   const parent = useQuery({ queryKey: ["knowledge", "portal-parent", parentId], queryFn: () => api<KnowledgePage>(`/knowledge/pages/${parentId}?mode=published`), enabled: !!parentId && !!space });
   const pages = useQuery({ queryKey: ["knowledge", "portal-space", id, parentId, search, page], enabled: !!space && (!parentId || !!parent.data),
@@ -88,9 +90,9 @@ export function KnowledgeSpaceBrowse() {
   return <div className="knowledge-portal knowledge-portal-space"><KnowledgePortalHeader /><Typography.Title level={1}><KnowledgeSpaceIcon value={space.icon} /> {space.name}</Typography.Title>
     <SearchBox scoped value={search} onSearch={(text) => setParams({ ...(parentId ? { parentId } : {}), ...(text ? { search: text } : {}) })} />
     <div className="knowledge-space-layout"><aside className="knowledge-directory"><Typography.Title level={3}>知识目录</Typography.Title>
-      <Button onClick={() => setParams({})}>空间根目录</Button><KnowledgePageTree space={space} working={false} refresh={0} onOpen={onOpen} /></aside>
-      <main><Breadcrumb items={[{ title: <Link to="/knowledge">知识库</Link> }, { title: <Button type="link" onClick={() => setParams({})}>{space.name}</Button> },
-        ...(parent.data?.breadcrumb?.slice(1) ?? []).map((b) => ({ title: <Button type="link" onClick={() => setParams({ parentId: b.id })}>{b.title}</Button> }))]} />
+      <Button onClick={() => setParams({})}>空间根目录</Button><KnowledgeFolderTree key={space.id} spaceId={space.id} onSelect={(folderId) => setParams({folderId})}/><KnowledgePageTree space={space} folderId={folderId} legacyOnly working={false} refresh={0} onOpen={onOpen} /></aside>
+      <main>{!parentId && !search ? <KnowledgeFolderContents key={`${space.id}:${folderId??"root"}`} space={space} folderId={folderId} onFolder={(folderId) => setParams(folderId ? {folderId} : {})} onPage={(row) => navigate(`/knowledge/pages/${row.id}`)}/> : <><Breadcrumb items={[{ title: <Link to="/knowledge">知识库</Link> }, { title: <Button type="link" onClick={() => setParams({})}>{space.name}</Button> },
+        ...(parent.data?.breadcrumb?.slice(1) ?? []).map((b) => ({ title: <Button type="link" onClick={() => setParams(b.kind === "folder" ? {folderId:b.id} : { parentId: b.id })}>{b.title}</Button> }))]} />
         <KnowledgeQueryState loading={!!parentId && parent.isPending} error={parent.error} retry={parent.refetch} />
         <Typography.Title level={2}>{search ? "搜索结果" : parent.data?.title || "空间根目录"}</Typography.Title>
         {parent.data && !search && <Space wrap><Link to={`/knowledge/pages/${parentId}`}>阅读当前知识</Link><Button onClick={() => setParams(parent.data?.parentId ? { parentId: parent.data.parentId } : {})}>返回上级目录</Button></Space>}
@@ -98,7 +100,7 @@ export function KnowledgeSpaceBrowse() {
           {pages.data && <><KnowledgeResultList result={pages.data} pageSize={20} onPage={(n) => setParams({ ...(parentId ? { parentId } : {}), ...(search ? { search } : {}), page: String(n) })} />
             {!search && pages.data.rows.filter((row) => row.hasChildren).map((row) => <Button key={row.id} onClick={() => onOpen(row)}>进入目录：{row.title}</Button>)}</>}
         </>}
-      </main></div>
+      </>}</main></div>
   </div>;
 }
 function headings(content?: KnowledgeContentNode) {
@@ -116,7 +118,7 @@ export function KnowledgeReader() {
   return <div className={`knowledge-portal knowledge-portal-reader${row && row.contentMode !== "FILE" ? " knowledge-portal-article" : ""}`}><KnowledgePortalHeader /><KnowledgeQueryState loading={page.isPending} error={page.error} retry={page.refetch} />
     {row && <KnowledgeFileContext.Provider value={scope}><article className="knowledge-employee-reader">
       <Breadcrumb items={[{ title: <Link to="/knowledge">知识库</Link> }, ...(row.breadcrumb ?? []).map((b, index) => ({ title: index === 0
-        ? <Link to={`/knowledge/spaces/${row.spaceId}`}>{b.title}</Link> : <Link to={`/knowledge/spaces/${row.spaceId}?parentId=${b.id}`}>{b.title}</Link> }))]} />
+        ? <Link to={`/knowledge/spaces/${row.spaceId}`}>{b.title}</Link> : b.id === row.id ? <span>{b.title}</span> : <Link to={`/knowledge/spaces/${row.spaceId}?${b.kind === "folder" ? "folderId" : "parentId"}=${b.id}`}>{b.title}</Link> }))]} />
       <Typography.Title level={1}>{row.title}</Typography.Title><Space wrap>{knowledgeFileType(row) && <Tag>{knowledgeFileType(row)}</Tag>}
         {row.publishedAt && <span>发布时间：{dayjs(row.publishedAt).format("YYYY-MM-DD HH:mm")}</span>}{versionId && <Tag>历史发布版本</Tag>}</Space>
       <div className={`knowledge-reading-grid${toc.length ? "" : " knowledge-reading-full"}`}><div>
@@ -125,7 +127,7 @@ export function KnowledgeReader() {
         {!!row.attachments?.filter((file) => file.role !== "PRIMARY").length && <Typography.Title level={3}>补充附件</Typography.Title>}
         {row.attachments?.filter((file) => file.role !== "PRIMARY").map((file) => <div key={file.id}><Button type="link" onClick={() => void downloadApiFile(knowledgeFileUrl(file.id, scope), file.originalName).catch((e) => message.error((e as Error).message))}>{file.originalName}</Button></div>)}
       </div>{!!toc.length && <aside className="knowledge-toc"><strong>目录</strong>{toc.map((title, index) => <a key={index} href={`#knowledge-heading-${index}`}>{title}</a>)}</aside>}</div>
-      <footer><Space wrap><Link to="/knowledge">返回知识首页</Link>{row.spaceId && <Link to={`/knowledge/spaces/${row.spaceId}${row.parentId ? `?parentId=${row.parentId}` : ""}`}>返回分类{row.spaceName ? `：${row.spaceName}` : ""}</Link>}</Space></footer>
+      <footer><Space wrap><Link to="/knowledge">返回知识首页</Link>{row.spaceId && <Link to={`/knowledge/spaces/${row.spaceId}${row.folderId ? `?folderId=${row.folderId}` : row.parentId ? `?parentId=${row.parentId}` : ""}`}>返回分类{row.spaceName ? `：${row.spaceName}` : ""}</Link>}</Space></footer>
     </article></KnowledgeFileContext.Provider>}
   </div>;
 }

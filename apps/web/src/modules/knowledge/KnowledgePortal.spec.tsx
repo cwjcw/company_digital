@@ -23,6 +23,7 @@ beforeEach(() => {
     if(path === "/knowledge/capabilities") return caps as never;
     if(path === "/knowledge/spaces") return [space] as never;
     if(path.startsWith("/knowledge/pages/p?")) return article as never;
+    if(path.includes("/folders")) return {rows:[],total:0,page:1,pageSize:100} as never;
     if(path.includes("/tree")) return {rows:[],total:0,page:1,pageSize:100} as never;
     if(path.startsWith("/knowledge/pages?") || path.startsWith("/knowledge/search?")) {const p = new URLSearchParams(path.split("?")[1]);return {rows:[article],total:21,page:Number(p.get("page")??1),pageSize:Number(p.get("pageSize")??10)} as never;}
     return [] as never;
@@ -75,7 +76,7 @@ describe("Knowledge employee portal", () => {
     expect(api).toHaveBeenCalledWith("/knowledge/pages/p?mode=published&versionId=v1");expect(screen.queryByText("管理员重试")).toBeNull();
   });
   it("empty Space uses a meaningful directory empty state and no creation selector", async () => {
-    mount("/knowledge/spaces/hr");await screen.findAllByText("暂无可见知识");expect(screen.getByRole("button",{name:"空间根目录"})).toBeInTheDocument();expect(screen.queryByRole("combobox")).toBeNull();
+    mount("/knowledge/spaces/hr");await screen.findByText("当前文件夹暂无可见知识");expect(screen.getByRole("button",{name:"空间根目录"})).toBeInTheDocument();expect(screen.queryByRole("combobox")).toBeNull();
   });
   it("network failures provide retry without inventing knowledge rows", async () => {
     const base=vi.mocked(api).getMockImplementation()!;let fail=true;

@@ -4,6 +4,7 @@ import request from "supertest";
 import { Readable } from "node:stream";
 import { AuthGuard } from "../../auth";
 import { OBJECT_STORAGE } from "../../storage/object-storage";
+import { KnowledgeFoldersService } from "./knowledge.folders.service";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeFilesService } from "./knowledge.files.service";
 import { KnowledgePreviewService } from "./knowledge.preview.service";
@@ -14,6 +15,7 @@ import { KnowledgeExportService } from "./knowledge.export.service";
 const fileId = "01926baa-1000-7000-8000-000000000001";
 describe("private file HTTP transport", () => {
   let app: INestApplication;
+  const folders = {list:jest.fn(),create:jest.fn(),update:jest.fn(),delete:jest.fn()};
   const queries = { attachment: jest.fn(), locations: jest.fn(), capabilities: jest.fn() },
     previews = { preview: jest.fn() },
     storage = { stat: jest.fn(), openStream: jest.fn() };
@@ -21,6 +23,7 @@ describe("private file HTTP transport", () => {
     const module = await Test.createTestingModule({
       controllers: [KnowledgeController],
       providers: [
+        { provide: KnowledgeFoldersService, useValue:folders },
         { provide: KnowledgeQueryService, useValue: queries },
         { provide: KnowledgePreviewService, useValue: previews },
         { provide: OBJECT_STORAGE, useValue: storage },
@@ -63,6 +66,23 @@ describe("private file HTTP transport", () => {
         ),
       ),
     );
+  });
+  it("folder listing authenticates and delegates pagination/location permissions",async()=>{
+    await request(app.getHttpServer()).get(`/knowledge/spaces/${fileId}/folders`).expect(403);
+    expect(folders.list).not.toHaveBeenCalled();folders.list.mockResolvedValue({rows:[],total:0,page:2,pageSize:100});
+    await request(app.getHttpServer()).get(`/knowledge/spaces/${fileId}/folders?page=2&selectable=true`).set("Authorization","Bearer fixture").expect(200);
+    expect(folders.list).toHaveBeenCalledWith(fileId,{page:"2",selectable:"true"},expect.objectContaining({username:"fixture"}));
+    folders.list.mockRejectedValue(new ForbiddenException());
+    await request(app.getHttpServer()).get(`/knowledge/spaces/${fileId}/folders`).set("Authorization","Bearer fixture").expect(403);
+  });
+  it("folder commands authenticate and preserve service validation failures",async()=>{
+    folders.create.mockResolvedValue({id:fileId,version:1});folders.update.mockRejectedValue(new ForbiddenException());folders.delete.mockResolvedValue({id:fileId,version:2});
+    await request(app.getHttpServer()).post("/knowledge/folders").send({spaceId:fileId,name:"目录"}).expect(403);
+    expect(folders.create).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).post("/knowledge/folders").set("Authorization","Bearer fixture").send({spaceId:fileId,name:"目录"}).expect(201);
+    await request(app.getHttpServer()).patch(`/knowledge/folders/${fileId}`).set("Authorization","Bearer fixture").send({name:"改名",expectedVersion:1}).expect(403);
+    await request(app.getHttpServer()).delete(`/knowledge/folders/${fileId}`).set("Authorization","Bearer fixture").send({expectedVersion:1}).expect(200);
+    expect(folders.delete).toHaveBeenCalledWith(fileId,{expectedVersion:1},expect.anything());
   });
   it("capabilities endpoint authenticates and delegates scope checks to the Query Service", async () => {
     await request(app.getHttpServer()).get("/knowledge/capabilities").expect(403);

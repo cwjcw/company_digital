@@ -43,19 +43,19 @@ function requestId() {
 export function KnowledgeFileUpload({
   spaces,
   spaceId: initial,
-  parentId: initialParent,
+  folderId: initialFolder,
   onClose,
   onCreated,
 }: {
   spaces: KnowledgeSpace[];
   spaceId: string;
-  parentId?: string;
+  folderId?: string;
   onClose: () => void;
   onCreated: (pages: CreatedKnowledgeFile[]) => void;
 }) {
   const { message, modal } = App.useApp();
   const [spaceId, setSpaceId] = useState(initial),
-    [parentId, setParentId] = useState(initialParent),
+    [folderId, setFolderId] = useState(initialFolder),
     [validLocation, setValidLocation] = useState(false),
     [locationLabel, setLocationLabel] = useState(""),
     [entries, setEntries] = useState<Entry[]>([]),
@@ -89,7 +89,7 @@ export function KnowledgeFileUpload({
         e.request ??
         Object.freeze({
           spaceId,
-          parentId,
+          folderId,
           title: e.title.trim(),
           idempotencyKey: requestId(),
         }),
@@ -208,13 +208,13 @@ export function KnowledgeFileUpload({
       <KnowledgeLocationPicker
         operation="upload"
         spaces={spaces}
-        value={{ spaceId, parentId }}
+        value={{ spaceId, folderId }}
         disabled={busy}
         onValidityChange={setValidLocation}
         onPathChange={setLocationLabel}
         onChange={(location) => {
           setSpaceId(location.spaceId);
-          setParentId(location.parentId);
+          setFolderId(location.folderId);
         }}
       />
       <Upload.Dragger

@@ -31,6 +31,7 @@ import {
   OBJECT_STORAGE,
   type ObjectStorage,
 } from "../../storage/object-storage";
+import { KnowledgeFoldersService } from "./knowledge.folders.service";
 import { KnowledgeApplicationService } from "./knowledge.application.service";
 import { KnowledgeQueryService } from "./knowledge.query.service";
 import { KnowledgeImportService } from "./knowledge.import.service";
@@ -43,6 +44,7 @@ type KnowledgeRequest = Request & { user: any; requestId: string };
 @Controller("knowledge")
 export class KnowledgeController {
   constructor(
+    private readonly folders: KnowledgeFoldersService,
     private readonly files: KnowledgeFilesService,
     private readonly previews: KnowledgePreviewService,
     private readonly application: KnowledgeApplicationService,
@@ -51,6 +53,10 @@ export class KnowledgeController {
     private readonly exports: KnowledgeExportService,
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
+  @Get("spaces/:id/folders") foldersList(@Param("id",ParseUUIDPipe) id:string,@Query() input:Record<string,unknown>,@Req() req:KnowledgeRequest) { return this.folders.list(id,input,this.actor(req)); }
+  @Post("folders") createFolder(@Body() input:Record<string,unknown>,@Req() req:KnowledgeRequest) { return this.folders.create(input,this.actor(req)); }
+  @Patch("folders/:id") updateFolder(@Param("id",ParseUUIDPipe) id:string,@Body() input:Record<string,unknown>,@Req() req:KnowledgeRequest) { return this.folders.update(id,input,this.actor(req)); }
+  @Delete("folders/:id") deleteFolder(@Param("id",ParseUUIDPipe) id:string,@Body() input:Record<string,unknown>,@Req() req:KnowledgeRequest) { return this.folders.delete(id,input,this.actor(req)); }
   @Get("capabilities") capabilities(@Req() req: KnowledgeRequest) {
     return this.queries.capabilities(this.actor(req));
   }

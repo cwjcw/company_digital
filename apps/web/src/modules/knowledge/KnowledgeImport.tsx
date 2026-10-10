@@ -21,19 +21,19 @@ import { api } from "../../api";
 export function KnowledgeImport({
   spaces,
   spaceId,
-  parentId,
+  folderId,
   onClose,
   onCreated,
 }: {
   spaces: KnowledgeSpace[];
   spaceId: string;
-  parentId?: string;
+  folderId?: string;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
   const [preview, setPreview] = useState<KnowledgeImportPreview>(),
     [space, setSpace] = useState(spaceId),
-    [parent, setParent] = useState(parentId ?? ""),
+    [parent, setParent] = useState(folderId ?? ""),
     [title, setTitle] = useState(""),
     [validLocation, setValidLocation] = useState(false),
     [busy, setBusy] = useState(false),
@@ -70,7 +70,7 @@ export function KnowledgeImport({
           token: preview.token,
           title,
           spaceId: space,
-          parentId: parent || null,
+          folderId: parent || null,
           ...(restricted ? { restricted: true, entries } : {}),
         }),
       });
@@ -111,9 +111,9 @@ export function KnowledgeImport({
         >
           <Button loading={busy}>选择文档并预览</Button>
         </Upload>
-        <KnowledgeLocationPicker operation="import" spaces={spaces} value={{ spaceId: space, parentId: parent || undefined }} disabled={busy}
+        <KnowledgeLocationPicker operation="import" spaces={spaces} value={{ spaceId: space, folderId: parent || undefined }} disabled={busy}
           onValidityChange={setValidLocation} onChange={(location) => {
-            setSpace(location.spaceId); setParent(location.parentId ?? ""); setRestricted(false); setEntries([]);
+            setSpace(location.spaceId); setParent(location.folderId ?? ""); setRestricted(false); setEntries([]);
           }} />
         <Input
           aria-label="导入页面标题"

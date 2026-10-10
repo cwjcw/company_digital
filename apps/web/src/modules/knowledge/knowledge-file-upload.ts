@@ -1,5 +1,5 @@
 import { api, ApiError } from "../../api";
-export type KnowledgeFileUploadInput = { spaceId: string; parentId?: string; title: string; idempotencyKey: string };
+export type KnowledgeFileUploadInput = { spaceId: string; folderId?: string; title: string; idempotencyKey: string };
 /** XHR is limited to upload progress; auth refresh/error semantics still use the existing API. */
 export async function uploadKnowledgeFile(
   file: File,
@@ -13,7 +13,7 @@ export async function uploadKnowledgeFile(
     form.append("file", file);
     form.append("spaceId", input.spaceId);
     form.append("title", input.title);
-    if (input.parentId) form.append("parentId", input.parentId);
+    form.append("folderId", input.folderId ?? "");
     form.append("idempotencyKey", input.idempotencyKey);
     xhr.open("POST", "/api/v1/knowledge/pages/files");
     xhr.timeout = 600000;

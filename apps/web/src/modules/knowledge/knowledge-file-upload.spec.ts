@@ -45,7 +45,7 @@ describe("runtime authenticated file upload", () => {
     const progress = vi.fn();
     const promise = uploadKnowledgeFile(
       new File(["abc"], "制度.docx"),
-      { title: "中文标题", spaceId: "hr", parentId: "policy", idempotencyKey: "stable" },
+      { title: "中文标题", spaceId: "hr", folderId: "policy", idempotencyKey: "stable" },
       progress,
     );
     await vi.waitFor(() => expect(UploadTransport.instances).toHaveLength(1));
@@ -57,7 +57,7 @@ describe("runtime authenticated file upload", () => {
     );
     expect(x.headers.Authorization).toBe("Bearer fixture-runtime-token");
     expect(x.body?.get("title")).toBe("中文标题");
-    expect(x.body?.get("parentId")).toBe("policy");
+    expect(x.body?.get("folderId")).toBe("policy");
     expect(x.body?.get("idempotencyKey")).toBe("stable");
     expect((x.body?.get("file") as File).name).toBe("制度.docx");
     x.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 });

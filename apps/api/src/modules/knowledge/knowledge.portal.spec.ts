@@ -11,7 +11,7 @@ function fixture(targets = true) {
 describe("Knowledge employee portal query boundaries", () => {
   it("readers have no management capability even with readable fields", async () => {
     const { service, access, manager } = fixture();
-    expect(await service.capabilities(viewer)).toEqual(Object.fromEntries(["canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(k => [k, false])));
+    expect(await service.capabilities(viewer)).toEqual(Object.fromEntries(["canManageFolders", "canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(k => [k, false])));
     expect(access.clause).not.toHaveBeenCalled(); expect(manager.query).not.toHaveBeenCalled();
   });
   it("denies callers lacking module read", () => {

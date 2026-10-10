@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Empty, Spin, Tag, Tree } from "antd";
+import { Alert, Button, Empty, Spin, Tag, Tree, Typography } from "antd";
 import type { DataNode } from "antd/es/tree";
 import type { KnowledgePage, KnowledgeSpace, KnowledgePageResult } from "@kdos/contracts";
 import { api } from "../../api";
@@ -41,11 +41,15 @@ const appendTree = (
     : [...old.filter((n) => !String(n.key).startsWith("more:")), ...more];
 export function KnowledgePageTree({
   space,
+  legacyOnly = false,
+  folderId,
   working,
   refresh,
   onOpen,
 }: {
   space: KnowledgeSpace;
+  legacyOnly?: boolean;
+  folderId?: string;
   working: boolean;
   refresh: number;
   onOpen: (page: KnowledgePage) => void;
@@ -64,6 +68,7 @@ export function KnowledgePageTree({
         pageSize: "100",
         page: String(page),
       });
+      if (legacyOnly && !parentId) {p.set("legacyOnly","true");p.set("folderId",folderId??"");}
       if (parentId) p.set("parentId", parentId);
       const result = await api<PageResult>(
         `/knowledge/spaces/${space.id}/tree?${p}`,
@@ -96,7 +101,7 @@ export function KnowledgePageTree({
         });
       return rows;
     },
-    [space.id, working],
+    [space.id, working, legacyOnly, folderId],
   );
   useEffect(() => {
     const current = ++generation.current;
@@ -120,8 +125,8 @@ export function KnowledgePageTree({
     <Alert type="error" message={error} action={<Button onClick={() => setRetry((n) => n + 1)}>重试</Button>} />
   ) : busy ? (
     <Spin />
-  ) : !nodes.length ? <Empty description="暂无可见知识" /> : (
-    <Tree
+  ) : !nodes.length ? legacyOnly ? null : <Empty description="暂无可见知识" /> : (
+    <>{legacyOnly && <Typography.Text type="secondary">历史页面结构（保留原页面关系）</Typography.Text>}<Tree
       blockNode
       treeData={nodes}
       loadData={async (node) => {
@@ -134,6 +139,6 @@ export function KnowledgePageTree({
           if (current === generation.current) setError((e as Error).message);
         }
       }}
-    />
+    /></>
   );
 }

@@ -4,6 +4,9 @@
  */
 export const knowledgeUnpublishedChanges = `(
   published.id IS NULL
+  OR record.space_id IS DISTINCT FROM published.space_id
+  OR record.parent_id IS DISTINCT FROM published.parent_id
+  OR record.folder_id IS DISTINCT FROM published.folder_id
   OR record.title IS DISTINCT FROM published.title
   OR record.working_content IS DISTINCT FROM published.content
   OR record.description IS DISTINCT FROM published.description

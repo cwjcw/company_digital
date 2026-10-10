@@ -29,7 +29,8 @@ async function fixtures(
   const writes: { path: string; body: any }[] = [],
     drafts = new Map<string, any>(),
     published = new Map<string, any>(),
-    history = new Map<string, any[]>();
+    history = new Map<string, any[]>(),
+    folders = new Map<string, any>();
   let count = 0;
   const space = {
     id: "hr",
@@ -42,6 +43,7 @@ async function fixtures(
     accessLevel: user === admin ? "FULL_ACCESS" : "VIEWER",
     canCreate: user === admin,
     canManage: user === admin,
+    canCreateFolders: user === admin,canEditFolders:user===admin,
   };
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request(),
@@ -55,8 +57,14 @@ async function fixtures(
         user,
       };
     else if (path === "/auth/me") result = user;
-    else if (path === "/knowledge/capabilities") result = Object.fromEntries(["canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(key => [key, user === admin]));
+    else if (path === "/knowledge/capabilities") result = Object.fromEntries(["canManageFolders", "canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(key => [key, user === admin]));
     else if (path === "/knowledge/spaces") result = [space];
+    else if(path.endsWith("/folders") && req.method()==="GET") {
+      const selected=url.searchParams.get("selectedId"),parent=url.searchParams.get("parentFolderId"),search=url.searchParams.get("search");
+      const all=[...folders.values()].filter(f=>selected?f.id===selected:search?f.name.includes(search):f.parentFolderId===(parent??null));
+      const pn=Number(url.searchParams.get("page")??1),size=Number(url.searchParams.get("pageSize")??100);
+      result={rows:all.slice((pn-1)*size,pn*size).map(f=>({...f,hasChildren:[...folders.values()].some(c=>c.parentFolderId===f.id)})),total:all.length,page:pn,pageSize:size};
+    }
     else if (path.endsWith("/locations")) {
       const selectedId = url.searchParams.get("selectedId");
       const rows = [...drafts.values()].filter(p => selectedId ? p.id === selectedId : p.parentId === (url.searchParams.get("parentId") ?? null));
@@ -67,12 +75,19 @@ async function fixtures(
     else if (["POST", "PATCH", "DELETE"].includes(req.method())) {
       const body = path.endsWith("/files") ? null : req.postDataJSON();
       writes.push({ path, body });
-      if (path === "/knowledge/pages") {
+      if(path==="/knowledge/folders") {
+        const id=`folder${folders.size+1}`,parent=folders.get(body.parentFolderId);
+        folders.set(id,{...body,id,parentFolderId:body.parentFolderId??null,version:1,canEdit:user===admin,canDelete:user===admin,breadcrumb:[...(parent?.breadcrumb??[{id:"hr",title:"人力资源",kind:"space"}]),{id,title:body.name,kind:"folder"}]});
+        result={id,version:1};
+      } else if(path.startsWith("/knowledge/folders/")) {
+        const id=path.split("/")[3],f=folders.get(id);
+        if(req.method()==="DELETE")folders.delete(id);else Object.assign(f,body,{version:f.version+1});result={id,version:f.version};
+      } else if (path === "/knowledge/pages") {
         const id = `page${++count}`;
         drafts.set(id, {
           id,
           spaceId: "hr",
-          parentId: body.parentId ?? null,
+          parentId: body.parentId ?? null,folderId:body.folderId??null,
           title: "未命名页面",
           slug: id,
           status: "DRAFT",
@@ -83,7 +98,7 @@ async function fixtures(
           content: { type: "doc", content: [{ type: "paragraph" }] },
           canEdit: true,
           canManage: true,
-          breadcrumb: [{ id: "hr", title: "人力资源" }],
+          breadcrumb: [...(folders.get(body.folderId)?.breadcrumb??[{ id: "hr", title: "人力资源",kind:"space" }])],
         });
         result = { id, version: 1 };
       } else {
@@ -114,8 +129,8 @@ async function fixtures(
           draft.publishedVersion = (draft.publishedVersion ?? 0) + 1;
           draft.publishedVersionId = `${id}-v${draft.publishedVersion}`;
           draft.breadcrumb = [
-            { id: "hr", title: "人力资源" },
-            { id, title: draft.title },
+            ...(folders.get(draft.folderId)?.breadcrumb??[{ id: "hr", title: "人力资源",kind:"space" }]),
+            { id, title: draft.title,kind:"page" },
           ];
           published.set(id, structuredClone(draft));
           history.set(id, [...(history.get(id) ?? []), structuredClone(draft)]);
@@ -134,7 +149,7 @@ async function fixtures(
           url.searchParams.get("mode") === "working" ? drafts : published,
         parent = url.searchParams.get("parentId");
       const allRows = [...list.values()]
-        .filter((p) => p.parentId === (parent ?? null))
+        .filter((p) => p.parentId === (parent ?? null) && (!url.searchParams.has("folderId") || (p.folderId??null)===(url.searchParams.get("folderId")||null)) && (url.searchParams.get("legacyOnly")!=="true" || [...list.values()].some(c=>c.parentId===p.id)))
         .map((p) => ({
           ...p,
           hasChildren: [...list.values()].some((c) => c.parentId === p.id),
@@ -185,7 +200,7 @@ async function fixtures(
   await page.getByLabel("密码").fill("browser-fixture");
   await page.locator('button[type="submit"]').click();
   await expect(page.locator(".portal-module-grid")).toBeVisible();
-  return { writes, drafts, published, history };
+  return { writes, drafts, published, history,folders };
 }
 test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 immutable history", async ({
   page,
@@ -249,7 +264,7 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
     ),
   ).toBe(false);
 });
-test("real TipTap table/callout/code and child page creation", async ({
+test("real TipTap table/callout/code and folder knowledge creation", async ({
   page,
 }) => {
   const s = await fixtures(page);
@@ -267,10 +282,10 @@ test("real TipTap table/callout/code and child page creation", async ({
   expect(JSON.stringify(s.drafts.get("page1").content)).toContain("table");
   await page.getByRole("button", { name: /^发\s*布$/ }).click();
   await page.getByRole("button", { name: "页面更多操作" }).click();
-  await page.getByText("新建子页面", { exact: true }).click();
+  await page.getByText("在此文件夹新建知识", { exact: true }).click();
   await page.getByRole("button", { name: "创建并编写" }).click();
   await expect(page).toHaveURL(/page2\?edit=1/);
-  expect(s.drafts.get("page2").parentId).toBe("page1");
+  expect(s.drafts.get("page2").parentId).toBe(null);expect(s.drafts.get("page2").folderId).toBe(null);
 });
 test("ordinary employee has Space tree without editor and creation controls", async ({
   page,
@@ -353,6 +368,7 @@ test("employee portal, published search, stable reading, 105-row lazy directory 
     id:`p${index}`, spaceId:"hr", parentId:null, title:`正式制度${index}`, contentMode:"RICH_TEXT", status:"PUBLISHED", publishedAt:`2026-10-${String(index%9+1).padStart(2,"0")}T01:00:00+08:00`,
     content:{type:"doc",content:[{type:"paragraph",content:[{type:"text",text:"正式已发布正文"}]}]},spaceName:"人力资源",breadcrumb:[{id:"hr",title:"人力资源"},{id:`p${index}`,title:`正式制度${index}`}],description:"已发布摘要"
   });
+  for(let i=1;i<=105;i++)state.folders.set(`f${i}`,{id:`f${i}`,spaceId:"hr",parentFolderId:null,name:`目录${i}`,breadcrumb:[{id:"hr",title:"人力资源",kind:"space"},{id:`f${i}`,title:`目录${i}`,kind:"folder"}],version:1});
   state.drafts.set("p1",{...state.published.get("p1"),title:"未发布秘密标题"});
   const reads:string[]=[];page.on("request",r=>{if(r.url().includes("/knowledge/"))reads.push(r.url());});
   await page.getByRole("button",{name:"进入知识库"}).click();
@@ -366,9 +382,9 @@ test("employee portal, published search, stable reading, 105-row lazy directory 
   await expect(page.getByRole("heading",{name:"搜索结果",exact:true})).toBeVisible();
   await expect(page.getByText("未发布秘密标题",{exact:true})).toHaveCount(0);
   await page.goto("/knowledge/spaces/hr");
-  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"正式制度100",exact:true})).toBeVisible();
-  await page.locator(".knowledge-directory").getByRole("button",{name:"加载更多",exact:true}).click();
-  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"正式制度105",exact:true})).toBeVisible();
+  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"目录100",exact:true})).toBeVisible();
+  await page.locator(".knowledge-directory").getByTitle("2",{exact:true}).click();
+  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"目录105",exact:true})).toBeVisible();
   await page.goto("/knowledge/pages/p1");await expect(page.getByRole("heading",{name:"正式制度1",exact:true})).toBeVisible();
   await expect(page.getByText("正式已发布正文",{exact:true})).toBeVisible();
   for(const name of ["编辑","发布","页面更多操作","新建知识"])await expect(page.getByRole("button",{name,exact:true})).toHaveCount(0);
@@ -433,3 +449,37 @@ for (const width of [1920, 1440, 1280, 768, 390, 320]) {
     expect(await page.evaluate(() => getComputedStyle(document.body).minWidth)).toBe("1180px");
   });
 }
+
+
+test("independent three-level folders, empty target selection and inline folder creation",async({page})=>{
+  const state=await fixtures(page);await page.goto("/knowledge/manage");
+  let folderNumber=0;
+  for(const name of ["公司制度","人事制度","员工考勤"]){folderNumber++;
+    await page.getByRole("button",{name:"新建文件夹",exact:true}).click();
+    await page.getByRole("textbox",{name:"文件夹名称",exact:true}).fill(name);
+    await page.getByRole("button",{name:"创建文件夹",exact:true}).click();
+    await expect(page).toHaveURL(new RegExp(`folderId=folder${folderNumber}`));
+  }
+  expect(state.drafts.size).toBe(0);
+  await page.getByRole("button",{name:"新建知识",exact:true}).hover();
+  await page.getByText("在线编写",{exact:true}).click();
+  await expect(page.getByLabel("保存位置",{exact:true})).toHaveText("保存位置：人力资源 > 公司制度 > 人事制度 > 员工考勤");
+  await page.getByRole("button",{name:"更改位置",exact:true}).click();
+  await page.getByRole("dialog").getByRole("button",{name:"空间根目录",exact:true}).click();
+  await page.getByRole("button",{name:"更改位置",exact:true}).click();
+  const tree=page.getByRole("dialog").locator('.knowledge-location-picker');
+  await tree.locator('.ant-tree-switcher').first().click();
+  await expect(tree.getByRole("button",{name:"人事制度",exact:true})).toBeVisible();
+  await tree.getByRole('button',{name:'人事制度',exact:true}).locator("xpath=ancestor::*[contains(@class,'ant-tree-treenode')][1]").locator('.ant-tree-switcher').first().click();
+  await tree.getByRole("button",{name:"员工考勤",exact:true}).click();
+  await page.getByRole("button",{name:"更改位置",exact:true}).click();
+  await page.getByRole("button",{name:"在所选位置新建文件夹",exact:true}).click();
+  await page.getByRole("textbox",{name:"文件夹名称",exact:true}).fill("空文件夹");
+  await page.getByRole("button",{name:"创建文件夹",exact:true}).click();
+  await expect(page.getByLabel("保存位置",{exact:true})).toContainText("员工考勤 > 空文件夹");
+  await page.getByRole("button",{name:"创建并编写",exact:true}).click();
+  await expect(page).toHaveURL(/page1\?edit=1/);
+  expect(state.drafts.get("page1").folderId).toBe("folder4");
+  expect(state.drafts.get("page1").parentId).toBeNull();
+  await expect(page.getByLabel("页面路径")).toHaveText("人力资源 > 公司制度 > 人事制度 > 员工考勤 > 空文件夹");
+});

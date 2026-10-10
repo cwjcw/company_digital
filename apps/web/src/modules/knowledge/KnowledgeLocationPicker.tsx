@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Select, Space } from "antd";
-import type { KnowledgeLocationResult, KnowledgeSpace } from "@kdos/contracts";
+import type { KnowledgeFolderResult, KnowledgeSpace } from "@kdos/contracts";
 import { api } from "../../api";
-import { KnowledgePageSelect } from "./KnowledgePageSelect";
-import { knowledgeLocationUrl } from "./knowledge-ui";
+import { KnowledgeFolderSelect, KnowledgeFolderCreate } from "./KnowledgeFolderTree";
+import { knowledgeFoldersUrl } from "./knowledge-ui";
 import { KnowledgeSpaceIcon } from "./KnowledgeSpaceIcon";
-export type KnowledgeLocationValue = { spaceId: string; parentId?: string };
+export type KnowledgeLocationValue = { spaceId: string; folderId?: string };
 export function KnowledgeLocationPicker({
   spaces,
   value,
@@ -17,7 +17,7 @@ export function KnowledgeLocationPicker({
   operation = "create",
   onPathChange,
 }: {
-  operation?: "upload" | "create" | "import" | "move";
+  operation?: "upload" | "create" | "import" | "move" | "moveFolder";
   onPathChange?: (path: string) => void;
   spaces: KnowledgeSpace[];
   value: KnowledgeLocationValue;
@@ -27,37 +27,39 @@ export function KnowledgeLocationPicker({
   onValidityChange?: (valid: boolean) => void;
 }) {
   const explanation = {
-    upload: "文件将保存到所选空间或父页面下面。",
+    upload: "文件将保存到所选空间或文件夹内。",
     create: "新页面将创建在所选位置。",
     import: "转换后的在线文章将创建在所选位置。",
-    move: "当前页面及其子页面将移动到所选位置。",
+    move: "当前知识及历史子页面将移动到所选文件夹；已发布内容需发布后更新阅读位置。",
+    moveFolder: "当前文件夹及其子目录将移动到所选位置。",
   }[operation];
-  const [changing, setChanging] = useState(false);
+  const [changing, setChanging] = useState(false), [newFolder, setNewFolder] = useState(false);
   const space = spaces.find((item) => item.id === value.spaceId);
   const selected = useQuery({
     queryKey: [
       "knowledge",
       "selected-location",
       value.spaceId,
-      value.parentId,
+      value.folderId,
       excludeId,
     ],
     queryFn: () =>
-      api<KnowledgeLocationResult>(
-        knowledgeLocationUrl(value.spaceId, {
-          selectedId: value.parentId,
+      api<KnowledgeFolderResult>(
+        knowledgeFoldersUrl(value.spaceId, {
+          selectable: String(operation !== "moveFolder"),
+          selectedId: value.folderId,
           excludeId,
         }),
       ),
-    enabled: Boolean(value.parentId),
+    enabled: Boolean(value.folderId),
     retry: false,
   });
-  const target = selected.data?.rows.find((item) => item.id === value.parentId);
-  const valid = Boolean(space?.canCreate && (!value.parentId || target));
+  const target = selected.data?.rows.find((item) => item.id === value.folderId);
+  const valid = Boolean((operation === "moveFolder" ? space?.canEditFolders : space?.canCreate) && (!value.folderId || target));
   useEffect(() => {
     onValidityChange?.(valid);
   }, [valid, onValidityChange]);
-  const path = value.parentId
+  const path = value.folderId
     ? (target?.breadcrumb?.map((item) => item.title).join(" > ") ??
       `${space?.name ?? ""} > ${selected.isFetching ? "正在加载位置…" : "当前位置不可创建知识"}`)
     : `${space?.name ?? ""} > 空间根目录`;
@@ -78,11 +80,12 @@ export function KnowledgeLocationPicker({
       </Space>
       <p className="knowledge-location-help">
         {explanation}
-        父页面就是当前知识存放的上一级目录。不选择父页面，则保存到空间根目录。位置继承规则和已有页面权限限制继续生效。
+        不选择文件夹，则保存到空间根目录。文件夹继承知识空间权限；已有知识的权限限制继续生效。
       </p>
       {selected.error && (
         <Alert type="error" message={(selected.error as Error).message} />
       )}
+      {newFolder && <KnowledgeFolderCreate spaceId={value.spaceId} parentFolderId={value.folderId} onClose={() => setNewFolder(false)} onCreated={(folderId) => { onChange({spaceId:value.spaceId,folderId}); setNewFolder(false); setChanging(false); }} />}
       {changing && (
         <Space direction="vertical" style={{ width: "100%" }}>
           <Select
@@ -91,7 +94,7 @@ export function KnowledgeLocationPicker({
             style={{ width: "100%" }}
             disabled={disabled}
             options={spaces
-              .filter((item) => item.canCreate)
+              .filter((item) => operation === "moveFolder" ? item.canEditFolders : item.canCreate)
               .map((item) => ({
                 value: item.id,
                 label: (
@@ -104,7 +107,7 @@ export function KnowledgeLocationPicker({
             onChange={(spaceId) => onChange({ spaceId })}
           />
           <Button
-            disabled={disabled || !space?.canCreate}
+            disabled={disabled || !(operation === "moveFolder" ? space?.canEditFolders : space?.canCreate)}
             onClick={() => {
               onChange({ spaceId: value.spaceId });
               setChanging(false);
@@ -112,13 +115,15 @@ export function KnowledgeLocationPicker({
           >
             空间根目录
           </Button>
+          {space?.canCreateFolders && <Button disabled={disabled} onClick={() => setNewFolder(true)}>在所选位置新建文件夹</Button>}
           {!disabled && (
-            <KnowledgePageSelect
+            <KnowledgeFolderSelect
               key={value.spaceId}
               spaceId={value.spaceId}
               excludeId={excludeId}
-              onChange={(parentId) => {
-                onChange({ spaceId: value.spaceId, parentId });
+              selectable={operation !== "moveFolder"}
+              onSelect={(folderId) => {
+                onChange({ spaceId: value.spaceId, folderId });
                 setChanging(false);
               }}
             />

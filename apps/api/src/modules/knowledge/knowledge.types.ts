@@ -26,6 +26,7 @@ export const pageColumns = {
   version: "version",
   spaceId: "space_id",
   parentId: "parent_id",
+  folderId: "folder_id",
   title: "title",
   slug: "slug",
   status: "status",
@@ -53,6 +54,9 @@ export function knowledgeExpressions(
     ...Object.fromEntries(
       Object.entries(pageColumns).map(([key, col]) => [key, `record.${col}`]),
     ),
+    spaceId: mode === "published" ? "published.space_id" : "record.space_id",
+    parentId: mode === "published" ? "published.parent_id" : "record.parent_id",
+    folderId: mode === "published" ? "published.folder_id" : "record.folder_id",
     contentMode: mode !== "published" ? "record.content_mode" : "published.content_mode",
     description: mode !== "published" ? "record.description" : "published.description",
     title: mode !== "published" ? "record.title" : "published.title",

@@ -71,6 +71,8 @@ import {
   copyKnowledgeLink,
 } from "./knowledge-ui";
 import type { KnowledgeDraftSession } from "./knowledge-autosave";
+import { KnowledgeFolderContents } from "./KnowledgeFolders";
+import { KnowledgeFolderCreate, KnowledgeFolderTree } from "./KnowledgeFolderTree";
 import { KnowledgePageTree } from "./KnowledgePageTree";
 import "./knowledge.css";
 type PageResult = {
@@ -116,6 +118,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
     [moving, setMoving] = useState(false),
     [destination, setDestination] = useState<string>(),
     [parent, setParent] = useState<string>(),
+    [newFolder, setNewFolder] = useState(false),
     [sort, setSort] = useState("0"),
     [busy, setBusy] = useState(false),
     [search, setSearch] = useState(""),
@@ -157,8 +160,10 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
   useEffect(() => setPublishError(""), [id, mode, versionId]);
   useEffect(() => {
     if (page.data?.spaceId) setSpaceId(page.data.spaceId);
+    else if (params.get("spaceId") && spaces.data?.some(s=>s.id===params.get("spaceId"))) setSpaceId(params.get("spaceId")!);
     else if (!spaceId && spaces.data?.length) setSpaceId(spaces.data[0]!.id);
-  }, [page.data?.spaceId, spaces.data, spaceId]);
+  }, [page.data?.spaceId, spaces.data, spaceId, params]);
+  const currentFolderId = params.get("folderId") ?? (id ? page.data?.folderId ?? undefined : undefined);
   const selected = spaces.data?.find((s) => s.id === spaceId),
     row = page.data;
   const versions = useQuery({
@@ -248,8 +253,8 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
     },
     [navigate, safely],
   );
-  const beginCreate = (parentId?: string) => {
-    if (selected) setCreating({ spaceId: selected.id, parentId });
+  const beginCreate = () => {
+    if (selected) setCreating({ spaceId: selected.id, folderId: currentFolderId });
   };
   const create = async () => {
     if (!creating || !validCreation || busy) return;
@@ -260,7 +265,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         method: "POST",
         body: JSON.stringify({
           spaceId: creating.spaceId,
-          parentId: creating.parentId ?? null,
+          folderId: creating.folderId ?? null,
         }),
       });
       setCreating(undefined);
@@ -306,7 +311,8 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         method: "POST",
         body: JSON.stringify({
           spaceId: destination,
-          parentId: parent ?? null,
+          folderId: parent ?? null,
+          parentId: null,
           sortOrder: Number(sort),
           expectedVersion: row.version,
         }),
@@ -333,8 +339,8 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
           ? [
               {
                 key: "child",
-                label: "新建子页面",
-                onClick: () => void safely(() => beginCreate(row.id)),
+                label: "在此文件夹新建知识",
+                onClick: () => void safely(() => beginCreate()),
               },
             ]
           : []),
@@ -343,10 +349,10 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
           ? [
               {
                 key: "move",
-                label: "移动 / 调整顺序",
+                label: "移动到",
                 onClick: () => {
                   setDestination(row.spaceId);
-                  setParent(row.parentId ?? undefined);
+                  setParent(row.folderId ?? undefined);
                   setSort(String(row.sortOrder));
                   setMoving(true);
                 },
@@ -524,13 +530,13 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
               items={row.breadcrumb?.map((b, i) => ({
                 title:
                   i === 0 ? (
-                    <span>{b.title}</span>
+                    <Button type="link" onClick={() => navigate(`/knowledge/manage?spaceId=${row.spaceId}`)}>{b.title}</Button>
                   ) : (
                     <Button
                       type="link"
                       onClick={() =>
                         navigate(
-                          `/knowledge/manage/pages/${b.id}${mode === "working" ? "?mode=working" : ""}`,
+                          b.kind === "folder" ? `/knowledge/manage?spaceId=${row.spaceId}&folderId=${b.id}` : `/knowledge/manage/pages/${b.id}${mode === "working" ? "?mode=working" : ""}`,
                         )
                       }
                     >
@@ -624,7 +630,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         </article>
       </KnowledgeFileContext.Provider>
     );
-  else body = <Empty description="选择左侧页面阅读，或新建页面开始编写" />;
+  else body = selected ? <KnowledgeFolderContents key={`${selected.id}:${currentFolderId??"root"}`} space={selected} folderId={currentFolderId} working={showWorking} manage onFolder={(folderId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?${new URLSearchParams({spaceId:selected.id,...(folderId?{folderId}:{})})}`);})} onPage={open}/> : <Empty description="选择知识空间开始浏览" />;
   return (
     <div className="knowledge-wiki">
       <aside className="knowledge-sidebar">
@@ -646,7 +652,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
             void safely(() => {
               setSpaceId(id);
               setSearch("");
-              navigate("/knowledge/manage");
+              navigate(`/knowledge/manage?spaceId=${id}`);
             })
           }
         />
@@ -654,6 +660,8 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
           <Alert type="error" message={(spaces.error as Error).message} />
         )}
         <Space wrap style={{ margin: "16px 0" }}>
+        {selected?.canCreateFolders && <Button onClick={() => void safely(() => setNewFolder(true))}>新建文件夹</Button>}
+
           {selected?.canCreate &&
             capabilities.canCreatePages && hasResourcePermission("knowledge-pages", "create") && (
               <Dropdown
@@ -707,9 +715,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
                   onClick: ({ key }) => {
                     if (key === "rich")
                       void safely(() =>
-                        beginCreate(
-                          row?.spaceId === selected.id ? row.id : undefined,
-                        ),
+                        beginCreate(),
                       );
                     else if (key === "file")
                       void safely(() => setFileUploading(true));
@@ -726,6 +732,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
                 </Button>
               </Dropdown>
             )}
+          {selected?.canCreate && capabilities.canCreatePages && hasFieldPermission("knowledge-pages","attachmentIds","update") && <Button onClick={() => void safely(() => setFileUploading(true))}>上传文件</Button>}
         </Space>
         {selected &&
           ["EDITOR", "FULL_ACCESS"].includes(selected.accessLevel ?? "") &&
@@ -741,9 +748,12 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
               style={{ width: "100%", marginBottom: 12 }}
             />
           )}
+        {selected && <><Button onClick={() => void safely(() => {setSearch("");navigate(`/knowledge/manage?spaceId=${selected.id}`);})}>空间根目录</Button><KnowledgeFolderTree key={selected.id} spaceId={selected.id} refresh={refresh} onSelect={(folderId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?spaceId=${selected.id}&folderId=${folderId}`);})}/></>}
         {selected && (
           <KnowledgePageTree
             space={selected}
+            legacyOnly
+            folderId={currentFolderId}
             working={showWorking}
             refresh={refresh}
             onOpen={open}
@@ -804,6 +814,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         )}
         {body}
       </main>
+      {newFolder && selected && <KnowledgeFolderCreate spaceId={selected.id} parentFolderId={currentFolderId} onClose={() => setNewFolder(false)} onCreated={(folderId) => {setNewFolder(false);invalidate();navigate(`/knowledge/manage?spaceId=${selected.id}&folderId=${folderId}`);}}/>}
       <Modal
         open={Boolean(creating)}
         title="在线编写"
@@ -827,7 +838,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         <KnowledgeFileUpload
           spaces={spaces.data ?? []}
           spaceId={selected.id}
-          parentId={row?.spaceId === selected.id ? row.id : undefined}
+          folderId={currentFolderId}
           onClose={() => setFileUploading(false)}
           onCreated={(pages) => {
             setFileUploading(false);
@@ -871,7 +882,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         <KnowledgeImport
           spaces={spaces.data ?? []}
           spaceId={selected.id}
-          parentId={row?.spaceId === selected.id ? row.id : undefined}
+          folderId={currentFolderId}
           onClose={() => setImporting(false)}
           onCreated={(id) => {
             setImporting(false);
@@ -896,7 +907,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
       )}
       <Modal
         open={moving}
-        title="移动页面及子树 / 调整顺序"
+        title="移动知识 / 调整顺序"
         okButtonProps={{ disabled: !validMove }}
         onCancel={() => setMoving(false)}
         onOk={() => void move()}
@@ -907,13 +918,12 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
             <KnowledgeLocationPicker
               operation="move"
               spaces={spaces.data ?? []}
-              value={{ spaceId: destination, parentId: parent }}
+              value={{ spaceId: destination, folderId: parent }}
               disabled={busy}
-              excludeId={row?.id}
               onValidityChange={setValidMove}
               onChange={(target) => {
                 setDestination(target.spaceId);
-                setParent(target.parentId);
+                setParent(target.folderId);
               }}
             />
           )}

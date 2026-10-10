@@ -39,12 +39,17 @@ export type KnowledgeSpace = {
   accessLevel?: KnowledgeAccessLevel;
   canManage?: boolean;
   canCreate?: boolean;
+  canCreateFolders?: boolean;
+  canEditFolders?: boolean;
 };
-export type KnowledgeBreadcrumb = { id: string; title: string };
+export type KnowledgeBreadcrumb = { id: string; title: string; kind?: "space" | "folder" | "page" };
+export type KnowledgeFolder = { id: string; spaceId: string; parentFolderId: string | null; name: string; sortOrder: number; status: "ACTIVE" | "ARCHIVED"; version: number; breadcrumb: KnowledgeBreadcrumb[]; hasChildren: boolean; canEdit?: boolean; canDelete?: boolean };
+export type KnowledgeFolderResult = { rows: KnowledgeFolder[]; total: number; page: number; pageSize: number };
 export type KnowledgePage = {
   id: string;
   spaceId: string;
   parentId: string | null;
+  folderId?: string | null;
   title: string;
   slug: string;
   status: KnowledgeStatus;
@@ -82,6 +87,7 @@ export type KnowledgePage = {
 export type KnowledgePageInput = {
   spaceId: string;
   parentId?: string | null;
+  folderId?: string | null;
   title?: string;
   contentMode?: KnowledgeContentMode;
   description?: string;
@@ -126,6 +132,7 @@ export type KnowledgeVersionCommand = { expectedVersion: number };
 /** Derived navigation only; each API command independently authorizes its target. */
 export type KnowledgeCapabilities = {
   canManage: boolean;
+  canManageFolders?: boolean;
   canCreatePages: boolean;
   canEditPages: boolean;
   canManagePages: boolean;

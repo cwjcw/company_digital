@@ -9,6 +9,7 @@ import { KnowledgeQueryService } from "./knowledge.query.service";
 import { KnowledgeFilterSourceProvider } from "./knowledge.filter-sources";
 import { KnowledgeImportService } from "./knowledge.import.service";
 import { KnowledgeExportService } from "./knowledge.export.service";
+import { KnowledgeFoldersService } from "./knowledge.folders.service";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeFilesService } from "./knowledge.files.service";
 import { KnowledgePreviewJobs, KnowledgePreviewService } from "./knowledge.preview.service";
@@ -22,6 +23,7 @@ import { KnowledgePreviewJobs, KnowledgePreviewService } from "./knowledge.previ
     KnowledgePreviewJobs,
     KnowledgePreviewService,
     KnowledgeApplicationService,
+    KnowledgeFoldersService,
     KnowledgeQueryService,
     KnowledgeFilterSourceProvider,
     KnowledgeImportService,

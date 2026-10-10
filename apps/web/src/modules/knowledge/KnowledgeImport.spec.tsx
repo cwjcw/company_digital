@@ -23,7 +23,7 @@ it("imports DOCX through the existing preview/commit flow at the selected root w
   await waitFor(() => expect(screen.getByText("DOCX正文")).toBeVisible());
   fireEvent.click(screen.getByRole("button", { name: "导入为草稿" }));
   await waitFor(() => expect(created).toHaveBeenCalledWith("imported"));
-  expect(api).toHaveBeenLastCalledWith("/knowledge/imports/commit", expect.objectContaining({ body: JSON.stringify({ token: "fixture-import-preview", title: "导入制度", spaceId: "hr", parentId: null }) }));
+  expect(api).toHaveBeenLastCalledWith("/knowledge/imports/commit", expect.objectContaining({ body: JSON.stringify({ token: "fixture-import-preview", title: "导入制度", spaceId: "hr", folderId: null }) }));
 });
 
 it("preserves nested DOCX image positions as explicit safe placeholders without image fetches", async () => {

@@ -29,6 +29,7 @@ import {
   knowledgeTags,
   knowledgeText,
 } from "./knowledge.content";
+import { validateKnowledgeFolder, knowledgeFolderBreadcrumb, folderBreadcrumbSql } from "./knowledge.folder";
 import { knowledgeFile } from "./knowledge.file";
 import {
   publishedJoin,
@@ -263,10 +264,10 @@ export class KnowledgeApplicationService {
     assertKnowledgeFields(actor, "knowledge-pages", [
       "spaceId",
       ...Object.keys(input).filter(
-        (k) => pageFields.includes(k) || k === "parentId",
+        (k) => pageFields.includes(k) || ["parentId", "folderId"].includes(k),
       ),
     ]);
-    this.keys(input, ["spaceId", "parentId", "contentMode", ...pageFields]);
+    this.keys(input, ["spaceId", "parentId", "folderId", "contentMode", ...pageFields]);
     if (input.contentMode && !["RICH_TEXT", "FILE"].includes(input.contentMode)) throw new BadRequestException("内容模式无效");
     const space = await this.lockSpace(
       m,
@@ -283,6 +284,7 @@ export class KnowledgeApplicationService {
       if (parent.space_id !== space.id)
         throw new BadRequestException("父页面必须属于同一空间");
     }
+    const folderId = await validateKnowledgeFolder(m,actor,space.id,input.folderId);
     const id = uuidv7(),
       title = knowledgeText(input.title ?? "未命名页面", "标题", 300, true),
       canonical = canonicalKnowledgeContent(
@@ -291,7 +293,7 @@ export class KnowledgeApplicationService {
     if (canonical.imageIds.length)
       throw new BadRequestException("新页面图片须先上传到该页面");
     await m.query(
-      `INSERT INTO knowledge_pages(id,tenant_id,space_id,parent_id,title,slug,sort_order,working_content,working_content_text,working_content_hash,created_by,updated_by,content_mode,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::uuid,$11::text,$12,$13)`,
+      `INSERT INTO knowledge_pages(id,tenant_id,space_id,parent_id,title,slug,sort_order,working_content,working_content_text,working_content_hash,created_by,updated_by,content_mode,description,folder_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::uuid,$11::text,$12,$13,$14)`,
       [
         id,
         actor.tenantId,
@@ -306,6 +308,7 @@ export class KnowledgeApplicationService {
         actor.userId,
         input.contentMode ?? "RICH_TEXT",
         knowledgeText(input.description, "说明", 4000),
+        folderId,
       ],
     );
     await this.tags(m, id, knowledgeTags(input.tags ?? []), actor);
@@ -313,6 +316,7 @@ export class KnowledgeApplicationService {
     await this.audit(m, actor, "knowledge-pages", id, "page.created", {
       spaceId: space.id,
       parentId,
+      folderId,
       title,
       contentHash: canonical.contentHash,
     });
@@ -381,6 +385,15 @@ export class KnowledgeApplicationService {
     return this.command(actor, async (m) => {
       const row = await this.lockPage(m, id, actor, "update", 2);
       this.version(row.version, input.expectedVersion);
+      if(row.parent_id) {
+        const [cycle]=await m.query(`WITH RECURSIVE parents AS (
+          SELECT $2::uuid id UNION SELECT snap.parent_id FROM parents ancestor
+          JOIN knowledge_pages p ON p.tenant_id=$1 AND p.id=ancestor.id
+          JOIN knowledge_page_versions snap ON snap.tenant_id=p.tenant_id AND snap.id=p.published_version_id
+          WHERE snap.parent_id IS NOT NULL)
+          SELECT 1 FROM parents WHERE id=$3::uuid`,[actor.tenantId,row.parent_id,id]);
+        if(cycle)throw new BadRequestException("发布后的历史页面目录会形成循环，请先发布上级页面的位置变更");
+      }
       const canonical = canonicalKnowledgeContent(row.working_content);
       const primary = await m.query("SELECT asset.sha256 FROM knowledge_page_files link JOIN knowledge_file_assets asset ON asset.tenant_id=link.tenant_id AND asset.id=link.file_id WHERE link.tenant_id=$1 AND link.page_id=$2 AND link.role='PRIMARY'", [actor.tenantId,id]);
       if (row.content_mode === "FILE" && primary.length !== 1) throw new BadRequestException("文件页面必须上传主文件后再发布");
@@ -398,9 +411,11 @@ export class KnowledgeApplicationService {
         [actor.tenantId, row.space_id],
       );
       const breadcrumb = [
-        { id: space.id, title: space.name },
+        { id: space.id, title: space.name, kind: "space" },
+        ...await knowledgeFolderBreadcrumb(m,actor,row.space_id,row.folder_id),
         ...ancestry.map((p: KnowledgeRow) => ({
           id: p.id,
+          kind: "page",
           title: p.id === id ? row.title : p.published_title,
         })),
       ];
@@ -442,7 +457,7 @@ export class KnowledgeApplicationService {
         ...breadcrumb.map((b) => b.title),
       ].join("\n");
       await m.query(
-        `INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by,created_by,updated_by,content_mode,description) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13::uuid,$13::uuid,$13::text,$14,$15)`,
+        `INSERT INTO knowledge_page_versions(id,tenant_id,page_id,version_no,title,content,content_text,content_hash,tags,breadcrumb,access_snapshot,search_text,published_by,created_by,updated_by,content_mode,description,space_id,parent_id,folder_id) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13::uuid,$13::uuid,$13::text,$14,$15,$16,$17,$18)`,
         [
           versionId,
           actor.tenantId,
@@ -459,6 +474,7 @@ export class KnowledgeApplicationService {
           actor.userId,
           row.content_mode,
           row.description,
+          row.space_id, row.parent_id, row.folder_id,
         ],
       );
       await m.query(
@@ -484,7 +500,7 @@ export class KnowledgeApplicationService {
     });
   }
   move(id: string, input: Record<string, unknown>, actor: KnowledgeActor) {
-    this.keys(input, ["parentId", "spaceId", "sortOrder", "expectedVersion"]);
+    this.keys(input, ["parentId", "folderId", "spaceId", "sortOrder", "expectedVersion"]);
     assertKnowledgeFields(actor, "knowledge-pages", [
       "parentId",
       "spaceId",
@@ -505,6 +521,7 @@ export class KnowledgeApplicationService {
       const destination = await this.lockSpace(m, spaceId, actor, "read", 2);
       if (destination.status !== "ACTIVE")
         throw new BadRequestException("目标空间已归档");
+      const folderId = await validateKnowledgeFolder(m,actor,spaceId,input.folderId);
       if (parentId) {
         const parent = await this.lockPage(m, parentId, actor, "create", 2);
         if (parent.space_id !== spaceId)
@@ -557,10 +574,10 @@ export class KnowledgeApplicationService {
           actor.userId,
         ],
       );
-      if (spaceId !== row.space_id)
+      if ("folderId" in input || spaceId !== row.space_id)
         await m.query(
-          `UPDATE knowledge_pages SET space_id=$3,version=version+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
-          [actor.tenantId, ids, spaceId, actor.userId],
+          `UPDATE knowledge_pages SET space_id=$3,folder_id=$5::uuid,version=version+1,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
+          [actor.tenantId, ids, spaceId, actor.userId, folderId],
         );
       await this.lockPage(m, id, actor, "update", 2);
       // Enforce destination platform scopes for the whole moved subtree, not just the root.
@@ -589,11 +606,12 @@ export class KnowledgeApplicationService {
         fromSpaceId: row.space_id,
         toSpaceId: spaceId,
         parentId,
+        folderId,
         affectedCount: ids.length,
       });
       return {
         id,
-        version: row.version + 1 + (spaceId !== row.space_id ? 1 : 0),
+        version: row.version + 1 + ("folderId" in input || spaceId !== row.space_id ? 1 : 0),
       };
     });
   }
@@ -700,6 +718,10 @@ export class KnowledgeApplicationService {
         ).length !== ids.length
       )
         throw new BadRequestException("只能永久删除整个已授权的回收站子树");
+      const [publishedChild]=await m.query(`SELECT 1 FROM knowledge_pages child
+        JOIN knowledge_page_versions snapshot ON snapshot.tenant_id=child.tenant_id AND snapshot.id=child.published_version_id
+        WHERE child.tenant_id=$1 AND snapshot.parent_id=ANY($2::uuid[]) AND NOT child.id=ANY($2::uuid[]) LIMIT 1`,[actor.tenantId,ids]);
+      if(publishedChild)throw new BadRequestException("仍有已发布的历史子页面引用此位置，请先发布这些页面的位置变更或清理对应回收站内容");
       const files = await m.query(
         "SELECT storage_key FROM knowledge_file_assets WHERE tenant_id=$1 AND page_id=ANY($2::uuid[]) UNION SELECT preview.storage_key FROM knowledge_file_previews preview JOIN knowledge_file_assets asset ON asset.tenant_id=preview.tenant_id AND asset.id=preview.file_id WHERE asset.tenant_id=$1 AND asset.page_id=ANY($2::uuid[]) AND preview.storage_key IS NOT NULL",
         [actor.tenantId, ids],
@@ -891,12 +913,13 @@ export class KnowledgeApplicationService {
   ) {
     await m.query(
       `WITH RECURSIVE targets AS (
-      SELECT id FROM knowledge_pages WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id=$2) AND ($3::uuid IS NULL OR space_id=$3)
+      SELECT id FROM knowledge_pages WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id=$2) AND ($3::uuid IS NULL OR space_id=$3 OR EXISTS(SELECT 1 FROM knowledge_page_versions snap WHERE snap.tenant_id=knowledge_pages.tenant_id AND snap.id=knowledge_pages.published_version_id AND snap.space_id=$3))
       UNION ALL SELECT child.id FROM knowledge_pages child JOIN targets parent ON child.parent_id=parent.id WHERE child.tenant_id=$1 AND $2::uuid IS NOT NULL)
       UPDATE knowledge_pages page SET published_search_text=concat_ws(E'\n',v.title,v.content_text,v.description,(SELECT string_agg(asset.original_name,E'\n') FROM knowledge_page_version_files link JOIN knowledge_file_assets asset ON asset.tenant_id=link.tenant_id AND asset.id=link.file_id WHERE link.tenant_id=v.tenant_id AND link.version_id=v.id AND link.role='PRIMARY'),(SELECT string_agg(tag,E'\n') FROM jsonb_array_elements_text(v.tags) tag),space.name,
-        (WITH RECURSIVE ancestors AS (SELECT parent_id FROM knowledge_pages WHERE tenant_id=page.tenant_id AND id=page.id UNION ALL SELECT p.parent_id FROM knowledge_pages p JOIN ancestors a ON p.id=a.parent_id WHERE p.tenant_id=page.tenant_id)
+        (SELECT string_agg(item->>'title',E'\n') FROM jsonb_array_elements(${folderBreadcrumbSql("page.tenant_id","v.space_id","v.folder_id")}) item),
+        (WITH RECURSIVE ancestors AS (SELECT v.parent_id parent_id UNION SELECT snap.parent_id FROM knowledge_pages p JOIN knowledge_page_versions snap ON snap.tenant_id=p.tenant_id AND snap.id=p.published_version_id JOIN ancestors a ON p.id=a.parent_id WHERE p.tenant_id=page.tenant_id)
         SELECT string_agg(published.title,E'\n') FROM ancestors a JOIN knowledge_pages p ON p.tenant_id=page.tenant_id AND p.id=a.parent_id JOIN knowledge_page_versions published ON published.tenant_id=p.tenant_id AND published.id=p.published_version_id))
-      FROM knowledge_page_versions v,knowledge_spaces space WHERE page.tenant_id=$1 AND page.id IN (SELECT id FROM targets) AND v.tenant_id=page.tenant_id AND v.id=page.published_version_id AND space.tenant_id=page.tenant_id AND space.id=page.space_id`,
+      FROM knowledge_page_versions v,knowledge_spaces space WHERE page.tenant_id=$1 AND page.id IN (SELECT id FROM targets) AND v.tenant_id=page.tenant_id AND v.id=page.published_version_id AND space.tenant_id=page.tenant_id AND space.id=v.space_id`,
       [actor.tenantId, pageId ?? null, spaceId ?? null],
     );
   }

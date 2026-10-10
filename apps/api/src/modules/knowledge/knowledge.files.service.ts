@@ -146,12 +146,13 @@ export class KnowledgeFilesService {
       "title",
       "attachmentIds",
     ]);
-    this.app.keys(input, ["spaceId", "parentId", "title", "idempotencyKey"]);
+    this.app.keys(input, ["spaceId", "parentId", "folderId", "title", "idempotencyKey"]);
     const requestId = knowledgeId(input.idempotencyKey),
       meta = await validateKnowledgeUpload(file);
     const pageInput = {
       spaceId: knowledgeId(input.spaceId),
       parentId: input.parentId ? knowledgeId(input.parentId) : null,
+      ...("folderId" in input ? { folderId: input.folderId ? knowledgeId(input.folderId) : null } : {}),
       title: knowledgeText(
         input.title ?? meta.name.replace(/\.[^.]+$/, ""),
         "标题",

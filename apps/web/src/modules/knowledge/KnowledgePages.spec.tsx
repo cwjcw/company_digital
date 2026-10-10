@@ -138,6 +138,7 @@ beforeEach(() => {
         } as never;
       return { id: "page", version: 5 } as never;
     }
+    if (path.includes("/folders")) return {rows:[],total:0,page:1,pageSize:100} as never;
     if (path.startsWith("/knowledge/spaces") && !path.includes("/tree"))
       return [
         {
@@ -197,7 +198,7 @@ describe("Knowledge 2 Wiki", () => {
         "/knowledge/pages",
         expect.objectContaining({
           method: "POST",
-          body: '{"spaceId":"hr","parentId":null}',
+          body: '{"spaceId":"hr","folderId":null}',
         }),
       ),
     );
@@ -285,7 +286,7 @@ describe("Knowledge 2 Wiki", () => {
     for (const name of ["空间设置", "已归档页面", "回收站"]) expect(screen.queryByRole("button", { name })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "页面更多操作" }));
     expect(screen.queryByText("编辑页面")).toBeNull();
-    for (const name of ["页面权限", "新建子页面", "归档子树", "移到回收站", "移动 / 调整顺序"]) expect(screen.queryByText(name)).toBeNull();
+    for (const name of ["页面权限", "在此文件夹新建知识", "归档子树", "移到回收站", "移动到"]) expect(screen.queryByText(name)).toBeNull();
   });
   it("search sends Chinese term and server pagination", async () => {
     mount();

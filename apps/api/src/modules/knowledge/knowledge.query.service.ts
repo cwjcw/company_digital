@@ -1,3 +1,4 @@
+import { folderBreadcrumbSql, knowledgeFolderBreadcrumb } from "./knowledge.folder";
 import { knowledgeUnpublishedChanges } from "./knowledge-publication";
 import {
   BadRequestException,
@@ -64,8 +65,13 @@ export class KnowledgeQueryService {
       const canManagePages = editable("knowledge-pages", ["access"]) && await pageTarget("update", 3);
       const canArchive = editable("knowledge-pages", ["status"]) && await pageTarget("update", 3);
       const canTrash = await pageTarget("delete", 3) || await pageTarget("delete", 3, "trash");
-      return { canManage: canCreatePages || canEditPages || canManagePages || canCreateSpaces || canManageSpaces || canArchive || canTrash,
-        canCreatePages, canEditPages, canManagePages, canCreateSpaces, canManageSpaces, canArchive, canTrash };
+      let canManageFolders=false;
+      if (canKnowledgeField(actor,"knowledge-pages","parentId","update") && ["create","update","delete"].some(action=>canKnowledge(actor,"knowledge-pages",action))) {
+        const p:unknown[]=[actor.tenantId],scope=await this.access.spaceClause(actor,p,"read",2,m);
+        canManageFolders=(await m.query(`SELECT 1 FROM knowledge_spaces record WHERE (${scope}) AND record.status='ACTIVE' LIMIT 1`,p)).length>0;
+      }
+      return { canManage: canManageFolders || canCreatePages || canEditPages || canManagePages || canCreateSpaces || canManageSpaces || canArchive || canTrash,
+        canManageFolders, canCreatePages, canEditPages, canManagePages, canCreateSpaces, canManageSpaces, canArchive, canTrash };
     });
   }
   spaces(actor: KnowledgeActor, includeArchived = false) {
@@ -93,6 +99,8 @@ export class KnowledgeQueryService {
           canManage:
             effective_rank >= 3 &&
             canKnowledge(actor, "knowledge-spaces", "update"),
+          canCreateFolders: effective_rank >= 2 && canKnowledge(actor,"knowledge-pages","create") && canKnowledgeField(actor,"knowledge-pages","parentId","update"),
+          canEditFolders: effective_rank >= 2 && canKnowledge(actor,"knowledge-pages","update") && canKnowledgeField(actor,"knowledge-pages","parentId","update"),
           canCreate:
             effective_rank >= 2 &&
             canKnowledge(actor, "knowledge-pages", "create"),
@@ -202,7 +210,7 @@ export class KnowledgeQueryService {
       if (input.spaceId) {
         assertKnowledgeFields(actor, "knowledge-pages", ["spaceId"], "read");
         clauses.push(
-          `record.space_id=$${params.push(knowledgeId(input.spaceId))}::uuid`,
+          `${expressions.spaceId}=$${params.push(knowledgeId(input.spaceId))}::uuid`,
         );
       }
       if (input.tree) {
@@ -214,9 +222,17 @@ export class KnowledgeQueryService {
         );
         if (input.parentId)
           clauses.push(
-            `record.parent_id=$${params.push(knowledgeId(input.parentId))}::uuid`,
+            `${expressions.parentId}=$${params.push(knowledgeId(input.parentId))}::uuid`,
           );
-        else clauses.push("record.parent_id IS NULL");
+        else clauses.push(`${expressions.parentId} IS NULL`);
+      }
+      if ("folderId" in input) {
+        assertKnowledgeFields(actor,"knowledge-pages",["parentId"],"read");
+        clauses.push(input.folderId ? `${expressions.folderId}=$${params.push(knowledgeId(input.folderId))}::uuid` : `${expressions.folderId} IS NULL`);
+      }
+      if ((input.legacyOnly === true || input.legacyOnly === "true") && !input.parentId) {
+        const childScope = (await this.access.clause(actor,params,mode,action,undefined,m)).replace(/record\./g,"legacy_child.").replace(/published\./g,"legacy_published.");
+        clauses.push(`EXISTS(SELECT 1 FROM knowledge_pages legacy_child LEFT JOIN knowledge_page_versions legacy_published ON legacy_published.tenant_id=legacy_child.tenant_id AND legacy_published.id=legacy_child.published_version_id WHERE ${mode === "published"?"legacy_published.parent_id":"legacy_child.parent_id"}=record.id AND (${childScope}) AND legacy_child.status${mode === "published"?"='PUBLISHED'":"<>'TRASHED'"})`);
       }
       if (input.status) {
         assertKnowledgeFields(actor, "knowledge-pages", ["status"], "read");
@@ -279,7 +295,7 @@ export class KnowledgeQueryService {
       )
         fields.push(
           `${this.breadcrumbExpression(mode)} AS breadcrumb`,
-          `(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=record.space_id) AS "spaceName"`,
+          `(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=${expressions.spaceId}) AS "spaceName"`,
         );
       if (canKnowledgeField(actor, "knowledge-pages", "publishedBy", "read"))
         fields.push(
@@ -325,7 +341,7 @@ export class KnowledgeQueryService {
           m,
         );
         const children = await m.query(
-          `SELECT DISTINCT record.parent_id FROM knowledge_pages record ${publishedJoin} WHERE record.parent_id=ANY($2::uuid[]) AND (${childScope}) ${mode === "published" ? "AND record.status='PUBLISHED'" : ""}`,
+          `SELECT DISTINCT ${expressions.parentId} AS parent_id FROM knowledge_pages record ${publishedJoin} WHERE ${expressions.parentId}=ANY($2::uuid[]) AND (${childScope}) ${mode === "published" ? "AND record.status='PUBLISHED'" : ""}`,
           p,
         );
         const parents = new Set(children.map((r: KnowledgeRow) => r.parent_id));
@@ -381,6 +397,7 @@ export class KnowledgeQueryService {
           ? "record"
           : "published";
       const fields = this.select(actor, expressions, true);
+      if (versionId) fields.push("historical.breadcrumb AS breadcrumb");
       if (
         !versionId &&
         canKnowledge(actor, "knowledge-pages", "update") &&
@@ -412,16 +429,18 @@ export class KnowledgeQueryService {
         canKnowledgeField(actor, "knowledge-pages", "spaceId", "read") &&
         canKnowledgeField(actor, "knowledge-spaces", "name", "read")
       ) {
-        const ancestors = await this.access.ancestors(m, id, actor),
+        const ancestors = await this.access.ancestors(m, id, actor, versionId ? "published" : mode),
           [space] = await m.query(
             "SELECT id,name FROM knowledge_spaces WHERE tenant_id=$1 AND id=$2",
             [actor.tenantId, row.spaceId],
           );
         row.spaceName = space.name;
-        row.breadcrumb = [
-          { id: space.id, title: space.name },
+        if (!versionId) row.breadcrumb = [
+          { id: space.id, title: space.name, kind: "space" },
+          ...(row.folderId ? await knowledgeFolderBreadcrumb(m,actor,row.spaceId,row.folderId) : []),
           ...ancestors.map((p: KnowledgeRow) => ({
             id: p.id,
+            kind: "page",
             title:
               p.id === id
                 ? row.title
@@ -549,9 +568,11 @@ export class KnowledgeQueryService {
     });
   }
   private breadcrumbExpression(mode: KnowledgeMode) {
-    return `(jsonb_build_array(jsonb_build_object('id',record.space_id,'title',(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=record.space_id))) ||
-    (${this.access.chain()} SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'title',${mode !== "published" ? "p.title" : "v.title"}) ORDER BY cardinality(chain.visited) DESC),'[]'::jsonb)
-      FROM chain JOIN knowledge_pages p ON p.tenant_id=chain.tenant_id AND p.id=chain.id LEFT JOIN knowledge_page_versions v ON v.tenant_id=p.tenant_id AND v.id=p.published_version_id))`;
+    const e=knowledgeExpressions("knowledge-pages",mode);
+    return `(jsonb_build_array(jsonb_build_object('id',${e.spaceId},'title',(SELECT name FROM knowledge_spaces WHERE tenant_id=record.tenant_id AND id=${e.spaceId}),'kind','space'))) ||
+      ${folderBreadcrumbSql("record.tenant_id",e.spaceId,e.folderId)} ||
+      (${this.access.chain("record",mode)} SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'title',${mode !== "published" ? "p.title" : "v.title"},'kind','page') ORDER BY cardinality(chain.visited) DESC),'[]'::jsonb)
+      FROM chain JOIN knowledge_pages p ON p.tenant_id=chain.tenant_id AND p.id=chain.id LEFT JOIN knowledge_page_versions v ON v.tenant_id=p.tenant_id AND v.id=p.published_version_id)`;
   }
   private select(
     actor: KnowledgeActor,

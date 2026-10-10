@@ -8,6 +8,7 @@ import ExcelJS from "exceljs";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import { KnowledgeBasePhaseOne1722920084000 } from "../../migrations/1722920084000-KnowledgeBasePhaseOne";
+import { KnowledgeFolders1722920087000 } from "../../migrations/1722920087000-KnowledgeFolders";
 import { Knowledge21FilePages1722920086000 } from "../../migrations/1722920086000-Knowledge21FilePages";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
@@ -15,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { validateKnowledgeFilesDatabase } from "./knowledge.files.database-validation";
 import { validateKnowledgePortal } from "./knowledge.portal.database-validation";
+import { validateKnowledgeFolders } from "./knowledge.folders.database-validation";
 import { validateKnowledgePublication } from "./knowledge.publication.database-validation";
 import { KnowledgeFilesService } from "./knowledge.files.service";
 import { KnowledgePreviewJobs } from "./knowledge.preview.service";
@@ -88,6 +90,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     await qr.commitTransaction();
     await qr.startTransaction();
     await new Knowledge21FilePages1722920086000().up(qr);
+    await new KnowledgeFolders1722920087000().up(qr);
     const [retained]=await qr.query("SELECT file.id,file.storage_key,file.sha256,link.file_id,p.content_mode FROM knowledge_file_assets file JOIN knowledge_page_version_files link ON link.tenant_id=file.tenant_id AND link.file_id=file.id JOIN knowledge_pages p ON p.tenant_id=file.tenant_id AND p.id=file.page_id WHERE file.id=$1",[upgradeFile]);
     assert.equal(retained.id,upgradeFile);assert.equal(retained.file_id,upgradeFile);assert.equal(retained.storage_key,'.private/knowledge/retained/file');assert.equal(retained.sha256,'b'.repeat(64));assert.equal(retained.content_mode,'RICH_TEXT');
     check("populated2.0 migration preserves original IDs/keys/hashes and immutable published file relations");
@@ -1059,9 +1062,9 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   const columns = await ds.query(
     "SELECT count(*)::int n FROM information_schema.columns WHERE table_name LIKE 'knowledge_%' AND table_name<>'knowledge_page_read_model' AND column_name IN ('id','tenant_id','created_by','created_at','updated_by','updated_at','version')",
   );
-  assert.equal(columns[0].n, 91);
+  assert.equal(columns[0].n, 98);
   check(
-    "all thirteen Knowledge tables retain UUIDv7/tenant and standard audit/version columns",
+    "all fourteen Knowledge tables retain UUIDv7/tenant and standard audit/version columns",
   );
   rootVersion = (
     await app.publish(root.id, { expectedVersion: rootVersion }, admin)
@@ -1080,11 +1083,14 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   );
   const msv = (await app.publish(moveSearch.id, { expectedVersion: 1 }, admin))
     .version;
-  await app.move(
+  const delayedMove = await app.move(
     moveSearch.id,
     { parentId: null, expectedVersion: msv },
     admin,
   );
+  assert.equal((await query.list({search:"制度目录",ids:[moveSearch.id]},viewer)).total,1);
+  assert.equal((await query.detail(moveSearch.id,{},viewer)).breadcrumb.length,3);
+  await app.publish(moveSearch.id,{expectedVersion:delayedMove.version},admin);
   assert.equal(
     (await query.list({ search: "制度目录", ids: [moveSearch.id] }, viewer))
       .total,
@@ -1095,7 +1101,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     2,
   );
   check(
-    "move rebuilds published ancestor search and breadcrumb, without old-parent leakage",
+    "move retains published ancestor/search until publication, then rebuilds them without old-parent leakage",
   );
   const rlsRole = `knowledge_rls_${Date.now()}`;
   await ds.query(
@@ -1109,6 +1115,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     await transaction.query("SELECT set_config('app.tenant_id','OTHER',true)");
     for (const table of [
       "knowledge_spaces",
+      "knowledge_folders",
       "knowledge_space_access",
       "knowledge_pages",
       "knowledge_page_access",
@@ -1138,7 +1145,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
     );
     await transaction.rollbackTransaction();
     check(
-      "real non-owner role enforces RLS on all thirteen tables and security-invoker view",
+      "real non-owner role enforces RLS on all fourteen tables and security-invoker view",
     );
   } finally {
     if (transaction.isTransactionActive)
@@ -1264,6 +1271,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   );
   await validateKnowledgeFilesDatabase(ds,app,query,storage,admin,viewer,hr.id,check);
   await validateKnowledgePublication(app,query,admin,viewer,hr.id,check);
+  await validateKnowledgeFolders(ds,app,query,storage,admin,viewer,check);
   imports.onModuleDestroy();
   return {
     status: "PASS",

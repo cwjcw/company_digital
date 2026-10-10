@@ -94,3 +94,16 @@ Reader publication fetches `mode=working` with no browser cache immediately befo
 新增只读 `GET /api/v1/knowledge/capabilities` 从现有资源动作、字段读写、数据范围、Space/Page/Ancestor ACL 查询可用的管理区域，只返回布尔能力，不授予权限；每个目标命令继续独立重新验证。空间创建不依赖已有空间 ACL，创建后仍由现有命令检查新记录的数据范围。列表主文件元数据按 `attachmentIds` 字段权限过滤，已发布列表仅连接不可变发布文件关系；排序和更新元数据采用发布时间，避免泄露未发布修改。下载和预览继续通过授权文件接口（含Range），没有公开URL或URL token。
 
 本轮无数据库迁移、新依赖或文件存储结构变更。窄屏布局仅作用于 Knowledge shell。验收报告见 `outputs/KNOWLEDGE_2_2_ACCEPTANCE.md`，唯一恢复入口为 `outputs/KNOWLEDGE_2_2_PROGRESS.md`。
+
+
+## Knowledge 2.2 independent folders
+
+Spaces contain independent `knowledge_folders`, which require no body, draft or publication. The directory tree is loaded by parent with server pagination; search returns complete paths. Pages use nullable `folderId` for their containing folder. New upload, article creation, document conversion and move commands all use the same folder picker (including empty directories and inline creation). Legacy page `parentId` relationships and links remain readable in a separately labelled historical page tree; migration never converts a page into a folder.
+
+Folder endpoints: `GET /knowledge/spaces/:id/folders` (`parentFolderId`, `selectedId`, `search`, `page`, `pageSize`, `selectable`, `excludeId`); `POST /knowledge/folders`; `PATCH /knowledge/folders/:id`; `DELETE /knowledge/folders/:id`. Folder mutations use the existing page create/update/delete action and location (`parentId`) field authorization, plus Space EDITOR for create/update and FULL_ACCESS for deletion. No folder ACL or new employee grants are introduced. Root and folder name uniqueness, same-Space foreign keys, cycles, tenant RLS, expectedVersion and audit are enforced on the server. Deletion archives only empty folders; trashed knowledge and current published locations also prevent deletion. Tombstones preserve historical version references.
+
+A legacy parent cannot be permanently deleted while another current published head still references it after a draft move; publish the child destination first. This preserves the ACL anchor during partially published moves.
+
+Published versions snapshot `space_id`, `parent_id` and `folder_id`; working moves become employee-visible only when published. Folder names and directory structure are live metadata: renaming/moving a folder refreshes current published paths/search immediately, while historical breadcrumb JSON remains immutable. Upload idempotency hashes include folderId; a response-loss retry freezes file, title, Space, folder and key. Old clients omitting folderId retain their original hash contract.
+
+Migration `KnowledgeFolders1722920087000` locks and verifies the original thirteen tables using row counts and normalized full-row fingerprints. Original page bodies, tags, files, ACL, legacy parent relations and version snapshots remain intact; only independent location columns are added/backfilled. Always run the full database/uploads backup before `scripts/migrate.sh`, then deploy all and verify HEAD/Web/API/Worker and real browser flows. See `outputs/KNOWLEDGE_FOLDER_ACCEPTANCE.md` for release evidence.

@@ -28,7 +28,7 @@ export const canKnowledgeField = (
   action: "read" | "update",
 ) =>
   knowledgeAdministrator(actor) ||
-  actor.permissions.includes(`${resource}:${field}:${action}`);
+  actor.permissions.includes(`${resource}:${field === "folderId" ? "parentId" : field}:${action}`);
 export function assertKnowledgeAction(
   actor: KnowledgeActor,
   resource: KnowledgeResource,
@@ -205,11 +205,13 @@ export class KnowledgeAuthorizationService {
     if (knowledgeAdministrator(actor)) return "3";
     return `(SELECT COALESCE(max(CASE acl.access_level WHEN 'FULL_ACCESS' THEN 3 WHEN 'EDITOR' THEN 2 ELSE 1 END),0) FROM knowledge_space_access acl WHERE acl.tenant_id=${alias}.tenant_id AND acl.space_id=${alias}.id AND ${this.matches("acl", membership, params)})`;
   }
-  chain(alias = "record") {
+  chain(alias = "record", mode: KnowledgeMode = "working") {
+    const join = mode === "published" ? "LEFT JOIN knowledge_page_versions v ON v.tenant_id=p.tenant_id AND v.id=p.published_version_id" : "";
+    const parent = mode === "published" ? "v.parent_id" : "p.parent_id", space = mode === "published" ? "v.space_id" : "p.space_id";
     return `WITH RECURSIVE chain AS (
-    SELECT id,parent_id,space_id,tenant_id,status,published_version_id,access_restricted,ARRAY[id] visited FROM knowledge_pages WHERE tenant_id=${alias}.tenant_id AND id=${alias}.id
-    UNION ALL SELECT p.id,p.parent_id,p.space_id,p.tenant_id,p.status,p.published_version_id,p.access_restricted,c.visited||p.id
-      FROM knowledge_pages p JOIN chain c ON p.id=c.parent_id AND p.tenant_id=c.tenant_id AND p.space_id=c.space_id WHERE NOT p.id=ANY(c.visited))`;
+      SELECT p.id,${parent} parent_id,${space} space_id,p.tenant_id,p.status,p.published_version_id,p.access_restricted,ARRAY[p.id] visited FROM knowledge_pages p ${join} WHERE p.tenant_id=${alias}.tenant_id AND p.id=${alias}.id
+      UNION ALL SELECT p.id,${parent},${space},p.tenant_id,p.status,p.published_version_id,p.access_restricted,c.visited||p.id
+      FROM knowledge_pages p ${join} JOIN chain c ON p.id=c.parent_id AND p.tenant_id=c.tenant_id ${mode === "published" ? "" : `AND ${space}=c.space_id`} WHERE NOT p.id=ANY(c.visited))`;
   }
   async clause(
     actor: KnowledgeActor,
@@ -276,17 +278,17 @@ export class KnowledgeAuthorizationService {
       params,
       ancestorExpressions,
     );
-    let scope = `record.tenant_id=$1 AND (${pageScope}) AND EXISTS(SELECT 1 FROM knowledge_spaces space WHERE space.tenant_id=record.tenant_id AND space.id=record.space_id AND (${spaceScope}) AND (${rank})>=${minimum} ${mode === "trash" ? "" : "AND space.status='ACTIVE'"})
-      AND NOT EXISTS(${this.chain()} SELECT 1 FROM chain JOIN knowledge_pages ancestor ON ancestor.tenant_id=chain.tenant_id AND ancestor.id=chain.id LEFT JOIN knowledge_page_versions ancestor_published ON ancestor_published.tenant_id=ancestor.tenant_id AND ancestor_published.id=ancestor.published_version_id WHERE (${restriction}) OR (${state}) OR NOT (${ancestorScope}))`;
+    let scope = `record.tenant_id=$1 AND (${pageScope}) AND EXISTS(SELECT 1 FROM knowledge_spaces space WHERE space.tenant_id=record.tenant_id AND space.id=${expressions.spaceId} AND (${spaceScope}) AND (${rank})>=${minimum} ${mode === "trash" ? "" : "AND space.status='ACTIVE'"})
+      AND NOT EXISTS(${this.chain("record",mode)} SELECT 1 FROM chain JOIN knowledge_pages ancestor ON ancestor.tenant_id=chain.tenant_id AND ancestor.id=chain.id LEFT JOIN knowledge_page_versions ancestor_published ON ancestor_published.tenant_id=ancestor.tenant_id AND ancestor_published.id=ancestor.published_version_id WHERE (${restriction}) OR (${state}) OR NOT (${ancestorScope}) ${mode === "published" ? `OR NOT EXISTS(SELECT 1 FROM knowledge_spaces space WHERE space.tenant_id=chain.tenant_id AND space.id=chain.space_id AND (${spaceScope}) AND (${rank})>=${minimum} AND space.status='ACTIVE')` : ""})`;
     if (mode === "trash") scope += " AND record.status='TRASHED'";
     if (action === "export")
       scope += ` AND (${knowledgeDataScope(actor, "knowledge-pages", "read", params, expressions)})`;
     return scope;
   }
-  ancestors(manager: EntityManager, id: string, actor: KnowledgeActor) {
+  ancestors(manager: EntityManager, id: string, actor: KnowledgeActor, mode: KnowledgeMode = "working") {
     return manager.query(
       `SELECT ancestor.* FROM knowledge_pages record CROSS JOIN LATERAL (
-      ${this.chain()} SELECT chain.*,p.title,v.title AS published_title FROM chain
+      ${this.chain("record",mode)} SELECT chain.*,p.title,v.title AS published_title FROM chain
       JOIN knowledge_pages p ON p.tenant_id=chain.tenant_id AND p.id=chain.id
       LEFT JOIN knowledge_page_versions v ON v.tenant_id=p.tenant_id AND v.id=p.published_version_id
       ORDER BY cardinality(chain.visited) DESC) ancestor WHERE record.tenant_id=$1 AND record.id=$2`,

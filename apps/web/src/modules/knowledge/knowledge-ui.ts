@@ -62,3 +62,7 @@ export function knowledgeLocationUrl(spaceId: string, parameters: Record<string,
     Object.entries(parameters).filter((entry): entry is [string, string] => entry[1] !== undefined),
   )}`;
 }
+
+export function knowledgeFoldersUrl(spaceId:string, values:Record<string,string|undefined>={}) {
+  return `/knowledge/spaces/${spaceId}/folders?${new URLSearchParams(Object.entries(values).filter((p):p is [string,string]=>p[1]!==undefined))}`;
+}
