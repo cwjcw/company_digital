@@ -1,0 +1,78 @@
+{
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "管理员E2E登录/权限验证通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "管理员默认进入员工首页；空间读取真实授权数据，管理入口独立"
+    },
+    {
+      "status": "PASS",
+      "evidence": "独立管理工作台保留新建菜单并可返回知识库"
+    },
+    {
+      "status": "PASS",
+      "evidence": "全局搜索只显示发布快照；未发布改名不泄露"
+    },
+    {
+      "status": "PASS",
+      "evidence": "Space目录与完整层级路径/返回上级可用，没有管理操作"
+    },
+    {
+      "status": "PASS",
+      "evidence": "稳定分享链接独立阅读已发布正文和目录，保持标题快照"
+    },
+    {
+      "status": "PASS",
+      "evidence": "管理员旧草稿编辑链接安全映射到管理路由；原编辑器继续可用"
+    },
+    {
+      "status": "PASS",
+      "evidence": "DOCX真实Worker/PDF.js发布预览有非空像素；原件下载成功"
+    },
+    {
+      "status": "PASS",
+      "evidence": "PPTX真实Worker/PDF.js发布预览有非空像素；原件下载成功"
+    },
+    {
+      "status": "PASS",
+      "evidence": "PDF真实Worker/PDF.js发布预览有非空像素；原件下载成功"
+    },
+    {
+      "status": "PASS",
+      "evidence": "未发布主文件替换保持V1阅读；发布V2后历史V1预览与原件关系仍安全"
+    },
+    {
+      "status": "PASS",
+      "evidence": "390px手机首页及PDF阅读无页面横向溢出"
+    },
+    {
+      "status": "PASS",
+      "evidence": "员工E2E登录/权限验证通过；当前账号缺少阅读权限，模块及直接路径正确拒绝，可读场景未执行"
+    },
+    {
+      "status": "PASS",
+      "evidence": "正式Space编码、图标及授权保持原样"
+    },
+    {
+      "status": "PASS",
+      "evidence": "自建验收子树/发布版本/原件/预览清理，保留必要审计"
+    }
+  ],
+  "employee": {
+    "login": "PASS",
+    "permissionDenial": "PASS",
+    "portalReading": "NOT_TESTED",
+    "reason": "Existing account lacks required Knowledge resource read permissions; no account/permission changes made"
+  },
+  "cleanup": {
+    "ownPagesVersionsFilesPurged": true,
+    "auditRetained": true,
+    "existingSpaceUnchanged": true
+  },
+  "status": "PASS",
+  "checkedAt": "2026-10-10T00:23:29.940Z",
+  "recordings": "No credentials, trace, video, screenshots or browser storage persisted"
+}

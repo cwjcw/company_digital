@@ -1,5 +1,11 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge 2.2 员工知识门户与管理界面分离
+
+当前状态：已完成 / PASS，已部署3e5fea0b2a31a378fc65bc22b2c27ed7963ce606；Web/API/Worker一致，管理员真实验收与清理通过，员工正向验收因现有读权限不足为NOT_TESTED。最终报告为[KNOWLEDGE_2_2_ACCEPTANCE.md](KNOWLEDGE_2_2_ACCEPTANCE.md)。用户本轮指定唯一主要恢复入口为 [KNOWLEDGE_2_2_PROGRESS.md](KNOWLEDGE_2_2_PROGRESS.md)，请按该文件继续；本文件仅保留此前任务及恢复指针，避免两套进度。
+
+---
+
 ## 当前任务：Knowledge 发布操作体验优化
 
 任务名称：Knowledge 2.1.2 发布操作体验；目标：阅读页直接发布、编辑页固定栏、真实变更判断，保持权限/Autosave/expectedVersion/409/历史。

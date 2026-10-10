@@ -1,0 +1,36 @@
+{
+  "scope": "Isolated intercepted API fixtures against deployed Web; not production employee acceptance",
+  "checks": [
+    {
+      "format": "DOCX",
+      "status": "PASS",
+      "nonblankPdfJsCanvas": true,
+      "originalDownload": true,
+      "headerAuthentication": true,
+      "publishedScope": true,
+      "managementHidden": true
+    },
+    {
+      "format": "PPTX",
+      "status": "PASS",
+      "nonblankPdfJsCanvas": true,
+      "originalDownload": true,
+      "headerAuthentication": true,
+      "publishedScope": true,
+      "managementHidden": true
+    },
+    {
+      "format": "PDF",
+      "status": "PASS",
+      "nonblankPdfJsCanvas": true,
+      "originalDownload": true,
+      "headerAuthentication": true,
+      "publishedScope": true,
+      "managementHidden": true
+    }
+  ],
+  "status": "PASS",
+  "checkedAt": "2026-10-10T00:25:55.923Z",
+  "noProductionWrites": true,
+  "recordings": "No trace, screenshots, video or browser storage persisted"
+}
