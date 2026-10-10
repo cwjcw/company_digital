@@ -56,7 +56,7 @@ export function KnowledgeHome() {
   const spaces = useSpaces();
   const pages = useQuery({ queryKey: ["knowledge", "portal", search, page], queryFn: () => api<KnowledgePageResult>(
     `${search ? "/knowledge/search" : "/knowledge/pages"}?${new URLSearchParams({ mode: "published", page: String(page), pageSize: String(pageSize), ...(search ? { search } : hasFieldPermission("knowledge-pages", "publishedAt", "read") ? { sortField: "publishedAt", sortOrder: "desc" } : {}) })}`) });
-  return <div className="knowledge-portal"><KnowledgePortalHeader />
+  return <div className="knowledge-portal knowledge-portal-home"><KnowledgePortalHeader />
     <header className="knowledge-portal-hero"><Typography.Title level={1}>凯南知识库</Typography.Title><Typography.Paragraph>公司制度、操作规范、培训资料与业务知识，一站式查阅。</Typography.Paragraph>
       <SearchBox value={search} onSearch={(text) => setParams(text ? { search: text } : {})} /></header>
     {search ? <section><Space><Typography.Title level={2}>搜索结果</Typography.Title><Button onClick={() => setParams({})}>返回首页</Button></Space>
@@ -82,10 +82,10 @@ export function KnowledgeSpaceBrowse() {
   const pages = useQuery({ queryKey: ["knowledge", "portal-space", id, parentId, search, page], enabled: !!space && (!parentId || !!parent.data),
     queryFn: () => api<KnowledgePageResult>(`${search ? "/knowledge/search" : `/knowledge/spaces/${id}/tree`}?${new URLSearchParams({ mode: "published", spaceId: id!, page: String(page), pageSize: "20", ...(search ? { search } : parentId ? { parentId } : {}) })}`) });
   const onOpen = useCallback((row: KnowledgePage) => setParams({ parentId: row.id }), [setParams]);
-  if (spaces.isPending || spaces.error) return <div className="knowledge-portal"><KnowledgePortalHeader /><KnowledgeQueryState loading={spaces.isPending} error={spaces.error} retry={spaces.refetch} /></div>;
-  if (parent.data && parent.data.spaceId !== id) return <div className="knowledge-portal"><KnowledgePortalHeader /><Alert type="warning" message="该分类不属于当前知识空间" /></div>;
-  if (!space) return <div className="knowledge-portal"><KnowledgePortalHeader /><Alert type="warning" message="空间不存在或无查看权限" /></div>;
-  return <div className="knowledge-portal"><KnowledgePortalHeader /><Typography.Title level={1}><KnowledgeSpaceIcon value={space.icon} /> {space.name}</Typography.Title>
+  if (spaces.isPending || spaces.error) return <div className="knowledge-portal knowledge-portal-space"><KnowledgePortalHeader /><KnowledgeQueryState loading={spaces.isPending} error={spaces.error} retry={spaces.refetch} /></div>;
+  if (parent.data && parent.data.spaceId !== id) return <div className="knowledge-portal knowledge-portal-space"><KnowledgePortalHeader /><Alert type="warning" message="该分类不属于当前知识空间" /></div>;
+  if (!space) return <div className="knowledge-portal knowledge-portal-space"><KnowledgePortalHeader /><Alert type="warning" message="空间不存在或无查看权限" /></div>;
+  return <div className="knowledge-portal knowledge-portal-space"><KnowledgePortalHeader /><Typography.Title level={1}><KnowledgeSpaceIcon value={space.icon} /> {space.name}</Typography.Title>
     <SearchBox scoped value={search} onSearch={(text) => setParams({ ...(parentId ? { parentId } : {}), ...(text ? { search: text } : {}) })} />
     <div className="knowledge-space-layout"><aside className="knowledge-directory"><Typography.Title level={3}>知识目录</Typography.Title>
       <Button onClick={() => setParams({})}>空间根目录</Button><KnowledgePageTree space={space} working={false} refresh={0} onOpen={onOpen} /></aside>
@@ -113,7 +113,7 @@ export function KnowledgeReader() {
   const page = useQuery({ queryKey: ["knowledge", "portal-read", id, versionId], queryFn: () => api<KnowledgePage>(`/knowledge/pages/${id}?${new URLSearchParams({ mode: "published", ...(versionId ? { versionId } : {}) })}`), staleTime: 0 });
   const row = page.data, scope = { mode: "published" as const, versionId };
   const toc = headings(row?.content);
-  return <div className="knowledge-portal"><KnowledgePortalHeader /><KnowledgeQueryState loading={page.isPending} error={page.error} retry={page.refetch} />
+  return <div className={`knowledge-portal knowledge-portal-reader${row && row.contentMode !== "FILE" ? " knowledge-portal-article" : ""}`}><KnowledgePortalHeader /><KnowledgeQueryState loading={page.isPending} error={page.error} retry={page.refetch} />
     {row && <KnowledgeFileContext.Provider value={scope}><article className="knowledge-employee-reader">
       <Breadcrumb items={[{ title: <Link to="/knowledge">知识库</Link> }, ...(row.breadcrumb ?? []).map((b, index) => ({ title: index === 0
         ? <Link to={`/knowledge/spaces/${row.spaceId}`}>{b.title}</Link> : <Link to={`/knowledge/spaces/${row.spaceId}?parentId=${b.id}`}>{b.title}</Link> }))]} />

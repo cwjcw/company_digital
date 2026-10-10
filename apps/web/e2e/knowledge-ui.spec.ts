@@ -394,3 +394,42 @@ test("no Knowledge read hides portal module and rejects direct access", async ({
   await expect(page.getByRole("button",{name:"进入知识库"})).toHaveCount(0);
   await page.goto("/knowledge");await expect(page.getByText("当前权限组不能查看知识库",{exact:true})).toBeVisible();
 });
+
+
+for (const width of [1920, 1440, 1280, 768, 390, 320]) {
+  test(`Knowledge centered layout and scoped mobile margins at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const state = await fixtures(page);
+    for (const [id, contentMode] of [["layout-article", "RICH_TEXT"], ["layout-file", "FILE"]]) {
+      const row = { id, spaceId: "hr", parentId: null, title: id, contentMode, status: "PUBLISHED", version: 1,
+        content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "布局验收正文" }] }] },
+        attachments: [], canEdit: true, canManage: true, breadcrumb: [{ id: "hr", title: "人力资源" }] };
+      state.published.set(id, row); state.drafts.set(id, row);
+    }
+    for (const [route, selector, limit] of [
+      ["/knowledge", ".knowledge-portal-home", 1180],
+      ["/knowledge/spaces/hr", ".knowledge-portal-space", 1280],
+      ["/knowledge/pages/layout-article", ".knowledge-portal-article", 900],
+      ["/knowledge/pages/layout-file", ".knowledge-portal-reader", 1180],
+      ["/knowledge/manage", ".knowledge-management", 1320],
+    ] as const) {
+      await page.goto(route);
+      const container = page.locator(selector);
+      await expect(container).toBeVisible();
+      if (route.includes("/pages/")) await expect(page.locator(".knowledge-employee-reader")).toBeVisible();
+      const rect = await container.boundingBox();
+      expect(rect).not.toBeNull();
+      expect(rect!.width).toBeLessThanOrEqual(limit);
+      expect(rect!.width).toBeGreaterThanOrEqual(Math.min(width - 80, limit));
+      expect(Math.abs(rect!.x - (width - rect!.width) / 2)).toBeLessThanOrEqual(1);
+      if (width >= 1440) expect(rect!.width).toBe(limit);
+      if (width <= 600) { expect(rect!.x).toBeGreaterThanOrEqual(12); expect(rect!.x).toBeLessThanOrEqual(16); }
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (route.includes("/spaces/") && width > 900) expect((await page.locator(".knowledge-directory").boundingBox())!.width).toBe(240);
+    }
+    // Knowledge's responsive body rule must cease to apply after leaving this module.
+    await page.goto("/");
+    await expect(page.locator(".portal-module-grid")).toBeVisible();
+    expect(await page.evaluate(() => getComputedStyle(document.body).minWidth)).toBe("1180px");
+  });
+}
