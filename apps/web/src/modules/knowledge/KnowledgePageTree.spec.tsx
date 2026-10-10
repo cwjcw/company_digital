@@ -26,4 +26,11 @@ describe("shared published/management lazy Knowledge tree",()=>{
     vi.mocked(api).mockRejectedValueOnce(new Error("目录加载失败")).mockResolvedValueOnce({rows:[row("已恢复目录")],total:1} as never);
     render(<KnowledgePageTree space={space} working={false} refresh={0} onOpen={vi.fn()}/>);await screen.findByText("目录加载失败");fireEvent.click(screen.getByRole("button",{name:/重\s*试/}));await screen.findByRole("button",{name:"已恢复目录"});
   });
+  it("catches paginated failures and prevents duplicate load-more requests",async()=>{
+    let reject!:(error:Error)=>void;const pending=new Promise<never>((_resolve,rejectPromise)=>{reject=rejectPromise;});
+    vi.mocked(api).mockResolvedValueOnce({rows:[row("正式目录")],total:101} as never).mockImplementationOnce(()=>pending);
+    render(<KnowledgePageTree space={space} working={false} refresh={0} onOpen={vi.fn()}/>);
+    const more=await screen.findByRole("button",{name:"加载更多"});fireEvent.click(more);fireEvent.click(more);expect(api).toHaveBeenCalledTimes(2);
+    await act(async()=>reject(new Error("更多目录加载失败")));await screen.findByText("更多目录加载失败");expect(screen.getByRole("button",{name:/重\s*试/})).toBeInTheDocument();
+  });
 });

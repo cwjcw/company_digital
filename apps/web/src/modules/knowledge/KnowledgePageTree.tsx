@@ -4,6 +4,16 @@ import type { DataNode } from "antd/es/tree";
 import type { KnowledgePage, KnowledgeSpace, KnowledgePageResult } from "@kdos/contracts";
 import { api } from "../../api";
 type PageResult = KnowledgePageResult;
+function LoadMore({ load }: { load: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const running = useRef(false);
+  return <Button size="small" loading={busy} onClick={() => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
+    void load().finally(() => { running.current = false; setBusy(false); });
+  }}>加载更多</Button>;
+}
 const appendTree = (
   old: DataNode[],
   parent: string | undefined,
@@ -73,16 +83,15 @@ export function KnowledgePageTree({
           key: `more:${parentId ?? "root"}:${page}`,
           isLeaf: true,
           title: (
-            <Button
-              size="small"
-              onClick={() =>
-                void load(parentId, page + 1).then((more) =>
-                  setNodes((old) => appendTree(old, parentId, more)),
-                )
+            <LoadMore load={async () => {
+              const current = generation.current;
+              try {
+                const more = await load(parentId, page + 1);
+                if (current === generation.current) setNodes((old) => appendTree(old, parentId, more));
+              } catch (e) {
+                if (current === generation.current) setError((e as Error).message);
               }
-            >
-              加载更多
-            </Button>
+            }} />
           ),
         });
       return rows;
