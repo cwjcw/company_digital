@@ -84,3 +84,13 @@ Authorized editors publish directly from the reader header; the editor uses a st
 `GET /knowledge/pages/:id` adds optional `hasUnpublishedChanges` for authorized publishers. The same scoped detail SELECT compares working title, canonical JSON body, description, content mode, sorted tags and the bidirectional set of file IDs/roles against the immutable current publication. Technical version increments, ordering, ACL and asynchronous preview state alone do not indicate new content. Drafts without a publication return true. The published reader can show old published content while this flag describes its current working changes.
 
 Reader publication fetches `mode=working` with no browser cache immediately before submitting `expectedVersion`; editor publication drains the existing draft queue and additionally checks the server version without adopting another editor's lock. Concurrent changes return409 and retain local input. Existing `KnowledgeApplicationService.publish()`, ACL checks, tenant isolation, audit and immutable version/file snapshots remain authoritative. A false flag suppresses the prominent publish action; the existing explicit API command semantics are unchanged.
+
+## Knowledge 2.2 阅读门户与管理工作台
+
+`/knowledge` 是全部读者（包括管理员）的默认阅读首页，展示实际可见空间和最近发布的10条知识。搜索继续使用原有 PostgreSQL 搜索、字段权限及 ACL；尚未提取的 Office/PDF 文件正文不承诺全文检索。`/knowledge/spaces/:id` 复用同一懒加载树，按层级浏览；`/knowledge/pages/:id` 是稳定的发布阅读链接，`versionId` 仍受当前 ACL 与历史快照交集限制。
+
+管理入口为 `/knowledge/manage`，页面及文件位于 `/knowledge/manage/pages/:id`，空间、归档和回收站分别位于 `/knowledge/manage/spaces`、`/knowledge/manage/archive`、`/knowledge/manage/trash`。复用原2.1.2编辑器、自动保存、409、上传幂等、发布和私有文件接口。旧分享链接不变；旧 `mode=working`/`edit=1` 只有具备实际页面维护能力时才映射到管理路由，读者不会因此请求工作副本。
+
+新增只读 `GET /api/v1/knowledge/capabilities` 从现有资源动作、字段读写、数据范围、Space/Page/Ancestor ACL 查询可用的管理区域，只返回布尔能力，不授予权限；每个目标命令继续独立重新验证。空间创建不依赖已有空间 ACL，创建后仍由现有命令检查新记录的数据范围。列表主文件元数据按 `attachmentIds` 字段权限过滤，已发布列表仅连接不可变发布文件关系；排序和更新元数据采用发布时间，避免泄露未发布修改。下载和预览继续通过授权文件接口（含Range），没有公开URL或URL token。
+
+本轮无数据库迁移、新依赖或文件存储结构变更。窄屏布局仅作用于 Knowledge shell。验收报告见 `outputs/KNOWLEDGE_2_2_ACCEPTANCE.md`，唯一恢复入口为 `outputs/KNOWLEDGE_2_2_PROGRESS.md`。

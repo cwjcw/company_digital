@@ -44,3 +44,39 @@
 .knowledge-location-picker { margin: 16px 0; }
 .knowledge-location-help, .knowledge-menu-description { font-size: 13px; color: #666; line-height: 1.6; }
 .knowledge-menu-description { max-width: 340px; white-space: normal; }
+
+/* Knowledge owns its responsive reading shell; other KDOS modules retain their layout. */
+body:has(.knowledge-shell) { min-width: 0; }
+.knowledge-shell { min-width: 0; }
+.knowledge-shell > .ant-layout { min-width: 0; }
+.knowledge-shell .content { padding: 20px clamp(12px, 3vw, 40px); min-width: 0; }
+.knowledge-portal { max-width: 1400px; margin: 0 auto; }
+.knowledge-portal-nav, .knowledge-management-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+.knowledge-portal-hero { background: #fff; padding: clamp(20px, 4vw, 48px); border: 1px solid #e8edf3; border-radius: 16px; margin-bottom: 32px; }
+.knowledge-portal-search { max-width: 860px; margin: 20px 0; }
+.knowledge-portal-search .ant-typography { display: block; margin-top: 8px; }
+.knowledge-space-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+.knowledge-space-cards .ant-card { height: 100%; }
+.knowledge-space-card-icon { color: #1677ff; font-size: 32px; }
+.knowledge-portal section { margin: 28px 0; }
+.knowledge-result-item { min-width: 0; display: flex; flex-direction: column; gap: 8px; width: 100%; overflow-wrap: anywhere; }
+.knowledge-result-title { font-size: 18px; font-weight: 600; }
+.knowledge-result-path { color: #667085; font-size: 13px; }
+.knowledge-space-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; }
+.knowledge-directory { padding: 16px; background: #fff; border: 1px solid #e8edf3; border-radius: 12px; align-self: start; }
+.knowledge-space-layout main { min-width: 0; }
+.knowledge-employee-reader { background: #fff; padding: clamp(16px, 3vw, 36px); border-radius: 12px; overflow-wrap: anywhere; }
+.knowledge-reading-full { grid-template-columns: minmax(0, 1fr); }
+.knowledge-employee-reader footer { margin-top: 32px; border-top: 1px solid #e8edf3; padding-top: 20px; }
+.knowledge-management-nav .ant-typography { margin: 0; }
+@media (max-width: 900px) {
+  .knowledge-space-layout { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-directory { max-height: 320px; overflow: auto; }
+  .knowledge-shell .knowledge-wiki { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-shell .knowledge-sidebar { width: auto; max-height: 360px; overflow: auto; }
+  .knowledge-shell .knowledge-reading-grid { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-shell .knowledge-main { min-width: 0; padding: 16px; }
+  .knowledge-shell .topbar { padding: 12px 16px; height: auto; gap: 12px; flex-wrap: wrap; line-height: normal; }
+  .knowledge-shell .topbar-user { gap: 8px; }
+  .knowledge-shell .knowledge-editor-toolbar { flex-wrap: wrap; }
+}

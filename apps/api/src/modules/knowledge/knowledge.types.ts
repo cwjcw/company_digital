@@ -70,6 +70,8 @@ export function knowledgeExpressions(
       mode !== "published"
         ? `(SELECT COALESCE(jsonb_agg(file.file_id),'[]'::jsonb) FROM knowledge_page_files file WHERE file.tenant_id=record.tenant_id AND file.page_id=record.id)`
         : `(SELECT COALESCE(jsonb_agg(link.file_id),'[]'::jsonb) FROM knowledge_page_version_files link WHERE link.tenant_id=record.tenant_id AND link.page_id=record.id AND link.version_id=published.id)`,
+    updatedAt: mode === "published" ? "published.published_at" : "record.updated_at",
+    updatedBy: mode === "published" ? "published.published_by" : "record.updated_by",
     publishedVersion: "published.version_no",
     publishedBy: "published.published_by",
     publishedAt: "published.published_at",

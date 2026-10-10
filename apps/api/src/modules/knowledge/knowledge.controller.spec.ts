@@ -14,7 +14,7 @@ import { KnowledgeExportService } from "./knowledge.export.service";
 const fileId = "01926baa-1000-7000-8000-000000000001";
 describe("private file HTTP transport", () => {
   let app: INestApplication;
-  const queries = { attachment: jest.fn(), locations: jest.fn() },
+  const queries = { attachment: jest.fn(), locations: jest.fn(), capabilities: jest.fn() },
     previews = { preview: jest.fn() },
     storage = { stat: jest.fn(), openStream: jest.fn() };
   beforeAll(async () => {
@@ -63,6 +63,16 @@ describe("private file HTTP transport", () => {
         ),
       ),
     );
+  });
+  it("capabilities endpoint authenticates and delegates scope checks to the Query Service", async () => {
+    await request(app.getHttpServer()).get("/knowledge/capabilities").expect(403);
+    expect(queries.capabilities).not.toHaveBeenCalled();
+    queries.capabilities.mockResolvedValue({ canManage: false });
+    const response = await request(app.getHttpServer()).get("/knowledge/capabilities").set("Authorization", "Bearer fixture").expect(200);
+    expect(response.body).toEqual({ canManage: false });
+    expect(queries.capabilities).toHaveBeenCalledWith(expect.objectContaining({ username: "fixture" }));
+    queries.capabilities.mockRejectedValue(new ForbiddenException());
+    await request(app.getHttpServer()).get("/knowledge/capabilities").set("Authorization", "Bearer fixture").expect(403);
   });
   it("location endpoint uses the Query Service and keeps authentication", async () => {
     queries.locations.mockResolvedValue({ rows: [], total: 0, page: 2, pageSize: 100 });

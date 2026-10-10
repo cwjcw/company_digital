@@ -274,7 +274,7 @@ export function KnowledgeFilePreview({
       {status?.status === "FAILED" && (
         <Alert
           type="error"
-          message={`在线预览生成失败：${status.error ?? "文档转换失败"}`}
+          message={"在线预览暂不可用，请下载原文件阅读"}
           action={
             canRetry ? (
               <Button loading={busy} onClick={() => void retry()}>

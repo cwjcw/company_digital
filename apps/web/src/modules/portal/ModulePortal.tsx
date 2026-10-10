@@ -57,7 +57,7 @@ export const portalModules: PortalModule[] = [
     description: "承载公司业务需求、审批流转与开发过程协同。",
     features: ["需求提报与审批", "审批流程配置"], path: "/development-requests", tone: "orange"
   },
-  { id: "knowledge", title: "知识库", englishTitle: "KNOWLEDGE BASE", description: "统一沉淀公司制度、流程、规范与业务知识。", features: ["知识空间", "页面树", "全文搜索"], path: "/knowledge", tone: "teal" },
+  { id: "knowledge", title: "知识库", englishTitle: "KNOWLEDGE BASE", description: "统一沉淀公司制度、流程、规范与业务知识。", features: ["分类浏览", "知识搜索", "在线阅读"], path: "/knowledge", tone: "teal" },
   { id: "rd", title: "研发中心", englishTitle: "R&D CENTER", description: "统一管理 E10 物料资料与一物多码辅助检测。", features: ["物料数据", "一物多码检测"], path: "/rd/items", tone: "violet" },
   {
     id: "system", title: "系统管理", englishTitle: "SYSTEM ADMIN",
@@ -115,7 +115,9 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   const [ordering, setOrdering] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
-  const canSee = (module: PortalModule) => module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
+  const canSee = (module: PortalModule) => module.id === "knowledge"
+    ? ["knowledge-pages", "knowledge-spaces"].every(resource => hasSessionResourcePermission(user, resource, "read"))
+    : module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
   const canSeeRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);
   const visibleModules = orderedModules.filter(canSee);

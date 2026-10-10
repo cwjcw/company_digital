@@ -55,6 +55,7 @@ async function fixtures(
         user,
       };
     else if (path === "/auth/me") result = user;
+    else if (path === "/knowledge/capabilities") result = Object.fromEntries(["canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(key => [key, user === admin]));
     else if (path === "/knowledge/spaces") result = [space];
     else if (path.endsWith("/locations")) {
       const selectedId = url.searchParams.get("selectedId");
@@ -132,13 +133,14 @@ async function fixtures(
       const list =
           url.searchParams.get("mode") === "working" ? drafts : published,
         parent = url.searchParams.get("parentId");
-      const rows = [...list.values()]
+      const allRows = [...list.values()]
         .filter((p) => p.parentId === (parent ?? null))
         .map((p) => ({
           ...p,
           hasChildren: [...list.values()].some((c) => c.parentId === p.id),
         }));
-      result = { rows, total: rows.length };
+      const pageNumber = Number(url.searchParams.get("page") ?? 1), size = Number(url.searchParams.get("pageSize") ?? 100);
+      result = { rows: allRows.slice((pageNumber-1)*size,pageNumber*size), total: allRows.length, page: pageNumber, pageSize: size };
     } else if (path.endsWith("/versions")) {
       result = (history.get(path.split("/")[3]) ?? []).map((p) => ({
         id: p.publishedVersionId,
@@ -162,6 +164,8 @@ async function fixtures(
       }
       if (result && user === viewer)
         result = { ...result, canEdit: false, canManage: false };
+    } else if (path === "/knowledge/pages") {
+      const allRows = [...published.values()].sort((a,b)=>String(b.publishedAt??"").localeCompare(String(a.publishedAt??""))); const pageNumber=Number(url.searchParams.get("page")??1), size=Number(url.searchParams.get("pageSize")??10); result = {rows:allRows.slice((pageNumber-1)*size,pageNumber*size),total:allRows.length,page:pageNumber,pageSize:size};
     } else if (path === "/knowledge/search") {
       const rows = [...published.values()].filter((p) =>
         p.title.includes(url.searchParams.get("search") ?? ""),
@@ -189,6 +193,7 @@ test("Portal, immediate pageId, real TipTap autosave, direct upload and V1/V2 im
   const s = await fixtures(page);
   await page.getByRole("button", { name: "进入知识库" }).click();
   await expect(page.getByText("人力资源", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "进入知识管理", exact: true }).click();
   await page.getByRole("button", { name: "新建知识", exact: true }).hover();
   await page.getByText("在线编写",{exact:true}).click();
   await page.getByRole("button", { name: "创建并编写" }).click();
@@ -249,6 +254,7 @@ test("real TipTap table/callout/code and child page creation", async ({
 }) => {
   const s = await fixtures(page);
   await page.goto("/knowledge");
+  await page.getByRole("link", { name: "进入知识管理", exact: true }).click();
   await page.getByRole("button", { name: "新建知识", exact: true }).hover();
   await page.getByText("在线编写",{exact:true}).click();
   await page.getByRole("button", { name: "创建并编写" }).click();
@@ -307,6 +313,7 @@ test.describe("production credential acceptance", () => {
 test("sticky editor actions, direct draft publication and title-only reader publication with a fresh server version", async ({ page }) => {
   const state = await fixtures(page);
   await page.getByRole("button", { name: "进入知识库" }).click();
+  await page.getByRole("link", { name: "进入知识管理", exact: true }).click();
   await page.getByRole("button", { name: "新建知识", exact: true }).hover();
   await page.getByText("在线编写", { exact: true }).click();
   await page.getByRole("button", { name: "创建并编写" }).click();
@@ -338,4 +345,52 @@ test("sticky editor actions, direct draft publication and title-only reader publ
   expect(state.writes.filter(w => w.path.endsWith("/publish")).at(-1)?.body.expectedVersion).toBe(freshVersion);
   expect(state.history.get("page1")![0].title).toBe("直接发布验收");
   await expect(page.getByRole("button", { name: "发布新版本" })).toHaveCount(0);
+});
+
+test("employee portal, published search, stable reading, 105-row lazy directory and mobile layout", async ({ page }) => {
+  const state = await fixtures(page, viewer);
+  for (let index=1;index<=105;index++) state.published.set(`p${index}`, {
+    id:`p${index}`, spaceId:"hr", parentId:null, title:`正式制度${index}`, contentMode:"RICH_TEXT", status:"PUBLISHED", publishedAt:`2026-10-${String(index%9+1).padStart(2,"0")}T01:00:00+08:00`,
+    content:{type:"doc",content:[{type:"paragraph",content:[{type:"text",text:"正式已发布正文"}]}]},spaceName:"人力资源",breadcrumb:[{id:"hr",title:"人力资源"},{id:`p${index}`,title:`正式制度${index}`}],description:"已发布摘要"
+  });
+  state.drafts.set("p1",{...state.published.get("p1"),title:"未发布秘密标题"});
+  const reads:string[]=[];page.on("request",r=>{if(r.url().includes("/knowledge/"))reads.push(r.url());});
+  await page.getByRole("button",{name:"进入知识库"}).click();
+  await expect(page.getByRole("heading",{name:"凯南知识库",exact:true})).toBeVisible();
+  await expect(page.getByRole("link",{name:"进入知识管理"})).toHaveCount(0);
+  await expect(page.locator(".knowledge-result-title")).toHaveCount(10);
+  await page.getByRole("button",{name:"查看更多",exact:true}).click();
+  await expect(page).toHaveURL(/page=2/);await expect(page.locator(".knowledge-result-title")).toHaveCount(10);
+  await page.getByRole("searchbox",{name:"搜索知识",exact:true}).fill("正式制度1");
+  await page.getByRole("searchbox",{name:"搜索知识",exact:true}).press("Enter");
+  await expect(page.getByRole("heading",{name:"搜索结果",exact:true})).toBeVisible();
+  await expect(page.getByText("未发布秘密标题",{exact:true})).toHaveCount(0);
+  await page.goto("/knowledge/spaces/hr");
+  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"正式制度100",exact:true})).toBeVisible();
+  await page.locator(".knowledge-directory").getByRole("button",{name:"加载更多",exact:true}).click();
+  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"正式制度105",exact:true})).toBeVisible();
+  await page.goto("/knowledge/pages/p1");await expect(page.getByRole("heading",{name:"正式制度1",exact:true})).toBeVisible();
+  await expect(page.getByText("正式已发布正文",{exact:true})).toBeVisible();
+  for(const name of ["编辑","发布","页面更多操作","新建知识"])await expect(page.getByRole("button",{name,exact:true})).toHaveCount(0);
+  expect(reads.some(url=>url.includes("mode=working"))).toBe(false);
+  await page.setViewportSize({width:390,height:844});
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.goto("/knowledge");await expect(page.getByRole("searchbox",{name:"搜索知识",exact:true})).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
+
+test("reader direct management and old working links are denied without requesting drafts", async ({ page }) => {
+  await fixtures(page,viewer);
+  const drafts:string[]=[];page.on("request",r=>{if(r.url().includes("/api/v1/") && r.url().includes("mode=working"))drafts.push(r.url());});
+  for(const route of ["/knowledge/manage","/knowledge/manage/pages/p1?edit=1","/knowledge/manage/spaces","/knowledge/manage/trash"]){
+    await page.goto(route);await expect(page.getByText("当前权限不能进入此知识管理区域",{exact:true})).toBeVisible();
+  }
+  await page.goto("/knowledge/pages/p1?mode=working&edit=1");await expect(page.getByText("当前权限不能查看或编辑工作草稿",{exact:true})).toBeVisible();
+  expect(drafts).toHaveLength(0);
+});
+
+test("no Knowledge read hides portal module and rejects direct access", async ({page})=>{
+  await fixtures(page,{...viewer,permissions:[]});
+  await expect(page.getByRole("button",{name:"进入知识库"})).toHaveCount(0);
+  await page.goto("/knowledge");await expect(page.getByText("当前权限组不能查看知识库",{exact:true})).toBeVisible();
 });

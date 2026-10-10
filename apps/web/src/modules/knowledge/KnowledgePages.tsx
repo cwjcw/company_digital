@@ -21,10 +21,8 @@ import {
   Space,
   Spin,
   Tag,
-  Tree,
   Typography,
 } from "antd";
-import type { DataNode } from "antd/es/tree";
 import { MoreOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   useLocation,
@@ -34,6 +32,7 @@ import {
 } from "react-router-dom";
 import dayjs from "dayjs";
 import type {
+  KnowledgeCapabilities,
   KnowledgeContentNode,
   KnowledgePage,
   KnowledgeSpace,
@@ -72,6 +71,7 @@ import {
   copyKnowledgeLink,
 } from "./knowledge-ui";
 import type { KnowledgeDraftSession } from "./knowledge-autosave";
+import { KnowledgePageTree } from "./KnowledgePageTree";
 import "./knowledge.css";
 type PageResult = {
   rows: KnowledgePage[];
@@ -81,124 +81,6 @@ type PageResult = {
 };
 const readable = (field: string) =>
   hasFieldPermission("knowledge-pages", field, "read");
-const appendTree = (
-  old: DataNode[],
-  parent: string | undefined,
-  more: DataNode[],
-): DataNode[] =>
-  parent
-    ? old.map((n) =>
-        String(n.key) === parent
-          ? {
-              ...n,
-              children: [
-                ...(n.children ?? []).filter(
-                  (c) => !String(c.key).startsWith("more:"),
-                ),
-                ...more,
-              ],
-            }
-          : {
-              ...n,
-              ...(n.children
-                ? { children: appendTree(n.children, parent, more) }
-                : {}),
-            },
-      )
-    : [...old.filter((n) => !String(n.key).startsWith("more:")), ...more];
-function PageTree({
-  space,
-  working,
-  refresh,
-  onOpen,
-}: {
-  space: KnowledgeSpace;
-  working: boolean;
-  refresh: number;
-  onOpen: (page: KnowledgePage) => void;
-}) {
-  const [nodes, setNodes] = useState<DataNode[]>([]),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  const generation = useRef(0);
-  const load = useCallback(
-    async (parentId?: string, page = 1): Promise<DataNode[]> => {
-      const p = new URLSearchParams({
-        mode: working ? "working" : "published",
-        pageSize: "100",
-        page: String(page),
-      });
-      if (parentId) p.set("parentId", parentId);
-      const result = await api<PageResult>(
-        `/knowledge/spaces/${space.id}/tree?${p}`,
-      );
-      const rows: DataNode[] = result.rows.map((row) => ({
-        key: row.id,
-        isLeaf: !row.hasChildren,
-        title: (
-          <button className="knowledge-tree-link" onClick={() => onOpen(row)}>
-            {row.title}
-            {row.status === "DRAFT" && <Tag>草稿</Tag>}
-          </button>
-        ),
-      }));
-      if (page * 100 < result.total)
-        rows.push({
-          key: `more:${parentId ?? "root"}:${page}`,
-          isLeaf: true,
-          title: (
-            <Button
-              size="small"
-              onClick={() =>
-                void load(parentId, page + 1).then((more) =>
-                  setNodes((old) => appendTree(old, parentId, more)),
-                )
-              }
-            >
-              加载更多
-            </Button>
-          ),
-        });
-      return rows;
-    },
-    [space.id, working, onOpen],
-  );
-  useEffect(() => {
-    const current = ++generation.current;
-    setNodes([]);
-    setBusy(true);
-    setError("");
-    void load()
-      .then((rows) => {
-        if (current === generation.current) setNodes(rows);
-      })
-      .catch((e) => {
-        if (current === generation.current) setError((e as Error).message);
-      })
-      .finally(() => {
-        if (current === generation.current) setBusy(false);
-      });
-  }, [load, refresh]);
-  return error ? (
-    <Alert type="error" message={error} />
-  ) : busy ? (
-    <Spin />
-  ) : (
-    <Tree
-      blockNode
-      treeData={nodes}
-      loadData={async (node) => {
-        if (String(node.key).startsWith("more:")) return;
-        try {
-          const children = await load(String(node.key));
-          setNodes((old) => appendTree(old, String(node.key), children));
-        } catch (e) {
-          setError((e as Error).message);
-        }
-      }}
-    />
-  );
-}
 function toc(content?: KnowledgeContentNode) {
   const items: { title: string; index: number }[] = [];
   let index = 0;
@@ -213,7 +95,7 @@ function toc(content?: KnowledgeContentNode) {
   if (content) walk(content);
   return items;
 }
-export function KnowledgeWiki() {
+export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeCapabilities }) {
   const { id } = useParams(),
     location = useLocation(),
     navigate = useNavigate(),
@@ -360,7 +242,7 @@ export function KnowledgeWiki() {
         setSearch("");
         setHistory(false);
         navigate(
-          `/knowledge/pages/${p.id}${p.status === "DRAFT" ? "?mode=working" : ""}`,
+          `/knowledge/manage/pages/${p.id}${p.status === "DRAFT" ? "?mode=working" : ""}`,
         );
       });
     },
@@ -384,7 +266,7 @@ export function KnowledgeWiki() {
       setCreating(undefined);
       invalidate();
       setShowWorking(true);
-      navigate(`/knowledge/pages/${p.id}?edit=1`);
+      navigate(`/knowledge/manage/pages/${p.id}?edit=1`);
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -408,7 +290,7 @@ export function KnowledgeWiki() {
         },
       );
       invalidate();
-      navigate("/knowledge");
+      navigate("/knowledge/manage");
       message.success("操作成功");
     } catch (e) {
       message.error((e as Error).message);
@@ -554,10 +436,10 @@ export function KnowledgeWiki() {
       ]
     : [];
   let body: ReactNode;
-  if (location.pathname === "/knowledge/settings") body = <KnowledgeSettings />;
-  else if (location.pathname === "/knowledge/archive")
+  if (location.pathname === "/knowledge/manage/spaces") body = <KnowledgeSettings />;
+  else if (location.pathname === "/knowledge/manage/archive")
     body = <KnowledgeTrash archived onRefresh={invalidate} />;
-  else if (location.pathname === "/knowledge/trash")
+  else if (location.pathname === "/knowledge/manage/trash")
     body = <KnowledgeTrash onRefresh={invalidate} />;
   else if (search)
     body = (
@@ -648,7 +530,7 @@ export function KnowledgeWiki() {
                       type="link"
                       onClick={() =>
                         navigate(
-                          `/knowledge/pages/${b.id}${mode === "working" ? "?mode=working" : ""}`,
+                          `/knowledge/manage/pages/${b.id}${mode === "working" ? "?mode=working" : ""}`,
                         )
                       }
                     >
@@ -764,7 +646,7 @@ export function KnowledgeWiki() {
             void safely(() => {
               setSpaceId(id);
               setSearch("");
-              navigate("/knowledge");
+              navigate("/knowledge/manage");
             })
           }
         />
@@ -773,7 +655,7 @@ export function KnowledgeWiki() {
         )}
         <Space wrap style={{ margin: "16px 0" }}>
           {selected?.canCreate &&
-            hasResourcePermission("knowledge-pages", "create") && (
+            capabilities.canCreatePages && hasResourcePermission("knowledge-pages", "create") && (
               <Dropdown
                 menu={{
                   items: [
@@ -860,7 +742,7 @@ export function KnowledgeWiki() {
             />
           )}
         {selected && (
-          <PageTree
+          <KnowledgePageTree
             space={selected}
             working={showWorking}
             refresh={refresh}
@@ -870,31 +752,31 @@ export function KnowledgeWiki() {
         <div className="knowledge-sidebar-footer">
           {spaces.data?.some((s) => s.canManage) &&
             hasResourcePermission("knowledge-pages", "update") &&
-            hasFieldPermission("knowledge-pages", "status", "update") && (
+            capabilities.canArchive && hasFieldPermission("knowledge-pages", "status", "update") && (
               <Button
                 type="link"
                 onClick={() =>
-                  void safely(() => navigate("/knowledge/archive"))
+                  void safely(() => navigate("/knowledge/manage/archive"))
                 }
               >
                 已归档页面
               </Button>
             )}
-          {(hasResourcePermission("knowledge-spaces", "create") ||
-            (hasResourcePermission("knowledge-spaces", "update") &&
+          {((capabilities.canCreateSpaces && hasResourcePermission("knowledge-spaces", "create")) ||
+            (capabilities.canManageSpaces && hasResourcePermission("knowledge-spaces", "update") &&
               spaces.data?.some((s) => s.canManage))) && (
             <Button
               type="link"
-              onClick={() => void safely(() => navigate("/knowledge/settings"))}
+              onClick={() => void safely(() => navigate("/knowledge/manage/spaces"))}
             >
               空间设置
             </Button>
           )}
           {spaces.data?.some((s) => s.canManage) &&
-            hasResourcePermission("knowledge-pages", "delete") && (
+            capabilities.canTrash && hasResourcePermission("knowledge-pages", "delete") && (
               <Button
                 type="link"
-                onClick={() => void safely(() => navigate("/knowledge/trash"))}
+                onClick={() => void safely(() => navigate("/knowledge/manage/trash"))}
               >
                 回收站
               </Button>
@@ -975,7 +857,7 @@ export function KnowledgeWiki() {
                 onClick={() => {
                   setUploadResults(false);
                   void safely(() =>
-                    navigate(`/knowledge/pages/${p.id}?mode=working`),
+                    navigate(`/knowledge/manage/pages/${p.id}?mode=working`),
                   );
                 }}
               >
@@ -994,7 +876,7 @@ export function KnowledgeWiki() {
           onCreated={(id) => {
             setImporting(false);
             invalidate();
-            navigate(`/knowledge/pages/${id}?edit=1`);
+            navigate(`/knowledge/manage/pages/${id}?edit=1`);
           }}
         />
       )}
@@ -1136,7 +1018,7 @@ function KnowledgeTrash({
               <Space>
                 <span>
                   {archived ? (
-                    <a href={`/knowledge/pages/${p.id}`}>{title}</a>
+                    <a href={`/knowledge/manage/pages/${p.id}`}>{title}</a>
                   ) : (
                     title
                   )}

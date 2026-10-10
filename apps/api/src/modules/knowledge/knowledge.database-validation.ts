@@ -14,6 +14,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { validateKnowledgeFilesDatabase } from "./knowledge.files.database-validation";
+import { validateKnowledgePortal } from "./knowledge.portal.database-validation";
 import { validateKnowledgePublication } from "./knowledge.publication.database-validation";
 import { KnowledgeFilesService } from "./knowledge.files.service";
 import { KnowledgePreviewJobs } from "./knowledge.preview.service";
@@ -206,6 +207,7 @@ export async function validateKnowledgeDatabase(ds: DataSource) {
   assert.equal(hr.code, "HR");
   assert.equal((await query.spaces(admin)).length, 1);
   check("only stable HR space seeded");
+  await validateKnowledgePortal(ds,app,query,storage,admin,viewer,check);
   await ds.query(
     `INSERT INTO knowledge_spaces(tenant_id,code,name) VALUES($1,'HR','人力资源') ON CONFLICT DO NOTHING`,
     [tenantId],

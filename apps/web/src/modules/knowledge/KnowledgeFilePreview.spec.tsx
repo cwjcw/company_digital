@@ -126,7 +126,7 @@ describe("file reader", () => {
           },
     );
     mount();
-    await screen.findByText("在线预览生成失败：转换超时");
+    await screen.findByText("在线预览暂不可用，请下载原文件阅读");
     fireEvent.click(screen.getByText("重试转换"));
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
@@ -143,7 +143,7 @@ describe("file reader", () => {
       contentType: file.contentType,
     });
     mount({ canRetry: false, file: { ...file, originalName: "计划.xlsx" } });
-    await screen.findByText("在线预览生成失败：损坏");
+    await screen.findByText("在线预览暂不可用，请下载原文件阅读");
     expect(screen.queryByText("重试转换")).toBeNull();
     expect(screen.getByText(/Excel预览按工作簿打印区域分页/)).toBeTruthy();
   });

@@ -122,3 +122,16 @@ export type KnowledgePageUpdateInput = Partial<
   Pick<KnowledgePageInput, "title" | "content" | "tags" | "sortOrder" | "description">
 > & { expectedVersion: number };
 export type KnowledgeVersionCommand = { expectedVersion: number };
+
+/** Derived navigation only; each API command independently authorizes its target. */
+export type KnowledgeCapabilities = {
+  canManage: boolean;
+  canCreatePages: boolean;
+  canEditPages: boolean;
+  canManagePages: boolean;
+  canCreateSpaces: boolean;
+  canManageSpaces: boolean;
+  canArchive: boolean;
+  canTrash: boolean;
+};
+export type KnowledgePageResult = { rows: KnowledgePage[]; total: number; page: number; pageSize: number };

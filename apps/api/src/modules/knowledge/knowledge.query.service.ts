@@ -13,6 +13,7 @@ import {
   assertKnowledgeFields,
   canKnowledge,
   canKnowledgeField,
+  knowledgeDataScope,
 } from "./knowledge.scope";
 import { knowledgeId, knowledgeText } from "./knowledge.content";
 import {
@@ -26,6 +27,47 @@ import {
 @Injectable()
 export class KnowledgeQueryService {
   constructor(private readonly access: KnowledgeAuthorizationService) {}
+  /** Navigation capabilities derive from the same resource/field/data/ACL boundaries as commands. */
+  capabilities(actor: KnowledgeActor) {
+    assertKnowledgeAction(actor, "knowledge-pages", "read");
+    assertKnowledgeAction(actor, "knowledge-spaces", "read");
+    return this.access.transaction(actor, async (m) => {
+      const editable = (resource: "knowledge-pages" | "knowledge-spaces", fields: string[]) =>
+        fields.some((field) => canKnowledgeField(actor, resource, field, "read") && canKnowledgeField(actor, resource, field, "update"));
+      const pageTarget = async (action: string, minimum: number, mode: KnowledgeMode = "working") => {
+        if (!canKnowledge(actor, "knowledge-pages", action)) return false;
+        const p: unknown[] = [actor.tenantId];
+        const scope = await this.access.clause(actor, p, mode, action, minimum, m);
+        const readScope = knowledgeDataScope(actor, "knowledge-pages", "read", p, knowledgeExpressions("knowledge-pages", mode));
+        return (await m.query(`SELECT 1 FROM knowledge_pages record ${publishedJoin} WHERE (${scope}) AND (${readScope}) LIMIT 1`, p)).length > 0;
+      };
+      let canCreatePages = false, canManageSpaces = false;
+      if (canKnowledge(actor, "knowledge-pages", "create") &&
+          ["title", "spaceId", "parentId"].every((field) => canKnowledgeField(actor, "knowledge-pages", field, "read") && canKnowledgeField(actor, "knowledge-pages", field, "update"))) {
+        const p: unknown[] = [actor.tenantId];
+        const scope = await this.access.spaceClause(actor, p, "read", 2, m);
+        const creator = p.push(actor.userId);
+        const expressions = Object.fromEntries(Object.keys(knowledgeExpressions("knowledge-pages")).map((key) => [key, "NULL"]));
+        Object.assign(expressions, { createdBy: `$${creator}::uuid`, spaceId: "record.id", parentId: "NULL::uuid", status: "'DRAFT'", title: "''::text" });
+        const createScope = knowledgeDataScope(actor, "knowledge-pages", "create", p, expressions);
+        canCreatePages = (await m.query(`SELECT 1 FROM knowledge_spaces record WHERE (${scope}) AND record.status='ACTIVE' AND $${creator}::uuid IS NOT NULL AND (${createScope}) LIMIT 1`, p)).length > 0;
+        if (!canCreatePages) canCreatePages = await pageTarget("create", 2);
+      }
+      if (canKnowledge(actor, "knowledge-spaces", "update") && editable("knowledge-spaces", ["name", "description", "icon", "sortOrder", "status", "access"])) {
+        const p: unknown[] = [actor.tenantId];
+        const scope = await this.access.spaceClause(actor, p, "update", 3, m);
+        const readScope = knowledgeDataScope(actor, "knowledge-spaces", "read", p);
+        canManageSpaces = (await m.query(`SELECT 1 FROM knowledge_spaces record WHERE (${scope}) AND (${readScope}) LIMIT 1`, p)).length > 0;
+      }
+      const canCreateSpaces = canKnowledge(actor, "knowledge-spaces", "create") && editable("knowledge-spaces", ["name"]);
+      const canEditPages = editable("knowledge-pages", ["title", "content", "description", "tags", "attachmentIds", "parentId", "sortOrder", "status"]) && await pageTarget("update", 2);
+      const canManagePages = editable("knowledge-pages", ["access"]) && await pageTarget("update", 3);
+      const canArchive = editable("knowledge-pages", ["status"]) && await pageTarget("update", 3);
+      const canTrash = await pageTarget("delete", 3) || await pageTarget("delete", 3, "trash");
+      return { canManage: canCreatePages || canEditPages || canManagePages || canCreateSpaces || canManageSpaces || canArchive || canTrash,
+        canCreatePages, canEditPages, canManagePages, canCreateSpaces, canManageSpaces, canArchive, canTrash };
+    });
+  }
   spaces(actor: KnowledgeActor, includeArchived = false) {
     return this.access.transaction(actor, async (m) => {
       const params: unknown[] = [actor.tenantId];
@@ -221,6 +263,12 @@ export class KnowledgeQueryService {
         params,
       );
       const fields = this.select(actor, expressions, false);
+      if (canKnowledgeField(actor, "knowledge-pages", "attachmentIds", "read"))
+        fields.push(`(SELECT jsonb_build_object('id',file.id,'pageId',file.page_id,'originalName',file.original_name,'contentType',file.content_type,'size',file.size,'sha256',file.sha256,'createdAt',file.created_at,'role',link.role)
+          FROM knowledge_file_assets file JOIN ${mode === "published" ? "knowledge_page_version_files" : "knowledge_page_files"} link
+          ON link.tenant_id=file.tenant_id AND link.page_id=file.page_id AND link.file_id=file.id
+          WHERE file.tenant_id=record.tenant_id AND file.page_id=record.id AND link.role='PRIMARY'
+          ${mode === "published" ? "AND link.version_id=record.published_version_id" : ""} LIMIT 1) AS "primaryFile"`);
       if (canKnowledgeField(actor, "knowledge-pages", "contentText", "read"))
         fields.push(`left(${expressions.contentText},200) AS snippet`);
       if (
@@ -245,7 +293,7 @@ export class KnowledgeQueryService {
         ? "record.sort_order,record.id"
         : search
           ? `relevance DESC,record.id`
-          : "record.updated_at DESC,record.id";
+          : mode === "published" ? "published.published_at DESC,record.id" : "record.updated_at DESC,record.id";
       if (input.sortField) {
         const key = String(input.sortField);
         if (
@@ -277,7 +325,7 @@ export class KnowledgeQueryService {
           m,
         );
         const children = await m.query(
-          `SELECT DISTINCT record.parent_id FROM knowledge_pages record ${publishedJoin} WHERE record.parent_id=ANY($2::uuid[]) AND (${childScope})`,
+          `SELECT DISTINCT record.parent_id FROM knowledge_pages record ${publishedJoin} WHERE record.parent_id=ANY($2::uuid[]) AND (${childScope}) ${mode === "published" ? "AND record.status='PUBLISHED'" : ""}`,
           p,
         );
         const parents = new Set(children.map((r: KnowledgeRow) => r.parent_id));

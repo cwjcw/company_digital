@@ -14,7 +14,7 @@ import { api } from "../../api";
 import { downloadApiFile } from "../../shared/legacy-ui";
 import { clearKnowledgeDraftCache } from "./knowledge-autosave";
 import { uploadKnowledgeFile } from "./knowledge-file-upload";
-import { KnowledgeWiki } from "./KnowledgePages";
+import { KnowledgeManagement } from "./KnowledgePages";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { ModulePortal } from "../portal/ModulePortal";
 vi.mock("./knowledge-file-upload", () => ({ uploadKnowledgeFile: vi.fn() }));
@@ -95,9 +95,9 @@ const viewer = {
   ],
 };
 function mount(
-  element: React.ReactNode = <KnowledgeWiki />,
+  element: React.ReactNode = <KnowledgeManagement capabilities={{canManage:true,canCreatePages:true,canEditPages:true,canManagePages:true,canCreateSpaces:true,canManageSpaces:true,canArchive:true,canTrash:true}} />,
   session: any = admin,
-  path = "/knowledge",
+  path = "/knowledge/manage",
   existingClient?: QueryClient,
 ) {
   localStorage.setItem("sessionUser", JSON.stringify(session));
@@ -111,7 +111,7 @@ function mount(
       <AntApp>
         <MemoryRouter initialEntries={[path]}>
           <Routes>
-            <Route path="/knowledge/pages/:id" element={element} />
+            <Route path="/knowledge/manage/pages/:id" element={element} />
             <Route path="*" element={element} />
           </Routes>
         </MemoryRouter>
@@ -235,7 +235,7 @@ describe("Knowledge 2 Wiki", () => {
         ? (fresh as never)
         : base(path, init),
     );
-    mount(undefined, admin, "/knowledge/pages/page?edit=1", client);
+    mount(undefined, admin, "/knowledge/manage/pages/page?edit=1", client);
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith("/knowledge/pages/page?mode=working"),
     );
@@ -255,7 +255,7 @@ describe("Knowledge 2 Wiki", () => {
     );
   });
   it("published reader shows breadcrumbs/body/version and private download", async () => {
-    mount(undefined, viewer, "/knowledge/pages/page");
+    mount(undefined, viewer, "/knowledge/manage/pages/page");
     expect(await screen.findByText("制度正文")).toBeVisible();
     expect(screen.getByText("发布版本 v2")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "制度.txt" }));
@@ -279,7 +279,7 @@ describe("Knowledge 2 Wiki", () => {
         return { ...r, canEdit: false, canManage: false };
       return r;
     });
-    mount(undefined, viewer, "/knowledge/pages/page");
+    mount(undefined, viewer, "/knowledge/manage/pages/page");
     await screen.findByText("制度正文");
     expect(screen.queryByRole("button", { name: "新建知识" })).toBeNull();
     for (const name of ["空间设置", "已归档页面", "回收站"]) expect(screen.queryByRole("button", { name })).toBeNull();
@@ -305,7 +305,7 @@ describe("Knowledge 2 Wiki", () => {
   });
   it("backend errors remain visible", async () => {
     vi.mocked(api).mockRejectedValue(new Error("页面不存在或不在授权范围内"));
-    mount(undefined, viewer, "/knowledge/pages/page");
+    mount(undefined, viewer, "/knowledge/manage/pages/page");
     expect(
       (await screen.findAllByText("页面不存在或不在授权范围内")).length,
     ).toBeGreaterThan(0);
@@ -455,7 +455,7 @@ describe("Knowledge publishing UX", () => {
       if (path === "/knowledge/pages/page?mode=working") return init?.cache === "no-store" ? fresh as never : draft as never;
       return base(path, init);
     });
-    mount(undefined, admin, "/knowledge/pages/page?mode=working");
+    mount(undefined, admin, "/knowledge/manage/pages/page?mode=working");
     const publish = await screen.findByRole("button", { name: "发布" });
     expect(screen.getByRole("button", { name: "编辑" })).toBeVisible();
     expect(screen.queryByLabelText("页面标题")).toBeNull();
@@ -472,7 +472,7 @@ describe("Knowledge publishing UX", () => {
   it("does not promote repeated publication or claim a draft exists on unchanged published pages", async () => {
     const base = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, hasUnpublishedChanges: false } as never : base(p,i));
-    mount(undefined, admin, "/knowledge/pages/page");
+    mount(undefined, admin, "/knowledge/manage/pages/page");
     await screen.findByRole("button", { name: "编辑" });
     expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
@@ -485,7 +485,7 @@ describe("Knowledge publishing UX", () => {
   it("labels a published page from its readable status even when version metadata is hidden", async () => {
     const base = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, publishedVersionId: undefined, publishedVersion: undefined } as never : base(p,i));
-    mount(undefined, admin, "/knowledge/pages/page");
+    mount(undefined, admin, "/knowledge/manage/pages/page");
     expect(await screen.findByRole("button", { name: "发布新版本" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "发布" })).toBeNull();
   });
@@ -501,7 +501,7 @@ describe("Knowledge publishing UX", () => {
     const base = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation(async (p,i) => p.startsWith("/knowledge/pages/page?") ? { ...page, canEdit: condition !== "page" } as never : base(p,i));
     const user = condition === "field" ? { sub: "editor", permissions: [...viewer.permissions, "knowledge-pages:*:update", "knowledge-pages:title:update"] } : admin;
-    mount(undefined, user, `/knowledge/pages/page${condition === "history" ? "?versionId=v1" : ""}`);
+    mount(undefined, user, `/knowledge/manage/pages/page${condition === "history" ? "?versionId=v1" : ""}`);
     await screen.findByText("制度正文");
     expect(screen.queryByRole("button", { name: "发布新版本" })).toBeNull();
     if (condition === "page") expect(screen.queryByRole("button", { name: "编辑" })).toBeNull();
@@ -513,7 +513,7 @@ describe("Knowledge publishing UX", () => {
       if (p.endsWith("/publish")) throw Object.assign(new Error(reason), { status: reason.includes("数据") ? 409 : 400 });
       return base(p,i);
     });
-    mount(undefined, admin, "/knowledge/pages/page");
+    mount(undefined, admin, "/knowledge/manage/pages/page");
     fireEvent.click(await screen.findByRole("button", { name: "发布新版本" }));
     await waitFor(() => expect(screen.getAllByText(reason).length).toBeGreaterThan(0));
     expect(screen.queryByText("页面已发布")).toBeNull();
@@ -522,7 +522,7 @@ describe("Knowledge publishing UX", () => {
   it.each(["unchanged", "revoked", "unknown"])("rechecks latest %s state before issuing a publish command", async (state) => {
     const base = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation(async (p,i) => i?.cache === "no-store" ? { ...page, hasUnpublishedChanges: state === "unknown" ? undefined : state !== "unchanged", canEdit: state !== "revoked" } as never : base(p,i));
-    mount(undefined, admin, "/knowledge/pages/page");
+    mount(undefined, admin, "/knowledge/manage/pages/page");
     fireEvent.click(await screen.findByRole("button", { name: "发布新版本" }));
     await screen.findAllByText(state === "unchanged" ? "没有未发布修改" : state === "unknown" ? "无法确认最新草稿的发布状态，请刷新后重试" : "当前没有此页面的发布权限");
     expect(vi.mocked(api).mock.calls.some(([p]) => p.endsWith("/publish"))).toBe(false);

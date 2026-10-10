@@ -51,6 +51,9 @@ export class KnowledgeController {
     private readonly exports: KnowledgeExportService,
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
+  @Get("capabilities") capabilities(@Req() req: KnowledgeRequest) {
+    return this.queries.capabilities(this.actor(req));
+  }
   @Get("spaces") spaces(
     @Query("includeArchived") archived: string,
     @Req() req: KnowledgeRequest,

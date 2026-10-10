@@ -38,7 +38,7 @@ import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize, useKd
 import { BuildVersionLabel } from "./shared/BuildVersion";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import { clearKnowledgeDraftCache, flushKnowledgeDrafts } from "./modules/knowledge/knowledge-autosave";
-import { KnowledgeWiki } from "./modules/knowledge/KnowledgePages";
+import { KnowledgeRoutes } from "./modules/knowledge/KnowledgeRoutes";
 import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
 import {
   OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
@@ -184,11 +184,7 @@ function Shell({ logout }: { logout: () => void }) {
     : location.pathname === "/profile" ? "profile" : "system";
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
-    knowledge: [
-      {key:"/knowledge",icon:<ReadOutlined/>,label:"知识空间与页面"},
-      ...(["create","update"].some(action=>hasSessionResourcePermission(user,"knowledge-spaces",action))?[{key:"/knowledge/settings",icon:<FolderOpenOutlined/>,label:"空间设置"}]:[]),
-      ...(hasSessionResourcePermission(user,"knowledge-pages","delete")?[{key:"/knowledge/trash",icon:<FileTextOutlined/>,label:"回收站"}]:[])
-    ],
+    knowledge: [],
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
@@ -297,17 +293,17 @@ function Shell({ logout }: { logout: () => void }) {
       "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
       "/api-keys": "API Key", "/system/notifications": "消息中心", "/profile": "个人中心"
     } as Record<string, string>)[location.pathname] ?? activeModule.title;
-  return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}`}>
-    <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
+  return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}${moduleId === "knowledge" ? " knowledge-shell" : ""}`}>
+    {moduleId !== "knowledge" && <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
       <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
       {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}>{activeModule.id !== "rd" && <span>{activeModule.englishTitle}</span>}<strong>{activeModule.title}</strong></div>}
       <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
       <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
       <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
-    </Sider>
+    </Sider>}
     <Layout>
       <Header className="topbar">
-        <div className="topbar-context"><Text type="secondary">{activeModule.title}</Text><h1 className="topbar-page-title">{pageTitle}</h1></div>
+        <div className="topbar-context">{moduleId === "knowledge" ? <Button type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>凯南数字化工作台</Button> : <><Text type="secondary">{activeModule.title}</Text><h1 className="topbar-page-title">{pageTitle}</h1></>}</div>
         <div className="topbar-user"><div><Text strong>{user.displayName ?? user.username}</Text></div>
           <Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></div>
       </Header>
@@ -339,11 +335,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
-          <Route path="/knowledge" element={<KnowledgeWiki />}/>
-          <Route path="/knowledge/pages/:id" element={<KnowledgeWiki />}/>
-          <Route path="/knowledge/settings" element={<KnowledgeWiki />}/>
-          <Route path="/knowledge/trash" element={<KnowledgeWiki />}/>
-          <Route path="/knowledge/archive" element={<KnowledgeWiki />}/>
+          <Route path="/knowledge/*" element={<KnowledgeRoutes />}/>
           <Route path="/rd/items" element={<RdItemsPage />} />
           <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />
