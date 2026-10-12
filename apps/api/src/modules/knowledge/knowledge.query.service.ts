@@ -231,7 +231,7 @@ export class KnowledgeQueryService {
         clauses.push(input.folderId ? `${expressions.folderId}=$${params.push(knowledgeId(input.folderId))}::uuid` : `${expressions.folderId} IS NULL`);
       }
       if ((input.legacyOnly === true || input.legacyOnly === "true") && !input.parentId) {
-        const childScope = (await this.access.clause(actor,params,mode,action,undefined,m)).replace(/record\./g,"legacy_child.").replace(/published\./g,"legacy_published.");
+        const childScope = (await this.access.clause(actor,params,mode,action,undefined,m)).replace(/\brecord\./g,"legacy_child.").replace(/\bpublished\./g,"legacy_published.");
         clauses.push(`EXISTS(SELECT 1 FROM knowledge_pages legacy_child LEFT JOIN knowledge_page_versions legacy_published ON legacy_published.tenant_id=legacy_child.tenant_id AND legacy_published.id=legacy_child.published_version_id WHERE ${mode === "published"?"legacy_published.parent_id":"legacy_child.parent_id"}=record.id AND (${childScope}) AND legacy_child.status${mode === "published"?"='PUBLISHED'":"<>'TRASHED'"})`);
       }
       if (input.status) {
@@ -388,7 +388,7 @@ export class KnowledgeQueryService {
         expressions = Object.fromEntries(
           Object.entries(
             knowledgeExpressions("knowledge-pages", "published"),
-          ).map(([k, v]) => [k, v.replace(/published\./g, "historical.")]),
+          ).map(([k, v]) => [k, v.replace(/\bpublished\./g, "historical.")]),
         );
       }
       const expr = versionId

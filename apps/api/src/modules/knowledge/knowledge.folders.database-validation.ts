@@ -75,8 +75,44 @@ export async function validateKnowledgeFolders(ds:DataSource,app:KnowledgeApplic
   assert(!(await query.tree(space.id,{folderId:empty.id},viewer)).rows.some((r:{id:string})=>r.id===privatePage.id));
   assert.equal((await query.list({search:"受限知识"},viewer)).total,0);
   check("existing Page ACL continues to protect files/online content in folders; folder metadata never reveals restricted row counts");
+  for (const mode of ["published", "working"] as const) {
+    assert.equal((await query.tree(space.id,{mode,legacyOnly:true},admin)).total,0);
+  }
+  assert.equal((await query.tree(space.id,{legacyOnly:"true"},viewer)).total,0);
+  check("legacyOnly root SQL executes in published/working modes with no historical children and returns no false directory entries");
   const legacy=await app.createPage({spaceId:space.id,title:"历史父页面"},admin);await app.publish(legacy.id,{expectedVersion:1},admin);
-  const child=await app.createPage({spaceId:space.id,parentId:legacy.id,title:"历史子知识"},admin),cp=await app.publish(child.id,{expectedVersion:1},admin);
+  const child=await app.createPage({spaceId:space.id,parentId:legacy.id,title:"历史子知识"},admin);
+  assert.equal((await query.tree(space.id,{mode:"published",legacyOnly:true},admin)).total,0);
+  const workingLegacy=await query.tree(space.id,{mode:"working",legacyOnly:true},admin);
+  assert.equal(workingLegacy.total,1);assert.equal(workingLegacy.rows[0].id,legacy.id);
+  assert.equal(workingLegacy.rows[0].hasChildren,true);
+  check("draft-only historical children appear in working legacy tree but never leak into published legacy tree");
+  const cp=await app.publish(child.id,{expectedVersion:1},admin);
+  for (const mode of ["published", "working"] as const) {
+    const result=await query.tree(space.id,{mode,legacyOnly:true},admin);
+    assert.equal(result.total,1);assert.equal(result.rows[0].id,legacy.id);assert.equal(result.rows[0].hasChildren,true);
+    const branch=await query.tree(space.id,{mode,legacyOnly:true,parentId:legacy.id},admin);
+    assert.equal(branch.total,1);assert.equal(branch.rows[0].id,child.id);
+  }
+  check("complete legacyOnly count/list/hasChildren SQL executes for published and working historical roots and child branches");
+  const privateChild=await app.createPage({spaceId:space.id,parentId:privatePage.id,title:"私密历史子知识"},admin);
+  await app.publish(privateChild.id,{expectedVersion:1},admin);
+  const employeeLegacy=await query.tree(space.id,{legacyOnly:true},viewer);
+  assert.equal(employeeLegacy.total,1);assert.equal(employeeLegacy.rows[0].id,legacy.id);
+  assert.equal((await query.tree(space.id,{mode:"published",legacyOnly:true},admin)).total,2);
+  assert.equal((await query.tree(space.id,{legacyOnly:true,parentId:privatePage.id},viewer)).total,0);
+  await assert.rejects(()=>query.tree(space.id,{mode:"working",legacyOnly:true},viewer),/权限/);
+  assert.equal((await query.tree(space.id,{mode:"working",legacyOnly:true},{...viewer,permissions:[...viewer.permissions,"knowledge-pages:*:update"]})).total,0);
+  check("legacyOnly keeps ancestor Page ACL: private parents/children and their counts stay hidden; read-only working access rejected");
+  const scopedViewer:KnowledgeActor={...viewer,tableDataScopes:[
+    {resource:"knowledge-spaces",scope:"ALL",actions:["read"]},
+    {resource:"knowledge-pages",scope:"CUSTOM",actions:["read"],rules:[{fieldKey:"title",operator:"CONTAINS",value:"历史"}]}
+  ]};
+  const scopedResult=await query.tree(space.id,{legacyOnly:true},scopedViewer);
+  assert.equal(scopedResult.total,1);assert.equal(scopedResult.rows[0].id,legacy.id);
+  assert.equal((await query.tree(space.id,{legacyOnly:true},{...scopedViewer,tenantId:"OTHER_LEGACY_TENANT"})).total,0);
+  check("legacyOnly executes ancestor_published field data scopes and retains tenant isolation in real PostgreSQL");
+
   const legacyMove=await app.move(child.id,{spaceId:space.id,folderId:c.id,parentId:null,expectedVersion:cp.version},admin);
   assert.equal((await query.detail(child.id,{},viewer)).parentId,legacy.id);
   assert.equal((await query.detail(child.id,{},viewer)).breadcrumb![1].title,"历史父页面");
