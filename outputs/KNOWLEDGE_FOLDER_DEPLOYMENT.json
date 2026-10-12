@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "verifiedOn": "2026-10-12",
+  "versions": {
+    "head": "d51d6820d9ee9578da3111af4f18988f5c33b4e7",
+    "web": "d51d6820d9ee9578da3111af4f18988f5c33b4e7",
+    "api": "d51d6820d9ee9578da3111af4f18988f5c33b4e7",
+    "worker": "d51d6820d9ee9578da3111af4f18988f5c33b4e7"
+  },
+  "health": {
+    "api": "healthy",
+    "web": "healthy",
+    "document-worker": "healthy",
+    "postgres": "healthy"
+  },
+  "postgresContainerId": "b679ba44dd7507ac797759ed41acdc77f1757f5fcf9bec2f0918565352583c44",
+  "postgresMount": "/data/automation/code/work/PMC/knweb/data/postgres:/var/lib/postgresql",
+  "apiDatabase": "postgres:5432",
+  "localhostDatabase": "127.0.0.1:15433"
+}

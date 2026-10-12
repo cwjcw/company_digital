@@ -1,0 +1,363 @@
+{
+  "status": "PASS",
+  "phase": "after migration before browser writes",
+  "tables": [
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_spaces",
+      "total": 2,
+      "beforeHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+      "afterHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_space_access",
+      "total": 2,
+      "beforeHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+      "afterHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_pages",
+      "total": 5,
+      "beforeHash": "26dcaad0915e85647b377076fd42926a",
+      "afterHash": "26dcaad0915e85647b377076fd42926a",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_page_access",
+      "total": 0,
+      "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "afterHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_tags",
+      "total": 5,
+      "beforeHash": "3019738ce95cc6341b89d16e8d8d8468",
+      "afterHash": "3019738ce95cc6341b89d16e8d8d8468",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_page_tags",
+      "total": 0,
+      "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "afterHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_file_assets",
+      "total": 4,
+      "beforeHash": "76d350a5c4f4aae856866ba270b9ecdd",
+      "afterHash": "76d350a5c4f4aae856866ba270b9ecdd",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_page_versions",
+      "total": 3,
+      "beforeHash": "edc24973534356f1ef770086aa4f8620",
+      "afterHash": "edc24973534356f1ef770086aa4f8620",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_page_version_files",
+      "total": 2,
+      "beforeHash": "2d4422e8268ac4849a65482a34b126ad",
+      "afterHash": "2d4422e8268ac4849a65482a34b126ad",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_storage_cleanup",
+      "total": 0,
+      "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "afterHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_page_files",
+      "total": 4,
+      "beforeHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+      "afterHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_file_previews",
+      "total": 3,
+      "beforeHash": "e69e858150818a2356a503eff6867ed3",
+      "afterHash": "e69e858150818a2356a503eff6867ed3",
+      "status": "PASS"
+    },
+    {
+      "database": "four_department_tracker",
+      "table": "knowledge_file_upload_requests",
+      "total": 57,
+      "beforeHash": "2197aed12c94a011ec94bdb1fc73c92e",
+      "afterHash": "2197aed12c94a011ec94bdb1fc73c92e",
+      "status": "PASS"
+    }
+  ],
+  "afterCleanup": {
+    "status": "PASS",
+    "acceptanceDate": "2026-10-12",
+    "tables": [
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_spaces",
+        "originalTotal": 2,
+        "afterCleanupTotal": 2,
+        "beforeHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+        "afterCleanupHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_space_access",
+        "originalTotal": 2,
+        "afterCleanupTotal": 2,
+        "beforeHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+        "afterCleanupHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_pages",
+        "originalTotal": 5,
+        "afterCleanupTotal": 5,
+        "beforeHash": "26dcaad0915e85647b377076fd42926a",
+        "afterCleanupHash": "26dcaad0915e85647b377076fd42926a",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_access",
+        "originalTotal": 0,
+        "afterCleanupTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_tags",
+        "originalTotal": 5,
+        "afterCleanupTotal": 5,
+        "beforeHash": "3019738ce95cc6341b89d16e8d8d8468",
+        "afterCleanupHash": "3019738ce95cc6341b89d16e8d8d8468",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_tags",
+        "originalTotal": 0,
+        "afterCleanupTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_assets",
+        "originalTotal": 4,
+        "afterCleanupTotal": 4,
+        "beforeHash": "76d350a5c4f4aae856866ba270b9ecdd",
+        "afterCleanupHash": "76d350a5c4f4aae856866ba270b9ecdd",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_versions",
+        "originalTotal": 3,
+        "afterCleanupTotal": 3,
+        "beforeHash": "edc24973534356f1ef770086aa4f8620",
+        "afterCleanupHash": "edc24973534356f1ef770086aa4f8620",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_version_files",
+        "originalTotal": 2,
+        "afterCleanupTotal": 2,
+        "beforeHash": "2d4422e8268ac4849a65482a34b126ad",
+        "afterCleanupHash": "2d4422e8268ac4849a65482a34b126ad",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_storage_cleanup",
+        "originalTotal": 0,
+        "afterCleanupTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_files",
+        "originalTotal": 4,
+        "afterCleanupTotal": 4,
+        "beforeHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+        "afterCleanupHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_previews",
+        "originalTotal": 3,
+        "afterCleanupTotal": 3,
+        "beforeHash": "e69e858150818a2356a503eff6867ed3",
+        "afterCleanupHash": "e69e858150818a2356a503eff6867ed3",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_upload_requests",
+        "originalTotal": 57,
+        "afterCleanupTotal": 57,
+        "beforeHash": "2197aed12c94a011ec94bdb1fc73c92e",
+        "afterCleanupHash": "2197aed12c94a011ec94bdb1fc73c92e",
+        "status": "PASS"
+      }
+    ]
+  },
+  "finalDelivery": {
+    "status": "PASS",
+    "verifiedOn": "2026-10-12",
+    "tables": [
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_spaces",
+        "originalTotal": 2,
+        "afterCleanupOriginalTotal": 2,
+        "beforeHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+        "afterCleanupHash": "39c0d21721f33eb9ae97b3b752dee7d2",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_space_access",
+        "originalTotal": 2,
+        "afterCleanupOriginalTotal": 2,
+        "beforeHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+        "afterCleanupHash": "8a42c1265f8b6bee1e7b37ee05cd1339",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_pages",
+        "originalTotal": 5,
+        "afterCleanupOriginalTotal": 5,
+        "beforeHash": "26dcaad0915e85647b377076fd42926a",
+        "afterCleanupHash": "26dcaad0915e85647b377076fd42926a",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_access",
+        "originalTotal": 0,
+        "afterCleanupOriginalTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_tags",
+        "originalTotal": 5,
+        "afterCleanupOriginalTotal": 5,
+        "beforeHash": "3019738ce95cc6341b89d16e8d8d8468",
+        "afterCleanupHash": "3019738ce95cc6341b89d16e8d8d8468",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_tags",
+        "originalTotal": 0,
+        "afterCleanupOriginalTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_assets",
+        "originalTotal": 4,
+        "afterCleanupOriginalTotal": 4,
+        "beforeHash": "76d350a5c4f4aae856866ba270b9ecdd",
+        "afterCleanupHash": "76d350a5c4f4aae856866ba270b9ecdd",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_versions",
+        "originalTotal": 3,
+        "afterCleanupOriginalTotal": 3,
+        "beforeHash": "edc24973534356f1ef770086aa4f8620",
+        "afterCleanupHash": "edc24973534356f1ef770086aa4f8620",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_version_files",
+        "originalTotal": 2,
+        "afterCleanupOriginalTotal": 2,
+        "beforeHash": "2d4422e8268ac4849a65482a34b126ad",
+        "afterCleanupHash": "2d4422e8268ac4849a65482a34b126ad",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_storage_cleanup",
+        "originalTotal": 0,
+        "afterCleanupOriginalTotal": 0,
+        "beforeHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "afterCleanupHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_page_files",
+        "originalTotal": 4,
+        "afterCleanupOriginalTotal": 4,
+        "beforeHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+        "afterCleanupHash": "39d7cc8cb9aa3fd85a67cfbeb0b70bf4",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_previews",
+        "originalTotal": 3,
+        "afterCleanupOriginalTotal": 3,
+        "beforeHash": "e69e858150818a2356a503eff6867ed3",
+        "afterCleanupHash": "e69e858150818a2356a503eff6867ed3",
+        "status": "PASS"
+      },
+      {
+        "database": "four_department_tracker",
+        "table": "knowledge_file_upload_requests",
+        "originalTotal": 57,
+        "afterCleanupOriginalTotal": 57,
+        "beforeHash": "2197aed12c94a011ec94bdb1fc73c92e",
+        "afterCleanupHash": "2197aed12c94a011ec94bdb1fc73c92e",
+        "status": "PASS"
+      }
+    ]
+  },
+  "originalStorage": {
+    "status": "PASS",
+    "originalAssets": 4,
+    "sha256Matches": 4,
+    "originalPreviews": 3,
+    "previewSizeMatches": 3
+  }
+}

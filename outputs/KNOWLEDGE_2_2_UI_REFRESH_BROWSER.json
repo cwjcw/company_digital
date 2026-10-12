@@ -1,0 +1,253 @@
+{
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "管理员E2E登录/权限验证通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "1920px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "1440px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "1280px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "768px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "390px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "320px五类页面宽度/居中/安全边距及无横向溢出通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "DOCX真实Worker预览/原件下载及1180px布局通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "PPTX真实Worker预览/原件下载及1180px布局通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "PDF真实Worker预览/原件下载及1180px布局通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "离开Knowledge后原工作台布局规则恢复"
+    },
+    {
+      "status": "PASS",
+      "evidence": "自建验收子树/发布版本/原件/预览清理，保留必要审计"
+    }
+  ],
+  "measurements": [
+    {
+      "kind": "home",
+      "viewport": 1920,
+      "width": 1180,
+      "left": 370
+    },
+    {
+      "kind": "space",
+      "viewport": 1920,
+      "width": 1280,
+      "left": 320,
+      "directory": 240
+    },
+    {
+      "kind": "article",
+      "viewport": 1920,
+      "width": 900,
+      "left": 510
+    },
+    {
+      "kind": "file",
+      "viewport": 1920,
+      "width": 1180,
+      "left": 370,
+      "previewWidth": 1098
+    },
+    {
+      "kind": "management",
+      "viewport": 1920,
+      "width": 1320,
+      "left": 300
+    },
+    {
+      "kind": "home",
+      "viewport": 1440,
+      "width": 1180,
+      "left": 130
+    },
+    {
+      "kind": "space",
+      "viewport": 1440,
+      "width": 1280,
+      "left": 80,
+      "directory": 240
+    },
+    {
+      "kind": "article",
+      "viewport": 1440,
+      "width": 900,
+      "left": 270
+    },
+    {
+      "kind": "file",
+      "viewport": 1440,
+      "width": 1180,
+      "left": 130,
+      "previewWidth": 1098
+    },
+    {
+      "kind": "management",
+      "viewport": 1440,
+      "width": 1320,
+      "left": 60
+    },
+    {
+      "kind": "home",
+      "viewport": 1280,
+      "width": 1180,
+      "left": 50
+    },
+    {
+      "kind": "space",
+      "viewport": 1280,
+      "width": 1203.22,
+      "left": 38.39,
+      "directory": 240
+    },
+    {
+      "kind": "article",
+      "viewport": 1280,
+      "width": 900,
+      "left": 190
+    },
+    {
+      "kind": "file",
+      "viewport": 1280,
+      "width": 1180,
+      "left": 50,
+      "previewWidth": 1098
+    },
+    {
+      "kind": "management",
+      "viewport": 1280,
+      "width": 1203.22,
+      "left": 38.39
+    },
+    {
+      "kind": "home",
+      "viewport": 768,
+      "width": 721.94,
+      "left": 23.03
+    },
+    {
+      "kind": "space",
+      "viewport": 768,
+      "width": 721.94,
+      "left": 23.03
+    },
+    {
+      "kind": "article",
+      "viewport": 768,
+      "width": 721.94,
+      "left": 23.03
+    },
+    {
+      "kind": "file",
+      "viewport": 768,
+      "width": 721.94,
+      "left": 23.03,
+      "previewWidth": 650
+    },
+    {
+      "kind": "management",
+      "viewport": 768,
+      "width": 721.94,
+      "left": 23.03
+    },
+    {
+      "kind": "home",
+      "viewport": 390,
+      "width": 358.81,
+      "left": 15.59
+    },
+    {
+      "kind": "space",
+      "viewport": 390,
+      "width": 358.81,
+      "left": 15.59
+    },
+    {
+      "kind": "article",
+      "viewport": 390,
+      "width": 358.81,
+      "left": 15.59
+    },
+    {
+      "kind": "file",
+      "viewport": 390,
+      "width": 358.81,
+      "left": 15.59,
+      "previewWidth": 301
+    },
+    {
+      "kind": "management",
+      "viewport": 390,
+      "width": 358.81,
+      "left": 15.59
+    },
+    {
+      "kind": "home",
+      "viewport": 320,
+      "width": 294.41,
+      "left": 12.8
+    },
+    {
+      "kind": "space",
+      "viewport": 320,
+      "width": 294.41,
+      "left": 12.8
+    },
+    {
+      "kind": "article",
+      "viewport": 320,
+      "width": 294.41,
+      "left": 12.8
+    },
+    {
+      "kind": "file",
+      "viewport": 320,
+      "width": 294.41,
+      "left": 12.8,
+      "previewWidth": 236
+    },
+    {
+      "kind": "management",
+      "viewport": 320,
+      "width": 294.41,
+      "left": 12.8
+    }
+  ],
+  "cleanup": {
+    "ownPagesVersionsFilesPurged": true,
+    "auditRetained": true,
+    "existingSpaceUnchanged": true
+  },
+  "status": "PASS",
+  "checkedAt": "2026-10-10T01:18:03.030Z",
+  "recordings": "No credentials, trace, video, screenshots or browser storage persisted",
+  "deploymentCommit": "eeca5fb3f7c12946dcb47323280f346b9e3f60bc",
+  "baseURL": "http://192.168.1.249:15172"
+}

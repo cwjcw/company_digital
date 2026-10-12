@@ -1,0 +1,26 @@
+{
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "管理员真实登录/Knowledge权限验证通过；未更改任何账号"
+    },
+    {
+      "status": "PASS",
+      "evidence": "人力资源下通过真实界面创建三级独立文件夹，立即显示且无需页面草稿/发布"
+    }
+  ],
+  "cleanup": {
+    "status": "FAIL",
+    "reason": "Owned test cleanup failed",
+    "ownedPages": [],
+    "ownedFolders": [
+      "01a1239b-5da4-75ea-ad7e-1d0b95091550",
+      "01a1239b-56f2-721a-adf2-daf57dc11ec1",
+      "01a1239b-517e-764b-9aa1-a95028810370"
+    ]
+  },
+  "employee": "NOT_TESTED",
+  "status": "FAIL",
+  "failedStage": "upload",
+  "reason": "Browser assertion failed at upload"
+}

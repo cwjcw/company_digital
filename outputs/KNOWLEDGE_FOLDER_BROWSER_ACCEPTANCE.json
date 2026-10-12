@@ -1,0 +1,73 @@
+{
+  "deploymentSha": "d51d6820d9ee9578da3111af4f18988f5c33b4e7",
+  "acceptanceDate": "2026-10-12",
+  "checks": [
+    {
+      "status": "PASS",
+      "evidence": "管理员真实登录/Knowledge权限验证通过；未更改任何账号"
+    },
+    {
+      "status": "PASS",
+      "evidence": "人力资源下通过真实界面创建三级独立文件夹，立即显示且无需页面草稿/发布"
+    },
+    {
+      "status": "PASS",
+      "evidence": "Word/PDF真实批量上传：逐层展开选择三级空目录、独立中文标题、完整批次结果、原件下载和非空在线预览通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "在线编写沿用当前目录，位置选择器内新建空文件夹并选中，保存/Autosave/阅读页直接发布通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "DOCX通过真实界面转换为在线文章，完整保存路径选择空文件夹，原有转换正文保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "已发布文件真实界面移动：草稿/发布目录隔离，发布后刷新，保留主文件及V1/V2历史"
+    },
+    {
+      "status": "PASS",
+      "evidence": "文件夹重命名后子目录/当前阅读路径刷新，发布历史快照保留"
+    },
+    {
+      "status": "PASS",
+      "evidence": "文件夹真实界面移动更新所有子目录路径，无重复上传或版本重写"
+    },
+    {
+      "status": "PASS",
+      "evidence": "非空删除、目录循环及过期版本409由真实API拒绝；未破坏目录与内容"
+    },
+    {
+      "status": "PASS",
+      "evidence": "员工门户布局中逐层浏览文件夹，点击真实文件进入阅读和预览；未发布内容不出现在目录"
+    },
+    {
+      "status": "PASS",
+      "evidence": "发布V1/V2、仅标题变更、无重复发布突出和不可变历史标题回归通过；标签控件未重现"
+    },
+    {
+      "status": "PASS",
+      "evidence": "真实运行环境六种视口的五类页面宽度、居中及手机无横向溢出验证通过"
+    },
+    {
+      "status": "PASS",
+      "evidence": "员工E2E登录、实际目录/发布/草稿API拒绝及管理入口隐藏通过；正向Knowledge阅读未测试，未修改权限"
+    }
+  ],
+  "cleanup": {
+    "status": "PASS",
+    "pages": 4,
+    "folders": 4,
+    "retainedAudit": true,
+    "folderTombstones": true
+  },
+  "employee": "NOT_TESTED: current account lacks Knowledge read; real login/API/UI denials PASS; permissions unchanged",
+  "employeeDenial": {
+    "status": "PASS",
+    "folderRead": 403,
+    "publishedRead": 403,
+    "draftRead": 403
+  },
+  "status": "PASS"
+}

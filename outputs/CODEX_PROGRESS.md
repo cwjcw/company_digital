@@ -1,6 +1,37 @@
 # Codex 工作进度
 
-## 当前任务：Knowledge 2.2 员工知识门户与管理界面分离
+## 当前任务：KDOS-AUDIT-ACTOR-IDENTITY-001
+
+任务名称：统一创建人/更新人审计身份显示与筛选语义。
+任务目标：先只读确认服务器根因、5个UUID及公共表格/筛选/打印影响；用户确认后再实施公共修复。
+当前状态：ROOT CAUSE CONFIRMED；第一阶段已完成，等待用户确认后实施。整个修复任务尚未完成。
+最后更新时间：2026-10-12 09:05（Asia/Shanghai）。
+当前阶段：根因报告已交付；当前子任务：等待用户确认公共修复设计。
+已完成：读取用户附件第十三节阶段门控、项目规范、kdos-form-platform技能；实际HEAD d51d6820d9ee9578da3111af4f18988f5c33b4e7，源码无未提交修改；确认updatedBy=text、公共表格姓名解析、候选按text返回原值、目录包含停用用户而memberCandidates只包含enabled=true。
+已完成只读核验：HEAD/Web/API/Worker均d51d682、四容器healthy；5个UUID分别王家威/吴建修/丁才春/李虹/何辉，全部存在且启用、全部属于工序报工updated_by；2509条报工/12更新主体均可解析；356条停用系统创建人被候选排除，另5个启用创建人/1169条因目录前201限制漏选；目录852/启用755/停用97。54契约资源中50有审计字段；标准打印/XLSX当前均默认排除审计列，无实际审计列UUID输出。生产所有查询READ ONLY，无数据写入。
+正在进行：无执行中的修改。
+待完成：等待用户确认公共修复方案；确认后实施、测试、备份部署和验收。
+修改文件：本进度及 outputs/AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md；原Knowledge outputs记录保留，源码未修改。
+数据库 Migration：无，当前阶段禁止。
+新增或修改测试：无，当前阶段未实施。
+已运行测试：未运行；当前只读调查，不将静态分析当作测试通过。
+当前已知问题：更新人候选按text显示UUID；创建人候选遗漏停用用户及前201之外的启用用户。尚未修复，不能表述为已上线。截图未提供，未声称实际浏览器复现同一弹层姓名/UUID混排。
+等待用户确认：根因报告完成后，按用户附件第十三节“我确认根因报告后再进入正式修改”。
+下一步：1. 取得用户对根因报告及公共设计的确认（必要阶段门控）。2. 实施公共AuditIdentityResolver/审计语义，保留稳定值和普通member启用规则。3. 运行相关回归、lint/typecheck/build，再备份部署与真实界面验收。
+恢复执行说明：项目规范→本段→git status/diff→第一项未完成；前轮Knowledge文件夹任务已完成，勿重做；保留无关outputs和全部历史数据。
+根因报告：[AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md](AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md)。
+
+---
+
+## 当前任务：Knowledge独立文件夹目录
+
+当前状态：已完成 / 独立文件夹主流程PASS。最终部署d51d682（HEAD/Web/API/Worker一致、healthy），新增迁移已备份执行；843 API /319 Web /118 DB /14 Chrome及新版真实管理员13项PASS，测试资料清理与原13表/4文件/3预览完整性PASS。真实员工正向阅读NOT_TESTED（缺Knowledge读权限），实际登录/API403/管理入口拒绝PASS，未改权限。唯一恢复入口仍为[KNOWLEDGE_2_2_PROGRESS.md](KNOWLEDGE_2_2_PROGRESS.md)阶段八；完整报告[KNOWLEDGE_FOLDER_ACCEPTANCE.md](KNOWLEDGE_FOLDER_ACCEPTANCE.md)。
+
+## 当前任务：Knowledge 2.2 UI Refresh 居中布局
+
+当前状态：已完成 / PASS，已备份、部署eeca5fb；HEAD/Web/API/Worker一致且healthy。Web311项、Chrome13项（1凭据门控skip）、真实管理员12项及清理PASS。唯一恢复入口仍为[KNOWLEDGE_2_2_PROGRESS.md](KNOWLEDGE_2_2_PROGRESS.md)，最终报告[KNOWLEDGE_2_2_UI_REFRESH_ACCEPTANCE.md](KNOWLEDGE_2_2_UI_REFRESH_ACCEPTANCE.md)。无API、Migration或新增依赖，仅Knowledge布局变动。
+
+## 前轮任务：Knowledge 2.2 员工知识门户与管理界面分离
 
 当前状态：已完成 / PASS，已部署3e5fea0b2a31a378fc65bc22b2c27ed7963ce606；Web/API/Worker一致，管理员真实验收与清理通过，员工正向验收因现有读权限不足为NOT_TESTED。最终报告为[KNOWLEDGE_2_2_ACCEPTANCE.md](KNOWLEDGE_2_2_ACCEPTANCE.md)。用户本轮指定唯一主要恢复入口为 [KNOWLEDGE_2_2_PROGRESS.md](KNOWLEDGE_2_2_PROGRESS.md)，请按该文件继续；本文件仅保留此前任务及恢复指针，避免两套进度。
 

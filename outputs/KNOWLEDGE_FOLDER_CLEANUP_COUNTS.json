@@ -1,0 +1,20 @@
+{
+  "knowledge_pages": 5,
+  "knowledge_page_versions": 3,
+  "knowledge_file_assets": 4,
+  "knowledge_file_previews": 3,
+  "knowledge_file_upload_requests": 63,
+  "knowledge_storage_cleanup": 0,
+  "folders": [
+    {
+      "status": "ARCHIVED",
+      "total": 11
+    }
+  ],
+  "ownedLivePages": 0,
+  "migration": [
+    {
+      "name": "KnowledgeFolders1722920087000"
+    }
+  ]
+}
