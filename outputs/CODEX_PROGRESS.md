@@ -1,5 +1,62 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge历史目录SQL别名修复
+
+任务名称：Knowledge管理页面legacyOnly Internal server error最小修复。
+任务目标：完整标识符别名替换，不改ACL/租户/发布/历史模型；真实隔离PostgreSQL、生产管理员人力资源→考勤制度验收。
+当前状态：已完成 / 已部署验收通过。开始HEAD：b1b8447；最终HEAD/API/Worker：7456a4c1eedfdc8abee928b56481006f25630b14。
+最后更新时间：2026-10-12 13:50（Asia/Shanghai）。
+当前阶段：最终交付完成；当前子任务：无。
+已完成审查：规范/技能/进度/Git、Query/ACL/历史/既有验证器；legacyOnly全局published替换误写ancestor_published引用，JOIN仍原别名；同文件historic替换同步加边界，搜索词转义非别名不改。
+已完成实现：生产代码仅list record/published及historic published三个正则增加\b；不调整SQL条件/ACL/租户/发布/模型/API/UI。
+已完成真实SQL：独立PostgreSQL18 network none/tmpfs/无端口及生产卷，123组真实场景、86既有fresh migrations通过；新增5组含双模式/有无历史子页/草稿隔离/ACL/字段范围/租户。标准runner删除两个带前缀临时库，残留0；测试容器已停止移除。
+已完成备份：20261012_133754双库custom dumps及uploads含.private，pg_restore目录、三个SHA256、600权限复核通过；原API/Worker b1b8447镜像标记保留。
+源码提交：7456a4c（3个相关源码/测试文件，未push）；outputs记录保持工作区。
+已完成部署：./scripts/deploy.sh api返回0；HEAD/API/Worker一致7456a4c；Web仍ca0d7d7（源不变/未重建），四服务healthy，Dispatcher active，原PG/mount/端口保留，无生产migration。
+已完成真实管理员Chrome：6组通过，实际选择人力资源→考勤制度，published/working切换及根目录/文件夹四种legacyOnly请求200，无Internal server error及业务500。凭据仅运行时无输出/录制，已logout；无生产业务或权限写入。
+已完成完整性：只读14表记录数及完整行MD5指纹部署前后一致，HR页面/文件夹元数据一致；新容器日志受影响别名错误0。
+正在进行：无。
+待完成：无本轮开发、测试或上线遗留。
+修改文件：knowledge.query.service.ts、knowledge.legacy-tree.spec.ts、knowledge.folders.database-validation.ts；进度/验收报告/安全JSON证据。
+数据库 Migration：无；新依赖/API/权限模型：无变更。
+新增或修改测试：5项完整SQL单元（布尔/字符串legacyOnly、双模式、管理员/受限成员、子分支/普通列表、working权限）及5组真实PG场景；既有全部Knowledge数据库回归保留。
+已运行测试：API102套875项通过/1既有skip；API typecheck/lint/build通过；独立PG123场景/86既有迁移、Docker构建/部署/healthcheck、Chrome6组、14表完整性通过。
+当前已知问题：无未解决异常。初次测试类型数组未as const及原搜索natural GIN计划断言已解决：仅临时隔离运行器在EXPLAIN前正常清理新GIN pending list，最终自然planner选GIN；不修改生产配置/查询/优化器或测试断言。普通员工生产登录未执行，权限受限/RLS真实隔离覆盖，不声称员工生产通过。
+等待用户确认：无。
+下一步：无执行遗留；按报告人工复验“人力资源→考勤制度”。
+恢复执行说明：规范→本段→Git/diff→新的反馈；保持前轮Equipment/Knowledge/审计成果，不重做或删除历史资料。
+最终报告：outputs/KNOWLEDGE_LEGACY_TREE_FIX.md。
+
+---
+
+## 当前任务：设备状态模板故障原因下拉
+
+任务名称：设备状态填报 Excel 模板故障原因字典下拉。
+任务目标：模板与页面/导入/保存共用启用的 equipmentFaultReason 字典；保留表头、业务校验和权限。
+当前状态：已完成 / 已上线验收通过。开始HEAD：7c3e088；最终HEAD/API/Worker：b1b844704c6553ae5ea328724eb019a85e6ee708。
+最后更新时间：2026-10-12 13:22（Asia/Shanghai）。
+当前阶段：最终交付完成；当前子任务：无。
+已完成：规范/技能/进度/Git及现有模板/页面/preview/saveStatus/导入检查；原SQL抽取faultReasonOptions()供页面/模板共用；veryHidden数据字典、EquipmentFaultReasons命名区域、单个I2:I2000列表校验、允许留空。
+已完成修正：实际XML发现ExcelJS逐单元格序列化重叠范围，改用其范围API并补XML单范围测试；最终文件检查无重叠、无空白数据行。
+已完成备份：20261012_130731双库custom dumps+uploads（含.private），pg_restore目录、三个SHA256复核/600权限通过；原API与Worker镜像已保留回滚。
+源码提交：74203e8、b1b8447，共4个相关源码/测试文件，未push；outputs记录留工作区。
+已完成部署：标准./scripts/deploy.sh api返回0；HEAD/API/Worker一致b1b8447，Web保留ca0d7d7（源码不变/未重建）。四服务healthy，Dispatcher active，原PG容器/mount/内部postgres:5432连接不变。
+已完成真实验收：管理员Chrome3组通过：登录/权限、页面导出模板HTTP200、页面与模板当前5字典一致及I2:I2000全部单元格；最终ZIP/XML仅1个校验范围、veryHidden及A2:A6命名引用正确；无凭据记录、按logout结束、无业务/字典/账号权限修改。
+正在进行：无。
+待完成：无本轮开发/部署/验收遗留。
+修改文件：equipment-export.service.ts/spec.ts、equipment.query.service.ts/spec.ts；本进度/验收报告/安全JSON证据及实际xlsx模板。
+数据库 Migration：无；API契约/后端业务校验/新增依赖：无。
+新增或修改测试：6项专项；全范围校验/单范围XML、实时启用/停用/新增字典与页面一致、空字典、含辅助表和空行的模板填报导入、Query过滤/排序/无缓存；原下载权限/表头测试保留。
+已运行测试：最终API101套870项通过/1既有skip；API typecheck/lint/build均通过；最终Docker构建/标准部署、healthcheck、真实Chrome3组、OpenXML及未登录401通过。首轮中文引用引号断言/脚本精确图标名称定位已修正，不是未解决问题。
+当前已知问题：无未解决运行异常。桌面Excel/WPS人工点击未执行；生产未为验收新增/停用字典或提交导入，动态字典和导入由自动化覆盖。
+等待用户确认：无。
+下一步：无执行遗留；用户可按报告人工复验下载的模板及故障原因下拉。
+恢复执行说明：规范→本段→Git/diff→新的反馈；保持本轮/前轮记录，不重做Knowledge/审计。
+最终报告：outputs/EQUIPMENT_FAULT_REASON_TEMPLATE_ACCEPTANCE.md。
+实际模板：outputs/equipment_status_template_2026-10-12.xlsx。
+
+---
+
 ## 当前任务：Knowledge权限入口优化
 
 任务名称：Knowledge管理工作台权限入口名称与布局。

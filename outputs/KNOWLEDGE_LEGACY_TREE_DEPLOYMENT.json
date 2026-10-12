@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "HEAD": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "API": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "Worker": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "Web": "ca0d7d7d9ab99aaf0eadf076aed443525826c482",
+  "webSourceUnchanged": true,
+  "health": {
+    "knplan-api-1": "healthy",
+    "knplan-web-1": "healthy",
+    "knplan-postgres-1": "healthy",
+    "knplan-document-worker-1": "healthy"
+  },
+  "PostgreSQLMountUnchanged": true,
+  "notificationsDispatcher": "active",
+  "affectedSqlErrorsAfterDeployment": 0,
+  "browserChecks": 6,
+  "knowledgeTableIntegrity": "14 tables unchanged",
+  "command": "./scripts/deploy.sh api"
+}

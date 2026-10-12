@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "HEAD": "b1b844704c6553ae5ea328724eb019a85e6ee708",
+  "API": "b1b844704c6553ae5ea328724eb019a85e6ee708",
+  "Worker": "b1b844704c6553ae5ea328724eb019a85e6ee708",
+  "Web": "ca0d7d7d9ab99aaf0eadf076aed443525826c482",
+  "WebSourceUnchanged": true,
+  "deploymentCommand": "./scripts/deploy.sh api",
+  "health": {
+    "knplan-api-1": "healthy",
+    "knplan-web-1": "healthy",
+    "knplan-postgres-1": "healthy",
+    "knplan-document-worker-1": "healthy"
+  },
+  "PostgresMountUnchanged": true,
+  "unauthenticatedTemplateDownload": 401,
+  "notificationsDispatcher": "active"
+}

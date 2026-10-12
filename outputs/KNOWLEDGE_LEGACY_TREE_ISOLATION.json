@@ -1,0 +1,12 @@
+{
+  "container": "kdos-knowledge-legacy-test-1791783151",
+  "socketRoot": "/tmp/kdos-knowledge-pg-r50u6io7",
+  "socket": "/tmp/kdos-knowledge-pg-r50u6io7/socket",
+  "network": "none",
+  "publishedPorts": [],
+  "storage": "temporary tmpfs only",
+  "testDatabasesRemaining": 0,
+  "testContainerRemoved": true,
+  "status": "PASS",
+  "newGinPendingListNormalizedBeforeExplain": true
+}

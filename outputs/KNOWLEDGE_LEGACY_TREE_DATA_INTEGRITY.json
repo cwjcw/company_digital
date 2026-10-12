@@ -1,0 +1,78 @@
+{
+  "status": "PASS",
+  "tableCount": 14,
+  "allCountsAndFingerprintsEqual": true,
+  "tables": [
+    {
+      "table": "knowledge_file_assets",
+      "count": 4,
+      "fingerprint": "8b997e5c87d1db9e33a22333dab0a7ba"
+    },
+    {
+      "table": "knowledge_file_previews",
+      "count": 3,
+      "fingerprint": "0e5de43dbfa263a7452058a2ef0fd6a6"
+    },
+    {
+      "table": "knowledge_file_upload_requests",
+      "count": 63,
+      "fingerprint": "c5a9d4ef9ef21c7e064da67974d5503d"
+    },
+    {
+      "table": "knowledge_folders",
+      "count": 12,
+      "fingerprint": "a65f76308b254a125110752c3eb67f38"
+    },
+    {
+      "table": "knowledge_page_access",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_page_files",
+      "count": 4,
+      "fingerprint": "f19772501f5813b7aff201617214937f"
+    },
+    {
+      "table": "knowledge_page_tags",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_page_version_files",
+      "count": 2,
+      "fingerprint": "a031d1907b8123cbfa5a53745bc22259"
+    },
+    {
+      "table": "knowledge_page_versions",
+      "count": 3,
+      "fingerprint": "68bcb375f3ee3994a0390a56ef88289e"
+    },
+    {
+      "table": "knowledge_pages",
+      "count": 5,
+      "fingerprint": "68183c1a9371f78e92518da54a2fff66"
+    },
+    {
+      "table": "knowledge_space_access",
+      "count": 2,
+      "fingerprint": "fbcc79a1a8d325c599f40da9a9f8a37d"
+    },
+    {
+      "table": "knowledge_spaces",
+      "count": 2,
+      "fingerprint": "c09fcfb4dd607c4c16bf5fb7a4957dc0"
+    },
+    {
+      "table": "knowledge_storage_cleanup",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_tags",
+      "count": 5,
+      "fingerprint": "8cfa55d7c718055ce214079d08671d9f"
+    }
+  ],
+  "hrDirectoryUnchanged": true
+}

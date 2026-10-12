@@ -1,0 +1,180 @@
+{
+  "mode": "READ ONLY",
+  "integrity": [
+    {
+      "table": "knowledge_file_assets",
+      "count": 4,
+      "fingerprint": "8b997e5c87d1db9e33a22333dab0a7ba"
+    },
+    {
+      "table": "knowledge_file_previews",
+      "count": 3,
+      "fingerprint": "0e5de43dbfa263a7452058a2ef0fd6a6"
+    },
+    {
+      "table": "knowledge_file_upload_requests",
+      "count": 63,
+      "fingerprint": "c5a9d4ef9ef21c7e064da67974d5503d"
+    },
+    {
+      "table": "knowledge_folders",
+      "count": 12,
+      "fingerprint": "a65f76308b254a125110752c3eb67f38"
+    },
+    {
+      "table": "knowledge_page_access",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_page_files",
+      "count": 4,
+      "fingerprint": "f19772501f5813b7aff201617214937f"
+    },
+    {
+      "table": "knowledge_page_tags",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_page_version_files",
+      "count": 2,
+      "fingerprint": "a031d1907b8123cbfa5a53745bc22259"
+    },
+    {
+      "table": "knowledge_page_versions",
+      "count": 3,
+      "fingerprint": "68bcb375f3ee3994a0390a56ef88289e"
+    },
+    {
+      "table": "knowledge_pages",
+      "count": 5,
+      "fingerprint": "68183c1a9371f78e92518da54a2fff66"
+    },
+    {
+      "table": "knowledge_space_access",
+      "count": 2,
+      "fingerprint": "fbcc79a1a8d325c599f40da9a9f8a37d"
+    },
+    {
+      "table": "knowledge_spaces",
+      "count": 2,
+      "fingerprint": "c09fcfb4dd607c4c16bf5fb7a4957dc0"
+    },
+    {
+      "table": "knowledge_storage_cleanup",
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "knowledge_tags",
+      "count": 5,
+      "fingerprint": "8cfa55d7c718055ce214079d08671d9f"
+    }
+  ],
+  "spaces": [
+    {
+      "id": "01a11b1f-143b-75e5-87b3-6942358c8755",
+      "name": "人力资源"
+    }
+  ],
+  "pages": [
+    {
+      "id": "01a1213c-efa6-730d-bcb6-57f5f64fab63",
+      "title": "主计划系统需求规格说明书_v1.0",
+      "parent_id": null,
+      "folder_id": null,
+      "status": "TRASHED"
+    },
+    {
+      "id": "01a1213c-ee57-752a-9407-4e21bd1380c3",
+      "title": "出货计划表-四部",
+      "parent_id": null,
+      "folder_id": null,
+      "status": "TRASHED"
+    },
+    {
+      "id": "01a1213c-eef9-72bf-ac88-e7f1b3dd2801",
+      "title": "客户事业部映射-导入模板",
+      "parent_id": null,
+      "folder_id": null,
+      "status": "TRASHED"
+    },
+    {
+      "id": "01a1236a-53ae-7077-a0ec-59bbf5575fa4",
+      "title": "规章制度",
+      "parent_id": null,
+      "folder_id": null,
+      "status": "TRASHED"
+    },
+    {
+      "id": "01a1213c-ed7f-70e9-8869-cde361035c74",
+      "title": "起诉状",
+      "parent_id": null,
+      "folder_id": null,
+      "status": "TRASHED"
+    }
+  ],
+  "folders": [
+    {
+      "id": "01a1239b-517e-764b-9aa1-a95028810370",
+      "name": "KF_E2E_1791598740127_公司制度",
+      "parent_folder_id": null
+    },
+    {
+      "id": "01a12d87-a0cd-7289-90f3-cf3efad6afe9",
+      "name": "KF_E2E_1791765221178_公司制度",
+      "parent_folder_id": null
+    },
+    {
+      "id": "01a12d92-2242-775a-82c3-60c46695b829",
+      "name": "KF_E2E_1791765910246_公司制度",
+      "parent_folder_id": null
+    },
+    {
+      "id": "01a1239b-56f2-721a-adf2-daf57dc11ec1",
+      "name": "人事制度",
+      "parent_folder_id": "01a1239b-517e-764b-9aa1-a95028810370"
+    },
+    {
+      "id": "01a12d87-a5fb-7319-aaeb-b027692c25ea",
+      "name": "人事制度",
+      "parent_folder_id": "01a12d87-a0cd-7289-90f3-cf3efad6afe9"
+    },
+    {
+      "id": "01a12d92-27b4-70dd-ad58-e9d97534402c",
+      "name": "人事制度",
+      "parent_folder_id": "01a12d92-2242-775a-82c3-60c46695b829"
+    },
+    {
+      "id": "01a1239b-5da4-75ea-ad7e-1d0b95091550",
+      "name": "员工考勤",
+      "parent_folder_id": "01a1239b-56f2-721a-adf2-daf57dc11ec1"
+    },
+    {
+      "id": "01a12d87-ac98-728e-aa95-21809628694b",
+      "name": "员工考勤新版",
+      "parent_folder_id": "01a12d87-a0cd-7289-90f3-cf3efad6afe9"
+    },
+    {
+      "id": "01a12d92-2cff-770e-9ab1-9efa366d4be7",
+      "name": "员工考勤新版",
+      "parent_folder_id": "01a12d92-2242-775a-82c3-60c46695b829"
+    },
+    {
+      "id": "01a12d87-d71c-7413-a2c6-b3235738b4ab",
+      "name": "在线文章空目录",
+      "parent_folder_id": "01a12d87-ac98-728e-aa95-21809628694b"
+    },
+    {
+      "id": "01a12d92-56d6-719e-906c-3366d71edd1b",
+      "name": "在线文章空目录",
+      "parent_folder_id": "01a12d92-2cff-770e-9ab1-9efa366d4be7"
+    },
+    {
+      "id": "01a12e73-f6be-738c-8921-d058367cea21",
+      "name": "考勤制度",
+      "parent_folder_id": null
+    }
+  ]
+}

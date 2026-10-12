@@ -1,0 +1,134 @@
+{
+  "status": "PASS",
+  "deploymentSHA": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "checks": [
+    {
+      "check": "E2E administrator login / permission verification",
+      "status": "PASS"
+    },
+    {
+      "check": "Knowledge management / select Human Resources / published legacy root without internal server error",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual browser working legacy root query HTTP200",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual click Human Resources > Attendance Policy folder / working query HTTP200 / no internal server error",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual published legacy query in Attendance Policy folder HTTP200",
+      "status": "PASS"
+    },
+    {
+      "check": "Real API root/folder × published/working legacyOnly matrix: four HTTP200 responses",
+      "status": "PASS"
+    }
+  ],
+  "responses": [
+    {
+      "path": "/api/v1/knowledge/capabilities",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/folders",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/folders",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "published",
+      "legacyOnly": null,
+      "folderId": ""
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "published",
+      "legacyOnly": "true",
+      "folderId": ""
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "working",
+      "legacyOnly": null,
+      "folderId": ""
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "working",
+      "legacyOnly": "true",
+      "folderId": ""
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/folders",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/folders",
+      "status": 200,
+      "mode": null,
+      "legacyOnly": null,
+      "folderId": null
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "working",
+      "legacyOnly": "true",
+      "folderId": "01a12e73-f6be-738c-8921-d058367cea21"
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "working",
+      "legacyOnly": null,
+      "folderId": "01a12e73-f6be-738c-8921-d058367cea21"
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "published",
+      "legacyOnly": null,
+      "folderId": "01a12e73-f6be-738c-8921-d058367cea21"
+    },
+    {
+      "path": "/api/v1/knowledge/spaces/01a11b1f-143b-75e5-87b3-6942358c8755/tree",
+      "status": 200,
+      "mode": "published",
+      "legacyOnly": "true",
+      "folderId": "01a12e73-f6be-738c-8921-d058367cea21"
+    }
+  ],
+  "space": "人力资源",
+  "folder": "考勤制度",
+  "businessWrites": false,
+  "credentialRecording": false
+}

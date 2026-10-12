@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "file": "outputs/equipment_status_template_2026-10-12.xlsx",
+  "sha256": "0ef4ce43d98d79440699cc9d1e3196e82bea12df4982479c7193146f6d2beecd",
+  "zipCRC": "PASS",
+  "XML": "PASS",
+  "sheetState": "veryHidden",
+  "namedRanges": {
+    "EquipmentFaultReasons": "'数据字典'!$A$2:$A$6"
+  },
+  "validation": {
+    "type": "list",
+    "allowBlank": "1",
+    "showErrorMessage": "1",
+    "errorStyle": "stop",
+    "errorTitle": "故障原因无效",
+    "error": "请从下拉列表选择有效故障原因；无故障时可留空。",
+    "sqref": "I2:I2000"
+  },
+  "formula": "EquipmentFaultReasons"
+}

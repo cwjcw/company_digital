@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "deploymentSHA": "b1b844704c6553ae5ea328724eb019a85e6ee708",
+  "results": [
+    {
+      "check": "E2E login / permissions",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual page template button / HTTP200 XLSX download",
+      "status": "PASS"
+    },
+    {
+      "check": "Live dictionary equals page options; hidden sheet / named range / I2:I2000; headers and empty template unchanged",
+      "status": "PASS"
+    }
+  ],
+  "file": "/data/automation/code/work/PMC/knweb/outputs/equipment_status_template_2026-10-12.xlsx",
+  "sheet": "数据字典",
+  "state": "veryHidden",
+  "validationRange": "I2:I2000",
+  "namedRange": [
+    "'数据字典'!$A$2:$A$6"
+  ],
+  "faultReasons": [
+    "机械故障",
+    "电气故障",
+    "辅助系统故障",
+    "工装刀具故障",
+    "物料工艺故障"
+  ],
+  "credentialRecording": false,
+  "businessWrites": false
+}
