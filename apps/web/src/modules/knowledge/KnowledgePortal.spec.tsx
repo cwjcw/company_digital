@@ -76,7 +76,7 @@ describe("Knowledge employee portal", () => {
     expect(api).toHaveBeenCalledWith("/knowledge/pages/p?mode=published&versionId=v1");expect(screen.queryByText("管理员重试")).toBeNull();
   });
   it("empty Space uses a meaningful directory empty state and no creation selector", async () => {
-    mount("/knowledge/spaces/hr");await screen.findByText("当前文件夹暂无可见知识");expect(screen.getByRole("button",{name:"空间根目录"})).toBeInTheDocument();expect(screen.queryByRole("combobox")).toBeNull();
+    mount("/knowledge/spaces/hr");await screen.findByText("当前文件夹暂无可见知识");expect(screen.queryByRole("button",{name:"空间根目录"})).toBeNull();expect(screen.queryByRole("tree")).toBeNull();expect(screen.queryByRole("combobox")).toBeNull();
   });
   it("network failures provide retry without inventing knowledge rows", async () => {
     const base=vi.mocked(api).getMockImplementation()!;let fail=true;

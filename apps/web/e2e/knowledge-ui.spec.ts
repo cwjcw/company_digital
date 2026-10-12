@@ -22,6 +22,7 @@ const viewer = {
     ),
   ],
 };
+const editor = { ...viewer, sub: "fixture-editor", username: "fixture-editor", displayName: "测试编辑", permissions: [...viewer.permissions, "knowledge-pages:*:create", "knowledge-pages:*:update", "knowledge-pages:*:import", ...tablePermissionFieldsFor("knowledge-pages").map(field => `knowledge-pages:${field.key}:update`)] };
 async function fixtures(
   page: Page,
   user: typeof viewer | typeof admin = admin,
@@ -40,10 +41,10 @@ async function fixtures(
     sortOrder: 0,
     status: "ACTIVE",
     version: 1,
-    accessLevel: user === admin ? "FULL_ACCESS" : "VIEWER",
-    canCreate: user === admin,
+    accessLevel: user === admin ? "FULL_ACCESS" : user === editor ? "EDITOR" : "VIEWER",
+    canCreate: user === admin || user === editor,
     canManage: user === admin,
-    canCreateFolders: user === admin,canEditFolders:user===admin,
+    canCreateFolders: user === admin || user === editor,canEditFolders:user===admin || user===editor,
   };
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request(),
@@ -57,7 +58,7 @@ async function fixtures(
         user,
       };
     else if (path === "/auth/me") result = user;
-    else if (path === "/knowledge/capabilities") result = Object.fromEntries(["canManageFolders", "canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(key => [key, user === admin]));
+    else if (path === "/knowledge/capabilities") result = Object.fromEntries(["canManageFolders", "canManage", "canCreatePages", "canEditPages", "canManagePages", "canCreateSpaces", "canManageSpaces", "canArchive", "canTrash"].map(key => [key, user === admin || user === editor && ["canManageFolders", "canManage", "canCreatePages", "canEditPages"].includes(key)]));
     else if (path === "/knowledge/spaces") result = [space];
     else if(path.endsWith("/folders") && req.method()==="GET") {
       const selected=url.searchParams.get("selectedId"),parent=url.searchParams.get("parentFolderId"),search=url.searchParams.get("search");
@@ -287,7 +288,7 @@ test("real TipTap table/callout/code and folder knowledge creation", async ({
   await expect(page).toHaveURL(/page2\?edit=1/);
   expect(s.drafts.get("page2").parentId).toBe(null);expect(s.drafts.get("page2").folderId).toBe(null);
 });
-test("ordinary employee has Space tree without editor and creation controls", async ({
+test("ordinary employee has a Space list without editor and creation controls", async ({
   page,
 }) => {
   await fixtures(page, viewer);
@@ -301,6 +302,34 @@ test("ordinary employee has Space tree without editor and creation controls", as
   ).toHaveCount(0);
   for (const name of ["空间设置", "已归档页面", "回收站"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
 });
+for (const [name, user] of [["employee", viewer], ["editor", editor], ["administrator", admin]] as const) {
+  test(`one knowledge directory, three folders and legacy paths for ${name}`, async ({ page }) => {
+    const state = await fixtures(page, user);
+    const root = { id: "hr", title: "人力资源", kind: "space" };
+    let parentFolderId: string | null = null;
+    let breadcrumb: { id: string; title: string; kind: string }[] = [root];
+    for (const [id, title] of [["level1", "公司制度"], ["level2", "人事制度"], ["level3", "员工考勤"]]) {
+      breadcrumb = [...breadcrumb, { id, title, kind: "folder" }];
+      state.folders.set(id, { id, name: title, spaceId: "hr", parentFolderId, breadcrumb, version: 1 }); parentFolderId = id;
+    }
+    const article = { id: "article", spaceId: "hr", folderId: "level3", parentId: null, title: "考勤说明", contentMode: "RICH_TEXT", status: "PUBLISHED", breadcrumb: [...breadcrumb, { id: "article", title: "考勤说明", kind: "page" }], content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "考勤正式正文" }] }] } };
+    const legacy = { ...article, id: "legacy", folderId: null, title: "历史制度", breadcrumb: [root, { id: "legacy", title: "历史制度", kind: "page" }] };
+    const child = { ...legacy, id: "legacy-child", parentId: "legacy", title: "历史子制度", breadcrumb: [...legacy.breadcrumb, { id: "legacy-child", title: "历史子制度", kind: "page" }] };
+    for (const record of [article, legacy, child]) { state.published.set(record.id, record); state.drafts.set(record.id, record); }
+    await page.goto("/knowledge/spaces/hr");
+    await expect(page.locator(".knowledge-directory")).toHaveCount(0); await expect(page.getByRole("tree")).toHaveCount(0); await expect(page.getByRole("button", { name: "空间根目录", exact: true })).toHaveCount(0);
+    for (const title of ["公司制度", "人事制度", "员工考勤"]) await page.locator(".knowledge-folder-contents").getByRole("button", { name: title, exact: true }).click();
+    await page.getByRole("button", { name: "考勤说明", exact: true }).click(); await expect(page.getByRole("heading", { name: "考勤说明", exact: true })).toBeVisible(); await expect(page.getByText("考勤正式正文", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "人事制度", exact: true }).click(); await expect(page.getByRole("button", { name: "员工考勤", exact: true })).toBeVisible();
+    await page.locator(".knowledge-folder-contents .ant-breadcrumb").getByRole("button", { name: "人力资源", exact: true }).click();
+    await page.getByRole("button", { name: "浏览子页面：历史制度", exact: true }).click(); await page.getByRole("button", { name: "历史子制度", exact: true }).click(); await expect(page.getByRole("heading", { name: "历史子制度", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "历史制度", exact: true }).click(); await expect(page.getByRole("button", { name: "阅读当前知识", exact: true })).toBeVisible();
+    if (user !== viewer) {
+      await page.goto("/knowledge/manage?spaceId=hr"); await expect(page.locator(".knowledge-management-controls").getByRole("button", { name: "新建知识", exact: true })).toBeVisible(); await expect(page.locator(".knowledge-sidebar")).toHaveCount(0); await expect(page.getByRole("tree")).toHaveCount(0);
+      await page.getByRole("button", { name: "浏览子页面：历史制度", exact: true }).click(); await page.getByRole("button", { name: "历史子制度", exact: true }).click(); await expect(page).toHaveURL(/knowledge\/manage\/pages\/legacy-child/);
+    }
+  });
+}
 test.describe("production credential acceptance", () => {
   test("production existing login and Knowledge permissions", async ({
     page,
@@ -362,7 +391,7 @@ test("sticky editor actions, direct draft publication and title-only reader publ
   await expect(page.getByRole("button", { name: "发布新版本" })).toHaveCount(0);
 });
 
-test("employee portal, published search, stable reading, 105-row lazy directory and mobile layout", async ({ page }) => {
+test("employee portal, published search, stable reading, 105-row paged single directory and mobile layout", async ({ page }) => {
   const state = await fixtures(page, viewer);
   for (let index=1;index<=105;index++) state.published.set(`p${index}`, {
     id:`p${index}`, spaceId:"hr", parentId:null, title:`正式制度${index}`, contentMode:"RICH_TEXT", status:"PUBLISHED", publishedAt:`2026-10-${String(index%9+1).padStart(2,"0")}T01:00:00+08:00`,
@@ -382,9 +411,10 @@ test("employee portal, published search, stable reading, 105-row lazy directory 
   await expect(page.getByRole("heading",{name:"搜索结果",exact:true})).toBeVisible();
   await expect(page.getByText("未发布秘密标题",{exact:true})).toHaveCount(0);
   await page.goto("/knowledge/spaces/hr");
-  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"目录100",exact:true})).toBeVisible();
-  await page.locator(".knowledge-directory").getByTitle("2",{exact:true}).click();
-  await expect(page.locator(".knowledge-directory").getByRole("button",{name:"目录105",exact:true})).toBeVisible();
+  await expect(page.locator(".knowledge-folder-contents").getByRole("button",{name:"目录20",exact:true})).toBeVisible();
+  await page.locator(".knowledge-folder-contents .ant-pagination").first().getByTitle("6",{exact:true}).click();
+  await expect(page.locator(".knowledge-folder-contents").getByRole("button",{name:"目录105",exact:true})).toBeVisible();
+  await expect(page.locator(".knowledge-directory")).toHaveCount(0);
   await page.goto("/knowledge/pages/p1");await expect(page.getByRole("heading",{name:"正式制度1",exact:true})).toBeVisible();
   await expect(page.getByText("正式已发布正文",{exact:true})).toBeVisible();
   for(const name of ["编辑","发布","页面更多操作","新建知识"])await expect(page.getByRole("button",{name,exact:true})).toHaveCount(0);
@@ -441,7 +471,7 @@ for (const width of [1920, 1440, 1280, 768, 390, 320]) {
       if (width >= 1440) expect(rect!.width).toBe(limit);
       if (width <= 600) { expect(rect!.x).toBeGreaterThanOrEqual(12); expect(rect!.x).toBeLessThanOrEqual(16); }
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      if (route.includes("/spaces/") && width > 900) expect((await page.locator(".knowledge-directory").boundingBox())!.width).toBe(240);
+      if (route.includes("/spaces/")) { await expect(page.locator(".knowledge-directory")).toHaveCount(0); expect((await page.locator(".knowledge-portal-space > main").boundingBox())!.width).toBe(rect!.width); }
     }
     // Knowledge's responsive body rule must cease to apply after leaving this module.
     await page.goto("/");

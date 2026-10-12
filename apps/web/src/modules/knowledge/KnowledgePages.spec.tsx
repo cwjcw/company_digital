@@ -452,8 +452,10 @@ describe("Knowledge publishing UX", () => {
     let resolve!: (row: KnowledgePage) => void;
     const fresh = new Promise<KnowledgePage>((r) => { resolve = r; });
     const draft = { ...page, status: "DRAFT" as const, contentMode, publishedVersion: undefined, publishedVersionId: null };
+    let stored: KnowledgePage = draft;
     vi.mocked(api).mockImplementation(async (path, init) => {
-      if (path === "/knowledge/pages/page?mode=working") return init?.cache === "no-store" ? fresh as never : draft as never;
+      if (path === "/knowledge/pages/page?mode=working") return init?.cache === "no-store" ? fresh as never : stored as never;
+      if (path.endsWith("/publish")) { stored = { ...draft, status: "PUBLISHED", version: 12, publishedVersion: 1, publishedVersionId: "v1", hasUnpublishedChanges: false }; return {version:12,publishedVersion:1,publishedVersionId:"v1"} as never; }
       return base(path, init);
     });
     mount(undefined, admin, "/knowledge/manage/pages/page?mode=working");
@@ -468,7 +470,9 @@ describe("Knowledge publishing UX", () => {
     expect(vi.mocked(api).mock.calls.filter(([p]) => p.endsWith("/publish"))).toHaveLength(1);
     expect(vi.mocked(api).mock.calls.some(([,i]) => i?.method === "PATCH")).toBe(false);
     await screen.findByText("页面已发布");
-    await waitFor(() => expect(vi.mocked(api).mock.calls.filter(([p]) => p.includes("/tree")).length).toBeGreaterThan(1));
+    await screen.findByText("发布版本 v1");
+    expect(screen.queryByRole("button", { name: "发布" })).toBeNull();
+    expect(vi.mocked(api).mock.calls.some(([p]) => p.includes("/tree"))).toBe(false);
   });
   it("does not promote repeated publication or claim a draft exists on unchanged published pages", async () => {
     const base = vi.mocked(api).getMockImplementation()!;

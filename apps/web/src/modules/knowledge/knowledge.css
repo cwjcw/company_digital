@@ -67,16 +67,12 @@ body:has(.knowledge-shell) { min-width: 0; }
 .knowledge-result-item { min-width: 0; display: flex; flex-direction: column; gap: 8px; width: 100%; overflow-wrap: anywhere; }
 .knowledge-result-title { font-size: 18px; font-weight: 600; }
 .knowledge-result-path { color: #667085; font-size: 13px; }
-.knowledge-space-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; }
-.knowledge-directory { padding: 16px; background: #fff; border: 1px solid #e8edf3; border-radius: 12px; align-self: start; }
-.knowledge-space-layout main { min-width: 0; }
+.knowledge-portal-space main { min-width: 0; }
 .knowledge-employee-reader { background: #fff; padding: clamp(16px, 3vw, 28px); border-radius: 12px; overflow-wrap: anywhere; }
 .knowledge-reading-full { grid-template-columns: minmax(0, 1fr); }
 .knowledge-employee-reader footer { margin-top: 32px; border-top: 1px solid #e8edf3; padding-top: 20px; }
 .knowledge-management-nav .ant-typography { margin: 0; }
 @media (max-width: 900px) {
-  .knowledge-space-layout { grid-template-columns: minmax(0, 1fr); }
-  .knowledge-directory { max-height: 320px; overflow: auto; }
   .knowledge-shell .knowledge-wiki { grid-template-columns: minmax(0, 1fr); }
   .knowledge-shell .knowledge-sidebar { width: auto; max-height: 360px; overflow: auto; }
   .knowledge-shell .knowledge-reading-grid { grid-template-columns: minmax(0, 1fr); }
@@ -92,7 +88,12 @@ body:has(.knowledge-shell) { min-width: 0; }
 }
 
 .knowledge-folder-tree-link { height: auto; white-space: normal; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
-.knowledge-directory, .knowledge-location-picker { min-width: 0; overflow-x: auto; }
+.knowledge-location-picker { min-width: 0; overflow-x: auto; }
 .knowledge-folder-contents { min-width: 0; }
 .knowledge-folder-contents .ant-list-item { gap: 12px; }
 .knowledge-legacy-note { font-size: 12px; color: #667085; }
+
+.knowledge-management-layout { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.knowledge-management-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px; background: #fff; border: 1px solid #e8edf3; border-radius: 8px; }
+.knowledge-management-secondary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.knowledge-portal-space > main { padding: 20px; background: #fff; border: 1px solid #e8edf3; border-radius: 12px; }

@@ -74,8 +74,7 @@ import {
 } from "./knowledge-ui";
 import type { KnowledgeDraftSession } from "./knowledge-autosave";
 import { KnowledgeFolderContents } from "./KnowledgeFolders";
-import { KnowledgeFolderCreate, KnowledgeFolderTree } from "./KnowledgeFolderTree";
-import { KnowledgePageTree } from "./KnowledgePageTree";
+import { KnowledgeFolderCreate } from "./KnowledgeFolderTree";
 import "./knowledge.css";
 type PageResult = {
   rows: KnowledgePage[];
@@ -107,7 +106,6 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
   const { message, modal } = App.useApp(),
     client = useQueryClient();
   const [spaceId, setSpaceId] = useState<string>(),
-    [refresh, setRefresh] = useState(0),
     [creating, setCreating] = useState<KnowledgeLocationValue>(),
     [validCreation, setValidCreation] = useState(false),
     [validMove, setValidMove] = useState(false),
@@ -165,6 +163,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
     else if (params.get("spaceId") && spaces.data?.some(s=>s.id===params.get("spaceId"))) setSpaceId(params.get("spaceId")!);
     else if (!spaceId && spaces.data?.length) setSpaceId(spaces.data[0]!.id);
   }, [page.data?.spaceId, spaces.data, spaceId, params]);
+  const currentParentId = !id ? params.get("parentId") ?? undefined : undefined;
   const currentFolderId = params.get("folderId") ?? (id ? page.data?.folderId ?? undefined : undefined);
   const selected = spaces.data?.find((s) => s.id === spaceId),
     row = page.data;
@@ -194,7 +193,6 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
   });
   const invalidate = () => {
     void client.invalidateQueries({ queryKey: ["knowledge"] });
-    setRefresh((n) => n + 1);
   };
   const publishFromReader = async () => {
     if (!id || !row || versionId || publishing.current || !canPublishKnowledge(row)) return;
@@ -632,15 +630,15 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         </article>
       </KnowledgeFileContext.Provider>
     );
-  else body = selected ? <KnowledgeFolderContents key={`${selected.id}:${currentFolderId??"root"}`} space={selected} folderId={currentFolderId} working={showWorking} manage onFolder={(folderId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?${new URLSearchParams({spaceId:selected.id,...(folderId?{folderId}:{})})}`);})} onPage={open}/> : <Empty description="选择知识空间开始浏览" />;
+  else body = selected ? <KnowledgeFolderContents key={`${selected.id}:${currentFolderId??"root"}:${currentParentId??""}`} space={selected} folderId={currentFolderId} parentId={currentParentId} working={showWorking} manage onFolder={(folderId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?${new URLSearchParams({spaceId:selected.id,...(folderId?{folderId}:{})})}`);})} onParent={(parentId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?${new URLSearchParams({spaceId:selected.id,...(currentFolderId?{folderId:currentFolderId}:{}),parentId})}`);})} onPage={open}/> : <Empty description="选择知识空间开始浏览" />;
   return (
-    <div className="knowledge-wiki">
-      <aside className="knowledge-sidebar">
+    <div className="knowledge-management-layout">
+      <header className="knowledge-management-controls">
         <Select
           aria-label="知识空间"
           value={spaceId}
           loading={spaces.isLoading}
-          style={{ width: "100%" }}
+          style={{ width: 240, maxWidth: "100%" }}
           options={spaces.data?.map((s) => ({
             value: s.id,
             label: (
@@ -661,7 +659,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         {spaces.error && (
           <Alert type="error" message={(spaces.error as Error).message} />
         )}
-        <Space wrap style={{ margin: "16px 0" }}>
+        <Space wrap>
         {selected?.canCreateFolders && <Button onClick={() => void safely(() => setNewFolder(true))}>新建文件夹</Button>}
 
           {selected?.canCreate &&
@@ -747,21 +745,10 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
                 { value: "published", label: "已发布页面" },
                 { value: "working", label: "工作页面（含草稿）" },
               ]}
-              style={{ width: "100%", marginBottom: 12 }}
+              style={{ width: 220, maxWidth: "100%" }}
             />
           )}
-        {selected && <><Button onClick={() => void safely(() => {setSearch("");navigate(`/knowledge/manage?spaceId=${selected.id}`);})}>空间根目录</Button><KnowledgeFolderTree key={selected.id} spaceId={selected.id} refresh={refresh} onSelect={(folderId) => void safely(() => {setSearch("");navigate(`/knowledge/manage?spaceId=${selected.id}&folderId=${folderId}`);})}/></>}
-        {selected && (
-          <KnowledgePageTree
-            space={selected}
-            legacyOnly
-            folderId={currentFolderId}
-            working={showWorking}
-            refresh={refresh}
-            onOpen={open}
-          />
-        )}
-        <div className="knowledge-sidebar-footer">
+        <div className="knowledge-management-secondary-actions">
           {spaces.data?.some((s) => s.canManage) &&
             hasResourcePermission("knowledge-pages", "update") &&
             capabilities.canArchive && hasFieldPermission("knowledge-pages", "status", "update") && (
@@ -794,7 +781,7 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
               </Button>
             )}
         </div>
-      </aside>
+      </header>
       <main className="knowledge-main">
         {(location.pathname === "/knowledge/manage" || location.pathname === "/knowledge/manage/pages" || location.pathname.startsWith("/knowledge/manage/pages/")) &&
           canManageTablePermissions("knowledge-pages") && (

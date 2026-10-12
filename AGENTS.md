@@ -26,3 +26,10 @@
 - The retired legacy Planning module (97-field / 93-field monthly-plan columns, 14 legacy process definitions such as drawingBom, metalMain, woodMain, frontParts, woodwork, painting, acrylic, bakingPlating, rearPackingParts, assemblyPacking) must not be reintroduced as a formal business contract. Keep only historical migrations and retained read-only data.
 
 See `ARCHITECTURE.md`, `SECURITY.md`, `docs/runbook.md`, and `docs/integration-guide.md` before changing a boundary.
+
+## KDOS 页面导航设计
+
+- 一个业务对象只提供一套主要导航；同一分类或目录不得同时在左侧树与右侧浏览区重复展示。
+- 优先使用清晰的面包屑、单一主内容区和必要操作栏；不重复放置同一能力的按钮、菜单或筛选器。操作表单中的位置选择器可以保留。
+- 页面居中、宽度受控、适当留白；普通员工界面简洁，管理操作按已有权限显示。
+- 删除冗余 UI 必须保留实际业务能力、历史数据和原有链接，不改变授权边界。未来新增模块及页面改造均遵守这些原则。
