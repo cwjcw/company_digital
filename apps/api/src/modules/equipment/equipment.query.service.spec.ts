@@ -1,6 +1,18 @@
 import { EquipmentQueryService } from "./equipment.query.service";
 
 describe("EquipmentQueryService status responsibility", () => {
+  it("loads enabled equipmentFaultReason values in dictionary order without caching", async () => {
+    const dataSource = { query: jest.fn().mockResolvedValueOnce([{ value: "电气故障" }]).mockResolvedValueOnce([{ value: "电气故障" }, { value: "新增原因" }]) };
+    const service = new EquipmentQueryService(dataSource as any);
+    expect(await service.faultReasonOptions()).toEqual(["电气故障"]);
+    expect(await service.faultReasonOptions()).toEqual(["电气故障", "新增原因"]);
+    for (const [sql] of dataSource.query.mock.calls) {
+      expect(sql).toContain("JOIN dictionary_types dt ON dt.id=dv.type_id");
+      expect(sql).toContain("dt.code='equipmentFaultReason' AND dv.enabled=true");
+      expect(sql).toContain("ORDER BY dv.sort_order,dv.value");
+    }
+  });
+
   it("reads responsible people from the equipment master relation for every status page", async () => {
     const row = {
       id: "status-1", equipmentId: "equipment-1", responsibleUserIds: ["user-1"],

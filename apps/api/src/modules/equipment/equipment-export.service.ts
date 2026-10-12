@@ -11,7 +11,7 @@ export class EquipmentExportService {
 
   async statusTemplate(actor: EquipmentActor) {
     if (!["create", "import", "export"].some((action) => hasEquipmentPermission(actor, "equipment-status-report", action))) throw new ForbiddenException("下载模板需要设备状态表的填报、导入或导出权限");
-    return this.workbook([], true);
+    return this.workbook([], true, await this.queries.faultReasonOptions());
   }
 
   async statusExport(input: Record<string, unknown>, actor: EquipmentActor) {
@@ -59,7 +59,7 @@ export class EquipmentExportService {
     return column.kind === "division" ? equipmentDashboardDivisionName(String(value)) : String(value);
   }
 
-  private async workbook(rows: any[], template = false) {
+  private async workbook(rows: any[], template = false, faultReasons: string[] = []) {
     const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("设备状态填报");
     sheet.columns = [
       { header: "事业部", key: "divisionName", width: 16 }, { header: "使用部门", key: "usageDepartmentName", width: 20 },
@@ -71,6 +71,19 @@ export class EquipmentExportService {
     ];
     sheet.getColumn("equipmentCode").numFmt = "@";
     if (template) {
+      const dictionary = workbook.addWorksheet("数据字典", { state: "veryHidden" });
+      dictionary.getCell("A1").value = "故障原因";
+      dictionary.addRows(faultReasons.map((value) => [value]));
+      // Excel 列表校验通过命名区域引用辅助表，避免跨工作表直接引用不兼容。
+      // 字典为空时仅引用空白 A2，允许无故障留空，不制造虚假的可选值。
+      workbook.definedNames.add(`'数据字典'!$A$2:$A$${Math.max(2, faultReasons.length + 1)}`, "EquipmentFaultReasons");
+      for (let row = 2; row <= 2000; row += 1) {
+        sheet.getCell(row, sheet.getColumn("faultReason").number).dataValidation = {
+          type: "list", allowBlank: true, formulae: ["EquipmentFaultReasons"],
+          showErrorMessage: true, errorStyle: "stop", errorTitle: "故障原因无效",
+          error: "请从下拉列表选择有效故障原因；无故障时可留空。"
+        };
+      }
       const notes = workbook.addWorksheet("填写说明");
       notes.getColumn(1).width = 110;
       notes.addRows([

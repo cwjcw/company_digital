@@ -142,9 +142,17 @@ export class EquipmentQueryService {
     const [users, organizations, faultReasons] = await Promise.all([
       this.dataSource.query(`SELECT id,display_name "displayName",enabled FROM users WHERE enabled=true ORDER BY display_name`),
       this.organizationOptions(),
-      this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
+      this.faultReasonOptions()
     ]);
-    return { equipment: [], users, organizations, faultReasons: faultReasons.map((row: any) => row.value) };
+    return { equipment: [], users, organizations, faultReasons };
+  }
+
+  /** 与页面选项共用的有效故障原因；模板权限由导出服务独立检查。 */
+  async faultReasonOptions(): Promise<string[]> {
+    const rows: Array<{ value: string }> = await this.dataSource.query(
+      `SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`
+    );
+    return rows.map((row) => row.value);
   }
 
   async statusFormOptions(actor: EquipmentActor) {
@@ -155,9 +163,9 @@ export class EquipmentQueryService {
     const referenceScope = canCreate ? this.referenceCreationScopeClause(actor, "equipment-status-report", "asset", params) : "1=0";
     const [equipment, faultReasons] = await Promise.all([
       this.dataSource.query(`SELECT asset.id,asset.equipment_code "equipmentCode",asset.equipment_name "equipmentName",asset.division_organization_unit_id "divisionId",asset.division_name_snapshot "divisionName",asset.usage_department_organization_unit_id "usageDepartmentId",asset.usage_department_name_snapshot "usageDepartmentName",asset.planned_startup_minutes "plannedStartupMinutes" FROM equipment_assets asset WHERE asset.tenant_id=$1 AND asset.active=true AND asset.monitored=true AND ${referenceScope} ORDER BY asset.equipment_code,asset.division_name_snapshot`, params),
-      this.dataSource.query(`SELECT dv.value FROM dictionary_values dv JOIN dictionary_types dt ON dt.id=dv.type_id WHERE dt.code='equipmentFaultReason' AND dv.enabled=true ORDER BY dv.sort_order,dv.value`)
+      this.faultReasonOptions()
     ]);
-    return { equipment, users: [], organizations: [], faultReasons: faultReasons.map((row: any) => row.value) };
+    return { equipment, users: [], organizations: [], faultReasons };
   }
 
   async governanceSummary(actor: EquipmentActor) {
