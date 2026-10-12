@@ -12,11 +12,12 @@ function ManagementGate({ section = "pages" }: { section?: "home" | "pages" | "s
   const c = capabilities.data;
   if (capabilities.isPending || capabilities.error) return <KnowledgeQueryState loading={capabilities.isPending} error={capabilities.error} retry={capabilities.refetch} />;
   const pages = !!c && (c.canCreatePages || c.canEditPages || c.canManagePages);
+  const workspace = pages || !!c?.canManageFolders;
   const permitted = !!c && (section === "home" ? c.canManage : section === "pages" ? pages : section === "spaces" ? c.canCreateSpaces || c.canManageSpaces : section === "archive" ? c.canArchive : c.canTrash);
   if (!permitted) return <><Link to="/knowledge">返回知识库</Link><Alert type="warning" message="当前权限不能进入此知识管理区域" /></>;
-  if (section === "home" && !pages) return <Navigate replace to={`/knowledge/manage/${c!.canCreateSpaces || c!.canManageSpaces ? "spaces" : c!.canArchive ? "archive" : "trash"}`} />;
+  if (section === "home" && !workspace) return <Navigate replace to={`/knowledge/manage/${c!.canCreateSpaces || c!.canManageSpaces ? "spaces" : c!.canArchive ? "archive" : "trash"}`} />;
   return <div className="knowledge-management"><nav className="knowledge-management-nav"><Typography.Title level={2}>知识管理</Typography.Title><Space wrap>
-    <Link to="/knowledge">返回知识库</Link>{pages && <Link aria-current={location.pathname === "/knowledge/manage" ? "page" : undefined} to="/knowledge/manage">页面与文件</Link>}
+    <Link to="/knowledge">返回知识库</Link>{workspace && <Link aria-current={location.pathname === "/knowledge/manage" ? "page" : undefined} to="/knowledge/manage">页面与文件</Link>}
     {(c!.canCreateSpaces || c!.canManageSpaces) && <Link to="/knowledge/manage/spaces">空间管理</Link>}
     {c!.canArchive && <Link to="/knowledge/manage/archive">归档管理</Link>}{c!.canTrash && <Link to="/knowledge/manage/trash">回收站</Link>}
   </Space></nav><KnowledgeManagement capabilities={c!} /></div>;
