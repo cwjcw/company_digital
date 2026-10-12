@@ -1,0 +1,20 @@
+{
+  "files": [
+    {
+      "path": "data/backups/four_department_tracker_20261012_125217.backup",
+      "sha256": "60b809d210c83cec7d29f41bb408582c7db2106b60525544be8c8f5c833fbf39",
+      "verified": true
+    },
+    {
+      "path": "data/backups/kdos_20261012_125217.backup",
+      "sha256": "246c3a26ff519664a18e819b369e3d273234ce1049c6e457251c549f1000d39d",
+      "verified": true
+    },
+    {
+      "path": "data/backups/uploads_20261012_125217.tar.gz",
+      "sha256": "e1aacd0fdd4c0f987a544710dae5a5437ccbc766ab9485a713c611b5d595a631",
+      "verified": true
+    }
+  ],
+  "privateFilesIncluded": true
+}

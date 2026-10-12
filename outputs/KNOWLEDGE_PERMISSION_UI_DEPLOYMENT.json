@@ -1,0 +1,14 @@
+{
+  "scope": "web only per docs/runbook.md",
+  "head": "ca0d7d7d9ab99aaf0eadf076aed443525826c482",
+  "web": "ca0d7d7d9ab99aaf0eadf076aed443525826c482",
+  "apiUnchanged": "e498473a1930b7683262982577225d0f8d451bdc",
+  "workerUnchanged": "e498473a1930b7683262982577225d0f8d451bdc",
+  "health": {
+    "knplan-web-1": "healthy",
+    "knplan-api-1": "healthy",
+    "knplan-document-worker-1": "healthy",
+    "knplan-postgres-1": "healthy"
+  },
+  "dispatcher": "active"
+}

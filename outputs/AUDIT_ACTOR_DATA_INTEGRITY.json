@@ -1,0 +1,27 @@
+[
+  {
+    "table": "mps_process_reports",
+    "recordCountUnchanged": true,
+    "actorValuesUnchanged": true
+  },
+  {
+    "table": "mps_weekly_plans",
+    "recordCountUnchanged": true,
+    "actorValuesUnchanged": false
+  },
+  {
+    "table": "mps_shipping_plans",
+    "recordCountUnchanged": true,
+    "actorValuesUnchanged": true
+  },
+  {
+    "table": "equipment_status_reports",
+    "recordCountUnchanged": false,
+    "actorValuesUnchanged": false
+  },
+  {
+    "table": "knowledge_pages",
+    "recordCountUnchanged": true,
+    "actorValuesUnchanged": true
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "readOnly": true,
+  "checkedAt": "2026-10-12T01:46:03.447Z",
+  "tables": {
+    "mps_process_reports": {
+      "records": "2509",
+      "actor_fingerprint": "23980ce1d3ad975e7770b0954673741f"
+    },
+    "mps_weekly_plans": {
+      "records": "2049",
+      "actor_fingerprint": "e63634c9fc6967059047f148fbbf605a"
+    },
+    "mps_shipping_plans": {
+      "records": "1233",
+      "actor_fingerprint": "4aa23a2d86f2ae54b48ed1964b26e856"
+    },
+    "equipment_status_reports": {
+      "records": "6478",
+      "actor_fingerprint": "9d96a79099cfc866e59dc2f1a852337f"
+    },
+    "knowledge_pages": {
+      "records": "5",
+      "actor_fingerprint": "b64107c837889bcec77019e7e32c699a"
+    }
+  }
+}

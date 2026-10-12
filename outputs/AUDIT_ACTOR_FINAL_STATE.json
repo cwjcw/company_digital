@@ -1,0 +1,15 @@
+{
+  "repository": "e498473a1930b7683262982577225d0f8d451bdc",
+  "web": "e498473a1930b7683262982577225d0f8d451bdc",
+  "api": "e498473a1930b7683262982577225d0f8d451bdc",
+  "worker": "e498473a1930b7683262982577225d0f8d451bdc",
+  "consistent": true,
+  "health": {
+    "knplan-api-1": "healthy",
+    "knplan-web-1": "healthy",
+    "knplan-postgres-1": "healthy",
+    "knplan-document-worker-1": "healthy"
+  },
+  "dispatcher": "active",
+  "finalStatus": "awaiting user manual acceptance"
+}

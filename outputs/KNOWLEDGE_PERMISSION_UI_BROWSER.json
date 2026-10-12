@@ -1,0 +1,45 @@
+{
+  "verification": "completed",
+  "results": [
+    {
+      "accountClass": "administrator",
+      "check": "E2E login / current permissions",
+      "status": "verified"
+    },
+    {
+      "accountClass": "administrator",
+      "check": "Space management has exactly one space operation permission entry",
+      "status": "verified"
+    },
+    {
+      "accountClass": "administrator",
+      "check": "Space operation permission route and return context remain functional",
+      "status": "verified"
+    },
+    {
+      "accountClass": "administrator",
+      "check": "Human Resources members/access opens original KnowledgeAccess; four subjects, three access levels; cancelled without saving",
+      "status": "verified"
+    },
+    {
+      "accountClass": "administrator",
+      "check": "Pages/files independent operation permission route and return context",
+      "status": "verified"
+    },
+    {
+      "accountClass": "administrator",
+      "check": "Other KDOS module keeps default permission caption",
+      "status": "verified"
+    },
+    {
+      "accountClass": "employee",
+      "check": "E2E login / current permissions",
+      "status": "verified"
+    },
+    {
+      "accountClass": "employee",
+      "check": "No platform permission entries; both direct permission context APIs reject with 403; account unchanged",
+      "status": "verified"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "readOnly": true,
+  "equipmentAudit": [
+    {
+      "resource": "equipment-status-report",
+      "action": "equipment.status.created",
+      "source": "import",
+      "entries": "106",
+      "first_at": "2026-10-12T01:33:19.835Z",
+      "last_at": "2026-10-12T01:45:08.834Z"
+    },
+    {
+      "resource": "equipment-status-report",
+      "action": "equipment.status.imported",
+      "source": "import",
+      "entries": "2",
+      "first_at": "2026-10-12T01:33:20.526Z",
+      "last_at": "2026-10-12T01:45:08.837Z"
+    }
+  ],
+  "scheduledSync": [
+    {
+      "sync_key": "inbound-allocation",
+      "run_type": "SCHEDULED",
+      "status": "SUCCESS",
+      "started_at": "2026-10-12T01:43:31.910Z",
+      "completed_at": "2026-10-12T01:43:32.074Z",
+      "sync_count": 14
+    }
+  ]
+}

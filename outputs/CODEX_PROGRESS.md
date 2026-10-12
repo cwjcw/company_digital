@@ -1,25 +1,63 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge权限入口优化
+
+任务名称：Knowledge管理工作台权限入口名称与布局。
+任务目标：空间操作权限、页面与文件操作权限分开；成员与权限复用KnowledgeAccess；不改权限模型/API/数据库。
+当前状态：已完成 / 已上线验证通过。开始HEAD：e498473a1930b7683262982577225d0f8d451bdc；结束/部署Web HEAD：ca0d7d7d9ab99aaf0eadf076aed443525826c482。
+最后更新时间：2026-10-12 13:00（Asia/Shanghai）。
+当前阶段：最终交付完成；当前子任务：无。
+已完成：AGENTS、技能权限规则、既有进度、Git、Settings/Management/Access/公共按钮和测试检查；工作区仅前轮outputs修改，保持原样。
+实际发现：Settings显式两个权限按钮，KdosDataTable还自动增加一个；应移除手动重复按钮，给表格自动权限按钮传入名称。
+已完成实现：可选label/default权限管理及自动表格caption，Settings单一空间按钮，页面与文件顶部独立按钮，成员与权限原KnowledgeAccess。
+已完成备份：20261012_125217双库custom dumps和uploads含.private，三个SHA256复核通过；提交ca0d7d7d9ab99aaf0eadf076aed443525826c482，4源码/测试文件，未push。
+已完成部署：deploy.sh web返回0，HEAD/Web=ca0d7d7；API/Worker保持e498473（未改/未重建），不声称全栈同新SHA；四服务healthy、Dispatcher active。
+已完成真实Chrome：管理员6组、员工2组，共8组通过；实际人力资源成员与权限四对象三级、两个平台路由及返回、其他模块默认文案、员工无入口及API403。未保存授权/业务资料，按logout结束，凭据无输出或落盘。
+正在进行：无。
+待完成：无本轮开发或交付遗留。
+修改文件：KnowledgeSettings.tsx、KnowledgePages.tsx、shared/KdosDataTable.tsx、KnowledgePermissionUi.spec.tsx；仅入口布局/名称/两个可选caption参数。
+数据库 Migration：无；API/授权规则：不变；依赖：无。
+新增或修改测试：12项入口及角色/ACL回归，含管理员/模块管理员/FULL_ACCESS负责人/普通员工/其他模块管理员与四对象三级控件；共享label默认回归。
+已运行测试：新增12项通过；原Knowledge Settings/Pages共36项首轮通过，新专项最初Ant Select同名标签定位失败已修正；API权限组/Knowledge controller/scope4套29项通过；Web typecheck/lint通过（仅原Portal warning）。最终Web全量44文件339项通过，Web build通过；仅原Portal/chunk/PDF Node warning。
+当前已知问题：无未解决异常。负责人/HR总监真实账号及真实模块管理员没有凭据，未声称生产登录通过；对应可见性自动化覆盖。未修改权限模型/API/数据库/账号，未在生产保存权限。
+等待用户确认：无；已授权部署，账号权限不可修改。
+下一步：无执行遗留；用户可按验收报告查看两个独立入口及人力资源成员与权限。
+恢复执行说明：规范→本段→Git状态/diff→第一项未完成；保留前轮outputs与审计修复，不重写Knowledge权限模型。
+最终报告：outputs/KNOWLEDGE_PERMISSION_UI_ACCEPTANCE.md。
+
+---
+
 ## 当前任务：KDOS-AUDIT-ACTOR-IDENTITY-001
 
 任务名称：统一创建人/更新人审计身份显示与筛选语义。
-任务目标：先只读确认服务器根因、5个UUID及公共表格/筛选/打印影响；用户确认后再实施公共修复。
-当前状态：ROOT CAUSE CONFIRMED；第一阶段已完成，等待用户确认后实施。整个修复任务尚未完成。
-最后更新时间：2026-10-12 09:05（Asia/Shanghai）。
-当前阶段：根因报告已交付；当前子任务：等待用户确认公共修复设计。
-已完成：读取用户附件第十三节阶段门控、项目规范、kdos-form-platform技能；实际HEAD d51d6820d9ee9578da3111af4f18988f5c33b4e7，源码无未提交修改；确认updatedBy=text、公共表格姓名解析、候选按text返回原值、目录包含停用用户而memberCandidates只包含enabled=true。
-已完成只读核验：HEAD/Web/API/Worker均d51d682、四容器healthy；5个UUID分别王家威/吴建修/丁才春/李虹/何辉，全部存在且启用、全部属于工序报工updated_by；2509条报工/12更新主体均可解析；356条停用系统创建人被候选排除，另5个启用创建人/1169条因目录前201限制漏选；目录852/启用755/停用97。54契约资源中50有审计字段；标准打印/XLSX当前均默认排除审计列，无实际审计列UUID输出。生产所有查询READ ONLY，无数据写入。
-正在进行：无执行中的修改。
-待完成：等待用户确认公共修复方案；确认后实施、测试、备份部署和验收。
-修改文件：本进度及 outputs/AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md；原Knowledge outputs记录保留，源码未修改。
-数据库 Migration：无，当前阶段禁止。
-新增或修改测试：无，当前阶段未实施。
-已运行测试：未运行；当前只读调查，不将静态分析当作测试通过。
-当前已知问题：更新人候选按text显示UUID；创建人候选遗漏停用用户及前201之外的启用用户。尚未修复，不能表述为已上线。截图未提供，未声称实际浏览器复现同一弹层姓名/UUID混排。
-等待用户确认：根因报告完成后，按用户附件第十三节“我确认根因报告后再进入正式修改”。
-下一步：1. 取得用户对根因报告及公共设计的确认（必要阶段门控）。2. 实施公共AuditIdentityResolver/审计语义，保留稳定值和普通member启用规则。3. 运行相关回归、lint/typecheck/build，再备份部署与真实界面验收。
-恢复执行说明：项目规范→本段→git status/diff→第一项未完成；前轮Knowledge文件夹任务已完成，勿重做；保留无关outputs和全部历史数据。
+任务目标：公共Audit Actor metadata/resolver、可见值优先的候选、Web/合法输出一致；不改历史或普通成员规则。
+当前状态：等待人工验收。开发、验证、备份及正式部署已完成；按用户要求不自行判最终PASS。
+最后更新时间：2026-10-12 09:58（Asia/Shanghai）。
+当前阶段：上线交付及报告已完成；当前子任务：用户人工验收。
+开始HEAD：4ef33128116fe5e523e09b71b4555d42849f82a5；与根因基线d51d682相比仅13个outputs文件提交，无源码差异；工作区干净。
+已完成：规范/技能/根因报告恢复、确认新版附件和Git差异；此前根因只读证据保留于AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md。
+已完成实现：共享format=auditActor与格式函数、API批量AuditActorIdentityResolver、授权DISTINCT候选+有界keyset姓名搜索、Web表格/eq候选统一、合法审计print/export共用解析且默认不输出。
+已完成备份：scripts/backup.sh双库custom dumps及uploads（含.private），目录可读性和三个SHA256复核通过，见AUDIT_ACTOR_BACKUP_VERIFIED.json。
+源码提交：3f8f573efb0b5b7c17a3a42a858b6a553d549a5c，14文件，未push；只outputs未提交。
+部署异常：首次deploy all中API因MasterPlanSystemModule重复注册FieldCandidateService、resolver不可见而启动失败，停止该轮部署。原镜像不可用，旧Worker image恢复尝试未生效；随后复制仅修正DI的本地编译master-plan.module.js到API可写层并restart，恢复健康。临时override没有改项目compose，误建的空knplan_default network已删除；无卷/数据/密码/权限变化。该临时运行补丁将由正式二次deploy all替换。
+已完成DI修正：主计划复用TableFilterModule导出的FieldCandidateService；新增真实Nest模块compile测试，不mock候选/resolver，验证模块边界可解析。API全量最终101套864通过/1原skip、API lint/typecheck/build通过；Web源未再改，之前327全量通过仍有效。保留安全的同源API恢复镜像（仅编译模块、无运行时凭据）。
+第二次正式部署：e498473a1930b7683262982577225d0f8d451bdc，HEAD/Web/API/Worker一致、deploy all/check/healthcheck返回0，四容器healthy，Dispatcher active；临时API运行补丁已被正式镜像替换。
+已完成线上只读验证：真实管理员登录及5模块10审计候选、5个姓名搜索+原UUID实际SQL、真实高级筛选选择5名/提交原UUID/表格名称一致通过；真实列头脚本定位修正后继续。
+数据核验：工序2509/出货1233/知识5及原设备6258的actor指纹一致；同期2次既有设备导入新增106条，SCHEDULED inbound-allocation sync_count14更新14周计划，均已只读审计确认，未回填还原。
+已完成真实Chrome验证：18组（管理员登录/权限、五模块10候选、五姓名搜索/原UUID命中、高级及列头）；无凭据/录制，按原logout结束。
+正在进行：无自动执行中的开发，等待用户人工验收。
+待完成：用户按报告重点确认工序报工更新人五个人名；无本轮开发/测试/部署遗留。
+修改文件：16个公共契约/API/Web/resolver/模块注入/测试/SQL脚本/说明；两提交3f8f573、e498473，未push；完整清单见报告。
+数据库 Migration：不需要；禁止历史回填、业务写入及权限/flags修改。
+新增或修改测试：Resolver9、candidate8、print/export3、Nest模块1（API新增21）；Web新增8；一次性测试库7组真实SQL，已删除测试库。
+已运行测试：定向API6套32项、API全量100套863项通过/1既有skip；隔离PostgreSQL7组真实SQL通过并删除临时库；新增Web8项通过（首轮图标按钮名称定位失败已修正）；API/Web typecheck与lint通过，Web仅原Portal Fast Refresh warning。使用生产Node24.19二进制运行。
+当前已知问题：无未解决运行异常。首轮Web并行超时及首次部署DI异常已修复/验证，细节见报告；最终API101套864通过/1原skip、Web43文件327通过、隔离SQL7组、root质量及修正后API质量通过。原Portal/chunk/ts-jest警告保持。普通员工生产场景/50资源逐页浏览未执行，未声称通过。
+等待用户确认：最终人工验收，无需重复授权实施/部署。
+下一步：1. 用户按报告确认高级/列头五姓名与表格一致。2. 有反馈时从实际HEAD e498473继续，不重做根因/旧Knowledge。
+恢复执行说明：规范→本段→Git状态/diff→第一项未完成，继续已有实现；前轮Knowledge已完成，不重做；凭据仅运行时，不输出或落入报告。
 根因报告：[AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md](AUDIT_ACTOR_IDENTITY_ROOT_CAUSE.md)。
+最终报告：[AUDIT_ACTOR_IDENTITY_ACCEPTANCE.md](AUDIT_ACTOR_IDENTITY_ACCEPTANCE.md)。
+状态证据：AUDIT_ACTOR_FINAL_STATE.json；真实界面：AUDIT_ACTOR_IDENTITY_LIVE.json；备份：AUDIT_ACTOR_BACKUP_VERIFIED.json。
 
 ---
 

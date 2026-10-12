@@ -1,0 +1,92 @@
+{
+  "verification": "completed; awaiting user manual acceptance",
+  "results": [
+    {
+      "check": "E2E login / administrator permissions",
+      "status": "verified"
+    },
+    {
+      "check": "mps-process-reports createdBy authorized candidate labels",
+      "status": "verified",
+      "count": 11
+    },
+    {
+      "check": "mps-process-reports updatedBy authorized candidate labels",
+      "status": "verified",
+      "count": 12
+    },
+    {
+      "check": "mps-weekly-plans createdBy authorized candidate labels",
+      "status": "verified",
+      "count": 2
+    },
+    {
+      "check": "mps-weekly-plans updatedBy authorized candidate labels",
+      "status": "verified",
+      "count": 2
+    },
+    {
+      "check": "equipment-status-report createdBy authorized candidate labels",
+      "status": "verified",
+      "count": 28
+    },
+    {
+      "check": "equipment-status-report updatedBy authorized candidate labels",
+      "status": "verified",
+      "count": 29
+    },
+    {
+      "check": "supervision-tasks createdBy authorized candidate labels",
+      "status": "verified",
+      "count": 1
+    },
+    {
+      "check": "supervision-tasks updatedBy authorized candidate labels",
+      "status": "verified",
+      "count": 1
+    },
+    {
+      "check": "users createdBy authorized candidate labels",
+      "status": "verified",
+      "count": 2
+    },
+    {
+      "check": "users updatedBy authorized candidate labels",
+      "status": "verified",
+      "count": 3
+    },
+    {
+      "check": "王家威 search label and original UUID exact filtered records",
+      "status": "verified",
+      "total": 205
+    },
+    {
+      "check": "吴建修 search label and original UUID exact filtered records",
+      "status": "verified",
+      "total": 176
+    },
+    {
+      "check": "丁才春 search label and original UUID exact filtered records",
+      "status": "verified",
+      "total": 219
+    },
+    {
+      "check": "李虹 search label and original UUID exact filtered records",
+      "status": "verified",
+      "total": 441
+    },
+    {
+      "check": "何辉 search label and original UUID exact filtered records",
+      "status": "verified",
+      "total": 294
+    },
+    {
+      "check": "Real browser advanced updatedBy filter: five names, raw UUID submitted, matching table label",
+      "status": "verified"
+    },
+    {
+      "check": "Real browser updatedBy header filter: same five readable names",
+      "status": "verified"
+    }
+  ]
+}
