@@ -1,5 +1,6 @@
 import { equipmentDashboardExportDefinitions, equipmentDashboardExportTables, equipmentDashboardFilename } from "@kdos/contracts";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { EquipmentImportService } from "./equipment-import.service";
 import { EquipmentQueryService } from "./equipment.query.service";
 import { EquipmentExportService } from "./equipment-export.service";
@@ -43,6 +44,15 @@ describe("status template fault reason dropdown", () => {
     }
     expect(sheet.getCell("I1").dataValidation).toBeUndefined();
     expect(sheet.getCell("I2001").dataValidation).toBeUndefined();
+  });
+  it("serializes exactly one list validation range I2:I2000 without overlaps or blank rows", async () => {
+    const buffer = await service.statusTemplate(importer);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("xl/worksheets/sheet1.xml")!.async("string");
+    expect(xml.match(/<dataValidation\b/g)).toHaveLength(1);
+    expect(xml).toContain('sqref="I2:I2000"');
+    expect(xml).toContain("<formula1>EquipmentFaultReasons</formula1>");
+    expect((await load(buffer)).getWorksheet("设备状态填报")!.actualRowCount).toBe(1);
   });
   it("uses the live enabled dictionary shared with page options and refreshes after dictionary changes", async () => {
     const values = [{ value: "机械故障", enabled: true }, { value: "停用原因", enabled: false }];

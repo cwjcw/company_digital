@@ -77,13 +77,17 @@ export class EquipmentExportService {
       // Excel 列表校验通过命名区域引用辅助表，避免跨工作表直接引用不兼容。
       // 字典为空时仅引用空白 A2，允许无故障留空，不制造虚假的可选值。
       workbook.definedNames.add(`'数据字典'!$A$2:$A$${Math.max(2, faultReasons.length + 1)}`, "EquipmentFaultReasons");
-      for (let row = 2; row <= 2000; row += 1) {
-        sheet.getCell(row, sheet.getColumn("faultReason").number).dataValidation = {
-          type: "list", allowBlank: true, formulae: ["EquipmentFaultReasons"],
-          showErrorMessage: true, errorStyle: "stop", errorTitle: "故障原因无效",
-          error: "请从下拉列表选择有效故障原因；无故障时可留空。"
-        };
-      }
+      // ExcelJS 4 的公开范围校验 API 缺少类型声明；直接添加范围可避免
+      // 逐单元格写入时序列化产生重叠范围，也不会创建 1999 个空白行。
+      const validations = (sheet as ExcelJS.Worksheet & {
+        dataValidations: { add(range: string, validation: ExcelJS.DataValidation): void };
+      }).dataValidations;
+      const faultReasonColumn = sheet.getColumn("faultReason").letter;
+      validations.add(`${faultReasonColumn}2:${faultReasonColumn}2000`, {
+        type: "list", allowBlank: true, formulae: ["EquipmentFaultReasons"],
+        showErrorMessage: true, errorStyle: "stop", errorTitle: "故障原因无效",
+        error: "请从下拉列表选择有效故障原因；无故障时可留空。"
+      });
       const notes = workbook.addWorksheet("填写说明");
       notes.getColumn(1).width = 110;
       notes.addRows([
