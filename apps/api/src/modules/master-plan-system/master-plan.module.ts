@@ -9,7 +9,6 @@ import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service"
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MasterPlanWorkOrderService } from "./master-plan.work-order.service";
 import { OrganizationDirectoryModule } from "../organization-directory/organization-directory.module";
-import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 import { TableFilterModule } from "../../common/filtering/table-filter.module";
 import { MasterPlanFilterSourceProvider } from "./master-plan.filter-sources";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -17,7 +16,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
   controllers: [MasterPlanController],
-  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, FieldCandidateService, MasterPlanFilterSourceProvider],
+  providers: [AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}
