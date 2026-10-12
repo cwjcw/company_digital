@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "HEAD": "468af4dd88f0a7b1723d2a0202ee06932b2040ed",
+  "Web": "468af4dd88f0a7b1723d2a0202ee06932b2040ed",
+  "API": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "Worker": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "apiAndSharedSourceUnchanged": true,
+  "health": {
+    "knplan-api-1": "healthy",
+    "knplan-web-1": "healthy",
+    "knplan-postgres-1": "healthy",
+    "knplan-document-worker-1": "healthy"
+  },
+  "command": "./scripts/deploy.sh web",
+  "notificationsDispatcher": "active",
+  "adminChecks": 8,
+  "strictPaintedPDFCheck": "PASS",
+  "cleanup": "PASS: 4 owned pages, 3 folder tombstones; audits/idempotency retained",
+  "originalKnowledgeRecords": "14 tables: all original row hashes preserved"
+}

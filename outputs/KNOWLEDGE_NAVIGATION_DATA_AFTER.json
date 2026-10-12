@@ -1,0 +1,526 @@
+{
+  "mode": "READ ONLY",
+  "integrity": [
+    {
+      "table": "knowledge_file_assets",
+      "count": 4,
+      "hashes": [
+        {
+          "hash": "6d104d20bd7d2210ecfdfb8f4e1ed090",
+          "count": 1
+        },
+        {
+          "hash": "9afb59e5c3ced52e97202bbf53352e64",
+          "count": 1
+        },
+        {
+          "hash": "bdbc7ad0b750962cc3872e828ed2434b",
+          "count": 1
+        },
+        {
+          "hash": "d8b0b21204403a699c6ebb84a3d306ca",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_file_previews",
+      "count": 3,
+      "hashes": [
+        {
+          "hash": "0c230f0a3d5d7e68631e49e76dc87e47",
+          "count": 1
+        },
+        {
+          "hash": "60a2e6f0f35295d0bc68abf0e0224346",
+          "count": 1
+        },
+        {
+          "hash": "7aca6bb538b8249524619b54200d866f",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_file_upload_requests",
+      "count": 65,
+      "hashes": [
+        {
+          "hash": "057c42e417a7fd7a6052f773bec40311",
+          "count": 1
+        },
+        {
+          "hash": "05c6925fc8f3058b0f7c4a17075644e5",
+          "count": 1
+        },
+        {
+          "hash": "0b3fe05257bc5b90781d75b617410399",
+          "count": 1
+        },
+        {
+          "hash": "0d0c19059cd51a00a885394d122ad267",
+          "count": 1
+        },
+        {
+          "hash": "0f76656c244725af9b3c023e9c3c82b7",
+          "count": 1
+        },
+        {
+          "hash": "128488592e507291aacea4675ad1ad5c",
+          "count": 1
+        },
+        {
+          "hash": "138572f228065a0d3f3778766d06aebc",
+          "count": 1
+        },
+        {
+          "hash": "155e578d0fa805103322ca34597a16b7",
+          "count": 1
+        },
+        {
+          "hash": "16faa011455e71538cc4396b2c74dfe9",
+          "count": 1
+        },
+        {
+          "hash": "2cfa71e59de14dff58443b2bf1988e52",
+          "count": 1
+        },
+        {
+          "hash": "306f3387145a1558cdfea52546ce50b3",
+          "count": 1
+        },
+        {
+          "hash": "32bdce48e8a21c978073aba56088e366",
+          "count": 1
+        },
+        {
+          "hash": "34d1b6518b77d502008baf9d3cbeed99",
+          "count": 1
+        },
+        {
+          "hash": "36ac3e1c438bc02f4d56969981ad8cca",
+          "count": 1
+        },
+        {
+          "hash": "386a2324711a62d2ccdd868d75097384",
+          "count": 1
+        },
+        {
+          "hash": "3c1b3e032636b60cc35dd4d3fee2207d",
+          "count": 1
+        },
+        {
+          "hash": "3f89d4a0cfd8fbf97e80da962ff5837a",
+          "count": 1
+        },
+        {
+          "hash": "4498e36f96a4b3d2dea755f2ac64e630",
+          "count": 1
+        },
+        {
+          "hash": "4506d6c7a17dd1b995f82ab7cec8801f",
+          "count": 1
+        },
+        {
+          "hash": "49853ccc9f556f73aa56985b10b8739a",
+          "count": 1
+        },
+        {
+          "hash": "4bcc4f36e693aae4a944c8ff3745c525",
+          "count": 1
+        },
+        {
+          "hash": "4c8fb2b753659d7ab9320c0b54a96644",
+          "count": 1
+        },
+        {
+          "hash": "4e23b67052a82af5f1db53f71487866a",
+          "count": 1
+        },
+        {
+          "hash": "4e2fbf8e68ccf04cb9d7262761af0ea9",
+          "count": 1
+        },
+        {
+          "hash": "4f28a039ea5570bd57666376d2d27d43",
+          "count": 1
+        },
+        {
+          "hash": "517e6c68eca80c2abd9e5b0c79bb28a3",
+          "count": 1
+        },
+        {
+          "hash": "52d8e819370824088cec2444146504b3",
+          "count": 1
+        },
+        {
+          "hash": "5327aba9d5b4568949014db44f801caf",
+          "count": 1
+        },
+        {
+          "hash": "58cffd2bebc5370b3d79ca6faddada4c",
+          "count": 1
+        },
+        {
+          "hash": "5d21b346227caa2525da2b76c07b637a",
+          "count": 1
+        },
+        {
+          "hash": "641764a71f8dba9793843c0653a26cb6",
+          "count": 1
+        },
+        {
+          "hash": "68952ea5a4c31fc83743297618f42634",
+          "count": 1
+        },
+        {
+          "hash": "68974c5687f9e0d875b5c427bd32e472",
+          "count": 1
+        },
+        {
+          "hash": "7bcf17880a3e7b5c88754b3dfe257ede",
+          "count": 1
+        },
+        {
+          "hash": "7e81c0418a2fb10a23b49c8920683ad7",
+          "count": 1
+        },
+        {
+          "hash": "80b986f66a0f33a550e36c06db95d7e0",
+          "count": 1
+        },
+        {
+          "hash": "81184f10083b6543b2f56d7c472559c4",
+          "count": 1
+        },
+        {
+          "hash": "873e8e687e0631bbd175830ad9ebff95",
+          "count": 1
+        },
+        {
+          "hash": "9244f669c009a331638450c22673149c",
+          "count": 1
+        },
+        {
+          "hash": "93611719b83f7875e04716ea9684cca2",
+          "count": 1
+        },
+        {
+          "hash": "99dc0037189e05bc317bee87bd6a20af",
+          "count": 1
+        },
+        {
+          "hash": "9bbf1eb6b3bb5c445d0a2506a803de10",
+          "count": 1
+        },
+        {
+          "hash": "a074ed96a266299a9999d6a72a478fd3",
+          "count": 1
+        },
+        {
+          "hash": "a1182bd35ba4677c88d7f76da6b7bdd7",
+          "count": 1
+        },
+        {
+          "hash": "a29a31c1e4f365dd6d0e8dbf16a84763",
+          "count": 1
+        },
+        {
+          "hash": "a5261930d3ba3fcf957534ce4a93e19d",
+          "count": 1
+        },
+        {
+          "hash": "a8e6f68cbcd17ead2e4038821a611ac3",
+          "count": 1
+        },
+        {
+          "hash": "a905a4fc4dfc75ecc30e9b5257a7133f",
+          "count": 1
+        },
+        {
+          "hash": "ae3b5b0e735587388327d15cfbba3216",
+          "count": 1
+        },
+        {
+          "hash": "b51b9e9a519439e2e640160c1af6c3ec",
+          "count": 1
+        },
+        {
+          "hash": "bbc745cf8b84aa023952ef5a91efaee5",
+          "count": 1
+        },
+        {
+          "hash": "bc1bcf069323ff2a4a65e0f8e039abdf",
+          "count": 1
+        },
+        {
+          "hash": "c06ec615d31ce51ee064d24773bce90a",
+          "count": 1
+        },
+        {
+          "hash": "c4eb0d647ccac668729f7c355d51976d",
+          "count": 1
+        },
+        {
+          "hash": "c8a6ce2182cf9aa43ca886886f901142",
+          "count": 1
+        },
+        {
+          "hash": "cb8a6a57e31adc67264cee4039ffa86a",
+          "count": 1
+        },
+        {
+          "hash": "d3b936a9756873fbf4b7e6d99c54b7ff",
+          "count": 1
+        },
+        {
+          "hash": "d47fdcc080e180c9cb5f0045eefe4fb7",
+          "count": 1
+        },
+        {
+          "hash": "e43f431cf57ffd14460d398ecd5e9706",
+          "count": 1
+        },
+        {
+          "hash": "e9e7aef36ff9811c42f87d573e80f64b",
+          "count": 1
+        },
+        {
+          "hash": "eb3d8c113857e79b1a1e93f0b87c200e",
+          "count": 1
+        },
+        {
+          "hash": "ed048126e656454494ee4d1fbde20875",
+          "count": 1
+        },
+        {
+          "hash": "ee2793e6f5af4f03bba6e7f1552499f9",
+          "count": 1
+        },
+        {
+          "hash": "f1d74a36761c8b96ef776a943ae4cc4d",
+          "count": 1
+        },
+        {
+          "hash": "fae95d993d1187dd5fe95e197914029a",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_folders",
+      "count": 15,
+      "hashes": [
+        {
+          "hash": "202f0db700c7afbe3ce0139dfb040e1d",
+          "count": 1
+        },
+        {
+          "hash": "207e6ed261f9a4e8e86c2762c4a5c9ce",
+          "count": 1
+        },
+        {
+          "hash": "2d77406f023a0d702679bc0db0da88a8",
+          "count": 1
+        },
+        {
+          "hash": "3e4e3976519cbf182dd897d4f41488f8",
+          "count": 1
+        },
+        {
+          "hash": "44d74dc6ff94aef2b1758640e7afd0d1",
+          "count": 1
+        },
+        {
+          "hash": "50079c7dc0e0ef8983d2cc8400d25172",
+          "count": 1
+        },
+        {
+          "hash": "5bb69c7c0787adca9baafe739d2e3db1",
+          "count": 1
+        },
+        {
+          "hash": "65bb5985297fe0e863bdf46a03fee345",
+          "count": 1
+        },
+        {
+          "hash": "7e4e42eb0cf049839b0d933b185c1a5b",
+          "count": 1
+        },
+        {
+          "hash": "975f895eefbb0f7f61c396cea444957d",
+          "count": 1
+        },
+        {
+          "hash": "9d04e05e1244baa457169f3e806050fd",
+          "count": 1
+        },
+        {
+          "hash": "a5ab827f677f60391fb04ec22a6b9a10",
+          "count": 1
+        },
+        {
+          "hash": "b97938d398c9e29eef958e4db3d5a2c3",
+          "count": 1
+        },
+        {
+          "hash": "dd8af13d16da49fa6f9f7e4147da9dd0",
+          "count": 1
+        },
+        {
+          "hash": "de3ecff4a98eb1af11e046c132e55438",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_page_access",
+      "count": 0,
+      "hashes": []
+    },
+    {
+      "table": "knowledge_page_files",
+      "count": 4,
+      "hashes": [
+        {
+          "hash": "1c9599c007bda1e5e43bf5c1cf793169",
+          "count": 1
+        },
+        {
+          "hash": "35c385aa7808a690f845024acaed8a66",
+          "count": 1
+        },
+        {
+          "hash": "55ba38ab8e8cae72959ffdd375c5c83e",
+          "count": 1
+        },
+        {
+          "hash": "730b3160259977cb2a5e43eb78430b3b",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_page_tags",
+      "count": 0,
+      "hashes": []
+    },
+    {
+      "table": "knowledge_page_version_files",
+      "count": 2,
+      "hashes": [
+        {
+          "hash": "c6548843fe2aab4d5eea11c0abc9c2c1",
+          "count": 1
+        },
+        {
+          "hash": "d884a5d4407e5ae25c0a2084405d8041",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_page_versions",
+      "count": 3,
+      "hashes": [
+        {
+          "hash": "300f80425b4819e99b546379e91487bb",
+          "count": 1
+        },
+        {
+          "hash": "7cb8235aa96ef1f982df35125833758a",
+          "count": 1
+        },
+        {
+          "hash": "9fbb6ccf324da541321df8b158e86720",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_pages",
+      "count": 5,
+      "hashes": [
+        {
+          "hash": "08158edbd1b243900676ebc43506a4d8",
+          "count": 1
+        },
+        {
+          "hash": "12c1670164a13bc52b21adc453168539",
+          "count": 1
+        },
+        {
+          "hash": "267c62ed07145ea94e108dedd980684a",
+          "count": 1
+        },
+        {
+          "hash": "4991511d7ee078e0a03746a1b8f13c4b",
+          "count": 1
+        },
+        {
+          "hash": "fbc35322a2adaf3a56da74f52c5fd06f",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_space_access",
+      "count": 2,
+      "hashes": [
+        {
+          "hash": "678f7033cded3bf327273d23373f0f58",
+          "count": 1
+        },
+        {
+          "hash": "9371cdcee7e8e3de4f34426b47e399fa",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_spaces",
+      "count": 2,
+      "hashes": [
+        {
+          "hash": "110656771bfc6918aaa821ea384538de",
+          "count": 1
+        },
+        {
+          "hash": "b59bb46cc91a8297b5e8931cc2d7fb2c",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "table": "knowledge_storage_cleanup",
+      "count": 0,
+      "hashes": []
+    },
+    {
+      "table": "knowledge_tags",
+      "count": 5,
+      "hashes": [
+        {
+          "hash": "20070ebe61937687f7633656cd7d1f95",
+          "count": 1
+        },
+        {
+          "hash": "529c8efae7bcf4b5d0dd9508fab66645",
+          "count": 1
+        },
+        {
+          "hash": "5b21d4054071cafb6b0f8a907a97bede",
+          "count": 1
+        },
+        {
+          "hash": "c53190e5f20f78bfe3db15adbbeb87e2",
+          "count": 1
+        },
+        {
+          "hash": "ed9cc156e1397dd82a96c8a220c37143",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

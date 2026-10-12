@@ -1,0 +1,92 @@
+{
+  "status": "PASS",
+  "tables": [
+    {
+      "table": "knowledge_file_assets",
+      "originalCount": 4,
+      "afterCount": 4,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_file_previews",
+      "originalCount": 3,
+      "afterCount": 3,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_file_upload_requests",
+      "originalCount": 63,
+      "afterCount": 65,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_folders",
+      "originalCount": 12,
+      "afterCount": 15,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_page_access",
+      "originalCount": 0,
+      "afterCount": 0,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_page_files",
+      "originalCount": 4,
+      "afterCount": 4,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_page_tags",
+      "originalCount": 0,
+      "afterCount": 0,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_page_version_files",
+      "originalCount": 2,
+      "afterCount": 2,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_page_versions",
+      "originalCount": 3,
+      "afterCount": 3,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_pages",
+      "originalCount": 5,
+      "afterCount": 5,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_space_access",
+      "originalCount": 2,
+      "afterCount": 2,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_spaces",
+      "originalCount": 2,
+      "afterCount": 2,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_storage_cleanup",
+      "originalCount": 0,
+      "afterCount": 0,
+      "allOriginalRowHashesPreserved": true
+    },
+    {
+      "table": "knowledge_tags",
+      "originalCount": 5,
+      "afterCount": 5,
+      "allOriginalRowHashesPreserved": true
+    }
+  ],
+  "retainedTestFolderTombstones": true,
+  "retainedAudit": true,
+  "retainedUploadIdempotency": true
+}

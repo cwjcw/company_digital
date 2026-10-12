@@ -1,0 +1,10 @@
+{
+  "accountClass": "ordinary employee",
+  "businessWrites": false,
+  "credentialRecording": false,
+  "spacesHTTP": 200,
+  "pagesHTTP": 403,
+  "authorizedReading": "NOT_TESTED: existing Knowledge read permission absent",
+  "denial": "PASS",
+  "status": "PASS"
+}

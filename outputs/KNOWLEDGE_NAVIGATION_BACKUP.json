@@ -1,0 +1,24 @@
+{
+  "verified": true,
+  "uploadsPrivateIncluded": true,
+  "files": [
+    {
+      "path": "data/backups/four_department_tracker_20261012_200439.backup",
+      "sha256": "91834c8537df20b9e7c3ee7c733d66279b9c1cbc28ab3404b44bb4f4b994372d",
+      "verified": true,
+      "mode": "600"
+    },
+    {
+      "path": "data/backups/kdos_20261012_200439.backup",
+      "sha256": "10d6a0fabfcdaea141dbdc553bb5535b96a4a91b95b98a6c0a5b068e5100b947",
+      "verified": true,
+      "mode": "600"
+    },
+    {
+      "path": "data/backups/uploads_20261012_200439.tar.gz",
+      "sha256": "e1aacd0fdd4c0f987a544710dae5a5437ccbc766ab9485a713c611b5d595a631",
+      "verified": true,
+      "mode": "600"
+    }
+  ]
+}

@@ -1,5 +1,34 @@
 # Codex 工作进度
 
+## 当前任务：Knowledge统一知识目录
+
+任务名称：Knowledge门户与管理统一列表/面包屑，消除重复目录导航。
+任务目标：移除门户左树与管理双树；保留文件夹层级、历史parentId访问、位置选择器、权限及受控布局。
+当前状态：已完成 / 已上线管理员验收通过。开始HEAD：bc3725f；最终HEAD/Web：468af4dd88f0a7b1723d2a0202ee06932b2040ed。
+最后更新时间：2026-10-12 20:43（Asia/Shanghai）。
+当前阶段：最终交付完成；当前子任务：无。
+已完成：规范/技能/进度/Git与实现审查；共享FolderContents增加获权parentId分支/子页/阅读/面包屑，Portal删除左双树及重复根查询，管理转顶部操作，AGENTS记录未来一对象一导航原则；位置选择器不移除。
+已完成验证：Web45文件350项、Chrome17项通过/1既有凭据门控skip，包含三角色/105条/1920至320px/历史/Autosave发布/V1V2/表单位置树；typecheck/lint/build通过，仅原告警。新增11项专项，定向59通过。
+已完成备份：20261012_200439双库custom dumps及uploads含.private，pg_restore目录、三个SHA256/600权限复核通过，原Web镜像保留。
+源码提交：468af4d（9个相关源码/测试/用户规范文件，未push）；outputs记录留工作区。
+已完成部署：./scripts/deploy.sh web返回0；HEAD/Web=468af4d，API/Worker=7456a4c（源不变/未重建）。四服务healthy、Dispatcher active，无数据库或运行配置改动。
+已完成管理员真实Chrome：8组+1严格PDF绘制专项通过；三级目录、私有PDF画布/原件SHA、文件/历史parentId读取与返回、管理员单目录顶栏、1920/1440/390实际布局。共4个自建页面/3文件夹按ID和前缀及创建人保护清理；墓碑/幂等/审计保留，不改已有ACL或账号。
+已完成员工真实验证：登录/权限验证通过，空间API200但页面403，前端拒绝/管理入口隐藏通过；该账号生产正向读取NOT_TESTED，不修改授权。独立生产编辑账号未登录，角色自动化覆盖。
+已完成完整性：14张Knowledge表每条原有记录完整行MD5均保留；原页面5/版本3/文件4/预览3等不变，新增3目录墓碑及2上传幂等和审计为设计保留，cleanupPending=0。
+正在进行：无。
+待完成：无本轮开发/部署遗留。
+修改文件：AGENTS、KnowledgePortal/Pages/Folders及样式、Portal/Pages测试、新Navigation测试、knowledge-ui E2E；完整清单见报告。
+数据库 Migration：无；API/权限模型/草稿/发布/历史/存储/依赖：无改动。
+新增或修改测试：11项导航专项、三角色Chrome用例、分页/六宽度/位置表单及发布真实状态回归。
+已运行测试：Web350/Chrome17通过（1门控skip），Web质量/构建通过；真实管理员8+1、员工登录/权限拒绝、完整性/备份/部署/最终健康通过。
+当前已知问题：无未解决实现或运行故障；生产员工现有页面读权限不足及独立编辑真实登录未执行，不声称正向通过。初次员工检查只判断空间200导致等待失败，按实际页面403完善验收分支后通过；未改产品授权。开发期测试标签定位/旧左树断言/TS问题均纠正。
+等待用户确认：无；本轮不修改员工权限。
+下一步：无执行遗留；按报告人工复验主列表/面包屑/历史子页及表单位置选择器。
+恢复执行说明：规范→本段→Git/diff→新的反馈，保留前轮SQL/模板/权限成果及历史资料。
+最终报告：outputs/KNOWLEDGE_NAVIGATION_SIMPLIFICATION_ACCEPTANCE.md。
+
+---
+
 ## 当前任务：Knowledge历史目录SQL别名修复
 
 任务名称：Knowledge管理页面legacyOnly Internal server error最小修复。

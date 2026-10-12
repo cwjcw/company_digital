@@ -1,0 +1,60 @@
+{
+  "prefix": "000_KN_NAV_1791807565381",
+  "checks": [
+    {
+      "check": "E2E login / permission verification",
+      "status": "PASS"
+    },
+    {
+      "check": "Three temporary folders + private PDF + private legacy parent/child via existing APIs; account grants unchanged",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual HR root to three folder levels; one list, no duplicate tree/root buttons",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual private PDF canvas rendered nonblank; original download SHA256 unchanged",
+      "status": "PASS"
+    },
+    {
+      "check": "Reader -> second folder -> HR root through breadcrumbs",
+      "status": "PASS"
+    },
+    {
+      "check": "Actual parentId child list, stable reading link and legacy breadcrumb return preserved",
+      "status": "PASS"
+    },
+    {
+      "check": "Management top actions and same legacy list/read path; no second directory",
+      "status": "PASS"
+    },
+    {
+      "check": "Live 1920/1440/390px centered bounded widths and no horizontal overflow",
+      "status": "PASS"
+    }
+  ],
+  "businessDataModified": false,
+  "testDataCreated": true,
+  "credentialRecording": false,
+  "ownedPages": [
+    "01a1300d-b7e0-71df-bf86-3fec69205ea4",
+    "01a1300d-b958-720b-be23-a890f036cd79",
+    "01a1300d-ba8b-740a-aed0-c71c1ea8ca2f"
+  ],
+  "ownedFolders": [
+    "01a1300d-b732-7518-ae64-ee59e9c6d10b",
+    "01a1300d-b762-750d-b293-68c12040d253",
+    "01a1300d-b794-70c8-b6cd-ed6b9e507458"
+  ],
+  "status": "PASS",
+  "cleanup": {
+    "status": "PASS",
+    "pages": 3,
+    "folders": 3,
+    "retainedAudit": true,
+    "folderTombstones": true
+  },
+  "apiSHA": "7456a4c1eedfdc8abee928b56481006f25630b14",
+  "webSHA": "468af4dd88f0a7b1723d2a0202ee06932b2040ed"
+}
