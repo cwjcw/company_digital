@@ -162,11 +162,11 @@ export function canManageTablePermissions(resource?: string) {
   }
 }
 
-export function TablePermissionButton({ resource }: { resource: string }) {
+export function TablePermissionButton({ resource, label = "权限管理" }: { resource: string; label?: string }) {
   if (!registeredTableResources.has(resource) || !canManageTablePermissions(resource)) return null;
   const currentPath = `${window.location.pathname}${window.location.search}`;
   const href = `/permissions/${encodeURIComponent(resource)}?from=${encodeURIComponent(currentPath)}`;
-  return <Button href={href} icon={<SafetyCertificateOutlined />}>权限管理</Button>;
+  return <Button href={href} icon={<SafetyCertificateOutlined />}>{label}</Button>;
 }
 
 export const kdosSystemFieldDefinitions = [
@@ -270,6 +270,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   density?: KdosTableDensity;
   systemFields?: boolean;
   toolbar?: ReactNode;
+  /** Customize the platform permission caption without changing its authorization. */
+  permissionButtonLabel?: string;
   searchPlaceholder?: string;
   /** Hide quick search for reports whose complete conditions live in the advanced panel. */
   quickSearch?: boolean;
@@ -369,7 +371,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
+  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
@@ -824,7 +826,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
         </Button>}
         <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
-        <TablePermissionButton resource={resource} />
+        <TablePermissionButton resource={resource} label={permissionButtonLabel} />
       </Space>
     </Flex>}
     {!simple && selectedRowKeys.length > 0 && <Flex className="kdos-data-table-selection-toolbar" justify="space-between" align="center" gap={12} wrap>

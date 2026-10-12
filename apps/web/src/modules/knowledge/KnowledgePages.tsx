@@ -42,6 +42,8 @@ import {
   hasFieldPermission,
   hasResourcePermission,
   KdosDataTable,
+  canManageTablePermissions,
+  TablePermissionButton,
 } from "../../shared/KdosDataTable";
 import { downloadApiFile } from "../../shared/legacy-ui";
 import {
@@ -794,6 +796,12 @@ export function KnowledgeManagement({ capabilities }: { capabilities: KnowledgeC
         </div>
       </aside>
       <main className="knowledge-main">
+        {(location.pathname === "/knowledge/manage" || location.pathname === "/knowledge/manage/pages" || location.pathname.startsWith("/knowledge/manage/pages/")) &&
+          canManageTablePermissions("knowledge-pages") && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <TablePermissionButton resource="knowledge-pages" label="页面与文件操作权限" />
+            </div>
+          )}
         <Input.Search
           aria-label="搜索知识页面"
           placeholder="搜索已发布标题、说明、标签、路径、文件名和在线正文"

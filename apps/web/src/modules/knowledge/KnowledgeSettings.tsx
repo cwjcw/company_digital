@@ -17,7 +17,6 @@ import {
   hasFieldPermission,
   hasResourcePermission,
   KdosDataTable,
-  TablePermissionButton,
 } from "../../shared/KdosDataTable";
 import {
   blankPlatformQuery,
@@ -109,6 +108,7 @@ export function KnowledgeSettings() {
     <>
       <KdosDataTable<KnowledgeSpace>
         resource="knowledge-spaces"
+        permissionButtonLabel="空间操作权限"
         rowKey="id"
         dataSource={rows.data?.rows}
         loading={rows.isLoading}
@@ -120,8 +120,6 @@ export function KnowledgeSettings() {
                 新建空间
               </Button>
             )}
-            <TablePermissionButton resource="knowledge-spaces" />
-            <TablePermissionButton resource="knowledge-pages" />
           </Space>
         }
         columns={[
@@ -160,7 +158,7 @@ export function KnowledgeSettings() {
                                 )
                             }
                           >
-                            成员
+                            成员与权限
                           </Button>
                         )}
                       {hasFieldPermission(
