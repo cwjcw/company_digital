@@ -10,12 +10,13 @@ import { TableFilterRegistry } from "./table-filter.registry";
 import { TablePrintController } from "../printing/table-print.controller";
 import { TableExportController } from "../printing/table-export.controller";
 import { TablePrintService } from "../printing/table-print.service";
+import { AuditActorIdentityResolver } from "../audit/audit-actor-identity.resolver";
 
 /** KN-FILTER-001 平台筛选模块：所有正式业务表统一使用的 candidate/筛选入口。 */
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule],
   controllers: [TableFilterController, TablePrintController, TableExportController],
-  providers: [AuthGuard, FieldCandidateService, TableFilterRegistry, TableFilterBootstrapCheck, TablePrintService],
+  providers: [AuthGuard, AuditActorIdentityResolver, FieldCandidateService, TableFilterRegistry, TableFilterBootstrapCheck, TablePrintService],
   exports: [FieldCandidateService, TableFilterRegistry]
 })
 export class TableFilterModule {}

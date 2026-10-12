@@ -5,7 +5,7 @@ import { DeleteOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons"
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import {
-  tableFilterDynamicDateOptions, tableFilterUiOperatorsFor,
+  isAuditActorField, tableFilterDynamicDateOptions, tableFilterUiOperatorsFor,
   type TableFilterOperator, type TablePermissionFieldDefinition
 } from "@kdos/contracts";
 import { api } from "../api";
@@ -37,6 +37,7 @@ export function defaultOperatorFor(field: TablePermissionFieldDefinition): Table
   const available = visibleOperators(field).map((entry) => entry.operator as TableFilterOperator);
   const preferred: TableFilterOperator[] = field.multiple
     ? ["contains_any", "is_empty", "is_not_empty"]
+    : isAuditActorField(field) ? ["eq", "in", "is_empty"]
     : field.type === "text" ? ["contains", "eq", "is_empty"]
     : field.type === "boolean" ? ["eq", "is_true", "is_false"]
     : field.type === "number" ? ["eq", "between", "gte"]
@@ -151,7 +152,7 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
     return <CandidateSelect resource={resource} field={field} multiple placeholder="选择或搜索取值"
       onChange={(value) => onChange({ values: value == null ? [] : Array.isArray(value) ? value : [value] })} />;
   }
-  if (field.type === "dictionary" || field.type === "member" || field.type === "department" || field.type === "reference" || field.type === "boolean") {
+  if (isAuditActorField(field) || field.type === "dictionary" || field.type === "member" || field.type === "department" || field.type === "reference" || field.type === "boolean") {
     if (field.type === "boolean") return <Select value={rule.value as string} style={{ minWidth: 100 }} options={[{ value: "true", label: "是" }, { value: "false", label: "否" }]}
       onChange={(value) => onChange({ value })} />;
     return <CandidateSelect resource={resource} field={field} multiple={false} placeholder="选择或搜索取值"

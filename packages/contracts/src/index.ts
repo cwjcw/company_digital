@@ -1,4 +1,6 @@
 export * from "./knowledge";
+export * from "./audit-actor";
+import { isAuditActorField } from "./audit-actor";
 import { knowledgeStatusOptions } from "./knowledge";
 import { pmcRdProgressFields } from "./pmc-rd-progress";
 export { pmcRdProgressFields } from "./pmc-rd-progress";
@@ -164,8 +166,8 @@ export type TableResourceCode = typeof tableResourceRegistry[number]["code"];
 export type TablePermissionFieldType =
   | "text" | "number" | "date" | "datetime" | "boolean" | "dictionary" | "member" | "department" | "reference" | "structured" | "attachment";
 
-/** 数值显示/输入格式：百分比、时长（分钟）、金额、整数与普通小数必须区分。 */
-export type TableFieldFormat = "plain" | "integer" | "decimal" | "percentage" | "durationMinutes" | "currency";
+/** 显示/输入格式：数值尺度与审计身份解析均由正式 metadata 声明。 */
+export type TableFieldFormat = "plain" | "integer" | "decimal" | "percentage" | "durationMinutes" | "currency" | "auditActor";
 
 /** 筛选值来源：普通列、虚拟列（子查询/表达式）、关联表、聚合值或专用自定义绑定。 */
 export type TableFilterBindingKind = "column" | "virtual" | "relation" | "aggregate" | "custom";
@@ -218,11 +220,11 @@ export interface TableSupportFieldDefinition {
   format?: TableFieldFormat;
 }
 
-const auditPermissionFields: TablePermissionFieldDefinition[] = [
-  { key: "createdBy", label: "创建人", type: "member", editable: false },
+export const auditPermissionFields: TablePermissionFieldDefinition[] = [
+  { key: "createdBy", label: "创建人", type: "member", format: "auditActor", editable: false },
   { key: "createdAt", label: "创建时间", type: "datetime", editable: false, format: "plain" },
   /* updated_by 在多数正式表是 varchar，可能存放 system / migration / 同步任务标识，不能强制按成员解析。 */
-  { key: "updatedBy", label: "更新人", type: "text", editable: false },
+  { key: "updatedBy", label: "更新人", type: "text", format: "auditActor", editable: false },
   { key: "updatedAt", label: "更新时间", type: "datetime", editable: false, format: "plain" }
 ];
 type FieldExtra = Pick<TablePermissionFieldDefinition, "multiple" | "format" | "percentageScale" | "filterable" | "filterBinding" | "options">;
@@ -738,7 +740,7 @@ const CHOICE_UI_OPERATORS: TableFilterOperator[] = ["eq", "neq", "in", "not_in",
 export function tableFilterUiOperatorsFor(field: TablePermissionFieldDefinition): TableFilterOperatorDefinition[] {
   const operators = tableFilterOperatorsFor(field);
   if (!operators.length) return operators;
-  const allowed = field.multiple
+  const allowed = isAuditActorField(field) ? CHOICE_UI_OPERATORS : field.multiple
     ? ["contains_any", "contains_all", "not_contains_any", "is_empty", "is_not_empty"]
     : {
       text: ["eq", "neq", "in", "not_in", "contains", "not_contains", "is_empty", "is_not_empty"],

@@ -81,6 +81,12 @@ Phase-one legacy T+ snapshot route remains `/api/v1/data-operations/tplus/sales-
 
 源适配器 `automation/tplus_supplier_import/extract.py` 使用统一 `basic_code.MSSQLDatabase` 读取凯南智能、科加智能两个 T+ 账套的 `dbo.AA_PartnerEntity`，仅选择 `partnerType IN (226, 228)`，以 `AA_PartnerClass` 补充分类。读取固定为 `READ COMMITTED`，不修改源库，不导出银行账号或税号。规范模型通过受保护的 `POST /api/v1/supply-chain/suppliers/import` 或同一 Application Command 导入；目标唯一键为 `tenant_id + source_system + source_database + source_id`，相同有效载荷可安全重放，新增、变化行和批次结果均记录审计。
 
+## Audit actor identities in standard tables
+
+`createdBy` and `updatedBy` declare `format: "auditActor"` in the shared field metadata. Their underlying member/text types and stored values remain unchanged. Candidate APIs return the original actor in `value` and its readable name in `label`; clients must submit `value` in FilterGroup equality/set rules. The public candidate service first selects actor values from authorized records, then resolves names in batches, including disabled historical users. Name searches scan authorized values in bounded keyset batches; ordinary business-member selectors retain their enabled-only providers.
+
+`AuditActorIdentityResolver` and the shared contracts formatter also handle `system`, existing textual actors and unknown UUIDs. Standard print/export still omit audit fields by default; an explicitly printable audit column uses the same resolver. This change adds no route, migration or historical actor backfill.
+
 ## Events
 
 Connect to Socket.IO namespace `/plans` with the access token and period. Treat events as cache invalidations. Payloads contain IDs/version/change type only; consumers refetch through authorized query routes and process each event idempotently.

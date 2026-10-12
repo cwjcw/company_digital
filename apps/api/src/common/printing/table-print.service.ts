@@ -2,12 +2,13 @@ import { BadRequestException, ForbiddenException, Injectable, Logger } from "@ne
 import { DataSource } from "typeorm";
 import ExcelJS from "exceljs";
 import {
-  isTablePrintFieldPrintable, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry,
+  formatAuditActor, isAuditActorField, isTablePrintFieldPrintable, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry,
   type TablePermissionFieldDefinition, type TableResourceCode
 } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../filtering/sql-filter.compiler";
 import { TableFilterRegistry, recordKeyOf, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
 import type { TablePrintColumn, TablePrintDto, TablePrintHeaderGroup, TablePrintManifest, TablePrintOrientation } from "./print.contract";
+import { AuditActorIdentityResolver } from "../audit/audit-actor-identity.resolver";
 
 /**
  * 受控批大小：200 与平台分页硬上限一致（不引入新上限、不一次性占满内存，禁止 pageSize=1000000）。
@@ -39,7 +40,8 @@ export type TablePrintQuery = {
 export class TablePrintService {
   private readonly logger = new Logger(TablePrintService.name);
 
-  constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource) {}
+  constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource,
+    private readonly auditActors: AuditActorIdentityResolver = new AuditActorIdentityResolver(dataSource)) {}
 
   /** 打印能力清单：前端据此决定是否显示打印入口（后端仍会二次校验）。 */
   capabilities(actor: TableFilterActor) {
@@ -465,7 +467,17 @@ export class TablePrintService {
   /** 批量 label 解析（dictionary/member/department/reference），禁止 N+1。 */
   private async resolveLabels(source: TableFilterSource, rows: Array<Record<string, unknown>>, fields: TablePermissionFieldDefinition[], keyField = "id", actor?: TableFilterActor) {
     const resolved = new Map<string, Record<string, unknown>>();
-    const labelFields = fields.filter((field) => ["dictionary", "member", "department", "reference"].includes(field.type));
+    const auditFields = fields.filter(isAuditActorField);
+    if (auditFields.length) {
+      const values = rows.flatMap((row) => auditFields.flatMap((field) => row[field.key] == null ? [] : [String(row[field.key])]));
+      const labels = await this.auditActors.resolve(values);
+      for (const row of rows) {
+        const formatted: Record<string, unknown> = {};
+        for (const field of auditFields) if (row[field.key] != null) formatted[field.key] = labels.get(String(row[field.key]));
+        resolved.set(String(row[keyField] ?? ""), formatted);
+      }
+    }
+    const labelFields = fields.filter((field) => !isAuditActorField(field) && ["dictionary", "member", "department", "reference"].includes(field.type));
     const resolvers: Array<Promise<void>> = [];
     for (const field of labelFields) {
       const resolver = source.printResolvers?.[field.key] ?? this.defaultResolver(field, source);
@@ -550,6 +562,7 @@ export class TablePrintService {
 
   private formatScalar(field: TablePermissionFieldDefinition, value: unknown): string {
     if (value === null || value === undefined || value === "") return "—";
+    if (isAuditActorField(field)) return formatAuditActor(value);
     if (field.type === "boolean") return value === true || value === "true" || value === "t" ? "是" : "否";
     if (field.type === "date") return this.formatDate(value);
     if (field.type === "datetime") return this.formatDateTime(value);

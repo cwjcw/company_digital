@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
-import { tableFilterOperatorsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { isAuditActorField, tableFilterOperatorsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
+import { AuditActorIdentityResolver } from "../audit/audit-actor-identity.resolver";
 
 export type FieldCandidate = { value: string; label: string };
 export type CandidateContext = {
@@ -35,7 +36,8 @@ export type CandidateResult = { options: FieldCandidate[]; hasMore: boolean };
  */
 @Injectable()
 export class FieldCandidateService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly dataSource: DataSource,
+    private readonly auditActors: AuditActorIdentityResolver = new AuditActorIdentityResolver(dataSource)) {}
 
   async resolve(fieldKey: string, searchInput: unknown, limitInput: unknown, context: CandidateContext): Promise<FieldCandidate[]> {
     return (await this.resolveWithMeta(fieldKey, searchInput, limitInput, context)).options;
@@ -55,6 +57,7 @@ export class FieldCandidateService {
     /* 候选必须先在当前资源的完整授权数据范围内 DISTINCT；不能把目录/静态选项本身当作可见行。 */
     const expression = context.expressions[field.key];
     if (!expression) throw new BadRequestException(`字段“${field.label}”暂不支持候选值`);
+    if (isAuditActorField(field)) return this.auditCandidates(expression, search, limit, context);
     const params = [...context.scopedParams];
     const labels = new Map<string, string>();
     let matchingValues: string[] | undefined;
@@ -95,5 +98,33 @@ export class FieldCandidateService {
     const visibleRows = rows.slice(0, limit).filter((row: { value: string }) => !needsOfficialLabel || labels.has(String(row.value)));
     const hasMore = rows.length > limit || providerHasMore || visibleRows.length < Math.min(rows.length, limit);
     return { options: visibleRows.map((row: { value: string }) => ({ value: String(row.value), label: labels.get(String(row.value)) ?? String(row.value) })), hasMore };
+  }
+
+  private async auditCandidates(expression: string, search: string, limit: number, context: CandidateContext): Promise<CandidateResult> {
+    const run = context.executor ?? ((sql: string, params: unknown[]) => this.dataSource.query(sql, params));
+    const value = `${expression}::text`;
+    const options: FieldCandidate[] = [];
+    let after: string | undefined;
+    // 无搜索只需一页；姓名搜索按可见 DISTINCT 值逐批扫描，保留真正的 limit/hasMore。
+    const batchSize = search ? maxCandidates : limit + 1;
+    const term = search.toLocaleLowerCase();
+    for (;;) {
+      const params = [...context.scopedParams];
+      let where = `${context.scopedWhere} AND COALESCE(${value},'') <> ''`;
+      if (after !== undefined) { params.push(after); where += ` AND ${value} COLLATE "C" > $${params.length} COLLATE "C"`; }
+      params.push(batchSize);
+      const rows: Array<{ value: string }> = await run(
+        `SELECT DISTINCT ${value} COLLATE "C" value FROM ${context.scopedSource} WHERE ${where} ORDER BY value LIMIT $${params.length}`, params
+      );
+      const labels = await this.auditActors.resolve(rows.map((row) => String(row.value)));
+      for (const row of rows) {
+        const raw = String(row.value);
+        const label = labels.get(raw)!;
+        if (!search || label.toLocaleLowerCase().includes(term) || raw.toLocaleLowerCase().includes(term)) options.push({ value: raw, label });
+        if (options.length > limit) return { options: options.slice(0, limit), hasMore: true };
+      }
+      if (!search || rows.length < batchSize) return { options, hasMore: false };
+      after = String(rows.at(-1)!.value);
+    }
   }
 }
