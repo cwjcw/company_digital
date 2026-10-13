@@ -19,6 +19,7 @@
 - Use UUIDv7 business IDs; identity-provider subjects belong in `iam.identities`.
 - Keep `four_department_tracker` read-only/retained until the user authorizes retirement.
 - Never commit `.env`, credentials, tokens, T+ snapshots, database files, or uploaded business images.
+- 完成用户已授权的开发任务后，Codex 必须自行完成安全的 GitHub 同步闭环：检查工作区改动与敏感文件、运行相关验证、仅提交本任务文件、执行 git commit 与 git push 到项目已配置且允许的 GitHub 分支，记录 commit SHA/远程分支与推送结果；无需用户手动同步。禁止强制推送、绕过分支保护、覆盖他人修改或提交真实ERP/财务数据。若远程推送受权限或网络限制，准确说明未同步，不能将本地 commit 等同于已推送。
 - SQL Server、企业微信和通讯录导出统一使用 `/data/automation/code/work/basci/basic_code` 的 `MSSQLDatabase`、`WeChatPusher` 和 `export_contacts`；密钥只保存在该工具包自己的 `.env`，不得复制到本项目。
 - `WeChatPusher()` 使用计划中心默认自建应用；指定业务应用时使用 `WeChatPusher(app="...")`。群机器人只能显式调用 `send_robot_*()`，不得作为自建应用消息的自动回退。
 - Do not introduce Kafka, Kubernetes, microservices, extra databases, or infrastructure without a proven requirement.
