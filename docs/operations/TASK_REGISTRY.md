@@ -17,7 +17,7 @@
 | systemd Timer 模板 | 4 | 财务1、企业微信通讯录1、ERP staging 模板1、ERP projection 模板1 |
 | Timer 候选实例 | 8 | 财务1、通讯录1、staging按三来源3、projection按三消费者3；生产实际实例数量未知 |
 | 常驻 Dispatcher 的 systemd Service | 1 | 不属于定时任务 |
-| 其他 systemd Service 文件 | 7 | 财务1、通讯录系统级/用户级2、ERP staging/projection 模板2，加常驻 Dispatcher1共计6 个 service 文件；此行统一以下方完整文件清单为准 |
+| systemd Service 文件 | 6 | 财务1、通讯录2、ERP staging/projection 模板2、常驻 Dispatcher1；不是6个实际启用服务 |
 | n8n 工作流运行数 | 未知 | 不能仅从仓库 SSH 示例得出，需连 n8n 查看 |
 | cron 任务数 | 未知 | 需读取服务器当前用户及系统 cron |
 | 应用内部 scheduler | 未核实 | 需运行时和代码额外审计 |
