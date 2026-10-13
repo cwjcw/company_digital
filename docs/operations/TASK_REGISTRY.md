@@ -37,6 +37,8 @@
 | KDOS Compose 容器 | 4 | `knplan-web-1`、`knplan-api-1`、`knplan-postgres-1`、`knplan-document-worker-1` 全部显示 healthy |
 | 系统级其他任务 | 有 | 包括 `assistant-memory-auto.timer`、certbot、apt、logrotate、sysstat 等；归类系统管理，不擅自迁入 n8n |
 
+**重大现况**：n8n 已激活工作流 `cfxCKnLl0YqRZYDj` 的导出配置明确包含 Schedule Trigger（`triggerAtHour: 1`）与 SSH 调用 `data-operations/order-sync/sync-kejia-orders.sh`。该脚本内部执行 `sync.py run --source tplus-kejia` 后执行 `project.py --consumer sales-orders-v1`；而用户级 systemd `kdos-erp-order-sync@tplus-kejia.timer` 已启用且每30分钟调用同一 `sync.py run --source tplus-kejia`。故**重复的自动触发链路已确认**（但未检查 n8n 最近执行结果或脚本的实际重复写入，不能宣称重复数据已发生）。两路 staging 使用相同 `/tmp/kdos-erp-order-sync-tplus-kejia.lock` 防并发；投影另有30分钟 systemd 调度，是否与 n8n 重合及 DB 消费者租约保护仍待运行时检验。n8n 工作流时区设置尚未核实；需在正式迁移方案中调整频率、处理投影依赖及失败回滚。
+
 **重点偏差**：`ERP-004/005/006` 投影 Timer 在生产已启用并于 `2026-10-13 13:05 CST` 触发；此前文档写“默认禁用”，该描述与当前生产状态不一致，迁移之前必须依据当前运行状态做评估。**优先检查**：`ERP-003` 科加订单是否同时由 n8n 每日工作流和每30分钟 systemd Timer 调度；服务器 `crontab` 的1条任务内容；财务同步 01:00 的首次正式执行情况。
 
 ## 已识别任务
@@ -47,7 +49,7 @@
 | IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先验证备份、停用账号动作和漏跑补偿 |
 | ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 核查来源游标、运行时间及重复入口 |
 | ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 独立来源、锁和失败处理 |
-| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 模板每30分钟 + README 记载 n8n 每日入口 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | **重点排查双调度，禁止直接停任何入口** |
+| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用 `sync-kejia-orders.sh` | n8n（后续） | TWO_ACTIVE_SCHEDULES_CONFIRMED / RUN_SUCCESS_UNVERIFIED | **已确认同一 staging 同步逻辑双调度；脚本复用相同 flock，n8n 另调用 `sales-orders-v1` 投影；不得直接停用其中任一入口** |
 | ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先确认准入、启用状态和业务验收 |
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
@@ -79,7 +81,7 @@
 | `IgBzE4MX0OZppDoO` | Database_每天_2点 | 待确认KDOS归属 | 未激活（CLI筛选未列出）；是否备份、覆盖哪些数据库 |
 | `JM2rgvwgbY06U86C` | 采购部_每天_16:55 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
 | `e0dwMjv9OnWmcESk` | 设备管理上线进度 | 用户标注非KDOS | 未激活（CLI筛选未列出）；保持隔离，不擅动 |
-| `cfxCKnLl0YqRZYDj` | 同步科加数据_每天_1:00 | 待确认KDOS归属 | 已激活（CLI确认）；**对照ERP-003 systemd来源/脚本防双调度** |
+| `cfxCKnLl0YqRZYDj` | 同步科加数据_每天_1:00 | KDOS 科加订单同步，已按执行脚本确认 | 已激活；Schedule Trigger 01:00 → SSH `data-operations/order-sync/sync-kejia-orders.sh`；与ERP-003共享同步入口且该脚本额外执行 `sales-orders-v1` 投影 |
 | `ZaJp5jyD96075thE` | 同步品项_每天_00:05 | 待确认KDOS归属 | 已激活（CLI确认）；是否关联研发物料；与历史00:10描述不一致 |
 
 **合计**：14个已登记工作流、10个已激活、4个未激活。10个用户标注非KDOS中有7个激活、3个未激活；4个归属待查中有3个激活（接单入库、同步科加、同步品项）、1个未激活（Database）。**下一步**只读核查3个激活候选的节点调用链路、计划时区与最近执行，重点对照 ERP-003 系统定时器；避免输出 SSH Credential 或 SQL 密钥。
