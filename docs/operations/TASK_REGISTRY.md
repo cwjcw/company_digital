@@ -86,6 +86,18 @@
 
 **合计**：14个已登记工作流、10个已激活、4个未激活。10个用户标注非KDOS中有7个激活、3个未激活；4个归属待查中有3个激活（接单入库、同步科加、同步品项）、1个未激活（Database）。**下一步**只读核查3个激活候选的节点调用链路、计划时区与最近执行，重点对照 ERP-003 系统定时器；避免输出 SSH Credential 或 SQL 密钥。
 
+
+### 科加订单 systemd 最近执行结果（2026-10-13 13:00/13:05 CST）
+
+用户在生产服务器执行 `systemctl --user show ... -p Id -p Result -p ExecMainStatus -p ExecMainExitTimestamp`：
+
+| Service | 退出时间（Asia/Shanghai） | systemd Result | ExecMainStatus | 结论 |
+| --- | --- | --- | --- | --- |
+| `kdos-erp-order-sync@tplus-kejia.service` | `2026-10-13 13:00:11` | `success` | `0` | 任务进程正常退出，不表示同步记录数已验证 |
+| `kdos-erp-projection@sales-orders-v1.service` | `2026-10-13 13:05:00` | `success` | `0` | 任务进程正常退出，不表示投影记录数已验证 |
+
+**待核查**：n8n `cfxCKnLl0YqRZYDj` 在 2026-10-13 01:00 的实际执行状态、SSH 节点输出和本次处理记录数。由于 `sync-kejia-orders.sh` 在锁竞争时输出 `already_running` 并以退出码0结束，n8n 显示“成功”也可能意味着没有实际采集。未完成上述核验前不能宣称重复数据或停用调度器。
+
 ## 运行时核查要求
 
 主机脚本 `scripts/audit-schedulers.sh` 已在 2026-10-13 13:18 CST 执行（只读），systemd 和当前用户 cron **数量**已采集。下一步：只读审计 n8n 已激活工作流、时区、最近执行及 SSH 目标；在不泄露密钥的前提下确认用户 crontab 的任务类型；查看8个 KDOS Timer 对应 Service 的退出状态与最近成功时间；确认常驻 Dispatcher、备份、内部消费者；逐一登记 `active/enabled/next/last/result`。未核实项继续保留 UNVERIFIED_RUNTIME；在完成实际链路和风险评估前，不停用任何生产调度。
