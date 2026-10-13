@@ -18,7 +18,7 @@
 | Timer 候选实例 | 8 | 财务1、通讯录1、staging按三来源3、projection按三消费者3；已核实这8个用户级 Timer 均 enabled 并有下次执行时间 |
 | 常驻 Dispatcher 的 systemd Service | 1 | 不属于定时任务 |
 | systemd Service 文件 | 6 | 财务1、通讯录2、ERP staging/projection 模板2、常驻 Dispatcher1；不是6个实际启用服务 |
-| n8n 工作流已登记数 | 14 | `n8n list:workflow` 实际列出14个；10个用户标记非KDOS，4个未标记；是否启用尚未核实 |
+| n8n 工作流已登记数 | 14 | `n8n list:workflow` 实际列出14个：**10个已激活、4个未激活**；未标记非KDOS的4个中3个已激活，1个未激活 |
 | 当前用户 crontab 条目 | 1 | 审计脚本统计到1条非注释项；命令内容未查看，其他用户及系统 cron 仍需审计 |
 | 应用内部 scheduler | 未核实 | 需运行时和代码额外审计 |
 
@@ -33,7 +33,7 @@
 | KDOS 用户级 Timer 已启用 | 8 | 每个 `is-enabled=enabled`，且 `list-timers` 显示 NEXT、LAST |
 | DWG 索引系统级 Timer | 1 | `dwg-index-update.timer` 已启用，最近一次定时触发 `2026-10-13 00:10:09 CST`；不代表成功 |
 | 当前用户 crontab 非注释项 | 1 | 内容未查看；系统及其他用户 cron 未完整核查 |
-| n8n Docker 容器 | 1 | `n8n_sqlite` 正在运行；14个工作流已列出，启用数仍未知 |
+| n8n Docker 容器 | 1 | `n8n_sqlite` 正在运行；已从 CLI 确认14个工作流中10个 `active=true` |
 | KDOS Compose 容器 | 4 | `knplan-web-1`、`knplan-api-1`、`knplan-postgres-1`、`knplan-document-worker-1` 全部显示 healthy |
 | 系统级其他任务 | 有 | 包括 `assistant-memory-auto.timer`、certbot、apt、logrotate、sysstat 等；归类系统管理，不擅自迁入 n8n |
 
@@ -61,28 +61,28 @@
 | TPLUS-001 | T+销售接单明细；`data-operations/tplus/sync.mjs` | 有脚本，未确认调度 | n8n（若周期化） | UNVERIFIED_RUNTIME | 核查是否与 ERP staging 重叠 |
 
 
-## n8n 工作流实测清单（2026-10-13，尚未核实激活状态）
+## n8n 工作流实测清单（2026-10-13，已核实激活状态）
 
-数据来源：用户执行 `docker exec -u node n8n_sqlite n8n list:workflow`。此命令输出 ID/名称，不包含是否激活、节点命令或执行结果；“非KDOS”直接沿用用户标注，不自行推断。
+数据来源：用户执行 `docker exec -u node n8n_sqlite n8n list:workflow`。结合 `n8n list:workflow --active=true` 核对实际激活标记；仍不包含节点命令、计划时区或执行结果；“非KDOS”直接沿用用户标注，不自行推断。
 
 | Workflow ID | 名称 | 归属判断 | 待核查 |
 | --- | --- | --- | --- |
-| `TT8raJ9ndXSOnTwb` | 异常费用_周五_8点 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `KvAkxw9G7cQB04Ml` | smth_每天_0:01 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `G4vti33loChqw1Oy` | 每天凌晨0点1分-续跑smth项目 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `dcIZAGhW34czEKtK` | 采购部_每天_8:05 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `HkvXfT4TRmkfUFoa` | tushare_每天_1:00 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `60KpNF39jSxZWpOR` | realtimesnap_每天_9:00 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `1IJnZF1gohWpW0Bo` | 接单入库_每天_8:10 | 待确认KDOS归属 | 核实激活状态、入口/目标 |
-| `hBJ6rXRYNL30G2cs` | 资金流快照_每天_9:25 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `xpFmPPrX82dDyESJ` | SalesKpiReport_每天_7:00 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `IgBzE4MX0OZppDoO` | Database_每天_2点 | 待确认KDOS归属 | 是否备份、覆盖哪些数据库 |
-| `JM2rgvwgbY06U86C` | 采购部_每天_16:55 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `e0dwMjv9OnWmcESk` | 设备管理上线进度 | 用户标注非KDOS | 保持隔离，不擅动 |
-| `cfxCKnLl0YqRZYDj` | 同步科加数据_每天_1:00 | 待确认KDOS归属 | **对照ERP-003 systemd来源/脚本防双调度** |
-| `ZaJp5jyD96075thE` | 同步品项_每天_00:05 | 待确认KDOS归属 | 是否关联研发物料；与历史00:10描述不一致 |
+| `TT8raJ9ndXSOnTwb` | 异常费用_周五_8点 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `KvAkxw9G7cQB04Ml` | smth_每天_0:01 | 用户标注非KDOS | 未激活（CLI筛选未列出）；保持隔离，不擅动 |
+| `G4vti33loChqw1Oy` | 每天凌晨0点1分-续跑smth项目 | 用户标注非KDOS | 未激活（CLI筛选未列出）；保持隔离，不擅动 |
+| `dcIZAGhW34czEKtK` | 采购部_每天_8:05 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `HkvXfT4TRmkfUFoa` | tushare_每天_1:00 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `60KpNF39jSxZWpOR` | realtimesnap_每天_9:00 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `1IJnZF1gohWpW0Bo` | 接单入库_每天_8:10 | 待确认KDOS归属 | 已激活（CLI确认）；核实激活状态、入口/目标 |
+| `hBJ6rXRYNL30G2cs` | 资金流快照_每天_9:25 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `xpFmPPrX82dDyESJ` | SalesKpiReport_每天_7:00 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `IgBzE4MX0OZppDoO` | Database_每天_2点 | 待确认KDOS归属 | 未激活（CLI筛选未列出）；是否备份、覆盖哪些数据库 |
+| `JM2rgvwgbY06U86C` | 采购部_每天_16:55 | 用户标注非KDOS | 已激活（CLI确认）；保持隔离，不擅动 |
+| `e0dwMjv9OnWmcESk` | 设备管理上线进度 | 用户标注非KDOS | 未激活（CLI筛选未列出）；保持隔离，不擅动 |
+| `cfxCKnLl0YqRZYDj` | 同步科加数据_每天_1:00 | 待确认KDOS归属 | 已激活（CLI确认）；**对照ERP-003 systemd来源/脚本防双调度** |
+| `ZaJp5jyD96075thE` | 同步品项_每天_00:05 | 待确认KDOS归属 | 已激活（CLI确认）；是否关联研发物料；与历史00:10描述不一致 |
 
-**合计**：14个已登记工作流，10个用户标注非KDOS，4个归属待查；**激活/发布数量未知**，不能称为14个在线调度。下一步使用只读 `n8n list:workflow --active=true`（先核查CLI支持情况）确认激活清单，再核对4个候选的调用链路，不公开完整凭据与工作流节点表达式。
+**合计**：14个已登记工作流、10个已激活、4个未激活。10个用户标注非KDOS中有7个激活、3个未激活；4个归属待查中有3个激活（接单入库、同步科加、同步品项）、1个未激活（Database）。**下一步**只读核查3个激活候选的节点调用链路、计划时区与最近执行，重点对照 ERP-003 系统定时器；避免输出 SSH Credential 或 SQL 密钥。
 
 ## 运行时核查要求
 
