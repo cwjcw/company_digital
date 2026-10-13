@@ -187,7 +187,7 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
-    finance: [{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}],
+    finance: hasSessionResourcePermission(user, "finance-customer-mappings", "read") ? [{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}] : [],
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],

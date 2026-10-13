@@ -39,6 +39,7 @@ for (const role of ["admin", "editor", "viewer", "none"] as const) {
         await page.goto("/finance/base-data/customer-mappings");
         if (!read) {
             await expect(page.getByText("当前权限组不能查看客户对应表")).toBeVisible();
+            await expect(page.getByText("基础数据", {exact:true})).toHaveCount(0);
             expect(requests).toHaveLength(0);
             return;
         }
