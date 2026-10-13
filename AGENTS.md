@@ -38,5 +38,5 @@ See `ARCHITECTURE.md`, `SECURITY.md`, `docs/runbook.md`, and `docs/integration-g
 
 - 当需求涉及定时任务、E10/T+同步、n8n、systemd Timer/Service、cron、业务异步、通知、备份、脚本运行或运行时排障时，必须先阅读 `.agents/skills/kdos-task-orchestration/SKILL.md` 和 `docs/operations/TASK_REGISTRY.md`。
 - 基础设施/灾备/常驻服务使用 systemd 或 Docker；业务定时及跨系统编排默认由 n8n 统一调度；事务性/高频事件消费由已有 KDOS Application/Worker/持久消费者承担。例外必须明确登记原因。
-- 每个逻辑任务只能有一个生效自动调度源；新建或迁移前必须检查生产 systemd（含 user）、cron、n8n 及应用内调度。不得仅凭仓库存在 unit 或脚本推断它已启用。
+- 新建任务默认一个权威的自动调度入口；新建或确有必要迁移前检查生产 systemd（含 user）、cron、n8n 及应用内调度。**用户已确认现有任务不按业务重复任务处理，现有运行任务均维持原状，不强制迁移、不擅自停用或合并；即使不同调度器共享代码，也应在台账客观记录但不得自动整改。**不得仅凭仓库存在 unit 或脚本推断它已启用。
 - 增改停任务时同步更新任务台账；仅有代码或 README 更改不等于生产迁移。必须提供执行证明、幂等/防并发、失败告警、补偿和回滚，并保护凭据及既有数据。
