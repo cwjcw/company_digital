@@ -1,5 +1,41 @@
 # Codex 工作进度
 
+## 当前任务：财务中心 Phase 1 客户对应表
+
+任务名称：独立财务客户分类及日期受限E10增量新增。
+任务目标：财务中心→基础数据→客户对应表；保留本次上传138条，未来仅CreateDate或LastModifiedDate严格晚于2026-10-12的客户新增；不改PMC映射。
+当前状态：**已完成 / 已部署 / PASS**。
+最后更新时间：2026-10-13 10:14（Asia/Shanghai）。
+
+当前阶段：最终交付；当前子任务：无。
+已完成：完整读取MD和两份种子、规范/技能/前轮进度/Git恢复审查；实际验证E10_6.0.0.1.NEW.CHS.dbo.CUSTOMER.CUSTOMER_CODE及CreateDate/LastModifiedDate，未用订单集合或SETUP_DATE。
+已完成实现：独立finance客户及同步日志、租户RLS/FORCE/显式tenant、UUIDv7和用户外键、版本409/审计、分类字段白名单；公共表格/FilterGroup/导出/权限管理；Finance Portal排序契约及无权入口隐藏；单user systemd timer。
+已完成用户追加范围：原609全主档补齐方案取消，另外471条从未提交（早期审计错误导致整事务回滚）。当前实际仅138初始客户/138唯一/待分类0；83/7/48、内49外89、A140业务一部内销均核验。未来合格新编号两分类NULL，不覆盖/删除既有记录。
+截止日说明：可选边界问题无答复，已告知按严格晚于12日的2026-10-13零点实现；唯一finance-sync-policy.json被Python源SQL和后端验证共用，拒绝过早/缺失/非法/UTC转换源日期。当前实际合格源0。若用户要求含12日，再按新指令改策略、验证部署，未将该解释伪称为用户回答。
+已完成测试：最终API103suite/900通过/1既有skip；专项46；Web46文件357/专项7；Contracts22；Python5；财务Chrome4角色、KnowledgeChrome17/1原凭据门控skip；独立Postgres18真实20检查及87完整fresh迁移/full Nest，含旧审计CHECK同步成功/失败；typecheck/lint/build通过，仅既有警告。
+已完成备份：20261013_093503双库custom及uploads含.private，pg_restore目录/SHA256/0600复核通过。既有KDOS18 SQL迁移均SKIP。
+已完成迁移：FinanceCustomerMappings1722920088000仅新建finance_customer_mappings/finance_customer_sync_runs，不改旧表。
+已完成部署：./scripts/deploy.sh all及check；HEAD/Web/API/Worker **c69e5199cbc6c8a955d301b3ba72175354b3e008** 一致；四服务healthy、Dispatcher active；原PG18、mount、postgres:5432内部连接与127.0.0.1:15433保留。
+已完成实际日任务：10:00:49 SUCCESS read0/create0/skip0；10:02:07重跑SUCCESS/repeated，ExecMainStatus0；timer active，下一次2026-10-14 01:00 CST，Linger=yes；尚未经过下一日自动触发。专用有限scope key仅ignored data/finance-customer-sync.env 0600，不改账号权限。初始种子实际138新建；重跑幂等实际0新增，原逻辑批次返回created138/repeated=true，未误算新建。
+已完成真实浏览器：管理员6组PASS（入口/只读编号/A140同值保存/待分类0/服务端筛选/实际138全量xlsx/原权限入口）；普通员工2组PASS登录及现有无权状态，入口隐藏、页面拒绝、list/export/patch403。未给员工授权；生产财务只读/编辑专用账号正向未测，隔离及模拟真实Chrome角色覆盖。
+已完成完整性：原PMC3映射及14张Knowledge表逐行完整哈希/数量完全一致，系统actor仍disabled。生产无测试客户/未写E10；A140仅保存原值，版本/审计按设计保留。隔离临时库0残留，专用测试容器已停并移除。
+正在进行：无。
+待完成：无本轮实现/部署遗留；日期可选澄清不是已确认答案，人工财务账号验收列明边界。
+修改文件：28个相关源码/测试/配置/种子文件，完整清单见报告；outputs进度/报告/安全JSON、日志及实际xlsx。不提交runtime secret。
+数据库 Migration：1个新增TypeORM migration，无旧结构变更、无E10变更。
+新增npm/Python依赖：无。
+新增或修改测试：财务/API日期与字段/权限/种子、Python重试/源SQL、跨模块注册/Auth排序、财务Web/Chrome、独立真实PG和fresh全schema。
+已运行测试：上述全部通过，最终结果以报告和安全证据为准。
+当前已知问题：无未解决功能或运行异常。早期system审计来源23514已改为合法api+原禁用系统UUID，原CHECK保留、真实完整schema及服务重跑证明；pending合并、Portal allowlist和测试执行器路径/语言/图标/空列表/自建Vite并发定位均已解决。
+等待用户确认：无必需审批；“含12日”可选解释未答，明确采用严格13日起。
+下一步：无执行遗留；按FINANCE_CUSTOMER_MAPPING_ACCEPTANCE.md人工步骤使用财务中心；未来数据修改按新指令处理。
+恢复执行说明：规范→技能→本段→git status/diff→新增反馈，不重做旧Knowledge任务、不向138表补入历史全主档、不删除财务/PMC数据。
+最终报告：outputs/FINANCE_CUSTOMER_MAPPING_ACCEPTANCE.md。
+实际Excel：outputs/finance_customer_mappings_2026-10-13.xlsx（138行，英文下载名）。
+源码提交：9542808、57f47f0、c69e519，未push；outputs证据留工作区。
+
+---
+
 ## 当前任务：Knowledge统一知识目录
 
 任务名称：Knowledge门户与管理统一列表/面包屑，消除重复目录导航。

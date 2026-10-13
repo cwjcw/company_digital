@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "role": "employee",
+  "checks": [
+    "E2E 登录/权限验证通过",
+    "真实普通员工未授权：入口隐藏、页面拒绝、列表/导出/编辑API403"
+  ],
+  "credentialRecording": false,
+  "accountPermissionsChanged": false,
+  "classificationValuesChanged": false
+}

@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "files": [
+    {
+      "file": "data/backups/four_department_tracker_20261013_093503.backup",
+      "sha256": "1f23cfe0df162ed81b765f976e23a407acf4497c44ec46ebb458c044489b4cf4",
+      "mode": "0600",
+      "size": 747525090
+    },
+    {
+      "file": "data/backups/kdos_20261013_093503.backup",
+      "sha256": "cca80e526d79fbb82b32ad8a2ac50d80817e3c7f22a199f435579a3163de8477",
+      "mode": "0600",
+      "size": 8155720
+    },
+    {
+      "file": "data/backups/uploads_20261013_093503.tar.gz",
+      "sha256": "bab1e77e9a88ff0a20960cc64d45f71a249554acf1de0e61d20ed48b15559c10",
+      "mode": "0600",
+      "size": 2971839
+    }
+  ],
+  "privateUploadsIncluded": true
+}

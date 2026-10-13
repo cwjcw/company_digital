@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "role": "admin",
+  "checks": [
+    "E2E 登录/权限验证通过",
+    "财务中心→基础数据→客户对应表，无财务管理标签",
+    "真实管理员保存验证，客户编号只读，A140分类保持业务一部/内销",
+    "待分类0及同一FilterGroup实际服务端分页",
+    "真实页面导出Excel全部138条，中文三列表头，英文文件名",
+    "财务表接入现有权限组管理，无员工授权变更"
+  ],
+  "credentialRecording": false,
+  "accountPermissionsChanged": false,
+  "classificationValuesChanged": false
+}

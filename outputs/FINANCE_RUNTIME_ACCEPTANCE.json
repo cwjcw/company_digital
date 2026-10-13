@@ -1,0 +1,35 @@
+{
+  "status": "PASS",
+  "deploymentSha": "c69e5199cbc6c8a955d301b3ba72175354b3e008",
+  "records": 138,
+  "uniqueCustomerCodes": 138,
+  "pending": 0,
+  "sources": {
+    "INITIAL_IMPORT": 138,
+    "E10_SYNC": 0
+  },
+  "seed": {
+    "division1": 83,
+    "division2": 7,
+    "division3": 48,
+    "domestic": 49,
+    "export": 89,
+    "A140": "业务一部/内销"
+  },
+  "sourceMinimumDate": "2026-10-13",
+  "sourceMinimumDateInterpretation": "strictly after 2026-10-12; optional clarification unanswered",
+  "sourceEligibleReadCount": 0,
+  "syncStatus": "SUCCESS",
+  "syncRepeatedSafely": true,
+  "timerActive": true,
+  "schedule": "01:00 Asia/Shanghai",
+  "nextTrigger": "2026-10-14 01:00 CST",
+  "nextAutomaticTriggerObserved": false,
+  "apiWebWorkerHeadConsistent": true,
+  "allFourContainersHealthy": true,
+  "original15TablesUnchanged": true,
+  "testDatabaseResidue": 0,
+  "temporaryPostgresContainerRemoved": true,
+  "accountPermissionsChanged": false,
+  "credentialsIncluded": false
+}
