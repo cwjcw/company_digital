@@ -1,6 +1,6 @@
 # KDOS 自动化任务台账 / TASK REGISTRY
 
-更新时间：2026-10-13。数据来源：GitHub `company_digital` 主分支仓库文件盘点；**未连接生产 Ubuntu 或 n8n 运行时**。本表中的“已找到”不代表正在运行。
+更新时间：2026-10-13。证据：(1) GitHub `company_digital` 主分支文件盘点；(2) 用户在生产 Ubuntu 主机运行 `bash scripts/audit-schedulers.sh` 的输出，采样时间 `2026-10-13T13:18:08+08:00`，主机时区 `Asia/Shanghai`。**已核实 systemd 列表、部分 cron 数量、Docker 容器运行状态；尚未读取 n8n 内部工作流、完整系统 cron 与业务执行成功日志。** 列表中的 `LAST` 是 Timer 最近触发时间，不等于脚本成功。
 
 ## 统一归属
 
@@ -15,38 +15,53 @@
 | 分类 | 数量 | 说明 |
 | --- | ---: | --- |
 | systemd Timer 模板 | 4 | 财务1、企业微信通讯录1、ERP staging 模板1、ERP projection 模板1 |
-| Timer 候选实例 | 8 | 财务1、通讯录1、staging按三来源3、projection按三消费者3；生产实际实例数量未知 |
+| Timer 候选实例 | 8 | 财务1、通讯录1、staging按三来源3、projection按三消费者3；已核实这8个用户级 Timer 均 enabled 并有下次执行时间 |
 | 常驻 Dispatcher 的 systemd Service | 1 | 不属于定时任务 |
 | systemd Service 文件 | 6 | 财务1、通讯录2、ERP staging/projection 模板2、常驻 Dispatcher1；不是6个实际启用服务 |
-| n8n 工作流运行数 | 未知 | 不能仅从仓库 SSH 示例得出，需连 n8n 查看 |
-| cron 任务数 | 未知 | 需读取服务器当前用户及系统 cron |
+| n8n 工作流运行数 | 未知 | `n8n_sqlite` 容器已运行约2周；尚未获取已激活工作流清单，不能推断工作流数 |
+| 当前用户 crontab 条目 | 1 | 审计脚本统计到1条非注释项；命令内容未查看，其他用户及系统 cron 仍需审计 |
 | 应用内部 scheduler | 未核实 | 需运行时和代码额外审计 |
 
 **注：仓库共有6个 `.service` 文件**（财务1、通讯录2、ERP staging1、ERP projection1、Dispatcher1）。Template 与启用实例要分开统计。
+
+### 生产调度快照（只读）
+
+| 分类 | 本次实测数量 | 证据 / 限制 |
+| --- | ---: | --- |
+| 系统级 systemd Timer 列表项 | 22 | `systemctl list-timers --all`；含未安排下一次执行的条目，不等同于22个启用任务 |
+| 当前用户 systemd Timer 列表项 | 10 | 其中 KDOS 8 个，另有 firmware notifier 和 launchpadlib cache clean |
+| KDOS 用户级 Timer 已启用 | 8 | 每个 `is-enabled=enabled`，且 `list-timers` 显示 NEXT、LAST |
+| DWG 索引系统级 Timer | 1 | `dwg-index-update.timer` 已启用，最近一次定时触发 `2026-10-13 00:10:09 CST`；不代表成功 |
+| 当前用户 crontab 非注释项 | 1 | 内容未查看；系统及其他用户 cron 未完整核查 |
+| n8n Docker 容器 | 1 | `n8n_sqlite` 正在运行；n8n 工作流启用数未知 |
+| KDOS Compose 容器 | 4 | `knplan-web-1`、`knplan-api-1`、`knplan-postgres-1`、`knplan-document-worker-1` 全部显示 healthy |
+| 系统级其他任务 | 有 | 包括 `assistant-memory-auto.timer`、certbot、apt、logrotate、sysstat 等；归类系统管理，不擅自迁入 n8n |
+
+**重点偏差**：`ERP-004/005/006` 投影 Timer 在生产已启用并于 `2026-10-13 13:05 CST` 触发；此前文档写“默认禁用”，该描述与当前生产状态不一致，迁移之前必须依据当前运行状态做评估。**优先检查**：`ERP-003` 科加订单是否同时由 n8n 每日工作流和每30分钟 systemd Timer 调度；服务器 `crontab` 的1条任务内容；财务同步 01:00 的首次正式执行情况。
 
 ## 已识别任务
 
 | 任务 ID | 业务 / 调用入口 | 仓库中发现的触发定义 | 建议唯一归属 | 生产状态 | 后续动作 |
 | --- | --- | --- | --- | --- | --- |
-| FIN-001 | 财务E10客户同步；`automation/finance_customer_sync/main.py` | `kdos-finance-customer-sync.timer` 每天01:00 | n8n | UNVERIFIED_RUNTIME | 优先迁移；138条初始客户保留；只增不覆盖分类 |
-| IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | UNVERIFIED_RUNTIME | 先验证备份、停用账号动作和漏跑补偿 |
-| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | UNVERIFIED_RUNTIME | 核查来源游标、运行时间及重复入口 |
-| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | UNVERIFIED_RUNTIME | 独立来源、锁和失败处理 |
-| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 模板每30分钟 + README 记载 n8n 每日入口 | n8n（后续） | UNVERIFIED_RUNTIME | **重点排查双调度，禁止直接停任何入口** |
-| ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | UNVERIFIED_RUNTIME（文档说默认禁用） | 先确认准入、启用状态和业务验收 |
-| ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | UNVERIFIED_RUNTIME | 不擅自开启 |
-| ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | UNVERIFIED_RUNTIME | 不擅自开启 |
+| FIN-001 | 财务E10客户同步；`automation/finance_customer_sync/main.py` | `kdos-finance-customer-sync.timer` 每天01:00 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 优先迁移；138条初始客户保留；只增不覆盖分类 |
+| IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先验证备份、停用账号动作和漏跑补偿 |
+| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 核查来源游标、运行时间及重复入口 |
+| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 独立来源、锁和失败处理 |
+| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 模板每30分钟 + README 记载 n8n 每日入口 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | **重点排查双调度，禁止直接停任何入口** |
+| ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先确认准入、启用状态和业务验收 |
+| ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
+| ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
 | EQ-001 | 设备治理日报；`equipment-governance-daily/report.py` | README提供 n8n SSH 命令；无本仓库 Timer | n8n | UNVERIFIED_RUNTIME | 检查是否正式激活、正式发送权限 |
 | MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd Service，轮询约1秒 | systemd Service | UNVERIFIED_RUNTIME | 保留常驻，不迁 n8n |
 | OPS-001 | PostgreSQL 与上传文件备份；`scripts/backup.sh` | 只确认脚本，未发现仓库定时器 | systemd Timer | UNVERIFIED_RUNTIME | 核实生产备份策略、日志与恢复测试 |
-| OPS-002 | DWG本地索引 | 本仓库未发现定义；历史服务器命令显示 `dwg-index-update.timer` | systemd Timer（初步） | UNVERIFIED_RUNTIME | 到生产机核实、登记入口 |
+| OPS-002 | DWG本地索引 | 本仓库未发现定义；主机存在 `dwg-index-update.timer` | systemd Timer | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已核实系统级启用，查作业日志及任务归属 |
 | SUP-001 | T+供应商导入；`automation/tplus_supplier_import/extract.py` | 脚本存在、仓库未确认周期触发 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |
 | MPS-001 | 主计划 E10研发进度；`data-operations/e10/run-pmc-rd-progress-sync.cjs` | 有脚本，未确认调度 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |
 | TPLUS-001 | T+销售接单明细；`data-operations/tplus/sync.mjs` | 有脚本，未确认调度 | n8n（若周期化） | UNVERIFIED_RUNTIME | 核查是否与 ERP staging 重叠 |
 
 ## 运行时核查要求
 
-须执行仓库脚本 `scripts/audit-schedulers.sh`（只读），补充 n8n 管理端已激活工作流、时区、最近执行、对应 SSH 命令；逐一记录 `active/enabled/next/last`。只读脚本不宣称涵盖 n8n，也不执行、启停、修改任何定时任务。完成后纠正本台账中所有 UNVERIFIED_RUNTIME，再对具体迁移方案做风险评估。
+主机脚本 `scripts/audit-schedulers.sh` 已在 2026-10-13 13:18 CST 执行（只读），systemd 和当前用户 cron **数量**已采集。下一步：只读审计 n8n 已激活工作流、时区、最近执行及 SSH 目标；在不泄露密钥的前提下确认用户 crontab 的任务类型；查看8个 KDOS Timer 对应 Service 的退出状态与最近成功时间；确认常驻 Dispatcher、备份、内部消费者；逐一登记 `active/enabled/next/last/result`。未核实项继续保留 UNVERIFIED_RUNTIME；在完成实际链路和风险评估前，不停用任何生产调度。
 
 项目规范：`.agents/skills/kdos-task-orchestration/SKILL.md`。
