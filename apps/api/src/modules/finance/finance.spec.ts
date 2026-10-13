@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import { tablePermissionFieldsFor, tableFilterResourceCapabilities } from "@kdos/contracts";
+import { financeCustomerMinimumSourceDate, tablePermissionFieldsFor, tableFilterResourceCapabilities } from "@kdos/contracts";
 import { FinanceApplicationService, normalizeFinanceRows, financeClassification } from "./finance.application.service";
 import { financeAuthorize, financeScope, type FinanceActor } from "./finance.types";
 import { FinanceFilterSourceProvider } from "./finance.filter-sources";
@@ -24,7 +24,13 @@ describe("Independent finance customer classifications", () => {
         for (const code of ["A097-A", "A097-B", "A097-E", "A108", "A108A", "C031", "C031-A", "C031-B", "C031-C", "C031-LP"])
             expect(rows.some(r => r[0] === code)).toBe(true);
     });
-    it("normalizes edges only and skips exact duplicates", () => { const result = normalizeFinanceRows([{ customerCode: " 001-A " }, { customerCode: "001-A" }, { customerCode: "001 A" }], "E10_SYNC"); expect(result.read).toBe(3); expect(result.rows).toHaveLength(2); expect(result.rows.every(r => r.departmentCategory === null && r.salesChannel === null)).toBe(true); });
+    it("normalizes edges only and skips exact duplicates", () => { const result = normalizeFinanceRows([{ customerCode: " 001-A " }, { customerCode: "001-A" }, { customerCode: "001 A" }].map(row => ({...row,createdAtSource:financeCustomerMinimumSourceDate+"T00:00:00"})), "E10_SYNC"); expect(result.read).toBe(3); expect(result.rows).toHaveLength(2); expect(result.rows.every(r => r.departmentCategory === null && r.salesChannel === null)).toBe(true); });
+    it("accepts either new creation or an old customer's later modification", () => {
+        for (const dates of [{createdAtSource:financeCustomerMinimumSourceDate+"T00:00:00",modifiedAtSource:null},{createdAtSource:"2020-01-01T00:00:00",modifiedAtSource:financeCustomerMinimumSourceDate+"T10:00:00.0000001"}]) expect(normalizeFinanceRows([{customerCode:"NEW",...dates}],"E10_SYNC").rows).toHaveLength(1);
+    });
+    it("rejects both dates before the cutoff, missing dates and UTC reinterpretation", () => {
+        for (const dates of [{createdAtSource:"2026-10-11T23:59:59",modifiedAtSource:"2026-10-11T23:59:59"},{createdAtSource:null,modifiedAtSource:null},{createdAtSource:financeCustomerMinimumSourceDate+"T00:00:00Z"},{createdAtSource:"2026-02-30T00:00:00"}]) expect(()=>normalizeFinanceRows([{customerCode:"OLD",...dates}],"E10_SYNC")).toThrow(BadRequestException);
+    });
     it.each([0, null, "", {}, [{ customerCode: 140 }], [{ customerCode: " " }], [{ customerCode: "A", tenantId: "OTHER" }], [{ customerCode: "A", salesChannel: "内销" }]])("rejects malformed/spoofed upstream input %p", value => { expect(() => normalizeFinanceRows(value, "E10_SYNC")).toThrow(BadRequestException); });
     it("accepts an empty source without deleting mappings", () => expect(normalizeFinanceRows([], "E10_SYNC")).toEqual({ rows: [], read: 0 }));
     it("rejects conflicting seed duplicate classifications", () => expect(() => normalizeFinanceRows([{ customerCode: "A", salesChannel: "内销" }, { customerCode: "A", salesChannel: "外销" }], "INITIAL_IMPORT")).toThrow("分类冲突"));

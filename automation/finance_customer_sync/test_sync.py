@@ -2,6 +2,8 @@ import contextlib
 import io
 import json
 import os
+import types
+import pandas as pd
 import unittest
 from unittest.mock import patch, Mock
 import main
@@ -12,6 +14,21 @@ class FinanceSyncTest(unittest.TestCase):
         self.assertEqual(len(rows),138)
         self.assertEqual(len({r['customerCode'] for r in rows}),138)
         self.assertEqual(next(r for r in rows if r['customerCode']=='A140')['salesChannel'],'内销')
+
+    def test_source_query_uses_verified_audit_dates_and_shared_cutoff(self):
+        cutoff=main.minimum_source_date()
+        frame=pd.DataFrame([{'customer_code':' 001-A ', 'created_at_source':cutoff+'T00:00:00', 'modified_at_source':None}])
+        database=Mock();database.get_from_query.return_value=frame
+        module=types.SimpleNamespace(MSSQLDatabase=Mock(return_value=database))
+        with patch.dict('sys.modules',{'basic_code':module}):
+            rows=main.source_rows()
+        query=database.get_from_query.call_args.args[0]
+        self.assertIn('FROM dbo.CUSTOMER',query)
+        self.assertIn('WHERE CreateDate >=',query)
+        self.assertIn('OR LastModifiedDate >=',query)
+        self.assertIn(cutoff+'T00:00:00',query)
+        self.assertNotIn('SALES_ORDER',query)
+        self.assertEqual(rows,[{'customerCode':'001-A','createdAtSource':cutoff+'T00:00:00','modifiedAtSource':None}])
 
     def test_network_response_loss_retries_identical_payload(self):
         response=Mock(ok=True)

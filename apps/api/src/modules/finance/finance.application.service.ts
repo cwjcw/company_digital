@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { financeDepartmentOptions, financeSalesChannelOptions, FINANCE_CUSTOMER_RESOURCE as resource } from "@kdos/contracts";
+import { financeCustomerMinimumSourceDate, financeDepartmentOptions, financeSalesChannelOptions, FINANCE_CUSTOMER_RESOURCE as resource } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import type { EntityManager } from "typeorm";
 import { FinanceRepository } from "./finance.repository";
@@ -9,6 +9,8 @@ export type FinanceImportRow = {
     customerCode: string;
     departmentCategory: string | null;
     salesChannel: string | null;
+    createdAtSource?: string | null;
+    modifiedAtSource?: string | null;
 };
 export function financeClassification(value: unknown, field: string) {
     if (value == null || value === "")
@@ -16,6 +18,15 @@ export function financeClassification(value: unknown, field: string) {
     const options = field === "departmentCategory" ? financeDepartmentOptions : financeSalesChannelOptions;
     if (typeof value !== "string" || !options.some(o => o.value === value))
         throw new BadRequestException(`${field === "departmentCategory" ? "部门类别" : "内外区分"}选项无效`);
+    return value;
+}
+export function financeSourceDate(value: unknown): string | null {
+    if (value == null) return null;
+    if (typeof value !== "string") throw new BadRequestException("E10客户创建/修改日期格式无效");
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,7})?$/.exec(value);
+    if (!match || Number(match[4]) > 23 || Number(match[5]) > 59 || Number(match[6]) > 59) throw new BadRequestException("E10客户创建/修改日期格式无效");
+    const calendar = new Date(Date.UTC(Number(match[1]), Number(match[2])-1, Number(match[3])));
+    if (!Number.isFinite(calendar.getTime()) || calendar.toISOString().slice(0,10) !== value.slice(0,10)) throw new BadRequestException("E10客户创建/修改日期无效");
     return value;
 }
 export function normalizeFinanceRows(rows: unknown, source: string): {
@@ -26,13 +37,19 @@ export function normalizeFinanceRows(rows: unknown, source: string): {
         throw new BadRequestException("客户数据应为不超过10000行的数组");
     const unique = new Map<string, FinanceImportRow>();
     for (const raw of rows) {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some(k => !["customerCode", ...(source === "INITIAL_IMPORT" ? ["departmentCategory", "salesChannel"] : [])].includes(k)))
+        if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some(k => !["customerCode", ...(source === "INITIAL_IMPORT" ? ["departmentCategory", "salesChannel"] : ["createdAtSource", "modifiedAtSource"])].includes(k)))
             throw new BadRequestException("客户导入包含无效或未授权字段");
         if (typeof raw.customerCode !== "string" || !raw.customerCode.trim() || raw.customerCode.trim().length > 128)
             throw new BadRequestException("客户编号应为非空字符串，最长128字符");
         const row = { customerCode: raw.customerCode.trim(), departmentCategory: source === "INITIAL_IMPORT" ? financeClassification(raw.departmentCategory, "departmentCategory") : null, salesChannel: source === "INITIAL_IMPORT" ? financeClassification(raw.salesChannel, "salesChannel") : null };
+        if (source === "E10_SYNC") {
+            const createdAtSource = financeSourceDate(raw.createdAtSource);
+            const modifiedAtSource = financeSourceDate(raw.modifiedAtSource);
+            if (![createdAtSource,modifiedAtSource].some(date => date && date.slice(0,10) >= financeCustomerMinimumSourceDate)) throw new BadRequestException(`E10客户创建或修改日期必须在${financeCustomerMinimumSourceDate}起`);
+            Object.assign(row,{createdAtSource,modifiedAtSource});
+        }
         const previous = unique.get(row.customerCode);
-        if (previous && JSON.stringify(previous) !== JSON.stringify(row))
+        if (previous && source === "INITIAL_IMPORT" && JSON.stringify(previous) !== JSON.stringify(row))
             throw new BadRequestException("重复客户编号的分类冲突");
         unique.set(row.customerCode, row);
     }
@@ -113,7 +130,7 @@ export class FinanceApplicationService {
             const skipped = read - created;
             await m.query(`INSERT INTO finance_customer_sync_runs(tenant_id,run_key,source,started_at,read_count,created_count,skipped_count,status,actor_id)
         VALUES($1,$2,$3,$4,$5,$6,$7,'SUCCESS',$8)`, [actor.tenantId, runKey, source, started, read, created, skipped, actor.userId]);
-            await this.audit(m, actor, null, "finance.sync.completed", null, { source, read, created, skipped });
+            await this.audit(m, actor, null, "finance.sync.completed", null, { source, read, created, skipped, ...(source === "E10_SYNC" ? { minimumSourceDate: financeCustomerMinimumSourceDate } : {}) });
             return { read, created, skipped, repeated: false };
         });
     }
@@ -128,7 +145,7 @@ export class FinanceApplicationService {
         });
     }
     private syncActor(actor: FinanceActor): FinanceActor {
-        return actor.source === "api" ? { ...actor, userId: "0199e000-0000-7000-8000-000000000001", username: "KDOS系统任务", source: "system" } : actor;
+        return actor.source === "api" ? { ...actor, userId: "0199e000-0000-7000-8000-000000000001", username: "KDOS系统任务", source: "api" } : actor;
     }
     private audit(m: EntityManager, actor: FinanceActor, recordId: string | null, action: string, beforeJson: unknown, afterJson: unknown) {
         return m.save(AuditLog, { tenantId: actor.tenantId, actorId: actor.userId, actorName: actor.username, resource, recordId, action, beforeJson, afterJson: { tenantId: actor.tenantId, ...afterJson as object }, requestId: actor.requestId, source: actor.source ?? "api" });

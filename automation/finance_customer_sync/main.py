@@ -30,17 +30,36 @@ def seed_rows():
     return rows
 
 
+def minimum_source_date():
+    policy = json.loads((ROOT / "packages/contracts/src/finance-sync-policy.json").read_text())
+    value = policy["minimumSourceDate"]
+    if datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d") != value:
+        raise ValueError("Invalid source date policy")
+    return value
+
+
 def source_rows():
     # basic_code owns E10 secrets. Suppress connection diagnostics (they may include credentials).
     logging.disable(logging.CRITICAL)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         from basic_code import MSSQLDatabase
         db = MSSQLDatabase()
-        frame = db.get_from_query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED; SELECT CUSTOMER_CODE customer_code FROM dbo.CUSTOMER ORDER BY CUSTOMER_CODE")
+        cutoff = minimum_source_date()
+        frame = db.get_from_query(f"""SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+            SELECT CUSTOMER_CODE customer_code,
+              CONVERT(varchar(33),CreateDate,126) created_at_source,
+              CONVERT(varchar(33),LastModifiedDate,126) modified_at_source
+            FROM dbo.CUSTOMER
+            WHERE CreateDate >= CONVERT(datetime2,'{cutoff}T00:00:00',126)
+               OR LastModifiedDate >= CONVERT(datetime2,'{cutoff}T00:00:00',126)
+            ORDER BY CUSTOMER_CODE""")
     values = frame["customer_code"].tolist()
     if any(not isinstance(v, str) or not v.strip() for v in values):
         raise ValueError("E10 master contains an invalid customer code")
-    return [{"customerCode": v.strip()} for v in values]
+    return [{"customerCode": row["customer_code"].strip(),
+             "createdAtSource": row["created_at_source"] if isinstance(row["created_at_source"], str) else None,
+             "modifiedAtSource": row["modified_at_source"] if isinstance(row["modified_at_source"], str) else None}
+            for row in frame.to_dict("records")]
 
 
 def main():
@@ -54,11 +73,12 @@ def main():
     key = os.getenv("KDOS_FINANCE_API_KEY")
     headers = {"X-API-Key": key or ""}
     start = datetime.now(timezone.utc).isoformat()
+    http_status = None
     try:
         rows = seed_rows() if opts.seed else source_rows()
         kind = "INITIAL_IMPORT" if opts.seed else "E10_SYNC"
         if opts.dry_run:
-            print(json.dumps({"status": "DRY_RUN", "source": kind, "table": SOURCE_TABLE if not opts.seed else None, "read": len(rows), "distinct": len({r["customerCode"] for r in rows})}))
+            print(json.dumps({"status": "DRY_RUN", "source": kind, "table": SOURCE_TABLE if not opts.seed else None, "read": len(rows), "distinct": len({r["customerCode"] for r in rows}), "minimumSourceDate": None if opts.seed else minimum_source_date()}))
             return 0
         if not key:
             raise ValueError("Finance runtime API key is not configured")
@@ -70,6 +90,7 @@ def main():
         for _ in range(3):
             try:
                 last_response = requests.post(f"{url}/finance/customer-mappings/ingest", headers=headers, json=payload, timeout=(10, 120))
+                http_status = last_response.status_code
                 if last_response.ok:
                     result = last_response.json()
                     print(json.dumps({"status": "SUCCESS", "source": kind, **result}))
@@ -86,7 +107,7 @@ def main():
                 requests.post(f"{url}/finance/customer-mappings/sync-failure", headers=headers, timeout=(10, 30))
             except requests.RequestException:
                 pass
-        print(json.dumps({"status": "FAILED", "errorType": type(error).__name__, "stage": "INITIAL_IMPORT" if opts.seed else "E10_SYNC"}))
+        print(json.dumps({"status": "FAILED", "errorType": type(error).__name__, "httpStatus": http_status, "stage": "INITIAL_IMPORT" if opts.seed else "E10_SYNC"}))
         return 1
 
 

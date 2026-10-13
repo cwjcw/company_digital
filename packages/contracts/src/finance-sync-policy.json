@@ -1,0 +1,5 @@
+{
+  "minimumSourceDate": "2026-10-13",
+  "sourceDateFields": ["CreateDate", "LastModifiedDate"],
+  "timeZone": "Asia/Shanghai"
+}
