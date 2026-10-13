@@ -37,9 +37,9 @@
 | KDOS Compose 容器 | 4 | `knplan-web-1`、`knplan-api-1`、`knplan-postgres-1`、`knplan-document-worker-1` 全部显示 healthy |
 | 系统级其他任务 | 有 | 包括 `assistant-memory-auto.timer`、certbot、apt、logrotate、sysstat 等；归类系统管理，不擅自迁入 n8n |
 
-**重大现况**：n8n 已激活工作流 `cfxCKnLl0YqRZYDj` 的导出配置明确包含 Schedule Trigger（`triggerAtHour: 1`）与 SSH 调用 `data-operations/order-sync/sync-kejia-orders.sh`。该脚本内部执行 `sync.py run --source tplus-kejia` 后执行 `project.py --consumer sales-orders-v1`；而用户级 systemd `kdos-erp-order-sync@tplus-kejia.timer` 已启用且每30分钟调用同一 `sync.py run --source tplus-kejia`。故**重复的自动触发链路已确认**（但未检查 n8n 最近执行结果或脚本的实际重复写入，不能宣称重复数据已发生）。两路 staging 使用相同 `/tmp/kdos-erp-order-sync-tplus-kejia.lock` 防并发；投影另有30分钟 systemd 调度，是否与 n8n 重合及 DB 消费者租约保护仍待运行时检验。n8n 工作流时区设置尚未核实；需在正式迁移方案中调整频率、处理投影依赖及失败回滚。
+**用户业务确认（2026-10-13）**：目前全部现有任务按业务用途判断**不存在需要处理的重复任务**，保留各自调度，不再以“疑似重复”为由要求停用、合并或迁移。技术事实仍需如实记录：n8n 已激活工作流 `cfxCKnLl0YqRZYDj` 每天 01:00 调用 `sync-kejia-orders.sh`（依次执行科加 staging 采集与 `sales-orders-v1` 投影）；用户级 systemd Timer 每30分钟调用 `sync.py run --source tplus-kejia`。两者有共用的采集代码、复用 `/tmp/kdos-erp-order-sync-tplus-kejia.lock` 防并发，但不能因此直接认定业务任务重复或数据重复。此情况作为“已知共享执行入口、用户接受当前分工”登记，后续只有在出现运行异常、业务变更或用户要求时才重新评估。
 
-**重点偏差**：`ERP-004/005/006` 投影 Timer 在生产已启用并于 `2026-10-13 13:05 CST` 触发；此前文档写“默认禁用”，该描述与当前生产状态不一致，迁移之前必须依据当前运行状态做评估。**优先检查**：`ERP-003` 科加订单是否同时由 n8n 每日工作流和每30分钟 systemd Timer 调度；服务器 `crontab` 的1条任务内容；财务同步 01:00 的首次正式执行情况。
+**重点偏差**：`ERP-004/005/006` 投影 Timer 在生产已启用并于 `2026-10-13 13:05 CST` 触发；此前文档写“默认禁用”，与当前运行状态不一致。按用户决定不调整现有任务。**后续常规盘点**：服务器 `crontab` 的1条任务用途、财务同步 01:00 正式执行、n8n工作流状态；不再以“排查任务重复”为单独推进目标。
 
 ## 已识别任务
 
@@ -49,7 +49,7 @@
 | IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先验证备份、停用账号动作和漏跑补偿 |
 | ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 核查来源游标、运行时间及重复入口 |
 | ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 独立来源、锁和失败处理 |
-| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用 `sync-kejia-orders.sh` | n8n（后续） | TWO_ACTIVE_SCHEDULES_CONFIRMED / RUN_SUCCESS_UNVERIFIED | **已确认同一 staging 同步逻辑双调度；脚本复用相同 flock，n8n 另调用 `sales-orders-v1` 投影；不得直接停用其中任一入口** |
+| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用复合脚本 | **现状保留（用户认定业务任务不重复）** | TWO_TRIGGERS_KNOWN / SYSTEMD_RUN_SUCCESS / N8N_RUN_UNVERIFIED | 技术上共享 staging 采集代码和 flock；n8n 额外执行 `sales-orders-v1` 投影。按用户业务判断不做合并、停用或迁移 |
 | ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先确认准入、启用状态和业务验收 |
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
@@ -84,7 +84,7 @@
 | `cfxCKnLl0YqRZYDj` | 同步科加数据_每天_1:00 | KDOS 科加订单同步，已按执行脚本确认 | 已激活；Schedule Trigger 01:00 → SSH `data-operations/order-sync/sync-kejia-orders.sh`；与ERP-003共享同步入口且该脚本额外执行 `sales-orders-v1` 投影 |
 | `ZaJp5jyD96075thE` | 同步品项_每天_00:05 | 待确认KDOS归属 | 已激活（CLI确认）；是否关联研发物料；与历史00:10描述不一致 |
 
-**合计**：14个已登记工作流、10个已激活、4个未激活。10个用户标注非KDOS中有7个激活、3个未激活；4个归属待查中有3个激活（接单入库、同步科加、同步品项）、1个未激活（Database）。**下一步**只读核查3个激活候选的节点调用链路、计划时区与最近执行，重点对照 ERP-003 系统定时器；避免输出 SSH Credential 或 SQL 密钥。
+**合计**：14个已登记工作流、10个已激活、4个未激活。10个用户标注非KDOS中有7个激活、3个未激活；4个归属待查中有3个激活（接单入库、同步科加、同步品项）、1个未激活（Database）。**后续按需**只读核查3个激活候选的节点调用链路、计划时区与最近执行；用户已确认现有任务按业务用途不存在需要处理的重复，暂不因共用采集代码而推动合并。避免输出 SSH Credential 或 SQL 密钥。
 
 
 ### 科加订单 systemd 最近执行结果（2026-10-13 13:00/13:05 CST）
@@ -96,7 +96,7 @@
 | `kdos-erp-order-sync@tplus-kejia.service` | `2026-10-13 13:00:11` | `success` | `0` | 任务进程正常退出，不表示同步记录数已验证 |
 | `kdos-erp-projection@sales-orders-v1.service` | `2026-10-13 13:05:00` | `success` | `0` | 任务进程正常退出，不表示投影记录数已验证 |
 
-**待核查**：n8n `cfxCKnLl0YqRZYDj` 在 2026-10-13 01:00 的实际执行状态、SSH 节点输出和本次处理记录数。由于 `sync-kejia-orders.sh` 在锁竞争时输出 `already_running` 并以退出码0结束，n8n 显示“成功”也可能意味着没有实际采集。未完成上述核验前不能宣称重复数据或停用调度器。
+**待核查**：n8n `cfxCKnLl0YqRZYDj` 在 2026-10-13 01:00 的实际执行状态、SSH 节点输出和本次处理记录数。由于 `sync-kejia-orders.sh` 在锁竞争时输出 `already_running` 并以退出码0结束，n8n 显示“成功”也可能意味着没有实际采集。用户已明确按业务用途认定现有任务不重复，暂不因这项未核验而要求停用、合并任务；也不能据此虚报实际采集记录数。
 
 ## 运行时核查要求
 
