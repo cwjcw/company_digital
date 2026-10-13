@@ -33,3 +33,10 @@ See `ARCHITECTURE.md`, `SECURITY.md`, `docs/runbook.md`, and `docs/integration-g
 - 优先使用清晰的面包屑、单一主内容区和必要操作栏；不重复放置同一能力的按钮、菜单或筛选器。操作表单中的位置选择器可以保留。
 - 页面居中、宽度受控、适当留白；普通员工界面简洁，管理操作按已有权限显示。
 - 删除冗余 UI 必须保留实际业务能力、历史数据和原有链接，不改变授权边界。未来新增模块及页面改造均遵守这些原则。
+
+## KDOS 自动化任务调度治理（强制）
+
+- 当需求涉及定时任务、E10/T+同步、n8n、systemd Timer/Service、cron、业务异步、通知、备份、脚本运行或运行时排障时，必须先阅读 `.agents/skills/kdos-task-orchestration/SKILL.md` 和 `docs/operations/TASK_REGISTRY.md`。
+- 基础设施/灾备/常驻服务使用 systemd 或 Docker；业务定时及跨系统编排默认由 n8n 统一调度；事务性/高频事件消费由已有 KDOS Application/Worker/持久消费者承担。例外必须明确登记原因。
+- 每个逻辑任务只能有一个生效自动调度源；新建或迁移前必须检查生产 systemd（含 user）、cron、n8n 及应用内调度。不得仅凭仓库存在 unit 或脚本推断它已启用。
+- 增改停任务时同步更新任务台账；仅有代码或 README 更改不等于生产迁移。必须提供执行证明、幂等/防并发、失败告警、补偿和回滚，并保护凭据及既有数据。
