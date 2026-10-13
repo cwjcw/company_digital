@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily finance E10 customer master sync at 01:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 Asia/Shanghai
+Persistent=true
+Unit=kdos-finance-customer-sync.service
+
+[Install]
+WantedBy=timers.target

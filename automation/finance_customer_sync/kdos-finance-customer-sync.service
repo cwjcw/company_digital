@@ -1,0 +1,12 @@
+[Unit]
+Description=KDOS finance customer master incremental sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/automation/code/work/PMC/knweb
+ExecStart=/usr/bin/flock -n /data/automation/code/work/PMC/knweb/data/finance-customer-sync.lock /data/automation/code/work/PMC/knweb/automation/customer_import/.venv/bin/python /data/automation/code/work/PMC/knweb/automation/finance_customer_sync/main.py
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=true

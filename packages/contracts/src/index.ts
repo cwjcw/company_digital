@@ -1,3 +1,4 @@
+import { financeDepartmentOptions, financeSalesChannelOptions } from "./finance";
 export * from "./knowledge";
 export * from "./audit-actor";
 import { isAuditActorField } from "./audit-actor";
@@ -53,6 +54,7 @@ export const administrableModuleRegistry = [
   { code: "project-task", label: "项目与任务" },
   { code: "planning", label: "PMC中心" },
   { code: "data", label: "数据中心" },
+  { code: "finance", label: "财务中心" },
   { code: "marketing", label: "营销中心" },
   { code: "hr", label: "人力资源" },
   { code: "workflow", label: "流程审批" },
@@ -118,6 +120,7 @@ export const supervisionProgressUpdateTypeOptions = [
  * New UI tables must be registered here before they are exposed by an API.
  */
 export const tableResourceRegistry = [
+  { code: "finance-customer-mappings", label: "客户对应表", module: "财务中心", moduleCode: "finance" },
   { code: "knowledge-spaces", label: "知识空间", module: "知识库", moduleCode: "knowledge" },
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
@@ -381,6 +384,11 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["unitPrice", "单价", "number", true, false, { format: "decimal" }], ["totalAmount", "金额", "number", true, false, { format: "currency" }],
     ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
     ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"]
+  ]),
+  "finance-customer-mappings": fields([
+    ["customerCode", "客户编号", "text", false],
+    ["departmentCategory", "部门类别", "dictionary", true, false, { options: financeDepartmentOptions }],
+    ["salesChannel", "内外区分", "dictionary", true, false, { options: financeSalesChannelOptions }]
   ]),
   "supplier-list": fields([
     ["sourceSystem", "来源系统", "text", false], ["sourceDatabase", "来源数据库", "text", false], ["sourceAccountName", "来源账套", "text", false],
@@ -820,6 +828,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "audit-logs": { status: "REGISTERED_AND_FILTERABLE" },
   /* 数据中心：供应商清单为 T+ 同步投影，本轮接入平台 FilterCompiler。 */
   "supplier-list": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-customer-mappings": { status: "REGISTERED_AND_FILTERABLE" },
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
   "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
@@ -1001,3 +1010,5 @@ if (tableCapabilityAudit.errors.length) {
 }
 
 export * from "./equipment-dashboard";
+
+export * from "./finance";

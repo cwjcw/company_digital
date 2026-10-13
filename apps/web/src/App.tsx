@@ -1,3 +1,4 @@
+import { FinanceCustomerMappings } from "./modules/finance/FinanceCustomerMappings";
 import { PmcRdProgressPage } from "./modules/pmc-rd-progress/PmcRdProgressPage";
 import { reportNavigation, reportPath } from "./modules/pmc-rd-progress/rd-progress.model";
 import { PageScrollReset } from "./shared/PageScrollReset";
@@ -176,6 +177,7 @@ function Shell({ logout }: { logout: () => void }) {
     : location.pathname.startsWith("/project-task/") ? "project-task"
     : location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") || location.pathname.startsWith("/pmc/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
+    : location.pathname.startsWith("/finance") ? "finance"
     : location.pathname.startsWith("/marketing") ? "marketing"
     : location.pathname.startsWith("/hr") ? "hr"
     : location.pathname.startsWith("/knowledge") ? "knowledge"
@@ -185,6 +187,7 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
+    finance: [{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}],
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
@@ -285,6 +288,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
+      "/finance/base-data/customer-mappings": "客户对应表",
       "/knowledge": "知识空间与页面", "/knowledge/settings": "空间设置", "/knowledge/trash": "回收站",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       [reportPath]: "研发进度",
@@ -332,6 +336,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
           <Route path="/data-center/supply-chain/suppliers" element={<SupplierListPage />} />
+          <Route path="/finance" element={<Navigate to="/finance/base-data/customer-mappings" replace/>}/>
+          <Route path="/finance/base-data/customer-mappings" element={<FinanceCustomerMappings/>}/>
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />

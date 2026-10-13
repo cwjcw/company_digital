@@ -43,6 +43,8 @@ import { PmcRdProgressModule } from "./modules/pmc-rd-progress/pmc-rd-progress.m
 import { KnowledgeModule } from "./modules/knowledge/knowledge.module";
 import { RdModule } from "./modules/rd/rd.module";
 
+import { FinanceModule } from "./modules/finance/finance.module";
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ["../../.env", ".env"] }),
@@ -61,6 +63,7 @@ import { RdModule } from "./modules/rd/rd.module";
     EquipmentModule,
     OrderSyncModule,
     SupplyChainModule,
+    FinanceModule,
     MasterPlanSystemModule,
     NotificationsModule,
     SupervisionModule,
