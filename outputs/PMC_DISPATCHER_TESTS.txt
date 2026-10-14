@@ -1,0 +1,17 @@
+...通知轮询失败，0.001s 后继续
+Traceback (most recent call last):
+  File "/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py", line 135, in run_forever
+    result = self.run_once(limit)
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py", line 70, in run_once
+    claim = self.http_post("/internal/notifications/claim", {"limit": max(1, min(int(limit), 20))})
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/automation/wechat_push_projects/kdos-notification-dispatcher/test_dispatcher.py", line 103, in http_post
+    raise RuntimeError("temporary API outage")
+RuntimeError: temporary API outage
+....成功投递回执暂未确认 notification=notification-1 delivery=0199f000-0000-7000-8000-000000000005
+.
+----------------------------------------------------------------------
+Ran 8 tests in 0.213s
+
+OK

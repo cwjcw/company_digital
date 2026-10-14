@@ -1,0 +1,17 @@
+$ jest --runInBand
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=437 批次=3
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=1 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=4 printedCount=2 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:44 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 3327509  - 10/14/2026, 3:01:48 PM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=6 批次=1
+
+Test Suites: 1 skipped, 105 passed, 105 of 106 total
+Tests:       1 skipped, 924 passed, 925 total
+Snapshots:   0 total
+Time:        36.015 s
+Ran all test suites.

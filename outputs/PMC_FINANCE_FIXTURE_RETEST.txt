@@ -1,0 +1,15 @@
+
+ RUN  v3.2.7 /data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/apps/web
+
+stderr | src/modules/finance/FinanceOrders.spec.tsx > Finance E10 UI > manual refresh submits the protected command with explicit mode
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceOrders.spec.tsx (6 tests) 2023ms
+   ✓ Finance E10 UI > shows earliest order dates without adding a template column and preserves dashboard money  1149ms
+   ✓ Finance E10 UI > renders original dashboard headers and all twelve months without the excluded-money banner  571ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  14:50:57
+   Duration  6.58s (transform 707ms, setup 273ms, collect 3.38s, tests 2.02s, environment 420ms, prepare 140ms)
+

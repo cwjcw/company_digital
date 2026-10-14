@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "kdosTimerEnabledStatesUnchanged": true,
+  "cronCountsUnchanged": true,
+  "currentActiveN8nWorkflows": 10,
+  "backupTimestamp": "20261014_162945",
+  "backupMode": "0600",
+  "archiveContainsPrivateUploads": true,
+  "archiveContainsProviderReceipts": true,
+  "databaseArchivesValidated": "pg_restore --list in successful backup.sh"
+}

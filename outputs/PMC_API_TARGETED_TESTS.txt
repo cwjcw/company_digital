@@ -1,0 +1,6 @@
+
+Test Suites: 6 passed, 6 total
+Tests:       74 passed, 74 total
+Snapshots:   0 total
+Time:        16.579 s
+Ran all test suites matching order-allocation.spec|notification.service.spec|notification.internal.spec|notification-admin.service.spec|notification-event.registry.spec|master-plan-spreadsheet.service.spec.

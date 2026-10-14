@@ -1,0 +1,6 @@
+数据库备份：/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/data/backups/four_department_tracker_20261014_150723.backup
+KDOS 数据库备份：/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/data/backups/kdos_20261014_150723.backup
+上传目录备份：/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/data/backups/uploads_20261014_150723.tar.gz
+f434e01a4a6f6ac9a0853f6a22284a37a61a838bd2979f2f609ceff546535321  data/backups/four_department_tracker_20261014_150723.backup
+a37379a759bc46b74067d75f4855d539b1949870dcaa2c0d9a57c3759418b23b  data/backups/kdos_20261014_150723.backup
+bab1e77e9a88ff0a20960cc64d45f71a249554acf1de0e61d20ed48b15559c10  data/backups/uploads_20261014_150723.tar.gz

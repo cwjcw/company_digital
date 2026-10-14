@@ -1,0 +1,25 @@
+Scope: all 17 workspace projects
+✓ Lockfile passes supply-chain policies (verified 4d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1176
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /data/automation/.pnpm-store/v11
+  Virtual store is at:             node_modules/.pnpm
+Progress: resolved 1176, reused 1175, downloaded 0, added 350
+Progress: resolved 1176, reused 1175, downloaded 0, added 1176, done
+.../node_modules/unrs-resolver postinstall$ node postinstall.js
+.../sharp@0.34.4/node_modules/sharp install$ node install/check.js
+.../esbuild@0.28.1/node_modules/esbuild postinstall$ node install.js
+.../node_modules/unrs-resolver postinstall: Done
+.../esbuild@0.28.1/node_modules/esbuild postinstall: Done
+.../sharp@0.34.4/node_modules/sharp install: Done
+
+devDependencies:
++ concurrently 9.2.4
++ dotenv 17.4.2
++ mssql 12.7.0
++ pg 8.22.0
+
+Done in 4.4s using pnpm v11.20.0

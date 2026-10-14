@@ -1,0 +1,3 @@
+Source HEAD: 235cd16907be7d5f5cee5efb11dce94b9dbc91dc
+GitHub main: 235cd16907be7d5f5cee5efb11dce94b9dbc91dc
+Verified: matching; source worktree clean; no financial outputs or credentials pushed

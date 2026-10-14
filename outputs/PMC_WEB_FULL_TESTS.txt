@@ -1,0 +1,963 @@
+
+ RUN  v3.2.7 /data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/apps/web
+
+ ✓ src/modules/pmc-rd-progress/PmcRdProgressPage.spec.tsx (27 tests) 55184ms
+   ✓ PMC研发正式报表 > 图表和明细分离，使用API汇总、七个状态和源时间并保留服务端小数  3644ms
+   ✓ PMC研发正式报表 > 明细不渲染常驻条件，现有高级筛选包含全部条件，取消不会应用草稿  4431ms
+   ✓ PMC研发正式报表 > URL恢复全部核心筛选，导出传当前上下文和业务可见列  3915ms
+   ✓ PMC研发正式报表 > KPI 筛选已完成品项 调用后端且回第一页  3547ms
+   ✓ PMC研发正式报表 > KPI 筛选异常品项 调用后端且回第一页  3474ms
+   ✓ PMC研发正式报表 > KPI 筛选未完成品项 调用后端且回第一页  3388ms
+   ✓ PMC研发正式报表 > 从COMPLETE切到未完成清除冲突状态，快捷状态清除onlyIncomplete  1721ms
+   ✓ PMC研发正式报表 > 打开订单按稳定ID重新请求全部授权品项，关闭Drawer不改主表筛选  2027ms
+   ✓ PMC研发正式报表 > 无read权限时无菜单、不加载报表API；字段权限裁剪状态、筛选、tooltips  620ms
+   ✓ PMC研发正式报表 > 错误彼此独立，并且有重试按钮  1419ms
+   ✓ PMC研发正式报表 > 错误彼此独立，并且有重试按钮  2128ms
+   ✓ PMC研发正式报表 > 空数据允许清空所有筛选  888ms
+   ✓ Phase 5.1 周期与共享筛选 > day 模式归一化、URL恢复，API不接收UI模式  705ms
+   ✓ Phase 5.1 周期与共享筛选 > month 模式归一化、URL恢复，API不接收UI模式  624ms
+   ✓ Phase 5.1 周期与共享筛选 > year 模式归一化、URL恢复，API不接收UI模式  875ms
+   ✓ Phase 5.1 周期与共享筛选 > custom 模式归一化、URL恢复，API不接收UI模式  1180ms
+   ✓ Phase 5.1 周期与共享筛选 > 默认和任意条件重置均为按日+上海昨天，并清除维度  1462ms
+   ✓ Phase 5.1 周期与共享筛选 > 维度使用候选下拉，提交和跨Tab导出继承完整日期/事业部/状态/未完成  3900ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 订单号远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  6446ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 品号远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  4678ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 品名远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  4105ms
+stderr | src/modules/master-plan-system/MasterPlanPages.spec.tsx > MasterPlanResourcePage create feedback > shows a concrete validation error instead of silently ignoring confirm
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/master-plan-system/MasterPlanPages.spec.tsx (34 tests) 54000ms
+   ✓ MasterPlanResourcePage create feedback > shows a concrete validation error instead of silently ignoring confirm  3237ms
+   ✓ MasterPlanResourcePage create feedback > patches only the changed cell with expectedVersion after edit mode is entered  2227ms
+   ✓ MasterPlanResourcePage create feedback > is read-only by default and becomes read-only again after exiting edit mode  994ms
+   ✓ MasterPlanResourcePage create feedback > does not edit a field without field update permission  694ms
+   ✓ MasterPlanResourcePage create feedback > does not PATCH an unchanged value  1149ms
+   ✓ MasterPlanResourcePage create feedback > uses server-confirmed values and the latest version for consecutive blur saves  1304ms
+   ✓ MasterPlanResourcePage create feedback > restores the old value when a version conflict rejects the save  1105ms
+   ✓ MasterPlanResourcePage create feedback > keeps batch modification available alongside inline editing  1734ms
+   ✓ MasterPlanResourcePage create feedback > keeps preview and confirm failures visible instead of closing the import dialog  501ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > orderDate 和行级菜单均不承载删除，顶部删除在勾选后启用  1409ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 没有 delete operation permission 时不显示顶部删除，也没有行内删除入口  1578ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 选中 canDelete=false 的出货计划时顶部删除保持禁用  1683ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 进入编辑模式后 orderDate 仍使用正式日期编辑器  2926ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > renders the read-only weekly state, missing admission fields and the generation hint  570ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the manual base-to-weekly action only with sync update permission  1097ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > requires confirmation before calling base-to-weekly  579ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > calls base-to-weekly once and reports count={ count: 3 }  645ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > calls base-to-weekly once and reports count={ count: +0 }  484ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the backend error and restores the action after a failed sync  1274ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > locates the generated weekly plan by stable base_plan_id instead of a business search  1345ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the located base-plan notice on the weekly plan page and can clear the locator  2801ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > invalidates both base plans and weekly plans after an inline save and surfaces the reconciliation failure  1243ms
+   ✓ MasterPlanResourcePage weekly execution refresh > refreshes one weekly plan from the more menu only after confirmation  3251ms
+   ✓ MasterPlanResourcePage pending process reporting > renders the approved pending columns in order with no action column and read-only tasks  322ms
+   ✓ MasterPlanResourcePage pending process reporting > creates an actual report from the pending row and refreshes the weekly plan  1250ms
+   ✓ MasterPlanResourcePage pending process reporting > submits the optional human exception with the report and omits it when left blank  1896ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 1：单条成功后立即反馈，清空该条输入并恢复 loading  1857ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 2：成功后刷新失败仍显示报工成功，并额外提示刷新失败  1377ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 3：POST 失败时保留输入、给出后端错误、不出现成功提示  1875ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 4：部分成功时只清空成功记录，失败记录保留原数量  1423ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 5：多条全部成功时清空全部输入并让按钮回到 disabled  1821ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 6：意外异常后 loading 必须恢复（finally），且不残留已成功输入  2901ms
+   ✓ MasterPlanResourcePage weekly plan process groups > renders the 毛坯 field group between 研磨 and 表面处理 from the canonical process registry  5292ms
+stderr | src/modules/equipment/EquipmentPages.spec.tsx > EquipmentStatusReportPage live permissions > loads status equipment candidates and opens the dialog with live create permission
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/modules/equipment/EquipmentPages.spec.tsx > EquipmentStatusReportPage live permissions > keeps confirmation failures in the preview modal and clears them on a successful retry
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/equipment/EquipmentPages.spec.tsx (16 tests) 33172ms
+   ✓ EquipmentStatusReportPage live permissions > does not trust stale local permissions to open the create dialog  754ms
+   ✓ EquipmentStatusReportPage live permissions > loads status equipment candidates and opens the dialog with live create permission  1280ms
+   ✓ EquipmentStatusReportPage live permissions > deletes a status row with its optimistic version in the query string  1081ms
+   ✓ EquipmentStatusReportPage live permissions > keeps an old-template preview failure visible and offers the latest template  1098ms
+   ✓ EquipmentStatusReportPage live permissions > keeps confirmation failures in the preview modal and clears them on a successful retry  1378ms
+   ✓ EquipmentStatusReportPage live permissions > clears a confirmation failure when a new file enters preview  1332ms
+   ✓ EquipmentRegisterPage server filters > only exposes the single advanced filter entry (legacy 筛选 drawer and header filters removed)  615ms
+   ✓ EquipmentDashboardPage date filters > renders total and per-division ECharts dual-line trends with one shared axis  6131ms
+   ✓ EquipmentDashboardPage date filters > restores Shanghai yesterday on clear and retains month, year, and custom filters  7178ms
+   ✓ equipment dashboard detail and six exports > shows master-data fields and all six title-level export buttons with a common full-filter URL  5458ms
+   ✓ equipment dashboard detail and six exports > prevents repeat clicks, restores the button, and displays download failures  1390ms
+   ✓ equipment dashboard detail and six exports > hides exports without export permission and disables empty data exports  1337ms
+   ✓ equipment dashboard detail and six exports > exports the same division and department filters as the dashboard request  3596ms
+stderr | src/modules/finance/FinanceOrders.spec.tsx > Finance E10 UI > manual refresh submits the protected command with explicit mode
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ❯ src/modules/finance/FinanceOrders.spec.tsx (6 tests | 1 failed) 6723ms
+   ✓ Finance E10 UI > shows earliest order dates without adding a template column and preserves dashboard money  1025ms
+   ✓ Finance E10 UI > shows exactly 34 Chinese source columns and no upload control 100ms
+   ✓ Finance E10 UI > monthly has exactly nine columns and propagates complete drilldown filters 48ms
+   ✓ Finance E10 UI > does not request data for unauthorized users 38ms
+   × Finance E10 UI > renders original dashboard headers and all twelve months without the excluded-money banner 5398ms
+     → Found multiple elements with the text: 2025-12
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<span>[39m
+  [0m2025-12[0m
+[36m</span>[39m
+
+Ignored nodes: comments, script, style
+[36m<td[39m
+  [33mclass[39m=[32m"ant-table-cell"[39m
+[36m>[39m
+  [0m2025-12[0m
+[36m</td>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"finance-dashboard"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+        [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"年度"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"年度"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-item"[39m
+                  [33mtitle[39m=[32m"2026年"[39m
+                [36m>[39m
+                  [0m2026年[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</span>[39m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"月份"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"月份"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                [36m>[39m
+                  [0m全部月份[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"finance-dashboard"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+        [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"年度"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"年度"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-item"[39m
+                  [33mtitle[39m=[32m"2026年"[39m
+                [36m>[39m
+                  [0m2026年[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</span>[39m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"月份"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"月份"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                [36m>[39m
+                  [0m全部月份[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39...
+   ✓ Finance E10 UI > manual refresh submits the protected command with explicit mode 113ms
+stderr | src/modules/admin/AdminWorkspace.spec.tsx > AdminWorkspace > persists a department scope instead of freezing its current users into the role
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/admin/AdminWorkspace.spec.tsx (8 tests) 19268ms
+   ✓ AdminWorkspace > shows the screenshot-style employee action menu  2692ms
+   ✓ AdminWorkspace > separates role groups from roles and exposes role editing  2305ms
+   ✓ AdminWorkspace > adds role members by person or organization  2303ms
+   ✓ AdminWorkspace > finds members below a child department that has the same name as its parent  2234ms
+   ✓ AdminWorkspace > persists a department scope instead of freezing its current users into the role  2571ms
+   ✓ AdminWorkspace > shows the screenshot-style role-group menu and creates a role inside that group  2211ms
+   ✓ AdminWorkspace > submits role rename instead of silently closing  2360ms
+   ✓ AdminWorkspace > uses a controlled confirmation dialog and submits role deletion  2591ms
+ ✓ src/modules/knowledge/KnowledgePages.spec.tsx (34 tests) 17691ms
+   ✓ Knowledge 2 Wiki > keeps independent Portal entry  510ms
+   ✓ Knowledge 2 Wiki > creates a persistent page immediately and enters inline editor  2121ms
+   ✓ Knowledge 2 Wiki > opens 上传文件 from the unified menu with the same root location  760ms
+   ✓ Knowledge 2 Wiki > opens 从文档导入为在线文章 from the unified menu with the same root location  840ms
+   ✓ Knowledge 2 Wiki > waits for fresh working version before mounting a cached draft editor  467ms
+   ✓ Knowledge 2 Wiki > published reader shows breadcrumbs/body/version and private download  304ms
+   ✓ Knowledge 2 Wiki > search sends Chinese term and server pagination  436ms
+   ✓ Knowledge 2 Wiki > puts FILE preview first and flushes description before primary upload and publish without clearing tags  492ms
+   ✓ Knowledge 2 Wiki > 409 retains local text and displays conflict rather than overwriting  361ms
+   ✓ shows every successful upload in a reopenable results list instead of navigating only to the first  1797ms
+   ✓ Knowledge publishing UX > publishes a RICH_TEXT draft directly from the reader with a fresh lock and one request  752ms
+   ✓ Knowledge publishing UX > publishes a FILE draft directly from the reader with a fresh lock and one request  784ms
+   ✓ Knowledge publishing UX > does not promote repeated publication or claim a draft exists on unchanged published pages  986ms
+   ✓ Knowledge publishing UX > labels a published page from its readable status even when version metadata is hidden  465ms
+   ✓ Knowledge publishing UX > hides reader publication for missing page authority or historical reading  364ms
+   ✓ Knowledge publishing UX > hides reader publication for missing history authority or historical reading  371ms
+   ✓ Knowledge publishing UX > displays publication failure: 最新草稿读取失败 without success  726ms
+   ✓ Knowledge publishing UX > displays publication failure: 请先发布上级页面，再发布子页面 without success  733ms
+   ✓ Knowledge publishing UX > displays publication failure: 数据已发生变化，请刷新后重试 without success  733ms
+   ✓ Knowledge publishing UX > rechecks latest unchanged state before issuing a publish command  518ms
+   ✓ Knowledge publishing UX > rechecks latest revoked state before issuing a publish command  517ms
+   ✓ Knowledge publishing UX > rechecks latest unknown state before issuing a publish command  516ms
+   ✓ Knowledge publishing UX > does not adopt another writer's version after draining editor autosave  345ms
+   ✓ Knowledge publishing UX > removes publication prompt after a saved edit restores exactly the published data  324ms
+ ✓ src/shared/advanced-filter-only.spec.tsx (9 tests) 11749ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > A/B: 工具栏只有一个“高级筛选”，不存在旧的“筛选”入口  926ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > E: 高级筛选仍支持添加/删除/ALL/ANY/筛选/清空  1191ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > F/G/H: 快速搜索与 FilterGroup 同时下发，且筛选后回到 page=1  1442ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > I: 导出等调用方仍拿到 applied FilterGroup（草稿不进入请求）  2228ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 排序只通过列菜单，执行后回到第一页  1780ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 列头多选和未填写形成同字段 OR，候选从服务端获取且排除自身筛选  1792ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 高基数未加载完整候选时禁用全选，simple 表不显示列菜单  1002ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 冻结/隐藏写入当前用户个人视图，隐藏后取消用户冻结  1101ms
+ ✓ src/modules/knowledge/KnowledgeNavigation.spec.tsx (11 tests) 10857ms
+   ✓ Knowledge one directory navigation > uses one published directory for reader without duplicate trees or root buttons  716ms
+   ✓ Knowledge one directory navigation > navigates three levels, reads a FILE and returns through the complete breadcrumb  1300ms
+   ✓ Knowledge one directory navigation > preserves multi-level historical parent pages and original reader links for reader  1300ms
+   ✓ Knowledge one directory navigation > preserves multi-level historical parent pages and original reader links for admin  1287ms
+   ✓ Knowledge one directory navigation > keeps authorized management actions above a single list for editor  1633ms
+   ✓ Knowledge one directory navigation > keeps authorized management actions above a single list for admin  1709ms
+   ✓ Knowledge one directory navigation > retains an actual folder selector in the upload form  885ms
+   ✓ Knowledge one directory navigation > pages all 105 knowledge entries beyond the first hundred in the unified list  1507ms
+stderr | src/modules/knowledge/KnowledgePermissionUi.spec.tsx
+Warning: Please use the `legacy` build in Node.js environments.
+
+ ✓ src/modules/knowledge/KnowledgePermissionUi.spec.tsx (12 tests) 8167ms
+   ✓ Knowledge权限入口角色与范围 > '系统管理员'：空间管理单一入口，Space ACL不扩大平台权限  1765ms
+   ✓ Knowledge权限入口角色与范围 > 'Knowledge模块管理员'：空间管理单一入口，Space ACL不扩大平台权限  959ms
+   ✓ Knowledge权限入口角色与范围 > '空间负责人FULL_ACCESS'：空间管理单一入口，Space ACL不扩大平台权限  867ms
+   ✓ Knowledge权限入口角色与范围 > '普通员工'：空间管理单一入口，Space ACL不扩大平台权限  868ms
+   ✓ Knowledge权限入口角色与范围 > '其他模块管理员兼空间负责人'：空间管理单一入口，Space ACL不扩大平台权限  893ms
+   ✓ Knowledge权限入口角色与范围 > 成员与权限仍打开原KnowledgeAccess，保留四种对象和三级权限，不执行授权写入  2278ms
+ ✓ src/shared/KdosDataTable.spec.tsx (18 tests) 7195ms
+   ✓ KdosDataTable server pagination > keeps the requested page instead of resetting a pagination action to page one  1309ms
+   ✓ KdosDataTable server pagination > keeps an explicit page size instead of replacing it with the platform default  436ms
+   ✓ KdosDataTable server pagination > 标准模式只保留横向滚动，内部纵向滚动必须显式开启  367ms
+   ✓ KdosDataTable server pagination > compact density is the standard default and explicit default remains available  357ms
+   ✓ KdosDataTable server pagination > 标准表默认支持拖动列宽，并按租户、用户和资源保存宽度  496ms
+   ✓ KdosDataTable server pagination > 用户宽度覆盖业务初始宽度，隐藏后重新显示仍可恢复  949ms
+   ✓ KdosDataTable server pagination > allows stable record selection in browse mode and clears it explicitly  333ms
+   ✓ KdosDataTable server pagination > selects only the current page and preserves explicit selections across pages  331ms
+   ✓ KdosDataTable server pagination > shows the standard top delete only with permission and keeps it disabled until selection  429ms
+   ✓ KdosDataTable server pagination > blocks the whole delete when any selected row has canDelete=false  478ms
+   ✓ KdosDataTable server pagination > confirms the selected count, calls the formal delete callback, and clears successful selection  520ms
+   ✓ KdosDataTable server pagination > 仅在服务端返回 export 权限时显示标准导出按钮  311ms
+ ✓ src/shared/table-print.spec.tsx (14 tests) 6745ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 工具栏只提供「打印筛选结果」，不新增操作列  1398ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 没有 batch_print 权限时不显示打印入口  410ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 未选择记录时：按钮为「打印筛选结果」，请求 rangeType=FILTERED  815ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 打印筛选结果继承列头筛选生成的递归 effective FilterGroup  1643ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 选中 1 条后：同一个按钮变为「打印已选（1）」，请求 rangeType=SELECTED 且只带该 stable ID  1083ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 清空选择后按钮恢复为「打印筛选结果」  1345ms
+ ✓ src/modules/supervision/SupervisionPages.spec.tsx (5 tests) 6042ms
+   ✓ 项目与任务表格编辑 > 项目和任务标准业务页不渲染长期解释性副标题  1530ms
+   ✓ 项目与任务表格编辑 > 甘特图和风险卡片按日历日期显示，不暴露 ISO 时间戳  838ms
+   ✓ 项目与任务表格编辑 > 三个标准大屏直接进入业务内容，不渲染重复标题或用途说明  1167ms
+   ✓ 项目与任务表格编辑 > browse mode is readonly, then project text editing autosaves with expectedVersion  977ms
+   ✓ 项目与任务表格编辑 > does not expose editing without field update permission and rolls back a failed task save  1528ms
+ ✓ src/modules/knowledge/KnowledgeFolderTree.spec.tsx (3 tests) 5667ms
+   ✓ lazily expands three levels in one tree and selects an empty leaf  736ms
+   ✓ loads beyond the first hundred child folders without truncation or duplicate pages  4719ms
+ ✓ src/modules/knowledge/KnowledgeFileUpload.spec.tsx (8 tests) 5323ms
+   ✓ defaults titles without extension, supports distinct Chinese titles and removes only unsubmitted files  1038ms
+   ✓ keeps successful drafts, reports partial failure and asks whether to retry or leave  780ms
+   ✓ confirming departure returns successful pages and retains their drafts despite a failed sibling  462ms
+   ✓ locks active files and synchronously prevents double-clicks creating duplicate pages  367ms
+   ✓ retries a lost response after server creation with identical file/title/location/key and creates exactly one page  769ms
+   ✓ permits changing a definitively rejected request only through an explicit new upload with a new key  843ms
+   ✓ keeps an unknown outcome locked even if a subsequent retry is rejected  472ms
+   ✓ rejects empty titles before submitting and warns before discarding unsubmitted files  592ms
+stderr | src/modules/master-plan-system/master-plan-work-order.spec.tsx > KN-MPS-WO-001 3天生产工单页面 > 从周计划同步：按钮触发同步接口并按 新增/更新/未变化 反馈
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/master-plan-system/master-plan-work-order.spec.tsx (5 tests) 4971ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 表格只显示一个「生产日期」列：无交期编码、无生产开始/结束列、无来源周计划列、无操作列  1260ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 从周计划同步：按钮触发同步接口并按 新增/更新/未变化 反馈  1812ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 进入编辑模式后生产日期列提供 RangePicker（不需要分别打开两个日期控件）  1864ms
+ ✓ src/modules/master-plan-system/master-plan-auxiliary-groups.spec.tsx (5 tests) 3785ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 周计划：4 个辅助计划一级分组按固定顺序出现在 10 工序之前，且子字段落在组内  1281ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 月计划：4 个辅助计划一级分组按固定顺序出现在 10 工序之前，且子字段落在组内  704ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 周计划与月计划的一级分组标题名与顺序完全一致  1179ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 权限只影响组内可见字段：缺少整个“技术/图纸计划”子字段读权限时，一级标题仍然保留  615ms
+ ✓ src/shared/table-filter-capability.spec.tsx (4 tests) 3353ms
+   ✓ KN-FILTER-001 typed filtering capability > shows the platform advanced filter for a registered resource  1244ms
+   ✓ KN-FILTER-001 typed filtering capability > never offers an editable-but-ignored filter for an unregistered resource  558ms
+   ✓ KN-FILTER-001 typed filtering capability > uses the contract field metadata by default so pages do not have to pass filterFields  825ms
+   ✓ KN-FILTER-001 typed filtering capability > falls back to the disabled notice when the resource is not registered  724ms
+ ✓ src/shared/audit-actor.spec.tsx (8 tests) 3569ms
+   ✓ 公共Audit Actor展示与候选 > mps-process-reports标准表与目录解析一致，不显示五个UUID/停用/未知UUID  1022ms
+   ✓ 公共Audit Actor展示与候选 > mps-weekly-plans标准表与目录解析一致，不显示五个UUID/停用/未知UUID  409ms
+   ✓ 公共Audit Actor展示与候选 > equipment-status-report标准表与目录解析一致，不显示五个UUID/停用/未知UUID  348ms
+   ✓ 公共Audit Actor展示与候选 > supervision-tasks标准表与目录解析一致，不显示五个UUID/停用/未知UUID  337ms
+   ✓ 公共Audit Actor展示与候选 > users标准表与目录解析一致，不显示五个UUID/停用/未知UUID  352ms
+   ✓ 公共Audit Actor展示与候选 > 列头候选也显示姓名，复选后提交真实actor值  915ms
+stderr | src/modules/admin/AdministratorsPage.spec.tsx > AdministratorsPage > saves a module administrator once even when confirm is clicked twice
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/admin/AdministratorsPage.spec.tsx (3 tests) 2740ms
+   ✓ AdministratorsPage > shows two simple tabs and keeps module administrators empty by default  1003ms
+   ✓ AdministratorsPage > saves a module administrator once even when confirm is clicked twice  1325ms
+   ✓ AdministratorsPage > renders both administrator lists as view-only when capabilities are absent  410ms
+ ✓ src/modules/knowledge/KnowledgeLocationPicker.spec.tsx (10 tests) 2879ms
+   ✓ opens lazy tree only on change and loads child levels on expansion  1129ms
+   ✓ search distinguishes duplicate titles by full path and can find results beyond 100  778ms
+   ✓ creates a child folder inside the picker and selects the new empty folder immediately  443ms
+ ✓ src/modules/knowledge/KnowledgeSettings.spec.tsx (2 tests) 2417ms
+   ✓ creates using only a name, visual default icon and no client code or required order  1605ms
+   ✓ loads the existing icon and preserves the original code while updating description  810ms
+ ✓ src/modules/master-plan-system/master-plan-ui-compact.spec.tsx (5 tests) 2295ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 月计划：即使 metadata 带着辅助字段也不出现累计报工/报工次数列，每工序仍是 周期/交期/状态/生产进度，异常只有一列  1098ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 周计划：即使 metadata 带着辅助字段也不出现累计报工/报工次数列，每工序仍是 周期/交期/状态/生产进度，异常只有一列  396ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 月计划基础数量区域顺序：需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数  383ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 周计划与月计划都继承标准 compact density  412ms
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 时长字段按小时+分钟输入并转换为分钟（10小时30分钟 → 630）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 时长字段回显已存分钟值（630 → 10 小时 30 分钟）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 百分比字段界面显示 0..100，提交换算为存储值（80% → 0.8）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 百分比字段回显存储值 0.6 为 60%
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+ ✓ src/shared/advanced-filter.spec.tsx (9 tests) 2254ms
+   ✓ KdosAdvancedFilter > renders the confirmed layout with 所有/任一 and 添加过滤条件/清空/筛选  643ms
+   ✓ KdosAdvancedFilter > keeps draft separate from applied state and only applies on 筛选  475ms
+   ✓ KdosAdvancedFilter > clears incompatible operator and operand when the field changes  571ms
+ ✓ src/modules/marketing/MarketingPages.spec.tsx (2 tests) 2196ms
+   ✓ marketing standard table top delete > 业务人员与客户对应表从顶部删除，并继续调用带版本的正式单条 API  1367ms
+   ✓ marketing standard table top delete > 订单排期使用公共顶部删除并复用正式 batch-delete API  827ms
+ ✓ src/shared/advanced-filter-datetime.spec.tsx (7 tests) 2093ms
+   ✓ KN-FILTER-003 时间字段序列化 > datetime 选择 2026-09-17 15:36:25 后提交完整值（不是 2026-09-17、不是 00:00:00）  502ms
+   ✓ KN-FILTER-003 高级筛选 datetime 单值与 between > 单值回显 + 重新应用后 applied FilterGroup 仍保留完整时分秒  446ms
+   ✓ KN-FILTER-003 高级筛选 datetime 单值与 between > between 的 min/max 都保留完整时间（不会退化成当天 00:00）  1019ms
+ ✓ src/modules/knowledge/KnowledgePortal.spec.tsx (14 tests) 2211ms
+   ✓ Knowledge employee portal > defaults readers and administrators to published homepage without management controls  891ms
+stderr | src/modules/master-plan-system/OrderAllocationNotificationConfig.spec.tsx > allocation notification configuration > uses the canonical rule version to toggle and keeps business config separate
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/master-plan-system/OrderAllocationNotificationConfig.spec.tsx (3 tests) 1636ms
+   ✓ allocation notification configuration > renders business-specific tabs, one official switch and missing recipient notice  832ms
+   ✓ allocation notification configuration > opens employee multi-select under the recipient tab with five units  609ms
+stderr | src/modules/hr/HumanResourcesPages.spec.tsx > HrDepartureCheckPage > manually adds an account and displays the directory comparison result
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/hr/HumanResourcesPages.spec.tsx (1 test) 1640ms
+   ✓ HrDepartureCheckPage > manually adds an account and displays the directory comparison result  1638ms
+stderr | src/modules/finance/FinanceCustomerMappings.spec.tsx > Finance customer mapping UI > saves only the two classifications with the original expectedVersion
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceCustomerMappings.spec.tsx (7 tests) 1547ms
+   ✓ Finance customer mapping UI > shows three business fields, totals and no duplicate finance-management header  399ms
+   ✓ Finance customer mapping UI > saves only the two classifications with the original expectedVersion  488ms
+   ✓ Finance customer mapping UI > preserves the modal draft and concrete reason on a 409/error  405ms
+ ✓ src/modules/portal/ModulePortal.spec.tsx (6 tests) 1342ms
+   ✓ ModulePortal system access > hides system management from non-system administrators  462ms
+   ✓ ModulePortal system access > loads and saves a personal module order without affecting module access  510ms
+ ✓ src/modules/notifications/NotificationCenterPage.spec.tsx (1 test) 909ms
+   ✓ NotificationCenterPage > shows the three message-center tabs and registered event without the retired validation banner  907ms
+ ✓ src/modules/knowledge/KnowledgeImport.spec.tsx (2 tests) 924ms
+   ✓ imports DOCX through the existing preview/commit flow at the selected root without tag UI  785ms
+ ✓ src/modules/knowledge/KnowledgePageTree.spec.tsx (4 tests) 824ms
+   ✓ shared published/management lazy Knowledge tree > retains loaded nodes when the consumer changes its navigation callback  308ms
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > opens version-bound PDF using header authentication and supports page navigation
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > omits absent history identifiers for normal working/native PDF preview
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > keeps processing explicit instead of claiming a preview is ready
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > shows conversion failure and retries through the same version-bound API
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > hides administrator retry for a reader and warns about Excel print boundaries
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > never starts PDF transport when status authorization is denied
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+ ✓ src/modules/knowledge/KnowledgeFilePreview.spec.tsx (6 tests) 646ms
+   ✓ file reader > opens version-bound PDF using header authentication and supports page navigation  373ms
+ ✓ src/modules/master-plan-system/master-plan-exec-monthly.spec.tsx (4 tests) 564ms
+   ✓ KN-MPS-EXEC-001 月计划生产进度口径 > 样例：required=500、两个 weekly planned 合计 300、actual 合计 255 → 51%（不是 85%、不是 90%）  366ms
+ ✓ src/modules/knowledge/KnowledgeContent.spec.tsx (4 tests) 417ms
+   ✓ Knowledge real rich editor > does not autosave unchanged content when busy/editable state changes  383ms
+ ✓ src/modules/knowledge/knowledge-file-upload.spec.ts (7 tests) 338ms
+ ✓ src/modules/knowledge/KnowledgeRoutes.spec.tsx (4 tests) 295ms
+ ✓ src/shared/OrganizationSelect.spec.tsx (1 test) 289ms
+ ✓ src/shared/charts/KdosChart.spec.tsx (3 tests) 187ms
+ ✓ src/shared/PageScrollReset.spec.tsx (1 test) 89ms
+ ✓ src/shared/BuildVersion.spec.tsx (3 tests) 70ms
+ ✓ src/api.spec.ts (9 tests) 41ms
+ ✓ src/modules/knowledge/knowledge-autosave.spec.ts (9 tests) 37ms
+ ✓ src/modules/rd/rd-display.spec.ts (5 tests) 18ms
+ ✓ src/shared/date-format.spec.ts (3 tests) 11ms
+ ✓ src/modules/master-plan-system/master-plan-exec.spec.tsx (4 tests) 8ms
+ ✓ src/query-client.spec.ts (1 test) 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/modules/finance/FinanceOrders.spec.tsx > Finance E10 UI > renders original dashboard headers and all twelve months without the excluded-money banner
+TestingLibraryElementError: Found multiple elements with the text: 2025-12
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<span>[39m
+  [0m2025-12[0m
+[36m</span>[39m
+
+Ignored nodes: comments, script, style
+[36m<td[39m
+  [33mclass[39m=[32m"ant-table-cell"[39m
+[36m>[39m
+  [0m2025-12[0m
+[36m</td>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"finance-dashboard"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+        [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"年度"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"年度"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-item"[39m
+                  [33mtitle[39m=[32m"2026年"[39m
+                [36m>[39m
+                  [0m2026年[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</span>[39m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"月份"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"月份"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                [36m>[39m
+                  [0m全部月份[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"finance-dashboard"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+        [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"年度"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"年度"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-item"[39m
+                  [33mtitle[39m=[32m"2026年"[39m
+                [36m>[39m
+                  [0m2026年[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</span>[39m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-space-item"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"月份"[39m
+            [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+            [33mstyle[39m=[32m"width: 130px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-select-selector"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-search"[39m
+                [36m>[39m
+                  [36m<input[39m
+                    [33maria-autocomplete[39m=[32m"list"[39m
+                    [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-haspopup[39m=[32m"listbox"[39m
+                    [33maria-label[39m=[32m"月份"[39m
+                    [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                    [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                    [33mreadonly[39m=[32m""[39m
+                    [33mrole[39m=[32m"combobox"[39m
+                    [33mstyle[39m=[32m"opacity: 0;"[39m
+                    [33mtype[39m=[32m"search"[39m
+                    [33munselectable[39m=[32m"on"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                [36m>[39m
+                  [0m全部月份[0m
+                [36m</span>[39m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ant-select-arrow"[39m
+              [33mstyle[39m=[32m"user-select: none;"[39m
+              [33munselectable[39m=[32m"on"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-label[39m=[32m"down"[39m
+                [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                [33mrole[39m=[32m"img"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mdata-icon[39m=[32m"down"[39m
+                  [33mfill[39m=[32m"currentColor"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"1em"[39m
+                  [33mviewBox[39m=[32m"64 64 896 896"[39m
+                  [33mwidth[39m=[32m"1em"[39m
+                [36m>[39...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/modules/finance/FinanceOrders.spec.tsx:26:424
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 47 passed (48)
+      Tests  1 failed | 366 passed (367)
+   Start at  14:39:24
+   Duration  444.72s (transform 3.95s, setup 7.52s, collect 104.15s, tests 294.38s, environment 18.92s, prepare 4.69s)
+
+undefined
+/data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/apps/web:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run '--maxWorkers=1' '--testTimeout=20000'

@@ -1,0 +1,18 @@
+UNIT FILE                        STATE    PRESET
+kdos-erp-order-sync@.timer       indirect enabled
+kdos-erp-projection@.timer       indirect enabled
+kdos-finance-customer-sync.timer enabled  enabled
+kdos-wecom-contact-sync.timer    enabled  enabled
+
+4 unit files listed.
+Error tracking disabled because this release is older than 6 weeks.
+TT8raJ9ndXSOnTwb|异常费用_周五_8点
+dcIZAGhW34czEKtK|采购部_每天_8:05
+HkvXfT4TRmkfUFoa|tushare_每天_1:00
+60KpNF39jSxZWpOR|realtimesnap_每天_9:00
+1IJnZF1gohWpW0Bo|接单入库_每天_8:10
+hBJ6rXRYNL30G2cs|资金流快照_每天_9:25
+xpFmPPrX82dDyESJ|SalesKpiReport_每天_7:00
+JM2rgvwgbY06U86C|采购部_每天_16:55
+cfxCKnLl0YqRZYDj|同步科加数据_每天_1:00
+ZaJp5jyD96075thE|同步品项_每天_00:05

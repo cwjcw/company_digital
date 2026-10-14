@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "allBaselineTableCountsAndDigestsIdentical": true,
+  "productionOrdersImported": 0,
+  "existingAllocations": 1684,
+  "originalFinanceCustomers": 140,
+  "originalFinanceLines": 106648,
+  "oldNotificationRules": 1,
+  "finalVersion": "235cd16907be7d5f5cee5efb11dce94b9dbc91dc",
+  "verifiedAt": "2026-10-14T08:30:17.365092+00:00"
+}

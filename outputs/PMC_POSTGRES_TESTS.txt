@@ -1,0 +1,17 @@
+(node:3343560) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS five exact mapping seeds, five units, one disabled rule; idempotent initialization
+PASS raw create marks manual ownership without disabled-rule backlog or money audit
+PASS preview-only, blank preservation, price exclusion and new/change/nochange classification
+PASS preview blocks unknown supplier and split keys; no writes
+PASS optimistic confirm rejects stale records atomically
+PASS actual original source parses 163 rows/33 orders and imports/replays in isolation
+PASS configuration rejects foreign tenant employees and stale versions, records audit
+PASS controlled singleton text and private XLSX despite disabled official rule, separate failure retry
+PASS all four business commands emit one transactional event only for actual changes
+PASS business row, event and preview confirmation roll back together
+PASS partial routing errors remain FAILED while valid recipient text and file succeed
+PASS allocation data scopes block preview of foreign rows and field permissions
+PASS FORCE RLS isolates vendor/recipient/attachment data for a non-owner role
+PASS retained ERP projection never overwrites manual/import quantities, divisions or prices
+{"status":"PASS","checks":["all 92 migrations on fresh PostgreSQL18","five exact mapping seeds, five units, one disabled rule; idempotent initialization","raw create marks manual ownership without disabled-rule backlog or money audit","preview-only, blank preservation, price exclusion and new/change/nochange classification","preview blocks unknown supplier and split keys; no writes","optimistic confirm rejects stale records atomically","actual original source parses 163 rows/33 orders and imports/replays in isolation","configuration rejects foreign tenant employees and stale versions, records audit","controlled singleton text and private XLSX despite disabled official rule, separate failure retry","all four business commands emit one transactional event only for actual changes","business row, event and preview confirmation roll back together","partial routing errors remain FAILED while valid recipient text and file succeed","allocation data scopes block preview of foreign rows and field permissions","FORCE RLS isolates vendor/recipient/attachment data for a non-owner role","retained ERP projection never overwrites manual/import quantities, divisions or prices"]}

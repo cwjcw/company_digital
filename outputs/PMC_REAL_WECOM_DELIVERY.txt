@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "recipient": "崔玮杰08134",
+  "resolvedWechatId": "CuiWeiJie",
+  "uniqueRecipients": 1,
+  "text": "SENT / errcode 0",
+  "xlsx": "SENT / errcode 0",
+  "xlsxFilename": "PMC_Order_Changes_01a13961107e7d2fbe84e82dc5388c6e_f6756112dfef4082b25096a3b7607b1a_P1.xlsx",
+  "sheets": [
+    {
+      "name": "新增订单",
+      "rows": 2,
+      "columns": 24
+    },
+    {
+      "name": "变更后数据",
+      "rows": 1,
+      "columns": 24
+    },
+    {
+      "name": "字段变更明细",
+      "rows": 9,
+      "columns": 13
+    }
+  ],
+  "moneyColumns": 0,
+  "leadingZeros": "PASS",
+  "ordinaryUser": 403,
+  "anonymousAttachment": 401,
+  "recipientReceipt": "CONFIRMED",
+  "recipientConfirmation": "已收到文本和 Excel，三个工作表可打开",
+  "confirmedAt": "2026-10-14T16:31:08.311177+08:00"
+}

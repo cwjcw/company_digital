@@ -1,0 +1,15 @@
+
+ RUN  v3.2.7 /data/automation/code/work/PMC/knweb/data/worktrees/pmc-order-allocation/apps/web
+
+stderr | src/modules/master-plan-system/OrderAllocationNotificationConfig.spec.tsx > allocation notification configuration > uses the canonical rule version to toggle and keeps business config separate
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/master-plan-system/OrderAllocationNotificationConfig.spec.tsx (3 tests) 1635ms
+   ✓ allocation notification configuration > renders business-specific tabs, one official switch and missing recipient notice  867ms
+   ✓ allocation notification configuration > opens employee multi-select under the recipient tab with five units  576ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  14:33:47
+   Duration  5.85s (transform 507ms, setup 284ms, collect 3.04s, tests 1.64s, environment 430ms, prepare 135ms)
+

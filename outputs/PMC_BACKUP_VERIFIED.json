@@ -1,0 +1,25 @@
+{
+  "runtimeRoot": "/data/automation/code/work/PMC/knweb",
+  "files": [
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261014_150723.backup",
+      "bytes": 810178604,
+      "mode": "0o600",
+      "sha256": "f434e01a4a6f6ac9a0853f6a22284a37a61a838bd2979f2f609ceff546535321"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/kdos_20261014_150723.backup",
+      "bytes": 8155720,
+      "mode": "0o600",
+      "sha256": "a37379a759bc46b74067d75f4855d539b1949870dcaa2c0d9a57c3759418b23b"
+    },
+    {
+      "path": "/data/automation/code/work/PMC/knweb/data/backups/uploads_20261014_150723.tar.gz",
+      "bytes": 2971839,
+      "mode": "0o600",
+      "sha256": "bab1e77e9a88ff0a20960cc64d45f71a249554acf1de0e61d20ed48b15559c10"
+    }
+  ],
+  "archiveEntries": 182,
+  "privateUploadsIncluded": true
+}
