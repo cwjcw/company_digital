@@ -18,7 +18,7 @@ describe('Finance E10 UI',()=>{
    const result:any=await original(p,...args);if(p.includes('dashboard'))result.totals.deliveryDateConflicts=1;return result;
   });
   const view=mount(<FinanceOrderTable monthly/>);await screen.findByText('预交货日冲突');expect(screen.getByText('100.30')).toBeVisible();expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(9);view.unmount();
-  mount(<FinanceOrderDashboard/>);await screen.findByText('预交货日冲突 1 张，整单金额已纳入统计，预交货日留空');
+  mount(<FinanceOrderDashboard/>);await screen.findByText('年累计本币总金额');expect(screen.queryByText(/(?:多个预交货日|预交货日冲突)\s*\d+\s*张/)).toBeNull();
  });
  it('shows exactly 34 Chinese source columns and no upload control',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(34);expect(screen.queryByText('导入')).toBeNull();expect(screen.getByText('刷新E10数据')).toBeVisible();});
  it('monthly has exactly nine columns and propagates complete drilldown filters',async()=>{mount(<FinanceOrderTable monthly/>,'/finance/orders/monthly?year=2025&month=2&salesperson=测试&customerCode=A140-2&salesChannel=待分类');await screen.findByText('本币总金额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(9);const call=vi.mocked(api).mock.calls.find(([p])=>p.includes('/table-filters/rows'))![0];const group=JSON.parse(new URLSearchParams(call.split('?')[1]).get('filterGroup')!);expect(JSON.stringify(group)).toContain('2025-02');expect(JSON.stringify(group)).toContain('contains_any');expect(JSON.stringify(group)).toContain('A140-2');expect(JSON.stringify(group)).toContain('is_empty');});
