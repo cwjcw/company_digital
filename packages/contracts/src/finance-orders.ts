@@ -15,4 +15,4 @@ export const financeDashboardLabels = {category:'分类',amount:'金额/本币�
 export const financeRankingFields: TablePermissionFieldDefinition[] = [{key:'customerCode',label:financeDashboardLabels.customer,type:'text',editable:false},{key:'orderTotal',label:financeDashboardLabels.customerAmount,type:'number',format:'currency',editable:false}];
 
 /** Filter-only source dimension; the monthly view/export still has exactly nine columns. */
-export const financeMonthlyFilterFields: TablePermissionFieldDefinition[] = [...financeMonthlyFields,{key:'salesperson',label:'业务员姓名',type:'text',multiple:true,printable:false,editable:false}];
+export const financeMonthlyFilterFields: TablePermissionFieldDefinition[] = [...financeMonthlyFields,{key:'salesperson',label:'业务员姓名',type:'text',multiple:true,printable:false,editable:false},{key:'deliveryDateConflict',label:'预交货日冲突',type:'boolean',printable:false,editable:false}];

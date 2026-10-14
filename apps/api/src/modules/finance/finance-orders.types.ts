@@ -6,7 +6,7 @@ import { financeAdmin } from './finance.types';
 export const snake=(key:string)=>key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
 export function orderColumns(resource:string) {
  const fields=resource==='finance-e10-lines'?financeOrderFields:resource==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields;
- return {id:'id',...Object.fromEntries(fields.map(f=>[f.key,snake(f.key)])),...(["finance-e10-monthly","finance-e10-dashboard"].includes(resource)?{salesperson:"salespeople"}:{})};
+ return {id:'id',...Object.fromEntries(fields.map(f=>[f.key,snake(f.key)])),...(["finance-e10-monthly","finance-e10-dashboard"].includes(resource)?{salesperson:"salespeople",deliveryDateConflict:"delivery_date_conflict"}:{})};
 }
 export function orderPermission(a:TableFilterActor,r:string,action='read'){return financeAdmin(a)||a.permissions.includes(`${r}:*:${action}`)||a.permissions.includes(`${r}:*:*`);}
 export function orderAuthorize(a:TableFilterActor,r:string,action='read'){if(!orderPermission(a,r,action))throw new ForbiddenException('当前权限组不能执行销售订单统计操作');}

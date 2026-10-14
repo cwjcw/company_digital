@@ -48,7 +48,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   return {canInspectExceptions:inspect,rows:await this.repository.query(`SELECT id,status,mode,started_at AS "startedAt",completed_at AS "completedAt",page_count AS "pageCount",line_count AS "lineCount",changed_count AS "changedCount",error_summary AS "errorSummary",source_summary AS "sourceSummary" FROM finance_e10_runs WHERE tenant_id=$1 ${inspect?'':'AND actor_id=$2'} ORDER BY started_at DESC LIMIT 20`,inspect?[a.tenantId]:[a.tenantId,a.userId])};
  }
  async exceptions(a:TableFilterActor){orderAuthorize(a,'finance-e10-lines');if(!financeAdmin(a))throw new ForbiddenException('异常日志需要财务管理员权限');
-  return this.repository.query(`SELECT order_no AS "orderNo",customer_code AS "customerCode",year_month AS "yearMonth",order_total AS "orderTotal",conflict,duplicate_sequence AS "duplicateSequence",duplicate_order_no AS "duplicateOrderNo",negative_lines AS "negativeLines",missing_lines AS "missingLines",issue_lines AS "issueLines" FROM finance_e10_orders_all WHERE tenant_id=$1 AND (conflict OR duplicate_sequence OR duplicate_order_no OR negative_lines>0 OR missing_lines>0 OR issue_lines>0) ORDER BY order_date DESC LIMIT 1000`,[a.tenantId]);
+  return this.repository.query(`SELECT order_no AS "orderNo",customer_code AS "customerCode",year_month AS "yearMonth",order_total AS "orderTotal",conflict,delivery_date_conflict AS "deliveryDateConflict",duplicate_sequence AS "duplicateSequence",duplicate_order_no AS "duplicateOrderNo",negative_lines AS "negativeLines",missing_lines AS "missingLines",issue_lines AS "issueLines" FROM finance_e10_orders_all WHERE tenant_id=$1 AND (conflict OR delivery_date_conflict OR duplicate_sequence OR duplicate_order_no OR negative_lines>0 OR missing_lines>0 OR issue_lines>0) ORDER BY order_date DESC LIMIT 1000`,[a.tenantId]);
  }
  async dashboard(input:Record<string,unknown>,a:TableFilterActor){
   const resource='finance-e10-dashboard';orderAuthorize(a,resource);
@@ -67,7 +67,8 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     count(*) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingOrders",
     count(DISTINCT customer_code) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingCustomers",
     COALESCE(sum(order_total) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL),0)::text "pendingAmount",
-    count(*) FILTER(WHERE order_total=0)::integer "zeroOrders" FROM selected)t) totals,
+    count(*) FILTER(WHERE order_total=0)::integer "zeroOrders",
+    ${orderField(a,resource,'deliveryDateConflict')?'count(*) FILTER(WHERE delivery_date_conflict)::integer':'NULL::integer'} "deliveryDateConflicts" FROM selected)t) totals,
    (SELECT COALESCE(jsonb_agg(g),'[]'::jsonb) FROM(
     SELECT 'department' kind,department_category category,sum(order_total)::text amount FROM selected GROUP BY department_category
     UNION ALL SELECT 'channel',sales_channel,sum(order_total)::text FROM selected GROUP BY sales_channel)g) groups,
