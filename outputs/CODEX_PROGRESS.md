@@ -1,6 +1,87 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：PMC订单分配数量统一、按批次追加导入及仅手工来源／取消下游对账。
+任务目标：O列直接映射allocatedQuantity，删除独立旧量，跨批全新增／同批幂等，保留历史；最新用户要求ERP不写分配、分配后不对账。
+当前状态：已完成。
+最后更新时间：2026-10-14T22:45:13.526787+08:00。
+最终报告：outputs/PMC_ALLOCATION_APPEND_BATCH_ACCEPTANCE.md。
+
+## 当前阶段
+当前阶段：已部署并实际验收，源码GitHub已推送。
+当前子任务：无；源码和验收文档自动同步，无需用户手动同步。
+
+## 已完成
+- [x] 按真实数据库及旧审计核实依赖与来源，210候选修正预览，无人工／未知来源覆盖。
+- [x] 来源限制5bf5865、取消对账e8c021a先独立上线；新数据只经获权手工／Excel；配置审计停用、所有对账入口skip、pending不消费。
+- [x] 单一数量／缓存公式／23非金额业务字段，模板无覆盖身份及正确列校验、导出批次／姓名／上海时间，通知和权限同口径。
+- [x] UUIDv7批次／源行元数据、跨批全追加、同批并发幂等、旧ID版本提示忽略；手动按ID版本编辑。
+- [x] 93迁移／退役归档／证据修正／稳定月计划FK、条件回滚；历史全部身份及计划数据保留。
+- [x] 940API、368Web、22Contracts、18PG＋历史迁移专项，实际163／33两批326，构建／类型／lint通过。
+- [x] 222211／223437／223843三组双库与附件备份，93生产成功，标准all/check、四容器健康、原Dispatcher版本38c3c7d active。
+- [x] 生产2301 ID不变：修正210、其余2091原值不变；业务／金额／计划／财务哈希一致、坏FK0。
+- [x] 真实Chrome页面／原文件预览163新增、33单、0错误，只预览取消；生产批次0；正式通知仍OFF version3。
+- [x] 源码38c3c7dfcf2ea0500e84070ae2c40f6206c8a234安全推送GitHub main，无强推或真实源／密钥入Git。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无业务待办。
+
+## 修改文件
+- apps/api/src/migrations/1722920093000-AllocationAppendBatches.ts
+- apps/api/src/modules/master-plan-system/master-plan-spreadsheet.service.ts
+- apps/api/src/modules/master-plan-system/master-plan.application.service.ts
+- apps/api/src/modules/master-plan-system/master-plan.config.ts
+- apps/api/src/modules/master-plan-system/master-plan.live-projection.spec.ts
+- apps/api/src/modules/master-plan-system/master-plan.query.service.ts
+- apps/api/src/modules/master-plan-system/master-plan.sync.service.spec.ts
+- apps/api/src/modules/master-plan-system/master-plan.sync.service.ts
+- apps/api/src/modules/master-plan-system/order-allocation.domain.ts
+- apps/api/src/modules/master-plan-system/order-allocation.spec.ts
+- apps/web/src/modules/finance/FinanceOrders.spec.tsx
+- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx
+- apps/web/src/modules/master-plan-system/MasterPlanPages.tsx
+- docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md
+- docs/operations/TASK_REGISTRY.md
+- packages/contracts/src/index.ts
+- scripts/test-allocation-append-migration.cjs
+- scripts/test-order-allocation-postgres.cjs
+- outputs/CODEX_PROGRESS.md
+- outputs/PMC_ALLOCATION_APPEND_BATCH_ACCEPTANCE.md
+
+## 数据库 Migration
+- 1722920093000-AllocationAppendBatches.ts；生产已COMMIT，来源证据／旧值归档、210修正、批次＋行唯一、旧列及旧唯一删除、稳定月计划外键、条件回滚。
+
+## 新增或修改测试
+- O列映射／单量模板／公式缓存坐标／重复源行／旧身份忽略，跨批追加／同批并发幂等／手动ID编辑／只读来源／权限租户、模板导出及通知／回滚；历史93 migration脚本；前端批次提示；既有财务重复月份查询修复。
+
+## 已运行测试
+- 完整API105套940 PASS／1既有skip，Web48文件368 PASS，Contracts22 PASS。
+- 真PG18业务18检查＋历史迁移／条件down-up／追加后拒绝回滚 PASS；163／33源两批326、同批新增0。
+- API／Web构建与类型、lint PASS（既有warning）；标准部署check、Chrome及真实数据哈希／FK PASS。
+
+## 当前已知问题
+- 无本次交付阻塞。老plan-projections的RUNNING／2026-09-29历史字段未重写；配置已停用且全部入口跳过，不代表仍在执行。
+- 旧版本未确认预览需重新上传；不同文件／新预览按最新规则追加，正式确认由用户执行。
+- 其他原有调度及通知权限维持；未新增任务／监控，未调整员工权限。
+
+## 等待用户确认
+- 无交付等待。生产原文件正式导入按用户之前选择，由用户在页面查看预览后确认；本次没有代执行。
+
+## 下一步
+1. 本任务已交付；用户在订单分配页面按需手工新增或预览确认导入。
+2. 下游对账按最新要求保持取消，重新启用需要新的明确需求。
+
+## 恢复执行说明
+项目AGENTS／两项KDOS Skill → 本进度／验收报告 → Git status/diff → 按新需求维护。运行代码38c3c7d，GitHub main含源码及验收文档；私有证据data/pmc-batch-import不提交。原始ERP文件/home/Jerry/下载/10.13.xlsx。不要重做已通过的实现／迁移，不删除历史记录，不回退旧自动导入／对账入口。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：订单分配附件中文文件名与Sheet名称小范围调整。
 任务目标：北京时间YYMMDDHHMMSS＋实际身份名称，冲突/分片标识，重试复用原文件；固定新增订单/变更订单/字段变更明细；测试备份标准部署安全推送。
 当前状态：已完成（523cf91已部署及安全推送，中文文件实际收件/三工作表打开已确认）。
