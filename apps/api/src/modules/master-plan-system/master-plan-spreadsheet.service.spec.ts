@@ -11,7 +11,7 @@ describe("MasterPlanSpreadsheetService", () => {
   const dataSourceQuery = jest.fn();
   const dataSource = { query: dataSourceQuery, transaction: jest.fn(async (work: (manager: typeof previewManager) => unknown) => work(previewManager)) };
   const queries = { exportRows: jest.fn(), pendingReportRows: jest.fn(async () => ({ rows: [] as Array<Record<string, unknown>>, visibleFields: [] as string[] })) };
-  const application = { validateImportUpdates: jest.fn(), importUpdates: jest.fn(), importBlockedReason: jest.fn().mockResolvedValue(null) };
+  const application = { completeImportReconciliation: jest.fn(async (_code:string,result:unknown)=>result), validateImportUpdates: jest.fn(), importUpdates: jest.fn(), importBlockedReason: jest.fn().mockResolvedValue(null) };
   const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() };
   const service = new MasterPlanSpreadsheetService(dataSource as never, queries as never, application as never, directory as never);
 
@@ -384,7 +384,7 @@ describe("MasterPlanSpreadsheetService", () => {
       previewManager.query.mockImplementation((sql: string) => sql.includes("SELECT * FROM mps_import_previews") ? [{ id: previewId, payload_json: { rows: [{ row: 2, id: null, expectedVersion: null, values: { weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: "20" } }] }, file_hash: "hash-1", confirmed_at: null }] : []);
 
       await expect(service.confirm("mps-process-reports", preview.previewId!, actor)).resolves.toMatchObject({ created: 1, updated: 0 });
-      expect(application.importUpdates).toHaveBeenCalledWith("mps-process-reports", [expect.objectContaining({ id: null, values: expect.objectContaining({ weeklyPlanId, processCode: "bending" }) })], "hash-1", actor);
+      expect(application.importUpdates).toHaveBeenCalledWith("mps-process-reports", [expect.objectContaining({ id: null, values: expect.objectContaining({ weeklyPlanId, processCode: "bending" }) })], "hash-1", actor, previewManager);
     });
   });
 });

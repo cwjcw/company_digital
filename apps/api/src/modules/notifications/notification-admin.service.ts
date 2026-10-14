@@ -5,6 +5,7 @@ import { tableResourceRegistry } from "@kdos/contracts";
 import {
   EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
   FIXED_USERS_RECIPIENT_RULE,
+  ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE,
   notificationEventDefinition,
   notificationEventDefinitions
 } from "./notification-event.registry";
@@ -23,7 +24,7 @@ export type NotificationAdminActor = {
 
 const RECIPIENT = EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE;
 const FIXED_RECIPIENT = FIXED_USERS_RECIPIENT_RULE;
-const RECIPIENT_LABELS = { [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
+const RECIPIENT_LABELS = { [ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE]: "承接事业部＋订单业务员", [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
 const resourceLabel = (code: string) => tableResourceRegistry.find((resource) => resource.code === code)?.label ?? code;
 
 @Injectable()
@@ -117,6 +118,7 @@ export class NotificationAdminService {
   async create(actor: NotificationAdminActor, body: Record<string, unknown>) {
     const input = this.validRule(body);
     this.assertResourceAccess(actor, input.resource);
+    if (input.eventType === "mps.order_allocation.batch_changed") throw new ConflictException("订单分配专属规则已自动初始化，请编辑已有规则或进入PMC订单分配通知配置");
     const ruleKey = String(body.ruleKey ?? `notification:${input.eventType}:${randomUUID()}`).trim();
     if (!ruleKey || ruleKey.length > 128) throw new BadRequestException("规则编码无效");
     return this.write(actor, async (manager) => {
@@ -136,6 +138,8 @@ export class NotificationAdminService {
       if (body.expectedVersion != null && Number(body.expectedVersion) !== Number(current.version)) throw new ConflictException("规则已被其他用户修改，请刷新后重试");
       const input = this.validRule({ ...current, ...body, resource: body.resource ?? current.resource, eventType: body.eventType ?? current.event_type, name: body.name ?? current.name, enabled: body.enabled ?? current.enabled, recipientRule: body.recipientRule ?? current.recipient_rule, config: body.config ?? current.config, template: body.template ?? current.config?.template });
       this.assertResourceAccess(actor, input.resource);
+      if (input.eventType === "mps.order_allocation.batch_changed" && current.event_type !== input.eventType) throw new ConflictException("订单分配专属规则已自动初始化，请编辑已有规则");
+      if (current.event_type === "mps.order_allocation.batch_changed" && input.eventType !== current.event_type) throw new BadRequestException("订单分配专属规则不能改为其他业务事件");
       await this.validateRecipientTargets(manager, input.recipientTargets);
       const rows = await manager.query(`UPDATE notification_rules SET name=$3,event_type=$4,module_code=$5,resource=$6,recipient_rule=$7,enabled=$8,config=$9::jsonb,updated_by=$10::uuid,updated_at=now(),version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$11 RETURNING *`,
@@ -160,11 +164,12 @@ export class NotificationAdminService {
     const recipient = String(query.recipient ?? "").trim(); if (recipient) { values.push(`%${recipient}%`); where.push("(COALESCE(l.wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.recipient_user_id::text,'') ILIKE $" + values.length + ")"); }
     const from = String(query.from ?? "").trim(); if (from) { values.push(from); where.push(`l.created_at >= $${values.length}::timestamptz`); }
     const to = String(query.to ?? "").trim(); if (to) { values.push(to); where.push(`l.created_at < ($${values.length}::date + interval '1 day')`); }
-    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.status,l.recipient_user_id,l.wechat_user_id,l.errcode,l.errmsg,l.error_message,l.provider_message_id,
+    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.component,a.filename,l.status,l.recipient_user_id,l.wechat_user_id,l.errcode,l.errmsg,l.error_message,l.provider_message_id,
       COALESCE(NULLIF(u.display_name,''),u.username,l.recipient_user_id::text) resolved_recipient,
       r.id rule_id,r.name rule_name,r.module_code,r.resource,r.event_type,r.recipient_rule,o.id outbox_id,o.payload,o.status outbox_status
       FROM notification_delivery_logs l JOIN notification_outbox o ON o.tenant_id=l.tenant_id AND o.id=l.notification_outbox_id
       LEFT JOIN notification_rules r ON r.tenant_id=o.tenant_id AND r.id=o.notification_rule_id
+      LEFT JOIN notification_attachments a ON a.tenant_id=l.tenant_id AND a.id=l.attachment_id
       LEFT JOIN users u ON u.id=l.recipient_user_id
       WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC LIMIT 500`, values);
     return rows.map((row: Record<string, unknown>) => this.logView(row));
@@ -178,7 +183,7 @@ export class NotificationAdminService {
       this.assertResourceAccess(actor, String(row.resource ?? event?.resourceCode ?? ""));
       const skipped = await manager.query("SELECT errcode,errmsg FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND status='SKIPPED'", [actor.tenantId, outboxId]);
       if (skipped.some((entry: Record<string, unknown>) => ["SKIPPED_MISSING_WECHAT_ID", "SKIPPED_DISABLED"].includes(String(entry.errcode)))) throw new ConflictException("缺少企业微信 UserId 或用户处于禁用状态，不能重试");
-      const updated = this.rowsOf(await manager.query("UPDATE notification_outbox SET status='PENDING',next_retry_at=now(),last_error=NULL,failed_at=NULL,locked_at=NULL,locked_by=NULL,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND status='FAILED' RETURNING *", [actor.tenantId, outboxId]))[0];
+      const updated = this.rowsOf(await manager.query("UPDATE notification_outbox SET payload=CASE WHEN event_type='mps.order_allocation.batch_changed' AND EXISTS(SELECT 1 FROM notification_delivery_logs d WHERE d.notification_outbox_id=notification_outbox.id AND d.tenant_id=notification_outbox.tenant_id AND d.component='routing' AND d.status='FAILED') THEN payload - 'routes' - 'routingErrors' ELSE payload END,status='PENDING',next_retry_at=now(),last_error=NULL,failed_at=NULL,locked_at=NULL,locked_by=NULL,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND status='FAILED' RETURNING *", [actor.tenantId, outboxId]))[0];
       if (!updated) throw new ConflictException("只有 FAILED/RETRY_PENDING 通知可以重试");
       await this.audit(manager, actor, outboxId, "notification.retry_requested", row, updated); return { id: outboxId, status: "PENDING" };
     });
@@ -186,6 +191,7 @@ export class NotificationAdminService {
 
   async testSend(actor: NotificationAdminActor, id: string, body: Record<string, unknown>) {
     const rule = await this.detail(actor, id); const event = this.event(String(rule.eventType));
+    if (event.eventType === "mps.order_allocation.batch_changed") throw new BadRequestException("请在PMC订单分配通知配置页面选择唯一接收人发送受控测试");
     const payload = body.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new BadRequestException("测试发送需要提供事件 payload");
     const allowed = new Set(event.templateVariables.map(({ key }) => key)); for (const key of Object.keys(payload as Record<string, unknown>)) if (!allowed.has(key)) throw new BadRequestException(`测试 payload 包含未授权变量：${key}`);
@@ -212,7 +218,7 @@ export class NotificationAdminService {
     } else { delete sourceConfig.recipientUserIds; delete sourceConfig.recipientTargets; }
     const configTemplate = template ? this.normalizeTemplate(template, event.templateVariables.map(({ key }) => key)) : undefined;
     const recipientTargets = recipientRule === FIXED_RECIPIENT ? this.normalizeRecipientTargets(rawTargets, rawIds) : [];
-    return { name, eventType, event, resource, recipientRule, enabled: body.enabled !== false, recipientTargets, config: { messageType: event.messageType, ...sourceConfig, ...(recipientRule === FIXED_RECIPIENT ? { recipientTargets } : {}), ...(configTemplate ? { template: configTemplate } : {}) } };
+    return { name, eventType, event, resource, recipientRule, enabled: body.enabled !== false, recipientTargets, config: { ...sourceConfig, messageType: event.messageType, ...(recipientRule === FIXED_RECIPIENT ? { recipientTargets } : {}), ...(configTemplate ? { template: configTemplate } : {}) } };
   }
 
   private normalizeTemplate(template: string, variables: readonly string[]) {
@@ -283,7 +289,7 @@ export class NotificationAdminService {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const event = notificationEventDefinition(String(row.event_type ?? ""));
-    return { id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
+    return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
   private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId]); }

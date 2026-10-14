@@ -1,3 +1,4 @@
+import { OrderAllocationDeliveryService } from "./order-allocation.delivery.service";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthGuard } from "../../auth";
@@ -11,7 +12,7 @@ import { NotificationAdminService } from "./notification-admin.service";
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User])],
   controllers: [NotificationInternalController, NotificationAdminController],
-  providers: [AuthGuard, NotificationService, NotificationInternalGuard, NotificationAdminService],
+  providers: [OrderAllocationDeliveryService, AuthGuard, NotificationService, NotificationInternalGuard, NotificationAdminService],
   exports: [NotificationService]
 })
 export class NotificationsModule {}

@@ -116,3 +116,15 @@
 - 验证：2026-10-14，隔离真实PostgreSQL/合成fixture；生产状态以本机验收报告为准，不在公共Git仓库存放真实财务数量/金额或明细。
 - 2026-10-14日期口径修订：仅91号派生视图迁移改订单级日期MIN，源品项/金额/数量不变；无需运行采集或增加任何周期入口。
 - 仓库调度定义/候选数量未增加。负责人：财务中心/系统维护人员。
+
+## MPS-002 Order allocation change notifications (event driven)
+
+- Entry: MasterPlan Application create/update/batch/import-confirm → transactional `mps.order_allocation.batch_changed` → existing Notification Outbox/API claim → existing MSG-001 user systemd Dispatcher.
+- Trigger: committed nonmoney changes only, once per operation batch; no timer, cron, n8n workflow or application scheduler is added. ERP staging/projection and all existing jobs retain their confirmed schedules.
+- Rule/configuration: canonical PMC allocation rule, initially disabled; dedicated PMC operations configuration. Switch and message center share the same rule state. No disabled-period backfill. Unit and exact-name salesperson routing is tenant scoped and user-ID deduplicated.
+- Identity: authorized actor, frozen allowlisted snapshots, tenant RLS; private per-user XLSX parts. Dispatcher only polls HTTP and calls the shared default-application WeChatPusher. It does not read SQL or resolve business recipients.
+- Concurrency/idempotency: outbox lease/SKIP LOCKED, batch dedup, recipient/component attempt index, immutable attachments, latest-component completion and private provider-success receipts. Business transaction rollback emits nothing. A failed file never resubmits orders or resends successful text.
+- Failure/compensation: existing delivery logs and administrator retry, backoff for provider failure, explicit routing errors (never SENT), media re-upload from the same saved XLSX. Corrected routing can be reevaluated by an explicit failed-message retry.
+- Backup/rollback: existing database and uploads backup; retain configuration/snapshots/delivery evidence, roll back application/Dispatcher release without dropping retained data. No source credentials copied.
+- Runtime audit and delivery evidence: pending current deployment; do not infer active code from repository files. Existing MSG-001 is user-level active; all new schedule-definition counts remain zero. Final production evidence belongs to the local acceptance report, not public business datasets.
+- Owner: PMC / system maintenance. Last code verification: 2026-10-14, isolated PostgreSQL18 real workbook replay and component retry plus API/Dispatcher regression; production status still pending.

@@ -145,3 +145,7 @@ Knowledge 页面支持在线文章和文件两种内容模式，原件、工作�
 迁移前运行备份脚本并保留legacy数据库、KDOS数据库和uploads三份SHA256。2.1迁移原样保留文件ID/key/SHA与历史版本关系，不支持丢弃文件知识的down；回退须使用验证过的完整备份并匹配旧版应用。严禁删除数据卷。停止Worker仅影响预览生成；API和已生成预览继续可用，恢复Worker后自动领取持久任务。只清理明确标识的验收页面子树，严禁清理真实业务文件。
 
 专项检查：`pnpm --filter @tracker/api exec jest --runInBand --testPathPatterns='knowledge|local-object-storage'`，`pnpm --filter @tracker/web exec vitest run src/modules/knowledge --maxWorkers=2`，`node scripts/validate-knowledge.mjs`。最后一项仅创建/删除带 `knowledge_test_` 前缀的隔离数据库，验证已填充2.0升级、ACL/RLS和全量migration重放，不写生产知识内容。浏览器账号通过运行时输入；禁用trace、video、截图和storageState，不将凭据写入报告。
+
+### Deploying clean linked source to the existing runtime
+
+When the original checkout has unrelated work, use a clean linked Git worktree. From that source worktree run `KDOS_RUNTIME_ROOT=/absolute/path/to/original/checkout ./scripts/deploy.sh all` (or `check`). The script verifies both directories share the same Git repository, checks the source is clean, and supplies only an ephemeral build-context override. The runtime .env, project identity, PostgreSQL bind mount and private uploads stay at the original checkout. No secrets are copied. Verify the resolved persistent mounts before first use; back up and migrate with the existing runtime environment. The version reported is the clean source commit. Roll back by deploying a retained source commit/image against the same runtime path. Order allocation notification operations are described in `docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md`.

@@ -632,7 +632,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
     const button = submitButton();
     expect(button).toBeDisabled();
-    expect(button.className).not.toContain("ant-btn-loading");
+    await waitFor(() => expect(button.className).not.toContain("ant-btn-loading"));
   }, 25_000);
 
   it("Case 2：成功后刷新失败仍显示报工成功，并额外提示刷新失败", async () => {
@@ -666,7 +666,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     expect(quantityValues()).toEqual([20, 0]);
     const button = submitButton();
     expect(button).toBeEnabled();
-    expect(button.className).not.toContain("ant-btn-loading");
+    await waitFor(() => expect(button.className).not.toContain("ant-btn-loading"));
   }, 25_000);
 
   it("Case 4：部分成功时只清空成功记录，失败记录保留原数量", async () => {
@@ -705,7 +705,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(warning).toHaveBeenCalledWith(expect.stringContaining("已成功提交 1 条报工")));
     await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
     const button = submitButton();
-    expect(button.className).not.toContain("ant-btn-loading");
+    await waitFor(() => expect(button.className).not.toContain("ant-btn-loading"));
     /* loading 已恢复：重新填写后可再次提交（若 pendingSubmitting 卡死则不会产生第二次 POST）。 */
     await fill(["5"]);
     fireEvent.click(submitButton());

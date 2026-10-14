@@ -1,4 +1,5 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { OrderAllocationDeliveryService } from "./order-allocation.delivery.service";
+import { ConflictException, Injectable, Optional } from "@nestjs/common";
 import { DataSource, EntityManager } from "typeorm";
 import {
   EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
@@ -29,7 +30,7 @@ type NotificationRuleRow = Record<string, unknown> & {
 
 @Injectable()
 export class NotificationService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly dataSource: DataSource, @Optional() private readonly allocationDelivery?: OrderAllocationDeliveryService) {}
 
   async upsertRule(tenantId: string, input: NotificationRuleInput, actor: NotificationActor, manager?: EntityManager) {
     this.requireTenant(tenantId);
@@ -116,6 +117,14 @@ export class NotificationService {
         const recipientRule = String(rule.recipient_rule ?? "");
         if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) {
           await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知事件不允许使用该接收人规则");
+          continue;
+        }
+        if (eventDefinition.eventType === "mps.order_allocation.batch_changed") {
+          if (!this.allocationDelivery) throw new ConflictException("订单分配通知投递器未配置");
+          await manager.query("SAVEPOINT allocation_delivery");
+          try { claims.push(...await this.allocationDelivery.prepare(manager,tenantId,outbox,workerId)); }
+          catch { await manager.query("ROLLBACK TO SAVEPOINT allocation_delivery"); await this.quarantine(manager,tenantId,outbox,workerId,"ALLOCATION_DELIVERY_PREPARATION_FAILED","订单分配通知快照或附件准备失败，请复核并重试"); }
+          await manager.query("RELEASE SAVEPOINT allocation_delivery");
           continue;
         }
         const payload = this.objectPayload(outbox.payload);
@@ -205,7 +214,7 @@ export class NotificationService {
 
   private async resolveRule(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationRuleRow | null> {
     const rows = outbox.notification_rule_id
-      ? await manager.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND id=$2::uuid AND enabled=true", [tenantId, outbox.notification_rule_id])
+      ? await manager.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND id=$2::uuid AND (enabled=true OR $3::boolean)", [tenantId, outbox.notification_rule_id, outbox.event_type === "mps.order_allocation.batch_changed" && (outbox.payload as Record<string,unknown>)?.deliveryMode === "TEST"])
       : await manager.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND event_type=$2 AND channel=$3 AND enabled=true ORDER BY updated_at DESC,id DESC LIMIT 1", [tenantId, outbox.event_type, outbox.channel]);
     return rows[0] ?? null;
   }
@@ -322,14 +331,15 @@ export class NotificationService {
   }
 
   private async reconcileOutbox(manager: EntityManager, tenantId: string, outboxId: string, workerId: string) {
-    const states = await manager.query("SELECT status,count(*)::int count FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid GROUP BY status", [tenantId, outboxId]) as Array<{ status: string; count: number }>;
+    const states = await manager.query("SELECT status,component,count(*)::int count FROM (SELECT DISTINCT ON (recipient_user_id,component) status,component FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY recipient_user_id,component,attempt DESC,id DESC) latest GROUP BY status,component", [tenantId, outboxId]) as Array<{ status: string; component?: string; count: number }>;
     const hasActive = states.some((state) => ["PENDING", "PROCESSING"].includes(state.status) && state.count > 0);
-    const hasRetry = states.some((state) => ["RETRY_PENDING", "FAILED"].includes(state.status) && state.count > 0);
-    const status = hasActive ? "PROCESSING" : hasRetry ? "FAILED" : "SENT";
-    const retryAt = status === "FAILED" ? "now()+LEAST(GREATEST(attempts,1),30)*interval '1 minute'" : "NULL";
+    const hasRetry = states.some((state) => state.component !== "routing" && ["RETRY_PENDING", "FAILED"].includes(state.status) && state.count > 0);
+    const hasRoutingError = states.some(state => state.component === "routing" && state.status === "FAILED");
+    const status = hasActive ? "PROCESSING" : hasRetry || hasRoutingError ? "FAILED" : "SENT";
+    const retryAt = status === "FAILED" && hasRetry ? "now()+LEAST(GREATEST(attempts,1),30)*interval '1 minute'" : "NULL";
     const rows = this.rowsOf(await manager.query(`UPDATE notification_outbox SET status=$4::varchar,failed_at=CASE WHEN $4::varchar='FAILED' THEN now() ELSE failed_at END,
       sent_at=CASE WHEN $4::varchar='SENT' THEN now() ELSE sent_at END,next_retry_at=${retryAt},
-      locked_at=CASE WHEN $4::varchar='PROCESSING' THEN locked_at ELSE NULL END,locked_by=CASE WHEN $4::varchar='PROCESSING' THEN locked_by ELSE NULL END,
+      locked_at=CASE WHEN $4::varchar='PROCESSING' THEN now() ELSE NULL END,locked_by=CASE WHEN $4::varchar='PROCESSING' THEN locked_by ELSE NULL END,
       last_error=CASE WHEN $4::varchar='FAILED' THEN COALESCE(last_error,'企业微信投递失败') ELSE NULL END,updated_at=now(),version=version+1
       WHERE tenant_id=$1 AND id=$2::uuid AND status='PROCESSING' AND locked_by=$3 RETURNING *`, [tenantId, outboxId, workerId, status]));
     if (!rows[0]) throw new ConflictException("通知任务不存在、已被其他 worker 处理或状态已变化"); return rows[0];

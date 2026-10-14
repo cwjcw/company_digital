@@ -132,3 +132,43 @@ class DispatcherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class FileDeliveryTest(unittest.TestCase):
+    def test_file_uses_private_temp_and_explicit_single_recipient(self):
+        received=[]
+        class Pusher:
+            def send_app_file(self,path,touser):
+                target=Path(path)
+                self_test.assertEqual(target.name,"PMC_Test.xlsx")
+                self_test.assertEqual(target.stat().st_mode & 0o777,0o600)
+                self_test.assertEqual(target.read_bytes(),b"PK-test")
+                received.append(touser)
+                return {"errcode":0,"msgid":"file-1"}
+        self_test=self
+        notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"test", "attachment":{"filename":"PMC_Test.xlsx","downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"file-fixture","wechatUserId":"single-test"}]}
+        post=lambda path,body:{"notifications":[notification]} if path.endswith("claim") else {}
+        service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,Pusher())
+        service._get_attachment=lambda path:b"PK-test"
+        self.assertEqual(service.run_once()["sent"],1)
+        self.assertEqual(received,["single-test"])
+
+    def test_success_receipt_prevents_resend_after_callback_failure(self):
+        import tempfile
+        notification=DispatcherTest().notification()
+        notification["recipients"]=notification["recipients"][:1]
+        notification["recipients"][0]["deliveryId"]="0199f000-0000-7000-8000-000000000005"
+        ack_fails=[True]
+        callbacks=[]
+        def post(path,body):
+            if path.endswith("claim"):return {"notifications":[notification]}
+            callbacks.append(path)
+            if ack_fails[0]:raise RuntimeError("callback unavailable")
+            return {}
+        with tempfile.TemporaryDirectory() as receipts:
+            pusher=FakePusher()
+            service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,pusher,Path(receipts))
+            self.assertEqual(service.run_once()["failed"],1)
+            ack_fails[0]=False
+            self.assertEqual(service.run_once()["sent"],1)
+            self.assertEqual(len(pusher.calls),1)
+            self.assertTrue(all(path.endswith("success") for path in callbacks))

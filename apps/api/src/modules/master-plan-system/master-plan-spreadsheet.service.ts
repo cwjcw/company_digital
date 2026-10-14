@@ -1,3 +1,5 @@
+import { allocationChange, allocationColumn, ALLOCATION_FIELDS, parseAllocationWorkbook } from "./order-allocation.domain";
+import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import ExcelJS from "exceljs";
@@ -80,6 +82,7 @@ export class MasterPlanSpreadsheetService {
   async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    if (code === "mps-order-allocations") return this.allocationPreview(file, actor, view === "OVERRIDE_DIVISION");
     const pending = this.isPendingImport(code, view);
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
     assertSpreadsheetNotEncrypted(file.buffer);
@@ -150,7 +153,8 @@ export class MasterPlanSpreadsheetService {
     if (!actor.userId) throw new ForbiddenException("当前用户身份无效，无法创建导入预览");
     const hash = createHash("sha256").update(file.buffer).digest("hex");
     const [preview] = await this.dataSource.transaction(async (manager) => {
-      await manager.query("DELETE FROM mps_import_previews WHERE expires_at<=now()");
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      await manager.query("DELETE FROM mps_import_previews WHERE tenant_id=$1 AND expires_at<=now()",[actor.tenantId]);
       return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5::jsonb,now() + interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`, [actor.tenantId, actor.userId, code, hash, JSON.stringify({ rows: businessRows, view: pending ? "PENDING" : undefined })]);
     });
@@ -158,17 +162,82 @@ export class MasterPlanSpreadsheetService {
   }
 
   async confirm(code: string, previewId: string, actor: MasterPlanActor) {
+    this.resource(code);
+    if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     if (!actor.userId) throw new ForbiddenException("当前用户身份无效，无法确认导入预览");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(previewId))) throw new BadRequestException("导入预览不存在，请重新上传");
-    return this.dataSource.transaction(async (manager) => {
-      await manager.query("DELETE FROM mps_import_previews WHERE expires_at<=now()");
+    const committed = await this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      await manager.query("DELETE FROM mps_import_previews WHERE tenant_id=$1 AND expires_at<=now()",[actor.tenantId]);
       const [preview] = await manager.query(`SELECT * FROM mps_import_previews WHERE id=$1::uuid AND tenant_id=$2 AND user_id=$3::uuid AND resource=$4 FOR UPDATE`, [previewId, actor.tenantId, actor.userId, code]);
       if (!preview) throw new BadRequestException("导入预览已过期、无权访问或不存在，请重新上传。");
       if (preview.confirmed_at) return { ...preview.confirmation_result, repeated: true };
-      const result = await this.application.importUpdates(code, preview.payload_json.rows, preview.file_hash, actor);
+      const result = await this.application.importUpdates(code, preview.payload_json.rows, code === "mps-order-allocations" ? `${preview.file_hash}:${preview.id}` : preview.file_hash, actor, manager);
       await manager.query("UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid", [previewId, JSON.stringify(result), actor.userId]);
       return result;
     });
+    return this.application.completeImportReconciliation(code,committed);
+  }
+
+  private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
+    if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
+    for (const [key] of ALLOCATION_FIELDS) if (!hasMasterPlanFieldPermission(actor,"mps-order-allocations",key,"read")) throw new ForbiddenException("导入预览需要全部非金额业务字段的读取权限");
+    const parsed = await parseAllocationWorkbook(file.buffer);
+    const errors = [...parsed.errors];
+    const resolved = await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      const existing = await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=ANY($2::text[])",[actor.tenantId,[...new Set(parsed.rows.map(r=>r.values.orderNumber))]]);
+      const vendors = await manager.query("SELECT supplier_name,division_id FROM mps_allocation_vendor_mappings WHERE tenant_id=$1 AND enabled=true",[actor.tenantId]);
+      const organizations = await this.directory.listEnabled();
+      const conflicts: Array<Record<string,unknown>>=[];
+      const changes: ReturnType<typeof allocationChange>[]=[];
+      const rows = parsed.rows.map(input=>{
+        const values={...input.values};const current=existing.find((e:Record<string,unknown>)=>e.order_number===values.orderNumber&&e.item_code===values.itemCode);
+        if(current&&!this.application.allocationImportRecordAllowed(current,actor)) {
+          errors.push({row:input.row,reason:"当前数据范围不允许预览或修改该订单分配"});
+          return {row:input.row,id:null,expectedVersion:null,values,classification:"ERROR",fields:[]};
+        }
+        if(input.id && (!current || current.id!==input.id))errors.push({row:input.row,reason:"记录ID与订单品号不一致"});
+        if(input.expectedVersion && Number(current?.version)!==input.expectedVersion)errors.push({row:input.row,reason:"记录版本已变化，请重新导出"});
+        const seqConflict=values.orderSequence&&existing.find((e:Record<string,unknown>)=>e.order_number===values.orderNumber&&e.order_sequence===values.orderSequence&&e.item_code!==values.itemCode);
+        if(seqConflict)errors.push({row:input.row,reason:"订单序号与现有品号冲突，不能自动覆盖"});
+        if(current?.order_sequence&&values.orderSequence&&current.order_sequence!==values.orderSequence)errors.push({row:input.row,reason:"同一品号订单序号变化，可能存在分拆，请复核"});
+        if(values.supplierName) {
+          const map=vendors.find((v:Record<string,unknown>)=>v.supplier_name===values.supplierName);
+          if(!map)errors.push({row:input.row,reason:`供应商名称未配置有效映射：${values.supplierName}`});
+          else if(!organizations.some(o=>o.id===map.division_id)) errors.push({row:input.row,reason:"供应商映射的承接单位不存在或已停用"});
+          else values.divisionId=map.division_id;
+        } else if(values.divisionId) {
+          try {values.divisionId=this.directory.resolve(values.divisionId,organizations,"承接事业部")?.id;} catch {errors.push({row:input.row,reason:"承接事业部无法精确匹配"});}
+        }
+        if(current?.division_id&&values.divisionId&&current.division_id!==values.divisionId) {
+          conflicts.push({row:input.row,before:organizations.find(u=>u.id===current.division_id)?.name??current.division_id,after:organizations.find(u=>u.id===values.divisionId)?.name??values.divisionId,overridden:overrideDivision});
+          if(!overrideDivision)values.divisionId=current.division_id;
+          else if(!hasMasterPlanPermission(actor,"mps-order-allocations","update")||!hasMasterPlanFieldPermission(actor,"mps-order-allocations","divisionId","update"))errors.push({row:input.row,reason:"没有覆盖承接事业部的修改权限"});
+        }
+        if(!current && values.allocatedQuantity == null) values.allocatedQuantity = "0"; // existing schema default: blank source is unallocated, never inferred from ordered quantity
+        const after={...(current??{}),...Object.fromEntries(Object.entries(values).map(([k,v])=>[allocationColumn(k),v])),id:current?.id??`row-${input.row}`};
+        const change=allocationChange(current??null,after); if(change.fields.length)changes.push(change);
+        const classification=!current?"NEW":change.fields.length?"CHANGED":"UNCHANGED";
+        return {row:input.row,id:current?.id??null,expectedVersion:current?Number(current.version):null,values,classification,fields:change.fields.map(f=>f.key==="divisionId"?{...f,before:organizations.find(u=>u.id===f.before)?.name??f.before,after:organizations.find(u=>u.id===f.after)?.name??f.after}:f)};
+      });
+      const routing=await resolveAllocationRoutes(manager,actor.tenantId,changes);
+      return {rows,conflicts,routing};
+    });
+    if(!errors.length)errors.push(...await this.application.validateImportUpdates("mps-order-allocations",resolved.rows,actor));
+    const errorRows = new Set(errors.map(e=>e.row));
+    for (const row of resolved.rows) if(errorRows.has(row.row)) row.classification="ERROR";
+    const counts={created:resolved.rows.filter(r=>r.classification==="NEW").length,updated:resolved.rows.filter(r=>r.classification==="CHANGED").length,unchanged:resolved.rows.filter(r=>r.classification==="UNCHANGED").length,errors:new Set(errors.map(e=>e.row)).size};
+    const group=(key:string)=>Object.entries(resolved.rows.reduce((m:Record<string,number>,r)=>{const k=String(r.values[key]??"未填写");m[k]=(m[k]??0)+1;return m;},{})).map(([name,count])=>({name,count}));
+    let previewId=null;
+    if(!errors.length) {
+      if(!actor.userId)throw new ForbiddenException("当前用户身份无效");
+      const [preview]=await this.dataSource.transaction(async manager=>{
+        await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+        return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by) VALUES($1,$2::uuid,'mps-order-allocations',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,createHash("sha256").update(file.buffer).digest("hex"),JSON.stringify({rows:resolved.rows.map(({row,id,expectedVersion,values})=>({row,id,expectedVersion,values})),overrideDivision})]);
+      });previewId=preview.id;
+    }
+    return {total:parsed.rows.length,orderCount:parsed.orderCount,errors,counts,previewId,rows:resolved.rows,conflicts:resolved.conflicts,byDivision:group("divisionId"),bySalesperson:group("salespersonName"),recipients:resolved.routing.recipients.map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities,hasWechatId:Boolean(r.wechatUserId)})),recipientErrors:resolved.routing.errors};
   }
 
   private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean } = {}) {
