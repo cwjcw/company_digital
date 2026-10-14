@@ -55,7 +55,7 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 
 `finance_e10_lines` 是财务源品项读模型，不是另一套权威订单。`finance_e10_raw` 展示34列；`finance_e10_orders_all` 按租户、E10账套、来源订单 UUID 聚合；`finance_e10_monthly` 是可验收的订单级9列视图。分类始终 JOIN `finance_customer_mappings` 的租户+完整客户编号，不向该表写入、不按前缀/ERP部门/PMC推断。
 
-金额使用 Decimal / PostgreSQL numeric；订单含税金额 SUM 品项本币未税+税额并保留到分，不重算汇率。空分类保留 NULL，在报表中显示待分类，仍计入总额；分类修订立即影响历史报表。零和负金额保留，负金额进入异常复核。用户2026-10-14明确确认：同单多个预交货日时保留整单金额纳入统计，订单级预交货日NULL，页面/异常日志/大屏明确标记冲突，Excel原9列表头保持且该日期留空。客户、年月、单号、订单日期、非空客户单号冲突，重复序号/单号、源缺失/交货计划缺失仍明确列入异常并暂不纳入月度统计；报表展示暂缓订单数及金额，不任取首行。无品项订单头在读取批次来源覆盖中保留数量，不虚构品项或0金额订单。
+金额使用 Decimal / PostgreSQL numeric；订单含税金额 SUM 品项本币未税+税额并保留到分，不重算汇率。空分类保留 NULL，在报表中显示待分类，仍计入总额；分类修订立即影响历史报表。零和负金额保留，负金额进入异常复核。用户2026-10-14最新确认：订单级预交货日取所有非空有效品项日期MIN，仅全部为空时NULL；多交期提示已取最早日期，月度列表/筛选/9列Excel使用同一最早日期。财务DATE字段以YYYY-MM-DD文本返回，避免数据库驱动Date对象经UTC序列化显示前一天。品项原始日期、订单金额/订单数量及所有大屏金额不变。客户、年月、单号、订单日期、非空客户单号冲突，重复序号/单号、源缺失/交货计划缺失仍明确列入异常并暂不纳入月度统计；报表展示暂缓订单数及金额，不任取首行。无品项订单头在读取批次来源覆盖中保留数量，不虚构品项或0金额订单。
 
 ## 手动刷新与恢复
 
@@ -83,6 +83,6 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 
 ## 部署、回滚与验证
 
-迁移 `FinanceE10Analytics1722920089000` 只新增财务读模型/临时页/批次和视图；`FinanceE10DeliveryDateConflicts1722920090000` 按用户最新确认调整交期冲突视图，不修改已应用的旧迁移。按标准 backup → TypeORM/KDOS迁移 → deploy all → health/version → 线上真实 E10初始化/金额勾稽/下载和浏览器验收。不安装systemd/n8n任务、不变更ERP任务。回滚保留新财务数据和审计，使用之前保留的应用镜像；down 主动拒绝删除财务历史。
+迁移 `FinanceE10Analytics1722920089000` 只新增财务读模型/临时页/批次和视图；`FinanceE10DeliveryDateConflicts1722920090000` 记录此前日期冲突政策；最新 `FinanceE10EarliestDeliveryDate1722920091000` 只将订单视图预交货日改为MIN，依赖视图即时重算既有订单，不刷新E10或改源记录，不修改已应用的旧迁移。按标准 backup → TypeORM/KDOS迁移 → deploy all → health/version → 线上真实 E10初始化/金额勾稽/下载和浏览器验收。不安装systemd/n8n任务、不变更ERP任务。回滚保留新财务数据和审计，使用之前保留的应用镜像；down 主动拒绝删除财务历史。
 
 验证入口：财务单元/表头测试、`scripts/test-finance-orders-postgres.cjs` 的隔离 PostgreSQL真实Command/权限/导出/幂等/异常/恢复测试、`scripts/test-finance-postgres.cjs` 的客户表及完整fresh迁移回归、财务页面及公共图表 Vitest、`finance-orders-ui.spec.ts` 的真实Chrome合成角色/导航/图表/移动布局验证。生产验收报告写 `outputs/FINANCE_E10_ORDER_ANALYTICS_ACCEPTANCE.md`（本机保留，财务数据不得推送）。

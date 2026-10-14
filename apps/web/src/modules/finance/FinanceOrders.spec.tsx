@@ -11,13 +11,13 @@ function mount(component:React.ReactNode,url='/finance/orders/monthly',user:any=
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
 afterEach(cleanup);
 describe('Finance E10 UI',()=>{
- it('marks conflicting order dates without adding a template column and preserves dashboard money',async()=>{
+ it('shows earliest order dates without adding a template column and preserves dashboard money',async()=>{
   const original=vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async(p,...args)=>{
-   if(p.includes('/table-filters/rows'))return {rows:[{id:'conflict',deliveryDate:null,deliveryDateConflict:true,orderTotal:'100.30'}],total:1} as never;
+   if(p.includes('/table-filters/rows'))return {rows:[{id:'conflict',deliveryDate:'2025-02-01',deliveryDateConflict:true,orderTotal:'100.30'}],total:1} as never;
    const result:any=await original(p,...args);if(p.includes('dashboard'))result.totals.deliveryDateConflicts=1;return result;
   });
-  const view=mount(<FinanceOrderTable monthly/>);await screen.findByText('预交货日冲突');expect(screen.getByText('100.30')).toBeVisible();expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(9);view.unmount();
+  const view=mount(<FinanceOrderTable monthly/>);await screen.findByText('2025-02-01');expect(screen.queryByText('预交货日冲突')).toBeNull();expect(screen.getByText('100.30')).toBeVisible();expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(9);view.unmount();
   mount(<FinanceOrderDashboard/>);await screen.findByText('年累计本币总金额');expect(screen.queryByText(/(?:多个预交货日|预交货日冲突)\s*\d+\s*张/)).toBeNull();
  });
  it('shows exactly 34 Chinese source columns and no upload control',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(34);expect(screen.queryByText('导入')).toBeNull();expect(screen.getByText('刷新E10数据')).toBeVisible();});
