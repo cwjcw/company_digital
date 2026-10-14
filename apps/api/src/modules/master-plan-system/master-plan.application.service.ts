@@ -15,7 +15,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 /** 写入后需要独立对账的同步任务（单一权威映射，enqueue 与反馈共用）。 */
 const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
-  "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
+  "mps-customer-divisions": [], "mps-order-allocations": [],
   "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
   "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
   "mps-weekly-process-plans": ["execution-rollup"],
@@ -737,6 +737,7 @@ export class MasterPlanApplicationService {
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {
+    if (resource.code === "mps-order-allocations" || resource.code === "mps-customer-divisions") return undefined;
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */

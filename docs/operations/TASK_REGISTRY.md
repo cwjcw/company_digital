@@ -137,3 +137,5 @@
 - New schedule definitions/candidate instances added by MPS-002: zero. Existing task ownership remains as previously confirmed by the user.
 
 - Allocation source policy (2026-10-14): per the explicit user request, `plan-projections` no longer creates or updates `mps_order_allocations` from ERP. Only authorized manual create/update and confirmed Excel imports maintain this table. ERP raw staging and the existing downstream reconciliation entries, schedules and retained historical rows remain in place. Rollback must retain this source restriction.
+
+- Subsequent user instruction (2026-10-14) supersedes the retained downstream behavior above: order-allocation/customer-map commands no longer enqueue `plan-projections`, and its scheduled/manual/event/replay entry returns skipped without plan writes. Existing pending events cannot update plans. Historical allocations/plans are retained; unrelated ERP staging and shipping/execution schedules are unchanged. Do not reenable downstream reconciliation during rollback.

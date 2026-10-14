@@ -42,7 +42,7 @@ export class MasterPlanSyncService {
       const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,updated_at=now(),version=version+1
       WHERE id IN (
         SELECT id FROM mps_reconciliation_outbox
-        WHERE status IN ('PENDING','FAILED') AND next_attempt_at<=now()
+        WHERE status IN ('PENDING','FAILED') AND sync_key<>'plan-projections' AND next_attempt_at<=now()
         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20
       ) RETURNING *`);
       return Array.isArray(result[0]) ? result[0] : result;
@@ -74,6 +74,9 @@ export class MasterPlanSyncService {
   }
 
   async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, executionScope: ExecutionRollupScope | null = null) {
+    // Explicit user policy: allocation changes must not reconcile downstream plans.
+    // Applies to scheduled, event, replay and manual entrypoints alike.
+    if (syncKey === "plan-projections") return { syncKey, skipped: true, count: 0, reason: "订单分配下游计划对账已停用" };
     const runningKey = `${tenantId}:${syncKey}`;
     if (this.running.has(runningKey)) throw new ConflictException("该同步任务正在运行");
     this.running.add(runningKey);
@@ -105,7 +108,7 @@ export class MasterPlanSyncService {
   private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null): Promise<SyncOutcome> {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
-      "plan-projections": () => this.projectPlans(tenantId, userId, updatedBy),
+      "plan-projections": async () => ({ count: 0 }),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, updatedBy),
       "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),

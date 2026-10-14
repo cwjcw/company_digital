@@ -264,3 +264,14 @@ describe("manual-only allocation sources", () => {
     expect(result.metrics.allocations).toBe(0);
   });
 });
+
+describe("allocation downstream reconciliation suspended", () => {
+  it.each(["SCHEDULED", "EVENT", "RECONCILIATION", "MANUAL"])("skips %s without reading or writing plans", async runType => {
+    const query = jest.fn();
+    const transaction = jest.fn();
+    const service = new MasterPlanSyncService({query,transaction} as never);
+    await expect(service.run("KAINAN", "plan-projections", runType as never, null, "tester")).resolves.toMatchObject({skipped:true,count:0});
+    expect(query).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
