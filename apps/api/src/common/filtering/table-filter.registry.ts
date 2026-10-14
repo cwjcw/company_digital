@@ -42,6 +42,8 @@ export type TableFilterSource = {
   code: string;
   /** Explicit, bounded export limit for validated large record sources; default remains 80000. */
   exportMaxRows?: number;
+  /** Template exports may preserve source NULL as an empty cell. Default remains the platform placeholder. */
+  exportNullAsBlank?: boolean;
   /** 物理表名。 */
   table: string;
   /** field key → 列名（不含别名）。 */

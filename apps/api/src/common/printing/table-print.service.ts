@@ -197,7 +197,10 @@ export class TablePrintService {
     sheet.columns = fields.map((field) => ({ header: field.printLabel ?? field.label, key: field.key, width: Math.max(12, this.widthFor(field) * 1.5) }));
     for (const row of rows) {
       const output: Record<string, string> = {};
-      for (const field of fields) output[field.key] = this.formatValue(field, resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key]);
+      for (const field of fields) {
+        const value = resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key];
+        output[field.key] = source.exportNullAsBlank && value == null ? "" : this.formatValue(field, value);
+      }
       const added=sheet.addRow(output);if(large)added.commit();
     }
     if(!large)sheet.views = [{ state: "frozen", ySplit: 1 }];

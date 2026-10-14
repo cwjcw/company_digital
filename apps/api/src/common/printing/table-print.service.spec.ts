@@ -1,6 +1,7 @@
 import { TablePrintService, PRINT_BATCH_SIZE } from "./table-print.service";
 import { TableFilterRegistry, type TableFilterActor, type TableFilterSource } from "../filtering/table-filter.registry";
 import ExcelJS from "exceljs";
+import { financeOrderFields, financeMonthlyFields } from "@kdos/contracts";
 
 /**
  * KN-PRINT-001：平台打印服务的核心契约。
@@ -33,6 +34,20 @@ const resource = "mps-weekly-plans"; /* 已注册为 PRINTABLE 的正式 resourc
 const fullPrintPermissions = [`${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:quantity:read`, `${resource}:status:read`];
 
 describe("平台打印服务（KN-PRINT-001）", () => {
+  it("财务模板导出保留34/9列和金额，空交期为空单元格（含流式输出）", async () => {
+    for (const [code, fields] of [["finance-e10-lines", financeOrderFields], ["finance-e10-monthly", financeMonthlyFields]] as const) {
+      const registry = new TableFilterRegistry();
+      registry.register({code, table:"synthetic", fields, buildScope:()=>"1=1", columns:Object.fromEntries(fields.map(f=>[f.key,f.key])),
+        exportNullAsBlank:true, ...(code==="finance-e10-lines"?{exportMaxRows:200000}:{}),
+        printRows:async()=>({rows:[{id:"synthetic",deliveryDate:null,orderTotal:"100.30",localGross:"100.30"}],total:1})});
+      const service = new TablePrintService(registry, {} as never);
+      const book = new ExcelJS.Workbook(); await book.xlsx.load(await service.exportXlsx(code,{},actor(["*"])) as never);
+      const sheet = book.worksheets[0]!;
+      expect(sheet.columnCount).toBe(fields.length);
+      expect(sheet.getCell(2,fields.findIndex(f=>f.key==="deliveryDate")+1).text).toBe("");
+      expect(sheet.getCell(2,fields.findIndex(f=>f.key===(code==="finance-e10-lines"?"localGross":"orderTotal"))+1).text).toBe(code==="finance-e10-lines"?"100.3":"100.30");
+    }
+  });
   it("标准导出使用 export 权限、当前排序并导出全部匹配记录，而不是当前页", async () => {
     const calls: Array<{ page: number; action?: string; search?: string; sort?: unknown; filterGroup?: unknown }> = [];
     const total = PRINT_BATCH_SIZE + 3;
