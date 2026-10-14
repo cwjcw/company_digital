@@ -9,6 +9,7 @@ const {TableFilterRegistry}=req('./dist/common/filtering/table-filter.registry')
 const {FinanceCustomerMappings1722920088000:Customers}=req('./dist/migrations/1722920088000-FinanceCustomerMappings');
 const {FinanceE10Analytics1722920089000:Analytics}=req('./dist/migrations/1722920089000-FinanceE10Analytics');
 const {FinanceE10DeliveryDateConflicts1722920090000:DateConflicts}=req('./dist/migrations/1722920090000-FinanceE10DeliveryDateConflicts');
+const {FinanceE10EarliestDeliveryDate1722920091000:EarliestDate}=req('./dist/migrations/1722920091000-FinanceE10EarliestDeliveryDate');
 const {financeOrderFields,financeMonthlyFields}=req('@kdos/contracts');const ExcelJS=req('exceljs');
 const host=process.env.FINANCE_TEST_POSTGRES_HOST;if(!host?.startsWith('/tmp/kdos-finance-pg-'))throw Error('Isolated socket required');
 const name='finance_orders_test_'+Date.now(),user='knplan',actor={tenantId:'KAINAN',userId:'0199e000-0000-7000-8000-000000000001',username:'fixture',requestId:'finance-order-test',permissions:['*'],source:'web'};
@@ -38,7 +39,32 @@ const reader={read:async(consume,options)=>{
  await check('replay neither duplicates rows nor changes business versions/audits',async()=>{const before=await db.query('SELECT source_line_id,version FROM finance_e10_lines ORDER BY source_line_id');const audit=(await db.query("SELECT count(*)::integer n FROM audit_logs WHERE action='finance.e10.line.updated'"))[0].n;const r=await run();assert.equal(r.status,'SUCCESS');assert.equal(r.changed_count,0);assert.deepEqual(await db.query('SELECT source_line_id,version FROM finance_e10_lines ORDER BY source_line_id'),before);assert.equal((await db.query("SELECT count(*)::integer n FROM audit_logs WHERE action='finance.e10.line.updated'"))[0].n,audit);});
  await check('changed item recalculates order total with before and after audit',async()=>{batch=batch.map(r=>r.sourceLineId===id(101)?{...r,localNet:'10',localGross:'10'}:r);assert.equal((await run()).changed_count,1);assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1').orderTotal,'10.20');const [a]=await db.query("SELECT before_json,after_json FROM audit_logs WHERE action='finance.e10.line.updated' AND before_json IS NOT NULL ORDER BY created_at DESC LIMIT 1");assert.equal(a.before_json.localGross,'0.10');assert.equal(a.after_json.localGross,'10');});
  await check('current customer reclassification immediately updates historical analytics',async()=>{await repo.transaction(actor.tenantId,m=>m.query("UPDATE finance_customer_mappings SET department_category='业务四部' WHERE tenant_id=$1 AND customer_code='A140'",[actor.tenantId]));const d=await queries.dashboard({context:{year:2025}},actor);assert.equal(d.departments.find(r=>r.category==='业务四部').amount,'10.20');});
- await check('conflicting promised dates leave date null while retaining all order money',async()=>{batch=batch.map(r=>r.sourceLineId===id(102)?{...r,deliveryDate:'2025-03-01'}:r);assert.equal((await run()).status,'SUCCESS');const d=await queries.dashboard({context:{year:2025}},actor);assert.equal(d.quality.excludedOrders,0);assert.equal(d.totals.deliveryDateConflicts,1);assert.equal(d.totals.amount,'15.20');const orders=await list('finance-e10-monthly');assert.equal(orders.total,4);const conflict=orders.rows.find(r=>r.orderNo==='SYN-1');assert.equal(conflict.deliveryDate,null);assert.equal(conflict.deliveryDateConflict,true);});
+ await check('migration repairs existing conflicting dates using MIN without changing source rows or any financial dimension',async()=>{
+  batch=batch.map(r=>r.sourceLineId===id(102)?{...r,deliveryDate:'2025-03-01'}:r);assert.equal((await run()).status,'SUCCESS');
+  const before=await queries.dashboard({context:{year:2025}},actor);const raw=await db.query('SELECT * FROM finance_e10_lines ORDER BY id');
+  assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1').deliveryDate,null);
+  const runner=db.createQueryRunner();try{
+   await new EarliestDate().up(runner);
+   assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),raw);
+   assert.deepEqual(await queries.dashboard({context:{year:2025}},actor),before);
+   const orders=await list('finance-e10-monthly');assert.equal(orders.total,4);const multiple=orders.rows.find(r=>r.orderNo==='SYN-1');assert.equal(multiple.deliveryDate,'2025-02-01');assert.equal(multiple.orderTotal,'10.20');assert.equal(multiple.deliveryDateConflict,true);
+   await new EarliestDate().down(runner);assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1').deliveryDate,null);
+   await new EarliestDate().up(runner);await new EarliestDate().up(runner);assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1').deliveryDate,'2025-02-01');
+  }finally{await runner.release();}
+ });
+ await check('earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and nine-column export',async()=>{
+  const original=batch.map(r=>({...r}));const before=await queries.dashboard({context:{year:2025}},actor);
+  for(const dates of [[null,'2025-03-01'],['2025-03-01',null],[null,null],['2025-03-01','2025-03-01'],['2025-03-01','2025-02-01']]){
+   batch=batch.map(r=>r.sourceOrderId===id(1)?{...r,deliveryDate:dates[r.sourceLineId===id(101)?0:1]}:r);assert.equal((await run()).status,'SUCCESS');
+   const expected=dates.filter(Boolean).sort()[0]??null;const monthly=(await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1');assert.equal(monthly.deliveryDate,expected);assert.equal(monthly.orderDate,'2025-01-01');
+   assert.deepEqual(await queries.dashboard({context:{year:2025}},actor).then(d=>({...d,totals:{...d.totals,deliveryDateConflicts:before.totals.deliveryDateConflicts}})),before);
+   assert.equal((await queries.dashboard({context:{year:2025}},actor)).totals.deliveryDateConflicts,new Set(dates.filter(Boolean)).size>1?1:0);
+   const raw=(await list('finance-e10-lines')).rows.filter(r=>r.orderNo==='SYN-1');assert.deepEqual(raw.map(r=>r.deliveryDate).sort(),dates.slice().sort());
+   const filterGroup={logic:'AND',rules:[{field:'orderNo',operator:'eq',value:'SYN-1'},{field:'deliveryDate',operator:expected?'eq':'is_empty',...(expected?{value:expected}:{})}]};assert.equal((await list('finance-e10-monthly',{filterGroup:JSON.stringify(filterGroup)})).total,1);
+   const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx('finance-e10-monthly',{filterGroup},actor));assert.equal(book.worksheets[0].rowCount,2);assert.equal(book.worksheets[0].getCell('E2').text,expected??'');assert.equal(book.worksheets[0].getCell('F2').text,'10.20');
+  }
+  batch=original;await run();
+ });
  await check('missing delivery plan stays null in raw data and enters exception report',async()=>{batch.push({...line(5,106,'2'),scheduleCount:0,closeCode:null,deliveredBusinessQty:null,deliveredPriceQty:null});assert.equal((await run()).status,'SUCCESS');assert((await queries.exceptions(actor)).some(r=>r.issueLines===1));});
  await check('failed source preserves published totals and resumable pages',async()=>{const before=await list('finance-e10-lines');failAfter=2;const failed=await run();assert.equal(failed.status,'FAILED');assert.equal(failed.page_count,2);assert.equal((await list('finance-e10-lines')).total,before.total);failAfter=-1;assert.equal((await run({resumeId:failed.id})).status,'SUCCESS');});
  await check('missing source rows retained and excluded rather than silently canceled',async()=>{batch=batch.filter(r=>r.sourceLineId!==id(104));assert.equal((await run()).status,'SUCCESS');assert.equal((await list('finance-e10-lines')).total,6);assert.equal((await db.query('SELECT count(*)::integer n FROM finance_e10_lines WHERE source_missing'))[0].n,1);});
