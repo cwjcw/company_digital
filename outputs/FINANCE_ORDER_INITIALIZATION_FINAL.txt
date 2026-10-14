@@ -1,0 +1,2 @@
+{"status":"STARTED","runId":"01a13815-3706-70bf-8796-65adcbe220aa","mode":"FULL"}
+{"status":"SUCCESS","lineCount":106648,"changedCount":106648,"pageCount":214,"errorSummary":null}

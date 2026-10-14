@@ -1,0 +1,54 @@
+{
+  "status": "PASS",
+  "source": "REAL_E10",
+  "annual": {
+    "2025": {
+      "totals": {
+        "orders": 10140,
+        "amount": "592244440.13",
+        "customers": 184,
+        "pendingOrders": 1834,
+        "pendingCustomers": 110,
+        "pendingAmount": "53772826.53",
+        "zeroOrders": 1232,
+        "deliveryDateConflicts": 358,
+        "average": "58406.75"
+      },
+      "quality": {
+        "excludedOrders": 2,
+        "excludedAmount": "30191.00",
+        "negativeLines": 7,
+        "missingLines": 0
+      },
+      "customerCount": 184,
+      "backendMs": 11700,
+      "dimensionReconciliation": "PASS"
+    },
+    "2026": {
+      "totals": {
+        "orders": 8664,
+        "amount": "507697093.29",
+        "customers": 193,
+        "pendingOrders": 1704,
+        "pendingCustomers": 55,
+        "pendingAmount": "33451398.68",
+        "zeroOrders": 1270,
+        "deliveryDateConflicts": 254,
+        "average": "58598.46"
+      },
+      "quality": {
+        "excludedOrders": 4,
+        "excludedAmount": "60507.50",
+        "negativeLines": 3,
+        "missingLines": 0
+      },
+      "customerCount": 193,
+      "backendMs": 11532,
+      "dimensionReconciliation": "PASS"
+    }
+  },
+  "rawLines": 106648,
+  "acceptedOrders": 18804,
+  "anonymous": 401,
+  "commit": "e35d453154482fbd62863db346f776a425582d2b"
+}

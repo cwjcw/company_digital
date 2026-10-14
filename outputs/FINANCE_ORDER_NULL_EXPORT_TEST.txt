@@ -1,0 +1,15 @@
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=437 批次=3
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=1 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=4 printedCount=2 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2785385  - 10/14/2026, 9:46:25 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+
+Test Suites: 2 passed, 2 total
+Tests:       26 passed, 26 total
+Snapshots:   0 total
+Time:        6.529 s
+Ran all test suites matching table-print.service|finance-orders.

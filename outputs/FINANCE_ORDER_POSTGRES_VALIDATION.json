@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "scenarios": 20,
+  "checks": [
+    "verified publication and exact per-item tax arithmetic",
+    "multi-line order sum is 0.30, not floating-point or duplicated",
+    "full suffix classifications are exact and pending values remain null",
+    "dashboard all dimensions, pending, zero and twelve months reconcile",
+    "2025 and 2026 scope use the same business month",
+    "replay neither duplicates rows nor changes business versions/audits",
+    "changed item recalculates order total with before and after audit",
+    "current customer reclassification immediately updates historical analytics",
+    "migration repairs existing conflicting dates using MIN without changing source rows or any financial dimension",
+    "earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and nine-column export",
+    "missing delivery plan stays null in raw data and enters exception report",
+    "failed source preserves published totals and resumable pages",
+    "missing source rows retained and excluded rather than silently canceled",
+    "field hiding and standard filters apply on list and export",
+    "monetary custom authorization compares numeric values, not text",
+    "no read/write/export bypass and no hidden dashboard money leakage",
+    "full Chinese 34 and nine headers export through platform",
+    "customer annual ranking is paged, filtered by aggregate and export matches",
+    "cross-tenant commands and views cannot read another tenant",
+    "parallel refresh rejects overlap and failed source never publishes partial pages"
+  ],
+  "productionModified": false
+}

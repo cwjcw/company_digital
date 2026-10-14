@@ -1,0 +1,4 @@
+{"file":"finance-e10-lines.xlsx","bytes":19594008,"status":"DOWNLOADED"}
+{"file":"finance-e10-monthly.xlsx","bytes":1039759,"status":"DOWNLOADED"}
+{"file":"finance-e10-ranking-2025.xlsx","bytes":10530,"status":"DOWNLOADED"}
+{"file":"finance-e10-ranking-2026.xlsx","bytes":10624,"status":"DOWNLOADED"}

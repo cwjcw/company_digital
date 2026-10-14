@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "apiCorrectedDates": 612,
+  "corrected2026": 254,
+  "corrected2025": 358,
+  "dateFormat": "YYYY-MM-DD",
+  "monthlyNineColumnExport": "PASS",
+  "realBrowser": "PASS",
+  "widths": [
+    1440,
+    390
+  ],
+  "sourceRefreshTriggered": false,
+  "session": "bounded maintenance JWT; existing administrator permissions; no password login claim"
+}

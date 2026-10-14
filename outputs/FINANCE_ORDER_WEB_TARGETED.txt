@@ -1,0 +1,23 @@
+
+ RUN  v3.2.7 /data/automation/code/work/PMC/knweb/apps/web
+
+stderr | src/modules/finance/FinanceCustomerMappings.spec.tsx > Finance customer mapping UI > saves only the two classifications with the original expectedVersion
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceCustomerMappings.spec.tsx (7 tests) 1390ms
+   ✓ Finance customer mapping UI > shows three business fields, totals and no duplicate finance-management header  363ms
+   ✓ Finance customer mapping UI > saves only the two classifications with the original expectedVersion  424ms
+   ✓ Finance customer mapping UI > preserves the modal draft and concrete reason on a 409/error  370ms
+stderr | src/modules/finance/FinanceOrders.spec.tsx > Finance E10 UI > manual refresh submits the protected command with explicit mode
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceOrders.spec.tsx (5 tests) 1615ms
+   ✓ Finance E10 UI > shows exactly 34 Chinese source columns and no upload control  468ms
+   ✓ Finance E10 UI > renders original dashboard headers, all twelve months, and explicit excluded money  931ms
+ ✓ src/shared/charts/KdosChart.spec.tsx (3 tests) 187ms
+
+ Test Files  3 passed (3)
+      Tests  15 passed (15)
+   Start at  09:06:34
+   Duration  13.51s (transform 755ms, setup 554ms, collect 7.35s, tests 3.19s, environment 1.15s, prepare 322ms)
+

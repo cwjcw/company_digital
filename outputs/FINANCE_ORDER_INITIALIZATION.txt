@@ -1,0 +1,8 @@
+{"status":"STARTED","runId":"01a13802-ad9e-7a68-8ee6-6b2b53468d7a","mode":"FULL"}
+{"status":"FAILED","lineCount":0,"changedCount":0,"pageCount":0,"errorSummary":"E10只读采集失败；原数据保留，请检查连接后继续读取"}
+Expected values to be strictly equal:
++ actual - expected
+
++ 'FAILED'
+- 'SUCCESS'
+

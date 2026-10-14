@@ -1,0 +1,17 @@
+.                                        | [WARN] Unsupported engine: wanted: {"node":">=24"} (current: {"node":"v22.23.1","pnpm":"11.20.0"})
+$ jest --runInBand -- --runTestsByPath src/modules/finance/finance-orders.spec.ts src/modules/finance/finance.spec.ts
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/index.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/finance-orders.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/finance.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+
+Test Suites: 2 passed, 2 total
+Tests:       34 passed, 34 total
+Snapshots:   0 total
+Time:        7.334 s
+Ran all test suites matching --runTestsByPath|src/modules/finance/finance-orders.spec.ts|src/modules/finance/finance.spec.ts.

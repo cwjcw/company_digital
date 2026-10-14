@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "applied": [
+    "FinanceE10Analytics1722920089000"
+  ],
+  "otherTypeOrmMigrationsChanged": false,
+  "backup": "20261014_090409"
+}

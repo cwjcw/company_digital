@@ -1,0 +1,103 @@
+Scope: 14 of 17 workspace projects
+packages/ai-tool-sdk test$ vitest run
+packages/canonical-model test$ vitest run --passWithNoTests
+packages/auth test$ vitest run --passWithNoTests
+packages/database test$ vitest run
+packages/ai-tool-sdk test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/ai-tool-sdk
+packages/auth test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/auth
+packages/canonical-model test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/canonical-model
+packages/canonical-model test: No test files found, exiting with code 0
+packages/canonical-model test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+packages/canonical-model test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+packages/database test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/database
+packages/canonical-model test: Done
+packages/plugin-sdk test$ vitest run --passWithNoTests
+packages/ai-tool-sdk test:  ✓ src/index.test.ts (1 test) 5ms
+packages/ai-tool-sdk test:  Test Files  1 passed (1)
+packages/ai-tool-sdk test:       Tests  1 passed (1)
+packages/ai-tool-sdk test:    Start at  09:17:36
+packages/ai-tool-sdk test:    Duration  979ms (transform 111ms, setup 0ms, collect 77ms, tests 5ms, environment 0ms, prepare 293ms)
+packages/plugin-sdk test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/plugin-sdk
+packages/plugin-sdk test: No test files found, exiting with code 0
+packages/plugin-sdk test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+packages/plugin-sdk test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+packages/plugin-sdk test: Done
+packages/shared test$ vitest run --passWithNoTests
+packages/auth test:  ✓ src/index.test.ts (2 tests) 9ms
+packages/auth test:  Test Files  1 passed (1)
+packages/auth test:       Tests  2 passed (2)
+packages/auth test:    Start at  09:17:36
+packages/auth test:    Duration  1.08s (transform 97ms, setup 0ms, collect 76ms, tests 9ms, environment 0ms, prepare 250ms)
+packages/ai-tool-sdk test: Done
+packages/ui-schema test$ vitest run
+packages/auth test: Done
+packages/workflow-sdk test$ vitest run --passWithNoTests
+packages/shared test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/shared
+packages/ui-schema test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/ui-schema
+packages/workflow-sdk test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/workflow-sdk
+packages/database test:  ✓ src/schema.test.ts (3 tests) 30ms
+packages/database test:  Test Files  1 passed (1)
+packages/database test:       Tests  3 passed (3)
+packages/database test:    Start at  09:17:36
+packages/database test:    Duration  2.09s (transform 195ms, setup 0ms, collect 1.08s, tests 30ms, environment 0ms, prepare 298ms)
+packages/shared test:  ✓ src/index.test.ts (7 tests) 22ms
+packages/ui-schema test:  ✓ src/index.spec.ts (2 tests) 8ms
+packages/shared test:  Test Files  1 passed (1)
+packages/shared test:       Tests  7 passed (7)
+packages/shared test:    Start at  09:17:38
+packages/shared test:    Duration  833ms (transform 196ms, setup 0ms, collect 161ms, tests 22ms, environment 0ms, prepare 250ms)
+packages/ui-schema test:  Test Files  1 passed (1)
+packages/ui-schema test:       Tests  2 passed (2)
+packages/ui-schema test:    Start at  09:17:38
+packages/ui-schema test:    Duration  662ms (transform 144ms, setup 0ms, collect 118ms, tests 8ms, environment 0ms, prepare 171ms)
+packages/database test: Done
+packages/shared test: Done
+packages/ui-schema test: Done
+packages/workflow-sdk test:  ✓ src/index.spec.ts (3 tests) 14ms
+packages/workflow-sdk test:  Test Files  1 passed (1)
+packages/workflow-sdk test:       Tests  3 passed (3)
+packages/workflow-sdk test:    Start at  09:17:38
+packages/workflow-sdk test:    Duration  696ms (transform 86ms, setup 0ms, collect 82ms, tests 14ms, environment 0ms, prepare 163ms)
+packages/workflow-sdk test: Done
+apps/mcp test$ vitest run --passWithNoTests
+packages/contracts test$ vitest run
+packages/integration-sdk test$ vitest run --passWithNoTests
+packages/integration-sdk test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/integration-sdk
+packages/integration-sdk test: No test files found, exiting with code 0
+packages/integration-sdk test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+packages/integration-sdk test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+apps/mcp test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/apps/mcp
+packages/contracts test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/contracts
+apps/mcp test: No test files found, exiting with code 0
+apps/mcp test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+apps/mcp test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+packages/integration-sdk test: Done
+apps/mcp test: Done
+packages/contracts test:  ✓ src/index.test.ts (22 tests) 58ms
+packages/contracts test:  Test Files  1 passed (1)
+packages/contracts test:       Tests  22 passed (22)
+packages/contracts test:    Start at  09:17:40
+packages/contracts test:    Duration  967ms (transform 372ms, setup 0ms, collect 465ms, tests 58ms, environment 0ms, prepare 144ms)
+packages/contracts test: Done
+apps/worker test$ vitest run --passWithNoTests
+integrations/tplus test$ vitest run
+packages/permissions test$ vitest run
+packages/permissions test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/packages/permissions
+apps/worker test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/apps/worker
+apps/worker test: No test files found, exiting with code 0
+apps/worker test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+apps/worker test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+integrations/tplus test:  RUN  v3.2.7 /data/automation/code/work/PMC/knweb/integrations/tplus
+apps/worker test: Done
+integrations/tplus test:  ✓ src/index.test.ts (2 tests) 11ms
+packages/permissions test:  ✓ src/index.test.ts (1 test) 8ms
+integrations/tplus test:  Test Files  1 passed (1)
+integrations/tplus test:       Tests  2 passed (2)
+integrations/tplus test:    Start at  09:17:41
+integrations/tplus test:    Duration  808ms (transform 110ms, setup 0ms, collect 96ms, tests 11ms, environment 0ms, prepare 176ms)
+packages/permissions test:  Test Files  1 passed (1)
+packages/permissions test:       Tests  1 passed (1)
+packages/permissions test:    Start at  09:17:41
+packages/permissions test:    Duration  841ms (transform 101ms, setup 0ms, collect 104ms, tests 8ms, environment 0ms, prepare 162ms)
+integrations/tplus test: Done
+packages/permissions test: Done

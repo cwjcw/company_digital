@@ -1,0 +1,477 @@
+ Image knplan-web Building 
+ Image knplan-api Building 
+ Image knplan-document-worker Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.85kB done
+#1 DONE 0.0s
+
+#2 [document-worker internal] load build definition from Dockerfile
+#2 transferring dockerfile: 3.72kB done
+#2 DONE 0.0s
+
+#3 [web internal] load build definition from Dockerfile
+#3 transferring dockerfile: 1.18kB done
+#3 DONE 0.1s
+
+#4 [api internal] load metadata for docker.io/library/node:24-bookworm-slim
+#4 DONE 0.1s
+
+#5 [document-worker internal] load metadata for docker.io/library/alpine:3.22
+#5 DONE 0.1s
+
+#6 [api internal] load .dockerignore
+#6 transferring context: 223B done
+#6 DONE 0.0s
+
+#7 [api build  1/24] FROM docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+#7 resolve docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 0.0s done
+#7 DONE 0.0s
+
+#8 [document-worker document-certificates 1/1] FROM docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+#8 resolve docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce 0.0s done
+#8 DONE 0.0s
+
+#9 [document-worker internal] load build context
+#9 transferring context: 109.61kB 0.0s done
+#9 DONE 0.1s
+
+#10 [web internal] load metadata for docker.io/library/nginx:1.28-alpine
+#10 ...
+
+#11 [document-worker build 13/24] COPY packages/workflow-sdk/package.json packages/workflow-sdk/package.json
+#11 CACHED
+
+#12 [document-worker build  2/24] WORKDIR /app
+#12 CACHED
+
+#13 [document-worker build  9/24] COPY packages/database/package.json packages/database/package.json
+#13 CACHED
+
+#14 [document-worker build 11/24] COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
+#14 CACHED
+
+#15 [document-worker build  4/24] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+#15 CACHED
+
+#16 [document-worker build  6/24] COPY apps/web/package.json apps/web/package.json
+#16 CACHED
+
+#17 [document-worker build  7/24] COPY packages/shared/package.json packages/shared/package.json
+#17 CACHED
+
+#18 [document-worker build  3/24] RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
+#18 CACHED
+
+#19 [document-worker build  8/24] COPY packages/contracts/package.json packages/contracts/package.json
+#19 CACHED
+
+#20 [document-worker build 12/24] COPY packages/ai-tool-sdk/package.json packages/ai-tool-sdk/package.json
+#20 CACHED
+
+#21 [document-worker build  5/24] COPY apps/api/package.json apps/api/package.json
+#21 CACHED
+
+#22 [document-worker build 10/24] COPY packages/permissions/package.json packages/permissions/package.json
+#22 CACHED
+
+#23 [api build  6/24] COPY apps/web/package.json apps/web/package.json
+#23 CACHED
+
+#24 [api build  4/24] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+#24 CACHED
+
+#25 [api build  5/24] COPY apps/api/package.json apps/api/package.json
+#25 CACHED
+
+#26 [api build  3/24] RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
+#26 CACHED
+
+#27 [api build  7/24] COPY packages/shared/package.json packages/shared/package.json
+#27 CACHED
+
+#28 [api build 12/24] COPY packages/ai-tool-sdk/package.json packages/ai-tool-sdk/package.json
+#28 CACHED
+
+#29 [api build 13/24] COPY packages/workflow-sdk/package.json packages/workflow-sdk/package.json
+#29 CACHED
+
+#30 [api build 10/24] COPY packages/permissions/package.json packages/permissions/package.json
+#30 CACHED
+
+#31 [api build  9/24] COPY packages/database/package.json packages/database/package.json
+#31 CACHED
+
+#32 [api build  8/24] COPY packages/contracts/package.json packages/contracts/package.json
+#32 CACHED
+
+#33 [api build 11/24] COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
+#33 CACHED
+
+#12 [api build  2/24] WORKDIR /app
+#12 CACHED
+
+#34 [api build 14/24] RUN pnpm install --frozen-lockfile
+#34 CACHED
+
+#35 [document-worker build 14/24] RUN pnpm install --frozen-lockfile
+#35 CACHED
+
+#36 [api build 15/24] COPY apps/api apps/api
+#36 DONE 0.1s
+
+#37 [document-worker build 15/24] COPY apps/api apps/api
+#37 DONE 0.2s
+
+#38 [document-worker build 16/24] COPY data-operations/e10 data-operations/e10
+#38 ...
+
+#10 [web internal] load metadata for docker.io/library/nginx:1.28-alpine
+#10 DONE 1.5s
+
+#6 [web internal] load .dockerignore
+#6 transferring context: 223B done
+#6 DONE 0.0s
+
+#7 [web build  1/24] FROM docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+#7 resolve docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 0.0s done
+#7 DONE 0.0s
+
+#39 [web runtime 1/3] FROM docker.io/library/nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+#39 resolve docker.io/library/nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 0.0s done
+#39 DONE 0.0s
+
+#40 [web internal] load build context
+#40 ...
+
+#41 [api build 16/24] COPY data-operations/e10 data-operations/e10
+#41 DONE 3.1s
+
+#42 [api build 17/24] COPY packages/shared packages/shared
+#42 ...
+
+#38 [document-worker build 16/24] COPY data-operations/e10 data-operations/e10
+#38 DONE 3.2s
+
+#40 [web internal] load build context
+#40 transferring context: 13.79kB 0.0s done
+#40 DONE 3.0s
+
+#43 [document-worker build 17/24] COPY packages/shared packages/shared
+#43 DONE 0.2s
+
+#42 [api build 17/24] COPY packages/shared packages/shared
+#42 DONE 0.4s
+
+#44 [document-worker build 18/24] COPY packages/contracts packages/contracts
+#44 DONE 0.1s
+
+#45 [api build 18/24] COPY packages/contracts packages/contracts
+#45 DONE 0.2s
+
+#46 [web build  8/15] COPY packages/contracts/package.json packages/contracts/package.json
+#46 CACHED
+
+#47 [web build 10/15] RUN --mount=type=cache,id=kdos-web-pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
+#47 CACHED
+
+#26 [web build  3/24] RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
+#26 CACHED
+
+#48 [web build 13/15] COPY packages/contracts packages/contracts
+#48 CACHED
+
+#49 [web build  4/15] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+#49 CACHED
+
+#50 [web build  9/15] COPY packages/permissions/package.json packages/permissions/package.json
+#50 CACHED
+
+#51 [web build 11/15] COPY apps/web apps/web
+#51 CACHED
+
+#52 [web build 12/15] COPY packages/shared packages/shared
+#52 CACHED
+
+#12 [web build  2/24] WORKDIR /app
+#12 CACHED
+
+#53 [web build  7/15] COPY packages/shared/package.json packages/shared/package.json
+#53 CACHED
+
+#54 [web build  5/15] COPY apps/api/package.json apps/api/package.json
+#54 CACHED
+
+#55 [web build  6/15] COPY apps/web/package.json apps/web/package.json
+#55 CACHED
+
+#56 [web build 14/15] COPY packages/permissions packages/permissions
+#56 CACHED
+
+#57 [document-worker build 19/24] COPY packages/database packages/database
+#57 ...
+
+#58 [api build 19/24] COPY packages/database packages/database
+#58 DONE 3.5s
+
+#57 [document-worker build 19/24] COPY packages/database packages/database
+#57 DONE 3.5s
+
+#59 [api build 20/24] COPY packages/permissions packages/permissions
+#59 DONE 0.2s
+
+#60 [document-worker build 20/24] COPY packages/permissions packages/permissions
+#60 DONE 0.2s
+
+#61 [api build 21/24] COPY packages/plugin-sdk packages/plugin-sdk
+#61 DONE 0.1s
+
+#62 [document-worker build 21/24] COPY packages/plugin-sdk packages/plugin-sdk
+#62 DONE 0.1s
+
+#63 [api build 22/24] COPY packages/ai-tool-sdk packages/ai-tool-sdk
+#63 DONE 3.3s
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 1.131 Scope: 3 of 6 workspace projects
+#64 1.139 packages/shared build$ tsc -p tsconfig.json
+#64 2.662 packages/shared build: Done
+#64 2.665 packages/contracts build$ tsc -p tsconfig.json
+#64 ...
+
+#65 [document-worker build 22/24] COPY packages/ai-tool-sdk packages/ai-tool-sdk
+#65 DONE 3.3s
+
+#66 [document-worker build 23/24] COPY packages/workflow-sdk packages/workflow-sdk
+#66 DONE 0.5s
+
+#67 [api build 23/24] COPY packages/workflow-sdk packages/workflow-sdk
+#67 DONE 0.5s
+
+#68 [api build 24/24] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/database --filter @kdos/permissions --filter @kdos/plugin-sdk --filter @kdos/ai-tool-sdk --filter @kdos/workflow-sdk build && pnpm --filter @tracker/api build
+#68 1.051 Scope: 7 of 10 workspace projects
+#68 1.063 packages/shared build$ tsc -p tsconfig.json
+#68 1.064 packages/plugin-sdk build$ tsc -p tsconfig.json
+#68 1.064 packages/ai-tool-sdk build$ tsc -p tsconfig.json
+#68 1.065 packages/database build$ tsc -p tsconfig.json
+#68 1.996 packages/plugin-sdk build: Done
+#68 1.998 packages/workflow-sdk build$ tsc -p tsconfig.json
+#68 2.807 packages/ai-tool-sdk build: Done
+#68 3.044 packages/shared build: Done
+#68 3.520 packages/workflow-sdk build: Done
+#68 4.463 packages/database build: Done
+#68 4.464 packages/contracts build$ tsc -p tsconfig.json
+#68 6.420 packages/contracts build: Done
+#68 6.422 packages/permissions build$ tsc -p tsconfig.json
+#68 7.866 packages/permissions build: Done
+#68 8.648 $ tsc -p tsconfig.json --incremental false
+#68 ...
+
+#69 [document-worker build 24/24] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/database --filter @kdos/permissions --filter @kdos/plugin-sdk --filter @kdos/ai-tool-sdk --filter @kdos/workflow-sdk build && pnpm --filter @tracker/api build
+#69 0.948 Scope: 7 of 10 workspace projects
+#69 0.957 packages/shared build$ tsc -p tsconfig.json
+#69 0.958 packages/ai-tool-sdk build$ tsc -p tsconfig.json
+#69 0.958 packages/database build$ tsc -p tsconfig.json
+#69 0.958 packages/plugin-sdk build$ tsc -p tsconfig.json
+#69 1.789 packages/plugin-sdk build: Done
+#69 1.791 packages/workflow-sdk build$ tsc -p tsconfig.json
+#69 2.585 packages/ai-tool-sdk build: Done
+#69 2.719 packages/shared build: Done
+#69 3.538 packages/workflow-sdk build: Done
+#69 4.653 packages/database build: Done
+#69 4.654 packages/contracts build$ tsc -p tsconfig.json
+#69 6.727 packages/contracts build: Done
+#69 6.729 packages/permissions build$ tsc -p tsconfig.json
+#69 8.105 packages/permissions build: Done
+#69 8.888 $ tsc -p tsconfig.json --incremental false
+#69 ...
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 4.757 packages/contracts build: Done
+#64 4.758 packages/permissions build$ tsc -p tsconfig.json
+#64 6.447 packages/permissions build: Done
+#64 7.433 $ tsc -b && vite build
+#64 20.38 vite v7.3.6 building client environment for production...
+#64 20.49 transforming...
+#64 ...
+
+#69 [document-worker build 24/24] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/database --filter @kdos/permissions --filter @kdos/plugin-sdk --filter @kdos/ai-tool-sdk --filter @kdos/workflow-sdk build && pnpm --filter @tracker/api build
+#69 DONE 19.1s
+
+#68 [api build 24/24] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/database --filter @kdos/permissions --filter @kdos/plugin-sdk --filter @kdos/ai-tool-sdk --filter @kdos/workflow-sdk build && pnpm --filter @tracker/api build
+#68 DONE 19.1s
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 ...
+
+#70 [api runtime  3/16] WORKDIR /app/apps/api
+#70 CACHED
+
+#71 [api runtime  4/16] COPY --from=build /app/node_modules /app/node_modules
+#71 CACHED
+
+#72 [api runtime  5/16] COPY --from=build /app/apps/api/node_modules ./node_modules
+#72 CACHED
+
+#73 [api runtime  2/16] RUN apt-get update   && apt-get install -y --no-install-recommends python3 python3-tds python3-pkg-resources ca-certificates   && rm -rf /var/lib/apt/lists/*
+#73 CACHED
+
+#74 [api runtime  6/16] COPY --from=build /app/apps/api/package.json ./package.json
+#74 CACHED
+
+#75 [api runtime  7/16] COPY --from=build /app/apps/api/dist ./dist
+#75 DONE 0.2s
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 ...
+
+#76 [api runtime  8/16] COPY --from=build /app/data-operations/e10 /app/data-operations/e10
+#76 DONE 0.1s
+
+#77 [api runtime  9/16] COPY --from=build /app/packages/shared/package.json /app/packages/shared/package.json
+#77 DONE 0.1s
+
+#78 [api runtime 10/16] COPY --from=build /app/packages/shared/dist /app/packages/shared/dist
+#78 DONE 0.1s
+
+#79 [api runtime 11/16] COPY --from=build /app/packages/contracts /app/packages/contracts
+#79 DONE 0.1s
+
+#80 [api runtime 12/16] COPY --from=build /app/packages/database /app/packages/database
+#80 DONE 0.1s
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 ...
+
+#81 [api runtime 13/16] COPY --from=build /app/packages/permissions /app/packages/permissions
+#81 DONE 0.1s
+
+#82 [api runtime 14/16] COPY --from=build /app/packages/plugin-sdk /app/packages/plugin-sdk
+#82 DONE 0.1s
+
+#83 [api runtime 15/16] COPY --from=build /app/packages/ai-tool-sdk /app/packages/ai-tool-sdk
+#83 DONE 0.1s
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 ...
+
+#84 [api runtime 16/16] COPY --from=build /app/packages/workflow-sdk /app/packages/workflow-sdk
+#84 DONE 0.1s
+
+#85 [api] exporting to image
+#85 exporting layers
+#85 ...
+
+#86 [document-worker document-base 2/3] COPY --from=document-certificates /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt
+#86 CACHED
+
+#87 [document-worker document-base 3/3] RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources   && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update   && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-cjk fonts-liberation   && rm -rf /var/lib/apt/lists/*
+#87 CACHED
+
+#88 [document-worker document-worker 1/2] WORKDIR /app/apps/api
+#88 CACHED
+
+#89 [document-worker document-worker 2/2] COPY --from=build /app /app
+#89 ...
+
+#85 [api] exporting to image
+#85 exporting layers 0.9s done
+#85 exporting manifest sha256:4b72b548ceaef442e8041bcbfa62a4a356c940a74da5eb1e7bcc0d81c9f94ad9 0.0s done
+#85 exporting config sha256:07ce16631dfde67a1d771996251ad963837b90d4316fe0835433f55f8fc60065 done
+#85 exporting attestation manifest sha256:c6a5c690664c16312af44993094b0c879b85efa1d5765e9c84cfcc4462ca6bd3 0.0s done
+#85 exporting manifest list sha256:56e9386d48f9d0c6876c8d70c931b247254cd8fee21a58897e8a625c67ad7940 done
+#85 naming to docker.io/library/knplan-api:latest done
+#85 unpacking to docker.io/library/knplan-api:latest 0.4s done
+#85 DONE 1.5s
+
+#89 [document-worker document-worker 2/2] COPY --from=build /app /app
+#89 ...
+
+#90 [api] resolving provenance for metadata file
+#90 DONE 0.0s
+
+#89 [document-worker document-worker 2/2] COPY --from=build /app /app
+#89 ...
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 38.45 ✓ 5701 modules transformed.
+#64 ...
+
+#89 [document-worker document-worker 2/2] COPY --from=build /app /app
+#89 DONE 8.2s
+
+#91 [document-worker] exporting to image
+#91 exporting layers
+#91 ...
+
+#64 [web build 15/15] RUN pnpm --filter @tracker/shared --filter @kdos/contracts --filter @kdos/permissions build && pnpm --filter @tracker/web build
+#64 41.66 rendering chunks...
+#64 41.92 computing gzip size...
+#64 42.44 dist/build-info.json                         0.08 kB │ gzip:     0.08 kB
+#64 42.44 dist/version.json                            0.10 kB │ gzip:     0.11 kB
+#64 42.44 dist/index.html                              0.65 kB │ gzip:     0.40 kB
+#64 42.44 dist/assets/pdf.worker.min-CjEcRF4W.mjs  1,264.34 kB
+#64 42.44 dist/assets/index-Do61epzz.css             317.52 kB │ gzip:    55.94 kB
+#64 42.44 dist/assets/index-BX16dFkd.js            4,772.99 kB │ gzip: 1,481.52 kB
+#64 42.44 
+#64 42.44 (!) Some chunks are larger than 500 kB after minification. Consider:
+#64 42.44 - Using dynamic import() to code-split the application
+#64 42.44 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#64 42.44 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+#64 42.44 ✓ built in 22.02s
+#64 DONE 42.9s
+
+#92 [web runtime 2/3] COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+#92 CACHED
+
+#93 [web runtime 3/3] COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+#93 DONE 0.1s
+
+#94 [web] exporting to image
+#94 exporting layers 0.8s done
+#94 exporting manifest sha256:8fb2afbaa72980ffafb8f900a0260b14af8fdbc32cebd4a3f5cce466b313c540 done
+#94 exporting config sha256:5fcee881886a89e115142c47abd3df4ad03668ac271a703e8676c3118133ea46 done
+#94 exporting attestation manifest sha256:f1e8fd9d458283363ef2551b12fffd54bba47141cd76e9c09bef51f01fd8b3b1 done
+#94 exporting manifest list sha256:b7d75da74f73e5c066493eec7b9573272cb49128be79f0225da3af866df5a29f done
+#94 naming to docker.io/library/knplan-web:latest done
+#94 unpacking to docker.io/library/knplan-web:latest 0.1s done
+#94 DONE 1.0s
+
+#91 [document-worker] exporting to image
+#91 ...
+
+#95 [web] resolving provenance for metadata file
+#95 DONE 0.0s
+
+#91 [document-worker] exporting to image
+#91 exporting layers 66.1s done
+#91 exporting manifest sha256:337c546990dd0f11ee9b90847b45bb8e12d2d7ee310cc65c42a5f756a7e46f6d done
+#91 exporting config sha256:b571b1a81c55a381fd29b9911f1108a7e7a2960e44077227fad70a670e04d380 0.0s done
+#91 exporting attestation manifest sha256:5b3d5b0c835cccc5a69ab215dc4635b5ae34018dbb18a54d51cda637da9118af 0.0s done
+#91 exporting manifest list sha256:e61507b48efbfc99363bb9a61508e417766c07860191d35bfbadd7b0c4420eec done
+#91 naming to docker.io/library/knplan-document-worker:latest done
+#91 unpacking to docker.io/library/knplan-document-worker:latest
+#91 unpacking to docker.io/library/knplan-document-worker:latest 23.8s done
+#91 DONE 90.1s
+
+#96 [document-worker] resolving provenance for metadata file
+#96 DONE 0.0s
+ Image knplan-document-worker Built 
+ Image knplan-api Built 
+ Image knplan-web Built 
+ Container knplan-api-1 Recreate 
+ Container knplan-api-1 Recreated 
+ Container knplan-api-1 Starting 
+ Container knplan-api-1 Started 
+ Container knplan-web-1 Recreate 
+ Container knplan-web-1 Recreated 
+ Container knplan-web-1 Starting 
+ Container knplan-web-1 Started 
+ Container knplan-document-worker-1 Recreate 
+ Container knplan-document-worker-1 Recreated 
+ Container knplan-document-worker-1 Starting 
+ Container knplan-document-worker-1 Started 
+Repository HEAD : e35d453
+Web Build       : e35d453
+API Build       : e35d453
+
+STATUS          : CONSISTENT

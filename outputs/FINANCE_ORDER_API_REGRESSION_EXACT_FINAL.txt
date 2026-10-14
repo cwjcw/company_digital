@@ -1,0 +1,16 @@
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=437 批次=3
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=1 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=4 printedCount=2 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:41 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2794411  - 10/14/2026, 9:50:43 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=6 批次=1
+
+Test Suites: 1 skipped, 104 passed, 104 of 105 total
+Tests:       1 skipped, 911 passed, 912 total
+Snapshots:   0 total
+Time:        35.895 s
+Ran all test suites.

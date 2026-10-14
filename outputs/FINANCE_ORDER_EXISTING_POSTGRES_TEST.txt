@@ -1,0 +1,4 @@
+◇ injected env (0) from ../../.env // tip: ⌘ override existing { override: true }
+(node:2760195) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Finance isolated PostgreSQL PASS: 20 scenarios

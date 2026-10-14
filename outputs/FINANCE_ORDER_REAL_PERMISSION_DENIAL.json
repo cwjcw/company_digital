@@ -1,0 +1,1 @@
+{"status":"PASS","session":"bounded maintenance JWT for existing enabled nonfinance user; no password login claim","checks":5,"expectedStatus":403,"changedUserGrants":false}

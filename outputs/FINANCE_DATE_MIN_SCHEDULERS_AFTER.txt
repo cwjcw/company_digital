@@ -1,0 +1,120 @@
+=== AUDIT DATE / HOST / TIMEZONE ===
+2026-10-14T10:35:55+08:00
+user-ThinkSystem-ST650-V3
+Asia/Shanghai
+=== SYSTEM TIMERS (all) ===
+Wed 2026-10-14 10:36:24 CST      29s Wed 2026-10-14 10:31:24 CST      4min 30s ago assistant-memory-auto.timer    assistant-memory-auto.service
+Wed 2026-10-14 10:40:00 CST  4min 4s Wed 2026-10-14 10:30:00 CST          5min ago sysstat-collect.timer          sysstat-collect.service
+Wed 2026-10-14 10:40:40 CST 4min 44s Wed 2026-10-14 07:40:39 CST      2h 55min ago apport-autoreport.timer        apport-autoreport.service
+Wed 2026-10-14 11:13:13 CST    37min Wed 2026-10-14 04:43:05 CST      5h 52min ago ua-timer.timer                 ua-timer.service
+Wed 2026-10-14 11:32:20 CST    56min Wed 2026-10-14 10:30:46 CST          5min ago anacron.timer                  anacron.service
+Wed 2026-10-14 11:43:04 CST  1h 7min Wed 2026-10-14 10:11:11 CST         24min ago fwupd-refresh.timer            fwupd-refresh.service
+Wed 2026-10-14 12:18:20 CST 1h 42min Tue 2026-10-13 12:18:20 CST           22h ago update-notifier-download.timer update-notifier-download.service
+Wed 2026-10-14 12:28:11 CST 1h 52min Tue 2026-10-13 12:28:11 CST           22h ago systemd-tmpfiles-clean.timer   systemd-tmpfiles-clean.service
+Wed 2026-10-14 12:53:28 CST 2h 17min Tue 2026-10-13 21:07:43 CST           13h ago apt-daily.timer                apt-daily.service
+Wed 2026-10-14 14:03:45 CST 3h 27min Wed 2026-10-14 01:29:25 CST            9h ago motd-news.timer                motd-news.service
+Wed 2026-10-14 19:22:00 CST       8h Wed 2026-10-14 03:00:00 CST            7h ago snap.certbot.renew.timer       snap.certbot.renew.service
+Thu 2026-10-15 00:00:00 CST      13h Wed 2026-10-14 00:00:00 CST           10h ago dpkg-db-backup.timer           dpkg-db-backup.service
+Thu 2026-10-15 00:00:00 CST      13h Wed 2026-10-14 00:00:00 CST           10h ago logrotate.timer                logrotate.service
+Thu 2026-10-15 00:07:00 CST      13h Wed 2026-10-14 00:07:03 CST           10h ago sysstat-summary.timer          sysstat-summary.service
+Thu 2026-10-15 00:10:00 CST      13h Wed 2026-10-14 00:10:01 CST           10h ago dwg-index-update.timer         dwg-index-update.service
+Thu 2026-10-15 04:40:48 CST      18h Wed 2026-10-14 01:50:07 CST            8h ago man-db.timer                   man-db.service
+Thu 2026-10-15 06:16:00 CST      19h Wed 2026-10-14 06:08:45 CST      4h 27min ago apt-daily-upgrade.timer        apt-daily-upgrade.service
+Sat 2026-10-17 03:39:52 CST   2 days Tue 2026-10-06 10:47:59 CST 1 week 0 days ago update-notifier-motd.timer     update-notifier-motd.service
+Sun 2026-10-18 03:10:38 CST   3 days Sun 2026-10-11 03:10:46 CST        3 days ago e2scrub_all.timer              e2scrub_all.service
+Mon 2026-10-19 00:16:13 CST   4 days Mon 2026-10-12 00:53:36 CST        2 days ago fstrim.timer                   fstrim.service
+-                                  - Fri 2026-09-25 07:30:00 CST                 - shutdown-20260925.timer        shutdown-20260925.service
+-                                  - -                                           - snapd.snap-repair.timer        snapd.snap-repair.service
+=== USER TIMERS (all) ===
+Wed 2026-10-14 11:00:00 CST    24min Wed 2026-10-14 10:30:00 CST     5min ago kdos-erp-order-sync@e10-main.timer                   kdos-erp-order-sync@e10-main.service
+Wed 2026-10-14 11:00:00 CST    24min Wed 2026-10-14 10:30:00 CST     5min ago kdos-erp-order-sync@tplus-kainan.timer               kdos-erp-order-sync@tplus-kainan.service
+Wed 2026-10-14 11:00:00 CST    24min Wed 2026-10-14 10:30:00 CST     5min ago kdos-erp-order-sync@tplus-kejia.timer                kdos-erp-order-sync@tplus-kejia.service
+Wed 2026-10-14 11:05:00 CST    29min Wed 2026-10-14 10:35:00 CST      55s ago kdos-erp-projection@finished-goods-inbound-v1.timer  kdos-erp-projection@finished-goods-inbound-v1.service
+Wed 2026-10-14 11:05:00 CST    29min Wed 2026-10-14 10:35:00 CST      55s ago kdos-erp-projection@finished-goods-outbound-v1.timer kdos-erp-projection@finished-goods-outbound-v1.service
+Wed 2026-10-14 11:05:00 CST    29min Wed 2026-10-14 10:35:00 CST      55s ago kdos-erp-projection@sales-orders-v1.timer            kdos-erp-projection@sales-orders-v1.service
+Wed 2026-10-14 12:00:00 CST 1h 24min Wed 2026-10-14 09:00:00 CST 1h 35min ago snap.firmware-updater.firmware-notifier.timer        snap.firmware-updater.firmware-notifier.service
+Wed 2026-10-14 12:19:41 CST 1h 43min Tue 2026-10-13 12:19:41 CST      22h ago launchpadlib-cache-clean.timer                       launchpadlib-cache-clean.service
+Thu 2026-10-15 01:00:00 CST      14h Wed 2026-10-14 01:00:00 CST       9h ago kdos-finance-customer-sync.timer                     kdos-finance-customer-sync.service
+Thu 2026-10-15 03:00:00 CST      16h Wed 2026-10-14 03:00:00 CST       7h ago kdos-wecom-contact-sync.timer                        kdos-wecom-contact-sync.service
+=== TIMER UNIT FILES ===
+anacron.timer                  enabled  enabled
+apport-autoreport.timer        enabled  enabled
+apt-daily-upgrade.timer        enabled  enabled
+apt-daily.timer                enabled  enabled
+assistant-memory-auto.timer    enabled  enabled
+cloudflared-update.timer       disabled enabled
+dpkg-db-backup.timer           enabled  enabled
+dwg-index-update.timer         enabled  enabled
+e2scrub_all.timer              enabled  enabled
+fstrim.timer                   enabled  enabled
+fwupd-refresh.timer            enabled  enabled
+logrotate.timer                enabled  enabled
+man-db.timer                   enabled  enabled
+mdadm-last-resort@.timer       static   -
+mdcheck_continue.timer         enabled  enabled
+mdcheck_start.timer            enabled  enabled
+mdmonitor-oneshot.timer        enabled  enabled
+motd-news.timer                enabled  enabled
+shutdown-20260925.timer        enabled  enabled
+snap.certbot.renew.timer       enabled  enabled
+snapd.snap-repair.timer        enabled  enabled
+sysstat-collect.timer          enabled  enabled
+sysstat-summary.timer          enabled  enabled
+systemd-sysupdate-reboot.timer disabled enabled
+systemd-sysupdate.timer        disabled enabled
+systemd-tmpfiles-clean.timer   static   -
+ua-timer.timer                 enabled  enabled
+update-notifier-download.timer enabled  enabled
+update-notifier-motd.timer     enabled  enabled
+xfs_scrub_all.timer            disabled enabled
+kdos-erp-order-sync@.timer                    indirect enabled
+kdos-erp-projection@.timer                    indirect enabled
+kdos-finance-customer-sync.timer              enabled  enabled
+kdos-wecom-contact-sync.timer                 enabled  enabled
+launchpadlib-cache-clean.timer                enabled  enabled
+snap.firmware-updater.firmware-notifier.timer enabled  enabled
+systemd-tmpfiles-clean.timer                  disabled enabled
+=== USER LINGER ===
+Linger=yes
+=== CRON COUNTS ONLY (NO RAW CONTENT) ===
+current_user_noncomment_entries=1
+/etc/cron.d file_count=4
+/etc/cron.daily file_count=8
+/etc/cron.hourly file_count=1
+/etc/cron.weekly file_count=3
+/etc/cron.monthly file_count=2
+system_crontab=present (contents redacted)
+=== COMPOSE SERVICES (NO ENVIRONMENT OR LOGS) ===
+NAMES                        STATUS                   IMAGE
+knplan-document-worker-1     Up 2 minutes (healthy)   knplan-document-worker
+knplan-web-1                 Up 2 minutes (healthy)   knplan-web
+knplan-api-1                 Up 2 minutes (healthy)   knplan-api
+kdos-finance-date-min-test   Up 12 minutes            postgres:18
+knplan-postgres-1            Up 6 days (healthy)      postgres:18
+guacamole-web                Up 2 weeks               guacamole/guacamole:1.6.0
+guacamole-guacd              Up 2 weeks (healthy)     guacamole/guacd:1.6.0
+guacamole-postgres           Up 2 weeks               postgres:16
+n8n_sqlite                   Up 2 weeks               n8nio/n8n:latest
+smart-stock-timescaledb      Up 2 weeks (healthy)     timescale/timescaledb:latest-pg16
+=== KDOS KNOWN UNITS (state only) ===
+kdos-finance-customer-sync.timer USER=enabled
+kdos-finance-customer-sync.timer SYSTEM=not-found
+kdos-wecom-contact-sync.timer USER=enabled
+kdos-wecom-contact-sync.timer SYSTEM=not-found
+kdos-erp-order-sync@e10-main.timer USER=enabled
+kdos-erp-order-sync@e10-main.timer SYSTEM=not-found
+kdos-erp-order-sync@tplus-kainan.timer USER=enabled
+kdos-erp-order-sync@tplus-kainan.timer SYSTEM=not-found
+kdos-erp-order-sync@tplus-kejia.timer USER=enabled
+kdos-erp-order-sync@tplus-kejia.timer SYSTEM=not-found
+kdos-erp-projection@sales-orders-v1.timer USER=enabled
+kdos-erp-projection@sales-orders-v1.timer SYSTEM=not-found
+kdos-erp-projection@finished-goods-inbound-v1.timer USER=enabled
+kdos-erp-projection@finished-goods-inbound-v1.timer SYSTEM=not-found
+kdos-erp-projection@finished-goods-outbound-v1.timer USER=enabled
+kdos-erp-projection@finished-goods-outbound-v1.timer SYSTEM=not-found
+dwg-index-update.timer USER=not-found
+dwg-index-update.timer SYSTEM=enabled
+=== NOTE ===
+n8n workflows and application-internal schedulers require separate UI/API/runtime inspection.
+Do not share unrestricted journalctl, systemctl cat, crontab contents or environment files; they may contain credentials.

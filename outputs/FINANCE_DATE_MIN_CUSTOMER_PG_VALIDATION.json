@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "scenarios": 20,
+  "checks": [
+    "migration creates independent finance tables with RLS, unique keys and enum checks",
+    "initial seed creates exactly 138 customers and preserves A140/invariant suffixes",
+    "readonly users cannot edit or import",
+    "financial editor can update only authorized classifications and 409 protects concurrency",
+    "seed replay cannot increase count or overwrite human edits",
+    "old master customers are refused, while later modification qualifies and initial seed is retained",
+    "new E10 customers retain exact codes and null classifications; duplicates skip",
+    "repeated sync is idempotent even after manual classification; source removals/empty source never delete",
+    "two tenants isolate sync, update and scoped queries",
+    "data and field scopes apply to lists, pending filters and summary",
+    "platform FilterGroup pending and search/sort/pagination use real SQL",
+    "standard Excel export includes ALL 141 records beyond pageSize50 and Chinese headers, unclassified display",
+    "Excel export enforces export scope, fields, typed filters, tenant and denial",
+    "database enum/unique constraints reject malformed data",
+    "failure logs, retry success and tenant audit are retained",
+    "scheduled API imports audit the existing disabled system identity",
+    "simultaneous source imports cannot duplicate customers",
+    "real non-superuser RLS hides other tenant and denies cross-tenant insertion",
+    "Fresh migration count: 90",
+    "all existing migrations and full Nest dependency/filter bootstrap pass on a separate fresh database"
+  ],
+  "postgres": "18",
+  "migration": "FinanceCustomerMappings1722920088000",
+  "productionModified": false
+}

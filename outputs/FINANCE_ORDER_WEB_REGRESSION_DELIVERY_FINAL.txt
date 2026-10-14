@@ -1,0 +1,331 @@
+
+ RUN  v3.2.7 /data/automation/code/work/PMC/knweb/apps/web
+
+stderr | src/modules/equipment/EquipmentPages.spec.tsx > EquipmentStatusReportPage live permissions > loads status equipment candidates and opens the dialog with live create permission
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/modules/equipment/EquipmentPages.spec.tsx > EquipmentStatusReportPage live permissions > keeps confirmation failures in the preview modal and clears them on a successful retry
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/equipment/EquipmentPages.spec.tsx (16 tests) 47442ms
+   ✓ EquipmentStatusReportPage live permissions > does not trust stale local permissions to open the create dialog  782ms
+   ✓ EquipmentStatusReportPage live permissions > loads status equipment candidates and opens the dialog with live create permission  1357ms
+   ✓ EquipmentStatusReportPage live permissions > deletes a status row with its optimistic version in the query string  1175ms
+   ✓ EquipmentStatusReportPage live permissions > keeps an old-template preview failure visible and offers the latest template  1265ms
+   ✓ EquipmentStatusReportPage live permissions > keeps confirmation failures in the preview modal and clears them on a successful retry  1639ms
+   ✓ EquipmentStatusReportPage live permissions > clears a confirmation failure when a new file enters preview  1458ms
+   ✓ EquipmentRegisterPage server filters > only exposes the single advanced filter entry (legacy 筛选 drawer and header filters removed)  726ms
+   ✓ EquipmentRegisterPage server filters > renders planned startup time in hours and minutes  355ms
+   ✓ EquipmentDashboardPage date filters > renders total and per-division ECharts dual-line trends with one shared axis  7144ms
+   ✓ EquipmentDashboardPage date filters > restores Shanghai yesterday on clear and retains month, year, and custom filters  7756ms
+   ✓ equipment dashboard detail and six exports > shows master-data fields and all six title-level export buttons with a common full-filter URL  10540ms
+   ✓ equipment dashboard detail and six exports > prevents repeat clicks, restores the button, and displays download failures  2865ms
+   ✓ equipment dashboard detail and six exports > hides exports without export permission and disables empty data exports  2796ms
+   ✓ equipment dashboard detail and six exports > exports the same division and department filters as the dashboard request  7316ms
+stderr | src/modules/admin/AdminWorkspace.spec.tsx > AdminWorkspace > persists a department scope instead of freezing its current users into the role
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/pmc-rd-progress/PmcRdProgressPage.spec.tsx (27 tests) 67678ms
+   ✓ PMC研发正式报表 > 图表和明细分离，使用API汇总、七个状态和源时间并保留服务端小数  3783ms
+   ✓ PMC研发正式报表 > 明细不渲染常驻条件，现有高级筛选包含全部条件，取消不会应用草稿  4642ms
+   ✓ PMC研发正式报表 > URL恢复全部核心筛选，导出传当前上下文和业务可见列  3994ms
+   ✓ PMC研发正式报表 > KPI 筛选已完成品项 调用后端且回第一页  3705ms
+   ✓ PMC研发正式报表 > KPI 筛选异常品项 调用后端且回第一页  3649ms
+   ✓ PMC研发正式报表 > KPI 筛选未完成品项 调用后端且回第一页  3757ms
+   ✓ PMC研发正式报表 > 从COMPLETE切到未完成清除冲突状态，快捷状态清除onlyIncomplete  1933ms
+   ✓ PMC研发正式报表 > 打开订单按稳定ID重新请求全部授权品项，关闭Drawer不改主表筛选  2092ms
+   ✓ PMC研发正式报表 > 无read权限时无菜单、不加载报表API；字段权限裁剪状态、筛选、tooltips  601ms
+   ✓ PMC研发正式报表 > 错误彼此独立，并且有重试按钮  1464ms
+   ✓ PMC研发正式报表 > 错误彼此独立，并且有重试按钮  2718ms
+   ✓ PMC研发正式报表 > 空数据允许清空所有筛选  1867ms
+   ✓ Phase 5.1 周期与共享筛选 > day 模式归一化、URL恢复，API不接收UI模式  1261ms
+   ✓ Phase 5.1 周期与共享筛选 > month 模式归一化、URL恢复，API不接收UI模式  1250ms
+   ✓ Phase 5.1 周期与共享筛选 > year 模式归一化、URL恢复，API不接收UI模式  1279ms
+   ✓ Phase 5.1 周期与共享筛选 > custom 模式归一化、URL恢复，API不接收UI模式  1338ms
+   ✓ Phase 5.1 周期与共享筛选 > 默认和任意条件重置均为按日+上海昨天，并清除维度  1845ms
+   ✓ Phase 5.1 周期与共享筛选 > 维度使用候选下拉，提交和跨Tab导出继承完整日期/事业部/状态/未完成  5244ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 订单号远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  7388ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 品号远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  7341ms
+   ✓ Phase 5.3 多选与完整高级筛选 > 品名远程限量多选，跨搜索保留已选值并影响汇总、明细、导出  6518ms
+ ✓ src/modules/admin/AdminWorkspace.spec.tsx (8 tests) 19624ms
+   ✓ AdminWorkspace > shows the screenshot-style employee action menu  2924ms
+   ✓ AdminWorkspace > separates role groups from roles and exposes role editing  2497ms
+   ✓ AdminWorkspace > adds role members by person or organization  2401ms
+   ✓ AdminWorkspace > finds members below a child department that has the same name as its parent  2328ms
+   ✓ AdminWorkspace > persists a department scope instead of freezing its current users into the role  2742ms
+   ✓ AdminWorkspace > shows the screenshot-style role-group menu and creates a role inside that group  2314ms
+   ✓ AdminWorkspace > submits role rename instead of silently closing  2139ms
+   ✓ AdminWorkspace > uses a controlled confirmation dialog and submits role deletion  2279ms
+ ✓ src/modules/marketing/MarketingPages.spec.tsx (2 tests) 1981ms
+   ✓ marketing standard table top delete > 业务人员与客户对应表从顶部删除，并继续调用带版本的正式单条 API  1245ms
+   ✓ marketing standard table top delete > 订单排期使用公共顶部删除并复用正式 batch-delete API  734ms
+ ✓ src/modules/knowledge/KnowledgeFolderTree.spec.tsx (3 tests) 4939ms
+   ✓ lazily expands three levels in one tree and selects an empty leaf  671ms
+   ✓ loads beyond the first hundred child folders without truncation or duplicate pages  4079ms
+stderr | src/modules/master-plan-system/MasterPlanPages.spec.tsx > MasterPlanResourcePage create feedback > shows a concrete validation error instead of silently ignoring confirm
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/knowledge/KnowledgePages.spec.tsx (34 tests) 17482ms
+   ✓ Knowledge 2 Wiki > keeps independent Portal entry  491ms
+   ✓ Knowledge 2 Wiki > creates a persistent page immediately and enters inline editor  2080ms
+   ✓ Knowledge 2 Wiki > opens 上传文件 from the unified menu with the same root location  637ms
+   ✓ Knowledge 2 Wiki > opens 从文档导入为在线文章 from the unified menu with the same root location  819ms
+   ✓ Knowledge 2 Wiki > waits for fresh working version before mounting a cached draft editor  463ms
+   ✓ Knowledge 2 Wiki > published reader shows breadcrumbs/body/version and private download  313ms
+   ✓ Knowledge 2 Wiki > search sends Chinese term and server pagination  426ms
+   ✓ Knowledge 2 Wiki > puts FILE preview first and flushes description before primary upload and publish without clearing tags  494ms
+   ✓ Knowledge 2 Wiki > 409 retains local text and displays conflict rather than overwriting  361ms
+   ✓ shows every successful upload in a reopenable results list instead of navigating only to the first  1759ms
+   ✓ Knowledge publishing UX > publishes a RICH_TEXT draft directly from the reader with a fresh lock and one request  751ms
+   ✓ Knowledge publishing UX > publishes a FILE draft directly from the reader with a fresh lock and one request  759ms
+   ✓ Knowledge publishing UX > does not promote repeated publication or claim a draft exists on unchanged published pages  972ms
+   ✓ Knowledge publishing UX > labels a published page from its readable status even when version metadata is hidden  463ms
+   ✓ Knowledge publishing UX > hides reader publication for missing page authority or historical reading  364ms
+   ✓ Knowledge publishing UX > hides reader publication for missing history authority or historical reading  375ms
+   ✓ Knowledge publishing UX > displays publication failure: 最新草稿读取失败 without success  738ms
+   ✓ Knowledge publishing UX > displays publication failure: 请先发布上级页面，再发布子页面 without success  735ms
+   ✓ Knowledge publishing UX > displays publication failure: 数据已发生变化，请刷新后重试 without success  739ms
+   ✓ Knowledge publishing UX > rechecks latest unchanged state before issuing a publish command  529ms
+   ✓ Knowledge publishing UX > rechecks latest revoked state before issuing a publish command  546ms
+   ✓ Knowledge publishing UX > rechecks latest unknown state before issuing a publish command  523ms
+   ✓ Knowledge publishing UX > does not adopt another writer's version after draining editor autosave  389ms
+   ✓ Knowledge publishing UX > removes publication prompt after a saved edit restores exactly the published data  329ms
+ ✓ src/shared/advanced-filter-only.spec.tsx (9 tests) 11824ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > A/B: 工具栏只有一个“高级筛选”，不存在旧的“筛选”入口  827ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > E: 高级筛选仍支持添加/删除/ALL/ANY/筛选/清空  1084ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > F/G/H: 快速搜索与 FilterGroup 同时下发，且筛选后回到 page=1  1459ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > I: 导出等调用方仍拿到 applied FilterGroup（草稿不进入请求）  2288ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 排序只通过列菜单，执行后回到第一页  1831ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 列头多选和未填写形成同字段 OR，候选从服务端获取且排除自身筛选  1867ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 高基数未加载完整候选时禁用全选，simple 表不显示列菜单  1027ms
+   ✓ KN-FILTER-002 标准表格只有一套高级筛选入口 > 冻结/隐藏写入当前用户个人视图，隐藏后取消用户冻结  1184ms
+ ✓ src/modules/knowledge/KnowledgeNavigation.spec.tsx (11 tests) 9558ms
+   ✓ Knowledge one directory navigation > uses one published directory for reader without duplicate trees or root buttons  649ms
+   ✓ Knowledge one directory navigation > navigates three levels, reads a FILE and returns through the complete breadcrumb  1206ms
+   ✓ Knowledge one directory navigation > preserves multi-level historical parent pages and original reader links for reader  1112ms
+   ✓ Knowledge one directory navigation > preserves multi-level historical parent pages and original reader links for admin  1111ms
+   ✓ Knowledge one directory navigation > keeps authorized management actions above a single list for editor  1484ms
+   ✓ Knowledge one directory navigation > keeps authorized management actions above a single list for admin  1513ms
+   ✓ Knowledge one directory navigation > retains an actual folder selector in the upload form  794ms
+   ✓ Knowledge one directory navigation > pages all 105 knowledge entries beyond the first hundred in the unified list  1221ms
+stderr | src/modules/knowledge/KnowledgePermissionUi.spec.tsx
+Warning: Please use the `legacy` build in Node.js environments.
+
+ ✓ src/modules/knowledge/KnowledgePermissionUi.spec.tsx (12 tests) 7453ms
+   ✓ Knowledge权限入口角色与范围 > '系统管理员'：空间管理单一入口，Space ACL不扩大平台权限  1646ms
+   ✓ Knowledge权限入口角色与范围 > 'Knowledge模块管理员'：空间管理单一入口，Space ACL不扩大平台权限  878ms
+   ✓ Knowledge权限入口角色与范围 > '空间负责人FULL_ACCESS'：空间管理单一入口，Space ACL不扩大平台权限  802ms
+   ✓ Knowledge权限入口角色与范围 > '普通员工'：空间管理单一入口，Space ACL不扩大平台权限  799ms
+   ✓ Knowledge权限入口角色与范围 > '其他模块管理员兼空间负责人'：空间管理单一入口，Space ACL不扩大平台权限  779ms
+   ✓ Knowledge权限入口角色与范围 > 成员与权限仍打开原KnowledgeAccess，保留四种对象和三级权限，不执行授权写入  2025ms
+ ✓ src/modules/master-plan-system/MasterPlanPages.spec.tsx (34 tests) 65594ms
+   ✓ MasterPlanResourcePage create feedback > shows a concrete validation error instead of silently ignoring confirm  3392ms
+   ✓ MasterPlanResourcePage create feedback > patches only the changed cell with expectedVersion after edit mode is entered  2574ms
+   ✓ MasterPlanResourcePage create feedback > is read-only by default and becomes read-only again after exiting edit mode  1205ms
+   ✓ MasterPlanResourcePage create feedback > does not edit a field without field update permission  851ms
+   ✓ MasterPlanResourcePage create feedback > does not PATCH an unchanged value  1415ms
+   ✓ MasterPlanResourcePage create feedback > uses server-confirmed values and the latest version for consecutive blur saves  1104ms
+   ✓ MasterPlanResourcePage create feedback > restores the old value when a version conflict rejects the save  1368ms
+   ✓ MasterPlanResourcePage create feedback > keeps batch modification available alongside inline editing  2152ms
+   ✓ MasterPlanResourcePage create feedback > keeps preview and confirm failures visible instead of closing the import dialog  586ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > orderDate 和行级菜单均不承载删除，顶部删除在勾选后启用  1705ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 没有 delete operation permission 时不显示顶部删除，也没有行内删除入口  1587ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 选中 canDelete=false 的出货计划时顶部删除保持禁用  1672ms
+   ✓ KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除 > 进入编辑模式后 orderDate 仍使用正式日期编辑器  2950ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > renders the read-only weekly state, missing admission fields and the generation hint  916ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the manual base-to-weekly action only with sync update permission  1795ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > requires confirmation before calling base-to-weekly  1078ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > calls base-to-weekly once and reports count={ count: 3 }  1008ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > calls base-to-weekly once and reports count={ count: +0 }  1084ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the backend error and restores the action after a failed sync  2489ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > locates the generated weekly plan by stable base_plan_id instead of a business search  2486ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > shows the located base-plan notice on the weekly plan page and can clear the locator  5559ms
+   ✓ MasterPlanResourcePage base-plan weekly feedback > invalidates both base plans and weekly plans after an inline save and surfaces the reconciliation failure  2379ms
+   ✓ MasterPlanResourcePage weekly execution refresh > refreshes one weekly plan from the more menu only after confirmation  3653ms
+   ✓ MasterPlanResourcePage pending process reporting > renders the approved pending columns in order with no action column and read-only tasks  334ms
+   ✓ MasterPlanResourcePage pending process reporting > creates an actual report from the pending row and refreshes the weekly plan  1349ms
+   ✓ MasterPlanResourcePage pending process reporting > submits the optional human exception with the report and omits it when left blank  1883ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 1：单条成功后立即反馈，清空该条输入并恢复 loading  1978ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 2：成功后刷新失败仍显示报工成功，并额外提示刷新失败  1431ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 3：POST 失败时保留输入、给出后端错误、不出现成功提示  1999ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 4：部分成功时只清空成功记录，失败记录保留原数量  1533ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 5：多条全部成功时清空全部输入并让按钮回到 disabled  2065ms
+   ✓ MasterPlanResourcePage pending process reporting > Case 6：意外异常后 loading 必须恢复（finally），且不残留已成功输入  2552ms
+   ✓ MasterPlanResourcePage weekly plan process groups > renders the 毛坯 field group between 研磨 and 表面处理 from the canonical process registry  5213ms
+ ✓ src/shared/table-print.spec.tsx (14 tests) 6932ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 工具栏只提供「打印筛选结果」，不新增操作列  1421ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 没有 batch_print 权限时不显示打印入口  410ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 未选择记录时：按钮为「打印筛选结果」，请求 rangeType=FILTERED  820ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 打印筛选结果继承列头筛选生成的递归 effective FilterGroup  1699ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 选中 1 条后：同一个按钮变为「打印已选（1）」，请求 rangeType=SELECTED 且只带该 stable ID  1131ms
+   ✓ KN-PRINT-001 标准表格打印入口 > 清空选择后按钮恢复为「打印筛选结果」  1399ms
+ ✓ src/shared/KdosDataTable.spec.tsx (18 tests) 7100ms
+   ✓ KdosDataTable server pagination > keeps the requested page instead of resetting a pagination action to page one  1315ms
+   ✓ KdosDataTable server pagination > keeps an explicit page size instead of replacing it with the platform default  441ms
+   ✓ KdosDataTable server pagination > 标准模式只保留横向滚动，内部纵向滚动必须显式开启  367ms
+   ✓ KdosDataTable server pagination > compact density is the standard default and explicit default remains available  313ms
+   ✓ KdosDataTable server pagination > 标准表默认支持拖动列宽，并按租户、用户和资源保存宽度  500ms
+   ✓ KdosDataTable server pagination > 用户宽度覆盖业务初始宽度，隐藏后重新显示仍可恢复  916ms
+   ✓ KdosDataTable server pagination > allows stable record selection in browse mode and clears it explicitly  345ms
+   ✓ KdosDataTable server pagination > selects only the current page and preserves explicit selections across pages  303ms
+   ✓ KdosDataTable server pagination > shows the standard top delete only with permission and keeps it disabled until selection  416ms
+   ✓ KdosDataTable server pagination > blocks the whole delete when any selected row has canDelete=false  494ms
+   ✓ KdosDataTable server pagination > confirms the selected count, calls the formal delete callback, and clears successful selection  517ms
+   ✓ KdosDataTable server pagination > 仅在服务端返回 export 权限时显示标准导出按钮  302ms
+ ✓ src/modules/supervision/SupervisionPages.spec.tsx (5 tests) 6319ms
+   ✓ 项目与任务表格编辑 > 项目和任务标准业务页不渲染长期解释性副标题  1599ms
+   ✓ 项目与任务表格编辑 > 甘特图和风险卡片按日历日期显示，不暴露 ISO 时间戳  857ms
+   ✓ 项目与任务表格编辑 > 三个标准大屏直接进入业务内容，不渲染重复标题或用途说明  1181ms
+   ✓ 项目与任务表格编辑 > browse mode is readonly, then project text editing autosaves with expectedVersion  1105ms
+   ✓ 项目与任务表格编辑 > does not expose editing without field update permission and rolls back a failed task save  1575ms
+ ✓ src/modules/knowledge/KnowledgeFileUpload.spec.tsx (8 tests) 5425ms
+   ✓ defaults titles without extension, supports distinct Chinese titles and removes only unsubmitted files  1064ms
+   ✓ keeps successful drafts, reports partial failure and asks whether to retry or leave  799ms
+   ✓ confirming departure returns successful pages and retains their drafts despite a failed sibling  470ms
+   ✓ locks active files and synchronously prevents double-clicks creating duplicate pages  371ms
+   ✓ retries a lost response after server creation with identical file/title/location/key and creates exactly one page  791ms
+   ✓ permits changing a definitively rejected request only through an explicit new upload with a new key  857ms
+   ✓ keeps an unknown outcome locked even if a subsequent retry is rejected  484ms
+   ✓ rejects empty titles before submitting and warns before discarding unsubmitted files  587ms
+stderr | src/modules/master-plan-system/master-plan-work-order.spec.tsx > KN-MPS-WO-001 3天生产工单页面 > 从周计划同步：按钮触发同步接口并按 新增/更新/未变化 反馈
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/master-plan-system/master-plan-work-order.spec.tsx (5 tests) 5083ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 表格只显示一个「生产日期」列：无交期编码、无生产开始/结束列、无来源周计划列、无操作列  1264ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 从周计划同步：按钮触发同步接口并按 新增/更新/未变化 反馈  1850ms
+   ✓ KN-MPS-WO-001 3天生产工单页面 > 进入编辑模式后生产日期列提供 RangePicker（不需要分别打开两个日期控件）  1941ms
+ ✓ src/modules/master-plan-system/master-plan-auxiliary-groups.spec.tsx (5 tests) 3832ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 周计划：4 个辅助计划一级分组按固定顺序出现在 10 工序之前，且子字段落在组内  1280ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 月计划：4 个辅助计划一级分组按固定顺序出现在 10 工序之前，且子字段落在组内  722ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 周计划与月计划的一级分组标题名与顺序完全一致  1211ms
+   ✓ KN-MPS-UI-001 月计划辅助计划一级分组与周计划对齐 > 权限只影响组内可见字段：缺少整个“技术/图纸计划”子字段读权限时，一级标题仍然保留  613ms
+ ✓ src/shared/audit-actor.spec.tsx (8 tests) 3632ms
+   ✓ 公共Audit Actor展示与候选 > mps-process-reports标准表与目录解析一致，不显示五个UUID/停用/未知UUID  1065ms
+   ✓ 公共Audit Actor展示与候选 > mps-weekly-plans标准表与目录解析一致，不显示五个UUID/停用/未知UUID  387ms
+   ✓ 公共Audit Actor展示与候选 > equipment-status-report标准表与目录解析一致，不显示五个UUID/停用/未知UUID  365ms
+   ✓ 公共Audit Actor展示与候选 > supervision-tasks标准表与目录解析一致，不显示五个UUID/停用/未知UUID  342ms
+   ✓ 公共Audit Actor展示与候选 > users标准表与目录解析一致，不显示五个UUID/停用/未知UUID  329ms
+   ✓ 公共Audit Actor展示与候选 > 列头候选也显示姓名，复选后提交真实actor值  938ms
+ ✓ src/shared/table-filter-capability.spec.tsx (4 tests) 3544ms
+   ✓ KN-FILTER-001 typed filtering capability > shows the platform advanced filter for a registered resource  1290ms
+   ✓ KN-FILTER-001 typed filtering capability > never offers an editable-but-ignored filter for an unregistered resource  606ms
+   ✓ KN-FILTER-001 typed filtering capability > uses the contract field metadata by default so pages do not have to pass filterFields  875ms
+   ✓ KN-FILTER-001 typed filtering capability > falls back to the disabled notice when the resource is not registered  772ms
+stderr | src/modules/admin/AdministratorsPage.spec.tsx > AdministratorsPage > saves a module administrator once even when confirm is clicked twice
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/knowledge/KnowledgeLocationPicker.spec.tsx (10 tests) 2923ms
+   ✓ opens lazy tree only on change and loads child levels on expansion  1103ms
+   ✓ search distinguishes duplicate titles by full path and can find results beyond 100  770ms
+   ✓ creates a child folder inside the picker and selects the new empty folder immediately  447ms
+ ✓ src/modules/admin/AdministratorsPage.spec.tsx (3 tests) 2946ms
+   ✓ AdministratorsPage > shows two simple tabs and keeps module administrators empty by default  1082ms
+   ✓ AdministratorsPage > saves a module administrator once even when confirm is clicked twice  1438ms
+   ✓ AdministratorsPage > renders both administrator lists as view-only when capabilities are absent  424ms
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 时长字段按小时+分钟输入并转换为分钟（10小时30分钟 → 630）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 时长字段回显已存分钟值（630 → 10 小时 30 分钟）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 百分比字段界面显示 0..100，提交换算为存储值（80% → 0.8）
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+stderr | src/shared/advanced-filter.spec.tsx > KdosAdvancedFilter > 百分比字段回显存储值 0.6 为 60%
+Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.
+
+ ✓ src/modules/knowledge/KnowledgeSettings.spec.tsx (2 tests) 2435ms
+   ✓ creates using only a name, visual default icon and no client code or required order  1612ms
+   ✓ loads the existing icon and preserves the original code while updating description  821ms
+ ✓ src/shared/advanced-filter.spec.tsx (9 tests) 2427ms
+   ✓ KdosAdvancedFilter > renders the confirmed layout with 所有/任一 and 添加过滤条件/清空/筛选  709ms
+   ✓ KdosAdvancedFilter > keeps draft separate from applied state and only applies on 筛选  503ms
+   ✓ KdosAdvancedFilter > clears incompatible operator and operand when the field changes  597ms
+ ✓ src/modules/master-plan-system/master-plan-ui-compact.spec.tsx (5 tests) 2330ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 月计划：即使 metadata 带着辅助字段也不出现累计报工/报工次数列，每工序仍是 周期/交期/状态/生产进度，异常只有一列  1101ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 周计划：即使 metadata 带着辅助字段也不出现累计报工/报工次数列，每工序仍是 周期/交期/状态/生产进度，异常只有一列  404ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 月计划基础数量区域顺序：需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数  378ms
+   ✓ KN-MPS-UI-001 主计划主表精简与辅助字段防泄露 > 周计划与月计划都继承标准 compact density  443ms
+ ✓ src/modules/knowledge/KnowledgePortal.spec.tsx (14 tests) 2149ms
+   ✓ Knowledge employee portal > defaults readers and administrators to published homepage without management controls  854ms
+stderr | src/modules/hr/HumanResourcesPages.spec.tsx > HrDepartureCheckPage > manually adds an account and displays the directory comparison result
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/hr/HumanResourcesPages.spec.tsx (1 test) 1569ms
+   ✓ HrDepartureCheckPage > manually adds an account and displays the directory comparison result  1567ms
+ ✓ src/shared/advanced-filter-datetime.spec.tsx (7 tests) 2213ms
+   ✓ KN-FILTER-003 时间字段序列化 > datetime 选择 2026-09-17 15:36:25 后提交完整值（不是 2026-09-17、不是 00:00:00）  539ms
+   ✓ KN-FILTER-003 高级筛选 datetime 单值与 between > 单值回显 + 重新应用后 applied FilterGroup 仍保留完整时分秒  477ms
+   ✓ KN-FILTER-003 高级筛选 datetime 单值与 between > between 的 min/max 都保留完整时间（不会退化成当天 00:00）  1062ms
+stderr | src/modules/finance/FinanceCustomerMappings.spec.tsx > Finance customer mapping UI > saves only the two classifications with the original expectedVersion
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceCustomerMappings.spec.tsx (7 tests) 1493ms
+   ✓ Finance customer mapping UI > shows three business fields, totals and no duplicate finance-management header  338ms
+   ✓ Finance customer mapping UI > saves only the two classifications with the original expectedVersion  478ms
+   ✓ Finance customer mapping UI > preserves the modal draft and concrete reason on a 409/error  412ms
+ ✓ src/modules/portal/ModulePortal.spec.tsx (6 tests) 1336ms
+   ✓ ModulePortal system access > hides system management from non-system administrators  443ms
+   ✓ ModulePortal system access > loads and saves a personal module order without affecting module access  508ms
+ ✓ src/modules/knowledge/KnowledgeImport.spec.tsx (2 tests) 918ms
+   ✓ imports DOCX through the existing preview/commit flow at the selected root without tag UI  787ms
+ ✓ src/modules/notifications/NotificationCenterPage.spec.tsx (1 test) 872ms
+   ✓ NotificationCenterPage > shows the three message-center tabs and registered event without the retired validation banner  870ms
+ ✓ src/modules/knowledge/KnowledgePageTree.spec.tsx (4 tests) 830ms
+   ✓ shared published/management lazy Knowledge tree > retains loaded nodes when the consumer changes its navigation callback  311ms
+stderr | src/modules/finance/FinanceOrders.spec.tsx > Finance E10 UI > manual refresh submits the protected command with explicit mode
+Warning: [antd: compatible] antd v5 support React is 16 ~ 18. see https://u.ant.design/v5-for-19 for compatible.
+
+ ✓ src/modules/finance/FinanceOrders.spec.tsx (6 tests) 2163ms
+   ✓ Finance E10 UI > marks conflicting order dates without adding a template column and preserves dashboard money  1300ms
+   ✓ Finance E10 UI > renders original dashboard headers, all twelve months, and explicit excluded money  559ms
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > opens version-bound PDF using header authentication and supports page navigation
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > omits absent history identifiers for normal working/native PDF preview
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > keeps processing explicit instead of claiming a preview is ready
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > shows conversion failure and retries through the same version-bound API
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > hides administrator retry for a reader and warns about Excel print boundaries
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+stderr | src/modules/knowledge/KnowledgeFilePreview.spec.tsx > file reader > never starts PDF transport when status authorization is denied
+Warning: [antd: Spin] `tip` only work in nest or fullscreen pattern.
+
+ ✓ src/modules/knowledge/KnowledgeFilePreview.spec.tsx (6 tests) 640ms
+   ✓ file reader > opens version-bound PDF using header authentication and supports page navigation  362ms
+ ✓ src/modules/knowledge/KnowledgeContent.spec.tsx (4 tests) 386ms
+   ✓ Knowledge real rich editor > does not autosave unchanged content when busy/editable state changes  353ms
+ ✓ src/modules/master-plan-system/master-plan-exec-monthly.spec.tsx (4 tests) 557ms
+   ✓ KN-MPS-EXEC-001 月计划生产进度口径 > 样例：required=500、两个 weekly planned 合计 300、actual 合计 255 → 51%（不是 85%、不是 90%）  362ms
+ ✓ src/modules/knowledge/KnowledgeRoutes.spec.tsx (4 tests) 297ms
+ ✓ src/modules/knowledge/knowledge-file-upload.spec.ts (7 tests) 338ms
+ ✓ src/shared/OrganizationSelect.spec.tsx (1 test) 304ms
+   ✓ OrganizationSelect > keeps the complete path readable in the selector and its popup  302ms
+ ✓ src/shared/charts/KdosChart.spec.tsx (3 tests) 189ms
+ ✓ src/shared/PageScrollReset.spec.tsx (1 test) 92ms
+ ✓ src/shared/BuildVersion.spec.tsx (3 tests) 68ms
+ ✓ src/api.spec.ts (9 tests) 40ms
+ ✓ src/modules/rd/rd-display.spec.ts (5 tests) 19ms
+ ✓ src/modules/knowledge/knowledge-autosave.spec.ts (9 tests) 40ms
+ ✓ src/shared/date-format.spec.ts (3 tests) 5ms
+ ✓ src/query-client.spec.ts (1 test) 5ms
+ ✓ src/modules/master-plan-system/master-plan-exec.spec.tsx (4 tests) 8ms
+
+ Test Files  47 passed (47)
+      Tests  364 passed (364)
+   Start at  09:43:23
+   Duration  235.39s (transform 3.72s, setup 7.31s, collect 98.37s, tests 325.04s, environment 18.55s, prepare 4.37s)
+

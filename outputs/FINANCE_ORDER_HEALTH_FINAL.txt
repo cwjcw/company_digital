@@ -1,0 +1,7 @@
+NAME                       IMAGE                    COMMAND                  SERVICE           CREATED          STATUS                    PORTS
+knplan-api-1               knplan-api               "docker-entrypoint.s…"   api               13 minutes ago   Up 13 minutes (healthy)   15173/tcp
+knplan-document-worker-1   knplan-document-worker   "docker-entrypoint.s…"   document-worker   12 minutes ago   Up 12 minutes (healthy)   
+knplan-postgres-1          postgres:18              "docker-entrypoint.s…"   postgres          6 days ago       Up 6 days (healthy)       127.0.0.1:15433->5432/tcp
+knplan-web-1               knplan-web               "/docker-entrypoint.…"   web               13 minutes ago   Up 13 minutes (healthy)   10.147.20.200:15172->80/tcp, 127.0.0.1:15172->80/tcp, 192.168.1.249:15172->80/tcp, [::1]:15172->80/tcp
+/var/run/postgresql:5432 - accepting connections
+Document worker、Web、API、Swagger、OpenAPI 与 PostgreSQL 健康检查通过。

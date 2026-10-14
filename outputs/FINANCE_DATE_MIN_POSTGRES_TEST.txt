@@ -1,0 +1,2 @@
+Synthetic test database error: E10数据正在刷新
+Finance analytics PostgreSQL PASS: 20 scenarios

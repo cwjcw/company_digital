@@ -1,0 +1,6 @@
+数据库备份：/data/automation/code/work/PMC/knweb/data/backups/four_department_tracker_20261014_090409.backup
+KDOS 数据库备份：/data/automation/code/work/PMC/knweb/data/backups/kdos_20261014_090409.backup
+上传目录备份：/data/automation/code/work/PMC/knweb/data/backups/uploads_20261014_090409.tar.gz
+d64867a58692e3c2eda707e44d3597b35a7dfe510241cfe3ae03fe4253d83662  data/backups/four_department_tracker_20261014_090409.backup
+6944384ed1ef219e00ed81b37b13ca2973f39e1514e6305d95a808c435361a14  data/backups/kdos_20261014_090409.backup
+bab1e77e9a88ff0a20960cc64d45f71a249554acf1de0e61d20ed48b15559c10  data/backups/uploads_20261014_090409.tar.gz

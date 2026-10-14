@@ -1,0 +1,133 @@
+$ jest --runInBand
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/index.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/finance-orders.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /data/automation/code/work/PMC/knweb/packages/contracts/dist/finance.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+FAIL src/modules/master-plan-system/master-plan-spreadsheet.service.spec.ts (13.611 s)
+  ● MasterPlanSpreadsheetService › uses hidden field keys after a display label changes and resolves department paths to UUID
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      242 |   });
+      243 |
+    > 244 |   it("uses hidden field keys after a display label changes and resolves department paths to UUID", async () => {
+          |   ^
+      245 |     const organization = { id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 事业一部", path: ["凯南", "事业一部"] };
+      246 |     directory.listEnabled.mockResolvedValue([organization]); directory.resolve.mockImplementation((value: unknown) => value === organization.pathLabel ? organization : null);
+      247 |     application.validateImportUpdates.mockResolvedValue([]);
+
+      at modules/master-plan-system/master-plan-spreadsheet.service.spec.ts:244:3
+      at Object.<anonymous> (modules/master-plan-system/master-plan-spreadsheet.service.spec.ts:8:1)
+
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=437 批次=3
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=1 printedCount=1 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=1 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=SELECTED requestedCount=4 printedCount=2 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:05 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=0 批次=1
+[Nest] 2684537  - 10/14/2026, 9:02:08 AM     LOG [TablePrintService] 打印 mps-weekly-plans：rangeType=FILTERED requestedCount=- printedCount=6 批次=1
+FAIL src/common/filtering/table-filter-registry.spec.ts
+  ● 平台筛选资源注册表（KN-FILTER-001） › 声明的可筛选资源与运行时注册表完全一致
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 4
+    + Received  + 0
+
+    @@ -7,14 +7,10 @@
+        "development-requests",
+        "dictionaries",
+        "equipment-register",
+        "equipment-status-report",
+        "finance-customer-mappings",
+    -   "finance-e10-dashboard",
+    -   "finance-e10-lines",
+    -   "finance-e10-monthly",
+    -   "finance-e10-ranking",
+        "finished-goods-inbound",
+        "finished-goods-outbound",
+        "knowledge-pages",
+        "knowledge-spaces",
+        "mps-base-plans",
+
+      47 |
+      48 |   it("声明的可筛选资源与运行时注册表完全一致", () => {
+    > 49 |     expect(registry.codes().sort()).toEqual(declared);
+         |                                     ^
+      50 |     expect(() => registry.assertDeclaredCodes(declared)).not.toThrow();
+      51 |   });
+      52 |
+
+      at Object.<anonymous> (common/filtering/table-filter-registry.spec.ts:49:37)
+
+
+Summary of all failing tests
+FAIL modules/master-plan-system/master-plan-spreadsheet.service.spec.ts (13.611 s)
+  ● MasterPlanSpreadsheetService › uses hidden field keys after a display label changes and resolves department paths to UUID
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      242 |   });
+      243 |
+    > 244 |   it("uses hidden field keys after a display label changes and resolves department paths to UUID", async () => {
+          |   ^
+      245 |     const organization = { id: "22222222-2222-4222-8222-222222222222", name: "事业一部", pathLabel: "凯南 / 事业一部", path: ["凯南", "事业一部"] };
+      246 |     directory.listEnabled.mockResolvedValue([organization]); directory.resolve.mockImplementation((value: unknown) => value === organization.pathLabel ? organization : null);
+      247 |     application.validateImportUpdates.mockResolvedValue([]);
+
+      at modules/master-plan-system/master-plan-spreadsheet.service.spec.ts:244:3
+      at Object.<anonymous> (modules/master-plan-system/master-plan-spreadsheet.service.spec.ts:8:1)
+
+FAIL common/filtering/table-filter-registry.spec.ts
+  ● 平台筛选资源注册表（KN-FILTER-001） › 声明的可筛选资源与运行时注册表完全一致
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 4
+    + Received  + 0
+
+    @@ -7,14 +7,10 @@
+        "development-requests",
+        "dictionaries",
+        "equipment-register",
+        "equipment-status-report",
+        "finance-customer-mappings",
+    -   "finance-e10-dashboard",
+    -   "finance-e10-lines",
+    -   "finance-e10-monthly",
+    -   "finance-e10-ranking",
+        "finished-goods-inbound",
+        "finished-goods-outbound",
+        "knowledge-pages",
+        "knowledge-spaces",
+        "mps-base-plans",
+
+      47 |
+      48 |   it("声明的可筛选资源与运行时注册表完全一致", () => {
+    > 49 |     expect(registry.codes().sort()).toEqual(declared);
+         |                                     ^
+      50 |     expect(() => registry.assertDeclaredCodes(declared)).not.toThrow();
+      51 |   });
+      52 |
+
+      at Object.<anonymous> (common/filtering/table-filter-registry.spec.ts:49:37)
+
+
+Test Suites: 2 failed, 1 skipped, 102 passed, 104 of 105 total
+Tests:       2 failed, 1 skipped, 907 passed, 910 total
+Snapshots:   0 total
+Time:        52.787 s
+Ran all test suites.
+/data/automation/code/work/PMC/knweb/apps/api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tracker/api@0.1.0 test: `jest --runInBand`
+Exit status 1

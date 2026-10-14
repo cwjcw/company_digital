@@ -1,0 +1,23 @@
+[WebServer] (node:2712007) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ vite --host 0.0.0.0 --host 127.0.0.1
+[WebServer] (node:2712020) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 9 tests using 2 workers
+
+(node:2712100) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2712101) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 e2e/finance-ui.spec.ts:6:5 › Finance center admin navigation, classification permissions and server filters (7.1s)
+  ✓  1 e2e/finance-orders-ui.spec.ts:23:1 › three finance pages retain Chinese headers and no spreadsheet upload (9.8s)
+  ✓  3 e2e/finance-ui.spec.ts:6:5 › Finance center editor navigation, classification permissions and server filters (5.2s)
+  ✓  4 e2e/finance-orders-ui.spec.ts:28:1 › dashboard drilldown carries customer and selected period (4.2s)
+  ✓  5 e2e/finance-ui.spec.ts:6:5 › Finance center viewer navigation, classification permissions and server filters (4.6s)
+  ✓  6 e2e/finance-orders-ui.spec.ts:29:1 › viewer can read all three views but cannot refresh (3.2s)
+  ✓  7 e2e/finance-ui.spec.ts:6:5 › Finance center none navigation, classification permissions and server filters (2.9s)
+  ✓  8 e2e/finance-orders-ui.spec.ts:30:1 › unauthorized users see no finance portal or order queries (2.8s)
+  ✓  9 e2e/finance-orders-ui.spec.ts:31:1 › report layout remains readable on desktop and mobile (6.0s)
+
+  9 passed (32.9s)

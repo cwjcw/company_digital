@@ -1,5 +1,167 @@
 # Codex 工作进度
 
+## 任务
+任务名称：财务订单级预交货日改为最早有效日期。
+任务目标：MIN非空有效品项日期；保留全部品项原始日期，金额/订单数/大屏金额不变；测试备份部署实际核验并自动推送GitHub。
+当前状态：进行中——c15f017已部署，612日期修正/原品项与全部财务字段和各大屏数据不变/实际API与Excel和浏览器均PASS；推送及报告收尾。
+最后更新时间：2026-10-14（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：核对线上基线及最小视图迁移。
+当前子任务：记录254张2026订单及全部历史的日期/金额不变基线。
+
+## 已完成
+- [x] 读取项目AGENTS、现有主进度、财务规格与两项Skill/调度台账；git fetch确认github/main=e35d453，无未提交源码，旧outputs原样保留。
+
+## 正在进行
+- [x] 线上基线：2026待修254，2025待修358，总612；106648源品项，所有订单非日期字段/原始整行/品项审计哈希及两年大屏/全部排名已保存私有data。
+- [x] 91视图仅MIN日期，旧90不改；不刷新E10/不改品项；DATE字符串避免UTC跨日；UI显示最早日期/多交期说明，9中文列保留。
+- [x] PG20统计场景含90→91既有数据修正、原行与全部财务维度不变、down/up/重跑、NULL混合/全NULL/重复/反序/筛选/Excel/租户权限；原财务PG20/fresh91全迁移/Nest启动通过。
+- [x] Web47文件364通过，专项6，API/Web构建和lint通过（原Web warning）；最终API修正后再回归中。
+- [x] 102344双库/上传备份及SHA/custom目录/0600确认；原调度盘点完成，无改动。
+
+## 待完成
+- [x] API104套911通过/1既有skip，Web47文件364通过；PG20+20/fresh91全迁移+Nest/Chrome9/构建/lint通过（既有warning）。
+- [x] 仅91生产迁移，standard deploy all/check及health PASS，Repo/API/Web/Worker=c15f017，4服务healthy。
+- [x] 全18810订单日期逐一核对MIN正确；2026修254、2025修358，原106648品项整行/订单非日期字段/品项审计hash全部一致；月度18804订单/1099941533.42元不变。
+- [x] 2025/2026所有大屏JSON维度、KPI、占比和全部排名规范化逐项完全相同；真实API612日期YYYY-MM-DD/筛选/9列Excel/真实Chrome1440与390 PASS。
+- [x] 原8用户timer启用状态/cron数量/10n8n激活ID集合未变；隔离测试容器已移除。
+- [ ] GitHub推送及报告。
+
+## 修改文件
+- outputs/CODEX_PROGRESS.md。
+
+## 数据库 Migration
+- 拟新增FinanceE10EarliestDeliveryDate1722920091000，不改已应用89/90。
+
+## 新增或修改测试
+- 拟覆盖多日期MIN、NULL混合、全部NULL、原始日期/金额/数量/大屏不变。
+
+## 已运行测试
+- 尚无本轮测试。
+
+## 当前已知问题
+- 254是当前2026年度数；全历史规则也须一致，实际数量先核查。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+1. 核对GitHub远端SHA=c15f017038cc2905fbf61acd7bf6485653aa05ec。
+2. 完成outputs/FINANCE_ORDER_EARLIEST_DELIVERY_ACCEPTANCE.md及本进度已完成状态，移除临时维护token。
+
+## 恢复执行说明
+AGENTS/Skill→本段→git status/diff→继续下一步；不重新初始化、不触发ERP刷新、不改调度、不提交真实数据。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：财务中心 E10 销售订单统计（2025年至今）。
+任务目标：核实真实E10字段与历史，直连初始化，交付系统导出/月度数据/统计大屏，测试备份部署验收并自动推送GitHub。
+当前状态：**已完成 / 已部署 / 真实验收PASS / GitHub已推送**。
+最后更新时间：2026-10-14 10:10:59（Asia/Shanghai）。
+源码/部署/远端完整版本：e35d453154482fbd62863db346f776a425582d2b；github/main，本轮5个commit均已推送，无强推。
+
+## 当前阶段
+当前阶段：已交付。
+当前子任务：无。
+
+## 已完成
+- [x] 根AGENTS、架构/安全/runbook/integration、表单和调度Skill/台账、最新财务规格已读取；先快进GitHub最新需求c54b4dc，再真实只读核实E10字段/视图/历史及ERP已有部分历史不足。
+- [x] 实际34字段/税含义/本位币/Join/UUID稳定键已核实并形成统一映射；既有basic_code.MSSQLDatabase只读直连，不复制凭据、不修改E10或原ERP任务，无Excel导入。
+- [x] 原34列系统导出、9列月度数据、完整统计大屏/客户10-20-全部排名/12个月/金额占比/KPI/交叉矩阵/待分类/筛选与下钻完成；完整客户编号+租户精确JOIN现有财务对应表，分类差异0，原138条保持。
+- [x] Application显式全量/增量/断点、独立源年度COUNT/SUM、事务发布/变化前后审计、UUIDv7/FORCE RLS/权限/类型化金额数据范围/锁/失败保护完成；保留已有架构及公共表格/图表。
+- [x] 最新用户确认交期冲突整单金额保留、日期NULL并标冲突已实施；新增90迁移，不修改已应用89。
+- [x] 真实全量214页106648品项初始化成功；源2025：60332行/10142有品项单/592274631.13元，2026：46316行/8668有品项单/507757600.79元，最大订单日2026-10-14；查询含2025-01-01，实际2025首单01-02。
+- [x] 所有维度/完整客户排名/筛选年度月度精确勾稽；有效统计18804单1099941533.42元；612交期冲突金额157947349.71保留、非NULL冲突日期0；6交货计划缺失单90698.50暂缓并明确报告；10负金额保留异常，24无品项头仅来源覆盖摘要。
+- [x] 真实全量重读106648行/变化0，总额/版本/品项审计未变；增量初测0行，最终增量28行28变化成功；独立最后源SQL再次核对全品项/单数/金额一致；重复源键0、成功临时页0。
+- [x] 实际4个xlsx导出、ZIP/XML逐行校验PASS：34列106648行1100032231.92元；9列18804行1099941533.42元、612交期空格；2025排名184行592244440.13元；2026排名193行507697093.29元。保留精确十进制字符串，非公共4位小数截断。
+- [x] API104套911通过/1原skip，Web47文件364通过；新PG19/原PG20/fresh90迁移+Nest，Python3、Chrome合成角色9通过；TypeScript/lint/build通过，原警告保留。
+- [x] 最终真实Chrome三页34/9表头、批次、3图表/12月、冲突提示、客户与饼图真实点击下钻、1440/390布局/无API500通过。实际非财务用户5端点403、匿名401，未改密码/账号权限；短期维护JWT不冒称密码登录。
+- [x] 备份090409/092814/093848及最终真实初始化后095205双库/上传，custom dump目录/SHA/0600通过；回滚before和initialized镜像保留。
+- [x] 生产89+90 TypeORM迁移成功，既有18个KDOS SQL迁移SKIP/校验一致；standard deploy all及check、健康通过，Repository/API/Web/Worker版本一致，四服务healthy、Dispatcher保留、PG18原卷与15433保留。
+- [x] 原15张财务客户/PMC/Knowledge完整行哈希及数量一致；原8个KDOS用户timer启用/active状态、cron数量、10个n8n激活ID集合保持；仓库timer4/service6定义未增加。FIN-002仅手动入口，台账更新；临时PG测试容器已移除。
+- [x] 35源码/测试/文档安全提交ce891b6、1478962、5e8a8f8、e0059d0、e35d453，已push github main且远端完整SHA相同。真实财务数据/Excel/备份/凭据/本轮outputs不提交。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无本轮开发或部署遗留。
+
+## 修改文件
+- apps/api/src/common/filtering/data-scope.ts
+- apps/api/src/common/filtering/table-filter-registry.spec.ts
+- apps/api/src/common/filtering/table-filter.controller.ts
+- apps/api/src/common/filtering/table-filter.registry.ts
+- apps/api/src/common/printing/streaming-workbook.ts
+- apps/api/src/common/printing/table-print.service.spec.ts
+- apps/api/src/common/printing/table-print.service.ts
+- apps/api/src/integrations/e10/finance-order.reader.ts
+- apps/api/src/migrations/1722920089000-FinanceE10Analytics.ts
+- apps/api/src/migrations/1722920090000-FinanceE10DeliveryDateConflicts.ts
+- apps/api/src/modules/finance/finance-orders.application.service.ts
+- apps/api/src/modules/finance/finance-orders.controller.ts
+- apps/api/src/modules/finance/finance-orders.query.service.ts
+- apps/api/src/modules/finance/finance-orders.spec.ts
+- apps/api/src/modules/finance/finance-orders.types.ts
+- apps/api/src/modules/finance/finance.module.ts
+- apps/web/e2e/finance-orders-ui.spec.ts
+- apps/web/src/App.tsx
+- apps/web/src/modules/finance/FinanceCustomerMappings.tsx
+- apps/web/src/modules/finance/FinanceOrders.spec.tsx
+- apps/web/src/modules/finance/FinanceOrders.tsx
+- apps/web/src/modules/finance/finance-orders.css
+- apps/web/src/modules/portal/ModulePortal.tsx
+- apps/web/src/shared/charts/KdosChart.spec.tsx
+- apps/web/src/shared/charts/KdosChart.tsx
+- data-operations/e10/finance_order_reader.py
+- data-operations/e10/test_finance_order_reader.py
+- docs/finance/ERP_ORDER_ANALYTICS_IMPLEMENTATION.md
+- docs/finance/ERP_ORDER_ANALYTICS_SPEC.md
+- docs/operations/TASK_REGISTRY.md
+- packages/contracts/src/finance-order-fields.json
+- packages/contracts/src/finance-orders.ts
+- packages/contracts/src/index.ts
+- scripts/test-finance-orders-postgres.cjs
+- scripts/test-finance-postgres.cjs
+
+- outputs/CODEX_PROGRESS.md、outputs/FINANCE_E10_ORDER_ANALYTICS_ACCEPTANCE.md及本机验收日志/JSON（未推送；金融数据留本机）。
+
+## 数据库 Migration
+- FinanceE10Analytics1722920089000：新增财务源读模型/批次/暂存页及RLS视图，已生产应用。
+- FinanceE10DeliveryDateConflicts1722920090000：按用户确认保留多交期订单金额，日期NULL和冲突标记，已生产应用。
+- 不变更旧ERP/PMC/客户映射结构及源E10；down拒绝删除财务历史。
+
+## 新增或修改测试
+- 34/9中文契约、边界、金额与分类、权限/跨租户/类型化数据范围、幂等/失败/断点/变化审计、并发、聚合/排名、流式导出空格/8位小数/超安全整数精度、Web/公共图表/Chrome/真实隔离PG/Python。
+
+## 已运行测试
+结果：全部本轮必需验证通过，API1个既有skip；完整证据和实际数据表见最终报告。首次生产导入0页0行失败已修复工具包顶层额外依赖入口，无数据发布/凭据复制/新增依赖；后续实际各批次成功。早期测试不正确--过滤造成非预期广测及超时，已停止本轮进程，用正确exec及限并发完整复验，不改断言。
+
+## 当前已知问题
+- 真实E106单缺交货计划90698.50暂缓统计并列异常，原始值NULL，不隐瞒差额；612交期冲突按用户确认金额保留。
+- 真实财务编辑/只读独立账号密码登录未执行；维护会话、实际权限拒绝、隔离PG及合成角色覆盖明确记录，不声称该生产登录验收。
+- 本轮无未解决代码/部署故障；后续ERP主档更名不更新订单修改日期或源删除须手动全量复核。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+- 无必需执行遗留；如新增反馈，读取本进度和报告后处理，不重做已验收实现。
+
+## 恢复执行说明
+读取适用AGENTS/Skill→本进度→git status/diff→新反馈；保留历史业务/任务及源数据，不提交本机金融明细/Excel/凭据；不会自动新增周期任务。
+
+最终报告：outputs/FINANCE_E10_ORDER_ANALYTICS_ACCEPTANCE.md。
+实际xlsx：data/finance-order-acceptance/（目录0700、文件0600，ignored）。
+
+---
+
+# Codex 工作进度
+
 ## 当前任务：财务中心 Phase 1 客户对应表
 
 任务名称：独立财务客户分类及日期受限E10增量新增。
