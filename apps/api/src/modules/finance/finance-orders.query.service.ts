@@ -12,7 +12,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
  constructor(private readonly repository:FinanceRepository,private readonly registry:TableFilterRegistry){}
  onModuleInit(){for(const r of financeOrderResources){
   const fields=r==='finance-e10-lines'?financeOrderFields:r==='finance-e10-ranking'?financeRankingFields:financeMonthlyFilterFields;
-  this.registry.register({code:r,exportNullAsBlank:true,table:r==='finance-e10-lines'?'finance_e10_raw':r==='finance-e10-ranking'?'finance_e10_ranking':'finance_e10_monthly',columns:orderColumns(r),fields,
+  this.registry.register({code:r,exportNullAsBlank:true,exportExactNumbers:true,table:r==='finance-e10-lines'?'finance_e10_raw':r==='finance-e10-ranking'?'finance_e10_ranking':'finance_e10_monthly',columns:orderColumns(r),fields,
    authorize:a=>orderAuthorize(a,r),buildScope:(a,p,action)=>r==='finance-e10-ranking'?'1=0':orderScope(a,r,p,action),
    buildContext:(c)=>{if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return '1=1';},
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),

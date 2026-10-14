@@ -38,14 +38,15 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     for (const [code, fields] of [["finance-e10-lines", financeOrderFields], ["finance-e10-monthly", financeMonthlyFields]] as const) {
       const registry = new TableFilterRegistry();
       registry.register({code, table:"synthetic", fields, buildScope:()=>"1=1", columns:Object.fromEntries(fields.map(f=>[f.key,f.key])),
-        exportNullAsBlank:true, ...(code==="finance-e10-lines"?{exportMaxRows:200000}:{}),
-        printRows:async()=>({rows:[{id:"synthetic",deliveryDate:null,orderTotal:"100.30",localGross:"100.30"}],total:1})});
+        exportNullAsBlank:true, exportExactNumbers:true, ...(code==="finance-e10-lines"?{exportMaxRows:200000}:{}),
+        printRows:async()=>({rows:[{id:"synthetic",deliveryDate:null,orderTotal:"9007199254740993.12",localGross:"9007199254740993.12",businessQty:"1.12345678"}],total:1})});
       const service = new TablePrintService(registry, {} as never);
       const book = new ExcelJS.Workbook(); await book.xlsx.load(await service.exportXlsx(code,{},actor(["*"])) as never);
       const sheet = book.worksheets[0]!;
       expect(sheet.columnCount).toBe(fields.length);
       expect(sheet.getCell(2,fields.findIndex(f=>f.key==="deliveryDate")+1).text).toBe("");
-      expect(sheet.getCell(2,fields.findIndex(f=>f.key===(code==="finance-e10-lines"?"localGross":"orderTotal"))+1).text).toBe(code==="finance-e10-lines"?"100.3":"100.30");
+      expect(sheet.getCell(2,fields.findIndex(f=>f.key===(code==="finance-e10-lines"?"localGross":"orderTotal"))+1).text).toBe("9007199254740993.12");
+      if(code==="finance-e10-lines")expect(sheet.getCell(2,fields.findIndex(f=>f.key==="businessQty")+1).text).toBe("1.12345678");
     }
   });
   it("标准导出使用 export 权限、当前排序并导出全部匹配记录，而不是当前页", async () => {

@@ -44,6 +44,8 @@ export type TableFilterSource = {
   exportMaxRows?: number;
   /** Template exports may preserve source NULL as an empty cell. Default remains the platform placeholder. */
   exportNullAsBlank?: boolean;
+  /** Verified financial source strings retain all numeric digits in template exports. */
+  exportExactNumbers?: boolean;
   /** 物理表名。 */
   table: string;
   /** field key → 列名（不含别名）。 */

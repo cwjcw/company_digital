@@ -199,7 +199,7 @@ export class TablePrintService {
       const output: Record<string, string> = {};
       for (const field of fields) {
         const value = resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key];
-        output[field.key] = source.exportNullAsBlank && value == null ? "" : this.formatValue(field, value);
+        output[field.key] = source.exportNullAsBlank && value == null ? "" : source.exportExactNumbers && field.type === "number" && value != null ? String(value) : this.formatValue(field, value);
       }
       const added=sheet.addRow(output);if(large)added.commit();
     }

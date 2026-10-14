@@ -73,7 +73,7 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 - `GET /api/v1/finance/e10-orders/exceptions`：管理员异常复核（不提供业务数据上传/写入）。
 - `POST /api/v1/finance/e10-orders/dashboard`：所选年度/月份/日期/客户/事业部/内外销/业务员；单个源快照计算分组、趋势、矩阵、KPI。
 - `POST /api/v1/finance/e10-orders/ranking`：同源条件、分页/搜索/类型化筛选/排序及前10/20/全部客户。
-- Excel 导出使用原平台 `table-exports`，继承字段、操作和数据范围及全部已应用条件。大型源允许最多20万行并使用平台 streaming XLSX writer，其他资源默认8万行上限不变。
+- Excel 导出使用原平台 `table-exports`，继承字段、操作和数据范围及全部已应用条件。大型源允许最多20万行并使用平台 streaming XLSX writer，其他资源默认8万行上限不变。财务模板导出将来源NULL保留为空单元格，数值使用数据库/适配器精确十进制字符串，不经公共呈现格式的四位小数截断或JavaScript浮点转换。
 
 大屏严格保留模板表头、年合计/合计，空月补0；元/万元只改变呈现。公共 KdosChart 增加可选数据点击回调，图表与排名/交叉表下钻传递年度、月份、日期、业务员、客户及分类条件。
 
