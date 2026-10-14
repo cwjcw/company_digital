@@ -1,6 +1,8 @@
 import { ExecutionContext } from "@nestjs/common";
 import { NotificationInternalGuard } from "./notification.internal.guard";
 import { NotificationInternalController } from "./notification.internal.controller";
+import express from "express";
+import request from "supertest";
 
 function context(headers: Record<string, string | undefined>) {
   const request = { header: (name: string) => headers[name.toLowerCase()] };
@@ -36,6 +38,22 @@ describe("NotificationInternalGuard", () => {
 });
 
 describe("NotificationInternalController", () => {
+  it("downloads Chinese allocation filenames through a valid UTF8 HTTP header", async () => {
+    const filename="订单分配_261014164230_事业一部.xlsx";
+    const delivery={attachment:jest.fn().mockResolvedValue({filename,content:Buffer.from("PK-test")})};
+    const controller=new NotificationInternalController({} as never,delivery as never);
+    const app=express();
+    app.get("/file",(_req,res)=>{void controller.attachment("outbox","attachment",{notificationTenantId:"KAINAN",notificationWorkerId:"worker"} as never,res);});
+    const response=await request(app).get("/file").buffer(true).parse((res,callback)=>{
+      const chunks:Buffer[]=[];res.on("data",chunk=>chunks.push(Buffer.from(chunk)));res.on("end",()=>callback(null,Buffer.concat(chunks)));
+    }).expect(200);
+    const header=response.headers["content-disposition"];
+    expect(header).toContain('filename="order-allocation.xlsx"');
+    expect(decodeURIComponent(header.split("filename*=UTF-8''")[1])).toBe(filename);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual(Buffer.from("PK-test"));
+    expect(delivery.attachment).toHaveBeenCalledWith("KAINAN","outbox","attachment","worker");
+  });
   it("reports exactly one delivery ID", async () => {
     const notifications = { markDeliverySuccess: jest.fn().mockResolvedValue({ status: "PROCESSING" }) };
     const controller = new NotificationInternalController(notifications as never);

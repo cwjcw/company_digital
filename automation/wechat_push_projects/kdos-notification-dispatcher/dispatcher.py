@@ -91,7 +91,10 @@ class KdosNotificationDispatcher:
                             attachment = notification.get("attachment", {})
                             download_path = str(attachment.get("downloadPath", ""))
                             filename = str(attachment.get("filename", ""))
-                            if not re.fullmatch(r"/internal/notifications/[a-f0-9-]+/attachments/[a-f0-9-]+", download_path) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.xlsx", filename):
+                            english_name = re.fullmatch(r"[A-Za-z0-9_.-]+\.xlsx", filename)
+                            allocation_name = (len(filename.encode("utf-8")) <= 255 and
+                                               re.fullmatch(r'订单分配_[0-9]{12}_[^\\/\x00-\x1f\x7f<>:"|?*]+\.xlsx', filename))
+                            if not re.fullmatch(r"/internal/notifications/[a-f0-9-]+/attachments/[a-f0-9-]+", download_path) or not (english_name or allocation_name):
                                 raise RuntimeError("通知附件标识无效")
                             data = self._get_attachment(download_path)
                             with tempfile.TemporaryDirectory(prefix="kdos-notification-") as temp_dir:

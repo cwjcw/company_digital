@@ -136,21 +136,37 @@ if __name__ == "__main__":
 class FileDeliveryTest(unittest.TestCase):
     def test_file_uses_private_temp_and_explicit_single_recipient(self):
         received=[]
-        class Pusher:
-            def send_app_file(self,path,touser):
-                target=Path(path)
-                self_test.assertEqual(target.name,"PMC_Test.xlsx")
-                self_test.assertEqual(target.stat().st_mode & 0o777,0o600)
-                self_test.assertEqual(target.read_bytes(),b"PK-test")
-                received.append(touser)
-                return {"errcode":0,"msgid":"file-1"}
         self_test=self
-        notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"test", "attachment":{"filename":"PMC_Test.xlsx","downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"file-fixture","wechatUserId":"single-test"}]}
-        post=lambda path,body:{"notifications":[notification]} if path.endswith("claim") else {}
-        service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,Pusher())
-        service._get_attachment=lambda path:b"PK-test"
-        self.assertEqual(service.run_once()["sent"],1)
-        self.assertEqual(received,["single-test"])
+        for filename in ["PMC_Test.xlsx", "订单分配_261014164230_事业一部.xlsx", "订单分配_261014164230_张法才_P2.xlsx"]:
+            with self.subTest(filename=filename):
+                class Pusher:
+                    def send_app_file(self,path,touser):
+                        target=Path(path)
+                        self_test.assertEqual(target.name,filename)
+                        self_test.assertEqual(target.stat().st_mode & 0o777,0o600)
+                        self_test.assertEqual(target.read_bytes(),b"PK-test")
+                        received.append(touser)
+                        return {"errcode":0,"msgid":"file-1"}
+                notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"test", "attachment":{"filename":filename,"downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"file-fixture","wechatUserId":"single-test"}]}
+                post=lambda path,body:{"notifications":[notification]} if path.endswith("claim") else {}
+                service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,Pusher())
+                service._get_attachment=lambda path:b"PK-test"
+                self.assertEqual(service.run_once()["sent"],1)
+        self.assertEqual(received,["single-test"]*3)
+
+    def test_chinese_name_exception_is_scoped_and_rejects_unsafe_paths(self):
+        from unittest.mock import Mock
+        names=["其他模块中文.xlsx", "../订单分配_261014164230_张三.xlsx", "订单分配_261014164230_../张三.xlsx", "订单分配_261014164230_张三\\name.xlsx", "订单分配_261014164230_张三\n.xlsx", "订单分配_261014164230_"+"名"*100+".xlsx", "订单分配_错误时间_张三.xlsx"]
+        for filename in names:
+            with self.subTest(filename=filename):
+                notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"test", "attachment":{"filename":filename,"downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"unsafe-fixture","wechatUserId":"single-test"}]}
+                post=lambda path,body:{"notifications":[notification]} if path.endswith("claim") else {}
+                pusher=Mock()
+                service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,pusher)
+                service._get_attachment=Mock()
+                self.assertEqual(service.run_once()["failed"],1)
+                service._get_attachment.assert_not_called()
+                pusher.send_app_file.assert_not_called()
 
     def test_success_receipt_prevents_resend_after_callback_failure(self):
         import tempfile

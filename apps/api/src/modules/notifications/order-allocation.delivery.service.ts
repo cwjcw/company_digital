@@ -6,6 +6,20 @@ import { ALLOCATION_FIELDS, type AllocationChange } from "../master-plan-system/
 import { resolveAllocationRoutes, type AllocationRoute } from "./order-allocation.routing";
 import type { NotificationClaim } from "./notification.types";
 
+export function allocationAttachmentFilename(route:Pick<AllocationRoute,"displayName"|"identities">,occurredAt:string,part=1,totalParts=1,uniqueSuffix="") {
+  const date=new Date(occurredAt);
+  if(!Number.isFinite(date.getTime()))throw new ConflictException("订单分配通知时间无效");
+  const timeParts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Shanghai",year:"2-digit",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(date);
+  const stamp=["year","month","day","hour","minute","second"].map(key=>timeParts.find(p=>p.type===key)!.value).join("");
+  const personal=route.identities.some(identity=>identity.startsWith("业务员 ")||identity.startsWith("受控测试"));
+  const units=[...new Set(route.identities.map(identity=>identity.replace(/（(?:调入|调出)）$/,"")))];
+  const identity=!personal&&units.length===1?units[0]:route.displayName;
+  const name=Array.from(identity.normalize("NFC").replace(/[<>:"/\\|?*]/g,"_")).filter(c=>c.codePointAt(0)!>=32&&c.codePointAt(0)!==127).slice(0,40);
+  const tail=`${uniqueSuffix?`_${uniqueSuffix.replace(/[^a-zA-Z0-9_-]/g,"").slice(0,80)}`:""}${totalParts>1?`_P${part}`:""}.xlsx`;
+  let label=name.join("").trim().replace(/[. ]+$/,"")||"接收人";
+  while(Buffer.byteLength(`订单分配_${stamp}_${label}${tail}`,"utf8")>255)label=Array.from(label).slice(0,-1).join("");
+  return `订单分配_${stamp}_${label}${tail}`;
+}
 export function allocationSummary(route: AllocationRoute, payload: Record<string,unknown>) {
   const created=route.changes.filter(c=>!c.before).length, updated=route.changes.length-created;
   const time=new Date(String(payload.occurredAt)).toLocaleString("sv-SE",{timeZone:"Asia/Shanghai"});
@@ -19,7 +33,7 @@ export async function allocationWorkbook(changes:AllocationChange[],actorName:st
     if(ALLOCATION_FIELDS.find(f=>f[0]===key)?.[2]==="date")return new Date(`${String(value).slice(0,10)}T00:00:00Z`);
     return safe(value); // explicit text keeps codes and exact decimals; no formula objects
   };
-  for(const [name,rows] of [["新增订单",changes.filter(c=>!c.before)],["变更后数据",changes.filter(c=>c.before)]] as const) {
+  for(const [name,rows] of [["新增订单",changes.filter(c=>!c.before)],["变更订单",changes.filter(c=>c.before)]] as const) {
     const sheet=book.addWorksheet(name);sheet.columns=ALLOCATION_FIELDS.map(([key,label,type])=>({header:label,key,width:type==="date"?16:22,...(type==="date"?{style:{numFmt:"yyyy-mm-dd"}}:{})}));
     for(const change of rows) sheet.addRow(Object.fromEntries(ALLOCATION_FIELDS.map(([key])=>[key,display(key,key==="divisionId"?change.after.divisionName??change.after[key]:change.after[key])])));
   }
@@ -77,7 +91,11 @@ export class OrderAllocationDeliveryService {
       if(!attachments.length) {
         const parts=await allocationWorkbookParts(route.changes,String(payload.actorName),String(payload.occurredAt));
         for(const [index,content] of parts.entries()) {
-          const filename=`PMC_Order_Changes_${String(payload.batchId).replace(/-/g,"")}_${route.userId.replace(/-/g,"")}_P${index+1}.xlsx`;
+          const occurredAt=String(payload.occurredAt);
+          let filename=allocationAttachmentFilename(route,occurredAt,index+1,parts.length);
+          const sameName=routing.recipients.some(other=>other.userId!==route.userId&&allocationAttachmentFilename(other,occurredAt)===allocationAttachmentFilename(route,occurredAt));
+          const [existingName]=await m.query("SELECT id FROM notification_attachments WHERE tenant_id=$1 AND filename=$2 LIMIT 1",[tenantId,filename]);
+          if(sameName||existingName)filename=allocationAttachmentFilename(route,occurredAt,index+1,parts.length,`${String(payload.batchId).replace(/-/g,"")}_${route.userId.replace(/-/g,"")}`);
           const [attachment]=await m.query(`INSERT INTO notification_attachments(tenant_id,notification_outbox_id,recipient_user_id,filename,part,content,sha256) VALUES($1,$2::uuid,$3::uuid,$4,$5,$6,$7) RETURNING id,filename,part`,[tenantId,outbox.id,route.userId,filename,index+1,content,createHash("sha256").update(content).digest("hex")]);attachments.push(attachment);
         }
       }

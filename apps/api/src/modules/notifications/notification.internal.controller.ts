@@ -19,7 +19,7 @@ export class NotificationInternalController {
     if(!this.allocationDelivery) throw new BadRequestException("附件服务未配置");
     const file=await this.allocationDelivery.attachment(this.tenant(request),id,attachmentId,this.worker(request));
     response.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    response.setHeader("Content-Disposition",`attachment; filename="${file.filename}"`);
+    response.setHeader("Content-Disposition",`attachment; filename="order-allocation.xlsx"; filename*=UTF-8''${encodeURIComponent(file.filename).replace(/['()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`);
     response.setHeader("Cache-Control","no-store");response.send(file.content);
   }
 
