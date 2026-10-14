@@ -61,7 +61,7 @@ function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?:
 
 function FieldInput({ field, resource, organizations = [], users = [], weeklyPlans = [], ...control }: { field: TablePermissionFieldDefinition; resource?: string; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[]; weeklyPlans?: Array<{ id: string; label: string }> } & Record<string, any>) {
   if (field.type === "boolean") return <Switch {...control} />;
-  if (field.type === "number") return <InputNumber {...control} min={0} precision={field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
+  if (field.type === "number") return <InputNumber {...control} min={0} stringMode={["financialExchangeRate", "settlementRatio"].includes(field.key)} precision={["financialExchangeRate", "settlementRatio"].includes(field.key) ? 8 : field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker {...control} style={{ width: "100%" }} />;
   if (field.key === "weeklyPlanId") return <Select {...control} showSearch optionFilterProp="label" placeholder="按订单编号、品项或交期编码选择" options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} />;
   if (field.type === "dictionary" && field.options?.length) return <Select {...control} options={field.options} />;
