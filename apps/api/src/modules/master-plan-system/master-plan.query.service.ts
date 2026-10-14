@@ -136,6 +136,10 @@ export class MasterPlanQueryService {
       joins.push(`LEFT JOIN organization_units division ON division.id=record.${allColumns[resource.divisionField]}`);
       selected.push(`division.name "divisionName"`);
     }
+    if (resource.code === "mps-order-allocations" && visibleFields.includes("importedBy")) {
+      joins.push("LEFT JOIN users import_actor ON import_actor.tenant_id=record.tenant_id AND import_actor.id=record.imported_by");
+      selected.push(`COALESCE(NULLIF(import_actor.display_name,''),import_actor.username) "importedByName"`);
+    }
     if (resource.code === "mps-weekly-process-plans" && visibleFields.includes("weeklyPlanId")) {
       joins.push("LEFT JOIN mps_weekly_plans weekly_reference ON weekly_reference.tenant_id=record.tenant_id AND weekly_reference.id=record.weekly_plan_id");
       selected.push(`concat_ws(' / ',weekly_reference.order_number,weekly_reference.item_code,weekly_reference.item_name,'交期编码'||weekly_reference.delivery_number::text) "weeklyPlanLabel"`);

@@ -81,6 +81,8 @@ function display(value: unknown, field: TablePermissionFieldDefinition, row: any
   if (field.type === "dictionary" && value != null) return field.options?.find((option) => option.value === String(value))?.label ?? String(value);
   if (field.type === "date" && value) return dayjs(String(value)).format("YYYY-MM-DD");
   /* KN-MPS-WO-001：简图列保持紧凑，绝不把附件 JSON 原样铺进表格。 */
+  if (field.key === "importedBy") return row?.importedByName ?? (value?"未匹配操作人":"—");
+  if (field.type === "datetime") return value?new Date(String(value)).toLocaleString("sv-SE",{timeZone:"Asia/Shanghai"}):"—";
   if (field.type === "attachment") {
     const items = Array.isArray(value) ? value : [];
     if (!items.length) return "—";
@@ -429,7 +431,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSaving, setBatchSaving] = useState(false);
   const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
   const [executionRefreshRow, setExecutionRefreshRow] = useState<any | null>(null);
-  const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification:string;fields:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification:string;fields:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
@@ -564,7 +566,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       refresh();
     } finally { setBatchSaving(false); }
   };
-  const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
+  const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number; skipped?: boolean; reason?: string }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
   const executionRefreshMutation = useMutation({ mutationFn: (weeklyPlanId: string) => api<{ id: string; version: number }>(`/master-plan-system/resources/mps-weekly-plans/${weeklyPlanId}/refresh-execution`, { method: "POST" }) });
   const refreshBaseToWeeklyResources = useCallback(async () => {
     await Promise.all(baseToWeeklyRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
@@ -572,6 +574,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const runManualSync = useCallback(async (syncKey: string) => {
     try {
       const result = await syncMutation.mutateAsync(syncKey);
+      if (result.skipped) { message.info(result.reason ?? "该对账已停用"); return; }
       if (syncKey === "base-to-weekly") {
         message.success(result.count > 0 ? `同步到周计划完成，共处理 ${result.count} 条变更` : "同步完成，没有需要更新的数据");
         await refreshBaseToWeeklyResources();
@@ -782,6 +785,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       {importError && <Alert type="error" showIcon message="导入失败" description={<span style={{ whiteSpace: "pre-line" }}>{importError.replace(/^导入失败\n\n/, "")}</span>} style={{ marginBottom: 12 }} />}
       {importPreview && <>
       <p>共解析 {importPreview?.total ?? 0} 条{importPreview.orderCount!=null?`，${importPreview.orderCount}个订单`:""}。确认后整批事务提交。</p>
+      {importPreview.importBatchId&&<p>导入批次：{importPreview.importBatchId}；文件数据行 {importPreview.fileTotalRows??importPreview.total} 条，有效行 {importPreview.validRows??importPreview.total} 条。本批全部按新增处理，保留每条原始行。</p>}
+      {importPreview.quantitySource&&<p>数量来源：{importPreview.quantitySource==="ERP_UNALLOCATED"?"ERP未分配数量 → 已分配数量（忽略ERP已分配数量）":"KDOS已分配数量"}</p>}
+      {importPreview.ignoredIdentity&&<Alert type="info" message="源文件记录ID和版本不用于更新历史数据；新增记录将生成新的系统ID。"/>}
+      {importPreview.repeatedFile&&<Alert type="info" message="检测到该文件内容曾在其他批次导入。本次确认后仍将作为新的独立批次新增全部记录。"/>}
       {importPreview.counts&&<Space wrap><Tag>新增 {importPreview.counts.created}</Tag><Tag>变更 {importPreview.counts.updated}</Tag><Tag>无变化 {importPreview.counts.unchanged}</Tag><Tag color="error">异常 {importPreview.counts.errors}</Tag></Space>}
       {importPreview.byDivision&&<p>承接事业部：{importPreview.byDivision.map(g=>`${(organizations.data??[]).find(o=>o.id===g.name)?.name??g.name} ${g.count}条`).join("；")}</p>}
       {importPreview.bySalesperson&&<p>业务员：{importPreview.bySalesperson.map(g=>`${g.name} ${g.count}条`).join("；")}</p>}

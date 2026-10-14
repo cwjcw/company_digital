@@ -18,6 +18,14 @@ type ImportRow = { row: number; id: string | null; expectedVersion: number | nul
 const legacyFieldAliases: Record<string, string[]> = { orderDate: ["订单日期"], exceptionText: ["异常说明"] };
 const unreadableSpreadsheetMessage = "Excel 未解密或文件损坏，请解密或检查确保文件正确后导入。";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const allocationTemplateNotes = [
+  "每次上传并确认都会建立独立批次；每条有效源行独立新增，即使订单号、品号、序号或整行内容相同。",
+  "同一次预览重复确认不会重复新增。重新上传相同文件将新增另一批次，请在预览核对。",
+  "ERP两列同时存在时，仅取未分配数量映射已分配数量；KDOS模板只填写已分配数量，不允许留空。",
+  "数量公式仅读取已保存的缓存结果；错误或缺少缓存请在Excel重新计算、保存后再上传。",
+  "旧导出的记录ID和版本会被忽略；修改历史记录请在页面按记录编辑。批次来源信息由系统维护。",
+  "金额及单价不导入。上传后先预览校验，再由用户确认整批提交；单次最多50000行。"
+];
 const pendingTemplateNotes = [
   "待报工任务导入：一行表示对一条待报工任务进行一次新的实际报工（CREATE 报工记录），不会覆盖历史报工。",
   "本次报工数量、生产日期由用户填写；订单编号、品项编码、品项名称、工序、计划数量、累计报工、剩余数量仅用于核对，请勿修改。",
@@ -65,7 +73,7 @@ export class MasterPlanSpreadsheetService {
       return this.workbook(this.pendingTemplateLabel(resource.code), fields as never, rows, pendingTemplateNotes);
     }
     const fields = this.importFields(resource, code, actor);
-    return this.workbook(resource.code, fields, []);
+    return this.workbook(resource.code, fields, [], code==="mps-order-allocations"?allocationTemplateNotes:undefined, {includeIdentityColumns:code!=="mps-order-allocations"});
   }
 
   async export(code: string, input: Record<string, unknown>, actor: MasterPlanActor) {
@@ -73,7 +81,8 @@ export class MasterPlanSpreadsheetService {
     const result = await this.queries.exportRows(code, input, actor);
     const excluded = new Set(exportExcludedFields[resource.code] ?? []);
     const fields = fieldsFor(resource).filter((field) => result.visibleFields.includes(field.key) && !excluded.has(field.key));
-    return this.workbook(resource.code, fields, result.rows, exportNotes[resource.code], {
+    return this.workbook(resource.code, fields, result.rows, code==="mps-order-allocations"?allocationTemplateNotes:exportNotes[resource.code], {
+      includeIdentityColumns:code!=="mps-order-allocations",
       hideIdentityColumns: resource.code === "mps-three-day-work-orders",
       highlightEditableColumns: resource.code === "mps-three-day-work-orders"
     });
@@ -172,7 +181,9 @@ export class MasterPlanSpreadsheetService {
       const [preview] = await manager.query(`SELECT * FROM mps_import_previews WHERE id=$1::uuid AND tenant_id=$2 AND user_id=$3::uuid AND resource=$4 FOR UPDATE`, [previewId, actor.tenantId, actor.userId, code]);
       if (!preview) throw new BadRequestException("导入预览已过期、无权访问或不存在，请重新上传。");
       if (preview.confirmed_at) return { ...preview.confirmation_result, repeated: true };
-      const result = await this.application.importUpdates(code, preview.payload_json.rows, code === "mps-order-allocations" ? `${preview.file_hash}:${preview.id}` : preview.file_hash, actor, manager);
+      const result = code === "mps-order-allocations"
+        ? await this.application.importUpdates(code, preview.payload_json.rows, `${preview.file_hash}:${preview.id}`, actor, manager, {id:preview.payload_json.importBatchId,worksheet:preview.payload_json.sourceWorksheet,fileHash:preview.file_hash})
+        : await this.application.importUpdates(code, preview.payload_json.rows, preview.file_hash, actor, manager);
       await manager.query("UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid", [previewId, JSON.stringify(result), actor.userId]);
       return result;
     });
@@ -182,69 +193,61 @@ export class MasterPlanSpreadsheetService {
   private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
     for (const [key] of ALLOCATION_FIELDS) if (!hasMasterPlanFieldPermission(actor,"mps-order-allocations",key,"read")) throw new ForbiddenException("导入预览需要全部非金额业务字段的读取权限");
-    const parsed = await parseAllocationWorkbook(file.buffer);
-    const errors = [...parsed.errors];
-    const resolved = await this.dataSource.transaction(async manager=>{
+    const parsed=await parseAllocationWorkbook(file.buffer),errors=[...parsed.errors];
+    const hash=createHash("sha256").update(file.buffer).digest("hex");
+    const resolved=await this.dataSource.transaction(async manager=>{
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-      const existing = await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=ANY($2::text[])",[actor.tenantId,[...new Set(parsed.rows.map(r=>r.values.orderNumber))]]);
-      const vendors = await manager.query("SELECT supplier_name,division_id FROM mps_allocation_vendor_mappings WHERE tenant_id=$1 AND enabled=true",[actor.tenantId]);
-      const organizations = await this.directory.listEnabled();
-      const conflicts: Array<Record<string,unknown>>=[];
-      const changes: ReturnType<typeof allocationChange>[]=[];
-      const rows = parsed.rows.map(input=>{
-        const values={...input.values};const current=existing.find((e:Record<string,unknown>)=>e.order_number===values.orderNumber&&e.item_code===values.itemCode);
-        if(current&&!this.application.allocationImportRecordAllowed(current,actor)) {
-          errors.push({row:input.row,reason:"当前数据范围不允许预览或修改该订单分配"});
-          return {row:input.row,id:null,expectedVersion:null,values,classification:"ERROR",fields:[]};
-        }
-        if(input.id && (!current || current.id!==input.id))errors.push({row:input.row,reason:"记录ID与订单品号不一致"});
-        if(input.expectedVersion && Number(current?.version)!==input.expectedVersion)errors.push({row:input.row,reason:"记录版本已变化，请重新导出"});
-        const seqConflict=values.orderSequence&&existing.find((e:Record<string,unknown>)=>e.order_number===values.orderNumber&&e.order_sequence===values.orderSequence&&e.item_code!==values.itemCode);
-        if(seqConflict)errors.push({row:input.row,reason:"订单序号与现有品号冲突，不能自动覆盖"});
-        if(current?.order_sequence&&values.orderSequence&&current.order_sequence!==values.orderSequence)errors.push({row:input.row,reason:"同一品号订单序号变化，可能存在分拆，请复核"});
-        if(values.supplierName) {
+      const [{id:importBatchId}]=await manager.query("SELECT uuidv7() AS id");
+      const vendors=await manager.query("SELECT supplier_name,division_id FROM mps_allocation_vendor_mappings WHERE tenant_id=$1 AND enabled=true",[actor.tenantId]);
+      const organizations=await this.directory.listEnabled();
+      const conflicts:Array<Record<string,unknown>>=[],changes:ReturnType<typeof allocationChange>[]=[];
+      const rows=parsed.rows.map(input=>{
+        const values={...input.values};
+        if(values.divisionId){try{values.divisionId=this.directory.resolve(values.divisionId,organizations,"承接事业部")?.id;}catch{errors.push({row:input.row,reason:"承接事业部无法精确匹配"});}}
+        if(values.supplierName){
           const map=vendors.find((v:Record<string,unknown>)=>v.supplier_name===values.supplierName);
           if(!map)errors.push({row:input.row,reason:`供应商名称未配置有效映射：${values.supplierName}`});
-          else if(!organizations.some(o=>o.id===map.division_id)) errors.push({row:input.row,reason:"供应商映射的承接单位不存在或已停用"});
-          else values.divisionId=map.division_id;
-        } else if(values.divisionId) {
-          try {values.divisionId=this.directory.resolve(values.divisionId,organizations,"承接事业部")?.id;} catch {errors.push({row:input.row,reason:"承接事业部无法精确匹配"});}
+          else if(!organizations.some(o=>o.id===map.division_id))errors.push({row:input.row,reason:"供应商映射的承接单位不存在或已停用"});
+          else if(values.divisionId&&values.divisionId!==map.division_id){
+            conflicts.push({row:input.row,before:organizations.find(u=>u.id===values.divisionId)?.name??values.divisionId,after:organizations.find(u=>u.id===map.division_id)?.name??map.division_id,overridden:overrideDivision});
+            if(overrideDivision){
+              if(!hasMasterPlanFieldPermission(actor,"mps-order-allocations","divisionId","update"))errors.push({row:input.row,reason:"没有覆盖承接事业部的修改权限"});
+              values.divisionId=map.division_id;
+            }
+          }else values.divisionId=map.division_id;
         }
-        if(current?.division_id&&values.divisionId&&current.division_id!==values.divisionId) {
-          conflicts.push({row:input.row,before:organizations.find(u=>u.id===current.division_id)?.name??current.division_id,after:organizations.find(u=>u.id===values.divisionId)?.name??values.divisionId,overridden:overrideDivision});
-          if(!overrideDivision)values.divisionId=current.division_id;
-          else if(!hasMasterPlanPermission(actor,"mps-order-allocations","update")||!hasMasterPlanFieldPermission(actor,"mps-order-allocations","divisionId","update"))errors.push({row:input.row,reason:"没有覆盖承接事业部的修改权限"});
-        }
-        if(!current && values.allocatedQuantity == null) values.allocatedQuantity = "0"; // existing schema default: blank source is unallocated, never inferred from ordered quantity
-        const after={...(current??{}),...Object.fromEntries(Object.entries(values).map(([k,v])=>[allocationColumn(k),v])),id:current?.id??`row-${input.row}`};
-        const change=allocationChange(current??null,after); if(change.fields.length)changes.push(change);
-        const classification=!current?"NEW":change.fields.length?"CHANGED":"UNCHANGED";
-        return {row:input.row,id:current?.id??null,expectedVersion:current?Number(current.version):null,values,classification,fields:change.fields.map(f=>f.key==="divisionId"?{...f,before:organizations.find(u=>u.id===f.before)?.name??f.before,after:organizations.find(u=>u.id===f.after)?.name??f.after}:f)};
+        const after={...Object.fromEntries(Object.entries(values).map(([k,v])=>[allocationColumn(k),v])),id:`row-${input.row}`};
+        const change=allocationChange(null,after);changes.push(change);
+        return {row:input.row,id:null,expectedVersion:null,values,classification:"NEW",fields:change.fields.map(f=>f.key==="divisionId"?{...f,after:organizations.find(u=>u.id===f.after)?.name??f.after}:f)};
       });
       const routing=await resolveAllocationRoutes(manager,actor.tenantId,changes);
-      return {rows,conflicts,routing};
+      const [history]=await manager.query(`SELECT EXISTS(SELECT 1 FROM mps_allocation_import_batches WHERE tenant_id=$1 AND file_hash=$2) OR EXISTS(
+        SELECT 1 FROM mps_import_previews WHERE tenant_id=$1 AND resource='mps-order-allocations' AND file_hash=$2 AND confirmed_at IS NOT NULL) AS repeated`,[actor.tenantId,hash]);
+      return {rows,conflicts,routing,importBatchId,repeatedFile:history.repeated};
     });
     if(!errors.length)errors.push(...await this.application.validateImportUpdates("mps-order-allocations",resolved.rows,actor));
-    const errorRows = new Set(errors.map(e=>e.row));
-    for (const row of resolved.rows) if(errorRows.has(row.row)) row.classification="ERROR";
-    const counts={created:resolved.rows.filter(r=>r.classification==="NEW").length,updated:resolved.rows.filter(r=>r.classification==="CHANGED").length,unchanged:resolved.rows.filter(r=>r.classification==="UNCHANGED").length,errors:new Set(errors.map(e=>e.row)).size};
+    const errorRows=new Set(errors.map(e=>e.row));for(const row of resolved.rows)if(errorRows.has(row.row)){row.classification="ERROR";row.fields=[];}
+    const counts={created:resolved.rows.filter(r=>r.classification==="NEW").length,updated:0,unchanged:0,errors:errorRows.size};
     const group=(key:string)=>Object.entries(resolved.rows.reduce((m:Record<string,number>,r)=>{const k=String(r.values[key]??"未填写");m[k]=(m[k]??0)+1;return m;},{})).map(([name,count])=>({name,count}));
     let previewId=null;
-    if(!errors.length) {
+    if(!errors.length){
       if(!actor.userId)throw new ForbiddenException("当前用户身份无效");
       const [preview]=await this.dataSource.transaction(async manager=>{
         await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-        return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by) VALUES($1,$2::uuid,'mps-order-allocations',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,createHash("sha256").update(file.buffer).digest("hex"),JSON.stringify({rows:resolved.rows.map(({row,id,expectedVersion,values})=>({row,id,expectedVersion,values})),overrideDivision})]);
+        return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by) VALUES($1,$2::uuid,'mps-order-allocations',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,hash,JSON.stringify({rows:resolved.rows.map(({row,id,expectedVersion,values})=>({row,id,expectedVersion,values})),importBatchId:resolved.importBatchId,sourceWorksheet:parsed.sourceWorksheet,overrideDivision})]);
       });previewId=preview.id;
     }
-    return {total:parsed.rows.length,orderCount:parsed.orderCount,errors,counts,previewId,rows:resolved.rows,conflicts:resolved.conflicts,byDivision:group("divisionId"),bySalesperson:group("salespersonName"),recipients:resolved.routing.recipients.map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities,hasWechatId:Boolean(r.wechatUserId)})),recipientErrors:resolved.routing.errors};
+    return {previewId,total:resolved.rows.length,fileTotalRows:parsed.fileTotalRows,validRows:counts.created,orderCount:parsed.orderCount,importBatchId:resolved.importBatchId,quantitySource:parsed.quantitySource,ignoredIdentity:parsed.ignoredIdentity,repeatedFile:resolved.repeatedFile,
+      errors,counts,rows:resolved.rows,conflicts:resolved.conflicts,byDivision:group("divisionId"),bySalesperson:group("salespersonName"),
+      recipients:(errors.length?[]:resolved.routing.recipients).map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities})),recipientErrors:resolved.routing.errors};
   }
 
-  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean } = {}) {
+  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean; includeIdentityColumns?: boolean } = {}) {
     const workbook = new ExcelJS.Workbook(); workbook.creator = "KDOS 主计划系统";
     const sheet = workbook.addWorksheet(label.slice(0, 31));
+    const firstBusinessColumn=options.includeIdentityColumns===false?1:3;
     sheet.columns = [
-      { header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 },
+      ...(options.includeIdentityColumns===false?[]:[{ header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 }]),
       /* 日期列统一按 yyyy-mm-dd 显示（用户看到 2026-09-20，而不是序列号或带时间的日期）。 */
       ...fields.map((field) => ({
         header: field.label, key: field.key, width: field.type === "date" ? 14 : 20,
@@ -252,16 +255,16 @@ export class MasterPlanSpreadsheetService {
         ...(this.isProductionProgressField(field) ? { style: { numFmt: "0.#%" } } : {})
       }))
     ];
-    if (options.hideIdentityColumns) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
+    if (options.hideIdentityColumns && options.includeIdentityColumns!==false) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
     const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
     /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
-    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, this.displayValue(field, row[field.key], organizationPaths)])) });
+    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, field.key==="importedBy"?row.importedByName??(row.importedBy?"未匹配操作人":null):this.displayValue(field, row[field.key], organizationPaths)])) });
     /* 需要人工填写的列给一个简洁的浅色底纹，明确「可填写区域」。 */
-    if (options.highlightEditableColumns) for (const row of sheet.getRows(2, Math.max(rows.length, 1)) ?? []) fields.forEach((field, index) => { if (field.editable) row.getCell(index + 3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7E0" } }; });
+    if (options.highlightEditableColumns) for (const row of sheet.getRows(2, Math.max(rows.length, 1)) ?? []) fields.forEach((field, index) => { if (field.editable) row.getCell(index + firstBusinessColumn).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7E0" } }; });
     sheet.getRow(1).font = { bold: true }; sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }]; sheet.autoFilter = { from: "A1", to: sheet.getRow(1).getCell(sheet.columnCount).address };
     const schema = workbook.addWorksheet("_字段定义", { state: "veryHidden" });
     schema.addRow(["resource", label]); schema.addRow(["fieldKey", "column", "templateLabel"]);
-    [{ key: "id", label: "记录ID" }, { key: "version", label: "版本" }, ...fields].forEach((field, index) => schema.addRow([field.key, index + 1, field.label]));
+    [...(options.includeIdentityColumns===false?[]:[{ key: "id", label: "记录ID" }, { key: "version", label: "版本" }]), ...fields].forEach((field, index) => schema.addRow([field.key, index + 1, field.label]));
     const optionSheet = workbook.addWorksheet("_选项", { state: "veryHidden" }); let optionColumn = 1;
     for (const [fieldIndex, field] of fields.entries()) {
       let options = field.options ?? [];
@@ -272,7 +275,7 @@ export class MasterPlanSpreadsheetService {
       options.forEach((option, index) => { optionSheet.getCell(index + 2, optionColumn).value = option.label; });
       const letter = optionSheet.getCell(1, optionColumn).address.replace(/\d+/g, ""); const name = `mps_options_${optionColumn}_${fieldIndex}`;
       workbook.definedNames.add(`'_选项'!$${letter}$2:$${letter}$${options.length + 1}`, name);
-      const targetLetter = sheet.getCell(1, fieldIndex + 3).address.replace(/\d+/g, "");
+      const targetLetter = sheet.getCell(1, fieldIndex + firstBusinessColumn).address.replace(/\d+/g, "");
       (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, { type: "list", allowBlank: !field.required, formulae: [name], showErrorMessage: true, errorTitle: "选项无效", error: `请选择${field.label}下拉选项` });
       optionColumn++;
     }
@@ -282,7 +285,7 @@ export class MasterPlanSpreadsheetService {
      */
     for (const [fieldIndex, field] of fields.entries()) {
       if (field.type !== "date") continue;
-      const targetLetter = sheet.getCell(1, fieldIndex + 3).address.replace(/\d+/g, "");
+      const targetLetter = sheet.getCell(1, fieldIndex + firstBusinessColumn).address.replace(/\d+/g, "");
       (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, {
         type: "date", operator: "between", allowBlank: true,
         formulae: [new Date(Date.UTC(2000, 0, 1)), new Date(Date.UTC(2100, 11, 31))],
@@ -313,6 +316,7 @@ export class MasterPlanSpreadsheetService {
   private displayValue(field: TablePermissionFieldDefinition, raw: unknown, organizationPaths: Map<string, string>) {
     if (raw == null || raw === "") return null;
     if (field.type === "department") return organizationPaths.get(String(raw)) ?? raw;
+    if (field.type === "datetime") return new Date(String(raw)).toLocaleString("sv-SE",{timeZone:"Asia/Shanghai"});
     if (field.type === "boolean") return raw === true ? "是" : raw === false ? "否" : raw;
     /* KN-MPS-WO-001：日期按真正的日期单元格导出（配合 yyyy-mm-dd 数字格式），用户看到 2026-09-20 而不是序列号。 */
     if (field.type === "date") return this.excelDate(raw);

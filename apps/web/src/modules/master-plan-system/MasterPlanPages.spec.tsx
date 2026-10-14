@@ -772,3 +772,25 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
     expect(headers.indexOf("异常")).toBeGreaterThan(headers.indexOf("包装"));
   }, 20_000);
 });
+
+
+describe("allocation append preview", () => {
+  it("shows batch append, quantity mapping, repeated-file and ignored-identity notices", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return {resource:"mps-order-allocations",fields:[],createFields:[],actions:{import:true}} as never;
+      if (path.startsWith("/master-plan-system/resources/mps-order-allocations?")) return {rows:[],total:0} as never;
+      if (path.endsWith("/import-preview")) return {total:2,fileTotalRows:3,validRows:2,orderCount:1,importBatchId:"synthetic-batch",quantitySource:"ERP_UNALLOCATED",ignoredIdentity:true,repeatedFile:true,errors:[],rows:[],previewId:"synthetic-preview",counts:{created:2,updated:0,unchanged:0,errors:0}} as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const {container}=renderPage("mps-order-allocations");
+    await screen.findByText("导入");
+    fireEvent.change(container.querySelector('input[type="file"]')!,{target:{files:[new File(["fixture"],"allocation.xlsx")]}});
+    const dialog=await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/导入批次：synthetic-batch/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/ERP未分配数量 → 已分配数量/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/源文件记录ID和版本不用于更新历史数据/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/新的独立批次新增全部记录/)).toBeInTheDocument();
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining("import-confirm"),expect.anything());
+  },15_000);
+});

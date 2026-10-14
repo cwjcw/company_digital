@@ -12,7 +12,7 @@ export type MasterPlanResource = {
 export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-erp-orders", table: "mps_erp_order_lines", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code" },
   { code: "mps-customer-divisions", table: "mps_customer_division_mappings", create: true, remove: true, defaultOrder: "customer_code", divisionField: "primaryDivisionId", requiredOnCreate: ["customerCode", "primaryDivisionId"], uniqueKeyFields: ["customerCode"] },
-  { code: "mps-order-allocations", table: "mps_order_allocations", create: true, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "allocatedQuantity", "divisionId"], uniqueKeyFields: ["orderNumber", "itemCode"] },
+  { code: "mps-order-allocations", table: "mps_order_allocations", create: true, remove: false, defaultOrder: "order_date DESC,order_number,item_code,created_at DESC,id", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "allocatedQuantity", "divisionId"], uniqueKeyFields: [] },
   { code: "mps-process-cycles", table: "mps_process_cycles", create: true, remove: true, defaultOrder: "item_code", requiredOnCreate: ["itemCode"], uniqueKeyFields: ["itemCode"] },
   { code: "mps-group-plans", table: "mps_group_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number", divisionField: "primaryDivisionId" },
   { code: "mps-monthly-plans", table: "mps_monthly_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId" },
