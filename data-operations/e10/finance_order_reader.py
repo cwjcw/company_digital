@@ -27,10 +27,13 @@ def normalize(v):
     return str(v) if v is not None and not isinstance(v,(str,int,float,bool)) else v
 
 def extract(emit, checkpoint=None, since=None):
-    sys.path.insert(0,os.getenv('RD_BASIC_CODE_ROOT','/data/automation/code/work/basci/basic_code'))
+    basic_root=Path(os.getenv('RD_BASIC_CODE_ROOT','/data/automation/code/work/basci/basic_code'))
+    sys.path.insert(0,str(basic_root))
     with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
-        from basic_code import MSSQLDatabase
-        db=MSSQLDatabase(autoconnect=False); con=db._connect_pytds()
+        # Match the existing rd_reader: importing the toolkit package also loads WeChat-only dependencies.
+        from sql_server import MSSQLDatabase
+        env_file=basic_root/'.env'
+        db=MSSQLDatabase(env_path=str(env_file) if os.access(env_file,os.R_OK) else '/dev/null',autoconnect=False); con=db._connect_pytds()
     con.autocommit=True
     cur=con.cursor();cur.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED; SET LOCK_TIMEOUT 5000; SET NOCOUNT ON')
     def query(sql,params=()):

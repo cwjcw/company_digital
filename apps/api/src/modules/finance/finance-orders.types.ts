@@ -11,7 +11,7 @@ export function orderColumns(resource:string) {
 export function orderPermission(a:TableFilterActor,r:string,action='read'){return financeAdmin(a)||a.permissions.includes(`${r}:*:${action}`)||a.permissions.includes(`${r}:*:*`);}
 export function orderAuthorize(a:TableFilterActor,r:string,action='read'){if(!orderPermission(a,r,action))throw new ForbiddenException('当前权限组不能执行销售订单统计操作');}
 export function orderField(a:TableFilterActor,r:string,f:string){return financeAdmin(a)||a.permissions.includes(`${r}:${f}:read`);}
-export function orderScope(a:TableFilterActor,r:string,p:unknown[],action='read'){return financeAdmin(a)?'1=1':buildDataScopeClause({resource:r,columns:orderColumns(r),actor:{...a,moduleAdminCodes:[]},params:p,action});}
+export function orderScope(a:TableFilterActor,r:string,p:unknown[],action='read'){return financeAdmin(a)?'1=1':buildDataScopeClause({resource:r,columns:orderColumns(r),actor:{...a,moduleAdminCodes:[]},params:p,action,numericFields:(r==='finance-e10-lines'?financeOrderFields:r==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields).filter(f=>f.type==='number').map(f=>f.key)});}
 export function orderContext(context:Record<string,unknown>,p:unknown[],resource:string){
  const allowed=['year','month','dateFrom','dateTo','departmentCategory','salesChannel','customerCode','salesperson'];
  if(Object.keys(context).some(k=>!allowed.includes(k)))throw new BadRequestException('销售订单统计上下文无效');

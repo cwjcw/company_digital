@@ -9,9 +9,12 @@ export function buildDataScopeClause(input: {
   resource: string; action?: string; columns: Record<string, string>; actor: TableFilterActor; params: unknown[]; expression?: (column: string) => string;
   /** JSONB member arrays (for example participant_ids) support CONTAINS CURRENT_USER. */
   memberArrayFields?: string[];
+  /** Explicit numeric metadata for resources whose authorization ranges use monetary/quantity comparisons. */
+  numericFields?: string[];
 }): string {
   const { resource, columns, actor, params } = input;
   const memberArrayFields = new Set(input.memberArrayFields ?? []);
+  const numericFields = new Set(input.numericFields ?? []);
   const action = input.action ?? "read";
   const expression = input.expression ?? ((column: string) => `record.${column}`);
   if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return "1=1";
@@ -31,7 +34,7 @@ export function buildDataScopeClause(input: {
       if (operator === "IN" || operator === "NOT_IN") {
         const values = Array.isArray(value) ? value.map(String).filter(Boolean) : [];
         if (!values.length) return operator === "IN" ? "1=0" : "1=1";
-        params.push(values); return `${target}::text ${operator === "NOT_IN" ? "<> ALL" : "= ANY"}($${params.length}::text[])`;
+        params.push(values); return numericFields.has(String(rule.fieldKey)) ? `${target} ${operator === "NOT_IN" ? "<> ALL" : "= ANY"}($${params.length}::numeric[])` : `${target}::text ${operator === "NOT_IN" ? "<> ALL" : "= ANY"}($${params.length}::text[])`;
       }
       if (value == null) return "";
       if (memberArrayFields.has(String(rule.fieldKey ?? "")) && (operator === "CONTAINS" || operator === "NOT_CONTAINS")) {
@@ -40,7 +43,7 @@ export function buildDataScopeClause(input: {
         return operator === "NOT_CONTAINS" ? `(NOT (${contains}))` : contains;
       }
       const comparisons: Record<string, string> = { EQ: "=", NE: "<>", GT: ">", GTE: ">=", LT: "<", LTE: "<=" };
-      if (comparisons[operator]) { params.push(String(value)); return `${target}::text ${comparisons[operator]} $${params.length}`; }
+      if (comparisons[operator]) { params.push(String(value)); return numericFields.has(String(rule.fieldKey)) ? `${target} ${comparisons[operator]} $${params.length}::numeric` : `${target}::text ${comparisons[operator]} $${params.length}`; }
       if (["CONTAINS", "NOT_CONTAINS", "STARTS_WITH"].includes(operator)) {
         params.push(operator === "STARTS_WITH" ? `${value}%` : `%${value}%`);
         return `COALESCE(${target}::text,'') ${operator === "NOT_CONTAINS" ? "NOT ILIKE" : "ILIKE"} $${params.length}`;

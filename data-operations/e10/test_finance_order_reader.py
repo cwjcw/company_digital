@@ -21,8 +21,8 @@ class Connection:
  def close(self):self.closed=True
 class ReaderTests(unittest.TestCase):
  def run_extract(self,**kwargs):
-  con=Connection();module=types.ModuleType('basic_code');module.MSSQLDatabase=lambda **options:types.SimpleNamespace(database='SYNTHETIC-E10',_connect_pytds=lambda:con);pages=[]
-  with patch.dict(sys.modules,{'basic_code':module}):reader.extract(pages.append,**kwargs)
+  con=Connection();module=types.ModuleType('sql_server');module.MSSQLDatabase=lambda **options:types.SimpleNamespace(database='SYNTHETIC-E10',_connect_pytds=lambda:con);pages=[]
+  with patch.dict(sys.modules,{'sql_server':module}):reader.extract(pages.append,**kwargs)
   return con,pages
  def test_full_uses_2025_order_date_and_stable_uuid_pagination(self):
   con,pages=self.run_extract();queries=[q for q in con.cur.calls if 'TOP (500)' in q[0]]
