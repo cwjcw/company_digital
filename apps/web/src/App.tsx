@@ -39,6 +39,7 @@ import { HrDepartureCheckPage, HrFolderPage } from "./modules/hr/HumanResourcesP
 import { EquipmentDashboardPage, EquipmentRegisterPage, EquipmentStatusReportPage } from "./modules/equipment/EquipmentPages";
 import { hasSessionResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode } from "./shared/KdosDataTable";
 import { BuildVersionLabel } from "./shared/BuildVersion";
+import { OrderAllocationNotificationConfig } from "./modules/master-plan-system/OrderAllocationNotificationConfig";
 import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanPages";
 import { clearKnowledgeDraftCache, flushKnowledgeDrafts } from "./modules/knowledge/knowledge-autosave";
 import { KnowledgeRoutes } from "./modules/knowledge/KnowledgeRoutes";
@@ -226,9 +227,9 @@ function Shell({ logout }: { logout: () => void }) {
         key: `mps-${area}`,
         icon: <FolderOpenOutlined />,
         label: area,
-        children: masterPlanResourceDefinitions.filter((entry) => entry.area === area).map((entry) => ({
+        children: [...masterPlanResourceDefinitions.filter((entry) => entry.area === area).map((entry) => ({
           key: `/master-plan-system/${entry.code}`, icon: <FileExcelOutlined />, label: entry.label
-        }))
+        })), ...(area === "系统运维" && (isSystemAdmin || user.moduleAdminCodes?.includes("planning")) ? [{ key: "/master-plan-system/order-allocation-notification-config", icon: <NotificationOutlined />, label: "订单分配通知配置" }] : [])]
       })) },
       { key: "equipment-management", icon: <ToolOutlined />, label: "设备管理", children: [
         { key: "/equipment-register", icon: <DatabaseOutlined />, label: "设备总台账" },
@@ -287,6 +288,7 @@ function Shell({ logout }: { logout: () => void }) {
   };
   const masterPlanPage = masterPlanResourceDefinitions.find((entry) => location.pathname === `/master-plan-system/${entry.code}`);
   const pageTitle = permissionResource ? `${permissionResource.label} · 权限管理` : masterPlanPage ? masterPlanPage.label : ({
+      "/master-plan-system/order-allocation-notification-config": "订单分配通知配置",
       "/sales-summary-dashboard": "销售接单汇总大屏",
       "/project-task/help/how-to": "如何使用", "/project-task/help/flow": "项目流程图",
       "/project-task/supervision/project-dashboard": "项目管理大屏", "/project-task/supervision/my-tasks": "员工待办大屏",
@@ -339,6 +341,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />
           <Route path="/equipment-status-report" element={<EquipmentStatusReportPage />} />
           <Route path={reportPath} element={<PmcRdProgressPage />} />
+          <Route path="/master-plan-system/order-allocation-notification-config" element={isSystemAdmin || user.moduleAdminCodes?.includes("planning") ? <OrderAllocationNotificationConfig /> : <Navigate to="/" replace />} />
           <Route path="/master-plan-system/:resource" element={<MasterPlanResourceRoute />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />

@@ -1,3 +1,4 @@
+import { OrderAllocationConfigService } from "./order-allocation-config.service";
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
@@ -17,7 +18,13 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService) {}
+
+  @Get("order-allocation-notification-config")
+  allocationNotificationConfig(@Req() request: MasterPlanRequest) { return this.allocationConfig.read(this.actor(request)); }
+
+  @Post("order-allocation-notification-config/:kind")
+  saveAllocationNotificationConfig(@Param("kind") kind: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return kind === "test" ? this.allocationConfig.testDelivery(body, this.actor(request)) : this.allocationConfig.save(kind, body, this.actor(request)); }
 
   @Get("resources/:resource/meta")
   metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.metadata(resource, this.actor(request)); }

@@ -116,3 +116,21 @@
 - 验证：2026-10-14，隔离真实PostgreSQL/合成fixture；生产状态以本机验收报告为准，不在公共Git仓库存放真实财务数量/金额或明细。
 - 2026-10-14日期口径修订：仅91号派生视图迁移改订单级日期MIN，源品项/金额/数量不变；无需运行采集或增加任何周期入口。
 - 仓库调度定义/候选数量未增加。负责人：财务中心/系统维护人员。
+
+## MPS-002 Order allocation change notifications (event driven)
+
+- Entry: MasterPlan Application create/update/batch/import-confirm → transactional `mps.order_allocation.batch_changed` → existing Notification Outbox/API claim → existing MSG-001 user systemd Dispatcher.
+- Trigger: committed nonmoney changes only, once per operation batch; no timer, cron, n8n workflow or application scheduler is added. ERP staging/projection and all existing jobs retain their confirmed schedules.
+- Rule/configuration: canonical PMC allocation rule, initially disabled; dedicated PMC operations configuration. Switch and message center share the same rule state. No disabled-period backfill. Unit and exact-name salesperson routing is tenant scoped and user-ID deduplicated.
+- Identity: authorized actor, frozen allowlisted snapshots, tenant RLS; private per-user XLSX parts. Dispatcher only polls HTTP and calls the shared default-application WeChatPusher. It does not read SQL or resolve business recipients.
+- Concurrency/idempotency: outbox lease/SKIP LOCKED, batch dedup, recipient/component attempt index, immutable attachments, latest-component completion and private provider-success receipts. Business transaction rollback emits nothing. A failed file never resubmits orders or resends successful text.
+- Failure/compensation: existing delivery logs and administrator retry, backoff for provider failure, explicit routing errors (never SENT), media re-upload from the same saved XLSX. Corrected routing can be reevaluated by an explicit failed-message retry.
+- Backup/rollback: existing database and uploads backup; retain configuration/snapshots/delivery evidence, roll back application/Dispatcher release without dropping retained data. No source credentials copied.
+- Runtime verification (2026-10-14): standard all/check succeeded; API/Web/document worker and retained PostgreSQL healthy; existing user MSG-001 runs the SHA-named release with the original environment and one-second polling. One explicitly approved employee received provider-accepted text and a real XLSX through separate SENT component logs (errcode 0). User receipt/open confirmation is recorded separately in the local report. Official rule remains disabled; production import awaits the user in the preview page. No new timer/cron/n8n/internal schedule was installed. Existing business-table and old-rule baseline digests remained unchanged.
+- Owner: PMC / system maintenance. Verification: 2026-10-14; isolated PostgreSQL18 real workbook replay, component retry, actual provider file delivery, API/Dispatcher regression and production health. Detailed business counts and provider IDs stay in the private local acceptance report.
+
+## MPS-003 Existing master-plan scheduler (observed; unchanged)
+
+- `MasterPlanSyncService.runDue` is the retained NestJS `@Interval(60000)` checker, with six enabled `mps_sync_configs` jobs at 30-minute intervals (`erp-orders`, `plan-projections`, `shipping-to-base`, `base-to-weekly`, `inbound-allocation`, `execution-rollup`) and the existing reconciliation-outbox consumer. This is a discovered existing entry, not a newly installed schedule.
+- Runtime read-only audit: 2026-10-14. `plan-projections` was already marked RUNNING with last-start 2026-09-29, while PostgreSQL showed no active statement. The present work does not disable, merge, reset or change that scheduler/configuration. Record the stale state as an independent operations issue. Committed allocation commands also enqueue and trigger the existing reconciliation consumer, whose explicit run does not rely on the scheduler's stale-status filter.
+- New schedule definitions/candidate instances added by MPS-002: zero. Existing task ownership remains as previously confirmed by the user.

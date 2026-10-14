@@ -13,6 +13,7 @@ export abstract class AuditedEntity {
 
 @Entity("users")
 export class User extends AuditedEntity {
+  @Column({ name: "tenant_id", type: "varchar", length: 64, default: "KAINAN" }) tenantId!: string;
   @PrimaryGeneratedColumn("uuid") id!: string;
   @Index({ unique: true }) @Column() username!: string;
   @Column({ name: "display_name" }) displayName!: string;

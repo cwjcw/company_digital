@@ -1,12 +1,14 @@
 import type { NotificationEventDefinition } from "./notification.types";
 
 export const EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE = "EQUIPMENT_RESPONSIBLE";
+export const ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE = "ORDER_ALLOCATION_DYNAMIC";
 export const FIXED_USERS_RECIPIENT_RULE = "FIXED_USERS";
 
 const EQUIPMENT_FAULT_TEMPLATE = "【设备故障提醒】\n\n事业部：{divisionName}\n设备编号：{equipmentCode}\n设备名称：{equipmentName}\n\n故障时间：{oldFaultMinutes}分钟 → {newFaultMinutes}分钟\n故障原因：{faultReason}\n\n填报人：{actorName}\n时间：{occurredAt}\n\n请及时处理。";
 const SHIPPING_PLAN_KEY_FIELDS_CHANGED_TEMPLATE = "【出货计划变更】\n\n客户：{customerCode}\n订单：{orderNumber}\n品项：{itemCode} {itemName}\n事业部：{divisionName}\n\n变更内容：\n{changeSummary}\n\n修改人：{actorName}\n时间：{occurredAt}\n\n请相关人员确认后续计划。";
 
 const definitions = [
+  { eventType: "mps.order_allocation.batch_changed", moduleCode: "planning", resourceCode: "mps-order-allocations", label: "订单分配新增/变更", conditionDescription: "订单分配实际新增或非金额业务字段变更时按操作批次触发", defaultChannel: "WECHAT_WORK", messageType: "text_file", defaultTemplate: "【PMC订单分配通知】", allowedRecipientRules: [ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE], templateVariables: [{key:"actorName",label:"操作人"},{key:"occurredAt",label:"操作时间"},{key:"batchId",label:"操作批次"}] },
   {
     eventType: "equipment.status.fault_changed",
     moduleCode: "planning",

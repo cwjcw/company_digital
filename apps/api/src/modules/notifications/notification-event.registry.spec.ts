@@ -2,7 +2,8 @@ import { notificationEventDefinition, notificationEventDefinitions } from "./not
 
 describe("Notification Event Registry", () => {
   it("registers the equipment fault and shipping plan events", () => {
-    expect(notificationEventDefinitions()).toHaveLength(2);
+    expect(notificationEventDefinitions()).toHaveLength(3);
+    expect(notificationEventDefinition("mps.order_allocation.batch_changed")).toMatchObject({messageType:"text_file",allowedRecipientRules:["ORDER_ALLOCATION_DYNAMIC"],resourceCode:"mps-order-allocations"});
     expect(notificationEventDefinition("equipment.status.fault_changed")).toMatchObject({
       eventType: "equipment.status.fault_changed",
       moduleCode: "planning",

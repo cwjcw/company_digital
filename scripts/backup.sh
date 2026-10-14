@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy-common.sh"
 require_safe_env
+cd "$RUNTIME_ROOT"
 
 mkdir -p data/backups
 chmod 700 data/backups
@@ -28,11 +29,13 @@ mv "$kdos_database_tmp" "$kdos_database_file"
 chmod 600 "$kdos_database_file"
 
 mkdir -p data/uploads
-tar -C data -czf "$uploads_tmp" uploads
+archive_directories=(uploads)
+[[ ! -d data/notification-delivery-receipts ]] || archive_directories+=(notification-delivery-receipts)
+tar -C data -czf "$uploads_tmp" "${archive_directories[@]}"
 mv "$uploads_tmp" "$uploads_file"
 chmod 600 "$uploads_file"
 
-echo "数据库备份：$PROJECT_ROOT/$database_file"
-echo "KDOS 数据库备份：$PROJECT_ROOT/$kdos_database_file"
-echo "上传目录备份：$PROJECT_ROOT/$uploads_file"
+echo "数据库备份：$RUNTIME_ROOT/$database_file"
+echo "KDOS 数据库备份：$RUNTIME_ROOT/$kdos_database_file"
+echo "上传目录备份：$RUNTIME_ROOT/$uploads_file"
 sha256sum "$database_file" "$kdos_database_file" "$uploads_file"

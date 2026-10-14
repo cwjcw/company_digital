@@ -61,7 +61,7 @@ function pageUrl(resource: string, query: TableQuery, view: string, basePlanId?:
 
 function FieldInput({ field, resource, organizations = [], users = [], weeklyPlans = [], ...control }: { field: TablePermissionFieldDefinition; resource?: string; organizations?: OrganizationSelectOption[]; users?: AuditDirectoryUser[]; weeklyPlans?: Array<{ id: string; label: string }> } & Record<string, any>) {
   if (field.type === "boolean") return <Switch {...control} />;
-  if (field.type === "number") return <InputNumber {...control} min={0} precision={field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
+  if (field.type === "number") return <InputNumber {...control} min={0} stringMode={["financialExchangeRate", "settlementRatio"].includes(field.key)} precision={["financialExchangeRate", "settlementRatio"].includes(field.key) ? 8 : field.key.includes("Days") || ["deliveryNumber", "intervalMinutes", "plannedPageCount", "orderWeekCount"].includes(field.key) ? 0 : 4} style={{ width: "100%" }} />;
   if (field.type === "date") return <DatePicker {...control} style={{ width: "100%" }} />;
   if (field.key === "weeklyPlanId") return <Select {...control} showSearch optionFilterProp="label" placeholder="按订单编号、品项或交期编码选择" options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} />;
   if (field.type === "dictionary" && field.options?.length) return <Select {...control} options={field.options} />;
@@ -429,7 +429,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSaving, setBatchSaving] = useState(false);
   const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
   const [executionRefreshRow, setExecutionRefreshRow] = useState<any | null>(null);
-  const [importPreview, setImportPreview] = useState<{ total: number; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification:string;fields:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
@@ -599,11 +599,12 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   const previewImport = async (file: File) => {
     const body = new FormData(); body.append("file", file); setImporting(true); setImportError(null); setImportPreview(null);
-    try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview${isPendingView ? "?view=PENDING" : ""}`, { method: "POST", body })); }
+    try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview${resource === "mps-order-allocations" && overrideAllocationDivision ? "?view=OVERRIDE_DIVISION" : isPendingView ? "?view=PENDING" : ""}`, { method: "POST", body })); }
     catch (error) { setImportError(`导入失败\n\n${(error as Error).message}`); }
     finally { setImporting(false); }
     return false;
   };
+  const [overrideAllocationDivision,setOverrideAllocationDivision]=useState(false);
   const confirmImport = async () => {
     if (!importPreview?.previewId) return; setImporting(true); setImportError(null);
     try {
@@ -719,6 +720,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   return <div>
     <PageHeader title={info.label} actions={<Space>
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
+      {resource === "mps-order-allocations" && metadata.data?.actions.import && <Space><Switch checked={overrideAllocationDivision} onChange={setOverrideAllocationDivision}/><span>导入时覆盖事业部分配冲突</span></Space>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
       {canSyncBaseToWeekly && <Button icon={<SyncOutlined />} loading={syncMutation.isPending} disabled={syncMutation.isPending} onClick={confirmBaseToWeeklySync}>同步到周计划</Button>}
@@ -776,10 +778,17 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       </Form>
     </Modal>
     <Modal title={importPreview ? "导入预览" : "导入失败"} open={Boolean(importPreview || importError)} onCancel={() => { setImportPreview(null); setImportError(null); }} onOk={() => void confirmImport()}
-      okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.previewId || Boolean(importPreview?.errors.length) }}>
+      width={1000} okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.previewId || Boolean(importPreview?.errors.length) }}>
       {importError && <Alert type="error" showIcon message="导入失败" description={<span style={{ whiteSpace: "pre-line" }}>{importError.replace(/^导入失败\n\n/, "")}</span>} style={{ marginBottom: 12 }} />}
       {importPreview && <>
-      <p>共解析 {importPreview?.total ?? 0} 条。确认后整批事务提交。</p>
+      <p>共解析 {importPreview?.total ?? 0} 条{importPreview.orderCount!=null?`，${importPreview.orderCount}个订单`:""}。确认后整批事务提交。</p>
+      {importPreview.counts&&<Space wrap><Tag>新增 {importPreview.counts.created}</Tag><Tag>变更 {importPreview.counts.updated}</Tag><Tag>无变化 {importPreview.counts.unchanged}</Tag><Tag color="error">异常 {importPreview.counts.errors}</Tag></Space>}
+      {importPreview.byDivision&&<p>承接事业部：{importPreview.byDivision.map(g=>`${(organizations.data??[]).find(o=>o.id===g.name)?.name??g.name} ${g.count}条`).join("；")}</p>}
+      {importPreview.bySalesperson&&<p>业务员：{importPreview.bySalesperson.map(g=>`${g.name} ${g.count}条`).join("；")}</p>}
+      {importPreview.conflicts?.length ? <Alert type="warning" showIcon message={`事业部分配冲突 ${importPreview.conflicts.length} 条`} description={<div style={{maxHeight:120,overflow:"auto"}}>{importPreview.conflicts.map(c=><div key={c.row}>第{c.row}行：{c.before} → {c.after}（{c.overridden?"确认后覆盖":"保留原分配"}）</div>)}</div>}/> : null}
+      {importPreview.rows&&<div style={{maxHeight:260,overflow:"auto",marginTop:12}}>{importPreview.rows.filter(r=>r.fields.length>0).map(r=><div key={r.row}>第{r.row}行 · {r.classification==="NEW"?"新增":"变更"}：{r.fields.map(f=>`${f.label}：${String(f.before??"空")} → ${String(f.after??"空")}`).join("；")}</div>)}</div>}
+      {importPreview.recipients&&<p>预计接收人（正式规则停用时不发送）：{importPreview.recipients.map(r=>`${r.displayName} ${r.count}条 [${r.identities.join("、")}]`).join("；")||"无"}</p>}
+      {importPreview.recipientErrors?.length ? <Alert type="warning" message="接收人员配置异常" description={importPreview.recipientErrors.join("；")}/> : null}
       {importPreview?.blockedReason && <Alert type="warning" showIcon message={importPreview.blockedReason} />}
       {importPreview?.errors.length ? <><Alert type="error" showIcon message="导入校验失败" description={importPreview.errors.length > 100 ? `共发现 ${importPreview.errors.length} 条错误，当前显示前 100 条。` : `发现 ${importPreview.errors.length} 条错误`} style={{ marginBottom: 12 }} /><div style={{ maxHeight: 320, overflow: "auto" }}>{importPreview.errors.slice(0, 100).map((error) => <div key={`${error.row}-${error.reason}`}>第 {error.row} 行：{error.reason}</div>)}</div></> : !importPreview?.blockedReason && <Tag color="success">校验通过，可以确认导入</Tag>}
       </>}

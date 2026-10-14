@@ -16,6 +16,8 @@ import socket
 import signal
 import sys
 import threading
+import tempfile
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -57,10 +59,12 @@ class KdosNotificationDispatcher:
         config: DispatcherConfig,
         http_post: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
         pusher: Any | None = None,
+        receipt_dir: Path | None = None,
     ):
         self.config = config
         self.http_post = http_post or self._post_json
         self.pusher = pusher
+        self.receipt_dir = receipt_dir or Path(os.getenv("KDOS_NOTIFICATION_RECEIPT_DIR", str(Path(__file__).resolve().parents[3] / "data" / "notification-delivery-receipts")))
 
     def run_once(self, limit: int = 10) -> dict[str, int]:
         claim = self.http_post("/internal/notifications/claim", {"limit": max(1, min(int(limit), 20))})
@@ -77,10 +81,32 @@ class KdosNotificationDispatcher:
                     delivery_id = str(recipient.get("deliveryId", ""))
                     if not delivery_id:
                         continue
+                    delivered = False
                     try:
-                        response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
+                        receipt = self._read_receipt(delivery_id)
+                        message_type = notification.get("messageType", "text")
+                        if receipt is not None:
+                            response = receipt
+                        elif message_type == "file":
+                            attachment = notification.get("attachment", {})
+                            download_path = str(attachment.get("downloadPath", ""))
+                            filename = str(attachment.get("filename", ""))
+                            if not re.fullmatch(r"/internal/notifications/[a-f0-9-]+/attachments/[a-f0-9-]+", download_path) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.xlsx", filename):
+                                raise RuntimeError("通知附件标识无效")
+                            data = self._get_attachment(download_path)
+                            with tempfile.TemporaryDirectory(prefix="kdos-notification-") as temp_dir:
+                                target = Path(temp_dir) / filename
+                                target.write_bytes(data)
+                                target.chmod(0o600)
+                                response = self._get_pusher().send_app_file(str(target), touser=str(recipient["wechatUserId"]))
+                        elif message_type == "text":
+                            response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
+                        else:
+                            raise RuntimeError("通知消息格式不支持")
                         if int(response.get("errcode", 0)) != 0:
                             raise RuntimeError(str(response.get("errmsg", "企业微信返回失败")))
+                        self._write_receipt(delivery_id, response)
+                        delivered = True
                         self.http_post(f"/internal/notifications/{notification_id}/success", {
                             "deliveryId": delivery_id,
                             "providerMessageId": response.get("msgid"),
@@ -89,7 +115,12 @@ class KdosNotificationDispatcher:
                         })
                         sent += 1
                     except Exception as exc:  # noqa: BLE001 - the delivery must be reported for retry
-                        self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", str(exc))
+                        if delivered:
+                            # Provider success must survive an unavailable API callback.
+                            # Reclaimed PENDING attempts reuse this delivery ID and receipt.
+                            LOGGER.error("成功投递回执暂未确认 notification=%s delivery=%s", notification_id, delivery_id)
+                        else:
+                            self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", re.sub(r"(access_token|token|secret|password)=[^\s&]+", r"\1=[redacted]", str(exc)))
                         failed += 1
             except Exception:  # noqa: BLE001 - one malformed notification must not stop the batch
                 LOGGER.exception("处理通知 %s 失败，继续处理下一条", notification.get("notificationId"))
@@ -106,6 +137,44 @@ class KdosNotificationDispatcher:
             except Exception:  # noqa: BLE001 - transient API/network failures are expected
                 LOGGER.exception("通知轮询失败，%ss 后继续", poll_interval)
             event.wait(max(0.1, poll_interval))
+
+    def _receipt_path(self, delivery_id: str) -> Path | None:
+        if not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", delivery_id):
+            return None
+        self.receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return self.receipt_dir / f"{delivery_id}.json"
+
+    def _read_receipt(self, delivery_id: str) -> dict[str, Any] | None:
+        path = self._receipt_path(delivery_id)
+        if path is None or not path.exists():
+            return None
+        return json.loads(path.read_text())
+
+    def _write_receipt(self, delivery_id: str, response: dict[str, Any]) -> None:
+        path = self._receipt_path(delivery_id)
+        if path is None:
+            return
+        # Receipt stores only provider status/ID, never text or business rows.
+        safe = {key: response.get(key) for key in ("errcode", "errmsg", "msgid")}
+        with tempfile.NamedTemporaryFile(dir=self.receipt_dir, delete=False, mode="w") as tmp:
+            json.dump(safe, tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            temp_path = Path(tmp.name)
+        temp_path.chmod(0o600)
+        temp_path.replace(path)
+
+    def _get_attachment(self, path: str) -> bytes:
+        request = Request(self.config.api_base_url + path, headers={
+            "x-kdos-internal-token": self.config.token,
+            "x-kdos-tenant-id": self.config.tenant_id,
+            "x-kdos-worker-id": self.config.worker_id,
+        })
+        with urlopen(request, timeout=30) as response:
+            data = response.read(20 * 1024 * 1024 + 1)
+            if len(data) > 20 * 1024 * 1024 or not data.startswith(b"PK"):
+                raise RuntimeError("通知附件无效或超出20MB")
+            return data
 
     def _get_pusher(self) -> Any:
         if self.pusher is None:

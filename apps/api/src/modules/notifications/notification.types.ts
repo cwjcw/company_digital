@@ -7,7 +7,7 @@ export type NotificationEventDefinition = {
   label: string;
   conditionDescription: string;
   defaultChannel: string;
-  messageType: "text";
+  messageType: "text" | "text_file";
   defaultTemplate: string;
   allowedRecipientRules: readonly string[];
   templateVariables: ReadonlyArray<{
@@ -68,7 +68,8 @@ export type NotificationRecipient = {
 
 export type NotificationClaim = {
   notificationId: string;
-  messageType: "text";
+  messageType: "text" | "file" | "text_file";
+  attachment?: { id: string; filename: string; downloadPath: string };
   content: string;
   recipients: NotificationRecipient[];
 };

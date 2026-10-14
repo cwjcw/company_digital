@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Get, Res, Optional, Controller, Param, Post, Req, UseGuards } from "@nestjs/common";
+import type { Response } from "express";
+import { OrderAllocationDeliveryService } from "./order-allocation.delivery.service";
 import { ApiTags } from "@nestjs/swagger";
 import { NotificationInternalGuard, NotificationInternalRequest } from "./notification.internal.guard";
 import { NotificationService } from "./notification.service";
@@ -10,7 +12,16 @@ type InternalBody = Record<string, unknown>;
 @UseGuards(NotificationInternalGuard)
 @Controller("internal/notifications")
 export class NotificationInternalController {
-  constructor(private readonly notifications: NotificationService) {}
+  constructor(private readonly notifications: NotificationService, @Optional() private readonly allocationDelivery?: OrderAllocationDeliveryService) {}
+
+  @Get(":id/attachments/:attachmentId")
+  async attachment(@Param("id") id:string,@Param("attachmentId") attachmentId:string,@Req() request:NotificationInternalRequest,@Res() response:Response) {
+    if(!this.allocationDelivery) throw new BadRequestException("附件服务未配置");
+    const file=await this.allocationDelivery.attachment(this.tenant(request),id,attachmentId,this.worker(request));
+    response.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setHeader("Content-Disposition",`attachment; filename="${file.filename}"`);
+    response.setHeader("Cache-Control","no-store");response.send(file.content);
+  }
 
   @Post("claim")
   claim(@Req() request: NotificationInternalRequest, @Body() body: InternalBody) {
