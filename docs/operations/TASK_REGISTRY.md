@@ -1,6 +1,6 @@
 # KDOS 自动化任务台账 / TASK REGISTRY
 
-更新时间：2026-10-13。证据：(1) GitHub `company_digital` 主分支文件盘点；(2) 用户在生产 Ubuntu 主机运行 `bash scripts/audit-schedulers.sh` 的输出，采样时间 `2026-10-13T13:18:08+08:00`，主机时区 `Asia/Shanghai`。**已核实 systemd 列表、部分 cron 数量、Docker 容器运行状态；尚未读取 n8n 内部工作流、完整系统 cron 与业务执行成功日志。** 列表中的 `LAST` 是 Timer 最近触发时间，不等于脚本成功。
+更新时间：2026-10-14。证据：(1) GitHub `company_digital` 主分支文件盘点；(2) 用户在生产 Ubuntu 主机运行 `bash scripts/audit-schedulers.sh` 的输出，采样时间 `2026-10-13T13:18:08+08:00`，主机时区 `Asia/Shanghai`。**已核实 systemd 列表、部分 cron 数量、Docker 容器运行状态；尚未读取 n8n 内部工作流、完整系统 cron 与业务执行成功日志。** 列表中的 `LAST` 是 Timer 最近触发时间，不等于脚本成功。
 
 ## 统一归属
 
@@ -103,3 +103,15 @@
 主机脚本 `scripts/audit-schedulers.sh` 已在 2026-10-13 13:18 CST 执行（只读），systemd 和当前用户 cron **数量**已采集。下一步：只读审计 n8n 已激活工作流、时区、最近执行及 SSH 目标；在不泄露密钥的前提下确认用户 crontab 的任务类型；查看8个 KDOS Timer 对应 Service 的退出状态与最近成功时间；确认常驻 Dispatcher、备份、内部消费者；逐一登记 `active/enabled/next/last/result`。未核实项继续保留 UNVERIFIED_RUNTIME；在完成实际链路和风险评估前，不停用任何生产调度。
 
 项目规范：`.agents/skills/kdos-task-orchestration/SKILL.md`。
+
+
+## FIN-002 财务E10销售订单统计（显式手动命令）
+
+- 范围：订单日期自2025-01-01起；`FinanceOrdersApplicationService.refresh` → `integrations/e10/finance-order.reader.ts` → `data-operations/e10/finance_order_reader.py` → Finance Application发布。
+- 调度归属：用户在系统导出页手动触发；**无自动周期入口**，未新增Timer/cron/n8n Workflow，原FIN-001及ERP/PMC全部任务保持原状。
+- 身份/安全：可信用户关联、财务完整源字段及全部范围的read/update授权；basic_code持有源凭据、READ COMMITTED、E10只读、目标租户RLS。
+- 防并发/幂等：同租户唯一RUNNING+advisory lock；账套/源品项UUID唯一键；未变化版本/逐行审计不增长；源分页断点与成功后水位。
+- 失败/补偿：批次失败摘要、原发布数据保留；异常日志/断点继续或全量重试；无自动外发通知，页面显式查看失败。服务重启标失败，持久断点保留。
+- 回滚：保留财务读模型/审计，回退应用镜像；不删除旧业务数据。
+- 验证：2026-10-14，隔离真实PostgreSQL/合成fixture；生产状态以本机验收报告为准，不在公共Git仓库存放真实财务数量/金额或明细。
+- 仓库调度定义/候选数量未增加。负责人：财务中心/系统维护人员。

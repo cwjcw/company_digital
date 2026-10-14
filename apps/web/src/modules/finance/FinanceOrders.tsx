@@ -1,0 +1,83 @@
+import { useMemo, useState,useRef,useEffect } from 'react';
+import { useQuery,useQueryClient } from '@tanstack/react-query';
+import { Alert,Button,Card,DatePicker,Input,message,Modal,Select,Space,Statistic,Table,Typography } from 'antd';
+import { Link,useSearchParams,useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
+import { financeOrderFields,financeMonthlyFields,financeRankingFields,financeDashboardLabels as L,financeDepartmentOptions,financeSalesChannelOptions } from '@kdos/contracts';
+import { api } from '../../api';
+import { hasResourcePermission,KdosDataTable,kdosDefaultPageSize } from '../../shared/KdosDataTable';
+import { KdosChart } from '../../shared/charts/KdosChart';
+import type { AdvancedFilterGroup,AdvancedFilterRule } from '../../shared/advanced-filter';
+type Row=Record<string,any>;
+type TableQuery={page:number;pageSize:number;search:string;filters:Record<string,string>;filterGroup?:AdvancedFilterGroup;sortField?:string;sortOrder?:'asc'|'desc'};
+const initialQuery:TableQuery={page:1,pageSize:kdosDefaultPageSize,search:'',filters:{}};
+const businessYear=()=>Number(new Intl.DateTimeFormat('en',{timeZone:'Asia/Shanghai',year:'numeric'}).format(new Date()));
+const money=(v:unknown)=>v==null?'—':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+export function FinanceOrderTable({monthly=false}:{monthly?:boolean}){
+ const resource=monthly?'finance-e10-monthly':'finance-e10-lines';const fields=monthly?financeMonthlyFields:financeOrderFields;
+ const canRead=hasResourcePermission(resource,'read');const client=useQueryClient();
+ const [query,setQuery]=useState<TableQuery>(initialQuery);const [params,setParams]=useSearchParams();
+ const [year,setYear]=useState<number|undefined>(params.get('year')?Number(params.get('year')):undefined);
+ const [mode,setMode]=useState<'FULL'|'INCREMENTAL'>('FULL');
+ const [logs,setLogs]=useState(false);const [errors,setErrors]=useState(false);const [starting,setStarting]=useState(false);
+ const context:AdvancedFilterGroup=useMemo(()=>{
+  const rules:AdvancedFilterRule[]=[];
+  if(year)rules.push({field:'yearMonth',operator:'starts_with',value:String(year)});
+  if(year&&params.get('month'))rules.push({field:'yearMonth',operator:'eq',value:`${year}-${String(params.get('month')).padStart(2,'0')}`});
+  for(const [name,op] of [['dateFrom','gte'],['dateTo','lte']] as const)if(params.get(name))rules.push({field:'orderDate',operator:op,value:params.get(name)!});
+  if(params.get('salesperson'))rules.push(monthly?{field:'salesperson',operator:'contains_any',values:[params.get('salesperson')!]}:{field:'salesperson',operator:'eq',value:params.get('salesperson')!});
+  for(const field of ['customerCode','departmentCategory','salesChannel'])if(params.has(field)&&fields.some(f=>f.key===field))rules.push({field,operator:params.get(field)==='待分类'?'is_empty':'eq',value:params.get(field)!});
+  return {logic:'AND',rules};
+ },[year,params,fields,monthly]);
+ const combined:AdvancedFilterGroup={logic:'AND',rules:[],groups:[context,...(query.filterGroup?[query.filterGroup]:[])]};
+ const search=new URLSearchParams({resource,page:String(query.page),pageSize:String(query.pageSize),filterGroup:JSON.stringify(combined)});if(query.search)search.set('search',query.search);if(query.sortField)search.set('sortField',query.sortField);if(query.sortOrder)search.set('sortOrder',query.sortOrder);
+ const rows=useQuery({queryKey:['finance-orders',resource,search.toString()],queryFn:()=>api<{rows:Row[];total:number}>(`/table-filters/rows?${search}`),enabled:canRead,placeholderData:p=>p});
+ const runs=useQuery({queryKey:['finance-order-runs'],queryFn:()=>api<{rows:Row[];canInspectExceptions:boolean}>('/finance/e10-orders/runs'),enabled:!monthly&&canRead,refetchInterval:q=>q.state.data?.rows.some(r=>r.status==='RUNNING')?2000:false});
+ const previousStatus=useRef((client.getQueryData<{rows:Row[]}>(['finance-order-runs'])?.rows[0]?.status));
+ useEffect(()=>{
+  const status=runs.data?.rows[0]?.status;
+  if(previousStatus.current==='RUNNING'&&status==='SUCCESS')for(const key of ['finance-orders','finance-dashboard','finance-ranking','finance-order-exceptions'])void client.invalidateQueries({queryKey:[key]});
+  previousStatus.current=status;
+ },[runs.data,client]);
+ const issues=useQuery({queryKey:['finance-order-exceptions'],queryFn:()=>api<Row[]>('/finance/e10-orders/exceptions'),enabled:errors});
+ const refresh=async(resumeId?:string)=>{setStarting(true);try{await api('/finance/e10-orders/refresh',{method:'POST',body:JSON.stringify({mode,...(resumeId?{resumeId}:{})})});message.success('E10数据刷新已开始');await client.invalidateQueries({queryKey:['finance-order-runs']});}catch(e){message.error((e as Error).message);}finally{setStarting(false);}};
+ if(!canRead)return <Alert type="warning" message="当前权限组不能查看销售订单数据"/>;
+ const last=runs.data?.rows[0];const running=last?.status==='RUNNING';
+ const logColumns=[{title:'开始时间',dataIndex:'startedAt',render:(v:string)=>dayjs(v).format('YYYY-MM-DD HH:mm:ss')},{title:'状态',dataIndex:'status',render:(v:string)=>({RUNNING:'读取中',SUCCESS:'成功',FAILED:'失败'}[v]??v)},{title:'品项数',dataIndex:'lineCount'},{title:'变化品项数',dataIndex:'changedCount'},{title:'异常',dataIndex:'errorSummary'}];
+ return <div style={{maxWidth:1560,marginInline:'auto'}}>
+  {rows.error&&<Alert type="error" message={rows.error.message}/>}
+  {!monthly&&last&&<Space wrap style={{marginBottom:12}}><Typography.Text>最近读取 {dayjs(last.startedAt).format('YYYY-MM-DD HH:mm')} · {running?'读取中':last.status==='SUCCESS'?'成功':'失败'} · 品项 {last.lineCount}</Typography.Text>{last.status==='SUCCESS'&&<Button onClick={()=>void client.invalidateQueries({queryKey:['finance-orders']})}>更新显示</Button>}</Space>}
+  {last?.errorSummary&&<Alert type="error" message={last.errorSummary}/>}
+  <KdosDataTable<Row> resource={resource} rowKey="id" dataSource={rows.data?.rows} loading={rows.isLoading} columns={fields.map(f=>({title:f.label,dataIndex:f.key,width:f.key==='businessRemark'?240:150,render:(v:unknown)=>v==null?(f.key==='departmentCategory'||f.key==='salesChannel'?'待分类':'—'):typeof v==='boolean'?(v?'是':'否'):String(v)}))} contextFilterGroup={context}
+   toolbar={<Space wrap><Select aria-label="年度" allowClear placeholder="全部年度" value={year} onChange={v=>{setYear(v);setQuery(q=>({...q,page:1}));}} options={Array.from({length:businessYear()-2024},(_,i)=>({value:2025+i,label:`${2025+i}年`}))} style={{width:140}}/>{Array.from(params.keys()).some(k=>k!=='year')&&<Button onClick={()=>setParams(year?{year:String(year)}:{})}>清除下钻条件</Button>}{!monthly&&<><Button onClick={()=>setLogs(true)}>读取批次</Button>{runs.data?.canInspectExceptions&&<Button onClick={()=>setErrors(true)}>异常日志</Button>}{hasResourcePermission(resource,'update')&&<Space><Select aria-label="读取模式" value={mode} onChange={setMode} options={[{value:'FULL',label:'全量读取'},{value:'INCREMENTAL',label:'增量读取'}]}/><Button onClick={()=>void refresh()} loading={starting||running}>刷新E10数据</Button>{last?.status==='FAILED'&&last.pageCount>0&&<Button onClick={()=>void refresh(last.id)} disabled={starting||running}>继续读取</Button>}</Space>}</>}</Space>}
+   serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}/>
+  <Modal title="读取批次" open={logs} onCancel={()=>setLogs(false)} footer={null} width={1000}><Table rowKey="id" columns={logColumns} dataSource={runs.data?.rows} pagination={{pageSize:10}}/></Modal>
+  <Modal title="异常日志" open={errors} onCancel={()=>setErrors(false)} footer={null} width={1000}>{issues.error&&<Alert type="error" message={issues.error.message}/>}<Table rowKey="orderNo" loading={issues.isLoading} dataSource={issues.data} columns={[{title:'单号',dataIndex:'orderNo'},{title:'客户编号',dataIndex:'customerCode'},{title:'本币总金额',dataIndex:'orderTotal',render:money},{title:'订单字段冲突',dataIndex:'conflict',render:(v:boolean)=>v?'待复核':'—'},{title:'负金额品项',dataIndex:'negativeLines'},{title:'源缺失品项',dataIndex:'missingLines'},{title:'字段缺失品项',dataIndex:'issueLines'}]} pagination={{pageSize:20}}/></Modal>
+ </div>;
+}
+export function FinanceOrderDashboard(){
+ const navigate=useNavigate();
+ const resource='finance-e10-dashboard';const canRead=hasResourcePermission(resource,'read');const [year,setYear]=useState(businessYear());
+ const [month,setMonth]=useState<number>();const [departmentCategory,setDepartment]=useState<string>();const [salesChannel,setChannel]=useState<string>();const [customerCode,setCustomer]=useState('');const [salesperson,setSalesperson]=useState('');const [range,setRange]=useState<[string,string]|null>(null);const [unit,setUnit]=useState<'元'|'万元'>('元');
+ const [rankLimit,setRankLimit]=useState(10);
+ const [rankQuery,setRankQuery]=useState<TableQuery>({...initialQuery,pageSize:10});
+ const context={year,...(month?{month}:{}),...(departmentCategory?{departmentCategory}:{}),...(salesChannel?{salesChannel}:{}),...(customerCode?{customerCode}:{}),...(salesperson?{salesperson}:{}),...(range?{dateFrom:range[0],dateTo:range[1]}:{})};
+ const dashboard=useQuery({queryKey:['finance-dashboard',context],queryFn:()=>api<any>('/finance/e10-orders/dashboard',{method:'POST',body:JSON.stringify({context})}),enabled:canRead,placeholderData:p=>p});
+ const rankContext={...context,rankLimit};
+ const ranking=useQuery({queryKey:['finance-ranking',rankContext,rankQuery],queryFn:()=>api<{rows:Row[];total:number}>('/finance/e10-orders/ranking',{method:'POST',body:JSON.stringify({...rankQuery,context:rankContext})}),enabled:canRead&&hasResourcePermission('finance-e10-ranking','read')});
+ const d=dashboard.data;const reset=()=>setRankQuery(q=>({...q,page:1}));
+ const link=(extra:Record<string,string>={})=>'/finance/orders/monthly?'+new URLSearchParams({year:String(year),...(month?{month:String(month)}:{}),...(departmentCategory?{departmentCategory}:{}),...(salesChannel?{salesChannel}:{}),...(customerCode?{customerCode}:{}),...(salesperson?{salesperson}:{}),...(range?{dateFrom:range[0],dateTo:range[1]}:{}),...extra});
+ const grouping=(data:Row[]|undefined)=> <Table<Row> size="small" rowKey="category" dataSource={data} pagination={false} columns={[{title:L.category,dataIndex:'category',render:(v:string)=><Link to={link(data===d?.channels?{salesChannel:v}:{departmentCategory:v})}>{v==='内销'?'国内':v}</Link>},{title:L.amount,dataIndex:'amount',render:money},{title:L.share,dataIndex:'share',render:(v:string|null)=>v==null?'—':`${(Number(v)*100).toFixed(2)}%`}]} summary={()=> <Table.Summary.Row><Table.Summary.Cell index={0}>{L.yearTotal}</Table.Summary.Cell><Table.Summary.Cell index={1}>{money(d?.totals.amount)}</Table.Summary.Cell><Table.Summary.Cell index={2}>{Number(d?.totals.amount)?'100%':'—'}</Table.Summary.Cell></Table.Summary.Row>}/>;
+ const pie=(rows:Row[]|undefined)=>({tooltip:{trigger:'item' as const},series:[{type:'pie' as const,radius:['35%','65%'],data:rows?.map(r=>({name:r.category==='内销'?'国内':r.category,value:Number(r.amount)}))??[]}]});
+ if(!canRead)return <Alert type="warning" message="当前权限组不能查看统计大屏"/>;
+ return <div className="finance-dashboard">
+  <Space wrap style={{marginBottom:16}}><Select aria-label="年度" value={year} onChange={v=>{setYear(v);reset();}} options={Array.from({length:businessYear()-2024},(_,i)=>({value:2025+i,label:`${2025+i}年`}))} style={{width:130}}/><Select aria-label="月份" allowClear placeholder="全部月份" value={month} onChange={v=>{setMonth(v);reset();}} options={Array.from({length:12},(_,i)=>({value:i+1,label:`${i+1}月`}))} style={{width:130}}/><DatePicker.RangePicker onChange={v=>{setRange(v?.[0]&&v[1]?[v[0].format('YYYY-MM-DD'),v[1].format('YYYY-MM-DD')]:null);reset();}}/><Select aria-label="事业部划分" allowClear placeholder="事业部划分" value={departmentCategory} onChange={v=>{setDepartment(v);reset();}} options={[...financeDepartmentOptions,{value:'待分类',label:'待分类'}]} style={{width:140}}/><Select aria-label="国内外划分" allowClear placeholder="国内外划分" value={salesChannel} onChange={v=>{setChannel(v);reset();}} options={[...financeSalesChannelOptions,{value:'待分类',label:'待分类'}]} style={{width:130}}/><Input.Search aria-label="客户编号" placeholder="客户编号" allowClear onSearch={v=>{setCustomer(v.trim());reset();}} style={{width:160}}/><Input.Search aria-label="业务员姓名" placeholder="业务员姓名" allowClear onSearch={v=>{setSalesperson(v.trim());reset();}} style={{width:160}}/><Select aria-label="金额单位" value={unit} onChange={setUnit} options={['元','万元'].map(value=>({value,label:value}))}/><Typography.Text>{year}年 · 按当前分类 · 销售订单含税金额</Typography.Text></Space>
+  {dashboard.error&&<Alert type="error" message={dashboard.error.message}/>}
+  <div className="finance-kpis">{[['累计接单额',money(Number(d?.totals.amount??0)/(unit==='万元'?10000:1))],['订单数',d?.totals.orders??'—'],['客单金额',money(d?.totals.average)],['待分类客户数',d?.totals.pendingCustomers??'—'],['待分类订单数',d?.totals.pendingOrders??'—'],['待分类金额',money(d?.totals.pendingAmount)]].map(([title,value])=><Card key={title}><Statistic title={title} value={value}/></Card>)}</div>
+  {d?.quality?.excludedOrders>0&&<Alert type="warning" showIcon message={`待复核订单 ${d.quality.excludedOrders} 张，金额 ${money(d.quality.excludedAmount)} 元，暂未纳入统计`}/>}
+  <div className="finance-report-grid"><Card title="国内/外销">{grouping(d?.channels)}<KdosChart ariaLabel="国内/外销金额与占比" onDataClick={e=>navigate(link({salesChannel:e.name==='国内'?'内销':e.name}))} option={pie(d?.channels)} height={260} loading={dashboard.isLoading}/></Card><Card title="事业部">{grouping(d?.departments)}<KdosChart ariaLabel="事业部金额与占比" onDataClick={e=>navigate(link({departmentCategory:e.name}))} option={pie(d?.departments)} height={260} loading={dashboard.isLoading}/></Card></div>
+  <Card title="月度趋势"><KdosChart ariaLabel="1—12月本币合计金额" onDataClick={e=>navigate(link({month:String(e.dataIndex+1)}))} loading={dashboard.isLoading} option={{tooltip:{trigger:'axis'},xAxis:{type:'category',data:d?.months.map((r:Row)=>r.month)},yAxis:{type:'value',name:unit},series:[{type:'line',data:d?.months.map((r:Row)=>Number(unit==='万元'?r.wan:r.amount))}]}}/><Table size="small" rowKey="month" dataSource={d?.months} pagination={false} columns={[{title:L.month,dataIndex:'month'},{title:L.yuan,dataIndex:'amount',render:money},{title:L.wan,dataIndex:'wan',render:(v:string)=>v}]} summary={()=> <Table.Summary.Row><Table.Summary.Cell index={0}>{L.total}</Table.Summary.Cell><Table.Summary.Cell index={1}>{money(d?.totals.amount)}</Table.Summary.Cell><Table.Summary.Cell index={2}>{Number(d?.totals.amount??0)/10000}</Table.Summary.Cell></Table.Summary.Row>}/></Card>
+  <Card title="客户年度金额排名">{ranking.error&&<Alert type="error" message={ranking.error.message}/>}<KdosDataTable<Row> resource="finance-e10-ranking" rowKey="id" loading={ranking.isLoading} dataSource={ranking.data?.rows} columns={financeRankingFields.map(f=>({title:f.label,dataIndex:f.key,render:(v:string)=>f.key==='customerCode'?<Link to={link({customerCode:v})}>{v}</Link>:money(v)}))} serverData={{total:ranking.data?.total??0,onQueryChange:setRankQuery}} printContext={rankContext} toolbar={<Select aria-label="排名显示范围" value={rankLimit} onChange={v=>{setRankLimit(v);reset();}} options={[{value:10,label:'前10名'},{value:20,label:'前20名'},{value:0,label:'全部客户'}]}/>}/></Card>
+  <Card title="事业部 × 国内/外销"><Table size="small" rowKey={r=>String(r.departmentCategory)+'/'+String(r.salesChannel)} dataSource={d?.matrix} pagination={false} columns={[{title:'事业部划分',dataIndex:'departmentCategory',render:v=>v??'待分类'},{title:'国内外划分',dataIndex:'salesChannel',render:v=>v==='内销'?'国内':v??'待分类'},{title:L.amount,dataIndex:'amount',render:(v:string,r:Row)=><Link to={link({departmentCategory:r.departmentCategory??'待分类',salesChannel:r.salesChannel??'待分类'})}>{money(v)}</Link>}]} /></Card>
+ </div>;
+}

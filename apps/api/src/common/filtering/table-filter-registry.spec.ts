@@ -1,3 +1,4 @@
+import { FinanceOrdersQueryService } from '../../modules/finance/finance-orders.query.service';
 import { FinanceFilterSourceProvider } from "../../modules/finance/finance.filter-sources";
 import { tableFilterResourceCapabilities, isTableFieldFilterable } from "@kdos/contracts";
 import { TableFilterRegistry } from "./table-filter.registry";
@@ -20,6 +21,7 @@ import { SystemFilterSourceProvider } from "./system-filter-sources";
  */
 function buildRegistry() {
   const registry = new TableFilterRegistry();
+  new FinanceOrdersQueryService({query:async()=>[]} as never,registry).onModuleInit();
   new FinanceFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
   new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
   new MasterDataFilterSourceProvider(registry).onModuleInit();

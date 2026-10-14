@@ -37,6 +37,16 @@ export class TableFilterController {
     const source = { ...registeredSource, ...registeredSource.candidateVariant?.(context) };
     source.authorize?.(actor);
     this.assertReadResource(actor, source.code);
+    if(source.listRows){
+      const pageSize=normalizeKdosPageSize(query.pageSize),page=Math.max(Number(query.page)||1,1);
+      const sortKey=String(query.sortField??'');
+      if(sortKey&&!source.fields.some(f=>f.key===sortKey))throw new BadRequestException('排序字段无效');
+      if(sortKey&&!this.canReadField(actor,source.code,sortKey))throw new ForbiddenException('当前权限组不能按该字段排序');
+      const fieldKeys=source.fields.filter(f=>this.canReadField(actor,source.code,f.key)).map(f=>f.key);
+      const result=await source.listRows({actor,page,pageSize,search:String(query.search??'').trim(),filterGroup:query.filterGroup,sortField:query.sortField,sortOrder:query.sortOrder,context:this.context(query.context),fieldKeys,action:'read'});
+      const readable=new Set(['id','version',...fieldKeys]);
+      return {...result,rows:result.rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>readable.has(key)))),page,pageSize};
+    }
     const params: unknown[] = [actor.tenantId];
     const scope = await source.buildScope(actor, params);
     const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params) ?? "1=1"];
@@ -92,6 +102,16 @@ export class TableFilterController {
     const source = this.registry.get(String(query.resource ?? ""));
     source.authorize?.(actor);
     this.assertReadResource(actor, source.code);
+    if(source.listRows){
+      const pageSize=normalizeKdosPageSize(query.pageSize),page=Math.max(Number(query.page)||1,1);
+      const sortKey=String(query.sortField??'');
+      if(sortKey&&!source.fields.some(f=>f.key===sortKey))throw new BadRequestException('排序字段无效');
+      if(sortKey&&!this.canReadField(actor,source.code,sortKey))throw new ForbiddenException('当前权限组不能按该字段排序');
+      const fieldKeys=source.fields.filter(f=>this.canReadField(actor,source.code,f.key)).map(f=>f.key);
+      const result=await source.listRows({actor,page,pageSize,search:String(query.search??'').trim(),filterGroup:query.filterGroup,sortField:query.sortField,sortOrder:query.sortOrder,context:this.context(query.context),fieldKeys,action:'read'});
+      const readable=new Set(['id','version',...fieldKeys]);
+      return {...result,rows:result.rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>readable.has(key)))),page,pageSize};
+    }
     const params: unknown[] = [actor.tenantId];
     const clauses = [this.scopedWhere(source, await source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params) ?? "1=1"];
     const search = String(query.search ?? "").trim();

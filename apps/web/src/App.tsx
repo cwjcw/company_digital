@@ -1,3 +1,5 @@
+import { FinanceOrderTable, FinanceOrderDashboard } from './modules/finance/FinanceOrders';
+import './modules/finance/finance-orders.css';
 import { FinanceCustomerMappings } from "./modules/finance/FinanceCustomerMappings";
 import { PmcRdProgressPage } from "./modules/pmc-rd-progress/PmcRdProgressPage";
 import { reportNavigation, reportPath } from "./modules/pmc-rd-progress/rd-progress.model";
@@ -11,7 +13,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, App as AntApp, Button, Card, DatePicker, Form,
-  Input, InputNumber, Layout, Menu, Modal, Select, Space,
+  Input, InputNumber, Layout, Menu, Modal, Select, Space, Grid,
   Tabs, Tag, Typography, Upload, Switch, message
 } from "antd";
 import dayjs from "dayjs";
@@ -154,6 +156,9 @@ function Shell({ logout }: { logout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const screens=Grid.useBreakpoint();
+  const financeNarrow=location.pathname.startsWith('/finance')&&screens.md===false;
+  const sideCollapsed=collapsed||financeNarrow;
   const storedUser = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
   const liveSession = useQuery({ queryKey: ["auth-session"], queryFn: () => api<any>("/auth/me"), retry: false, staleTime: 30_000 });
   const user = liveSession.data ?? storedUser;
@@ -187,7 +192,12 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
-    finance: hasSessionResourcePermission(user, "finance-customer-mappings", "read") ? [{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}] : [],
+    finance: [
+      ...(hasSessionResourcePermission(user,"finance-customer-mappings","read")?[{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}]:[]),
+      {key:'finance-orders',label:'销售订单统计',icon:<FolderOpenOutlined/>,children:[
+        ...([['finance-e10-lines','/finance/orders/system-export','系统导出'],['finance-e10-monthly','/finance/orders/monthly','月度数据'],['finance-e10-dashboard','/finance/orders/dashboard','统计大屏']] as const).filter(([r])=>hasSessionResourcePermission(user,r,'read')).map(([,key,label])=>({key,label,icon:<DatabaseOutlined/>}))
+      ]}
+    ].filter(item=>item.children.length),
     cockpit: [{ key: "cockpit-root", label: "公司驾驶舱", children: [
       { key: "/sales-summary-dashboard", icon: <ScheduleOutlined />, label: "销售接单汇总大屏" }
     ] }],
@@ -289,6 +299,9 @@ function Shell({ logout }: { logout: () => void }) {
       "/data-center/supply-chain/suppliers": "供应商清单",
       "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/finance/base-data/customer-mappings": "客户对应表",
+      "/finance/orders/system-export": "系统导出",
+      "/finance/orders/monthly": "月度数据",
+      "/finance/orders/dashboard": "统计大屏",
       "/knowledge": "知识空间与页面", "/knowledge/settings": "空间设置", "/knowledge/trash": "回收站",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       [reportPath]: "研发进度",
@@ -297,13 +310,13 @@ function Shell({ logout }: { logout: () => void }) {
       "/organization": "组织架构表", "/audit": "审计日志", "/admin": "用户与角色", "/users": "用户与角色", "/administrators": "管理员", "/contacts": "通讯录",
       "/api-keys": "API Key", "/system/notifications": "消息中心", "/profile": "个人中心"
     } as Record<string, string>)[location.pathname] ?? activeModule.title;
-  return <Layout className={`app-shell${collapsed ? " sidebar-is-collapsed" : ""}${moduleId === "knowledge" ? " knowledge-shell" : ""}`}>
-    {moduleId !== "knowledge" && <Sider collapsed={collapsed} collapsedWidth={64} width={238} className="sidebar">
-      <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={collapsed} inverse /></button>
-      {!collapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}>{activeModule.id !== "rd" && <span>{activeModule.englishTitle}</span>}<strong>{activeModule.title}</strong></div>}
-      <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!collapsed && "全部模块"}</Button>
+  return <Layout className={`app-shell${sideCollapsed ? " sidebar-is-collapsed" : ""}${moduleId === "knowledge" ? " knowledge-shell" : ""}${moduleId === "finance" ? " finance-shell" : ""}`}>
+    {moduleId !== "knowledge" && <Sider collapsed={sideCollapsed} collapsedWidth={64} width={238} className="sidebar">
+      <button type="button" className="brand" onClick={() => navigate("/")} aria-label="返回全部模块"><BrandLogo compact={sideCollapsed} inverse /></button>
+      {!sideCollapsed && <div className={`sidebar-module-mark portal-tone-${activeModule.tone}`}>{activeModule.id !== "rd" && <span>{activeModule.englishTitle}</span>}<strong>{activeModule.title}</strong></div>}
+      <Button className="sidebar-home" type="text" icon={<HomeOutlined />} onClick={() => navigate("/")}>{!sideCollapsed && "全部模块"}</Button>
       <Menu mode="inline" theme="dark" selectedKeys={[location.pathname]} defaultOpenKeys={[]} items={navigationByModule[moduleId]} onClick={({ key }) => navigate(key)} />
-      <Button className="sidebar-collapse" type="primary" shape="circle" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
+      <Button className="sidebar-collapse" type="primary" shape="circle" icon={sideCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
     </Sider>}
     <Layout>
       <Header className="topbar">
@@ -336,8 +349,11 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
           <Route path="/data-center/supply-chain/suppliers" element={<SupplierListPage />} />
-          <Route path="/finance" element={<Navigate to="/finance/base-data/customer-mappings" replace/>}/>
+          <Route path="/finance" element={<Navigate to={hasSessionResourcePermission(user,'finance-customer-mappings','read')?'/finance/base-data/customer-mappings':hasSessionResourcePermission(user,'finance-e10-dashboard','read')?'/finance/orders/dashboard':hasSessionResourcePermission(user,'finance-e10-monthly','read')?'/finance/orders/monthly':'/finance/orders/system-export'} replace/>}/>
           <Route path="/finance/base-data/customer-mappings" element={<FinanceCustomerMappings/>}/>
+          <Route path="/finance/orders/system-export" element={<FinanceOrderTable/>}/>
+          <Route path="/finance/orders/monthly" element={<FinanceOrderTable monthly/>}/>
+          <Route path="/finance/orders/dashboard" element={<FinanceOrderDashboard/>}/>
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />

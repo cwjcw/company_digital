@@ -1,3 +1,5 @@
+import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
+export * from './finance-orders';
 import { financeDepartmentOptions, financeSalesChannelOptions } from "./finance";
 export * from "./knowledge";
 export * from "./audit-actor";
@@ -21,6 +23,7 @@ export const tablePermissionActionLabels: Record<TablePermissionAction, string> 
 
 /** 资源可以声明业务化的操作名称，但仍复用同一组 read/update 权限动作。 */
 export const tableResourcePermissionActionLabels: Partial<Record<string, Partial<Record<TablePermissionAction, string>>>> = {
+  "finance-e10-lines": { update: "刷新E10数据" },
   "pmc-rd-progress": { read: "查看研发进度报表" },
   "rd-material-duplicates": {
     read: "一物多码查询",
@@ -121,6 +124,10 @@ export const supervisionProgressUpdateTypeOptions = [
  */
 export const tableResourceRegistry = [
   { code: "finance-customer-mappings", label: "客户对应表", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-lines", label: "系统导出", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-monthly", label: "月度数据", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-dashboard", label: "统计大屏", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-ranking", label: "客户年度金额排名", module: "财务中心", moduleCode: "finance" },
   { code: "knowledge-spaces", label: "知识空间", module: "知识库", moduleCode: "knowledge" },
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
@@ -385,6 +392,10 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
     ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"]
   ]),
+  "finance-e10-lines": financeOrderFields,
+  "finance-e10-monthly": financeMonthlyFilterFields,
+  "finance-e10-dashboard": financeMonthlyFilterFields,
+  "finance-e10-ranking": financeRankingFields,
   "finance-customer-mappings": fields([
     ["customerCode", "客户编号", "text", false],
     ["departmentCategory", "部门类别", "dictionary", true, false, { options: financeDepartmentOptions }],
@@ -828,6 +839,10 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "audit-logs": { status: "REGISTERED_AND_FILTERABLE" },
   /* 数据中心：供应商清单为 T+ 同步投影，本轮接入平台 FilterCompiler。 */
   "supplier-list": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-lines": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-monthly": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-dashboard": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-ranking": { status: "REGISTERED_AND_FILTERABLE" },
   "finance-customer-mappings": { status: "REGISTERED_AND_FILTERABLE" },
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },

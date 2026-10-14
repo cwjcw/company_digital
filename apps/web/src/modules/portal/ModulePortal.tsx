@@ -42,7 +42,7 @@ export const portalModules: PortalModule[] = [
     description: "集中管理订单与入库基础业务数据，为计划与分析提供统一来源。",
     features: ["订单表", "入库表", "出库表"], path: "/data-center/sales-orders", tone: "cyan"
   },
-  {id:"finance",title:"财务中心",englishTitle:"FINANCE CENTER",description:"维护财务基础资料与客户分类。",features:["基础数据","客户对应表"],path:"/finance/base-data/customer-mappings",tone:"cyan"},
+  {id:"finance",title:"财务中心",englishTitle:"FINANCE CENTER",description:"维护财务基础资料与客户分类。",features:["基础数据","客户对应表"],path:"/finance",tone:"cyan"},
   {
     id: "marketing", title: "营销中心", englishTitle: "MARKETING CENTER",
     description: "维护业务客户归属并安排未来两周订单优先级。",
@@ -119,7 +119,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
   const canSee = (module: PortalModule) => module.id === "knowledge"
     ? ["knowledge-pages", "knowledge-spaces"].every(resource => hasSessionResourcePermission(user, resource, "read"))
-    : module.id === "finance" ? hasSessionResourcePermission(user,"finance-customer-mappings","read")
+    : module.id === "finance" ? ["finance-customer-mappings","finance-e10-lines","finance-e10-monthly","finance-e10-dashboard"].some(r=>hasSessionResourcePermission(user,r,"read"))
     : module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
   const canSeeRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);

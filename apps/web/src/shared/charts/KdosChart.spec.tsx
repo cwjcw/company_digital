@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const chartMocks = vi.hoisted(() => ({
   init: vi.fn(),
   instance: {
-    setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), showLoading: vi.fn(), hideLoading: vi.fn()
+    on:vi.fn(),off:vi.fn(),setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), showLoading: vi.fn(), hideLoading: vi.fn()
   }
 }));
 
@@ -34,6 +34,13 @@ describe("KdosChart", () => {
     expect(chartMocks.instance.resize).toHaveBeenCalled();
     unmount();
     expect(chartMocks.instance.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards validated data clicks and detaches the previous handler',()=>{
+    const onClick=vi.fn();const {unmount}=render(<KdosChart ariaLabel="可下钻图表" option={{}} onDataClick={onClick}/>);
+    const handler=chartMocks.instance.on.mock.calls[0]?.[1] as (event:unknown)=>void;
+    handler({name:'国内',dataIndex:0});handler({name:'内部事件'});
+    expect(onClick).toHaveBeenCalledExactlyOnceWith({name:'国内',dataIndex:0});unmount();expect(chartMocks.instance.off).toHaveBeenCalledWith('click',handler);
   });
 
   it("renders an accessible empty state without creating a chart instance", () => {

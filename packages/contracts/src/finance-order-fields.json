@@ -1,0 +1,209 @@
+{
+  "minimumOrderDate": "2025-01-01",
+  "fields": [
+    {
+      "key": "docType",
+      "label": "单据类型",
+      "type": "text",
+      "source": "dt.DOC_NAME"
+    },
+    {
+      "key": "salesperson",
+      "label": "业务员姓名",
+      "type": "text",
+      "source": "e.EMPLOYEE_NAME"
+    },
+    {
+      "key": "customerCode",
+      "label": "客户编号",
+      "type": "text",
+      "source": "c.CUSTOMER_CODE"
+    },
+    {
+      "key": "yearMonth",
+      "label": "年月",
+      "type": "text",
+      "source": "CONVERT(char(7),h.ORDER_DATE,120)"
+    },
+    {
+      "key": "orderDate",
+      "label": "订单日期",
+      "type": "date",
+      "source": "CONVERT(char(10),h.ORDER_DATE,23)"
+    },
+    {
+      "key": "orderNo",
+      "label": "单号",
+      "type": "text",
+      "source": "h.DOC_NO"
+    },
+    {
+      "key": "salesDepartment",
+      "label": "销售部门名称",
+      "type": "text",
+      "source": "a.ADMIN_UNIT_NAME"
+    },
+    {
+      "key": "deliveryDate",
+      "label": "预交货日",
+      "type": "date",
+      "source": "CONVERT(char(10),d.PLAN_DELIVERY_DATE,23)"
+    },
+    {
+      "key": "currency",
+      "label": "币种",
+      "type": "text",
+      "source": "cu.CURRENCY_CODE"
+    },
+    {
+      "key": "exchangeRate",
+      "label": "汇率",
+      "type": "number",
+      "source": "h.EXCHANGE_RATE"
+    },
+    {
+      "key": "sequence",
+      "label": "序号",
+      "type": "number",
+      "source": "d.SequenceNumber"
+    },
+    {
+      "key": "itemCode",
+      "label": "品号",
+      "type": "text",
+      "source": "i.ITEM_CODE"
+    },
+    {
+      "key": "itemName",
+      "label": "品名",
+      "type": "text",
+      "source": "d.ITEM_DESCRIPTION"
+    },
+    {
+      "key": "businessQty",
+      "label": "业务数量",
+      "type": "number",
+      "source": "d.BUSINESS_QTY"
+    },
+    {
+      "key": "customerOrderNo",
+      "label": "客户单号",
+      "type": "text",
+      "source": "h.CUSTOMER_ORDER_NO"
+    },
+    {
+      "key": "businessRemark",
+      "label": "备注-业务",
+      "type": "text",
+      "source": "h.REMARK1"
+    },
+    {
+      "key": "taxIncluded",
+      "label": "含税",
+      "type": "boolean",
+      "source": "h.TAX_INCLUDED"
+    },
+    {
+      "key": "priceQty",
+      "label": "计价数量",
+      "type": "number",
+      "source": "d.PRICE_QTY"
+    },
+    {
+      "key": "priceUnit",
+      "label": "计价单位",
+      "type": "text",
+      "source": "u.UNIT_NAME"
+    },
+    {
+      "key": "deliveredBusinessQty",
+      "label": "已交业务数量",
+      "type": "number",
+      "source": "sd.DELIVERED_BUSINESS_QTY"
+    },
+    {
+      "key": "deliveredPriceQty",
+      "label": "已交计价数量",
+      "type": "number",
+      "source": "sd.DELIVERED_PRICE_QTY"
+    },
+    {
+      "key": "closeCode",
+      "label": "结束码",
+      "type": "text",
+      "source": "sd.[CLOSE]"
+    },
+    {
+      "key": "settlementPriceQty",
+      "label": "已结算计价数量",
+      "type": "number",
+      "source": "d.SETTLEMENT_PRICE_QTY"
+    },
+    {
+      "key": "price",
+      "label": "单价",
+      "type": "number",
+      "source": "d.PRICE"
+    },
+    {
+      "key": "amount",
+      "label": "金额",
+      "type": "number",
+      "source": "d.AMOUNT"
+    },
+    {
+      "key": "taxName",
+      "label": "税种名称",
+      "type": "text",
+      "source": "t.TAX_NAME"
+    },
+    {
+      "key": "taxRate",
+      "label": "税率",
+      "type": "number",
+      "source": "d.TAX_RATE"
+    },
+    {
+      "key": "originalNet",
+      "label": "原币未税金额",
+      "type": "number",
+      "source": "d.AMT_UNINCLUDE_TAX_OC"
+    },
+    {
+      "key": "originalTax",
+      "label": "原币税额",
+      "type": "number",
+      "source": "d.TAX_OC"
+    },
+    {
+      "key": "localNet",
+      "label": "本币未税金额",
+      "type": "number",
+      "source": "d.AMT_UNINCLUDE_TAX_BC"
+    },
+    {
+      "key": "localTax",
+      "label": "本币税额",
+      "type": "number",
+      "source": "d.TAX_BC"
+    },
+    {
+      "key": "settlementStatus",
+      "label": "结算状态",
+      "type": "text",
+      "source": "d.SETTLEMENT_CLOSE"
+    },
+    {
+      "key": "approved",
+      "label": "审核",
+      "type": "text",
+      "source": "h.ApproveStatus"
+    },
+    {
+      "key": "localGross",
+      "label": "本币合计金额",
+      "type": "number",
+      "source": "d.AMT_UNINCLUDE_TAX_BC+d.TAX_BC"
+    }
+  ]
+}

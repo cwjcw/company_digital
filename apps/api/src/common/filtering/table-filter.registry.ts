@@ -40,6 +40,8 @@ export type TableFilterActor = {
 export type TableFilterSource = {
   /** 资源 code（tableResourceRegistry 内的稳定值）。 */
   code: string;
+  /** Explicit, bounded export limit for validated large record sources; default remains 80000. */
+  exportMaxRows?: number;
   /** 物理表名。 */
   table: string;
   /** field key → 列名（不含别名）。 */
@@ -84,6 +86,8 @@ export type TableFilterSource = {
    * KN-PRINT-001：该资源自己的打印取数实现（可正确处理 ACTUAL/PENDING 视图与页面上下文）。
    * 未提供时打印服务使用注册表的通用 SQL（同一列绑定与平台编译器）。
    */
+  /** Optional controlled provider for aggregate record lists; uses the same query contract as exports. */
+  listRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
   printRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
   /** KN-PRINT-001：批量 label 解析器（member/department/reference/dictionary），禁止 N+1。 */
   printResolvers?: Record<string, (rows: Array<Record<string, unknown>>, actor?: TableFilterActor) => Promise<Map<string, unknown>>>;

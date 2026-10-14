@@ -1,3 +1,5 @@
+import { PlatformStreamingWorkbook } from './streaming-workbook';
+import { PassThrough } from 'node:stream';
 import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import ExcelJS from "exceljs";
@@ -178,24 +180,30 @@ export class TablePrintService {
       total = result.total;
       rows.push(...result.rows);
       if (rows.length >= total || result.rows.length < PRINT_BATCH_SIZE) break;
-      if (page >= MAX_BATCHES) throw new BadRequestException(`导出数据超过 ${MAX_BATCHES * PRINT_BATCH_SIZE} 行，请进一步筛选后再导出`);
+      if (page >= Math.ceil((source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE) / PRINT_BATCH_SIZE)) throw new BadRequestException(`导出数据超过 ${source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE} 行，请进一步筛选后再导出`);
       page += 1;
     }
 
     const keyField = recordKeyOf(source).field;
     const resolved = await this.resolveLabels(source, rows, fields, keyField, actor);
-    const workbook = new ExcelJS.Workbook();
+    // Validated large sources use the platform's streaming XLSX writer to avoid millions of resident cells.
+    const large=(source.exportMaxRows??0)>MAX_BATCHES*PRINT_BATCH_SIZE;
+    const stream=new PassThrough();const chunks:Buffer[]=[];
+    stream.on('data',chunk=>chunks.push(Buffer.from(chunk)));
+    const ended=large?new Promise<void>((resolve,reject)=>{stream.on('end',resolve);stream.on('error',reject);}):undefined;
+    const workbook=large?new PlatformStreamingWorkbook({stream,useSharedStrings:false}):new ExcelJS.Workbook();
     workbook.creator = "KDOS 平台";
-    const sheet = workbook.addWorksheet(resource.label.slice(0, 31));
+    const sheet = workbook.addWorksheet(resource.label.slice(0, 31),{views:[{state:'frozen',ySplit:1}]});
     sheet.columns = fields.map((field) => ({ header: field.printLabel ?? field.label, key: field.key, width: Math.max(12, this.widthFor(field) * 1.5) }));
     for (const row of rows) {
       const output: Record<string, string> = {};
       for (const field of fields) output[field.key] = this.formatValue(field, resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key]);
-      sheet.addRow(output);
+      const added=sheet.addRow(output);if(large)added.commit();
     }
-    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    if(!large)sheet.views = [{ state: "frozen", ySplit: 1 }];
     sheet.autoFilter = { from: "A1", to: `${this.columnLetter(Math.max(fields.length, 1))}1` };
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    if(workbook instanceof ExcelJS.stream.xlsx.WorkbookWriter){await workbook.commit();await ended;return Buffer.concat(chunks);}
+    stream.destroy();return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
   /** 打印人展示值：displayName → username → "—"（userId 仅用于审计与内部识别，不上纸）。 */
