@@ -276,22 +276,9 @@ export class MasterPlanSyncService {
    */
   private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
     return this.dataSource.transaction(async (manager) => {
-      const allocations = await manager.query(`
-        INSERT INTO mps_order_allocations(tenant_id,order_number,item_code,salesperson_name,customer_code,order_date,expected_shipping_date,item_name,unit,order_quantity,allocated_quantity,tax_included_unit_price,tax_included_amount,order_status,division_id,created_by,updated_by)
-        SELECT e.tenant_id,e.order_number,e.item_code,max(e.salesperson_name),max(e.customer_code),min(e.order_date),max(e.expected_shipping_date),max(e.item_name),max(e.unit),
-          sum(greatest(e.order_quantity,0)),sum(greatest(e.order_quantity,0)),max(e.tax_included_unit_price),sum(COALESCE(e.tax_included_amount,0)),max(e.order_status),
-          /* 客户→事业部映射在 (tenant_id,customer_code) 上唯一，因此组内至多一行；PostgreSQL 没有 max(uuid) 聚合，这里用确定性取值。 */
-          (array_agg(map.primary_division_id))[1],$2::uuid,$3
-        FROM mps_erp_order_lines e
-        LEFT JOIN mps_customer_division_mappings map ON map.tenant_id=e.tenant_id AND map.customer_code=e.customer_code AND map.enabled=true
-        WHERE e.tenant_id=$1 AND e.source_active=true GROUP BY e.tenant_id,e.order_number,e.item_code
-        ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET salesperson_name=excluded.salesperson_name,customer_code=excluded.customer_code,
-          order_date=excluded.order_date,expected_shipping_date=excluded.expected_shipping_date,item_name=excluded.item_name,unit=excluded.unit,
-          order_quantity=excluded.order_quantity,allocated_quantity=excluded.allocated_quantity,tax_included_unit_price=excluded.tax_included_unit_price,tax_included_amount=excluded.tax_included_amount,
-          order_status=excluded.order_status,division_id=excluded.division_id,updated_at=now(),updated_by=$3,version=mps_order_allocations.version+1
-        WHERE NOT mps_order_allocations.manually_maintained AND (mps_order_allocations.salesperson_name,mps_order_allocations.customer_code,mps_order_allocations.order_date,mps_order_allocations.expected_shipping_date,mps_order_allocations.item_name,mps_order_allocations.unit,mps_order_allocations.order_quantity,mps_order_allocations.allocated_quantity,mps_order_allocations.tax_included_unit_price,mps_order_allocations.tax_included_amount,mps_order_allocations.order_status,mps_order_allocations.division_id)
-          IS DISTINCT FROM (excluded.salesperson_name,excluded.customer_code,excluded.order_date,excluded.expected_shipping_date,excluded.item_name,excluded.unit,excluded.order_quantity,excluded.allocated_quantity,excluded.tax_included_unit_price,excluded.tax_included_amount,excluded.order_status,excluded.division_id)
-        RETURNING id`, [tenantId, userId, updatedBy]);
+      // Allocation rows are maintained only by authorized manual/Excel commands.
+      // ERP staging and downstream reconciliation remain scheduled as before.
+      const allocations: Array<{ id: string }> = [];
       const monthly = await manager.query(`
         INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,latest_customer_due_date,item_name,required_quantity,created_by,updated_by)
         SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,max(e.customer_name),a.order_date,max(e.customer_due_date),max(e.preproduction_review_date),max(COALESCE(a.expected_shipping_date,e.customer_due_date)),a.item_name,a.allocated_quantity,$2::uuid,$3

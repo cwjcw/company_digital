@@ -249,3 +249,18 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(success?.[1]?.[0]).toEqual(events.map((event) => event.id));
   });
 });
+
+
+describe("manual-only allocation sources", () => {
+  it("reconciles downstream plans without creating, updating or deleting allocations", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const dataSource = { transaction: async (work: (value: typeof manager) => unknown) => work(manager) };
+    const service = new MasterPlanSyncService(dataSource as never);
+    const result = await (service as any).projectPlans("KAINAN", null, "source-policy-test");
+    const statements = manager.query.mock.calls.map(([statement]) => String(statement));
+    expect(statements.join("\n")).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM)\s+mps_order_allocations\b/i);
+    expect(statements.some((sql) => sql.includes("INSERT INTO mps_monthly_plans"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("INSERT INTO mps_group_plans"))).toBe(true);
+    expect(result.metrics.allocations).toBe(0);
+  });
+});

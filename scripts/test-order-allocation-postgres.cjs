@@ -107,7 +107,12 @@ const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
    const {MasterPlanSyncService}=req('./dist/modules/master-plan-system/master-plan.sync.service');
    const before=(await db.query("SELECT * FROM mps_order_allocations WHERE order_number='SYN-1'"))[0];
    await db.query(`INSERT INTO mps_erp_order_lines(tenant_id,source_system,source_database,source_key,order_number,item_code,order_quantity,customer_code,tax_included_amount,created_by,updated_by) VALUES('KAINAN','fixture','fixture','manual-protection','SYN-1','00001',999,'UNKNOWN',999,$1,$1)`,[actor.userId]);
-   await new MasterPlanSyncService(db).projectPlans('KAINAN',actor.userId,actor.userId);
+   await db.query(`INSERT INTO mps_erp_order_lines(tenant_id,source_system,source_database,source_key,order_number,item_code,order_quantity,customer_code,created_by,updated_by) VALUES('KAINAN','fixture','fixture','erp-only-source','SYN-ERP-ONLY','ERP01',17,'UNKNOWN',$1,$1)`,[actor.userId]);
+   const existing=await db.query('SELECT id,allocated_quantity,version FROM mps_order_allocations ORDER BY id');
+   const outcome=await new MasterPlanSyncService(db).projectPlans('KAINAN',actor.userId,actor.userId);
+   assert.equal(outcome.metrics.allocations,0);
+   assert.deepEqual(await db.query('SELECT id,allocated_quantity,version FROM mps_order_allocations ORDER BY id'),existing);
+   assert.equal((await db.query("SELECT count(*)::int n FROM mps_order_allocations WHERE order_number='SYN-ERP-ONLY'"))[0].n,0);
    assert.deepEqual((await db.query("SELECT * FROM mps_order_allocations WHERE order_number='SYN-1'"))[0],before);
  });
  await check('same-name salespeople get separate unique filenames and merged per-user scopes',async()=>{

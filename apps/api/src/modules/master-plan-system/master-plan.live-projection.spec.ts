@@ -24,15 +24,8 @@ const inboundStatements = (statements: string[]) => ({
 describe("KN-MPS-LIVE-002 master plan projection boundaries", () => {
   it("Case H：事业部只由客户映射派生，未映射订单不得进入月计划", async () => {
     const statements = await projectPlansSql();
-    const allocation = statementOf(statements, "INSERT INTO mps_order_allocations");
-    /* 分配表显式写入由客户映射派生的事业部，而不是依赖列默认值。 */
-    /* PostgreSQL 没有 max(uuid) 聚合；映射在 (tenant,customer) 上唯一，组内取确定性唯一值。 */
-    expect(allocation).toContain("(array_agg(map.primary_division_id))[1]");
-    expect(allocation).not.toContain("max(map.primary_division_id)");
-    expect(allocation).toContain("LEFT JOIN mps_customer_division_mappings map ON map.tenant_id=e.tenant_id AND map.customer_code=e.customer_code AND map.enabled=true");
-    expect(allocation).toContain("division_id=excluded.division_id");
-    /* 事业部变化也必须触发更新（否则新增映射不会生效）。 */
-    expect(allocation).toContain("mps_order_allocations.division_id");
+    // Allocation sources are now exclusively manual/Excel; ERP cannot infer ownership.
+    expect(statements.join("\n")).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM)\s+mps_order_allocations\b/i);
 
     const monthly = statementOf(statements, "INSERT INTO mps_monthly_plans");
     expect(monthly).toContain("a.division_id IS NOT NULL");
@@ -135,8 +128,8 @@ describe("KN-MPS-PROJ-CUSTOMER-GUARD-001 empty customer-code projection guard", 
     const groups = statementOf(statements, "INSERT INTO mps_group_plans");
     const exceptions = statements.filter((statement) => statement.includes("mps_data_exceptions")).join("\n");
 
-    /* allocation 仍保留 LEFT JOIN，可存 division_id=NULL；下游则分别设置显式防线。 */
-    expect(statementOf(statements, "INSERT INTO mps_order_allocations")).toContain("LEFT JOIN mps_customer_division_mappings");
+    /* Historical allocation rows remain; the ERP job only checks downstream admission. */
+    expect(statementOf(statements, "INSERT INTO mps_order_allocations")).toBeUndefined();
     expect(monthly).toContain("NULLIF(BTRIM(a.customer_code),'') IS NOT NULL");
     expect(groups).toContain("HAVING bool_and(NULLIF(BTRIM(customer_code),'') IS NOT NULL)");
     expect(exceptions).toContain("'allocation:'||order_number||':'||item_code||':missing-customer-code'");
