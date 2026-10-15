@@ -19,9 +19,10 @@ const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
  db=new DataSource({type:'postgres',host,username:'knplan',database:name,migrations:[path.join(root,'apps/api/dist/migrations/*.js')],logging:false});await db.initialize();await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');await db.runMigrations();checks.push('all migrations including allocation append batches on fresh PostgreSQL18');
  await db.query(`INSERT INTO users(id,username,display_name,password_hash,enabled,tenant_id,wechat_user_id) VALUES($1,'fixture','测试员工','unused',true,'KAINAN','synthetic-wecom')`,[actor.userId]);
  const units=['事业一部','事业二部','事业三部','事业四部','采购部'];for(let i=0;i<units.length;i++)await db.query(`INSERT INTO organization_units(id,name,level,enabled) VALUES($1::uuid,$2,1,true)`,[id(i+10),units[i]]);
- const delivery=new OrderAllocationDeliveryService(db),notifications=new NotificationService(db,delivery),config=new OrderAllocationConfigService(db,notifications);
+ const delivery=new OrderAllocationDeliveryService(db),notifications=new NotificationService(db,delivery);
  const sync={processOutbox:async()=>({}),run:async()=>({})};const app=new MasterPlanApplicationService(db,sync,notifications);
- const directory={listEnabled:async()=>units.map((name,i)=>({id:id(i+10),name,pathLabel:name})),resolve:(value,options)=>{const all=options.filter(o=>o.id===value||o.name===value);if(all.length!==1)throw Error('unit missing');return all[0];}};
+ const directory={listEnabled:async()=>(await db.query('SELECT id,name FROM organization_units WHERE enabled=true')).map(u=>({...u,pathLabel:u.name})),resolve:(value,options)=>{const all=options.filter(o=>o.id===value||o.name===value);if(all.length!==1)throw Error('unit missing');return all[0];}};
+ const config=new OrderAllocationConfigService(db,notifications,directory);
  const {MasterPlanQueryService}=req('./dist/modules/master-plan-system/master-plan.query.service');
  const spreadsheet=new MasterPlanSpreadsheetService(db,new MasterPlanQueryService(db,directory),app,directory);
  await config.seed('KAINAN',actor.userId);
@@ -157,6 +158,47 @@ const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
    const files=claims.filter(c=>c.messageType==='file');assert.equal(new Set(files.map(c=>c.attachment.filename)).size,3);
    for(const n of [201,202]){const file=files.find(c=>c.recipients[0].userId===id(n));assert.match(file.attachment.filename,/^订单分配_\d{12}_同名员工_/);assert(file.attachment.filename.includes(id(n).replace(/-/g,'')));}
    for(const c of claims)await notifications.markDeliverySuccess('KAINAN',c.notificationId,'same-name-worker',{deliveryId:c.recipients[0].deliveryId});
+ });
+ await check('supply-chain disabled mapping is explicit; versioned repair preserves all other mappings and organization rows',async()=>{
+   // Finish prior notification tests first; this check must not emit production-style events.
+   const cfg=await config.read(actor);await config.save('rule',{expectedVersion:cfg.rule.version,enabled:false},actor);
+   const original=cfg.vendors.find(v=>v.supplier_name==='供应链'),other=cfg.vendors.filter(v=>v.id!==original.id);
+   const procurementRecipient=cfg.recipients.find(r=>r.division_id===original.division_id);await config.save('recipients',{id:procurementRecipient.id,expectedVersion:procurementRecipient.version,enabled:true,userIds:[actor.userId]},actor);
+   const orgBefore=await db.query('SELECT row_to_json(o) value FROM organization_units o ORDER BY id');
+   await config.save('vendors',{id:original.id,expectedVersion:original.version,enabled:false,supplierName:'供应链',divisionId:original.division_id},actor);
+   let data=await config.read(actor);assert(data.issues.some(i=>i.supplierName==='供应链'&&i.code==='DISABLED_MAPPING'));
+   assert.equal(data.vendors.find(v=>v.id===original.id).enabled,false); // seed never silently overrides administrator settings
+   const rows=Array.from({length:4},(_,i)=>['SYN-SUPPLY-'+i,'001','SUP'+i,'测试员工','供应链','80']);
+   const disabled=await preview(rows);assert.equal(disabled.previewId,null);for(let row=2;row<=5;row++)assert(disabled.errors.some(e=>e.row===row&&e.reason.includes('映射已停用')));
+   let current=data.vendors.find(v=>v.id===original.id);await config.save('vendors',{id:current.id,expectedVersion:current.version,enabled:true,supplierName:'供应链',divisionId:current.division_id},actor);
+   data=await config.read(actor);assert(!data.issues.some(i=>i.supplierName==='供应链'));assert.deepEqual(data.vendors.filter(v=>v.id!==original.id),other);
+   const valid=await preview(rows);assert.equal(valid.errors.length,0);assert.equal(valid.counts.created,4);assert(valid.rows.every(r=>r.values.divisionId===original.division_id));
+   const before=(await db.query('SELECT count(*)::int n FROM mps_order_allocations'))[0].n;await spreadsheet.confirm('mps-order-allocations',valid.previewId,actor);await spreadsheet.confirm('mps-order-allocations',valid.previewId,actor);assert.equal((await db.query('SELECT count(*)::int n FROM mps_order_allocations'))[0].n,before+4);
+   assert.equal((await db.query('SELECT count(*)::int n FROM mps_order_allocations WHERE import_batch_id=$1 AND division_id=$2',[valid.importBatchId,original.division_id]))[0].n,4);
+   assert(valid.recipients.some(r=>r.userId===actor.userId&&r.identities.some(label=>label.includes('采购部'))));
+   await db.query('UPDATE organization_units SET enabled=false WHERE id=$1',[original.division_id]);const invalid=await preview(rows);assert(invalid.errors.some(e=>e.reason.includes('承接组织不存在或已停用')));assert((await config.read(actor)).issues.some(i=>i.supplierName==='供应链'&&i.code==='INVALID_ORGANIZATION'));
+   await db.query('UPDATE organization_units SET enabled=true WHERE id=$1',[original.division_id]);
+   assert.deepEqual(await db.query('SELECT row_to_json(o) value FROM organization_units o ORDER BY id'),orgBefore);
+   const after=await config.read(actor);assert.equal(after.rule.enabled,false);
+   assert((await db.query("SELECT count(*)::int n FROM audit_logs WHERE action='order-allocation.config.vendors' AND record_id=$1",[original.id]))[0].n>=2);
+ });
+ await check('ambiguous required seed is visible, known IDs resolve it, arbitrary custom organizations remain configurable',async()=>{
+   const cfg=await config.read(actor),procurement=cfg.vendors.find(v=>v.supplier_name==='供应链');
+   // Use rollback to test missing/ambiguous setup without retiring any retained FK or historical allocation.
+   await assert.rejects(()=>db.transaction(async m=>{
+     await m.query('DELETE FROM mps_allocation_vendor_mappings WHERE id=$1',[procurement.id]);
+     await m.query("INSERT INTO organization_units(id,name,level,enabled) VALUES($1,'采购部',2,true)",[id(810)]);
+     const issues=await config.seed('KAINAN',actor.userId,m);assert(issues.some(i=>i.supplierName==='供应链'&&i.message.includes('重名')));assert.equal((await m.query("SELECT count(*)::int n FROM mps_allocation_vendor_mappings WHERE supplier_name='供应链'"))[0].n,0);
+     throw Error('controlled fixture rollback');
+   }),/controlled fixture rollback/);
+   await db.query("INSERT INTO organization_units(id,name,level,enabled) VALUES($1,'仓储部',2,true)",[id(811)]);
+   const saved=await config.save('vendors',{supplierName:'自定义仓储供应商',divisionId:id(811),enabled:true},actor);assert.equal(saved.division_id,id(811));
+   let data=await config.read(actor);assert(data.unitOptions.some(o=>o.id===id(811)));const recipient=data.recipients.find(r=>r.division_id===id(811));assert(recipient);
+   await config.save('recipients',{id:recipient.id,expectedVersion:recipient.version,divisionId:id(811),userIds:[actor.userId],enabled:true},actor);
+   const custom=await preview([['SYN-CUSTOM','1','CUSTOM','测试员工','自定义仓储供应商','12']]);assert.equal(custom.errors.length,0);assert.equal(custom.rows[0].values.divisionId,id(811));assert(custom.recipients.some(r=>r.identities.includes('仓储部')));
+   await config.seed('KAINAN',actor.userId);data=await config.read(actor);assert.equal(data.vendors.find(v=>v.id===saved.id).division_id,id(811));
+   const p=data.vendors.find(v=>v.id===procurement.id);await assert.rejects(()=>config.save('vendors',{id:p.id,expectedVersion:p.version,supplierName:'供应链',divisionId:id(811),enabled:true},actor),/必须映射采购部/);
+   await assert.rejects(()=>config.save('vendors',{supplierName:'自定义仓储供应商',divisionId:id(811),enabled:true},actor),/已存在/);
  });
  console.log(JSON.stringify({status:'PASS',checks}));
 })().catch(e=>{console.error(e.message);process.exitCode=1;}).finally(async()=>{if(db?.isInitialized)await db.destroy();if(control._connected){await control.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);await control.end();}});

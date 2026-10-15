@@ -1,4 +1,4 @@
-import { allocationChange, allocationColumn, ALLOCATION_FIELDS, parseAllocationWorkbook } from "./order-allocation.domain";
+import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, parseAllocationWorkbook } from "./order-allocation.domain";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
@@ -198,7 +198,7 @@ export class MasterPlanSpreadsheetService {
     const resolved=await this.dataSource.transaction(async manager=>{
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
       const [{id:importBatchId}]=await manager.query("SELECT uuidv7() AS id");
-      const vendors=await manager.query("SELECT supplier_name,division_id FROM mps_allocation_vendor_mappings WHERE tenant_id=$1 AND enabled=true",[actor.tenantId]);
+      const vendors=await manager.query("SELECT supplier_name,division_id,enabled FROM mps_allocation_vendor_mappings WHERE tenant_id=$1",[actor.tenantId]);
       const organizations=await this.directory.listEnabled();
       const conflicts:Array<Record<string,unknown>>=[],changes:ReturnType<typeof allocationChange>[]=[];
       const rows=parsed.rows.map(input=>{
@@ -206,8 +206,10 @@ export class MasterPlanSpreadsheetService {
         if(values.divisionId){try{values.divisionId=this.directory.resolve(values.divisionId,organizations,"承接事业部")?.id;}catch{errors.push({row:input.row,reason:"承接事业部无法精确匹配"});}}
         if(values.supplierName){
           const map=vendors.find((v:Record<string,unknown>)=>v.supplier_name===values.supplierName);
-          if(!map)errors.push({row:input.row,reason:`供应商名称未配置有效映射：${values.supplierName}`});
-          else if(!organizations.some(o=>o.id===map.division_id))errors.push({row:input.row,reason:"供应商映射的承接单位不存在或已停用"});
+          if(!map)errors.push({row:input.row,reason:`供应商名称未配置映射：${values.supplierName}`});
+          else if(!map.enabled)errors.push({row:input.row,reason:`供应商名称映射已停用：${values.supplierName}，请联系PMC管理员核实并启用`});
+          else if(!organizations.some(o=>o.id===map.division_id))errors.push({row:input.row,reason:"供应商映射的承接组织不存在或已停用"});
+          else if(allocationVendorTargetError(String(values.supplierName),organizations.find(o=>o.id===map.division_id)!))errors.push({row:input.row,reason:"供应链必须映射采购部，请联系PMC管理员修复映射"});
           else if(values.divisionId&&values.divisionId!==map.division_id){
             conflicts.push({row:input.row,before:organizations.find(u=>u.id===values.divisionId)?.name??values.divisionId,after:organizations.find(u=>u.id===map.division_id)?.name??map.division_id,overridden:overrideDivision});
             if(overrideDivision){

@@ -97,3 +97,8 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   if (!rows.length) errors.push({row:2,reason:"文件中没有可导入的数据"});
   return { rows, errors, sourceWorksheet:sheet.name, fileTotalRows:Math.max(0,sheet.rowCount-1), quantitySource, ignoredIdentity:rows.some(r=>r.ignoredIdentity), orderCount: new Set(rows.map(r=>r.values.orderNumber)).size };
 }
+
+/** Only this mandatory supplier rule constrains the target name; other valid mappings remain configurable. */
+export function allocationVendorTargetError(supplierName:string,unit:{name:string}) {
+  return supplierName==="供应链"&&unit.name.trim()!=="采购部"?"供应链必须映射采购部，请选择正确的现有采购部组织":null;
+}
