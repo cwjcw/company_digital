@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { allocationChange, allocationSnapshot, parseAllocationWorkbook } from "./order-allocation.domain";
+import { ALLOCATION_FIELDS, allocationChange, allocationSnapshot, parseAllocationWorkbook } from "./order-allocation.domain";
 import { allocationAttachmentFilename, allocationWorkbook } from "../notifications/order-allocation.delivery.service";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 
@@ -19,7 +19,51 @@ describe("ERP allocation parser and immutable nonmoney snapshots",()=>{
  it.each([{formula:"1+1"},{formula:"1/0",result:{error:"#DIV/0!"}}])("blocks missing/error formula caches with the source coordinate",async value=>{const a=[...row] as unknown[];a[5]=value;expect((await parseAllocationWorkbook(await workbook([a]))).errors.some(e=>e.reason.includes("F2"))).toBe(true);});
  it("never defaults blank source quantity to zero and ignores legacy record identity",async()=>{const headers=["订单单号","品号","供应商名称","已分配数量","记录ID","版本"];const result=await parseAllocationWorkbook(await workbook([["O","I","事业一部","","old-id",999]],headers));expect(result.ignoredIdentity).toBe(true);expect(result.rows[0].values).not.toHaveProperty("id");expect(result.errors.some(e=>e.reason.includes("D2"))).toBe(true);});
 
- it("rejects formula cells in business fields but never reads money formulas",async()=>{const a=[...row] as unknown[];a[9]={formula:"1+1",result:2};expect((await parseAllocationWorkbook(await workbook([a]))).errors).toEqual([]);a[2]={formula:"1+1",result:2};expect((await parseAllocationWorkbook(await workbook([a]))).errors.length).toBeGreaterThan(0);});
+ it.each(ALLOCATION_FIELDS)("reads cached values for the allowed business field %s",async(key,_label,type)=>{
+  const headers=ALLOCATION_FIELDS.map(f=>f[1]);const values:unknown[]=ALLOCATION_FIELDS.map(f=>f[2]==="date"?"2026-10-14":f[2]==="number"?1:"缓存文本");
+  const cached=type==="number"?"1.2345":type==="date"?"2026/10/14":"已审核";
+  values[ALLOCATION_FIELDS.findIndex(f=>f[0]===key)]={formula:"DO_NOT_EVALUATE()",result:cached};
+  const parsed=await parseAllocationWorkbook(await workbook([values],headers));expect(parsed.errors).toEqual([]);expect(parsed.rows[0].values[key]).toBe(type==="date"?"2026-10-14":cached);expect(JSON.stringify(parsed.rows)).not.toContain("DO_NOT_EVALUATE");
+ });
+ it("ignores nonbusiness, price and superseded ERP allocated-quantity formulas even without caches",async()=>{
+  const headers=["订单单号","品号","供应商名称","已分配数量","未分配数量","订单状态","含税金额","非业务字段"];
+  const parsed=await parseAllocationWorkbook(await workbook([["SO","ITEM","供应链",{formula:"NO_CACHE()"},{formula:"IGNORED_EXPRESSION()",result:0},{formula:'IF(TRUE,"已审核","")',result:"已审核"},{formula:"NO_CACHE()"},{formula:"1/0",result:{error:"#DIV/0!"}}]],headers));
+  expect(parsed.errors).toEqual([]);expect(parsed.rows[0].values).toMatchObject({allocatedQuantity:"0",orderStatus:"已审核"});expect(parsed.quantitySource).toBe("ERP_UNALLOCATED");expect(JSON.stringify(parsed.rows)).not.toMatch(/formula|NO_CACHE|IGNORED_EXPRESSION/);
+ });
+ it("preserves numeric cached text codes with zero formats and cached quantity zero",async()=>{
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("分配");sheet.addRow(["订单单号","品号","供应商名称","已分配数量","备注"]);sheet.addRow(["SO",{formula:"1+1",result:2},"事业一部",{formula:"1-1",result:0},""]);sheet.getCell("B2").numFmt="00000";
+  const parsed=await parseAllocationWorkbook(Buffer.from(await book.xlsx.writeBuffer()));expect(parsed.errors).toEqual([]);expect(parsed.rows[0].values).toMatchObject({itemCode:"00002",allocatedQuantity:"0"});expect(parsed.rows[0].values.remark).toBeUndefined();
+ });
+ it("preserves cached false for text fields and rejects it as a quantity",async()=>{
+  const headers=["订单单号","品号","供应商名称","已分配数量","订单状态"];
+  const parsed=await parseAllocationWorkbook(await workbook([["SO","A","供应链",1,{formula:"FALSE()",result:false}],["SO","A","供应链",{formula:"FALSE()",result:false},"已审核"]],headers));expect(parsed.rows[0].values.orderStatus).toBe("false");expect(parsed.errors.some(e=>e.row===3&&e.reason.includes("D3"))).toBe(true);expect(parsed.errors.some(e=>e.row===2)).toBe(false);
+ });
+ it.each([new Date("2026-10-14T00:00:00Z"),46309,"2026/10/14"])("converts cached date results %s without reading the expression",async result=>{
+  const a=[...row] as unknown[];a[6]={formula:"DO_NOT_EVALUATE()",result};const parsed=await parseAllocationWorkbook(await workbook([a]));expect(parsed.errors).toEqual([]);expect(parsed.rows[0].values.expectedShippingDate).toBe("2026-10-14");
+ });
+ it("uses cached shared formulas for text and dates",async()=>{
+  const headers=["订单单号","品号","供应商名称","已分配数量","订单状态","下单日期"];
+  const parsed=await parseAllocationWorkbook(await workbook([["SO","A","供应链",1,{formula:'"已审核"',result:"已审核"},{formula:"DATE(2026,10,14)",result:46309}],["SO","A","供应链",1,{sharedFormula:"E2",result:"已审核"},{sharedFormula:"F2",result:46309}]],headers));
+  expect(parsed.errors).toEqual([]);expect(parsed.rows.map(r=>r.values)).toEqual([expect.objectContaining({orderStatus:"已审核",orderDate:"2026-10-14"}),expect.objectContaining({orderStatus:"已审核",orderDate:"2026-10-14"})]);
+ });
+ it.each([undefined,{error:"#VALUE!"}])("reports cache errors with coordinates for every business field type: %s",async result=>{
+  const headers=["订单单号","品号","供应商名称","已分配数量","订单状态","下单日期"];
+  const parsed=await parseAllocationWorkbook(await workbook([["SO","A","供应链",{formula:"NO_EVALUATION()",result},{formula:"NO_EVALUATION()",result},{formula:"NO_EVALUATION()",result}]],headers));
+  for(const coordinate of ["D2","E2","F2"])expect(parsed.errors.some(e=>e.reason.includes(coordinate)&&e.reason.includes(result?"Excel错误值":"缓存结果"))).toBe(true);
+ });
+ it("does not silently skip rows containing only formulas without caches",async()=>{
+  const headers=["订单单号","品号","供应商名称","已分配数量"];
+  const parsed=await parseAllocationWorkbook(await workbook([[{formula:"A1"},{formula:"A1"},{formula:"A1"},{formula:"A1"}]],headers));for(const coordinate of ["A2","B2","C2","D2"])expect(parsed.errors.some(e=>e.reason.includes(coordinate))).toBe(true);
+ });
+ it.each([[-1,"数量不能为负数"],["1.23456","数据库精度"],["10000000000000000","数据库精度"],["not-a-number","DecimalError"]])("validates cached numbers without rounding: %s",async(result,message)=>{
+  const a=[...row] as unknown[];a[5]={formula:"DO_NOT_EVALUATE()",result};const parsed=await parseAllocationWorkbook(await workbook([a]));expect(parsed.errors.some(e=>e.reason.includes("F2")&&e.reason.includes(String(message)))).toBe(true);
+ });
+ it.each(["2026-02-30",60,2958466,-1])("rejects invalid cached dates with coordinates: %s",async result=>{
+  const a=[...row] as unknown[];a[6]={formula:"DO_NOT_EVALUATE()",result};const parsed=await parseAllocationWorkbook(await workbook([a]));expect(parsed.errors.some(e=>e.reason.includes("G2")&&e.reason.includes("日期"))).toBe(true);
+ });
+ it("respects the workbook 1904 date epoch for cached serial zero",async()=>{
+  const book=new ExcelJS.Workbook();book.properties.date1904=true;const sheet=book.addWorksheet("分配");sheet.addRow(["订单单号","品号","供应商名称","已分配数量","下单日期"]);sheet.addRow(["SO","A","供应链",1,{formula:"0",result:0}]);const parsed=await parseAllocationWorkbook(Buffer.from(await book.xlsx.writeBuffer()));expect(parsed.errors).toEqual([]);expect(parsed.rows[0].values.orderDate).toBe("1904-01-01");
+ });
  it("ignores price-only differences and normalizes exact numeric and date values",()=>{const before={id:"a",item_code:"01",order_quantity:"2.0000",order_date:new Date("2026-10-14T00:00:00Z"),tax_included_amount:"123"};const after={...before,order_quantity:"2",order_date:"2026-10-14",tax_included_amount:"999"};expect(allocationChange(before,after).fields).toEqual([]);expect(allocationSnapshot(before)).not.toHaveProperty("tax_included_amount");});
  it("builds three sheets with fieldwise changes, date formats and formula-safe leading-zero strings",async()=>{const change=allocationChange({id:"a",salesperson_name:"旧业务员",division_id:"old"},{id:"a",order_number:"=FORMULA",order_sequence:"001",item_code:"00001",order_date:"2026-10-14",salesperson_name:"新业务员",division_id:"new"});const content=await allocationWorkbook([allocationChange(null,{id:"new",order_number:"NEW-ORDER",order_sequence:"002",item_code:"00002",allocated_quantity:"3"}),change],"测试操作人","2026-10-14T02:00:00Z");const book=new ExcelJS.Workbook();await book.xlsx.load(content as never);expect(book.worksheets.map(s=>s.name)).toEqual(["新增订单","变更订单","字段变更明细"]);expect(book.getWorksheet("新增订单")!.rowCount).toBe(2);expect(book.getWorksheet("新增订单")!.getCell("C2").text).toBe("NEW-ORDER");expect(book.getWorksheet("变更订单")!.rowCount).toBe(2);expect(book.getWorksheet("变更订单")!.getCell("C2").text).toBe("'=FORMULA");expect(book.getWorksheet("变更订单")!.getCell("F2").text).toBe("001");expect(book.getWorksheet("变更订单")!.getCell("D2").numFmt).toBe("yyyy-mm-dd");const details=book.getWorksheet("字段变更明细")!;const existing=Array.from({length:details.rowCount-1},(_,i)=>details.getRow(i+2).values as ExcelJS.CellValue[]).filter(values=>values[1]==="'=FORMULA");expect(existing).toHaveLength(change.fields.length);expect(existing.find(values=>values[8]==="业务员")).toEqual(expect.arrayContaining(["旧业务员","新业务员","变更"]));expect(book.worksheets.every(s=>s.views[0].state==="frozen")).toBe(true);expect(book.worksheets.flatMap(s=>s.getRow(1).values as ExcelJS.CellValue[]).join(" ")).not.toMatch(/含税|采购金额|原币单价/);});
 });

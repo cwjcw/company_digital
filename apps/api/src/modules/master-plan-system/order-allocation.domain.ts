@@ -56,27 +56,38 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   if (!columns.has("supplierName") && !columns.has("divisionId")) throw new BadRequestException("缺少供应商名称或承接事业部");
   const rows: AllocationParsedRow[] = [], errors: Array<{ row: number; reason: string }> = [];
   sheet.eachRow((r, n) => {
-    if (n === 1 || ![...columns.values()].some(col => r.getCell(col).text.trim())) return;
+    if (n === 1 || ![...columns.values()].some(col => {
+      const cell = r.getCell(col);
+      return cell.text.trim() || (cell.type === ExcelJS.ValueType.Formula && cell.result == null);
+    })) return;
     const values: Record<string, unknown> = {};
     let quantityInvalid=false;
     for (const [key, label, type] of ALLOCATION_FIELDS) {
       const col = columns.get(key); if (!col) continue;
       const cell = r.getCell(col); if (cell.value == null || (cell.type !== ExcelJS.ValueType.Formula && cell.text.trim() === "")) continue;
       try {
+        let value: unknown = cell.value;
         let text=cell.text.trim();
         if(cell.type===ExcelJS.ValueType.Error)throw Error("Excel错误值");
         if(cell.type===ExcelJS.ValueType.Formula){
-          if(type!=="number")throw Error("该业务字段不能包含公式");
-          const cached=(cell.value as {result?:unknown}).result;
-          if(cached==null||cached==="")throw Error("公式缺少有效缓存结果，请在Excel重新计算并保存");
-          if(typeof cached!=="string"&&typeof cached!=="number")throw Error("公式缓存是错误值或非数字");
-          text=String(cached);
+          // ExcelJS cell.value drops falsy results; its public result getter preserves 0/false.
+          const cached: unknown=cell.result;
+          if(cached==null)throw Error("公式缺少有效缓存结果，请在Excel重新计算并保存");
+          if(typeof cached==="object"&&"error" in cached)throw Error(`公式缓存为Excel错误值：${cached.error}`);
+          if(!(cached instanceof Date)&&!["string","number","boolean"].includes(typeof cached))throw Error("公式缓存结果类型无效");
+          // Read cached values only; formula expressions never enter business values or evaluation.
+          value=cached;
+          text=cached instanceof Date?cached.toISOString().slice(0,10):String(cached).trim();
         }
         if (type === "date") {
           let day: string;
-          if (cell.value instanceof Date) day = cell.value.toISOString().slice(0, 10);
-          else if (typeof cell.value === "number") { const serial = cell.value; if (!Number.isFinite(serial) || serial < 1 || serial > 2958465) throw Error("日期序列无效"); day = new Date(Date.UTC(workbook.properties.date1904 ? 1904 : 1899, workbook.properties.date1904 ? 0 : 11, workbook.properties.date1904 ? 1 : 30) + Math.floor(serial) * 86400000).toISOString().slice(0, 10); }
-          else { const match = cell.text.trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+00:00(?::00)?)?$/); if (!match) throw Error("日期格式无效"); day = `${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`; }
+          if (value instanceof Date) day = value.toISOString().slice(0, 10);
+          else if (typeof value === "number") {
+            const serial = Math.floor(value), date1904 = workbook.properties.date1904;
+            if (!Number.isFinite(value) || serial < (date1904 ? 0 : 1) || serial > (date1904 ? 2957003 : 2958465) || (!date1904 && serial === 60)) throw Error("日期序列无效");
+            day = new Date(Date.UTC(date1904 ? 1904 : 1899, date1904 ? 0 : 11, date1904 ? 1 : 31) + (serial - (!date1904 && serial > 60 ? 1 : 0)) * 86400000).toISOString().slice(0, 10);
+          }
+          else { const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+00:00(?::00)?)?$/); if (!match) throw Error("日期格式无效"); day = `${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`; }
           if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day)) || new Date(`${day}T00:00:00Z`).toISOString().slice(0,10) !== day) throw Error("日期无效");
           values[key] = day;
         } else if (type === "number") {
@@ -85,7 +96,7 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
           const scale = ["financialExchangeRate","settlementRatio"].includes(key) ? 8 : 4;
           if (value.decimalPlaces() > scale || value.abs().gte(new Decimal(10).pow(20-scale))) throw Error(`超出数据库精度（最多${scale}位小数）`);
           values[key] = value.toString();
-        } else { const text = cell.text.trim(); values[key] = typeof cell.value === "number" && /^0+$/.test(cell.numFmt ?? "") ? text.padStart(cell.numFmt.length, "0") : text; }
+        } else { if (text !== "") values[key] = typeof value === "number" && /^0+$/.test(cell.numFmt ?? "") ? text.padStart(cell.numFmt.length, "0") : text; }
       } catch (e) { if(key==="allocatedQuantity")quantityInvalid=true; errors.push({ row: n, reason: `${key==="allocatedQuantity"&&quantitySource==="ERP_UNALLOCATED"?"未分配数量（映射已分配数量）":label} (${cell.address})：${(e as Error).message}` }); }
     }
     for (const key of ["orderNumber", "itemCode"]) if (!values[key]) errors.push({row:n,reason:`${ALLOCATION_FIELDS.find(f=>f[0]===key)![1]}不能为空`});
