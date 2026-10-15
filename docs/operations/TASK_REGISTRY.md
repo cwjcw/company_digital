@@ -145,4 +145,4 @@
 
 - Mapping repair (2026-10-15): supply-chain/procurement configuration restored through the versioned audited API after read-only diagnosis. Initial seed failures and disabled/invalid mappings are visible; organization choices use existing enabled directory IDs, without creating organizations. No notification trigger, dispatcher, schedule or official-rule state changes; allocation append batches and suspended downstream reconciliation remain in force.
 
-- 2026-10-15：按用户明确选择，一次性归档清空订单分配当前页面并保留历史计划。Migration94／Application管理员命令；无新增定时器、无通知事件或下游对账。现有调度和正式通知OFF保持，生产执行和备份证据见outputs/PMC_ALLOCATION_CLEAR_ACCEPTANCE.md。
+- 2026-10-15：按用户明确选择，一次性归档清空订单分配当前页面并保留历史计划。Migration94／Application管理员命令；无新增定时器、无通知事件或下游对账。现有调度及正式通知配置保持执行前真实值；08:53:51已有配置操作将正式规则设为ON/version4，本次归档未更改或发消息。生产执行和备份证据见outputs/PMC_ALLOCATION_CLEAR_ACCEPTANCE.md。
