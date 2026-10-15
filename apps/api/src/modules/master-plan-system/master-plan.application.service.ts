@@ -57,6 +57,48 @@ export class MasterPlanApplicationService {
     @Optional() private readonly notifications?: NotificationService
   ) {}
 
+  /** One-off administrator command; no employee UI/delete permission is introduced. */
+  async archiveAllocations(records: Array<{ id: string; expectedVersion: number }>, idempotencyKey: string, actor: MasterPlanActor) {
+    if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以归档清空订单分配表");
+    if (!uuidPattern.test(idempotencyKey) || !Array.isArray(records) || records.length > 50_000
+      || records.some((row) => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1)
+      || new Set(records.map((row) => row.id)).size !== records.length) throw new BadRequestException("归档快照或幂等键无效");
+    const ordered = [...records].sort((a, b) => a.id.localeCompare(b.id));
+    const requestHash = createHash("sha256").update(JSON.stringify(ordered)).digest("hex");
+    const storageKey = `mps-archive:${actor.tenantId}:${idempotencyKey}`;
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
+      const [existing] = await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
+      if (existing) {
+        if (existing.request_hash !== requestHash) throw new ConflictException("相同幂等键不能用于不同归档快照");
+        return { ...existing.response_json, repeated: true };
+      }
+      // Preview confirmations lock previews before writing allocations; retain the same lock order.
+      await manager.query("SET LOCAL lock_timeout='10s'");
+      await manager.query("LOCK TABLE mps_import_previews,mps_order_allocations IN SHARE ROW EXCLUSIVE MODE");
+      const current = await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL ORDER BY id FOR UPDATE", [actor.tenantId]);
+      const versions = new Map(ordered.map((row) => [row.id, row.expectedVersion]));
+      if (current.length !== ordered.length || current.some((row: Record<string, unknown>) => versions.get(String(row.id)) !== Number(row.version))) {
+        throw new ConflictException("订单分配记录已变化，请重新核实归档快照");
+      }
+      const [clock] = await manager.query("SELECT now() AS archived_at");
+      if (current.length) await manager.query(`UPDATE mps_order_allocations SET archived_at=$2,updated_at=$2,updated_by=$3::uuid,version=version+1
+        WHERE tenant_id=$1 AND archived_at IS NULL`, [actor.tenantId, clock.archived_at, actor.userId]);
+      const expired = await manager.query(`UPDATE mps_import_previews SET expires_at=now(),updated_at=now(),updated_by=$2::uuid,version=version+1
+        WHERE tenant_id=$1 AND resource='mps-order-allocations' AND confirmed_at IS NULL AND expires_at>now() RETURNING id`, [actor.tenantId, actor.userId]);
+      for (const row of current) await this.audit(manager, actor, "mps-order-allocations", row.id, "mps-order-allocations.archived", row,
+        { archived: true, archiveBatchId: idempotencyKey, archivedAt: clock.archived_at, version: Number(row.version) + 1 });
+      const response = { archived: current.length, expiredPreviews: Array.isArray(expired[0]) ? expired[0].length : expired.length,
+        archiveBatchId: idempotencyKey, archivedAt: clock.archived_at, repeated: false };
+      await this.audit(manager, actor, "mps-order-allocations", null, "mps-order-allocations.archive_completed", null, response);
+      await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)",
+        [storageKey, requestHash, JSON.stringify(response), actor.userId]);
+      // Archival preserves plan references and deliberately emits neither allocation messages nor reconciliation.
+      return response;
+    });
+  }
+
   async create(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     const resource = this.resource(code);
     this.assertDirectCreateAllowed(resource);
@@ -624,6 +666,7 @@ export class MasterPlanApplicationService {
   }
 
   private recordAllowed(resource: MasterPlanResource, row: Record<string, unknown>, actor: MasterPlanActor, action: string) {
+    if (resource.code === "mps-order-allocations" && row.archived_at != null) return false;
     if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return true;
     const scopes = actor.tableDataScopes.filter((scope) => scope.resource === resource.code && (!scope.actions || scope.actions.includes(action)));
     if (scopes.some((scope) => scope.scope === "ALL")) return true;

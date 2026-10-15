@@ -144,3 +144,5 @@
 - Append-batch revision: migration 93 adds batch/row lineage, retires the allocation-only legacy quantity field and replaces the monthly allocation business FK with a stable record-ID FK. No new scheduler. Production plan-projections is explicitly disabled via the existing audited configuration API under the user's cancellation request; five other MPS sync configurations retain their enabled states and intervals.
 
 - Mapping repair (2026-10-15): supply-chain/procurement configuration restored through the versioned audited API after read-only diagnosis. Initial seed failures and disabled/invalid mappings are visible; organization choices use existing enabled directory IDs, without creating organizations. No notification trigger, dispatcher, schedule or official-rule state changes; allocation append batches and suspended downstream reconciliation remain in force.
+
+- 2026-10-15：按用户明确选择，一次性归档清空订单分配当前页面并保留历史计划。Migration94／Application管理员命令；无新增定时器、无通知事件或下游对账。现有调度和正式通知OFF保持，生产执行和备份证据见outputs/PMC_ALLOCATION_CLEAR_ACCEPTANCE.md。

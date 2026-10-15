@@ -21,7 +21,7 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
         table: resource.table,
         columns,
         fields: fieldsFor(resource),
-        buildScope: (actor, params) => buildDataScopeClause({ resource: resource.code, columns, actor, params }),
+        buildScope: (actor, params) => `(${buildDataScopeClause({ resource: resource.code, columns, actor, params })})${resource.code === "mps-order-allocations" ? " AND record.archived_at IS NULL" : ""}`,
         candidateVariant: resource.code === "mps-process-reports" ? (context) => String(context.view ?? "").toUpperCase() === "PENDING" ? {
           table: `(${processReportPendingSourceSql})`, columns: processReportPendingColumns(),
           fields: processReportPendingFields().filter((field) => !field.input),

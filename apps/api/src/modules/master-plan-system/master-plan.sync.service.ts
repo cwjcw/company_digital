@@ -286,7 +286,7 @@ export class MasterPlanSyncService {
         INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,latest_customer_due_date,item_name,required_quantity,created_by,updated_by)
         SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,max(e.customer_name),a.order_date,max(e.customer_due_date),max(e.preproduction_review_date),max(COALESCE(a.expected_shipping_date,e.customer_due_date)),a.item_name,a.allocated_quantity,$2::uuid,$3
         FROM mps_order_allocations a LEFT JOIN mps_erp_order_lines e ON e.tenant_id=a.tenant_id AND e.order_number=a.order_number AND e.item_code=a.item_code AND e.source_active=true
-        WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
+        WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.division_id IS NOT NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
         GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
         ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,
           customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,latest_customer_due_date=excluded.latest_customer_due_date,item_name=excluded.item_name,required_quantity=excluded.required_quantity,
@@ -342,9 +342,9 @@ export class MasterPlanSyncService {
         RETURNING id`, [tenantId, userId, updatedBy]);
       await this.refreshExceptions(manager, tenantId, userId, updatedBy);
       const [unmapped] = await manager.query(`SELECT
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND NULLIF(BTRIM(a.customer_code),'') IS NULL) AS blocked_by_missing_customer_code,
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.division_id IS NOT NULL AND NOT EXISTS (
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND NULLIF(BTRIM(a.customer_code),'') IS NULL) AS blocked_by_missing_customer_code,
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
+        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.division_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM mps_customer_division_mappings m WHERE m.tenant_id=a.tenant_id AND m.customer_code=a.customer_code AND m.enabled=true AND m.primary_division_id=a.division_id)) AS division_defaulted`, [tenantId]);
       return {
         count: this.changedCount(allocations) + this.changedCount(monthly) + this.changedCount(inbound) + this.changedCount(groups),
@@ -370,7 +370,7 @@ export class MasterPlanSyncService {
     return `eligible_allocations AS (
       SELECT a.tenant_id,a.order_number,a.item_code
       FROM mps_order_allocations a
-      WHERE a.tenant_id=$1
+      WHERE a.tenant_id=$1 AND a.archived_at IS NULL
         AND a.division_id IS NOT NULL
         AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
         AND EXISTS(
@@ -566,9 +566,9 @@ export class MasterPlanSyncService {
     SELECT $1,exception_key,resource,record_id,business_key,exception_type,severity,message,true,$2::uuid,$3 FROM (SELECT DISTINCT ON (exception_key) * FROM (
       /* 业务字段可为空时，异常键必须仍是稳定、非空的业务主键，绝不依赖 NULL 拼接。 */
       SELECT 'group:'||order_number||':missing-customer-code' exception_key,'mps-group-plans' resource,id record_id,order_number business_key,'MISSING_CUSTOMER_CODE' exception_type,'ERROR' severity,'ERP订单缺少客户代码，无法确定承接事业部' message FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
-      UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','ERP订单缺少客户代码，无法确定承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
+      UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','ERP订单缺少客户代码，无法确定承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NULL
       UNION ALL SELECT 'customer:'||BTRIM(customer_code),'mps-group-plans',id,BTRIM(customer_code),'MISSING_PRIMARY_DIVISION','ERROR','客户未配置主责事业部' FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND primary_division_id IS NULL
-      UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL
+      UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL
       UNION ALL SELECT 'demand:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'NON_POSITIVE_DEMAND','ERROR','订单需求数量必须大于0' FROM mps_monthly_plans WHERE tenant_id=$1 AND required_quantity<=0
       UNION ALL SELECT 'over-inbound:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'INBOUND_EXCEEDS_DEMAND','WARNING','累计入库数量超过订单需求数量' FROM mps_monthly_plans WHERE tenant_id=$1 AND cumulative_inbound_quantity>required_quantity
     ) exceptions_raw ORDER BY exception_key) exceptions ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$3,version=mps_data_exceptions.version+1`, [tenantId, userId, updatedBy]);

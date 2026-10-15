@@ -61,6 +61,7 @@ export class MasterPlanQueryService {
     const pageSize = normalizeKdosPageSize(requestedPageSize);
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
+    if (code === "mps-order-allocations") clauses.push("record.archived_at IS NULL");
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
     /* KN-PRINT-001：打印已选只取选中记录（与列表共用同一 where/排序/分页语义）。 */
     const printIds = Array.isArray(input.ids) ? input.ids.map((id) => String(id)).filter(Boolean) : [];
@@ -206,7 +207,7 @@ export class MasterPlanQueryService {
       expressions,
       canReadField: (key) => this.visible(actor, code, key),
       scopedSource: `${resource.table} record`,
-      scopedWhere: `record.tenant_id=$1 AND ${scope}`,
+      scopedWhere: `record.tenant_id=$1 AND ${scope}${code === "mps-order-allocations" ? " AND record.archived_at IS NULL" : ""}`,
       scopedParams: params,
       departmentCandidates: async (term, size) => (await this.directory.listEnabled())
         .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))
