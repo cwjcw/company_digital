@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { standardProcesses } from "@tracker/shared";
-import { tablePermissionFieldsFor, type MpsDashboardData } from "@kdos/contracts";
+import contracts, { type MpsDashboardData } from "@kdos/contracts";
+const { tablePermissionFieldsFor, mpsDashboardGaps } = contracts;
 const resource = "mps-overview-dashboard";
 const divisionId = "0199d000-0000-7000-8000-000000000010";
 function fixture(): MpsDashboardData {
-  return { visibleFields: tablePermissionFieldsFor(resource).map(f=>f.key), generatedAt: "2026-10-15T01:00:00Z", trendStart: "2026-10-08", trendEnd: "2026-10-14", orders: { orderCount: 1, unfinishedOrderCount: 1, orderRequiredQuantity: "500", orderCompletedQuantity: "300", orderPendingQuantity: "200", orderCompletionRate: ".6" }, plans: { requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "300", pendingQuantity: "200", inboundRate: ".6", overdueCount: 1, exceptionCount: 1 }, readiness: [{ status: "待完善", count: 1, ratio: "1" }], auxiliary: [{ key: "technical", states: [{ status: "延期", count: 1 }] }], processes: [...standardProcesses].sort((a,b)=>a.order-b.order).map(p=>({...p,values:{requiredQuantity:"500",reportedQuantity:"525",productionProgress:"1.05"},states:[{status:"已完成",count:1}]})), trend: Array.from({length:7},(_,i)=>({productionDate:`2026-10-${String(i+8).padStart(2,"0")}`,...Object.fromEntries(standardProcesses.map(p=>[`${p.code}ReportedQuantity`,String(p.order+10)]))})), divisions: [{ divisionId, divisionName: "合成事业部", requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "300", inboundRate: ".6", pendingQuantity: "200", overdueCount: 1, exceptionCount: 1 }], risks: { rows: [{ id: "fixture-risk", resource: "mps-monthly-plans", divisionId, divisionName: "合成事业部", orderNumber: "SYN-ORDER", itemCode: "SYN-ITEM", riskType: "生产异常", exceptionSummary: "人工测试异常" }], total: 1, page: 1, pageSize: 20 } };
+  return { gaps: Object.fromEntries(mpsDashboardGaps.map(g=>[g.key,1])), visibleFields: tablePermissionFieldsFor(resource).map(f=>f.key), generatedAt: "2026-10-15T01:00:00Z", trendStart: "2026-10-08", trendEnd: "2026-10-14", orders: { orderCount: 1, unfinishedOrderCount: 1, orderRequiredQuantity: "500", orderCompletedQuantity: "300", orderPendingQuantity: "200", orderCompletionRate: ".6" }, plans: { requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "300", pendingQuantity: "200", inboundRate: ".6", overdueCount: 1, exceptionCount: 1 }, readiness: [{ status: "待完善", count: 1, ratio: "1" }], auxiliary: [{ key: "technical", states: [{ status: "延期", count: 1 }] }], processes: [...standardProcesses].sort((a,b)=>a.order-b.order).map(p=>({...p,values:{requiredQuantity:"500",reportedQuantity:"525",productionProgress:"1.05"},states:[{status:"已完成",count:1}]})), trend: Array.from({length:7},(_,i)=>({productionDate:`2026-10-${String(i+8).padStart(2,"0")}`,...Object.fromEntries(standardProcesses.map(p=>[`${p.code}ReportedQuantity`,String(p.order+10)]))})), divisions: [{ divisionId, divisionName: "合成事业部", requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "300", inboundRate: ".6", pendingQuantity: "200", overdueCount: 1, exceptionCount: 1 }], risks: { rows: [{ id: "fixture-risk", resource: "mps-monthly-plans", divisionId, divisionName: "合成事业部", orderNumber: "SYN-ORDER", itemCode: "SYN-ITEM", riskType: "生产异常", exceptionSummary: "人工测试异常" }], total: 1, page: 1, pageSize: 20 } };
 }
 async function mount(page: Page, permissions=["*"], mode="data") {
   const user = { sub: "synthetic-dashboard-user", username: "synthetic", permissions, isSystemAdmin: permissions.includes("*"), tableDataScopes: [] };
@@ -14,6 +15,13 @@ async function mount(page: Page, permissions=["*"], mode="data") {
     if(url.pathname.endsWith("/auth/me"))return route.fulfill({json:user});
     if(url.pathname.endsWith("/dashboard/candidates"))return route.fulfill({json:{options:url.searchParams.get("field")==="divisionId"?[{value:divisionId,label:"合成事业部"}]:url.searchParams.get("field")==="orderNumber"?[{value:"SYN-ORDER",label:"SYN-ORDER"},{value:"SYN-SECOND",label:"SYN-SECOND"}]:url.searchParams.get("field")==="itemCode"?[{value:"SYN-ITEM",label:"SYN-ITEM · 合成品名"}]:[{value:"SYN-CUSTOMER",label:"合成客户"}],hasMore:false}});
     if(url.pathname.endsWith("/dashboard/export"))return route.fulfill({contentType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers:{"content-disposition":`attachment; filename="mps_${url.searchParams.get("tableKey")!.replaceAll("-","_")}_20261015.xlsx"`},body:Buffer.from("synthetic-download")});
+    if(url.pathname.endsWith("/dashboard/gaps") || url.pathname.includes("/dashboard/reports/")) {
+      const pageNo=Number(url.searchParams.get("page")||1),size=Number(url.searchParams.get("pageSize")||100);
+      let rows=url.pathname.endsWith("/risk-exception")?fixture().risks.rows:url.pathname.endsWith("/gaps")?[{id:"gap-fixture",divisionId,divisionName:"合成事业部",orderNumber:"SYN-GAP-ORDER",itemCode:"SYN-ITEM",currentNode:"入库",currentStatus:"未入库"}]:[];
+      let total=rows.length;
+      if(url.pathname.endsWith("/risk-exception")&&mode==="paging"){rows=Array.from({length:Math.min(size,125-(pageNo-1)*size)},(_,i)=>({...fixture().risks.rows[0]!,id:`risk-${(pageNo-1)*size+i+1}`,orderNumber:`SYN-ORDER-${(pageNo-1)*size+i+1}`}));total=125;}
+      return route.fulfill({json:{rows,total,page:pageNo,pageSize:size,visibleFields:fixture().visibleFields}});
+    }
     if(url.pathname.endsWith("/dashboard/table"))return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100,visibleFields:fixture().visibleFields}});
     if(url.pathname.includes("/master-plan-system/resources/")||url.pathname.endsWith("/dashboard/drill")){
       if(url.pathname.endsWith("/meta"))return route.fulfill({json:{fields:[{key:"orderNumber",label:"订单号"},{key:"itemCode",label:"品号"}]}});
@@ -66,7 +74,7 @@ test('no own read: route redirects and navigation leaf is absent, no dashboard r
 
 test('risk and formal drill use canonical server paging and retain page2 after response',async({page})=>{
   await mount(page,['*'],'paging');const risk=page.locator('#mps-risks');await expect(risk.getByRole('button',{name:'SYN-ORDER-1',exact:true})).toBeVisible();
-  const next=page.waitForRequest(r=>{const u=new URL(r.url());return u.pathname.endsWith('/master-plan-system/dashboard')&&u.searchParams.get('page')==='2'&&u.searchParams.get('pageSize')==='100';});await risk.locator('.ant-pagination-item-2').click();await next;
+  const next=page.waitForRequest(r=>{const u=new URL(r.url());return u.pathname.endsWith('/dashboard/reports/risk-exception')&&u.searchParams.get('page')==='2'&&u.searchParams.get('pageSize')==='100';});await risk.locator('.ant-pagination-item-2').click();await next;
   await expect(risk.getByRole('button',{name:'SYN-ORDER-101',exact:true})).toBeVisible();await expect(risk.locator('.ant-pagination-item-active')).toHaveText('2');await page.waitForTimeout(500);await expect(risk.locator('.ant-pagination-item-active')).toHaveText('2');
   await page.unrouteAll();await mount(page,['*'],'drillPaging');await page.getByRole('button',{name:'SYN-ORDER',exact:true}).click();const drawer=page.getByRole('dialog');await expect(drawer.getByText('SYN-ITEM-1',{exact:true})).toBeVisible();
   const drillNext=page.waitForRequest(r=>r.url().includes('/dashboard/drill?')&&r.url().includes('resourceCode=mps-monthly-plans')&&new URL(r.url()).searchParams.get('page')==='2');await drawer.locator('.ant-pagination-item-2').click();await drillNext;await expect(drawer.getByText('SYN-ITEM-101',{exact:true})).toBeVisible();await expect(drawer.locator('.ant-pagination-item-active')).toHaveText('2');
@@ -88,3 +96,15 @@ test('REV1 multiselect/date candidates cascade and four independent English Exce
   await page.getByRole('button',{name:'清空筛选',exact:true}).click();await expect(page.getByRole('combobox',{name:'日期周期',exact:true})).toHaveCount(0);
 });
 test('REV1 dashboard read without export hides every table export',async({page})=>{await mount(page,['mps-overview-dashboard:*:read']);await expect(page.getByText('订单概况',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'导出',exact:true})).toHaveCount(0);});
+
+test('REV2 gap KPI selects its own paginated list and exports only that category',async({page})=>{
+  const requests:URL[]=[];page.on('request',r=>{if(r.url().includes('/master-plan-system/dashboard'))requests.push(new URL(r.url()));});
+  await mount(page);await expect(page.getByText('待处理事项',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:/^未入库/}).click();
+  await expect(page.getByRole('tab',{name:'未入库 1',exact:true})).toHaveAttribute('aria-selected','true');
+  await expect.poll(()=>requests.some(u=>u.pathname.endsWith('/dashboard/gaps')&&u.searchParams.get('type')==='no-inbound'&&u.searchParams.get('pageSize')==='100')).toBe(true);
+  const card=page.locator('#mps-gap-list');await expect(card.getByRole('cell',{name:'SYN-GAP-ORDER',exact:true})).toBeVisible();
+  const download=page.waitForEvent('download');await card.getByRole('button',{name:'导出',exact:true}).click();expect((await download).suggestedFilename()).toMatch(/^mps_no_inbound_\d{8}\.xlsx$/);
+  expect(requests.findLast(u=>u.pathname.endsWith('/dashboard/export'))?.searchParams.get('tableKey')).toBe('no-inbound');
+  for(const key of ['plan-readiness','process-execution','risk-exception'])expect(requests.some(u=>u.pathname.endsWith('/reports/'+key))).toBe(true);
+});

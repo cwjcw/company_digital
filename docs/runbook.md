@@ -165,3 +165,9 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 下钻由`/drill?resourceCode=...`构造服务端可信scope，再调用原Query Service的metadata/list权限/字段/scope逻辑；请求不能传入SQL，也不能用PENDING任务视图绕过scope。Drawer为临时权限检查结果，不提供单独下载；正式Dashboard表格均有独立导出。趋势专用10色按registry.order映射，既有主计划表格配色不变。
 
 升级使用现有备份和 `scripts/deploy.sh all/check`；本功能不调整任何同步flags/cron/n8n/Timer/Dispatcher。回滚部署保留的旧应用镜像/源码，不恢复覆盖业务数据库。指标合同与人工验收见 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md` 和 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md`。
+
+### REV2 待处理事项
+
+首屏提供9类有可靠定义的待处理KPI及分页Tabs；三个末尾标准报表使用独立请求、分页、排序、搜索/条件与服务端全量导出。新增`/dashboard/gaps?type`、`/dashboard/reports/:reportKey`，继续使用mps-overview-dashboard资源与原read/export/data scope，不给业务表新增权限。3天窗口应生成缺口为BLOCKED，不伪造指标。
+
+回归命令：`pnpm --filter @tracker/api exec jest --runInBand --testPathPatterns=master-plan.dashboard`；数据库TEMP隔离用例加`KDOS_POSTGRES_INTEGRATION=true DATABASE_HOST=127.0.0.1 DATABASE_PORT=<端口>`；Web两份MasterPlanDashboard*.spec.tsx与Chrome e2e/master-plan-dashboard.spec.ts。生产核验仅执行生成的SELECT和EXPLAIN，不调用任何sync或构造生产测试订单/计划/报工。只读快照/备份/部署证据保存于忽略目录data/mps-dashboard-rev2，不提交业务数据或凭据；最终等待人工验收，不自动PASS。

@@ -1,3 +1,27 @@
+# KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2 自动验证与人工验收清单
+
+业务规则/实现和自动验证已完成；本轮上线门禁仍以标准all部署及Repository/Web/API一致、服务健康证据为准。最终必须为WAITING_MANUAL_ACCEPTANCE，不自动PASS。以下为REV2验收口径，REV1历史保留在下方。
+
+- 真实起始基线707bc5a（保留其督办创建权限修复）；未回退6bff61e，未覆盖既有未提交进度。
+- 9类待处理事项：未进入出货、未进入基础、已具备条件未进入周、计划待完善、未开始报工、未入库、未完成入库、延期未完成、生产异常。每个KPI点击切换对应server-side分页Tabs，可单独导出全匹配清单。3天工单当前窗口规则不足，标BLOCKED且不展示。
+- 出货差集用monthly.id→shipping.monthly_plan_id（tenant复合FK），基础差集用shipping.id→base.shipping_plan_id，周计划用base.id→weekly.base_plan_id及正式weeklyPlanState。不得用order/item两字段替代父ID，不能把已建立某批次解释为覆盖全部数量。
+- 所有数量/进度/状态/人工异常继续复用正式事实及shared标准10工序；计划提示不计入生产异常；已具备条件与待完善严格分开。月计划入库与欠数不在Dashboard重算。
+- 计划待完善、工序执行、风险与异常是3张独立标准KdosDataTable、3个report request及query key、独立page/pageSize/sort/local filters/export/loading/error/empty state。默认100，页大小遵守平台白名单；风险行可同时含延期与人工异常。原正式风险下钻保留。
+- 顶部事业部、客户、订单/品号多选、订单/交付日期统一Dashboard Scope，适用于summary/gaps/reports/candidates/export；每事实显式tenant及同一Dashboard data scope。导出read∩export、字段与依赖校验、英文独立xlsx，不导当前页，不输出UUID。
+- API全量107套/1002项通过（默认19项外部集成跳过，本任务5组PostgreSQL用例另行启用并通过）；Dashboard/Gaps最后13项通过；Contracts22项通过；Web全量50套386项通过，独立报表与缺口点击有新增回归。
+- Chrome桌面1366/1440/1920、真实图表resize、单纵向滚动、无重复标题、筛选联动、独立risk分页/下钻、单表下载、缺口切换/下载、无read/export权限，共12项通过。浏览器响应为明确合成fixture并拦截所有API，不冒充生产登录、不创建业务假数据。
+- 全仓typecheck、lint、build通过；保留既有ModulePortal fast-refresh warning及Vite chunk提示，均无错误。
+- 生产只读三组日期Scope下9个KPI与清单total逐项一致（27次比较）；10张业务表记录数/version哈希、6个sync flags及migration台账与基线一致。首次EXPLAIN execution约1257ms，分页明细146–1204ms，无N+1、无新索引。
+- 双库及附件标准备份20261015_232206，pg_restore目录与SHA256验证通过；本轮无业务migration、事实表、业务数据/报工/入库修改、同步开关或调度调整。
+
+## 上线证据与待人工验收
+
+最终运行SHA以本任务交付回复、build-info及health为准；标准部署/check、部署后Chrome与只读核验的执行证据写入私有data/mps-dashboard-rev2。新指标有独立字段权限，普通用户不得因原月计划权限而自动获得Dashboard或其它业务表读取权；真实账号和真实业务含义仍需用户按GAP_AUDIT/Gap Metrics复核。
+
+人工重点：月计划正需求是否是期望的出货管理集合（本轮只判断尚未建立，不判断排完全部数量）；相同订单/品号多批次清单是否清楚；已具备条件/待完善分开；未报工与入库两类缺口可信；9类KPI、顶部Scope、局部条件和14类单表导出范围一致。未经用户确认，不判最终PASS。
+
+---
+
 # KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1
 
 当前状态：**等待人工验收**。REV1开发、自动验证与功能部署已完成；未经用户真实账号验收不判最终PASS。

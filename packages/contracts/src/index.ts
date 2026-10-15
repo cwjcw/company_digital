@@ -1,4 +1,4 @@
-import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics } from "./master-plan-dashboard";
+import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardGaps } from "./master-plan-dashboard";
 import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
 export * from './finance-orders';
 import { financeDepartmentOptions, financeSalesChannelOptions } from "./finance";
@@ -432,6 +432,8 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["orderNumber", "订单号", "text", false], ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false],
     ["orderDate", "订单日期", "date", false], ["deliveryDate", "交付日期", "date", false], ["plannedQuantity", "计划数量", "number", false],
     ...[...mpsDashboardOrderMetrics, ...mpsDashboardPlanMetrics].map(([key, label]) => [key, label, "number", false] as [string, string, "number", boolean]),
+    ...mpsDashboardGaps.map(g => [g.metric, g.title, "number", false] as [string, string, "number", boolean]),
+    ["deliveryNumber", "交期编码", "text", false], ["reportedQuantity", "累计实际报工", "number", false],
     ["weeklyPlanState", "周计划准备分布", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false],
     ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false], ["latestCustomerDueDate", "最迟客户交期", "date", false],
     ["riskType", "风险类型", "text", false], ["exceptionSummary", "异常", "text", false], ["productionDate", "生产日期", "date", false],

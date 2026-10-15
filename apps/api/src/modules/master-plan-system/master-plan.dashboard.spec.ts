@@ -29,11 +29,20 @@ describe("Master plan overview HTTP authorization", () => {
     permissions = ["mps-monthly-plans:*:read"];
     await request(app.getHttpServer()).get("/master-plan-system/dashboard").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/candidates?field=divisionId").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/gaps?type=no-inbound").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/reports/plan-readiness").expect(403);
     expect(transaction).not.toHaveBeenCalled();
   });
   it("read alone cannot export", async () => {
     permissions = [`${resource}:*:read`];
-    await request(app.getHttpServer()).get("/master-plan-system/dashboard/export").expect(403); expect(transaction).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/export").expect(403); await request(app.getHttpServer()).get("/master-plan-system/dashboard/export?tableKey=no-inbound").expect(403);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+  it("gap counts/lists require their metric and dependencies, and hidden local searches fail before SQL", async()=>{
+    permissions=[`${resource}:*:read`];
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/gaps?type=no-inbound").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/reports/plan-readiness?search=hidden").expect(403);
+    expect(transaction).not.toHaveBeenCalled();
   });
   it("invalid division, hidden filters and unknown candidates fail before SQL", async () => {
     permissions = ["*"];
@@ -47,7 +56,7 @@ describe("Master plan overview HTTP authorization", () => {
   });
   it("validates multiselect/date/table contracts and export returns an English filename", async()=>{
     permissions=["*"];
-    for(const url of ["?orderNumbers=broken","?itemCodes=%7B%7D","?orderNumber=legacy","?dateType=ORDER&datePeriod=DAY&dateValue=2026-02-30","?dateType=bad","/table?tableKey=unknown","/export?tableKey=unknown"])await request(app.getHttpServer()).get("/master-plan-system/dashboard"+url).expect(400);
+    for(const url of ["?orderNumbers=broken","?itemCodes=%7B%7D","?orderNumber=legacy","?dateType=ORDER&datePeriod=DAY&dateValue=2026-02-30","?dateType=bad","/table?tableKey=unknown","/export?tableKey=unknown","/gaps?type=unknown","/gaps?type=missing-three-day-work-order","/reports/unknown","/reports/process-execution?processCode=legacy","/reports/process-execution?onlyIncomplete=invalid"])await request(app.getHttpServer()).get("/master-plan-system/dashboard"+url).expect(400);
     jest.spyOn(exporter,"export").mockResolvedValueOnce(Buffer.from("fixture"));
     const response=await request(app.getHttpServer()).get("/master-plan-system/dashboard/export?tableKey=process-execution").expect(200);
     expect(response.headers["content-disposition"]).toMatch(/^attachment; filename="mps_process_execution_\d{8}\.xlsx"$/);

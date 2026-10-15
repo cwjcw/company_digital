@@ -2,17 +2,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { standardProcesses } from "@tracker/shared";
-import { tablePermissionFieldsFor, type MpsDashboardData } from "@kdos/contracts";
+import { tablePermissionFieldsFor, mpsDashboardGaps, type MpsDashboardData } from "@kdos/contracts";
 import { api } from "../../api";
 import { MasterPlanDashboard } from "./MasterPlanDashboard";
 import { mpsMetric, mpsTrendTooltip, MPS_PROCESS_CHART_PALETTE } from "./master-plan-dashboard.utils";
 vi.mock("../../api", () => ({ api: vi.fn() }));
 vi.mock("../../shared/charts", () => ({ KdosChart: ({ ariaLabel, onDataClick, empty, loading }: { ariaLabel: string; onDataClick?: (e: { name: string; dataIndex: number }) => void; empty?: boolean; loading?: boolean }) => <button aria-label={ariaLabel} data-empty={String(empty)} data-loading={String(loading)} onClick={() => onDataClick?.({ name: "待完善", dataIndex: 0 })} /> }));
 const resource = "mps-overview-dashboard";
-function fixture(): MpsDashboardData { return { visibleFields: tablePermissionFieldsFor(resource).map(f => f.key), generatedAt: "2026-10-15T01:00:00Z", trendStart: "2026-10-08", trendEnd: "2026-10-14", orders: { orderCount: 2, orderRequiredQuantity: "500", orderCompletedQuantity: "300", orderCompletionRate: ".6" }, plans: { requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "100", pendingQuantity: "400", inboundRate: ".2" }, readiness: [{ status: "待完善", count: 1, ratio: "1" }], auxiliary: [], processes: [...standardProcesses].sort((a,b)=>a.order-b.order).map(p => ({ ...p, values: { requiredQuantity: "500", reportedQuantity: "525", productionProgress: "1.05" }, states: [{ status: "已完成", count: 1 }] })), trend: [{ productionDate: "2026-10-14", [`${standardProcesses[0]!.code}ReportedQuantity`]: "525" }], divisions: [], risks: { rows: [], total: 0, page: 1, pageSize: 20 } }; }
+function fixture(): MpsDashboardData { return { gaps: Object.fromEntries(mpsDashboardGaps.map(g => [g.key,2])), visibleFields: tablePermissionFieldsFor(resource).map(f => f.key), generatedAt: "2026-10-15T01:00:00Z", trendStart: "2026-10-08", trendEnd: "2026-10-14", orders: { orderCount: 2, orderRequiredQuantity: "500", orderCompletedQuantity: "300", orderCompletionRate: ".6" }, plans: { requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "100", pendingQuantity: "400", inboundRate: ".2" }, readiness: [{ status: "待完善", count: 1, ratio: "1" }], auxiliary: [], processes: [...standardProcesses].sort((a,b)=>a.order-b.order).map(p => ({ ...p, values: { requiredQuantity: "500", reportedQuantity: "525", productionProgress: "1.05" }, states: [{ status: "已完成", count: 1 }] })), trend: [{ productionDate: "2026-10-14", [`${standardProcesses[0]!.code}ReportedQuantity`]: "525" }], divisions: [], risks: { rows: [], total: 0, page: 1, pageSize: 20 } }; }
 const clients = new Set<QueryClient>();
 function renderPage() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.add(client); return { client, ...render(<QueryClientProvider client={client}><MasterPlanDashboard /></QueryClientProvider>) }; }
-beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); localStorage.setItem("sessionUser", JSON.stringify({ sub: "fixture", permissions: ["*"], isSystemAdmin: true })); vi.mocked(api).mockImplementation(async path => { if (path.includes("/candidates")) return { options: path.includes("field=orderNumber") ? [{value:"SO-1",label:"SO-1"},{value:"SO-2",label:"SO-2"}] : [], hasMore: false } as never; if(path.includes("/table"))return {rows:[],total:0,visibleFields:fixture().visibleFields} as never; if (path.endsWith("/meta")) return { fields: [{ key: "orderNumber", label: "订单号" }] } as never; if (path.includes("/drill")) return { rows: [], total: 0 } as never; return fixture() as never; }); });
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); localStorage.setItem("sessionUser", JSON.stringify({ sub: "fixture", permissions: ["*"], isSystemAdmin: true })); vi.mocked(api).mockImplementation(async path => { if (path.includes("/candidates")) return { options: path.includes("field=orderNumber") ? [{value:"SO-1",label:"SO-1"},{value:"SO-2",label:"SO-2"}] : [], hasMore: false } as never; if((path.includes("/table")||path.includes("/reports/")||path.includes("/gaps")))return {rows:[],total:0,visibleFields:fixture().visibleFields} as never; if (path.endsWith("/meta")) return { fields: [{ key: "orderNumber", label: "订单号" }] } as never; if (path.includes("/drill")) return { rows: [], total: 0 } as never; return fixture() as never; }); });
 afterEach(async () => { await act(async () => { cleanup(); await Promise.all([...clients].map(client => client.cancelQueries())); for (const client of clients) client.clear(); clients.clear(); }); });
 describe("MasterPlanDashboard", () => {
   it("starts with filters, no repeated title/subtitle/date; shared process structure and >100%", async () => {
@@ -30,7 +30,7 @@ describe("MasterPlanDashboard", () => {
     await waitFor(() => expect(vi.mocked(api).mock.calls.some(([url]) => url.includes("/drill?") && url.includes("resourceCode=mps-base-plans") && decodeURIComponent(url).includes('"weeklyPlanState"'))).toBe(true));
   });
   it("shows empty and loading states without fabricated zero progress", async () => {
-    vi.mocked(api).mockImplementation(async path => path.includes("candidates") ? { options: [], hasMore: false } as never : path.includes("/table") ? {rows:[],total:0,visibleFields:fixture().visibleFields} as never : { ...fixture(), plans: {}, readiness: [], trend: [], processes: standardProcesses.map(p=>({...p,values:{productionProgress:null},states:[]})) } as never);
+    vi.mocked(api).mockImplementation(async path => path.includes("candidates") ? { options: [], hasMore: false } as never : (path.includes("/table")||path.includes("/reports/")||path.includes("/gaps")) ? {rows:[],total:0,visibleFields:fixture().visibleFields} as never : { ...fixture(), plans: {}, readiness: [], trend: [], processes: standardProcesses.map(p=>({...p,values:{productionProgress:null},states:[]})) } as never);
     renderPage(); expect(screen.getByLabelText("加载中")).toBeInTheDocument(); await screen.findByText("订单概况"); expect(screen.getByRole("button", { name: "标准工序生产进度" })).toHaveAttribute("data-empty", "true");
   });
   it("keeps server errors visible", async () => { vi.mocked(api).mockRejectedValue(new Error("聚合查询失败")); renderPage(); expect(await screen.findByText("聚合查询失败")).toBeInTheDocument(); });
@@ -40,12 +40,19 @@ describe("MasterPlanDashboard", () => {
     renderPage();await screen.findByText("订单概况");expect(screen.queryByRole("combobox",{name:"日期周期"})).not.toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole("combobox",{name:"日期类型"}));fireEvent.click(screen.getByText("订单日期",{selector:".ant-select-item-option-content"}));
     expect(await screen.findByRole("combobox",{name:"日期周期"})).toBeInTheDocument();
-    await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([url])=>url.includes("/table?")&&url.includes("dateType=ORDER"))).toBe(true));
+    await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([url])=>(url.includes("/reports/")||url.includes("/gaps?"))&&url.includes("dateType=ORDER"))).toBe(true));
     fireEvent.click(screen.getByRole("button",{name:"清空筛选"}));await waitFor(()=>expect(screen.queryByRole("combobox",{name:"日期周期"})).not.toBeInTheDocument());
   });
   it("each formal table has its own export and export permissions hide them all",async()=>{
-    const view=renderPage();await screen.findByText("订单概况");expect(screen.getAllByRole("button",{name:"导出"})).toHaveLength(5);
+    const view=renderPage();await screen.findByText("订单概况");expect(screen.getAllByRole("button",{name:"导出"})).toHaveLength(6);
     view.unmount();localStorage.setItem("sessionUser",JSON.stringify({permissions:[resource+":*:read"]}));renderPage();await screen.findByText("订单概况");expect(screen.queryAllByRole("button",{name:"导出"})).toHaveLength(0);
+  });
+  it("gap KPI switches the server-paginated list; all three standard reports load independently",async()=>{
+    renderPage();await screen.findByText("待处理事项");
+    fireEvent.click(screen.getByRole("button",{name:/^未入库/}));
+    await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([url])=>url.includes("/gaps?")&&url.includes("type=no-inbound")&&url.includes("pageSize=100"))).toBe(true));
+    for(const key of ["plan-readiness","process-execution","risk-exception"])expect(vi.mocked(api).mock.calls.some(([url])=>url.includes("/reports/"+key))).toBe(true);
+    expect(screen.getByRole("tab",{name:"未入库 2"})).toHaveAttribute("aria-selected","true");
   });
   it("trend palette and tooltip distinguish registry processes and preserve stable order",()=>{
     expect(new Set(MPS_PROCESS_CHART_PALETTE).size).toBeGreaterThanOrEqual(standardProcesses.length);

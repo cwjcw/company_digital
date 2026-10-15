@@ -146,3 +146,9 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ## Knowledge Base
 
 知识库 API/状态/ACL/私有附件与发布版本契约见 [Knowledge 2.0](knowledge-base.md)。所有写入调用 Application Commands；普通浏览读取发布快照，平台发布表、候选值与标准导出复用统一Space/祖先授权和发布搜索投影。未来AI引用稳定pageId + publishedVersionId + contentHash，本轮不新增RAG接口。
+
+## 主计划综合大屏 REV2 缺口与独立报表
+
+`GET /api/v1/master-plan-system/dashboard/gaps?type=...` 返回同一Dashboard Scope下的分页缺口；`/reports/:reportKey` 固定允许 `plan-readiness`、`process-execution`、`risk-exception`，原`/table`保持兼容。9个gap type与对应导出tableKey由`@kdos/contracts/mpsDashboardGaps`统一定义；不接收任意表名/SQL key。指标、清单、导出共用同一缺口关系，全部只读、tenant隔离，export为read∩export，并执行字段权限及依赖检查。局部参数search、processCode、onlyIncomplete、onlyOverdue、riskType仅作用于相应报表及本表全量导出；各表page/pageSize/sort独立，默认100。
+
+出货缺口以正需求月计划为应有集合，通过shipping.monthly_plan_id正式tenant复合FK求尚未建立差集，不用order/item近似匹配，不宣称已排完全部数量/交期批次；base与weekly分别按shipping_plan_id/base_plan_id定位。已具备条件未进周与待完善分开；人工报工异常与准备/同步提示分开。三天工单的“当前窗口应生成”无权威定义，本轮不展示该缺口。详细集合、稳定键、计数和日期/组织Scope见`outputs/KDOS_MPS_GAP_AUDIT.md`及`outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md`。Dashboard不启动同步、不修改任何sync flag，无新业务表或migration。

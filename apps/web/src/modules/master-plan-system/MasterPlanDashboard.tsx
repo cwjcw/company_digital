@@ -1,14 +1,14 @@
 import { mpsDashboardUrl, mpsMetric, MPS_PROCESS_CHART_PALETTE, mpsTrendTooltip } from "./master-plan-dashboard.utils";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Card, Drawer, Empty, Select, Space, Spin, Statistic, Tag, Typography, message } from "antd";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Alert, Button, Card, Drawer, Empty, Space, Spin, Statistic, Tag, Typography, message } from "antd";
 import type { EChartsOption } from "echarts";
-import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardResource as resource, mpsDashboardRiskColumns, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow } from "@kdos/contracts";
+import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardResource as resource, mpsDashboardGaps, type MpsDashboardGapKey, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow } from "@kdos/contracts";
 import { api } from "../../api";
 import { KdosChart } from "../../shared/charts";
 import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission, kdosDefaultPageSize } from "../../shared/KdosDataTable";
 import { MpsDateFilter, MpsRemoteSelect } from "./MasterPlanDashboardFilters";
-import { MpsTableExport, MpsDashboardDetailTable } from "./MasterPlanDashboardTable";
+import { MpsTableExport, MpsDashboardDetailTable, MpsDashboardGapList } from "./MasterPlanDashboardTable";
 import "./master-plan-dashboard.css";
 
 type Group = { logic: "AND" | "OR"; groups?: Group[]; rules: Array<{ field: string; operator: string; value: unknown }> };
@@ -30,11 +30,13 @@ export function MasterPlanDashboard() {
   const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}"); const session = JSON.stringify(user);
   const canRead = hasSessionResourcePermission(user, resource, "read");
   const [filters, setFilters] = useState<MpsDashboardFilters>({});
-  const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(kdosDefaultPageSize); const [sort, setSort] = useState<Sort>({}); const [riskType, setRiskType] = useState<string>(); const [drill, setDrill] = useState<Drill | null>(null);
-  const result = useQuery({ queryKey: [resource, session, filters, page, pageSize, riskType, sort], queryFn: () => api<MpsDashboardData>(mpsDashboardUrl(filters, "", { page: String(page), pageSize: String(pageSize), ...sortParams(sort), ...(riskType ? { riskType } : {}) })), enabled: canRead, placeholderData: (previous, query) => query?.queryKey[1] === session ? previous : undefined, staleTime: 60_000, refetchInterval: 30 * 60_000, retry: false });
+  const queryClient = useQueryClient();
+  const [selectedGap, setSelectedGap] = useState<MpsDashboardGapKey>("missing-shipping-plan");
+  const [riskType, setRiskType] = useState<{value:string;nonce:number}>(); const [drill, setDrill] = useState<Drill | null>(null);
+  const result = useQuery({ queryKey: [resource, session, filters], queryFn: () => api<MpsDashboardData>(mpsDashboardUrl(filters)), enabled: canRead, placeholderData: (previous, query) => query?.queryKey[1] === session ? previous : undefined, staleTime: 60_000, refetchInterval: 30 * 60_000, retry: false });
   const canExport=hasSessionResourcePermission(user,resource,"export");
   const data = result.data; const visible = (key: string) => data?.visibleFields.includes(key) ?? false;
-  const apply = (patch: MpsDashboardFilters) => { setFilters(f => ({ ...f, ...patch })); setPage(1); };
+  const apply = (patch: MpsDashboardFilters) => { setFilters(f => ({ ...f, ...patch })); };
   const open = (code: string, title: string, extra: Group["rules"] = [], row?: MpsDashboardRow, view?: string) => {
     if (!hasSessionResourcePermission(user, code, "read")) { void message.warning("没有对应业务表的查看权限"); return; }
     const rules: Group["rules"] = [...extra];
@@ -53,15 +55,17 @@ export function MasterPlanDashboard() {
     <div className="mps-dashboard-toolbar">
       {([ ["divisionId","divisionId"], ["customerCode","customerCode"], ["orderNumber","orderNumber"], ["itemCode","itemCode"] ] as const).filter(([,key])=>visible(key)||!data).map(([field])=><MpsRemoteSelect key={session+field} field={field} filters={filters} session={session} onChange={apply}/>)}
       <MpsDateFilter filters={filters} onChange={apply} allowOrder={visible("orderDate")} allowDelivery={visible("deliveryDate")}/>
-      <Button onClick={() => { setFilters({}); setPage(1); setRiskType(undefined); }}>清空筛选</Button>
-      <Button loading={result.isFetching} onClick={() => void result.refetch()}>刷新数据</Button>
+      <Button onClick={() => { setFilters({}); setRiskType(undefined); }}>清空筛选</Button>
+      <Button loading={result.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey:[resource,session]})}>刷新数据</Button>
       <TablePermissionButton resource={resource} />
     </div>
     {result.error && <Alert showIcon type="error" message={errorText(result.error)} />}
     {result.isLoading && <Spin aria-label="加载中" />}
     {data && <>
+      <Card title="待处理事项"><div className="mps-dashboard-kpis">{mpsDashboardGaps.filter(g => data.gaps?.[g.key] != null).map(g => <button className="mps-kpi" key={g.key} onClick={() => { setSelectedGap(g.key); document.getElementById("mps-gap-list")?.scrollIntoView?.({ behavior: "smooth" }); }}><Statistic title={g.title} value={data.gaps[g.key]} /></button>)}</div></Card>
+      <MpsDashboardGapList selected={selectedGap} onSelect={setSelectedGap} counts={data.gaps ?? {}} filters={filters} session={session} canExport={canExport}/>
       <Card title="订单概况"><div className="mps-dashboard-kpis">{mpsDashboardOrderMetrics.filter(([k]) => visible(k)).map(([key, title]) => <button className="mps-kpi" key={key} onClick={() => open("mps-group-plans", title, [], undefined, key === "unfinishedOrderCount" ? "INCOMPLETE" : undefined)}><Statistic title={title} value={mpsMetric(data.orders[key], key)} /></button>)}</div></Card>
-      <Card title="计划概况"><div className="mps-dashboard-kpis">{mpsDashboardPlanMetrics.filter(([k]) => visible(k)).map(([key, title]) => <button className="mps-kpi" key={key} onClick={() => key === "overdueCount" || key === "exceptionCount" ? (setRiskType(key === "overdueCount" ? "已延期" : "生产异常"), setPage(1), document.getElementById("mps-risks")?.scrollIntoView({ behavior: "smooth" })) : open("mps-monthly-plans", title)}><Statistic title={title} value={mpsMetric(data.plans[key], key)} /></button>)}</div>
+      <Card title="计划概况"><div className="mps-dashboard-kpis">{mpsDashboardPlanMetrics.filter(([k]) => visible(k)).map(([key, title]) => <button className="mps-kpi" key={key} onClick={() => key === "overdueCount" || key === "exceptionCount" ? (setRiskType(previous => ({value:key === "overdueCount" ? "已延期" : "生产异常",nonce:(previous?.nonce??0)+1})), document.getElementById("mps-risks")?.scrollIntoView?.({ behavior: "smooth" })) : open("mps-monthly-plans", title)}><Statistic title={title} value={mpsMetric(data.plans[key], key)} /></button>)}</div>
         <KdosChart ariaLabel="计划数量对比" loading={result.isFetching} empty={!["requiredQuantity", "dispatchedWeeklyQuantity", "cumulativeInboundQuantity", "pendingQuantity"].some(key => data.plans[key] != null && Number(data.plans[key]) !== 0)} height={220} option={option(["月计划需求", "已下达周计划", "累计入库", "欠数"], [{ type: "bar", name: "当前数量", data: (["requiredQuantity", "dispatchedWeeklyQuantity", "cumulativeInboundQuantity", "pendingQuantity"] as const).map(k => data.plans[k] == null ? null : Number(data.plans[k])) }], true)} onDataClick={() => open("mps-monthly-plans", "计划明细")} />
       </Card>
       <div className="mps-dashboard-two-columns">
@@ -80,9 +84,8 @@ export function MasterPlanDashboard() {
       </Card>
       <MpsDashboardDetailTable key={session+JSON.stringify(filters)+"readiness"} tableKey="plan-readiness" filters={filters} session={session} canExport={canExport}/>
       <MpsDashboardDetailTable key={session+JSON.stringify(filters)+"execution"} tableKey="process-execution" filters={filters} session={session} canExport={canExport}/>
-      <Card title="风险与异常" id="mps-risks" extra={<Space><Select aria-label="风险类型" allowClear placeholder="全部风险" value={riskType} onChange={v => { setRiskType(v); setPage(1); }} options={["已延期", "计划待完善", "生产异常"].map(value => ({ value, label: value }))} /><MpsTableExport tableKey="risk-exception" filters={filters} extra={{...sortParams(sort),...(riskType?{riskType}: {})}} allowed={canExport}/></Space>}>
-        <KdosDataTable resource={resource} viewKey="risks" simple systemFields={false} density="default" rowKey={r => `${r.resource}:${r.id}:${r.riskType}`} loading={result.isFetching} dataSource={data.risks.rows} columns={mpsDashboardRiskColumns.filter(([k]) => visible(k)).map(([key, title]) => ({ title, key, dataIndex: key, width: ["exceptionSummary", "weeklyPlanMissingFields", "weeklyPlanGenerationIssue"].includes(key) ? 280 : 160, ellipsis: true, render: (v: unknown, r: MpsDashboardRow) => key === "divisionId" ? r.divisionName ?? "未分配" : key === "orderNumber" ? <Button type="link" onClick={() => open(String(r.resource), String(r.riskType), [], r)}>{v as string}</Button> : String(v ?? "—") }))} scroll={{ x: 2200 }} serverData={{ resetKey: JSON.stringify([filters, riskType]), total: data.risks.total, onQueryChange: q => { setPage(q.page); setPageSize(q.pageSize); setSort({ sortField: q.sortField, sortOrder: q.sortOrder }); } }} pagination={{ pageSize }} />
-      </Card>
+      <MpsDashboardDetailTable key={session+JSON.stringify(filters)+"risk"} tableKey="risk-exception" filters={filters} session={session} canExport={canExport} initialRiskType={riskType?.value} riskFocusVersion={riskType?.nonce} onOpen={row => open(String(row.resource), String(row.riskType), [], row)}/>
+
     </>}
     <DrillDrawer key={JSON.stringify(drill)} drill={drill} close={() => setDrill(null)} session={session} filters={filters} />
   </div>;

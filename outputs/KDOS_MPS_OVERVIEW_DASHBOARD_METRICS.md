@@ -1,3 +1,31 @@
+# KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2 — Gap Metrics
+
+2026-10-15；基线707bc5a。本节覆盖下方REV1风险/报表组织方式；既有需求、数量、状态、进度、人工异常公式不变。
+
+| 缺口 / tableKey | 应有集合 | 已完成集合与稳定关联 | 差集 / count / detail query |
+|---|---|---|---|
+| 未进入出货计划 missing-shipping-plan | 授权月计划required_quantity>0，每monthly.id一条 | shipping以tenant_id+monthly_plan_id正式复合FK关联 | NOT EXISTS授权shipping.monthly_plan_id=monthly.id；不是order/item模糊匹配，也不声称已覆盖所有数量/批次 |
+| 未进入基础计划 missing-base-plan | 授权出货计划，每shipping.id一条 | base的tenant_id+shipping_plan_id | NOT EXISTS授权base.shipping_plan_id=shipping.id；同单同品号多个deliveryNumber逐行判定 |
+| 未进入周计划 missing-weekly-plan | 授权base，每base.id一条 | weekly的tenant_id+base_plan_id；复用正式weeklyPlanState/weeklyAdmissionSql | weeklyPlanState='已具备条件'，与待完善严格分开 |
+| 计划待完善 plan-not-ready | 授权base，每base.id一条 | 同上；准入字段/缺少项来自唯一正式helper | weeklyPlanState='待完善'；仅计划准备问题，显示缺少项与生成提示 |
+| 未开始报工 not-started-production | 授权weekly，planned_quantity>0，每weekly.id一条 | 标准10工序report_totals按tenant/weekly_plan_id汇总actual production_quantity | COALESCE(SUM实际报工,0)=0；不要求三天工单，Application正式报工无此准入条件；所有生产方式仍有正式包装工序，不以人工状态代替报工 |
+| 未入库 no-inbound | 授权monthly，required_quantity>0 | 正式cumulative_inbound_quantity | =0，不自行重算入库分配 |
+| 未完成入库 incomplete-inbound | 授权monthly | 正式累计入库与pending_quantity | cumulative_inbound_quantity>0 AND pending_quantity>0；完全已入库、零需求不误算部分入库 |
+| 延期未完成 overdue | 授权monthly | 正式latestCustomerDueDate、pending_quantity | pending_quantity>0 AND交付日期<上海今天，保留REV1同源交付语义 |
+| 生产异常 production-exception | 授权monthly及关联weekly的四类人工报工 | tenant/weekly_plan_id；技术、主材、外协、标准工序exception_text | 正式exceptionSummary非空；数据异常、计划提示、同步失败不计入 |
+
+9类均由同一`gap_rows`关系生成：summary COUNT、分页清单total/rows和全量导出共用判定。KPI统计全匹配集合，不由当前页计算；同一顶部条件的KPI count=无额外局部条件的detail total。局部搜索作用于该清单请求和导出，不反向改其它表。3天工单“当前窗口应生成”因无正式规则标BLOCKED且不展示，详见GAP_AUDIT。
+
+统一Scope继续在事实授权后构建：tenant、当前Dashboard read；导出再交export。事业部按稳定division_id（group用primary_division_id），客户、订单/品号精确多选、订单日期/交付日期全部沿用REV1同一Dashboard Scope。shipping纳入身份集合，使尚无base/monthly的正式出货记录不丢失；仅有shipping时订单日期回退shipping.order_date，交付日期最后回退shipping.latest_customer_due_date，其它身份仍维持weekly→monthly→base的既有优先级。不使用expectedShippingDate代替交付日期。
+
+后端接口：summary原路由；`/gaps?type=<allowlist>`；`/reports/:reportKey`仅plan-readiness/process-execution/risk-exception。原`/table?tableKey`兼容；所有新key进入同一服务端export allowlist。未知type/report/table/工序/排序/非法布尔参数400；无read/export或必要字段权限403。每个Gap新增独立指标字段并校验依赖字段；未开始报工依赖全部标准工序报工数量的读权限，避免由零数推断不可读事实。当前节点/状态是该已授权缺口的业务标签；无金额/技术UUID导出。
+
+三张正式报表都是独立KdosDataTable：各自request/query key/page/pageSize/sort/search/loading/error/empty/export；pageSize默认100，可选50/100/200/500/1000。计划待完善只用正式待完善来源；工序明细仍一月计划订单/品号/标准工序一行，新增客户、日期、最近报工日期，工序和只看未完成/延期条件按正式状态筛选；风险仅已延期/人工生产异常，允许同一行同时包含两种，不再混入计划待完善。风险KPI聚焦只改变风险表，局部条件不污染summary或其它表。
+
+全部导出服务端全匹配结果、独立英文xlsx，继承顶部与本表局部筛选/排序、read∩export和字段裁剪，记录正式导出审计；不导当前页，不读取或修改业务表。生产只读SQL/EXPLAIN证据见私有data/mps-dashboard-rev2；保持业务数据、migration、6个sync flags及运行调度原值。最终状态只能等待人工验收，不自动PASS。
+
+---
+
 # KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1 指标与筛选合同
 
 本节覆盖下方V1中无全局日期、模糊搜索、30候选和整屏Excel规则；保留V1数量/进度/状态/异常正式定义。

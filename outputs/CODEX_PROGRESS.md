@@ -1,6 +1,64 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2。
+任务目标：业务缺口审计、待处理KPI/分页清单/单表导出、三张独立报表；继承同一Dashboard Scope，保持只读与同步flags。
+当前状态：IN_PROGRESS，不判PASS；完成后等待人工验收。
+最后更新时间：2026-10-15（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：验证通过，上线准备。
+当前子任务：最终定向13项API/PG与2项Web通过，migration 93/93；提交推送与标准all部署。
+
+## 已完成
+- [x] 读取REV2全文、AGENTS/Skill/既有指标与验收；实际HEAD/Repository/Web/API均707bc5a（包含后续督办任务修复），不回退6bff61e。
+- [x] 工作区仅既有进度未提交，保留完整历史；REV1已有同源scope/分页detail/export，继续扩展。
+
+## 正在进行
+- [x] GAP_AUDIT及Gap Metrics已更新；9类可靠缺口，3天窗口BLOCKED。
+- [x] 后端共用gap_rows生成count/list/export；引入shipping正式父ID关系；三张报表独立查询/状态/局部条件/导出。
+- [x] 生产只读三组顶部条件下9类count=total（27对比）通过；10业务表记录数/version哈希不变，flags/migrations不变；初步summary EXPLAIN约1257ms，明细146–1204ms。
+
+## 待完成
+- [x] 9类缺口query/count/detail/export；三张独立报表及局部条件/导出，原风险下钻保留。
+- [x] API全量1002、Web全量386、Contracts22、Chrome12及全仓typecheck/lint/build通过；PG临时表5组真实SQL场景已启用通过，最后扩大至14类导出及独立报表2项复核均通过。
+- [x] 备份232206完成，双库/附件SHA256与目录检查通过；无新增migration。
+- [ ] 备份、GitHub安全同步、all部署及版本/健康核验，状态等待人工验收。
+
+## 修改文件
+- Contracts Dashboard/字段注册；Dashboard Service/Controller/Export/对应API测试及PG集成测试；Web Dashboard/Table/3份unit及Chrome e2e；GAP_AUDIT/METRICS/ACCEPTANCE、runbook/integration-guide及本进度。
+- 既有UAT/导入历史进度不混入本次Git提交，私有业务证据不入Git。
+
+## 数据库 Migration
+- 无新增；migration:show 93/93已应用。严禁业务数据/同步flags写入，不启动同步。
+
+## 新增或修改测试
+- 已补缺口真值、稳定父ID/跨租户/多批次、同条件count=detail.total、独立分页/筛选/14类导出、字段与read/export权限。
+
+## 已运行测试
+- 启动deploy check：707bc5a一致。
+- API Dashboard/Gaps13项通过（含启用真实PG的5组场景）；Web局部筛选等待元数据的同步已修正，独立报表最终2项通过。
+
+## 当前已知问题
+- 补充migration49及Application证据：shipping.monthly_plan_id为tenant复合正式FK；出货缺口可按正需求monthly.id差集实现（不推断allocation数量覆盖），已修正初步BLOCKED结论。
+- 3天工单source实际为周计划全量，生产起止日期人工维护，无正式“当前3天应生成窗口”规则。
+
+## 等待用户确认
+- 无开发确认等待；仅3天工单窗口BLOCKED且不展示，交付后用户人工验收。
+
+## 下一步
+1. 仅提交本任务代码/测试/文档并推送github/main，保留无关进度未提交。
+2. 标准all部署/check，部署后Chrome12与生产只读核验、健康检查。
+3. 写入最终SHA/结果并转WAITING_MANUAL_ACCEPTANCE。
+
+## 恢复执行说明
+规范→本节→git status/diff→GAP_AUDIT→现有REV2改动。禁止重导Excel或重复UAT任务，禁止回退/覆盖707bc5a督办修复，保持同步flags原值。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：创建任务所属督办项目候选/后端授权范围修复。
 任务目标：同租户未结束项目按负责人/督办人/参与人关系授权，管理员放行；独立于项目read scope；任务create权限保留。
 当前状态：进行中。
