@@ -46,7 +46,7 @@ test('division filter updates one shared payload, clear/search/refresh and forma
   const filtered=page.waitForRequest(r=>r.url().includes('/master-plan-system/dashboard?')&&r.url().includes(`divisionId=${divisionId}`));await page.getByText('合成事业部',{exact:true}).last().click();await filtered;
   await page.getByRole('searchbox',{name:'订单号',exact:true}).fill('SYN-ORDER');const searched=page.waitForRequest(r=>r.url().includes('dashboard?')&&r.url().includes('orderNumber=SYN-ORDER'));await page.getByRole('searchbox',{name:'订单号',exact:true}).press('Enter');await searched;
   await page.getByRole('button',{name:'清空筛选',exact:true}).click();await expect(page.getByRole('searchbox',{name:'订单号',exact:true})).toHaveValue('');await expect(page.getByRole('combobox',{name:'事业部',exact:true})).toHaveValue('');
-  const refreshed=page.waitForRequest(r=>r.url().includes('dashboard?')&&!r.url().includes('divisionId=')&&!r.url().includes('orderNumber='));await page.getByRole('button',{name:'刷新数据',exact:true}).click();await refreshed;
+  const refreshed=page.waitForRequest(r=>r.url().includes('dashboard?')&&!r.url().includes('divisionId=')&&!r.url().includes('orderNumber='));await page.getByRole('button',{name:/刷新数据/}).click();await refreshed;
   const drill=page.waitForRequest(r=>r.url().includes('/resources/mps-monthly-plans?')&&decodeURIComponent(r.url()).includes('SYN-ORDER'));await page.getByRole('button',{name:'SYN-ORDER',exact:true}).click();await drill;await expect(page.getByRole('dialog')).toContainText('SYN-ITEM');
 });
 test('chart click opens formal permission-checked basic plan drawer',async({page})=>{

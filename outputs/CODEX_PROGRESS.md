@@ -2,71 +2,66 @@
 
 ## 任务
 任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1。
-任务目标：正式事实的只读聚合、独立权限/字段/data scope、图表及安全下钻，测试后备份部署，等待人工验收。
-当前状态：进行中。
+任务目标：正式事实的只读聚合、独立权限/字段/data scope、图表及安全下钻，测试后备份部署。
+当前状态：等待人工验收（开发、自动验证与功能部署已完成，不自行判PASS）。
 最后更新时间：2026-10-15（Asia/Shanghai）。
+最终报告：outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md。
 
 ## 当前阶段
-当前阶段：最终门禁与修正版部署。
-当前子任务：所有最终门禁通过；提交推送修正版并标准all部署。
+当前阶段：功能已上线，最终测试与验收记录安全同步发布。
+当前子任务：最终记录提交标准all部署/check/health；完整发布SHA记录在最终交付回复及data/mps-dashboard/final-state.json。
 
 ## 已完成
-- [x] 工作区初始干净；开始 HEAD 1bb0e58342aea0a317271f2d9656c15418280a20，main。
-- [x] deploy check 基线 MISMATCH：运行 Web/API 870be11，HEAD 仅多上一任务两份 outputs 文档，已核实无源码差异。
-- [x] 审计身份任务已部署，无未提交源码；不重做、不改变其人工验收状态。
-- [x] 确认 group tenant/order 唯一、monthly tenant/order/item 唯一；复用工序 registry、正式派生状态及异常语义。
+- [x] 开始HEAD 1bb0e58342aea0a317271f2d9656c15418280a20，main；工作区初始干净。基线运行870be11仅与HEAD存在两份outputs文档差异，未回退。
+- [x] 独立mps-overview-dashboard资源、合同、服务端聚合/远程候选/Excel/正式Application审计、权限字段及scope、页面/导航/KdosChart/KdosDataTable/正式Drawer下钻。
+- [x] 10工序唯一registry；月计划总需求分母；51/60/105%及状态独立；生产异常仅四类人工报工；无正式临期阈值不展示临期。
+- [x] 预聚合替换首轮15s超时方案；生产只读828ms、EXPLAIN752.606ms、事业部/客户52/43ms，无新索引。
+- [x] 趋势保留有周计划无月计划的实际报工；准备状态不依赖月计划。真实同快照原始趋势/正式准备表达式对账一致，未回填源数据。
+- [x] 风险与正式Drawer标准serverData分页/排序/同身份保留上页数据；Chrome及PG覆盖超过100行、50/100页大小、全部风险导出。
+- [x] API992/1既有skip、Web49文件379（无未处理错误）、Contracts22、隔离真PG18全部既有迁移及14组业务检查、Chrome9（已部署资源/合成API）全部通过；类型/lint/build通过。
+- [x] Web测试卸载时显式清理消息与QueryClient；Chrome刷新按钮加载图标名称定位修正，断言未删减，最终完整9项35.9s通过。
+- [x] 最终部署前备份20261015_135905，双库pg_restore目录、含private的附件及三个SHA256验证通过，mode600。
+- [x] 首次fd616168cfe10430981dd967fefa0d0fb1580a48与修正版b34b12a31616a3b0bad6660674a9728640ac1e72已push github/main；修正版标准all部署，Repository=Web=API，CONSISTENT。
+- [x] 页面HTTP200、匿名聚合/候选/导出401；四容器healthy、Dispatcher active；原生产PG容器未重建。同步开关/间隔与migration基线不变。
+- [x] 自建隔离PG测试容器在核验任务label后清理，生产数据/备份保留；完整验收报告及指标合同已更新。
 
 ## 正在进行
-- [x] 指标合同先行，独立资源/API服务/页面/导航/字段裁剪/远程候选/正式API Drawer下钻/同源Excel实现。
-- [x] 预聚合优化：首轮逐行派生SQL超过15s保护上限，改为周计划/工序/辅助/异常分组后关联；真实生产最终只读828ms，EXPLAIN 752.606ms，无新增索引。
-- [x] 隔离真实PG18全部既有迁移＋14组指标/51%/60%/105%/状态独立/筛选/权限/租户/导出审计检查通过。
-- [x] 上述自动验证完成；最终Web全量使用maxWorkers=2/testTimeout=15000，保留全部断言，初轮5s竞争超时已复核通过，无未处理错误。
-- [x] 双库/附件backup20261015_135905完成，pg_restore目录、private归档与三个SHA256验证通过。
-- [x] 导出审计复用MasterPlanApplicationService；最终SQL仅选必要列、执行业务筛选继承父事实，防快照名称不同漏计；生产无业务写入。
+- [ ] 用户使用真实账号验收业务数字、权限及使用体验。
 
 ## 待完成
-- [x] API专项6；主计划398/1 skip；API全量992/1 skip；Web专项7、全量49文件379；Contracts22；Chrome9（3桌面宽度/真实图表/滚动/筛选/下钻/加载/空/错误/无权）。
-- [ ] 安全审阅/commit/push、备份/标准all部署/健康/线上效果核验。
-- [ ] 验收报告，状态仅标等待人工验收，不自行PASS。
+- [ ] 仅用户人工验收后才能判最终PASS；不推进TASK-002。
 
 ## 修改文件
-- outputs/CODEX_PROGRESS.md
-- outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md
 - packages/contracts/src/{index.ts,master-plan-dashboard.ts}
-- apps/api/src/modules/master-plan-system/master-plan.dashboard*.ts、master-plan.module.ts
-- apps/web/src/{App.tsx,modules/master-plan-system/MasterPlanDashboard*.tsx,modules/master-plan-system/master-plan-dashboard.css,modules/master-plan-system/MasterPlanPages.tsx}
-- scripts/test-mps-dashboard-postgres.cjs
-- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx（测试资源清理）
-- apps/api/src/modules/master-plan-system/master-plan.application.service.ts（仅导出审计）
-- docs/runbook.md、outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md
+- apps/api/src/modules/master-plan-system/master-plan.dashboard*.ts、master-plan.module.ts、master-plan.application.service.ts（仅导出审计）
+- apps/web/src/App.tsx、modules/master-plan-system/{MasterPlanDashboard.tsx,MasterPlanDashboard.spec.tsx,master-plan-dashboard.utils.ts,master-plan-dashboard.css,MasterPlanPages.tsx,MasterPlanPages.spec.tsx}
+- apps/web/e2e/master-plan-dashboard.spec.ts、scripts/test-mps-dashboard-postgres.cjs
+- docs/runbook.md、outputs/CODEX_PROGRESS.md、outputs/KDOS_MPS_OVERVIEW_DASHBOARD_{METRICS,ACCEPTANCE}.md
 
 ## 数据库 Migration
-- 预期无；若必须迁移或新增索引按用户要求STOP，等待确认。
+- 无。未新增索引、业务表；全部生产业务/报工/状态/同步flags均无写入，本次未执行生产Excel导出审计。
 
 ## 新增或修改测试
-- 新增API dashboard HTTP/contract专项、Web dashboard专项、scripts/test-mps-dashboard-postgres.cjs（合成fixture隔离库）。
+- API专项6、Dashboard Web7；主计划测试资源清理；Chrome9；真实隔离PG18 14组。
 
 ## 已运行测试
-- API992/1 skip、Web379、Contracts22、PG18 14组、Chrome9通过；API/Web类型与lint、monorepo build通过；生产只读聚合828ms/EXPLAIN752.606ms，事业部/客户筛选52/43ms，两类候选限量通过。
-- 仅既有Portal Fast Refresh / Vite大chunk / ts-jest JS transform / AntD React19等warning，无新增lint warning。
+- API完整107套992通过/1既有skip；主计划定向398/1skip；Web49文件379，maxWorkers=2/testTimeout=15000，0未处理异常；Contracts22；PG14；Chrome9。
+- API/Web typecheck、lint、monorepo build通过。最终仅测试定位器修改后Web类型/lint及部署Chrome9复验通过，无运行时代码变化。
+- 仅既有Portal Fast Refresh/Vite大chunk/ts-jest JS transform/AntD React19/迁移pg并发query弃用等warning。
 
 ## 当前已知问题
-- [x] 公共表格分页边界已修正：标准serverData/页大小/保留同身份上页数据；Chrome新增风险和正式Drawer跨第2页通过，14组PG包含50/100页大小及完整导出/安全排序。
-- [x] 真实只读对账发现有周计划无月计划的报工；趋势/准备保留真实事实，月计划分子仍只关联月计划，不回填源数据；同一快照原始趋势/正式准备分布对账通过。
-- [x] React环境卸载错误已修复测试资源清理，Web完整49文件379通过且0未处理异常。
-- 首次功能提交fd616168cfe10430981dd967fefa0d0fb1580a48已安全push github/main并标准all部署，首次三SHA CONSISTENT；最终将部署分页修正版。
-- 不修改同步flags、业务记录/状态/报工；无正式临期阈值不展示临期。
+- 无实施阻塞；真实登录账号业务数字及授权效果仍需人工验收。Chrome使用合成响应，未伪造生产身份，不能等同真实账号业务验收。
 
 ## 等待用户确认
-- 无实施等待；最终业务人工验收仍必需。
+- 在线人工验收：http://192.168.1.249:15172/master-plan-dashboard 。重点按验收报告检查订单、月/周进度、7天趋势、事业部切换、人工异常、原表下钻与权限。
 
 ## 下一步
-1. 审查并仅提交本任务源码/测试/合同/文档，安全push github main。
-2. 标准deploy all/check、健康、已部署Chrome及HTTP/只读数据/flags核验。
-3. 完整验收报告与进度更新为等待人工验收；最终GitHub/部署SHA保持一致，不自行PASS。
+1. 完成本节对应最终记录提交的标准all部署与check/health，若中断先查看data/mps-dashboard/deploy-final.log及git/deploy真实状态，勿重做功能。
+2. 用户真实账号人工验收；未得到明确验收结果前保持等待人工验收。
+3. 如后续发现业务问题，沿用本进度入口按反馈修正；不改变同步flags，不自行扩大范围。
 
 ## 恢复执行说明
-读取AGENTS/两项KDOS Skill、本节、git status及diff，继续下一步未完成项；历史进度保留在下方。不得重做已完成任务或变更同步flags。本任务不做业务migration；必须迁移时停止。
+项目AGENTS/两项KDOS Skill → 本进度 → git status/diff → 验收报告。功能已完成且b34b12a已上线，最后记录提交若已CONSISTENT则只等待人工验收，不重复开发/测试/备份/部署。完整最终SHA、push及服务证据在data/mps-dashboard/final-state.json和最终交付回复；私有证据与业务备份不入Git。
 
 ---
 

@@ -1,6 +1,6 @@
 # KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1
 
-当前状态：最终修正版验证与部署中；业务结论保留等待人工验收。最终必须等待用户人工验收。
+当前状态：**等待人工验收**。开发、自动验证与功能部署已完成；用户真实人工验收前不判最终PASS。
 日期：2026-10-15（Asia/Shanghai）。
 
 ## 基线与资源
@@ -12,7 +12,7 @@
 - Web：`/master-plan-dashboard`。导航：PMC中心 → 大屏报表 → 主计划大屏 → 主计划综合大屏；原设备管理大屏不变。
 - API：`GET /api/v1/master-plan-system/dashboard`、`/dashboard/candidates`、`/dashboard/export`。
 - TableFilter/打印均NOT_APPLICABLE且登记真实中文原因；标准下钻继续调用原业务表metadata/list API。
-- 首次功能提交：fd616168cfe10430981dd967fefa0d0fb1580a48，已推送并部署；分页/真实报工范围修正版将在最终发布中替换。
+- 首次功能提交：`fd616168cfe10430981dd967fefa0d0fb1580a48`；最终业务源码提交：`b34b12a31616a3b0bad6660674a9728640ac1e72`，两者均已安全推送github/main。最终验收记录提交仅补充测试定位器和报告，不改变运行行为。
 
 ## 指标与事实
 
@@ -61,7 +61,7 @@
 
 最终聚合一条SELECT；同一只读REPEATABLE READ事务另有只读声明及tenant/timezone/15s timeout设置（3次显式SQL，另BEGIN/COMMIT和隔离级别设置）。候选同样一条有界SELECT。无逐行数据库往返/N+1；按周计划、工序、辅助和异常来源集合预聚合，多处复用CTE。
 
-真实生产只读查询约828ms；EXPLAIN ANALYZE约752.606ms，planning17.168ms；事业部/客户筛选分别52/43ms（私有执行计划data/mps-dashboard/explain.json）。未新增索引/业务表/数据库实例或migration。首轮逐行派生方案触发15s保护后已替换并验证；未用索引掩盖查询结构问题。
+真实生产只读查询约828ms；EXPLAIN ANALYZE约752.606ms，planning17.168ms；事业部/客户筛选分别52/43ms（私有执行计划data/mps-dashboard/explain.json）。同一只读REPEATABLE READ快照已与原始production_date汇总和基础计划正式weeklyPlanState表达式对账一致，包含没有对应月计划的真实周计划报工。未新增索引/业务表/数据库实例或migration。首轮逐行派生方案触发15s保护后已替换并验证；未用索引掩盖查询结构问题。
 
 不修改业务表、报工、完成率、状态、异常、ERP、同步流程或任何同步enabled flags。下载只额外记录正式导出审计；无新增调度任务。
 
@@ -81,7 +81,7 @@
 | API/Web lint | 通过；仅原Portal Fast Refresh warning，无新增lint warning |
 | monorepo build | 通过 |
 
-首轮Web默认5s并发运行出现超时及环境拆卸后的React异常；新增测试两处有重复ARIA名称的选择器已修正为role。完整断言在双worker/15s上限下全部通过，没有跳过失败。分页复核后再次全量出现一条React环境卸载异常，已显式销毁AntD静态消息根、取消并清空测试QueryClient，以act完成卸载；随后49文件379项且0未处理错误通过。Chrome清空测试已按查询缓存语义验证UI重置与随后强制刷新无旧条件，不强求缓存有效时重复请求。
+首轮Web默认5s并发运行出现超时及环境拆卸后的React异常；新增测试两处有重复ARIA名称的选择器已修正为role。完整断言在双worker/15s上限下全部通过，没有跳过失败。分页复核后再次全量出现一条React环境卸载异常，已显式销毁AntD静态消息根、取消并清空测试QueryClient，以act完成卸载；随后49文件379项且0未处理错误通过。Chrome清空测试已按查询缓存语义验证UI重置与随后强制刷新无旧条件，不强求缓存有效时重复请求。部署页面复测另发现AntD加载图标使按钮可访问名称暂含loading，精确名称定位超时；已按刷新文本定位，保留全部刷新请求与下钻断言，针对项和完整9项重新验证。
 
 既有告警类别：Portal Fast Refresh、Vite大chunk、ts-jest JS transform（新增contracts JS文件也受同一配置告警）、AntD/React19及迁移时pg并发query弃用提示；未改变工具链。
 
@@ -89,7 +89,13 @@
 
 最终部署前备份：`20261015_135905`，双库custom dump与uploads（含.private及现有通知回执）；pg_restore目录、私有目录归档和三个SHA256复核成功。保存在data/backups，mode600；不入Git。
 
-GitHub：仅本任务文件提交与push github/main，不强推。正式部署使用 `./scripts/deploy.sh all`，随后check/health及线上Chrome/HTTP核验。此节将在实际部署后记录功能提交与执行结果；最终Repository/Web/API必须统一，不能以本地代码完成代替交付。
+GitHub：仅本任务文件提交与push github/main，不强推。功能发布执行 `./scripts/deploy.sh all`，随后check显示Repository/Web/API完整SHA均为 `b34b12a31616a3b0bad6660674a9728640ac1e72`，STATUS=CONSISTENT。Web/API/PostgreSQL/document-worker四容器healthy，Swagger/OpenAPI/pg_isready正常；独立企业微信Dispatcher保持active/running，未更改任何调度。生产PostgreSQL保持原容器、持续7天运行，没有重建。
+
+线上HTTP：`/master-plan-dashboard`返回200；匿名聚合、候选、Excel三个API均401。已部署静态资源的Chrome完整9项复测使用合成API响应；真实生产SQL只读对账另行验证，不把合成响应视为真实登录账号验收。入口：http://192.168.1.249:15172/master-plan-dashboard 。
+
+数据核验：迁移数量/最新时间与任务开始基线一致，全部同步enabled与interval_minutes完全一致；没有执行生产导出审计或业务写操作。双库及附件恢复材料留在data/backups；本任务不运行migration、不新增索引、不恢复或覆盖业务数据库。回滚只回到已备份的原代码/镜像并标准部署，不回滚业务数据。
+
+结束HEAD/最终发布：包含本报告及测试定位器修正的最终提交，可用 `git log -1 --format=%H -- outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md` 精确定位。完整40位SHA在本次最终交付回复及私有 `data/mps-dashboard/final-state.json` 记录；最终Repository/Web/API必须与该提交一致。功能已在上述b34b12a核验，最终记录提交仍标准all部署并执行check/health；部署证据为私有 `data/mps-dashboard/deploy-final.log`、`check-final.log`、`health-final.log`，不提交业务数据或凭据。
 
 ## 等待人工验收
 
