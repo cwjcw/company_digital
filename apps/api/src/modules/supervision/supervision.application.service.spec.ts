@@ -14,6 +14,10 @@ describe("任务督办 Application Service 安全入口", () => {
     expect(() => service.createProject({} as any, actor())).toThrow(ForbiddenException);
   });
 
+  it("项目参与关系不能代替任务create权限，无权限时在访问数据库前拒绝", () => {
+    expect(() => service.createTask({ projectId: "0199aa00-0000-7000-8000-000000000002" } as any, actor(["supervision-projects:*:read"]))).toThrow(ForbiddenException);
+  });
+
   it("无编辑权限时在访问数据库前拒绝更新任务", () => {
     expect(() => service.updateTask("0199aa00-0000-7000-8000-000000000002", {}, actor())).toThrow(ForbiddenException);
   });

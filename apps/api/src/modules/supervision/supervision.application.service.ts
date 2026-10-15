@@ -6,7 +6,7 @@ import {
   AuditLog, OrganizationUnit, SupervisionProject, SupervisionTask, SupervisionTaskProgress, User,
   type SupervisionAttachment
 } from "../../entities";
-import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionScopeClause, type SupervisionResource } from "./supervision.scope";
+import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionScopeClause, taskCreationProjectScopeClause, type SupervisionResource } from "./supervision.scope";
 import type { ProgressInput, ProjectInput, SupervisionActor, TaskInput } from "./supervision.types";
 import { shanghaiDate } from "./supervision.domain";
 
@@ -102,8 +102,7 @@ export class SupervisionApplicationService {
   createTask(input: TaskInput, actor: SupervisionActor) {
     this.assertAction(actor, "supervision-tasks", "create");
     return this.transaction(actor, async (manager) => {
-      const project = await this.lockProject(manager, String(input.projectId ?? ""), actor, "read");
-      if (["COMPLETED", "ABORTED"].includes(project.lifecycleStatus)) throw new BadRequestException("已结束项目不能新增任务");
+      const project = await this.lockTaskCreationProject(manager, String(input.projectId ?? ""), actor);
       const normalized = await this.taskInput(manager, input, null);
       this.assertAttachmentTenant(normalized.attachments, actor);
       this.assertCreateScope(actor, "supervision-tasks", { ...normalized, projectName: project.projectName });
@@ -281,6 +280,16 @@ export class SupervisionApplicationService {
     const project = await manager.createQueryBuilder(SupervisionProject, "project").setLock("pessimistic_write")
       .where("project.id=:id AND project.tenantId=:tenantId", { id, tenantId: actor.tenantId }).getOne();
     if (!project) throw new NotFoundException("督办项目不存在"); return project;
+  }
+  private async lockTaskCreationProject(manager: EntityManager, id: string, actor: SupervisionActor) {
+    if (!id) throw new BadRequestException("所属督办项目不能为空");
+    const params: unknown[] = [id]; const scope = taskCreationProjectScopeClause(actor, "project", params);
+    const rows = await manager.query(`SELECT project.id FROM supervision_projects project WHERE project.id=$1::uuid AND ${scope} FOR UPDATE`, params);
+    if (!rows.length) throw new NotFoundException("督办项目不存在、已结束或不允许在该项目下创建任务");
+    // The authorized row stays locked until the task and its audit have committed.
+    const project = await manager.findOneBy(SupervisionProject, { id, tenantId: actor.tenantId });
+    if (!project) throw new NotFoundException("督办项目不存在");
+    return project;
   }
   private async lockTask(manager: EntityManager, id: string, actor: SupervisionActor, action: string) {
     await this.assertRecordScope(manager, "supervision_tasks", "supervision-tasks", id, actor, action);

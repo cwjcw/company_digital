@@ -31,3 +31,23 @@ describe("任务督办聚合查询的服务端搜索", () => {
     expect(result).toEqual([rows[0]]);
   });
 });
+
+describe("创建任务的项目候选", () => {
+  it("仅有任务create且没有任何项目read scope也查询业务候选，只投影四个最小字段", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const service = new SupervisionQueryService({ transaction: (work: any) => work({ query }) } as never, { listEnabled: async () => [] } as never);
+    await service.options(actor(["supervision-tasks:*:create"]));
+    const call = query.mock.calls.find(([sql]) => sql.includes("FROM supervision_projects"));
+    expect(call).toBeDefined();
+    expect(call![0].split(" FROM ")[0]).toBe('SELECT id,project_code "projectCode",project_name "projectName",lifecycle_status "lifecycleStatus"');
+    expect(call![0]).toContain("project.participant_ids ? $2");
+    expect(call![1]).toEqual(["TENANT-A", actor([]).userId]);
+  });
+
+  it("仅有项目read权限不会获得创建任务候选", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const service = new SupervisionQueryService({ transaction: (work: any) => work({ query }) } as never, {} as never);
+    expect((await service.options(actor(["supervision-projects:*:read"]))).projects).toEqual([]);
+    expect(query.mock.calls.some(([sql]) => sql.includes("FROM supervision_projects"))).toBe(false);
+  });
+});

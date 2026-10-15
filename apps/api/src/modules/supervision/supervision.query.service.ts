@@ -3,7 +3,7 @@ import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { DataSource, type EntityManager } from "typeorm";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
 import { normalizeKdosPageSize } from "../../common/pagination";
-import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionColumnExpressions, supervisionScopeClause } from "./supervision.scope";
+import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionColumnExpressions, supervisionScopeClause, taskCreationProjectScopeClause } from "./supervision.scope";
 import type { SupervisionActor, SupervisionPageInput } from "./supervision.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { shanghaiDate } from "./supervision.domain";
@@ -28,9 +28,9 @@ export class SupervisionQueryService {
         canUseDepartments ? this.directory.listEnabled() : []
       ]);
       let projects: Array<Record<string, unknown>> = [];
-      if (hasSupervisionPermission(actor, "supervision-projects", "read")) {
-        const params: unknown[] = [actor.tenantId]; const scope = supervisionScopeClause(actor, "supervision-projects", "read", "project", params);
-        projects = await manager.query(`SELECT id,project_code "projectCode",project_name "projectName",lifecycle_status "lifecycleStatus" FROM supervision_projects project WHERE project.tenant_id=$1 AND (${scope}) ORDER BY project_code DESC`, params);
+      if (hasSupervisionPermission(actor, "supervision-tasks", "create")) {
+        const params: unknown[] = []; const scope = taskCreationProjectScopeClause(actor, "project", params);
+        projects = await manager.query(`SELECT id,project_code "projectCode",project_name "projectName",lifecycle_status "lifecycleStatus" FROM supervision_projects project WHERE ${scope} ORDER BY project_code DESC`, params);
       }
       return { users, departments, projects };
     });

@@ -14,6 +14,24 @@ export function hasSupervisionFieldPermission(actor: SupervisionActor, resource:
     || actor.permissions.includes(`${resource}:${field}:${action}`);
 }
 
+/** Task creation has its own project relationship policy, independent of project read scopes.
+ * Keep tenant and lifecycle checks here so options and the locked command cannot diverge.
+ * This does not grant access to project lists, details or attachments, or change OWN semantics.
+ */
+export function taskCreationProjectScopeClause(actor: SupervisionActor, alias: string, params: unknown[]) {
+  if (!hasSupervisionPermission(actor, "supervision-tasks", "create")) return "1=0";
+  const administrator = actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("project-task") === true;
+  if (!administrator && !actor.userId) return "1=0";
+  params.push(actor.tenantId);
+  const clauses = [`${alias}.tenant_id=$${params.length}`, `${alias}.lifecycle_status NOT IN ('COMPLETED','ABORTED')`];
+  if (!administrator) {
+    params.push(actor.userId);
+    const user = `$${params.length}`;
+    clauses.push(`(${alias}.owner_id::text=${user} OR ${alias}.supervisor_id::text=${user} OR ${alias}.participant_ids ? ${user})`);
+  }
+  return clauses.join(" AND ");
+}
+
 export function supervisionColumnExpressions(resource: SupervisionResource, alias = "record"): Record<string, string> {
   const display = `CASE WHEN ${alias}.lifecycle_status='COMPLETED' THEN 'COMPLETED' WHEN ${alias}.lifecycle_status='ABORTED' THEN 'ABORTED' WHEN ${alias}.due_date < (now() AT TIME ZONE 'Asia/Shanghai')::date THEN 'OVERDUE' ELSE 'NORMAL' END`;
   if (resource === "supervision-projects") return {

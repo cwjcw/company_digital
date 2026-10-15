@@ -51,6 +51,28 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("项目与任务表格编辑", () => {
+  it("仅为项目参与人的普通用户，无项目read权限时仍能选择API返回的创建任务项目", async () => {
+    const fallback = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/supervision/options") return {
+        users: [{ id: "user-2", label: "员工二" }], departments: [{ id: "dept-1", name: "部门一" }],
+        // user-2 is in project.participantIds, but is neither owner nor supervisor.
+        projects: [{ id: project.id, projectCode: project.projectCode, projectName: project.projectName, lifecycleStatus: project.lifecycleStatus }]
+      } as never;
+      return fallback(path, init);
+    });
+    renderPage(<SupervisionTasksPage />, { sub: "user-2", username: "participant", permissions: ["supervision-tasks:*:read", "supervision-tasks:*:create"] });
+    fireEvent.click(await screen.findByRole("button", { name: /创建任务/ }));
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText("所属督办项目");
+    fireEvent.mouseDown(select);
+    const option = await screen.findByText("SP-001 · 项目甲", { selector: ".ant-select-item-option-content" });
+    fireEvent.click(option);
+    expect(within(dialog).getByText("SP-001 · 项目甲", { selector: ".ant-select-selection-item" })).toBeInTheDocument();
+    expect(project.participantIds).toContain("user-2");
+    expect(project.ownerId).not.toBe("user-2");
+  });
+
   it("项目和任务标准业务页不渲染长期解释性副标题", async () => {
     renderPage(<SupervisionProjectsPage />, { sub: "user-1", username: "worker", permissions: permissions("supervision-projects") });
     expect(await screen.findByText("项目甲")).toBeInTheDocument();

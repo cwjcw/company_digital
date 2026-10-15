@@ -1,6 +1,67 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：创建任务所属督办项目候选/后端授权范围修复。
+任务目标：同租户未结束项目按负责人/督办人/参与人关系授权，管理员放行；独立于项目read scope；任务create权限保留。
+当前状态：进行中。
+最后更新时间：2026-10-15（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：共享规则与回归通过，完整验证及上线准备。
+当前子任务：所有验证/备份通过，准备GitHub同步及部署；普通账号真实登录方式待用户回复。
+
+## 已完成
+- [x] 已读AGENTS、表单/任务治理Skill、边界文档及任务台账；工作区仅既有进度未提交，HEAD 6bff61e。
+- [x] 核实两个入口同一根因；普通项目列表/详情read及OWN语义不改。
+
+## 正在进行
+- [x] 参数化taskCreationProjectScopeClause供options/createTask共用；tenant/未结束/关系三项固定规则；提交FOR UPDATE锁定后保存与审计。
+- [x] PostgreSQL+HTTP13个场景通过（真实Application、Query和审计，临时表回滚）；Web参与人选择回归6测试通过。
+- [x] 已核实实际用户为普通启用账户，有task create、无project read，稳定ID属于指定项目participant_ids；项目当前租户且NOT_STARTED。
+
+## 待完成
+- [x] API全量107套/1001测试通过；数据库集成13通过；typecheck全仓和build通过；lint无错误；migration93/93已应用，无新增。
+- [x] Web全量49套383测试通过（maxWorkers=2、testTimeout=15000）；参与人真实选择场景在默认5000ms下单独通过。
+- [x] 生产备份182937双库/附件完成，SHA256全部通过。
+- [ ] GitHub安全提交推送、部署及健康检查。
+- [x] 实际账号实时AuthService有效权限下Query候选可见，Application创建及审计通过，事务回滚清理，项目全字段不变（私有actual-actor-verification.json）；此验证非真实浏览器登录。
+- [ ] 普通崔玮杰登录会话页面/POST实测待真实登录方式，不能伪称完成。
+
+## 修改文件
+- API：supervision.scope.ts / query.service.ts / application.service.ts及对应3个spec、新增task-creation.postgres.spec.ts。
+- Web：SupervisionPages.spec.tsx；文档：docs/integration-guide.md；本进度。
+- 既有数据导入进度保留在下方，不随本任务提交；私有数据/凭据/证据均不入Git。
+
+## 数据库 Migration
+- 无新增；API迁移93/93应用；core18/18校验和一致，未修改结构。
+
+## 新增或修改测试
+- 将补全owner/supervisor/participant/无关系/已结束/跨租户/管理员候选及POST后端回归、Web参与人场景。
+
+## 已运行测试
+- API unit37通过（首次新增集成测试fixture缺level已修复）；PostgreSQL+HTTP13通过；Web supervision6通过。
+- API/Web lint通过（Web原有ModulePortal warning1）；API/Web typecheck通过。
+- 首次误用pnpm脚本参数导致Web全量高并发超时；现已用exec和限并发重跑，最终结果待记录。
+
+## 当前已知问题
+- 实际普通账号登录会话是否可用尚待核实，不伪造生产认证或修改账号权限。
+
+## 等待用户确认
+- 无；开发/部署/实际测试均已授权。
+
+## 下一步
+1. Web全量回归结束后仅提交本任务源码/测试/接口文档，推送github/main。
+2. 标准备份已完成；部署all并健康/版本/迁移核验，再运行真实actor回滚验证。
+3. 有真实登录方式后做普通账号页面/POST实测；否则准确记录该唯一未验证项。
+
+## 恢复执行说明
+先读项目规范/Skill→本节→git status/diff，继续现有修改；不要重新执行下方已完成Excel导入。认证验证使用真实会话，不给账号提权。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1。
 任务目标：沿用已上线V1，统一订单/品号/日期业务scope、联动远程多选、高区分度趋势色板与独立服务端Excel。
 当前状态：等待人工验收（REV1开发、验证与功能部署已完成）。

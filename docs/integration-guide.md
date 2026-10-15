@@ -2,6 +2,14 @@
 
 All Planning routes use `/api/v1/planning`, bearer JWT/API identity and tenant code `KAINAN` by default. External writers must use an idempotency key and must not access the Planning database.
 
+## 督办任务创建的所属项目范围
+
+`GET /api/v1/supervision/options` 的 `projects` 专用于创建任务：调用者须有 `supervision-tasks:*:create`，只返回 `id / projectCode / projectName / lifecycleStatus`。普通用户仅能选择当前租户内未 `COMPLETED`、未 `ABORTED`，且本人为负责人、督办人或参与人的项目。系统管理员、`project-task` 模块管理员（含既有通配权限管理员）可选择当前租户全部未结束项目。项目列表、明细、附件的 read 权限和数据范围不因此扩大。
+
+`POST /api/v1/supervision/tasks` 在事务中使用同一个 `taskCreationProjectScopeClause` 规则筛选并 `FOR UPDATE` 锁定项目，再校验任务自身创建数据范围、保存和审计。即使手工提交项目 ID，或候选加载后项目已结束/移除了本人关联，也不能绕过授权。该规则不依赖 `supervision-projects` 的 read 权限或 Data Scope 配置；平台 `OWN` 仍为 `created_by`。无任务创建权限返回 403；跨租户、无关联或已结束项目统一返回 404，避免泄露项目存在性。
+
+关系/状态/租户/管理员的回归覆盖 API unit、Web 参与人下拉场景和 PostgreSQL + HTTP 集成测试。运行后者：`KDOS_POSTGRES_INTEGRATION=true DATABASE_HOST=127.0.0.1 DATABASE_PORT=<本机PostgreSQL端口> pnpm --filter @tracker/api exec jest --runInBand --testPathPatterns=supervision.task-creation.postgres`。该测试仅使用当前连接的临时表，并在结束后回滚，不修改正式业务行或账号权限；本次无需数据库结构 migration。
+
 ## 企业微信组织架构
 
 - 企业微信通讯录导出是组织架构、成员归属和部门负责人的权威来源；同步任务使用 `basic_code.export_contacts`，不得在本项目复制企业微信凭据。

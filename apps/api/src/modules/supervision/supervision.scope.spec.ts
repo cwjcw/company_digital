@@ -1,4 +1,4 @@
-import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionScopeClause } from "./supervision.scope";
+import { hasSupervisionFieldPermission, hasSupervisionPermission, supervisionScopeClause, taskCreationProjectScopeClause } from "./supervision.scope";
 import type { SupervisionActor } from "./supervision.types";
 
 const actor = (overrides: Partial<SupervisionActor> = {}): SupervisionActor => ({
@@ -7,6 +7,33 @@ const actor = (overrides: Partial<SupervisionActor> = {}): SupervisionActor => (
 });
 
 describe("任务督办数据范围", () => {
+  it("创建任务的项目关系规则独立于项目read权限和通用数据范围，租户与身份均参数化", () => {
+    const userId = "user' OR 1=1 --";
+    const params: unknown[] = ["existing-id"];
+    const sql = taskCreationProjectScopeClause(actor({ userId, permissions: ["supervision-tasks:*:create"] }), "project", params);
+    expect(sql).toContain("project.tenant_id=$2");
+    expect(sql).toContain("NOT IN ('COMPLETED','ABORTED')");
+    expect(sql).toContain("project.owner_id::text=$3 OR project.supervisor_id::text=$3 OR project.participant_ids ? $3");
+    expect(sql).not.toContain(userId);
+    expect(sql).not.toContain("created_by");
+    expect(params).toEqual(["existing-id", "TENANT-A", userId]);
+  });
+
+  it.each([{ isSystemAdmin: true }, { moduleAdminCodes: ["project-task"] }, { permissions: ["*"] }])("管理员仍受tenant/未结束约束：%j", (overrides) => {
+    const params: unknown[] = [];
+    const sql = taskCreationProjectScopeClause(actor(overrides), "project", params);
+    expect(sql).toContain("project.tenant_id=$1");
+    expect(sql).toContain("NOT IN ('COMPLETED','ABORTED')");
+    expect(sql).not.toContain("owner_id");
+    expect(params).toEqual(["TENANT-A"]);
+  });
+
+  it("无task create权限、缺少用户身份或其它模块管理员均不扩大范围", () => {
+    expect(taskCreationProjectScopeClause(actor(), "project", [])).toBe("1=0");
+    expect(taskCreationProjectScopeClause(actor({ userId: null, permissions: ["supervision-tasks:*:create"] }), "project", [])).toBe("1=0");
+    expect(taskCreationProjectScopeClause(actor({ moduleAdminCodes: ["planning"] }), "project", [])).toBe("1=0");
+  });
+
   it("只读权限不能借用为编辑权限，字段权限也独立判定", () => {
     const readOnly = actor({ permissions: ["supervision-tasks:*:read", "supervision-tasks:taskName:read"] });
     expect(hasSupervisionPermission(readOnly, "supervision-tasks", "read")).toBe(true);
