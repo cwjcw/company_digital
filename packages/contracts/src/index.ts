@@ -430,6 +430,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "mps-overview-dashboard": fields([
     ["divisionId", "事业部", "department", false], ["customerCode", "客户编码", "text", false],
     ["orderNumber", "订单号", "text", false], ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false],
+    ["orderDate", "订单日期", "date", false], ["deliveryDate", "交付日期", "date", false], ["plannedQuantity", "计划数量", "number", false],
     ...[...mpsDashboardOrderMetrics, ...mpsDashboardPlanMetrics].map(([key, label]) => [key, label, "number", false] as [string, string, "number", boolean]),
     ["weeklyPlanState", "周计划准备分布", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false],
     ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false], ["latestCustomerDueDate", "最迟客户交期", "date", false],

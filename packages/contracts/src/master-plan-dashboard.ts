@@ -6,7 +6,33 @@ export const auxiliaryPlanGroups: Array<{ key: string; title: string; fields: st
   { key: "outsourcing", title: "外协计划", fields: ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingActualInboundDate"] }
 ];
 export const mpsDashboardResource = "mps-overview-dashboard" as const;
-export type MpsDashboardFilters = { divisionId?: string; customerCode?: string; orderNumber?: string; item?: string };
+export type MpsDashboardFilters = {
+  divisionId?: string; customerCode?: string; orderNumbers?: string[]; itemCodes?: string[];
+  dateType?: "NONE" | "ORDER" | "DELIVERY"; datePeriod?: "DAY" | "MONTH" | "YEAR" | "CUSTOM";
+  dateValue?: string; dateFrom?: string; dateTo?: string;
+};
+/** Shanghai business calendar dates, inclusive UI end date -> exclusive SQL upper bound. */
+export function mpsDashboardDateRange(input: MpsDashboardFilters): { start: string; end: string } | null {
+  if (!input.dateType || input.dateType === "NONE") return null;
+  if (!["ORDER", "DELIVERY"].includes(input.dateType)) throw new Error("日期类型无效");
+  const valid = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
+  const next = (v: string) => new Date(Date.parse(v) + 86400000).toISOString().slice(0, 10);
+  const value = input.dateValue ?? "";
+  let start: string, end: string;
+  switch (input.datePeriod) {
+    case "DAY": if (!valid(value)) throw new Error("请选择有效日期"); start = value; end = next(value); break;
+    case "MONTH": if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new Error("请选择有效月份"); start = value + "-01"; end = next(new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5)), 0)).toISOString().slice(0, 10)); break;
+    case "YEAR": if (!/^[1-9]\d{3}$/.test(value) || value === "9999") throw new Error("请选择有效年份"); start = value + "-01-01"; end = String(Number(value) + 1) + "-01-01"; break;
+    case "CUSTOM": if (!valid(input.dateFrom ?? "") || !valid(input.dateTo ?? "") || input.dateFrom! > input.dateTo!) throw new Error("请选择有效日期范围"); start = input.dateFrom!; end = next(input.dateTo!); break;
+    default: throw new Error("日期周期无效");
+  }
+  return { start, end };
+}
+export const mpsDashboardTableKeys = ["division-summary", "plan-readiness", "process-execution", "risk-exception", "process-summary"] as const;
+export type MpsDashboardTableKey = typeof mpsDashboardTableKeys[number];
+export const mpsDashboardReadinessColumns = [["divisionId", "事业部"], ["customerCode", "客户"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"], ["latestCustomerDueDate", "最迟客户交期"], ["plannedQuantity", "计划数量"], ["weeklyPlanState", "周计划状态"], ["weeklyPlanMissingFields", "周计划缺少项"], ["weeklyPlanGenerationIssue", "周计划生成提示"], ["issueCategory", "问题分类"]] as const;
+export const mpsDashboardExecutionColumns = [["divisionId", "事业部"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"], ["processName", "工序"], ["requiredQuantity", "需求数量"], ["reportedQuantity", "累计实际报工"], ["productionProgress", "生产进度"], ["status", "状态"]] as const;
+export type MpsDashboardTableData = { rows: MpsDashboardRow[]; total: number; page: number; pageSize: number; visibleFields: string[] };
 export type MpsDashboardRow = Record<string, string | number | null>;
 export type MpsDashboardData = {
   visibleFields: string[]; generatedAt: string; trendStart: string; trendEnd: string;
@@ -26,7 +52,7 @@ export const mpsDashboardPlanMetrics = [
   ["overdueCount", "延期月计划条数"], ["exceptionCount", "生产异常月计划条数"]
 ] as const;
 export const mpsDashboardRiskColumns = [
-  ["divisionId", "事业部"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"],
+  ["divisionId", "事业部"], ["customerCode", "客户"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"], ["orderDate", "订单日期"], ["deliveryDate", "交付日期"],
   ["latestCustomerDueDate", "最迟客户交期"], ["requiredQuantity", "需求数量"], ["dispatchedWeeklyQuantity", "已下达周计划数量"],
   ["cumulativeInboundQuantity", "累计入库"], ["pendingQuantity", "欠数"], ["riskType", "风险类型"],
   ["exceptionSummary", "异常"], ["weeklyPlanMissingFields", "周计划缺少项"], ["weeklyPlanGenerationIssue", "周计划生成提示"]

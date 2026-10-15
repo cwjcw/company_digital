@@ -10,11 +10,13 @@ import type { MasterPlanActor } from "./master-plan.types";
 export class MasterPlanDashboardController {
   constructor(private readonly dashboard: MasterPlanDashboardService, private readonly exports: MasterPlanDashboardExportService) {}
   @Get() query(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.dashboard(input, this.actor(req)); }
+  @Get("drill") drill(@Query() input: DashboardQuery & { resourceCode?: string; filterGroup?: string; view?: string }, @Req() req: Request) { return this.dashboard.drill(input, this.actor(req)); }
+  @Get("table") table(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.table(input, this.actor(req)); }
   @Get("candidates") candidates(@Query("field") field: string, @Query("search") search: string, @Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.candidates(field, search, input, this.actor(req)); }
   @Get("export") async export(@Query() input: DashboardQuery, @Req() req: Request, @Res() res: Response) {
     const buffer = await this.exports.export(input, this.actor(req));
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent("主计划综合大屏.xlsx")}`); res.send(buffer);
+    res.setHeader("Content-Disposition", `attachment; filename="mps_${input.tableKey!.replaceAll("-", "_")}_${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" }).replaceAll("-", "")}.xlsx"`); res.send(buffer);
   }
   private actor(req: Request): MasterPlanActor {
     const request = req as Request & { user: { sub?: string; username?: string; displayName?: string; permissions?: string[]; isSystemAdmin?: boolean; moduleAdminCodes?: string[]; tableDataScopes?: MasterPlanActor["tableDataScopes"]; apiKeyId?: string }; requestId: string };

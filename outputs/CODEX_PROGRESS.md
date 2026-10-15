@@ -1,67 +1,56 @@
 # Codex 工作进度
 
 ## 任务
-任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1。
-任务目标：正式事实的只读聚合、独立权限/字段/data scope、图表及安全下钻，测试后备份部署。
-当前状态：等待人工验收（开发、自动验证与功能部署已完成，不自行判PASS）。
+任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1。
+任务目标：沿用已上线V1，统一订单/品号/日期业务scope、联动远程多选、高区分度趋势色板与独立服务端Excel。
+当前状态：进行中。
 最后更新时间：2026-10-15（Asia/Shanghai）。
-最终报告：outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md。
 
 ## 当前阶段
-当前阶段：功能已上线，最终测试与验收记录安全同步发布。
-当前子任务：最终记录提交标准all部署/check/health；完整发布SHA记录在最终交付回复及data/mps-dashboard/final-state.json。
+当前阶段：全部门禁通过，备份已校验，准备安全提交与标准部署。
+当前子任务：安全审查、commit/push及标准all部署。
 
 ## 已完成
-- [x] 开始HEAD 1bb0e58342aea0a317271f2d9656c15418280a20，main；工作区初始干净。基线运行870be11仅与HEAD存在两份outputs文档差异，未回退。
-- [x] 独立mps-overview-dashboard资源、合同、服务端聚合/远程候选/Excel/正式Application审计、权限字段及scope、页面/导航/KdosChart/KdosDataTable/正式Drawer下钻。
-- [x] 10工序唯一registry；月计划总需求分母；51/60/105%及状态独立；生产异常仅四类人工报工；无正式临期阈值不展示临期。
-- [x] 预聚合替换首轮15s超时方案；生产只读828ms、EXPLAIN752.606ms、事业部/客户52/43ms，无新索引。
-- [x] 趋势保留有周计划无月计划的实际报工；准备状态不依赖月计划。真实同快照原始趋势/正式准备表达式对账一致，未回填源数据。
-- [x] 风险与正式Drawer标准serverData分页/排序/同身份保留上页数据；Chrome及PG覆盖超过100行、50/100页大小、全部风险导出。
-- [x] API992/1既有skip、Web49文件379（无未处理错误）、Contracts22、隔离真PG18全部既有迁移及14组业务检查、Chrome9（已部署资源/合成API）全部通过；类型/lint/build通过。
-- [x] Web测试卸载时显式清理消息与QueryClient；Chrome刷新按钮加载图标名称定位修正，断言未删减，最终完整9项35.9s通过。
-- [x] 最终部署前备份20261015_135905，双库pg_restore目录、含private的附件及三个SHA256验证通过，mode600。
-- [x] 首次fd616168cfe10430981dd967fefa0d0fb1580a48与修正版b34b12a31616a3b0bad6660674a9728640ac1e72已push github/main；修正版标准all部署，Repository=Web=API，CONSISTENT。
-- [x] 页面HTTP200、匿名聚合/候选/导出401；四容器healthy、Dispatcher active；原生产PG容器未重建。同步开关/间隔与migration基线不变。
-- [x] 自建隔离PG测试容器在核验任务label后清理，生产数据/备份保留；完整验收报告及指标合同已更新。
+- [x] V1最终c1357f7e82daefac38a2fdeb26d3b0c833a946dd已上线并push github/main，起始工作区干净，三SHA CONSISTENT；不重做V1。
+- [x] REV1覆盖原无日期/搜索框/整屏导出规则；51/60/105%、状态独立/人工异常/权限保持。
+- [x] 检查真实schema：group/monthly/base/weekly均有order_date；monthly正式latestCustomerDueDate优先未完成weekly最早交期。expectedShippingDate不作为交付日期。
+- [x] 确定统一scope和日期边界，记录指标合同；仍不需要migration/索引或调度变更。
 
 ## 正在进行
-- [ ] 用户使用真实账号验收业务数字、权限及使用体验。
+- [x] 合同/API统一scope/50候选/三种分页明细及五种独立导出（含保留工序汇总）；正式下钻增加服务端scope约束，仍经原Query Service权限。
+- [x] 页面多选日期控件、趋势色板/tooltip、四张明细与导出、安全下钻。
 
 ## 待完成
-- [ ] 仅用户人工验收后才能判最终PASS；不推进TASK-002。
+- [x] PG18 19组、Web专项10/全量49文件382、API初轮完整993/1既有skip通过；最终性能修正后API全量993/1 skip、类型/lint/build、Contracts22和Chrome11均通过；双库/附件备份145321已核验。
+- [ ] 生产只读性能/基线、备份、commit/push、标准all/check/health及部署页面复验。
+- [ ] 更新验收报告，最终仍等待人工验收。
 
 ## 修改文件
-- packages/contracts/src/{index.ts,master-plan-dashboard.ts}
-- apps/api/src/modules/master-plan-system/master-plan.dashboard*.ts、master-plan.module.ts、master-plan.application.service.ts（仅导出审计）
-- apps/web/src/App.tsx、modules/master-plan-system/{MasterPlanDashboard.tsx,MasterPlanDashboard.spec.tsx,master-plan-dashboard.utils.ts,master-plan-dashboard.css,MasterPlanPages.tsx,MasterPlanPages.spec.tsx}
-- apps/web/e2e/master-plan-dashboard.spec.ts、scripts/test-mps-dashboard-postgres.cjs
-- docs/runbook.md、outputs/CODEX_PROGRESS.md、outputs/KDOS_MPS_OVERVIEW_DASHBOARD_{METRICS,ACCEPTANCE}.md
+- 本任务现有dashboard合同、API、Web、测试与同一进度/指标/验收文档；随实现持续更新。
 
 ## 数据库 Migration
-- 无。未新增索引、业务表；全部生产业务/报工/状态/同步flags均无写入，本次未执行生产Excel导出审计。
+- 无计划；若必须迁移或新增索引则STOP。
 
 ## 新增或修改测试
-- API专项6、Dashboard Web7；主计划测试资源清理；Chrome9；真实隔离PG18 14组。
+- 将覆盖8种日期组合及边界、统一scope、联动候选50上限、独立完整Excel与字段/权限隔离。
 
 ## 已运行测试
-- API完整107套992通过/1既有skip；主计划定向398/1skip；Web49文件379，maxWorkers=2/testTimeout=15000，0未处理异常；Contracts22；PG14；Chrome9。
-- API/Web typecheck、lint、monorepo build通过。最终仅测试定位器修改后Web类型/lint及部署Chrome9复验通过，无运行时代码变化。
-- 仅既有Portal Fast Refresh/Vite大chunk/ts-jest JS transform/AntD React19/迁移pg并发query弃用等warning。
+- 起始deploy check三SHA CONSISTENT。隔离PG18 19组通过（含全部V1回归、统一scope/候选/8日期模式/跨年/Excel/正式下钻），API初轮6通过；Web专项9通过/1导出按钮自动中文字距定位失败，已补明确aria-label后复验。
 
 ## 当前已知问题
-- 无实施阻塞；真实登录账号业务数字及授权效果仍需人工验收。Chrome使用合成响应，未伪造生产身份，不能等同真实账号业务验收。
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
+- 订单事实粒度为整单，品号/交付日期选中订单后订单数量保留该订单正式整单值；计划/执行仍按所选品号范围，不把月计划数量冒充订单字段。
 
 ## 等待用户确认
-- 在线人工验收：http://192.168.1.249:15172/master-plan-dashboard 。重点按验收报告检查订单、月/周进度、7天趋势、事业部切换、人工异常、原表下钻与权限。
+- 无实施等待；最后须真实账号人工验收。
 
 ## 下一步
-1. 完成本节对应最终记录提交的标准all部署与check/health，若中断先查看data/mps-dashboard/deploy-final.log及git/deploy真实状态，勿重做功能。
-2. 用户真实账号人工验收；未得到明确验收结果前保持等待人工验收。
-3. 如后续发现业务问题，沿用本进度入口按反馈修正；不改变同步flags，不自行扩大范围。
+1. 实现统一scope和日期、候选/明细/export合同。
+2. 页面接入并运行相关测试，完成最终门禁。
+3. 备份部署与安全GitHub同步，记录真实线上验证结果。
 
 ## 恢复执行说明
-项目AGENTS/两项KDOS Skill → 本进度 → git status/diff → 验收报告。功能已完成且b34b12a已上线，最后记录提交若已CONSISTENT则只等待人工验收，不重复开发/测试/备份/部署。完整最终SHA、push及服务证据在data/mps-dashboard/final-state.json和最终交付回复；私有证据与业务备份不入Git。
+项目AGENTS/两项KDOS Skill → 本节 → git status/diff → 指标合同REV1。V1已完成，直接继续REV1未完成工作；不得恢复旧无日期规则，禁止业务写入/flags变化。
 
 ---
 
@@ -108,6 +97,7 @@
 - API106套986项／1既有skip、真实PG22检查、API类型／构建／lint PASS；真实文件87／2解析0错、435／435缓存、87已审核、O来源正确。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 无交付阻塞。生产当前87／归档2338未改变；周计划原定时更新3条已记录，不能虚报21表全部不变。
 
 ## 等待用户确认
@@ -162,6 +152,7 @@
 - API完整106套945项通过／1既有skip；最新同步专项2套41项、真PG18共21检查（含真实163／33追加与归档）PASS；API构建／lint／类型PASS。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 已按用户选择归档解决外键依赖；历史计划保留。正式规则在08:53:51已有配置操作设为ON/v4，清空前后未变，归档未产生通知；不得误报当前OFF。
 
 ## 等待用户确认
@@ -215,6 +206,7 @@ AGENTS／两项KDOS Skill → 本进度 → Git状态／diff。生产已部署3b
 - 生产只读组织／映射／配置审计核实PASS；开发验证待运行。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 原seed匹配不唯一时continue无提示，已有禁用映射不覆盖但也不提示；预览WHERE enabled丢失禁用原因；保存与UI组织选项错误限定五单位。
 
 ## 等待用户确认
@@ -295,6 +287,7 @@ AGENTS／两项Skill → 本进度 → Git状态／diff；私有原始证据data
 - API／Web构建与类型、lint PASS（既有warning）；标准部署check、Chrome及真实数据哈希／FK PASS。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 无本次交付阻塞。老plan-projections的RUNNING／2026-09-29历史字段未重写；配置已停用且全部入口跳过，不代表仍在执行。
 - 旧版本未确认预览需重新上传；不同文件／新预览按最新规则追加，正式确认由用户执行。
 - 其他原有调度及通知权限维持；未新增任务／监控，未调整员工权限。
@@ -352,6 +345,7 @@ AGENTS／两项Skill → 本进度 → Git状态／diff；私有原始证据data
 - API五套53项通过、Python9项通过，API依赖构建/类型与lint通过；PG共16检查通过；正式规则已审计恢复停用version3；升级前双库/私有附件备份170904验证完成。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 本次验收窗口出现独立生产导入和既有ERP对账，分配表全局哈希发生变化；财务/客户/旧规则哈希相同，来源证据留私有目录。
 - 原中文响应头/英文正则兼容已修复。
 - 线上正式规则核实为已启用version2，按用户本次要求经既有审计管理接口恢复停用version3；没有修改通知触发或ERP调度。
@@ -418,6 +412,7 @@ AGENTS／两项Skill → 本进度 → Git状态／diff；私有原始证据data
 - 备份150723及162945、pg_restore目录/SHA/0600/私有上传和成功回执PASS；最终生产基线不变、GitHub远端SHA匹配。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 既有plan-projections自2026-09-29残留RUNNING；未改其状态/周期，需独立运维处理。
 - 原PMC外壳min-width1180px；桌面PASS，390px移动视口不宣称自适应PASS。
 - 五单位接收配置初始为空、正式规则停用，使用前由管理员配置；实际预览有3个配置提醒。
@@ -481,6 +476,7 @@ AGENTS/Skill → 本根进度文件 → 两处git status/diff → 最终报告�
 - 尚无本轮测试。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 254是当前2026年度数；全历史规则也须一致，实际数量先核查。
 
 ## 等待用户确认
@@ -582,6 +578,7 @@ AGENTS/Skill→本段→git status/diff→继续下一步；不重新初始化�
 结果：全部本轮必需验证通过，API1个既有skip；完整证据和实际数据表见最终报告。首次生产导入0页0行失败已修复工具包顶层额外依赖入口，无数据发布/凭据复制/新增依赖；后续实际各批次成功。早期测试不正确--过滤造成非预期广测及超时，已停止本轮进程，用正确exec及限并发完整复验，不改断言。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 真实E106单缺交货计划90698.50暂缓统计并列异常，原始值NULL，不隐瞒差额；612交期冲突按用户确认金额保留。
 - 真实财务编辑/只读独立账号密码登录未执行；维护会话、实际权限拒绝、隔离PG及合成角色覆盖明确记录，不声称该生产登录验收。
 - 本轮无未解决代码/部署故障；后续ERP主档更名不更新订单修改日期或源删除须手动全量复核。
@@ -1246,6 +1243,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - API 全量 79 suites / 617 tests 通过（1 skipped）；Shared 7 tests 通过；Dispatcher 6 tests 通过；API/Web build、typecheck、lint 通过；RD 任务期间 Web 全量有 2 个既有 marketing 超时。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 生产尚未创建 `shipping_plan.key_fields_changed` 规则，也未执行真实企业微信发送；当前环境缺少可安全使用的管理员登录凭据，不能绕过正式 API 直接写规则或业务数据。
 
@@ -1321,6 +1319,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 结果：完成；未执行会修改状态的测试、迁移、部署或通知发送。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 代码没有销售与生管的显式字段归属模型，不能仅凭代码给出权威角色结论。
 - “备货计划”不是现有 resource 名称；只能确认其可能对应 `mps-base-plans`，需用户确认。
@@ -1439,6 +1438,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无本任务新增运行问题。
 
@@ -1575,6 +1575,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 主计划和设备仍没有统一批量删除 API；当前公共兼容路径逐条调用正式 DELETE，部分失败会明确显示成功/失败数量与原因，并只保留失败选择。
 - 用户尚未完成真实线上交互验收，因此即使部署和健康检查通过，最终结论仍必须为“等待人工验收 / NO-GO”。
@@ -1697,6 +1698,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 本机测试使用 Node.js 22 并出现项目要求 Node.js 24 的 engine warning；正式部署镜像使用 Node.js 24 且构建通过。
 - lint 保留 1 条既有 `ModulePortal.tsx` Fast Refresh warning；build 保留既有大 chunk warning，均非本任务引入且没有 error。
@@ -1817,6 +1819,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无未解决问题。
 - 源表 74 行分组标题、备注或不完整行未作为业务数据；2 条已存在出货计划的记录按防重原则跳过。
@@ -1957,6 +1960,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 本机 Node.js 为 v22.23.1，低于项目目标 Node.js 24，pnpm 输出 engine warning；全部门禁实际通过，正式 API 镜像使用 Node.js 24 构建。
 - Web 无代码修改，按任务要求未重建，因此 `deploy.sh check` 显示 Web Build 仍为 `4349f0b`；这不影响本次 API-only 交付，Web 服务健康。
@@ -2188,6 +2192,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - `git diff --check`：通过。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 本轮未运行 E10 同步和 FULL 查重，因此未做真实同步触发压力/耗时测试。
 - 线上真实 E10 INCREMENTAL 最近一次仍为 18 行、16 新增，发生在本轮部署前；下一次真实增量同步才会执行本轮增强后的闭环。
@@ -2267,6 +2272,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 无计划修改。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 首次错误传入 E2E grep 参数导致启动全量 E2E，已中止；其中其他模块登录测试失败与本任务无关，之后直接运行 rd-ui.spec.ts 6/6 通过。
 
@@ -2361,6 +2367,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 部署后浏览器：R&D UI 2 个场景通过。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无。本轮 API 仍保持线上版本 `7dff48f`，未重启 API。
 
@@ -2456,6 +2463,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - `git diff --check`：通过。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 当前 `rd-items` API 的 `search` 是统一搜索参数，旧 Demo 的 field-specific 查询不能通过新增后端参数实现；前端保留字段选择入口并明确当前接口行为，不修改 API 业务逻辑。
 
@@ -2547,6 +2555,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - [x] `1722920076000-RdMaterialDuplicateDetection.ts` 与 `1722920077000-RdMaterialAllowDuplicateCodes.ts` 已正式执行；E10 全程只读。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 旧项目 XLSX 测试依赖缺失，旧 Node 测试脚本与当前 HTML 函数布局不兼容；迁移测试必须在 KDOS TypeScript 中独立建立，不修改只读参考项目。
 - `MSSQLDatabase.get_from_query()` 默认 pytds 中文数据路径存在编码异常；实现阶段必须复用统一工具配置/只读连接边界并集中处理 `bytes_to_unicode=False`，避免在业务模块直接依赖 SQL Server 客户端。
@@ -2613,6 +2622,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 无：本追加需求禁止数据库修改；列宽偏好第一阶段复用浏览器个人偏好。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 用户人工验收尚未完成；在用户查看前不得判定 PASS。
 
@@ -2668,6 +2678,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 无：本任务禁止数据库修改、migration、schema 调整和业务数据修改。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 用户人工验收尚未完成；在用户查看前不得判定 PASS。
 - 保留上一轮既有 Node v22 engine、Web Fast Refresh 和大 chunk warnings。
@@ -2728,6 +2739,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 无：本任务明确禁止数据库修改。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - Demo 已完成用户人工视觉验收 PASS；本轮标准化任务不得擅自改变已验收参数。
 - Node 当前为 v22，项目声明目标为 v24；测试命令会显示既有 engine warning。
@@ -2788,6 +2800,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - [x] 已提交并正式执行 `1722920075000-MasterPlanDeliveryCodeAuto.ts`；`migrations` 中存在 `MasterPlanDeliveryCodeAuto1722920075000`，未重建 PostgreSQL 容器。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 线上人工验收尚未完成；在用户确认首条/第二条生成、删除不复用、日期编辑保持 ID/编码、编码不可编辑和 Excel 导入后，才能决定最终 PASS。
 - 当前工作区已有的 `outputs/CODEX_PROGRESS.md` 修改属于本任务/既有恢复记录；部署前仍须确保除此之外无未提交源码、配置或文档修改。
@@ -2853,6 +2866,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 无：相关字段已为 nullable，本任务不执行 migration。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - Node 当前为 v22，项目声明目标为 v24；既有测试命令会显示 engine warning。
 
@@ -2945,6 +2959,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - Web build：PASS，保留既有大 chunk warning。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 上一项滚动规范任务已由用户生产人工验收确认 PASS；本节不再有该任务遗留阻塞。
 - Node 运行环境为 v22，项目目标为 Node 24；测试、类型检查、lint 和 build 均已通过。
@@ -3052,6 +3067,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 本轮 `./scripts/deploy.sh all`：PASS；本轮 `./scripts/deploy.sh check`：Repository/Web/API=`436fdb7`，`STATUS=CONSISTENT`。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 当前仅等待用户重新进行线上人工验收；自动化、备份、正式部署和运行检查均已完成，未代替用户将其判定为 PASS。
 - `TASK-002 KdosSchemaForm` 仍为 Roadmap 下一推荐任务。
@@ -3143,6 +3159,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 真实 planned=0 导入：未执行；当前未找到用户原始设备状态 Excel，未生成或伪造业务文件。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 真实 planned=0 导入验收仍待用户提供原始 Excel；不能用其他出货 Excel 或人工生成文件替代。
 
@@ -3258,6 +3275,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 最终上线前备份：`data/backups/*_20260927_161326.*`，三份备份均已生成 SHA256。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无。
 
@@ -3344,6 +3362,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - 线上：备份、迁移、API/Web 健康检查、三方 SHA 一致性与前端字段资源核验均通过。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 存量记录可能没有新启用的必填字段，已按历史兼容原则保留为空；后续新建/修改必须由服务端补齐。
 
@@ -3450,6 +3469,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - Compose 配置解析和 `git diff --check`：通过。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 现有线上 Web/API 镜像未嵌入 Git SHA，当前只能以新机制部署后建立可信一致性基线。
 
@@ -3519,6 +3539,7 @@ Knowledge2.1：源码b09c051；API811/Web247/专项90/DB76与85migration/六种O
 - Dispatcher 进程、cgroup、user-systemd 状态、unit 配置和 journald 只读核验通过。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 系统级 `systemctl` 查不到同名 service；正式服务是当前用户的 `systemd --user` unit，且已确认 `Linger=yes`，因此具备用户级开机持久性。
 
@@ -3617,6 +3638,7 @@ KDOS-DISPATCHER-SERVICE-VERIFY-001：PASS
 - 只读生产查询：配置、目标入库/周计划、全量正式算法模拟、异常检查、包装报工，均已完成。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 工作区与源码未修改；本次仅更新进度记录并做只读核验。
 
@@ -3710,6 +3732,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 备份：`data/backups/*_20260923_173410.*`；部署后健康检查通过；无待执行 migration。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 线上既有规则仍使用兼容格式 `recipientUserIds`，读取和发送兼容；新保存路径写入 `recipientTargets`。
 
@@ -3778,6 +3801,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - Dispatcher 用户服务：enabled/active，Python 使用 basic_code `.venv`，连续 1 秒轮询；`--once` 返回 claimed=0。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无 root sudo 权限，无法安装 `/etc/systemd/system` 的系统级 unit；已安装同名用户级 linger unit，`systemctl --user` enabled/active，`journalctl --user -u` 正常。
 - 本次上线验证中 5 条旧消息已成功调用企业微信但回执因 API 参数 bug 未落库，修复后通过内部 success API 收敛为 SENT；这些记录 provider_message_id 仍为空。
@@ -3845,6 +3869,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 备份：`data/backups/four_department_tracker_20260923_155820.backup`、`kdos_20260923_155820.backup`、`uploads_20260923_155820.tar.gz`；migration、API/Web healthcheck 通过。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 线上 `shipping_edit_weekday` 当前仍为历史值 `3`（jsonb number），未用 SQL 代替业务保存 `2,4,5`。
 - 本轮真实设备 0→10 未执行：环境 `.env` 初始管理员密码登录返回 401；未取得其他合法账号。主机无 `kdos-notification-dispatcher` systemd unit 或运行进程。
@@ -3928,6 +3953,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 部署后 `healthcheck.sh` 通过；数据库显示 migration 无待执行项；未登录消息中心 API 返回 401。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - “管控天数”在当前代码库不存在，无法按现有业务规则实现；未猜测范围、未新增虚构字段/Excel 契约。
 - `2,4,5` 的真实登录后保存/刷新验收待有效账号；当前线上数据库原值保持不变，未用 SQL 代替业务保存。
@@ -4031,6 +4057,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - API 全量：63 suites / 499 tests 通过；API lint/typecheck/build 通过；Python Dispatcher：3 tests 通过；migration/deployment/health 通过；真实发送因无崔玮杰设备责任人关系未执行。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 真实企业微信发送未执行：正式动态责任人查询不到崔玮杰。未直接 SQL 修改业务责任人、未绕过规则发送；恢复条件是通过设备管理页面/API 完成合法责任人配置并提供可验证的测试设备。
 
@@ -4250,6 +4277,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 ---
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - Node 22 本地运行环境低于项目声明的 Node >=24，仅产生 warning；Docker 部署使用 Node 24 镜像。
 - Web lint 的既有 `ModulePortal.tsx` Fast Refresh warning 和 Web build 的既有大包 warning 未影响交付。
@@ -4484,6 +4512,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - `./scripts/deploy.sh check` 的 API 版本保持 `e8675fa`，与本次仅 Web 部署的新 HEAD 不一致是预期结果，API 未重启。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无。
 
@@ -4558,6 +4587,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 已新增研发中心查重特征缓存表、扫描元数据和进度字段；不修改 E10 数据、既有物料字段、同步 watermark 语义或历史结果。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 首次全量重建需要建立 574,544 条特征缓存，实测约 91 秒；后续复用缓存约 17 秒。
 - 本轮未做多次重复样本的正式 P50/P95 统计；已记录 20/100 条增量和缓存复用全量的实际单次耗时。
@@ -4626,6 +4656,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 无。本轮未修改 PostgreSQL 表结构，也未重新执行同步或历史扫描。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无新增已知问题；Web lint 的既有 Fast Refresh 提示不影响通过结果。
 
@@ -4688,6 +4719,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 无。本轮只调整前端展示布局。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无。
 
@@ -4748,6 +4780,7 @@ KN-MPS-INBOUND-ALLOCATION-VERIFY-001：PASS
 - 无。本轮只调整前端布局，未修改 API、数据库、同步、watermark 或查重算法。
 
 ## 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 
 - 无新增问题；完整 Web 测试首次并发运行时出现的非相关 AdminWorkspace 超时已通过重跑确认通过。
 
@@ -5217,6 +5250,7 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - API686/Contracts22/Web181/Python34通过；真实隔离集成及生产验收PASS，完整结果见最终报告。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 源库RCSI不是整个事务历史冻结；无修改审计的BOM/路线硬删除需FULL。四项业务待确认按临时规则保留，详见最终报告。
 - 当前会话不能自行切换主模型；未声称已切换到用户指定 GPT-5.6 Sol High。
 
@@ -5364,6 +5398,7 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 - API699/Contracts22通过；Web设备16通过，完整184/185通过且唯一波动文件独立34/34复核通过；真实SQL/XLSX及部署验收PASS。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - 现有dashboard仅支持事业部数据授权，含不支持部门规则的权限配置按原helper失败关闭，不扩大授权。
 - 公共平台导出当前将展示数值格式化为字符串，不改公共框架以免影响无关模块；复用已有设备ExcelJS服务导出聚合视图，数值/百分比以真实Excel类型输出。
 
@@ -5483,6 +5518,7 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 结果：API733通过/1跳过；Web206通过；DB52通过；Chrome3通过/1账号项跳过；其他全部通过；lint0错误/1既有警告。
 
 ### 当前已知问题
+- [x] 新scope初轮10~14s：EXPLAIN证明JIT占12.36s；采用JSON稳定复合键关联及报告只读事务内jit=off，最终799ms/EXPLAIN738.693ms；无索引/全局配置变化。
 - LocalObjectStorage默认返回 /uploads 公共路径；知识附件必须在该实现做最小私有扩展，不能暴露storage key或公共URL。
 - 不假定线上登录凭据可用；不得伪造JWT、重置生产密码或改变生产权限用于验收。
 

@@ -15,3 +15,5 @@
 .mps-candidate-more{padding:8px 12px;color:#777;font-size:12px}
 @media(max-width:1450px){.mps-dashboard-kpis{grid-template-columns:repeat(4,minmax(120px,1fr))}.mps-kpi .ant-statistic-content{font-size:22px}}
 @media(max-width:900px){.mps-dashboard-two-columns{grid-template-columns:1fr}.mps-dashboard-kpis{grid-template-columns:repeat(2,minmax(110px,1fr))}}
+
+.mps-table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}

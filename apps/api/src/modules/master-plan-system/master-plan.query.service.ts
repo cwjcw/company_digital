@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import { DataSource } from "typeorm";
+import { DataSource, type EntityManager } from "typeorm";
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
@@ -49,10 +49,23 @@ export class MasterPlanQueryService {
     };
   }
 
-  async list(code: string, input: ListInput, actor: MasterPlanActor) {
+  async list(code: string, input: ListInput, actor: MasterPlanActor, trustedScope?: (params: unknown[]) => string) {
+    if(!trustedScope) return this.listRows(code,input,actor);
+    return this.dataSource.transaction("REPEATABLE READ",async manager=>{
+      await manager.query("SET TRANSACTION READ ONLY");
+      await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('TimeZone','Asia/Shanghai',true),set_config('statement_timeout','15000',true),set_config('jit','off',true)",[actor.tenantId]);
+      return this.listRows(code,input,actor,trustedScope,manager);
+    });
+  }
+
+  private async listRows(code: string, input: ListInput, actor: MasterPlanActor, trustedScope?: (params: unknown[]) => string, manager?: EntityManager) {
+    const db=manager??this.dataSource;
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
-    if (code === "mps-process-reports" && String(input.view ?? "").toUpperCase() === "PENDING") return this.processReportTasks(input, actor);
+    if (code === "mps-process-reports" && String(input.view ?? "").toUpperCase() === "PENDING") {
+      if(trustedScope) throw new BadRequestException("待报工任务视图不支持外部业务范围");
+      return this.processReportTasks(input, actor);
+    }
     const allColumns = columnsFor(resource);
     const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
@@ -61,6 +74,7 @@ export class MasterPlanQueryService {
     const pageSize = normalizeKdosPageSize(requestedPageSize);
     const params: unknown[] = [actor.tenantId];
     const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
+    if (trustedScope) clauses.push(trustedScope(params));
     if (code === "mps-order-allocations") clauses.push("record.archived_at IS NULL");
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
     /* KN-PRINT-001：打印已选只取选中记录（与列表共用同一 where/排序/分页语义）。 */
@@ -111,7 +125,7 @@ export class MasterPlanQueryService {
       if (view === "INCOMPLETE") clauses.push("record.completion_rate<1");
     }
     const where = clauses.join(" AND ");
-    const [{ count }] = await this.dataSource.query(`SELECT count(*)::integer count FROM ${resource.table} record WHERE ${where}`, params);
+    const [{ count }] = await db.query(`SELECT count(*)::integer count FROM ${resource.table} record WHERE ${where}`, params);
     const requestedSort = String(input.sortField ?? "");
     if (requestedSort && !allColumns[requestedSort]) throw new BadRequestException("排序字段无效");
     if (requestedSort && !visibleFields.includes(requestedSort)) throw new ForbiddenException("当前权限组不能按该字段排序");
@@ -149,7 +163,7 @@ export class MasterPlanQueryService {
       selected.push(`(SELECT weekly.id FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.base_plan_id=record.id) "weeklyPlanId"`);
     }
     dataParams.push(pageSize, (page - 1) * pageSize);
-    const rows = await this.dataSource.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const rows = await db.query(`SELECT record.id,record.version,${selected.join(",")} FROM ${resource.table} record ${joins.join(" ")} WHERE ${where} ORDER BY ${orderBy} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
     const paths = new Map(organizationOptions.map((option) => [option.id, option.pathLabel]));
     if (resource.divisionField) for (const row of rows) row.divisionName = paths.get(String(row[resource.divisionField] ?? "")) ?? row.divisionName ?? null;
     return { rows, total: Number(count), page, pageSize, visibleFields };

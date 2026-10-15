@@ -150,12 +150,18 @@ Knowledge 页面支持在线文章和文件两种内容模式，原件、工作�
 
 When the original checkout has unrelated work, use a clean linked Git worktree. From that source worktree run `KDOS_RUNTIME_ROOT=/absolute/path/to/original/checkout ./scripts/deploy.sh all` (or `check`). The script verifies both directories share the same Git repository, checks the source is clean, and supplies only an ephemeral build-context override. The runtime .env, project identity, PostgreSQL bind mount and private uploads stay at the original checkout. No secrets are copied. Verify the resolved persistent mounts before first use; back up and migrate with the existing runtime environment. The version reported is the clean source commit. Roll back by deploying a retained source commit/image against the same runtime path. Order allocation notification operations are described in `docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md`.
 
-## 主计划综合大屏 V1
+## 主计划综合大屏 REV1
 
 页面 `/master-plan-dashboard`；PMC中心 → 大屏报表 → 主计划大屏 → 主计划综合大屏。独立资源 `mps-overview-dashboard`，管理员沿用资源权限页授权；不自动继承月计划权限、不创建默认权限组、无需 migration。标准聚合大屏不使用 TableFilter rows，也不提供打印。
 
-`GET /api/v1/master-plan-system/dashboard` 与 `/candidates` 是只读查询，执行自己的 tenant/read/字段/data scope；自定义范围支持 `divisionId EQ/IN` 稳定组织 UUID，不支持的混合规则整体拒绝。订单用主责事业部，计划/执行用承接事业部。工序需求是月计划总需求，实际报工先按周计划/工序累加，允许超过100%，状态独立；没有全局统计日期。趋势仅上海昨天向前7个完整自然日。
+`GET /api/v1/master-plan-system/dashboard`、`/candidates`、`/table`和`/drill`是只读查询，执行自己的tenant/read/字段/data scope；CUSTOM支持divisionId EQ/IN稳定组织UUID，非法混合规则整体拒绝。先生成统一订单/品号/承接事业部业务scope，全部区域/候选/明细/导出共用；无品项计划的订单保留主责事业部。订单数量仍是选中订单的正式整单值，计划数量是选中品号范围，二者不相互冒充。工序需求为月计划总需求，报工累加，允许>100%，状态独立。
 
-大屏30分钟刷新及手工刷新只读取当前事实，不触发同步或对账。风险复用平台标准页大小（默认100行）服务端分页；`GET /export` 复用同源查询，导出全部筛选风险和事业部汇总，范围是read∩export，字段裁剪并记录导出审计。数量超过Excel15位有效精度保留精确文本。业务下钻调用原资源metadata/list接口，继续校验原表自己的权限。
+默认不限日期，是本页面的业务例外。日期类型ORDER/DELIVERY、周期DAY/MONTH/YEAR/CUSTOM，参数dateValue或dateFrom/dateTo；上海日历，末日包含，SQL上界排除。订单日期统一优先group.order_date，再同单monthly/base/weekly；交付日期按正式latestCustomerDueDate（未完成周计划最早交期→周计划最大交期→月计划存储交期→仅有基础计划交期），无计划交付事实不以customerDueDate/expectedShippingDate冒充。趋势横轴固定上海昨天前7完整production_date。
+
+订单号/品号通过orderNumbers/itemCodes的JSON数组传正式值，多选最多100；候选field只允许divisionId/customerCode/orderNumber/itemCode，绑定顶部其它条件、最多50+hasMore；品号可搜索品名但只提交itemCode。不会读取全量物料选项。大屏30分钟及手工刷新均不触发同步。
+
+`GET /export?tableKey=...`是单表全量服务端xlsx，allowlist：division-summary、plan-readiness、process-execution、risk-exception及现有process-summary；未知400，独立read/export权限，read∩export，字段裁剪与Application审计。英文文件名、中文显示值，禁止UUID/内部ID。风险类型可同时保留延期与生产异常，局部riskType只约束风险表/导出。明细标准服务端分页默认100并安全排序；导出继承条件/排序但忽略当前页。
+
+下钻由`/drill?resourceCode=...`构造服务端可信scope，再调用原Query Service的metadata/list权限/字段/scope逻辑；请求不能传入SQL，也不能用PENDING任务视图绕过scope。Drawer为临时权限检查结果，不提供单独下载；正式Dashboard表格均有独立导出。趋势专用10色按registry.order映射，既有主计划表格配色不变。
 
 升级使用现有备份和 `scripts/deploy.sh all/check`；本功能不调整任何同步flags/cron/n8n/Timer/Dispatcher。回滚部署保留的旧应用镜像/源码，不恢复覆盖业务数据库。指标合同与人工验收见 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md` 和 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md`。

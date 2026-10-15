@@ -1,3 +1,24 @@
+# KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1 指标与筛选合同
+
+本节覆盖下方V1中无全局日期、模糊搜索、30候选和整屏Excel规则；保留V1数量/进度/状态/异常正式定义。
+
+- 默认不限日期，是本大屏明确业务例外，不修改全局规范。日期类型为不限/订单日期/交付日期；按日、月、年、自定义。上海日历，SQL date区间统一[start,endExclusive)，自定义输入末日包含。
+- 所有源事实先按tenant、dashboard read scope（导出再交export scope）授权；再建立tenant+order_number+item_code+承接division_id稳定身份。无计划的订单保留主责事业部的整单身份。顶部业务条件只在这一统一scope上解释，各区域、候选、明细和Excel由该scope派生；报工仍需自身授权且以weekly_plan_id关联，不能用旧快照名称扩大范围。
+- 订单日期统一到订单身份：优先授权集团订单order_date；缺失时依序取授权monthly/base/weekly中同单最早非空order_date。此值只生成一次；不在不同卡片各自按快照筛选。
+- 交付日期唯一口径为正式latestCustomerDueDate：同tenant/order/item中未完成周计划最早latest_customer_due_date，否则周计划最大交期，否则月计划存储交期；仅有基础计划时取该品号基础交期最早值。集团customer_due_date是客户约定日期，不等同计划交付；无任何计划交付事实的整单在交付筛选时不匹配。不使用expectedShippingDate。
+- 事业部选择承接业务身份；整单无品项事实时使用主责事业部。每张事实自己的授权组织映射仍保留（group.primary_division_id，其余division_id），关联不绕过权限。
+- 订单KPI只取统一scope中实际存在的DISTINCT订单（精确tenant/order/item关联）。订单数量字段保持mps_group_plans整单正式值，选中某品号/交付日期是选择包含该品号的订单；不按比例拆分整单完成量。计划/执行/风险则取scope内品号与事实，明确不同业务粒度。
+- orderNumbers/itemCodes为正式值多选，精确IN；候选支持订单号、品号/品名搜索，统一scope内去重，最多50+hasMore；当前目标自身选择不限制该目标候选，其余条件全部继承。已选label在前端保存，候选不得来自当前页。
+- 最近7天横轴仍为上海昨天往前7完整日production_date；顶部日期限定业务身份，不能替换报工横轴。所有授权工序来自standardProcesses.order，趋势专用高区分色板按order映射，不改主计划表格色板；tooltip按registry顺序显示日期、总量和非零工序。
+- 四张明细/汇总为division-summary、plan-readiness、process-execution、risk-exception。工序明细按月计划订单+品号+工序纵向一行，月计划required_quantity分母及正式状态独立；准备明细仅weeklyPlanState=待完善，问题标注计划准备问题。现有工序汇总表另有process-summary单表导出；正式下钻沿用原资源导出权限/接口。未知tableKey=400。
+- 每张表独立服务端xlsx，只导所选表全部匹配行，继承顶部/自身局部条件及服务端安全排序，read∩export、字段裁剪、正式Application审计；无export权限隐藏按钮且API403。英文文件名mps_<table_key>_<上海日期>.xlsx，中文事业部/工序/状态、ISO日期、百分比单元格，永不回退导出组织UUID或技术ID。
+- 性能核验：生产聚合799ms，EXPLAIN738.693ms/planning25.855ms，事业部/客户120/115ms。初轮新scope估算导致JIT编译12.36s，改为稳定JSON复合键并只在该只读事务jit=off；不改全局参数。
+- 不新增业务migration/索引；无业务记录/状态/同步flags写入。生产只读EXPLAIN和最终测试结果在验收报告更新。
+
+---
+
+以下为V1历史指标定义；与本节冲突处以REV1为准。
+
 # KDOS-MPS-OVERVIEW-DASHBOARD-001 指标合同
 
 2026-10-15；依据实际 migration47、MasterPlan config/virtualColumns、sync/Application、共享standardProcesses与平台权限服务确认后锁定，先于实现。

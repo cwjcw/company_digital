@@ -13,16 +13,17 @@ import { masterPlanResourceDefinitions, tableFilterResourceCapabilityOf, tablePe
 const resource = "mps-overview-dashboard";
 const base: MasterPlanActor = { tenantId: "KAINAN", userId: null, username: "test", permissions: [], tableDataScopes: [], requestId: "test", source: "web" };
 describe("Master plan overview HTTP authorization", () => {
-  let app: INestApplication; let permissions: string[]; const transaction = jest.fn();
+  let app: INestApplication; let permissions: string[]; let exporter: MasterPlanDashboardExportService; const transaction = jest.fn();
   beforeAll(async () => {
     const db = { transaction } as unknown as DataSource;
     const service = new MasterPlanDashboardService(db);
+    exporter=new MasterPlanDashboardExportService(service,new MasterPlanApplicationService(db,{} as never));
     const module = await Test.createTestingModule({ controllers: [MasterPlanDashboardController], providers: [
-      { provide: MasterPlanDashboardService, useValue: service }, { provide: MasterPlanDashboardExportService, useValue: new MasterPlanDashboardExportService(service, new MasterPlanApplicationService(db, {} as never)) }
+      { provide: MasterPlanDashboardService, useValue: service }, { provide: MasterPlanDashboardExportService, useValue: exporter }
     ] }).overrideGuard(AuthGuard).useValue({ canActivate: (ctx: { switchToHttp(): { getRequest(): { user: object } } }) => { ctx.switchToHttp().getRequest().user = { permissions, tableDataScopes: [] }; return true; } }).compile();
     app = module.createNestApplication(); await app.init();
   });
-  beforeEach(() => { permissions = []; transaction.mockClear(); });
+  beforeEach(() => { permissions = []; transaction.mockClear(); jest.restoreAllMocks(); });
   afterAll(async () => { await app.close(); });
   it("requires independent dashboard read for aggregate and candidates; monthly read grants nothing", async () => {
     permissions = ["mps-monthly-plans:*:read"];
@@ -44,6 +45,15 @@ describe("Master plan overview HTTP authorization", () => {
     await request(app.getHttpServer()).get("/master-plan-system/dashboard?customerCode=hidden").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard?sortField=orderNumber").expect(403); expect(transaction).not.toHaveBeenCalled();
   });
+  it("validates multiselect/date/table contracts and export returns an English filename", async()=>{
+    permissions=["*"];
+    for(const url of ["?orderNumbers=broken","?itemCodes=%7B%7D","?orderNumber=legacy","?dateType=ORDER&datePeriod=DAY&dateValue=2026-02-30","?dateType=bad","/table?tableKey=unknown","/export?tableKey=unknown"])await request(app.getHttpServer()).get("/master-plan-system/dashboard"+url).expect(400);
+    jest.spyOn(exporter,"export").mockResolvedValueOnce(Buffer.from("fixture"));
+    const response=await request(app.getHttpServer()).get("/master-plan-system/dashboard/export?tableKey=process-execution").expect(200);
+    expect(response.headers["content-disposition"]).toMatch(/^attachment; filename="mps_process_execution_\d{8}\.xlsx"$/);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
 });
 describe("Overview resource and scope contract", () => {
   const service = new MasterPlanDashboardService({} as DataSource);

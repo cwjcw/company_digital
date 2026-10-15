@@ -1,3 +1,47 @@
+# KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1
+
+当前状态：最终门禁已通过，准备标准备份部署；部署后仍只能等待人工验收。
+日期：2026-10-15（Asia/Shanghai）。REV1覆盖下方V1历史中的无日期、模糊输入、整屏导出约定；其它业务公式保持。
+
+## 本轮变更与范围
+
+- 起始HEAD：`c1357f7e82daefac38a2fdeb26d3b0c833a946dd`，main，干净；运行Repository/Web/API相同且CONSISTENT。沿用已上线V1，不回退或重做。
+- 资源/路由/导航不变：mps-overview-dashboard；`/master-plan-dashboard`；PMC中心→大屏报表→主计划大屏→主计划综合大屏。
+- 订单号/品号改为可搜索远程多选，正式orderNumbers/itemCodes精确IN。品号候选显示品号·品名，标签保留；客户/事业部/订单/品号候选均同一scope，远程50项+hasMore，不从当前页生成字典。
+- 默认不限日期，日期类型ORDER/DELIVERY，DAY/MONTH/YEAR/CUSTOM；上海日历，区间首末日包含，SQL[start,endExclusive)。这是本大屏例外，不修改其它Dashboard规范。
+- 统一授权事实和tenant/order/item/division身份先形成dashboard_scope，再派生全部KPI、准备/辅助/工序、7天趋势、事业部、风险、候选及导出。关联用无碰撞JSON复合身份键，不靠模糊字符串拼接。
+- 订单日期统一优先授权group.order_date，缺失时按monthly/base/weekly同单最早非空值，旧快照不各自筛选。交付日期唯一按正式latestCustomerDueDate：未完成周计划最早→周计划最大→月计划存储→仅有基础交期；无计划交付事实的整单不冒用customer_due_date或expected_shipping_date。
+- 订单数按scope真正关联的DISTINCT订单。订单需求/完成/欠数仍使用选中订单的group正式整单值；月计划/执行按所选品号。不同业务粒度明确，不能用计划拆分值冒充订单字段。
+- 工序与月计划255/500=51%、300/500=60%、525/500=105%，状态与数量进度独立；来源仍只有真实process_reports SUM。不改主计划表格配色、业务状态、人工报工和同步flags。
+- 7天始终是上海昨天向前7完整production_date；顶部日期只限制业务scope。趋势专用10色色板按standardProcesses.order映射，完整中文scroll legend，tooltip按registry顺序显示日期/总量/非零工序，无花哨动画。
+- 三张服务端分页明细（准备、纵向工序、风险）及事业部汇总按最终布局展示。风险同时保留“已延期、生产异常”，局部riskType只附加到风险表/其导出，不改变顶部scope。准备问题标明“计划准备问题”。
+- 四个必须独立导出表：division-summary、plan-readiness、process-execution、risk-exception；保留的10工序汇总另有process-summary。每个表自己的导出按钮，仅该表全量匹配行，非当前页。未知tableKey=400。KPI/Chart不增加导出。
+- 导出read∩export、tenant和字段裁剪不变，无export时所有按钮隐藏且API403；英文mps_<table_key>_<上海日期>.xlsx，中文事业部/工序/状态、ISO日期/百分比，无UUID/tenant/内部ID/hash，不用前端dataSource造Excel。
+- 下钻改为Dashboard受控/drill接口附加同一服务端scope，再调用原Query Service权限/字段/范围逻辑；/meta仍为原资源。不能借PENDING任务视图绕过scope。Drawer为临时权限检查结果，独立下载仍由正式页面提供；Dashboard正式表均有独立导出。
+
+## 验证、性能和发布门禁
+
+- Dashboard API专项7；API全量107套993通过、1既有skip；Web专项10、全量49文件382通过且无未处理异常；Contracts22。
+- 隔离真PG18全部既有迁移及19组业务检查：保留V1全部指标锁定，追加统一scope、关联候选、CUSTOM/租户、8日期组合/首末包含/跨月跨年、四表完整导出/审计/字段/中文无ID，以及正式下钻授权交集。
+- Chrome11项：1366/1440/1920真实图表/resize/唯一纵滚动；原筛选/分页/正式下钻/空错loading无权；新增多选/日期候选联动、固定7天轴、四类独立英文下载保留全部顶部条件、无export隐藏。使用合成API响应，不冒充生产真实账号。
+- API/Web类型、lint和monorepo build通过。仅既有Portal Fast Refresh、Vite大chunk、ts-jest JS transform、AntD React19、迁移pg并发query弃用提示。
+- 测试修正记录：AntD两字按钮自动字距导致定位失败，明确aria-label；非搜索Select/多选标签遮挡输入，Chrome用控件焦点与ArrowDown打开，保留所有断言；测试ByRoleOptions误用exact已修正并重新通过类型/build。没有跳过失败用例。
+- 真实生产只读聚合799ms、EXPLAIN738.693ms/planning25.855ms；事业部/客户120/115ms。同快照原始报工趋势与正式基础准备表达式对账一致。新scope初轮10~14s，EXPLAIN证明JIT编译12.36s；稳定复合键和仅该只读事务jit=off后恢复性能。不改全局数据库参数、不新增索引。
+- 查询为集合聚合，无逐行数据库往返。主页面聚合1次SELECT，准备与工序明细各1次SELECT，候选按需各1次有界SELECT；事务设置单独计，不是N+1。原下钻list计数/分页各1次。
+- 无业务migration/新索引，不改同步任务或flags，不写生产业务记录；Excel只通过Application写审计，本次生产不执行导出。
+- 发布前备份20261015_145321：双库custom dump及含private的附件，pg_restore目录、三个SHA256、归档和mode600核验通过，保留data/backups，不入Git。
+- 提交/部署：只提交本任务文件并push github/main，不强推；执行标准all/check/health及已部署资源Chrome复验。本节会在实际部署后补记源码提交、三SHA和健康证据。
+
+## 人工验收
+
+沿用V1重点，再验证订单/品号多选与已选标签、联动候选、两种日期四类周期、统一变化、固定7天时间轴、趋势十色、四张单表导出、完整筛选继承、无技术ID及英文文件名。真实账号数据/权限仍由用户验收，未获用户确认不判PASS。
+
+指标合同：[KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md](KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md)。
+
+---
+
+以下为V1历史验收记录；与本轮冲突部分以REV1为准。
+
 # KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1
 
 当前状态：**等待人工验收**。开发、自动验证与功能部署已完成；用户真实人工验收前不判最终PASS。

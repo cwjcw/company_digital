@@ -58,7 +58,7 @@ export class MasterPlanApplicationService {
   ) {}
 
   /** Dashboard export writes only its audit record, through the existing Application boundary. */
-  async recordDashboardExport(summary: { divisionRows: number; riskRows: number; fields: string[] }, actor: MasterPlanActor) {
+  async recordDashboardExport(summary: { tableKey: string; rowCount: number; fields: string[] }, actor: MasterPlanActor) {
     const resource = "mps-overview-dashboard";
     if (!["read", "export"].every(action => hasMasterPlanPermission(actor, resource, action))) throw new ForbiddenException("当前权限组没有主计划综合大屏导出权限");
     return this.dataSource.transaction(async manager => {
