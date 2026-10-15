@@ -13,6 +13,7 @@
 - 四张明细/汇总为division-summary、plan-readiness、process-execution、risk-exception。工序明细按月计划订单+品号+工序纵向一行，月计划required_quantity分母及正式状态独立；准备明细仅weeklyPlanState=待完善，问题标注计划准备问题。现有工序汇总表另有process-summary单表导出；正式下钻沿用原资源导出权限/接口。未知tableKey=400。
 - 每张表独立服务端xlsx，只导所选表全部匹配行，继承顶部/自身局部条件及服务端安全排序，read∩export、字段裁剪、正式Application审计；无export权限隐藏按钮且API403。英文文件名mps_<table_key>_<上海日期>.xlsx，中文事业部/工序/状态、ISO日期、百分比单元格，永不回退导出组织UUID或技术ID。
 - 性能核验：生产聚合799ms，EXPLAIN738.693ms/planning25.855ms，事业部/客户120/115ms。初轮新scope估算导致JIT编译12.36s，改为稳定JSON复合键并只在该只读事务jit=off；不改全局参数。
+- 生产只读准备/工序/风险明细269/1089/453ms，订单/品号候选95/91ms，两类按月日期136/186ms；已部署Chrome11通过，真实账号仍等待人工验收。
 - 不新增业务migration/索引；无业务记录/状态/同步flags写入。生产只读EXPLAIN和最终测试结果在验收报告更新。
 
 ---

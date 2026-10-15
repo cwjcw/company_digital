@@ -3,12 +3,12 @@
 ## 任务
 任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1。
 任务目标：沿用已上线V1，统一订单/品号/日期业务scope、联动远程多选、高区分度趋势色板与独立服务端Excel。
-当前状态：进行中。
+当前状态：等待人工验收（REV1开发、验证与功能部署已完成）。
 最后更新时间：2026-10-15（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：全部门禁通过，备份已校验，准备安全提交与标准部署。
-当前子任务：安全审查、commit/push及标准all部署。
+当前阶段：REV1已上线，最终验收记录及项目规则同步，等待真实账号人工验收。
+当前子任务：用户真实账号人工验收；最终发布SHA及检查见data/mps-dashboard/rev1-final-state.json。
 
 ## 已完成
 - [x] V1最终c1357f7e82daefac38a2fdeb26d3b0c833a946dd已上线并push github/main，起始工作区干净，三SHA CONSISTENT；不重做V1。
@@ -22,14 +22,15 @@
 
 ## 待完成
 - [x] PG18 19组、Web专项10/全量49文件382、API初轮完整993/1既有skip通过；最终性能修正后API全量993/1 skip、类型/lint/build、Contracts22和Chrome11均通过；双库/附件备份145321已核验。
-- [ ] 生产只读性能/基线、备份、commit/push、标准all/check/health及部署页面复验。
-- [ ] 更新验收报告，最终仍等待人工验收。
+- [x] 生产只读性能/基线、备份145321、功能fcd5771已commit/push github/main，标准all/check/health；已部署Chrome11通过，三SHA CONSISTENT，原PG保留、四容器healthy及Dispatcher active。
+- [x] 验收报告已补记真实部署结果，状态保持等待人工验收；项目AGENTS记录后续Dashboard独立单表导出规则。
 
 ## 修改文件
-- 本任务现有dashboard合同、API、Web、测试与同一进度/指标/验收文档；随实现持续更新。
+- contracts/{index,master-plan-dashboard}.ts；API dashboard service/controller/export/spec及Application仅导出审计summary；Query Service仅内部可信scope/只读事务包装。
+- Web Dashboard/Filters/Table/utils/css/spec与Chrome；PG脚本；AGENTS、runbook及同一进度/指标/验收报告。
 
 ## 数据库 Migration
-- 无计划；若必须迁移或新增索引则STOP。
+- 无；无新增索引。6项同步配置及93条migration基线不变；生产无业务写入。
 
 ## 新增或修改测试
 - 将覆盖8种日期组合及边界、统一scope、联动候选50上限、独立完整Excel与字段/权限隔离。
@@ -45,12 +46,12 @@
 - 无实施等待；最后须真实账号人工验收。
 
 ## 下一步
-1. 实现统一scope和日期、候选/明细/export合同。
-2. 页面接入并运行相关测试，完成最终门禁。
-3. 备份部署与安全GitHub同步，记录真实线上验证结果。
+1. 用户真实账号按REV1验收报告检查多选联动、两类日期、工序色板及独立导出；没有明确人工确认前保持等待人工验收。
+2. 如会话中断，先看rev1-final-state.json及最终deploy/check日志，最终记录提交已CONSISTENT时不重复部署/测试。
+3. 后续按真实反馈修正，不修改业务状态/flags，不推进TASK-002。
 
 ## 恢复执行说明
-项目AGENTS/两项KDOS Skill → 本节 → git status/diff → 指标合同REV1。V1已完成，直接继续REV1未完成工作；不得恢复旧无日期规则，禁止业务写入/flags变化。
+项目AGENTS/两项KDOS Skill → 本节 → git status/diff → 指标合同REV1。REV1已实现并部署fcd5771，最终记录提交如已CONSISTENT只等待人工验收；不重做功能。已部署Chrome为合成API响应，真实账号验收不可冒充；禁止业务写入/flags变化。
 
 ---
 

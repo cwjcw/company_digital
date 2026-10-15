@@ -1,6 +1,6 @@
 # KDOS-MPS-OVERVIEW-DASHBOARD-001-REV1
 
-当前状态：最终门禁已通过，准备标准备份部署；部署后仍只能等待人工验收。
+当前状态：**等待人工验收**。REV1开发、自动验证与功能部署已完成；未经用户真实账号验收不判最终PASS。
 日期：2026-10-15（Asia/Shanghai）。REV1覆盖下方V1历史中的无日期、模糊输入、整屏导出约定；其它业务公式保持。
 
 ## 本轮变更与范围
@@ -30,7 +30,13 @@
 - 查询为集合聚合，无逐行数据库往返。主页面聚合1次SELECT，准备与工序明细各1次SELECT，候选按需各1次有界SELECT；事务设置单独计，不是N+1。原下钻list计数/分页各1次。
 - 无业务migration/新索引，不改同步任务或flags，不写生产业务记录；Excel只通过Application写审计，本次生产不执行导出。
 - 发布前备份20261015_145321：双库custom dump及含private的附件，pg_restore目录、三个SHA256、归档和mode600核验通过，保留data/backups，不入Git。
-- 提交/部署：只提交本任务文件并push github/main，不强推；执行标准all/check/health及已部署资源Chrome复验。本节会在实际部署后补记源码提交、三SHA和健康证据。
+- 功能提交：`fcd5771de53a1a9349f1af3cbb15060854888ffa`，已push github/main并标准all部署；Repository/Web/API均为该完整SHA，STATUS=CONSISTENT。四容器healthy、原生产PG容器连续保留、Dispatcher active/running；Swagger/OpenAPI/pg_isready正常。
+- 已部署静态资源Chrome完整11项通过（52.2s），包含10工序非零堆叠配色、多选日期联动及四类独立英文下载。页面HTTP200；匿名聚合/候选/明细/下钻/导出均401。入口：http://192.168.1.249:15172/master-plan-dashboard 。
+- 真实生产只读明细耗时：准备269ms、工序1089ms、风险453ms；订单/品号候选95/91ms；订单日期/交付日期按月136/186ms。测试未持有或伪造生产真实账号。
+- 生产核验：6项同步enabled/interval配置与开始基线完全相同，93条migration记录/最新时间不变，无迁移或业务写入。隔离测试容器按任务label核验后清理；业务备份保留。
+- 已将正式Dashboard表格默认独立服务端导出、统一read/export权限及无技术ID规则写入项目AGENTS.md，未修改全局日期默认规范。临时安全下钻Drawer豁免已明确说明。
+- 结束HEAD/最终发布提交为包含本报告最终补记的提交，使用 `git log -1 --format=%H -- outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md` 定位；完整40位SHA记录在最终交付回复和私有data/mps-dashboard/rev1-final-state.json。最终记录提交仍标准all发布，Repository=Web=API须与该提交一致；证明为data/mps-dashboard/{deploy,check,health}-rev1-final.log。只提交本任务代码/测试/规则/文档，不提交真实业务数据或凭据，不强推。
+- 回滚只标准部署保留的原应用代码/镜像，不恢复覆盖业务数据库、不修改flags。
 
 ## 人工验收
 

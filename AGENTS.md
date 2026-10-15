@@ -35,6 +35,12 @@ See `ARCHITECTURE.md`, `SECURITY.md`, `docs/runbook.md`, and `docs/integration-g
 - 页面居中、宽度受控、适当留白；普通员工界面简洁，管理操作按已有权限显示。
 - 删除冗余 UI 必须保留实际业务能力、历史数据和原有链接，不改变授权边界。未来新增模块及页面改造均遵守这些原则。
 
+## KDOS Dashboard 单表导出
+
+- 所有正式 Dashboard 明细/汇总表（包括KdosDataTable）默认提供本表独立的服务端Excel导出；按钮位于该表Card/Toolbar，仅导出该表全部匹配记录，继承顶部及表内条件，禁止用前端当前dataSource/当前页生成文件。
+- 同一Dashboard统一使用自己的read/export资源和字段权限，范围必须为read∩export并保持tenant隔离。无export权限隐藏按钮且后端403；tableKey采用后端白名单；英文xlsx文件名，输出业务显示值，禁止UUID和内部技术字段。
+- KPI、Chart、环图和趋势图不提供Excel按钮。确因安全、敏感或临时查询结果需要豁免的表必须在对应合同/文档说明，不应等待用户逐表追加导出要求。
+
 ## KDOS 自动化任务调度治理（强制）
 
 - 当需求涉及定时任务、E10/T+同步、n8n、systemd Timer/Service、cron、业务异步、通知、备份、脚本运行或运行时排障时，必须先阅读 `.agents/skills/kdos-task-orchestration/SKILL.md` 和 `docs/operations/TASK_REGISTRY.md`。
