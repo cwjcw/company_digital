@@ -156,6 +156,6 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 
 `GET /api/v1/master-plan-system/dashboard` 与 `/candidates` 是只读查询，执行自己的 tenant/read/字段/data scope；自定义范围支持 `divisionId EQ/IN` 稳定组织 UUID，不支持的混合规则整体拒绝。订单用主责事业部，计划/执行用承接事业部。工序需求是月计划总需求，实际报工先按周计划/工序累加，允许超过100%，状态独立；没有全局统计日期。趋势仅上海昨天向前7个完整自然日。
 
-大屏30分钟刷新及手工刷新只读取当前事实，不触发同步或对账。风险20行服务端分页；`GET /export` 复用同源查询，导出全部筛选风险和事业部汇总，范围是read∩export，字段裁剪并记录导出审计。数量超过Excel15位有效精度保留精确文本。业务下钻调用原资源metadata/list接口，继续校验原表自己的权限。
+大屏30分钟刷新及手工刷新只读取当前事实，不触发同步或对账。风险复用平台标准页大小（默认100行）服务端分页；`GET /export` 复用同源查询，导出全部筛选风险和事业部汇总，范围是read∩export，字段裁剪并记录导出审计。数量超过Excel15位有效精度保留精确文本。业务下钻调用原资源metadata/list接口，继续校验原表自己的权限。
 
 升级使用现有备份和 `scripts/deploy.sh all/check`；本功能不调整任何同步flags/cron/n8n/Timer/Dispatcher。回滚部署保留的旧应用镜像/源码，不恢复覆盖业务数据库。指标合同与人工验收见 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md` 和 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md`。

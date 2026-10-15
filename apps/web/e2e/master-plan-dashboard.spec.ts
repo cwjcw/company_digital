@@ -13,11 +13,15 @@ async function mount(page: Page, permissions=["*"], mode="data") {
     const url=new URL(route.request().url());
     if(url.pathname.endsWith("/auth/me"))return route.fulfill({json:user});
     if(url.pathname.endsWith("/dashboard/candidates"))return route.fulfill({json:{options:url.searchParams.get("field")==="divisionId"?[{value:divisionId,label:"合成事业部"}]:[{value:"SYN-CUSTOMER",label:"合成客户"}],hasMore:false}});
-    if(url.pathname.includes("/master-plan-system/resources/"))return route.fulfill({json:url.pathname.endsWith("/meta")?{fields:[{key:"orderNumber",label:"订单号"},{key:"itemCode",label:"品号"}]}:{rows:[{id:"fixture",orderNumber:"SYN-ORDER",itemCode:"SYN-ITEM"}],total:1}});
+    if(url.pathname.includes("/master-plan-system/resources/")){
+      if(url.pathname.endsWith("/meta"))return route.fulfill({json:{fields:[{key:"orderNumber",label:"订单号"},{key:"itemCode",label:"品号"}]}});
+      const pageNo=Number(url.searchParams.get("page")||1),size=Number(url.searchParams.get("pageSize")||100);
+      return route.fulfill({json:mode==="drillPaging"?{rows:Array.from({length:Math.min(size,125-(pageNo-1)*size)},(_,i)=>({id:`fixture-${(pageNo-1)*size+i+1}`,orderNumber:"SYN-ORDER",itemCode:`SYN-ITEM-${(pageNo-1)*size+i+1}`})),total:125}:{rows:[{id:"fixture",orderNumber:"SYN-ORDER",itemCode:"SYN-ITEM"}],total:1}});
+    }
     if(url.pathname.endsWith("/master-plan-system/dashboard")){
       if(mode==="error")return route.fulfill({status:500,json:{message:"合成查询错误"}});
       if(mode==="loading")await new Promise(resolve=>setTimeout(resolve,600));
-      const data=fixture();if(mode==="empty"){data.orders={};data.plans={};data.readiness=[];data.trend=[];data.divisions=[];data.risks={rows:[],total:0,page:1,pageSize:20};data.processes=data.processes.map(p=>({...p,values:{productionProgress:null},states:[]}));}
+      const data=fixture();if(mode==="paging"){const pageNo=Number(url.searchParams.get("page")||1),size=Number(url.searchParams.get("pageSize")||100);data.risks={rows:Array.from({length:Math.min(size,125-(pageNo-1)*size)},(_,i)=>({...data.risks.rows[0]!,id:`risk-${(pageNo-1)*size+i+1}`,orderNumber:`SYN-ORDER-${(pageNo-1)*size+i+1}`})),total:125,page:pageNo,pageSize:size};}if(mode==="empty"){data.orders={};data.plans={};data.readiness=[];data.trend=[];data.divisions=[];data.risks={rows:[],total:0,page:1,pageSize:20};data.processes=data.processes.map(p=>({...p,values:{productionProgress:null},states:[]}));}
       return route.fulfill({json:data});
     }
     return route.fulfill({json:[]});
@@ -56,4 +60,12 @@ test('empty and errors visible; loading does not fabricate data',async({page})=>
 test('initial loading indicator is visible until response arrives',async({page})=>{await mount(page,['*'],'loading');await expect(page.getByLabel('加载中',{exact:true})).toBeVisible();await expect(page.getByText('订单概况',{exact:true})).toBeVisible();});
 test('no own read: route redirects and navigation leaf is absent, no dashboard request',async({page})=>{
   let count=0;page.on('request',r=>{if(r.url().includes('/master-plan-system/dashboard'))count++;});await mount(page,['mps-monthly-plans:*:read']);await expect(page).toHaveURL(/\/$/);expect(count).toBe(0);await expect(page.getByRole('menuitem',{name:'主计划综合大屏',exact:true})).toHaveCount(0);
+});
+
+test('risk and formal drill use canonical server paging and retain page2 after response',async({page})=>{
+  await mount(page,['*'],'paging');const risk=page.locator('#mps-risks');await expect(risk.getByRole('button',{name:'SYN-ORDER-1',exact:true})).toBeVisible();
+  const next=page.waitForRequest(r=>{const u=new URL(r.url());return u.pathname.endsWith('/master-plan-system/dashboard')&&u.searchParams.get('page')==='2'&&u.searchParams.get('pageSize')==='100';});await risk.locator('.ant-pagination-item-2').click();await next;
+  await expect(risk.getByRole('button',{name:'SYN-ORDER-101',exact:true})).toBeVisible();await expect(risk.locator('.ant-pagination-item-active')).toHaveText('2');await page.waitForTimeout(500);await expect(risk.locator('.ant-pagination-item-active')).toHaveText('2');
+  await page.unrouteAll();await mount(page,['*'],'drillPaging');await page.getByRole('button',{name:'SYN-ORDER',exact:true}).click();const drawer=page.getByRole('dialog');await expect(drawer.getByText('SYN-ITEM-1',{exact:true})).toBeVisible();
+  const drillNext=page.waitForRequest(r=>r.url().includes('/resources/mps-monthly-plans?')&&new URL(r.url()).searchParams.get('page')==='2');await drawer.locator('.ant-pagination-item-2').click();await drillNext;await expect(drawer.getByText('SYN-ITEM-101',{exact:true})).toBeVisible();await expect(drawer.locator('.ant-pagination-item-active')).toHaveText('2');
 });

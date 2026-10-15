@@ -35,6 +35,10 @@
 
 实现核验：正式状态/交期/exceptionSummary逻辑以等价集合预聚合执行，避免逐月反复相关子查询；基础计划仍复用正式派生SQL。scope helper复用buildDataScopeClause，CUSTOM仅支持divisionId EQ/IN合法UUID，遇到其他或混合非法规则整体拒绝，防止静默丢弃条件扩大范围。报工客户条件由授权父周计划继承（报工表本身没有customer_code），报工自己的divisionId/OWN范围同时保留。
 
-性能（当前真实生产只读）：聚合请求896ms；EXPLAIN ANALYZE 820.273ms，planning19.777ms；未新增索引/迁移，保留15s超时保护。一次聚合SELECT（同一只读REPEATABLE READ事务内另有只读声明与tenant/timezone/timeout设置）；候选每次一条限量SELECT＋事务设置，无按行往返查询。刷新30分钟＋手工。
+性能（当前真实生产只读）：聚合请求828ms；EXPLAIN ANALYZE 752.606ms，planning17.468ms；未新增索引/迁移，保留15s超时保护。一次聚合SELECT（同一只读REPEATABLE READ事务内另有只读声明与tenant/timezone/timeout设置）；候选每次一条限量SELECT＋事务设置，无按行往返查询。刷新30分钟＋手工。
 
-执行筛选以授权月计划为当前事实范围，周计划按tenant/order/item关联继承，报工再按tenant/weekly UUID继承，同时保留子事实自己的大屏data scope。不用历史快照的客户编码或品名再次筛选，避免当前月计划名称匹配但旧报工名称不匹配而少计实际进度。scoped CTE仅选当前指标必要列，不读取订单金额或图片。
+全局事业部筛选分别AND到各事实自己的组织UUID，不能仅凭父计划事业部放行不同事业部报工。周计划业务搜索匹配自身当前字段，或匹配授权月计划/基础计划的稳定关联身份，避免旧快照名称漏计；报工继承授权周计划业务筛选，并始终保留自己的tenant/data scope/事业部条件。scoped CTE仅选必要列，不读取订单金额或图片。
+
+月计划工序/辅助/交期/异常汇总只关联当前scoped月计划的周计划（monthly_weekly），工序分子只取monthly_reports；最近7天趋势直接汇总全scoped实际报工，不以月计划是否存在为前提。基础计划“已进入周计划”按授权周计划真实关联判定，不要求先有月计划。真实生产同一REPEATABLE READ快照下，趋势已逐日/逐工序与原始报工SUM对账，准备分布已与正式weeklyPlanState表达式对账一致。
+
+风险明细与正式下钻统一接入KdosDataTable serverData，页大小复用平台白名单，默认100，服务端分页/排序；翻页保留同身份上页数据，避免组件卸载将页码重置为1。风险排序字段白名单与字段读权限同检，Excel继承风险排序。工序表禁用排序以保持registry.order。

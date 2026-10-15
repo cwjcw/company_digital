@@ -7,8 +7,8 @@
 最后更新时间：2026-10-15（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：验证通过，准备提交与标准部署。
-当前子任务：安全提交/推送、标准all部署及线上核验。
+当前阶段：最终门禁与修正版部署。
+当前子任务：所有最终门禁通过；提交推送修正版并标准all部署。
 
 ## 已完成
 - [x] 工作区初始干净；开始 HEAD 1bb0e58342aea0a317271f2d9656c15418280a20，main。
@@ -18,14 +18,14 @@
 
 ## 正在进行
 - [x] 指标合同先行，独立资源/API服务/页面/导航/字段裁剪/远程候选/正式API Drawer下钻/同源Excel实现。
-- [x] 预聚合优化：首轮逐行派生SQL超过15s保护上限，改为周计划/工序/辅助/异常分组后关联；真实生产只读896ms，EXPLAIN 820.273ms，无新增索引。
-- [x] 隔离真实PG18全部既有迁移＋12组指标/51%/60%/105%/状态独立/筛选/权限/租户/导出审计检查通过。
+- [x] 预聚合优化：首轮逐行派生SQL超过15s保护上限，改为周计划/工序/辅助/异常分组后关联；真实生产最终只读828ms，EXPLAIN 752.606ms，无新增索引。
+- [x] 隔离真实PG18全部既有迁移＋14组指标/51%/60%/105%/状态独立/筛选/权限/租户/导出审计检查通过。
 - [x] 上述自动验证完成；最终Web全量使用maxWorkers=2/testTimeout=15000，保留全部断言，初轮5s竞争超时已复核通过，无未处理错误。
-- [x] 双库/附件backup20261015_121958完成，pg_restore目录、private归档与三个SHA256验证通过。
+- [x] 双库/附件backup20261015_135905完成，pg_restore目录、private归档与三个SHA256验证通过。
 - [x] 导出审计复用MasterPlanApplicationService；最终SQL仅选必要列、执行业务筛选继承父事实，防快照名称不同漏计；生产无业务写入。
 
 ## 待完成
-- [x] API专项6；主计划398/1 skip；API全量992/1 skip；Web专项7、全量49文件379；Contracts22；Chrome8（3桌面宽度/真实图表/滚动/筛选/下钻/加载/空/错误/无权）。
+- [x] API专项6；主计划398/1 skip；API全量992/1 skip；Web专项7、全量49文件379；Contracts22；Chrome9（3桌面宽度/真实图表/滚动/筛选/下钻/加载/空/错误/无权）。
 - [ ] 安全审阅/commit/push、备份/标准all部署/健康/线上效果核验。
 - [ ] 验收报告，状态仅标等待人工验收，不自行PASS。
 
@@ -36,6 +36,9 @@
 - apps/api/src/modules/master-plan-system/master-plan.dashboard*.ts、master-plan.module.ts
 - apps/web/src/{App.tsx,modules/master-plan-system/MasterPlanDashboard*.tsx,modules/master-plan-system/master-plan-dashboard.css,modules/master-plan-system/MasterPlanPages.tsx}
 - scripts/test-mps-dashboard-postgres.cjs
+- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx（测试资源清理）
+- apps/api/src/modules/master-plan-system/master-plan.application.service.ts（仅导出审计）
+- docs/runbook.md、outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md
 
 ## 数据库 Migration
 - 预期无；若必须迁移或新增索引按用户要求STOP，等待确认。
@@ -44,10 +47,14 @@
 - 新增API dashboard HTTP/contract专项、Web dashboard专项、scripts/test-mps-dashboard-postgres.cjs（合成fixture隔离库）。
 
 ## 已运行测试
-- API992/1 skip、Web379、Contracts22、PG18 12组、Chrome8通过；API/Web类型与lint、monorepo build通过；生产只读聚合854ms/EXPLAIN818.56ms，两类候选限量通过。
+- API992/1 skip、Web379、Contracts22、PG18 14组、Chrome9通过；API/Web类型与lint、monorepo build通过；生产只读聚合828ms/EXPLAIN752.606ms，事业部/客户筛选52/43ms，两类候选限量通过。
 - 仅既有Portal Fast Refresh / Vite大chunk / ts-jest JS transform / AntD React19等warning，无新增lint warning。
 
 ## 当前已知问题
+- [x] 公共表格分页边界已修正：标准serverData/页大小/保留同身份上页数据；Chrome新增风险和正式Drawer跨第2页通过，14组PG包含50/100页大小及完整导出/安全排序。
+- [x] 真实只读对账发现有周计划无月计划的报工；趋势/准备保留真实事实，月计划分子仍只关联月计划，不回填源数据；同一快照原始趋势/正式准备分布对账通过。
+- [x] React环境卸载错误已修复测试资源清理，Web完整49文件379通过且0未处理异常。
+- 首次功能提交fd616168cfe10430981dd967fefa0d0fb1580a48已安全push github/main并标准all部署，首次三SHA CONSISTENT；最终将部署分页修正版。
 - 不修改同步flags、业务记录/状态/报工；无正式临期阈值不展示临期。
 
 ## 等待用户确认

@@ -1,12 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { standardProcesses } from "@tracker/shared";
-import { auxiliaryPlanGroups, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow } from "@kdos/contracts";
+import { auxiliaryPlanGroups, mpsDashboardRiskColumns, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow } from "@kdos/contracts";
+import { normalizeKdosPageSize } from "../../common/pagination";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { MASTER_PLAN_RESOURCE_MAP, virtualColumns } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
-export type DashboardQuery = MpsDashboardFilters & { page?: unknown; riskType?: string };
+export type DashboardQuery = MpsDashboardFilters & { page?: unknown; pageSize?: unknown; riskType?: string; sortField?: string; sortOrder?: string };
 const processes = [...standardProcesses].sort((a, b) => a.order - b.order);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const riskTypes = ["已延期", "计划待完善", "生产异常"];
@@ -34,6 +35,9 @@ export class MasterPlanDashboardService {
       if (input[key] != null && (typeof input[key] !== "string" || input[key]!.length > 200)) throw new BadRequestException("筛选值无效或过长");
     }
     if (input.divisionId && !uuid.test(input.divisionId)) throw new BadRequestException("事业部必须使用组织ID");
+    if (input.sortField && !mpsDashboardRiskColumns.some(([key]) => key === input.sortField)) throw new BadRequestException("排序字段无效");
+    if (input.sortField && !this.readable(actor, input.sortField)) throw new ForbiddenException("没有排序字段查看权限");
+    if (input.sortOrder && !["asc", "desc"].includes(input.sortOrder)) throw new BadRequestException("排序方向无效");
     if (input.riskType && !riskTypes.includes(input.riskType)) throw new BadRequestException("风险类型无效");
   }
 
@@ -49,15 +53,20 @@ export class MasterPlanDashboardService {
     const scoped = (table: string, division = "division_id", item = true) => {
       const clauses = ["record.tenant_id=$1", this.scopeSql(actor, division, params)];
       if (action === "export") clauses.push(this.scopeSql(actor, division, params, "export"));
-      const inheritsFilters = table === "mps_weekly_plans" || table.endsWith("reports");
+      const report = table.endsWith("reports");
+      const weekly = table === "mps_weekly_plans";
+      const business: string[] = [];
       for (const [key, column] of [["divisionId", division], ["customerCode", "customer_code"], ["orderNumber", "order_number"]] as const) {
-        if (!input[key] || inheritsFilters) continue;
+        if (!input[key] || (report && key !== "divisionId")) continue;
         params.push(key === "orderNumber" ? `%${input[key]}%` : input[key]);
-        clauses.push(`record.${column} ${key === "orderNumber" ? "ILIKE" : "="} $${params.length}${key === "divisionId" ? "::uuid" : ""}`);
+        const clause = `record.${column} ${key === "orderNumber" ? "ILIKE" : "="} $${params.length}${key === "divisionId" ? "::uuid" : ""}`;
+        if (key === "divisionId") clauses.push(clause); else business.push(clause);
       }
-      if (input.item && item && !inheritsFilters) { params.push(`%${input.item}%`); clauses.push(`(record.item_code ILIKE $${params.length} OR record.item_name ILIKE $${params.length})`); }
-      if (table.endsWith("reports")) clauses.push("EXISTS(SELECT 1 FROM scoped_weekly w WHERE w.tenant_id=record.tenant_id AND w.id=record.weekly_plan_id)");
-      if (table === "mps_weekly_plans") clauses.push("EXISTS(SELECT 1 FROM scoped_monthly m WHERE m.tenant_id=record.tenant_id AND m.order_number=record.order_number AND m.item_code=record.item_code)");
+      if (input.item && item && !report) { params.push(`%${input.item}%`); business.push(`(record.item_code ILIKE $${params.length} OR record.item_name ILIKE $${params.length})`); }
+      // Current parent identities retain matching historical snapshots. Missing monthly plans must not erase actual reports.
+      if (weekly && business.length) clauses.push(`((${business.join(" AND ")}) OR EXISTS(SELECT 1 FROM scoped_monthly m WHERE m.tenant_id=record.tenant_id AND m.order_number=record.order_number AND m.item_code=record.item_code) OR EXISTS(SELECT 1 FROM scoped_base b WHERE b.tenant_id=record.tenant_id AND b.id=record.base_plan_id))`);
+      else clauses.push(...business);
+      if (report) clauses.push("EXISTS(SELECT 1 FROM scoped_weekly w WHERE w.tenant_id=record.tenant_id AND w.id=record.weekly_plan_id)");
       if (table === "mps_group_plans" && input.item) clauses.push("EXISTS(SELECT 1 FROM scoped_monthly m WHERE m.tenant_id=record.tenant_id AND m.order_number=record.order_number)");
       const identity = "tenant_id,id,division_id,order_number,item_code,item_name,created_by";
       const selections: Record<string, string> = {
@@ -98,6 +107,7 @@ export class MasterPlanDashboardService {
     const params: unknown[] = [actor.tenantId];
     const facts = this.facts(input, actor, params, action);
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
+    const pageSize = normalizeKdosPageSize(input.pageSize);
     if (!Number.isSafeInteger(page) || page > 100000) throw new BadRequestException("页码无效");
     const monthColumns = [
       `COALESCE(w.due,w.last_due,record.latest_customer_due_date) "latestCustomerDueDate"`,
@@ -110,21 +120,24 @@ export class MasterPlanDashboardService {
     const json = (pairs: Record<string, string>) => `jsonb_build_object(${Object.entries(pairs).flatMap(([k, v]) => [`'${k}'`, v]).join(",")})`;
     const sum = (column: string) => `COALESCE(sum(${column}),0)::text`;
     const planSummary = json({ requiredQuantity: sum("required_quantity"), dispatchedWeeklyQuantity: sum('"dispatchedWeeklyQuantity"'), cumulativeInboundQuantity: sum("cumulative_inbound_quantity"), pendingQuantity: sum("pending_quantity"), dispatchRate: '(sum("dispatchedWeeklyQuantity")/NULLIF(sum(required_quantity),0))::text', inboundRate: '(sum(cumulative_inbound_quantity)/NULLIF(sum(required_quantity),0))::text', overdueCount: 'count(*) FILTER(WHERE pending_quantity>0 AND "latestCustomerDueDate"< (now() AT TIME ZONE \'Asia/Shanghai\')::date)', exceptionCount: 'count(*) FILTER(WHERE "exceptionSummary"<>\'\')' });
-    const processRows = processes.map(p => `SELECT '${p.code}' code, ${json({ requiredQuantity: '(SELECT COALESCE(sum(required_quantity),0)::text FROM scoped_monthly)', reportedQuantity: `COALESCE((SELECT sum(quantity) FROM report_totals WHERE process_code='${p.code}'),0)::text`, productionProgress: `(SELECT COALESCE((SELECT sum(quantity) FROM report_totals WHERE process_code='${p.code}'),0)/NULLIF(sum(required_quantity),0) FROM scoped_monthly)::text` })} values,
+    const processRows = processes.map(p => `SELECT '${p.code}' code, ${json({ requiredQuantity: '(SELECT COALESCE(sum(required_quantity),0)::text FROM scoped_monthly)', reportedQuantity: `COALESCE((SELECT sum(quantity) FROM monthly_reports WHERE process_code='${p.code}'),0)::text`, productionProgress: `(SELECT COALESCE((SELECT sum(quantity) FROM monthly_reports WHERE process_code='${p.code}'),0)/NULLIF(sum(required_quantity),0) FROM scoped_monthly)::text` })} values,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('status',status,'count',n)) FROM (SELECT "${p.code}Status" status,count(*) n FROM monthly_data GROUP BY 1) s),'[]'::jsonb) states`).join(" UNION ALL ");
     const auxiliary = auxiliaryPlanGroups.map(g => `SELECT '${g.key}' key, COALESCE((SELECT jsonb_agg(jsonb_build_object('status',status,'count',n)) FROM (SELECT "${g.key}Status" status,count(*) n FROM monthly_data GROUP BY 1) s),'[]'::jsonb) states`).join(" UNION ALL ");
     params.push(input.riskType || null); const typeParam = `$${params.length}`;
     const status = `CASE WHEN bool_or(status='延期') THEN '延期' WHEN bool_and(status IN ('已完成','已入库')) THEN '已完成' WHEN bool_or(status='进行中') THEN '进行中' ELSE '未开始' END`;
-    const joinWeekly = (table: string) => `FROM ${table} r JOIN scoped_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id`;
+    const joinWeekly = (table: string) => `FROM ${table} r JOIN monthly_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id`;
     const exceptionSources = [
       `SELECT w.tenant_id,w.order_number,w.item_code,0 ord,'技术' label,r.exception_text ${joinWeekly("scoped_technical_reports")}`,
       `SELECT w.tenant_id,w.order_number,w.item_code,CASE WHEN r.material_name='五金' THEN 1 ELSE 2 END,CASE WHEN r.material_name='五金' THEN '五金主材' ELSE '木作主材' END,r.exception_text ${joinWeekly("scoped_material_reports")} WHERE r.material_name IN ('五金','木作')`,
       `SELECT w.tenant_id,w.order_number,w.item_code,3,'外协',r.exception_text ${joinWeekly("scoped_outsourcing_reports")}`,
       `SELECT w.tenant_id,w.order_number,w.item_code,p.ord+10,p.label,r.exception_text ${joinWeekly("scoped_process_reports")} JOIN (VALUES ${processes.map(p => `('${p.code}','${p.name}',${p.order})`).join(",")}) p(code,label,ord) ON p.code=r.process_code`
     ];
+    const riskSort = input.sortField ? `${input.sortField === "divisionId" ? "o.name" : `r."${input.sortField}"${["requiredQuantity", "dispatchedWeeklyQuantity", "cumulativeInboundQuantity", "pendingQuantity"].includes(input.sortField) ? "::numeric" : ""}`} ${input.sortOrder === "desc" ? "DESC" : "ASC"} NULLS LAST,` : "";
     const sql = `WITH ${facts},
       report_totals AS MATERIALIZED (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) quantity FROM scoped_process_reports GROUP BY 1,2,3),
-      weekly_totals AS (SELECT tenant_id,order_number,item_code,sum(planned_quantity) dispatched,min(latest_customer_due_date) FILTER(WHERE pending_quantity>0) due,max(latest_customer_due_date) last_due FROM scoped_weekly GROUP BY 1,2,3),
+      monthly_weekly AS MATERIALIZED (SELECT w.* FROM scoped_weekly w JOIN scoped_monthly m ON m.tenant_id=w.tenant_id AND m.order_number=w.order_number AND m.item_code=w.item_code),
+      monthly_reports AS MATERIALIZED (SELECT r.* FROM report_totals r JOIN monthly_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id),
+      weekly_totals AS (SELECT tenant_id,order_number,item_code,sum(planned_quantity) dispatched,min(latest_customer_due_date) FILTER(WHERE pending_quantity>0) due,max(latest_customer_due_date) last_due FROM monthly_weekly GROUP BY 1,2,3),
       task_states AS (SELECT w.tenant_id,w.order_number,w.item_code,r.process_code,${status} status ${joinWeekly("scoped_tasks")} GROUP BY 1,2,3,4),
       task_maps AS (SELECT tenant_id,order_number,item_code,jsonb_object_agg(process_code,status) states FROM task_states GROUP BY 1,2,3),
       aux_facts AS (
@@ -157,14 +170,14 @@ export class MasterPlanDashboardService {
         'processes',(SELECT jsonb_agg(p) FROM (${processRows}) p),
         'trend',(SELECT jsonb_agg(jsonb_build_object('productionDate',d::date::text) || COALESCE((SELECT jsonb_object_agg(process_code||'ReportedQuantity',quantity::text) FROM daily WHERE production_date=d::date),'{}'::jsonb) ORDER BY d) FROM generate_series((now() AT TIME ZONE 'Asia/Shanghai')::date-7,(now() AT TIME ZONE 'Asia/Shanghai')::date-1,'1 day') d),
         'divisions',COALESCE((SELECT jsonb_agg(jsonb_build_object('divisionId',d."divisionId",'divisionName',o.name)||d.metrics ORDER BY o.name) FROM division_rows d LEFT JOIN organization_units o ON o.id=d."divisionId"),'[]'::jsonb),
-        'risks',jsonb_build_object('total',(SELECT count(*) FROM filtered_risks),'rows',COALESCE((SELECT jsonb_agg(r) FROM (SELECT r.*,o.name "divisionName" FROM filtered_risks r LEFT JOIN organization_units o ON o.id=r."divisionId" ORDER BY "latestCustomerDueDate" NULLS LAST,"orderNumber","itemCode","riskType",id ${allRisks ? "" : `LIMIT 20 OFFSET ${(page - 1) * 20}`}) r),'[]'::jsonb)),
+        'risks',jsonb_build_object('total',(SELECT count(*) FROM filtered_risks),'rows',COALESCE((SELECT jsonb_agg(r) FROM (SELECT r.*,o.name "divisionName" FROM filtered_risks r LEFT JOIN organization_units o ON o.id=r."divisionId" ORDER BY ${riskSort} "latestCustomerDueDate" NULLS LAST,"orderNumber","itemCode","riskType",id ${allRisks ? "" : `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`}) r),'[]'::jsonb)),
         'trendStart',((now() AT TIME ZONE 'Asia/Shanghai')::date-7)::text,'trendEnd',((now() AT TIME ZONE 'Asia/Shanghai')::date-1)::text
       ) data`;
-    return { sql, params, page };
+    return { sql, params, page, pageSize };
   }
 
   async dashboard(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false): Promise<MpsDashboardData> {
-    const { sql, params, page } = this.querySql(input, actor, action, allRisks);
+    const { sql, params, page, pageSize } = this.querySql(input, actor, action, allRisks);
     const data = await this.dataSource.transaction("REPEATABLE READ", async manager => {
       await manager.query("SET TRANSACTION READ ONLY");
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('TimeZone','Asia/Shanghai',true),set_config('statement_timeout','15000',true)", [actor.tenantId]);
@@ -179,7 +192,7 @@ export class MasterPlanDashboardService {
       processes: processes.map(p => { const row = data.processes.find((r: { code: string }) => r.code === p.code); return { code: p.code, name: p.name, order: p.order, values: clean(row.values, { requiredQuantity: `${p.code}RequiredQuantity`, reportedQuantity: `${p.code}ReportedQuantity`, productionProgress: `${p.code}ProductionProgress` }), states: this.readable(actor, `${p.code}Status`) ? row.states : [] }; }),
       trend: this.readable(actor, "productionDate") ? data.trend.map((r: MpsDashboardRow) => clean(r)) : [],
       divisions: this.readable(actor, "divisionId") ? data.divisions.map((r: MpsDashboardRow) => clean(r)) : [],
-      risks: { total: data.risks.total, rows: data.risks.rows.map((r: MpsDashboardRow) => clean(r)), page, pageSize: allRisks ? data.risks.total : 20 }
+      risks: { total: data.risks.total, rows: data.risks.rows.map((r: MpsDashboardRow) => clean(r)), page, pageSize: allRisks ? data.risks.total : pageSize }
     };
   }
 
@@ -190,7 +203,7 @@ export class MasterPlanDashboardService {
     if (String(search ?? "").length > 100) throw new BadRequestException("搜索过长");
     const params: unknown[] = [actor.tenantId];
     const facts = this.facts(input, actor, params, "read"); params.push(`%${search ?? ""}%`);
-    const dimension = kind === "divisionId" ? 'SELECT division_id::text value FROM scoped_monthly UNION SELECT primary_division_id::text FROM scoped_group UNION SELECT division_id::text FROM scoped_base' : 'SELECT customer_code value FROM scoped_monthly UNION SELECT customer_code FROM scoped_group UNION SELECT customer_code FROM scoped_base';
+    const dimension = kind === "divisionId" ? 'SELECT division_id::text value FROM scoped_monthly UNION SELECT primary_division_id::text FROM scoped_group UNION SELECT division_id::text FROM scoped_base UNION SELECT division_id::text FROM scoped_weekly' : 'SELECT customer_code value FROM scoped_monthly UNION SELECT customer_code FROM scoped_group UNION SELECT customer_code FROM scoped_base UNION SELECT customer_code FROM scoped_weekly';
     return this.dataSource.transaction(async manager => {
       await manager.query("SET TRANSACTION READ ONLY");
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);

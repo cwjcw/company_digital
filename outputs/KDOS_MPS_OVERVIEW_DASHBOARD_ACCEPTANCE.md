@@ -1,6 +1,6 @@
 # KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1
 
-当前状态：发布门禁已通过，准备正式部署；尚未宣告交付或业务PASS。最终必须等待用户人工验收。
+当前状态：最终修正版验证与部署中；业务结论保留等待人工验收。最终必须等待用户人工验收。
 日期：2026-10-15（Asia/Shanghai）。
 
 ## 基线与资源
@@ -12,6 +12,7 @@
 - Web：`/master-plan-dashboard`。导航：PMC中心 → 大屏报表 → 主计划大屏 → 主计划综合大屏；原设备管理大屏不变。
 - API：`GET /api/v1/master-plan-system/dashboard`、`/dashboard/candidates`、`/dashboard/export`。
 - TableFilter/打印均NOT_APPLICABLE且登记真实中文原因；标准下钻继续调用原业务表metadata/list API。
+- 首次功能提交：fd616168cfe10430981dd967fefa0d0fb1580a48，已推送并部署；分页/真实报工范围修正版将在最终发布中替换。
 
 ## 指标与事实
 
@@ -47,11 +48,12 @@
 
 - 大屏自己的read/export/字段权限/data scope；月计划read不授予大屏，大屏read也不授予月计划接口。
 - ALL只在当前tenant生效；CUSTOM仅divisionId EQ/IN稳定UUID，非法/混合不支持规则整体403；OWN用created_by。统一复用buildDataScopeClause。
-- 月→周→报工的授权关联同时限制子事实自己的scope，执行筛选继承父事实，避免旧快照名称再过滤漏计。
+- 周计划的客户/品项搜索匹配其自身字段或授权月计划/基础计划稳定关联；报工继承业务筛选，同时自己的scope和事业部始终AND。月计划进度仅取关联事实，趋势保留没有对应月计划的实际报工，准备状态也不以月计划存在为前提。
+- 风险/正式Drawer复用平台serverData与标准页大小（默认100），同身份翻页保留上页数据；风险服务端排序有白名单/字段授权并传入Excel。工序表保持registry顺序。
 - 所有KPI、图表、趋势、事业部、风险、候选使用同一scoped事实；客户远程搜索限30项并返回hasMore，不加载全量客户。
 - 字段权限裁剪JSON/候选/图表/风险/Excel；派生比例还需分子分母可读，不查金额或图片。
 - 下钻Drawer调用原资源metadata/list，重新执行原资源权限、字段和scope；无原表权限提示，不绕过授权。KPI、准备图、工序图、趋势及风险均有正式下钻/联动。
-- Excel两工作表：事业部汇总、全部筛选风险；read∩export，完整风险不受当前20行分页限制，继承筛选/字段并经Application写导出审计。数量超过Excel15位精度时保留精确文本。
+- Excel两工作表：事业部汇总、全部筛选风险；read∩export，完整风险不受当前分页限制，继承筛选/字段并经Application写导出审计。数量超过Excel15位精度时保留精确文本。
 - 30分钟自动刷新＋手工刷新；查询按用户/权限/筛选缓存60秒，清空可以复用仍新鲜的原查询缓存，刷新强制读取。均不触发任何同步。
 - KdosChart统一主题/loading/empty/resize/点击；KdosDataTable default密度及横向滚动，页面唯一纵向滚动。无重复标题/用途说明，无大屏打印/PDF/截图导出产品功能。
 
@@ -59,7 +61,7 @@
 
 最终聚合一条SELECT；同一只读REPEATABLE READ事务另有只读声明及tenant/timezone/15s timeout设置（3次显式SQL，另BEGIN/COMMIT和隔离级别设置）。候选同样一条有界SELECT。无逐行数据库往返/N+1；按周计划、工序、辅助和异常来源集合预聚合，多处复用CTE。
 
-真实生产只读查询约854ms；EXPLAIN ANALYZE约818.56ms，planning18.323ms（私有执行计划data/mps-dashboard/explain.json）。未新增索引/业务表/数据库实例或migration。首轮逐行派生方案触发15s保护后已替换并验证；未用索引掩盖查询结构问题。
+真实生产只读查询约828ms；EXPLAIN ANALYZE约752.606ms，planning17.168ms；事业部/客户筛选分别52/43ms（私有执行计划data/mps-dashboard/explain.json）。未新增索引/业务表/数据库实例或migration。首轮逐行派生方案触发15s保护后已替换并验证；未用索引掩盖查询结构问题。
 
 不修改业务表、报工、完成率、状态、异常、ERP、同步流程或任何同步enabled flags。下载只额外记录正式导出审计；无新增调度任务。
 
@@ -73,19 +75,19 @@
 | Dashboard Web专项 | 7项通过 |
 | Web完整 | 49文件379通过；maxWorkers=2/testTimeout=15000，无未处理错误 |
 | Contracts | 22通过 |
-| 真PostgreSQL18 | 12组通过；全部既有迁移在隔离库运行；51/60/105、状态独立、多次报工、父名称筛选、正式表达式一致、范围/租户/字段、全量导出/审计、分页、30候选上限 |
-| Chrome | 8项通过；1366/1440/1920、实际canvas/resize/单纵滚动、筛选/清空/刷新、图表/风险正式下钻、空/错/loading、无权限 |
+| 真PostgreSQL18 | 14组通过；全部既有迁移在隔离库运行；51/60/105、状态独立、多次报工、父名称筛选、正式表达式一致、范围/租户/字段、全量导出/审计、分页、30候选上限 |
+| Chrome | 9项通过；1366/1440/1920、实际canvas/resize/单纵滚动、筛选/清空/刷新、图表/风险正式下钻、空/错/loading、无权限、风险及正式Drawer跨页 |
 | API/Web typecheck | 通过 |
 | API/Web lint | 通过；仅原Portal Fast Refresh warning，无新增lint warning |
 | monorepo build | 通过 |
 
-首轮Web默认5s并发运行出现超时及环境拆卸后的React异常；新增测试两处有重复ARIA名称的选择器已修正为role。完整断言在双worker/15s上限下全部通过，没有跳过失败。Chrome清空测试已按查询缓存语义验证UI重置与随后强制刷新无旧条件，不强求缓存有效时重复请求。
+首轮Web默认5s并发运行出现超时及环境拆卸后的React异常；新增测试两处有重复ARIA名称的选择器已修正为role。完整断言在双worker/15s上限下全部通过，没有跳过失败。分页复核后再次全量出现一条React环境卸载异常，已显式销毁AntD静态消息根、取消并清空测试QueryClient，以act完成卸载；随后49文件379项且0未处理错误通过。Chrome清空测试已按查询缓存语义验证UI重置与随后强制刷新无旧条件，不强求缓存有效时重复请求。
 
 既有告警类别：Portal Fast Refresh、Vite大chunk、ts-jest JS transform（新增contracts JS文件也受同一配置告警）、AntD/React19及迁移时pg并发query弃用提示；未改变工具链。
 
 ## 备份、部署与Git交付
 
-备份：`20261015_121958`，双库custom dump与uploads（含.private及现有通知回执）；pg_restore目录、私有目录归档和三个SHA256复核成功。保存在data/backups，mode600；不入Git。
+最终部署前备份：`20261015_135905`，双库custom dump与uploads（含.private及现有通知回执）；pg_restore目录、私有目录归档和三个SHA256复核成功。保存在data/backups，mode600；不入Git。
 
 GitHub：仅本任务文件提交与push github/main，不强推。正式部署使用 `./scripts/deploy.sh all`，随后check/health及线上Chrome/HTTP核验。此节将在实际部署后记录功能提交与执行结果；最终Repository/Web/API必须统一，不能以本地代码完成代替交付。
 

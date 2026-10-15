@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { message } from "antd";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
@@ -22,9 +22,23 @@ function ResourceRoute() {
   return <MasterPlanResourcePage resource={String(resource)} />;
 }
 
+const clients = new Set<QueryClient>();
 function newClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.add(client);
+  return client;
 }
+
+// Static AntD messages own roots outside RTL; release them and Query observers before jsdom teardown.
+afterEach(async () => {
+  await act(async () => {
+    cleanup();
+    message.destroy();
+    await Promise.all([...clients].map(client => client.cancelQueries()));
+    for (const client of clients) client.clear();
+    clients.clear();
+  });
+});
 
 function renderPage(resource: string, initialEntry = `/master-plan-system/${resource}`, client = newClient()) {
   currentLocation = initialEntry;

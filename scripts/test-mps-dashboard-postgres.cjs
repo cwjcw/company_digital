@@ -61,12 +61,25 @@ let control,db;const name='mps_dashboard_test_'+Date.now();
   for(const key of ['technical','hardware','wood','outsourcing'])assert(d.auxiliary.find(r=>r.key===key).states.some(r=>r.status===formal[key+'Status']));
  });
  await check('risk paging and export include all rows, remote customers capped at30 with hasMore',async()=>{
-  for(let i=40;i<72;i++)await make(i,'KAINAN',id(10),1,0);
-  const d=await s.dashboard({},scoped);assert.equal(d.risks.rows.length,20);assert(d.risks.total>20);
+  for(let i=40;i<152;i++)await make(i,'KAINAN',id(10),1,0);
+  const d=await s.dashboard({},scoped);assert.equal(d.risks.rows.length,100);assert(d.risks.total>100);
   const page2=await s.dashboard({page:2},scoped);assert(page2.risks.rows.length>0);assert(!d.risks.rows.some(r=>page2.risks.rows.some(p=>p.id===r.id&&p.riskType===r.riskType)));
   const full=await s.dashboard({},scoped,'export',true);assert.equal(full.risks.rows.length,full.risks.total);
+  const sorted=await s.dashboard({sortField:'pendingQuantity',sortOrder:'desc'},scoped);assert.equal(Number(sorted.risks.rows[0].pendingQuantity),400);
+  const small=await s.dashboard({pageSize:50},scoped);assert.equal(small.risks.rows.length,50);assert.equal(small.risks.pageSize,50);
   const c=await s.candidates('customerCode','',{},scoped);assert.equal(c.options.length,30);assert.equal(c.hasMore,true);
  });
  await check('zero denominator returns null, unassigned/empty/error validation',async()=>{const d=await s.dashboard({customerCode:'NO-MATCH'},admin);assert.equal(d.orders.orderCompletionRate,null);assert.equal(d.plans.dispatchRate,null);assert(d.processes.every(p=>p.values.productionProgress===null));await assert.rejects(s.dashboard({divisionId:'not-uuid'},admin),e=>e.getStatus()===400);await assert.rejects(s.dashboard({riskType:'临期'},admin),e=>e.getStatus()===400);});
+ await check('reports without monthly parents remain in trend and formal base readiness, never enter monthly progress numerator',async()=>{
+  const before=await s.dashboard({},scoped);const orphan=await delivery({tenant:'KAINAN',div:id(10),order:'SYN-ORPHAN',item:'ORPHAN-ITEM'},99,30);
+  await report(orphan,7);
+  const after=await s.dashboard({},scoped);assert.equal(after.processes[0].values.reportedQuantity,before.processes[0].values.reportedQuantity);
+  const key=standardProcesses[0].code+'ReportedQuantity';assert.equal(Number(after.trend.at(-1)[key]),Number(before.trend.at(-1)[key])+7);
+  const only=await s.dashboard({orderNumber:'SYN-ORPHAN'},scoped);assert.equal(only.orders.orderCount,0);assert.equal(Number(only.plans.requiredQuantity),0);assert.equal(only.processes[0].values.productionProgress,null);assert.equal(Number(only.trend.at(-1)[key]),7);assert(only.readiness.some(r=>r.status==='已进入周计划'&&r.count===1));
+ });
+ await check('explicit division filters constrain report division even when its parent has a different snapshot',async()=>{
+  const [w]=await db.query("SELECT * FROM mps_weekly_plans WHERE order_number='SYN-ORPHAN'");await report(w,77);await db.query('UPDATE mps_process_reports SET division_id=$1 WHERE weekly_plan_id=$2 AND production_quantity=77',[id(11),w.id]);
+  const custom=await s.dashboard({orderNumber:'SYN-ORPHAN'},scoped);const selected=await s.dashboard({orderNumber:'SYN-ORPHAN',divisionId:id(10)},actor());const key=standardProcesses[0].code+'ReportedQuantity';assert.equal(Number(custom.trend.at(-1)[key]),7);assert.equal(Number(selected.trend.at(-1)[key]),7);
+ });
  console.log('TOTAL '+checks.length+' PostgreSQL dashboard checks PASS');
 })().catch(e=>{console.error(e.message);process.exitCode=1}).finally(async()=>{if(db?.isInitialized)await db.destroy();if(control?.isInitialized){await control.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);await control.destroy();}});

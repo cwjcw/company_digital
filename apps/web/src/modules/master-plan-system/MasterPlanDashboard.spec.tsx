@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { standardProcesses } from "@tracker/shared";
@@ -10,9 +10,10 @@ vi.mock("../../api", () => ({ api: vi.fn() }));
 vi.mock("../../shared/charts", () => ({ KdosChart: ({ ariaLabel, onDataClick, empty, loading }: { ariaLabel: string; onDataClick?: (e: { name: string; dataIndex: number }) => void; empty?: boolean; loading?: boolean }) => <button aria-label={ariaLabel} data-empty={String(empty)} data-loading={String(loading)} onClick={() => onDataClick?.({ name: "待完善", dataIndex: 0 })} /> }));
 const resource = "mps-overview-dashboard";
 function fixture(): MpsDashboardData { return { visibleFields: tablePermissionFieldsFor(resource).map(f => f.key), generatedAt: "2026-10-15T01:00:00Z", trendStart: "2026-10-08", trendEnd: "2026-10-14", orders: { orderCount: 2, orderRequiredQuantity: "500", orderCompletedQuantity: "300", orderCompletionRate: ".6" }, plans: { requiredQuantity: "500", dispatchedWeeklyQuantity: "300", dispatchRate: ".6", cumulativeInboundQuantity: "100", pendingQuantity: "400", inboundRate: ".2" }, readiness: [{ status: "待完善", count: 1, ratio: "1" }], auxiliary: [], processes: [...standardProcesses].sort((a,b)=>a.order-b.order).map(p => ({ ...p, values: { requiredQuantity: "500", reportedQuantity: "525", productionProgress: "1.05" }, states: [{ status: "已完成", count: 1 }] })), trend: [{ productionDate: "2026-10-14", [`${standardProcesses[0]!.code}ReportedQuantity`]: "525" }], divisions: [], risks: { rows: [], total: 0, page: 1, pageSize: 20 } }; }
-function renderPage() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return { client, ...render(<QueryClientProvider client={client}><MasterPlanDashboard /></QueryClientProvider>) }; }
+const clients = new Set<QueryClient>();
+function renderPage() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.add(client); return { client, ...render(<QueryClientProvider client={client}><MasterPlanDashboard /></QueryClientProvider>) }; }
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); localStorage.setItem("sessionUser", JSON.stringify({ sub: "fixture", permissions: ["*"], isSystemAdmin: true })); vi.mocked(api).mockImplementation(async path => { if (path.includes("/candidates")) return { options: [], hasMore: false } as never; if (path.endsWith("/meta")) return { fields: [{ key: "orderNumber", label: "订单号" }] } as never; if (path.includes("/resources/")) return { rows: [], total: 0 } as never; return fixture() as never; }); });
-afterEach(cleanup);
+afterEach(async () => { await act(async () => { cleanup(); await Promise.all([...clients].map(client => client.cancelQueries())); for (const client of clients) client.clear(); clients.clear(); }); });
 describe("MasterPlanDashboard", () => {
   it("starts with filters, no repeated title/subtitle/date; shared process structure and >100%", async () => {
     renderPage(); await screen.findByText("订单概况"); expect(screen.queryByText("主计划综合大屏")).not.toBeInTheDocument(); expect(screen.queryByText(/本页面用于|实时掌握|统计日期/)).not.toBeInTheDocument();

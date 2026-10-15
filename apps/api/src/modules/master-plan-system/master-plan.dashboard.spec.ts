@@ -38,8 +38,11 @@ describe("Master plan overview HTTP authorization", () => {
     permissions = ["*"];
     await request(app.getHttpServer()).get("/master-plan-system/dashboard?divisionId=invalid").expect(400);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/candidates?field=sql").expect(400);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard?sortField=sql").expect(400);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard?sortField=orderNumber&sortOrder=drop").expect(400);
     permissions = [`${resource}:*:read`];
-    await request(app.getHttpServer()).get("/master-plan-system/dashboard?customerCode=hidden").expect(403); expect(transaction).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard?customerCode=hidden").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard?sortField=orderNumber").expect(403); expect(transaction).not.toHaveBeenCalled();
   });
 });
 describe("Overview resource and scope contract", () => {
