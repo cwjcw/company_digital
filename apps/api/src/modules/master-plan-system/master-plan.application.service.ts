@@ -57,6 +57,16 @@ export class MasterPlanApplicationService {
     @Optional() private readonly notifications?: NotificationService
   ) {}
 
+  /** Dashboard export writes only its audit record, through the existing Application boundary. */
+  async recordDashboardExport(summary: { divisionRows: number; riskRows: number; fields: string[] }, actor: MasterPlanActor) {
+    const resource = "mps-overview-dashboard";
+    if (!["read", "export"].every(action => hasMasterPlanPermission(actor, resource, action))) throw new ForbiddenException("当前权限组没有主计划综合大屏导出权限");
+    return this.dataSource.transaction(async manager => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await this.audit(manager, actor, resource, null, `${resource}.exported`, null, summary);
+    });
+  }
+
   /** One-off administrator command; no employee UI/delete permission is introduced. */
   async archiveAllocations(records: Array<{ id: string; expectedVersion: number }>, idempotencyKey: string, actor: MasterPlanActor) {
     if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以归档清空订单分配表");

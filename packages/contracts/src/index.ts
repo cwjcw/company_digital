@@ -1,3 +1,4 @@
+import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics } from "./master-plan-dashboard";
 import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
 export * from './finance-orders';
 import { financeDepartmentOptions, financeSalesChannelOptions } from "./finance";
@@ -149,6 +150,7 @@ export const tableResourceRegistry = [
   { code: "hr-departure-check", label: "离职人员检查", module: "人力资源", moduleCode: "hr" },
   { code: "equipment-register", label: "设备总台账", module: "PMC中心", moduleCode: "planning" },
   { code: "equipment-status-report", label: "设备状态填报", module: "PMC中心", moduleCode: "planning" },
+  { code: "mps-overview-dashboard", label: "主计划综合大屏", module: "PMC中心", moduleCode: "planning" },
   { code: "equipment-dashboard", label: "集团设备大屏", module: "PMC中心", moduleCode: "planning" },
   ...masterPlanResourceDefinitions.map(({ code, label }) => ({ code, label, module: "PMC中心" as const, moduleCode: "planning" as const })),
   { code: "development-requests", label: "需求提报与审批", module: "流程审批", moduleCode: "workflow" },
@@ -425,6 +427,21 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
   "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["plannedRuntimeMinutes", "计划运行时间", "number", true, true, { format: "durationMinutes" }], ["runtimeMinutes", "实际运行时长", "number", true, false, { format: "durationMinutes" }], ["utilizationRate", "稼动率", "number", false, false, { format: "percentage", percentageScale: "percent", filterable: false }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
+  "mps-overview-dashboard": fields([
+    ["divisionId", "事业部", "department", false], ["customerCode", "客户编码", "text", false],
+    ["orderNumber", "订单号", "text", false], ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false],
+    ...[...mpsDashboardOrderMetrics, ...mpsDashboardPlanMetrics].map(([key, label]) => [key, label, "number", false] as [string, string, "number", boolean]),
+    ["weeklyPlanState", "周计划准备分布", "text", false], ["weeklyPlanMissingFields", "周计划缺少项", "text", false],
+    ["weeklyPlanGenerationIssue", "周计划生成提示", "text", false], ["latestCustomerDueDate", "最迟客户交期", "date", false],
+    ["riskType", "风险类型", "text", false], ["exceptionSummary", "异常", "text", false], ["productionDate", "生产日期", "date", false],
+    ...auxiliaryPlanGroups.map(g => [`${g.key}Status`, `${g.title}状态分布`, "text", false] as [string, string, "text", boolean]),
+    ...standardProcesses.flatMap(p => [
+      [`${p.code}RequiredQuantity`, `${p.name}需求数量`, "number", false],
+      [`${p.code}ReportedQuantity`, `${p.name}累计实际报工`, "number", false],
+      [`${p.code}ProductionProgress`, `${p.name}生产进度`, "number", false],
+      [`${p.code}Status`, `${p.name}状态分布`, "text", false]
+    ] as Array<[string, string, "number" | "text", boolean]>)
+  ]).filter(field => !auditPermissionFields.some(audit => audit.key === field.key)).map(field => /Rate$|ProductionProgress$/.test(field.key) ? { ...field, format: "percentage" as const, percentageScale: "ratio" as const } : field),
   "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["departmentId", "使用部门", "department", false], ["equipmentId", "设备", "reference", false, false, { filterable: false, filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["expectedEquipmentCount", "应填设备", "number", false], ["filledEquipmentCount", "已填设备", "number", false], ["unfilledEquipmentCount", "未填设备", "number", false], ["reportingRate", "填报率", "number", false, false, { format: "percentage", percentageScale: "percent" }], ["plannedRuntimeMinutes", "计划运行时间", "number", false, false, { format: "durationMinutes" }], ["runtimeMinutes", "实际运行时长", "number", false, false, { format: "durationMinutes" }], ["utilizationRate", "稼动率", "number", false, false, { format: "percentage", percentageScale: "percent" }], ["faultMinutes", "故障时长", "number", false, false, { format: "durationMinutes" }], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["equipmentCount", "监控设备", "number", false], ["normalCount", "正常运行", "number", false], ["faultCount", "存在故障", "number", false], ["idleCount", "未运行", "number", false], ["unreportedCount", "未填报", "number", false], ["runtimeDailyAverageMinutes", "实际运行日均", "number", false, false, { format: "durationMinutes" }], ["faultDailyAverageMinutes", "故障日均", "number", false, false, { format: "durationMinutes" }]]),
   "mps-erp-orders": fields([["sourceAccountName", "来源账套", "text", false], ["salespersonName", "业务员", "text", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["expectedShippingDate", "预计出货日期", "date", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["unit", "单位", "text", false], ["orderQuantity", "订单数量", "number", false], ["taxIncludedUnitPrice", "含税单价", "number", false], ["taxIncludedAmount", "含税金额", "number", false], ["orderStatus", "订单状态", "text", false]]),
   "mps-customer-divisions": fields([["customerCode", "客户编码", "text", true, true], ["primaryDivisionId", "主责事业部", "department", true, true], ["enabled", "启用", "boolean"], ["remark", "备注"]]),
@@ -846,6 +863,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "finance-customer-mappings": { status: "REGISTERED_AND_FILTERABLE" },
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
+  "mps-overview-dashboard": { status: "NOT_APPLICABLE", reason: "主计划综合大屏为多资源聚合驾驶舱，不存在单一记录表，不直接使用标准 TableFilter rows 接口。" },
   "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
   /* 上传即算即走 / 纯任务型资源：没有可持久化查询的业务记录表。 */
   "hr-departure-check": { status: "NOT_APPLICABLE", reason: "离职人员检查是上传花名册后即时比对的工具页，结果不落业务表，没有可筛选的持久记录集。" },
@@ -883,6 +901,7 @@ const printNotApplicable: Record<string, string> = {
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
   "supervision-employee-dashboard": "员工待办大屏是当前用户的实时工作视图，任务明细通过督办任务资源打印。",
   "supervision-owner-report": "责任人完成报表是按用户和周期实时聚合结果，本阶段不生成独立打印快照，具体任务通过一致下钻查看。",
+  "mps-overview-dashboard": "主计划综合大屏为多资源聚合视图，正式业务明细复用原资源，不提供大屏打印。",
   "equipment-dashboard": "集团设备大屏是聚合指标视图，不是记录列表，打印无业务意义。",
   "hr-departure-check": "离职人员检查是上传花名册后即时比对的结果页，数据不落库，没有可打印的持久记录集合。",
   imports: "导入记录是后台任务追溯页面，不是业务记录表，打印无业务意义。",
@@ -1027,3 +1046,5 @@ if (tableCapabilityAudit.errors.length) {
 export * from "./equipment-dashboard";
 
 export * from "./finance";
+
+export * from "./master-plan-dashboard";

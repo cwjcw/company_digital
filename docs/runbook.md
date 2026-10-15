@@ -149,3 +149,13 @@ Knowledge 页面支持在线文章和文件两种内容模式，原件、工作�
 ### Deploying clean linked source to the existing runtime
 
 When the original checkout has unrelated work, use a clean linked Git worktree. From that source worktree run `KDOS_RUNTIME_ROOT=/absolute/path/to/original/checkout ./scripts/deploy.sh all` (or `check`). The script verifies both directories share the same Git repository, checks the source is clean, and supplies only an ephemeral build-context override. The runtime .env, project identity, PostgreSQL bind mount and private uploads stay at the original checkout. No secrets are copied. Verify the resolved persistent mounts before first use; back up and migrate with the existing runtime environment. The version reported is the clean source commit. Roll back by deploying a retained source commit/image against the same runtime path. Order allocation notification operations are described in `docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md`.
+
+## 主计划综合大屏 V1
+
+页面 `/master-plan-dashboard`；PMC中心 → 大屏报表 → 主计划大屏 → 主计划综合大屏。独立资源 `mps-overview-dashboard`，管理员沿用资源权限页授权；不自动继承月计划权限、不创建默认权限组、无需 migration。标准聚合大屏不使用 TableFilter rows，也不提供打印。
+
+`GET /api/v1/master-plan-system/dashboard` 与 `/candidates` 是只读查询，执行自己的 tenant/read/字段/data scope；自定义范围支持 `divisionId EQ/IN` 稳定组织 UUID，不支持的混合规则整体拒绝。订单用主责事业部，计划/执行用承接事业部。工序需求是月计划总需求，实际报工先按周计划/工序累加，允许超过100%，状态独立；没有全局统计日期。趋势仅上海昨天向前7个完整自然日。
+
+大屏30分钟刷新及手工刷新只读取当前事实，不触发同步或对账。风险20行服务端分页；`GET /export` 复用同源查询，导出全部筛选风险和事业部汇总，范围是read∩export，字段裁剪并记录导出审计。数量超过Excel15位有效精度保留精确文本。业务下钻调用原资源metadata/list接口，继续校验原表自己的权限。
+
+升级使用现有备份和 `scripts/deploy.sh all/check`；本功能不调整任何同步flags/cron/n8n/Timer/Dispatcher。回滚部署保留的旧应用镜像/源码，不恢复覆盖业务数据库。指标合同与人工验收见 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md` 和 `outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md`。

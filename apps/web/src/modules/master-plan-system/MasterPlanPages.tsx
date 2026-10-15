@@ -1,3 +1,4 @@
+import { auxiliaryPlanGroups } from "@kdos/contracts";
 /* eslint-disable react-refresh/only-export-components -- 工序配色/进度格式化等纯函数与页面组件同文件，供测试与表格渲染共用 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -196,12 +197,7 @@ export function isMasterPlanSupportField(key: string) {
  * 绝不允许“少一个子字段读权限 → 整个一级分组标题消失”。
  * 组内字段顺序同样取自定义，保证同一分组在周计划/月计划中的子列顺序一致。
  */
-export const auxiliaryPlanGroups: Array<{ key: string; title: string; fields: string[] }> = [
-  { key: "technical", title: "技术/图纸计划", fields: ["technicalCycleDays", "drawingDueDate", "technicalStatus"] },
-  { key: "hardware", title: "五金主材计划", fields: ["hardwareCycleDays", "hardwareDueDate", "hardwareStatus"] },
-  { key: "wood", title: "木作主材计划", fields: ["woodCycleDays", "woodDueDate", "woodStatus"] },
-  { key: "outsourcing", title: "外协计划", fields: ["outsourcingCycleDays", "outsourcingDueDate", "outsourcingStatus", "outsourcingActualInboundDate"] }
-];
+export { auxiliaryPlanGroups } from "@kdos/contracts";
 /** 辅助计划分组占用的字段键（用于保证它们绝不落入普通 leading columns）。 */
 const auxiliaryPlanFieldKeys = new Set(auxiliaryPlanGroups.flatMap((group) => group.fields));
 

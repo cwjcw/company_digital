@@ -1,3 +1,6 @@
+import { MasterPlanDashboardService } from "./master-plan.dashboard.service";
+import { MasterPlanDashboardController } from "./master-plan.dashboard.controller";
+import { MasterPlanDashboardExportService } from "./master-plan.dashboard-export.service";
 import { OrderAllocationConfigService } from "./order-allocation-config.service";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
@@ -16,8 +19,8 @@ import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
-  controllers: [MasterPlanController],
-  providers: [OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  controllers: [MasterPlanController, MasterPlanDashboardController],
+  providers: [MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

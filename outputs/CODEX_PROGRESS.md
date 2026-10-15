@@ -1,6 +1,71 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 主计划综合大屏 V1。
+任务目标：正式事实的只读聚合、独立权限/字段/data scope、图表及安全下钻，测试后备份部署，等待人工验收。
+当前状态：进行中。
+最后更新时间：2026-10-15（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：验证通过，准备提交与标准部署。
+当前子任务：安全提交/推送、标准all部署及线上核验。
+
+## 已完成
+- [x] 工作区初始干净；开始 HEAD 1bb0e58342aea0a317271f2d9656c15418280a20，main。
+- [x] deploy check 基线 MISMATCH：运行 Web/API 870be11，HEAD 仅多上一任务两份 outputs 文档，已核实无源码差异。
+- [x] 审计身份任务已部署，无未提交源码；不重做、不改变其人工验收状态。
+- [x] 确认 group tenant/order 唯一、monthly tenant/order/item 唯一；复用工序 registry、正式派生状态及异常语义。
+
+## 正在进行
+- [x] 指标合同先行，独立资源/API服务/页面/导航/字段裁剪/远程候选/正式API Drawer下钻/同源Excel实现。
+- [x] 预聚合优化：首轮逐行派生SQL超过15s保护上限，改为周计划/工序/辅助/异常分组后关联；真实生产只读896ms，EXPLAIN 820.273ms，无新增索引。
+- [x] 隔离真实PG18全部既有迁移＋12组指标/51%/60%/105%/状态独立/筛选/权限/租户/导出审计检查通过。
+- [x] 上述自动验证完成；最终Web全量使用maxWorkers=2/testTimeout=15000，保留全部断言，初轮5s竞争超时已复核通过，无未处理错误。
+- [x] 双库/附件backup20261015_121958完成，pg_restore目录、private归档与三个SHA256验证通过。
+- [x] 导出审计复用MasterPlanApplicationService；最终SQL仅选必要列、执行业务筛选继承父事实，防快照名称不同漏计；生产无业务写入。
+
+## 待完成
+- [x] API专项6；主计划398/1 skip；API全量992/1 skip；Web专项7、全量49文件379；Contracts22；Chrome8（3桌面宽度/真实图表/滚动/筛选/下钻/加载/空/错误/无权）。
+- [ ] 安全审阅/commit/push、备份/标准all部署/健康/线上效果核验。
+- [ ] 验收报告，状态仅标等待人工验收，不自行PASS。
+
+## 修改文件
+- outputs/CODEX_PROGRESS.md
+- outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md
+- packages/contracts/src/{index.ts,master-plan-dashboard.ts}
+- apps/api/src/modules/master-plan-system/master-plan.dashboard*.ts、master-plan.module.ts
+- apps/web/src/{App.tsx,modules/master-plan-system/MasterPlanDashboard*.tsx,modules/master-plan-system/master-plan-dashboard.css,modules/master-plan-system/MasterPlanPages.tsx}
+- scripts/test-mps-dashboard-postgres.cjs
+
+## 数据库 Migration
+- 预期无；若必须迁移或新增索引按用户要求STOP，等待确认。
+
+## 新增或修改测试
+- 新增API dashboard HTTP/contract专项、Web dashboard专项、scripts/test-mps-dashboard-postgres.cjs（合成fixture隔离库）。
+
+## 已运行测试
+- API992/1 skip、Web379、Contracts22、PG18 12组、Chrome8通过；API/Web类型与lint、monorepo build通过；生产只读聚合854ms/EXPLAIN818.56ms，两类候选限量通过。
+- 仅既有Portal Fast Refresh / Vite大chunk / ts-jest JS transform / AntD React19等warning，无新增lint warning。
+
+## 当前已知问题
+- 不修改同步flags、业务记录/状态/报工；无正式临期阈值不展示临期。
+
+## 等待用户确认
+- 无实施等待；最终业务人工验收仍必需。
+
+## 下一步
+1. 审查并仅提交本任务源码/测试/合同/文档，安全push github main。
+2. 标准deploy all/check、健康、已部署Chrome及HTTP/只读数据/flags核验。
+3. 完整验收报告与进度更新为等待人工验收；最终GitHub/部署SHA保持一致，不自行PASS。
+
+## 恢复执行说明
+读取AGENTS/两项KDOS Skill、本节、git status及diff，继续下一步未完成项；历史进度保留在下方。不得重做已完成任务或变更同步flags。本任务不做业务migration；必须迁移时停止。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：订单分配Excel公式缓存兼容。
 任务目标：允许导入业务字段number/text/date统一读取缓存，不执行公式；真实10.14.xlsx解析／预览验收，不修改生产订单。
 当前状态：已完成。
