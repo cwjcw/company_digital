@@ -1,3 +1,6 @@
+import { MasterPlanOrderProgressService } from "./master-plan.order-progress.service";
+import { MasterPlanOrderProgressController } from "./master-plan.order-progress.controller";
+import { MasterPlanOrderProgressExportService } from "./master-plan.order-progress-export.service";
 import { MasterPlanDashboardService } from "./master-plan.dashboard.service";
 import { MasterPlanDashboardController } from "./master-plan.dashboard.controller";
 import { MasterPlanDashboardExportService } from "./master-plan.dashboard-export.service";
@@ -19,8 +22,8 @@ import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
-  controllers: [MasterPlanController, MasterPlanDashboardController],
-  providers: [MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  controllers: [MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
+  providers: [MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

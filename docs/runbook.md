@@ -171,3 +171,9 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 首屏提供9类有可靠定义的待处理KPI及分页Tabs；三个末尾标准报表使用独立请求、分页、排序、搜索/条件与服务端全量导出。新增`/dashboard/gaps?type`、`/dashboard/reports/:reportKey`，继续使用mps-overview-dashboard资源与原read/export/data scope，不给业务表新增权限。3天窗口应生成缺口为BLOCKED，不伪造指标。
 
 回归命令：`pnpm --filter @tracker/api exec jest --runInBand --testPathPatterns=master-plan.dashboard`；数据库TEMP隔离用例加`KDOS_POSTGRES_INTEGRATION=true DATABASE_HOST=127.0.0.1 DATABASE_PORT=<端口>`；Web两份MasterPlanDashboard*.spec.tsx与Chrome e2e/master-plan-dashboard.spec.ts。生产核验仅执行生成的SELECT和EXPLAIN，不调用任何sync或构造生产测试订单/计划/报工。只读快照/备份/部署证据保存于忽略目录data/mps-dashboard-rev2，不提交业务数据或凭据；最终等待人工验收，不自动PASS。
+
+### 在制订单进度Demo
+
+入口 `/master-plan-order-progress`，资源 `mps-order-progress-dashboard`。普通用户通过现有权限组管理显式授权，不能借用综合大屏权限；管理员按平台既有规则可用。本次不运行seed、不更改业务数据/6项flags/调度，不新增migration或索引。首次日期为上海昨天，可切换不限日期；“订单完成率”“入库完成率”“工序生产进度”为不同正式口径。
+
+上线前执行相关测试、真实只读对账与标准备份，提交推送后 `./scripts/deploy.sh all` / `check`，要求Repository/Web/API一致及4容器healthy。真实样本、Excel和EXPLAIN只留私有忽略目录。列宽使用公共localStorage按tenant/user/resource/viewKey隔离。无多周计划真实样本时保留人工验收缺口，不造生产数据；只交付REV3-B，不启动A/C/D。指标与验收见outputs/KDOS_MPS_ORDER_PROGRESS_*。

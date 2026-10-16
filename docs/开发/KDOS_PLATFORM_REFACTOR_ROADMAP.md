@@ -1194,3 +1194,11 @@ TASK-001 - 创建 `@kdos/ui-schema` 第一版基础 package。
 
 Next Recommended Task:
 TASK-002 - 创建 `KdosSchemaForm` 第一版。
+
+## 2026-10-16：KDOS-MPS-ORDER-PROGRESS-REV3B-001
+
+本轮业务任务：独立“在制订单进度”Demo，复用KdosDataTable、React Query、正式计划SQL与现有资源授权，不启动Schema TASK-002或其它平台阶段。
+
+已完成实现及自动验证：独立页面/resource、订单/品项服务端分页及按需展开、正式权限交集Drawer、两类全量导出；正式集团/入库/生产进度口径保持，报工先聚合避免乘法JOIN。共享表达式提取前后，真实月/周计划200条全部派生字段零差异。API/Web/Contracts/Chrome及真实只读对账有独立证据。
+
+当前交付状态由outputs/KDOS_MPS_REV3_MASTER_PLAN.md及CODEX_PROGRESS.md维护；发布门禁核验后等待人工验收，不自动PASS。REV3-A/C/D仍NOT_STARTED，不拆原大屏或重构PMC驾驶舱。下一步：用户确认Demo口径和视觉后再单独安排REV3后续阶段；平台TASK-002保持NOT_STARTED。

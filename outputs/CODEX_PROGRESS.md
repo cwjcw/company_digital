@@ -1,6 +1,65 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-ORDER-PROGRESS-REV3B-001：在制订单进度看板 Demo。
+任务目标：独立真实数据订单/品号进度矩阵、按需展开及正式权限详情、两类全量服务端导出。
+当前状态：IN_PROGRESS。
+最后更新时间：2026-10-16（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：回归、生产只读核验完成，上线准备。
+当前子任务：最终字段/详情安全定向复核、备份、提交推送与标准all部署。
+
+## 已完成
+- [x] 已读任务全文、项目规范/表单Skill、REV2进度/合同/审计/验收及平台Roadmap。
+- [x] 真实HEAD 4ece1df，初始工作区干净；运行08f9195，差异仅已提交outputs记录；无其它任务源码，允许继续，不reset。
+- [x] 建立REV3总控，仅B为IN_PROGRESS，A/C/D为NOT_STARTED。
+
+## 正在进行
+- [x] 锁定指标合同及正式身份，生产12表/权限数据/flags/migrations只读基线完成。
+- [x] 独立resource无需权限迁移；普通用户需正式显式授权，不串授overview。
+
+## 待完成
+- [x] Contracts/新resource/服务端分页聚合与候选、新Dashboard与原表权限交集Drawer、两类导出。
+- [x] 独立页面/导航及按需分页订单/品号矩阵初版，待浏览器回归。
+- [x] API全量108套1008项、Web全量51套393项（后增1项单表本订单导出，专项8项通过）、Contracts24；新旧PG/HTTP21项、Chrome9项通过。
+- [x] 真实数据101月计划/1010工序对账；100月计划66表达式+100周计划60表达式重构前后零差异；12业务表/flags/migrations/权限数据不变。
+- [x] 集合聚合优化：订单约237ms，单订单品项26–63ms；全量1038行/80列实际xlsx生成校验通过，约5s含重复取数/文件读回，业务文件仅在私有忽略目录。
+- [ ] 标准备份20261016_092646已完成，3个SHA256及pg_restore目录通过；仅本任务提交推送、标准all部署/check/健康验证；最终等待人工验收。
+
+## 修改文件
+- 新Contracts/字段资源注册；OrderProgress Service/Controller/Export及API/PG测试；App导航/新页面CSS；RemoteSelect增加兼容URL/resource参数；Application新增本资源导出审计；本进度/REV3总控/指标合同。
+
+## 数据库 Migration
+- 预计无；如需migration/索引/生产权限数据初始化/同步配置修改，按用户要求NO-GO，不自行执行。
+
+## 新增或修改测试
+- 新增API HTTP6项+临时PG9项，覆盖身份/多批次/多报工SUM/51%和105%/状态空值/权限/跨tenant/Scope/两类导出，全部通过。
+
+## 已运行测试
+- 启动deploy check：HEAD4ece1df/运行08f9195，只有outputs差异，未回退。
+- 最后typecheck/lint/build通过（只有既有Portal/Vite警告）；migration:show 93/93已应用，无新增。
+- 最后新旧PG+HTTP21项通过；真实数值/正式表达式重构回归再次通过，业务/flags/权限/migrations仍不变。
+
+## 当前已知问题
+- 真实候选暂未找到同品号多条周计划的B类样本，禁止造生产假数据；临时PG多批次/交期场景已覆盖。图纸完成日期无正式字段，不伪造。ERP重复源行无一一关联时逐行保留待核实，不复制月计划进度。
+
+## 等待用户确认
+- 无；先完成可确认工作。如发现无法证明的业务口径，记录真实边界，不造数据。
+
+## 下一步
+1. 最后定向检查及备份校验，完善验收/Roadmap/接口运维记录。
+2. 敏感文件检查后仅提交本任务，push github/main，标准all部署/check/部署后Chrome与只读核验。
+3. 写入最终SHA和状态WAITING_MANUAL_ACCEPTANCE，仅B交付，A/C/D仍NOT_STARTED。
+
+## 恢复执行说明
+规范→本节→git status/diff→REV3总控/指标合同。只继续REV3-B，不重新实施下方REV2/督办/导入，不触发同步或修改历史业务。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2。
 任务目标：业务缺口审计、待处理KPI/分页清单/单表导出、三张独立报表；继承同一Dashboard Scope，保持只读与同步flags。
 当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收，不判PASS）。

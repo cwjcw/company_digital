@@ -52,6 +52,24 @@ const camelToSnake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${
 const processes = standardProcesses.map((process) => process.code);
 
 
+/** Shared expressions: formal plan queries and read-only reports must use the same formulas. */
+export const masterPlanProductionProgressSql = (reported: string, required: string) => `(CASE WHEN COALESCE(${required},0) > 0 THEN (${reported})::numeric / ${required} ELSE NULL END)`;
+export const masterPlanProcessStatusSql = (status: string) => `CASE WHEN bool_or((${status})='延期') THEN '延期' WHEN bool_and((${status})='已完成') THEN '已完成' WHEN bool_or((${status})='进行中') THEN '进行中' ELSE '未开始' END`;
+export const masterPlanAuxiliaryStatusSql = (status: string) => `CASE WHEN bool_or((${status})='延期') THEN '延期' WHEN bool_and((${status}) IN ('已完成','已入库')) THEN '已完成' WHEN bool_or((${status})='进行中') THEN '进行中' ELSE '未开始' END`;
+export const masterPlanMaterialStatusSql = (received: string, inbound: string, due: string) => `CASE WHEN ${received} OR ${inbound} IS NOT NULL THEN '已完成' WHEN ${due}<CURRENT_DATE THEN '延期' ELSE '未开始' END`;
+export const masterPlanDeliveryDateSql = (outstanding: string, latest: string, stored: string) => `COALESCE(${outstanding},${latest},${stored})`;
+export const masterPlanHumanExceptionSources = [
+  {table:"mps_technical_reports",label:"技术",condition:"true"},
+  {table:"mps_material_reports",label:"五金主材",condition:"report.material_name='五金'"},
+  {table:"mps_material_reports",label:"木作主材",condition:"report.material_name='木作'"},
+  {table:"mps_outsourcing_reports",label:"外协",condition:"true"},
+  ...[...standardProcesses].sort((a,b)=>a.order-b.order).map(p=>({table:"mps_process_reports",label:p.name,condition:`report.process_code='${p.code}'`}))
+];
+export const masterPlanExceptionPartSql = (label: string, texts: string) => {
+  const prefix=label.startsWith("'")&&label.endsWith("'")?`${label.slice(0,-1)}：'`:`${label}||'：'`;
+  return `NULLIF((${prefix}||(${texts})),'')`;
+};
+
 /** 周计划某工序的累计实际报工（按 tenant+weekly_plan_id+process_code 聚合，禁止 JOIN 重复累计）。 */
 const weeklyReportSum = (code: string) =>
   `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
@@ -74,11 +92,7 @@ export const dispatchedWeeklyQuantitySql = `(SELECT COALESCE(sum(weekly.planned_
  * KN-MPS-UI-001：异常只来自人工报工事实，因此工序异常的来源是 `mps_process_reports.exception_text`。
  * `mps_weekly_process_plans.exception_text` 只是系统/计划提示，绝不参与统一异常汇总。
  */
-const processReportExceptionSource = (code: string, from: string) =>
-  `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM ${from} AND report.process_code='${code}' AND btrim(COALESCE(report.exception_text,''))<>''`;
-
-/** 单一来源异常片段：来源标签 + 去重后的异常文本（同一来源多条用「、」连接）。 */
-const exceptionPart = (label: string, sql: string) => `NULLIF(('${label}：'||(${sql})),'')`;
+const exceptionPart = (label: string, sql: string) => masterPlanExceptionPartSql(`'${label}'`,sql);
 
 /**
  * 周计划统一异常：严格只读人工报工事实表 `mps_technical_reports` / `mps_material_reports` /
@@ -88,14 +102,7 @@ const exceptionPart = (label: string, sql: string) => `NULLIF(('${label}：'||($
 function weeklyExceptionSummary() {
   const weeklySource = (table: string, extra: string) =>
     `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM ${table} report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
-  const parts = [
-    exceptionPart("技术", weeklySource("mps_technical_reports", "")),
-    exceptionPart("五金主材", weeklySource("mps_material_reports", "AND report.material_name='五金'")),
-    exceptionPart("木作主材", weeklySource("mps_material_reports", "AND report.material_name='木作'")),
-    exceptionPart("外协", weeklySource("mps_outsourcing_reports", "")),
-    ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
-      exceptionPart(process.name, processReportExceptionSource(process.code, `mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id`)))
-  ];
+  const parts = masterPlanHumanExceptionSources.map(source => exceptionPart(source.label, weeklySource(source.table, `AND ${source.condition}`)));
   /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
   return `(concat_ws('；',${parts.join(",")}))`;
 }
@@ -105,14 +112,7 @@ function monthlyExceptionSummary() {
   const monthlyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
   const joinedSource = (table: string, extra: string) =>
     `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM mps_weekly_plans weekly JOIN ${table} report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere} ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
-  const parts = [
-    exceptionPart("技术", joinedSource("mps_technical_reports", "")),
-    exceptionPart("五金主材", joinedSource("mps_material_reports", "AND report.material_name='五金'")),
-    exceptionPart("木作主材", joinedSource("mps_material_reports", "AND report.material_name='木作'")),
-    exceptionPart("外协", joinedSource("mps_outsourcing_reports", "")),
-    ...[...standardProcesses].sort((left, right) => left.order - right.order).map((process) =>
-      exceptionPart(process.name, processReportExceptionSource(process.code, `mps_weekly_plans weekly JOIN mps_process_reports report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere}`)))
-  ];
+  const parts = masterPlanHumanExceptionSources.map(source => exceptionPart(source.label, joinedSource(source.table, `AND ${source.condition}`)));
   /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
   return `(concat_ws('；',${parts.join(",")}))`;
 }
@@ -130,16 +130,16 @@ export function virtualColumns(resource: MasterPlanResource) {
        * KN-MPS-UI-001：累计报工改为辅助计算字段（support projection，仅供 Tooltip），不再是业务列。
        */
         output[`${code}ReportedQuantity`] = weeklyReportSum(code);
-      output[`${code}ProductionProgress`] = `(CASE WHEN COALESCE(record.planned_quantity,0) > 0 THEN (${weeklyReportSum(code)})::numeric / record.planned_quantity ELSE NULL END)`;
+      output[`${code}ProductionProgress`] = masterPlanProductionProgressSql(weeklyReportSum(code), "record.planned_quantity");
     }
     if (resource.code === "mps-monthly-plans") {
       const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND process.process_code='${code}'`;
       output[`${code}CycleDays`] = `(SELECT max(process.cycle_days) ${joined})`;
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${joined} AND process.status<>'已完成')`;
-      output[`${code}Status`] = `(SELECT CASE WHEN bool_or(process.status='延期') THEN '延期' WHEN bool_and(process.status='已完成') THEN '已完成' WHEN bool_or(process.status='进行中') THEN '进行中' ELSE '未开始' END ${joined})`;
-      /* KN-MPS-EXEC-001：月计划生产进度 = SUM(累计实际报工) / SUM(所有关联周计划的工序需求)，禁止平均百分比。 */
+      output[`${code}Status`] = `(SELECT ${masterPlanProcessStatusSql("process.status")} ${joined})`;
+      /* KN-MPS-EXEC-001：月计划生产进度 = SUM(累计实际报工) / 月计划正式总需求，禁止平均百分比。 */
       output[`${code}ReportedQuantity`] = monthlyReportSum(code);
-      output[`${code}ProductionProgress`] = `(CASE WHEN COALESCE(record.required_quantity,0) > 0 THEN ${monthlyReportedTotal(code)} / record.required_quantity ELSE NULL END)`;
+      output[`${code}ProductionProgress`] = masterPlanProductionProgressSql(monthlyReportedTotal(code), "record.required_quantity");
     }
   }
   /* KN-MPS-UI-001：月计划全表唯一的「已下达周计划数量」（基础数量区域，与工序无关，不参与生产进度分母）。 */
@@ -181,18 +181,18 @@ export function virtualColumns(resource: MasterPlanResource) {
     const weeklyFrom = `FROM mps_weekly_plans weekly`;
     const weeklyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
     const weekly = `${weeklyFrom} WHERE ${weeklyWhere}`;
-    const statusAggregate = (statusSql: string) => `CASE WHEN bool_or((${statusSql})='延期') THEN '延期' WHEN bool_and((${statusSql}) IN ('已完成','已入库')) THEN '已完成' WHEN bool_or((${statusSql})='进行中') THEN '进行中' ELSE '未开始' END`;
+    const statusAggregate = masterPlanAuxiliaryStatusSql;
     Object.assign(output, {
-      latestCustomerDueDate: `(SELECT COALESCE(min(weekly.latest_customer_due_date) FILTER (WHERE weekly.pending_quantity>0),max(weekly.latest_customer_due_date),record.latest_customer_due_date) ${weekly})`,
+      latestCustomerDueDate: `(SELECT ${masterPlanDeliveryDateSql("min(weekly.latest_customer_due_date) FILTER (WHERE weekly.pending_quantity>0)", "max(weekly.latest_customer_due_date)", "record.latest_customer_due_date")} ${weekly})`,
       technicalCycleDays: `(SELECT max(weekly.technical_cycle_days) ${weekly})`,
       drawingDueDate: `(SELECT min(technical.drawing_due_date) ${weeklyFrom} JOIN mps_technical_reports technical ON technical.tenant_id=weekly.tenant_id AND technical.weekly_plan_id=weekly.id WHERE ${weeklyWhere} AND technical.status<>'已完成')`,
       technicalStatus: `(SELECT ${statusAggregate("technical.status")} ${weeklyFrom} JOIN mps_technical_reports technical ON technical.tenant_id=weekly.tenant_id AND technical.weekly_plan_id=weekly.id WHERE ${weeklyWhere})`,
       hardwareCycleDays: `(SELECT max(weekly.hardware_cycle_days) ${weekly})`,
       hardwareDueDate: `(SELECT min(weekly.hardware_due_date) ${weekly} AND weekly.pending_quantity>0)`,
-      hardwareStatus: `(SELECT ${statusAggregate("CASE WHEN material.received OR material.actual_inbound_date IS NOT NULL THEN '已完成' WHEN weekly.hardware_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END")} ${weeklyFrom} JOIN mps_material_reports material ON material.tenant_id=weekly.tenant_id AND material.weekly_plan_id=weekly.id AND material.material_name='五金' WHERE ${weeklyWhere})`,
+      hardwareStatus: `(SELECT ${statusAggregate(masterPlanMaterialStatusSql("material.received", "material.actual_inbound_date", "weekly.hardware_due_date"))} ${weeklyFrom} JOIN mps_material_reports material ON material.tenant_id=weekly.tenant_id AND material.weekly_plan_id=weekly.id AND material.material_name='五金' WHERE ${weeklyWhere})`,
       woodCycleDays: `(SELECT max(weekly.wood_cycle_days) ${weekly})`,
       woodDueDate: `(SELECT min(weekly.wood_due_date) ${weekly} AND weekly.pending_quantity>0)`,
-      woodStatus: `(SELECT ${statusAggregate("CASE WHEN material.received OR material.actual_inbound_date IS NOT NULL THEN '已完成' WHEN weekly.wood_due_date<CURRENT_DATE THEN '延期' ELSE '未开始' END")} ${weeklyFrom} JOIN mps_material_reports material ON material.tenant_id=weekly.tenant_id AND material.weekly_plan_id=weekly.id AND material.material_name='木作' WHERE ${weeklyWhere})`,
+      woodStatus: `(SELECT ${statusAggregate(masterPlanMaterialStatusSql("material.received", "material.actual_inbound_date", "weekly.wood_due_date"))} ${weeklyFrom} JOIN mps_material_reports material ON material.tenant_id=weekly.tenant_id AND material.weekly_plan_id=weekly.id AND material.material_name='木作' WHERE ${weeklyWhere})`,
       outsourcingCycleDays: `(SELECT max(outsource.cycle_days) ${weeklyFrom} JOIN mps_outsourcing_reports outsource ON outsource.tenant_id=weekly.tenant_id AND outsource.weekly_plan_id=weekly.id WHERE ${weeklyWhere})`,
       outsourcingDueDate: `(SELECT min(outsource.outsourcing_due_date) ${weeklyFrom} JOIN mps_outsourcing_reports outsource ON outsource.tenant_id=weekly.tenant_id AND outsource.weekly_plan_id=weekly.id WHERE ${weeklyWhere} AND outsource.status<>'已入库')`,
       outsourcingStatus: `(SELECT ${statusAggregate("outsourcing.status")} ${weeklyFrom} JOIN mps_outsourcing_reports outsourcing ON outsourcing.tenant_id=weekly.tenant_id AND outsourcing.weekly_plan_id=weekly.id WHERE ${weeklyWhere})`,

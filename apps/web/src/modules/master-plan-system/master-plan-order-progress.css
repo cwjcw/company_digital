@@ -1,0 +1,14 @@
+.mps-order-progress{display:flex;flex-direction:column;gap:14px;width:100%;max-width:1880px;margin:0 auto;min-width:0}
+.mps-order-progress .ant-card{min-width:0}
+.mps-order-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.mps-order-filters .mps-dashboard-select{width:180px}
+.mps-order-table-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 8px}
+.mps-order-items{padding:8px;min-width:0;max-width:calc(100vw - 330px)}
+.mps-order-process{display:grid;grid-template-columns:minmax(48px,1fr) auto;column-gap:6px;align-items:center;min-width:110px;line-height:14px;font-size:12px}
+.mps-order-process .ant-progress{margin:0;font-size:0;line-height:12px}
+.mps-order-percentage{font-size:12px;line-height:14px;font-variant-numeric:tabular-nums}
+.mps-order-status,.mps-order-late{grid-column:1/-1;font-size:11px;line-height:14px}
+.mps-order-late{color:#cf1322}
+.mps-item-link{padding:0;height:auto;font-size:inherit}
+
+@media(max-width:900px){.mps-order-items{max-width:calc(100vw - 96px)}}

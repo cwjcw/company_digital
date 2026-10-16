@@ -8,12 +8,12 @@ import { mpsDashboardUrl } from "./master-plan-dashboard.utils";
 
 type Field = "divisionId" | "customerCode" | "orderNumber" | "itemCode";
 const labels = { divisionId:"事业部", customerCode:"客户", orderNumber:"订单号", itemCode:"品号" };
-export function MpsRemoteSelect({ field, filters, session, onChange }: { field: Field; filters: MpsDashboardFilters; session: string; onChange:(patch:MpsDashboardFilters)=>void }) {
+export function MpsRemoteSelect({ field, filters, session, onChange, resourceCode = resource, url = mpsDashboardUrl }: { resourceCode?: string; url?: typeof mpsDashboardUrl; field: Field; filters: MpsDashboardFilters; session: string; onChange:(patch:MpsDashboardFilters)=>void }) {
   const [search,setSearch]=useState(""),[query,setQuery]=useState(""),[selectedLabels,setSelectedLabels]=useState<Record<string,string>>({});
   useEffect(()=>{const id=setTimeout(()=>setQuery(search),250);return()=>clearTimeout(id);},[search]);
   const multiple=field==="orderNumber"||field==="itemCode", key=field==="orderNumber"?"orderNumbers":field==="itemCode"?"itemCodes":field;
   const context={...filters};delete context[key];
-  const result=useQuery({queryKey:[resource,session,"candidates",field,context,query],queryFn:()=>api<{options:Array<{value:string;label:string}>;hasMore:boolean}>(mpsDashboardUrl(context,"/candidates",{field,search:query})),staleTime:60_000,placeholderData:undefined});
+  const result=useQuery({queryKey:[resourceCode,session,"candidates",field,context,query],queryFn:()=>api<{options:Array<{value:string;label:string}>;hasMore:boolean}>(url(context,"/candidates",{field,search:query})),staleTime:60_000,placeholderData:undefined});
   const values=filters[key],value=multiple?(values as string[]|undefined)?.map(v=>({value:v,label:selectedLabels[v]??result.data?.options.find(o=>o.value===v)?.label??v})):values?{value:values as string,label:selectedLabels[values as string]??result.data?.options.find(o=>o.value===values)?.label??values}:undefined;
   return <Select className="mps-dashboard-select" mode={multiple?"multiple":undefined} maxTagCount="responsive" labelInValue aria-label={labels[field]} placeholder={`全部${labels[field]}`} allowClear showSearch filterOption={false} value={value} onSearch={setSearch} onChange={next=>{
     const entries=(multiple?next:next?[next]:[]) as Array<{value:string;label:string}>;

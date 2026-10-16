@@ -1,3 +1,4 @@
+import { mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, mpsOrderProgressProcessFields } from "./master-plan-order-progress";
 import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardGaps } from "./master-plan-dashboard";
 import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
 export * from './finance-orders';
@@ -150,6 +151,7 @@ export const tableResourceRegistry = [
   { code: "hr-departure-check", label: "离职人员检查", module: "人力资源", moduleCode: "hr" },
   { code: "equipment-register", label: "设备总台账", module: "PMC中心", moduleCode: "planning" },
   { code: "equipment-status-report", label: "设备状态填报", module: "PMC中心", moduleCode: "planning" },
+  { code: "mps-order-progress-dashboard", label: "在制订单进度", module: "PMC中心", moduleCode: "planning" },
   { code: "mps-overview-dashboard", label: "主计划综合大屏", module: "PMC中心", moduleCode: "planning" },
   { code: "equipment-dashboard", label: "集团设备大屏", module: "PMC中心", moduleCode: "planning" },
   ...masterPlanResourceDefinitions.map(({ code, label }) => ({ code, label, module: "PMC中心" as const, moduleCode: "planning" as const })),
@@ -427,6 +429,13 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "hr-departure-check": fields([["account", "账号"], ["name", "姓名"], ["status", "状态", "dictionary", false]]),
   "equipment-register": fields([["divisionId", "事业部", "department"], ["usageDepartmentId", "使用部门", "department"], ["equipmentCode", "设备编号"], ["equipmentName", "设备名称"], ["purchaseDate", "购买日期", "date"], ["plannedStartupMinutes", "设备计划开机时间", "number", true, false, { format: "durationMinutes" }], ["monitored", "纳入状态填报", "boolean"], ["responsibleUserIds", "责任人", "member", true, false, { multiple: true }]]),
   "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["plannedRuntimeMinutes", "计划运行时间", "number", true, true, { format: "durationMinutes" }], ["runtimeMinutes", "实际运行时长", "number", true, false, { format: "durationMinutes" }], ["utilizationRate", "稼动率", "number", false, false, { format: "percentage", percentageScale: "percent", filterable: false }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
+  "mps-order-progress-dashboard": fields([
+    ...Array.from(new Map([...mpsOrderProgressOrderColumns, ...mpsOrderProgressItemColumns].map(([key,label])=>[key,label])).entries()).map(([key,label])=>[key,label,key==="divisionId"?"department":/Date$/.test(key)?"date":/Quantity$|Rate$|Count$/.test(key)?"number":"text",false] as [string,string,"department"|"date"|"number"|"text",boolean]),
+    ["deliveryNumber","交期编码","text",false], ["drawingDueDate","图纸交期","date",false],
+    ["hardwareDueDate","五金交期","date",false], ["woodDueDate","木作交期","date",false], ["outsourcingDueDate","外协交期","date",false],
+    ["hardwareActualInboundDate","五金实际到位日期","date",false], ["woodActualInboundDate","木作实际到位日期","date",false], ["outsourcingActualInboundDate","外协实际入库日期","date",false],
+    ...mpsOrderProgressProcessFields.map(([key,label,type])=>[key,label,type,false] as [string,string,"number"|"text"|"date",boolean])
+  ]).filter(field=>!auditPermissionFields.some(a=>a.key===field.key)).map(field=>/Rate$|ProductionProgress$/.test(field.key)?{...field,format:"percentage" as const,percentageScale:"ratio" as const}:field),
   "mps-overview-dashboard": fields([
     ["divisionId", "事业部", "department", false], ["customerCode", "客户编码", "text", false],
     ["orderNumber", "订单号", "text", false], ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false],
@@ -866,6 +875,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "finance-customer-mappings": { status: "REGISTERED_AND_FILTERABLE" },
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
+  "mps-order-progress-dashboard": { status: "NOT_APPLICABLE", reason: "在制订单进度为订单/品号分层聚合报表，使用独立分页查询和受控顶部筛选，不对应单一记录表。" },
   "mps-overview-dashboard": { status: "NOT_APPLICABLE", reason: "主计划综合大屏为多资源聚合驾驶舱，不存在单一记录表，不直接使用标准 TableFilter rows 接口。" },
   "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
   /* 上传即算即走 / 纯任务型资源：没有可持久化查询的业务记录表。 */
@@ -904,6 +914,7 @@ const printNotApplicable: Record<string, string> = {
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
   "supervision-employee-dashboard": "员工待办大屏是当前用户的实时工作视图，任务明细通过督办任务资源打印。",
   "supervision-owner-report": "责任人完成报表是按用户和周期实时聚合结果，本阶段不生成独立打印快照，具体任务通过一致下钻查看。",
+  "mps-order-progress-dashboard": "在制订单进度为分层聚合报表，本轮提供两类独立Excel导出，不生成打印快照。",
   "mps-overview-dashboard": "主计划综合大屏为多资源聚合视图，正式业务明细复用原资源，不提供大屏打印。",
   "equipment-dashboard": "集团设备大屏是聚合指标视图，不是记录列表，打印无业务意义。",
   "hr-departure-check": "离职人员检查是上传花名册后即时比对的结果页，数据不落库，没有可打印的持久记录集合。",
@@ -1051,3 +1062,5 @@ export * from "./equipment-dashboard";
 export * from "./finance";
 
 export * from "./master-plan-dashboard";
+
+export * from "./master-plan-order-progress";
