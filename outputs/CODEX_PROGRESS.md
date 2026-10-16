@@ -7,7 +7,7 @@
 最后更新时间：2026-10-16。
 
 ## 当前阶段
-当前阶段：功能部署与线上核验已完成。当前子任务：最终记录提交统一SHA发布闭环。
+当前阶段：功能部署与线上核验已完成。当前子任务：无代码遗留；最终记录版本按all/check发布，恢复时以实时check与私有final-state.json确认本记录版本是否已完成发布。
 
 ## 已完成
 - [x] 起始HEAD/生产Web/API均d6e6e8a，工作区干净；规范、Skill、审计/指标及当前源码已核对。
@@ -24,12 +24,13 @@
 - [x] Web最终单worker全量52套400项全部通过；首轮399/400既有研发页时序偶发失败，原测试隔离27/27及最终全量均通过，未修改该测试。
 
 ## 待完成
+- [ ] 用户人工验收REV3-A；未经确认不判PASS。
 - [x] API/Web/Contracts/PG/Chrome/typecheck/lint/build。
 - [x] 真实9类count/detail/export只读核验、数据/权限/6flags基线对比、migration check。
 - [x] 标准备份、功能提交13c2a1e（16文件）push github/main、all/check部署、线上健康与部署后三页Chrome28/28通过。Repository/Web/API一致；4容器healthy、原PG容器保留、Dispatcher active，三页面200，受保护API匿名401。
 - [x] 运行API容器实际只读Service9类count/detail一致；count969ms，数量与验收报告一致。
 - [x] 部署后角色哈希差异追查：10:53:45订单分配权限组web保存，早于本任务功能提交及部署；备份逐列比较仅updated_at/version2→3，其余角色业务授权字段、权限项一致；外部现状保留，本任务无授权写入。
-- [ ] 最终记录提交push并标准all/check，完成同一SHA最终核验。
+- 最终记录版本也按标准all/check发布；最终SHA/发布与健康结果定位data/mps-gaps-rev3a/final-state.json和交付回复，不在本文件写自引用SHA。
 - [x] 验收报告outputs/KDOS_MPS_GAPS_REV3A_ACCEPTANCE.md；B PASS、A WAITING_MANUAL_ACCEPTANCE，C/D NOT_STARTED并停止。
 
 ## 修改文件
@@ -53,9 +54,9 @@
 - 无实施授权等待；最终页面等待人工验收，不能自动判PASS。
 
 ## 下一步
-1. 仅最终outputs记录提交推送后标准all/check，确保Repository/Web/API同一最终SHA。
-2. 最终健康/Chrome smoke及数据快照核对；若已一致则无需重复部署。
-3. 交付REV3-A WAITING_MANUAL_ACCEPTANCE，停止，不进入C/D。
+1. 恢复先读取私有final-state.json并运行deploy.sh check；记录版本若已一致/健康，则本阶段无需重复执行开发或部署。
+2. 仅当记录版本未发布时完成标准all/check与健康/Chrome smoke。
+3. 用户人工验收REV3-A；当前WAITING_MANUAL_ACCEPTANCE，C/D NOT_STARTED，停止。
 
 ## 恢复执行说明
 规范→本节→git status/diff→总控/验收记录→下一步首个未完成项。保留下方历史；不重做B、导入或督办UAT。
