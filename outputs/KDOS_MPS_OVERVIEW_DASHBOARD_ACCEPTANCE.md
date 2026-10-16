@@ -1,6 +1,6 @@
 # KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2 自动验证与人工验收清单
 
-业务规则/实现和自动验证已完成；本轮上线门禁仍以标准all部署及Repository/Web/API一致、服务健康证据为准。最终必须为WAITING_MANUAL_ACCEPTANCE，不自动PASS。以下为REV2验收口径，REV1历史保留在下方。
+当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收）。业务规则、实现、自动验证、GitHub推送、标准all部署及运行核验已完成；不自动PASS。以下为REV2验收口径，REV1历史保留在下方。
 
 - 真实起始基线707bc5a（保留其督办创建权限修复）；未回退6bff61e，未覆盖既有未提交进度。
 - 9类待处理事项：未进入出货、未进入基础、已具备条件未进入周、计划待完善、未开始报工、未入库、未完成入库、延期未完成、生产异常。每个KPI点击切换对应server-side分页Tabs，可单独导出全匹配清单。3天工单当前窗口规则不足，标BLOCKED且不展示。
@@ -15,6 +15,11 @@
 - 双库及附件标准备份20261015_232206，pg_restore目录与SHA256验证通过；本轮无业务migration、事实表、业务数据/报工/入库修改、同步开关或调度调整。
 
 ## 上线证据与待人工验收
+
+- 最终应用提交：`08f91951dcfa062133d61969c371a8964facb8df`，已推送`github/main`；标准`./scripts/deploy.sh all`及`check`完成，Repository/Web/API一致，STATUS=CONSISTENT。
+- 四个容器healthy、原PostgreSQL容器保留、Dispatcher active；页面200；summary/gaps/reports/export匿名401。部署后Chrome12项再次全部通过（1.0m）。
+- 部署后再次进行27次KPI/list total对比及三报表查询，全部一致；10张业务表记录数/version哈希、6个flags、93条migration台账与起始快照一致。EXPLAIN1252ms，分页145–1207ms。
+- 最终运营记录本地更新于2026-10-15T23:49:48+08:00，应用代码18个任务文件均已推送。真实账号业务验收留给用户，Chrome使用合成响应，不混同为用户确认。
 
 最终运行SHA以本任务交付回复、build-info及health为准；标准部署/check、部署后Chrome与只读核验的执行证据写入私有data/mps-dashboard-rev2。新指标有独立字段权限，普通用户不得因原月计划权限而自动获得Dashboard或其它业务表读取权；真实账号和真实业务含义仍需用户按GAP_AUDIT/Gap Metrics复核。
 

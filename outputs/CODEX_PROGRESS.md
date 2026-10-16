@@ -3,56 +3,63 @@
 ## 任务
 任务名称：KDOS-MPS-OVERVIEW-DASHBOARD-001 REV2。
 任务目标：业务缺口审计、待处理KPI/分页清单/单表导出、三张独立报表；继承同一Dashboard Scope，保持只读与同步flags。
-当前状态：IN_PROGRESS，不判PASS；完成后等待人工验收。
-最后更新时间：2026-10-15（Asia/Shanghai）。
+当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收，不判PASS）。
+最后更新时间：2026-10-15T23:49:48+08:00。
 
 ## 当前阶段
-当前阶段：验证通过，上线准备。
-当前子任务：最终定向13项API/PG与2项Web通过，migration 93/93；提交推送与标准all部署。
+当前阶段：开发、自动验证、备份、GitHub同步、标准all部署及部署后核验完成。
+当前子任务：无开发/部署遗留；等待用户人工验收业务口径与真实权限数据。
 
 ## 已完成
-- [x] 读取REV2全文、AGENTS/Skill/既有指标与验收；实际HEAD/Repository/Web/API均707bc5a（包含后续督办任务修复），不回退6bff61e。
-- [x] 工作区仅既有进度未提交，保留完整历史；REV1已有同源scope/分页detail/export，继续扩展。
+- [x] 基于真实最新707bc5a继续，保留督办任务修复；未回退6bff61e，既有导入/UAT进度保留在下方。
+- [x] GAP_AUDIT及Gap Metrics锁定9类可靠缺口；3天工单窗口无正式应有集合，BLOCKED且不展示。
+- [x] 同一gap_rows派生count/list/export；shipping/monthly、base/shipping、weekly/base使用正式父ID；无第二套业务事实。
+- [x] KPI点击对应分页Tabs；三张独立KdosDataTable拥有独立请求/分页/排序/局部筛选/导出/加载错误空状态；原风险下钻保留。
+- [x] 顶部Scope统一；tenant、Dashboard read、字段依赖、read∩export及英文无UUID导出由后端保证。
+- [x] API全量107套1002通过；Dashboard最后13项含启用真实PG的5组场景和14类导出通过；Contracts22通过。
+- [x] Web全量50套386通过；最后Dashboard11与独立报表2项复核通过；本地Chrome12及已部署Chrome12通过。
+- [x] 全仓typecheck/lint/build通过；仅既有ModulePortal fast-refresh与Vite chunk警告。
+- [x] 双库及附件备份20261015_232206完成，pg_restore目录及SHA256通过。
+- [x] 仅本任务18个代码/测试/合同/文档文件提交并推送github/main：08f91951dcfa062133d61969c371a8964facb8df；既有无关进度未混入提交。
+- [x] 标准deploy.sh all成功；check为CONSISTENT，Repository=Web=API=08f91951dcfa062133d61969c371a8964facb8df；4容器healthy，原生产PG容器保留，Dispatcher active。
+- [x] 部署后生产只读33个聚合/分页查询完成，三组顶部条件下9类count=detail.total共27次对比通过；10业务表记录数/version哈希与基线一致。
+- [x] 6项sync enabled/interval及migration台账与基线一致；页面200，新旧受保护Dashboard接口匿名401。
 
 ## 正在进行
-- [x] GAP_AUDIT及Gap Metrics已更新；9类可靠缺口，3天窗口BLOCKED。
-- [x] 后端共用gap_rows生成count/list/export；引入shipping正式父ID关系；三张报表独立查询/状态/局部条件/导出。
-- [x] 生产只读三组顶部条件下9类count=total（27对比）通过；10业务表记录数/version哈希不变，flags/migrations不变；初步summary EXPLAIN约1257ms，明细146–1204ms。
+- 无开发或部署执行中事项。
 
 ## 待完成
-- [x] 9类缺口query/count/detail/export；三张独立报表及局部条件/导出，原风险下钻保留。
-- [x] API全量1002、Web全量386、Contracts22、Chrome12及全仓typecheck/lint/build通过；PG临时表5组真实SQL场景已启用通过，最后扩大至14类导出及独立报表2项复核均通过。
-- [x] 备份232206完成，双库/附件SHA256与目录检查通过；无新增migration。
-- [ ] 备份、GitHub安全同步、all部署及版本/健康核验，状态等待人工验收。
+- [ ] 用户人工验收9类缺口业务含义、多批次清单、真实账号权限及三张独立报表交互；未经确认不判PASS。
 
 ## 修改文件
-- Contracts Dashboard/字段注册；Dashboard Service/Controller/Export/对应API测试及PG集成测试；Web Dashboard/Table/3份unit及Chrome e2e；GAP_AUDIT/METRICS/ACCEPTANCE、runbook/integration-guide及本进度。
-- 既有UAT/导入历史进度不混入本次Git提交，私有业务证据不入Git。
+- 18个已推送任务文件：Contracts Dashboard/字段注册；Dashboard Service/Controller/Export/API与PG测试；Web Dashboard/Table及3份unit/Chrome e2e；GAP_AUDIT/METRICS/ACCEPTANCE、runbook/integration-guide及进度首节。
+- 部署后最终运营记录更新仅位于outputs及忽略的data/mps-dashboard-rev2；不为记录变化重复发布应用。此前导入/UAT未提交进度仍保留。
 
 ## 数据库 Migration
-- 无新增；migration:show 93/93已应用。严禁业务数据/同步flags写入，不启动同步。
+- 无新增；migration:show 93/93已应用，台账不变。未修改业务数据、报工、入库、权限配置或同步flags，未触发同步。
 
 ## 新增或修改测试
-- 已补缺口真值、稳定父ID/跨租户/多批次、同条件count=detail.total、独立分页/筛选/14类导出、字段与read/export权限。
+- 稳定父ID差集、重复业务显示字段/不同父ID、多交期批次、跨tenant目标与来源、ready/not ready、0/部分/完成入库、0报工、人工异常与多风险、27组count/list一致、14类导出、权限/字段/Scope、独立3表状态及缺口点击。
+- PG测试仅连接本地TEMP影子表并回滚；Chrome明确拦截合成API响应，不冒充真实用户业务验收、不创建生产假记录。
 
 ## 已运行测试
-- 启动deploy check：707bc5a一致。
-- API Dashboard/Gaps13项通过（含启用真实PG的5组场景）；Web局部筛选等待元数据的同步已修正，独立报表最终2项通过。
+- 上述API/Web/Contracts/Chrome/typecheck/lint/build/migration/check均通过。
+- 部署后EXPLAIN execution 1252ms/planning10ms；分页明细145–1207ms。私有证据：data/mps-dashboard-rev2。
 
 ## 当前已知问题
-- 补充migration49及Application证据：shipping.monthly_plan_id为tenant复合正式FK；出货缺口可按正需求monthly.id差集实现（不推断allocation数量覆盖），已修正初步BLOCKED结论。
-- 3天工单source实际为周计划全量，生产起止日期人工维护，无正式“当前3天应生成窗口”规则。
+- 3天工单窗口缺少正式“当前3天应生成”的准入规则，BLOCKED；不把全部未生成工单的weekly当异常。
+- 未进出货只表示正需求monthly尚无正式父ID关联shipping，不表示数量/全部批次已排完；需用户人工确认管理口径。
 
 ## 等待用户确认
-- 无开发确认等待；仅3天工单窗口BLOCKED且不展示，交付后用户人工验收。
+- 用户人工验收；无权限/发布批准等待。
 
 ## 下一步
-1. 仅提交本任务代码/测试/文档并推送github/main，保留无关进度未提交。
-2. 标准all部署/check，部署后Chrome12与生产只读核验、健康检查。
-3. 写入最终SHA/结果并转WAITING_MANUAL_ACCEPTANCE。
+1. 用户按GAP_AUDIT/Gap Metrics和验收清单核验线上页面。
+2. 收到具体反馈继续本任务；未经确认保持WAITING_MANUAL_ACCEPTANCE。
+3. 无需重导Excel、重做督办账号UAT、重跑同步或重复创建业务数据。
 
 ## 恢复执行说明
-规范→本节→git status/diff→GAP_AUDIT→现有REV2改动。禁止重导Excel或重复UAT任务，禁止回退/覆盖707bc5a督办修复，保持同步flags原值。
+项目规范→本节→git status/diff→最终验收报告。源码与GitHub/线上已一致，outputs本地运营记录及历史进度保留；不得覆盖。最终报告：outputs/KDOS_MPS_OVERVIEW_DASHBOARD_ACCEPTANCE.md；私有运行证据data/mps-dashboard-rev2。
 
 ---
 
@@ -61,12 +68,12 @@
 ## 任务
 任务名称：创建任务所属督办项目候选/后端授权范围修复。
 任务目标：同租户未结束项目按负责人/督办人/参与人关系授权，管理员放行；独立于项目read scope；任务create权限保留。
-当前状态：进行中。
-最后更新时间：2026-10-15（Asia/Shanghai）。
+当前状态：已完成。
+最后更新时间：2026-10-15T19:40:38+08:00。
 
 ## 当前阶段
-当前阶段：共享规则与回归通过，完整验证及上线准备。
-当前子任务：所有验证/备份通过，准备GitHub同步及部署；普通账号真实登录方式待用户回复。
+当前阶段：开发/回归/备份/GitHub同步/部署/健康验证及真实普通账号验收均完成。
+当前子任务：无。最终报告data/supervision-task-scope/result.md（私有）；运行与远程源码版本仍为707bc5a。
 
 ## 已完成
 - [x] 已读AGENTS、表单/任务治理Skill、边界文档及任务台账；工作区仅既有进度未提交，HEAD 6bff61e。
@@ -81,9 +88,12 @@
 - [x] API全量107套/1001测试通过；数据库集成13通过；typecheck全仓和build通过；lint无错误；migration93/93已应用，无新增。
 - [x] Web全量49套383测试通过（maxWorkers=2、testTimeout=15000）；参与人真实选择场景在默认5000ms下单独通过。
 - [x] 生产备份182937双库/附件完成，SHA256全部通过。
-- [ ] GitHub安全提交推送、部署及健康检查。
+- [x] 707bc5af0deef523cb3b6c2c79806e017feb774b已提交并推送github/main；deploy.sh all成功，Web/API版本一致，4容器健康，PostgreSQL原容器保留，Dispatcher active。
+- [x] 部署容器内实时普通用户claims：候选可见、Application创建及本人审计成功、事务回滚清理、项目哈希不变；未登录HTTP401，健康200。
 - [x] 实际账号实时AuthService有效权限下Query候选可见，Application创建及审计通过，事务回滚清理，项目全字段不变（私有actual-actor-verification.json）；此验证非真实浏览器登录。
-- [ ] 普通崔玮杰登录会话页面/POST实测待真实登录方式，不能伪称完成。
+- [x] 已连接用户真实Chrome登录：auth/me200，普通崔玮杰、有任务create无项目read；实际下拉找到并点击选择目标项目。
+- [x] 同一真实Chrome会话正式POST创建测试任务201，created_by为该用户；精确UAT清理Application命令删除，创建/清理审计保留，独立回读旧任务/项目/管理员授权不变。
+- [x] 刷新页面仍仅原1条任务；版本707bc5a一致、健康检查通过。截图/会话摘要/POST回执/清理证据均仅保存忽略目录，无Token输出或复制。
 
 ## 修改文件
 - API：supervision.scope.ts / query.service.ts / application.service.ts及对应3个spec、新增task-creation.postgres.spec.ts。
@@ -94,26 +104,139 @@
 - 无新增；API迁移93/93应用；core18/18校验和一致，未修改结构。
 
 ## 新增或修改测试
-- 将补全owner/supervisor/participant/无关系/已结束/跨租户/管理员候选及POST后端回归、Web参与人场景。
+- 已补全owner/supervisor/participant/无关系/已结束/跨租户/管理员候选及POST后端回归、Web参与人场景。
 
 ## 已运行测试
 - API unit37通过（首次新增集成测试fixture缺level已修复）；PostgreSQL+HTTP13通过；Web supervision6通过。
 - API/Web lint通过（Web原有ModulePortal warning1）；API/Web typecheck通过。
-- 首次误用pnpm脚本参数导致Web全量高并发超时；现已用exec和限并发重跑，最终结果待记录。
+- 首次参数转发/高并发超时已解决；全量API1001、Web383及启用数据库集成13全部通过。
+- 真实Chrome用户会话：候选200、页面实际选取、生产POST201、测试任务删除并独立回读无残留。
 
 ## 当前已知问题
-- 实际普通账号登录会话是否可用尚待核实，不伪造生产认证或修改账号权限。
+- 无未完成项；首次清理审计source=system不受现有约束支持，事务已回滚；改用现有api来源后清理与审计通过，无结构/权限变更。
 
 ## 等待用户确认
-- 无；开发/部署/实际测试均已授权。
+- 无。用户提供真实Chrome登录会话后，剩余实际验收已完成。
 
 ## 下一步
-1. Web全量回归结束后仅提交本任务源码/测试/接口文档，推送github/main。
-2. 标准备份已完成；部署all并健康/版本/迁移核验，再运行真实actor回滚验证。
-3. 有真实登录方式后做普通账号页面/POST实测；否则准确记录该唯一未验证项。
+1. 已完成，无需再次创建测试任务或重导旧Excel。
+2. 追溯优先读取data/supervision-task-scope/result.md、uat-verified.json和真实创建/清理审计；不输出或复制会话Token。
+3. 本轮仅补实际UAT与本地私有证据/进度，无源码配置变化；运行与GitHub已同步707bc5a，不重复部署。
 
 ## 恢复执行说明
 先读项目规范/Skill→本节→git status/diff，继续现有修改；不要重新执行下方已完成Excel导入。认证验证使用真实会话，不给账号提权。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：10.14.3.xlsx整批静默导入。
+任务目标：按用户明确要求不查重、不去重，完整追加下载目录10.14.3.xlsx，禁止本次微信提醒。
+当前状态：已完成。
+最后更新时间：2026-10-15T18:21:03+08:00。
+
+## 当前阶段
+当前阶段：正式导入及独立回读验证完成，当前203行，本次通知事件0。
+当前子任务：无。最终报告：data/pmc-allocation-10143/result.md（私有，不入Git）。
+
+## 已完成
+- [x] 正式加密检测/解析通过：87有效源行、2订单、0错误，原文件不改。
+- [x] 导入前备份181758双库及附件完成，pg_restore目录/SHA256校验通过。
+- [x] 正式Spreadsheet预览→Application确认整批追加87行，更新0；全部源行保留，不查重、不去重。
+- [x] 同次确认幂等及正式审计通过；新批次01a13f13-b8c5-7317-b69d-b655aceebf36。
+- [x] 独立连接按原行号及ALLOCATION_FIELDS回读一致；原116行及归档2338行全部哈希不变；当前203行。
+- [x] 本次独立命令不注入通知服务：通知outbox无新增，本次事件0，推送配置/接收配置/同步flags不变。
+- [x] Runtime Repository/Web/API均6bff61e，Dispatcher仍active；无代码/配置变更，不重部署。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- 仅本进度；私有操作证据data/pmc-allocation-10143，不入Git；无源码/配置变更。
+
+## 数据库 Migration
+- 无。
+
+## 新增或修改测试
+- 无；本次为数据操作，执行正式解析/预览、同次确认幂等及写后回读。
+
+## 已运行测试
+- 正式链路87/0、源行完整保留、全字段回读、旧数据不变、通知/flags不变全部通过。
+- 备份验证通过；deploy.sh check版本一致；Dispatcher active。
+
+## 当前已知问题
+- 无；本次操作已完成，勿再次追加此87行。上一批29行记录继续保留下方。
+
+## 等待用户确认
+- 无，用户已明确授权直接整批静默导入。
+
+## 下一步
+1. 已完成，刷新订单分配表可查看203行。
+2. 追溯时读取私有result.md、verified.json和正式批次；禁止重复导入本批。
+3. 无开发变更，不提交私有业务数据、不重部署。
+
+## 恢复执行说明
+AGENTS/两项Skill→本节→Git状态→data/pmc-allocation-10143的result/verified/receipt。操作已完成，勿重复导入本批或上一批29行；不修改全局推送开关、Dispatcher或同步flags。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：三份10.14订单分配文件核对与静默补传。
+任务目标：检查下载目录10.14.2.xlsx、10.14+.xlsx、10.14++.xlsx，只补缺少记录，绝不触发企业微信推送。
+当前状态：已完成。
+最后更新时间：2026-10-15（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：29行已正式补传并回读核验，当前116行；本次无通知。
+当前子任务：无。最终报告：data/pmc-allocation-missing/result.md（私有，不入Git）。
+
+## 已完成
+- [x] 三文件已找到；起始工作区干净，HEAD 6bff61e。
+- [x] 阅读表单/任务治理Skill及台账；普通Application导入可入通知outbox，不能直接用普通HTTP确认。
+- [x] 核实Application notifications为可选注入；本次专用实例不注入通知服务，保留其它校验/审计/幂等/来源；不修改正式通知规则或Dispatcher。
+- [x] allocation不产生下游对账任务，保持现有同步flags。
+
+## 正在进行
+- [x] 用户明确不去重；现有87行不得再导。两份87行文件业务内容逐行相同且均完整对应现有87行，因此整份跳过，原87行不动。
+- [x] 10.14+.xlsx29行已归档，用户明确授权重新追加当前表；全部29行保留，不做任何行去重。
+
+## 待完成
+- [x] 备份180929双库/附件完成且SHA256、pg_restore目录有效。
+- [x] 实际正式Spreadsheet预览→Application确认→重复确认已于单一事务验证并回滚，29/0，原87不变；通知outbox/规则/接收配置/flags均不变，SQL写入白名单阻止通知及其它业务表写入。
+- [x] 正式Spreadsheet预览/确认追加完整29行，修改0，同批幂等与审计保留。
+- [x] 按原行号/全部非金额业务值回读一致；原87与归档2338（合2425条）全字段哈希不变，当前116。通知outbox无新增/本次事件0；规则、映射、接收配置、flags及migration基线不变。
+
+## 修改文件
+- 仅outputs/CODEX_PROGRESS.md进度；业务证据保存在忽略目录data/pmc-allocation-missing，原文件不修改。
+
+## 数据库 Migration
+- 无。
+
+## 新增或修改测试
+- 无代码更改；按原有正式解析/预览/校验/导入命令进行操作验证。
+
+## 已运行测试
+- 已完成正式链路的事务回滚验证、同批幂等验证及正式29行全字段回读；87→116，通知事件0。
+
+## 当前已知问题
+- 无未完成项；以后不要重复确认这批29行，也不要按早先已纠正的203行计划操作。
+
+## 等待用户确认
+- 无；用户已授权补传且明确禁止推送。
+
+## 下一步
+1. 已完成，用户刷新订单分配表即可查看116行。
+2. 如需追溯先读私有verified/receipt结果和正式批次，禁止再次追加该29行。
+3. 无代码/配置修改，不重部署；业务文件与私有证据不入Git。
+
+## 恢复执行说明
+AGENTS/两项Skill→本节→git状态/diff→data/pmc-allocation-missing。操作已完成；先读verified/receipt和正式批次，禁止重复导入。绝不修改全局推送开关、Dispatcher或同步flags。
 
 ---
 
