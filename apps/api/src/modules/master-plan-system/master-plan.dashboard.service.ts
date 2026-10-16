@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { standardProcesses } from "@tracker/shared";
-import { auxiliaryPlanGroups, mpsDashboardDateRange, mpsDashboardReadinessColumns, mpsDashboardExecutionColumns, mpsDashboardTableKeys, mpsDashboardRiskColumns, mpsDashboardGaps, mpsDashboardGapKeys, mpsDashboardGapColumns, type MpsDashboardGapKey, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow, type MpsDashboardTableData, type MpsDashboardTableKey } from "@kdos/contracts";
+import { auxiliaryPlanGroups, mpsDashboardDateRange, mpsDashboardReadinessColumns, mpsDashboardExecutionColumns, mpsDashboardTableKeys, mpsDashboardRiskColumns, mpsDashboardGaps, mpsDashboardGapKeys, mpsDashboardGapColumns, type MpsDashboardGapKey, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardGapCounts, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow, type MpsDashboardTableData, type MpsDashboardTableKey } from "@kdos/contracts";
 import { normalizeKdosPageSize } from "../../common/pagination";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { MasterPlanQueryService } from "./master-plan.query.service";
@@ -159,7 +159,7 @@ export class MasterPlanDashboardService {
       }).join(" UNION ALL ")})`;
   }
   /** Public for real PostgreSQL/EXPLAIN verification; all values remain bound parameters. */
-  querySql(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false) {
+  querySql(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false, gapCountsOnly = false) {
     input = this.normalize(input);
     this.assert(actor); if (action === "export") this.assert(actor, "export"); this.validate(input, actor);
     const gap = mpsDashboardGaps.find(g => g.key === input.tableKey);
@@ -235,6 +235,12 @@ export class MasterPlanDashboardService {
         'risks',jsonb_build_object('total',(SELECT count(*) FROM filtered_risks),'rows',COALESCE((SELECT jsonb_agg(r) FROM (SELECT r.*,o.name "divisionName" FROM filtered_risks r LEFT JOIN organization_units o ON o.id=r."divisionId" ORDER BY ${riskSort} "latestCustomerDueDate" NULLS LAST,"orderNumber","itemCode","riskType",id ${allRisks ? "" : `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`}) r),'[]'::jsonb)),
         'trendStart',((now() AT TIME ZONE 'Asia/Shanghai')::date-7)::text,'trendEnd',((now() AT TIME ZONE 'Asia/Shanghai')::date-1)::text
       ) data`;
+    if (gapCountsOnly) {
+      // Select from the exact same gap_rows as summary/detail/export. PostgreSQL
+      // can prune unrelated overview aggregates; no second difference formula.
+      const cte = sql.slice(0, sql.indexOf("\n      SELECT jsonb_build_object("));
+      return { sql: `${cte} SELECT jsonb_build_object('gaps',(SELECT jsonb_object_agg(key,n) FROM (SELECT key,count(*) n FROM gap_rows GROUP BY key) counts)) data`, params, page, pageSize };
+    }
     if (input.tableKey) {
       const gapFields = [...new Set(mpsDashboardGaps.flatMap(g => mpsDashboardGapColumns(g.key).map(([key]) => key)))];
       let source = input.tableKey === "plan-readiness" ? `SELECT id::text,division_id "divisionId",customer_code "customerCode",order_number "orderNumber",item_code "itemCode",item_name "itemName",dashboard_order_date::text "orderDate",dashboard_delivery_date::text "deliveryDate",delivery_number "deliveryNumber",latest_customer_due_date::text "latestCustomerDueDate",planned_quantity::text "plannedQuantity","weeklyPlanState","weeklyPlanMissingFields","weeklyPlanGenerationIssue",'计划准备问题' "issueCategory" FROM base_data WHERE "weeklyPlanState"='待完善' AND ${this.readable(actor, "weeklyPlanState")}`
@@ -282,6 +288,22 @@ export class MasterPlanDashboardService {
       trend: this.readable(actor, "productionDate") ? data.trend.map((r: MpsDashboardRow) => clean(r)) : [],
       divisions: this.readable(actor, "divisionId") ? data.divisions.map((r: MpsDashboardRow) => clean(r)) : [],
       risks: { total: data.risks.total, rows: data.risks.rows.map((r: MpsDashboardRow) => clean(r)), page, pageSize: allRisks ? data.risks.total : pageSize }
+    };
+  }
+
+  async gapCounts(input: DashboardQuery, actor: MasterPlanActor): Promise<MpsDashboardGapCounts> {
+    // KPI counts only accept the shared top scope, never a tab's local conditions.
+    const { divisionId, customerCode, orderNumbers, itemCodes, dateType, datePeriod, dateValue, dateFrom, dateTo } = input;
+    const { sql, params } = this.querySql({ divisionId, customerCode, orderNumbers, itemCodes, dateType, datePeriod, dateValue, dateFrom, dateTo }, actor, "read", false, true);
+    const data = await this.dataSource.transaction("REPEATABLE READ", async manager => {
+      await manager.query("SET TRANSACTION READ ONLY");
+      await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('TimeZone','Asia/Shanghai',true),set_config('statement_timeout','15000',true),set_config('jit','off',true)", [actor.tenantId]);
+      return (await manager.query(sql, params))[0].data;
+    });
+    return {
+      gaps: Object.fromEntries(mpsDashboardGaps.filter(g => this.allowed(actor, g.metric)).map(g => [g.key, Number(data.gaps?.[g.key] ?? 0)])),
+      visibleFields: tablePermissionFieldsFor(resource).map(f => f.key).filter(k => this.allowed(actor, k)),
+      generatedAt: new Date().toISOString()
     };
   }
 

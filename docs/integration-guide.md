@@ -158,3 +158,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 `mps-order-progress-dashboard` 是独立planning资源，不继承overview的read/export或字段授权。编译期registry由现有正式权限组管理识别，不需要初始化生产权限。`GET /master-plan-system/order-progress/meta|orders|items|candidates` 使用租户和本资源scope；items按稳定orderId按需分页。`/detail/:resourceCode` 固定允许周计划/四类报工/工序任务，必须提供orderId/itemId，并交原资源read、字段、scope；不提供写入或同步能力。
 
 `GET .../export/orders|items` 为两类全量XLSX，继承顶部精确多选/日期/未完成条件及read∩export/字段；忽略分页和展开定位ID，单订单品号导出应通过正式orderNumbers精确收窄。数量/状态/人工异常表达式与正式计划共用；报工先weekly/process聚合，按正式父链及事业部归属月计划，保留独立未关联来源行。图纸完成日期无正式字段，不使用更新时间代替。原overview契约不变。
+
+## 待处理事项大屏 REV3-A
+
+`/master-plan-gaps` 复用 `mps-overview-dashboard` 的 read/export、字段依赖和数据范围，不引入新权限资源或生产授权迁移。`GET /api/v1/master-plan-system/dashboard/gap-counts` 只返回 `{gaps, visibleFields, generatedAt}`；接收原顶部事业部/客户/订单/品号/日期条件，忽略清单的局部搜索、排序和分页。数量直接SELECT原querySql的同一gap_rows，清单及Excel仍使用原gaps/export接口；未授权指标省略，有权限但无行返回0。所有查询均tenant隔离、只读事务和参数化；原综合大屏及在制订单Demo接口行为保持兼容。

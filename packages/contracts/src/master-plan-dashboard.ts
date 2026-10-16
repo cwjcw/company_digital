@@ -68,6 +68,7 @@ export type MpsDashboardData = {
   trend: MpsDashboardRow[]; divisions: MpsDashboardRow[];
   risks: { rows: MpsDashboardRow[]; total: number; page: number; pageSize: number };
 };
+export type MpsDashboardGapCounts = Pick<MpsDashboardData, "gaps" | "visibleFields" | "generatedAt">;
 export const mpsDashboardOrderMetrics = [
   ["orderCount", "订单数"], ["unfinishedOrderCount", "未完成订单数"], ["orderRequiredQuantity", "需求数量"],
   ["orderCompletedQuantity", "完成数量"], ["orderPendingQuantity", "待完成数量"], ["orderCompletionRate", "整体完成率"]

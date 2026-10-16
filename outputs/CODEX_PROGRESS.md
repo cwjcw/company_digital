@@ -1,6 +1,65 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-DASHBOARD-REV3A-001：待处理事项独立大屏。
+任务目标：独立路由复用9类正式差集、远程筛选、服务端分页/排序/搜索/导出及既有权限；保持旧页与REV3-B兼容。
+当前状态：进行中。
+最后更新时间：2026-10-16。
+
+## 当前阶段
+当前阶段：发布。当前子任务：提交推送、标准all部署和线上核验。
+
+## 已完成
+- [x] 起始HEAD/生产Web/API均d6e6e8a，工作区干净；规范、Skill、审计/指标及当前源码已核对。
+- [x] REV3-B人工验收2026-10-16 PASS，真实多周样本后续补充不改变PASS；3份记录独立提交e806509并push github/main。
+- [x] 权限审计：独立视图仍为同一9类overview事实，安全复用mps-overview-dashboard的read/export/字段/CUSTOM scope；不新增资源、不改授权。
+- [x] 实现决定：从现有querySql/gap_rows选择轻量数量结果，清单/导出沿原链路；原综合页不改业务结构。
+
+## 正在进行
+- [x] 轻量数量接口、新路由/导航/页面、按需保留独立Tab分页/搜索/排序；旧页沿原组件默认行为。
+- [x] API全量108套1011通过（32默认skip）；新旧PG专项18通过（含新增55条TEMP数据两页验证/rollback）；Web新页6通过，旧页专项21通过；Contracts25通过。
+- [x] typecheck/lint/build通过，只有既有Portal FastRefresh和Vite chunk警告。
+- [x] Chrome三个页面28项通过；真实生产三组顶部Scope×9类count/summary/detail一致，9类全量Excel行数一致、无UUID；CUSTOM9类、空tenant9类、read/export拒绝均通过。
+- [x] 12业务表、6flags、授权/角色/管理员哈希、schema/约束/migrations与起始一致；migration:show93/93；标准双库/uploads备份20261016_104224及3项SHA256通过。
+- [x] Web最终单worker全量52套400项全部通过；首轮399/400既有研发页时序偶发失败，原测试隔离27/27及最终全量均通过，未修改该测试。
+
+## 待完成
+- [x] API/Web/Contracts/PG/Chrome/typecheck/lint/build。
+- [x] 真实9类count/detail/export只读核验、数据/权限/6flags基线对比、migration check。
+- [ ] 标准备份、仅本任务GitHub同步、all/check部署、线上健康/Chrome/版本一致验证。
+- [ ] 验收报告，状态WAITING_MANUAL_ACCEPTANCE；C/D NOT_STARTED并停止。
+
+## 修改文件
+- 实现后补齐；验收记录与源码分开提交。
+
+## 数据库 Migration
+- 无新增；93/93已应用，schema/约束未变。无生产权限变更；STOP/NO-GO条件未触发。
+
+## 新增或修改测试
+- 计划覆盖9类count/detail/导出、统一顶部Scope、独立分页/搜索/排序、tenant/CUSTOM/read403/export403/英文文件名、新旧页面回归。
+
+## 已运行测试
+- API1011、PG18、Contracts25、Web新页6/旧页21、typecheck/lint/build通过。Chrome首轮5/7，两个测试定位（Ant关闭动画/Empty SVG title重复）修正后专项2/2通过；保留失败证据，不修改业务规则。
+
+## 当前已知问题
+- 无阻塞。3天工单窗口仍无正式规则，继续不展示。
+
+## 等待用户确认
+- 无实施授权等待；最终页面等待人工验收，不能自动判PASS。
+
+## 下一步
+1. 完成实现与专项验证。
+2. 回归、真实只读验证与正式部署闭环。
+3. 交付REV3-A WAITING_MANUAL_ACCEPTANCE，停止，不进入C/D。
+
+## 恢复执行说明
+规范→本节→git status/diff→总控/验收记录→下一步首个未完成项。保留下方历史；不重做B、导入或督办UAT。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-ORDER-PROGRESS-REV3B-001：在制订单进度看板 Demo。
 任务目标：独立真实数据订单/品号矩阵、按需分页展开、正式权限交集详情、两类服务端全量导出。
 当前状态：已完成 / PASS。人工验收日期：2026-10-16；用户明确确认。

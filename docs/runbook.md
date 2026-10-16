@@ -177,3 +177,9 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 入口 `/master-plan-order-progress`，资源 `mps-order-progress-dashboard`。普通用户通过现有权限组管理显式授权，不能借用综合大屏权限；管理员按平台既有规则可用。本次不运行seed、不更改业务数据/6项flags/调度，不新增migration或索引。首次日期为上海昨天，可切换不限日期；“订单完成率”“入库完成率”“工序生产进度”为不同正式口径。
 
 上线前执行相关测试、真实只读对账与标准备份，提交推送后 `./scripts/deploy.sh all` / `check`，要求Repository/Web/API一致及4容器healthy。真实样本、Excel和EXPLAIN只留私有忽略目录。列宽使用公共localStorage按tenant/user/resource/viewKey隔离。无多周计划真实样本时保留人工验收缺口，不造生产数据；只交付REV3-B，不启动A/C/D。指标与验收见outputs/KDOS_MPS_ORDER_PROGRESS_*。
+
+## 待处理事项大屏 REV3-A
+
+入口 `/master-plan-gaps`，PMC中心 → 大屏报表 → 主计划大屏 → 待处理事项大屏。沿用现有overview授权，无需migration、seed或权限数据变更；不改任何业务数据/6项flags/调度。顶部筛选继承REV2首次及清空不限日期的口径。KPI点击切换9类正式清单；清单按需加载，已访问Tab保留独立分页/搜索/排序，顶部条件变化重置清单。各自导出全部匹配记录，复用原服务端read∩export审计链路。原 `/master-plan-dashboard` 和 `/master-plan-order-progress` 保留。
+
+回归增加 `MasterPlanGaps.spec.tsx`、`master-plan-gaps.spec.ts`、contracts `master-plan-dashboard.spec.ts`；PG现有dashboard-gaps专项同时验证轻量count、overview、detail total一致、CUSTOM/tenant、两页实际结果与9类Excel。发布必须备份、all/check及当前环境健康检查；REV3-A最终状态仅WAITING_MANUAL_ACCEPTANCE，不能自动推进C/D。

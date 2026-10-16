@@ -23,14 +23,30 @@ describe("Master plan overview HTTP authorization", () => {
     ] }).overrideGuard(AuthGuard).useValue({ canActivate: (ctx: { switchToHttp(): { getRequest(): { user: object } } }) => { ctx.switchToHttp().getRequest().user = { permissions, tableDataScopes: [] }; return true; } }).compile();
     app = module.createNestApplication(); await app.init();
   });
-  beforeEach(() => { permissions = []; transaction.mockClear(); jest.restoreAllMocks(); });
+  beforeEach(() => { permissions = []; transaction.mockReset(); jest.restoreAllMocks(); });
   afterAll(async () => { await app.close(); });
   it("requires independent dashboard read for aggregate and candidates; monthly read grants nothing", async () => {
     permissions = ["mps-monthly-plans:*:read"];
     await request(app.getHttpServer()).get("/master-plan-system/dashboard").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/candidates?field=divisionId").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/gap-counts").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/gaps?type=no-inbound").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/reports/plan-readiness").expect(403);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+  it("gap-only endpoint returns only allowed fields/counts and never overview aggregates", async () => {
+    permissions = [`${resource}:*:read`];
+    transaction.mockImplementation(async (_level: string, fn: (manager: unknown) => unknown) => fn({ query: async (sql: string) => sql.startsWith("WITH") ? [{ data: { gaps: { "no-inbound": 42 } } }] : [] }));
+    const response = await request(app.getHttpServer()).get("/master-plan-system/dashboard/gap-counts").expect(200);
+    expect(Object.keys(response.body).sort()).toEqual(["gaps", "generatedAt", "visibleFields"]);
+    expect(response.body.gaps).toEqual({}); // Operation permission grants no metric fields.
+    transaction.mockReset();
+  });
+  it("all nine exports reject callers without export, including export without read", async () => {
+    for (const p of [[`${resource}:*:read`], [`${resource}:*:export`]]) {
+      permissions = p;
+      for (const gap of (await import("@kdos/contracts")).mpsDashboardGaps) await request(app.getHttpServer()).get(`/master-plan-system/dashboard/export?tableKey=${gap.key}`).expect(403);
+    }
     expect(transaction).not.toHaveBeenCalled();
   });
   it("read alone cannot export", async () => {
@@ -60,6 +76,15 @@ describe("Master plan overview HTTP authorization", () => {
     jest.spyOn(exporter,"export").mockResolvedValueOnce(Buffer.from("fixture"));
     const response=await request(app.getHttpServer()).get("/master-plan-system/dashboard/export?tableKey=process-execution").expect(200);
     expect(response.headers["content-disposition"]).toMatch(/^attachment; filename="mps_process_execution_\d{8}\.xlsx"$/);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+  it("all nine gap downloads retain English filenames", async () => {
+    permissions=["*"];
+    jest.spyOn(exporter,"export").mockResolvedValue(Buffer.from("fixture"));
+    for(const gap of (await import("@kdos/contracts")).mpsDashboardGaps) {
+      const result=await request(app.getHttpServer()).get(`/master-plan-system/dashboard/export?tableKey=${gap.key}`).expect(200);
+      expect(result.headers["content-disposition"]).toMatch(new RegExp(`^attachment; filename="mps_${gap.key.replaceAll("-","_")}_\\d{8}\\.xlsx"$`));
+    }
     expect(transaction).not.toHaveBeenCalled();
   });
 

@@ -60,8 +60,8 @@ export function MpsDashboardDetailTable({ tableKey, filters, session, canExport,
   </>;
   return embedded ? content : <Card title={title} id={tableKey === "risk-exception" ? "mps-risks" : undefined}>{content}</Card>;
 }
-export function MpsDashboardGapList({ selected, onSelect, counts, ...props }: { selected: MpsDashboardGapKey; onSelect: (key: MpsDashboardGapKey) => void; counts: Partial<Record<MpsDashboardGapKey, number>>; filters: MpsDashboardFilters; session: string; canExport: boolean }) {
+export function MpsDashboardGapList({ selected, onSelect, counts, preserveState = false, ...props }: { preserveState?: boolean; selected: MpsDashboardGapKey; onSelect: (key: MpsDashboardGapKey) => void; counts: Partial<Record<MpsDashboardGapKey, number>>; filters: MpsDashboardFilters; session: string; canExport: boolean }) {
   const gaps = mpsDashboardGaps.filter(g => counts[g.key] != null);
   const active = gaps.find(g => g.key === selected)?.key ?? gaps[0]?.key;
-  return <Card title="待处理清单" id="mps-gap-list"><Tabs activeKey={active} onChange={key => onSelect(key as MpsDashboardGapKey)} items={gaps.map(g => ({ key: g.key, label: `${g.title} ${counts[g.key]}` }))} />{active && <MpsDashboardDetailTable key={active + JSON.stringify(props.filters)} {...props} tableKey={active} embedded />}</Card>;
+  return <Card title="待处理清单" id="mps-gap-list"><Tabs activeKey={active} onChange={key => onSelect(key as MpsDashboardGapKey)} items={gaps.map(g => ({ key: g.key, label: `${g.title} ${counts[g.key]}`, ...(preserveState ? { children: <MpsDashboardDetailTable {...props} tableKey={g.key} embedded /> } : {}) }))} />{!preserveState && active && <MpsDashboardDetailTable key={active + JSON.stringify(props.filters)} {...props} tableKey={active} embedded />}</Card>;
 }

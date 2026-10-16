@@ -71,7 +71,10 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
   it("all 9 KPI counts equal same-scope list totals across division/customer/order/item/date filters",async()=>{
     for(const filters of [{},{divisionId:division},{customerCode:"C-1",orderNumbers:["A"]},{itemCodes:["ITEM"],dateType:"ORDER",datePeriod:"MONTH",dateValue:"2026-10"},{dateType:"DELIVERY",datePeriod:"CUSTOM",dateFrom:"2019-01-01",dateTo:"2021-01-01"}] as DashboardQuery[]){
       const summary=await service.dashboard(filters,actor);
-      for(const g of mpsDashboardGaps)expect((await list(g.key,filters)).total).toBe(summary.gaps[g.key]);
+      const counts=await service.gapCounts({...filters,search:"local condition must not affect KPI",page:99},actor);
+      expect(counts.gaps).toEqual(summary.gaps);
+      expect(Object.keys(counts).sort()).toEqual(["gaps","generatedAt","visibleFields"]);
+      for(const g of mpsDashboardGaps)expect((await list(g.key,filters)).total).toBe(counts.gaps[g.key]);
     }
   });
   it("tenant and dashboard read scope/export intersection apply to every count and detail",async()=>{
@@ -83,6 +86,45 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
     expect(exported.rows.map(r=>r.id)).not.toContain(id(15));
     const scoped={...who,tableDataScopes:[{resource:"mps-overview-dashboard",scope:"CUSTOM",actions:["read"],rules:[{fieldKey:"divisionId",operator:"EQ",value:division}]}]};
     expect((await list("no-inbound",{},scoped)).rows.map(r=>r.id)).toEqual([id(10)]);
+  });
+  it("gap counts and each list share CUSTOM division/tenant scope; empty tenant stays empty",async()=>{
+    const permissions=["mps-overview-dashboard:*:read",...tablePermissionFieldsFor("mps-overview-dashboard").map(f=>`mps-overview-dashboard:${f.key}:read`)];
+    for (const who of [
+      {...actor,permissions,tableDataScopes:[{resource:"mps-overview-dashboard",scope:"CUSTOM",actions:["read"],rules:[{fieldKey:"divisionId",operator:"IN",value:[division]}]}]},
+      {...actor,tenantId:tenant+"-EMPTY"}
+    ]) {
+      const counts=await service.gapCounts({},who);
+      for(const gap of mpsDashboardGaps) {
+        const rows=await list(gap.key,{},who);
+        expect(rows.total).toBe(counts.gaps[gap.key]);
+        for(const row of rows.rows)expect(row.divisionId).toBe(division);
+        if(who.tenantId.endsWith("-EMPTY"))expect(rows.total).toBe(0);
+      }
+    }
+  });
+  it("server pagination/sort/search preserves full total and does not alter KPI",async()=>{
+    const counts=await service.gapCounts({},actor);
+    const first=await list("no-inbound",{pageSize:50,sortField:"orderNumber",sortOrder:"desc"});
+    const outside=await list("no-inbound",{page:2,pageSize:50,sortField:"orderNumber",sortOrder:"desc"});
+    expect(first.rows.map(r=>r.orderNumber)).toEqual(["OTHER","A"]);
+    expect(outside.rows).toEqual([]);expect(outside.total).toBe(first.total);expect(outside.page).toBe(2);
+    expect((await list("no-inbound",{search:"OTHER"})).total).toBe(1);
+    expect((await service.gapCounts({search:"OTHER"},actor)).gaps).toEqual(counts.gaps);
+  });
+  it("serves two real SQL pages without loading all rows into the page response",async()=>{
+    await runner.query("SAVEPOINT gap_pagination");
+    try {
+      await runner.query(`INSERT INTO pg_temp.mps_monthly_plans(tenant_id,id,division_id,order_number,item_code,required_quantity,cumulative_inbound_quantity,pending_quantity,created_by)
+        SELECT $1,('0199bb00-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,$2,'PAGE-'||lpad(n::text,2,'0'),'PAGE-ITEM',100,0,100,$3 FROM generate_series(1,55) n`,[tenant,division,actor.userId]);
+      const filters={itemCodes:["PAGE-ITEM"]};
+      const counts=await service.gapCounts(filters,actor);
+      const first=await list("no-inbound",{...filters,pageSize:50,sortField:"orderNumber",sortOrder:"asc"});
+      const second=await list("no-inbound",{...filters,page:2,pageSize:50,sortField:"orderNumber",sortOrder:"asc"});
+      expect(counts.gaps["no-inbound"]).toBe(55);expect(first.total).toBe(55);expect(second.total).toBe(55);
+      expect(first.rows).toHaveLength(50);expect(second.rows).toHaveLength(5);
+      expect(first.rows[0]?.orderNumber).toBe("PAGE-01");expect(second.rows[0]?.orderNumber).toBe("PAGE-51");
+      expect(new Set([...first.rows,...second.rows].map(r=>r.id)).size).toBe(55);
+    } finally { await runner.query("ROLLBACK TO SAVEPOINT gap_pagination"); }
   });
   it("independent report local filters, state filters, latest report date and multiple risk types",async()=>{
     const execution=await list("process-execution",{processCode:"cutting",onlyOverdue:"true",search:"F"});

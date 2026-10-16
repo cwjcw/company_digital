@@ -1,4 +1,5 @@
 import { MasterPlanOrderProgress } from "./modules/master-plan-system/MasterPlanOrderProgress";
+import { MasterPlanGaps } from "./modules/master-plan-system/MasterPlanGaps";
 import { MasterPlanDashboard } from "./modules/master-plan-system/MasterPlanDashboard";
 import { FinanceOrderTable, FinanceOrderDashboard } from './modules/finance/FinanceOrders';
 import './modules/finance/finance-orders.css';
@@ -178,14 +179,14 @@ function Shell({ logout }: { logout: () => void }) {
   if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
   if (location.pathname === "/master-plan-order-progress" && !hasSessionResourcePermission(user, "mps-order-progress-dashboard", "read")) return <Navigate to="/" replace />;
-  if (location.pathname === "/master-plan-dashboard" && !hasSessionResourcePermission(user, "mps-overview-dashboard", "read")) return <Navigate to="/" replace />;
+  if (["/master-plan-dashboard", "/master-plan-gaps"].includes(location.pathname) && !hasSessionResourcePermission(user, "mps-overview-dashboard", "read")) return <Navigate to="/" replace />;
   if (location.pathname === reportPath && !canReadPmcProgress) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
     : location.pathname.startsWith("/project-task/") ? "project-task"
-    : location.pathname === "/master-plan-order-progress" || location.pathname === "/master-plan-dashboard" || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") || location.pathname.startsWith("/pmc/") ? "planning"
+    : location.pathname === "/master-plan-gaps" || location.pathname === "/master-plan-order-progress" || location.pathname === "/master-plan-dashboard" || location.pathname.startsWith("/equipment-") || location.pathname.startsWith("/master-plan-system/") || location.pathname.startsWith("/pmc/") ? "planning"
     : location.pathname.startsWith("/data-center") || location.pathname === "/finished-goods-inbound" ? "data"
     : location.pathname.startsWith("/finance") ? "finance"
     : location.pathname.startsWith("/marketing") ? "marketing"
@@ -224,7 +225,7 @@ function Shell({ logout }: { logout: () => void }) {
       ...reportNavigation(user).map(group => ({ ...group, icon: <FolderOpenOutlined />, children: group.children.map(entry => ({ ...entry, icon: <ReadOutlined /> })) })),
       { key: "dashboard-reports", icon: <DashboardOutlined />, label: "大屏报表", children: [
         ...(["mps-overview-dashboard", "mps-order-progress-dashboard"].some(code => hasSessionResourcePermission(user, code, "read")) ? [{ key: "master-plan-dashboards", icon: <DashboardOutlined />, label: "主计划大屏", children: [
-          ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-dashboard", icon: <DashboardOutlined />, label: "主计划综合大屏" }] : []),
+          ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-dashboard", icon: <DashboardOutlined />, label: "主计划综合大屏" }, { key: "/master-plan-gaps", icon: <DashboardOutlined />, label: "待处理事项大屏" }] : []),
           ...(hasSessionResourcePermission(user, "mps-order-progress-dashboard", "read") ? [{ key: "/master-plan-order-progress", icon: <DashboardOutlined />, label: "在制订单进度" }] : [])
         ] }] : []),
         { key: "equipment-dashboards", icon: <DashboardOutlined />, label: "设备管理大屏", children: [
@@ -302,7 +303,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/project-task/supervision/project-dashboard": "项目管理大屏", "/project-task/supervision/my-tasks": "员工待办大屏",
       "/project-task/supervision/owner-report": "责任人任务完成报表", "/project-task/supervision/projects": "项目管理",
       "/project-task/supervision/tasks": "任务管理", "/project-task/order-projects": "订单项目管理",
-      "/master-plan-dashboard": "主计划综合大屏", "/master-plan-order-progress": "在制订单进度",
+      "/master-plan-gaps": "待处理事项大屏", "/master-plan-dashboard": "主计划综合大屏", "/master-plan-order-progress": "在制订单进度",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
@@ -347,6 +348,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/project-task/supervision/tasks" element={<SupervisionTasksPage />} />
           <Route path="/project-task/order-projects" element={<OrderProjectPlaceholderPage />} />
           <Route path="/master-plan-order-progress" element={<MasterPlanOrderProgress />} />
+          <Route path="/master-plan-gaps" element={<MasterPlanGaps />} />
           <Route path="/master-plan-dashboard" element={<MasterPlanDashboard />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />

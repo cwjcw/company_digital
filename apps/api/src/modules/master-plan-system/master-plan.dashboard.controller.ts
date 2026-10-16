@@ -13,6 +13,7 @@ export class MasterPlanDashboardController {
   @Get("drill") drill(@Query() input: DashboardQuery & { resourceCode?: string; filterGroup?: string; view?: string }, @Req() req: Request) { return this.dashboard.drill(input, this.actor(req)); }
   @Get("table") table(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.table(input, this.actor(req)); }
   @Get("gaps") gaps(@Query("type") type: string, @Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.gaps(type, input, this.actor(req)); }
+  @Get("gap-counts") gapCounts(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.gapCounts(input, this.actor(req)); }
   @Get("reports/:reportKey") report(@Param("reportKey") key: string, @Query() input: DashboardQuery, @Req() req: Request) {
     if (!["plan-readiness", "process-execution", "risk-exception"].includes(key)) throw new BadRequestException("报表无效");
     return this.dashboard.table({ ...input, tableKey: key }, this.actor(req));
