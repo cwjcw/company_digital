@@ -1,6 +1,7 @@
 # KDOS-MPS-ORDER-PROGRESS-REV3B-001 验收记录
 
-当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收）；开发、自动验证与功能发布核验完成，不自动PASS。
+当前状态：PASS。用户明确确认 KDOS-MPS-ORDER-PROGRESS-REV3B-001 人工验收通过。
+人工验收日期：2026-10-16；验收结果：PASS。
 日期：2026-10-16，Asia/Shanghai。
 
 ## 交付范围
@@ -54,13 +55,13 @@
 | E 部分入库仍欠数 | 已覆盖 |
 | F 未进入周计划 | 已覆盖 |
 
-真实业务数据对账和合成UI测试是两类独立证据。用户真实账号人工视觉/业务验收尚未确认，不能判PASS。
+真实业务数据对账和合成UI测试是两类独立证据。用户于2026-10-16明确人工验收PASS。真实多周计划场景已通过隔离PostgreSQL测试，后续取得真实样本时补充业务复核；这属于补充验证事项，不改变已确认的PASS。
 
 ## 发布及回滚
 
 双库及附件标准备份20261016_092646已完成，pg_restore目录与3份SHA256全部通过；migration:show 93/93已应用，无新migration。全仓typecheck/lint/build最后通过；lint只保留既有ModulePortal fast-refresh警告，构建只保留既有chunk提示。GitHub仅本任务提交推送、`deploy.sh all/check`及部署后健康/Chrome/只读核验须完成；最终SHA和执行证据记录于交付回复及本地进度。无migration、生产权限初始化或同步配置变更；如发现需要这些改动应NO-GO。
 
-回滚仅使用已保留的原应用代码/镜像走正式部署，不回滚覆盖业务数据库，不改变既有调度/6项flags。REV3-A/C/D继续NOT_STARTED，Demo交付后停止，不自动推进。
+回滚仅使用已保留的原应用代码/镜像走正式部署，不回滚覆盖业务数据库，不改变既有调度/6项flags。本验收记录独立于下一阶段代码提交；REV3-A按用户新指令执行，REV3-C/D不自动推进。
 
 
 ## 最终功能发布核验（2026-10-16）
