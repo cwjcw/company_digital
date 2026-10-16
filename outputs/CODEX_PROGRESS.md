@@ -3,11 +3,11 @@
 ## 任务
 任务名称：KDOS-MPS-DASHBOARD-REV3A-001：待处理事项独立大屏。
 任务目标：独立路由复用9类正式差集、远程筛选、服务端分页/排序/搜索/导出及既有权限；保持旧页与REV3-B兼容。
-当前状态：进行中。
+当前状态：已完成开发与部署 / WAITING_MANUAL_ACCEPTANCE（不自行判PASS）。
 最后更新时间：2026-10-16。
 
 ## 当前阶段
-当前阶段：发布。当前子任务：提交推送、标准all部署和线上核验。
+当前阶段：功能部署与线上核验已完成。当前子任务：最终记录提交统一SHA发布闭环。
 
 ## 已完成
 - [x] 起始HEAD/生产Web/API均d6e6e8a，工作区干净；规范、Skill、审计/指标及当前源码已核对。
@@ -26,11 +26,15 @@
 ## 待完成
 - [x] API/Web/Contracts/PG/Chrome/typecheck/lint/build。
 - [x] 真实9类count/detail/export只读核验、数据/权限/6flags基线对比、migration check。
-- [ ] 标准备份、仅本任务GitHub同步、all/check部署、线上健康/Chrome/版本一致验证。
-- [ ] 验收报告，状态WAITING_MANUAL_ACCEPTANCE；C/D NOT_STARTED并停止。
+- [x] 标准备份、功能提交13c2a1e（16文件）push github/main、all/check部署、线上健康与部署后三页Chrome28/28通过。Repository/Web/API一致；4容器healthy、原PG容器保留、Dispatcher active，三页面200，受保护API匿名401。
+- [x] 运行API容器实际只读Service9类count/detail一致；count969ms，数量与验收报告一致。
+- [x] 部署后角色哈希差异追查：10:53:45订单分配权限组web保存，早于本任务功能提交及部署；备份逐列比较仅updated_at/version2→3，其余角色业务授权字段、权限项一致；外部现状保留，本任务无授权写入。
+- [ ] 最终记录提交push并标准all/check，完成同一SHA最终核验。
+- [x] 验收报告outputs/KDOS_MPS_GAPS_REV3A_ACCEPTANCE.md；B PASS、A WAITING_MANUAL_ACCEPTANCE，C/D NOT_STARTED并停止。
 
 ## 修改文件
-- 实现后补齐；验收记录与源码分开提交。
+- 16任务文件：Contracts类型/测试；API Service/Controller/HTTP及PG测试；Web App/共享GapList/新页面及Web/Chrome测试；integration-guide/runbook；REV3总控/本进度/新验收记录。功能13c2a1e。
+- B验收文档3文件独立e806509。凭据、业务行、备份、私有验证脚本/日志不入Git。
 
 ## 数据库 Migration
 - 无新增；93/93已应用，schema/约束未变。无生产权限变更；STOP/NO-GO条件未触发。
@@ -39,7 +43,8 @@
 - 计划覆盖9类count/detail/导出、统一顶部Scope、独立分页/搜索/排序、tenant/CUSTOM/read403/export403/英文文件名、新旧页面回归。
 
 ## 已运行测试
-- API1011、PG18、Contracts25、Web新页6/旧页21、typecheck/lint/build通过。Chrome首轮5/7，两个测试定位（Ant关闭动画/Empty SVG title重复）修正后专项2/2通过；保留失败证据，不修改业务规则。
+- API108套1011通过（默认32skip，相关PG18另启用全部通过）；Web52套400通过；Contracts25；typecheck/lint/build通过。Chrome本地28/28、部署后28/28。初轮Web研发页偶发及Chrome定位问题已按原断言复测闭环，失败证据保留。
+- 生产27次KPI/summary/detail对账、9类完整Excel/CUSTOM/tenant/read/export拒绝、备份SHA256、93/93迁移与健康/版本均通过。
 
 ## 当前已知问题
 - 无阻塞。3天工单窗口仍无正式规则，继续不展示。
@@ -48,8 +53,8 @@
 - 无实施授权等待；最终页面等待人工验收，不能自动判PASS。
 
 ## 下一步
-1. 完成实现与专项验证。
-2. 回归、真实只读验证与正式部署闭环。
+1. 仅最终outputs记录提交推送后标准all/check，确保Repository/Web/API同一最终SHA。
+2. 最终健康/Chrome smoke及数据快照核对；若已一致则无需重复部署。
 3. 交付REV3-A WAITING_MANUAL_ACCEPTANCE，停止，不进入C/D。
 
 ## 恢复执行说明

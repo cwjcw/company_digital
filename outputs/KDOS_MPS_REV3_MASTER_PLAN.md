@@ -6,7 +6,7 @@ REV3-A起始HEAD、Web、API均d6e6e8ad8d6fa6b17db493196653314071dda69a，工作
 | 阶段 | 范围 | 状态 |
 |---|---|---|
 | REV3-B | 在制订单进度 Demo | PASS |
-| REV3-A | 待处理事项独立大屏 | IN_PROGRESS |
+| REV3-A | 待处理事项独立大屏 | WAITING_MANUAL_ACCEPTANCE |
 | REV3-C | PMC 综合驾驶舱 | NOT_STARTED |
 | REV3-D | 集成及验收 | NOT_STARTED |
 
@@ -25,3 +25,7 @@ REV3-A起始HEAD、Web、API均d6e6e8ad8d6fa6b17db493196653314071dda69a，工作
 恢复入口：`outputs/CODEX_PROGRESS.md`。
 B指标及验收：`outputs/KDOS_MPS_ORDER_PROGRESS_METRICS.md`、`outputs/KDOS_MPS_ORDER_PROGRESS_DEMO_ACCEPTANCE.md`。
 A定义与验收：`outputs/KDOS_MPS_GAP_AUDIT.md`、`outputs/KDOS_MPS_OVERVIEW_DASHBOARD_METRICS.md`、`outputs/KDOS_MPS_GAPS_REV3A_ACCEPTANCE.md`。
+
+## REV3-A 交付
+
+功能13c2a1e已推送并标准部署，Repository/Web/API一致、健康通过。API1011、启用PG18、Web400、Contracts25、全仓typecheck/lint/build、本地及部署后Chrome各28均通过；生产三组Scope×9类count/summary/detail一致，9类Excel全量验证通过。无需migration或本任务生产授权变更。最终记录提交亦按统一SHA标准发布，具体最终SHA见交付回复/健康版本及私有运行证据。验收报告outputs/KDOS_MPS_GAPS_REV3A_ACCEPTANCE.md；等待人工验收，不判PASS，C/D保持NOT_STARTED并停止。

@@ -1,6 +1,6 @@
 # KDOS-MPS-DASHBOARD-REV3A-001 验收记录
 
-当前状态：IN_PROGRESS（发布核验尚待完成，不自行判PASS）。
+当前状态：WAITING_MANUAL_ACCEPTANCE（开发、自动测试、部署及运行核验已完成，等待用户人工验收，不自行判PASS）。
 日期：2026-10-16，Asia/Shanghai。
 
 ## 交付范围
@@ -36,7 +36,7 @@ REV3-B人工验收日期2026-10-16、结果PASS，三份记录独立提交e80650
 
 以上为2026-10-16验证时快照，不固定未来业务数量。不限日期、订单日期2026-10、交付日期2026-10三组×9类共27次count/summary/detail一致；真实CUSTOM事业部9类一致、空tenant9类均0、无read及9类无export拒绝。全部Excel中文表头/业务值、无UUID，英文文件名由HTTP及Chrome独立验证。
 
-当前真实轻量数量耗时约1053ms（不限）、177ms（订单日期月）、370ms（交付日期月），未改索引或全局数据库参数。没有持久化第二套聚合事实。
+开发阶段真实轻量数量耗时约1053ms（不限）、177ms（订单日期月）、370ms（交付日期月），未改索引或全局数据库参数。没有持久化第二套聚合事实。
 
 ## 测试与门禁
 
@@ -45,7 +45,7 @@ REV3-B人工验收日期2026-10-16、结果PASS，三份记录独立提交e80650
 - 新页Web6项及旧页专项21项通过；最终单线程全量52套400项全部通过。首轮全量399通过1项既有研发页偶发选择时序失败，单独27项复测通过；没有改动或删除该测试。
 - Chrome本地三个页面28项全部通过，新页7、旧综合12、已PASS Demo9；包括1366/1920、compact/sticky/单纵向滚动、按需加载/分页/排序/搜索/顶部Scope、9类下载、权限、空错加载。首轮两个新测试定位问题修正后通过，未改变业务断言。
 - 全仓typecheck/lint/build通过，仅既有Portal FastRefresh与Vite大chunk提示。宿主migration:show使用127.0.0.1:15433检查93/93已应用，无新增migration。首次误用容器内postgres域名的宿主检查失败已纠正，不改运行配置。
-- 12业务表记录数/version哈希、6项flags、权限/角色/管理员授权哈希、schema/约束及migration台账与本轮起始基线一致。
+- 12业务表记录数/version哈希、6项flags、权限项/管理员授权哈希、schema/约束及migration台账与本轮起始基线一致。部署后角色表整行哈希差异已追查：2026-10-16 10:53:45已有订单分配权限组发生web保存审计，早于功能提交10:55:46和API容器创建10:58:36；与备份逐列比较仅updated_at/version（2→3）变化，其余角色业务授权字段及权限项一致。保留该外部现状；本任务没有生产授权写入。明细证据仅data/mps-gaps-rev3a/{roles-diff,role-audit}.json，不提交成员/权限原始数据。
 - 标准备份20261016_104224双库及uploads完成，pg_restore目录验证及3项SHA256通过；备份在data/backups，权限600。
 
 ## 修改文件
@@ -54,6 +54,8 @@ Contracts master-plan-dashboard.ts及新增合同测试；API Dashboard Service/
 
 ## 发布与人工验收
 
-源码提交/GitHub同步、标准deploy.sh all/check、运行环境健康、Repository=Web=API与部署后Chrome结果将在完成后补齐。回滚使用先前保留应用代码/镜像走标准部署，不覆盖业务数据库，不变更调度或6项flags。发生生产权限变更或migration需求应STOP/NO-GO；本轮没有该需求。
+功能提交13c2a1e168379cffa118ec34ea14b8d8c46e326f已push github/main并标准deploy.sh all/check：Repository=Web=API，STATUS=CONSISTENT。4容器healthy，原PostgreSQL容器b679ba44dd75保留，Dispatcher active。运行容器实际Service只读复核9类count=detail.total，数量与上表一致，轻量count约969ms；部署后三个页面Chrome28项全部通过。新旧3页面200，gap-counts/gaps/export匿名401；认证后的403另由真实HTTP unit验证。
+
+最终验收记录提交同样推送并标准all/check发布，最终SHA为包含本节的提交，以git HEAD/build-info/health/最终交付回复定位，不制造自引用SHA；私有证据data/mps-gaps-rev3a。回滚使用先前保留应用代码/镜像走标准部署，不覆盖业务数据库，不变更调度或6项flags。发生生产权限变更或migration需求应STOP/NO-GO；本轮没有该需求。
 
 人工验收建议：登录已有overview授权账号，从导航进入新页面；核对9类数量及选Tab联动、组合顶部条件、分页/搜索/排序与各类完整导出；核对原综合页和在制进度页面。最终状态只能WAITING_MANUAL_ACCEPTANCE，须用户确认后才PASS。
