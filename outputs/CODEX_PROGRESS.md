@@ -2,58 +2,65 @@
 
 ## 任务
 任务名称：KDOS-MPS-ORDER-PROGRESS-REV3B-001：在制订单进度看板 Demo。
-任务目标：独立真实数据订单/品号进度矩阵、按需展开及正式权限详情、两类全量服务端导出。
-当前状态：IN_PROGRESS。
-最后更新时间：2026-10-16（Asia/Shanghai）。
+任务目标：独立真实数据订单/品号矩阵、按需分页展开、正式权限交集详情、两类服务端全量导出。
+当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收，不判PASS）。
+最后更新时间：2026-10-16T09:40:12+08:00。
 
 ## 当前阶段
-当前阶段：回归、生产只读核验完成，上线准备。
-当前子任务：最终字段/详情安全定向复核、备份、提交推送与标准all部署。
+当前阶段：开发、自动验证、真实数据只读对账、备份、功能提交推送和功能部署核验已完成。
+当前子任务：无开发遗留；最终记录发布版本以Repository/Web/API一致为准，不启动其它REV3阶段。
 
 ## 已完成
-- [x] 已读任务全文、项目规范/表单Skill、REV2进度/合同/审计/验收及平台Roadmap。
-- [x] 真实HEAD 4ece1df，初始工作区干净；运行08f9195，差异仅已提交outputs记录；无其它任务源码，允许继续，不reset。
-- [x] 建立REV3总控，仅B为IN_PROGRESS，A/C/D为NOT_STARTED。
+- [x] 真实起始HEAD4ece1df、线上08f9195，差异仅outputs；未reset/覆盖他人源码。
+- [x] 仅REV3-B；原综合大屏与9类待处理未拆分，A/C/D仍NOT_STARTED。
+- [x] 新resource mps-order-progress-dashboard；路径/master-plan-order-progress，现有registry及正式授权机制，无生产权限初始化。
+- [x] 正式集团完成率、月计划入库完成率与工序进度独立；多次报工SUM，255/500=51%、525/500=105%；多批次稳定父链和事业部隔离，独立来源行保留待核实。
+- [x] 订单/子品项分页及排序独立、按需展开，原表权限交集Drawer；公共compact/列宽/sticky/单纵向滚动。
+- [x] 两类完整Excel，主导出不受展开影响；子表本订单导出精确收窄。read∩export、tenant和字段裁剪，英文文件名，无UUID。
+- [x] API全量108套1008项通过；新旧PG及HTTP21项启用通过；Web全量51套393通过，后追加导出范围专项最终8项通过；Contracts24。
+- [x] 新Chrome9项通过；功能部署后的新旧Chrome21项全部通过。合成UI证据与真实数据对账明确分开。
+- [x] 最后全仓typecheck/lint/build通过，仅既有Portal FastRefresh/Vite chunk警告；migration:show 93/93，无新增。
+- [x] 真实数据101月计划/1010工序数量及进度核验；月计划100条×66表达式、周计划100条×60表达式对照提取前SQL零差异。
+- [x] 真实订单约240ms、单订单品项27–73ms；运行容器直接读取266ms/54ms。全量品项聚合约2s，实际完整xlsx生成/读取/行数及无UUID检查通过。
+- [x] 12业务表记录数/version哈希、6项flags、权限/角色/管理员授权哈希及migration台账与基线一致，未触发任何手工同步。
+- [x] 备份20261016_092646双库与附件完成，pg_restore目录和3项SHA256通过。
+- [x] 功能提交bbefc6de739cb8140aa98c8eed63344df54cf953（25文件）已push github/main并标准all部署；功能版check CONSISTENT，4容器healthy，原PG容器保留，Dispatcher active，新旧页面200、新API匿名401。
+- [x] 最终记录提交亦需推送并标准发布到同一版本；具体最终SHA以git HEAD、deploy.sh check和私有final-state.json/最终交付回复为准，不在文档中制造自引用SHA。
 
 ## 正在进行
-- [x] 锁定指标合同及正式身份，生产12表/权限数据/flags/migrations只读基线完成。
-- [x] 独立resource无需权限迁移；普通用户需正式显式授权，不串授overview。
+- 无开发事项；恢复时核对最终记录版本，check一致则无需重复部署。
 
 ## 待完成
-- [x] Contracts/新resource/服务端分页聚合与候选、新Dashboard与原表权限交集Drawer、两类导出。
-- [x] 独立页面/导航及按需分页订单/品号矩阵初版，待浏览器回归。
-- [x] API全量108套1008项、Web全量51套393项（后增1项单表本订单导出，专项8项通过）、Contracts24；新旧PG/HTTP21项、Chrome9项通过。
-- [x] 真实数据101月计划/1010工序对账；100月计划66表达式+100周计划60表达式重构前后零差异；12业务表/flags/migrations/权限数据不变。
-- [x] 集合聚合优化：订单约237ms，单订单品项26–63ms；全量1038行/80列实际xlsx生成校验通过，约5s含重复取数/文件读回，业务文件仅在私有忽略目录。
-- [ ] 标准备份20261016_092646已完成，3个SHA256及pg_restore目录通过；仅本任务提交推送、标准all部署/check/健康验证；最终等待人工验收。
+- [ ] 用户真实账号视觉/业务人工验收；同品号多周计划的真实B类样本当前不可得，隔离PG已覆盖，待数据可用后人工复核，不造生产记录。
 
 ## 修改文件
-- 新Contracts/字段资源注册；OrderProgress Service/Controller/Export及API/PG测试；App导航/新页面CSS；RemoteSelect增加兼容URL/resource参数；Application新增本资源导出审计；本进度/REV3总控/指标合同。
+- 功能25文件已推送：新Contracts/字段资源；OrderProgress Service/Controller/Export/API及PG测试；config共享SQL表达式；Application导出审计；Module；App/兼容RemoteSelect/新页面CSS及utils/Web/Chrome；总控/指标/验收/进度、接口/runbook/Roadmap。
+- 最终outputs及Roadmap记录随记录提交同步；真实订单号、业务样本、Excel/EXPLAIN/日志仅data/order-progress-rev3b，不入Git。
 
 ## 数据库 Migration
-- 预计无；如需migration/索引/生产权限数据初始化/同步配置修改，按用户要求NO-GO，不自行执行。
+- 无新增，无索引/事实表/业务数据/权限数据/flags更改。导出验证使用明确审计stub，不产生生产假审计；正式用户下载按Application审计。
 
 ## 新增或修改测试
-- 新增API HTTP6项+临时PG9项，覆盖身份/多批次/多报工SUM/51%和105%/状态空值/权限/跨tenant/Scope/两类导出，全部通过。
+- 覆盖未完成/缺月计划、多品项/重复独立来源/多交期/多周计划、真实报工SUM/51%和105%、准备状态/无记录/无任务、分页/筛选/导出、原表权限/字段/tenant/CUSTOM/read∩export。
+- 默认29个外部集成用例跳过；本轮相关新旧PG已单独启用通过，不将默认skip计为通过。
 
 ## 已运行测试
-- 启动deploy check：HEAD4ece1df/运行08f9195，只有outputs差异，未回退。
-- 最后typecheck/lint/build通过（只有既有Portal/Vite警告）；migration:show 93/93已应用，无新增。
-- 最后新旧PG+HTTP21项通过；真实数值/正式表达式重构回归再次通过，业务/flags/权限/migrations仍不变。
+- 以上API/Web/Contracts/typecheck/lint/build/Chrome/迁移检查/备份校验/功能部署check均通过。
+- 私有证据data/order-progress-rev3b；容器真实读取与独立原始SQL对账均READ ONLY。界面默认日期为上海昨天，可切不限日期查看全部在制订单。
 
 ## 当前已知问题
-- 真实候选暂未找到同品号多条周计划的B类样本，禁止造生产假数据；临时PG多批次/交期场景已覆盖。图纸完成日期无正式字段，不伪造。ERP重复源行无一一关联时逐行保留待核实，不复制月计划进度。
+- 真实B类样本缺口，详见验收报告；图纸无独立完成日期字段；ERP多来源无法逐行归属时保留待核实，不复制月计划进度。
 
 ## 等待用户确认
-- 无；先完成可确认工作。如发现无法证明的业务口径，记录真实边界，不造数据。
+- 等待人工验收；不自动PASS，不启动A/C/D。
 
 ## 下一步
-1. 最后定向检查及备份校验，完善验收/Roadmap/接口运维记录。
-2. 敏感文件检查后仅提交本任务，push github/main，标准all部署/check/部署后Chrome与只读核验。
-3. 写入最终SHA和状态WAITING_MANUAL_ACCEPTANCE，仅B交付，A/C/D仍NOT_STARTED。
+1. 恢复时先deploy.sh check；最终记录SHA若未上线则完成标准all部署/健康验证，避免已完成版本重复发布。
+2. 用户按指标/验收记录确认Demo口径与视觉，缺B样本保持真实边界。
+3. 无需重导Excel、重复督办UAT、迁移权限或触发同步；其它REV3阶段等用户新指令。
 
 ## 恢复执行说明
-规范→本节→git status/diff→REV3总控/指标合同。只继续REV3-B，不重新实施下方REV2/督办/导入，不触发同步或修改历史业务。
+规范→本节→git status/diff→REV3总控/指标/验收。功能源码已推送且线上可用。最终发布SHA在data/order-progress-rev3b/final-state.json；最终报告outputs/KDOS_MPS_ORDER_PROGRESS_DEMO_ACCEPTANCE.md。保留全部历史，不覆盖下方任务。
 
 ---
 

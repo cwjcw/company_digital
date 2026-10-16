@@ -1,6 +1,6 @@
 # KDOS-MPS-ORDER-PROGRESS-REV3B-001 验收记录
 
-当前状态：IN_PROGRESS（自动验证完成，等待发布门禁核验）；最终必须 WAITING_MANUAL_ACCEPTANCE，不自动 PASS。
+当前状态：WAITING_MANUAL_ACCEPTANCE（等待人工验收）；开发、自动验证与功能发布核验完成，不自动PASS。
 日期：2026-10-16，Asia/Shanghai。
 
 ## 交付范围
@@ -61,3 +61,10 @@
 双库及附件标准备份20261016_092646已完成，pg_restore目录与3份SHA256全部通过；migration:show 93/93已应用，无新migration。全仓typecheck/lint/build最后通过；lint只保留既有ModulePortal fast-refresh警告，构建只保留既有chunk提示。GitHub仅本任务提交推送、`deploy.sh all/check`及部署后健康/Chrome/只读核验须完成；最终SHA和执行证据记录于交付回复及本地进度。无migration、生产权限初始化或同步配置变更；如发现需要这些改动应NO-GO。
 
 回滚仅使用已保留的原应用代码/镜像走正式部署，不回滚覆盖业务数据库，不改变既有调度/6项flags。REV3-A/C/D继续NOT_STARTED，Demo交付后停止，不自动推进。
+
+
+## 最终功能发布核验（2026-10-16）
+
+功能提交bbefc6de739cb8140aa98c8eed63344df54cf953已推送github/main并all部署；Repository/Web/API一致，4容器healthy，原PG容器保留、Dispatcher active。部署后新旧Chrome21项全部通过；新/旧页面200，meta/orders/items/candidates/detail/两个export匿名401。运行容器实际只读调用新Service，订单266ms、品项54ms；独立真实数据对账和原表达式对比再次全部通过，业务/权限/flags/migrations未变。
+
+本最终验收记录提交同样推送并标准all/check发布；最终发布SHA为包含本节的Git提交，以`git log -1 --format=%H -- outputs/KDOS_MPS_ORDER_PROGRESS_DEMO_ACCEPTANCE.md`、build-info/health和交付回复定位。私有证据data/order-progress-rev3b/{check,health,chrome-deployed,verify-deployed,formal-regression-deployed,container-check}；最终状态final-state.json。文件内不写自引用SHA，不提交真实业务数据。
