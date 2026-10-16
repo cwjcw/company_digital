@@ -1,6 +1,66 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-DASHBOARD-REV3C-001：PMC综合驾驶舱改造。
+任务目标：原URL改造为管理汇总驾驶舱；A/B保持PASS，三张明细报表独立入口、跨屏筛选联动和既有权限/导出保留。
+当前状态：进行中 / IN_PROGRESS。
+最后更新时间：2026-10-16。
+
+## 当前阶段
+当前阶段：验证。当前子任务：测试与真实只读对账已通过，提交推送及标准all/check。
+
+## 已完成
+- [x] 起始HEAD/线上Web/API均50a518741dd77f9c476a5a1aa4e1f93af2babbc9，工作区干净；已读本轮指令、AGENTS、适用Skill、总控/指标/验收及源码。
+- [x] A人工验收2026-10-16 PASS（用户确认真实人工验收）；A/B PASS、C IN_PROGRESS、D NOT_STARTED，独立文档提交1b4d9a4已push github/main。
+- [x] 实现决定：原/master-plan-dashboard改名，不增第二套驾驶舱；同一summary聚合与scope；仅省略首页不用的风险明细投影，不重写差集/事实公式。
+- [x] 明细保留/master-plan-reports同资源入口；跨屏只加可选初始参数，白名单/日期contract校验，直接打开A/B默认行为不变。
+
+## 正在进行
+- [x] 驾驶舱9KPI/7图表/4风险摘要/事业部表与折叠10工序汇总；独立三表原组件/API；安全跨屏白名单与A/B可选初始条件。
+- [x] Web专项33、Contracts29、启用Dashboard+OrderProgress PG及HTTP专项31通过；typecheck/lint/build通过，只有既有Portal/Vite提示。
+- [x] API full108套1012通过（33默认skip）；新三页面Chrome29项全部通过，13项驾驶舱/报表、A7、B9；Vite源码误计请求已精准修正为API路径。
+- [x] Web full发现B展开竞态：250ms初始相同query回调会无条件折叠。已最小修复为仅实际页码/页大小/排序变化时折叠，保留原筛选折叠；原B8项复测通过，新定向回归已通过，最终全量复测中。
+- [x] Chrome最终29/typecheck/lint/build复测通过；标准双库/uploads备份20261016_141858及3项SHA256通过，migration93/93。
+- [ ] 真实全范围逐行虚拟表达式探针15s/60s超时；改为一次授权原始事实独立核算+canonical固定样本，完整summary仍与起始Service逐字段比较；线上15s保护不变。
+
+## 待完成
+- [x] API108套1012、Web54套407、Contracts29、启用PG/HTTP31、typecheck/lint/build、Chrome29通过。
+- [x] 真实四scope与起始Service逐字段一致；4事业部、56状态分布/120工序数值/280趋势点、40canonical样本、5种完整Excel、CUSTOM/tenant/field/read403/export403通过。
+- [x] 备份20261016_141858、SHA256、93/93迁移/无新增；授权/6flags/结构一致；业务并发变化按审计单列（Web100导入/3报工、1任务/4ERP行更新），本任务只读。
+- [ ] 仅本任务GitHub同步、all/check与线上健康/效果/版本一致核验。
+- [ ] 交付C WAITING_MANUAL_ACCEPTANCE并停止，D不启动。
+
+## 修改文件
+- API summary/Controller/HTTP/PG；Web驾驶舱/toolbar/原Drawer抽取/三报表/跨屏/A-B可选条件与B同query修复/样式/App/Web与Chrome测试；Contracts类型/导航测试；integration-guide/runbook、总控/本进度/C指标/验收、B已确认PASS头部。
+
+## 数据库 Migration
+- 无；93/93已应用，无结构/生产授权初始化，NO-GO未触发。
+
+## 新增或修改测试
+- 按本轮28项要求补齐：KPI/10工序/辅助计划/7日趋势/权限/跨屏/三报表/导出/三尺寸及A/B。
+
+## 已运行测试
+- API1012、Web407、Contracts29、HTTP/PG31、Chrome29、typecheck/lint/build全部通过；详见C验收报告。首次Web3项B竞态失败已正式修复并全量闭环，保留失败日志。
+
+## 当前已知问题
+- 无阻塞。图表状态粒度是月计划品项，不标为工序任务数量/产能瓶颈；数量不冒充等价产能。
+
+## 等待用户确认
+- 无实施授权等待；C最终等待真实人工验收，不自动PASS。
+
+## 下一步
+1. 仅提交上述任务文件并push github/main；执行标准all/check。
+2. 线上健康/部署后Chrome与真实Service、业务/授权/flags部署前后核验；更新验收/总控/进度，最终记录commit也标准all/check保证SHA一致。
+3. A/B PASS、C WAITING_MANUAL_ACCEPTANCE、D NOT_STARTED并停止。
+
+## 恢复执行说明
+规范→本节→总控/指标→git status/diff→第一项未完成。保留下方历史；不重做A/B或业务导入。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-DASHBOARD-REV3A-001：待处理事项独立大屏。
 任务目标：独立路由复用9类正式差集、远程筛选、服务端分页/排序/搜索/导出及既有权限；保持旧页与REV3-B兼容。
 当前状态：已完成 / PASS。用户确认真实人工验收通过，人工验收日期：2026-10-16。

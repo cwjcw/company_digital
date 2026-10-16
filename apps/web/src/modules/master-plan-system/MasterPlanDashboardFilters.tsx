@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DatePicker, Select } from "antd";
+import { Button, DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 import { mpsDashboardResource as resource, type MpsDashboardFilters } from "@kdos/contracts";
 import { api } from "../../api";
+import { TablePermissionButton } from "../../shared/KdosDataTable";
 import { mpsDashboardUrl } from "./master-plan-dashboard.utils";
 
 type Field = "divisionId" | "customerCode" | "orderNumber" | "itemCode";
@@ -31,4 +32,16 @@ export function MpsDateFilter({filters,onChange,allowOrder,allowDelivery}:{filte
     {filters.dateType&&filters.dateType!=="NONE"&&<><Select aria-label="日期周期" value={period} onChange={changePeriod} options={[{value:"DAY",label:"按日"},{value:"MONTH",label:"按月"},{value:"YEAR",label:"按年"},{value:"CUSTOM",label:"自定义"}]}/>
       {period==="CUSTOM"?<DatePicker.RangePicker aria-label="日期范围" allowClear={false} value={filters.dateFrom&&filters.dateTo?[dayjs(filters.dateFrom),dayjs(filters.dateTo)]:null} onChange={dates=>dates?.[0]&&dates[1]&&onChange({dateFrom:dates[0].format("YYYY-MM-DD"),dateTo:dates[1].format("YYYY-MM-DD")})}/>:<DatePicker aria-label="日期值" allowClear={false} picker={period==="MONTH"?"month":period==="YEAR"?"year":"date"} value={filters.dateValue?dayjs(filters.dateValue):null} onChange={date=>date&&onChange({dateValue:date.format(period==="MONTH"?"YYYY-MM":period==="YEAR"?"YYYY":"YYYY-MM-DD")})}/>}</>}
   </>;
+}
+
+export function MpsDashboardToolbar({ filters, session, fields, onChange, onClear, onRefresh, refreshing }: {
+  filters: MpsDashboardFilters; session: string; fields: string[]; onChange: (patch: MpsDashboardFilters) => void; onClear: () => void; onRefresh: () => void; refreshing: boolean;
+}) {
+  return <div className="mps-dashboard-toolbar">
+    {(["divisionId", "customerCode", "orderNumber", "itemCode"] as const).filter(field => fields.includes(field)).map(field => <MpsRemoteSelect key={session + field} field={field} filters={filters} session={session} onChange={onChange} />)}
+    <MpsDateFilter filters={filters} onChange={onChange} allowOrder={fields.includes("orderDate")} allowDelivery={fields.includes("deliveryDate")} />
+    <Button onClick={onClear}>清空筛选</Button>
+    <Button aria-label="刷新数据" loading={refreshing} onClick={onRefresh}>刷新数据</Button>
+    <TablePermissionButton resource={resource} />
+  </div>;
 }

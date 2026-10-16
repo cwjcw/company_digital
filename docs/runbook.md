@@ -183,3 +183,11 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 入口 `/master-plan-gaps`，PMC中心 → 大屏报表 → 主计划大屏 → 待处理事项大屏。沿用现有overview授权，无需migration、seed或权限数据变更；不改任何业务数据/6项flags/调度。顶部筛选继承REV2首次及清空不限日期的口径。KPI点击切换9类正式清单；清单按需加载，已访问Tab保留独立分页/搜索/排序，顶部条件变化重置清单。各自导出全部匹配记录，复用原服务端read∩export审计链路。原 `/master-plan-dashboard` 和 `/master-plan-order-progress` 保留。
 
 回归增加 `MasterPlanGaps.spec.tsx`、`master-plan-gaps.spec.ts`、contracts `master-plan-dashboard.spec.ts`；PG现有dashboard-gaps专项同时验证轻量count、overview、detail total一致、CUSTOM/tenant、两页实际结果与9类Excel。发布必须备份、all/check及当前环境健康检查；REV3-A最终状态仅WAITING_MANUAL_ACCEPTANCE，不能自动推进C/D。
+
+## PMC综合驾驶舱 REV3-C
+
+入口 `/master-plan-dashboard`，PMC中心 → 大屏报表 → 主计划大屏 → PMC综合驾驶舱。首页保留紧凑9KPI、订单完成分布、计划数量Bar、事业部数量/比例/风险切换、10工序生产进度/正式状态、四项辅助准备、最近7个完整上海日实际报工、四项风险摘要及事业部汇总；不再挂载9类清单或三张业务明细。折叠10行工序汇总保留原字段/导出。
+
+三张明细保留 `/master-plan-reports`（PMC中心 → 报表 → PMC分析明细报表），独立服务端查询/分页/局部条件/排序/完整Excel。跨屏入口按目标read显示，白名单恢复顶部scope；风险摘要定位正式Gap并明确月计划/基础计划条数。A/B直接进入和重置默认行为不变；B表格相同初始化query不再清空已展开项，实际分页/排序/筛选仍折叠。
+
+只读summary采用同一DashboardService，省略风险明细投影。生产核验需区分合成Chrome、原部署查询对照与独立正式表达式/原始报工SUM；只读验证脚本的复杂表达式探针可在独立事务临时放宽timeout，不改变生产Service的15s保护。私有证据data/pmc-cockpit-rev3c，不提交实际订单/业务行/凭据。相关API/PG、Web、Contracts、三页面Chrome全回归后备份、commit/push、deploy all/check、健康/SHA一致和线上效果核验；无migration/生产权限初始化，A/B PASS，C最终WAITING_MANUAL_ACCEPTANCE，D不启动。

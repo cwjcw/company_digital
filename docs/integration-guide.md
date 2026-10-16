@@ -162,3 +162,11 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ## 待处理事项大屏 REV3-A
 
 `/master-plan-gaps` 复用 `mps-overview-dashboard` 的 read/export、字段依赖和数据范围，不引入新权限资源或生产授权迁移。`GET /api/v1/master-plan-system/dashboard/gap-counts` 只返回 `{gaps, visibleFields, generatedAt}`；接收原顶部事业部/客户/订单/品号/日期条件，忽略清单的局部搜索、排序和分页。数量直接SELECT原querySql的同一gap_rows，清单及Excel仍使用原gaps/export接口；未授权指标省略，有权限但无行返回0。所有查询均tenant隔离、只读事务和参数化；原综合大屏及在制订单Demo接口行为保持兼容。
+
+## PMC综合驾驶舱 REV3-C
+
+原页面 `/master-plan-dashboard` 改名“PMC综合驾驶舱”，资源仍为mps-overview-dashboard，原Scope/字段/导出语义不变。新增 `GET /api/v1/master-plan-system/dashboard/summary`：同一querySql聚合，响应为MpsDashboardSummary、不含risks；跳过不用的风险明细行投影，原GET dashboard/gap-counts/gaps/reports/table/export保留兼容。不新增统计公式或业务写入。
+
+`/master-plan-reports` 是原计划待完善/工序执行/风险与异常三表的独立入口，同一resource、同一组件/API及各自分页/搜索/排序/导出；正式源表下钻仍需原表权限。事业部汇总及原10行工序汇总的独立Excel继续可用。
+
+跨屏固定目的地为gaps/order-progress/reports；`from=pmc-cockpit`和原顶部filters白名单显式携带scope，gap只允许原9类。contracts的readMpsDashboardNavigation校验数组、长度、UUID、日期类型/周期和原日期范围；非法携带条件阻止目标数据请求。身份/权限/任意SQL/returnTo均忽略，目标后端权限独立校验。没有来源标记的直接打开仍使用A/B原默认值；B从不限日期驾驶舱进入时显式NONE，不改变其直接打开或重置的上海昨天默认。

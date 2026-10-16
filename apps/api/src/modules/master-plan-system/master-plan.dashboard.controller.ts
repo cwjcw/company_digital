@@ -10,6 +10,7 @@ import type { MasterPlanActor } from "./master-plan.types";
 export class MasterPlanDashboardController {
   constructor(private readonly dashboard: MasterPlanDashboardService, private readonly exports: MasterPlanDashboardExportService) {}
   @Get() query(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.dashboard(input, this.actor(req)); }
+  @Get("summary") summary(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.summary(input, this.actor(req)); }
   @Get("drill") drill(@Query() input: DashboardQuery & { resourceCode?: string; filterGroup?: string; view?: string }, @Req() req: Request) { return this.dashboard.drill(input, this.actor(req)); }
   @Get("table") table(@Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.table(input, this.actor(req)); }
   @Get("gaps") gaps(@Query("type") type: string, @Query() input: DashboardQuery, @Req() req: Request) { return this.dashboard.gaps(type, input, this.actor(req)); }

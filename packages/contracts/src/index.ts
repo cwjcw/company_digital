@@ -1062,5 +1062,6 @@ export * from "./equipment-dashboard";
 export * from "./finance";
 
 export * from "./master-plan-dashboard";
+export * from "./master-plan-dashboard-navigation";
 
 export * from "./master-plan-order-progress";

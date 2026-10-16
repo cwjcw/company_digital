@@ -1,5 +1,6 @@
 import { DataSource, type QueryRunner } from "typeorm";
 import ExcelJS from "exceljs";
+import Decimal from "decimal.js";
 import original from "../../data-source";
 import { mpsDashboardGaps, tablePermissionFieldsFor } from "@kdos/contracts";
 import { MasterPlanDashboardService, type DashboardQuery } from "./master-plan.dashboard.service";
@@ -36,6 +37,9 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
     for (const [n,order,inbound,pending,required] of [[10,"A",0,100,100],[11,"F",60,40,100],[12,"G",100,0,100],[13,"ZERO",0,0,0],[14,"OTHER",0,100,100],[15,"FOREIGN",0,100,100]] as const) {
       await insert("mps_monthly_plans",{ ...common,id:id(n),order_number:order,required_quantity:required,cumulative_inbound_quantity:inbound,pending_quantity:pending,...(n===14?{division_id:otherDivision}:{}),...(n===15?{tenant_id:tenant+"-OTHER"}:{}) });
     }
+    for (const [n,order,required,complete,pending] of [[70,"A",100,20,80],[71,"F",200,100,100],[72,"G",300,300,0],[73,"OTHER",400,300,100],[74,"ZERO",0,0,0],[75,"FOREIGN",100,0,100]] as const) {
+      await insert("mps_group_plans",{id:id(n),order_number:order,customer_code:"C-1",order_date:"2026-10-01",primary_division_id:n===73?otherDivision:division,required_quantity:required,completed_quantity:complete,pending_quantity:pending,...(n===75?{tenant_id:tenant+"-OTHER"}:{})});
+    }
     await insert("mps_shipping_plans",{...common,id:id(20),order_number:"A",monthly_plan_id:id(12),delivery_number:"001",planned_quantity:50});
     await insert("mps_shipping_plans",{...common,id:id(21),order_number:"A",monthly_plan_id:id(12),delivery_number:"002",planned_quantity:50});
     await insert("mps_shipping_plans",{...common,tenant_id:tenant+"-OTHER",id:id(23),order_number:"A",monthly_plan_id:id(10),delivery_number:"003",planned_quantity:100});
@@ -68,6 +72,18 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
     expect((await list("incomplete-inbound")).rows.map(r=>r.id)).toEqual([id(11)]);
     expect((await list("production-exception")).rows.map(r=>r.id)).toEqual([id(11)]);
   });
+  it("cockpit summary preserves formal order/plan/process quantities and scopes, omitting detail rows",async()=>{
+    const inputs=[{},{divisionId:division},{orderNumbers:["F"]},{dateType:"DELIVERY",datePeriod:"CUSTOM",dateFrom:"2019-01-01",dateTo:"2021-01-01"}] as DashboardQuery[];
+    for(const filters of inputs){const full=await service.dashboard(filters,actor);const summary=await service.summary(filters,actor);const {risks,generatedAt,...expected}=full;void risks;void generatedAt;const {generatedAt:_time,...actual}=summary;void _time;expect(actual).toEqual(expected);expect(summary).not.toHaveProperty("risks");}
+    const summary=await service.summary({},actor);
+    expect(summary.orders).toMatchObject({orderCount:5,unfinishedOrderCount:3});
+    for(const [key,value] of Object.entries({orderRequiredQuantity:"1000",orderCompletedQuantity:"720",orderPendingQuantity:"280"}))expect(new Decimal(String(summary.orders[key])).equals(value)).toBe(true);
+    expect(Number(summary.orders.orderCompletionRate)).toBe(.72);
+    for(const [key,value] of Object.entries({requiredQuantity:"400",cumulativeInboundQuantity:"160",pendingQuantity:"240",dispatchedWeeklyQuantity:"100"}))expect(new Decimal(String(summary.plans[key])).equals(value)).toBe(true);
+    expect(Number(summary.plans.dispatchRate)).toBe(.25);expect(Number(summary.plans.inboundRate)).toBe(.4);
+    const cutting=summary.processes.find(p=>p.code==="cutting")!;expect(Number(cutting.values.reportedQuantity)).toBe(25);expect(Number(cutting.values.productionProgress)).toBe(.0625);expect(cutting.states).toContainEqual({status:"延期",count:1});
+    expect((await service.summary({}, {...actor,tenantId:tenant+"-EMPTY"})).orders.orderCount).toBe(0);
+  });
   it("all 9 KPI counts equal same-scope list totals across division/customer/order/item/date filters",async()=>{
     for(const filters of [{},{divisionId:division},{customerCode:"C-1",orderNumbers:["A"]},{itemCodes:["ITEM"],dateType:"ORDER",datePeriod:"MONTH",dateValue:"2026-10"},{dateType:"DELIVERY",datePeriod:"CUSTOM",dateFrom:"2019-01-01",dateTo:"2021-01-01"}] as DashboardQuery[]){
       const summary=await service.dashboard(filters,actor);
@@ -86,6 +102,7 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
     expect(exported.rows.map(r=>r.id)).not.toContain(id(15));
     const scoped={...who,tableDataScopes:[{resource:"mps-overview-dashboard",scope:"CUSTOM",actions:["read"],rules:[{fieldKey:"divisionId",operator:"EQ",value:division}]}]};
     expect((await list("no-inbound",{},scoped)).rows.map(r=>r.id)).toEqual([id(10)]);
+    const cockpit=await service.summary({},scoped);expect(cockpit.orders.orderCount).toBe(4);expect(cockpit.divisions.every(r=>r.divisionId===division)).toBe(true);expect(new Decimal(String(cockpit.plans.requiredQuantity)).equals(300)).toBe(true);
   });
   it("gap counts and each list share CUSTOM division/tenant scope; empty tenant stays empty",async()=>{
     const permissions=["mps-overview-dashboard:*:read",...tablePermissionFieldsFor("mps-overview-dashboard").map(f=>`mps-overview-dashboard:${f.key}:read`)];

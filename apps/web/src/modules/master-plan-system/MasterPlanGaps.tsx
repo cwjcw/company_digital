@@ -9,14 +9,14 @@ import { MpsDashboardGapList } from "./MasterPlanDashboardTable";
 import { mpsDashboardUrl } from "./master-plan-dashboard.utils";
 import "./master-plan-dashboard.css";
 
-export function MasterPlanGaps() {
+export function MasterPlanGaps({ navigationFilters, initialGap }: { navigationFilters?: MpsDashboardFilters; initialGap?: MpsDashboardGapKey } = {}) {
   const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
   const session = JSON.stringify(user);
   const canRead = hasSessionResourcePermission(user, resource, "read");
   const canExport = hasSessionResourcePermission(user, resource, "export");
   // Preserve REV2's initial/clear scope (no date restriction).
-  const [filters, setFilters] = useState<MpsDashboardFilters>({});
-  const [selected, setSelected] = useState<MpsDashboardGapKey>("missing-shipping-plan");
+  const [filters, setFilters] = useState<MpsDashboardFilters>(() => navigationFilters ?? {});
+  const [selected, setSelected] = useState<MpsDashboardGapKey>(initialGap ?? "missing-shipping-plan");
   const client = useQueryClient();
   const result = useQuery({
     queryKey: [resource, session, "gap-counts", filters],

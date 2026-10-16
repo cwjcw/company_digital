@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Card, Checkbox, Drawer, Empty, Progress, Space, Spin, Tabs, Tag, Tooltip, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { standardProcesses } from "@tracker/shared";
-import { mpsOrderProgressResource as resource, mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, type MpsOrderProgressFilters, type MpsProgressPage, type MpsProgressRow } from "@kdos/contracts";
+import { mpsOrderProgressResource as resource, mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, type MpsDashboardFilters, type MpsOrderProgressFilters, type MpsProgressPage, type MpsProgressRow } from "@kdos/contracts";
 import { api } from "../../api";
 import { KdosDataTable, TablePermissionButton, hasSessionResourcePermission, kdosDefaultPageSize } from "../../shared/KdosDataTable";
 import { downloadApiFile } from "../../shared/legacy-ui";
@@ -57,9 +57,9 @@ function Detail({item,filters,session,user,close}:{item:MpsProgressRow;filters:M
     </>}
   </Drawer>;
 }
-export function MasterPlanOrderProgress(){
+export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:MpsDashboardFilters}={}){
   const user=JSON.parse(localStorage.getItem("sessionUser")??"{}"),session=JSON.stringify(user),canRead=hasSessionResourcePermission(user,resource,"read");
-  const [draft,setFilters]=useState<MpsOrderProgressFilters>(initialFilters),[query,setQuery]=useState<Query>(blankQuery),[expanded,setExpanded]=useState<Key[]>([]),[item,setItem]=useState<MpsProgressRow|null>(null);
+  const [draft,setFilters]=useState<MpsOrderProgressFilters>(()=>navigationFilters?{...navigationFilters,onlyUnfinishedOrders:true,onlyUnfinishedItems:true}:initialFilters()),[query,setQuery]=useState<Query>(blankQuery),[expanded,setExpanded]=useState<Key[]>([]),[item,setItem]=useState<MpsProgressRow|null>(null);
   const client=useQueryClient();
   const meta=useQuery({queryKey:[resource,session,"meta"],queryFn:()=>api<{visibleFields:string[];canExport:boolean}>(orderProgressUrl({},"/meta")),enabled:canRead,retry:false});
   const fields=meta.data?.visibleFields??[],has=(k:string)=>fields.includes(k);
@@ -83,7 +83,7 @@ export function MasterPlanOrderProgress(){
     <Card title="订单进度" extra={<Space wrap><ExportButton kind="orders" filters={filters} query={query} allowed={canExport}/><ExportButton kind="items" filters={filters} allowed={canExport}/></Space>}>
       <KdosDataTable<MpsProgressRow> resource={resource} viewKey="orders" simple systemFields={false} rowKey="id" dataSource={result.data?.rows??[]} columns={columns} loading={result.isFetching} locale={{emptyText:<Empty description="暂无匹配订单"/>}} scroll={{x:columns.reduce((n,c)=>n+Number(c.width??150),0)}}
         expandable={{expandedRowKeys:expanded,onExpandedRowsChange:keys=>setExpanded([...keys]),expandedRowRender:row=><ItemTable key={session+row.id+JSON.stringify(filters)} order={row} filters={filters} session={session} canExport={canExport} onOpen={setItem}/>}}
-        serverData={{resetKey:JSON.stringify(filters),total:result.data?.total??0,onQueryChange:q=>{setQuery({page:q.page,pageSize:q.pageSize,sortField:q.sortField,sortOrder:q.sortOrder});setExpanded([])}}} pagination={{pageSize:query.pageSize}}/>
+        serverData={{resetKey:JSON.stringify(filters),total:result.data?.total??0,onQueryChange:q=>{if(query.page!==q.page||query.pageSize!==q.pageSize||query.sortField!==q.sortField||query.sortOrder!==q.sortOrder){setQuery({page:q.page,pageSize:q.pageSize,sortField:q.sortField,sortOrder:q.sortOrder});setExpanded([])}}}} pagination={{pageSize:query.pageSize}}/>
     </Card>
     {item&&<Detail key={item.id+JSON.stringify(filters)} item={item} filters={filters} session={session} user={user} close={()=>setItem(null)}/>}
   </div>;

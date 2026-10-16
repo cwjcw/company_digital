@@ -28,6 +28,7 @@ describe("Master plan overview HTTP authorization", () => {
   it("requires independent dashboard read for aggregate and candidates; monthly read grants nothing", async () => {
     permissions = ["mps-monthly-plans:*:read"];
     await request(app.getHttpServer()).get("/master-plan-system/dashboard").expect(403);
+    await request(app.getHttpServer()).get("/master-plan-system/dashboard/summary").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/candidates?field=divisionId").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/gap-counts").expect(403);
     await request(app.getHttpServer()).get("/master-plan-system/dashboard/gaps?type=no-inbound").expect(403);
@@ -48,6 +49,17 @@ describe("Master plan overview HTTP authorization", () => {
       for (const gap of (await import("@kdos/contracts")).mpsDashboardGaps) await request(app.getHttpServer()).get(`/master-plan-system/dashboard/export?tableKey=${gap.key}`).expect(403);
     }
     expect(transaction).not.toHaveBeenCalled();
+  });
+  it("cockpit summary never returns unused risk rows or hidden metric inference", async () => {
+    permissions=[`${resource}:*:read`];
+    const {standardProcesses}=await import("@tracker/shared");
+    const raw={orders:{orderCount:99},plans:{requiredQuantity:"100"},gaps:{overdue:7},readiness:[{status:"待完善",count:2}],auxiliary:[{key:"technical",states:[{status:"延期",count:1}]}],processes:standardProcesses.map(p=>({code:p.code,values:{requiredQuantity:"100",reportedQuantity:"0",productionProgress:"0"},states:[{status:"延期",count:1}]})),trend:[{productionDate:"2026-10-15",cuttingReportedQuantity:"5"}],divisions:[{divisionId:"hidden"}],risks:null,trendStart:"2026-10-09",trendEnd:"2026-10-15"};
+    const queries:string[]=[];
+    transaction.mockImplementation(async (_level:string,fn:(manager:unknown)=>unknown)=>fn({query:async(sql:string)=>{queries.push(sql);return sql.startsWith("WITH")?[{data:raw}]:[];}}));
+    const response=await request(app.getHttpServer()).get("/master-plan-system/dashboard/summary").expect(200);
+    expect(response.body).not.toHaveProperty("risks");expect(response.body.orders).toEqual({});expect(response.body.plans).toEqual({});expect(response.body.gaps).toEqual({});expect(response.body.trend).toEqual([]);expect(response.body.divisions).toEqual([]);
+    for(const p of response.body.processes){expect(p.values).toEqual({});expect(p.states).toEqual([]);}
+    expect(queries.find(sql=>sql.startsWith("WITH"))).toContain("'risks','null'::jsonb");
   });
   it("read alone cannot export", async () => {
     permissions = [`${resource}:*:read`];

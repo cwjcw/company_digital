@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { standardProcesses } from "@tracker/shared";
-import { auxiliaryPlanGroups, mpsDashboardDateRange, mpsDashboardReadinessColumns, mpsDashboardExecutionColumns, mpsDashboardTableKeys, mpsDashboardRiskColumns, mpsDashboardGaps, mpsDashboardGapKeys, mpsDashboardGapColumns, type MpsDashboardGapKey, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardGapCounts, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow, type MpsDashboardTableData, type MpsDashboardTableKey } from "@kdos/contracts";
+import { auxiliaryPlanGroups, mpsDashboardDateRange, mpsDashboardReadinessColumns, mpsDashboardExecutionColumns, mpsDashboardTableKeys, mpsDashboardRiskColumns, mpsDashboardGaps, mpsDashboardGapKeys, mpsDashboardGapColumns, type MpsDashboardGapKey, mpsDashboardResource as resource, tablePermissionFieldsFor, type MpsDashboardSummary, type MpsDashboardGapCounts, type MpsDashboardData, type MpsDashboardFilters, type MpsDashboardRow, type MpsDashboardTableData, type MpsDashboardTableKey } from "@kdos/contracts";
 import { normalizeKdosPageSize } from "../../common/pagination";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { MasterPlanQueryService } from "./master-plan.query.service";
@@ -159,7 +159,7 @@ export class MasterPlanDashboardService {
       }).join(" UNION ALL ")})`;
   }
   /** Public for real PostgreSQL/EXPLAIN verification; all values remain bound parameters. */
-  querySql(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false, gapCountsOnly = false) {
+  querySql(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false, gapCountsOnly = false, omitRiskRows = false) {
     input = this.normalize(input);
     this.assert(actor); if (action === "export") this.assert(actor, "export"); this.validate(input, actor);
     const gap = mpsDashboardGaps.find(g => g.key === input.tableKey);
@@ -232,7 +232,7 @@ export class MasterPlanDashboardService {
         'processes',(SELECT jsonb_agg(p) FROM (${processRows}) p),
         'trend',(SELECT jsonb_agg(jsonb_build_object('productionDate',d::date::text) || COALESCE((SELECT jsonb_object_agg(process_code||'ReportedQuantity',quantity::text) FROM daily WHERE production_date=d::date),'{}'::jsonb) ORDER BY d) FROM generate_series((now() AT TIME ZONE 'Asia/Shanghai')::date-7,(now() AT TIME ZONE 'Asia/Shanghai')::date-1,'1 day') d),
         'divisions',COALESCE((SELECT jsonb_agg(jsonb_build_object('divisionId',d."divisionId",'divisionName',o.name)||d.metrics ORDER BY o.name) FROM division_rows d LEFT JOIN organization_units o ON o.id=d."divisionId"),'[]'::jsonb),
-        'risks',jsonb_build_object('total',(SELECT count(*) FROM filtered_risks),'rows',COALESCE((SELECT jsonb_agg(r) FROM (SELECT r.*,o.name "divisionName" FROM filtered_risks r LEFT JOIN organization_units o ON o.id=r."divisionId" ORDER BY ${riskSort} "latestCustomerDueDate" NULLS LAST,"orderNumber","itemCode","riskType",id ${allRisks ? "" : `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`}) r),'[]'::jsonb)),
+        'risks',${omitRiskRows ? "'null'::jsonb" : `jsonb_build_object('total',(SELECT count(*) FROM filtered_risks),'rows',COALESCE((SELECT jsonb_agg(r) FROM (SELECT r.*,o.name "divisionName" FROM filtered_risks r LEFT JOIN organization_units o ON o.id=r."divisionId" ORDER BY ${riskSort} "latestCustomerDueDate" NULLS LAST,"orderNumber","itemCode","riskType",id ${allRisks ? "" : `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`}) r),'[]'::jsonb))`},
         'trendStart',((now() AT TIME ZONE 'Asia/Shanghai')::date-7)::text,'trendEnd',((now() AT TIME ZONE 'Asia/Shanghai')::date-1)::text
       ) data`;
     if (gapCountsOnly) {
@@ -268,15 +268,16 @@ export class MasterPlanDashboardService {
     return { sql, params, page, pageSize };
   }
 
-  async dashboard(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false): Promise<MpsDashboardData> {
+  async dashboard(input: DashboardQuery, actor: MasterPlanActor, action: "read" | "export" = "read", allRisks = false, omitRiskRows = false): Promise<MpsDashboardData> {
     if(input.tableKey) throw new BadRequestException("请使用明细表接口");
-    const { sql, params, page, pageSize } = this.querySql(input, actor, action, allRisks);
+    const { sql, params, page, pageSize } = this.querySql(input, actor, action, allRisks, false, omitRiskRows);
     const data = await this.dataSource.transaction("REPEATABLE READ", async manager => {
       await manager.query("SET TRANSACTION READ ONLY");
       // EXPLAIN: JIT compilation dominated this correlated CTE report; disable only in this read transaction.
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('TimeZone','Asia/Shanghai',true),set_config('statement_timeout','15000',true),set_config('jit','off',true)", [actor.tenantId]);
       return (await manager.query(sql, params))[0].data;
     });
+    const risks = data.risks ?? { total: 0, rows: [] };
     const clean = (row: MpsDashboardRow, mapping: Record<string, string> = {}) => Object.fromEntries(Object.entries(row).filter(([key]) => ["id", "resource"].includes(key) || this.allowed(actor, mapping[key] ?? (key === "divisionName" ? "divisionId" : key))));
     return {
       gaps: Object.fromEntries(mpsDashboardGaps.filter(g => this.allowed(actor,g.metric)).map(g => [g.key, Number(data.gaps?.[g.key] ?? 0)])),
@@ -287,8 +288,14 @@ export class MasterPlanDashboardService {
       processes: processes.map(p => { const row = data.processes.find((r: { code: string }) => r.code === p.code); return { code: p.code, name: p.name, order: p.order, values: clean(row.values, { requiredQuantity: `${p.code}RequiredQuantity`, reportedQuantity: `${p.code}ReportedQuantity`, productionProgress: `${p.code}ProductionProgress` }), states: this.readable(actor, `${p.code}Status`) ? row.states : [] }; }),
       trend: this.readable(actor, "productionDate") ? data.trend.map((r: MpsDashboardRow) => clean(r)) : [],
       divisions: this.readable(actor, "divisionId") ? data.divisions.map((r: MpsDashboardRow) => clean(r)) : [],
-      risks: { total: data.risks.total, rows: data.risks.rows.map((r: MpsDashboardRow) => clean(r)), page, pageSize: allRisks ? data.risks.total : pageSize }
+      risks: { total: risks.total, rows: risks.rows.map((r: MpsDashboardRow) => clean(r)), page, pageSize: allRisks ? risks.total : pageSize }
     };
+  }
+
+  async summary(input: DashboardQuery, actor: MasterPlanActor): Promise<MpsDashboardSummary> {
+    const { risks, ...summary } = await this.dashboard(input, actor, "read", false, true);
+    void risks;
+    return summary;
   }
 
   async gapCounts(input: DashboardQuery, actor: MasterPlanActor): Promise<MpsDashboardGapCounts> {
