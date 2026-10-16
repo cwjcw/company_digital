@@ -7,7 +7,7 @@ REV3-A起始HEAD、Web、API均d6e6e8ad8d6fa6b17db493196653314071dda69a，工作
 |---|---|---|
 | REV3-B | 在制订单进度 Demo | PASS |
 | REV3-A | 待处理事项独立大屏 | PASS |
-| REV3-C | PMC 综合驾驶舱 | IN_PROGRESS（验证完成，待部署） |
+| REV3-C | PMC 综合驾驶舱 | WAITING_MANUAL_ACCEPTANCE |
 | REV3-D | 集成及验收 | NOT_STARTED |
 
 ## REV3-B 人工验收
@@ -37,4 +37,4 @@ A定义与验收：`outputs/KDOS_MPS_GAP_AUDIT.md`、`outputs/KDOS_MPS_OVERVIEW_
 
 ## REV3-C 实现与验证
 
-A验收独立提交1b4d9a4；C原URL驾驶舱、/master-plan-reports三张原独立报表与安全跨屏已实现；summary复用同一querySql且只省略风险行，9类差集和权限不变。API1012、Web407、Contracts29、相关HTTP/PG31、本地Chrome29及typecheck/lint/build通过。真实四组summary与起始Service完全一致，4事业部、56状态分布/120工序值/280趋势点及5种完整Excel通过，性能145–1363ms。报告outputs/KDOS_MPS_PMC_COCKPIT_ACCEPTANCE.md；规则outputs/KDOS_MPS_PMC_COCKPIT_METRICS.md。当前准备标准提交推送及all/check；部署后C只记录WAITING_MANUAL_ACCEPTANCE，D不启动。
+A验收独立提交1b4d9a4；C原URL驾驶舱、/master-plan-reports三张原独立报表与安全跨屏已实现；summary复用同一querySql且只省略风险行，9类差集和权限不变。API1012、Web407、Contracts29、相关HTTP/PG31、本地Chrome29及typecheck/lint/build通过。真实四组summary与起始Service完全一致，4事业部、56状态分布/120工序值/280趋势点及5种完整Excel通过，性能145–1363ms。报告outputs/KDOS_MPS_PMC_COCKPIT_ACCEPTANCE.md；规则outputs/KDOS_MPS_PMC_COCKPIT_METRICS.md。功能7b85aaf已普通push github/main并标准all/check部署，Repository/Web/API一致、四服务healthy，部署后Chrome29/29、运行容器真实四scope及9类count/detail验证通过；无本任务业务/权限/6flags写入或migration。工程交付完成，C严格WAITING_MANUAL_ACCEPTANCE，D不启动。最终记录提交也按统一SHA标准发布，结束SHA见交付回复/健康版本/私有final-state.json。

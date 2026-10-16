@@ -13,7 +13,7 @@
 
 ## 版本与入口
 
-起始Repository/Web/API均`50a518741dd77f9c476a5a1aa4e1f93af2babbc9`，工作区干净。A人工验收文档已独立提交`1b4d9a4`并推送github/main，未与C代码混合。C功能及最终记录提交、最终一致版本在部署完成后补充。
+起始Repository/Web/API均`50a518741dd77f9c476a5a1aa4e1f93af2babbc9`，工作区干净。A人工验收文档已独立提交`1b4d9a4`并推送github/main，未与C代码混合。C功能提交`7b85aaf546ca6ef0407b512614b6bb84eaa349ea`（28文件）已推送github/main并正式部署；最终记录提交亦按同一all/check发布，结束SHA以交付回复、build-info/health及私有final-state.json的实时一致版本为准，避免文档自引用SHA。
 
 - 驾驶舱：`http://192.168.1.249:15172/master-plan-dashboard`，保留原URL；PMC中心 → 大屏报表 → 主计划大屏 → PMC综合驾驶舱。
 - 独立报表：`http://192.168.1.249:15172/master-plan-reports`；PMC中心 → 报表 → PMC分析明细报表。
@@ -43,7 +43,7 @@
 | Web full | 54套407通过（含B相同query展开定向回归） |
 | typecheck / lint / build | 通过；仅既有Portal FastRefresh警告和Vite大chunk提示 |
 | 本地Chrome | 驾驶舱/报表13、A7、B9，共29通过 |
-| 部署后Chrome | 待部署后执行 |
+| 部署后Chrome | 29/29通过（正式Web构建，合成API拦截；独立于真实只读核验） |
 | migration check | 93/93，无新增migration |
 
 Chrome合成响应覆盖1366/1440/1920、旧URL/导航/单一标题、9KPI/图表、顶部筛选/日期/刷新/清空、10工序顺序/105%/状态独立/10色/七日tooltip、4辅助状态、风险到精确A分类、携带条件到B、三报表独立分页/排序/搜索/导出、事业部及工序汇总Excel、目标拒绝/无export、加载/空值/隐藏字段/失败。Web与API补充tenant/CUSTOM/field/read403/export403。合成响应通过不等于生产数据指标已核验，后者单列如下。
@@ -67,7 +67,7 @@ Chrome合成响应覆盖1366/1440/1920、旧URL/导航/单一标题、9KPI/图�
 
 ## 备份、部署与变更范围
 
-标准备份`20261016_141858`：两库custom备份及uploads，pg_restore目录验证、3项SHA256均通过。迁移93/93，无需结构变更/生产授权初始化，NO-GO条件未触发。标准all/check、四服务健康、运行容器真实summary核验待部署后补充。
+标准备份`20261016_141858`：两库custom备份及uploads，pg_restore目录验证、3项SHA256均通过。迁移93/93，无需结构变更/生产授权初始化，NO-GO条件未触发。标准`./scripts/deploy.sh all`与`check`通过，Repository=Web=API=7b85aaf，STATUS=CONSISTENT；Web/API/PostgreSQL/document-worker四服务healthy，Swagger/OpenAPI及页面健康通过，原PostgreSQL容器保留、Dispatcher active。四页面200，summary/count/table/export匿名401；有登录但无权限的403由HTTP/PG及运行Service单独覆盖。运行API容器实际summary全局/事业部/订单/交付月分别1360/802/178/345ms，与正式dashboard非风险结果完全相等；9类summary/gap-counts/detail total一致，noRead403通过。最终记录版本按相同标准all/check与最终smoke核对，不改变功能源码。
 
 修改范围：API summary投影/Controller/HTTP及PG测试；Web原驾驶舱/共享toolbar/抽取原Drawer/独立报表/跨屏适配/A与B可选初始化及B同query回归/CSS/App/Chrome与Web测试；Contracts summary类型/导航白名单及测试；integration-guide/runbook、总控/本进度/C指标及本验收、B指标头部与已确认PASS一致。无业务写接口/表结构/配置/迁移/同步调度改动。
 
@@ -76,3 +76,11 @@ Chrome合成响应覆盖1366/1440/1920、旧URL/导航/单一标题、9KPI/图�
 起始只读基线11:39至部署前，12张表中8张count/version哈希一致；4张有正常并发活动，不能宣称业务库全程静止。审计证实14:15:41 Web订单分配导入100行、11:46:59至14:02:55 Web实际报工新增3条；11:46:59的一条任务状态随报工更新；ERP来源行4条于14:16:40更新，既有已启用同步链路仍正常运行，另有ERP投影审计。以上均早于C功能提交/部署，本任务验证只读、不调用同步或写入接口，不覆盖/回滚用户及既有任务的数据。备份14:18:58已覆盖上述业务变化。
 
 生产授权/角色/管理员/数据范围哈希、6flags开关及周期、migration/schema/约束均与11:39起点一致。6flags既有5启用、plan-projections禁用，保持原状。后续发布核验另与部署前快照比较；正常在线变化按审计事实单列，不假报全部哈希相同。
+
+## 部署后实际缺口与最终边界
+
+运行容器9类数量依次：未进入出货计划1347、未进入基础计划0、未进入周计划0、计划待完善111、未开始报工1022、未入库950、未完成入库82、延期未完成197、生产异常10。对应清单total一致，不改变A定义；驾驶舱4风险摘要直接用相应gap数与单位。
+
+功能部署后12张业务表count/version哈希、授权/6flags、migration/schema/约束与部署前快照完全一致；起始至部署前的正常并发差异已单列。无本任务业务写入、无同步手工触发/调度或flag变更、无新增migration/生产授权修改。备份与只读证据保留本机受限目录，工作区仅提交任务文件，GitHub普通push，无force。
+
+交付材料已齐，C工程实施完成；用户尚未进行REV3-C真实人工验收，因此C严格保持WAITING_MANUAL_ACCEPTANCE。A/B保持PASS；D保持NOT_STARTED，本任务结束后停止。
