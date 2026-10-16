@@ -1,6 +1,7 @@
 # KDOS-MPS-DASHBOARD-REV3A-001 验收记录
 
-当前状态：WAITING_MANUAL_ACCEPTANCE（开发、自动测试、部署及运行核验已完成，等待用户人工验收，不自行判PASS）。
+当前状态：PASS。用户确认待处理事项大屏真实人工验收通过。
+REV3-A人工验收日期：2026-10-16；验收结果：PASS。
 日期：2026-10-16，Asia/Shanghai。
 
 ## 交付范围
@@ -58,4 +59,4 @@ Contracts master-plan-dashboard.ts及新增合同测试；API Dashboard Service/
 
 最终验收记录提交同样推送并标准all/check发布，最终SHA为包含本节的提交，以git HEAD/build-info/health/最终交付回复定位，不制造自引用SHA；私有证据data/mps-gaps-rev3a。回滚使用先前保留应用代码/镜像走标准部署，不覆盖业务数据库，不变更调度或6项flags。发生生产权限变更或migration需求应STOP/NO-GO；本轮没有该需求。
 
-人工验收建议：登录已有overview授权账号，从导航进入新页面；核对9类数量及选Tab联动、组合顶部条件、分页/搜索/排序与各类完整导出；核对原综合页和在制进度页面。最终状态只能WAITING_MANUAL_ACCEPTANCE，须用户确认后才PASS。
+人工验收建议：登录已有overview授权账号，从导航进入新页面；核对9类数量及选Tab联动、组合顶部条件、分页/搜索/排序与各类完整导出；核对原综合页和在制进度页面。用户已于2026-10-16确认真实人工验收PASS；本验收记录独立提交后，REV3-C按新任务执行，REV3-D不启动。
