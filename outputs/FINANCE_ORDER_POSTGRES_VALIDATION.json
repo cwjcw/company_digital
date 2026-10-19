@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "scenarios": 20,
+  "scenarios": 22,
   "checks": [
     "verified publication and exact per-item tax arithmetic",
     "multi-line order sum is 0.30, not floating-point or duplicated",
@@ -14,6 +14,7 @@
     "earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and nine-column export",
     "missing delivery plan stays null in raw data and enters exception report",
     "failed source preserves published totals and resumable pages",
+    "resuming legacy pages without header state fails atomically and requires a full reread",
     "missing source rows retained and excluded rather than silently canceled",
     "field hiding and standard filters apply on list and export",
     "monetary custom authorization compares numeric values, not text",
@@ -21,6 +22,7 @@
     "full Chinese 34 and nine headers export through platform",
     "customer annual ranking is paged, filtered by aggregate and export matches",
     "cross-tenant commands and views cannot read another tenant",
+    "specified-close migration preserves raw rows and excludes entire headers only, including tenant and account isolation",
     "parallel refresh rejects overlap and failed source never publishes partial pages"
   ],
   "productionModified": false

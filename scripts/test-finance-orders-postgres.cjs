@@ -10,12 +10,13 @@ const {FinanceCustomerMappings1722920088000:Customers}=req('./dist/migrations/17
 const {FinanceE10Analytics1722920089000:Analytics}=req('./dist/migrations/1722920089000-FinanceE10Analytics');
 const {FinanceE10DeliveryDateConflicts1722920090000:DateConflicts}=req('./dist/migrations/1722920090000-FinanceE10DeliveryDateConflicts');
 const {FinanceE10EarliestDeliveryDate1722920091000:EarliestDate}=req('./dist/migrations/1722920091000-FinanceE10EarliestDeliveryDate');
+const {FinanceE10SpecifiedClose1722920095000:SpecifiedClose}=req('./dist/migrations/1722920095000-FinanceE10SpecifiedClose');
 const {financeOrderFields,financeMonthlyFields}=req('@kdos/contracts');const ExcelJS=req('exceljs');
 const host=process.env.FINANCE_TEST_POSTGRES_HOST;if(!host?.startsWith('/tmp/kdos-finance-pg-'))throw Error('Isolated socket required');
 const name='finance_orders_test_'+Date.now(),user='knplan',actor={tenantId:'KAINAN',userId:'0199e000-0000-7000-8000-000000000001',username:'fixture',requestId:'finance-order-test',permissions:['*'],source:'web'};
 const control=new Client({host,user,database:'postgres'}),checks=[];let db;const check=async(label,fn)=>{await fn();checks.push(label);};
 const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
-const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
+const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerCloseCode:'0',headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
 let batch=[line(1,101,'0.10'),line(1,102,'0.20'),line(2,103,'0','A140-2'),line(3,104,'5','MISSING'),line(4,105,'-1','MISSING',2026)],failAfter=-1;
 const reader={read:async(consume,options)=>{
  const coverage=[2025,2026].map(year=>{const rows=batch.filter(r=>r.yearMonth.startsWith(String(year)));return {year,orders:new Set(rows.map(r=>r.sourceOrderId)).size,lines:rows.length,localGross:rows.reduce((n,r)=>n.plus(r.localGross),new Decimal(0)).toString()};}).filter(r=>r.lines);
@@ -67,6 +68,12 @@ const reader={read:async(consume,options)=>{
  });
  await check('missing delivery plan stays null in raw data and enters exception report',async()=>{batch.push({...line(5,106,'2'),scheduleCount:0,closeCode:null,deliveredBusinessQty:null,deliveredPriceQty:null});assert.equal((await run()).status,'SUCCESS');assert((await queries.exceptions(actor)).some(r=>r.issueLines===1));});
  await check('failed source preserves published totals and resumable pages',async()=>{const before=await list('finance-e10-lines');failAfter=2;const failed=await run();assert.equal(failed.status,'FAILED');assert.equal(failed.page_count,2);assert.equal((await list('finance-e10-lines')).total,before.total);failAfter=-1;assert.equal((await run({resumeId:failed.id})).status,'SUCCESS');});
+ await check('resuming legacy pages without header state fails atomically and requires a full reread',async()=>{
+  const before=await db.query('SELECT id,version,payload FROM finance_e10_lines ORDER BY id');failAfter=1;const failed=await run();assert.equal(failed.status,'FAILED');failAfter=-1;
+  await db.query("UPDATE finance_e10_pages p SET payload=(SELECT jsonb_agg(x-'headerCloseCode') FROM jsonb_array_elements(p.payload) x) WHERE run_id=$1",[failed.id]);
+  const retried=await run({resumeId:failed.id});assert.equal(retried.status,'FAILED');assert(retried.error_summary.includes('请全量重新读取'));
+  assert.deepEqual(await db.query('SELECT id,version,payload FROM finance_e10_lines ORDER BY id'),before);assert.equal((await run()).status,'SUCCESS');
+ });
  await check('missing source rows retained and excluded rather than silently canceled',async()=>{batch=batch.filter(r=>r.sourceLineId!==id(104));assert.equal((await run()).status,'SUCCESS');assert.equal((await list('finance-e10-lines')).total,6);assert.equal((await db.query('SELECT count(*)::integer n FROM finance_e10_lines WHERE source_missing'))[0].n,1);});
  await check('field hiding and standard filters apply on list and export',async()=>{const resource='finance-e10-lines',viewer={...actor,permissions:[`${resource}:*:read`,`${resource}:*:export`,`${resource}:customerCode:read`],tableDataScopes:[{resource,scope:'ALL',actions:['read','export']}]};const r=await list(resource,{},viewer);assert.equal(r.rows[0].localGross,undefined);await assert.rejects(list(resource,{filterGroup:JSON.stringify({logic:'AND',rules:[{field:'localGross',operator:'gt',value:1}]})},viewer));const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},viewer));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),['客户编号']);assert.equal(book.worksheets[0].rowCount,7);});
  await check('monetary custom authorization compares numeric values, not text',async()=>{const r='finance-e10-lines',limited={...actor,permissions:[`${r}:*:read`,...financeOrderFields.map(f=>`${r}:${f.key}:read`)],tableDataScopes:[{resource:r,scope:'CUSTOM',rules:[{fieldKey:'localGross',operator:'GT',value:'2'}]}]};const result=await list(r,{},limited);assert(result.rows.every(row=>new Decimal(row.localGross).gt(2)));assert(!result.rows.some(row=>row.localGross==='0.20'));});
@@ -74,6 +81,45 @@ const reader={read:async(consume,options)=>{
  await check('full Chinese 34 and nine headers export through platform',async()=>{for(const [resource,fields] of [['finance-e10-lines',financeOrderFields],['finance-e10-monthly',financeMonthlyFields]]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},actor));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),fields.map(f=>f.label));}});
  await check('customer annual ranking is paged, filtered by aggregate and export matches',async()=>{const result=await queries.ranking({year:2026},actor);assert.equal(result.total,1);assert.equal(result.rows[0].orderTotal,'-1.00');const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx('finance-e10-ranking',{context:{year:2026}},actor));assert.equal(book.worksheets[0].rowCount,2);assert.equal(book.worksheets[0].getRow(1).getCell(2).value,'年累计本币总金额');});
  await check('cross-tenant commands and views cannot read another tenant',async()=>{assert.equal((await queries.dashboard({context:{year:2025}},{...actor,tenantId:'OTHER'})).totals.orders,0);await db.query('CREATE ROLE finance_analytics_reader NOLOGIN NOSUPERUSER');await db.query('GRANT SELECT ON finance_e10_lines,finance_customer_mappings,finance_e10_raw,finance_e10_orders_all,finance_e10_monthly TO finance_analytics_reader');const q=db.createQueryRunner();await q.startTransaction();try{await q.query('SET LOCAL ROLE finance_analytics_reader');await q.query("SELECT set_config('app.tenant_id','OTHER',true)");assert.equal((await q.query('SELECT count(*)::integer n FROM finance_e10_monthly'))[0].n,0);}finally{await q.rollbackTransaction();await q.release();}});
+ await check('specified-close migration preserves raw rows and excludes entire headers only, including tenant and account isolation',async()=>{
+  const original=batch.map(r=>({...r}));
+  const make=(order,n,amount,headerCloseCode,extra={})=>({...line(order,n,amount,'HEADER-TEST'),headerCloseCode,closeCode:'1',...extra});
+  batch.push(make(5001,5101,'10','1',{closeCode:'2'}),make(5001,5102,'20','0',{closeCode:'2'}),make(5002,5103,'40','0'),make(5003,5104,'50','2'),make(5004,5105,'60',null),make(5005,5106,'70','0',{approved:'N'}),make(5006,5107,'80','1'),make(5007,5108,'10',null));
+  assert.equal((await run()).status,'SUCCESS');
+  const runner=db.createQueryRunner();
+  const rawBefore=await db.query('SELECT * FROM finance_e10_lines ORDER BY id');
+  try{
+   await new SpecifiedClose().up(runner);
+   assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),rawBefore);
+   const filterGroup={logic:'AND',rules:[{field:'customerCode',operator:'eq',value:'HEADER-TEST'}]};
+   const selected=()=>list('finance-e10-monthly',{filterGroup:JSON.stringify(filterGroup)});
+   assert.equal((await selected()).total,5);assert.equal((await list('finance-e10-lines',{filterGroup:JSON.stringify(filterGroup)})).total,8);
+   assert(!(await selected()).rows.some(r=>['SYN-5001','SYN-5006'].includes(r.orderNo)));
+   for(const order of ['SYN-5002','SYN-5003','SYN-5004','SYN-5005'])assert((await selected()).rows.some(r=>r.orderNo===order));
+   // Historical missing metadata and explicit NULL retain the old policy until refreshed.
+   await db.query("UPDATE finance_e10_lines SET payload=payload-'headerCloseCode' WHERE source_line_id=$1",[id(5108)]);
+   assert.equal((await selected()).total,5);
+   // A specified header in a different tenant/account cannot exclude this tenant's normal order.
+   const [runId]=await db.query("SELECT id FROM finance_e10_runs WHERE status='SUCCESS' ORDER BY completed_at DESC LIMIT 1");
+   const [foreignRun]=await db.query("INSERT INTO finance_e10_runs(tenant_id,status,actor_id) VALUES('OTHER','SUCCESS',$1) RETURNING id",[actor.userId]);
+   for(const [tenant,account,r]of [['KAINAN','OTHER-ACCOUNT',{...make(5001,6101,'100','0'),orderNo:'OTHER-ACCOUNT-HEADER',customerCode:'OTHER-ACCOUNT'}],['OTHER','SYNTHETIC-E10',make(5002,6102,'100','1')]])await db.query('INSERT INTO finance_e10_lines(tenant_id,source_database,source_order_id,source_line_id,payload,last_run_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7)',[tenant,account,r.sourceOrderId,r.sourceLineId,r,tenant==='OTHER'?foreignRun.id:runId.id,actor.userId]);
+   assert((await list('finance-e10-monthly')).rows.some(r=>r.orderNo==='OTHER-ACCOUNT-HEADER'));
+   assert((await selected()).rows.some(r=>r.orderNo==='SYN-5002'));
+   const dashboard=await queries.dashboard({context:{year:2025,customerCode:'HEADER-TEST'}},actor);assert.equal(dashboard.totals.amount,'230.00');assert.equal(dashboard.totals.orders,5);
+   for(const group of [dashboard.months,dashboard.departments,dashboard.channels,dashboard.matrix])assert(group.reduce((n,r)=>n.plus(r.amount),new Decimal(0)).equals('230'));
+   assert.equal((await queries.ranking({year:2025,customerCode:'HEADER-TEST'},actor)).rows[0].orderTotal,'230.00');
+   for(const [resource,options,rows,amountKey]of [['finance-e10-lines',{filterGroup},8,'本币合计金额'],['finance-e10-monthly',{filterGroup,page:99,pageSize:1},5,'本币总金额'],['finance-e10-ranking',{context:{year:2025,customerCode:'HEADER-TEST'}},1,'年累计本币总金额']]){
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,options,actor));const sheet=book.worksheets[0];assert.equal(sheet.rowCount-1,rows);
+    const index=sheet.getRow(1).values.indexOf(amountKey);let total=new Decimal(0);for(let n=2;n<=sheet.rowCount;n++)total=total.plus(sheet.getRow(n).getCell(index).text);assert(total.equals(resource==='finance-e10-lines'?'340':'230'));
+   }
+   // A state change restores/excludes the same stable order without losing its raw items.
+   batch=batch.map(r=>r.sourceOrderId===id(5001)?{...r,headerCloseCode:'2'}:r);assert.equal((await run()).status,'SUCCESS');assert.equal((await selected()).total,6);
+   batch=batch.map(r=>r.sourceOrderId===id(5001)?{...r,headerCloseCode:'1'}:r);assert.equal((await run()).status,'SUCCESS');assert.equal((await selected()).total,5);assert.equal((await list('finance-e10-lines',{filterGroup:JSON.stringify(filterGroup)})).total,8);
+   assert.equal((await run()).changed_count,0);
+   await new SpecifiedClose().down(runner);assert.equal((await selected()).total,7);
+   await new SpecifiedClose().up(runner);assert.equal((await selected()).total,5);
+  }finally{batch=original;await run();await runner.release();}
+ });
  await check('parallel refresh rejects overlap and failed source never publishes partial pages',async()=>{failAfter=1;await Promise.all([app.refresh(actor),assert.rejects(app.refresh(actor))]);for(let i=0;i<500;i++){if(!(await db.query("SELECT 1 FROM finance_e10_runs WHERE status='RUNNING'")).length)break;await new Promise(r=>setTimeout(r,5));}failAfter=-1;});
  fs.writeFileSync(path.join(root,'outputs/FINANCE_ORDER_POSTGRES_VALIDATION.json'),JSON.stringify({status:'PASS',scenarios:checks.length,checks,productionModified:false},null,2));console.log('Finance analytics PostgreSQL PASS: '+checks.length+' scenarios');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(db?.isInitialized)await db.destroy();if(control._connected){await control.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);await control.query('DROP ROLE IF EXISTS finance_analytics_reader');await control.end();}});

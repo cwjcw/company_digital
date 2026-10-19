@@ -2,7 +2,7 @@
 
 > **2026-10-14 新需求覆盖本文件既有实现描述**：用户要求财务订单模块日期时间统一显示为 `YYYY-MM-DD HH:MM:SS`，并已确认多品项预交货日取最早有效日期时间（MIN），不得因不同日期置空。本文件以下关于 `CONVERT(char(10),...,23)`、`::date`、多交期置空、日期留空冲突等属于此前上线实现现状/历史技术记录，**并非新目标口径**。具体变更要求以 `ERP_ORDER_ANALYTICS_SPEC.md` 与 `CODEX_ERP_ORDER_ANALYTICS_TASK.md` 最新章节为准。实际代码、迁移与生产数据是否完成整改必须经过 Codex 实施和独立验收；文档更新不代表已部署。
 
-> **2026-10-14 增补的统计范围变更（尚待生产代码落实）**：用户要求不再显示统计大屏“待复核订单 N 张，金额 X 元，暂未纳入统计”横幅，保持待复核订单原本排除规则；另要求 E10 **指定结束订单不纳入月度数据、统计大屏、客户年度排名和年度/月度对比**。此前实现文档中“不按结束码过滤”的描述仅反映旧版运行逻辑，不能作为现行业务口径。真实代码值需通过只读核查订单头 `SALES_ORDER_DOC.[CLOSE]` 与交货计划 `SALES_ORDER_DOC_SD.[CLOSE]` 后确定，严禁把正常结束全部排除。详见 `ERP_ORDER_ANALYTICS_SPEC.md` §2.3 与 `CODEX_ERP_ORDER_ANALYTICS_TASK.md`。GitHub 已删除前端警告但尚未部署；后端指定结束排除尚未开发/验收。
+> **2026-10-14 增补的统计范围变更（尚待生产代码落实）**：用户要求不再显示统计大屏“待复核订单 N 张，金额 X 元，暂未纳入统计”横幅，保持待复核订单原本排除规则；另要求 E10 **指定结束订单不纳入月度数据、统计大屏、客户年度排名和年度/月度对比**。此前实现文档中“不按结束码过滤”的描述仅反映旧版运行逻辑，不能作为现行业务口径。真实代码值需通过只读核查订单头 `SALES_ORDER_DOC.[CLOSE]` 与交货计划 `SALES_ORDER_DOC_SD.[CLOSE]` 后确定，严禁把正常结束全部排除。详见 `ERP_ORDER_ANALYTICS_SPEC.md` §2.3 与 `CODEX_ERP_ORDER_ANALYTICS_TASK.md`。GitHub 已删除前端警告但尚未部署；后端指定结束排除已于2026-10-19完成本地修复和隔离回归；生产部署/历史刷新状态见本机本轮交付记录。
 
 本模块是财务专用只读模型，直接使用统一 `basic_code.MSSQLDatabase` 读取 E10；现有 ERP staging、正式订单、PMC、主计划、财务客户对应表和全部调度保持原状。无 Excel 上传或导入入口。只按 `ORDER_DATE >= 2025-01-01` 初始化，含当日，不按审核或结束码过滤。生产金额与实际数量只记录于受控本机验收报告，不进入 GitHub。
 
@@ -86,3 +86,16 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 迁移 `FinanceE10Analytics1722920089000` 只新增财务读模型/临时页/批次和视图；`FinanceE10DeliveryDateConflicts1722920090000` 记录此前日期冲突政策；最新 `FinanceE10EarliestDeliveryDate1722920091000` 只将订单视图预交货日改为MIN，依赖视图即时重算既有订单，不刷新E10或改源记录，不修改已应用的旧迁移。按标准 backup → TypeORM/KDOS迁移 → deploy all → health/version → 线上真实 E10初始化/金额勾稽/下载和浏览器验收。不安装systemd/n8n任务、不变更ERP任务。回滚保留新财务数据和审计，使用之前保留的应用镜像；down 主动拒绝删除财务历史。
 
 验证入口：财务单元/表头测试、`scripts/test-finance-orders-postgres.cjs` 的隔离 PostgreSQL真实Command/权限/导出/幂等/异常/恢复测试、`scripts/test-finance-postgres.cjs` 的客户表及完整fresh迁移回归、财务页面及公共图表 Vitest、`finance-orders-ui.spec.ts` 的真实Chrome合成角色/导航/图表/移动布局验证。生产验收报告写 `outputs/FINANCE_E10_ORDER_ANALYTICS_ACCEPTANCE.md`（本机保留，财务数据不得推送）。
+
+
+## 2026-10-19：订单头指定结束过滤
+
+本轮来源已确认：`dbo.SALES_ORDER_DOC.[CLOSE]`（订单头）0未结束、1指定结束、2正常结束；原34列中的`closeCode`仍来自`SALES_ORDER_DOC_SD.[CLOSE]`，两者不可混用。E10只读适配器额外读取内部`headerCloseCode`（nvarchar文本/NULL），不在采集WHERE中排除任何状态，完整原始品项、金额与34列表头保留。新的采集页缺少订单头状态键时拒绝发布并要求全量重读；发布前还检查全部暂存页，避免升级前失败批次的旧页通过断点续读混入不完整状态；明确NULL与未知码按既有口径处理。
+
+新迁移`FinanceE10SpecifiedClose1722920095000`只重建同一`finance_e10_monthly`派生视图：保留原冲突/重复/缺失/问题排除条件，按tenant+source_database+source_order_id匹配原始行，NOT EXISTS任一`headerCloseCode='1'`，以此排除整单，绝不只扣某个品项。0/2/NULL不因结束状态被排除；其它既有数据质量规则继续适用。`finance_e10_orders_all`和原始行保留，不重写金额/日期公式；同一monthly关系供月度数据、大屏各维度、排名及其平台Excel导出消费。
+
+审核口径差异已先向用户报告：标准SQL有`ApproveStatus='Y'`，现有财务采集/统计无此过滤。本轮保留审核Y/N/V等既有范围；标准SQL另有G%客户排除，与本轮指定结束无关，也不改变当前财务范围。禁止修改外部标准SQL或ERP源库。
+
+历史处理使用已授权的Finance FULL Application Command，自2025-01-01读取内部头状态后，视图即时重新计算；未来头/品项/交货计划变更的原增量逻辑重读影响订单全部品项。原先无头状态的历史行在补齐前仍按旧规则，不把未知误判为指定结束。正式核算必须在完整刷新成功之后记录指定结束数量/金额，原始金额、指定结束、其它待复核和有效金额分互斥集合勾稽；正常结束单独核验未被状态过滤误删。
+
+真实财务数量/金额/品项、独立源SQL对账和下载结果仅保存在权限受限、Git忽略的`data/finance-header-close-20261019/`，公共文档只记录规则与合成测试。迁移up/down只改派生视图，不删除/覆盖ERP、原始品项或审计；回退到旧统计口径须明确操作，不恢复覆盖数据库。无新增调度、生产权限或同步flags变更。

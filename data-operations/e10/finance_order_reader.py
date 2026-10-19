@@ -63,6 +63,8 @@ def extract(emit, checkpoint=None, since=None):
         selections=','.join(f"{f['source']} [{f['key']}]" for f in SCHEMA['fields'])
         while True:
             rows=query(f'''SELECT TOP (500) {selections},
+ -- Internal header metadata: keep all raw lines, including specified-close orders.
+ CONVERT(nvarchar(20),h.[CLOSE]) headerCloseCode,
  CONVERT(varchar(36),h.SALES_ORDER_DOC_ID) sourceOrderId,CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) sourceLineId,
  CONVERT(varchar(33),h.LastModifiedDate,126) headerModifiedAt,
  CONVERT(varchar(33),d.LastModifiedDate,126) lineModifiedAt,
