@@ -11,7 +11,7 @@ const {FinanceOrdersApplicationService}=load('modules/finance/finance-orders.app
  const [principal]=await repo.transaction(tenant,m=>m.query(`SELECT u.id,u.display_name,g.system_admin,g.module_codes FROM administrator_grants g JOIN users u ON u.id=g.user_id AND u.tenant_id=g.tenant_id
  WHERE g.tenant_id=$1 AND u.enabled AND (g.system_admin OR g.module_codes ? 'finance') ORDER BY g.system_admin,u.id LIMIT 1`,[tenant]));
  if(!principal)throw Error('No enabled authorized finance administrator; scheduled run denied');
- const actor={tenantId:tenant,userId:principal.id,username:'财务台账自动同步',requestId:`finance-movement-cli-${Date.now()}`,permissions:[],isSystemAdmin:principal.system_admin,moduleAdminCodes:principal.module_codes,source:'system'};
+ const actor={tenantId:tenant,userId:principal.id,username:'财务台账自动同步',requestId:`finance-movement-cli-${Date.now()}`,permissions:[],isSystemAdmin:principal.system_admin,moduleAdminCodes:principal.module_codes,source:'api'};
  const balance=new FinanceOrdersApplicationService(repo,new FinanceOrderReader());const app=new FinanceMovementsApplicationService(repo,new FinanceMovementReader(),balance);
  const run=await app.refresh(actor,{mode});
  for(let i=0;i<3000;i++){

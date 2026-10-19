@@ -8,7 +8,7 @@ const {FinanceMovementsApplicationService}=r('./dist/modules/finance/finance-mov
 const {TableFilterRegistry}=r('./dist/common/filtering/table-filter.registry'),{TableFilterController}=r('./dist/common/filtering/table-filter.controller'),{TablePrintService}=r('./dist/common/printing/table-print.service');
 const {FieldCandidateService}=r('./dist/common/filtering/field-candidate.service');
 const {financeOrderFields,financeMovementFields}=r('@kdos/contracts'),ExcelJS=r('exceljs');
-const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0'),a={tenantId:'KAINAN',userId:id(1),username:'synthetic',requestId:'synthetic-movement',isSystemAdmin:true,permissions:['*'],tableDataScopes:[],source:'web'};
+const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0'),a={tenantId:'KAINAN',userId:id(1),username:'synthetic',requestId:'synthetic-movement',isSystemAdmin:true,permissions:['*'],tableDataScopes:[],source:'api'};
 const name='finance_movements_'+Date.now(),control=new Client({host,user:'knplan',database:'postgres'});let db;const passed=[];const test=async(n,fn)=>{await fn();passed.push(n);};
 let amount='80',now='2025-02-05T10:00:00.1234567',extra=false,fail=false;
 const raw=(order,n,total,code='SYN-A',closed=false)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?'2025-01-01':'合成'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:'2025-01',orderDate:'2025-01-01',deliveryDate:'2025-03-01',orderNo:'SYN-'+order,customerCode:code,sequence:String(n),localNet:total,localTax:'0',localGross:total,scheduleCount:1,headerCloseCode:'0',closeCode:closed?'1':'2',hasSpecifiedCloseSchedule:closed,headerModifiedAt:now,lineModifiedAt:now,scheduleModifiedAt:now});
