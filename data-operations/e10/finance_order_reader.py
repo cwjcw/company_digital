@@ -19,7 +19,8 @@ LEFT JOIN dbo.TAX t ON t.TAX_ID=d.TAX_ID
 OUTER APPLY (SELECT SUM(s.DELIVERED_BUSINESS_QTY) DELIVERED_BUSINESS_QTY,
  SUM(s.DELIVERED_PRICE_QTY) DELIVERED_PRICE_QTY,
  CASE WHEN MIN(s.[CLOSE])=MAX(s.[CLOSE]) THEN MIN(s.[CLOSE]) ELSE N'冲突' END [CLOSE],
- COUNT_BIG(*) scheduleCount, MAX(s.LastModifiedDate) modifiedAt
+ COUNT_BIG(*) scheduleCount, MAX(s.LastModifiedDate) modifiedAt,
+ MAX(CASE WHEN s.[CLOSE]='1' THEN 1 ELSE 0 END) hasSpecifiedCloseSchedule
  FROM dbo.SALES_ORDER_DOC_SD s WHERE s.SALES_ORDER_DOC_D_ID=d.SALES_ORDER_DOC_D_ID) sd'''
 def normalize(v):
     if isinstance(v, Decimal):return str(v)
@@ -65,6 +66,7 @@ def extract(emit, checkpoint=None, since=None):
             rows=query(f'''SELECT TOP (500) {selections},
  -- Internal header metadata: keep all raw lines, including specified-close orders.
  CONVERT(nvarchar(20),h.[CLOSE]) headerCloseCode,
+ CONVERT(bit,COALESCE(sd.hasSpecifiedCloseSchedule,0)) hasSpecifiedCloseSchedule,
  CONVERT(varchar(36),h.SALES_ORDER_DOC_ID) sourceOrderId,CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) sourceLineId,
  CONVERT(varchar(33),h.LastModifiedDate,126) headerModifiedAt,
  CONVERT(varchar(33),d.LastModifiedDate,126) lineModifiedAt,

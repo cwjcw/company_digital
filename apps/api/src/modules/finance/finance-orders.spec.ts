@@ -1,7 +1,7 @@
 import { validateOrderPage } from './finance-orders.application.service';
 import { orderScope,orderContext,orderAuthorize } from './finance-orders.types';
 import { financeOrderFields,financeMonthlyFields,financeDashboardLabels } from '@kdos/contracts';
-const row=()=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?'2025-01-01':'测试'])),sourceOrderId:'0199e000-0000-7000-8000-000000000011',sourceLineId:'0199e000-0000-7000-8000-000000000012',yearMonth:'2025-01',localNet:'0.10',localTax:'0.20',localGross:'0.30',scheduleCount:1,headerCloseCode:'0'});
+const row=()=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?'2025-01-01':'测试'])),sourceOrderId:'0199e000-0000-7000-8000-000000000011',sourceLineId:'0199e000-0000-7000-8000-000000000012',yearMonth:'2025-01',localNet:'0.10',localTax:'0.20',localGross:'0.30',scheduleCount:1,headerCloseCode:'0',hasSpecifiedCloseSchedule:false});
 describe('Finance verified E10 contract',()=>{
  it('keeps all 34 original source labels in order',()=>expect(financeOrderFields.map(f=>f.label)).toEqual('单据类型|业务员姓名|客户编号|年月|订单日期|单号|销售部门名称|预交货日|币种|汇率|序号|品号|品名|业务数量|客户单号|备注-业务|含税|计价数量|计价单位|已交业务数量|已交计价数量|结束码|已结算计价数量|单价|金额|税种名称|税率|原币未税金额|原币税额|本币未税金额|本币税额|结算状态|审核|本币合计金额'.split('|')));
  it('keeps all nine order labels and original dashboard labels',()=>{expect(financeMonthlyFields.map(f=>f.label)).toEqual('年月|客户编号|单号|订单日期|预交货日|本币总金额|客户单号|事业部划分|国内外划分'.split('|'));expect(Object.values(financeDashboardLabels)).toEqual(['分类','金额/本币含税','年占比','客户编号','年累计本币总金额','年月','本币合计金额/元','本币合计金额/万元','年合计','合计']);});
@@ -16,6 +16,10 @@ describe('Finance verified E10 contract',()=>{
   const missing={...row()};delete (missing as any).headerCloseCode;
   expect(()=>validateOrderPage([missing])).toThrow('订单头结束状态缺失');
   for(const headerCloseCode of [1,{},'1'.repeat(21)])expect(()=>validateOrderPage([{...row(),headerCloseCode}])).toThrow('订单头结束状态无效');
+ });
+ it('requires exact per-item schedule metadata, including mixed states, while retaining every raw item',()=>{
+  for(const hasSpecifiedCloseSchedule of [true,false])expect(validateOrderPage([{...row(),hasSpecifiedCloseSchedule,closeCode:'冲突'}])[0].hasSpecifiedCloseSchedule).toBe(hasSpecifiedCloseSchedule);
+  for(const value of [undefined,null,'true',1,{}])expect(()=>validateOrderPage([{...row(),hasSpecifiedCloseSchedule:value}])).toThrow('品项指定结束状态缺失或无效');
  });
  it('does not grant finance access to unrelated module administrators',()=>{const a={tenantId:'X',userId:'U',permissions:[],moduleAdminCodes:['planning']};expect(()=>orderAuthorize(a,'finance-e10-lines')).toThrow();expect(orderScope(a,'finance-e10-lines',[])).toBe('1=0');});
  it('reuses exact custom scope and tenant-safe bind parameters',()=>{const p:unknown[]=['TENANT'];expect(orderScope({tenantId:'TENANT',userId:'U',permissions:['finance-e10-monthly:*:read'],tableDataScopes:[{resource:'finance-e10-monthly',scope:'CUSTOM',rules:[{fieldKey:'customerCode',operator:'EQ',value:'A140-2'}]}]},'finance-e10-monthly',p)).toContain('record.customer_code::text = $2');expect(p).toEqual(['TENANT','A140-2']);});

@@ -11,12 +11,13 @@ const {FinanceE10Analytics1722920089000:Analytics}=req('./dist/migrations/172292
 const {FinanceE10DeliveryDateConflicts1722920090000:DateConflicts}=req('./dist/migrations/1722920090000-FinanceE10DeliveryDateConflicts');
 const {FinanceE10EarliestDeliveryDate1722920091000:EarliestDate}=req('./dist/migrations/1722920091000-FinanceE10EarliestDeliveryDate');
 const {FinanceE10SpecifiedClose1722920095000:SpecifiedClose}=req('./dist/migrations/1722920095000-FinanceE10SpecifiedClose');
+const {FinanceE10SpecifiedItems1722920096000:SpecifiedItems}=req('./dist/migrations/1722920096000-FinanceE10SpecifiedItems');
 const {financeOrderFields,financeMonthlyFields}=req('@kdos/contracts');const ExcelJS=req('exceljs');
 const host=process.env.FINANCE_TEST_POSTGRES_HOST;if(!host?.startsWith('/tmp/kdos-finance-pg-'))throw Error('Isolated socket required');
 const name='finance_orders_test_'+Date.now(),user='knplan',actor={tenantId:'KAINAN',userId:'0199e000-0000-7000-8000-000000000001',username:'fixture',requestId:'finance-order-test',permissions:['*'],source:'web'};
 const control=new Client({host,user,database:'postgres'}),checks=[];let db;const check=async(label,fn)=>{await fn();checks.push(label);};
 const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
-const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerCloseCode:'0',headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
+const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerCloseCode:'0',hasSpecifiedCloseSchedule:false,headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
 let batch=[line(1,101,'0.10'),line(1,102,'0.20'),line(2,103,'0','A140-2'),line(3,104,'5','MISSING'),line(4,105,'-1','MISSING',2026)],failAfter=-1;
 const reader={read:async(consume,options)=>{
  const coverage=[2025,2026].map(year=>{const rows=batch.filter(r=>r.yearMonth.startsWith(String(year)));return {year,orders:new Set(rows.map(r=>r.sourceOrderId)).size,lines:rows.length,localGross:rows.reduce((n,r)=>n.plus(r.localGross),new Decimal(0)).toString()};}).filter(r=>r.lines);
@@ -100,7 +101,7 @@ const reader={read:async(consume,options)=>{
    await db.query("UPDATE finance_e10_lines SET payload=payload-'headerCloseCode' WHERE source_line_id=$1",[id(5108)]);
    assert.equal((await selected()).total,5);
    // A specified header in a different tenant/account cannot exclude this tenant's normal order.
-   const [runId]=await db.query("SELECT id FROM finance_e10_runs WHERE status='SUCCESS' ORDER BY completed_at DESC LIMIT 1");
+   const [runId]=await db.query("SELECT id FROM finance_e10_runs WHERE tenant_id='KAINAN' AND status='SUCCESS' ORDER BY completed_at DESC LIMIT 1");
    const [foreignRun]=await db.query("INSERT INTO finance_e10_runs(tenant_id,status,actor_id) VALUES('OTHER','SUCCESS',$1) RETURNING id",[actor.userId]);
    for(const [tenant,account,r]of [['KAINAN','OTHER-ACCOUNT',{...make(5001,6101,'100','0'),orderNo:'OTHER-ACCOUNT-HEADER',customerCode:'OTHER-ACCOUNT'}],['OTHER','SYNTHETIC-E10',make(5002,6102,'100','1')]])await db.query('INSERT INTO finance_e10_lines(tenant_id,source_database,source_order_id,source_line_id,payload,last_run_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7)',[tenant,account,r.sourceOrderId,r.sourceLineId,r,tenant==='OTHER'?foreignRun.id:runId.id,actor.userId]);
    assert((await list('finance-e10-monthly')).rows.some(r=>r.orderNo==='OTHER-ACCOUNT-HEADER'));
@@ -118,6 +119,51 @@ const reader={read:async(consume,options)=>{
    assert.equal((await run()).changed_count,0);
    await new SpecifiedClose().down(runner);assert.equal((await selected()).total,7);
    await new SpecifiedClose().up(runner);assert.equal((await selected()).total,5);
+  }finally{batch=original;await run();await runner.release();}
+ });
+ await check('item-close migration retains other items, stable order ids and normal/null/zero/negative amounts',async()=>{
+  const original=batch.map(r=>({...r}));
+  const item=(order,n,amount,extra={})=>({...line(order,n,amount,'ITEM-TEST'),closeCode:'0',...extra});
+  batch.push(item(6001,7101,'10',{closeCode:'1',hasSpecifiedCloseSchedule:true}),item(6001,7102,'40'),
+   item(6002,7103,'20',{headerCloseCode:'2',closeCode:'1',hasSpecifiedCloseSchedule:true}),item(6002,7104,'30',{headerCloseCode:'2',closeCode:'2',approved:'N'}),
+   item(6003,7105,'70',{closeCode:'1',hasSpecifiedCloseSchedule:true}),
+   item(6004,7106,'9',{headerCloseCode:'1'}),item(6004,7107,'11'),
+   item(6005,7108,'12',{headerCloseCode:null,closeCode:null}),item(6006,7109,'0'),item(6007,7110,'-3',{headerCloseCode:'2',closeCode:'2'}),
+   item(6008,7111,'14',{closeCode:'冲突',hasSpecifiedCloseSchedule:true,itemCode:'SAME-CODE'}),item(6008,7112,'42',{itemCode:'SAME-CODE'}),
+   item(6009,7113,'8',{closeCode:'冲突'}),item(6009,7114,'1'),item(6010,7115,'5',{scheduleCount:0}));
+  assert.equal((await run()).status,'SUCCESS');
+  const rawBefore=await db.query('SELECT * FROM finance_e10_lines ORDER BY id');
+  const runner=db.createQueryRunner();
+  const filterGroup={logic:'AND',rules:[{field:'customerCode',operator:'eq',value:'ITEM-TEST'}]};
+  const selected=()=>list('finance-e10-monthly',{filterGroup:JSON.stringify(filterGroup)});
+  try{
+   await new SpecifiedItems().up(runner);
+   assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),rawBefore);
+   const actual=(await selected()).rows;
+   assert.deepEqual(Object.fromEntries(actual.map(r=>[r.orderNo,r.orderTotal])),{'SYN-6001':'40.00','SYN-6002':'30.00','SYN-6005':'12.00','SYN-6006':'0.00','SYN-6007':'-3.00','SYN-6008':'42.00'});
+   const [rawOrder]=await db.query('SELECT id FROM finance_e10_orders_all WHERE tenant_id=$1 AND source_order_id=$2',[actor.tenantId,id(6001)]);
+   assert.equal(actual.find(r=>r.orderNo==='SYN-6001').id,rawOrder.id);
+   assert.equal((await list('finance-e10-lines',{filterGroup:JSON.stringify(filterGroup)})).total,15);
+   const [runId]=await db.query("SELECT id FROM finance_e10_runs WHERE tenant_id='KAINAN' AND status='SUCCESS' ORDER BY completed_at DESC LIMIT 1");
+   const [foreignRun]=await db.query("SELECT id FROM finance_e10_runs WHERE tenant_id='OTHER' LIMIT 1");
+   for(const [tenant,account,r]of [['KAINAN','ITEM-OTHER-ACCOUNT',{...item(6001,8101,'100'),customerCode:'ISOLATED',orderNo:'ITEM-ACCOUNT'}],['OTHER','SYNTHETIC-E10',item(6001,8102,'100',{hasSpecifiedCloseSchedule:true,headerCloseCode:'1'})]])await db.query('INSERT INTO finance_e10_lines(tenant_id,source_database,source_order_id,source_line_id,payload,last_run_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7)',[tenant,account,r.sourceOrderId,r.sourceLineId,r,tenant==='OTHER'?foreignRun.id:runId.id,actor.userId]);
+   assert.equal((await selected()).rows.find(r=>r.orderNo==='SYN-6001').orderTotal,'40.00');
+   assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='ITEM-ACCOUNT').orderTotal,'100.00');
+   const dashboard=await queries.dashboard({context:{year:2025,customerCode:'ITEM-TEST'}},actor);
+   assert.equal(dashboard.totals.amount,'121.00');assert.equal(dashboard.totals.orders,6);
+   for(const values of [dashboard.months,dashboard.channels,dashboard.departments,dashboard.matrix])assert(values.reduce((n,r)=>n.plus(r.amount),new Decimal(0)).equals('121'));
+   assert.equal((await queries.ranking({year:2025,customerCode:'ITEM-TEST'},actor)).rows[0].orderTotal,'121.00');
+   for(const [resource,options,rows,key,amount]of [['finance-e10-lines',{filterGroup},15,'本币合计金额','269'],['finance-e10-monthly',{filterGroup},6,'本币总金额','121'],['finance-e10-ranking',{context:{year:2025,customerCode:'ITEM-TEST'}},1,'年累计本币总金额','121']]){
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,options,actor));const sheet=book.worksheets[0];assert.equal(sheet.rowCount-1,rows);const col=sheet.getRow(1).values.indexOf(key);let total=new Decimal(0);for(let n=2;n<=sheet.rowCount;n++)total=total.plus(sheet.getRow(n).getCell(col).text);assert(total.equals(amount));
+   }
+   await assert.rejects(exporter.exportXlsx('finance-e10-monthly',{}, {...actor,permissions:[]}));
+   assert(new Decimal((await queries.dashboard({context:{year:2025,customerCode:'ITEM-TEST'}},{...actor,tenantId:'OTHER'})).totals.amount).isZero());
+   await new SpecifiedItems().down(runner);assert.equal((await selected()).rows.find(r=>r.orderNo==='SYN-6001').orderTotal,'50.00');
+   await new SpecifiedItems().up(runner);
+   batch=batch.map(r=>r.sourceLineId===id(7101)?{...r,closeCode:'2',hasSpecifiedCloseSchedule:false}:r);assert.equal((await run()).status,'SUCCESS');assert.equal((await selected()).rows.find(r=>r.orderNo==='SYN-6001').orderTotal,'50.00');
+   batch=batch.map(r=>r.sourceOrderId===id(6001)?{...r,headerCloseCode:'1'}:r);assert.equal((await run()).status,'SUCCESS');assert(!(await selected()).rows.some(r=>r.orderNo==='SYN-6001'));
+   batch=batch.map(r=>r.sourceOrderId===id(6001)?{...r,headerCloseCode:'2'}:r);await run();assert.equal((await selected()).rows.find(r=>r.orderNo==='SYN-6001').orderTotal,'50.00');assert.equal((await run()).changed_count,0);
+   failAfter=1;const failed=await run();failAfter=-1;await db.query("UPDATE finance_e10_pages p SET payload=(SELECT jsonb_agg(x-'hasSpecifiedCloseSchedule') FROM jsonb_array_elements(p.payload) x) WHERE run_id=$1",[failed.id]);const before=await db.query('SELECT id,version FROM finance_e10_lines ORDER BY id');const resumed=await run({resumeId:failed.id});assert.equal(resumed.status,'FAILED');assert(resumed.error_summary.includes('请全量重新读取'));assert.deepEqual(await db.query('SELECT id,version FROM finance_e10_lines ORDER BY id'),before);
   }finally{batch=original;await run();await runner.release();}
  });
  await check('parallel refresh rejects overlap and failed source never publishes partial pages',async()=>{failAfter=1;await Promise.all([app.refresh(actor),assert.rejects(app.refresh(actor))]);for(let i=0;i<500;i++){if(!(await db.query("SELECT 1 FROM finance_e10_runs WHERE status='RUNNING'")).length)break;await new Promise(r=>setTimeout(r,5));}failAfter=-1;});

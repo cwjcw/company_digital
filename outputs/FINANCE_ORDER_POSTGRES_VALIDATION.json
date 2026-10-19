@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "scenarios": 22,
+  "scenarios": 23,
   "checks": [
     "verified publication and exact per-item tax arithmetic",
     "multi-line order sum is 0.30, not floating-point or duplicated",
@@ -23,6 +23,7 @@
     "customer annual ranking is paged, filtered by aggregate and export matches",
     "cross-tenant commands and views cannot read another tenant",
     "specified-close migration preserves raw rows and excludes entire headers only, including tenant and account isolation",
+    "item-close migration retains other items, stable order ids and normal/null/zero/negative amounts",
     "parallel refresh rejects overlap and failed source never publishes partial pages"
   ],
   "productionModified": false

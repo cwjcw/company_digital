@@ -17,6 +17,7 @@ export function validateOrderPage(rows:unknown):Record<string,any>[] {
   // NULL/unknown codes retain their previous statistical treatment; only '1' is excluded by the shared view.
   if(!Object.prototype.hasOwnProperty.call(r,'headerCloseCode'))throw new BadRequestException('E10订单头结束状态缺失，请全量重新读取');
   if(r.headerCloseCode!==null&&(typeof r.headerCloseCode!=='string'||r.headerCloseCode.length>20))throw new BadRequestException('E10订单头结束状态无效');
+  if(typeof r.hasSpecifiedCloseSchedule!=='boolean')throw new BadRequestException('E10品项指定结束状态缺失或无效，请全量重新读取');
   for(const f of financeOrderFields){
    if(!(f.key in r))throw new BadRequestException(`E10缺少字段：${f.label}`);
    const v=r[f.key];if(v===null)continue;
@@ -98,9 +99,10 @@ export class FinanceOrdersApplicationService implements OnModuleInit {
   const [{invalidHeader}]=await m.query(`SELECT EXISTS(
    SELECT 1 FROM finance_e10_pages p CROSS JOIN LATERAL jsonb_array_elements(p.payload) x
    WHERE p.tenant_id=$1 AND p.run_id=$2 AND (NOT (x ? 'headerCloseCode')
-    OR jsonb_typeof(x->'headerCloseCode') NOT IN ('string','null') OR length(x->>'headerCloseCode')>20)
+    OR jsonb_typeof(x->'headerCloseCode') NOT IN ('string','null') OR length(x->>'headerCloseCode')>20
+    OR NOT (x ? 'hasSpecifiedCloseSchedule') OR jsonb_typeof(x->'hasSpecifiedCloseSchedule')<>'boolean')
   ) AS "invalidHeader"`,[actor.tenantId,id]);
-  if(invalidHeader)throw new BadRequestException('E10订单头结束状态缺失或无效，请全量重新读取');
+  if(invalidHeader)throw new BadRequestException('E10订单或品项结束状态缺失或无效，请全量重新读取');
   // Reconcile independent source totals before exposing any new page to readers.
   const rows=await m.query(`SELECT left(x->>'yearMonth',4)::integer AS "year",count(*)::integer lines,sum((x->>'localGross')::numeric)::text amount,count(DISTINCT x->>'sourceLineId')::integer unique_lines
    FROM finance_e10_pages p CROSS JOIN LATERAL jsonb_array_elements(p.payload) x WHERE tenant_id=$1 AND run_id=$2 GROUP BY 1`,[actor.tenantId,id]);

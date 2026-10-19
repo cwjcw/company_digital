@@ -62,7 +62,7 @@ const test=async(label,fn)=>{await fn();checks.push(label);};
    const config=req('./dist/data-source').default;
    assert.equal(config.options.database,freshName);
    const fresh=new DataSource({...config.options,host,port:5432,username:user,password:undefined,database:freshName});
-   await fresh.initialize();const migrations=await fresh.runMigrations();assert.equal(migrations.at(-1).name,"FinanceE10SpecifiedClose1722920095000");
+   await fresh.initialize();const migrations=await fresh.runMigrations();assert.equal(migrations.at(-1).name,"FinanceE10SpecifiedItems1722920096000");
    assert.equal((await fresh.query('SELECT count(*)::integer n FROM finance_customer_mappings'))[0].n,0);
    const freshApp=new FinanceApplicationService(new FinanceRepository(fresh));await freshApp.ingest({source:'E10_SYNC',rows:[{customerCode:'FRESH-ISOLATED-SOURCE',createdAtSource:minimumDate+'T00:00:00'}],runKey:'fresh-source-contract'},{...actor,source:'api'});await freshApp.failed({...actor,source:'api'});
    assert.equal((await fresh.query("SELECT count(*)::integer n FROM finance_customer_sync_runs"))[0].n,2);assert.equal((await fresh.query("SELECT count(*)::integer n FROM audit_logs WHERE resource='finance-customer-mappings' AND source NOT IN ('web','api','import')"))[0].n,0);await fresh.destroy();

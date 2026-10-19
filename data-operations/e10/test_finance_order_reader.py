@@ -10,7 +10,7 @@ class Cursor:
   elif 'PARA_COMPANY' in sql:value=[{'CURRENCY_CODE':'RMB'}]
   elif 'COUNT_BIG(DISTINCT' in sql:value=[{'year':2025,'orders':1,'lines':1,'localGross':'0.30'}]
   elif 'TOP (500)' in sql:
-   if self.page==0:value=[{'headerCloseCode':'1','orderDate':'2025-01-01','sourceLineId':'0199e000-0000-7000-8000-000000000011'}]
+   if self.page==0:value=[{'headerCloseCode':'1','hasSpecifiedCloseSchedule':True,'orderDate':'2025-01-01','sourceLineId':'0199e000-0000-7000-8000-000000000011'}]
    self.page+=1
   self.description=[(k,) for k in value[0]] if value else [];self.rows=[tuple(v.values()) for v in value]
  def fetchall(self):return self.rows
@@ -31,6 +31,9 @@ class ReaderTests(unittest.TestCase):
   con,pages=self.run_extract();sql=next(q[0] for q in con.cur.calls if 'TOP (500)' in q[0])
   self.assertIn('CONVERT(nvarchar(20),h.[CLOSE]) headerCloseCode',sql)
   self.assertEqual(pages[1]['rows'][0]['headerCloseCode'],'1')
+  self.assertTrue(pages[1]['rows'][0]['hasSpecifiedCloseSchedule'])
+  self.assertIn("MAX(CASE WHEN s.[CLOSE]='1' THEN 1 ELSE 0 END) hasSpecifiedCloseSchedule",sql)
+  self.assertIn('CONVERT(bit,COALESCE(sd.hasSpecifiedCloseSchedule,0))',sql)
   self.assertEqual(next(f['source'] for f in reader.SCHEMA['fields'] if f['key']=='closeCode'),'sd.[CLOSE]')
   where=sql.split(' WHERE h.ORDER_DATE')[1]
   self.assertNotIn('h.[CLOSE]',where);self.assertNotIn('ApproveStatus',where)
