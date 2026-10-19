@@ -1,17 +1,17 @@
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
-import { financeOrderFields, financeMonthlyFields, financeRankingFields } from '@kdos/contracts';
+import { financeOrderFields, financeMonthlyFields, financeRankingFields,financeMovementFields,financeMovementResources } from '@kdos/contracts';
 import type { TableFilterActor } from '../../common/filtering/table-filter.registry';
 import { buildDataScopeClause } from '../../common/filtering/data-scope';
 import { financeAdmin } from './finance.types';
 export const snake=(key:string)=>key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
-export function orderColumns(resource:string) {
- const fields=resource==='finance-e10-lines'?financeOrderFields:resource==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields;
+export function orderColumns(resource:string):Record<string,string> {
+ const fields=(financeMovementResources as readonly string[]).includes(resource)?financeMovementFields(resource):resource==='finance-e10-lines'?financeOrderFields:resource==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields;
  return {id:'id',...Object.fromEntries(fields.map(f=>[f.key,snake(f.key)])),...(["finance-e10-monthly","finance-e10-dashboard"].includes(resource)?{salesperson:"salespeople",deliveryDateConflict:"delivery_date_conflict"}:{})};
 }
 export function orderPermission(a:TableFilterActor,r:string,action='read'){return financeAdmin(a)||a.permissions.includes(`${r}:*:${action}`)||a.permissions.includes(`${r}:*:*`);}
 export function orderAuthorize(a:TableFilterActor,r:string,action='read'){if(!orderPermission(a,r,action))throw new ForbiddenException('当前权限组不能执行销售订单统计操作');}
 export function orderField(a:TableFilterActor,r:string,f:string){return financeAdmin(a)||a.permissions.includes(`${r}:${f}:read`);}
-export function orderScope(a:TableFilterActor,r:string,p:unknown[],action='read'){return financeAdmin(a)?'1=1':buildDataScopeClause({resource:r,columns:orderColumns(r),actor:{...a,moduleAdminCodes:[]},params:p,action,numericFields:(r==='finance-e10-lines'?financeOrderFields:r==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields).filter(f=>f.type==='number').map(f=>f.key)});}
+export function orderScope(a:TableFilterActor,r:string,p:unknown[],action='read'){return financeAdmin(a)?'1=1':buildDataScopeClause({resource:r,columns:orderColumns(r),actor:{...a,moduleAdminCodes:[]},params:p,action,numericFields:((financeMovementResources as readonly string[]).includes(r)?financeMovementFields(r):r==='finance-e10-lines'?financeOrderFields:r==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields).filter(f=>f.type==='number').map(f=>f.key)});}
 export function orderContext(context:Record<string,unknown>,p:unknown[],resource:string){
  const allowed=['year','month','dateFrom','dateTo','departmentCategory','salesChannel','customerCode','salesperson'];
  if(Object.keys(context).some(k=>!allowed.includes(k)))throw new BadRequestException('销售订单统计上下文无效');

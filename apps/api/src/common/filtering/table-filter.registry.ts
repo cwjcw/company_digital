@@ -104,7 +104,7 @@ export type TableFilterSource = {
   /** 页面上下文由服务端资源注册表解释并强制 AND；未知键不得被客户端当作 SQL 发送。 */
   buildContext?: (context: Record<string, unknown>, params: unknown[]) => string | Promise<string>;
   /** 同一 resource 的上下文视图可选择另一真实行来源（如待报工任务）。 */
-  candidateVariant?: (context: Record<string, unknown>) => Partial<Pick<TableFilterSource, "table" | "columns" | "fields" | "buildScope" | "searchColumns">> | undefined;
+  candidateVariant?: (context: Record<string, unknown>) => Partial<Pick<TableFilterSource, "table" | "columns" | "fields" | "buildScope" | "searchColumns" | "listRows">> | undefined;
 };
 
 /**

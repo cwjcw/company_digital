@@ -1,3 +1,5 @@
+import { financeMovementFields } from './finance-movements';
+export * from './finance-movements';
 import { mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, mpsOrderProgressProcessFields } from "./master-plan-order-progress";
 import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardGaps } from "./master-plan-dashboard";
 import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
@@ -126,6 +128,10 @@ export const supervisionProgressUpdateTypeOptions = [
  */
 export const tableResourceRegistry = [
   { code: "finance-customer-mappings", label: "客户对应表", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-changes", label: "订单变更明细", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-movements", label: "月度接单发生额", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-movement-departments", label: "接单发生额事业部分析", module: "财务中心", moduleCode: "finance" },
+  { code: "finance-e10-movement-customers", label: "接单发生额客户分析", module: "财务中心", moduleCode: "finance" },
   { code: "finance-e10-lines", label: "系统导出", module: "财务中心", moduleCode: "finance" },
   { code: "finance-e10-monthly", label: "月度数据", module: "财务中心", moduleCode: "finance" },
   { code: "finance-e10-dashboard", label: "统计大屏", module: "财务中心", moduleCode: "finance" },
@@ -396,6 +402,10 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"], ["sourceDocumentNumber", "来源单号"],
     ["creator", "制单人"], ["auditor", "审核人"], ["remark", "备注"]
   ]),
+  "finance-e10-changes": financeMovementFields("finance-e10-changes"),
+  "finance-e10-movements": financeMovementFields("finance-e10-movements"),
+  "finance-e10-movement-departments": financeMovementFields("finance-e10-movement-departments"),
+  "finance-e10-movement-customers": financeMovementFields("finance-e10-movement-customers"),
   "finance-e10-lines": financeOrderFields,
   "finance-e10-monthly": financeMonthlyFilterFields,
   "finance-e10-dashboard": financeMonthlyFilterFields,
@@ -868,6 +878,10 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "audit-logs": { status: "REGISTERED_AND_FILTERABLE" },
   /* 数据中心：供应商清单为 T+ 同步投影，本轮接入平台 FilterCompiler。 */
   "supplier-list": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-changes": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-movements": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-movement-departments": { status: "REGISTERED_AND_FILTERABLE" },
+  "finance-e10-movement-customers": { status: "REGISTERED_AND_FILTERABLE" },
   "finance-e10-lines": { status: "REGISTERED_AND_FILTERABLE" },
   "finance-e10-monthly": { status: "REGISTERED_AND_FILTERABLE" },
   "finance-e10-dashboard": { status: "REGISTERED_AND_FILTERABLE" },

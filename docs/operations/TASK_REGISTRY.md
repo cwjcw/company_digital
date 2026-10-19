@@ -148,3 +148,16 @@
 - Mapping repair (2026-10-15): supply-chain/procurement configuration restored through the versioned audited API after read-only diagnosis. Initial seed failures and disabled/invalid mappings are visible; organization choices use existing enabled directory IDs, without creating organizations. No notification trigger, dispatcher, schedule or official-rule state changes; allocation append batches and suspended downstream reconciliation remain in force.
 
 - 2026-10-15：按用户明确选择，一次性归档清空订单分配当前页面并保留历史计划。Migration94／Application管理员命令；无新增定时器、无通知事件或下游对账。现有调度及正式通知配置保持执行前真实值；08:53:51已有配置操作将正式规则设为ON/version4，本次归档未更改或发消息。生产执行和备份证据见outputs/PMC_ALLOCATION_CLEAR_ACCEPTANCE.md。
+
+## FIN-003 财务订单金额变更台账增量
+
+- 用户授权：2026-10-19，正式开发、历史初始化、持续增量、迁移/备份/部署；明确取消历史完整性核验/评分/页面，不因历史缺失阻止发布。业务口径已确认：接单计算基数＋当月可确定变更，按当前客户事业部分类。
+- 唯一自动入口：n8n `KDOSFinanceMovementsV1`（KDOS 财务订单金额变更台账增量），Asia/Shanghai，每小时07/37分 → 既有SSH凭据 → `data-operations/e10/sync-finance-movements.sh INCREMENTAL` → 当前API容器中的 `run-finance-movements-sync.cjs` → Finance Application Commands。手工补跑同一命令/FULL，不另建Timer、cron或应用定时器。
+- 代码调度定义/候选增量：新增1个n8n工作流；新增systemd/cron/常驻服务/内部scheduler均0。上线前只读实测：原14个工作流、10个激活、0个正在执行；原8个KDOS用户Timer和1条当前用户cron原样保留。生产激活、执行ID/状态及前后现有工作流摘要见受限本机 `data/finance-movements-release/`，不能仅凭入口脚本宣称任务已运行。
+- E10只读，basic_code持有凭据，RMB本币精确Decimal/numeric；先通过未修改的FIN-002命令正常更新当前余额，再原子发布新增台账。只读Reader独立SQL，不改标准SQL、不读T+，原34列/9列/统计大屏及指定结束规则保留。
+- 身份：仅现有启用的系统/财务模块管理员，服务端受控CLI查验真实管理员授权；不写死个人账号、不新增/扩大生产授权。表格read/export和CUSTOM范围独立受控，导出read∩export。
+- 防并发：主机flock、租户RUNNING唯一约束和advisory lock；源账套/租户/稳定事件键幂等。审核节点一旦入账保留，重复审核必须有独立状态转移证据才再计；日志准备/头子金额不叠加，指定结束并改价只算一笔。
+- 增量：成功水位＋2分钟重叠、日志跨月回看；较小变更单保留集重读，捕获源节点更新；未来快照对比只在月份可确定时入账，不补造未提供的历史事件。失败批次不推进水位、不发布部分台账；服务重启/超时标失败，可以安全重跑。
+- 失败告警/补偿：CLI非0退出，n8n重试后显式校验退出码及SUCCESS，失败抛错保留失败执行；Web读取批次显示失败原因，管理员可增量/FULL补跑。无自动外发企业微信或邮件，原消息调度不改。
+- 备份/回滚：发布前两库/uploads和n8n一致备份；暂停仅FIN-003新入口并回退应用，保留新表、快照、事件、审计；不删除原数据、不回退指定结束过滤或启用已暂停PMC投影。
+- 验证：API、Web、Contracts、只读真实Reader、隔离PostgreSQL、Chrome E2E、权限/租户/Excel、重放/并发/失败补跑；真实财务明细、数量/金额和执行证据仅本机，不提交Git。模块说明：`docs/finance-order-movements.md`。负责人：财务中心/系统维护。

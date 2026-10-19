@@ -119,7 +119,7 @@ export function ModulePortal({ user, onOpen, onLogout }: {
   const [draggingId, setDraggingId] = useState<PortalModuleId | null>(null);
   const canSee = (module: PortalModule) => module.id === "knowledge"
     ? ["knowledge-pages", "knowledge-spaces"].every(resource => hasSessionResourcePermission(user, resource, "read"))
-    : module.id === "finance" ? ["finance-customer-mappings","finance-e10-lines","finance-e10-monthly","finance-e10-dashboard"].some(r=>hasSessionResourcePermission(user,r,"read"))
+    : module.id === "finance" ? ["finance-customer-mappings","finance-e10-lines","finance-e10-monthly","finance-e10-dashboard","finance-e10-changes","finance-e10-movements","finance-e10-movement-departments","finance-e10-movement-customers"].some(r=>hasSessionResourcePermission(user,r,"read"))
     : module.id !== "system" || user.isSystemAdmin === true || (user.moduleAdminCodes?.length ?? 0) > 0;
   const canSeeRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
   const orderedModules = (ordering ? draftOrder : moduleOrder).map((id) => portalModules.find((module) => module.id === id)!).filter(Boolean);
