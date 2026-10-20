@@ -1,6 +1,478 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：财务销售订单统计四项业务修正。
+任务目标：材料销售单/非Y审核排除；月度备注第10列；原始/月度日期稳定升序；统一有效金额和变更台账并保留性能。
+当前状态：已完成。
+最后更新时间：2026-10-20 14:55（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：正式部署、线上验收、健康检查及GitHub推送完成。
+当前子任务：无。文档同步：四份记录已核对，财务新增记录脱敏、完整原件受限备份；仅文档/合成验证结果提交，不重新部署运行服务。
+
+## 已完成
+- [x] 基线HEAD/Web/API=6c9b227，保护所有既有outputs修改；阅读项目规则/两技能/任务台账。
+- [x] 共享订单资格/迁移99/台账资格状态采集和投影；原始数据保留，不造冲回。
+- [x] 原34列备注复用；月度末列增加为10列，保存列偏好一次补充且保持字段权限。
+- [x] 原始/月度默认日期ASC+稳定唯一键；Excel同规则，显式排序保持，流水时间排序不变。
+- [x] 全量API1090/Web421/Contracts29/Python8，隔离PG32+12、Chrome9、typecheck/lint/build通过。
+- [x] 两库/uploads备份20261020_121019及归档/SHA验证，原代码/配置受限备份，标准SQL最终校验一致。
+- [x] Migration99仅派生视图，发布同事务逐维度对账精确一致，原始/事件指纹不变。
+- [x] FULL成功changedCount0；首次原定增量仅更新元数据、金额无变/新增0；后续半小时增量持续SUCCESS。
+- [x] 同快照材料单、非Y审核及重叠条件去重后差额与预期精确一致；月度/排名/发生额一致。真实数量和金额仅留受限本机原件。
+- [x] 原授权/角色/客户分类/6flags不变；原raw/orders_all/ranking视图定义保持。
+- [x] Chrome发现年筛选月度计划47.904s，补修注册读取局部Hash，API31/PG32/typecheck/build/lint再通过，最终API3.227s。
+- [x] 真实Chrome+实际Excel原34/备注16、月度10/备注10、100行稳定跨页与显式降序最终复验通过。
+- [x] 同账号大屏首开3.257s/刷新3.580s/重入0.714s，年度/事业部/客户2.1–2.2s，每项各一次Dashboard/Ranking请求。
+- [x] 最终实际API逐年度月度/大屏/完整排名金额与数据库一致，实际金额不入Git。
+- [x] 正式deploy all/check/health全部通过，Repository=Web=API=d8456fbcdb4a3290200b5795cf02f3e917ab57ee，CONSISTENT。
+- [x] 两次本任务提交f337ef6/d8456fb安全推送github/main成功，ls-remote验证最终SHA相同，无强推/分叉，无真实数据提交。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- `apps/api/src/common/filtering/table-filter.controller.ts`
+- `apps/api/src/common/filtering/table-filter.registry.ts`
+- `apps/api/src/common/printing/table-print.service.ts`
+- `apps/api/src/migrations/1722920099000-FinanceE10BusinessEligibility.ts`
+- `apps/api/src/modules/finance/finance-business-corrections.spec.ts`
+- `apps/api/src/modules/finance/finance-movements.application.service.ts`
+- `apps/api/src/modules/finance/finance-movements.calculator.ts`
+- `apps/api/src/modules/finance/finance-movements.spec.ts`
+- `apps/api/src/modules/finance/finance-order-eligibility.ts`
+- `apps/api/src/modules/finance/finance-orders.query.service.ts`
+- `apps/api/src/modules/finance/finance-orders.spec.ts`
+- `apps/web/src/modules/finance/FinanceOrders.spec.tsx`
+- `apps/web/src/modules/finance/FinanceOrders.tsx`
+- `apps/web/src/modules/finance/finance-view-upgrade.spec.ts`
+- `apps/web/src/shared/KdosDataTable.tsx`
+- `data-operations/e10/finance_movement_reader.py`
+- `docs/finance-dashboard-performance.md`
+- `docs/finance-order-movements.md`
+- `docs/operations/TASK_REGISTRY.md`
+- `packages/contracts/src/finance-orders.ts`
+- `scripts/test-finance-movements-postgres.cjs`
+- `scripts/test-finance-orders-postgres.cjs`
+- 本次将进度与验收文档脱敏后提交，合成验证结果与出货验收一并提交；完整本机原件已受限备份，旧已提交历史逐字保留。
+
+## 数据库 Migration
+- 1722920099000-FinanceE10BusinessEligibility，正式执行完成；仅KDOS派生视图，不修改E10源/标准SQL/历史事件数据。
+
+## 新增或修改测试
+- 有效订单资格/关闭状态/重叠排除/台账状态变化/租户和CUSTOM权限/字段可见性/原34月度10列/稳定排序分页/Excel/局部Hash执行器，均通过。
+
+## 已运行测试
+- API全量1090通过（33原有条件跳过）、最终相关31通过；Web421，Contracts29，Python8。
+- 隔离PG订单32及台账12；Chrome9和真实生产读验；typecheck/lint/build与最终Docker构建均通过。
+
+## 当前已知问题
+- 大屏新资格聚合增加开销：首开2.519→3.257s、刷新2.623→3.580s，超过3秒目标，未虚报全部达标；保持原性能修复，月度慢查询47.904→3.227s。
+- 原宽聚合仍有部分临时排序，未宣称全部消除；原Portal FastRefresh/Vite大包提示保留。
+- 生产持续正常同步，不将不同时间快照差异冒称算法差异。少量留存旧状态无新资格字段仍按未知保留，不推测，当前统计用原始头字段；不做用户已取消的历史完整性审计。
+- 无阻塞；保护所有其他未提交outputs，不自动改其他任务。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+1. 本任务已完成，无后续自动开发。
+2. 最终报告：outputs/FINANCE_BUSINESS_CORRECTIONS_ACCEPTANCE.md。
+3. 受限证据：data/finance-business-corrections-20261020；本次四文件完整原件：data/document-sync-originals-20261020-170747（Git忽略，不上传财务数据）。
+
+## 恢复执行说明
+读取项目规范/适用SKILL/本文件，再git status/diff。当前任务已完成；如有新任务保护现有outputs，不重做已完成工作。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：出货计划非必填字段与Excel记录身份解析修复。
+任务目标：品项名称、下单日期、新旧款允许留空；Excel按真实列识别新增/更新，保留其他校验与权限。
+当前状态：已完成。
+最后更新时间：2026-10-20 11:01:44（Asia/Shanghai）。
+
+## 当前阶段
+正式部署、只读运行时核验、健康检查及GitHub推送完成。
+
+## 已完成
+- [x] 三字段统一可空、Excel实际表头定位及旧显示标题兼容修复，身份成对/缺列/无效版本校验保持。
+- [x] 检查HEAD a979d3b及工作区，仅两份既有outputs修改，均保护。
+- [x] 只读核实生产mps_shipping_plans：item_name/order_date/model_age均is_nullable=YES，无需migration。
+- [x] 定位itemName必填配置及Excel隐藏字段定义旧列号导致错读的风险。
+
+## 正在进行
+- 无。
+
+## 待完成
+- [x] API1071、Web419、Contracts29、Chrome1通过；typecheck/lint/build通过。
+- [x] 20261020_105241备份两库/uploads，校验归档及SHA256，私有保存。
+- [x] 门禁与正式部署完成，全程未导入用户Excel、未写生产业务数据。
+- [x] 仅本任务9文件提交6c9b2276e582b24e15107d4cc482703aedbf4662并推送github/main成功。
+- [x] Repository=Web=API=6c9b227，CONSISTENT；healthcheck全通过，运行中三个字段required=false。
+
+## 修改文件
+- API config、共享spreadsheet parser及相关测试；新增shipping-optional.spec.ts；Contracts index.ts；Web页面测试与Chrome测试；docs/mps-shipping-optional-fields.md。
+- outputs原有历史与财务验证JSON保持，不提交其他任务记录。
+
+## 数据库 Migration
+- 无需。三字段生产均允许NULL；本任务禁止生产业务数据写入。
+
+## 新增或修改测试
+- 已覆盖三字段空值、新增/修改/预览/确认、其他必填拒绝、删列/重排列/身份成对校验。
+
+## 已运行测试
+- 生产schema只读查询：三字段nullable=YES、默认值NULL，CHECK无额外必填约束。
+- API全量1071通过/33原有跳过；相关4组119通过；Contracts29通过；typecheck/lint/build通过。
+- Chrome（生产静态页+所有API拦截）1通过，不发送生产写请求；Web全量419通过。
+
+## 当前已知问题
+- 已修复隐藏定义错位；初次回归发现旧标题兼容需保留，已修复并119项通过。
+- 原有Portal lint FastRefresh警告及Vite大包提示仍在，无新增代码错误。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+1. 本任务完成，无后续自动开发。
+2. 最终报告：outputs/MPS_SHIPPING_OPTIONAL_ACCEPTANCE.md。
+3. 原有outputs未提交改动保留，不纳入本任务源码提交。
+
+## 恢复执行说明
+读取AGENTS/适用SKILL、本文件，检查git status/diff后继续未完成项。不得导入用户Excel或改生产业务数据。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS财务中心销售订单统计大屏性能优化。
+任务目标：保留最新订单金额变更功能/全部原口径/34列/9列/导出，实测优化查询/重复请求并测试、备份、部署和安全GitHub同步。
+当前状态：已完成。
+最后更新时间：2026-10-20 10:36:56（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：最终a979d3b生产验收、健康、版本一致和GitHub推送完成。
+当前子任务：无。
+
+## 已完成
+- [x] 保护初始仅旧进度的修改；基线Repository/Web/API均dbe1f25。
+- [x] 同账号真实Chrome基线首开18.92s、刷新18.32s、年度切换20.22s；原计划1.67亿无效配对，锁/池非主瓶颈、无临时磁盘排序。
+- [x] 本Dashboard租户事务局部关闭Merge/Nested Loop，完整订单键Hash；所有视图/物理结构/索引/源SQL保持，无migration。
+- [x] 排名count/rows共用一次聚合与同快照；公共表格首次实际偏好只请求一次；read/export范围交集，不复制公共表格实现。
+- [x] 60s身份/授权/源版本缓存、15s轻量新鲜度、同账号授权变化清除旧范围占位、同步/分类后失效、显示刷新不触发ERP同步。
+- [x] 最终Chrome：首开2.91s、刷新2.67s、重入0.70s，年度2.28s、事业部2.49s、客户2.08s。
+- [x] 同一REPEATABLE READ快照旧SQL14.985s→新1.630s，全部原始大屏聚合和完整排名逐项一致，生产规模明细仅留受限本机证据。
+- [x] 10:07原定n8n1180成功；受控同入口增量0变化实跑，页面自动发现新revision并更新，金额匹配原视图。
+- [x] 原授权/客户映射/6flags/视图指纹保持；正常源采集新增单独审计对平，不冒称实时生产全期间值冻结；已入账台账事件无变动，未入账LOG源证据由原定增量更新。
+- [x] 备份20261020_095923两库/uploads及SHA；部署all/check/health通过，Repository=Web=API=a979d3b26cef014b196695a485360045cbf86bdb，CONSISTENT。
+- [x] 仅本任务10文件的3提交已安全push github/main，无强推或远程分叉。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- API Query/Controller/性能测试；Web FinanceOrders/客户分类/变更页的缓存失效及相关测试/E2E；隔离财务PG脚本；docs/finance-dashboard-performance.md，共10文件。
+- outputs/CODEX_PROGRESS.md为主恢复入口，提交脱敏技术进度；完整原件与真实业务资料留受限本机备份。
+- outputs/FINANCE_ORDER_POSTGRES_VALIDATION.json由隔离合成测试更新，随本次文档提交同步。
+- data/finance-dashboard-performance-20261020/受限证据与验收报告，Git忽略。
+
+## 数据库 Migration
+- 无。无新表/索引/物化视图，不改E10标准SQL，原始业务与原派生视图定义保持。
+
+## 新增或修改测试
+- 单次排名/分页/排序/搜索/导出交集、局部参数、revision租户/授权与变更、缓存重入/身份/授权变更/刷新、Chrome只一请求。
+- 真实增量及普通CUSTOM/跨租户/字段/导出、原关闭状态与最新变更台账回归。
+
+## 已运行测试
+- 最终API全套1048通过/33既有skip；Web全套417通过，最终相关11项再验；Contracts29。
+- 原财务PG25、变更PG12，Chrome正式产物9、真实Chrome7性能/交互全部通过。
+- typecheck/lint/build及最终Docker构建通过；Portal既有warning保留，0error。
+- 年度/事业部/内外销/月份/待分类/矩阵/排名金额、同快照新旧原SQL、原34/9列和排名Excel、权限403/匿名401、变更统计勾稽、部署check/健康均通过。
+
+## 当前已知问题
+- 无未解决阻塞。本轮最终常用测量低于3s；中间版/并发负载见过3.2–3.5s，未承诺所有环境永久3s内。重入额外新鲜度检查有少量开销。
+- 生产E10继续更新；正常新增金额与性能算法差异已分开，不将新采集数据说成优化修改历史金额。
+
+## 等待用户确认
+- 无。用户授权范围内全部完成。
+
+## 下一步
+1. 无开发遗留。正常运行保持现有FIN-003等任务，用户可按正式页面使用。
+2. 完整报告：data/finance-dashboard-performance-20261020/ACCEPTANCE.md。
+
+## 恢复执行说明
+规范→本节→git status/diff→受限验收。当前任务已完成，不重做此前已完成的变更台账或取消的历史完整性调查；不提交真实财务证据/备份/凭据；技术进度于2026-10-20脱敏后同步。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS财务订单金额跨月变更统计正式开发与上线。
+任务目标：使用E10可确定历史事件建立幂等台账、月度/事业部/客户发生额及Excel，保留原34/9列和大屏及254指定结束规则，并持续增量。
+当前状态：已完成。
+最后更新时间：2026-10-19 18:02:55（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：正式部署、初始化、线上验收、GitHub同步完成。
+当前子任务：无。用户取消历史完整性核验及展示；按确认的接单基数＋生效月变更、当前客户事业部分类口径执行。
+
+## 已完成
+- [x] 规范/Skills/进度/Git恢复；未覆盖旧修改或重做历史审计。
+- [x] 台账/事实/不可变快照/运行水位/审计及四资源，统一分页筛选导出和后端权限/RLS。
+- [x] 两次双库/uploads备份171705/175406与n8n一致备份，97/98迁移执行，旧财务视图/授权/客户映射/6flags指纹不变。
+- [x] FULL初始化完成；可确定事件入账，全期间及逐单金额对平，正常结束订单保留；其余证据不猜测入账，真实条数和金额留受限原件。
+- [x] 真实增量复读事件与版本不变，n8n实跑成功，每小时07/37已启用；原工作流配置保持，新任务仅一个自动入口。
+- [x] 线上API四表、Excel四类金额/条数及401/403、Chrome12项和原34/9列/大屏验证通过。
+- [x] 新view稳定关联键优化，实际查询约40s→2.7s，金额不变。
+- [x] 最终dbe1f254f524990ef6287e53e4f3760447ce30cb，Repository=Web=API/CONSISTENT，健康检查通过；3个任务提交已安全push github/main。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- 本次27个源码/契约/测试/运行脚本/迁移/业务与调度文档，详见git diff 254ef45..dbe1f254f524990ef6287e53e4f3760447ce30cb --stat。
+- outputs/CODEX_PROGRESS.md本次提交脱敏技术恢复记录，完整原件保留本机，真实业务资料不提交。
+- data/finance-movements-release/：受限本机证据/验收，Git忽略。
+
+## 数据库 Migration
+- FinanceE10Movements1722920097000：新增台账/事实/快照/批次/视图及RLS。
+- FinanceE10MovementJoin1722920098000：仅优化新视图稳定订单键关联。
+- 均已执行，无pending，不替换旧统计视图、不修改ERP标准SQL。
+
+## 新增或修改测试
+- API金额/关闭/改价/去重/重审/捕获窗口、Web页面及Chrome E2E、隔离PG12（api来源审计/全部导出/权限/幂等）和原PG23、Python reader。
+
+## 已运行测试
+- API全套1040通过/33既有skip，最终专项29通过；Web413、Contracts29、Chrome E2E8、Python8、新PG12、旧PG23通过。
+- workspace typecheck/lint/build通过，最终API build/lint/新PG重验通过；保留Portal既有warning，0error。
+- 真实线上Chrome12、API四表与三汇总勾稽、四Excel全匹配金额/行数、旧大屏/排名年度金额、401/403、增量幂等、旧视图/授权/6flags、sourceSQL散列、部署check/健康通过。
+
+## 当前已知问题
+- 无未解决阻塞。不能确认的历史金额不猜测，未宣称完整历史；用户取消完整性调查。
+- 全量日志证据保留，明确有效状态不足者不计入发生额；接单基数不是历史原始金额。
+
+## 等待用户确认
+- 无。业务口径、开发、备份、迁移、部署和安全GitHub同步均已授权且完成。
+
+## 下一步
+1. 无开发遗留；日常增量由FIN-003运行，需要补偿时用受控脚本或Web管理员同步入口。
+2. 最终报告：data/finance-movements-release/ACCEPTANCE.md；两个正式页面/金额证据/备份/发布及Git记录均在报告中。
+
+## 恢复执行说明
+规范→本节→git status/diff→报告。当前任务已完成，不恢复旧只读阶段的历史完整性工作，不提交真实财务证据/备份/凭据；技术进度于2026-10-20脱敏后同步。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS财务订单金额跨月变更统计第二阶段：历史事件验证与金额勾稽。
+任务目标：以254ef45为不变基线，只读关联SO_CHANGE/DataLog、核实语义和去重、量化2025以来可归属/存在缺口/无法还原金额，提交事件/快照/月发生额设计与测试方案。
+当前状态：已完成（本阶段只读调查与设计，等待业务口径审阅）。
+最后更新时间：2026-10-19 14:22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：证据分级/逐月金额勾稽、正式设计和只读保护验证完成。
+当前子任务：无。未实施事件账本，不自动进入开发/部署/Git同步。
+
+## 已完成
+- [x] 读取项目规范、适用Skills、任务台账、上一阶段报告与三份SQL；保护既有本机进度历史。
+- [x] HEAD254ef45/标准SQL保持；当前财务范围不追加Y/G筛选，头1整单/计划1对应稳定品项排除，保持原复核规则和全部原始品项。
+- [x] 只读取得日志、EventId、变更单及原始订单/品项/计划证据；源抽取散列保留本机，无T+读取/ERP写入/消息。
+- [x] 已关联准备日志不单独累计，未关联准备日志隔离；CHANGE_TYPE 1修订/2增行/3指定结束证实，4仅旧恢复效果样本，未冒称完整审核/撤销过程。
+- [x] 当前订单群、明确状态节点和跨月品项已核验；真实净额、绝对差及节点条数仅留受限原件。只按现存最后ApproveDate节点口径，不能称完整实际生效历史账。
+- [x] 尚缺历史关闭资格的跨月事件、期末差额及链内恢复缺口单列、不直接相加。全历史未知金额NULL，不伪造0或覆盖率；真实数量和金额仅留受限原件。
+- [x] 历史调查阶段逐月完整性JSON/CSV输出，每月无法还原金额NULL/UNKNOWN；当时未确认完整月份。期前订单后续节点另列，不扩大现有财务范围；后续用户已取消此类完整性工作。
+- [x] 关闭同时改价节点按正确净额处理，避免重复冲减；实际跨月样本已逐项核对，真实订单编号、版本、品项数量及金额仅留受限原件。
+- [x] 全节点月份/事件客户/当前财务事业部守恒；样本当前E10头/品项和KDOS有效总额对平。历史事业部未证实，不以当前分类冒充历史。
+- [x] 事件表/历史快照/月发生额视图正式字段、键、UNKNOWN闸门、tenant/account/RLS、审计、维度转移、精度/源时间、兼容性与正式测试方案完成；仅文档，不执行DDL。
+- [x] 调查范围内逐月订单数/金额离线精确重现；前后原始行指纹、客户分类/审计、视图定义、6flags一致。真实业务数量仅留本机，HEAD和原SQL SHA未变。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无本阶段实施事项；等待业务审阅后另行开发，不自行实施草案。
+
+## 修改文件
+- outputs/CODEX_PROGRESS.md：本机主恢复入口，保留所有历史；本阶段不提交。
+- data/e10-sales-order-time-audit-20261019/phase2-history-events/：受限本机证据、报告、设计、逐月CSV、分析/验证脚本（Git忽略，目录700/文件600）。
+- 无运行源码、原标准SQL、迁移或调度配置修改。
+
+## 数据库 Migration
+- 无；未执行DDL、业务数据、授权、配置或调度写入。
+
+## 新增或修改测试
+- 本机validate-analysis.py：50项精确金额/证据守恒、去重、结束/恢复/改价、UNKNOWN、月末/精度规则验证。
+- sample-current-controls.py：两单当前源头/品项与KDOS有效总额勾稽。
+- final-protection.py：18项基线/源码/SQL/证据文件保护验证。
+- 正式应用API/Web/权限/租户/迁移/Chrome E2E仅提出下一阶段方案，未冒称执行。
+
+## 已运行测试
+- validation-results.json：50/50 PASS；deep-reconciliation-summary.json：节点与维度守恒PASS（真实条数仅留受限原件）。
+- baseline-parity.json：22月当前254规则精确重现PASS。
+- sample-current-reconciliation.json：两单原始及有效金额控制PASS。
+- final-protection.json：18/18 PASS，30份源抽取散列未变。
+- 无应用改动，不重复跑全仓API/Web/build；没有部署、commit、push或暂存。
+
+## 当前已知问题
+- 无CLOSE/审核状态字段日志；2025-01/02没有普通订单日志，3月17日才开始；空删除缺原值、未关联日志、反审核/重审/撤销未留完整过程。
+- 已知期末/链内差不是全历史未知总额；原始日志差额不能直接当有效发生额。每个月完整性均不足，不能认证完整历史实际生效月账。
+- 事业部只按当前财务映射重列，历史归属需补证；ERP Owner_Dept不能替代。
+
+## 等待用户确认
+- 月份按实际订单生效还是变更单审核；是否接受带缺口标识的最后审核节点历史。
+- 当前分类重列/历史原属、反审核/V撤销/恢复/整单结束实际影响、同月区间推断是否可入账、2025前订单的期初存量处理。
+- 未确认前，不开发、不迁移、不修改标准SQL或统计、不部署、不Git同步。
+
+## 下一步
+1. 审阅主报告：data/e10-sales-order-time-audit-20261019/phase2-history-events/KDOS_PHASE2_HISTORY_RECONCILIATION_REVIEW.md。
+2. 审阅正式设计：同目录KDOS_ORDER_CHANGE_EVENT_DESIGN.md及monthly-completeness.csv。
+3. 用户确认业务口径后，才启动正式开发、隔离验证、批准后的部署及安全GitHub同步；本阶段到此停止。
+
+## 恢复执行说明
+规范→本节→git status/diff→phase2主报告/final-protection.json。复用已落盘30份源证据及分析，不重新从头抽取，不重复已完成指定结束修复。线上基线254ef45，原标准SQL SHA cc4d7b22198846cdae160460108c69277b98ee7822d8c62a6bb327a5e3089ec9。真实财务证据仅本机data，禁止提交Git。只有业务确认和新实施指令后才进入后续开发。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：E10标准销售订单SQL时间字段与跨月金额历史可还原性只读调查。
+任务目标：核实真实创建/修改时间、稳定ID、日期精度、一对多金额风险和历史记录；交付独立SQL草案及报告供审阅。
+当前状态：已完成（本阶段只读调查）；等待用户审阅后决定后续实施。
+最后更新时间：2026-10-19（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：调查报告和独立SQL草案已完成验证，等待审阅。
+当前子任务：无。本阶段不修改生产SQL/ERP/KDOS数据，不部署、不commit或push。
+
+## 已完成
+- [x] 已读当前AGENTS、适用表单/调度Skill、FIN-002台账和既有进度；保留原CODEX_PROGRESS本机修改及历史。
+- [x] 在任何调查前备份原SQL至data/e10-sales-order-time-audit-20261019/sales_order.original.20261019_123958.sql；原/备份SHA一致，最终原文件未变。
+- [x] sys.columns/主键核实三表CreateDate、LastModifiedDate均datetime2(7)非空；另有ModifiedDate；Version为rowversion不是时钟。
+- [x] 订单/预交日期也为datetime2(7)；源当前业务日期为零时分秒，但创建/修改有真实时间；不伪造非零时刻。
+- [x] 标准2025+范围没有多计划重复，全库发现真实两计划品项；独立品项v2 OUTER APPLY聚合和计划明细分开，保留原审核/客户/日期WHERE。
+- [x] 真实只读执行原标准与品项/计划草案，行数/金额一致、唯一ID不重复，时间返回原生datetime，ISO文本保留精度；变更单草案亦执行通过。
+- [x] 逐月核查202501到202610共22个DataLog表，解析金额OriginalValue/NewValue/EventTime；普通订单日志最早2025-03-17，前期存在缺口/空载荷，不能保证完整历史。
+- [x] SO_CHANGE_DOC/_D包含原新金额与来源ID；验证变更明细和当前品项/订单关联，找到真实跨月样本。CHANGE_DATE、CreateDate、ApproveDate和EventTime不同，不能误用当前LastModifiedDate还原每次金额发生时间。
+- [x] SQL2014/compat100/CS排序、CDC未启用、头Change Tracking仅1天、无目标触发器、msdb可见备份及20251013单点复制表边界已核查；不改任何配置。
+- [x] 前端/Excel YYYY-MM-DD HH:mm:ss、时间精度/时区、Reader/契约/date视图兼容、增量水位与事件账本建议及审核范围差异已写报告。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无本阶段实施事项；生产修改/迁移/部署均不执行。
+
+## 修改文件
+- outputs/CODEX_PROGRESS.md（延续本机未提交修改，保留历史）。
+- data/e10-sales-order-time-audit-20261019下受限本机报告、备份、三个独立SQL草案、sys.columns核查SQL及只读证据；Git忽略，不上传。
+
+## 数据库 Migration
+- 无；无数据库写入，无应用代码或生产SQL修改。
+
+## 新增或修改测试
+- 无应用测试。仅只读SQL真实执行、同筛选金额/行数/唯一ID/时间类型和源码SHA比较。
+
+## 已运行测试
+- proposal-validation.json PASS；history-proposal-validation.json PASS；原文件/备份SHA及三草案原WHERE原文一致；Git HEAD未变。
+- 本阶段没有应用改动，不重复全仓测试/构建，不部署。
+
+## 当前已知问题
+- 仅当前创建/最后修改时间不能还原每次旧金额。2025年1—2月无普通订单日志，部分日志缺载荷；其他归档/事务日志链未证实，不能保证完整历史。
+- 标准SQL Y/G%过滤与当前财务Reader范围不同；只读草案保持标准筛选，不未经审阅替换现有Reader改变数据范围。
+
+## 等待用户确认
+- 用户审阅报告及独立SQL草案后，决定后续字段接入、历史事件账本与跨月差额的业务生效时间规则。本阶段到此停止。
+
+## 下一步
+1. 审阅报告：data/e10-sales-order-time-audit-20261019/E10_SALES_ORDER_TIME_AUDIT_REVIEW.md。
+2. SQL草案：sales_order_finance_time_v2.proposal.sql、sales_order_schedule_time.proposal.sql、sales_order_change_document.proposal.sql（同目录）。
+3. 未有新的实施指令前，不修改原标准SQL、不部署、不commit/push。
+
+## 恢复执行说明
+规范→本节→git status/diff→本轮final-state.json/审阅报告。本阶段已完成，严格遵守当前只读调查范围；原SQL保持SHA cc4d7b22198846cdae160460108c69277b98ee7822d8c62a6bb327a5e3089ec9。不要重复先前已完成过滤修复或擅自实施草案。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS财务E10销售订单统计指定结束过滤修复（最终品项级规则）。
+任务目标：订单头指定结束整单不计；交货计划指定结束仅对应source_line_id品项不计，其他品项继续统计；原始品项全部保留，只读鼎捷E10。
+当前状态：已完成。
+最后更新时间：2026-10-19（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：已部署、完整刷新并逐订单验收。
+当前子任务：无；不重复全仓测试/原始全量Excel，不自动进入其他任务。
+
+## 已完成
+- [x] 起始任务HEAD 9b867d3，头规则3875095已部署；用户质疑0单结论后重新核查，最终明确品项和整单分别过滤。旧0单结论已撤回，不作为最终业务验收。
+- [x] 通过已配置的E10只读连接核验；源连接地址、账套和登录身份仅留受限本机原件。未登录E10客户端，没有读取用友T+，不写ERP；凭据仍由基础工具包管理。
+- [x] 直接执行sales_order.sql、销售订单手工查看.sql、销售出货标准SQL；源文件SHA未变。头、交货计划、出库字段不同；自行取得真实样本，无需用户提供密码或单据。
+- [x] Reader内部headerCloseCode/hasSpecifiedCloseSchedule，原始34列不变；新页和全部暂存页强校验，缺标志断点旧页原子拒绝。
+- [x] 新96迁移仅替换monthly：头1整单排除、交货计划1仅关联品项排除后重算金额/日期/行数；保持稳定订单id、原诊断/原始视图及原复核约束，所有分析/导出共用。
+- [x] 用户已授权仅本任务commit/push/部署；13文件254ef45b48a66bb7ff744b1f13bc30e118cf2c5f已push github/main，无分叉/强推/覆盖其他修改。
+- [x] 备份20261019_122443（本地两份PostgreSQL库、uploads）及3项SHA通过；96迁移应用，共95记录，迁移前后原始行数/版本指纹一致。
+- [x] ./scripts/deploy.sh all/check：Repository=Web=API=254ef45，STATUS=CONSISTENT；四服务健康、Swagger/OpenAPI可用。
+- [x] 正式Finance FULL运行成功，内部批次标识和源规模仅留受限原件；当前来源品项内部标志完整，保留来源缺失历史追溯记录。
+- [x] 全部生产订单逐个核算剩余品项合计、应入集合、稳定id；2025/2026月度、大屏各维度、客户排名金额一致。真实受影响订单原始/月度及客户年度排名Excel已解析核对。
+- [x] 线上2025/2026大屏/排名API总额一致、三页面200、匿名401、无read403；使用现有身份短时维护JWT，不改权限，不宣称密码登录。
+- [x] 客户分类、角色/权限/授权、6个同步flags与本轮基线一致；隔离测试PG容器与volume已清理，生产保留。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- 本轮13文件：96迁移、Finance Application及API/迁移测试、E10 Reader/Python测试、两套PG验证脚本与合成结果、implementation/任务台账/公开实现记录。完整清单见git show 254ef45及受限ITEM_ACCEPTANCE.md。
+- 本主进度公开新增记录已脱敏，完整含金额原件留受限本机备份；不提交真实ERP/财务数据、xlsx、NDJSON、备份或凭据。
+
+## 数据库 Migration
+- 1722920096000-FinanceE10SpecifiedItems，只替换派生monthly视图；down恢复95仅头过滤，不删原始数据。不修改源SQL/ERP/业务历史记录或同步调度。
+
+## 新增或修改测试
+- 部分/全部品项指定结束、订单头指定结束、头2下部分关闭、NULL/零/负金额、同品号不同ID、混合交货状态、保留异常、稳定id/源行保留、租户/账套、幂等/恢复/旧页拒绝、月度大屏排名三类Excel金额。
+
+## 已运行测试
+- 本轮API17、Python4、Web财务6、真实PG订单23+客户/fresh20（95迁移）全部通过；API typecheck/lint/build通过，标准all完成Web/API/worker构建。
+- 前阶段全仓API1016、Web407、Contracts29、Chrome本地/线上各5已通过；本轮无Web/契约源码变更，按相关范围回归，未重复耗时全量Excel。
+
+## 当前已知问题
+- 无阻塞。审核Y/N/V与标准SQL只取Y的差异已先报告并按用户要求保留，不引入G%客户筛选。
+- 先前仅头规则验收已撤回并由本次品项级实际数据验收取代。真实排除品项/订单/金额与年度报表总额见受限报告，不入Git。
+
+## 等待用户确认
+- 无。用户已确认最终分层规则并授权本任务提交/推送/部署。
+
+## 下一步
+1. 无剩余工程步骤；最终报告：data/finance-header-close-20261019/ITEM_ACCEPTANCE.md。
+2. 精确结果：item-production-validation.json、item-api-production.json、item-refresh-result.json、final-state.json。所有真实财务资料仅受限本机保留。
+
+## 恢复执行说明
+规范→本节→git status/diff；任务已完成。当前线上/源码254ef45一致，主进度新增记录已按2026-10-20文档同步要求脱敏，完整原件留本机。不要再使用已撤回的旧0单验收，不重复分析/测试/导出或自动进入PMC后续阶段。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-DASHBOARD-REV3C-001：PMC综合驾驶舱改造。
 任务目标：原URL改造为管理汇总驾驶舱；A/B保持PASS，三张明细报表独立入口、跨屏筛选联动和既有权限/导出保留。
 当前状态：已完成（工程交付）；REV3-C = WAITING_MANUAL_ACCEPTANCE。

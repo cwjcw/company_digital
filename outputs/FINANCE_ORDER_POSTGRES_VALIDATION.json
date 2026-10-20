@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "scenarios": 23,
+  "scenarios": 32,
   "checks": [
     "verified publication and exact per-item tax arithmetic",
     "multi-line order sum is 0.30, not floating-point or duplicated",
@@ -11,7 +11,7 @@
     "changed item recalculates order total with before and after audit",
     "current customer reclassification immediately updates historical analytics",
     "migration repairs existing conflicting dates using MIN without changing source rows or any financial dimension",
-    "earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and nine-column export",
+    "earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and current-contract export",
     "missing delivery plan stays null in raw data and enters exception report",
     "failed source preserves published totals and resumable pages",
     "resuming legacy pages without header state fails atomically and requires a full reread",
@@ -19,12 +19,21 @@
     "field hiding and standard filters apply on list and export",
     "monetary custom authorization compares numeric values, not text",
     "no read/write/export bypass and no hidden dashboard money leakage",
-    "full Chinese 34 and nine headers export through platform",
+    "full Chinese 34 and ten headers export through platform",
     "customer annual ranking is paged, filtered by aggregate and export matches",
+    "ordinary dashboard division scope and customer ranking export intersect without changing administrator totals",
+    "freshness changes after an authorized classification write and successful sync, while the planner setting stays transaction-local",
     "cross-tenant commands and views cannot read another tenant",
     "specified-close migration preserves raw rows and excludes entire headers only, including tenant and account isolation",
     "item-close migration retains other items, stable order ids and normal/null/zero/negative amounts",
-    "parallel refresh rejects overlap and failed source never publishes partial pages"
+    "parallel refresh rejects overlap and failed source never publishes partial pages",
+    "eligibility migration preserves every raw item and posted source event without fabricated reversals",
+    "material and non-Y approval exclusions overlap only once while normal finished orders survive",
+    "new monthly remark is the single header value, not concatenated or repeated per item",
+    "monthly dashboard ranking and occurrence legs reconcile under shared eligibility",
+    "approval and material type changes refresh balances and effective events without rewriting source postings",
+    "default date order remains stable across server pages and full Excel with explicit sort override",
+    "remark field authorization and tenant isolation remain enforced after migration"
   ],
   "productionModified": false
 }
