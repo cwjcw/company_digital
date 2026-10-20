@@ -47,4 +47,13 @@ describe('Finance E10 UI',()=>{
   await waitFor(()=>expect(screen.getByRole('button',{name:'刷新'})).not.toHaveClass('ant-btn-loading'));fireEvent.click(screen.getByRole('button',{name:'刷新'}));await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/dashboard'))).toHaveLength(2));expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/refresh'))).toBe(false);
  });
 
+ it('drops previous amounts when live authorization changes before the new scoped response arrives',async()=>{
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});localStorage.setItem('sessionUser',JSON.stringify({sub:'SYN-A',permissions:['*']}));
+  render(<MemoryRouter><QueryClientProvider client={client}><FinanceOrderDashboard/></QueryClientProvider></MemoryRouter>);await screen.findAllByText('100.30');
+  const original=vi.mocked(api).getMockImplementation()!;let resolveNew:((value:any)=>void)|undefined;
+  vi.mocked(api).mockImplementation(async(p,...args)=>p.endsWith('/revision')?{revision:'synthetic-restricted',accessRevision:'synthetic-new-scope'} as never:p.endsWith('/dashboard')?new Promise(resolve=>{resolveNew=resolve;}) as never:original(p,...args));
+  await client.invalidateQueries({queryKey:['finance-order-revision']});await waitFor(()=>expect(resolveNew).toBeDefined());expect(screen.queryAllByText('100.30')).toHaveLength(0);
+  resolveNew!({totals:{orders:1,amount:'20.00',average:'20.00',pendingAmount:'0'},channels:[],departments:[],months:[],matrix:[]});await screen.findAllByText('20.00');
+ });
+
 });

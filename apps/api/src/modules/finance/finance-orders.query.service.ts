@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, ForbiddenException } from '@nestjs/common';
 import DecimalBase from 'decimal.js';
+import { createHash } from 'node:crypto';
 const Decimal=DecimalBase.clone({precision:40});
 import { financeOrderResources, financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from '@kdos/contracts';
 import { TableFilterRegistry, TableFilterActor, TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
@@ -57,7 +58,14 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY completed_at DESC,id DESC LIMIT 1),'')||':'||
    coalesce((SELECT string_agg(id::text||':'||version::text||':'||updated_at::text,',' ORDER BY id)
     FROM finance_customer_mappings WHERE tenant_id=$1),'')) revision`,[a.tenantId]);
-  return result;
+  // Include live authorization resolved by AuthGuard, so same-account scope/field
+  // changes invalidate cached amounts as well as source/classification changes.
+  const resources=['finance-e10-dashboard','finance-e10-ranking'];
+  const canonical=(v:any):any=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
+  const accessRevision=createHash('sha256').update(JSON.stringify({tenant:a.tenantId,user:a.userId??null,admin:financeAdmin(a),
+   permissions:a.permissions.filter(p=>p==='*'||resources.some(r=>p.startsWith(r+':'))).sort(),
+   scopes:(a.tableDataScopes??[]).filter(s=>resources.includes(s.resource)).map(s=>JSON.stringify(canonical(s))).sort()})).digest('hex');
+  return {revision:createHash('sha256').update(result.revision+':'+accessRevision).digest('hex'),accessRevision};
  }
  async runs(a:TableFilterActor){orderAuthorize(a,'finance-e10-lines');
   const inspect=financeAdmin(a);

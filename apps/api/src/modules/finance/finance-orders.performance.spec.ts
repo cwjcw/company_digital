@@ -34,7 +34,7 @@ describe('Finance dashboard performance without changing authorization or amount
   await s.dashboard({context:{year:2026}},actor);expect(calls[5]).toContain('"excludedOrders"');
  });
  it('returns only a tenant-local freshness hash and denies callers without dashboard read',async()=>{
-  const query=jest.fn().mockResolvedValue([{revision:'synthetic-revision'}]);const s=new FinanceOrdersQueryService({query} as any,{} as any);expect(await s.revision(actor)).toEqual({revision:'synthetic-revision'});const [sql,p]=query.mock.calls[0];expect(p).toEqual(['SYN-T']);expect(sql.match(/tenant_id=\$1/g)).toHaveLength(2);expect(sql).toContain("status='SUCCESS'");expect(sql).toContain('version::text');expect(sql).toContain('updated_at::text');
-  await expect(s.revision({...actor,isSystemAdmin:false,permissions:[]})).rejects.toThrow();expect(query).toHaveBeenCalledTimes(1);
+  const query=jest.fn().mockResolvedValue([{revision:'synthetic-revision'}]);const s=new FinanceOrdersQueryService({query} as any,{} as any);const initial=await s.revision(actor);expect(initial.revision).toMatch(/^[a-f0-9]{64}$/);expect(initial.accessRevision).toMatch(/^[a-f0-9]{64}$/);const [sql,p]=query.mock.calls[0];expect(p).toEqual(['SYN-T']);expect(sql.match(/tenant_id=\$1/g)).toHaveLength(2);expect(sql).toContain("status='SUCCESS'");expect(sql).toContain('version::text');expect(sql).toContain('updated_at::text');
+  const altered=await s.revision({...actor,tableDataScopes:[{resource:'finance-e10-dashboard',scope:'CUSTOM',rules:[{fieldKey:'customerCode',operator:'EQ',value:'SYN-OTHER'}]}]});expect(altered.accessRevision).not.toBe(initial.accessRevision);expect(altered.revision).not.toBe(initial.revision);await expect(s.revision({...actor,isSystemAdmin:false,permissions:[]})).rejects.toThrow();expect(query).toHaveBeenCalledTimes(2);
  });
 });

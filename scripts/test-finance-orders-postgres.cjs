@@ -87,7 +87,7 @@ const reader={read:async(consume,options)=>{
   const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{context:{year:2025}},scoped));assert.equal(book.worksheets[0].rowCount,1);
  });
  await check('freshness changes after an authorized classification write and successful sync, while the planner setting stays transaction-local',async()=>{
-  const first=await queries.revision(actor);assert.match(first.revision,/^[a-f0-9]{32}$/);
+  const first=await queries.revision(actor);assert.match(first.revision,/^[a-f0-9]{64}$/);
   await repo.transaction(actor.tenantId,m=>m.query("UPDATE finance_customer_mappings SET version=version+1,updated_at=clock_timestamp() WHERE tenant_id=$1 AND customer_code='A140'",[actor.tenantId]));
   const classified=await queries.revision(actor);assert.notEqual(classified.revision,first.revision);
   const [before]=await repo.transaction(actor.tenantId,m=>m.query("SELECT current_setting('enable_mergejoin') merge,current_setting('enable_nestloop') nested"));
