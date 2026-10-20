@@ -11,6 +11,7 @@ import type { FinanceActor } from './finance.types';
 export class FinanceOrdersController {
  constructor(private readonly app:FinanceOrdersApplicationService,private readonly query:FinanceOrdersQueryService){}
  @Post('refresh') refresh(@Body() body:Record<string,unknown>,@Req() r:any){return this.app.refresh(this.actor(r),body??{});}
+ @Get('revision') revision(@Req() r:any){return this.query.revision(this.actor(r));}
  @Get('runs') runs(@Req() r:any){return this.query.runs(this.actor(r));}
  @Get('exceptions') exceptions(@Req() r:any){return this.query.exceptions(this.actor(r));}
  @Post('ranking') ranking(@Body() body:any,@Req() r:any){return this.query.ranking(body.context??{},this.actor(r),body);}

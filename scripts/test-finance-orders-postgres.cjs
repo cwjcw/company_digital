@@ -12,7 +12,7 @@ const {FinanceE10DeliveryDateConflicts1722920090000:DateConflicts}=req('./dist/m
 const {FinanceE10EarliestDeliveryDate1722920091000:EarliestDate}=req('./dist/migrations/1722920091000-FinanceE10EarliestDeliveryDate');
 const {FinanceE10SpecifiedClose1722920095000:SpecifiedClose}=req('./dist/migrations/1722920095000-FinanceE10SpecifiedClose');
 const {FinanceE10SpecifiedItems1722920096000:SpecifiedItems}=req('./dist/migrations/1722920096000-FinanceE10SpecifiedItems');
-const {financeOrderFields,financeMonthlyFields}=req('@kdos/contracts');const ExcelJS=req('exceljs');
+const {financeOrderFields,financeMonthlyFields,financeRankingFields}=req('@kdos/contracts');const ExcelJS=req('exceljs');
 const host=process.env.FINANCE_TEST_POSTGRES_HOST;if(!host?.startsWith('/tmp/kdos-finance-pg-'))throw Error('Isolated socket required');
 const name='finance_orders_test_'+Date.now(),user='knplan',actor={tenantId:'KAINAN',userId:'0199e000-0000-7000-8000-000000000001',username:'fixture',requestId:'finance-order-test',permissions:['*'],source:'web'};
 const control=new Client({host,user,database:'postgres'}),checks=[];let db;const check=async(label,fn)=>{await fn();checks.push(label);};
@@ -81,6 +81,21 @@ const reader={read:async(consume,options)=>{
  await check('no read/write/export bypass and no hidden dashboard money leakage',async()=>{const no={...actor,permissions:[]};await assert.rejects(list('finance-e10-lines',{},no));await assert.rejects(app.refresh(no));await assert.rejects(exporter.exportXlsx('finance-e10-lines',{},no));await assert.rejects(queries.dashboard({context:{year:2025}},{...actor,permissions:['finance-e10-dashboard:*:read']}));});
  await check('full Chinese 34 and nine headers export through platform',async()=>{for(const [resource,fields] of [['finance-e10-lines',financeOrderFields],['finance-e10-monthly',financeMonthlyFields]]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},actor));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),fields.map(f=>f.label));}});
  await check('customer annual ranking is paged, filtered by aggregate and export matches',async()=>{const result=await queries.ranking({year:2026},actor);assert.equal(result.total,1);assert.equal(result.rows[0].orderTotal,'-1.00');const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx('finance-e10-ranking',{context:{year:2026}},actor));assert.equal(book.worksheets[0].rowCount,2);assert.equal(book.worksheets[0].getRow(1).getCell(2).value,'年累计本币总金额');});
+ await check('ordinary dashboard division scope and customer ranking export intersect without changing administrator totals',async()=>{
+  const resource='finance-e10-ranking',scoped={...actor,permissions:['finance-e10-dashboard:*:read',...financeMonthlyFields.map(f=>`finance-e10-dashboard:${f.key}:read`),`${resource}:*:read`,`${resource}:*:export`,...financeRankingFields.map(f=>`${resource}:${f.key}:read`)],tableDataScopes:[{resource:'finance-e10-dashboard',scope:'CUSTOM',rules:[{fieldKey:'departmentCategory',operator:'EQ',value:'业务四部'}]},{resource,scope:'CUSTOM',actions:['read'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'A140'}]},{resource,scope:'CUSTOM',actions:['export'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'MISSING'}]}]};
+  const result=await queries.ranking({year:2025},scoped,{pageSize:100});assert.equal(result.total,1);assert.equal(result.rows[0].customerCode,'A140');assert.equal((await queries.dashboard({context:{year:2025}},scoped)).totals.amount,result.rows[0].orderTotal);
+  const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{context:{year:2025}},scoped));assert.equal(book.worksheets[0].rowCount,1);
+ });
+ await check('freshness changes after an authorized classification write and successful sync, while the planner setting stays transaction-local',async()=>{
+  const first=await queries.revision(actor);assert.match(first.revision,/^[a-f0-9]{32}$/);
+  await repo.transaction(actor.tenantId,m=>m.query("UPDATE finance_customer_mappings SET version=version+1,updated_at=clock_timestamp() WHERE tenant_id=$1 AND customer_code='A140'",[actor.tenantId]));
+  const classified=await queries.revision(actor);assert.notEqual(classified.revision,first.revision);
+  const [before]=await repo.transaction(actor.tenantId,m=>m.query('SHOW enable_mergejoin'));
+  await queries.dashboard({context:{year:2026}},actor);
+  const [after]=await repo.transaction(actor.tenantId,m=>m.query('SHOW enable_mergejoin'));assert.deepEqual(after,before);
+  const prior=await queries.revision(actor);const last=await run();assert.equal(last.status,'SUCCESS');assert.notEqual((await queries.revision(actor)).revision,prior.revision);
+  assert.notEqual((await queries.revision({...actor,tenantId:'OTHER'})).revision,(await queries.revision(actor)).revision);
+ });
  await check('cross-tenant commands and views cannot read another tenant',async()=>{assert.equal((await queries.dashboard({context:{year:2025}},{...actor,tenantId:'OTHER'})).totals.orders,0);await db.query('CREATE ROLE finance_analytics_reader NOLOGIN NOSUPERUSER');await db.query('GRANT SELECT ON finance_e10_lines,finance_customer_mappings,finance_e10_raw,finance_e10_orders_all,finance_e10_monthly TO finance_analytics_reader');const q=db.createQueryRunner();await q.startTransaction();try{await q.query('SET LOCAL ROLE finance_analytics_reader');await q.query("SELECT set_config('app.tenant_id','OTHER',true)");assert.equal((await q.query('SELECT count(*)::integer n FROM finance_e10_monthly'))[0].n,0);}finally{await q.rollbackTransaction();await q.release();}});
  await check('specified-close migration preserves raw rows and excludes entire headers only, including tenant and account isolation',async()=>{
   const original=batch.map(r=>({...r}));

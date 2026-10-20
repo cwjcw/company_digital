@@ -33,18 +33,31 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   if(context.salesperson&&!orderField(a,'finance-e10-dashboard','salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
   const p:unknown[]=[a.tenantId];const clauses=['record.tenant_id=$1',orderScope(a,'finance-e10-dashboard',p,'read'),orderContext(businessContext,p,'finance-e10-dashboard')];
   if(q?.search){p.push('%'+q.search+'%');clauses.push(`record.customer_code ILIKE $${p.length}`);}
-  const cte=`WITH grouped AS(SELECT md5(tenant_id||customer_code)::uuid id,tenant_id,min(created_by::text)::uuid created_by,customer_code,sum(order_total) order_total FROM finance_e10_monthly record WHERE ${clauses.join(' AND ')} GROUP BY tenant_id,customer_code)`;
-  let scope=orderScope(a,resource,p,q?.action??'read');
+  const cte=`WITH grouped AS MATERIALIZED(SELECT md5(tenant_id||customer_code)::uuid id,tenant_id,min(created_by::text)::uuid created_by,customer_code,sum(order_total) order_total FROM finance_e10_monthly record WHERE ${clauses.join(' AND ')} GROUP BY tenant_id,customer_code)`;
+  let scope=orderScope(a,resource,p,'read');
+  if(q?.action==='export'){orderAuthorize(a,resource,'export');scope+=` AND (${orderScope(a,resource,p,'export')})`;}
   if(q?.filterGroup)scope+=' AND '+new SqlFilterCompiler(financeRankingFields,orderColumns(resource),()=>true,c=>`record.${c}`).compile(q.filterGroup,p);
   if(q?.sortField&&!['customerCode','orderTotal'].includes(String(q.sortField)))throw new ForbiddenException('客户排名排序字段无效');
   if(q?.ids){p.push(q.ids);scope+=` AND record.id=ANY($${p.length}::uuid[])`;}
-  const [{total}]=await this.repository.query(`${cte} SELECT count(*)::integer total FROM grouped record WHERE ${scope}`,p);
   const page=Math.max(1,Number(q?.page)||1),pageSize=Math.min(1000,Math.max(1,Number(q?.pageSize)||10));
   const sort=q?.sortField==='customerCode'?'customer_code':'order_total';
   const order=q?.sortOrder==='asc'?'ASC':'DESC';
   const size=limit?Math.max(0,Math.min(pageSize,limit-(page-1)*pageSize)):pageSize;
-  const rows=await this.repository.query(`${cte} SELECT id,customer_code AS "customerCode",order_total::text AS "orderTotal" FROM grouped record WHERE ${scope} ORDER BY ${sort} ${order},customer_code LIMIT $${p.length+1} OFFSET $${p.length+2}`,[...p,size,(page-1)*pageSize]);
+  // Count and page reuse one authorized aggregate and one MVCC snapshot.
+  const [{total,rows}]=await this.repository.query(`${cte}, selected AS MATERIALIZED(SELECT * FROM grouped record WHERE ${scope})
+   SELECT (SELECT count(*)::integer FROM selected) total,
+    (SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM(SELECT id,customer_code AS "customerCode",order_total::text AS "orderTotal"
+     FROM selected ORDER BY ${sort} ${order},customer_code LIMIT $${p.length+1} OFFSET $${p.length+2}) x) rows`,[...p,size,(page-1)*pageSize]);
   return {rows,total:limit?Math.min(total,limit):total,page,pageSize};
+ }
+ async revision(a:TableFilterActor){
+  orderAuthorize(a,'finance-e10-dashboard');
+  // Small tenant-local freshness token; no amounts, identities or source rows leave this endpoint.
+  const [result]=await this.repository.query(`SELECT md5(coalesce((SELECT id::text FROM finance_e10_runs
+   WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY completed_at DESC,id DESC LIMIT 1),'')||':'||
+   coalesce((SELECT string_agg(id::text||':'||version::text||':'||updated_at::text,',' ORDER BY id)
+    FROM finance_customer_mappings WHERE tenant_id=$1),'')) revision`,[a.tenantId]);
+  return result;
  }
  async runs(a:TableFilterActor){orderAuthorize(a,'finance-e10-lines');
   const inspect=financeAdmin(a);
@@ -64,6 +77,10 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   if(!context.year)throw new ForbiddenException('统计大屏必须选择年度');
   if(input.filterGroup)where.push(new SqlFilterCompiler(financeMonthlyFields,orderColumns(resource),()=>true,c=>`record.${c}`).compile(input.filterGroup,p));
   return this.repository.transaction(a.tenantId,async m=>{
+   // The derived-order cardinality is underestimated: a partial-key merge replays
+   // the order aggregate for every item. Keep the full-key hash plan local to this
+   // transaction; pooled connections and every other query retain their defaults.
+   await m.query('SET LOCAL enable_mergejoin = off');
    // One statement/materialized source keeps all financial dimensions on the same database snapshot.
    const cte=`WITH selected AS MATERIALIZED(SELECT record.* FROM finance_e10_monthly record WHERE ${where.join(' AND ')})`;
    const [result]=await m.query(`${cte} SELECT
@@ -78,7 +95,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     UNION ALL SELECT 'channel',sales_channel,sum(order_total)::text FROM selected GROUP BY sales_channel)g) groups,
    (SELECT COALESCE(jsonb_agg(g),'[]'::jsonb) FROM(SELECT year_month AS "month",sum(order_total)::text amount,count(*)::integer orders FROM selected GROUP BY year_month ORDER BY year_month)g) months,
    (SELECT COALESCE(jsonb_agg(g),'[]'::jsonb) FROM(SELECT department_category AS "departmentCategory",sales_channel AS "salesChannel",sum(order_total)::text amount FROM selected GROUP BY department_category,sales_channel)g) matrix,
-   ${financeAdmin(a)?`(SELECT row_to_json(g) FROM(SELECT count(*) FILTER(WHERE conflict OR duplicate_sequence OR duplicate_order_no OR missing_lines>0 OR issue_lines>0)::integer "excludedOrders",
+   ${financeAdmin(a)&&input.includeQuality!==false?`(SELECT row_to_json(g) FROM(SELECT count(*) FILTER(WHERE conflict OR duplicate_sequence OR duplicate_order_no OR missing_lines>0 OR issue_lines>0)::integer "excludedOrders",
     COALESCE(sum(order_total) FILTER(WHERE conflict OR duplicate_sequence OR duplicate_order_no OR missing_lines>0 OR issue_lines>0),0)::text "excludedAmount",sum(negative_lines)::integer "negativeLines",sum(missing_lines)::integer "missingLines"
     FROM finance_e10_orders_all record WHERE ${where.join(' AND ')})g)`:'NULL::json'} quality`,p);
    const {totals,groups,months,matrix,quality}=result;

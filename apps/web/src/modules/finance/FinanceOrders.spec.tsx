@@ -4,11 +4,12 @@ import {MemoryRouter} from 'react-router-dom';
 import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
 import {api} from '../../api';
 import {FinanceOrderTable,FinanceOrderDashboard} from './FinanceOrders';
+import {useEffect} from 'react';
 vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
 vi.mock('../../shared/charts/KdosChart',()=>({KdosChart:({ariaLabel,onDataClick,option}:any)=><button onClick={()=>onDataClick?.({name:'国内',dataIndex:0})}>{ariaLabel}{option?.xAxis?.data?.map((month:string)=><span key={month}>{month}</span>)}</button>}));
-vi.mock('../../shared/KdosDataTable',async original=>({...await original<object>(),KdosDataTable:({columns,toolbar,contextFilterGroup,dataSource}:any)=><div data-testid="record-table">{columns.map((c:any)=><span key={c.dataIndex}>{c.title}</span>)}{dataSource?.map((r:any)=><div key={r.id}>{columns.map((c:any)=><span key={c.dataIndex}>{c.render?.(r[c.dataIndex],r)}</span>)}</div>)}{toolbar}<pre>{JSON.stringify(contextFilterGroup)}</pre></div>}));
+vi.mock('../../shared/KdosDataTable',async original=>({...await original<object>(),KdosDataTable:({columns,toolbar,contextFilterGroup,dataSource,serverData}:any)=>{const onQueryChange=serverData?.onQueryChange;useEffect(()=>{onQueryChange?.({page:1,pageSize:100,search:'',filters:{},filterGroup:{logic:'AND',rules:[]}});},[onQueryChange]);return <div data-testid="record-table">{columns.map((c:any)=><span key={c.dataIndex}>{c.title}</span>)}{dataSource?.map((r:any)=><div key={r.id}>{columns.map((c:any)=><span key={c.dataIndex}>{c.render?.(r[c.dataIndex],r)}</span>)}</div>)}{toolbar}<pre>{JSON.stringify(contextFilterGroup)}</pre></div>;}}));
 function mount(component:React.ReactNode,url='/finance/orders/monthly',user:any={permissions:['*']}){localStorage.setItem('sessionUser',JSON.stringify(user));return render(<MemoryRouter initialEntries={[url]}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}>{component}</QueryClientProvider></MemoryRouter>);}
-beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
+beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.endsWith('/revision')?{revision:'synthetic-v1'} as never:p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
 afterEach(cleanup);
 describe('Finance E10 UI',()=>{
  it('shows earliest order dates without adding a template column and preserves dashboard money',async()=>{
@@ -25,4 +26,25 @@ describe('Finance E10 UI',()=>{
  it('does not request data for unauthorized users',()=>{mount(<FinanceOrderTable/>,undefined,{permissions:[],moduleAdminCodes:['planning']});expect(screen.getByText('当前权限组不能查看销售订单数据')).toBeVisible();expect(api).not.toHaveBeenCalled();});
  it('renders original dashboard headers and all twelve months without the excluded-money banner',async()=>{mount(<FinanceOrderDashboard/>);await screen.findByText('年累计本币总金额');expect(screen.queryByText(/待复核订单.*暂未纳入统计/)).toBeNull();for(const label of ['分类','金额/本币含税','年占比','年合计','客户编号','年累计本币总金额','年月','本币合计金额/元','本币合计金额/万元','合计'])expect(screen.getAllByText(label,{exact:true}).length).toBeGreaterThan(0);expect((await screen.findAllByText('2025-12'))[0]).toBeVisible();});
  it('manual refresh submits the protected command with explicit mode',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');fireEvent.click(screen.getByText('刷新E10数据'));await waitFor(()=>expect(api).toHaveBeenCalledWith('/finance/e10-orders/refresh',expect.objectContaining({method:'POST',body:JSON.stringify({mode:'FULL'})})));});
+ it('starts only one ranking request after the standard table supplies its initial query',async()=>{
+  mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/ranking'))).toHaveLength(1));
+  const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/ranking'))!;expect(JSON.parse(call[1]!.body as string)).toMatchObject({pageSize:100,page:1,filterGroup:{logic:'AND',rules:[]}});
+ });
+ it('reuses fresh scoped results on reentry, then refreshes both reports for a new source/classification revision',async()=>{
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});const renderDashboard=()=>render(<MemoryRouter><QueryClientProvider client={client}><FinanceOrderDashboard/></QueryClientProvider></MemoryRouter>);
+  localStorage.setItem('sessionUser',JSON.stringify({sub:'SYN-A',permissions:['*']}));let view=renderDashboard();
+  const count=(end:string)=>vi.mocked(api).mock.calls.filter(([p])=>p.endsWith(end)).length;
+  await waitFor(()=>expect(count('/ranking')).toBe(1));view.unmount();view=renderDashboard();await waitFor(()=>expect(count('/revision')).toBe(2));expect(count('/dashboard')).toBe(1);expect(count('/ranking')).toBe(1);
+  const original=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(p,...args)=>p.endsWith('/revision')?{revision:'synthetic-v2'} as never:original(p,...args));
+  await client.invalidateQueries({queryKey:['finance-order-revision']});await waitFor(()=>expect(count('/dashboard')).toBe(2));await waitFor(()=>expect(count('/ranking')).toBe(2));
+  view.unmount();localStorage.setItem('sessionUser',JSON.stringify({sub:'SYN-B',permissions:['*']}));renderDashboard();await waitFor(()=>expect(count('/dashboard')).toBe(3));await waitFor(()=>expect(count('/ranking')).toBe(3));
+ });
+ it('does not request freshness, totals or ranking without dashboard permission',()=>{
+  mount(<FinanceOrderDashboard/>,undefined,{permissions:[]});expect(screen.getByText('当前权限组不能查看统计大屏')).toBeVisible();expect(api).not.toHaveBeenCalled();
+ });
+ it('manual display refresh refetches current reports without starting an E10 import',async()=>{
+  mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/ranking'))).toHaveLength(1));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'刷新'})).not.toHaveClass('ant-btn-loading'));fireEvent.click(screen.getByRole('button',{name:'刷新'}));await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/dashboard'))).toHaveLength(2));expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/refresh'))).toBe(false);
+ });
+
 });

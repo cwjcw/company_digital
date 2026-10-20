@@ -54,7 +54,7 @@ export function FinanceCustomerMappings() {
                 created: number;
             } | null;
         }>("/finance/customer-mappings/summary"), enabled: canRead });
-    const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ["finance-customers"] }), client.invalidateQueries({ queryKey: ["finance-customer-summary"] }),client.invalidateQueries({queryKey:["finance-orders"]}),client.invalidateQueries({queryKey:["finance-dashboard"]}),client.invalidateQueries({queryKey:["finance-ranking"]})]); };
+    const refresh = async () => { await Promise.all([client.invalidateQueries({queryKey:["finance-order-revision"]}),client.invalidateQueries({ queryKey: ["finance-customers"] }), client.invalidateQueries({ queryKey: ["finance-customer-summary"] }),client.invalidateQueries({queryKey:["finance-orders"]}),client.invalidateQueries({queryKey:["finance-dashboard"]}),client.invalidateQueries({queryKey:["finance-ranking"]})]); };
     const open = (row: Row) => { if (!canUpdate)
         return; setSelected(row); setError(""); form.setFieldsValue(row); };
     const save = async () => {
