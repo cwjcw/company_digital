@@ -28,7 +28,11 @@ describe("master plan manual-entry configuration", () => {
     expect(fields.find((field) => field.key === "deliveryNumber")?.editable).toBe(false);
     expect(fields.find((field) => field.key === "deliveryNumber")?.required).toBe(false);
     expect(fields.find((field) => field.key === "modelAge")?.label).toBe("新旧款");
-    expect(fields.filter((field) => ["itemName", "divisionId"].includes(field.key)).every((field) => field.required)).toBe(true);
+    expect(fields.find((field) => field.key === "divisionId")?.required).toBe(true);
+    for (const key of ["itemName", "orderDate", "modelAge"]) expect(fields.find((field) => field.key === key)?.required).toBe(false);
+    const shipping = MASTER_PLAN_RESOURCE_MAP.get("mps-shipping-plans")!;
+    expect(shipping.requiredOnCreate).toEqual(["customerCode", "orderNumber", "itemCode", "latestCustomerDueDate", "plannedQuantity", "divisionId"]);
+    expect(shipping.requiredAlways).toEqual(["divisionId"]);
     expect(fields.find((field) => field.key === "modelAge")?.required).toBe(false);
   });
 

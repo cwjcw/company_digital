@@ -81,7 +81,7 @@ describe("MasterPlanApplicationService imports", () => {
   });
 
   it.each([
-    ["customerCode", "客户编码"], ["orderNumber", "订单编号"], ["itemCode", "品项编码"], ["itemName", "品项名称"],
+    ["customerCode", "客户编码"], ["orderNumber", "订单编号"], ["itemCode", "品项编码"],
     ["latestCustomerDueDate", "最迟客户交期"], ["plannedQuantity", "计划数量"], ["divisionId", "承接事业部"]
   ])("rejects clearing required shipping field %s during import update", async (field, label) => {
     const current = { id: "22222222-2222-4222-8222-222222222222", version: 2, customer_code: "C1", order_number: "SO-1", item_code: "I1", item_name: "品项", delivery_number: 0, latest_customer_due_date: "2026-10-01", planned_quantity: 0, division_id: "33333333-3333-4333-8333-333333333333" };

@@ -106,20 +106,36 @@ export class MasterPlanSpreadsheetService {
     if (schema) {
       const templateLabel = pending ? this.pendingTemplateLabel(code) : resource.code;
       if (schema.getCell("B1").text !== templateLabel) throw new BadRequestException("Excel 字段定义与当前表不一致，请下载当前表模板");
-      for (let index = 3; index <= schema.rowCount; index++) {
-        const key = schema.getRow(index).getCell(1).text.trim(); const column = Number(schema.getRow(index).getCell(2).value);
-        if (key && Number.isInteger(column) && column > 0) columnsByKey.set(key, column);
-      }
-    } else {
-      if (!headers.has("记录ID") || !headers.has("版本")) throw new BadRequestException("缺少记录ID或版本列，请使用系统导出的文件");
-      columnsByKey.set("id", headers.get("记录ID")!); columnsByKey.set("version", headers.get("版本")!);
     }
-    if (!columnsByKey.has("id") || !columnsByKey.has("version")) throw new BadRequestException("缺少记录ID或版本字段定义，请使用系统导出的文件");
+    /* Excel 删除/移动列不会更新隐藏字段定义的旧列号。始终用当前表头定位，
+     * 禁止把业务列误读为记录ID/版本，也不能把删除身份列的文件静默当作新增。 */
+    if (!headers.has("记录ID") || !headers.has("版本")) throw new BadRequestException("缺少记录ID或版本列，请使用系统导出的文件；新增时两列均保留并留空，更新时必须同时填写真实ID和版本");
+    columnsByKey.set("id", headers.get("记录ID")!);
+    columnsByKey.set("version", headers.get("版本")!);
     /* 待报工导入：列取自同一份待报工权威定义；其余资源沿用可导入字段。 */
     const editableFields = pending ? this.pendingImportFields(actor) as ReturnType<typeof fieldsFor> : this.importFields(resource, code, actor);
-    const headerFor = (field: (typeof editableFields)[number]) => [field.label, ...(legacyFieldAliases[field.key] ?? [])].find((label) => headers.has(label));
-    const includedFields = editableFields.filter((field) => schema ? columnsByKey.has(field.key) : Boolean(headerFor(field)));
-    if (!schema) for (const field of includedFields) columnsByKey.set(field.key, headers.get(headerFor(field)!)!);
+    for (const field of editableFields) {
+      const labels = [field.label, ...(legacyFieldAliases[field.key] ?? [])].filter((label) => headers.has(label));
+      if (labels.length > 1) throw new BadRequestException(`字段表头重复：${field.label}`);
+      if (labels.length) columnsByKey.set(field.key, headers.get(labels[0]!)!);
+    }
+    /* 兼容仅改显示标题的旧模板，但必须整张表的列结构仍与字段定义吻合。
+     * 任何删列、插列或已知表头移动都会禁用位置回退，身份列始终不回退。 */
+    if (schema) {
+      const definitions = [] as Array<{ key: string; column: number; label: string }>;
+      for (let index = 3; index <= schema.rowCount; index++) definitions.push({ key: schema.getCell(index, 1).text.trim(), column: Number(schema.getCell(index, 2).value), label: schema.getCell(index, 3).text.trim() });
+      const knownLabels = new Set(["记录ID", "版本", ...fieldsFor(resource).flatMap(field => [field.label, ...(legacyFieldAliases[field.key] ?? [])]), ...editableFields.map(field => field.label)]);
+      const aligned = definitions.length === headers.size && new Set(definitions.map(field => field.column)).size === definitions.length && definitions.every(field => {
+        if (!Number.isInteger(field.column) || field.column < 1 || field.column > headers.size) return false;
+        const label = sheet.getCell(1, field.column).text.trim();
+        return label === field.label || (Boolean(label) && !knownLabels.has(label) && !headers.has(field.label));
+      });
+      if (aligned) for (const field of editableFields) {
+        const definition = definitions.find(entry => entry.key === field.key);
+        if (!columnsByKey.has(field.key) && definition) columnsByKey.set(field.key, definition.column);
+      }
+    }
+    const includedFields = editableFields.filter((field) => columnsByKey.has(field.key));
     if (!includedFields.length) throw new BadRequestException("文件中没有可导入的可编辑字段");
     if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多导入50000行");
     const rows: ImportRow[] = []; const parseErrors: Array<{ row: number; reason: string }> = [];

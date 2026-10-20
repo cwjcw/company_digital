@@ -87,6 +87,34 @@ describe("MasterPlanResourcePage create feedback", () => {
     expect(dialog).toBeInTheDocument();
   }, 15_000);
 
+  it("creates a shipping plan with item name, order date and model age all blank", async () => {
+    const fallback = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/master-plan-system/references/organizations")) return [{ id: "division-1", name: "测试事业部", pathLabel: "测试事业部" }] as never;
+      if (path === "/master-plan-system/resources/mps-shipping-plans" && init?.method === "POST") return { id: "synthetic-row", version: 1 } as never;
+      return fallback(path, init);
+    });
+    renderPage("mps-shipping-plans");
+    fireEvent.click(await screen.findByRole("button", { name: /新\s*增/ }));
+    const dialog = await screen.findByRole("dialog");
+    for (const [label, value] of [["客户编码", "TEST-C"], ["订单编号", "TEST-SO"], ["品项编码", "TEST-I"], ["计划数量", "1"]] as const) {
+      fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+    }
+    const dueDate = within(dialog).getByLabelText("最迟客户交期");
+    fireEvent.change(dueDate, { target: { value: "2026-10-30" } });
+    fireEvent.keyDown(dueDate, { key: "Enter", code: "Enter" });
+    fireEvent.mouseDown(within(dialog).getByLabelText("承接事业部"));
+    fireEvent.click(await screen.findByText("测试事业部", { selector: ".kdos-organization-option" }));
+    for (const label of ["品项名称", "下单日期", "新旧款"]) {
+      expect(within(dialog).getByLabelText(label).closest(".ant-form-item")?.querySelector(".ant-form-item-required")).toBeNull();
+    }
+    fireEvent.click(within(dialog).getByRole("button", { name: /OK|确\s*定/ }));
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/master-plan-system/resources/mps-shipping-plans", expect.objectContaining({ method: "POST" })));
+    const body = JSON.parse(String(vi.mocked(api).mock.calls.find(([path, init]) => path === "/master-plan-system/resources/mps-shipping-plans" && init?.method === "POST")![1]!.body));
+    expect(body).toMatchObject({ customerCode: "TEST-C", orderNumber: "TEST-SO", itemCode: "TEST-I", latestCustomerDueDate: "2026-10-30", divisionId: "division-1" });
+    for (const key of ["itemName", "orderDate", "modelAge"]) expect(body[key] ?? "").toBe("");
+  }, 15_000);
+
   it("patches only the changed cell with expectedVersion after edit mode is entered", async () => {
     vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
       if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
