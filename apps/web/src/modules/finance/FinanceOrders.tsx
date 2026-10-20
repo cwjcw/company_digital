@@ -5,7 +5,7 @@ import { Link,useSearchParams,useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { financeOrderFields,financeMonthlyFields,financeRankingFields,financeDashboardLabels as L,financeDepartmentOptions,financeSalesChannelOptions } from '@kdos/contracts';
 import { api } from '../../api';
-import { hasResourcePermission,KdosDataTable,kdosDefaultPageSize } from '../../shared/KdosDataTable';
+import { hasResourcePermission,KdosDataTable,kdosDefaultPageSize,ensureTableFieldVisibleOnce } from '../../shared/KdosDataTable';
 import { KdosChart } from '../../shared/charts/KdosChart';
 import type { AdvancedFilterGroup,AdvancedFilterRule } from '../../shared/advanced-filter';
 type Row=Record<string,any>;
@@ -14,9 +14,12 @@ const initialQuery:TableQuery={page:1,pageSize:kdosDefaultPageSize,search:'',fil
 const businessYear=()=>Number(new Intl.DateTimeFormat('en',{timeZone:'Asia/Shanghai',year:'numeric'}).format(new Date()));
 const money=(v:unknown)=>v==null?'—':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
 export function FinanceOrderTable({monthly=false}:{monthly?:boolean}){
+ return <FinanceOrderTableContent key={monthly?'monthly':'lines'} monthly={monthly}/>;
+}
+function FinanceOrderTableContent({monthly}:{monthly:boolean}){
  const resource=monthly?'finance-e10-monthly':'finance-e10-lines';const fields=monthly?financeMonthlyFields:financeOrderFields;
  const canRead=hasResourcePermission(resource,'read');const client=useQueryClient();
- const [query,setQuery]=useState<TableQuery>(initialQuery);const [params,setParams]=useSearchParams();
+ const [query,setQuery]=useState<TableQuery>(()=>{ensureTableFieldVisibleOnce(resource,'businessRemark','finance-business-remark-v1');return initialQuery;});const [params,setParams]=useSearchParams();
  const [year,setYear]=useState<number|undefined>(params.get('year')?Number(params.get('year')):undefined);
  const [mode,setMode]=useState<'FULL'|'INCREMENTAL'>('FULL');
  const [logs,setLogs]=useState(false);const [errors,setErrors]=useState(false);const [starting,setStarting]=useState(false);

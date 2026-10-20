@@ -15,7 +15,7 @@ def normalized(v):
 def parse_columns(body):
     if not body or not body.strip():return {}
     root=ET.fromstring(body)
-    wanted={'AMT_UNINCLUDE_TAX_BC','TAX_BC','CLOSE','CUSTOMER_ID','ORDER_DATE','SALES_ORDER_DOC_ID','SALES_ORDER_DOC_D_ID'}
+    wanted={'AMT_UNINCLUDE_TAX_BC','TAX_BC','CLOSE','CUSTOMER_ID','ORDER_DATE','SALES_ORDER_DOC_ID','SALES_ORDER_DOC_D_ID','APPROVESTATUS','DOC_ID'}
     return {c.findtext('ColumnId').upper():{'old':c.findtext('OriginalValue'),'new':c.findtext('NewValue')} for c in root.findall('./Columns/DataLogColumnInfo') if (c.findtext('ColumnId') or '').upper() in wanted}
 
 def extract(emit,since=None):
@@ -51,10 +51,12 @@ def extract(emit,since=None):
             params += [since]*3
         stream('state', '''SELECT CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) sourceKey,CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) lineId,
         CONVERT(varchar(36),h.SALES_ORDER_DOC_ID) orderId,h.DOC_NO orderNo,CONVERT(varchar(27),h.ORDER_DATE,126) orderDate,c.CUSTOMER_CODE customerCode,i.ITEM_CODE itemCode,
+        dt.DOC_NAME docType,h.ApproveStatus headerApproved,
         d.AMT_UNINCLUDE_TAX_BC+d.TAX_BC gross,CONVERT(varchar(20),h.[CLOSE]) headerClose,
         CONVERT(bit,coalesce(p.closed,0)) closedSchedule,CONVERT(varchar(27),h.LastModifiedDate,126) headerModified,
         CONVERT(varchar(27),d.LastModifiedDate,126) lineModified,CONVERT(varchar(27),p.modified,126) planModified
         FROM dbo.SALES_ORDER_DOC h JOIN dbo.SALES_ORDER_DOC_D d ON d.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
+        LEFT JOIN dbo.DOC dt ON dt.DOC_ID=h.DOC_ID
         LEFT JOIN dbo.CUSTOMER c ON c.CUSTOMER_BUSINESS_ID=h.CUSTOMER_ID LEFT JOIN dbo.ITEM i ON i.ITEM_BUSINESS_ID=d.ITEM_ID
         OUTER APPLY(SELECT max(CASE WHEN s.[CLOSE]='1' THEN 1 ELSE 0 END) closed,max(s.LastModifiedDate) modified FROM dbo.SALES_ORDER_DOC_SD s WHERE s.SALES_ORDER_DOC_D_ID=d.SALES_ORDER_DOC_D_ID)p
         WHERE h.ORDER_DATE>=%s'''+scope,tuple(params))
@@ -62,12 +64,13 @@ def extract(emit,since=None):
         stream('change', '''SELECT CONVERT(varchar(36),d.SO_CHANGE_DOC_D_ID) sourceKey,CONVERT(varchar(36),h.SO_CHANGE_DOC_ID) documentId,
         CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) lineId,CONVERT(varchar(36),h.SALES_ORDER_DOC_ID) orderId,
         o.DOC_NO orderNo,CONVERT(varchar(27),o.ORDER_DATE,126) orderDate,c.CUSTOMER_CODE customerCode,i.ITEM_CODE itemCode,
-        h.CHANGE_VERSION changeVersion,h.ApproveStatus approvalStatus,CONVERT(varchar(27),h.ApproveDate,126) approvalTime,
+        dt.DOC_NAME docType,o.ApproveStatus headerApproved,h.CHANGE_VERSION changeVersion,h.ApproveStatus approvalStatus,CONVERT(varchar(27),h.ApproveDate,126) approvalTime,
         CONVERT(varchar(27),h.LastModifiedDate,126) modifiedTime,h.FULL_CLOSE fullClose,CONVERT(varchar(20),h.ORI_CLOSE) originalHeaderClose,
         CONVERT(varchar(20),d.CHANGE_TYPE) changeType,d.ORI_AMT_UNINCLUDE_TAX_BC+d.ORI_TAX_BC grossBefore,d.AMT_UNINCLUDE_TAX_BC+d.TAX_BC grossAfter,
         p.planCount,p.closed originalClosedSchedule,p.invalid invalidPlans,CASE WHEN p.minType<>d.CHANGE_TYPE OR p.maxType<>d.CHANGE_TYPE THEN 1 ELSE 0 END typeMismatch
         FROM dbo.SO_CHANGE_DOC h JOIN dbo.SO_CHANGE_DOC_D d ON d.SO_CHANGE_DOC_ID=h.SO_CHANGE_DOC_ID
         JOIN dbo.SALES_ORDER_DOC o ON o.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
+        LEFT JOIN dbo.DOC dt ON dt.DOC_ID=o.DOC_ID
         LEFT JOIN dbo.CUSTOMER c ON c.CUSTOMER_BUSINESS_ID=h.CUSTOMER_ID LEFT JOIN dbo.ITEM i ON i.ITEM_BUSINESS_ID=d.ITEM_ID
         OUTER APPLY(SELECT count(*) planCount,max(CASE WHEN s.ORI_CLOSE='1' THEN 1 ELSE 0 END) closed,
         max(CASE WHEN s.ORI_CLOSE IS NULL OR s.ORI_CLOSE NOT IN ('0','1','2') THEN 1 ELSE 0 END) invalid,

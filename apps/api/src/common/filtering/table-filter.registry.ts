@@ -7,6 +7,16 @@ export function recordKeyOf(source: { recordKey?: TableRecordKey } | null | unde
   return source?.recordKey ?? { field: "id", type: "uuid" };
 }
 
+/** Trusted resource defaults shared by list and Excel; user sorts keep their direction. */
+export function registeredOrderBy(source: TableFilterSource, requested: string | undefined, direction: unknown, readable: (field: string) => boolean): string | undefined {
+  const defaults = source.defaultSort;
+  if (!defaults) return undefined;
+  const field = defaults.field;
+  const expression = requested ?? (readable(field) ? source.expressions?.[field] ?? (source.columns[field] ? `record.${source.columns[field]}` : undefined) : undefined) ?? `record.${source.columns.id ?? 'id'}`;
+  const order = requested ? String(direction).toLowerCase() === 'desc' ? 'DESC' : 'ASC' : defaults.order === 'desc' ? 'DESC' : 'ASC';
+  return [`${expression} ${order} NULLS LAST`, ...defaults.stableColumns.map(column => `record.${column} ASC`)].join(',');
+}
+
 /** KN-PRINT-001 打印取数参数：与列表共用同一套条件语义。 */
 export type TablePrintRowQuery = {
   search: string;
@@ -38,6 +48,8 @@ export type TableFilterActor = {
 };
 
 export type TableFilterSource = {
+  /** Server-only columns provide stable ties without exposing technical identity fields. */
+  defaultSort?: { field: string; order: 'asc' | 'desc'; stableColumns: string[] };
   /** 资源 code（tableResourceRegistry 内的稳定值）。 */
   code: string;
   /** Explicit, bounded export limit for validated large record sources; default remains 80000. */

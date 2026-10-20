@@ -5,7 +5,7 @@ import { AuthGuard } from "../../auth";
 import { FieldCandidateService } from "./field-candidate.service";
 import { SqlFilterCompiler } from "./sql-filter.compiler";
 import { parseFilterGroup, type ParsedFilterGroup } from "./filter.contract";
-import { TableFilterRegistry, type TableFilterActor } from "./table-filter.registry";
+import { TableFilterRegistry, registeredOrderBy, type TableFilterActor } from "./table-filter.registry";
 import { OrganizationDirectoryService } from "../../modules/organization-directory/organization-directory.service";
 import { DataSource } from "typeorm";
 import { isTableFieldFilterable, referenceLabelFieldsFor, tableFilterResourceCapabilityOf, tableResourceRegistry, type TablePermissionFieldDefinition } from "@kdos/contracts";
@@ -140,6 +140,8 @@ export class TableFilterController {
     if (sortKey && (!sortColumn && !sortAlias || !source.fields.some((field) => field.key === (sortAlias?.permissionField ?? sortKey)))) throw new BadRequestException("排序字段无效");
     if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortExpression = sortKey ? sortAlias?.expression ?? this.expressions(source)[sortKey] : undefined;
+    const orderBy = registeredOrderBy(source, sortExpression, query.sortOrder, key => this.canReadField(actor, source.code, key))
+      ?? `${sortExpression ?? (source.columns.id ? "record.id" : "record.ctid")} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`;
     const pageSize = normalizeKdosPageSize(query.pageSize);
     const page = Math.max(Number(query.page) || 1, 1);
     const selected = [
@@ -152,7 +154,7 @@ export class TableFilterController {
     const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;
     const paged = [...params, pageSize, (page - 1) * pageSize];
     const rows = await run(
-      `SELECT ${selected.join(",")} FROM ${source.table} record WHERE ${where} ORDER BY ${sortExpression ?? (source.columns.id ? "record.id" : "record.ctid")} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST LIMIT $${paged.length - 1} OFFSET $${paged.length}`,
+      `SELECT ${selected.join(",")} FROM ${source.table} record WHERE ${where} ORDER BY ${orderBy} LIMIT $${paged.length - 1} OFFSET $${paged.length}`,
       paged
     );
     return { rows, total: Number(count), page, pageSize };

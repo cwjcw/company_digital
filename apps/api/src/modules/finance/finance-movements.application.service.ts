@@ -45,6 +45,9 @@ export class FinanceMovementsApplicationService implements OnModuleInit {
     }else if(['state','change','log'].includes(p.kind)){
      if(!source||complete||!Array.isArray(p.rows)||p.rows.length>500)throw new Error('Page invalid');
      for(const r of p.rows)if(!r||!guid.test(r.sourceKey)||p.kind!=='log'&&(!guid.test(r.orderId)||!guid.test(r.lineId)))throw new Error('Identity invalid');
+     if(p.kind!=='log')for(const r of p.rows)for(const key of ['docType','headerApproved']){
+      if(!Object.prototype.hasOwnProperty.call(r,key)||r[key]!==null&&typeof r[key]!=='string')throw new Error('Header eligibility capture missing');
+     }
      await this.repository.transaction(a.tenantId,m=>m.query('INSERT INTO finance_e10_movement_pages(tenant_id,run_id,page,kind,payload) VALUES($1::varchar,$2,$3,$4,$5::jsonb)',[a.tenantId,run.id,++page,p.kind,JSON.stringify(p.rows)]));
     }else if(p.kind==='complete'){if(source&&sourceTime(p.observedAt))source.observationEndAt=p.observedAt;if(complete)throw new Error('Duplicate completion');complete=true;}else throw new Error('Protocol invalid');
    },{since:run.since});

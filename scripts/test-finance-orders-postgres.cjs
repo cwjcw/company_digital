@@ -17,7 +17,7 @@ const host=process.env.FINANCE_TEST_POSTGRES_HOST;if(!host?.startsWith('/tmp/kdo
 const name='finance_orders_test_'+Date.now(),user='knplan',actor={tenantId:'KAINAN',userId:'0199e000-0000-7000-8000-000000000001',username:'fixture',requestId:'finance-order-test',permissions:['*'],source:'web'};
 const control=new Client({host,user,database:'postgres'}),checks=[];let db;const check=async(label,fn)=>{await fn();checks.push(label);};
 const id=n=>'0199e000-0000-7000-8000-'+String(n).padStart(12,'0');
-const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerCloseCode:'0',hasSpecifiedCloseSchedule:false,headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
+const line=(order,n,amount,customer='A140',year=2025)=>({...Object.fromEntries(financeOrderFields.map(f=>[f.key,f.type==='number'?'1':f.type==='boolean'?true:f.type==='date'?`${year}-01-01`:'合成测试'])),docType:'销售订单',approved:'Y',businessRemark:'订单头备注-'+order,sourceOrderId:id(order),sourceLineId:id(n),yearMonth:`${year}-01`,orderDate:`${year}-01-01`,deliveryDate:`${year}-02-01`,orderNo:'SYN-'+order,customerCode:customer,sequence:String(n),localNet:amount,localTax:'0',localGross:amount,scheduleCount:1,headerCloseCode:'0',hasSpecifiedCloseSchedule:false,headerModifiedAt:`${year}-01-01T00:00:00`,lineModifiedAt:`${year}-01-01T00:00:00`,scheduleModifiedAt:`${year}-01-01T00:00:00`});
 let batch=[line(1,101,'0.10'),line(1,102,'0.20'),line(2,103,'0','A140-2'),line(3,104,'5','MISSING'),line(4,105,'-1','MISSING',2026)],failAfter=-1;
 const reader={read:async(consume,options)=>{
  const coverage=[2025,2026].map(year=>{const rows=batch.filter(r=>r.yearMonth.startsWith(String(year)));return {year,orders:new Set(rows.map(r=>r.sourceOrderId)).size,lines:rows.length,localGross:rows.reduce((n,r)=>n.plus(r.localGross),new Decimal(0)).toString()};}).filter(r=>r.lines);
@@ -28,7 +28,11 @@ const reader={read:async(consume,options)=>{
 (async()=>{
  await control.connect();await control.query(`CREATE DATABASE ${name}`);db=new DataSource({type:'postgres',host,username:user,database:name,entities:[AuditLog],synchronize:true,logging:false});await db.initialize();
  await db.query('CREATE TABLE users(id uuid PRIMARY KEY)');await db.query('INSERT INTO users VALUES($1)',[actor.userId]);const runner=db.createQueryRunner();await new Customers().up(runner);await new Analytics().up(runner);await new DateConflicts().up(runner);await runner.release();
- const repo=new FinanceRepository(db);const tx=repo.transaction.bind(repo);repo.transaction=(...args)=>tx(...args).catch(e=>{console.error('Synthetic test database error: '+e.message);throw e;});const registry=new TableFilterRegistry(),queries=new FinanceOrdersQueryService(repo,registry);queries.onModuleInit();const app=new FinanceOrdersApplicationService(repo,reader);await app.onModuleInit();
+ const repo=new FinanceRepository(db);const tx=repo.transaction.bind(repo);repo.transaction=(...args)=>tx(...args).catch(e=>{console.error('Synthetic test database error: '+e.message);throw e;});const registry=new TableFilterRegistry(),queries=new FinanceOrdersQueryService(repo,registry);queries.onModuleInit();
+ // Historical migration scenarios below predate the added column; expose an empty
+ // new contract field until the final current-schema upgrade, without rewriting old migrations.
+ const legacyMonthly=registry.get('finance-e10-monthly');delete legacyMonthly.columns.businessRemark;legacyMonthly.expressions.businessRemark='NULL::text';
+ const app=new FinanceOrdersApplicationService(repo,reader);await app.onModuleInit();
  const tables=new TableFilterController(null,registry,null,db),exporter=new TablePrintService(registry,db);
  const list=(resource,q={},a=actor)=>tables.rows({resource,page:'1',pageSize:'100',...q},{user:{...a,sub:a.userId}});
  const run=async(input={},a=actor)=>{const r=await app.refresh(a,input);for(let i=0;i<2000;i++){const [s]=await db.query('SELECT * FROM finance_e10_runs WHERE id=$1',[r.id]);if(s.status!=='RUNNING')return s;await new Promise(ok=>setTimeout(ok,5));}throw Error('Timed out synthetic run');};
@@ -54,7 +58,7 @@ const reader={read:async(consume,options)=>{
    await new EarliestDate().up(runner);await new EarliestDate().up(runner);assert.equal((await list('finance-e10-monthly')).rows.find(r=>r.orderNo==='SYN-1').deliveryDate,'2025-02-01');
   }finally{await runner.release();}
  });
- await check('earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and nine-column export',async()=>{
+ await check('earliest dates ignore nulls, handle all-null/repeated dates and propagate through filters and current-contract export',async()=>{
   const original=batch.map(r=>({...r}));const before=await queries.dashboard({context:{year:2025}},actor);
   for(const dates of [[null,'2025-03-01'],['2025-03-01',null],[null,null],['2025-03-01','2025-03-01'],['2025-03-01','2025-02-01']]){
    batch=batch.map(r=>r.sourceOrderId===id(1)?{...r,deliveryDate:dates[r.sourceLineId===id(101)?0:1]}:r);assert.equal((await run()).status,'SUCCESS');
@@ -79,7 +83,7 @@ const reader={read:async(consume,options)=>{
  await check('field hiding and standard filters apply on list and export',async()=>{const resource='finance-e10-lines',viewer={...actor,permissions:[`${resource}:*:read`,`${resource}:*:export`,`${resource}:customerCode:read`],tableDataScopes:[{resource,scope:'ALL',actions:['read','export']}]};const r=await list(resource,{},viewer);assert.equal(r.rows[0].localGross,undefined);await assert.rejects(list(resource,{filterGroup:JSON.stringify({logic:'AND',rules:[{field:'localGross',operator:'gt',value:1}]})},viewer));const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},viewer));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),['客户编号']);assert.equal(book.worksheets[0].rowCount,7);});
  await check('monetary custom authorization compares numeric values, not text',async()=>{const r='finance-e10-lines',limited={...actor,permissions:[`${r}:*:read`,...financeOrderFields.map(f=>`${r}:${f.key}:read`)],tableDataScopes:[{resource:r,scope:'CUSTOM',rules:[{fieldKey:'localGross',operator:'GT',value:'2'}]}]};const result=await list(r,{},limited);assert(result.rows.every(row=>new Decimal(row.localGross).gt(2)));assert(!result.rows.some(row=>row.localGross==='0.20'));});
  await check('no read/write/export bypass and no hidden dashboard money leakage',async()=>{const no={...actor,permissions:[]};await assert.rejects(list('finance-e10-lines',{},no));await assert.rejects(app.refresh(no));await assert.rejects(exporter.exportXlsx('finance-e10-lines',{},no));await assert.rejects(queries.dashboard({context:{year:2025}},{...actor,permissions:['finance-e10-dashboard:*:read']}));});
- await check('full Chinese 34 and nine headers export through platform',async()=>{for(const [resource,fields] of [['finance-e10-lines',financeOrderFields],['finance-e10-monthly',financeMonthlyFields]]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},actor));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),fields.map(f=>f.label));}});
+ await check('full Chinese 34 and ten headers export through platform',async()=>{for(const [resource,fields] of [['finance-e10-lines',financeOrderFields],['finance-e10-monthly',financeMonthlyFields]]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},actor));assert.deepEqual(book.worksheets[0].getRow(1).values.slice(1),fields.map(f=>f.label));}});
  await check('customer annual ranking is paged, filtered by aggregate and export matches',async()=>{const result=await queries.ranking({year:2026},actor);assert.equal(result.total,1);assert.equal(result.rows[0].orderTotal,'-1.00');const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx('finance-e10-ranking',{context:{year:2026}},actor));assert.equal(book.worksheets[0].rowCount,2);assert.equal(book.worksheets[0].getRow(1).getCell(2).value,'年累计本币总金额');});
  await check('ordinary dashboard division scope and customer ranking export intersect without changing administrator totals',async()=>{
   const resource='finance-e10-ranking',scoped={...actor,permissions:['finance-e10-dashboard:*:read',...financeMonthlyFields.map(f=>`finance-e10-dashboard:${f.key}:read`),`${resource}:*:read`,`${resource}:*:export`,...financeRankingFields.map(f=>`${resource}:${f.key}:read`)],tableDataScopes:[{resource:'finance-e10-dashboard',scope:'CUSTOM',rules:[{fieldKey:'departmentCategory',operator:'EQ',value:'业务四部'}]},{resource,scope:'CUSTOM',actions:['read'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'A140'}]},{resource,scope:'CUSTOM',actions:['export'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'MISSING'}]}]};
@@ -182,5 +186,85 @@ const reader={read:async(consume,options)=>{
   }finally{batch=original;await run();await runner.release();}
  });
  await check('parallel refresh rejects overlap and failed source never publishes partial pages',async()=>{failAfter=1;const saved=reader.read;let release;const gate=new Promise(ok=>{release=ok;});reader.read=async(...args)=>{await gate;return saved(...args);};try{await app.refresh(actor);await assert.rejects(app.refresh(actor));}finally{release();}for(let i=0;i<500;i++){if(!(await db.query("SELECT 1 FROM finance_e10_runs WHERE status='RUNNING'")).length)break;await new Promise(r=>setTimeout(r,5));}reader.read=saved;failAfter=-1;});
+ // Current business correction: all following records and events are synthetic.
+ const correctionsRunner=db.createQueryRunner();
+ for(const file of ['1722920097000-FinanceE10Movements','1722920098000-FinanceE10MovementJoin']){
+  const migration=req('./dist/migrations/'+file);await new (Object.values(migration)[0])().up(correctionsRunner);
+ }
+ const sample=(order,n,total,patch={})=>({...line(order,n,total,'CORRECT'),...patch});
+ batch=[sample(9001,9101,'100'),sample(9001,9102,'20'),
+  sample(9002,9103,'10',{docType:'材料销售单'}),sample(9003,9104,'30',{approved:'N'}),
+  sample(9004,9105,'5',{docType:'材料销售单',approved:'N'}),sample(9005,9106,'40',{approved:null}),
+  sample(9006,9107,'50',{approved:'V'}),sample(9007,9108,'60',{headerCloseCode:'2',closeCode:'2'}),
+  sample(9008,9109,'70',{headerCloseCode:'1'}),sample(9009,9110,'80',{hasSpecifiedCloseSchedule:true,closeCode:'1'}),
+  sample(9009,9111,'90')];
+ await run();
+ for(const [order,lineId,delta]of [[9001,9101,'-20'],[9002,9103,'-5'],[9003,9104,'10']])await db.query(`INSERT INTO finance_e10_change_events(tenant_id,source_database,event_key,source_order_id,source_line_id,order_no,order_date,customer_code,effective_at,source_time,year_month,change_kind,time_basis,amount_before,amount_after,change_amount,included,evidence,payload,content_hash,created_by,updated_by)
+ VALUES($1,'SYNTHETIC-E10',$2,$3,$4,$5,'2025-01-01','CORRECT','2025-02-01T10:00:00+08:00','2025-02-01T10:00:00','2025-02','REVISION','APPROVAL',100,100+$6::numeric,$6::numeric,true,'{}','{}',$2,$7,$7)`,[actor.tenantId,'SYN-EVENT-'+order,id(order),id(lineId),'SYN-'+order,delta,actor.userId]);
+ const retainedLines=await db.query('SELECT * FROM finance_e10_lines ORDER BY id');
+ const retainedEvents=await db.query('SELECT * FROM finance_e10_change_events ORDER BY id');
+ const {FinanceE10BusinessEligibility1722920099000:BusinessEligibility}=req('./dist/migrations/1722920099000-FinanceE10BusinessEligibility');
+ await check('eligibility migration preserves every raw item and posted source event without fabricated reversals',async()=>{
+  await new BusinessEligibility().up(correctionsRunner);queries.onModuleInit();
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),retainedLines);
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_change_events ORDER BY id'),retainedEvents);
+ });
+ await correctionsRunner.release();
+ const correctFilter={logic:'AND',rules:[{field:'customerCode',operator:'eq',value:'CORRECT'}]};
+ const correctRows=()=>list('finance-e10-monthly',{filterGroup:JSON.stringify(correctFilter)});
+ await check('material and non-Y approval exclusions overlap only once while normal finished orders survive',async()=>{
+  const rows=(await correctRows()).rows;assert.deepEqual(Object.fromEntries(rows.map(r=>[r.orderNo,r.orderTotal])),{'SYN-9001':'120.00','SYN-9007':'60.00','SYN-9009':'90.00'});
+  assert.equal((await list('finance-e10-lines',{filterGroup:JSON.stringify(correctFilter)})).total,11);
+ });
+ await check('new monthly remark is the single header value, not concatenated or repeated per item',async()=>{
+  const rows=(await correctRows()).rows;assert.equal(rows.find(r=>r.orderNo==='SYN-9001').businessRemark,'订单头备注-9001');
+  assert.equal(financeMonthlyFields.at(-1).key,'businessRemark');assert.equal(financeMonthlyFields.length,10);
+  for(const resource of ['finance-e10-monthly','finance-e10-lines']){
+   const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{filterGroup:correctFilter},actor));const sheet=book.worksheets[0];
+   assert.equal(sheet.getRow(1).values.filter(v=>v==='备注-业务').length,1);
+   const col=sheet.getRow(1).values.indexOf('备注-业务');assert.equal(col,resource==='finance-e10-monthly'?10:16);
+   assert(sheet.getColumn(col).values.includes('订单头备注-9001'));
+  }
+ });
+ await check('monthly dashboard ranking and occurrence legs reconcile under shared eligibility',async()=>{
+  const d=await queries.dashboard({context:{year:2025,customerCode:'CORRECT'}},actor);assert.equal(d.totals.amount,'270.00');
+  for(const group of [d.channels,d.departments,d.months,d.matrix])assert(group.reduce((n,r)=>n.plus(r.amount),new Decimal(0)).equals('270'));
+  assert.equal((await queries.ranking({year:2025,customerCode:'CORRECT'},actor)).rows[0].orderTotal,'270.00');
+  const legs=await db.query("SELECT sum(order_total)::text amount FROM finance_e10_movement_source WHERE tenant_id=$1 AND customer_code='CORRECT'",[actor.tenantId]);assert(new Decimal(legs[0].amount).equals(270));
+  const events=await db.query("SELECT included,change_amount,raw_change FROM finance_e10_changes WHERE tenant_id=$1 ORDER BY order_no",[actor.tenantId]);
+  assert.equal(events.filter(r=>r.included).length,1);assert.equal(events.filter(r=>r.included)[0].change_amount,'-20');
+  assert(events.filter(r=>!r.included).every(r=>r.change_amount===null));
+ });
+ await check('approval and material type changes refresh balances and effective events without rewriting source postings',async()=>{
+  batch=batch.map(r=>r.sourceOrderId===id(9003)?{...r,approved:'Y'}:r);assert.equal((await run({mode:'INCREMENTAL'})).status,'SUCCESS');
+  assert.equal((await correctRows()).total,4);assert.equal((await queries.dashboard({context:{year:2025,customerCode:'CORRECT'}},actor)).totals.amount,'300.00');
+  assert.equal((await db.query("SELECT included FROM finance_e10_changes WHERE event_key='SYN-EVENT-9003'"))[0].included,true);
+  batch=batch.map(r=>r.sourceOrderId===id(9003)?{...r,approved:null}:r);await run({mode:'INCREMENTAL'});assert.equal((await correctRows()).total,3);
+  batch=batch.map(r=>r.sourceOrderId===id(9002)?{...r,docType:'销售订单'}:r);await run({mode:'INCREMENTAL'});assert.equal((await correctRows()).total,4);
+  batch=batch.map(r=>r.sourceOrderId===id(9002)?{...r,docType:'材料销售单'}:r);await run({mode:'INCREMENTAL'});assert.equal((await correctRows()).total,3);
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_change_events ORDER BY id'),retainedEvents);
+ });
+ await check('default date order remains stable across server pages and full Excel with explicit sort override',async()=>{
+  batch.push(...Array.from({length:110},(_,n)=>sample(10000+n,11000+n,'1',{orderDate:n%2?'2025-02-02':'2025-01-01',yearMonth:n%2?'2025-02':'2025-01',businessRemark:'排序备注-'+n})));
+  await run({mode:'INCREMENTAL'});
+  for(const resource of ['finance-e10-lines','finance-e10-monthly']){
+   const pages=[];for(let page=1;page<=3;page++)pages.push(...(await list(resource,{filterGroup:JSON.stringify(correctFilter),page:String(page),pageSize:'50'})).rows);
+   assert.equal(pages.length,new Set(pages.map(r=>r.id)).size);
+   const expected=await db.query(`SELECT id FROM ${resource==='finance-e10-lines'?'finance_e10_raw':'finance_e10_monthly'} WHERE tenant_id=$1 AND customer_code='CORRECT' ORDER BY order_date,source_database,source_order_id,${resource==='finance-e10-lines'?'source_line_id,':''}id`,[actor.tenantId]);
+   assert.deepEqual(pages.map(r=>r.id),expected.map(r=>r.id));
+   const descending=(await list(resource,{filterGroup:JSON.stringify(correctFilter),sortField:'orderDate',sortOrder:'desc'})).rows;
+   assert.equal(descending[0].orderDate,'2025-02-02');
+   const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{filterGroup:correctFilter},actor));const sheet=book.worksheets[0],dateColumn=sheet.getRow(1).values.indexOf('订单日期');
+   assert.deepEqual(sheet.getColumn(dateColumn).values.slice(2),pages.map(r=>r.orderDate));
+  }
+ });
+ await check('remark field authorization and tenant isolation remain enforced after migration',async()=>{
+  const resource='finance-e10-monthly',viewer={...actor,permissions:[`${resource}:*:read`,`${resource}:*:export`,`${resource}:customerCode:read`],tableDataScopes:[{resource,scope:'ALL'}]};
+  assert.equal((await list(resource,{},viewer)).rows[0].businessRemark,undefined);
+  await assert.rejects(list(resource,{sortField:'businessRemark'},viewer));
+  const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx(resource,{},viewer));assert(!book.worksheets[0].getRow(1).values.includes('备注-业务'));
+  await db.query('GRANT SELECT ON ALL TABLES IN SCHEMA public TO finance_analytics_reader');
+  const q=db.createQueryRunner();await q.startTransaction();try{await q.query('SET LOCAL ROLE finance_analytics_reader');await q.query("SELECT set_config('app.tenant_id','OTHER',true)");assert.equal((await q.query("SELECT count(*)::int n FROM finance_e10_monthly WHERE customer_code='CORRECT'"))[0].n,0);}finally{await q.rollbackTransaction();await q.release();}
+ });
  fs.writeFileSync(path.join(root,'outputs/FINANCE_ORDER_POSTGRES_VALIDATION.json'),JSON.stringify({status:'PASS',scenarios:checks.length,checks,productionModified:false},null,2));console.log('Finance analytics PostgreSQL PASS: '+checks.length+' scenarios');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(db?.isInitialized)await db.destroy();if(control._connected){await control.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);await control.query('DROP ROLE IF EXISTS finance_analytics_reader');await control.end();}});

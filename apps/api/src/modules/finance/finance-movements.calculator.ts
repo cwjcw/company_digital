@@ -1,4 +1,5 @@
 import DecimalBase from 'decimal.js';
+import { financeFactEligibility } from './finance-order-eligibility';
 const Decimal=DecimalBase.clone({precision:40});
 export type MovementFact=Record<string,any>;
 export type MovementEvent=Record<string,any>&{eventKey:string;orderId:string;lineId:string|null;sourceTime:string;included:boolean;changeAmount:string|null};
@@ -6,7 +7,7 @@ const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const zero='00000000-0000-0000-0000-000000000000';
 export function sourceTime(v:unknown):v is string{return typeof v==='string'&&/^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,7})?$/.test(v)&&Number.isFinite(Date.parse(v+'+08:00'));}
 export function exact(v:unknown):string|null{try{if(v===null||v===undefined||v==='')return null;const n=new Decimal(String(v));return n.isFinite()?n.toString():null;}catch{return null;}}
-export function effective(f:MovementFact):string|null{const n=exact(f.gross);return n===null?null:f.headerClose==='1'||f.closedSchedule===true?'0':n;}
+export function effective(f:MovementFact):string|null{const n=exact(f.gross),eligible=financeFactEligibility(f);return n===null||eligible===null?null:!eligible||f.headerClose==='1'||f.closedSchedule===true?'0':n;}
 function identity(f:MovementFact){return guid.test(f.orderId)&&guid.test(f.lineId)&&f.lineId!==zero&&typeof f.orderNo==='string'&&f.orderNo&&typeof f.customerCode==='string'&&f.customerCode&&/^20\d\d-\d\d-\d\d/.test(f.orderDate);}
 function envelope(f:MovementFact,time:string):MovementEvent{return {eventKey:'',orderId:f.orderId,lineId:f.lineId??null,orderNo:f.orderNo,orderDate:f.orderDate.slice(0,10),customerCode:f.customerCode,itemCode:f.itemCode??null,changeNo:null,sourceTime:time,changeKind:'REVISION',timeBasis:'APPROVAL',amountBefore:null,amountAfter:null,changeAmount:null,rawChange:null,included:false,evidence:{}};}
 /** Pure calculation. Missing historical actions are never fabricated or investigated here. */
@@ -18,7 +19,7 @@ export function calculateMovements(changes:MovementFact[],logs:MovementFact[],st
   const e=envelope(f,f.approvalTime);Object.assign(e,{eventKey:`SO:${f.sourceKey}:${f.approvalTime}`,documentId:f.documentId,changeNo:`${f.orderNo} / ${f.changeVersion}`,changeKind:({1:'REVISION',2:'ADD',3:'CLOSE',4:'REOPEN'} as Record<string,string>)[f.changeType]??'REVISION',rawChange:new Decimal(next).minus(old).toString(),evidence:{sourceKey:f.sourceKey,originalHeaderClose:f.originalHeaderClose,originalClosedSchedule:f.originalClosedSchedule,changeType:f.changeType,approvalStatus:f.approvalStatus,fullClose:f.fullClose}});
   const valid=['1','2','3','4'].includes(f.changeType)&&Number(f.planCount)>0&&!f.invalidPlans&&!f.typeMismatch&&['0','1','2'].includes(f.originalHeaderClose);
   // A whole-document close cannot be derived from a partial changed-item set.
-  if(valid&&!f.fullClose){
+  if(valid&&!f.fullClose&&financeFactEligibility(f)===true){
    const beforeClosed=f.originalHeaderClose==='1'||Boolean(f.originalClosedSchedule);const before=f.changeType==='2'?'0':beforeClosed?'0':old;
    const afterClosed=f.originalHeaderClose==='1'||(f.changeType==='3'||f.changeType!=='2'&&f.changeType!=='4'&&beforeClosed);const after=afterClosed?'0':next;
    Object.assign(e,{amountBefore:before,amountAfter:after,changeAmount:new Decimal(after).minus(before).toString(),included:true});

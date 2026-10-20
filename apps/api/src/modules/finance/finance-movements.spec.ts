@@ -1,9 +1,32 @@
 import { calculateMovements,effective,sourceTime } from './finance-movements.calculator';
 import { orderAuthorize,orderScope } from './finance-orders.types';
 const id=(n:number)=>`0199e000-0000-7000-8000-${String(n).padStart(12,'0')}`;
-const fact=(patch:Record<string,any>={})=>({sourceKey:id(1),documentId:id(2),orderId:id(3),lineId:id(4),orderNo:'SYN-ORDER',orderDate:'2025-01-01T00:00:00',customerCode:'SYN-CUST',itemCode:'SYN-ITEM',approvalStatus:'Y',approvalTime:'2025-02-01T10:00:00.1234567',changeVersion:'01',changeType:'1',originalHeaderClose:'0',originalClosedSchedule:0,planCount:1,invalidPlans:0,typeMismatch:0,fullClose:false,grossBefore:'100',grossAfter:'80',...patch});
+const fact=(patch:Record<string,any>={})=>({docType:'销售订单',headerApproved:'Y',sourceKey:id(1),documentId:id(2),orderId:id(3),lineId:id(4),orderNo:'SYN-ORDER',orderDate:'2025-01-01T00:00:00',customerCode:'SYN-CUST',itemCode:'SYN-ITEM',approvalStatus:'Y',approvalTime:'2025-02-01T10:00:00.1234567',changeVersion:'01',changeType:'1',originalHeaderClose:'0',originalClosedSchedule:0,planCount:1,invalidPlans:0,typeMismatch:0,fullClose:false,grossBefore:'100',grossAfter:'80',...patch});
 const state=(patch:Record<string,any>={})=>({...fact(),gross:'100',headerClose:'0',closedSchedule:false,...patch});
 describe('Finance amount movement correctness (no history completeness gate)',()=>{
+ it.each(['N','V','',null])('keeps an unapproved header %s out of current and new event effective amounts',headerApproved=>{
+  expect(effective(state({headerApproved}))).toBe('0');
+  const [event]=calculateMovements([fact({headerApproved})],[],[]);
+  expect(event.included).toBe(false);expect(event.changeAmount).toBeNull();expect(event.rawChange).toBe('-20');
+ });
+ it('retains material sale source evidence without creating a reversal',()=>{
+  expect(effective(state({docType:'材料销售单'}))).toBe('0');
+  const [event]=calculateMovements([fact({docType:'材料销售单'})],[],[]);
+  expect(event.included).toBe(false);expect(event.rawChange).toBe('-20');expect(event.changeAmount).toBeNull();
+ });
+ it('does not reinterpret old snapshots missing header eligibility as a zero balance',()=>{
+  const old=state({_observedAt:'2025-02-05T09:00:00'});delete (old as any).headerApproved;
+  expect(effective(old)).toBeNull();
+  expect(calculateMovements([],[],[state({gross:'80'})],[old],[],'2025-02-05T10:00:00',id(30))).toEqual([]);
+ });
+ it.each([['N','Y','100'],['Y','N','-100']])('observes an evidenced approval transition %s to %s once', (before,after,delta)=>{
+  const [event]=calculateMovements([],[],[state({headerApproved:after})],[state({headerApproved:before,_observedAt:'2025-02-05T09:00:00'})],[],'2025-02-05T10:00:00',id(30));
+  expect(event.changeAmount).toBe(delta);expect(event.changeKind).toBe('OBSERVED');
+ });
+ it('does not double reduce an approval removal combined with specified closure and repricing',()=>{
+  const [event]=calculateMovements([],[],[state({headerApproved:'N',headerClose:'1',closedSchedule:true,gross:'80'})],[state({_observedAt:'2025-02-05T09:00:00'})],[],'2025-02-05T10:00:00',id(30));
+  expect(event.changeAmount).toBe('-100');expect(event.amountAfter).toBe('0');
+ });
  it.each(['0','2',null])('keeps normal and NULL current header %s',headerClose=>expect(effective(state({headerClose}))).toBe('100'));
  it('excludes header specified closure and mixed schedule closure',()=>{expect(effective(state({headerClose:'1'}))).toBe('0');expect(effective(state({closedSchedule:true}))).toBe('0');});
  it('uses exact before and after values and includes zero and negative deltas',()=>{const [e]=calculateMovements([fact({grossBefore:'0.1',grossAfter:'0.3'})],[],[]);expect(e.changeAmount).toBe('0.2');expect(e.amountBefore).toBe('0.1');expect(calculateMovements([fact({grossAfter:'100'})],[],[])[0].changeAmount).toBe('0');});

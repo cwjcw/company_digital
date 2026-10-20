@@ -21,6 +21,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    authorize:a=>orderAuthorize(a,r),buildScope:(a,p,action)=>r==='finance-e10-ranking'?'1=0':orderScope(a,r,p,action),
    buildContext:(c)=>{if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return '1=1';},
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
+   ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:[]),'id']}}:{}),
    ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
    runQuery:(sql,p)=>this.repository.query(sql,p),searchColumns:r==='finance-e10-ranking'?['customerCode']:['customerCode','orderNo']});
  }}
@@ -28,7 +29,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const resource='finance-e10-ranking';orderAuthorize(a,resource);
   if(!['customerCode','orderTotal'].every(f=>orderField(a,resource,f)))throw new ForbiddenException('客户排名需要客户和金额读取权限');
   orderAuthorize(a,'finance-e10-dashboard');
-  if(financeMonthlyFields.some(f=>!orderField(a,'finance-e10-dashboard',f.key)))throw new ForbiddenException('客户排名筛选需要大屏字段权限');
+  if(financeMonthlyFields.filter(f=>f.key!=='businessRemark').some(f=>!orderField(a,'finance-e10-dashboard',f.key)))throw new ForbiddenException('客户排名筛选需要大屏字段权限');
   const limit=Number(context.rankLimit??0);if(![0,10,20].includes(limit))throw new ForbiddenException('排名显示范围无效');
   const businessContext={...context};delete businessContext.rankLimit;
   if(context.salesperson&&!orderField(a,'finance-e10-dashboard','salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
@@ -65,7 +66,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const accessRevision=createHash('sha256').update(JSON.stringify({tenant:a.tenantId,user:a.userId??null,admin:financeAdmin(a),
    permissions:a.permissions.filter(p=>p==='*'||resources.some(r=>p.startsWith(r+':'))).sort(),
    scopes:(a.tableDataScopes??[]).filter(s=>resources.includes(s.resource)).map(s=>JSON.stringify(canonical(s))).sort()})).digest('hex');
-  return {revision:createHash('sha256').update(result.revision+':'+accessRevision).digest('hex'),accessRevision};
+  return {revision:createHash('sha256').update(result.revision+':finance-eligibility-v2:'+accessRevision).digest('hex'),accessRevision};
  }
  async runs(a:TableFilterActor){orderAuthorize(a,'finance-e10-lines');
   const inspect=financeAdmin(a);
@@ -78,12 +79,12 @@ export class FinanceOrdersQueryService implements OnModuleInit {
  async dashboard(input:Record<string,unknown>,a:TableFilterActor){
   const resource='finance-e10-dashboard';orderAuthorize(a,resource);
   // Aggregates must not reveal hidden amounts, classifications or customer identifiers.
-  if(financeMonthlyFields.some(f=>!orderField(a,resource,f.key)))throw new ForbiddenException('统计大屏需要完整报表字段读取权限');
+  if(financeMonthlyFields.filter(f=>f.key!=='businessRemark').some(f=>!orderField(a,resource,f.key)))throw new ForbiddenException('统计大屏需要完整报表字段读取权限');
   const p:unknown[]=[a.tenantId];const context=input.context&&typeof input.context==='object'?input.context as Record<string,unknown>:{};
   if(context.salesperson&&!orderField(a,resource,'salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
   const where=[`record.tenant_id=$1`,orderScope(a,resource,p),orderContext(context,p,resource)];
   if(!context.year)throw new ForbiddenException('统计大屏必须选择年度');
-  if(input.filterGroup)where.push(new SqlFilterCompiler(financeMonthlyFields,orderColumns(resource),()=>true,c=>`record.${c}`).compile(input.filterGroup,p));
+  if(input.filterGroup)where.push(new SqlFilterCompiler(financeMonthlyFields,orderColumns(resource),key=>orderField(a,resource,key),c=>`record.${c}`).compile(input.filterGroup,p));
   return this.repository.transaction(a.tenantId,async m=>{
    // The derived-order cardinality is underestimated: a partial-key merge replays
    // the order aggregate for every item. Keep the full-key hash plan local to this
@@ -91,7 +92,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    await m.query('SET LOCAL enable_mergejoin = off');
    await m.query('SET LOCAL enable_nestloop = off');
    // One statement/materialized source keeps all financial dimensions on the same database snapshot.
-   const cte=`WITH selected AS MATERIALIZED(SELECT record.* FROM finance_e10_monthly record WHERE ${where.join(' AND ')})`;
+   const cte=`WITH selected AS MATERIALIZED(SELECT record.customer_code,record.order_total,record.department_category,record.sales_channel,record.year_month,record.delivery_date_conflict FROM finance_e10_monthly record WHERE ${where.join(' AND ')})`;
    const [result]=await m.query(`${cte} SELECT
    (SELECT row_to_json(t) FROM(SELECT count(*)::integer orders,COALESCE(sum(order_total),0)::text amount,count(DISTINCT customer_code)::integer customers,
     count(*) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingOrders",

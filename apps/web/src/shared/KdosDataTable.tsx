@@ -103,6 +103,20 @@ function legacyPreferenceStorageKey(prefix: string, userKey: string, resource: s
   return `${prefix}:${userKey}:${view}`;
 }
 
+/** One-time business column addition, preserving the rest of the user's saved view. */
+export function ensureTableFieldVisibleOnce(resource: string, field: string, revision: string) {
+  const { tenantKey, userKey } = sessionPreferenceScope();
+  const marker = preferenceStorageKey('kdos-form-view-upgrade', tenantKey, userKey, resource, revision);
+  try {
+    if (localStorage.getItem(marker)) return;
+    const key = preferenceStorageKey('kdos-form-view', tenantKey, userKey, resource);
+    const legacy = legacyPreferenceStorageKey('kdos-form-view', userKey, resource);
+    const saved = JSON.parse(localStorage.getItem(key) ?? localStorage.getItem(legacy) ?? 'null');
+    if (Array.isArray(saved) && saved.length && !saved.includes(field)) localStorage.setItem(key, JSON.stringify([...saved, field]));
+    localStorage.setItem(marker, '1');
+  } catch { /* Unavailable or malformed preferences must not block the business table. */ }
+}
+
 function readColumnWidths(storageKey: string): Record<string, number> {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as unknown;

@@ -8,7 +8,7 @@ import {
   type TablePermissionFieldDefinition, type TableResourceCode
 } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../filtering/sql-filter.compiler";
-import { TableFilterRegistry, recordKeyOf, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
+import { TableFilterRegistry, recordKeyOf, registeredOrderBy, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
 import type { TablePrintColumn, TablePrintDto, TablePrintHeaderGroup, TablePrintManifest, TablePrintOrientation } from "./print.contract";
 import { AuditActorIdentityResolver } from "../audit/audit-actor-identity.resolver";
 
@@ -447,9 +447,9 @@ export class TablePrintService {
     ];
     const sortColumn = query.sortField ? (source.sortAliases?.[String(query.sortField)]?.expression ?? (source.columns[String(query.sortField)] ? `record.${source.columns[String(query.sortField)]}` : source.expressions?.[String(query.sortField)])) : undefined;
     const keyColumn = source.columns[recordKeyOf(source).field];
-    const orderBy = sortColumn
+    const orderBy = registeredOrderBy(source, sortColumn, query.sortOrder, key => this.canReadField(query.actor, source.code, key)) ?? (sortColumn
       ? `${sortColumn} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`
-      : keyColumn ? `record.${keyColumn}` : "record.ctid";
+      : keyColumn ? `record.${keyColumn}` : "record.ctid");
     const run = source.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
     const [{ count }] = await run(`SELECT count(*)::integer count FROM ${source.table} record WHERE ${where}`, params) as Array<{ count: number }>;
     const paged = [...params, query.pageSize, (query.page - 1) * query.pageSize];
