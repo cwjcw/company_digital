@@ -23,4 +23,17 @@ describe('finance business eligibility and stable default ordering',()=>{
   expect(sql).toContain('qualification.business_remark');expect(sql).toContain('e.included AND coalesce(q.eligible,false) AS included');
   expect(sql).not.toMatch(/\b(UPDATE|INSERT|DELETE|DROP|ALTER TABLE)\b/);
  });
+ it('uses the tenant-local hash path for annual monthly rows, candidates and Excel without changing their SQL or scope',async()=>{
+  const query=jest.fn().mockResolvedValue([{id:'SYN'}]),manager={query};
+  const repository={query:jest.fn(),transaction:jest.fn(async(_tenant,run)=>run(manager))};
+  const registry=new TableFilterRegistry();new FinanceOrdersQueryService(repository as never,registry).onModuleInit();
+  const sql="SELECT id FROM finance_e10_monthly record WHERE tenant_id=$1 AND year_month LIKE $2 ORDER BY order_date,source_order_id,id LIMIT $3";
+  const params=['TENANT-A','2026%',50];
+  expect(await registry.get('finance-e10-monthly').runQuery!(sql,params)).toEqual([{id:'SYN'}]);
+  expect(repository.transaction).toHaveBeenCalledWith('TENANT-A',expect.any(Function));
+  expect(query.mock.calls).toEqual([['SET LOCAL enable_mergejoin = off'],['SET LOCAL enable_nestloop = off'],[sql,params]]);
+  expect(repository.query).not.toHaveBeenCalled();
+  await registry.get('finance-e10-lines').runQuery!('SELECT id FROM finance_e10_raw WHERE tenant_id=$1',['TENANT-A']);
+  expect(repository.query).toHaveBeenCalledWith('SELECT id FROM finance_e10_raw WHERE tenant_id=$1',['TENANT-A']);
+ });
 });

@@ -23,7 +23,14 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
    ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:[]),'id']}}:{}),
    ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
-   runQuery:(sql,p)=>this.repository.query(sql,p),searchColumns:r==='finance-e10-ranking'?['customerCode']:['customerCode','orderNo']});
+   runQuery:(sql,p)=>r==='finance-e10-monthly'?this.repository.transaction(String(p[0]),async m=>{
+    // Annual filters plus stable date ordering can select the same underestimated
+    // derived-order join as the dashboard. Cover rows, candidates and Excel via
+    // the registered executor; settings remain local to the tenant transaction.
+    await m.query('SET LOCAL enable_mergejoin = off');
+    await m.query('SET LOCAL enable_nestloop = off');
+    return m.query(sql,p);
+   }):this.repository.query(sql,p),searchColumns:r==='finance-e10-ranking'?['customerCode']:['customerCode','orderNo']});
  }}
  async ranking(context:Record<string,unknown>,a:TableFilterActor,q?:Partial<TablePrintRowQuery>){
   const resource='finance-e10-ranking';orderAuthorize(a,resource);
