@@ -44,7 +44,7 @@
         220
       ],
       "parameters": {
-        "authentication": "privateKey",
+        "authentication": "password",
         "resource": "command",
         "command": "/data/automation/code/work/PMC/knweb/data-operations/e10/push-finance-monthly-summary.sh"
       },

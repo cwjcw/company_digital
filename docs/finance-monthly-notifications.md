@@ -10,7 +10,7 @@
 
 仅使用现有企业微信工作通知Dispatcher和默认自建应用；不会自动回退群机器人。消息按tenant+规则+上海业务日去重；主机flock及数据库事务advisory lock防并发，入队和业务查询在同一事务，投递失败继续由原消息中心的重试/日志处理。每天重复触发/手工补跑不会重复入队；08:30以前不提前发送。财务规则可以独立停用。已入队的投递失败使用消息中心重试，不能通过换去重键重发。
 
-工作流模板为 `automation/finance_monthly_summary/workflow.template.json`，只包含非敏感任务定义；导入时选择现有KDOS主机SSH凭据。模板默认未激活，生产激活状态以台账和实际核验为准。新自动入口只有这个n8n工作流，不新增Timer、cron或应用定时器，不调整既有任务。
+工作流模板为 `automation/finance_monthly_summary/workflow.template.json`，只包含非敏感任务定义；导入时选择现有KDOS主机SSH凭据，并让节点认证类型与凭据类型一致；本机沿用sshPassword，模板默认password，不包含密码。模板默认未激活，生产激活状态以台账和实际核验为准。新自动入口只有这个n8n工作流，不新增Timer、cron或应用定时器，不调整既有任务。
 
 上线前完成两库/uploads备份、n8n一致性备份、合成PG回归和完整迁移重放，再执行标准迁移/部署/健康检查。初始化命令：`data-operations/e10/push-finance-monthly-summary.sh --initialize`；当日补跑：同脚本不传参数。CLI仅输出状态/入队计数，不输出财务内容或凭据。用户选择接收人前只验证停用路径，不能声称真实企业微信已送达。
 
