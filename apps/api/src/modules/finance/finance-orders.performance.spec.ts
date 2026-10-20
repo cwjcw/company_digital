@@ -25,13 +25,13 @@ describe('Finance dashboard performance without changing authorization or amount
  it('limits the planner adjustment to the existing tenant transaction',async()=>{
   const manager={query:jest.fn().mockImplementation(async(sql:string)=>sql.startsWith('SET LOCAL')?[]:[{totals:{orders:0,customers:0,amount:'0'},groups:[],months:[],matrix:[],quality:null}])};
   const transaction=jest.fn(async(_t,fn)=>fn(manager));const s=new FinanceOrdersQueryService({transaction} as any,{} as any);const result=await s.dashboard({context:{year:2026}},actor);
-  expect(transaction).toHaveBeenCalledWith('SYN-T',expect.any(Function));expect(manager.query.mock.calls[0][0]).toBe('SET LOCAL enable_mergejoin = off');expect(manager.query.mock.calls[1][0]).toContain('FROM finance_e10_monthly');expect(result.months).toHaveLength(12);expect(result.totals.amount).toBe('0');
+  expect(transaction).toHaveBeenCalledWith('SYN-T',expect.any(Function));expect(manager.query.mock.calls[0][0]).toBe('SET LOCAL enable_mergejoin = off');expect(manager.query.mock.calls[1][0]).toBe('SET LOCAL enable_nestloop = off');expect(manager.query.mock.calls[2][0]).toContain('FROM finance_e10_monthly');expect(result.months).toHaveLength(12);expect(result.totals.amount).toBe('0');
  });
  it('lets the dashboard skip unused administrator diagnostics while keeping the default response and amount query',async()=>{
   const calls:string[]=[];const manager={query:async(sql:string)=>{calls.push(sql);return sql.startsWith('SET LOCAL')?[]:[{totals:{orders:0,customers:0,amount:'0'},groups:[],months:[],matrix:[],quality:null}]}};
   const s=new FinanceOrdersQueryService({transaction:async(_t:string,fn:any)=>fn(manager)} as any,{} as any);
-  await s.dashboard({context:{year:2026},includeQuality:false},actor);expect(calls[1]).toContain('FROM finance_e10_monthly');expect(calls[1]).not.toContain('"excludedOrders"');
-  await s.dashboard({context:{year:2026}},actor);expect(calls[3]).toContain('"excludedOrders"');
+  await s.dashboard({context:{year:2026},includeQuality:false},actor);expect(calls[2]).toContain('FROM finance_e10_monthly');expect(calls[2]).not.toContain('"excludedOrders"');
+  await s.dashboard({context:{year:2026}},actor);expect(calls[5]).toContain('"excludedOrders"');
  });
  it('returns only a tenant-local freshness hash and denies callers without dashboard read',async()=>{
   const query=jest.fn().mockResolvedValue([{revision:'synthetic-revision'}]);const s=new FinanceOrdersQueryService({query} as any,{} as any);expect(await s.revision(actor)).toEqual({revision:'synthetic-revision'});const [sql,p]=query.mock.calls[0];expect(p).toEqual(['SYN-T']);expect(sql.match(/tenant_id=\$1/g)).toHaveLength(2);expect(sql).toContain("status='SUCCESS'");expect(sql).toContain('version::text');expect(sql).toContain('updated_at::text');

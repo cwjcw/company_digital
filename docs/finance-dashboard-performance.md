@@ -6,7 +6,7 @@
 
 客户排名先执行原大屏来源read scope、上下文和客户搜索，再按客户汇总，最后应用排名read scope及金额高级筛选。一次SQL以MATERIALIZED CTE复用分组结果，同时返回total和服务端排序/分页rows，避免count和rows各自重做完整聚合并跨数据库快照。导出额外执行排名export授权及read∩export范围，继续使用平台Excel服务。
 
-Dashboard保持单条金额查询及各维度的同一数据库快照。订单复核结果的基数估计可能严重偏小，PostgreSQL据此选择只按账套合并、订单键作Join Filter的路径，导致大量无效配对。本查询只在既有租户事务内执行SET LOCAL enable_mergejoin = off，采用完整订单关联键的哈希路径；事务结束或失败后设置自动恢复，不修改数据库/连接池全局参数、不影响别的查询，不新增物化读模型。生产复测须保留带超时的只读EXPLAIN ANALYZE与资源证据，不能假定所有环境计划相同。
+Dashboard保持单条金额查询及各维度的同一数据库快照。订单复核结果的基数估计可能严重偏小，PostgreSQL据此选择只按账套合并、订单键作Join Filter的路径，导致大量无效配对。本查询只在既有租户事务内执行SET LOCAL enable_mergejoin = off及SET LOCAL enable_nestloop = off，避免带事业部等条件时又改选嵌套循环，采用完整订单关联键的哈希路径；事务结束或失败后设置自动恢复，不修改数据库/连接池全局参数、不影响别的查询，不新增物化读模型。生产复测须保留带超时的只读EXPLAIN ANALYZE与资源证据，不能假定所有环境计划相同。
 
 管理员异常诊断聚合默认仍返回。页面目前不展示该诊断，因此明确请求includeQuality:false省去独立复核扫描；财务金额、待分类及所有图表指标完整计算，原异常日志入口和API默认响应保留。
 

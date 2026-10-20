@@ -81,6 +81,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    // the order aggregate for every item. Keep the full-key hash plan local to this
    // transaction; pooled connections and every other query retain their defaults.
    await m.query('SET LOCAL enable_mergejoin = off');
+   await m.query('SET LOCAL enable_nestloop = off');
    // One statement/materialized source keeps all financial dimensions on the same database snapshot.
    const cte=`WITH selected AS MATERIALIZED(SELECT record.* FROM finance_e10_monthly record WHERE ${where.join(' AND ')})`;
    const [result]=await m.query(`${cte} SELECT

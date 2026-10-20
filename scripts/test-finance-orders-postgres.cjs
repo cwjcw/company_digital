@@ -90,9 +90,9 @@ const reader={read:async(consume,options)=>{
   const first=await queries.revision(actor);assert.match(first.revision,/^[a-f0-9]{32}$/);
   await repo.transaction(actor.tenantId,m=>m.query("UPDATE finance_customer_mappings SET version=version+1,updated_at=clock_timestamp() WHERE tenant_id=$1 AND customer_code='A140'",[actor.tenantId]));
   const classified=await queries.revision(actor);assert.notEqual(classified.revision,first.revision);
-  const [before]=await repo.transaction(actor.tenantId,m=>m.query('SHOW enable_mergejoin'));
+  const [before]=await repo.transaction(actor.tenantId,m=>m.query("SELECT current_setting('enable_mergejoin') merge,current_setting('enable_nestloop') nested"));
   await queries.dashboard({context:{year:2026}},actor);
-  const [after]=await repo.transaction(actor.tenantId,m=>m.query('SHOW enable_mergejoin'));assert.deepEqual(after,before);
+  const [after]=await repo.transaction(actor.tenantId,m=>m.query("SELECT current_setting('enable_mergejoin') merge,current_setting('enable_nestloop') nested"));assert.deepEqual(after,before);
   const prior=await queries.revision(actor);const last=await run();assert.equal(last.status,'SUCCESS');assert.notEqual((await queries.revision(actor)).revision,prior.revision);
   assert.notEqual((await queries.revision({...actor,tenantId:'OTHER'})).revision,(await queries.revision(actor)).revision);
  });
