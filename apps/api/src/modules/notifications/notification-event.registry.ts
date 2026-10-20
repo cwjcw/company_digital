@@ -8,6 +8,25 @@ const EQUIPMENT_FAULT_TEMPLATE = "【设备故障提醒】\n\n事业部：{divis
 const SHIPPING_PLAN_KEY_FIELDS_CHANGED_TEMPLATE = "【出货计划变更】\n\n客户：{customerCode}\n订单：{orderNumber}\n品项：{itemCode} {itemName}\n事业部：{divisionName}\n\n变更内容：\n{changeSummary}\n\n修改人：{actorName}\n时间：{occurredAt}\n\n请相关人员确认后续计划。";
 
 const definitions = [
+  {
+    eventType: "finance.monthly.daily_summary",
+    moduleCode: "finance",
+    resourceCode: "finance-e10-monthly",
+    label: "财务月度数据每日汇总",
+    conditionDescription: "每天08:30（上海时间）汇总当月有效订单；仅向已启用规则配置的接收人推送",
+    defaultChannel: "WECHAT_WORK",
+    messageType: "text",
+    defaultTemplate: "【财务月度数据汇总】\n\n月份：{yearMonth}\n订单数：{orderCount}\n本币总金额：{orderTotal}元\n\n事业部分布：\n{departmentSummary}\n\n汇总时间：{occurredAt}\n最近数据读取：{lastReadAt}",
+    allowedRecipientRules: [FIXED_USERS_RECIPIENT_RULE],
+    templateVariables: [
+      { key: "yearMonth", label: "汇总月份" },
+      { key: "orderCount", label: "有效订单数" },
+      { key: "orderTotal", label: "本币总金额（元）" },
+      { key: "departmentSummary", label: "事业部分布" },
+      { key: "occurredAt", label: "汇总时间" },
+      { key: "lastReadAt", label: "最近数据读取时间" }
+    ]
+  },
   { eventType: "mps.order_allocation.batch_changed", moduleCode: "planning", resourceCode: "mps-order-allocations", label: "订单分配新增/变更", conditionDescription: "订单分配实际新增或非金额业务字段变更时按操作批次触发", defaultChannel: "WECHAT_WORK", messageType: "text_file", defaultTemplate: "【PMC订单分配通知】", allowedRecipientRules: [ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE], templateVariables: [{key:"actorName",label:"操作人"},{key:"occurredAt",label:"操作时间"},{key:"batchId",label:"操作批次"}] },
   {
     eventType: "equipment.status.fault_changed",

@@ -266,5 +266,75 @@ const reader={read:async(consume,options)=>{
   await db.query('GRANT SELECT ON ALL TABLES IN SCHEMA public TO finance_analytics_reader');
   const q=db.createQueryRunner();await q.startTransaction();try{await q.query('SET LOCAL ROLE finance_analytics_reader');await q.query("SELECT set_config('app.tenant_id','OTHER',true)");assert.equal((await q.query("SELECT count(*)::int n FROM finance_e10_monthly WHERE customer_code='CORRECT'"))[0].n,0);}finally{await q.rollbackTransaction();await q.release();}
  });
+ const {FinanceE10LiveOrderDuplicates1722920100000:LiveDuplicates}=req('./dist/migrations/1722920100000-FinanceE10LiveOrderDuplicates');
+ const duplicateSample=(order,n,total,orderNo,patch={})=>({...line(order,n,total,'DUPCHECK'),sequence:'1',orderNo,...patch});
+ batch.push(duplicateSample(12001,13001,'9','SYN-REUSED',{approved:'N'}),
+  duplicateSample(12002,13002,'4','SYN-PARTIAL'),duplicateSample(12002,13003,'5','SYN-PARTIAL',{sequence:'2'}),
+  duplicateSample(12003,13004,'7','SYN-ALL-MISSING'));
+ assert.equal((await run()).status,'SUCCESS');
+ batch=batch.filter(r=>![id(13001),id(13003),id(13004)].includes(r.sourceLineId));
+ batch.push(duplicateSample(12101,13101,'123.45','SYN-REUSED'),duplicateSample(12102,13102,'6','SYN-PARTIAL'),
+  duplicateSample(12201,13201,'10','SYN-ACTIVE-TWINS'),duplicateSample(12202,13202,'20','SYN-ACTIVE-TWINS'));
+ assert.equal((await run()).status,'SUCCESS');
+ const duplicateRows=()=>list('finance-e10-monthly',{filterGroup:JSON.stringify({logic:'AND',rules:[{field:'customerCode',operator:'eq',value:'DUPCHECK'}]})});
+ assert.equal((await duplicateRows()).total,0);
+ const duplicateRaw=await db.query('SELECT * FROM finance_e10_lines ORDER BY id');
+ const duplicateEvents=await db.query('SELECT * FROM finance_e10_change_events ORDER BY id');
+ const previousMonthly=await db.query("SELECT * FROM finance_e10_monthly WHERE customer_code<>'DUPCHECK' ORDER BY id");
+ const duplicateRunner=db.createQueryRunner();
+ await check('fully missing historical identity no longer suppresses the sole current order while retaining all source evidence',async()=>{
+  await new LiveDuplicates().up(duplicateRunner);
+  assert.deepEqual((await duplicateRows()).rows.map(r=>[r.orderNo,r.orderTotal]),[['SYN-REUSED','123.45']]);
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),duplicateRaw);
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_change_events ORDER BY id'),duplicateEvents);
+  assert.deepEqual(await db.query("SELECT * FROM finance_e10_monthly WHERE customer_code<>'DUPCHECK' ORDER BY id"),previousMonthly);
+ });
+ await check('two observed orders and partially missing competing orders still fail duplicate-number review',async()=>{
+  const rows=await db.query("SELECT order_no,duplicate_order_no,missing_lines FROM finance_e10_orders_all WHERE customer_code='DUPCHECK'");
+  assert.equal(rows.filter(r=>r.order_no==='SYN-ACTIVE-TWINS'&&r.duplicate_order_no).length,2);
+  assert.equal(rows.filter(r=>r.order_no==='SYN-PARTIAL'&&r.duplicate_order_no).length,2);
+  assert.equal(rows.find(r=>r.order_no==='SYN-ALL-MISSING').duplicate_order_no,false);
+  assert.equal((await duplicateRows()).total,1);
+ });
+ await check('recovered order propagates unchanged to dashboard ranking occurrence basis and all-matching Excel',async()=>{
+  assert.equal((await queries.dashboard({context:{year:2025,customerCode:'DUPCHECK'}},actor)).totals.amount,'123.45');
+  assert.equal((await queries.ranking({year:2025,customerCode:'DUPCHECK'},actor)).rows[0].orderTotal,'123.45');
+  const [legs]=await db.query("SELECT sum(order_total)::text amount FROM finance_e10_movement_source WHERE tenant_id=$1 AND customer_code='DUPCHECK'",[actor.tenantId]);assert(new Decimal(legs.amount).equals('123.45'));
+  const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.exportXlsx('finance-e10-monthly',{filterGroup:{logic:'AND',rules:[{field:'customerCode',operator:'eq',value:'DUPCHECK'}]}},actor));assert.equal(book.worksheets[0].rowCount,2);
+ });
+ await check('duplicate fix is idempotent and rollback restores only the previous derived policy',async()=>{
+  await new LiveDuplicates().up(duplicateRunner);assert.equal((await duplicateRows()).total,1);
+  await new LiveDuplicates().down(duplicateRunner);assert.equal((await duplicateRows()).total,0);
+  await new LiveDuplicates().up(duplicateRunner);assert.equal((await duplicateRows()).total,1);
+  assert.deepEqual(await db.query('SELECT * FROM finance_e10_lines ORDER BY id'),duplicateRaw);
+ });
+ await check('same order number in another source account or tenant does not compete across boundaries',async()=>{
+  await db.query("INSERT INTO finance_e10_runs(id,tenant_id,status,actor_id,completed_at) VALUES($1,'OTHER','SUCCESS',$2,now())",[id(19000),actor.userId]);
+  for(const [tenant,account,runId] of [['KAINAN','SYNTHETIC-OTHER',null],['OTHER','SYNTHETIC-E10',id(19000)]]){
+   await db.query(`INSERT INTO finance_e10_lines(tenant_id,source_database,source_order_id,source_line_id,payload,last_run_id,created_by,updated_by)
+    SELECT $1,$2,source_order_id,source_line_id,payload,coalesce($3::uuid,last_run_id),created_by,updated_by FROM finance_e10_lines WHERE tenant_id='KAINAN' AND source_database='SYNTHETIC-E10' AND source_order_id=$4`,[tenant,account,runId,id(12101)]);
+  }
+  const rows=await db.query("SELECT tenant_id,source_database,duplicate_order_no FROM finance_e10_orders_all WHERE source_order_id=$1",[id(12101)]);assert.equal(rows.length,3);assert(rows.every(r=>r.duplicate_order_no===false));
+ });
+ for(const file of ['1722920067000-NotificationInfrastructure','1722920068000-NotificationRoutingAndRecipientDeliveries','1722920069000-NotificationCenterAdministration']){
+  const migration=req('./dist/migrations/'+file);await new (Object.values(migration)[0])().up(duplicateRunner);
+ }
+ const {NotificationService}=req('./dist/modules/notifications/notification.service');
+ const {FinanceMonthlyNotificationService}=req('./dist/modules/finance/finance-monthly-notification.service');
+ const daily=new FinanceMonthlyNotificationService(repo,new NotificationService(db)),dailyTime=new Date('2025-01-20T00:30:00Z');
+ await check('daily finance registration creates one audited disabled rule and repeated initialization preserves user configuration',async()=>{
+  assert.equal((await daily.initialize(actor)).created,true);assert.equal((await daily.initialize(actor)).created,false);
+  const [rule]=await db.query("SELECT * FROM notification_rules WHERE rule_key='finance-monthly-daily-summary'");assert.equal(rule.enabled,false);assert.equal(rule.module_code,'finance');assert.deepEqual(rule.config.recipientTargets,[]);assert.equal(rule.version,1);
+  assert.equal((await daily.dispatch(actor,dailyTime)).skipped,'NO_ENABLED_RULE');assert.equal((await db.query('SELECT count(*)::integer n FROM notification_outbox'))[0].n,0);
+ });
+ await check('daily finance summary matches effective monthly amounts and concurrent/replayed jobs enqueue once without delivering',async()=>{
+  const [expected]=await db.query("SELECT count(*)::integer n,sum(order_total)::numeric(28,2)::text total FROM finance_e10_monthly WHERE tenant_id=$1 AND year_month='2025-01'",[actor.tenantId]);
+  const payload=await daily.preview(actor,dailyTime);assert.equal(payload.orderCount,String(expected.n));assert(new Decimal(payload.orderTotal.replaceAll(',','')).equals(expected.total));
+  await db.query("UPDATE notification_rules SET enabled=true,config=jsonb_build_object('recipientTargets',jsonb_build_array(jsonb_build_object('type','USER','userId',$1::text))) WHERE rule_key='finance-monthly-daily-summary'",[actor.userId]);
+  const results=await Promise.all([daily.dispatch(actor,dailyTime),daily.dispatch(actor,dailyTime)]);assert.equal(results.reduce((n,r)=>n+r.enqueued,0),1);assert.equal((await daily.dispatch(actor,dailyTime)).enqueued,0);
+  const [event]=await db.query("SELECT * FROM notification_outbox WHERE event_type='finance.monthly.daily_summary'");assert.equal(event.status,'PENDING');assert.deepEqual(event.payload,payload);assert.equal((await db.query('SELECT count(*)::integer n FROM notification_delivery_logs'))[0].n,0);
+  await daily.initialize(actor);assert.equal((await db.query("SELECT enabled FROM notification_rules WHERE rule_key='finance-monthly-daily-summary'"))[0].enabled,true);
+ });
+ await duplicateRunner.release();
  fs.writeFileSync(path.join(root,'outputs/FINANCE_ORDER_POSTGRES_VALIDATION.json'),JSON.stringify({status:'PASS',scenarios:checks.length,checks,productionModified:false},null,2));console.log('Finance analytics PostgreSQL PASS: '+checks.length+' scenarios');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(db?.isInitialized)await db.destroy();if(control._connected){await control.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);await control.query('DROP ROLE IF EXISTS finance_analytics_reader');await control.end();}});

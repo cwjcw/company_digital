@@ -168,3 +168,15 @@
 - Reader仅增加订单头单据类型/审核状态事实，仍通过basic_code只读E10；不读取T+、不改原始标准SQL。原34列保留，月度末尾追加备注为10列。
 - Migration99仅创建/替换受tenant隔离的派生视图，材料销售单与非Y审核有效金额统一排除；事件/快照/原始品项保留，不补造冲回流水。旧快照缺资格属性不猜测，升级后通过既有FULL入口建立资格观测基线。
 - 继续使用原防并发/审计/幂等/失败恢复。部署前两库/uploads及配置备份；只读金额对照、隔离PG、API/Web/Chrome、执行计划、原增量入口验收，真实金额/财务资料仅保留受限本机data目录。
+
+
+## FIN-004 财务月度数据每日汇总（2026-10-20新增）
+
+- 用户确认：每天08:30（Asia/Shanghai）推送当月订单数、金额及事业部分布；收件人由用户上线后在消息中心选择并启用。
+- 唯一自动入口：n8n `KDOSFinanceMonthlySummaryV1` → 既有主机SSH凭据 → `data-operations/e10/push-finance-monthly-summary.sh` → API `FinanceMonthlyNotificationService.dispatch` → 原企业微信Dispatcher。不读取E10/T+，不改现有FIN-001/002/003或其他任务。
+- 候选增量：n8n工作流1；systemd Timer/cron/常驻服务/应用内定时器均0。上线前实测15个既有工作流、11个active，未发现同职责入口；现有Dispatcher为active。完整脱敏主机盘点及n8n基线保存在受限 `data/finance-monthly-repair-release-20261020/`。
+- 运行身份：既有启用系统/财务管理员；tenant固定取运行环境默认租户。读取正式月度视图，精确numeric/Decimal，不输出业务载荷到调度日志。
+- 防并发/幂等：flock、租户/业务日事务锁、tenant+规则+上海日期唯一outbox键；停用/无规则不入队，原Dispatcher按接收人幂等投递与失败重试。
+- 失败/补偿：SSH最多2次重试、非0及非SUCCESS使n8n执行失败；失败记录与消息中心可查，同日同入口补跑，不伪造跨日历史。初始化为停用规则，用户配置实际对象后启用；本任务不执行真实测试消息。
+- 备份/回滚：两库/uploads及n8n一致备份；只停用新增FIN-004并回退应用，保留消息规则/审计/源快照。负责人：财务模块管理员。
+- 当前阶段：实现/验证中，生产激活和执行证明待发布后更新。说明见 `docs/finance-monthly-notifications.md`。

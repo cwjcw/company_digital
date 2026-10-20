@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "scenarios": 32,
+  "scenarios": 39,
   "checks": [
     "verified publication and exact per-item tax arithmetic",
     "multi-line order sum is 0.30, not floating-point or duplicated",
@@ -33,7 +33,14 @@
     "monthly dashboard ranking and occurrence legs reconcile under shared eligibility",
     "approval and material type changes refresh balances and effective events without rewriting source postings",
     "default date order remains stable across server pages and full Excel with explicit sort override",
-    "remark field authorization and tenant isolation remain enforced after migration"
+    "remark field authorization and tenant isolation remain enforced after migration",
+    "fully missing historical identity no longer suppresses the sole current order while retaining all source evidence",
+    "two observed orders and partially missing competing orders still fail duplicate-number review",
+    "recovered order propagates unchanged to dashboard ranking occurrence basis and all-matching Excel",
+    "duplicate fix is idempotent and rollback restores only the previous derived policy",
+    "same order number in another source account or tenant does not compete across boundaries",
+    "daily finance registration creates one audited disabled rule and repeated initialization preserves user configuration",
+    "daily finance summary matches effective monthly amounts and concurrent/replayed jobs enqueue once without delivering"
   ],
   "productionModified": false
 }

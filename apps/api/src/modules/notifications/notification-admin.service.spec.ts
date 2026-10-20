@@ -6,6 +6,14 @@ const planningActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: 
 const ordinaryActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: [] };
 
 describe("NotificationAdminService", () => {
+  it("exposes finance events only to the owning module or system administrators", () => {
+    const service=new NotificationAdminService({} as never,{} as never);
+    const financeActor={...ordinaryActor,moduleAdminCodes:["finance"]};
+    expect(service.availableEvents(financeActor)).toEqual([expect.objectContaining({eventType:"finance.monthly.daily_summary",moduleCode:"finance",module:"财务中心",resourceLabel:"月度数据"})]);
+    expect(service.availableEvents(planningActor).some(e=>e.moduleCode==="finance")).toBe(false);
+    expect(()=>service.templateVariables(planningActor,"finance.monthly.daily_summary")).toThrow(ForbiddenException);
+    expect(service.availableEvents(systemActor).some(e=>e.module==="财务中心")).toBe(true);
+  });
   it("only exposes registered events and supports the planning module administrator", () => {
     const service = new NotificationAdminService({} as never, {} as never);
     expect(service.availableEvents(planningActor)).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "equipment.status.fault_changed", resource: "equipment-status-report", channel: "WECHAT_WORK", condition: "故障时长发生变化且新值大于0时触发", recipientLabels: { ORDER_ALLOCATION_DYNAMIC:"承接事业部＋订单业务员", EQUIPMENT_RESPONSIBLE: "设备责任人", FIXED_USERS: "组织架构 / 角色 / 员工" } })]));

@@ -20,7 +20,7 @@
     "scheduled API imports audit the existing disabled system identity",
     "simultaneous source imports cannot duplicate customers",
     "real non-superuser RLS hides other tenant and denies cross-tenant insertion",
-    "Fresh migration count: 95",
+    "Fresh migration count: 99",
     "all existing migrations and full Nest dependency/filter bootstrap pass on a separate fresh database"
   ],
   "postgres": "18",

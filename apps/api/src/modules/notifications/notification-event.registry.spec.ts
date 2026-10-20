@@ -2,7 +2,7 @@ import { notificationEventDefinition, notificationEventDefinitions } from "./not
 
 describe("Notification Event Registry", () => {
   it("registers the equipment fault and shipping plan events", () => {
-    expect(notificationEventDefinitions()).toHaveLength(3);
+    expect(notificationEventDefinitions()).toHaveLength(4);
     expect(notificationEventDefinition("mps.order_allocation.batch_changed")).toMatchObject({messageType:"text_file",allowedRecipientRules:["ORDER_ALLOCATION_DYNAMIC"],resourceCode:"mps-order-allocations"});
     expect(notificationEventDefinition("equipment.status.fault_changed")).toMatchObject({
       eventType: "equipment.status.fault_changed",
@@ -24,6 +24,13 @@ describe("Notification Event Registry", () => {
       messageType: "text",
       allowedRecipientRules: ["FIXED_USERS"]
     });
+  });
+
+  it("registers the finance daily summary with finance ownership and fixed recipient configuration", () => {
+    expect(notificationEventDefinition("finance.monthly.daily_summary")).toMatchObject({moduleCode:"finance",resourceCode:"finance-e10-monthly",messageType:"text",allowedRecipientRules:["FIXED_USERS"]});
+    const event=notificationEventDefinition("finance.monthly.daily_summary")!;
+    expect(event.conditionDescription).toContain("08:30");
+    expect(event.templateVariables.map(v=>v.key)).toEqual(["yearMonth","orderCount","orderTotal","departmentSummary","occurredAt","lastReadAt"]);
   });
 
   it("owns the formal template variables and labels", () => {

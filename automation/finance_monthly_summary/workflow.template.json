@@ -1,0 +1,112 @@
+{
+  "id": "KDOSFinanceMonthlySummaryV1",
+  "name": "KDOS 财务月度数据每日汇总",
+  "active": false,
+  "nodes": [
+    {
+      "id": "daily-schedule",
+      "name": "每天0830",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "manual-run",
+      "name": "当日补跑",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        320
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "summary-command",
+      "name": "生成当月汇总通知",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        320,
+        220
+      ],
+      "parameters": {
+        "authentication": "privateKey",
+        "resource": "command",
+        "command": "/data/automation/code/work/PMC/knweb/data-operations/e10/push-finance-monthly-summary.sh"
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 30000
+    },
+    {
+      "id": "validate-result",
+      "name": "校验任务结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const result=$input.first().json; let payload; try { payload=JSON.parse(String(result.stdout||'').trim().split(/\\r?\\n/).filter(Boolean).at(-1)||''); } catch { throw new Error('财务月度汇总返回无效，请检查任务运行记录'); } if(Number(result.code)!==0||payload.status!=='SUCCESS') throw new Error('财务月度汇总失败，请检查任务与消息中心'); return [{json:{status:'SUCCESS',enqueued:payload.enqueued||0,skipped:payload.skipped||null,completedAt:new Date().toISOString()}}];"
+      }
+    }
+  ],
+  "connections": {
+    "每天0830": {
+      "main": [
+        [
+          {
+            "node": "生成当月汇总通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "当日补跑": {
+      "main": [
+        [
+          {
+            "node": "生成当月汇总通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成当月汇总通知": {
+      "main": [
+        [
+          {
+            "node": "校验任务结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai",
+    "executionTimeout": 300,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true
+  }
+}

@@ -26,6 +26,7 @@ const RECIPIENT = EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE;
 const FIXED_RECIPIENT = FIXED_USERS_RECIPIENT_RULE;
 const RECIPIENT_LABELS = { [ORDER_ALLOCATION_DYNAMIC_RECIPIENT_RULE]: "承接事业部＋订单业务员", [RECIPIENT]: "设备责任人", [FIXED_RECIPIENT]: "组织架构 / 角色 / 员工" } as const;
 const resourceLabel = (code: string) => tableResourceRegistry.find((resource) => resource.code === code)?.label ?? code;
+const resourceModule = (code: string) => tableResourceRegistry.find((resource) => resource.code === code)?.module ?? "—";
 
 @Injectable()
 export class NotificationAdminService {
@@ -41,7 +42,7 @@ export class NotificationAdminService {
       moduleCode: event.moduleCode,
       recipientRules: event.allowedRecipientRules,
       variables: event.templateVariables.map(({ key }) => key),
-      module: "PMC中心", resourceLabel: resourceLabel(event.resourceCode), channel: event.defaultChannel,
+      module: resourceModule(event.resourceCode), resourceLabel: resourceLabel(event.resourceCode), channel: event.defaultChannel,
       channelLabel: "企业微信工作通知", recipientLabels: RECIPIENT_LABELS,
       templateVariables: event.templateVariables
     }));
@@ -283,13 +284,13 @@ export class NotificationAdminService {
     const config = (row.config as Record<string, unknown> | undefined) ?? {};
     const event = notificationEventDefinition(String(row.event_type ?? ""));
     const recipientTargets = Array.isArray(config.recipientTargets) ? config.recipientTargets : Array.isArray(config.recipientUserIds) ? config.recipientUserIds.map((userId) => ({ type: "USER", userId })) : [];
-    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: "PMC中心", resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientTargets, recipientUserIds: recipientTargets.filter((target: any) => target.type === "USER").map((target: any) => target.userId), condition: event?.conditionDescription ?? "—", enabled: row.enabled, config: { ...config, recipientTargets }, latestSendAt: row.latest_send_at ?? null, version: row.version };
+    return { id: row.id, ruleKey: row.rule_key, name: row.name, eventType: row.event_type, channel: row.channel, channelLabel: "企业微信工作通知", moduleCode: row.module_code, module: resourceModule(String(row.resource)), resource: row.resource, resourceLabel: resourceLabel(String(row.resource)), recipientRule, recipientLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, recipientTargets, recipientUserIds: recipientTargets.filter((target: any) => target.type === "USER").map((target: any) => target.userId), condition: event?.conditionDescription ?? "—", enabled: row.enabled, config: { ...config, recipientTargets }, latestSendAt: row.latest_send_at ?? null, version: row.version };
   }
   private logView(row: Record<string, unknown>) {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const event = notificationEventDefinition(String(row.event_type ?? ""));
-    return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: "PMC中心", resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
+    return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: resourceModule(String(row.resource ?? event?.resourceCode ?? "")), resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
   private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId]); }
