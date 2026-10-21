@@ -408,7 +408,7 @@ export class TablePrintService {
   /** 通用 SQL 打印查询：复用注册表列绑定 + 平台编译器（无第二套 FilterCompiler）。 */
   private async genericRows(source: TableFilterSource, query: TablePrintRowQuery) {
     const params: unknown[] = [query.actor.tenantId];
-    const clauses = [this.scopedWhere(source, await source.buildScope(query.actor, params, query.action ?? "read")), await source.buildContext?.(query.context, params) ?? "1=1"];
+    const clauses = [this.scopedWhere(source, await source.buildScope(query.actor, params, query.action ?? "read")), await source.buildContext?.(query.context, params, query.actor) ?? "1=1"];
     if (query.search && source.buildSearch) {
       clauses.push(await source.buildSearch(query.search, query.actor, params));
     } else if (query.search) {

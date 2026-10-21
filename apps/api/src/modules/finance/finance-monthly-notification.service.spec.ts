@@ -20,7 +20,7 @@ describe('Finance monthly daily summary', () => {
     const f=fixture(),payload=await f.service.preview(actor,new Date('2026-10-31T16:30:00Z'));
     expect(payload).toMatchObject({yearMonth:'2026-11',orderCount:'2',orderTotal:'123,456.78',occurredAt:'2026-11-01 00:30:00',lastReadAt:'2026-10-20 08:07:00'});
     expect(payload.departmentSummary).toBe('业务一部：2单 / 123,456.78元');
-    expect(f.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_monthly'),['SYNTHETIC','2026-11']);
+    expect(f.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_order_monthly_movements'),['SYNTHETIC','2026-11']);
     expect(f.notifications.enqueueEvent).not.toHaveBeenCalled();
   });
   it('does not dispatch before 08:30 Shanghai time',async()=>{

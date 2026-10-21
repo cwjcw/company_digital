@@ -49,7 +49,7 @@ export class TableFilterController {
     }
     const params: unknown[] = [actor.tenantId];
     const scope = await source.buildScope(actor, params);
-    const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params) ?? "1=1"];
+    const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params, actor) ?? "1=1"];
     const tableSearch = String(query.tableSearch ?? "").trim();
     if (tableSearch && source.buildSearch) {
       clauses.push(await source.buildSearch(tableSearch, actor, params));
@@ -113,7 +113,7 @@ export class TableFilterController {
       return {...result,rows:result.rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>readable.has(key)))),page,pageSize};
     }
     const params: unknown[] = [actor.tenantId];
-    const clauses = [this.scopedWhere(source, await source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params) ?? "1=1"];
+    const clauses = [this.scopedWhere(source, await source.buildScope(actor, params)), await source.buildContext?.(this.context(query.context), params, actor) ?? "1=1"];
     const search = String(query.search ?? "").trim();
     if (search && source.buildSearch) {
       clauses.push(await source.buildSearch(search, actor, params));

@@ -2,12 +2,12 @@ import { Injectable, OnModuleInit, ForbiddenException } from '@nestjs/common';
 import DecimalBase from 'decimal.js';
 import { createHash } from 'node:crypto';
 const Decimal=DecimalBase.clone({precision:40});
-import { financeOrderResources, financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from '@kdos/contracts';
+import { financeOrderResources, financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields, financeDashboardRequiredFields } from '@kdos/contracts';
 import { TableFilterRegistry, TableFilterActor, TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { FinanceRepository } from './finance.repository';
 import { financeAdmin } from './finance.types';
-import { orderColumns,orderAuthorize,orderField,orderScope,orderContext } from './finance-orders.types';
+import { orderColumns,orderAuthorize,orderField,orderScope,orderContext,orderMonthlyContext } from './finance-orders.types';
 @Injectable()
 export class FinanceOrdersQueryService implements OnModuleInit {
  constructor(private readonly repository:FinanceRepository,private readonly registry:TableFilterRegistry){}
@@ -17,11 +17,11 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   // SQL DATE is a business day: emit its exact date text, never a driver Date/UTC timestamp.
   const expressions=Object.fromEntries(fields.filter(f=>f.type==='date').map(f=>[f.key,`record.${columns[f.key]}::text`]));
   for(const key of Object.keys(expressions))delete columns[key];
-  this.registry.register({code:r,exportNullAsBlank:true,exportExactNumbers:true,table:r==='finance-e10-lines'?'finance_e10_raw':r==='finance-e10-ranking'?'finance_e10_ranking':'finance_e10_monthly',columns,expressions,fields,
+  this.registry.register({code:r,exportNullAsBlank:true,exportExactNumbers:true,table:r==='finance-e10-lines'?'finance_e10_raw':r==='finance-e10-ranking'?'finance_e10_ranking':'finance_e10_order_monthly_movements',columns,expressions,fields,
    authorize:a=>orderAuthorize(a,r),buildScope:(a,p,action)=>r==='finance-e10-ranking'?'1=0':orderScope(a,r,p,action),
-   buildContext:(c)=>{if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return '1=1';},
+   buildContext:(c,p,a)=>{if(r==='finance-e10-monthly')return orderMonthlyContext(c,p,a);if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return '1=1';},
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
-   ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:[]),'id']}}:{}),
+   ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:['year_month']),'id']}}:{}),
    ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
    runQuery:(sql,p)=>r==='finance-e10-monthly'?this.repository.transaction(String(p[0]),async m=>{
     // Annual filters plus stable date ordering can select the same underestimated
@@ -29,6 +29,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     // the registered executor; settings remain local to the tenant transaction.
     await m.query('SET LOCAL enable_mergejoin = off');
     await m.query('SET LOCAL enable_nestloop = off');
+    await m.query('SET LOCAL jit = off');
     return m.query(sql,p);
    }):this.repository.query(sql,p),searchColumns:r==='finance-e10-ranking'?['customerCode']:['customerCode','orderNo']});
  }}
@@ -36,13 +37,13 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const resource='finance-e10-ranking';orderAuthorize(a,resource);
   if(!['customerCode','orderTotal'].every(f=>orderField(a,resource,f)))throw new ForbiddenException('客户排名需要客户和金额读取权限');
   orderAuthorize(a,'finance-e10-dashboard');
-  if(financeMonthlyFields.filter(f=>f.key!=='businessRemark').some(f=>!orderField(a,'finance-e10-dashboard',f.key)))throw new ForbiddenException('客户排名筛选需要大屏字段权限');
+  if(financeDashboardRequiredFields.some(f=>!orderField(a,'finance-e10-dashboard',f.key)))throw new ForbiddenException('客户排名筛选需要大屏字段权限');
   const limit=Number(context.rankLimit??0);if(![0,10,20].includes(limit))throw new ForbiddenException('排名显示范围无效');
   const businessContext={...context};delete businessContext.rankLimit;
   if(context.salesperson&&!orderField(a,'finance-e10-dashboard','salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
   const p:unknown[]=[a.tenantId];const clauses=['record.tenant_id=$1',orderScope(a,'finance-e10-dashboard',p,'read'),orderContext(businessContext,p,'finance-e10-dashboard')];
   if(q?.search){p.push('%'+q.search+'%');clauses.push(`record.customer_code ILIKE $${p.length}`);}
-  const cte=`WITH grouped AS MATERIALIZED(SELECT md5(tenant_id||customer_code)::uuid id,tenant_id,min(created_by::text)::uuid created_by,customer_code,sum(order_total) order_total FROM finance_e10_monthly record WHERE ${clauses.join(' AND ')} GROUP BY tenant_id,customer_code)`;
+  const cte=`WITH grouped AS MATERIALIZED(SELECT md5(tenant_id||customer_code)::uuid id,tenant_id,min(created_by::text)::uuid created_by,customer_code,sum(order_total) order_total FROM finance_e10_order_monthly_movements record WHERE ${clauses.join(' AND ')} GROUP BY tenant_id,customer_code)`;
   let scope=orderScope(a,resource,p,'read');
   if(q?.action==='export'){orderAuthorize(a,resource,'export');scope+=` AND (${orderScope(a,resource,p,'export')})`;}
   if(q?.filterGroup)scope+=' AND '+new SqlFilterCompiler(financeRankingFields,orderColumns(resource),()=>true,c=>`record.${c}`).compile(q.filterGroup,p);
@@ -53,10 +54,12 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const order=q?.sortOrder==='asc'?'ASC':'DESC';
   const size=limit?Math.max(0,Math.min(pageSize,limit-(page-1)*pageSize)):pageSize;
   // Count and page reuse one authorized aggregate and one MVCC snapshot.
-  const [{total,rows}]=await this.repository.query(`${cte}, selected AS MATERIALIZED(SELECT * FROM grouped record WHERE ${scope})
+  const [{total,rows}]=await this.repository.transaction(a.tenantId,async m=>{
+   await m.query('SET LOCAL enable_mergejoin = off');await m.query('SET LOCAL enable_nestloop = off');await m.query('SET LOCAL jit = off');
+   return m.query(`${cte}, selected AS MATERIALIZED(SELECT * FROM grouped record WHERE ${scope})
    SELECT (SELECT count(*)::integer FROM selected) total,
     (SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM(SELECT id,customer_code AS "customerCode",order_total::text AS "orderTotal"
-     FROM selected ORDER BY ${sort} ${order},customer_code LIMIT $${p.length+1} OFFSET $${p.length+2}) x) rows`,[...p,size,(page-1)*pageSize]);
+     FROM selected ORDER BY ${sort} ${order},customer_code LIMIT $${p.length+1} OFFSET $${p.length+2}) x) rows`,[...p,size,(page-1)*pageSize]);});
   return {rows,total:limit?Math.min(total,limit):total,page,pageSize};
  }
  async revision(a:TableFilterActor){
@@ -64,6 +67,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   // Small tenant-local freshness token; no amounts, identities or source rows leave this endpoint.
   const [result]=await this.repository.query(`SELECT md5(coalesce((SELECT id::text FROM finance_e10_runs
    WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY completed_at DESC,id DESC LIMIT 1),'')||':'||
+   coalesce((SELECT id::text FROM finance_e10_movement_runs WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY completed_at DESC,id DESC LIMIT 1),'')||':'||
    coalesce((SELECT string_agg(id::text||':'||version::text||':'||updated_at::text,',' ORDER BY id)
     FROM finance_customer_mappings WHERE tenant_id=$1),'')) revision`,[a.tenantId]);
   // Include live authorization resolved by AuthGuard, so same-account scope/field
@@ -73,7 +77,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const accessRevision=createHash('sha256').update(JSON.stringify({tenant:a.tenantId,user:a.userId??null,admin:financeAdmin(a),
    permissions:a.permissions.filter(p=>p==='*'||resources.some(r=>p.startsWith(r+':'))).sort(),
    scopes:(a.tableDataScopes??[]).filter(s=>resources.includes(s.resource)).map(s=>JSON.stringify(canonical(s))).sort()})).digest('hex');
-  return {revision:createHash('sha256').update(result.revision+':finance-eligibility-v2:'+accessRevision).digest('hex'),accessRevision};
+  return {revision:createHash('sha256').update(result.revision+':finance-order-month-occurrence-v3:'+accessRevision).digest('hex'),accessRevision};
  }
  async runs(a:TableFilterActor){orderAuthorize(a,'finance-e10-lines');
   const inspect=financeAdmin(a);
@@ -86,7 +90,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
  async dashboard(input:Record<string,unknown>,a:TableFilterActor){
   const resource='finance-e10-dashboard';orderAuthorize(a,resource);
   // Aggregates must not reveal hidden amounts, classifications or customer identifiers.
-  if(financeMonthlyFields.filter(f=>f.key!=='businessRemark').some(f=>!orderField(a,resource,f.key)))throw new ForbiddenException('统计大屏需要完整报表字段读取权限');
+  if(financeDashboardRequiredFields.some(f=>!orderField(a,resource,f.key)))throw new ForbiddenException('统计大屏需要完整报表字段读取权限');
   const p:unknown[]=[a.tenantId];const context=input.context&&typeof input.context==='object'?input.context as Record<string,unknown>:{};
   if(context.salesperson&&!orderField(a,resource,'salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
   const where=[`record.tenant_id=$1`,orderScope(a,resource,p),orderContext(context,p,resource)];
@@ -98,11 +102,12 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    // transaction; pooled connections and every other query retain their defaults.
    await m.query('SET LOCAL enable_mergejoin = off');
    await m.query('SET LOCAL enable_nestloop = off');
+    await m.query('SET LOCAL jit = off');
    // One statement/materialized source keeps all financial dimensions on the same database snapshot.
-   const cte=`WITH selected AS MATERIALIZED(SELECT record.customer_code,record.order_total,record.department_category,record.sales_channel,record.year_month,record.delivery_date_conflict FROM finance_e10_monthly record WHERE ${where.join(' AND ')})`;
+   const cte=`WITH selected AS MATERIALIZED(SELECT record.source_database,record.source_order_id,record.customer_code,record.order_total,record.department_category,record.sales_channel,record.year_month,record.delivery_date_conflict FROM finance_e10_order_monthly_movements record WHERE ${where.join(' AND ')})`;
    const [result]=await m.query(`${cte} SELECT
-   (SELECT row_to_json(t) FROM(SELECT count(*)::integer orders,COALESCE(sum(order_total),0)::text amount,count(DISTINCT customer_code)::integer customers,
-    count(*) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingOrders",
+   (SELECT row_to_json(t) FROM(SELECT count(DISTINCT(source_database,source_order_id))::integer orders,COALESCE(sum(order_total),0)::text amount,count(DISTINCT customer_code)::integer customers,
+    count(DISTINCT(source_database,source_order_id)) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingOrders",
     count(DISTINCT customer_code) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL)::integer "pendingCustomers",
     COALESCE(sum(order_total) FILTER(WHERE department_category IS NULL OR sales_channel IS NULL),0)::text "pendingAmount",
     count(*) FILTER(WHERE order_total=0)::integer "zeroOrders",
@@ -112,9 +117,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     UNION ALL SELECT 'channel',sales_channel,sum(order_total)::text FROM selected GROUP BY sales_channel)g) groups,
    (SELECT COALESCE(jsonb_agg(g),'[]'::jsonb) FROM(SELECT year_month AS "month",sum(order_total)::text amount,count(*)::integer orders FROM selected GROUP BY year_month ORDER BY year_month)g) months,
    (SELECT COALESCE(jsonb_agg(g),'[]'::jsonb) FROM(SELECT department_category AS "departmentCategory",sales_channel AS "salesChannel",sum(order_total)::text amount FROM selected GROUP BY department_category,sales_channel)g) matrix,
-   ${financeAdmin(a)&&input.includeQuality!==false?`(SELECT row_to_json(g) FROM(SELECT count(*) FILTER(WHERE conflict OR duplicate_sequence OR duplicate_order_no OR missing_lines>0 OR issue_lines>0)::integer "excludedOrders",
-    COALESCE(sum(order_total) FILTER(WHERE conflict OR duplicate_sequence OR duplicate_order_no OR missing_lines>0 OR issue_lines>0),0)::text "excludedAmount",sum(negative_lines)::integer "negativeLines",sum(missing_lines)::integer "missingLines"
-    FROM finance_e10_orders_all record WHERE ${where.join(' AND ')})g)`:'NULL::json'} quality`,p);
+   NULL::json quality`,p);
    const {totals,groups,months,matrix,quality}=result;
    const total=new Decimal(totals.amount);const share=(amt:string)=>total.isZero()?null:new Decimal(amt).div(total).toFixed(8);
    const bucket=(kind:string,labels:string[])=>[...labels,null].map(category=>{const amount=groups.find((g:any)=>g.kind===kind&&g.category===category)?.amount??'0.00';return {category:category??'待分类',amount,share:share(amount)};});

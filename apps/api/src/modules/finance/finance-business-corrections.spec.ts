@@ -31,7 +31,7 @@ describe('finance business eligibility and stable default ordering',()=>{
   const params=['TENANT-A','2026%',50];
   expect(await registry.get('finance-e10-monthly').runQuery!(sql,params)).toEqual([{id:'SYN'}]);
   expect(repository.transaction).toHaveBeenCalledWith('TENANT-A',expect.any(Function));
-  expect(query.mock.calls).toEqual([['SET LOCAL enable_mergejoin = off'],['SET LOCAL enable_nestloop = off'],[sql,params]]);
+  expect(query.mock.calls).toEqual([['SET LOCAL enable_mergejoin = off'],['SET LOCAL enable_nestloop = off'],['SET LOCAL jit = off'],[sql,params]]);
   expect(repository.query).not.toHaveBeenCalled();
   await registry.get('finance-e10-lines').runQuery!('SELECT id FROM finance_e10_raw WHERE tenant_id=$1',['TENANT-A']);
   expect(repository.query).toHaveBeenCalledWith('SELECT id FROM finance_e10_raw WHERE tenant_id=$1',['TENANT-A']);

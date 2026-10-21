@@ -181,3 +181,9 @@
 - 备份/回滚：两库/uploads及n8n一致备份；只停用新增FIN-004并回退应用，保留消息规则/审计/源快照。负责人：财务模块管理员。
 - 生产核验（2026-10-20）：新增FIN-004已active，cron `30 8 * * *`、Asia/Shanghai；现16个工作流/12个active，原15个工作流及其11个active配置逐项一致。运行日志确认调度已注册；手工实跑1199 SUCCESS，实际停用规则导致NO_ENABLED_RULE/入队0，未发送消息。尚未观察下一次08:30定时触发，不将手工执行冒称定时已触发。
 - 首次实跑1198因新节点认证类型与既有凭据不一致失败，已将新增节点改为password、复用原sshPassword引用，再发布/空闲重启并成功；未改凭据或既有工作流。首次失败记录保留。规则初始化两次created true/false，停用及版本保持。说明见 `docs/finance-monthly-notifications.md`。
+
+### FIN-003 / FIN-004 订单月度发生额整合（2026-10-20）
+
+月度页面、大屏、排名、Excel及FIN-004日报改读finance_e10_order_monthly_movements，按真实来源订单×发生月份聚合FIN-003现有事件；不重复入账，不新增同步/刷新任务。FIN-003和FIN-004原工作流、周期、时区、锁/幂等/告警及收件人设置保持；FIN-004业务规则继续停用等待用户自选接收人。生产迁移与最终验收结果记录在本轮发布报告；仅代码修改阶段不得视为已上线。详见docs/finance-order-monthly-movements.md。
+
+2026-10-21生产验收：前向migration101完成，原品项/事件/授权及既有视图的同事务指纹不变；月度/大屏/排名/Excel/日报均已按发生月验证。现有16个n8n工作流、12active，全部定义摘要与执行前一致，本轮新增候选及自动入口均0。FIN-004于08:30实际定时执行1234 SUCCESS/trigger；规则仍停用，NO_ENABLED_RULE，未新增投递。大屏实测约3.3–3.5秒；真实Chrome月历、变更下钻和Excel下载通过。脱敏结果见outputs/FINANCE_ORDER_MONTHLY_ACCEPTANCE.md，财务证据仅限本机受限目录。

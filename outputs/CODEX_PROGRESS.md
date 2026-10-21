@@ -1,67 +1,142 @@
 # Codex 工作进度
 
 ## 任务
-任务名称：财务月度真实数据误排除修复与消息中心注册。
-任务目标：仅修正完全来源缺失历史订单参与重复号判断的问题，保留源快照/全部其他校验；注册财务月度企业微信能力，完成验证、备份、迁移、部署和GitHub同步。
-当前状态：进行中；用户已授权实施真实系统修复与消息中心注册。
-最后更新时间：2026-10-20 18:19:57（Asia/Shanghai）。
+任务名称：财务月度数据统一订单发生额明细与大屏口径升级。
+任务目标：复用现有发生额腿，按真实来源订单×发生月份聚合；月度15列、发生月日历、变更下钻、大屏/排名/Excel/日报一致；备份、前向迁移、测试、上线及GitHub同步。
+当前状态：进行中。
+最后更新时间：2026-10-21 08:19:49（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：首版正式部署与全部线上效果核验完成，最终运行台账和配置同步。
-当前子任务：提交认证类型校正和运行台账，最终SHA标准部署/健康与GitHub核验。
+当前阶段：实现和本地/隔离/Chrome回归已通过，验收源码镜像已构建；尚未改生产。
+当前子任务：发布前081548两库/uploads备份完成；101同事务勾稽通过并提交，第二验收快照bbbaa95已部署并完成真实Chrome/API/Excel/金额验证；准备正式commit/push及最终SHA部署。
 
 ## 已完成
-- [x] 恢复只读调查证据；初始仅主进度文件本地修改，其他任务不覆盖。
-- [x] 用户确认“这张表”为财务月度数据；用户已确认每天08:30当月汇总、收件人上线后自选并启用；预建停用规则。
-- [x] 读取项目规范/任务治理/权限Skill及消息中心、部署、备份与迁移入口。
+- [x] 基线2ae82d8，仅原进度本地修改，全部保留；不重做已完成历史缺失误判修复。
+- [x] 阅读任务调度/表单平台规范、架构安全/运行入口及现有金额模型；不重新调查历史完整性。
+- [x] 确认复用finance_e10_movement_source，保留现有finance_e10_monthly为内部有效余额，新增订单月度发生额派生视图。
 
 ## 正在进行
-- [x] migration100、财务事件/模块展示、每日汇总Application Command和幂等停用初始化完成。
-- [x] 相关API146、全量API1100、隔离PG订单39/完整迁移与客户20/发生额12通过；Web相关2通过，typecheck/lint通过。
-- [x] 生产调度盘点：原15工作流11启用，新增职责无既有入口；Dispatcher active。
-- [x] build、Contracts29、最终API1100及相关/PG复验通过；两库/uploads备份180156与n8n一致备份/完整性通过。
-- [x] migration100已在生产同一REPEATABLE READ事务完成精确逐行预期勾稽，恢复范围与预期一致；原始/事件/客户映射/授权指纹不变，其余视图定义不变。
-- [x] Web全量422：首轮420通过，两个既有5s超时用例所在22项按15秒预算复验全通过。
-- [x] bd1b15a已提交/安全push github/main，首版deploy all、healthcheck及Repository/Web/API一致。
-- [x] 生产只读预览与同快照当月金额/数量一致；实际API/Excel/Chrome月度和消息中心4项PASS，未写页面配置/未发送。
-- [x] 默认规则初始化created true/false，停用/空对象/版本1保持；真实命令及n8n执行1199成功，NO_ENABLED_RULE入队0。
-- [x] 新FIN-004 active/08:30上海调度注册；原15工作流/11active逐项不变，现16/12。首次1198凭据类型配置失败已修正，仅新节点复用原sshPassword引用，不更改既有凭据；首次失败记录保留。
-- [ ] 最终台账/模板认证类型提交、标准部署与最终GitHub/SHA核验。
+- [x] 两库/uploads开发前备份20261020_182800，已验证备份格式；生产逐订单发生额与余额差异0。
+- [x] 合成PG订单47、完整迁移20、发生额12；API全量1101/最终相关174，Web全量427及最终相关18、Contracts29、Chrome7均通过。
+- [x] 生产101已提交：逐订单/月五金额分量与原发生额一致、逐订单全期间余额差异0、原始/事件/授权指纹及旧视图定义不变；不重新同步。
+- [x] API/Web typecheck/lint/build完成；新view只读生产候选JIT关闭后约2.6秒；镜像源码快照2a523c3完成，正式main仍为2ae82d8。
 
 ## 待完成
-- [x] 相关/全量验证、受限备份及迁移前后同事务勾稽。
-- [x] 生产迁移、首版部署、真实页面/API/Excel及消息中心可选项核验。
-- [ ] 敏感文件检查、仅任务文件commit/push和最终报告。
+- [x] migration101、contracts/权限/后端共用口径、稳定键下钻、前端月份日历/15列、日报。
+- [x] 合成PG/单元/完整回归、跨年/关闭/租户/字段与数据权限/Excel和Chrome合成验证。
+- [ ] 生产同事务精确金额勾稽后前向迁移、正式部署、真实浏览器验收与GitHub同步。
 
 ## 修改文件
-- 本任务20文件见git show bd1b15a --stat：migration100、FinanceMonthlyNotificationService及测试、FinanceModule、消息中心registry/admin/Web及测试、受控CLI/shell/n8n模板、财务说明/任务台账、合成PG脚本与验证记录、主进度。
-- 真实金额/订单/凭据引用及运行验收仅受限Git忽略data目录，不上传。
+- 源码/测试/文档34个任务文件详见受限validation-source.json；进度及合成测试报告另保留。
 
 ## 数据库 Migration
-- FinanceE10LiveOrderDuplicates1722920100000已正式执行；不改历史migration，不重跑全量同步，不改源数据。
+- 已生产执行FinanceE10OrderMonthlyMovements1722920101000；不改历史migration，不重写原始/台账事件，不重复同步入账。
 
 ## 新增或修改测试
-- 覆盖失效历史同号、两个有效同号、部分缺失、跨租户/账套、原审核/指定结束、幂等与回滚。
-- 财务事件可见性、模块管理隔离、模板/规则及前端模块筛选。
+- 将覆盖订单月粒度、净额0仍保留变更、跨月/年、指定结束、分类、权限、下钻、导出和性能。
 
 ## 已运行测试
-测试名称：API相关/全量、隔离PG、Web相关、typecheck/lint。
-结果：通过；Web全量422首轮420通过，两个既有5s超时用例所在22项按15秒预算复验全通过；最近默认模板调整后相关/PG复验已通过；无真实发送。
+测试名称：API1101+最终相关174，Web427+最终相关18，Contracts29，隔离PG47/20/12，Chrome7，typecheck/lint/build。
+结果：全部通过；旧知识库fast-refresh与bundle体积warning保留，新增代码无lint错误。
 
 ## 当前已知问题
-- 生产误排除已修复；两个既有Web多交互用例超过5秒，按15秒复验通过，未修改无关产品或测试。
-- 用户尚未选收件人，按其要求规则保持停用；不把注册/模拟或停用路径验收表述为企业微信已真实送达。
+- 新旧年度金额会因按生效月份重列而变化，必须逐订单/全期间与既有发生额守恒，出现不可解释差异即停止上线。
 
 ## 等待用户确认
-- 无实现阻塞；用户明确上线后自行选择收件人并启用。
+- 无；需求已授权完整实施。既有消息规则仍按用户选择自行启用，不发送测试消息。
 
 ## 下一步
-1. 仅提交本任务最后模板认证类型/台账/脱敏进度并push。
-2. 标准deploy all/check与healthcheck，核验最终Repository/Web/API SHA。
-3. 完整验收报告：data/finance-monthly-repair-release-20261020/ACCEPTANCE.md；完成最终记录。
+1. 实际Chrome7项业务核验、实际Excel下载、两年全维度金额和日报已PASS；正式提交本任务文件并push github/main。
+2. 标准部署正式SHA，复验健康/版本一致及真实月历，然后保存最终本机报告与已完成进度。
+3. 清理本任务临时源码worktree及隔离PG，保留备份和受限财务证据。
 
 ## 恢复执行说明
-先项目规范/Skill→本节→git status/diff→继续未完成项；用户本轮已授权修复/部署/Git同步，上一只读阶段禁止写入不再适用于已授权修复。不得发送未指定收件人的真实通知，不重跑FULL，不提交真实财务数据。
+规范/Skill→本节→git status/diff→受限data/finance-order-monthly-20261020证据；复用已完成工作，金额不明/迁移风险/Git冲突时停止上线并报告；不调查历史完整性、不复制变更算法、不提交真实财务数据或凭据。
+
+已通过：真实Chrome7项；08:30真实调度1234 success/trigger，NO_ENABLED_RULE。金额与既有台账逐项一致，原始及授权未更改；正式Git收尾尚待完成。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：财务月度真实数据误排除修复与消息中心每日汇总上线。
+任务目标：修正完全来源缺失历史订单参与重复号判断的问题，保留源快照/其余校验；注册并部署每天08:30上海当月企业微信汇总，由用户自选收件人并启用。
+当前状态：已完成。
+最后更新时间：2026-10-20 18:23:56（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：正式生产迁移、部署、运行验收与GitHub同步全部完成。
+当前子任务：无；收件人按用户要求在消息中心自行选择并启用。
+
+## 已完成
+- [x] 恢复只读调查证据并保护原进度；用户本轮授权实施，未重跑FULL或读取E10/T+。
+- [x] migration100仅修正公共派生重复号计数；源品项/历史事件/客户映射/授权指纹不变，其余视图定义不变。
+- [x] 生产REPEATABLE READ事务逐行结果与原数据加严格反事实恢复集完全一致，新增范围精确符合调查预期；真实数据仅受限本机留存。
+- [x] API相关146、最终全量1100；隔离PG订单39、完整迁移/客户20、发生额12；Contracts29通过，typecheck/lint/build通过。
+- [x] Web全量422：420首轮通过，两个既有多交互用例超过默认5秒；所在22项按15秒预算复验全部通过，未修改无关产品或测试。
+- [x] 两库/uploads备份180156、归档和SHA校验完成；n8n一致备份完整性ok。
+- [x] 财务事件registry、正确模块展示/筛选/管理隔离、默认模板及停用规则上线；初始化两次不覆盖已有配置。
+- [x] 新FIN-004为唯一新增自动入口：n8n KDOSFinanceMonthlySummaryV1，30 8 * * *，Asia/Shanghai；新候选/启用均1，新增Timer/cron/常驻服务/应用定时器均0。
+- [x] 原15工作流及11active配置逐项不变；现16工作流/12active；原Dispatcher保持运行。首次1198认证类型失败已修正，仅新节点复用原sshPassword，1199实跑成功且因停用规则入队0。
+- [x] 真实只读汇总预览与同快照月度数量/金额一致；最终生产API/服务端Excel/Chrome月度搜索及消息中心配置4项PASS，无真实通知发送。
+- [x] bd1b15a和2ae82d8两个任务提交安全push github/main；未提交真实财务资料、凭据、数据库或业务图片。
+- [x] 最终deploy all/check、healthcheck通过；Repository=Web=API=2ae82d829ff24ab41b04349a15a71cce58c8f084，CONSISTENT；API/Web/Worker/PostgreSQL healthy。
+- [x] 任务创建的隔离PG容器/空socket目录及临时n8n导入文件已清理；受限证据与恢复入口保留。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无。
+
+## 修改文件
+- apps/api/src/migrations/1722920100000-FinanceE10LiveOrderDuplicates.ts
+- apps/api/src/modules/finance/finance-monthly-notification.service.spec.ts
+- apps/api/src/modules/finance/finance-monthly-notification.service.ts
+- apps/api/src/modules/finance/finance.module.ts
+- apps/api/src/modules/notifications/notification-admin.service.spec.ts
+- apps/api/src/modules/notifications/notification-admin.service.ts
+- apps/api/src/modules/notifications/notification-event.registry.spec.ts
+- apps/api/src/modules/notifications/notification-event.registry.ts
+- apps/web/src/modules/notifications/NotificationCenterPage.spec.tsx
+- apps/web/src/modules/notifications/NotificationCenterPage.tsx
+- automation/finance_monthly_summary/workflow.template.json
+- data-operations/e10/push-finance-monthly-summary.sh
+- data-operations/e10/run-finance-monthly-summary.cjs
+- docs/finance-monthly-notifications.md
+- docs/operations/TASK_REGISTRY.md
+- outputs/CODEX_PROGRESS.md
+- outputs/FINANCE_ORDER_POSTGRES_VALIDATION.json
+- outputs/FINANCE_POSTGRES_VALIDATION.json
+- scripts/test-finance-orders-postgres.cjs
+- scripts/test-finance-postgres.cjs
+
+## 数据库 Migration
+- FinanceE10LiveOrderDuplicates1722920100000已正式执行，TypeORM无pending；不改历史migration、不改源行、不补跑全量。
+
+## 新增或修改测试
+- 实际PG验证历史缺失同号、两个有效同号、部分缺失、跨租户/账套、原资格/指定结束、迁移幂等/回滚和下游金额/Excel一致。
+- 汇总时区边界、精确金额、停用无入队、初始化不覆盖、同日并发/重放幂等、失败回滚、模块权限和前端财务筛选。
+
+## 已运行测试
+测试名称：API1100/33既有skip、PG39+20+12、Contracts29、Web422（420首轮+2超时复验）、typecheck/lint/build、实际生产4项、n8n1199、healthcheck和版本一致。
+结果：通过；两个既有Web多交互用例复验使用15秒预算。真实发送未执行，符合用户选择。
+
+## 当前已知问题
+- 用户未选择收件人，规则按其要求保持停用/空对象/版本1；不将注册或停用路径验证冒称企业微信已送达。
+- 尚未观察未来首次08:30定时触发；已证明active调度注册及手工执行成功。原Portal/Vite提示保留。
+
+## 等待用户确认
+- 无开发阻塞；用户下一步在消息中心编辑“财务月度数据每日汇总”、选择组织/角色/员工，保存并启用。
+
+## 下一步
+1. 本任务已完成，无自动后续开发或真实测试消息。
+2. 最终报告：data/finance-monthly-repair-release-20261020/ACCEPTANCE.md（本机受限、Git忽略）。
+3. 本地最终进度记录保留为outputs修改；产品/配置/台账已push github/main，远程SHA已核对为2ae82d829ff24ab41b04349a15a71cce58c8f084。
+
+## 恢复执行说明
+先项目规范/Skill→本节→git status/diff→受限验收；本任务已完成，不恢复旧只读阶段或重复迁移/初始化/同步。最终本机记录不含真实财务证据；收件人由用户自行配置，不自动启用或发送。
 
 ---
 

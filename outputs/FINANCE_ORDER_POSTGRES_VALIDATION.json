@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "scenarios": 39,
+  "scenarios": 47,
   "checks": [
     "verified publication and exact per-item tax arithmetic",
     "multi-line order sum is 0.30, not floating-point or duplicated",
@@ -40,7 +40,15 @@
     "duplicate fix is idempotent and rollback restores only the previous derived policy",
     "same order number in another source account or tenant does not compete across boundaries",
     "daily finance registration creates one audited disabled rule and repeated initialization preserves user configuration",
-    "daily finance summary matches effective monthly amounts and concurrent/replayed jobs enqueue once without delivering"
+    "daily finance summary matches effective monthly amounts and concurrent/replayed jobs enqueue once without delivering",
+    "order-month forward projection preserves original rows and all posted events",
+    "same-month additions and changes consolidate, zero-net history remains and cross-year decreases keep the original order date",
+    "retained delivery dates stay identical to the prior effective monthly metadata",
+    "month filters, dashboard, customer ranking and exact Excel share occurrence amounts",
+    "web calendar context uses occurrence-month bounds and the identical Excel dataset",
+    "all-month totals equal both existing occurrence legs and effective balances for every exact source order",
+    "order drill intersects monthly and ledger scopes and enforces hidden fields, read and export",
+    "new order-month view enforces invoker tenant RLS and monthly export intersects read scope"
   ],
   "productionModified": false
 }

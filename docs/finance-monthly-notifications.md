@@ -4,7 +4,7 @@
 
 消息中心事件为 `finance.monthly.daily_summary`，资源 `finance-e10-monthly`，归属财务中心。系统管理员和财务模块管理员可配置；其他模块管理员不能管理此财务规则。事件和规则的模块显示、模块筛选从正式资源/事件注册表获得。
 
-每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1` 经已有主机SSH凭据调用 `data-operations/e10/push-finance-monthly-summary.sh`，再运行 API 内的 `FinanceMonthlyNotificationService.dispatch` Application Command。汇总当月有效订单数、本币含税金额、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与月度页面相同，不触发ERP读取。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
+每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1` 经已有主机SSH凭据调用 `data-operations/e10/push-finance-monthly-summary.sh`，再运行 API 内的 `FinanceMonthlyNotificationService.dispatch` Application Command。汇总当月发生来源订单数、接单发生额（本币含税）、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与新版15列月度页面相同，均为finance_e10_order_monthly_movements，不触发ERP读取。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
 
 初始化只创建一条停用的“财务月度数据每日汇总”规则，含默认模板、空接收对象，并记录审计。重复初始化保留已有启停状态、模板、接收对象和版本。上线后在“系统管理 → 消息中心”编辑该规则，选择组织、角色或员工、保存，再启用。规则停用时每日任务正常结束但不生成待发送消息。接收对象是管理员明确选择的财务汇总接收范围，不因此授予任何表格读取权限。
 
@@ -15,3 +15,5 @@
 上线前完成两库/uploads备份、n8n一致性备份、合成PG回归和完整迁移重放，再执行标准迁移/部署/健康检查。初始化命令：`data-operations/e10/push-finance-monthly-summary.sh --initialize`；当日补跑：同脚本不传参数。CLI仅输出状态/入队计数，不输出财务内容或凭据。用户选择接收人前只验证停用路径，不能声称真实企业微信已送达。
 
 回滚：只停用新增n8n工作流并回退应用；保留新规则、历史快照和投递审计。视图migration的down仅恢复之前派生规则，不修改真实来源行；恢复旧规则会重新出现已知漏计，需按实际故障决定，不能随应用回滚自动执行。失败补偿为核查n8n失败记录与消息中心、同日手工补跑；跨日不伪造历史汇总。
+
+现有规则配置不自动覆盖，新默认金额标签为“本月接单发生额”；已保存模板如仍写“本币总金额”，管理员启用时可改名，变量orderTotal现表示当月发生额。源更新和推送是不同入口：n8n SSH更新命令为`bash /data/automation/code/work/PMC/knweb/data-operations/e10/sync-finance-movements.sh INCREMENTAL`；每日汇总命令为`bash /data/automation/code/work/PMC/knweb/data-operations/e10/push-finance-monthly-summary.sh`。本次不修改现有更新周期。

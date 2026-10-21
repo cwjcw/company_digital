@@ -72,13 +72,14 @@ export class FinanceMonthlyNotificationService {
     // Match the monthly UI's tenant-local plan without changing the global database configuration.
     await manager.query('SET LOCAL enable_mergejoin = off');
     await manager.query('SET LOCAL enable_nestloop = off');
+    await manager.query('SET LOCAL jit = off');
     const [row] = await manager.query(`WITH selected AS MATERIALIZED (
-        SELECT order_total,department_category FROM finance_e10_monthly WHERE tenant_id=$1 AND year_month=$2
-      ) SELECT count(*)::integer order_count,coalesce(sum(order_total),0)::text order_total,
+        SELECT source_database,source_order_id,order_total,department_category FROM finance_e10_order_monthly_movements WHERE tenant_id=$1 AND year_month=$2
+      ) SELECT count(DISTINCT(source_database,source_order_id))::integer order_count,coalesce(sum(order_total),0)::text order_total,
        (SELECT coalesce(jsonb_agg(d ORDER BY d.department),'[]'::jsonb) FROM (
          SELECT coalesce(department_category,'待分类') department,count(*)::integer orders,sum(order_total)::text amount
          FROM selected GROUP BY department_category) d) departments,
-       (SELECT max(completed_at) FROM finance_e10_runs WHERE tenant_id=$1 AND status='SUCCESS') last_read_at
+       greatest((SELECT max(completed_at) FROM finance_e10_runs WHERE tenant_id=$1 AND status='SUCCESS'),(SELECT max(completed_at) FROM finance_e10_movement_runs WHERE tenant_id=$1 AND status='SUCCESS')) last_read_at
       FROM selected`, [tenant, yearMonth]);
     return {
       yearMonth, orderCount: String(row.order_count), orderTotal: money(row.order_total),

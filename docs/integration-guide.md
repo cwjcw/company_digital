@@ -170,3 +170,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 `/master-plan-reports` 是原计划待完善/工序执行/风险与异常三表的独立入口，同一resource、同一组件/API及各自分页/搜索/排序/导出；正式源表下钻仍需原表权限。事业部汇总及原10行工序汇总的独立Excel继续可用。
 
 跨屏固定目的地为gaps/order-progress/reports；`from=pmc-cockpit`和原顶部filters白名单显式携带scope，gap只允许原9类。contracts的readMpsDashboardNavigation校验数组、长度、UUID、日期类型/周期和原日期范围；非法携带条件阻止目标数据请求。身份/权限/任意SQL/returnTo均忽略，目标后端权限独立校验。没有来源标记的直接打开仍使用A/B原默认值；B从不限日期驾驶舱进入时显式NONE，不改变其直接打开或重置的上海昨天默认。
+
+## 财务月度发生额下钻
+
+月度、大屏、排名、日报现共享finance_e10_order_monthly_movements；旧finance_e10_monthly仅为内部余额。表格平台buildContext支持第三个可信actor参数，列表、候选、打印与Excel均传入。finance-e10-changes允许monthlyRecordId上下文，在后端以月度read/订单号字段/数据范围解析精确来源订单键，再取变更自身授权范围；不接受浏览器传入tenant或SQL。月度列表/导出使用monthFrom/monthTo日历上下文，校验年月格式与年月字段权限；大屏dateFrom/dateTo兼容旧链接但比较发生月，quality为null，异常日志独立授权。详见finance-order-monthly-movements.md。

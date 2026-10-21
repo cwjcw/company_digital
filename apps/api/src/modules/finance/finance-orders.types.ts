@@ -20,9 +20,18 @@ export function orderContext(context:Record<string,unknown>,p:unknown[],resource
  if(context.year!==undefined){const y=Number(context.year);if(!Number.isInteger(y)||y<2025||y>2100)throw new BadRequestException('年度无效');add(String(y),n=>`left(record.year_month,4)=$${n}`);}
  if(context.month!==undefined){const m=Number(context.month);if(!Number.isInteger(m)||m<1||m>12)throw new BadRequestException('月份无效');add(String(m).padStart(2,'0'),n=>`right(record.year_month,2)=$${n}`);}
  for(const [k,op] of [['dateFrom','>='],['dateTo','<=']])if(context[k]){
-  const v=String(context[k]);if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw new BadRequestException('日期无效');add(v,n=>`record.order_date${op}$${n}::date`);
+  const v=String(context[k]);if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw new BadRequestException('日期无效');if(resource==='finance-e10-lines')add(v,n=>`record.order_date${op}$${n}::date`);else add(v.slice(0,7),n=>`record.year_month${op}$${n}`);
  }
  for(const k of ['departmentCategory','salesChannel','customerCode'])if(context[k]){if(context[k]==='待分类'&&k!=='customerCode')clauses.push(`record.${snake(k)} IS NULL`);else add(String(context[k]),n=>`record.${snake(k)}=$${n}`);}
  if(context.salesperson){add(String(context.salesperson),n=>resource==='finance-e10-lines'?`record.salesperson=$${n}`:`record.salespeople ? $${n}`);}
  return clauses.join(' AND ')||'1=1';
+}
+
+/** Month calendars use validated context bounds; text-field comparison operators stay unchanged. */
+export function orderMonthlyContext(c:Record<string,unknown>,p:unknown[],actor?:TableFilterActor){
+ if(Object.keys(c).some(k=>!['monthFrom','monthTo'].includes(k)))throw new BadRequestException('发生月份上下文无效');
+ if(!Object.keys(c).length)return '1=1';
+ if(!actor||!orderField(actor,'finance-e10-monthly','yearMonth'))throw new ForbiddenException('发生月份筛选需要年月读取权限');
+ const out:string[]=[];for(const [key,op]of [['monthFrom','>='],['monthTo','<=']])if(c[key]!==undefined){const v=String(c[key]);if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(v)||Number(v.slice(0,4))<2025||Number(v.slice(0,4))>2100)throw new BadRequestException('发生月份无效');p.push(v);out.push(`record.year_month${op}$${p.length}`);}
+ if(c.monthFrom&&c.monthTo&&String(c.monthFrom)>String(c.monthTo))throw new BadRequestException('发生月份范围无效');return out.join(' AND ')||'1=1';
 }

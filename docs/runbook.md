@@ -191,3 +191,7 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 三张明细保留 `/master-plan-reports`（PMC中心 → 报表 → PMC分析明细报表），独立服务端查询/分页/局部条件/排序/完整Excel。跨屏入口按目标read显示，白名单恢复顶部scope；风险摘要定位正式Gap并明确月计划/基础计划条数。A/B直接进入和重置默认行为不变；B表格相同初始化query不再清空已展开项，实际分页/排序/筛选仍折叠。
 
 只读summary采用同一DashboardService，省略风险明细投影。生产核验需区分合成Chrome、原部署查询对照与独立正式表达式/原始报工SUM；只读验证脚本的复杂表达式探针可在独立事务临时放宽timeout，不改变生产Service的15s保护。私有证据data/pmc-cockpit-rev3c，不提交实际订单/业务行/凭据。相关API/PG、Web、Contracts、三页面Chrome全回归后备份、commit/push、deploy all/check、健康/SHA一致和线上效果核验；无migration/生产权限初始化，A/B PASS，C最终WAITING_MANUAL_ACCEPTANCE，D不启动。
+
+## 财务订单月度发生额发布
+
+迁移101新增finance_e10_order_monthly_movements，月度/大屏/排名/Excel/日报改用该视图；finance_e10_monthly保留内部余额。发布前备份两库/uploads，同一REPEATABLE READ事务逐完整来源键及月份核对现有发生额分量，并与全期间余额对账、核对原始/事件/权限指纹。任何不明差异回滚事务并停止上线；不全量同步、不改历史migration。回退应用保留新只读视图和全部金融历史。调度保持原FIN-003/004入口，规则继续停用等待用户选择收件人。合同及权限/过滤/排序见docs/finance-order-monthly-movements.md。

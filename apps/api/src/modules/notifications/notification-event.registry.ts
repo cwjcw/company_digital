@@ -16,12 +16,12 @@ const definitions = [
     conditionDescription: "每天08:30（上海时间）汇总当月有效订单；仅向已启用规则配置的接收人推送",
     defaultChannel: "WECHAT_WORK",
     messageType: "text",
-    defaultTemplate: "【财务月度数据汇总】\n\n月份：{yearMonth}\n订单数：{orderCount}\n本币总金额：{orderTotal}元\n\n事业部分布：\n{departmentSummary}\n\n汇总时间：{occurredAt}\n最近数据读取：{lastReadAt}",
+    defaultTemplate: "【财务月度数据汇总】\n\n月份：{yearMonth}\n订单数：{orderCount}\n本月接单发生额：{orderTotal}元\n\n事业部分布：\n{departmentSummary}\n\n汇总时间：{occurredAt}\n最近数据读取：{lastReadAt}",
     allowedRecipientRules: [FIXED_USERS_RECIPIENT_RULE],
     templateVariables: [
       { key: "yearMonth", label: "汇总月份" },
       { key: "orderCount", label: "有效订单数" },
-      { key: "orderTotal", label: "本币总金额（元）" },
+      { key: "orderTotal", label: "本月接单发生额（元）" },
       { key: "departmentSummary", label: "事业部分布" },
       { key: "occurredAt", label: "汇总时间" },
       { key: "lastReadAt", label: "最近数据读取时间" }

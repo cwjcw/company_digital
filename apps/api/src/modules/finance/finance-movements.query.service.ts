@@ -12,7 +12,7 @@ export class FinanceMovementsQueryService implements OnModuleInit {
  onModuleInit(){for(const r of financeMovementResources){
   const columns=orderColumns(r),fields=financeMovementFields(r);
   if(r==='finance-e10-changes'){
-   this.registry.register({code:r,table:'finance_e10_changes',columns,expressions:{orderDate:'record.order_date::text'},fields,authorize:a=>{orderAuthorize(a,r);for(const k of ['customerCode','departmentCategory',...(r==='finance-e10-changes'?['effectiveAt']:[])])if(!orderField(a,r,k))throw new ForbiddenException('发生额查询需要日期和归属字段读取权限');},buildScope:(a,p,action)=>this.scope(a,r,p,action),buildContext:(c,p)=>this.context(c,p,r),runQuery:(s,p)=>this.repository.query(s,p),searchColumns:['orderNo','customerCode','itemCode','changeNo'],exportExactNumbers:true,exportNullAsBlank:true});
+   this.registry.register({code:r,table:'finance_e10_changes',columns,expressions:{orderDate:'record.order_date::text'},fields,authorize:a=>{orderAuthorize(a,r);for(const k of ['customerCode','departmentCategory','effectiveAt'])if(!orderField(a,r,k))throw new ForbiddenException('发生额查询需要日期和归属字段读取权限');},buildScope:(a,p,action)=>this.scope(a,r,p,action),buildContext:(c,p,a)=>this.context(c,p,r,a),runQuery:(s,p)=>s.includes('finance_e10_order_monthly_movements')?this.repository.transaction(String(p[0]),async m=>{await m.query('SET LOCAL enable_mergejoin = off');await m.query('SET LOCAL enable_nestloop = off');await m.query('SET LOCAL jit = off');return m.query(s,p);}):this.repository.query(s,p),searchColumns:['orderNo','customerCode','itemCode','changeNo'],exportExactNumbers:true,exportNullAsBlank:true});
   }else{
    this.registry.register({code:r,table:'finance_e10_movement_source',columns,fields,authorize:a=>{orderAuthorize(a,r);for(const k of ['customerCode','departmentCategory'])if(!orderField(a,r,k))throw new ForbiddenException('发生额查询需要日期和归属字段读取权限');},buildScope:(a,p,action)=>this.scope(a,r,p,action),buildContext:(c,p)=>this.context(c,p,r),runQuery:(s,p)=>this.repository.query(s,p),searchColumns:['customerCode','departmentCategory'],listRows:q=>this.report(r,q),printRows:q=>this.report(r,q),candidateVariant:()=>({listRows:undefined}),exportExactNumbers:true,exportNullAsBlank:true});
   }
@@ -21,9 +21,18 @@ export class FinanceMovementsQueryService implements OnModuleInit {
   // Export scope must intersect read scope even for custom aggregate providers.
   const scope=orderScope(a,r,p,'read');return action==='export'?`(${scope}) AND (${orderScope(a,r,p,'export')})`:scope;
  }
- private context(c:Record<string,unknown>,p:unknown[],r:string){
-  if(Object.keys(c).some(k=>!['dateFrom','dateTo','departmentCategory','customerCode'].includes(k)))throw new BadRequestException('发生额查询条件无效');
+ private context(c:Record<string,unknown>,p:unknown[],r:string,actor?:TableFilterActor){
+  if(Object.keys(c).some(k=>!['dateFrom','dateTo','departmentCategory','customerCode',...(r==='finance-e10-changes'?['monthlyRecordId']:[])].includes(k)))throw new BadRequestException('发生额查询条件无效');
   const out:string[]=[];
+  if(c.monthlyRecordId!==undefined){
+   const id=String(c.monthlyRecordId);
+   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new BadRequestException('月度记录标识无效');
+   if(!actor)throw new ForbiddenException('下钻需要可信身份');
+   orderAuthorize(actor,'finance-e10-monthly');
+   if(!orderField(actor,'finance-e10-monthly','orderNo'))throw new ForbiddenException('下钻需要月度订单号读取权限');
+   p.push(id);const parameter=p.length,scope=orderScope(actor,'finance-e10-monthly',p,'read');
+   out.push(`(record.source_database,record.source_order_id) IN (SELECT record.source_database,record.source_order_id FROM finance_e10_order_monthly_movements record WHERE record.tenant_id=$1 AND record.id=$${parameter}::uuid AND (${scope}))`);
+  }
   for(const [key,op] of [['dateFrom','>='],['dateTo','<=']])if(c[key]){
    const v=String(c[key]);if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw new BadRequestException('日期无效');
    p.push(v);const col=r==='finance-e10-changes'?"(record.effective_at AT TIME ZONE 'Asia/Shanghai')::date":'record.occurrence_date';out.push(`${col}${op}$${p.length}::date`);
