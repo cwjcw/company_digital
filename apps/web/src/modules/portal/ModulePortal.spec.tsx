@@ -46,6 +46,12 @@ describe("ModulePortal system access", () => {
     screen.getByRole("button", { name: "进入系统管理" }).click();
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/users" }));
   });
+  it("allows finance capture-only users to enter without granting customer read", () => {
+    const onOpen = vi.fn();
+    renderPortal({ username: "synthetic-capture", permissions: ["finance-customer-mappings:*:create"] }, onOpen);
+    fireEvent.click(screen.getByRole("button", { name: "进入财务中心" }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ path: "/finance" }));
+  });
 
   it("keeps the display name and username but never renders role identity text", () => {
     renderPortal({ username: "admin", displayName: "系统管理员姓名", roles: ["系统管理员"], isSystemAdmin: true });

@@ -224,3 +224,11 @@
 - 6项mps_sync_configs enabled标志原样保留（5true，plan-projections=false）；不得因建设本表停用现有报工或EVENT execution-rollup。
 - 未来同步是第二阶段待用户单独授权的任务，须重新盘点/登记来源、身份、业务键冲突策略、来源批次幂等、防并发、告警/补偿/回滚。本期无可激活的同步入口。
 - 结构/权限/测试/正式发布与人工验收状态见outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md及outputs/KDOS_MPS_REVIEW_DUE_DATE_ACCEPTANCE.md；最终仅WAITING_MANUAL_ACCEPTANCE，不能将代码或隔离测试记作已导入/已同步。
+
+## 财务客户手工新增（2026-10-21，FIN-001保持）
+
+- 新增一次性用户Application命令`POST /finance/customer-mappings/manual`，来源MANUAL；不是同步任务，不新增定时/常驻/内部消费者入口。
+- FIN-001实测用户Timer enabled/active，01:00 Asia/Shanghai，下次2026-10-22 01:00，最近01:00 service Result=success/exit0；现有代码、账户、源日期窗口、锁、失败处理及调度均保持。
+- 原E10 ingest冲突跳过，因此手工客户已存在时不覆盖人工分类、source或version；并发与重放在独立PG验证，不手工触发生产同步。
+- 本项仓库新增调度定义/候选0，生产新增或迁移自动入口0；n8n只读盘点16定义/11active，保留原定义/启停/发布版本。其余主机scheduler审计留受限证据，不将模板数冒充新启用任务。
+- 验证/迁移/正式版本见outputs/FINANCE_CUSTOMER_MANUAL_ACCEPTANCE.md；回退应用保留MANUAL来源及记录，不恢复旧CHECK丢弃手工客户，不擅自停用FIN-001。

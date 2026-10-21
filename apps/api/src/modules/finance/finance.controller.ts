@@ -15,6 +15,10 @@ type FinanceRequest = Request & {
 @Controller("finance/customer-mappings")
 export class FinanceController {
     constructor(private readonly application: FinanceApplicationService, private readonly queries: FinanceQueryService) { }
+    @Post("manual")
+    createManual(@Body() body: Record<string, unknown>, @Req() r: FinanceRequest) {
+        return this.application.createManual(body, this.actor(r));
+    }
     @Get("summary")
     summary(
     @Req()

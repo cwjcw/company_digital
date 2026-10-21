@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { financeCustomerMinimumSourceDate, financeDepartmentOptions, financeSalesChannelOptions, FINANCE_CUSTOMER_RESOURCE as resource } from "@kdos/contracts";
+import { financeCustomerMinimumSourceDate, financeDepartmentOptions, financeSalesChannelOptions, financeCustomerManualFields, financeCustomerCreateFieldAllowed, FINANCE_CUSTOMER_RESOURCE as resource } from "@kdos/contracts";
 import { AuditLog } from "../../entities";
 import type { EntityManager } from "typeorm";
 import { FinanceRepository } from "./finance.repository";
@@ -19,6 +19,11 @@ export function financeClassification(value: unknown, field: string) {
     if (typeof value !== "string" || !options.some(o => o.value === value))
         throw new BadRequestException(`${field === "departmentCategory" ? "部门类别" : "内外区分"}选项无效`);
     return value;
+}
+export function financeCustomerCode(value: unknown): string {
+    if (typeof value !== "string" || !value.trim() || value.trim().length > 128)
+        throw new BadRequestException("客户编号必填，最长128字符");
+    return value.trim();
 }
 export function financeSourceDate(value: unknown): string | null {
     if (value == null) return null;
@@ -39,9 +44,7 @@ export function normalizeFinanceRows(rows: unknown, source: string): {
     for (const raw of rows) {
         if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some(k => !["customerCode", ...(source === "INITIAL_IMPORT" ? ["departmentCategory", "salesChannel"] : ["createdAtSource", "modifiedAtSource"])].includes(k)))
             throw new BadRequestException("客户导入包含无效或未授权字段");
-        if (typeof raw.customerCode !== "string" || !raw.customerCode.trim() || raw.customerCode.trim().length > 128)
-            throw new BadRequestException("客户编号应为非空字符串，最长128字符");
-        const row = { customerCode: raw.customerCode.trim(), departmentCategory: source === "INITIAL_IMPORT" ? financeClassification(raw.departmentCategory, "departmentCategory") : null, salesChannel: source === "INITIAL_IMPORT" ? financeClassification(raw.salesChannel, "salesChannel") : null };
+        const row = { customerCode: financeCustomerCode(raw.customerCode), departmentCategory: source === "INITIAL_IMPORT" ? financeClassification(raw.departmentCategory, "departmentCategory") : null, salesChannel: source === "INITIAL_IMPORT" ? financeClassification(raw.salesChannel, "salesChannel") : null };
         if (source === "E10_SYNC") {
             const createdAtSource = financeSourceDate(raw.createdAtSource);
             const modifiedAtSource = financeSourceDate(raw.modifiedAtSource);
@@ -58,6 +61,32 @@ export function normalizeFinanceRows(rows: unknown, source: string): {
 @Injectable()
 export class FinanceApplicationService {
     constructor(private readonly repository: FinanceRepository) { }
+    async createManual(input: Record<string, unknown>, actor: FinanceActor) {
+        financeAuthorize(actor, "create");
+        if (!actor.userId || !actor.tenantId) throw new ForbiddenException("新增客户必须关联有效租户和操作人");
+        if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !financeCustomerManualFields.some(field => field === key)))
+            throw new BadRequestException("新增客户请求包含无效或未授权字段");
+        for (const field of new Set(["customerCode", ...Object.keys(input)])) {
+            if (!financeCustomerCreateFieldAllowed(actor, field)) throw new ForbiddenException(`当前权限组不能填写${field === "customerCode" ? "客户编号" : field === "departmentCategory" ? "部门类别" : "内外区分"}`);
+        }
+        const values = { customerCode: financeCustomerCode(input.customerCode), departmentCategory: financeClassification(input.departmentCategory, "departmentCategory"), salesChannel: financeClassification(input.salesChannel, "salesChannel") };
+        return this.repository.transaction(actor.tenantId, async m => {
+            const [operator] = await m.query("SELECT id FROM users WHERE tenant_id=$1 AND id=$2::uuid AND enabled", [actor.tenantId, actor.userId]);
+            if (!operator) throw new ForbiddenException("操作人无效或不属于当前租户");
+            const params: unknown[] = [actor.tenantId, values.customerCode, values.departmentCategory, values.salesChannel, actor.userId];
+            const scope = financeScope(actor, params, "create");
+            const [candidate] = await m.query(`SELECT record.id FROM (SELECT uuidv7() id,$1::varchar tenant_id,$2::varchar customer_code,
+                $3::varchar department_category,$4::varchar sales_channel,$5::uuid created_by,$5::uuid updated_by,
+                now() created_at,now() updated_at,1 version) record WHERE ${scope}`, params);
+            if (!candidate) throw new ForbiddenException("当前数据范围不允许新增此客户，请检查客户编号和分类");
+            const [saved] = await m.query(`INSERT INTO finance_customer_mappings(id,tenant_id,customer_code,department_category,sales_channel,source,created_by,updated_by)
+                VALUES($1::uuid,$2,$3,$4,$5,'MANUAL',$6::uuid,$6::uuid)
+                ON CONFLICT(tenant_id,customer_code) DO NOTHING RETURNING id,version`, [candidate.id, actor.tenantId, values.customerCode, values.departmentCategory, values.salesChannel, actor.userId]);
+            if (!saved) throw new ConflictException({ code: "FINANCE_CUSTOMER_EXISTS", message: "客户编号已存在，请返回列表修改已有客户分类" });
+            await this.audit(m, actor, saved.id, "finance.customer.created", null, { ...values, source: "MANUAL" });
+            return saved as { id: string; version: number };
+        });
+    }
     async update(id: string, input: Record<string, unknown>, actor: FinanceActor) {
         financeAuthorize(actor, "update");
         if (!input || typeof input !== "object" || Array.isArray(input))

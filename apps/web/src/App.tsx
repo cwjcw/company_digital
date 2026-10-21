@@ -205,7 +205,7 @@ function Shell({ logout }: { logout: () => void }) {
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
     finance: [
-      ...(hasSessionResourcePermission(user,"finance-customer-mappings","read")?[{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}]:[]),
+      ...((hasSessionResourcePermission(user,"finance-customer-mappings","read")||hasSessionResourcePermission(user,"finance-customer-mappings","create"))?[{key:"finance-base-data",label:"基础数据",icon:<FolderOpenOutlined/>,children:[{key:"/finance/base-data/customer-mappings",label:"客户对应表",icon:<DatabaseOutlined/>}]}]:[]),
       {key:'finance-orders',label:'销售订单统计',icon:<FolderOpenOutlined/>,children:[
         ...([['finance-e10-lines','/finance/orders/system-export','系统导出'],['finance-e10-monthly','/finance/orders/monthly','月度数据'],['finance-e10-dashboard','/finance/orders/dashboard','统计大屏'],['finance-e10-movements','/finance/orders/movements','订单金额跨月变更统计'],['finance-e10-changes','/finance/orders/changes','订单变更明细']] as const).filter(([r])=>r==='finance-e10-movements'?['finance-e10-movements','finance-e10-movement-departments','finance-e10-movement-customers'].some(code=>hasSessionResourcePermission(user,code,'read')):hasSessionResourcePermission(user,r,'read')).map(([,key,label])=>({key,label,icon:<DatabaseOutlined/>}))
       ]}
@@ -374,7 +374,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/data-center/inbound" element={<FinishedGoodsInboundPage />} />
           <Route path="/data-center/outbound" element={<FinishedGoodsOutboundPage />} />
           <Route path="/data-center/supply-chain/suppliers" element={<SupplierListPage />} />
-          <Route path="/finance" element={<Navigate to={hasSessionResourcePermission(user,'finance-customer-mappings','read')?'/finance/base-data/customer-mappings':hasSessionResourcePermission(user,'finance-e10-dashboard','read')?'/finance/orders/dashboard':hasSessionResourcePermission(user,'finance-e10-monthly','read')?'/finance/orders/monthly':hasSessionResourcePermission(user,'finance-e10-lines','read')?'/finance/orders/system-export':hasSessionResourcePermission(user,'finance-e10-changes','read')?'/finance/orders/changes':'/finance/orders/movements'} replace/>}/>
+          <Route path="/finance" element={<Navigate to={(hasSessionResourcePermission(user,'finance-customer-mappings','read')||hasSessionResourcePermission(user,'finance-customer-mappings','create'))?'/finance/base-data/customer-mappings':hasSessionResourcePermission(user,'finance-e10-dashboard','read')?'/finance/orders/dashboard':hasSessionResourcePermission(user,'finance-e10-monthly','read')?'/finance/orders/monthly':hasSessionResourcePermission(user,'finance-e10-lines','read')?'/finance/orders/system-export':hasSessionResourcePermission(user,'finance-e10-changes','read')?'/finance/orders/changes':'/finance/orders/movements'} replace/>}/>
           <Route path="/finance/base-data/customer-mappings" element={<FinanceCustomerMappings/>}/>
           <Route path="/finance/orders/system-export" element={<FinanceOrderTable/>}/>
           <Route path="/finance/orders/monthly" element={<FinanceOrderTable monthly/>}/>

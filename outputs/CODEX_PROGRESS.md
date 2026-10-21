@@ -1,6 +1,62 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：财务客户对应表手动新增。
+任务目标：顶部新增按钮/三字段弹窗、独立手工创建API/权限/范围/唯一键/审计、前向MANUAL来源迁移、同步分类保护、API/Web/隔离PG/Excel/Chrome/正式部署和安全GitHub同步。
+当前状态：本地实现/测试完成，准备安全提交及发布。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
+最后更新时间：2026-10-21 18:28（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：备份/基线/本地与Chrome隔离验证完成，准备迁移上线。
+当前子任务：沿用财务独立字典/资源/事务审计和KdosDataTable，不改PMC映射/金额视图或调度。
+
+## 已完成
+- [x] 规范、架构、安全、两项Skill、任务台账及现有财务代码/权限/同步检查。
+- [x] 起始HEAD 4bfced6c7ff51b67b30adc539d8c37d3aa4fde46；六份前任务outputs改动完整保留，后续只提交本任务及新进度段。
+- [x] 实测财务客户同步Timer enabled/active，每日01:00 Asia/Shanghai，最近01:00成功；不改调度。
+
+## 正在进行
+- [x] 145417开发前两库/uploads备份/格式/SHA/600完成，正式客户147/run10/PMC映射3及接收5、8视图/6flags基线完成。
+
+## 待完成
+- [x] 新前向migration只扩展finance_customer_mappings.source CHECK为INITIAL_IMPORT/E10_SYNC/MANUAL；不改sync_runs来源或旧migration。
+- [x] 独立POST /finance/customer-mappings/manual，trim/字典/服务端身份/租户/创建字段与范围/唯一键和事务审计。
+- [x] 新增弹窗、持久错误/重复返回列表、成功刷新表格/总数；沿用字典与原分类修改。
+- [x] API/Web/隔离PG及Excel回归；生产Chrome无持久测试客户，新增成功路径在隔离环境验证。
+- [ ] 发布前备份/迁移/clean验证/正式版本all/check/Chrome/安全commit-push。
+
+## 修改文件
+- finance应用/权限/controller、FinanceCustomerMappings及测试、共享finance契约、App/Portal仅填报入口及测试、新migration、隔离PG/HTTP/Chrome测试、客户同步README/任务台账/验收报告。
+
+## 数据库 Migration
+- 计划1722920103000-FinanceCustomerManualSource.ts；只安全扩展现有source CHECK，不改历史migration，不改已有记录。
+
+## 新增或修改测试
+- API finance-manual.spec、Web创建/错误/权限/刷新/Portal填报回归；scripts/test-finance-customer-manual-postgres.cjs含受保护隔离数据库及真实Chrome。
+
+## 已运行测试
+- API118套/1153项通过/33skip；Web59文件/444项、contracts31；PG/HTTP10组+真实Chrome第11组通过；构建/lint/typecheck通过。
+
+## 当前已知问题
+- 客户编号是只读身份字段，仅新增时填写；沿用平台创建字段策略（可见字段可填写、无查看的ADD_ONLY仅允许NONE填报范围）。字段隐藏不允许伪造写入。
+- 财务无组织事实，不猜PMC/事业部ID；未知CUSTOM条件整组拒绝。
+
+## 等待用户确认
+- 无，开发/迁移/部署/安全GitHub同步已授权。
+
+## 下一步
+1. 检查git远程无冲突并仅提交本任务文件/新进度段，保留原outputs差异。
+2. 构建API迁移镜像，标准migrate.sh发布前备份+唯一新迁移，标准all/check和生产Chrome无持久测试客户。
+3. 比对PMC/视图/客户/flags及调度保护，正常push并核验版本，最终补记和清理隔离环境。
+
+## 恢复执行说明
+规范→Skill→本文件→git status/diff→下一步；受限证据data/finance-customer-manual-20261021。不要重做此前PMC评审或财务附件任务，不覆盖其outputs改动，不改PMC/金额/调度，不向真实接收人发测试消息。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-001 PMC评审交期表第一期建设。
 任务目标：新建空白正式表/历史、只读页面/独立权限/筛选/稳定排序/完整导出、未来变更领域及Application隔离测试；正式部署后WAITING_MANUAL_ACCEPTANCE。
 当前状态：进行中。本地实现及回归完成：API1135通过/33skip、Web439通过、contracts31通过、隔离PG19组通过；API/Web构建、lint/typecheck通过。clean验证版c998c27f2282ab48f3bb2414cfed21eeed36b961 API镜像已完成，仅1条新migration待执行，标准143301备份与唯一前向迁移成功，两表COUNT=0/FORCE RLS/结构核验通过，clean验证版deploy all/check和真实Chrome通过，已仅34任务文件安全commit 76acf4c635c91a14872f06614f0fe43d08f949bd，30个实现/测试与验证版逐字节一致；正式all/check/Chrome已通过，功能版本76acf4c；最终旧业务基线归因完成，记录补充后统一最终发布版本并同步GitHub。
