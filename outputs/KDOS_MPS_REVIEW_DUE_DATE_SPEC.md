@@ -1,3 +1,17 @@
+# 人工编辑增量规则（KDOS-MPS-REVIEW-DUE-EDIT-001，2026-10-21）
+
+本节为当前规则，替代下文第一期“六字段全部只读/业务键不可改名”的限制；第一期原文作为历史设计保留。当前6业务字段orderNumber、batchNumber、drawingNumber、inspectionTimeName、inboundDate、quantity均可在资源update、字段read/update和read∩update数据范围授权下人工编辑；4统计字段及内部ID/审计仍只读。不开普通新增/删除/导入/批量同步。
+
+人工编辑专用PATCH `/master-plan-system/review-due-dates/:id/manual-edit`，按不可变ID、expectedVersion、事务行锁及commandId幂等定位；组合修改同事务写当前行/日期事件/审计/收据。日期变化写MANUAL事件并加1，日期相同和其他字段不计次。当前业务键仍租户内唯一，冲突409且不合并。前后数据范围均校验，权限403、版本409，网页失败保持原值/明确错误/刷新重试；保存后刷新行与历史，不采纳旧请求覆盖新结果。数量为精确十进制文本/Decimal/numeric。
+
+新增前向迁移1722920104000：source_order_number/source_batch_number/source_drawing_number永久保存初始来源键，由INSERT触发器初始化且不可变，另有tenant+来源三键唯一约束。当前三业务字段可变，ID/历史FK/初始来源不变；旧RLS/历史不可改删/计数一致性守卫保留。该来源身份不进入页面字段、权限字段、筛选或Excel，不虚构division。
+
+未来日常来源观测只按初始来源键找原ID，不以人工改后的当前三键判定旧来源消失，也不自动恢复当前业务键。无法证明的新来源键默认409人工核实；不得自动合并或创建重复记录。内部allowInitialCreate仅供经明确授权的首次建立，未来日常同步不得启用；本轮无导入/同步HTTP、调度或适配器。真正来源键变化须后续另行受控身份映射及审计，不采用猜测匹配。
+
+新迁移不执行破坏身份的down；采用前向修复。当前生产两正式表始终0/0，不导入1139条、不改生产授权组、不动旧业务/6flags/现有调度。完整实现、验证和发布证据见KDOS_MPS_REVIEW_DUE_EDIT_ACCEPTANCE.md，交付状态WAITING_MANUAL_ACCEPTANCE。
+
+---
+
 # KDOS-MPS-REVIEW-DUE-001 评审交期表第一期
 
 任务边界：结构、只读页面、查询/权限/导出、内部变更命令及隔离测试。本期不导入用户1139条Excel、不首次/每日同步、不创建n8n、不修改ERP/原业务或6项同步flags。正式主表与历史表均保持0条。交付状态为WAITING_MANUAL_ACCEPTANCE，由用户人工验收，不能以自动测试替代。

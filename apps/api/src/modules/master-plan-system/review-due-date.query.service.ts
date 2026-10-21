@@ -5,6 +5,7 @@ import { buildDataScopeClause } from '../../common/filtering/data-scope';
 import { TableFilterRegistry, registeredOrderBy, type TableFilterActor, type TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { TablePrintService } from '../../common/printing/table-print.service';
+import { hasMasterPlanPermission } from './master-plan.types';
 import { normalizeKdosPageSize } from '../../common/pagination';
 
 export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
@@ -12,7 +13,7 @@ const searchFields=['orderNumber','batchNumber','drawingNumber','inspectionTimeN
 const admin=(a:TableFilterActor)=>a.isSystemAdmin||a.permissions.includes('*')||a.moduleAdminCodes?.includes('planning');
 const readable=(a:TableFilterActor,k:string)=>!!admin(a)||a.permissions.includes(`${RESOURCE}:${k}:read`);
 export function reviewDueAuthorize(a:TableFilterActor,action='read') {
-  if (!['read','export'].includes(action)||(!admin(a)&&!a.permissions.includes(`${RESOURCE}:*:${action}`))) throw new ForbiddenException('当前权限组没有评审交期表'+(action==='export'?'导出':'查看')+'权限');
+  if (!['read','export','update'].includes(action)||(!admin(a)&&!a.permissions.includes(`${RESOURCE}:*:${action}`))) throw new ForbiddenException('当前权限组没有评审交期表'+(action==='export'?'导出':'查看')+'权限');
 }
 /** Unknown organization/field rules invalidate the whole CUSTOM alternative; never drop them. */
 export function reviewDueScope(a:TableFilterActor,p:unknown[],action='read') {
@@ -62,9 +63,11 @@ export class ReviewDueDateQueryService implements OnModuleInit {
     const source=this.registry.get(RESOURCE),order=registeredOrderBy(source,sort?expression(reviewDueColumns[sort]):undefined,q.sortOrder,k=>readable(q.actor,k));
     const work=async(m:EntityManager)=>{
       const [{n}]=await m.query(`SELECT count(*)::integer n FROM mps_review_due_dates record WHERE ${where.join(' AND ')}`,p);
-      const params=[...p,q.pageSize,(q.page-1)*q.pageSize];
+      const params=[...p];
+      const updateScope=hasMasterPlanPermission(q.actor as import('./master-plan.types').MasterPlanActor,RESOURCE,'update')?reviewDueScope(q.actor,params,'update'):'1=0';
+      params.push(q.pageSize,(q.page-1)*q.pageSize);
       const selected=keys.map(k=>`record.${reviewDueColumns[k]}${reviewDueDateFields.find(f=>f.key===k)?.type==='date'?'::text':''} "${k}"`);
-      const rows=await m.query(`SELECT record.id,record.version,${selected.join(',')} FROM mps_review_due_dates record WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
+      const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",${selected.join(',')} FROM mps_review_due_dates record WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
       return {rows,total:Number(n),page:q.page,pageSize:q.pageSize,visibleFields:keys};
     };
     return manager?work(manager):this.read(q.actor.tenantId,work);

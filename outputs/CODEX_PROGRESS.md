@@ -1,6 +1,63 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-EDIT-001 评审交期表开放6个业务字段人工编辑。
+任务目标：专用ID定位人工编辑、字段/资源/范围权限、版本/锁/幂等/审计、原始来源身份保留、新前向迁移、隔离测试及正式空表上线。
+当前状态：本地开发/测试完成，准备正式迁移、部署与线上验收。
+最后更新时间：2026-10-21（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：本地验证完成，发布前备份与Git安全检查。
+当前子任务：仅提交19个任务文件，再用该SHA执行唯一迁移与标准部署；保留原7份outputs差异。
+
+## 已完成
+- [x] 用户新规则、项目规范、表单/任务Skill、原进度及Git状态核对；起始SHA a86b321e7df27cb78f5a14b6c74e37ec3402c4cf。
+- [x] 原7份outputs未提交运行补记保留；仅提交本任务文件/新进度段。
+- [x] 方案：初始来源三字段独立不可变，当前业务键允许专用人工命令修改；未来observe按来源键找原ID，未知来源需人工核实，不自动创建。
+
+## 正在进行
+- [x] 开发前两库/uploads备份、SHA/格式验证完成；生产0/0、6flags、9项权限/PMC映射表及8财务视图只读基线已保存。
+- [x] 新迁移/稳定来源三字段、专用ID人工命令、字段及范围/锁/版本/幂等/审计、Kdos编辑模式与精确文本单元格已实现。
+- [x] API聚焦26、Web聚焦12、contracts31、隔离PG29组通过。真实HTTP拒绝通用写入路径通过；Chrome六字段/精度/改期/历史/409刷新重试已通过（PG+HTTP+Chrome及非空旧结构升级共32组）。
+
+## 待完成
+- [x] API/Web/contracts/隔离PostgreSQL/Chrome、lint/typecheck/build通过。
+- [ ] 发布前备份、前向迁移、标准all/check、生产Chrome/0行/保护复核。
+- [ ] 安全commit/push，最终WAITING_MANUAL_ACCEPTANCE，不导入/同步。
+
+## 修改文件
+- contracts注册/测试、API前向迁移及专用人工命令/读模型/权限/通用PATCH封闭及测试、Web编辑及权限测试、隔离PG+HTTP+Chrome脚本和3份文档；共19文件。
+
+## 数据库 Migration
+- 计划1722920104000-MpsReviewDueDateManualEdit.ts；不改旧migration。
+
+## 新增或修改测试
+- 待记录；所有业务写入测试只在隔离PG。
+
+## 已运行测试
+- API全套1165通过/33skip（119套）；Web聚焦12通过，contracts31通过，隔离PG+HTTP+Chrome及非空升级32组通过；API/Web构建、API/Web typecheck、API/Web lint通过（仅原ModulePortal快刷warning）。
+- Web全量450项均已有通过证据：447直接通过，3个超时用例分批复验；其中连续6次导出单项CLI 15秒预算7.76秒通过（不改全局配置/断言），详见验收报告。
+
+## 当前已知问题
+- 非空旧结构升级的延迟触发器/ALTER顺序问题已修复，隔离升级通过；生产尚未迁移，仍0/0。
+- 既有六次导出测试需较长单项执行预算，已用CLI 15秒复验通过；未修改测试文件/全局配置。
+
+## 等待用户确认
+- 最终人工验收；开发部署已授权，无需重复确认。
+
+## 下一步
+1. 发布前备份、仅本任务安全commit，原outputs差异不混入。
+2. 构建API镜像并只执行唯一前向迁移，部署all/check。
+3. 生产Chrome只读/空编辑/字段配置取消/Excel，0/0及权限/flags保护复核后正常push，最终WAITING_MANUAL_ACCEPTANCE。
+
+## 恢复执行说明
+按规范→Skill→本进度→git status/diff恢复。禁止重新实现既有第一期。仅本任务必要结构DDL；不插生产演示/回滚测试数据、不导入1139条、不触发ERP/Excel/新任务、不改6flags或生产授权组。证据data/mps-review-due-edit-20261021。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：财务客户对应表手动新增。
 任务目标：顶部新增按钮/三字段弹窗、独立手工创建API/权限/范围/唯一键/审计、前向MANUAL来源迁移、同步分类保护、API/Web/隔离PG/Excel/Chrome/正式部署和安全GitHub同步。
 当前状态：bbdba6d已正式all/check一致（含客户导出交集修复），生产数据/PMC/视图/flags/调度不变。生产Chrome发现先空填校验再补填保存未发请求；正在修复校验/提交状态竞争（同步ref防重、校验期间不禁用表单、过期校验重试、验证后trim），完整纠错真实Chrome11组和Web444全套/构建/typecheck/lint已通过。GitHub未推送，正在提交并部署最终前端修复后复验。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。

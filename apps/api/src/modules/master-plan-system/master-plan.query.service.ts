@@ -31,7 +31,7 @@ export class MasterPlanQueryService {
     const canCreate = resource.create && hasMasterPlanPermission(actor, code, "create");
     return {
       resource: resource.code,
-      fields: fieldsFor(resource).filter((field) => this.visible(actor, code, field.key)),
+      fields: fieldsFor(resource).filter((field) => this.visible(actor, code, field.key)).map(field => code === "mps-review-due-dates" ? {...field, editable: field.editable && hasMasterPlanPermission(actor,code,"update") && hasMasterPlanFieldPermission(actor,code,field.key,"update")} : field),
       createFields: canCreate ? fieldsFor(resource).filter((field) => (field.editable || (field as { createOnly?: boolean }).createOnly) && this.visible(actor, code, field.key)) : [],
       actions: {
         create: canCreate,

@@ -148,6 +148,7 @@ export class MasterPlanApplicationService {
   }
 
   async update(code: string, id: string, body: Record<string, unknown>, actor: MasterPlanActor) {
+    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期人工编辑必须使用专用命令，禁止通用修改路径");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "update")) throw new ForbiddenException("当前权限组没有该表修改权限");
     await this.enforceShippingWindow(resource, actor);
