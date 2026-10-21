@@ -1,6 +1,6 @@
 # KDOS-MPS-REVIEW-DUE-001 第一期验收记录
 
-状态：**WAITING_MANUAL_ACCEPTANCE**。实现、本地及生产验证版验收已完成；正式Commit版本发布与GitHub同步结果在最终部署补记中记录，不自动判定整体PASS。
+状态：**WAITING_MANUAL_ACCEPTANCE**。实现、本地及正式生产验收已完成；版本和GitHub结果见部署记录，不自动判定整体PASS。
 
 起始SHA：d80a768677c05b2e3b671362461c0718dbdaad74。
 
@@ -60,7 +60,7 @@
 
 134630开发前两库/uploads备份完成并校验。发布前标准migrate.sh完成143301两库/uploads备份及格式/SHA校验，文件权限600；仅1条pending迁移MpsReviewDueDates1722920102000已成功前向执行。clean验证SHA c998c27f2282ab48f3bb2414cfed21eeed36b961，源码与本地30个实现/测试文件逐字节一致。
 
-生产初始两新表不存在。14项旧业务表指纹/6flags保存；开发期间3条真实Web报工新增（3175→3178），原EVENT execution-rollup成功3次并更新对应工序派生内容（19392行未变），均发生于本任务上线前。其余12项旧业务表及6flags不变。不停用正常业务，不宣称全开发时段数据库完全静止。
+生产初始两新表不存在。14项旧业务表指纹/6flags保存；开发期间3条真实Web报工新增（3175→3178），原EVENT execution-rollup成功3次并更新对应工序派生内容（19392行未变），均发生于本任务上线前。完整开发时段的其他变化见下表；6flags不变。不停用正常业务，不宣称全开发时段数据库完全静止。
 
 6flags：base-to-weekly=true、erp-orders=true、execution-rollup=true、inbound-allocation=true、plan-projections=false、shipping-to-base=true。无新任务、无同步入口、无Excel导入。n8n16定义/11active前后逐字段相同，包含nodes/connections/settings/versionId/activeVersionId。
 
@@ -86,3 +86,22 @@
 修改：contracts/index；MPS config/module/query/filter-sources/types/spreadsheet/controller；表格registry/print/export文件名可选hook；App路由、KdosDataTable、table-export及exactNumeric输入；registry测试装配、HR/监督两处测试稳定性；TASK_REGISTRY、共享CODEX_PROGRESS。共34个本任务文件。其余4份前任务报告改动完整保留，不纳入本提交；共享进度只提交新任务段，不提交旧任务未提交补记。
 
 后续每日同步、1139条导入、首次同步均未执行、未注册。第一期完成后停止，等待人工验收。正式SHA及远程结果见部署补记。
+
+## 最终保护基线与部署记录
+
+功能提交：`76acf4c635c91a14872f06614f0fe43d08f949bd`，34个任务文件。该版本标准all/check、真实Chrome全流程及生产结构/零记录复核均完成；源码/测试与clean验证版一致。局域网入口：http://192.168.1.249:15172/master-plan-system/mps-review-due-dates 。
+
+整个开发到14:47最终快照期间，14项保护表中10项内容指纹完全相同，以下4项为已核实的既有业务运行，不能报告为“全部无变化”：
+
+|表|开发前|最终快照|差异证据|
+|---|---:|---:|---|
+|mps_process_reports|3175|3178|14:01员工Web新增3条；审计来源Web|
+|mps_weekly_process_plans|19392|19392|对应3次既有EVENT execution-rollup派生更新，非本任务写入|
+|finished_goods_inbound|90373|90405|既有投影服务14:05处理19条、14:35处理13条，T+来源/时间/日志吻合|
+|mps_erp_order_lines|2212|2212|14:44:01原erp-orders SCHEDULED SUCCESS，sync_count=72，表72条更新时间吻合|
+
+其中迁移备份短窗口只包含入库13条变化，其余13表/6flags不变。ERP后续72条更新是既有定时功能保持运行，不是本任务手工触发/新同步。本任务没有调用同步命令，没有旧业务INSERT/UPDATE/DELETE或修改任何flags；迁移只新建两空表。新主表0、历史0，部署后仍为0。
+
+6flags前后完全相同；n8n16条定义、11active及已发布版本完全相同。未重启/修改n8n，未新增/停用/迁移任务或Dispatcher，未执行1139条导入或第二阶段。保留受限证据/备份，临时测试环境在交付后清理。
+
+GitHub同步采用github/main正常fast-forward push，不force；最终发布SHA以本报告末尾部署补记和实际deploy.sh check为准。报告的后续实际运行补记留在本机outputs，不将其混入其他任务文件。

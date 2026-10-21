@@ -3,8 +3,8 @@
 ## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-001 PMC评审交期表第一期建设。
 任务目标：新建空白正式表/历史、只读页面/独立权限/筛选/稳定排序/完整导出、未来变更领域及Application隔离测试；正式部署后WAITING_MANUAL_ACCEPTANCE。
-当前状态：进行中。本地实现及回归完成：API1135通过/33skip、Web439通过、contracts31通过、隔离PG19组通过；API/Web构建、lint/typecheck通过。clean验证版c998c27f2282ab48f3bb2414cfed21eeed36b961 API镜像已完成，仅1条新migration待执行，标准143301备份与唯一前向迁移成功，两表COUNT=0/FORCE RLS/结构核验通过，clean验证版deploy all/check和真实Chrome通过，正在安全正式commit/部署及GitHub同步。
-最后更新时间：2026-10-21 14:43:30（Asia/Shanghai）。
+当前状态：进行中。本地实现及回归完成：API1135通过/33skip、Web439通过、contracts31通过、隔离PG19组通过；API/Web构建、lint/typecheck通过。clean验证版c998c27f2282ab48f3bb2414cfed21eeed36b961 API镜像已完成，仅1条新migration待执行，标准143301备份与唯一前向迁移成功，两表COUNT=0/FORCE RLS/结构核验通过，clean验证版deploy all/check和真实Chrome通过，已仅34任务文件安全commit 76acf4c635c91a14872f06614f0fe43d08f949bd，30个实现/测试与验证版逐字节一致；正式all/check/Chrome已通过，功能版本76acf4c；最终旧业务基线归因完成，记录补充后统一最终发布版本并同步GitHub。
+最后更新时间：2026-10-21 14:49:00（Asia/Shanghai）。
 
 ## 当前阶段
 当前阶段：验证版上线验收完成，正式commit/部署/同步闭环。
@@ -44,14 +44,14 @@
 - API全量1135通过/33skip；Web全量439通过；contracts31通过；PG19组通过；API构建/lint、Web typecheck/lint通过（保留既有ModulePortal快刷warning）。证据data/mps-review-due-20261021。
 
 ## 当前已知问题
-- 无业务阻塞；主表无组织事实，不猜division；已整组拒绝无法验证CUSTOM。开发期间3条真实Web报工及3次EVENT execution-rollup（3175→3178、工序19392行派生变化）；发布备份窗口14:35既有finished-goods-inbound-v1服务完成13条T+入库投影（90392→90405），journal精确匹配records13，其他13表短窗口不变。6flags不变。全部为既有正常运行，本任务无旧业务写入。
+- 无业务阻塞；主表无组织事实，不猜division；已整组拒绝无法验证CUSTOM。开发期间3条真实Web报工及3次EVENT execution-rollup（3175→3178、工序19392行派生变化）；发布备份窗口14:35既有finished-goods-inbound-v1服务完成13条T+入库投影（90392→90405），journal精确匹配records13，其他13表短窗口不变。全开发时段另有14:05入库19条、14:44既有erp-orders SCHEDULED成功72条T+更新，4项表内容变化/10项完全不变。6flags不变。全部为既有正常运行，本任务无旧业务写入。
 - 日期不能为空的正式记录使用ISO业务日期，变更天数按日历日差；数量任意精确numeric/Decimal，不引入浮点或自动合并。
 
 ## 等待用户确认
 - 无；完成后等待人工验收，不开展第二阶段。
 
 ## 下一步
-1. 仅34任务文件安全commit，进度仅提交新段，保留4份原报告及旧进度未提交补记。
+1. 已完成安全commit（只提交新进度段）；继续正式SHA部署与Chrome复核。
 2. 正式SHA deploy all/check/Chrome复核、GitHub main正常push并验证远程。
 3. 最终零记录/flags/调度复核、报告记录SHA；清理本任务验证worktree/隔离PG，WAITING_MANUAL_ACCEPTANCE后停止。
 
