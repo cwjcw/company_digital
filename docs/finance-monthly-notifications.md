@@ -4,16 +4,26 @@
 
 消息中心事件为 `finance.monthly.daily_summary`，资源 `finance-e10-monthly`，归属财务中心。系统管理员和财务模块管理员可配置；其他模块管理员不能管理此财务规则。事件和规则的模块显示、模块筛选从正式资源/事件注册表获得。
 
-每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1` 经已有主机SSH凭据调用 `data-operations/e10/push-finance-monthly-summary.sh`，再运行 API 内的 `FinanceMonthlyNotificationService.dispatch` Application Command。汇总当月发生来源订单数、接单发生额（本币含税）、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与新版15列月度页面相同，均为finance_e10_order_monthly_movements，不触发ERP读取。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
+自2026-10-21起，每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1`（KDOS 财务每日增量更新及月度汇总）经已有SSH凭据调用 `data-operations/e10/run-finance-daily.sh`：先调用既有 `sync-finance-movements.sh INCREMENTAL`，确认退出码0且返回SUCCESS，再调用 `push-finance-monthly-summary.sh`，进入 API 的 `FinanceMonthlyNotificationService.dispatch`。更新失败则不生成/推送汇总。08:30是整个流程的启动时间，消息在更新成功后发送，可能晚几秒或几分钟。汇总当月发生来源订单数、接单发生额（本币含税）、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与新版15列月度页面相同，均为finance_e10_order_monthly_movements；汇总查询本身不读取ERP，每日编排的增量更新阶段按原FIN-003适配器读取E10。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
 
 初始化只创建一条停用的“财务月度数据每日汇总”规则，含默认模板、空接收对象，并记录审计。重复初始化保留已有启停状态、模板、接收对象和版本。上线后在“系统管理 → 消息中心”编辑该规则，选择组织、角色或员工、保存，再启用。规则停用时每日任务正常结束但不生成待发送消息。接收对象是管理员明确选择的财务汇总接收范围，不因此授予任何表格读取权限。
 
 仅使用现有企业微信工作通知Dispatcher和默认自建应用；不会自动回退群机器人。消息按tenant+规则+上海业务日去重；主机flock及数据库事务advisory lock防并发，入队和业务查询在同一事务，投递失败继续由原消息中心的重试/日志处理。每天重复触发/手工补跑不会重复入队；08:30以前不提前发送。财务规则可以独立停用。已入队的投递失败使用消息中心重试，不能通过换去重键重发。
 
-工作流模板为 `automation/finance_monthly_summary/workflow.template.json`，只包含非敏感任务定义；导入时选择现有KDOS主机SSH凭据，并让节点认证类型与凭据类型一致；本机沿用sshPassword，模板默认password，不包含密码。模板默认未激活，生产激活状态以台账和实际核验为准。新自动入口只有这个n8n工作流，不新增Timer、cron或应用定时器，不调整既有任务。
+工作流模板为 `automation/finance_monthly_summary/workflow.template.json`，只包含非敏感任务定义；导入时选择现有KDOS主机SSH凭据，并让节点认证类型与凭据类型一致；本机沿用sshPassword，模板默认password，不包含密码。模板默认未激活，生产激活状态以台账和实际核验为准。财务只保留这个每日自动工作流；原 `KDOSFinanceMovementsV1` 已取消发布，保留用户编辑的手工节点和原始历史版本，不再每30分钟触发。其他工作流、Timer、cron、Dispatcher不变；新增自动任务定义0。
 
-上线前完成两库/uploads备份、n8n一致性备份、合成PG回归和完整迁移重放，再执行标准迁移/部署/健康检查。初始化命令：`data-operations/e10/push-finance-monthly-summary.sh --initialize`；当日补跑：同脚本不传参数。CLI仅输出状态/入队计数，不输出财务内容或凭据。用户选择接收人前只验证停用路径，不能声称真实企业微信已送达。
+上线前完成两库/uploads备份、n8n一致性备份、合成PG回归和完整迁移重放，再执行标准迁移/部署/健康检查。初始化命令：`data-operations/e10/push-finance-monthly-summary.sh --initialize`；当日完整补跑：`bash data-operations/e10/run-finance-daily.sh`。仅校验更新而不推送：加 `--update-only`；此模式不生成通知，不修改规则启停/接收人。原独立汇总脚本仍可供维护人员单独补偿，但它不会先更新数据，不作为日常入口。CLI仅输出状态/入队计数，不输出财务内容或凭据。用户选择接收人前只验证停用路径，不能声称真实企业微信已送达。
 
 回滚：只停用新增n8n工作流并回退应用；保留新规则、历史快照和投递审计。视图migration的down仅恢复之前派生规则，不修改真实来源行；恢复旧规则会重新出现已知漏计，需按实际故障决定，不能随应用回滚自动执行。失败补偿为核查n8n失败记录与消息中心、同日手工补跑；跨日不伪造历史汇总。
 
-现有规则配置不自动覆盖，新默认金额标签为“本月接单发生额”；已保存模板如仍写“本币总金额”，管理员启用时可改名，变量orderTotal现表示当月发生额。源更新和推送是不同入口：n8n SSH更新命令为`bash /data/automation/code/work/PMC/knweb/data-operations/e10/sync-finance-movements.sh INCREMENTAL`；每日汇总命令为`bash /data/automation/code/work/PMC/knweb/data-operations/e10/push-finance-monthly-summary.sh`。本次不修改现有更新周期。
+现有规则配置不自动覆盖，新默认金额标签为“本月接单发生额”；已保存模板如仍写“本币总金额”，管理员启用时可改名，变量orderTotal现表示当月发生额。日常只需一个SSH命令：
+
+```bash
+bash /data/automation/code/work/PMC/knweb/data-operations/e10/run-finance-daily.sh
+```
+
+主机日流程flock串联两阶段，各子命令仍保留原锁；每日一次是自动触发频率，失败重试和明确的手工补跑不受此限制。重复汇总沿用消息中心当天去重键，不重复生成通知。脚本仅支持INCREMENTAL，不接受FULL；更新失败、无效返回或并发冲突均返回非0，由n8n保留失败执行，财务读取批次也显示失败。维护人员先排查运行记录再补跑；已入队后的投递错误使用消息中心重试。
+
+2026-10-21在线切换通过n8n受权限及checksum保护的REST接口完成，未重启n8n，未中断其他正在运行的任务。受控实跑1240仅运行一次真实增量并跳过通知，规则按用户当时已保存的启用状态及接收人原样保留。下次定时为2026-10-22 08:30上海时间；首次未来自动触发尚待观察，不能将受控执行冒称定时触发或企业微信已送达。
+
+调度回滚：使用n8n历史版本，将FIN-004发布回本次变更前的08:30独立汇总版本，再按原记录发布FIN-003原activeVersionId；必须作为显式回滚操作，防止同时激活每日串联和每30分钟旧入口。不恢复数据库备份覆盖后续数据；保留已成功增量和通知审计。私有备份和版本ID仅保留在本机受限证据目录。

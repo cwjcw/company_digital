@@ -152,7 +152,7 @@
 ## FIN-003 财务订单金额变更台账增量
 
 - 用户授权：2026-10-19，正式开发、历史初始化、持续增量、迁移/备份/部署；明确取消历史完整性核验/评分/页面，不因历史缺失阻止发布。业务口径已确认：接单计算基数＋当月可确定变更，按当前客户事业部分类。
-- 唯一自动入口：n8n `KDOSFinanceMovementsV1`（KDOS 财务订单金额变更台账增量），Asia/Shanghai，每小时07/37分 → 既有SSH凭据 → `data-operations/e10/sync-finance-movements.sh INCREMENTAL` → 当前API容器中的 `run-finance-movements-sync.cjs` → Finance Application Commands。手工补跑同一命令/FULL，不另建Timer、cron或应用定时器。
+- 当前自动入口（2026-10-21用户要求每日一次）：由FIN-004的n8n `KDOSFinanceMonthlySummaryV1` 每日08:30统一编排 → `run-finance-daily.sh` → 原 `sync-finance-movements.sh INCREMENTAL` → Finance Application Commands。原FIN-003每小时07/37分的已发布版本已取消发布，当前手工草稿/节点保留；不新增Timer/cron或内部调度。历史频率及初始化记录如下保留。
 - 代码调度定义/候选增量：新增1个n8n工作流；新增systemd/cron/常驻服务/内部scheduler均0。上线前只读实测：原14个工作流、10个激活、0个正在执行；原8个KDOS用户Timer和1条当前用户cron原样保留。生产激活、执行ID/状态及前后现有工作流摘要见受限本机 `data/finance-movements-release/`，不能仅凭入口脚本宣称任务已运行。
 - E10只读，basic_code持有凭据，RMB本币精确Decimal/numeric；先通过未修改的FIN-002命令正常更新当前余额，再原子发布新增台账。只读Reader独立SQL，不改标准SQL、不读T+，原34列/9列/统计大屏及指定结束规则保留。
 - 身份：仅现有启用的系统/财务模块管理员，服务端受控CLI查验真实管理员授权；不写死个人账号、不新增/扩大生产授权。表格read/export和CUSTOM范围独立受控，导出read∩export。
@@ -173,7 +173,7 @@
 ## FIN-004 财务月度数据每日汇总（2026-10-20新增）
 
 - 用户确认：每天08:30（Asia/Shanghai）推送当月订单数、金额及事业部分布；收件人由用户上线后在消息中心选择并启用。
-- 唯一自动入口：n8n `KDOSFinanceMonthlySummaryV1` → 既有主机SSH凭据 → `data-operations/e10/push-finance-monthly-summary.sh` → API `FinanceMonthlyNotificationService.dispatch` → 原企业微信Dispatcher。不读取E10/T+，不改现有FIN-001/002/003或其他任务。
+- 当前唯一财务自动入口（2026-10-21）：n8n `KDOSFinanceMonthlySummaryV1`（KDOS 财务每日增量更新及月度汇总），Asia/Shanghai，`30 8 * * *` → 既有SSH凭据 → `run-finance-daily.sh` → FIN-003增量成功 → 原 `push-finance-monthly-summary.sh` → KDOS消息中心/原企业微信Dispatcher。汇总阶段不读取ERP，源更新仍由既有E10适配器完成；其他任务不变。
 - 候选增量：n8n工作流1；systemd Timer/cron/常驻服务/应用内定时器均0。上线前实测15个既有工作流、11个active，未发现同职责入口；现有Dispatcher为active。完整脱敏主机盘点及n8n基线保存在受限 `data/finance-monthly-repair-release-20261020/`。
 - 运行身份：既有启用系统/财务管理员；tenant固定取运行环境默认租户。读取正式月度视图，精确numeric/Decimal，不输出业务载荷到调度日志。
 - 防并发/幂等：flock、租户/业务日事务锁、tenant+规则+上海日期唯一outbox键；停用/无规则不入队，原Dispatcher按接收人幂等投递与失败重试。
@@ -193,3 +193,16 @@
 - 仅修复消息中心固定接收人编辑/回显、草稿/启用校验、版本冲突与状态切换保留配置；新增只读接收人校验接口不入队、不发送。
 - FIN-004仍由既有n8n上海时间08:30触发，MSG-001仍为现有常驻Dispatcher；自动入口新增0，不修改任何周期或工作流。财务统计口径不变。
 - PMC专属规则、接收人/事业部及供应商映射、文本、Excel和发送路径不调整；上线前后以受限本机摘要核对。验收使用隔离合成投递及受控浏览器，不发送真实测试通知；规则最终启停和接收人以用户保存配置为准。
+
+
+### FIN-003 / FIN-004 2026-10-21 每日一次统一编排（当前生效）
+
+- 授权：用户本轮明确要求每天一次增量及更新、由内置消息中心推送企业微信；取代此前保留每30分钟的安排，仅改变这两个财务工作流。
+- 自动入口：原FIN-004 ID保留、改名“KDOS 财务每日增量更新及月度汇总”，每日08:30上海时间；SSH执行`bash /data/automation/code/work/PMC/knweb/data-operations/e10/run-finance-daily.sh`。先INCREMENTAL成功再汇总，失败短路，不发送旧数据；实际送达在更新成功之后。
+- FIN-003：在线取消发布原每30分钟active版本，保留用户已编辑的3个手工节点/连接及版本不覆盖；需要时显式手工补跑。n8n未重启，其他运行任务不中断。
+- 数量：仓库n8n模板仍1个（修改既有FIN-004定义，新增定义/候选0）；生产16工作流、11active，财务自动入口2→1；其余14个工作流定义/启停/发布版本逐项一致；新增/修改systemd Timer、cron、常驻服务及内部消费者0。
+- 身份/锁/幂等：原SSH凭据与授权财务管理员、租户/增量水位/审计保留；新增主机日流程flock，子命令原flock/advisory锁保留；汇总仍按tenant+规则+上海业务日去重。无FULL、无新金额算法。
+- 告警/补偿：n8n非0或非SUCCESS明确失败、保留错误执行，KDOS读取批次及消息中心保留失败原因；原SSH传输重试保留。手工重跑同一入口；投递失败仍由消息中心重试，不增加n8n企业微信节点或新通知渠道。
+- 接收人：沿用用户已启用规则及保存对象/模板/版本，未修改任何通知规则或PMC配置。验证1240 SUCCESS，通过原SSH实际INCREMENTAL；验证专用`--update-only`不生成通知（入队0），正式发布命令不含该参数。
+- 备份/回滚：095740两库/uploads与切换前n8n一致SQLite/两个规则的REST快照；使用各自原发布版本显式回滚，避免新旧入口并存；保留同步和通知审计，不回写覆盖数据库。
+- 运行核验：已通过受权限/checksum保护的n8n在线API完成发布/取消发布，未用CLI改库后假称内存已刷新。下一次2026-10-22 08:30；尚未观察未来首次定时触发或宣称企业微信实际送达。负责人：财务管理员/系统维护。说明见docs/finance-monthly-notifications.md。

@@ -1,6 +1,6 @@
 {
   "id": "KDOSFinanceMonthlySummaryV1",
-  "name": "KDOS 财务月度数据每日汇总",
+  "name": "KDOS 财务每日增量更新及月度汇总",
   "active": false,
   "nodes": [
     {
@@ -46,7 +46,7 @@
       "parameters": {
         "authentication": "password",
         "resource": "command",
-        "command": "/data/automation/code/work/PMC/knweb/data-operations/e10/push-finance-monthly-summary.sh"
+        "command": "bash /data/automation/code/work/PMC/knweb/data-operations/e10/run-finance-daily.sh"
       },
       "retryOnFail": true,
       "maxTries": 2,
@@ -62,7 +62,7 @@
         220
       ],
       "parameters": {
-        "jsCode": "const result=$input.first().json; let payload; try { payload=JSON.parse(String(result.stdout||'').trim().split(/\\r?\\n/).filter(Boolean).at(-1)||''); } catch { throw new Error('财务月度汇总返回无效，请检查任务运行记录'); } if(Number(result.code)!==0||payload.status!=='SUCCESS') throw new Error('财务月度汇总失败，请检查任务与消息中心'); return [{json:{status:'SUCCESS',enqueued:payload.enqueued||0,skipped:payload.skipped||null,completedAt:new Date().toISOString()}}];"
+        "jsCode": "const result=$input.first().json; let payload; try { payload=JSON.parse(String(result.stdout||'').trim().split(/\\r?\\n/).filter(Boolean).at(-1)||''); } catch { throw new Error('财务每日更新及汇总返回无效，请检查任务运行记录'); } if(Number(result.code)!==0||payload.status!=='SUCCESS') throw new Error('财务每日更新及汇总失败，请检查任务与消息中心'); return [{json:{status:'SUCCESS',updateRunId:payload.updateRunId,changedCount:payload.changedCount||0,enqueued:payload.enqueued||0,skipped:payload.skipped||null,completedAt:new Date().toISOString()}}];"
       }
     }
   ],
@@ -104,7 +104,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Asia/Shanghai",
-    "executionTimeout": 300,
+    "executionTimeout": 2100,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true

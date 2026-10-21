@@ -24,7 +24,7 @@ CUSTOM范围在汇总前作用于来源金额腿；导出范围为read∩export�
 
 ## 同步与运行
 
-唯一自动入口：FIN-003 n8n每30分钟（Asia/Shanghai）→ SSH → data-operations/e10/sync-finance-movements.sh INCREMENTAL → 容器内Application Command。无新增Timer/cron或应用内部定时器。实际激活与执行证据记录在本机验收文件；模板存在不代表上线。
+当前唯一自动入口（2026-10-21起）：FIN-004 n8n每天08:30（Asia/Shanghai）→ SSH → data-operations/e10/run-finance-daily.sh → 原sync-finance-movements.sh INCREMENTAL → 容器内Application Command，成功后再由KDOS消息中心推送当月汇总。原FIN-003自动发布已取消，保留手工补跑。无新增Timer/cron或应用内部定时器。实际激活与执行证据记录在本机验收文件；模板存在不代表上线。
 
 先调用未改变的FinanceOrdersApplicationService正常更新当前余额，再独立读取台账证据。初次FULL读取现存历史；之后按成功水位重读受影响订单，日志含2分钟重叠并跨月回看；变更单为较小保留集，重读当前版本以捕获审核/撤销变化。源SQL固定READ COMMITTED，工具包保管E10凭据，不读T+或修改标准SQL。
 
@@ -49,3 +49,8 @@ E10状态及变更单事实额外捕获订单头docType/headerApproved；未来�
 备注来自h.REMARK1，按订单唯一键取得一致头值，不拼接多品项备注；不一致时保留原始值供追溯、汇总留空。新字段追加在月度最后，原始字段位置保持。既有列偏好按租户/账号/表仅升级一次，恢复备注并保留其他选择；此后尊重用户隐藏操作。备注仍需字段读取权限，不扩大已有授权；大屏金额聚合不额外要求备注权限。
 
 原始/月度列表和Excel共享服务端订单日期ASC默认排序，随后以来源账套、订单UUID、品项UUID（仅原始）、记录UUID稳定排序。显式用户排序保持其方向和稳定次级键。变更流水排序保持原逻辑。
+
+
+## 当前每日调度（2026-10-21更新）
+
+用户已要求每日一次，原每30分钟频率停止。统一由n8n `KDOSFinanceMonthlySummaryV1` 每天08:30（Asia/Shanghai）调用 `bash /data/automation/code/work/PMC/knweb/data-operations/e10/run-finance-daily.sh`，先完成本模块INCREMENTAL再调用KDOS消息中心当月汇总；更新失败不推送。原 `KDOSFinanceMovementsV1` 取消自动发布、保留手工草稿。本文前述同步/历史初始化语义和持久水位不变，日常不运行FULL。运行、补偿、回滚及当前生效清单以docs/operations/TASK_REGISTRY.md为准。
