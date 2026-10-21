@@ -40,6 +40,7 @@ export type TablePrintQuery = {
 
 @Injectable()
 export class TablePrintService {
+  exportFilenameFor(resource: string) { return this.registry.get(resource).exportFilename?.(); }
   private readonly logger = new Logger(TablePrintService.name);
 
   constructor(private readonly registry: TableFilterRegistry, private readonly dataSource: DataSource,

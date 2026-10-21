@@ -1,4 +1,5 @@
 import { FinanceMovements } from './modules/finance/FinanceMovements';
+import { ReviewDueDates } from './modules/master-plan-system/ReviewDueDates';
 import { MasterPlanDashboardDestination } from "./modules/master-plan-system/MasterPlanDashboardDestination";
 import { MasterPlanDashboard } from "./modules/master-plan-system/MasterPlanDashboard";
 import { FinanceOrderTable, FinanceOrderDashboard } from './modules/finance/FinanceOrders';
@@ -72,6 +73,7 @@ function TablePermissionsRoute() {
 
 function MasterPlanResourceRoute() {
   const { resource = "" } = useParams();
+  if(resource==='mps-review-due-dates')return <ReviewDueDates/>;
   return <MasterPlanResourcePage resource={resource} />;
 }
 

@@ -145,7 +145,7 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
       ? <TemporalInput field={field} value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : field.format === "durationMinutes" ? <DurationInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
       : field.format === "percentage" ? <PercentageInput value={value} onChange={(next) => onChange({ [key]: next } as Partial<AdvancedFilterRule>)} />
-      : <InputNumber value={value as number} onChange={(next) => onChange({ [key]: next ?? undefined } as Partial<AdvancedFilterRule>)} style={{ width: 120 }} />;
+      : <InputNumber stringMode={field.exactNumeric} value={value as string|number} onChange={(next) => onChange({ [key]: next ?? undefined } as Partial<AdvancedFilterRule>)} style={{ width: 120 }} />;
     return <Space>{control("min", rule.min)}<Typography.Text type="secondary">至</Typography.Text>{control("max", rule.max)}</Space>;
   }
   if (operator === "in" || operator === "not_in" || operator === "contains_any" || operator === "contains_all" || operator === "not_contains_any") {
@@ -164,7 +164,7 @@ export function RuleValue({ resource, field, operator, rule, onChange }: {
   if (field.type === "number") {
     if (field.format === "durationMinutes") return <DurationInput value={rule.value} onChange={(next) => onChange({ value: next })} />;
     if (field.format === "percentage") return <PercentageInput value={rule.value} onChange={(next) => onChange({ value: next })} />;
-    return <InputNumber value={rule.value as number} onChange={(next) => onChange({ value: next ?? undefined })} style={{ width: 140 }}
+    return <InputNumber stringMode={field.exactNumeric} value={rule.value as string|number} onChange={(next) => onChange({ value: next ?? undefined })} style={{ width: 140 }}
       addonAfter={undefined} />;
   }
   return <Input value={rule.value as string} placeholder="输入要匹配的内容" style={{ minWidth: 200, maxWidth: 320 }}

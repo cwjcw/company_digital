@@ -71,12 +71,16 @@ export const administrableModuleRegistry = [
 export type AdministrableModuleCode = typeof administrableModuleRegistry[number]["code"];
 
 /** New master-plan tables. These stable codes are deliberately independent from the retained legacy planning forms. */
+export { reviewDueDateFields, reviewDueDateResource, reviewDueDateExportFilename } from './review-due-dates';
+export type { ReviewDueDateHistoryRow } from './review-due-dates';
+import { reviewDueDateFields } from './review-due-dates';
 export const masterPlanResourceDefinitions = [
   { code: "mps-erp-orders", label: "ERP订单明细", area: "数据准备" },
   { code: "mps-customer-divisions", label: "客户事业部映射", area: "数据准备" },
   { code: "mps-order-allocations", label: "订单分配表", area: "数据准备" },
   { code: "mps-process-cycles", label: "工序周期表", area: "数据准备" },
   { code: "mps-group-plans", label: "集团主计划", area: "计划管理" },
+  { code: "mps-review-due-dates", label: "评审交期表", area: "计划管理" },
   { code: "mps-monthly-plans", label: "事业部月度计划", area: "计划管理" },
   { code: "mps-shipping-plans", label: "出货计划表", area: "计划管理" },
   { code: "mps-base-plans", label: "事业部基础计划表", area: "计划管理" },
@@ -211,6 +215,8 @@ export interface TablePermissionFieldDefinition {
   /** 多值字段（数组/多选）必须显式声明，不能用类型推断。 */
   multiple?: boolean;
   format?: TableFieldFormat;
+  /** Exact decimal input/filter operands stay strings; opt-in avoids rounding via JS number. */
+  exactNumeric?: boolean;
   /**
    * 百分比字段的真实存储尺度（必须按数据库实际 CHECK/写入语义声明，禁止全局假设）：
    * - `ratio`（默认）：存储 0..1，界面按 0..100 输入并 /100 后提交（例：80% → 0.8）；
@@ -255,6 +261,7 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "mps-review-due-dates": reviewDueDateFields,
   "knowledge-spaces": fields([
     ["code", "空间编码", "text", true, true], ["name", "空间名称", "text", true, true], ["description", "说明"],
     ["icon", "图标"], ["sortOrder", "排序", "number", true, false, { format: "integer" }],
@@ -849,6 +856,7 @@ export interface TableFilterResourceCapability {
 
 const mpsFilterCapabilities = Object.fromEntries(
   [
+    "mps-review-due-dates",
     "mps-erp-orders", "mps-customer-divisions", "mps-order-allocations", "mps-process-cycles", "mps-group-plans",
     "mps-monthly-plans", "mps-shipping-plans", "mps-base-plans", "mps-weekly-plans", "mps-weekly-process-plans",
     "mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports",
@@ -923,6 +931,7 @@ export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
 export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
 
 const printNotApplicable: Record<string, string> = {
+  "mps-review-due-dates": "评审交期表第一期仅开放查看和Excel导出，不启用打印或业务写入。",
   "knowledge-spaces": "知识空间是管理边界，没有独立业务打印需求。",
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",

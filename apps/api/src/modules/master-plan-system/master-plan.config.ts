@@ -10,6 +10,7 @@ export type MasterPlanResource = {
 };
 
 export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
+  { code: "mps-review-due-dates", table: "mps_review_due_dates", create: false, remove: false, defaultOrder: "inbound_date ASC,order_number,batch_number,drawing_number,id", uniqueKeyFields: ["orderNumber", "batchNumber", "drawingNumber"] },
   { code: "mps-erp-orders", table: "mps_erp_order_lines", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code" },
   { code: "mps-customer-divisions", table: "mps_customer_division_mappings", create: true, remove: true, defaultOrder: "customer_code", divisionField: "primaryDivisionId", requiredOnCreate: ["customerCode", "primaryDivisionId"], uniqueKeyFields: ["customerCode"] },
   { code: "mps-order-allocations", table: "mps_order_allocations", create: true, remove: false, defaultOrder: "order_date DESC,order_number,item_code,created_at DESC,id", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "allocatedQuantity", "divisionId"], uniqueKeyFields: [] },

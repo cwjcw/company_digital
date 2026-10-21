@@ -1,6 +1,68 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-001 PMC评审交期表第一期建设。
+任务目标：新建空白正式表/历史、只读页面/独立权限/筛选/稳定排序/完整导出、未来变更领域及Application隔离测试；正式部署后WAITING_MANUAL_ACCEPTANCE。
+当前状态：进行中。本地实现及回归完成：API1135通过/33skip、Web439通过、contracts31通过、隔离PG19组通过；API/Web构建、lint/typecheck通过。clean验证版c998c27f2282ab48f3bb2414cfed21eeed36b961 API镜像已完成，仅1条新migration待执行，标准143301备份与唯一前向迁移成功，两表COUNT=0/FORCE RLS/结构核验通过，clean验证版deploy all/check和真实Chrome通过，正在安全正式commit/部署及GitHub同步。
+最后更新时间：2026-10-21 14:43:30（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：验证版上线验收完成，正式commit/部署/同步闭环。
+当前子任务：复用KdosDataTable/统一筛选编译器/标准导出；只新增两张tenant/RLS表，内部Application命令复用既有idempotency_keys，禁止公开写入/导入/同步入口。
+
+## 已完成
+- [x] 附件需求/工程规范/架构/安全/两项Skill/任务台账已阅读；起始HEAD d80a768677c05b2e3b671362461c0718dbdaad74。
+- [x] 现有5份outputs改动保留（含前任务进度/报告补记），禁止覆盖或提交其他任务记录。
+- [x] 已向用户说明实施文件边界及新增前向migration方案，无需再次确认已授权开发部署。
+
+## 正在进行
+- [x] 134630开发前两库/uploads备份及SHA/格式校验完成，data/mps-review-due-20261021/backup.log。
+- [x] 生产两新表不存在；14项业务表指纹与6项flags已保存。flags实际5启用/1停用（plan-projections=false），本任务保持，不新增任何调度。
+
+## 待完成
+- [x] contracts资源10字段/只读操作、两表migration/唯一FK/索引/RLS/不可变历史和计数一致性。
+- [x] 领域+事务Application内部命令/来源批次幂等、纯重复业务键校验（无同步入口）。
+- [x] 查询/历史Drawer/导航/服务端导出同scope与过滤排序，未知组织CUSTOM拒绝。
+- [x] 领域/事务/权限/精度/并发/回滚隔离PG19组通过，含旧事务等待时间戳、数据库不可改名/无历史改期守卫、历史不可改删/计数与日期一致性；18至27从未在生产执行。
+- [x] Web最终59文件439项通过，无未处理异常；未改全局测试配置或降低断言。
+- [x] clean生产真实Chrome空表/10列/导航/搜索排序/日期范围/空Excel及普通账号4接口403，原集团主计划页面通过，写入0。
+- [ ] 备份/迁移/标准deploy all/check/健康/Chrome空表验收/保护基线/安全commit-push。
+- [ ] outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md和ACCEPTANCE.md，最终WAITING_MANUAL_ACCEPTANCE，不自动PASS。
+
+## 修改文件
+- 已实现contracts/index.ts+独立review-due-date契约，MPS config/types/module/query/filter-source/spreadsheet/controller最小适配、独立domain/application/query及页面、通用导出可选filename、App入口、前向1722920102000迁移和测试/文档。
+
+## 数据库 Migration
+- 计划1722920102000-MpsReviewDueDates.ts，只新建mps_review_due_dates及mps_review_due_date_changes和自身约束/索引/RLS/触发器。
+- 不改历史migration，不创建数据库，不写任何既有业务表或sync flags。生产新表/历史必须0。
+
+## 新增或修改测试
+- review-due-date.domain.spec.ts（14项）、contracts/review-due-dates.spec.ts（2项通过）、scripts/test-review-due-dates-postgres.cjs（19组通过）。
+- 页面6项、精确筛选2项及原页面回归完成；HR teardown和监督异步断言仅修复测试稳定性，不改其业务代码。
+
+## 已运行测试
+- API全量1135通过/33skip；Web全量439通过；contracts31通过；PG19组通过；API构建/lint、Web typecheck/lint通过（保留既有ModulePortal快刷warning）。证据data/mps-review-due-20261021。
+
+## 当前已知问题
+- 无业务阻塞；主表无组织事实，不猜division；已整组拒绝无法验证CUSTOM。开发期间3条真实Web报工及3次EVENT execution-rollup（3175→3178、工序19392行派生变化）；发布备份窗口14:35既有finished-goods-inbound-v1服务完成13条T+入库投影（90392→90405），journal精确匹配records13，其他13表短窗口不变。6flags不变。全部为既有正常运行，本任务无旧业务写入。
+- 日期不能为空的正式记录使用ISO业务日期，变更天数按日历日差；数量任意精确numeric/Decimal，不引入浮点或自动合并。
+
+## 等待用户确认
+- 无；完成后等待人工验收，不开展第二阶段。
+
+## 下一步
+1. 仅34任务文件安全commit，进度仅提交新段，保留4份原报告及旧进度未提交补记。
+2. 正式SHA deploy all/check/Chrome复核、GitHub main正常push并验证远程。
+3. 最终零记录/flags/调度复核、报告记录SHA；清理本任务验证worktree/隔离PG，WAITING_MANUAL_ACCEPTANCE后停止。
+
+## 恢复执行说明
+规范→Skill→本任务进度→git status/diff；附件位于/home/Jerry/.codex/attachments/bf4d8c95-060e-4aa4-b7d5-577c5f21c11c/已粘贴的文本.txt。勿恢复或重做上一财务附件任务，保留原outputs差异。禁止导入1139条、首次/每日同步、n8n、新业务数据演示或旧业务写入。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：财务每日08:30推送新增当月Excel附件及指定中文文件名。
 任务目标：当月月度数据Excel按“YYYY年M月接单统计-生管.xlsx”命名，例如2026年10月接单统计-生管.xlsx；复用现有日报/导出/权限/Dispatcher，不改调度、金额、PMC。
 当前状态：两人权限补齐/审计、436行15字段回滚预览、验证版部署/健康/Chrome均通过；正在正式commit、发布SHA及push，尚未结束。

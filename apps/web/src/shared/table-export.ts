@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { AdvancedFilterGroup } from "./advanced-filter";
 
 export type TableExportRequest = {
+  filename?: string;
   resource: string;
   search?: string;
   filterGroup?: AdvancedFilterGroup | null;
@@ -39,7 +40,7 @@ export async function exportTable(request: TableExportRequest) {
   const blob = await api<Blob>(`/table-exports/${encodeURIComponent(request.resource)}${params.toString() ? `?${params}` : ""}`);
   if (!(blob instanceof Blob) || blob.size === 0) throw new Error("导出文件为空");
   const url = URL.createObjectURL(blob);
-  const link = document.createElement("a"); link.href = url; link.download = `${request.resource}.xlsx`; link.click();
+  const link = document.createElement("a"); link.href = url; link.download = request.filename ?? `${request.resource}.xlsx`; link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
   return blob;
 }

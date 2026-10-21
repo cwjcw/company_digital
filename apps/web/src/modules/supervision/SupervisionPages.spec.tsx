@@ -115,7 +115,7 @@ describe("项目与任务表格编辑", () => {
     const input = await screen.findByDisplayValue("项目甲");
     fireEvent.change(input, { target: { value: "项目乙" } }); fireEvent.blur(input);
     await waitFor(() => expect(api).toHaveBeenCalledWith("/supervision/projects/project-1", expect.objectContaining({ method: "PATCH", body: expect.stringContaining('"expectedVersion":1') })));
-    expect(screen.getByDisplayValue("项目乙")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("项目乙")).toBeInTheDocument();
   });
 
   it("does not expose editing without field update permission and rolls back a failed task save", async () => {

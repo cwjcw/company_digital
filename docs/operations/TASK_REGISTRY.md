@@ -216,3 +216,11 @@
 - 备份/验证/回滚：本机104210两库/uploads备份；API全套1119通过/33skip、财务附件隔离PG8项、PMC隔离PG20项、Dispatcher10项通过，具体结果见outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。上线前更新备份；正式上线后通过回退应用及Dispatcher释放版本回滚，保留附件/投递历史，不恢复数据库覆盖后续业务。
 
 - 本轮生产验收：2/2实际接收人授权有效、回滚预览每份436行/15字段/金额一致，原规则启用/版本8/配置不变，真实Chrome和私有下载保护通过，未真实群发测试。1名账号首次改密屏障保留，未冒称其月度UI已验收；其后端导出及附件权限已验证。正式SHA见outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。
+
+## KDOS-MPS-REVIEW-DUE-001 评审交期表第一期（无自动调度）
+
+- 本期只安装空的评审交期当前/历史结构、只读资源及页面、内部领域/Application命令；不读取1139条源Excel、不首次或每日同步、不注册n8n/Timer/cron/应用内调度。
+- 仓库新增调度定义/候选0，生产本任务新增自动入口/常驻消费者0。2026-10-21只读盘点现有n8n16工作流/11active，主机审计仅留受限证据；保持既有任务原状。
+- 6项mps_sync_configs enabled标志原样保留（5true，plan-projections=false）；不得因建设本表停用现有报工或EVENT execution-rollup。
+- 未来同步是第二阶段待用户单独授权的任务，须重新盘点/登记来源、身份、业务键冲突策略、来源批次幂等、防并发、告警/补偿/回滚。本期无可激活的同步入口。
+- 结构/权限/测试/正式发布与人工验收状态见outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md及outputs/KDOS_MPS_REVIEW_DUE_DATE_ACCEPTANCE.md；最终仅WAITING_MANUAL_ACCEPTANCE，不能将代码或隔离测试记作已导入/已同步。

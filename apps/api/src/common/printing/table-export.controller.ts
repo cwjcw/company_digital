@@ -32,7 +32,7 @@ export class TableExportController {
     }, this.actor(request));
     const label = resource === "supervision-projects" ? "督办项目" : resource === "supervision-tasks" ? "督办任务" : resource;
     response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${label}.xlsx`)}`);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(this.exports.exportFilenameFor?.(resource) ?? `${label}.xlsx`)}`);
     response.send(workbook);
   }
 

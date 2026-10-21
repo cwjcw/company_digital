@@ -14,12 +14,13 @@ export type MasterPlanActor = {
 };
 
 export function hasMasterPlanPermission(actor: MasterPlanActor, resource: string, action: string) {
+  if (resource === "mps-review-due-dates" && !["read", "export"].includes(action)) return false;
   return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
     || actor.permissions.includes(`${resource}:*:${action}`);
 }
 
 export function hasMasterPlanFieldPermission(actor: MasterPlanActor, resource: string, field: string, action: "read" | "update") {
+  if (resource === "mps-review-due-dates" && action === "update") return false;
   return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
     || actor.permissions.includes(`${resource}:${field}:${action}`);
 }
-

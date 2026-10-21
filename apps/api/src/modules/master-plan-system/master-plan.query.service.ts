@@ -8,6 +8,7 @@ import { MasterPlanFilterCompiler } from "./master-plan.filter";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 import { normalizeKdosPageSize } from "../../common/pagination";
 import { tableSupportFieldsFor } from "@kdos/contracts";
+import { ReviewDueDateQueryService, reviewDueScope } from './review-due-date.query.service';
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,7 +21,8 @@ export class MasterPlanQueryService {
     private readonly dataSource: DataSource,
     private readonly directory: OrganizationDirectoryService,
     /* 字段候选值服务（平台级）；单元测试直接构造时可省略。 */
-    @Optional() @Inject(FieldCandidateService) private readonly candidates?: Pick<FieldCandidateService, "resolve">
+    @Optional() @Inject(FieldCandidateService) private readonly candidates?: Pick<FieldCandidateService, "resolve">,
+    @Optional() private readonly reviewDue?: ReviewDueDateQueryService
   ) {}
 
   metadata(code: string, actor: MasterPlanActor) {
@@ -50,6 +52,10 @@ export class MasterPlanQueryService {
   }
 
   async list(code: string, input: ListInput, actor: MasterPlanActor, trustedScope?: (params: unknown[]) => string) {
+    if (code === 'mps-review-due-dates') {
+      if (!this.reviewDue || trustedScope) throw new ForbiddenException('评审交期查询必须使用独立授权范围');
+      return this.reviewDue.list(input,actor);
+    }
     if(!trustedScope) return this.listRows(code,input,actor);
     return this.dataSource.transaction("REPEATABLE READ",async manager=>{
       await manager.query("SET TRANSACTION READ ONLY");
@@ -179,6 +185,7 @@ export class MasterPlanQueryService {
   }
 
   async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {
+    if(code==='mps-review-due-dates') throw new ForbiddenException('评审交期必须使用统一完整Excel导出');
     if (!hasMasterPlanPermission(actor, code, "export")) throw new ForbiddenException("当前权限组没有该表导出权限");
     const first = await this.list(code, { ...input, page: 1, pageSize: 200 }, actor);
     const rows = [...first.rows];
@@ -404,6 +411,7 @@ export class MasterPlanQueryService {
   }
 
   private scopeClause(resource: MasterPlanResource, actor: MasterPlanActor, action: string, columns: Record<string, string>, params: unknown[]) {
+    if(resource.code==='mps-review-due-dates')return reviewDueScope(actor,params,action);
     if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return "1=1";
     const scopes = (actor.tableDataScopes ?? []).filter((scope) => scope.resource === resource.code && (!scope.actions || scope.actions.includes(action)));
     if (scopes.some((scope) => scope.scope === "ALL")) return "1=1";

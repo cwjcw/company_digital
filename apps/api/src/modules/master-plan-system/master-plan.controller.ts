@@ -10,6 +10,7 @@ import { MasterPlanSpreadsheetService } from "./master-plan-spreadsheet.service"
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MasterPlanWorkOrderService } from "./master-plan.work-order.service";
 import type { MasterPlanActor } from "./master-plan.types";
+import { reviewDueDateExportFilename } from '@kdos/contracts';
 
 type MasterPlanRequest = Request & { user: any; requestId: string };
 
@@ -54,7 +55,7 @@ export class MasterPlanController {
   importConfirm(@Param("resource") resource: string, @Body("previewId") previewId: string, @Req() request: MasterPlanRequest) { return this.spreadsheets.confirm(resource, previewId, this.actor(request)); }
 
   @Get("resources/:resource/export")
-  async export(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, `${resource}.xlsx`, await this.spreadsheets.export(resource, query, this.actor(request))); }
+  async export(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, resource==='mps-review-due-dates'?reviewDueDateExportFilename():`${resource}.xlsx`, await this.spreadsheets.export(resource, query, this.actor(request))); }
 
   @Post("resources/:resource")
   create(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.create(resource, body, this.actor(request)); }

@@ -277,6 +277,7 @@ export function KdosTableQuickSearch({ search, onSearchChange, searchPlaceholder
 }
 
 export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<RecordType>, "columns" | "dataSource"> & {
+  exportFilename?: () => string;
   resource: string;
   columns: ColumnsType<RecordType>;
   dataSource?: readonly RecordType[];
@@ -385,7 +386,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey,
+  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
@@ -498,7 +499,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     if (exporting) return;
     setExporting(true);
     try {
-      await exportTable({ resource, search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
+      await exportTable({ resource, filename:exportFilename?.(), search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
         sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
         context: printContext, columnKeys: effectiveVisible.filter((key) => !key.startsWith("__")) });
       exportMessage.success("导出已开始");

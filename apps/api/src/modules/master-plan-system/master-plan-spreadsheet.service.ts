@@ -12,6 +12,8 @@ import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { productionProgressRatio } from "@tracker/shared";
+import { ReviewDueDateQueryService } from './review-due-date.query.service';
+import { Optional } from '@nestjs/common';
 
 type ImportRow = { row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> };
 /* KN-MPS-UI-001：异常字段统一显示为「异常」，历史模板的「异常说明」表头继续可导入。 */
@@ -55,7 +57,7 @@ const exportNotes: Record<string, string[]> = {
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
-  constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService) {}
+  constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService, @Optional() private readonly reviewDue?: ReviewDueDateQueryService) {}
 
   private resource(code: string) {
     const resource = MASTER_PLAN_RESOURCE_MAP.get(code as never);
@@ -77,6 +79,10 @@ export class MasterPlanSpreadsheetService {
   }
 
   async export(code: string, input: Record<string, unknown>, actor: MasterPlanActor) {
+    if(code==='mps-review-due-dates') {
+      if(!this.reviewDue) throw new ForbiddenException('评审交期导出服务未配置');
+      return this.reviewDue.export(input,actor);
+    }
     const resource = this.resource(code);
     const result = await this.queries.exportRows(code, input, actor);
     const excluded = new Set(exportExcludedFields[resource.code] ?? []);

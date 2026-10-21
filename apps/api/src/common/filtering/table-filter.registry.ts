@@ -48,6 +48,8 @@ export type TableFilterActor = {
 };
 
 export type TableFilterSource = {
+  /** Optional business filename; the source owns the period and naming policy. */
+  exportFilename?: () => string;
   /** Server-only columns provide stable ties without exposing technical identity fields. */
   defaultSort?: { field: string; order: 'asc' | 'desc'; stableColumns: string[] };
   /** 资源 code（tableResourceRegistry 内的稳定值）。 */

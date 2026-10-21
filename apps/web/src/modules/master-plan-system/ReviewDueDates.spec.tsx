@@ -1,0 +1,24 @@
+import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
+import { afterEach,beforeEach,describe,it,expect,vi } from 'vitest';
+import { reviewDueDateFields } from '@kdos/contracts';
+import { api } from '../../api';
+import { ReviewDueDates } from './ReviewDueDates';
+vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
+vi.mock('../../shared/KdosDataTable',async original=>({...await original<object>(),KdosDataTable:({columns,dataSource,serverData,exportFilename}:any)=><div>
+  <div data-testid="headers">{columns.map((c:any)=><span key={c.key}>{c.title}</span>)}</div>
+  <div data-testid="filename">{exportFilename()}</div>
+  <button onClick={()=>serverData.onQueryChange({page:2,pageSize:100,search:'B-1/2',sortField:'inboundDate',sortOrder:'asc',filterGroup:{logic:'AND',rules:[{field:'quantity',operator:'gt',value:'1.000000000000000001'}]}})}>测试统一查询</button>
+  {dataSource.map((row:any)=><div key={row.id}>{columns.map((c:any)=><span key={c.key}>{c.render?c.render(row[c.dataIndex],row):row[c.dataIndex]}</span>)}</div>)}</div>}));
+const sample={id:'0199eb00-0000-7000-8000-000000000001',orderNumber:'ORDER-1/2',batchNumber:'B-1/2',drawingNumber:'DRAW-1/3',inspectionTimeName:'检验',inboundDate:'2026-11-10',quantity:'0.000000000000000001',changeCount:0,previousInboundDate:null,lastChangedAt:null,lastSyncedAt:null};
+const mount=()=>render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ReviewDueDates/></QueryClientProvider>);
+beforeEach(()=>{localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic',permissions:['*']}));vi.mocked(api).mockImplementation(async path=>{if(path.endsWith('/meta'))return {fields:reviewDueDateFields} as never;if(path.includes('/history'))return {rows:[],total:0} as never;return {rows:[sample],total:1} as never});});
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+describe('Review due date phase-one page',()=>{
+  it('shows six original fields followed by four statistics without UUIDs or write controls',async()=>{mount();await screen.findByRole('button',{name:'变更历史'});const headers=Array.from(screen.getByTestId('headers').querySelectorAll('span')).map(x=>x.textContent);expect(headers.slice(0,10)).toEqual(reviewDueDateFields.map(f=>f.label));expect(screen.getByText('0',{exact:true})).toBeVisible();expect(screen.queryByText(sample.id)).toBeNull();expect(screen.queryByRole('button',{name:'新增'})).toBeNull();expect(screen.queryByRole('button',{name:'导入'})).toBeNull();expect(screen.getByTestId('filename').textContent).toMatch(/^mps_review_due_dates_\d{8}\.xlsx$/);});
+  it('keeps exact search suffixes, server pagination, typed filter precision and sorting in requests',async()=>{mount();await screen.findByRole('button',{name:'变更历史'});fireEvent.click(screen.getByRole('button',{name:'测试统一查询'}));await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('page=2')&&p.includes('sortField=inboundDate'))).toBe(true));const path=vi.mocked(api).mock.calls.find(([p])=>p.includes('page=2'))![0],params=new URL('http://test'+path).searchParams;expect(params.get('search')).toBe('B-1/2');expect(JSON.parse(params.get('filterGroup')!)).toMatchObject({rules:[{field:'quantity',operator:'gt',value:'1.000000000000000001'}]});});
+  it('loads paginated history only on demand and displays the empty history state',async()=>{mount();await screen.findByRole('button',{name:'变更历史'});expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/history'))).toBe(false);fireEvent.click(screen.getByRole('button',{name:'变更历史'}));await screen.findByText('暂无变更记录');expect(vi.mocked(api).mock.calls.some(([p])=>p.includes(sample.id+'/history?page=1&pageSize=100'))).toBe(true);});
+  it('does not offer history when protected date/statistics fields are hidden',async()=>{vi.mocked(api).mockImplementation(async path=>path.endsWith('/meta')?{fields:reviewDueDateFields.filter(f=>f.key!=='inboundDate')} as never:{rows:[sample],total:1} as never);mount();await screen.findByText('ORDER-1/2');expect(screen.queryByRole('button',{name:'变更历史'})).toBeNull();});
+  it('does not query any data for an actor without resource read permission',()=>{localStorage.setItem('sessionUser',JSON.stringify({permissions:[]}));mount();expect(screen.getByText('当前权限组没有评审交期表查看权限')).toBeVisible();expect(api).not.toHaveBeenCalled();});
+  it('renders an empty formal table without creating source data',async()=>{vi.mocked(api).mockImplementation(async path=>path.endsWith('/meta')?{fields:reviewDueDateFields} as never:{rows:[],total:0} as never);mount();await waitFor(()=>expect(api).toHaveBeenCalled());expect(screen.queryByRole('button',{name:'变更历史'})).toBeNull();expect(vi.mocked(api).mock.calls.every(([,opts])=>!opts?.method||opts.method==='GET')).toBe(true);});
+});

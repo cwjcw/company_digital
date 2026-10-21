@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App as AntApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
 import { HrDepartureCheckPage } from "./HumanResourcesPages";
 
@@ -9,6 +9,8 @@ vi.mock("../../api", () => ({ api: vi.fn() }));
 const mockedApi = vi.mocked(api);
 
 describe("HrDepartureCheckPage", () => {
+  // Vitest globals are disabled: explicitly unmount/flush before jsdom removes window.
+  afterEach(async () => { await act(async () => { cleanup(); }); });
   beforeEach(() => {
     cleanup(); mockedApi.mockReset();
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "hr-user", permissions: ["hr-departure-check:*:read", "hr-departure-check:*:create"] }));

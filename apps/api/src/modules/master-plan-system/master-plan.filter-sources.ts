@@ -15,6 +15,7 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
 
   onModuleInit() {
     for (const resource of MASTER_PLAN_RESOURCES) {
+      if (resource.code === 'mps-review-due-dates') continue; // Dedicated strict scope and canonical read/export provider.
       const columns = columnsFor(resource);
       this.registry.register({
         code: resource.code,

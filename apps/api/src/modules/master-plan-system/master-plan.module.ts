@@ -1,4 +1,7 @@
 import { MasterPlanOrderProgressService } from "./master-plan.order-progress.service";
+import { ReviewDueDateQueryService } from './review-due-date.query.service';
+import { ReviewDueDateApplicationService } from './review-due-date.application.service';
+import { ReviewDueDateController } from './review-due-date.controller';
 import { MasterPlanOrderProgressController } from "./master-plan.order-progress.controller";
 import { MasterPlanOrderProgressExportService } from "./master-plan.order-progress-export.service";
 import { MasterPlanDashboardService } from "./master-plan.dashboard.service";
@@ -22,8 +25,8 @@ import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
-  controllers: [MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
-  providers: [MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  controllers: [ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
+  providers: [ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

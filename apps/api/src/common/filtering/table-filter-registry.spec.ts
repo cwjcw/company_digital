@@ -4,6 +4,7 @@ import { FinanceFilterSourceProvider } from "../../modules/finance/finance.filte
 import { tableFilterResourceCapabilities, isTableFieldFilterable } from "@kdos/contracts";
 import { TableFilterRegistry } from "./table-filter.registry";
 import { MasterPlanFilterSourceProvider } from "../../modules/master-plan-system/master-plan.filter-sources";
+import { ReviewDueDateQueryService } from '../../modules/master-plan-system/review-due-date.query.service';
 import { MasterDataFilterSourceProvider } from "../../modules/master-data/master-data.filter-sources";
 import { EquipmentFilterSourceProvider } from "../../modules/equipment/equipment.filter-sources";
 import { SupplyChainFilterSourceProvider } from "../../modules/supply-chain/supply-chain.filter-sources";
@@ -26,6 +27,7 @@ function buildRegistry() {
   new FinanceOrdersQueryService({query:async()=>[]} as never,registry).onModuleInit();
   new FinanceFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
   new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
+  new ReviewDueDateQueryService({} as never,registry).onModuleInit();
   new MasterDataFilterSourceProvider(registry).onModuleInit();
   new EquipmentFilterSourceProvider(registry).onModuleInit();
   new SupplyChainFilterSourceProvider(registry).onModuleInit();
