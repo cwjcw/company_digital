@@ -223,7 +223,7 @@ export class NotificationService {
     const recipientRule = String(rule.recipient_rule ?? "");
     if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) throw new ConflictException("通知事件不允许使用该接收人规则");
     if (recipientRule === EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE) return this.resolveEquipmentResponsible(manager, tenantId, payload);
-    if (recipientRule === FIXED_USERS_RECIPIENT_RULE) return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config));
+    if (recipientRule === FIXED_USERS_RECIPIENT_RULE) return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config), tenantId);
     throw new ConflictException("通知接收人解析器未实现");
   }
 
@@ -237,19 +237,33 @@ export class NotificationService {
   }
 
   /**
+   * 管理端只读校验，复用正式接收人解析；不入队、不创建投递记录。
+   * 兼容目录中的组织/角色为共享对象，最终成员仍限定当前租户。
+   */
+  async previewConfiguredRecipients(manager: EntityManager, tenantId: string, targets: NotificationRecipientTarget[]) {
+    const users = await this.resolveConfiguredRecipients(manager, targets, tenantId);
+    return {
+      total: users.length,
+      deliverable: users.filter((user) => user.enabled === true && String(user.wechatUserId ?? "").trim()).length,
+      disabled: users.filter((user) => user.enabled !== true).length,
+      missingWechatId: users.filter((user) => user.enabled === true && !String(user.wechatUserId ?? "").trim()).length
+    };
+  }
+
+  /**
    * 按角色授权页的动态语义解析组织、角色和员工：
    * - 组织按稳定 organizationUnitId 解析当前节点或完整子树；
    * - 角色包含直接角色成员和角色授权组织范围内的当前成员；
    * - 最终只返回去重后的 users.id，名称仅作为展示字段。
    */
-  private async resolveConfiguredRecipients(manager: EntityManager, targets: NotificationRecipientTarget[]) {
+  private async resolveConfiguredRecipients(manager: EntityManager, targets: NotificationRecipientTarget[], tenantId: string) {
     if (!targets.length) return [];
     const userIds = targets.filter((target) => target.type === "USER").map((target) => target.userId);
     const roleIds = targets.filter((target) => target.type === "ROLE").map((target) => target.roleId);
     const organizationTargets = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION");
     if (!roleIds.length && !organizationTargets.length) {
       return manager.query(`SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
-        FROM users u WHERE u.id=ANY($1::uuid[]) ORDER BY u.id`, [userIds]) as Promise<Array<Record<string, unknown>>>;
+        FROM users u WHERE u.id=ANY($1::uuid[]) AND u.tenant_id=$2 ORDER BY u.id`, [userIds, tenantId]) as Promise<Array<Record<string, unknown>>>;
     }
     const organizations = await manager.query("SELECT id,parent_id,name,enabled FROM organization_units WHERE enabled=true ORDER BY id") as Array<Record<string, unknown>>;
     const byId = new Map(organizations.map((unit) => [String(unit.id), unit]));
@@ -269,11 +283,11 @@ export class NotificationService {
     const roleOrganizationRows = roleIds.length ? await manager.query("SELECT organization_unit_id FROM role_organization_scopes WHERE role_id=ANY($1::uuid[])", [roleIds]) as Array<{ organization_unit_id: string }> : [];
     const roleOrganizationPaths = unitPaths(roleOrganizationRows.map((row) => String(row.organization_unit_id)), true);
     const paths = [...new Map([...explicitOrganizationPaths, ...roleOrganizationPaths].map((path) => [path.join("\u001f"), path])).values()];
-    const params: unknown[] = [userIds, roleIds];
+    const params: unknown[] = [userIds, roleIds, tenantId];
     const predicates = ["u.id=ANY($1::uuid[])", "EXISTS (SELECT 1 FROM user_roles direct_role WHERE direct_role.user_id=u.id AND direct_role.role_id=ANY($2::uuid[]))"];
     for (const path of paths) { params.push(JSON.stringify([path])); predicates.push(`u.department_paths @> $${params.length}::jsonb`); }
     return manager.query(`SELECT DISTINCT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
-      FROM users u WHERE (${predicates.join(" OR ")}) ORDER BY u.id`, params) as Promise<Array<Record<string, unknown>>>;
+      FROM users u WHERE u.tenant_id=$3 AND (${predicates.join(" OR ")}) ORDER BY u.id`, params) as Promise<Array<Record<string, unknown>>>;
   }
 
   private recipientTargets(config: Record<string, unknown> | undefined): NotificationRecipientTarget[] {

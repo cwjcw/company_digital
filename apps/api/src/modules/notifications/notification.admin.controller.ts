@@ -18,6 +18,7 @@ export class NotificationAdminController {
   @Get("template-variables") variables(@Query("eventType") eventType: string, @Req() request: NotificationRequest) { return this.service.templateVariables(this.actor(request), eventType); }
   @Get("rules") rules(@Query() query: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.listRules(this.actor(request), query); }
   @Get("rules/:id") rule(@Param("id") id: string, @Req() request: NotificationRequest) { return this.service.detail(this.actor(request), id); }
+  @Get("rules/:id/recipient-preview") recipientPreview(@Param("id") id: string, @Req() request: NotificationRequest) { return this.service.recipientPreview(this.actor(request), id); }
   @Post("rules") create(@Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.create(this.actor(request), body); }
   @Patch("rules/:id") update(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.update(this.actor(request), id, body); }
   @Post("rules/:id/test") test(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.testSend(this.actor(request), id, body); }

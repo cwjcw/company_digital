@@ -48,7 +48,7 @@ describe("NotificationService", () => {
       recipient_rule: "FIXED_USERS",
       config: { recipientUserIds: ["00000000-0000-7000-8000-000000000011"] }
     }, notificationEventDefinition("equipment.status.fault_changed"), {})).resolves.toEqual([expect.objectContaining({ userId: "00000000-0000-7000-8000-000000000011" })]);
-    expect(manager.query.mock.calls[0][1]).toEqual([["00000000-0000-7000-8000-000000000011"]]);
+    expect(manager.query.mock.calls[0][1]).toEqual([["00000000-0000-7000-8000-000000000011"], tenantId]);
   });
 
   it("resolves mixed organization, role and employee targets dynamically and keeps stable user IDs", async () => {
@@ -66,7 +66,7 @@ describe("NotificationService", () => {
       { type: "ORGANIZATION", organizationUnitId: "org-child", includeDescendants: false },
       { type: "ROLE", roleId: "role-1" },
       { type: "USER", userId: "user-1" }
-    ]);
+    ], tenantId);
     expect(result).toEqual([
       { userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true },
       { userId: "user-2", displayName: "李四", wechatUserId: "li", enabled: false }
@@ -87,7 +87,7 @@ describe("NotificationService", () => {
     const service = new NotificationService(source as never);
     await expect((service as any).resolveConfiguredRecipients(manager, [
       { type: "ORGANIZATION", organizationUnitId: "org-root", includeDescendants: true }
-    ])).resolves.toEqual([
+    ], tenantId)).resolves.toEqual([
       { userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true },
       { userId: "user-2", displayName: "李四", wechatUserId: "li", enabled: true }
     ]);
@@ -107,7 +107,7 @@ describe("NotificationService", () => {
     const service = new NotificationService(source as never);
     await expect((service as any).resolveConfiguredRecipients(manager, [
       { type: "ROLE", roleId: "role-1" }
-    ])).resolves.toEqual([
+    ], tenantId)).resolves.toEqual([
       { userId: "user-1", displayName: "张三", wechatUserId: "zhang", enabled: true },
       { userId: "user-2", displayName: "李四", wechatUserId: "li", enabled: true }
     ]);

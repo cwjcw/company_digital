@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Avatar, Checkbox, Flex, Input, Form, Button, Modal, Select, Space, Tabs, Tag, Tree, Typography, message } from "antd";
 import { ApartmentOutlined, EditOutlined, ReloadOutlined, SendOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
-import { api } from "../../api";
+import { api, ApiError } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 
@@ -26,23 +26,51 @@ export function NotificationCenterPage() {
   const [logRuleId, setLogRuleId] = useState(""); const [logStatus, setLogStatus] = useState(""); const [logResource, setLogResource] = useState(""); const [logRecipient, setLogRecipient] = useState(""); const [logFrom, setLogFrom] = useState(""); const [logTo, setLogTo] = useState("");
   const logQuery = new URLSearchParams(Object.fromEntries(Object.entries({ ruleId: logRuleId, status: logStatus, resource: logResource, recipient: logRecipient, from: logFrom, to: logTo }).filter(([, value]) => value))).toString();
   const logs = useQuery({ queryKey: ["notification-logs", activeTab, logQuery], queryFn: () => api<Log[]>(`${activeTab === "failures" ? "/notifications/failures" : "/notifications/delivery-logs"}${logQuery ? `?${logQuery}` : ""}`), enabled: activeTab !== "rules" });
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["notification-rules"] }); void queryClient.invalidateQueries({ queryKey: ["notification-logs"] }); };
+  const refresh = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ["notification-rules"] }), queryClient.invalidateQueries({ queryKey: ["notification-logs"] })]); };
+  const [saving, setSaving] = useState(false);
+  const [busyRule, setBusyRule] = useState<string>();
+  const [actionError, setActionError] = useState<{ text: string; rule?: Rule; conflict: boolean; recipients: boolean }>();
+  const handleError = (error: unknown, rule?: Rule) => {
+    const apiError = error as ApiError;
+    setActionError({ text: apiError.message, rule, conflict: apiError.status === 409, recipients: (apiError.details as { code?: string })?.code === "NOTIFICATION_RECIPIENTS_REQUIRED" });
+  };
+  const applySavedRule = async (saved: Rule) => {
+    queryClient.setQueriesData<Rule[]>({ queryKey: ["notification-rules"] }, (rows) => rows?.map((row) => row.id === saved.id ? saved : row));
+    await refresh();
+  };
   const [editor, setEditor] = useState<Rule | null | undefined>(undefined); const [testRule, setTestRule] = useState<Rule>();
-  const openEditor = (rule?: Rule) => setEditor(rule ?? null);
+  const openEditor = async (rule?: Rule) => {
+    setActionError(undefined);
+    if (!rule) { setEditor(null); return; }
+    try { setBusyRule(rule.id); setEditor(await api<Rule>(`/notifications/rules/${rule.id}`)); }
+    catch (error) { handleError(error, rule); }
+    finally { setBusyRule(undefined); }
+  };
   const saveRule = async (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientTargets?: RecipientTarget[] }) => {
+    setSaving(true); setActionError(undefined);
     try {
       const selected = events.data?.find((item) => item.eventType === values.eventType); if (!selected) throw new Error("请选择已注册的通知事件");
-     await api(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, recipientRule: values.recipientRule, recipientTargets: values.recipientTargets, expectedVersion: editor?.version }) });
-     message.success(editor ? "消息规则已保存" : "消息规则已创建"); setEditor(undefined); refresh();
-    } catch (error) { message.error((error as Error).message); }
+     const saved = await api<Rule>(editor ? `/notifications/rules/${editor.id}` : "/notifications/rules", { method: editor ? "PATCH" : "POST", body: JSON.stringify({ name: values.name, eventType: values.eventType, resource: selected.resource, template: values.template, recipientRule: values.recipientRule, recipientTargets: values.recipientTargets, expectedVersion: editor?.version }) });
+     await applySavedRule(saved); message.success(editor ? "消息规则已保存" : "消息规则已创建"); setEditor(undefined);
+    } catch (error) { handleError(error, editor ?? undefined); }
+    finally { setSaving(false); }
   };
-  const toggle = async (rule: Rule) => { try { await api(`/notifications/rules/${rule.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !rule.enabled, expectedVersion: rule.version }) }); message.success(rule.enabled ? "规则已停用" : "规则已启用"); refresh(); } catch (error) { message.error((error as Error).message); } };
+  const toggle = async (rule: Rule) => {
+    setBusyRule(rule.id); setActionError(undefined);
+    try {
+      const saved = await api<Rule>(`/notifications/rules/${rule.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !rule.enabled, expectedVersion: rule.version }) });
+      await applySavedRule(saved); message.success(saved.enabled ? "规则已启用" : "规则已停用");
+    } catch (error) { handleError(error, rule); }
+    finally { setBusyRule(undefined); }
+  };
+  const errorAlert = actionError ? <Alert type="error" showIcon message={actionError.text} style={{ marginBottom: 12 }} action={actionError.conflict ? <Button onClick={() => { if (editor !== undefined && actionError.rule) void openEditor(actionError.rule); else { setActionError(undefined); void refresh(); } }}>刷新后重试</Button> : actionError.recipients && editor === undefined ? <Button onClick={() => void openEditor(actionError.rule)}>编辑接收人</Button> : undefined} /> : null;
+  const targetLabel = (target: RecipientTarget) => target.type === "ORGANIZATION" ? `组织：${recipientOptions.data?.organizations.find((item) => item.id === target.organizationUnitId)?.pathLabel ?? "已失效组织"}${target.includeDescendants ? "（含下级）" : ""}` : target.type === "ROLE" ? `角色：${recipientOptions.data?.roles.find((item) => item.id === target.roleId)?.name ?? "已失效角色"}` : `员工：${recipientOptions.data?.users.find((item) => item.id === target.userId)?.displayName ?? "已失效员工"}`;
   const retry = async (row: Log) => { try { await api(`/notifications/outbox/${row.outboxId}/retry`, { method: "POST" }); message.success("通知已重新进入待发送队列"); refresh(); } catch (error) { message.error((error as Error).message); } };
   const ruleColumns = [
     { title: "规则名称", dataIndex: "name", width: 180 }, { title: "模块", dataIndex: "module", width: 100 }, { title: "资源/数据表", dataIndex: "resourceLabel", width: 150 },
-    { title: "事件", dataIndex: "eventType", width: 240 }, { title: "触发条件", dataIndex: "condition", width: 270 }, { title: "接收人", dataIndex: "recipientLabel", width: 110 }, { title: "渠道", dataIndex: "channelLabel", width: 150 },
+    { title: "事件", dataIndex: "eventType", width: 240 }, { title: "触发条件", dataIndex: "condition", width: 270 }, { title: "接收人", dataIndex: "recipientLabel", width: 240, render: (label: string, row: Rule) => row.recipientRule === "FIXED_USERS" ? (row.recipientTargets?.length ? row.recipientTargets.map(targetLabel).join("、") : "未配置接收人") : label }, { title: "渠道", dataIndex: "channelLabel", width: 150 },
     { title: "状态", dataIndex: "enabled", width: 80, render: (value: boolean) => <Tag color={value ? "success" : "default"}>{value ? "启用" : "停用"}</Tag> }, { title: "最近发送", dataIndex: "latestSendAt", width: 160, render: formatTime },
-    { title: "操作", key: "actions", fixed: "right" as const, width: 270, render: (_: unknown, row: Rule) => <Space><Button type="link" icon={<EditOutlined />} onClick={() => openEditor(row)}>编辑</Button><Button type="link" onClick={() => void toggle(row)}>{row.enabled ? "停用" : "启用"}</Button><Button type="link" onClick={() => { setLogRuleId(row.id); setActiveTab("logs"); }}>查看日志</Button><Button type="link" icon={<SendOutlined />} onClick={() => setTestRule(row)}>测试</Button></Space> }
+    { title: "操作", key: "actions", fixed: "right" as const, width: 270, render: (_: unknown, row: Rule) => <Space><Button type="link" icon={<EditOutlined />} disabled={Boolean(busyRule)} onClick={() => void openEditor(row)}>编辑</Button><Button type="link" aria-label={row.enabled ? "停用" : "启用"} disabled={Boolean(busyRule)} loading={busyRule === row.id} onClick={() => void toggle(row)}>{row.enabled ? "停用" : "启用"}</Button><Button type="link" onClick={() => { setLogRuleId(row.id); setActiveTab("logs"); }}>查看日志</Button><Button type="link" icon={<SendOutlined />} onClick={() => setTestRule(row)}>测试</Button></Space> }
   ];
   const logColumns = [ {title:"操作批次",dataIndex:"batchId",width:220}, {title:"事业部 / 业务员接收范围",dataIndex:"identities",width:240,render:(v:string[])=>v?.join("、")||"—"}, {title:"消息组成",dataIndex:"component",width:110,render:(v:string)=>v?.startsWith("file")?"Excel附件":v==="routing"?"接收人异常":"文本"}, {title:"Excel文件",dataIndex:"attachmentFilename",width:220},
     { title: "发送时间", dataIndex: "sendTime", width: 170, render: formatTime }, { title: "规则", dataIndex: "ruleName", width: 160 }, { title: "模块", dataIndex: "module", width: 90 }, { title: "资源/数据表", dataIndex: "resource", width: 160 }, { title: "事件", dataIndex: "eventType", width: 230 },
@@ -51,29 +79,33 @@ export function NotificationCenterPage() {
   ];
   const eventOptions = (events.data ?? []).map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }));
   return <div className="notification-center-page">
-    <PageHeader title="消息中心" actions={<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>} />
+    <PageHeader title="消息中心" actions={<Button icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新</Button>} />
+    {editor === undefined && errorAlert}
+    {(events.error || rules.error) && <Alert type="error" showIcon message={(events.error || rules.error)?.message} />}
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "rules", label: "消息规则" }, { key: "logs", label: "发送记录" }, { key: "failures", label: "失败消息" }]} />
     {activeTab === "rules" ? <>
-      <Space wrap style={{ marginBottom: 16 }}><Select aria-label="模块" allowClear placeholder="模块" value={module || undefined} onChange={(value) => setModule(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.moduleCode, { value: item.moduleCode, label: item.module }])).values()]} style={{ width: 150 }} /><Select allowClear placeholder="资源/数据表" value={resource || undefined} onChange={(value) => setResource(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.resource, { value: item.resource, label: item.resourceLabel }])).values()]} style={{ width: 190 }} /><Select allowClear placeholder="事件" value={eventType || undefined} onChange={(value) => setEventType(value ?? "")} options={eventOptions} style={{ width: 300 }} /><Select allowClear placeholder="状态" value={status || undefined} onChange={(value) => setStatus(value ?? "")} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} style={{ width: 130 }} /><Button type="primary" onClick={() => openEditor()}>新增规则</Button></Space>
+      <Space wrap style={{ marginBottom: 16 }}><Select aria-label="模块" allowClear placeholder="模块" value={module || undefined} onChange={(value) => setModule(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.moduleCode, { value: item.moduleCode, label: item.module }])).values()]} style={{ width: 150 }} /><Select allowClear placeholder="资源/数据表" value={resource || undefined} onChange={(value) => setResource(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.resource, { value: item.resource, label: item.resourceLabel }])).values()]} style={{ width: 190 }} /><Select allowClear placeholder="事件" value={eventType || undefined} onChange={(value) => setEventType(value ?? "")} options={eventOptions} style={{ width: 300 }} /><Select allowClear placeholder="状态" value={status || undefined} onChange={(value) => setStatus(value ?? "")} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} style={{ width: 130 }} /><Button type="primary" disabled={events.isError || events.isLoading} onClick={() => void openEditor()}>新增规则</Button></Space>
       {!events.isLoading && !events.data?.length && <Alert type="info" showIcon message="当前数据表暂未注册可用的实时通知事件。" />}
       {events.data?.length ? <Alert type="info" showIcon message={<span>已注册事件：{events.data.map((item) => `${item.resourceLabel} / ${item.eventType}`).join("、")}</span>} style={{ marginBottom: 16 }} /> : null}
       <KdosDataTable simple resource="notification-rules" rowKey="id" loading={rules.isLoading} dataSource={rules.data ?? []} columns={ruleColumns} scroll={{ x: 1700 }} pagination={{ pageSize: 50 }} />
     </> : <><Space wrap style={{ marginBottom: 16 }}><Select allowClear placeholder="规则" value={logRuleId || undefined} onChange={(value) => setLogRuleId(value ?? "")} options={(rules.data ?? []).map((item) => ({ value: item.id, label: item.name }))} style={{ width: 180 }} /><Select allowClear placeholder="状态" value={logStatus || undefined} onChange={(value) => setLogStatus(value ?? "")} options={Object.entries(statusLabel).map(([value, label]) => ({ value, label }))} style={{ width: 150 }} /><Input allowClear placeholder="资源/数据表" value={logResource} onChange={(event) => setLogResource(event.target.value)} style={{ width: 180 }} /><Input allowClear placeholder="接收人/UserId" value={logRecipient} onChange={(event) => setLogRecipient(event.target.value)} style={{ width: 180 }} /><Input type="date" value={logFrom} onChange={(event) => setLogFrom(event.target.value)} style={{ width: 150 }} /><Input type="date" value={logTo} onChange={(event) => setLogTo(event.target.value)} style={{ width: 150 }} /></Space><KdosDataTable simple resource="notification-delivery-logs" rowKey="id" loading={logs.isLoading} dataSource={logs.data ?? []} columns={logColumns} scroll={{ x: 2300 }} pagination={{ pageSize: 50 }} /></>}
-    <RuleModal rule={editor} events={events.data ?? []} recipientOptions={recipientOptions.data ?? { organizations: [], roles: [], users: [] }} onCancel={() => setEditor(undefined)} onSave={saveRule} />
+    {editor !== undefined && <RuleModal key={`${editor?.id ?? "new"}:${editor?.version ?? 0}`} saving={saving} error={errorAlert} optionsError={recipientOptions.error?.message} optionsLoading={recipientOptions.isLoading} onReloadOptions={() => void recipientOptions.refetch()} rule={editor} events={events.data ?? []} recipientOptions={recipientOptions.data ?? { organizations: [], roles: [], users: [] }} onCancel={() => setEditor(undefined)} onSave={saveRule} />}
     <TestModal rule={testRule} onCancel={() => setTestRule(undefined)} />
   </div>;
 }
 
-function RuleModal({ rule, events, recipientOptions, onCancel, onSave }: { rule: Rule | null | undefined; events: EventDefinition[]; recipientOptions: RecipientOptions; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientTargets?: RecipientTarget[] }) => Promise<void> }) {
+function RuleModal({ rule, events, recipientOptions, onCancel, onSave, saving, error, optionsError, optionsLoading, onReloadOptions }: { saving: boolean; error: React.ReactNode; optionsError?: string; optionsLoading: boolean; onReloadOptions: () => void; rule: Rule | null | undefined; events: EventDefinition[]; recipientOptions: RecipientOptions; onCancel: () => void; onSave: (values: { name: string; eventType: string; template?: string; recipientRule: string; recipientTargets?: RecipientTarget[] }) => Promise<void> }) {
   const [form] = Form.useForm(); const selectedEventType = Form.useWatch("eventType", form); const selectedRecipientRule = Form.useWatch("recipientRule", form); const selectedEvent = events.find((item) => item.eventType === selectedEventType);
   if (rule === undefined) return null;
-  return <Modal title={rule ? "编辑消息规则" : "新增消息规则"} open onCancel={onCancel} onOk={() => void form.validateFields().then(onSave)} okText="保存" width={960} destroyOnHidden>
+  return <Modal title={rule ? "编辑消息规则" : "新增消息规则"} open onCancel={saving ? undefined : onCancel} confirmLoading={saving} okButtonProps={{ disabled: selectedRecipientRule === "FIXED_USERS" && (optionsLoading || Boolean(optionsError)) }} onOk={() => { void form.validateFields().then(onSave).catch(() => undefined); }} okText="保存" cancelText="取消" width={960} destroyOnHidden>
+    {error}
+    {optionsError && <Alert type="error" showIcon message={optionsError} action={<Button onClick={onReloadOptions}>重新加载接收对象</Button>} />}
     <Form form={form} layout="vertical" initialValues={{ name: rule?.name, eventType: rule?.eventType, recipientRule: rule?.recipientRule ?? "EQUIPMENT_RESPONSIBLE", recipientTargets: rule?.recipientTargets ?? rule?.config?.recipientTargets ?? (rule?.recipientUserIds ?? rule?.config?.recipientUserIds ?? []).map((userId) => ({ type: "USER", userId })), template: rule?.config?.template }}>
       <Form.Item name="name" label="规则名称" rules={[{ required: true, message: "请输入规则名称" }]}><Input /></Form.Item>
       <Form.Item name="eventType" label="实时通知事件" rules={[{ required: true, message: "请选择已注册事件" }]}><Select onChange={value=>{const event=events.find(e=>e.eventType===value);const allowed=event?.recipientRules??[];if(allowed.length&&!allowed.includes(form.getFieldValue("recipientRule")))form.setFieldValue("recipientRule",allowed[0]);}} options={events.map((item) => ({ value: item.eventType, label: `${item.label}（${item.eventType}）` }))} /></Form.Item>
       <Form.Item label="模块 / 资源"><Input value={selectedEvent ? `${selectedEvent.module} / ${selectedEvent.resourceLabel}` : rule ? `${rule.module} / ${rule.resourceLabel}` : "请选择事件"} disabled /></Form.Item>
       <Form.Item name="recipientRule" label="接收人规则" rules={[{ required: true, message: "请选择接收人规则" }]}><Select options={(selectedEvent?.recipientRules??["EQUIPMENT_RESPONSIBLE","FIXED_USERS"]).map(value=>({value,label:selectedEvent?.recipientLabels[value]??value}))} /></Form.Item>
-      {selectedRecipientRule === "FIXED_USERS" && <Form.Item name="recipientTargets" label="接收对象" rules={[{ required: true, type: "array", min: 1, message: "请选择组织架构、角色或员工" }]}><RecipientTargetSelector options={recipientOptions} /></Form.Item>}
+      {selectedRecipientRule === "FIXED_USERS" && <Form.Item name="recipientTargets" label="接收对象" rules={rule?.enabled === false ? [] : [{ required: true, type: "array", min: 1, message: "请选择组织架构、角色或员工" }]}><RecipientTargetSelector options={recipientOptions} /></Form.Item>}
       <Form.Item label="渠道"><Input value="企业微信工作通知" disabled /></Form.Item>
       <Form.Item name="template" label="消息模板" extra="仅允许使用服务端提供的 {{变量名}}，不支持 JavaScript、SQL 或表达式。"><Input.TextArea autoSize={{ minRows: 5, maxRows: 12 }} placeholder="例如：设备 {{equipmentCode}} 故障时长从 {{oldFaultMinutes}} 变为 {{newFaultMinutes}} 分钟" /></Form.Item>
       {selectedEvent && <Typography.Text type="secondary">可用变量：{selectedEvent.variables.map((item) => `{{${item}}}`).join("、")}</Typography.Text>}
@@ -98,7 +130,7 @@ function RecipientTargetSelector({ value = [], onChange, options }: { value?: Re
   const filteredUsers = users.filter((user) => `${user.displayName} ${user.username} ${user.employeeNo ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()));
   const selectedLabels = targets.map((target) => target.type === "ORGANIZATION" ? `组织：${organizationMap.get(target.organizationUnitId)?.name ?? target.organizationUnitId}` : target.type === "ROLE" ? `角色：${roles.find((role) => role.id === target.roleId)?.name ?? target.roleId}` : `员工：${users.find((user) => user.id === target.userId)?.displayName ?? target.userId}`);
   return <div className="notification-recipient-selector">
-    {selectedLabels.length ? <Flex wrap gap={6} style={{ marginBottom: 12 }}>{selectedLabels.map((label, index) => <Tag key={`${label}-${index}`}>{label}</Tag>)}</Flex> : <Typography.Text type="secondary">尚未选择接收对象</Typography.Text>}
+    {selectedLabels.length ? <Flex wrap gap={6} style={{ marginBottom: 12 }}>{selectedLabels.map((label, index) => <Tag key={`${label}-${index}`} closable onClose={() => setTargets(targets.filter((_, current) => current !== index))}>{label}</Tag>)}</Flex> : <Typography.Text type="secondary">尚未选择接收对象</Typography.Text>}
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "organization", label: "组织架构", icon: <ApartmentOutlined />, children: <div>
       <Typography.Text type="secondary">选择组织后可设置“仅当前组织”或“包含下级组织”，保存的只有 organizationUnitId 和范围标记。</Typography.Text>
       <Tree checkable checkStrictly showIcon blockNode defaultExpandAll treeData={treeData} checkedKeys={[...organizationIds]} onCheck={(keys) => { const checked = new Set((Array.isArray(keys) ? keys : keys.checked).map(String)); const next = targets.filter((target) => target.type !== "ORGANIZATION" || checked.has(target.organizationUnitId)); for (const id of checked) if (!organizationIds.has(id)) next.push({ type: "ORGANIZATION", organizationUnitId: id, includeDescendants: true }); setTargets(next); }} />

@@ -56,7 +56,7 @@ export class NotificationAdminService {
   async recipientUsers(actor: NotificationAdminActor) {
     this.assertAnyAccess(actor);
     return this.dataSource.query(`SELECT id,COALESCE(NULLIF(display_name,''),username) "displayName",username,enabled
-      FROM users WHERE enabled=true ORDER BY "displayName",username`);
+      FROM users WHERE enabled=true AND tenant_id=$1 ORDER BY "displayName",username`, [actor.tenantId]);
   }
 
   /** 复用角色授权的三个稳定对象来源，名称只用于展示，不进入规则配置。 */
@@ -68,10 +68,10 @@ export class NotificationAdminService {
       this.dataSource.query(`SELECT r.id,r.name,r.role_group_id "roleGroupId",g.name "roleGroupName"
         FROM roles r LEFT JOIN role_groups g ON g.id=r.role_group_id
         WHERE r.name <> '系统管理员' AND r.permission_group_resource IS NULL ORDER BY g.name NULLS FIRST,r.name,r.id`),
-      this.dataSource.query(`SELECT u.id,COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.username,u.employee_no "employeeNo",
+      this.dataSource.query(`SELECT u.id,COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.username,u.employee_no "employeeNo",u.enabled,
         u.department_paths "departmentPaths",COALESCE(jsonb_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL),'[]'::jsonb) "roleIds"
         FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id
-        WHERE u.enabled=true GROUP BY u.id ORDER BY "displayName",u.username`)
+        WHERE u.enabled=true AND u.tenant_id=$1 GROUP BY u.id ORDER BY "displayName",u.username`, [actor.tenantId])
     ]);
     const byId = new Map((organizations as Array<Record<string, unknown>>).map((unit) => [String(unit.id), unit]));
     const pathOf = (id: string) => {
@@ -110,10 +110,17 @@ export class NotificationAdminService {
   }
 
   async detail(actor: NotificationAdminActor, id: string) {
+    this.assertAnyAccess(actor);
     const [row] = await this.dataSource.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND id=$2::uuid", [actor.tenantId, id]);
     if (!row) throw new NotFoundException("消息规则不存在");
     this.assertResourceAccess(actor, String(row.resource));
     return this.ruleView(row);
+  }
+
+  async recipientPreview(actor: NotificationAdminActor, id: string) {
+    const rule = await this.detail(actor, id);
+    if (rule.recipientRule !== FIXED_RECIPIENT) throw new BadRequestException("该规则使用业务动态接收人，请进入对应业务配置查看");
+    return this.write(actor, (manager) => this.notifications.previewConfiguredRecipients(manager, actor.tenantId, this.normalizeRecipientTargets(rule.recipientTargets, rule.recipientUserIds)));
   }
 
   async create(actor: NotificationAdminActor, body: Record<string, unknown>) {
@@ -123,7 +130,8 @@ export class NotificationAdminService {
     const ruleKey = String(body.ruleKey ?? `notification:${input.eventType}:${randomUUID()}`).trim();
     if (!ruleKey || ruleKey.length > 128) throw new BadRequestException("规则编码无效");
     return this.write(actor, async (manager) => {
-      await this.validateRecipientTargets(manager, input.recipientTargets);
+      await this.validateRecipientTargets(manager, actor.tenantId, input.recipientTargets);
+      await this.validateEnabledRecipients(manager, actor, input);
       const rows = await manager.query(`INSERT INTO notification_rules(tenant_id,rule_key,name,event_type,channel,module_code,resource,recipient_rule,enabled,config,created_by,updated_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::uuid,$11::uuid) RETURNING *`,
       [actor.tenantId, ruleKey, input.name, input.eventType, input.event.defaultChannel, input.event.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId]);
@@ -137,11 +145,24 @@ export class NotificationAdminService {
       if (!current) throw new NotFoundException("消息规则不存在");
       this.assertResourceAccess(actor, String(current.resource));
       if (body.expectedVersion != null && Number(body.expectedVersion) !== Number(current.version)) throw new ConflictException("规则已被其他用户修改，请刷新后重试");
+      // 状态切换只写状态和审计版本，原配置（含模板和未知扩展项）原样保留。
+      if (typeof body.enabled === "boolean" && Object.keys(body).every((key) => ["enabled", "expectedVersion"].includes(key))) {
+        if (body.enabled && current.recipient_rule === FIXED_RECIPIENT) {
+          const targets = this.normalizeRecipientTargets(current.config?.recipientTargets, current.config?.recipientUserIds);
+          await this.validateRecipientTargets(manager, actor.tenantId, targets);
+          await this.validateEnabledRecipients(manager, actor, { enabled: true, recipientRule: FIXED_RECIPIENT, recipientTargets: targets });
+        }
+        const [row] = this.rowsOf(await manager.query("UPDATE notification_rules SET enabled=$3,updated_by=$4::uuid,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$5 RETURNING *", [actor.tenantId, id, body.enabled, actor.userId, Number(current.version)]));
+        if (!row) throw new ConflictException("规则已被其他用户修改，请刷新后重试");
+        await this.audit(manager, actor, id, "notification_rule.updated", current, row);
+        return this.ruleView(row);
+      }
       const input = this.validRule({ ...current, ...body, resource: body.resource ?? current.resource, eventType: body.eventType ?? current.event_type, name: body.name ?? current.name, enabled: body.enabled ?? current.enabled, recipientRule: body.recipientRule ?? current.recipient_rule, config: body.config ?? current.config, template: body.template ?? current.config?.template });
       this.assertResourceAccess(actor, input.resource);
       if (input.eventType === "mps.order_allocation.batch_changed" && current.event_type !== input.eventType) throw new ConflictException("订单分配专属规则已自动初始化，请编辑已有规则");
       if (current.event_type === "mps.order_allocation.batch_changed" && input.eventType !== current.event_type) throw new BadRequestException("订单分配专属规则不能改为其他业务事件");
-      await this.validateRecipientTargets(manager, input.recipientTargets);
+      await this.validateRecipientTargets(manager, actor.tenantId, input.recipientTargets);
+      await this.validateEnabledRecipients(manager, actor, input);
       const rows = await manager.query(`UPDATE notification_rules SET name=$3,event_type=$4,module_code=$5,resource=$6,recipient_rule=$7,enabled=$8,config=$9::jsonb,updated_by=$10::uuid,updated_at=now(),version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$11 RETURNING *`,
       [actor.tenantId, id, input.name, input.eventType, input.event.moduleCode, input.resource, input.recipientRule, input.enabled, JSON.stringify(input.config), actor.userId, Number(current.version)]);
@@ -213,7 +234,7 @@ export class NotificationAdminService {
     const rawIds = body.recipientUserIds ?? sourceConfig.recipientUserIds;
     if (recipientRule === FIXED_RECIPIENT) {
       const targets = this.normalizeRecipientTargets(rawTargets, rawIds);
-      if (!targets.length) throw new BadRequestException("请选择组织架构、角色或员工");
+      if (!targets.length && body.enabled !== false) this.noRecipients();
       sourceConfig.recipientTargets = targets;
       delete sourceConfig.recipientUserIds;
     } else { delete sourceConfig.recipientUserIds; delete sourceConfig.recipientTargets; }
@@ -265,13 +286,23 @@ export class NotificationAdminService {
     return target.type === "ORGANIZATION" ? `${target.type}:${target.organizationUnitId}:${target.includeDescendants ? "DESCENDANTS" : "SELF"}` : `${target.type}:${target.type === "ROLE" ? target.roleId : target.userId}`;
   }
 
-  private async validateRecipientTargets(manager: EntityManager, targets: NotificationRecipientTarget[]) {
+  private noRecipients(): never { throw new BadRequestException({ code: "NOTIFICATION_RECIPIENTS_REQUIRED", message: "未配置有效接收人，请先编辑接收对象；至少需要一名已启用且有企业微信 UserId 的员工" }); }
+
+  private async validateEnabledRecipients(manager: EntityManager, actor: NotificationAdminActor, input: { enabled: boolean; recipientRule: string; recipientTargets: NotificationRecipientTarget[] }) {
+    if (!input.enabled || input.recipientRule !== FIXED_RECIPIENT) return;
+    if (!input.recipientTargets.length) this.noRecipients();
+    const preview = await this.notifications.previewConfiguredRecipients(manager, actor.tenantId, input.recipientTargets);
+    if (!preview.deliverable) this.noRecipients();
+  }
+
+  private async validateRecipientTargets(manager: EntityManager, tenantId: string, targets: NotificationRecipientTarget[]) {
+    if (!targets.length) return;
     const organizationIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ORGANIZATION" }> => target.type === "ORGANIZATION").map((target) => target.organizationUnitId);
     const roleIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "ROLE" }> => target.type === "ROLE").map((target) => target.roleId);
     const userIds = targets.filter((target): target is Extract<NotificationRecipientTarget, { type: "USER" }> => target.type === "USER").map((target) => target.userId);
     const rows = await manager.query(`SELECT 'ORGANIZATION' type,id FROM organization_units WHERE id=ANY($1::uuid[])
       UNION ALL SELECT 'ROLE' type,id FROM roles WHERE id=ANY($2::uuid[])
-      UNION ALL SELECT 'USER' type,id FROM users WHERE id=ANY($3::uuid[])`, [organizationIds, roleIds, userIds]);
+      UNION ALL SELECT 'USER' type,id FROM users WHERE id=ANY($3::uuid[]) AND tenant_id=$4`, [organizationIds, roleIds, userIds, tenantId]);
     const found = new Set((rows as Array<Record<string, unknown>>).map((row) => `${row.type}:${row.id}`));
     for (const target of targets) {
       const key = target.type === "ORGANIZATION" ? `ORGANIZATION:${target.organizationUnitId}` : target.type === "ROLE" ? `ROLE:${target.roleId}` : `USER:${target.userId}`;
@@ -293,6 +324,6 @@ export class NotificationAdminService {
     return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: resourceModule(String(row.resource ?? event?.resourceCode ?? "")), resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
-  private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId]); }
+  private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid,$8)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.tenantId]); }
   private rowsOf(result: unknown): Array<Record<string, unknown>> { return Array.isArray(result) && Array.isArray(result[0]) && typeof result[1] === "number" ? result[0] as Array<Record<string, unknown>> : result as Array<Record<string, unknown>>; }
 }
