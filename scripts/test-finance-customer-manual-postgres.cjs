@@ -157,6 +157,9 @@ const request = async (url, identity = 'admin', body, method = body ? 'POST' : '
         const expected = (await db.query("SELECT customer_code FROM finance_customer_mappings WHERE tenant_id='KAINAN' AND customer_code LIKE 'EXPORT-%' AND department_category='业务二部' ORDER BY customer_code DESC")).map(x => x.customer_code);
         assert.deepEqual(sheet.getColumn(1).values.slice(2), expected);
         assert.equal((await request('/table-exports/' + resource, 'reader')).result.status, 403);
+        // This row matches export's department, but is outside read's code prefix.
+        // It must never be included merely because the user has export permission.
+        await service.createManual({ ...input, customerCode: 'OUTSIDE-READ', departmentCategory: '业务三部' }, actor);
         const allowed = { ...reader, permissions: [...reader.permissions.filter(p => p !== `${resource}:salesChannel:read`), `${resource}:*:export`], tableDataScopes: [
             { resource, scope: 'CUSTOM', actions: ['read'], rules: [{ fieldKey: 'customerCode', operator: 'STARTS_WITH', value: 'EXPORT-' }] },
             { resource, scope: 'CUSTOM', actions: ['export'], rules: [{ fieldKey: 'departmentCategory', operator: 'EQ', value: '业务三部' }] }

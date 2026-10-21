@@ -3,11 +3,11 @@
 ## 任务
 任务名称：财务客户对应表手动新增。
 任务目标：顶部新增按钮/三字段弹窗、独立手工创建API/权限/范围/唯一键/审计、前向MANUAL来源迁移、同步分类保护、API/Web/隔离PG/Excel/Chrome/正式部署和安全GitHub同步。
-当前状态：本地实现/测试完成，准备安全提交及发布。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
-最后更新时间：2026-10-21 18:28（Asia/Shanghai）。
+当前状态：功能71932de已部署，前向迁移成功且数据/PMC/视图/flags不变。最终验收发现原客户导出只按export范围，正在仅本表补齐read∩export并增加真实排除反例，反例已复现并修复；API1153、PG/HTTP/Chrome11及lint/build重新通过，准备最终提交/部署。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
+最后更新时间：2026-10-21 18:43（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：备份/基线/本地与Chrome隔离验证完成，准备迁移上线。
+当前阶段：生产迁移完成；补齐客户表导出交集权限，再最终部署/Chrome/推送。
 当前子任务：沿用财务独立字典/资源/事务审计和KdosDataTable，不改PMC映射/金额视图或调度。
 
 ## 已完成
@@ -38,6 +38,8 @@
 - API118套/1153项通过/33skip；Web59文件/444项、contracts31；PG/HTTP10组+真实Chrome第11组通过；构建/lint/typecheck通过。
 
 ## 当前已知问题
+- 183232发布备份成功；首次DDL被5条旧财务SELECT阻塞4小时以上，已取消自身迁移并验证回滚；核实只读后仅取消这5条旧查询，再用PGOPTIONS lock_timeout=5s/statement_timeout=30s重试唯一迁移成功，不终止写事务、不改金额SQL。原发生额慢查询性能需单独处理。
+- 客户导出原范围只使用export；仅finance.filter-sources补读∩导交集，新OUTSIDE-READ反例必须被排除。
 - 客户编号是只读身份字段，仅新增时填写；沿用平台创建字段策略（可见字段可填写、无查看的ADD_ONLY仅允许NONE填报范围）。字段隐藏不允许伪造写入。
 - 财务无组织事实，不猜PMC/事业部ID；未知CUSTOM条件整组拒绝。
 
@@ -45,8 +47,8 @@
 - 无，开发/迁移/部署/安全GitHub同步已授权。
 
 ## 下一步
-1. 检查git远程无冲突并仅提交本任务文件/新进度段，保留原outputs差异。
-2. 构建API迁移镜像，标准migrate.sh发布前备份+唯一新迁移，标准all/check和生产Chrome无持久测试客户。
+1. 反例与复验完成；安全仅补丁/新进度段提交，最终标准all/check/生产Chrome。
+2. 仅补丁文件安全commit，再标准all/check和生产Chrome无持久测试客户；不重跑已成功迁移。
 3. 比对PMC/视图/客户/flags及调度保护，正常push并核验版本，最终补记和清理隔离环境。
 
 ## 恢复执行说明

@@ -8,7 +8,10 @@ export class FinanceFilterSourceProvider implements OnModuleInit {
     constructor(private readonly registry: TableFilterRegistry, private readonly repository: FinanceRepository) { }
     onModuleInit() {
         this.registry.register({ code: FINANCE_CUSTOMER_RESOURCE, table: "finance_customer_mappings", columns: financeColumns,
-            fields: tablePermissionFieldsFor(FINANCE_CUSTOMER_RESOURCE), authorize: financeAuthorize, buildScope: financeScope,
+            fields: tablePermissionFieldsFor(FINANCE_CUSTOMER_RESOURCE), authorize: financeAuthorize,
+            buildScope: (actor, params, action) => action === "export"
+                ? `(${financeScope(actor, params, "read")}) AND (${financeScope(actor, params, "export")})`
+                : financeScope(actor, params, action),
             // All field predicates (including pending) use the platform FilterGroup compiler.
             buildContext: (context) => { if (Object.keys(context).length)
                 throw new BadRequestException("客户对应表不接受额外上下文"); return "1=1"; },
