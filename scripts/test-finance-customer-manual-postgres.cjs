@@ -189,6 +189,8 @@ const request = async (url, identity = 'admin', body, method = body ? 'POST' : '
             await expect(page.getByText('客户总数 ' + before, { exact: true })).toBeVisible();
             await page.getByRole('button', { name: '新增客户', exact: true }).click();
             const dialog = page.getByRole('dialog', { name: '新增客户' });
+            await dialog.getByRole('button', { name: /^新\s*增$/ }).click();
+            await expect(dialog.getByText('客户编号必填', { exact: true })).toBeVisible();
             await dialog.getByRole('textbox', { name: '客户编号' }).fill('  SYNTHETIC-CHROME  ');
             await dialog.getByRole('combobox', { name: '部门类别' }).click();
             await page.locator('.ant-select-dropdown:visible .ant-select-item-option-content').filter({ hasText: /^业务二部$/ }).click();

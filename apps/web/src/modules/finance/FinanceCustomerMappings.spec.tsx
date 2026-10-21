@@ -38,6 +38,8 @@ describe("Finance customer mapping UI", () => {
         await screen.findByText("客户总数 609");
         fireEvent.click(screen.getByRole("button", { name: "新增客户" }));
         const dialog = within(screen.getByRole("dialog", { name: "新增客户" }));
+        fireEvent.click(dialog.getByRole("button", { name: /新\s*增/ }));
+        await dialog.findByText("客户编号必填");
         fireEvent.change(dialog.getByRole("textbox", { name: "客户编号" }), { target: { value: "  NEW-1/2  " } });
         fireEvent.mouseDown(dialog.getByRole("combobox", { name: "部门类别" }));
         fireEvent.click(await screen.findByTitle("业务二部"));

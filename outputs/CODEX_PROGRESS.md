@@ -3,8 +3,8 @@
 ## 任务
 任务名称：财务客户对应表手动新增。
 任务目标：顶部新增按钮/三字段弹窗、独立手工创建API/权限/范围/唯一键/审计、前向MANUAL来源迁移、同步分类保护、API/Web/隔离PG/Excel/Chrome/正式部署和安全GitHub同步。
-当前状态：功能71932de已部署，前向迁移成功且数据/PMC/视图/flags不变。最终验收发现原客户导出只按export范围，正在仅本表补齐read∩export并增加真实排除反例，反例已复现并修复；API1153、PG/HTTP/Chrome11及lint/build重新通过，准备最终提交/部署。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
-最后更新时间：2026-10-21 18:43（Asia/Shanghai）。
+当前状态：bbdba6d已正式all/check一致（含客户导出交集修复），生产数据/PMC/视图/flags/调度不变。生产Chrome发现先空填校验再补填保存未发请求；正在修复校验/提交状态竞争（同步ref防重、校验期间不禁用表单、过期校验重试、验证后trim），完整纠错真实Chrome11组和Web444全套/构建/typecheck/lint已通过。GitHub未推送，正在提交并部署最终前端修复后复验。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
+最后更新时间：2026-10-21 18:58（Asia/Shanghai）。
 
 ## 当前阶段
 当前阶段：生产迁移完成；补齐客户表导出交集权限，再最终部署/Chrome/推送。
@@ -47,7 +47,7 @@
 - 无，开发/迁移/部署/安全GitHub同步已授权。
 
 ## 下一步
-1. 反例与复验完成；安全仅补丁/新进度段提交，最终标准all/check/生产Chrome。
+1. 纠错流程复验已通过；仅前端/测试/本任务进度和报告安全提交，最终all/check/生产Chrome。
 2. 仅补丁文件安全commit，再标准all/check和生产Chrome无持久测试客户；不重跑已成功迁移。
 3. 比对PMC/视图/客户/flags及调度保护，正常push并核验版本，最终补记和清理隔离环境。
 
