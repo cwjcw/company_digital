@@ -15,7 +15,7 @@ const definitions = [
     label: "财务月度数据每日汇总",
     conditionDescription: "每天08:30（上海时间）汇总当月有效订单；仅向已启用规则配置的接收人推送",
     defaultChannel: "WECHAT_WORK",
-    messageType: "text",
+    messageType: "text_file",
     defaultTemplate: "【财务月度数据汇总】\n\n月份：{yearMonth}\n订单数：{orderCount}\n本月接单发生额：{orderTotal}元\n\n事业部分布：\n{departmentSummary}\n\n汇总时间：{occurredAt}\n最近数据读取：{lastReadAt}",
     allowedRecipientRules: [FIXED_USERS_RECIPIENT_RULE],
     templateVariables: [

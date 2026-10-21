@@ -14,6 +14,14 @@ type InternalBody = Record<string, unknown>;
 export class NotificationInternalController {
   constructor(private readonly notifications: NotificationService, @Optional() private readonly allocationDelivery?: OrderAllocationDeliveryService) {}
 
+  @Get(":id/finance-attachments/:attachmentId")
+  async financeAttachment(@Param("id") id: string, @Param("attachmentId") attachmentId: string, @Req() request: NotificationInternalRequest, @Res() response: Response) {
+    const file = await this.notifications.financeAttachment(this.tenant(request), id, attachmentId, this.worker(request));
+    response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setHeader("Content-Disposition", `attachment; filename="finance-monthly.xlsx"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    response.setHeader("Cache-Control", "no-store"); response.send(file.content);
+  }
+
   @Get(":id/attachments/:attachmentId")
   async attachment(@Param("id") id:string,@Param("attachmentId") attachmentId:string,@Req() request:NotificationInternalRequest,@Res() response:Response) {
     if(!this.allocationDelivery) throw new BadRequestException("附件服务未配置");

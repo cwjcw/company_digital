@@ -206,3 +206,13 @@
 - 接收人：沿用用户已启用规则及保存对象/模板/版本，未修改任何通知规则或PMC配置。验证1240 SUCCESS，通过原SSH实际INCREMENTAL；验证专用`--update-only`不生成通知（入队0），正式发布命令不含该参数。
 - 备份/回滚：095740两库/uploads与切换前n8n一致SQLite/两个规则的REST快照；使用各自原发布版本显式回滚，避免新旧入口并存；保留同步和通知审计，不回写覆盖数据库。
 - 运行核验：已通过受权限/checksum保护的n8n在线API完成发布/取消发布，未用CLI改库后假称内存已刷新。下一次2026-10-22 08:30；尚未观察未来首次定时触发或宣称企业微信实际送达。负责人：财务管理员/系统维护。说明见docs/finance-monthly-notifications.md。
+
+### FIN-004 / MSG-001 2026-10-21 每日财务Excel附件
+
+- 授权及入口：用户明确要求每天08:30给财务的当月月度数据Excel，名称`YYYY年M月接单统计-生管.xlsx`，例如`2026年10月接单统计-生管.xlsx`。复用FIN-004唯一日流程和MSG-001消费者；n8n命令、08:30上海时间、更新阶段、接收人及金额口径不变。
+- 权限与执行：按接收人实时IAM read/export/字段权限及read∩export范围生成固定月份文件，租户隔离、私有下载、权限指纹/SHA校验；text/file:1组件独立幂等重试。复用现有outbox/attachments/logs，无migration；不调整PMC业务。
+- 数量及实际状态：新增仓库调度定义/候选0；只读核验生产16个n8n工作流、11active，所有工作流定义/启停/发布版本与本任务开始一致；systemd Timer/cron/常驻/内部调度修改0。本轮按正式发布流程更新原MSG-001消费者及API/Web，未新增消费者；实际版本及验收见附件验收报告。
+- 权限门禁已按明确授权处理：原预设组不含export且仅9字段；用户明确授权仅补齐2名接收人。经正式Application API新建独立CUSTOM read/export组、15字段读取、2个USER，原ALL范围保留，无写权限，其他权限组逐项不变且有审计。实时IAM2/2 ready；生产回滚预览每人436行/15字段/金额一致、4个组成领取、0路由错误；回滚后outbox/attachments/log计数不增、未调用真实发送。
+- 备份/验证/回滚：本机104210两库/uploads备份；API全套1119通过/33skip、财务附件隔离PG8项、PMC隔离PG20项、Dispatcher10项通过，具体结果见outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。上线前更新备份；正式上线后通过回退应用及Dispatcher释放版本回滚，保留附件/投递历史，不恢复数据库覆盖后续业务。
+
+- 本轮生产验收：2/2实际接收人授权有效、回滚预览每份436行/15字段/金额一致，原规则启用/版本8/配置不变，真实Chrome和私有下载保护通过，未真实群发测试。1名账号首次改密屏障保留，未冒称其月度UI已验收；其后端导出及附件权限已验证。正式SHA见outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。

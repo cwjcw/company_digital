@@ -15,7 +15,8 @@ import type {
   NotificationEventInput,
   NotificationOutboxInput,
   NotificationRuleInput,
-  NotificationRecipientTarget
+  NotificationRecipientTarget,
+  NotificationFileDelivery
 } from "./notification.types";
 
 const MAX_ERROR_LENGTH = 4000;
@@ -30,7 +31,18 @@ type NotificationRuleRow = Record<string, unknown> & {
 
 @Injectable()
 export class NotificationService {
+  private financeFiles?: NotificationFileDelivery;
   constructor(private readonly dataSource: DataSource, @Optional() private readonly allocationDelivery?: OrderAllocationDeliveryService) {}
+
+  registerFinanceFiles(handler: NotificationFileDelivery) { this.financeFiles = handler; }
+  async financeAttachment(tenantId: string, outboxId: string, attachmentId: string, workerId: string) {
+    this.requireJobIdentity(tenantId, outboxId, workerId);
+    if (!this.financeFiles) throw new ConflictException("财务附件服务未配置");
+    return this.financeFiles.attachment(tenantId, outboxId, attachmentId, workerId);
+  }
+  configuredRecipientUsers(manager: EntityManager, tenantId: string, targets: NotificationRecipientTarget[]) {
+    return this.resolveConfiguredRecipients(manager, targets, tenantId);
+  }
 
   async upsertRule(tenantId: string, input: NotificationRuleInput, actor: NotificationActor, manager?: EntityManager) {
     this.requireTenant(tenantId);
@@ -129,6 +141,18 @@ export class NotificationService {
         }
         const payload = this.objectPayload(outbox.payload);
         const users = await this.resolveRecipients(manager, tenantId, rule, eventDefinition, payload);
+        if (eventDefinition.eventType === "finance.monthly.daily_summary" && payload.financeReportFormat === 1) {
+          await manager.query("SAVEPOINT finance_file_delivery");
+          try {
+            if (!this.financeFiles) throw new ConflictException("财务附件服务未配置");
+            claims.push(...await this.financeFiles.prepare(manager, tenantId, outbox, workerId, users, value => this.renderContent(rule, eventDefinition, value)));
+          } catch {
+            await manager.query("ROLLBACK TO SAVEPOINT finance_file_delivery");
+            await this.quarantine(manager, tenantId, outbox, workerId, "FINANCE_MONTHLY_ATTACHMENT_FAILED", "财务月度附件准备失败，请查看规则、接收人导出权限并重试");
+          }
+          await manager.query("RELEASE SAVEPOINT finance_file_delivery");
+          continue;
+        }
         const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users);
         await manager.query(`
           UPDATE notification_outbox SET notification_rule_id=$3::uuid,updated_at=now(),version=version+1
@@ -137,7 +161,7 @@ export class NotificationService {
           await this.completeWithoutDelivery(manager, tenantId, outbox, workerId);
           continue;
         }
-        claims.push({ notificationId: String(outbox.id), messageType: eventDefinition.messageType, content: this.renderContent(rule, eventDefinition, payload), recipients: deliveryRecipients });
+        claims.push({ notificationId: String(outbox.id), messageType: eventDefinition.eventType === "finance.monthly.daily_summary" ? "text" : eventDefinition.messageType, content: this.renderContent(rule, eventDefinition, payload), recipients: deliveryRecipients });
       }
       return claims;
     });
@@ -380,7 +404,8 @@ export class NotificationService {
   private requiredPayloadText(value: unknown, name: string) { const text = String(value ?? "").trim(); if (!text) throw new ConflictException(`通知 payload 缺少 ${name}`); return text; }
   private renderContent(rule: NotificationRuleRow, eventDefinition: NotificationEventDefinition, payload: Record<string, unknown>) {
     const config = rule.config ?? {};
-    if (config.messageType != null && config.messageType !== eventDefinition.messageType) throw new ConflictException("当前 Dispatcher 只支持文本通知");
+    const legacyFinanceText = eventDefinition.eventType === "finance.monthly.daily_summary" && config.messageType === "text";
+    if (config.messageType != null && config.messageType !== eventDefinition.messageType && !legacyFinanceText) throw new ConflictException("当前 Dispatcher 只支持文本通知");
     const template = typeof config.template === "string" && config.template.trim() ? config.template : eventDefinition.defaultTemplate;
     return template.replace(/\{\{?([A-Za-z][A-Za-z0-9_]*)\}\}?/g, (_match, key: string) => String(payload[key] ?? "—"));
   }

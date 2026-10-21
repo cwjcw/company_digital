@@ -134,6 +134,22 @@ if __name__ == "__main__":
     unittest.main()
 
 class FileDeliveryTest(unittest.TestCase):
+    def test_finance_daily_report_keeps_requested_filename(self):
+        from unittest.mock import Mock
+        filename="2026年10月接单统计-生管.xlsx"
+        notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"summary","attachment":{"filename":filename,"downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/finance-attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"finance-file-fixture","wechatUserId":"synthetic-finance"}]}
+        post=lambda path,body:{"notifications":[notification]} if path.endswith("claim") else {}
+        class Pusher:
+            def send_app_file(self,path,touser):
+                assert Path(path).name==filename
+                assert Path(path).read_bytes()==b"PK-synthetic"
+                assert touser=="synthetic-finance"
+                return {"errcode":0,"msgid":"synthetic-file"}
+        service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,Pusher())
+        service._get_attachment=Mock(return_value=b"PK-synthetic")
+        self.assertEqual(service.run_once()["sent"],1)
+        service._get_attachment.assert_called_once_with(notification["attachment"]["downloadPath"])
+
     def test_file_uses_private_temp_and_explicit_single_recipient(self):
         received=[]
         self_test=self
@@ -156,7 +172,7 @@ class FileDeliveryTest(unittest.TestCase):
 
     def test_chinese_name_exception_is_scoped_and_rejects_unsafe_paths(self):
         from unittest.mock import Mock
-        names=["其他模块中文.xlsx", "../订单分配_261014164230_张三.xlsx", "订单分配_261014164230_../张三.xlsx", "订单分配_261014164230_张三\\name.xlsx", "订单分配_261014164230_张三\n.xlsx", "订单分配_261014164230_"+"名"*100+".xlsx", "订单分配_错误时间_张三.xlsx"]
+        names=["2026年0月接单统计-生管.xlsx", "2026年13月接单统计-生管.xlsx", "../2026年10月接单统计-生管.xlsx", "2026年10月接单统计-生管.xlsx\n", "2026年10月接单统计-财务.xlsx", "其他模块中文.xlsx", "../订单分配_261014164230_张三.xlsx", "订单分配_261014164230_../张三.xlsx", "订单分配_261014164230_张三\\name.xlsx", "订单分配_261014164230_张三\n.xlsx", "订单分配_261014164230_"+"名"*100+".xlsx", "订单分配_错误时间_张三.xlsx"]
         for filename in names:
             with self.subTest(filename=filename):
                 notification={"notificationId":"0199f000-0000-7000-8000-000000000001","messageType":"file","content":"test", "attachment":{"filename":filename,"downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/attachments/0199f000-0000-7000-8000-000000000002"},"recipients":[{"deliveryId":"unsafe-fixture","wechatUserId":"single-test"}]}

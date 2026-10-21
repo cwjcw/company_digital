@@ -27,7 +27,7 @@ describe("Notification Event Registry", () => {
   });
 
   it("registers the finance daily summary with finance ownership and fixed recipient configuration", () => {
-    expect(notificationEventDefinition("finance.monthly.daily_summary")).toMatchObject({moduleCode:"finance",resourceCode:"finance-e10-monthly",messageType:"text",allowedRecipientRules:["FIXED_USERS"]});
+    expect(notificationEventDefinition("finance.monthly.daily_summary")).toMatchObject({moduleCode:"finance",resourceCode:"finance-e10-monthly",messageType:"text_file",allowedRecipientRules:["FIXED_USERS"]});
     const event=notificationEventDefinition("finance.monthly.daily_summary")!;
     expect(event.conditionDescription).toContain("08:30");
     expect(event.templateVariables.map(v=>v.key)).toEqual(["yearMonth","orderCount","orderTotal","departmentSummary","occurredAt","lastReadAt"]);

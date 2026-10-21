@@ -1,3 +1,4 @@
+import { FinanceMonthlyFileService } from './finance-monthly-file.service';
 import { FinanceMovementReader } from '../../integrations/e10/finance-movement.reader';
 import { FinanceMovementsApplicationService } from './finance-movements.application.service';
 import { FinanceMovementsQueryService } from './finance-movements.query.service';
@@ -18,6 +19,6 @@ import { FinanceFilterSourceProvider } from "./finance.filter-sources";
 import { FinanceController } from "./finance.controller";
 import { NotificationsModule } from '../notifications/notifications.module';
 import { FinanceMonthlyNotificationService } from './finance-monthly-notification.service';
-@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule, NotificationsModule], controllers: [FinanceMovementsController,FinanceController, FinanceOrdersController], providers: [FinanceMonthlyNotificationService,FinanceMovementReader,FinanceMovementsApplicationService,FinanceMovementsQueryService,FinanceOrderReader,FinanceOrdersApplicationService,FinanceOrdersQueryService,AuthGuard, FinanceRepository, FinanceApplicationService, FinanceQueryService, FinanceFilterSourceProvider] })
+@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule, NotificationsModule], controllers: [FinanceMovementsController,FinanceController, FinanceOrdersController], providers: [FinanceMonthlyFileService,FinanceMonthlyNotificationService,FinanceMovementReader,FinanceMovementsApplicationService,FinanceMovementsQueryService,FinanceOrderReader,FinanceOrdersApplicationService,FinanceOrdersQueryService,AuthGuard, FinanceRepository, FinanceApplicationService, FinanceQueryService, FinanceFilterSourceProvider] })
 export class FinanceModule {
 }

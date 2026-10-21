@@ -1,60 +1,140 @@
 # Codex 工作进度
 
 ## 任务
-任务名称：财务每日一次增量更新与KDOS消息中心汇总推送编排。
-任务目标：按用户本轮授权，将财务每30分钟增量调整为每日一次；保留08:30为每日入口，先增量成功再交给内置消息中心推送；不改变其他任务、PMC配置或财务金额算法。
-当前状态：进行中。
-最后更新时间：2026-10-21 10:09:55（Asia/Shanghai）。
+任务名称：财务每日08:30推送新增当月Excel附件及指定中文文件名。
+任务目标：当月月度数据Excel按“YYYY年M月接单统计-生管.xlsx”命名，例如2026年10月接单统计-生管.xlsx；复用现有日报/导出/权限/Dispatcher，不改调度、金额、PMC。
+当前状态：两人权限补齐/审计、436行15字段回滚预览、验证版部署/健康/Chrome均通过；正在正式commit、发布SHA及push，尚未结束。
+最后更新时间：2026-10-21 13:26（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：实际在线切换与受控更新验收完成，准备GitHub同步/最终部署核验。
-当前子任务：文档/调度台账及最终交付。
+当前阶段：恢复上线准备及只读权限差异核验。用户已通知“涂思梦、陈小云权限配好”并要求继续。
+当前子任务：clean验证快照a59e06b7bbb48ad1adbaa9b48a457e5e0827632b已通过真实Chrome，1人月度UI/网页导出，另1人首次改密页保留且后端导出通过，两人436行15字段金额一致；消息中心3类编辑页/原规则完整/401与403均通过。准备只提交19个任务文件，排除原3个outputs差异。
 
 ## 已完成
-- [x] 按规范/调度Skill→原进度→git status/diff恢复；保留三个outputs既有最终记录。
-- [x] 用户本轮明确授权每日一次，取代原每30分钟频率，不影响其他既有任务。
+- [x] 规范/两项Skill/原进度/git恢复，保留原3份outputs最终记录修改，不覆盖用户版本8财务规则。
+- [x] 104210开发前两库/uploads备份及校验；只读PMC/规则/财务视图/outbox和16个n8n工作流基线。
+- [x] 财务独立附件服务，正式发生额视图+15字段统一导出，单repeatable-read临时快照、读取∩导出范围/字段权限；精确金额/稳定排序、不截断。
+- [x] 冻结附件/SHA/实时IAM指纹/受控租约下载，text/file:1独立成功/重试；旧text配置兼容，不改已保存规则，不改PMC专属代码。
+- [x] Dispatcher仅追加指定财务中文文件名及finance-attachments受控路径白名单，原PMC测试保持。
+- [x] API完整1119通过/33skip，后续聚焦11套144项通过；API最终build/lint通过。
+- [x] 财务隔离PostgreSQL18共8项（205行/金额/字段/范围/租户/撤权/身份/重试）通过；PMC真实PG20项通过；Dispatcher Python10项通过；隔离PG仅本任务资源清理。
+- [x] 只读复核：生产PMC配置/非财务规则/财务视图/财务outbox及全部16个n8n定义/启停/发布版本不变，11active；未触发同步、入队或真实测试消息。
+- [x] 用户明确等待自行配置权限后再上线；API/Web运行版只读核实仍为eb4fb76b76f2551858da4d09818eb28bdac81f4b。
 
 ## 正在进行
-- [x] 095740两库/uploads备份及n8n一致备份/原发布版本快照，真实任务盘点完成。
-- [x] 新每日串联入口、INCREMENTAL固定模式、失败短路/结果校验/日流程锁、update-only验证模式；合成9项通过。
-- [x] 发现用户已删旧工作流草稿定时节点但原发布版本仍30分钟；通过在线API取消旧active版本，原3节点手工草稿完全保留。
-- [x] FIN-004已在线发布每天08:30增量成功后经消息中心汇总；真实n8n1240 SUCCESS/INCREMENTAL，--update-only入队0，正式发布无该参数。
-- [x] 用户规则enabled=true/version7/1个对象及全部规则完整原样保留；其余14个n8n工作流逐项不变；16工作流11active，财务自动2→1，新增候选0。
-- [x] n8n不重启；原无关运行任务1236仍继续，无全量、无真实测试推送。
-- [x] 10:07原触发窗口后旧工作流执行新增0；用户当前全部通知规则原样保留，真实验证时段财务outbox新增0；n8n源码校验与在线实际发布版本相符。
-- [x] 当前文档/唯一调度台账/9项测试和脱敏验收报告完成。
-- [ ] 任务8文件安全commit、标准部署/健康及GitHub push。
+- 无运行中的开发或部署。等待用户完成权限配置。
 
 ## 待完成
-- [ ] 失败禁止汇总/幂等/防并发及工作流验证。
-- [ ] 安全切换实际n8n调度、受控执行、台账/文档/GitHub同步。
+- [ ] 用户配置后重新只读核验实际接收人的月度查看、导出、所需字段（完整报表15字段）及数据范围。
+- [ ] 重新评审实现边界/更新备份，受控生产预览（回滚/不入队、不真实发送）、标准API/Web和既有Dispatcher部署。
+- [ ] Chrome线上验收/健康/受保护基线核对，安全task-only commit及push GitHub/main，记录正式SHA。
 
 ## 修改文件
-- outputs/CODEX_PROGRESS.md。
+- apps/api/src/modules/finance/finance-monthly-file.service.ts及.spec.ts（新）。
+- apps/api/src/modules/finance/finance-monthly-notification.service.ts及.spec.ts；finance.module.ts。
+- apps/api/src/modules/notifications/notification.service.ts、notification.types.ts、notification.internal.controller.ts及新.spec.ts、notification-event.registry.ts及.spec.ts。
+- automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py及test_dispatcher.py。
+- scripts/test-finance-monthly-file-postgres.cjs（新）。
+- docs/finance-monthly-notifications.md、docs/operations/TASK_REGISTRY.md。
+- outputs/CODEX_PROGRESS.md、outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md（新）。
+- 原3份验收outputs差异是前任务留存，未归入当前功能。
 
 ## 数据库 Migration
-- 无；预计仅主机脚本、工作流及运维文档。
+- 无；复用notification_attachments/component日志，仅隔离测试库生成合成数据；生产没有写入。
 
 ## 新增或修改测试
-- 待执行。
+- 文件月份/安全命名、权限指纹/旧text配置、内部下载UTF8及worker校验、日事件格式标记、事件登记、Dispatcher中文名/路径、隔离PG8项。
 
 ## 已运行测试
-测试名称：合成9项/shell语法、n8n真实1240、实际发布定义/其他工作流及规则逐项比较。
-结果：通过；真实INCREMENTAL SUCCESS，验证不通知，正式命令正常交消息中心。
+- API full1119 passed/33skip；最终focused144 passed；最终build/lint passed。
+- 财务附件PG8 passed；PMC PG20 passed；Python10 passed。
+- git diff --check通过。最终日志在本机data/finance-monthly-attachment-20261021，勿提交真实证据/凭据。
 
 ## 当前已知问题
-- 原每30分钟发布问题已解决；当前只一个每日08:30财务入口。下次未来定时尚未观察。
+- 生产解析2名接收人均无月度export；1名只有9字段read、另1名无月度read/字段；因此不能安全投递完整Excel。
+- 用户要求先配权限后上线，当前生产仍文字日报；未做新功能线上预览/部署/真实Chrome验收，不宣称已交付/已送达。
+- 标准deploy.sh check也有源码clean gate，当前本地源码改动使其拒绝；未绕过或触发部署。已直接只读HTTP核实当前API/Web SHA。
+- 冻结附件权限变更后不再投递旧文件；修复权限以下一次正式日报重建为准，不伪造历史报表。
 
 ## 等待用户确认
-- 无。接收人和启停沿用用户消息中心配置，不擅自选择正式对象或发送测试消息。
+- 用户自行完成权限配置后通知继续；不得反复要求其重复授权已有功能。
 
 ## 下一步
-1. 完成任务文件审查和工作流validator验证，安全commit。
-2. 当前n8n配置与主机脚本已生效，标准应用发布/健康核对后push；不再次真实更新/测试投递。
-3. 报告下一次自动触发2026-10-22 08:30，未观察未来定时不冒称已送达。
+1. 恢复时读取规范/本节/git差异，复用已有实现；检查用户是否已完成权限配置。
+2. 以新文件名保存最新规则/权限快照，不覆盖before证据；实际有效接收人需具备read/export及报表必要字段/正确范围。不自动扩大权限。
+3. 权限通过后完成受控无发送预览、备份、部署/Dispatcher/Chrome/健康/基线，正式commit/push（按项目clean发布流程）；无需重做已通过实现和无变动测试。
 
 ## 恢复执行说明
-规范/调度Skill→本节→git status/diff→下一步；只改本轮获授权的两个财务调度，不停用其他任务，不修改PMC、金额算法或消息接收人，不触发FULL。
+规范→Skill→本节→git status/diff。当前HEAD/GitHub及运行基线eb4fb76，当前源码未提交未发布；保留原outputs差异。生产每日08:30、每日一次、当前规则版本/接收人不可覆盖；用户已授权新增附件，但明确等其配置权限后才上线。报告outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：财务每日一次增量更新与KDOS消息中心汇总推送编排。
+任务目标：每天一次自动INCREMENTAL更新，成功后由内置消息中心按已配置对象推送当月汇总，不改金额算法或其他任务。
+当前状态：已完成。
+最后更新时间：2026-10-21 10:14:37（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：实际在线切换、受控执行、标准部署/健康及GitHub同步完成。
+当前子任务：无；下一次正式定时为2026-10-22 08:30上海时间。
+
+## 已完成
+- [x] 规范/调度Skill、原进度、git状态恢复；保留前两个任务的outputs最终记录。
+- [x] 095740两库/uploads格式/权限/SHA备份及n8n一致SQLite，原当前/已发布版本完整保留。
+- [x] 新主机run-finance-daily.sh固定INCREMENTAL，日流程锁+子命令原锁，退出码/JSON SUCCESS双校验；更新失败不进入汇总。
+- [x] 合成9项及shell语法通过，含错误短路、无效结果、防并发、update-only、固定增量、唯一08:30入口及n8n校验器。
+- [x] 查实旧工作流草稿已删定时节点但已发布版本仍30分钟；通过官方在线API取消发布，旧3个手工节点/连接及版本完全保留。
+- [x] FIN-004保持ID并改名“KDOS 财务每日增量更新及月度汇总”，已发布版本=当前版本，30 8 * * *、Asia/Shanghai，SSH执行新日流程；正式命令不含--update-only。
+- [x] n8n1240实际受控执行SUCCESS/INCREMENTAL，验证模式UPDATE_ONLY_NO_NOTIFICATION、入队0；数据库成功批次已查证；不运行FULL、不发送测试消息。
+- [x] 用户已启用的财务规则版本7/1个接收对象及全部通知规则字节语义相同；不改PMC、金额、接收人、模板或权限。
+- [x] 16工作流/11active、财务自动2→1；其他14个工作流定义/启停/发布版本逐项不变；新增调度定义/候选0，systemd/cron/常驻/应用调度修改0。
+- [x] 在线切换不重启n8n；无关运行任务1236保持运行，10:07旧窗口及之后未再触发旧增量。
+- [x] 仅8个任务文件安全commit/push；标准部署、healthcheck、版本一致；Web=API=HEAD=GitHub main=eb4fb76b76f2551858da4d09818eb28bdac81f4b。
+
+## 正在进行
+- 无。
+
+## 待完成
+- 无开发事项。未来首次自动执行尚未到时，不冒称已观察定时触发或企业微信送达。
+
+## 修改文件
+- data-operations/e10/run-finance-daily.sh
+- automation/finance_monthly_summary/workflow.template.json
+- scripts/test-finance-daily.py
+- docs/finance-monthly-notifications.md
+- docs/finance-order-movements.md
+- docs/operations/TASK_REGISTRY.md
+- outputs/CODEX_PROGRESS.md
+- outputs/FINANCE_DAILY_ORCHESTRATION_ACCEPTANCE.md
+- 本机outputs最终结果补记；原两份前任务验收记录修改保留，未归入本次提交。
+
+## 数据库 Migration
+- 无。只经原Application Commands做一次真实INCREMENTAL验证；源/金额算法和审计保留。
+
+## 新增或修改测试
+- Python合成shell/工作流9项，包含无外发验证；实际n8n/批次/已发布版本/其他工作流和规则核对。
+
+## 已运行测试
+测试名称：合成9项、bash -n、n8n1240、当前/发布版本/其他14个工作流、全部通知规则、10:07旧入口未触发、healthcheck及版本。
+结果：全部通过。应用源码未修改，标准API/Web构建通过；未重复无关完整套件。
+
+## 当前已知问题
+- 无阻塞、金额/权限/调度或Git冲突。当天此前已运行的旧增量历史保留；“每日一次”是切换后的自动频率，失败重试/明确手工补跑是例外。
+- 日流程08:30启动，企业微信消息在更新成功后生成，可能稍晚于08:30；未来送达由消息中心日志核对。
+
+## 等待用户确认
+- 无；沿用用户已经保存并启用的接收人。
+
+## 下一步
+1. 已完成，无需新建工作流或重复更新/测试投递。
+2. 如需显式补跑，SSH调用bash /data/automation/code/work/PMC/knweb/data-operations/e10/run-finance-daily.sh；仅验证更新才加--update-only。
+3. 未来运行或回滚先读任务台账，保持一个财务自动入口；不把已有成功数据回滚覆盖。
+
+## 恢复执行说明
+规范/调度Skill→本节→git status/diff；本任务已发布并push github/main eb4fb76b76f2551858da4d09818eb28bdac81f4b。最终报告outputs/FINANCE_DAILY_ORCHESTRATION_ACCEPTANCE.md；私有备份/证据data/finance-daily-orchestration-20261021。勿恢复旧每30分钟入口，勿重复执行真实测试推送。
 
 ---
 

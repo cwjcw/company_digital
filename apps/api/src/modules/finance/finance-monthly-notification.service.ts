@@ -31,7 +31,7 @@ export class FinanceMonthlyNotificationService {
         VALUES($1,$2,'财务月度数据每日汇总',$3,'WECHAT_WORK','finance','finance-e10-monthly','FIXED_USERS',false,
           $5::jsonb,$4::uuid,$4::uuid) RETURNING id`,
       [actor.tenantId, FINANCE_MONTHLY_SUMMARY_RULE, FINANCE_MONTHLY_SUMMARY_EVENT, actor.userId,
-        JSON.stringify({ messageType: 'text', recipientTargets: [], template: notificationEventDefinition(FINANCE_MONTHLY_SUMMARY_EVENT)!.defaultTemplate })]);
+        JSON.stringify({ messageType: 'text_file', recipientTargets: [], template: notificationEventDefinition(FINANCE_MONTHLY_SUMMARY_EVENT)!.defaultTemplate })]);
       await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
         VALUES($1,$2::uuid,$3,'notification_rules',$4,'notification_rule.created',$5::jsonb,$6,'api',$2::uuid,$2::uuid)`,
       [actor.tenantId, actor.userId, actor.username, row.id, JSON.stringify({ eventType: FINANCE_MONTHLY_SUMMARY_EVENT, enabled: false, recipientTargets: [] }), actor.requestId]);
@@ -59,7 +59,7 @@ export class FinanceMonthlyNotificationService {
       for (const rule of rules) {
         const result = await this.notifications.enqueueEvent(actor.tenantId, {
           eventType: FINANCE_MONTHLY_SUMMARY_EVENT, channel: 'WECHAT_WORK', ruleId: rule.id,
-          dedupKey: `finance-monthly-summary:${rule.id}:${day}`, payload, createdBy: actor.userId
+          dedupKey: `finance-monthly-summary:${rule.id}:${day}`, payload: { ...payload, financeReportFormat: 1 }, createdBy: actor.userId
         }, manager);
         if (result.created) enqueued++;
       }
@@ -67,8 +67,8 @@ export class FinanceMonthlyNotificationService {
     });
   }
 
-  private async summary(manager: EntityManager, tenant: string, now: Date) {
-    const localTime = shanghaiTime(now), yearMonth = localTime.slice(0, 7);
+  async summary(manager: EntityManager, tenant: string, now: Date, reportMonth?: string) {
+    const localTime = shanghaiTime(now), yearMonth = reportMonth ?? localTime.slice(0, 7);
     // Match the monthly UI's tenant-local plan without changing the global database configuration.
     await manager.query('SET LOCAL enable_mergejoin = off');
     await manager.query('SET LOCAL enable_nestloop = off');

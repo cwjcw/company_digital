@@ -1,3 +1,11 @@
+import type { EntityManager } from "typeorm";
+
+export type NotificationFileDelivery = {
+  prepare(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, workerId: string,
+    users: Array<Record<string, unknown>>, render: (payload: Record<string, unknown>) => string): Promise<NotificationClaim[]>;
+  attachment(tenantId: string, outboxId: string, attachmentId: string, workerId: string): Promise<{ filename: string; content: Buffer }>;
+};
+
 export type NotificationStatus = "PENDING" | "PROCESSING" | "SENT" | "FAILED";
 
 export type NotificationEventDefinition = {

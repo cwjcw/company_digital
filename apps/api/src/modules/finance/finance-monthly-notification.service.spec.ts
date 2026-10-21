@@ -33,7 +33,7 @@ describe('Finance monthly daily summary', () => {
   });
   it('uses one tenant/day/rule key for concurrent and retry-safe transactional enqueue',async()=>{
     const f=fixture();expect(await f.service.dispatch(actor,instant)).toMatchObject({enqueued:1});
-    expect(f.notifications.enqueueEvent).toHaveBeenCalledWith('SYNTHETIC',expect.objectContaining({ruleId:'rule-1',eventType:'finance.monthly.daily_summary',dedupKey:'finance-monthly-summary:rule-1:2026-10-20',channel:'WECHAT_WORK'}),f.manager);
+    expect(f.notifications.enqueueEvent).toHaveBeenCalledWith('SYNTHETIC',expect.objectContaining({ruleId:'rule-1',eventType:'finance.monthly.daily_summary',dedupKey:'finance-monthly-summary:rule-1:2026-10-20',channel:'WECHAT_WORK',payload:expect.objectContaining({financeReportFormat:1,yearMonth:'2026-10'})}),f.manager);
     f.notifications.enqueueEvent.mockResolvedValue({created:false});expect(await f.service.dispatch(actor,instant)).toMatchObject({enqueued:0});
   });
   it('propagates enqueue failure so the enclosing command transaction can roll back',async()=>{
