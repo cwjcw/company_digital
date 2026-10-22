@@ -72,6 +72,12 @@ where schemaname in ('iam','planning','audit','integration');
 
 Run `./scripts/backup.sh` before upgrades and preserve SHA256 output. Back up the legacy and `kdos` databases plus `data/uploads`. Restore into an empty, validated target; never use broad destructive cleanup or `docker compose down -v`.
 
+## 系统管理员手工重置员工密码
+
+进入「系统管理 → 用户管理」，找到成员，在该行操作菜单选择「重置密码」；也可进入「编辑」后点击底部「重置密码」。核对弹窗中的姓名和账号，再点击「确认重置」。默认密码为 `kn123456`，用户下次登录必须修改密码；角色、权限、部门和启停状态不变。取消不会提交。内置 `admin` 账号不支持重置为员工默认密码。
+
+此操作只对真实系统管理员开放，模块管理员或普通用户不能调用。既有 `POST /api/v1/admin/users/:id/reset-password` 接口支持可选 `expectedVersion`（新页面始终提交），由 Application Service 校验有效管理员和租户、锁定目标用户并在同一事务写入密码及无敏感内容的审计。版本冲突需刷新后重试；提交成功但列表刷新失败时，弹窗只重试刷新，不重复重置。管理员必须已有有效登录，此功能不绕过登录或管理员账号恢复流程。
+
 ## Common failures
 
 - `409 Conflict`: stale item version or immutable Published/Locked version; refetch and create a draft if needed.

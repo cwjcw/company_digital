@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable 
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
 import { AdministratorGrant, AuditLog, Permission, Role, RoleGroup, RoleOrganizationScope, User, UserRole } from "../../entities";
-import { isPrimaryAdminUsername } from "../../user-defaults";
+import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "../../user-defaults";
+import bcrypt from "bcryptjs";
 
 type PermissionInput = Partial<Permission> & { resource?: string };
 type RoleInput = {
@@ -22,6 +23,37 @@ export class AdminApplicationService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(UserRole) private readonly userRoles: Repository<UserRole>
   ) {}
+
+  async resetUserPassword(tenantId: string, id: string, expectedVersion: unknown, actor: AdminActor & { isSystemAdmin: boolean }) {
+    if (!actor.isSystemAdmin || !actor.userId) throw new ForbiddenException("仅系统管理员可以重置密码");
+    if (expectedVersion !== undefined && (typeof expectedVersion !== "number" || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1)) {
+      throw new BadRequestException("expectedVersion 必须是正整数");
+    }
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
+      const operator = await manager.findOneBy(User, { id: actor.userId!, tenantId, enabled: true });
+      const grant = await manager.findOneBy(AdministratorGrant, { tenantId, userId: actor.userId!, systemAdmin: true });
+      if (!operator || !grant) throw new ForbiddenException("当前账号不是本租户有效系统管理员");
+      const user = await manager.findOne(User, { where: { id, tenantId }, lock: { mode: "pessimistic_write" } });
+      if (!user) throw new BadRequestException("用户不存在或不在当前租户");
+      if (isPrimaryAdminUsername(user.username)) throw new BadRequestException("admin 账户不能重置为普通用户默认密码");
+      if (expectedVersion !== undefined && expectedVersion !== user.version) throw new ConflictException("用户信息已变化，请刷新后重试");
+      const beforeJson = { failures: user.passwordResetFailures ?? 0, locked: Boolean(user.passwordResetLockedAt), mustChangePassword: user.mustChangePassword, version: user.version };
+      user.passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 12);
+      user.mustChangePassword = true;
+      user.passwordResetFailures = 0;
+      user.passwordResetLockedAt = null;
+      user.updatedBy = operator.username;
+      user.version += 1;
+      await manager.save(User, user);
+      // Passwords and hashes must never enter audit payloads or API responses.
+      await manager.query(`INSERT INTO audit_logs(id,tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
+        VALUES(uuidv7(),$1,$2::uuid,$3,'auth',$4,'password_reset.reset_by_admin',$5::jsonb,$6::jsonb,$7,'web',$2::uuid,$8)`,
+      [tenantId, operator.id, operator.displayName ?? operator.username, user.id, JSON.stringify(beforeJson),
+        JSON.stringify({ failures: 0, locked: false, mustChangePassword: true, version: user.version }), actor.requestId, operator.username]);
+      return { id, reset: true, mustChangePassword: true, version: user.version };
+    });
+  }
 
   async assertCanDisableUser(userId: string, tenantId: string) {
     const user = await this.users.findOneBy({ id: userId });

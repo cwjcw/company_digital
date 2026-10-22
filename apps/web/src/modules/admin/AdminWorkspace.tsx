@@ -13,6 +13,7 @@ import {
 import { api } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 import { blankPlatformQuery, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
+import { ResetPasswordModal, type PasswordResetResult, type PasswordResetUser } from "./ResetPasswordModal";
 
 const { Text, Title } = Typography;
 type ViewMode = "departments" | "roles";
@@ -31,6 +32,18 @@ export function AdminWorkspace() {
   const [employeeTab, setEmployeeTab] = useState("basic"); const [savingEmployee, setSavingEmployee] = useState(false);
   const [action, setAction] = useState<{ kind: ActionKind; user: any }>(); const [actionValue, setActionValue] = useState<string>();
   const [employeeForm] = Form.useForm();
+  const [resetUser, setResetUser] = useState<PasswordResetUser>();
+  let canResetPassword = false;
+  try { canResetPassword = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").isSystemAdmin === true; } catch { /* Authentication remains enforced by the API. */ }
+  const resetAllowed = (user: { username: string }) => canResetPassword && user.username.trim().toLowerCase() !== "admin";
+  const passwordResetDone = async (result: PasswordResetResult) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] }, { throwOnError: true }),
+      queryClient.invalidateQueries({ queryKey: ["admin-users-options"] }, { throwOnError: true })
+    ]);
+    setEditingUser((current: any) => current?.id === result.id ? { ...current, version: result.version, mustChangePassword: true } : current);
+    message.success("密码已重置为默认密码，下次登录须修改密码");
+  };
 
   const [selectedRoleId, setSelectedRoleId] = useState<string>(); const [roleSearch, setRoleSearch] = useState("");
   const [roleMemberSearch, setRoleMemberSearch] = useState("");
@@ -126,11 +139,14 @@ export function AdminWorkspace() {
     } catch (error) { message.error((error as Error).message); }
   };
   const employeeMenu = (user: any) => ({ items: [
-    { key: "edit", icon: <EditOutlined />, label: "编辑" }, { key: "handover", icon: <SwapOutlined />, label: "交接工作" },
+    { key: "edit", icon: <EditOutlined />, label: "编辑" },
+    ...(canResetPassword ? [{ key: "reset-password", label: "重置密码", disabled: !resetAllowed(user) }] : []),
+    { key: "handover", icon: <SwapOutlined />, label: "交接工作" },
     { key: "disable", icon: <StopOutlined />, label: "停用", disabled: !user.enabled }, { key: "transfer", icon: <UserSwitchOutlined />, label: "转移" },
     { type: "divider" as const }, { key: "departure", icon: <UserDeleteOutlined />, label: <span className="danger-menu-label">离职</span> }
   ], onClick: ({ key }: { key: string }) => {
     if (key === "edit") openEmployee(user);
+    if (key === "reset-password" && resetAllowed(user)) setResetUser(user);
     if (key === "handover" || key === "transfer") { setAction({ kind: key === "handover" ? "HANDOVER" : "TRANSFER", user }); setActionValue(undefined); }
     if (key === "disable") Modal.confirm({ title: `停用 ${user.displayName}？`, content: "停用后该员工将无法登录。", okText: "停用", okButtonProps: { danger: true }, onOk: () => performEmployeeAction(user, "DISABLE") });
     if (key === "departure") Modal.confirm({ title: `将 ${user.displayName} 转为离职？`, content: "离职员工将无法登录，历史记录会继续保留。", okText: "确认离职", okButtonProps: { danger: true }, onOk: () => performEmployeeAction(user, "DEPARTURE") });
@@ -286,7 +302,8 @@ export function AdminWorkspace() {
       ]} />
     </> : <div className="admin-empty-role"><UserSwitchOutlined /><span>请先创建或选择一个角色</span></div>}</main>
 
-    <Drawer forceRender className="employee-edit-drawer" width={760} title={<div className="employee-drawer-identity"><Avatar>{initials(editingUser?.displayName ?? employeeForm.getFieldValue("displayName") ?? "新")}</Avatar><div><strong>{editingUser?.displayName ?? "邀请成员"}</strong><Space><Tag color="blue">已加入</Tag><Tag color="green">{editingUser?.enabled === false ? "已停用" : "已启用"}</Tag></Space></div></div>} open={employeeDrawer} onClose={() => setEmployeeDrawer(false)} footer={<Space><Button type="primary" loading={savingEmployee} onClick={() => void saveEmployee()}>保存</Button><Dropdown menu={{ items: editingUser ? [{ key: "reset", label: "重置为默认密码" }] : [], onClick: async () => { if (!editingUser) return; await api(`/admin/users/${editingUser.id}/reset-password`, { method: "POST" }); message.success("密码已重置"); } }}><Button>更多</Button></Dropdown></Space>}>
+    {resetUser && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(undefined)} onReset={passwordResetDone} />}
+    <Drawer forceRender className="employee-edit-drawer" width={760} title={<div className="employee-drawer-identity"><Avatar>{initials(editingUser?.displayName ?? employeeForm.getFieldValue("displayName") ?? "新")}</Avatar><div><strong>{editingUser?.displayName ?? "邀请成员"}</strong><Space><Tag color="blue">已加入</Tag><Tag color="green">{editingUser?.enabled === false ? "已停用" : "已启用"}</Tag></Space></div></div>} open={employeeDrawer} onClose={() => setEmployeeDrawer(false)} footer={<Space><Button type="primary" loading={savingEmployee} onClick={() => void saveEmployee()}>保存</Button>{editingUser && canResetPassword && <Button disabled={!resetAllowed(editingUser)} onClick={() => setResetUser(editingUser)}>重置密码</Button>}</Space>}>
       <Tabs activeKey={employeeTab} onChange={setEmployeeTab} centered items={[{ key: "basic", label: "基础字段" }, { key: "more", label: "更多字段" }]} />
       <Form form={employeeForm} layout="vertical" className="employee-edit-form">
         <div className={employeeTab === "basic" ? "employee-form-grid" : "employee-form-grid hidden-form-section"}>

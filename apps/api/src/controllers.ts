@@ -1105,27 +1105,10 @@ export class AdminController {
   }
 
   @Post("users/:id/reset-password")
-  async resetUserPassword(@Param("id") id: string, @Req() req: UserRequest) {
+  async resetUserPassword(@Param("id") id: string, @Body() body: { expectedVersion?: number }, @Req() req: UserRequest) {
     this.admin(req);
-    return this.dataSource.transaction(async (manager) => {
-      const user = await manager.findOneBy(User, { id });
-      if (!user) throw new BadRequestException("用户不存在");
-      if (isPrimaryAdminUsername(user.username)) throw new BadRequestException("admin 账户不能重置为普通用户默认密码");
-      const beforeJson = { failures: user.passwordResetFailures ?? 0, locked: Boolean(user.passwordResetLockedAt) };
-      user.passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 12);
-      user.mustChangePassword = true;
-      user.passwordResetFailures = 0;
-      user.passwordResetLockedAt = null;
-      user.updatedBy = req.user.username;
-      user.version = (user.version ?? 0) + 1;
-      await manager.save(User, user);
-      await manager.save(AuditLog, {
-        actorId: req.user.sub, actorName: req.user.displayName ?? req.user.username, resource: "auth", recordId: user.id,
-        action: "password_reset.reset_by_admin", beforeJson,
-        afterJson: { failures: 0, locked: false, mustChangePassword: true },
-        requestId: req.requestId, source: "web", updatedBy: req.user.username
-      });
-      return { id, reset: true, mustChangePassword: true };
+    return this.adminApplication.resetUserPassword(process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", id, body?.expectedVersion, {
+      userId: req.user.sub, name: req.user.displayName ?? req.user.username, requestId: req.requestId, isSystemAdmin: req.user.isSystemAdmin === true
     });
   }
 
