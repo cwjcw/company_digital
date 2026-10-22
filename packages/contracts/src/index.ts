@@ -71,7 +71,7 @@ export const administrableModuleRegistry = [
 export type AdministrableModuleCode = typeof administrableModuleRegistry[number]["code"];
 
 /** New master-plan tables. These stable codes are deliberately independent from the retained legacy planning forms. */
-export { reviewDueDateFields, reviewDueDateEditableKeys, reviewDueDateResource, reviewDueDateExportFilename } from './review-due-dates';
+export { reviewDueDateFields, reviewDueDateCreateFields, reviewDueDateRequiredCreateKeys, reviewDueDateEditableKeys, reviewDueDateResource, reviewDueDateExportFilename } from './review-due-dates';
 export type { ReviewDueDateHistoryRow } from './review-due-dates';
 import { reviewDueDateFields } from './review-due-dates';
 export const masterPlanResourceDefinitions = [
@@ -931,7 +931,7 @@ export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
 export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
 
 const printNotApplicable: Record<string, string> = {
-  "mps-review-due-dates": "评审交期表开放查看、专用人工编辑和Excel导出，不启用打印、新增、删除、批量修改或导入。",
+  "mps-review-due-dates": "评审交期表开放查看、专用人工新增/编辑和Excel导出，不启用打印、通用新增、删除、批量修改或导入。",
   "knowledge-spaces": "知识空间是管理边界，没有独立业务打印需求。",
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",

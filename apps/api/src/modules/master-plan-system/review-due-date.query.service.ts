@@ -1,11 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
-import { reviewDueDateExportFilename, reviewDueDateFields, reviewDueDateResource as RESOURCE } from '@kdos/contracts';
+import { reviewDueDateExportFilename, reviewDueDateFields, reviewDueDateCreateFields, reviewDueDateResource as RESOURCE } from '@kdos/contracts';
 import { buildDataScopeClause } from '../../common/filtering/data-scope';
 import { TableFilterRegistry, registeredOrderBy, type TableFilterActor, type TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { TablePrintService } from '../../common/printing/table-print.service';
-import { hasMasterPlanPermission } from './master-plan.types';
+import { hasMasterPlanPermission, hasReviewDueCreateFieldPermission, type MasterPlanActor } from './master-plan.types';
 import { normalizeKdosPageSize } from '../../common/pagination';
 
 export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
@@ -21,6 +21,15 @@ export function reviewDueScope(a:TableFilterActor,p:unknown[],action='read') {
   const operators=new Set(['EQ','NE','GT','GTE','LT','LTE','IN','NOT_IN','CONTAINS','NOT_CONTAINS','STARTS_WITH','IS_EMPTY','IS_NOT_EMPTY']);
   const scopes=(a.tableDataScopes??[]).filter(s=>s.resource===RESOURCE&&(!s.actions||s.actions.includes(action))).filter(s=>s.scope!=='CUSTOM'||(!!s.rules?.length&&s.rules.every(r=>Object.hasOwn(reviewDueColumns,String(r.fieldKey))&&operators.has(String(r.operator))&&(r.operator==='IS_EMPTY'||r.operator==='IS_NOT_EMPTY'||r.value!=null))));
   return buildDataScopeClause({resource:RESOURCE,actor:{...a,tableDataScopes:scopes,moduleAdminCodes:[]},columns:reviewDueColumns,params:p,action,numericFields:['quantity','changeCount']});
+}
+
+/** Only advertises a dedicated create command; the generic resource create flag stays false. */
+export function reviewDueCreateCapabilities(actor: MasterPlanActor) {
+  const fields=reviewDueDateCreateFields.filter(field=>hasReviewDueCreateFieldPermission(actor,field.key));
+  const allowed=!!actor.userId && hasMasterPlanPermission(actor,RESOURCE,'create')
+    && reviewDueDateCreateFields.filter(field=>field.required).every(field=>fields.some(f=>f.key===field.key))
+    && reviewDueScope(actor,[],'create')!=='1=0';
+  return {create:allowed,createFields:allowed?fields:[]};
 }
 
 @Injectable()

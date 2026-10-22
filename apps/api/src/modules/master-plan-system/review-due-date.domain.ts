@@ -1,11 +1,12 @@
 import Decimal from 'decimal.js';
+import { reviewDueDateFields } from '@kdos/contracts';
 
 export type ReviewDueDateSnapshot = {
   orderNumber: string; batchNumber: string; drawingNumber: string;
   inspectionTimeName: string; inboundDate: string; quantity: string;
 };
 export function reviewDueDateSnapshot(input: ReviewDueDateSnapshot): ReviewDueDateSnapshot {
-  for (const key of ['orderNumber','batchNumber','drawingNumber'] as const) if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`${key}不能为空`);
+  for (const key of ['orderNumber','batchNumber','drawingNumber'] as const) if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`${reviewDueDateFields.find(field=>field.key===key)!.label}不能为空`);
   if (typeof input.inspectionTimeName !== 'string') throw new Error('验货时间名称必须为文本');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.inboundDate) || !Number.isFinite(Date.parse(input.inboundDate)) || new Date(input.inboundDate).toISOString().slice(0,10) !== input.inboundDate) throw new Error('入库时间必须为有效业务日期');
   if (typeof input.quantity !== 'string') throw new Error('数量必须使用精确十进制文本');

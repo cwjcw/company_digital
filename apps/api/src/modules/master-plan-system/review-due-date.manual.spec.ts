@@ -9,7 +9,7 @@ describe('Review due date manual edit boundary',()=>{
     expect(reviewDueDateFields.filter(f=>f.editable).map(f=>f.key)).toEqual(['orderNumber','batchNumber','drawingNumber','inspectionTimeName','inboundDate','quantity']);
     for(const field of reviewDueDateFields.slice(6))expect(hasMasterPlanFieldPermission({...actor,isSystemAdmin:true},resource,field.key,'update')).toBe(false);
     expect(hasMasterPlanPermission({...actor,isSystemAdmin:true},resource,'update')).toBe(true);
-    for(const action of ['create','delete','import','batch_update','copy'])expect(hasMasterPlanPermission({...actor,isSystemAdmin:true},resource,action)).toBe(false);
+    for(const action of ['delete','import','batch_update','copy'])expect(hasMasterPlanPermission({...actor,isSystemAdmin:true},resource,action)).toBe(false);
   });
   it('rejects missing action and field grants before opening any database transaction',async()=>{
     const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never),body={expectedVersion:1,commandId:actor.userId,quantity:'1'};

@@ -176,3 +176,9 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ## 财务月度发生额下钻
 
 月度、大屏、排名、日报现共享finance_e10_order_monthly_movements；旧finance_e10_monthly仅为内部余额。表格平台buildContext支持第三个可信actor参数，列表、候选、打印与Excel均传入。finance-e10-changes允许monthlyRecordId上下文，在后端以月度read/订单号字段/数据范围解析精确来源订单键，再取变更自身授权范围；不接受浏览器传入tenant或SQL。月度列表/导出使用monthFrom/monthTo日历上下文，校验年月格式与年月字段权限；大屏dateFrom/dateTo兼容旧链接但比较发生月，quality为null，异常日志独立授权。详见finance-order-monthly-movements.md。
+
+### 评审交期表专用人工创建
+
+`mps-review-due-dates` 保持通用create:false；网页通过metadata的actions.create及createFields使用专用 `POST /api/v1/master-plan-system/review-due-dates/manual-create`。只接受六业务字段与commandId，资源create、字段填写授权、租户有效用户及拟新增记录的create数据范围均在Application Command检查。只新增用户可读取创建元数据，不获得列表、历史或导出权限。UUIDv7、租户、来源初始键、计数及审计由服务端维护；首次新增不写交期变更历史，lastSyncedAt为空。持久幂等收据与审计同事务；业务键/来源身份重复409，不覆盖。
+
+手工新增记录通过正式MANUAL创建审计与来源同步区分；未来observe命中这类记录时拒绝自动同步并要求来源身份人工核实。当前任务不实现身份确认、Excel导入、同步适配器或调度，也不改生产权限组。现有专用ID人工编辑、expectedVersion、日期历史及通用写入口保护继续有效。

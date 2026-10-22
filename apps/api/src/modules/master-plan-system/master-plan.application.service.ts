@@ -458,6 +458,7 @@ export class MasterPlanApplicationService {
 
   private resource(code: string) { const resource = MASTER_PLAN_RESOURCE_MAP.get(code as any); if (!resource) throw new NotFoundException("主计划表不存在"); return resource; }
   private assertDirectCreateAllowed(resource: MasterPlanResource) {
+    if (resource.code === "mps-review-due-dates") throw new ForbiddenException("评审交期新增必须使用专用手工创建命令");
     if (resource.code === "mps-weekly-plans") throw new BadRequestException("事业部周计划只能由事业部基础计划生成。");
     /* KN-MPS-WO-001：3天生产工单只能由“从周计划同步”生成，普通新增与 Excel 新增都必须拒绝。 */
     if (resource.code === "mps-three-day-work-orders") throw new BadRequestException("3天生产工单不能通过Excel新增，请先在系统点击“从周计划同步”。");

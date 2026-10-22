@@ -1,3 +1,17 @@
+# 手工新增增量规则（KDOS-MPS-REVIEW-DUE-CREATE-001，2026-10-22）
+
+本节更新下文“不开放普通新增”的阶段限制：新增采用专用命令，通用资源配置仍为create:false，通用POST、PATCH、导入、批量修改及删除继续关闭。页面只在原工具栏加入“新增”，空表也可打开。表单复用六字段定义，顺序为订单号、批次号、试制计划图号、验货时间名称、入库时间、数量；验货名称可空，其余必填。数量始终为十进制文本，经Decimal校验后写入numeric。
+
+POST `/api/v1/master-plan-system/review-due-dates/manual-create` 接受六业务字段及技术commandId，不接受version、来源、审计或统计字段。调用者必须有资源create权限、所有必填字段的填写权限和已提交可选字段权限；填写权限沿用平台字段read或update授权，不要求现有记录update权限。create数据范围针对拟新增的真实字段及服务端created_by计算，未授权范围拒绝。metadata单独返回actions.create/createFields；仅新增用户可以取得创建元数据，但不能因此读取列表、历史或导出。生产权限组不自动调整。
+
+事务内校验当前租户有效登录用户，服务器生成UUIDv7及审计；计数0、previousInboundDate/lastChangedAt/lastSyncedAt为空，不写交期历史。现有INSERT触发器保存不可变初始三键，两套租户唯一约束保留；当前业务键或已保留来源身份冲突409，不覆盖、不合并。正式操作审计为review_due_date.manually_created。租户+真实用户+commandId的事务锁/持久收据保障重试幂等，不同内容复用请求标识409；审计或收据失败整笔回滚。
+
+人工新增不等同来源同步：lastSyncedAt保持NULL，创建审计明确MANUAL来源。未来observe若匹配到人工新增记录，必须409进入来源身份人工核实，不得自动覆盖或标记已同步；本轮没有开放身份确认、来源导入或每日同步。初始三键与当前可编辑三键独立，人工编辑后原来源身份仍可追踪。未来来源身份确认须另行设计受控Application Command与审计，不删除创建审计来绕过核实。
+
+本轮复用已上线103号迁移结构，无需新增迁移、不修改历史迁移。生产主表/历史仍保持0/0；所有写入验收仅在隔离PostgreSQL及其HTTP/Chrome连接执行。线上只做真实权限读取、填表取消、筛选及空表导出。验收报告见KDOS_MPS_REVIEW_DUE_CREATE_ACCEPTANCE.md；最终WAITING_MANUAL_ACCEPTANCE，不进入1139条导入或每日同步。
+
+---
+
 # 人工编辑增量规则（KDOS-MPS-REVIEW-DUE-EDIT-001，2026-10-21）
 
 本节为当前规则，替代下文第一期“六字段全部只读/业务键不可改名”的限制；第一期原文作为历史设计保留。当前6业务字段orderNumber、batchNumber、drawingNumber、inspectionTimeName、inboundDate、quantity均可在资源update、字段read/update和read∩update数据范围授权下人工编辑；4统计字段及内部ID/审计仍只读。不开普通新增/删除/导入/批量同步。

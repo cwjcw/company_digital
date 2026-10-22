@@ -25,7 +25,8 @@ describe('Review due dates manual editor',()=>{
  it('uses the shared edit-mode button, exposes exactly six editable cells and keeps four system columns readonly',async()=>{
    mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
    fireEvent.click(screen.getByRole('button',{name:/进入编辑模式/}));
-   for(const field of reviewDueDateFields.slice(0,6))expect(await screen.findByRole('textbox',{name:field.label})).toBeVisible();
+   // Query again inside the assertion: metadata/row refresh can replace an earlier async locator.
+   await waitFor(()=>{for(const field of reviewDueDateFields.slice(0,6))expect(screen.getByRole('textbox',{name:field.label})).toBeVisible();});
    for(const field of reviewDueDateFields.slice(6))expect(screen.queryByRole('textbox',{name:field.label})).toBeNull();
    fireEvent.click(screen.getByRole('button',{name:/退出编辑模式/}));expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
  });

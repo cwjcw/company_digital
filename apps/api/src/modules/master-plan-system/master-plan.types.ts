@@ -16,7 +16,7 @@ export type MasterPlanActor = {
 };
 
 export function hasMasterPlanPermission(actor: MasterPlanActor, resource: string, action: string) {
-  if (resource === "mps-review-due-dates" && !["read", "export", "update"].includes(action)) return false;
+  if (resource === "mps-review-due-dates" && !["read", "export", "update", "create"].includes(action)) return false;
   return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
     || actor.permissions.includes(`${resource}:*:${action}`);
 }
@@ -25,4 +25,10 @@ export function hasMasterPlanFieldPermission(actor: MasterPlanActor, resource: s
   if (resource === "mps-review-due-dates" && action === "update" && !reviewDueDateEditableKeys.includes(field)) return false;
   return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
     || actor.permissions.includes(`${resource}:${field}:${action}`);
+}
+
+/** Creation fills readable/editable business fields; it does not grant update to existing records. */
+export function hasReviewDueCreateFieldPermission(actor: MasterPlanActor, field: string) {
+  return reviewDueDateEditableKeys.includes(field) && hasMasterPlanPermission(actor,'mps-review-due-dates','create')
+    && (hasMasterPlanFieldPermission(actor,'mps-review-due-dates',field,'read') || hasMasterPlanFieldPermission(actor,'mps-review-due-dates',field,'update'));
 }

@@ -1,5 +1,61 @@
 # Codex 工作进度
 
+## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-CREATE-001 评审交期表专用手工新增。
+任务目标：同一标准工具栏新增及六字段表单、专用manualCreate与POST、字段/租户/创建范围/幂等/审计、隔离测试及生产零记录部署。
+当前状态：进行中。
+最后更新时间：2026-10-22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：测试、递归typecheck/lint/build与备份完成，进入提交及生产发布。
+当前子任务：复用现有领域/触发器和标准Form，保留create:false与通用写入口保护。
+
+## 已完成
+- [x] 读取AGENTS、最新表单Skill、任务调度Skill/台账、原进度及现有代码测试；实际起始HEAD d6d736988f0c7eeb7334bc221b8a0fb5f06b645b，工作区clean。
+- [x] UUIDv7/初始来源键/计数0/历史保护已由现有结构支持，预计无需迁移；生产权限组不改。
+
+## 正在进行
+- [x] 开发前084434两库/uploads备份、SHA/格式检查完成；生产0/0、9项权限/PMC映射、6flags、8视图保护基线保存。
+- [x] 专用manualCreate/POST、元数据独立创建能力（create:false保留）、六字段Modal、同步ref防重与失败重试收据、初始来源键及MANUAL审计/NULL同步时间实现。
+- [x] API聚焦40项、Web创建5项及原编辑/页面11项通过；隔离PG/HTTP41组通过，含权限/范围/租户/Decimal/回滚/幂等/历史/Excel及来源人工确认。
+
+## 待完成
+- [x] API/Web/contracts/隔离PG+HTTP+真实Chrome、原编辑/历史/Excel回归及递归lint/typecheck/build通过；既有lint警告1/错误0。
+- [x] 发布前090128两库/uploads备份，SHA/恢复目录/压缩格式/600权限通过；隔离测试容器、数据库及临时socket清理。
+- [ ] 标准deploy all/check、线上Chrome仅只读/填表取消、0/0保护核验、安全commit/push。
+- [ ] 报告outputs/KDOS_MPS_REVIEW_DUE_CREATE_ACCEPTANCE.md；最终WAITING_MANUAL_ACCEPTANCE。
+
+## 修改文件
+- 待记录。
+
+## 数据库 Migration
+- 无需新增；生产103号ledger/来源触发器/两表FORCE RLS/5保护触发器核对，不修改历史migration。
+
+## 新增或修改测试
+- 待记录；所有实际写入测试仅隔离PostgreSQL。
+
+## 已运行测试
+- API全量1179通过/33跳过；contracts32通过；Web新增5通过，原编辑5/页面6通过；隔离PG+HTTP+Chrome43组通过；Web全量454通过、1项旧编辑DOM竞态已修正测试并重跑该组5项全通过，全部455项完成验证。API构建/Web typecheck通过。
+- 测试定位修正：AntD中文按钮空格、必填标记、旧编辑测试异步DOM被刷新替换（waitFor内重新查询）；停用用户fixture补齐display_name。均不通过改业务代码规避问题。
+
+## 当前已知问题
+- 无。参考HEAD 3c46692后仅文档同步d6d7369，当前代码基线与生产功能1b728c4一致。
+
+## 等待用户确认
+- 无；开发/备份/部署及正常GitHub同步已授权，完成后等待人工验收。
+
+## 下一步
+1. 只提交本任务21文件、标准deploy all/check。
+2. 生产零行Chrome/保护核验和GitHub同步。
+3. 报告补齐并保持最终部署一致性，WAITING_MANUAL_ACCEPTANCE。
+
+## 恢复执行说明
+规范→Skill→本文件→git status/diff，继续现有实现，不重做前两期。禁止生产演示/回滚写入、导入1139条、ERP/每日同步、改6flags/生产授权/旧业务表。证据data/mps-review-due-create-20261022，最终状态WAITING_MANUAL_ACCEPTANCE。
+
+---
+
+# Codex 工作进度
+
 ## GitHub 文档同步（2026-10-22，Asia/Shanghai）
 
 - 状态：已完成同步内容审核；本次提交汇总此前8份进度/验收报告的上线、测试及GitHub结果补记。
