@@ -32,6 +32,11 @@ export function reviewDueCreateCapabilities(actor: MasterPlanActor) {
   return {create:allowed,createFields:allowed?fields:[]};
 }
 
+export function reviewDueImportCapabilities(actor:MasterPlanActor) {
+  const templateFields=reviewDueDateCreateFields.filter(f=>hasMasterPlanPermission(actor,RESOURCE,'read')&&readable(actor,f.key)||hasMasterPlanPermission(actor,RESOURCE,'import')&&(readable(actor,f.key)||actor.permissions.includes(`${RESOURCE}:${f.key}:update`))||hasReviewDueCreateFieldPermission(actor,f.key));
+  return {import:!!actor.userId&&hasMasterPlanPermission(actor,RESOURCE,'import'),template:!!actor.userId&&templateFields.length>0,templateFields};
+}
+
 @Injectable()
 export class ReviewDueDateQueryService implements OnModuleInit {
   constructor(private readonly db:DataSource,private readonly registry:TableFilterRegistry){}

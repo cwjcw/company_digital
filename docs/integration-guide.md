@@ -181,4 +181,10 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 
 `mps-review-due-dates` 保持通用create:false；网页通过metadata的actions.create及createFields使用专用 `POST /api/v1/master-plan-system/review-due-dates/manual-create`。只接受六业务字段与commandId，资源create、字段填写授权、租户有效用户及拟新增记录的create数据范围均在Application Command检查。只新增用户可读取创建元数据，不获得列表、历史或导出权限。UUIDv7、租户、来源初始键、计数及审计由服务端维护；首次新增不写交期变更历史，lastSyncedAt为空。持久幂等收据与审计同事务；业务键/来源身份重复409，不覆盖。
 
-手工新增记录通过正式MANUAL创建审计与来源同步区分；未来observe命中这类记录时拒绝自动同步并要求来源身份人工核实。当前任务不实现身份确认、Excel导入、同步适配器或调度，也不改生产权限组。现有专用ID人工编辑、expectedVersion、日期历史及通用写入口保护继续有效。
+手工新增记录通过正式MANUAL创建审计与来源同步区分；未来observe命中这类记录时拒绝自动同步并要求来源身份人工核实。CREATE-001阶段未实现身份确认、Excel导入、同步适配器或调度，未改生产权限组。现有专用ID人工编辑、expectedVersion、日期历史及通用写入口保护继续有效。
+
+### 评审交期表Excel导入（IMPORT-001，本地完成、待确认发布）
+
+复用resources/mps-review-due-dates的import-template、import-preview?view=STANDARD|SOURCE及import-confirm接口；Spreadsheet适配器进入专用ReviewDueDateImportApplicationService和既有mps_import_previews事务，不开放通用create/PATCH/批量/删除。空白模板由Registry生成8列及说明；独立模板读取授权不等于写入，受限字段仅生成结构参考。实际表头与隐藏映射必须一致。STANDARD按原ID+version，SOURCE必须明确选择并按不可变初始三键匹配；MANUAL或STANDARD创建的来源未核实记录遇SOURCE/observe需人工核实。
+
+预览不修改业务表；确认复查租户有效用户、import、新增create、字段/动作范围、唯一性与版本，同事务更新主表、IMPORT日期历史、逐行/批次审计及幂等收据。无read或不在read范围的既有值、日期方向/数量比较不经预览泄露。完全未变化不更新业务行；重复确认不重复计次。原十列业务导出保留，标准更新身份需由获权系统记录提供。详情见outputs/KDOS_MPS_REVIEW_DUE_IMPORT_ACCEPTANCE.md；用户后续已授权同步GitHub；本次不生产导入、部署或启用任何调度。

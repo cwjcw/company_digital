@@ -1,6 +1,60 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-IMPORT-001 评审交期表Excel导入及标准导入模板。
+任务目标：Skill独立KN-FORM-TEMPLATE-001、标准8列模板与显式原始6列来源模式、预览/整批确认/IMPORT历史/权限/幂等、缺口清单及隔离验收。
+当前状态：WAITING_MANUAL_ACCEPTANCE（本地实现及隔离/Chrome验收完成；本地与隔离验收已完成；用户2026-10-22授权同步GitHub，生产部署仍待确认）。
+最后更新时间：2026-10-22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：本地及隔离验证完成；执行用户授权的GitHub同步，生产发布仍待授权。
+当前子任务：仅提交25个任务文件并正常推送github/main；保留远端9bb47b5规范提交，普通合并如有冲突即停止。正式环境仍389557f、0/0，本次不部署。
+
+## 已完成
+- [x] 读取附件完整要求、AGENTS/架构/安全/表单Skill第10节及Skill Creator；实际HEAD389557f752a11c7b735d88ab847b3805823058a7，main且工作区clean。
+- [x] 明确用户新授权：允许本地实现/隔离写入测试；禁止生产导入、调度、权限组/flags变动及直接部署；后续用户“同步github”仅授权代码提交与正常推送。
+
+## 正在进行
+- [x] Skill独立KN-FORM-TEMPLATE-001、Registry八列/说明/英文文件名；66注册资源静态覆盖缺口盘点（不改其他模块）。
+- [x] 专用导入Application Command、复用workbook及mps_import_previews；显式STANDARD/SOURCE、六字段/身份映射/预览分类/IMPORT历史/整批审计收据及Toolbar模态流程。
+- [x] API全量1184/既有跳过33、Web全量459、contracts32、最终PG/HTTP/Chrome59组；最终专用API45/Web导入4再次通过。
+
+## 待完成
+- [x] API/Web/contracts/隔离PostgreSQL+真实Chrome、精度/权限/映射/幂等/回滚/原新增编辑导出及最终递归typecheck/lint/build；lint0错误、1既有警告。
+- [x] 文档、缺口清单、发布步骤及WAITING_MANUAL_ACCEPTANCE报告；生产只读0/0、9保护表/6flags/8视图一致，临时Vite/PG/卷/socket清理。本次仅同步GitHub，不部署。
+
+## 修改文件
+- 25任务文件：Skill；contracts两文件；API专用导入服务/测试、既有模板/Controller/Module/元数据/权限/通用导入保护及来源守卫/测试；Web页面与导入组件/测试；隔离主脚本及导入检查；设计/进度/验收/缺口报告和integration-guide。详见验收报告与git status/diff。
+
+## 数据库Migration
+- 无需新增；复用现有103项迁移的预览台账、来源身份/历史约束、RLS，不改历史migration或生产结构。
+
+## 新增或修改测试
+- API导入边界5项、Web导入4项、原权限回归及PG/HTTP/Chrome扩展至59组。所有业务写入仅隔离PostgreSQL，生产只读。
+
+## 已运行测试
+- API全量1184通过/33既有跳过、contracts32、Web全量459，最终专用API45/Web导入4再次通过、最终隔离PG/HTTP/Chrome59组、递归typecheck/lint/build通过。Skill quick_validate及git diff --check通过。已修正并发测试顺序假设、DATE时区断言、加密fixture、构造器fixture、Modal动画定位及regex lint。
+- 真实业务修正：DATE按PG文本参与范围/审计，避免UTC序列化误判；来源模式对人工/标准模板创建记录要求来源身份核实。
+
+## 当前已知问题
+- 无；原始来源匹配模式明确选择，保留人工改后业务键，不按Excel行号匹配。
+
+## 等待用户确认
+- GitHub同步已获明确授权；仍等待用户人工验收和生产发布确认，禁止自动上线。
+
+## 下一步
+1. 完成本次安全commit、保留远端规范提交并正常push；核验远端SHA和工作区。完整同步SHA及结果见本次交付回复和Git记录。
+2. 等待用户人工验收与部署授权；如获确认按验收报告发布步骤执行。
+3. 不得确认生产导入、启动调度或导入1139条；仍为WAITING_MANUAL_ACCEPTANCE。
+
+## 恢复执行说明
+规范→Skill→本文件→git status/diff继续，不重写前期新增/编辑。证据data/mps-review-due-import-20261022。本轮不导入1139条、不开同步、不改6flags/生产权限/旧业务记录，不部署；仅在已获授权范围内同步GitHub，有Git冲突立即停止。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-CREATE-001 评审交期表专用手工新增。
 任务目标：同一标准工具栏新增及六字段表单、专用manualCreate与POST、字段/租户/创建范围/幂等/审计、隔离测试及生产零记录部署。
 当前状态：WAITING_MANUAL_ACCEPTANCE（功能、测试和生产Chrome完成，等待用户人工验收；不自动判PASS）。

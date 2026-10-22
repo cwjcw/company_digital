@@ -8,7 +8,7 @@ import { MasterPlanFilterCompiler } from "./master-plan.filter";
 import { FieldCandidateService } from "../../common/filtering/field-candidate.service";
 import { normalizeKdosPageSize } from "../../common/pagination";
 import { tableSupportFieldsFor } from "@kdos/contracts";
-import { ReviewDueDateQueryService, reviewDueScope, reviewDueCreateCapabilities } from './review-due-date.query.service';
+import { ReviewDueDateQueryService, reviewDueScope, reviewDueCreateCapabilities, reviewDueImportCapabilities } from './review-due-date.query.service';
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,13 +29,16 @@ export class MasterPlanQueryService {
     const resource = this.resource(code);
     const canRead = hasMasterPlanPermission(actor, code, "read");
     const manualCreate = code === "mps-review-due-dates" ? reviewDueCreateCapabilities(actor) : undefined;
+    const importCapabilities = code === "mps-review-due-dates" ? reviewDueImportCapabilities(actor) : undefined;
     const canCreate = manualCreate?.create ?? (resource.create && hasMasterPlanPermission(actor, code, "create"));
-    if (!canRead && !(manualCreate && canCreate)) throw new ForbiddenException("当前权限组没有该表查看权限");
+    if (!canRead && !(manualCreate && canCreate) && !importCapabilities?.import && !importCapabilities?.template) throw new ForbiddenException("当前权限组没有该表查看权限");
     return {
       resource: resource.code,
       fields: (canRead ? fieldsFor(resource) : []).filter((field) => this.visible(actor, code, field.key)).map(field => code === "mps-review-due-dates" ? {...field, editable: field.editable && hasMasterPlanPermission(actor,code,"update") && hasMasterPlanFieldPermission(actor,code,field.key,"update")} : field),
       createFields: manualCreate?.createFields ?? (canCreate ? fieldsFor(resource).filter((field) => (field.editable || (field as { createOnly?: boolean }).createOnly) && this.visible(actor, code, field.key)) : []),
+      templateFields: importCapabilities?.templateFields,
       actions: {
+        template: importCapabilities?.template,
         create: canCreate,
         update: hasMasterPlanPermission(actor, code, "update"),
         delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),

@@ -1,3 +1,25 @@
+# Excel导入增量规则（KDOS-MPS-REVIEW-DUE-IMPORT-001，2026-10-22）
+
+本节更新此前阶段“不开导入”的限制；开发阶段仅本地实现及隔离验证；用户后续已授权同步GitHub，生产部署仍须另行确认。通用资源create:false及通用新增/PATCH/批量/删除保护继续保留。独立导入通过现有resources/:resource/import-template、import-preview?view=STANDARD|SOURCE、import-confirm进入专用ReviewDueDateImportApplicationService；不调用通用importUpdates绕过历史。
+
+模板文件mps_review_due_dates_import_template.xlsx，名称评审交期表，主Sheet mps-review-due-dates，八列严格为记录ID、版本、订单号、批次号、试制计划图号、验货时间名称、入库时间、数量。Registry生成六业务字段及必填说明，数量列文本格式保精度、日期yyyy-mm-dd、填写说明和校验隐藏映射；没有真实业务记录。标准模式保留八列表头，验货名称允许空值，不能因删掉可选列而隐式清空旧值。受限用户下载的结构参考仅包含获权字段并明确不可直接导入。模板按资源read/create/import与字段授权提供，下载本身不授予写入；不以已有数据或编辑模式为条件。
+
+STANDARD：两个技术值都空才新增；都有有效原ID及正整数版本才更新，单填一个非法；整批可混合，不能按业务键猜测更新。新建需import+create+必要字段填写授权，更新需import及实际修改字段update，不另要求资源update。所有上传字段需字段read或update授权，数据范围为import动作，新增还检查create动作；现有行及修改后候选均验证。无表read的合法导入用户仅获得操作/模板元数据；既有日期、数量、计数及人工改后身份不借预览泄露，受限记录的日期方向/数量比较汇总也隐藏；确认结果及重放按当前授权裁剪。
+
+SOURCE：只接受显式选择的原始六列表格；按tenant+不可变source_order_number/source_batch_number/source_drawing_number匹配，绝不按Excel行号或当前可编辑三键。已有匹配保留当前三业务键，仅观测其他来源字段并记录版本。未知来源只有显式SOURCE且create授权才建立。人工新增或STANDARD新建没有据此完成外部来源核实，SOURCE/未来observe命中这类记录均拒绝并要求人工核实；不合并、不覆盖、不删旧行，也不在本轮提供来源身份确认命令。
+
+Preview只读取业务表并写既有mps_import_previews；保存租户、真实用户、明确模式、文件SHA256、解析行、已解析ID/版本及初始来源身份，30分钟有效。响应有总数、新增/更新、提前/推迟、数量变化、未变化、冲突/错误及逐行前后值（按read权限裁剪）。重复文件业务键/同ID多行、错误与冲突均不发确认token；标准新文件遇已存在业务/来源键要求提供原ID版本或人工核实。加密文件先统一检测并原样提示；公式仅接受有效缓存结果，缺缓存/错误值拒绝；数值数量精度不可靠时要求文本。
+
+Confirm锁定当前用户/租户/资源的预览，复查有效用户、操作/字段/范围/唯一性和版本；同租户导入事务锁及稳定ID排序行锁配合原人工编辑行锁。当前行、IMPORT日期历史、逐行与批次操作审计、幂等收据、preview确认结果同事务。真实日期变化才count+1、记录前次日期/变更时刻/方向天数/操作者/预览UUID批次；首次建立count0无历史，数量/名称变化不计次，完全未变化不更新行/version。DATE按PG日期文本参与范围与审计，避免本地午夜序列化为UTC前一天。
+
+幂等：同一预览反复或并发确认返回同一收据，仅首个事务写入。重复上传相同新增文件会因既有唯一键在预览拒绝，不能新增重复行；SOURCE重传已相同内容为未变化，不增次。不同批次同一天发生真实改期/恢复旧值，应基于新版本再计次，不用永久文件hash去吞掉真实事件。确认重放仍校验权限、用户和当前范围，不泄露旧结果。
+
+不新增数据库migration，复用既有预览台账、UUIDv7、来源触发器、历史不可改删及count一致性/RLS。业务导出保持原十列，不能把业务导出误当八列写入模板；标准更新需由获权系统记录提供原ID/version，本轮不扩展导出身份清单。页面新增/编辑/历史/导出保留；全局仅更新Skill独立KN-FORM-TEMPLATE-001及输出其他资源缺口，不批量改造。
+
+目标页面/master-plan-system/mps-review-due-dates。本轮生产不导入1139条、不确认Excel、不改业务记录/6flags/授权组、不开外部API同步或n8n任务。验收及下一步发布方案见KDOS_MPS_REVIEW_DUE_IMPORT_ACCEPTANCE.md；总体WAITING_MANUAL_ACCEPTANCE。
+
+---
+
 # 手工新增增量规则（KDOS-MPS-REVIEW-DUE-CREATE-001，2026-10-22）
 
 本节更新下文“不开放普通新增”的阶段限制：新增采用专用命令，通用资源配置仍为create:false，通用POST、PATCH、导入、批量修改及删除继续关闭。页面只在原工具栏加入“新增”，空表也可打开。表单复用六字段定义，顺序为订单号、批次号、试制计划图号、验货时间名称、入库时间、数量；验货名称可空，其余必填。数量始终为十进制文本，经Decimal校验后写入numeric。

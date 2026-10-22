@@ -1,3 +1,6 @@
+import { ReviewDueDateImportApplicationService, type ReviewDueImportRow } from './review-due-date-import.application.service';
+import { reviewDueImportCapabilities } from './review-due-date.query.service';
+import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tableResourceRegistry, type ReviewDueImportMode } from '@kdos/contracts';
 import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, parseAllocationWorkbook } from "./order-allocation.domain";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
@@ -57,7 +60,7 @@ const exportNotes: Record<string, string[]> = {
 
 @Injectable()
 export class MasterPlanSpreadsheetService {
-  constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService, @Optional() private readonly reviewDue?: ReviewDueDateQueryService) {}
+  constructor(private readonly dataSource: DataSource, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly directory: OrganizationDirectoryService, @Optional() private readonly reviewDue?: ReviewDueDateQueryService, @Optional() private readonly reviewImport?: ReviewDueDateImportApplicationService) {}
 
   private resource(code: string) {
     const resource = MASTER_PLAN_RESOURCE_MAP.get(code as never);
@@ -67,6 +70,10 @@ export class MasterPlanSpreadsheetService {
 
   async template(code: string, actor: MasterPlanActor, view?: unknown) {
     const resource = this.resource(code);
+    if(code==='mps-review-due-dates'){
+      const capabilities=reviewDueImportCapabilities(actor);if(!capabilities.template)throw new ForbiddenException('没有评审交期模板字段权限');
+      return this.workbook(code,capabilities.templateFields,[],capabilities.templateFields.length===6?reviewDueDateTemplateNotes:[reviewDueDateTemplateNotes[1],"此模板仅作获权字段结构参考，不可直接导入；导入需要完整模板列和相应写入授权。",...capabilities.templateFields.map(f=>`${f.label}：${f.required?"必填":"可空"}；类型${f.type}`)],{exactNumericText:true});
+    }
     if (!hasMasterPlanPermission(actor, code, "import")) throw new BadRequestException("当前权限组没有该表导入权限");
     if (this.isPendingImport(code, view)) {
       /* 待报工模板与页面共用同一份权威字段定义：只填本次报工数量与生产日期，其余列用于识别任务。 */
@@ -97,6 +104,7 @@ export class MasterPlanSpreadsheetService {
   async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    if(code==='mps-review-due-dates')return this.reviewPreview(file,actor,view);
     if (code === "mps-order-allocations") return this.allocationPreview(file, actor, view === "OVERRIDE_DIVISION");
     const pending = this.isPendingImport(code, view);
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
@@ -202,6 +210,12 @@ export class MasterPlanSpreadsheetService {
       await manager.query("DELETE FROM mps_import_previews WHERE tenant_id=$1 AND expires_at<=now()",[actor.tenantId]);
       const [preview] = await manager.query(`SELECT * FROM mps_import_previews WHERE id=$1::uuid AND tenant_id=$2 AND user_id=$3::uuid AND resource=$4 FOR UPDATE`, [previewId, actor.tenantId, actor.userId, code]);
       if (!preview) throw new BadRequestException("导入预览已过期、无权访问或不存在，请重新上传。");
+      if(code==='mps-review-due-dates'){
+        if(!this.reviewImport)throw new ForbiddenException('评审交期导入服务未配置');
+        if(preview.confirmed_at){const visible=await this.reviewImport.replayAccess(preview.payload_json.rows,actor,manager);return {...preview.confirmation_result,...(!visible?{earlier:null,later:null,quantityChanged:null}:{}),repeated:true};}
+        const result=await this.reviewImport.confirm(preview.payload_json.rows,preview.payload_json.mode,preview.file_hash,preview.id,actor,manager);
+        await manager.query('UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid',[previewId,JSON.stringify(result),actor.userId]);return result;
+      }
       if (preview.confirmed_at) return { ...preview.confirmation_result, repeated: true };
       const result = code === "mps-order-allocations"
         ? await this.application.importUpdates(code, preview.payload_json.rows, `${preview.file_hash}:${preview.id}`, actor, manager, {id:preview.payload_json.importBatchId,worksheet:preview.payload_json.sourceWorksheet,fileHash:preview.file_hash})
@@ -209,7 +223,55 @@ export class MasterPlanSpreadsheetService {
       await manager.query("UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid", [previewId, JSON.stringify(result), actor.userId]);
       return result;
     });
-    return this.application.completeImportReconciliation(code,committed);
+    return code==='mps-review-due-dates'?committed:this.application.completeImportReconciliation(code,committed);
+  }
+
+  /** Resource adapter over the existing ExcelJS + preview ledger, never a second import store. */
+  private async reviewPreview(file:Express.Multer.File,actor:MasterPlanActor,view:unknown) {
+    if(!this.reviewImport)throw new ForbiddenException('评审交期导入服务未配置');
+    if(view!=='STANDARD'&&view!=='SOURCE')throw new BadRequestException('请明确选择标准模板或原始六列来源模式');
+    const mode=view as ReviewDueImportMode;
+    if(!file?.buffer?.length||!/\.xlsx$/i.test(file.originalname))throw new BadRequestException('请选择 .xlsx Excel 文件');
+    assertSpreadsheetNotEncrypted(file.buffer);
+    const workbook=new ExcelJS.Workbook();try{await workbook.xlsx.load(file.buffer as never);}catch{throw new BadRequestException(unreadableSpreadsheetMessage);}
+    const sheet=workbook.getWorksheet('mps-review-due-dates')??workbook.worksheets.find(x=>!x.name.startsWith('_')&&x.name!=='填写说明');if(!sheet)throw new BadRequestException('文件没有业务工作表');
+    const allowed=new Map<string,string>([...(mode==='STANDARD'?[['记录ID','id'],['版本','version']]:[]),...reviewDueDateCreateFields.map(f=>[f.label,f.key])] as Array<[string,string]>);
+    const columns=new Map<string,number>();sheet.getRow(1).eachCell((cell,index)=>{const label=cell.text.trim(),key=allowed.get(label);if(!key||cell.type===ExcelJS.ValueType.Formula)throw new BadRequestException('当前模式不接受表头：'+label);if(columns.has(key))throw new BadRequestException('表头重复：'+label);columns.set(key,index);});
+    const required=[...(mode==='STANDARD'?['id','version']:[]),...reviewDueDateCreateFields.map(f=>f.key)];
+    if(required.some(k=>!columns.has(k)))throw new BadRequestException(mode==='STANDARD'?'标准模板必须保留记录ID、版本及六个业务列；新增时两个技术列均留空':'来源模式必须使用原始六列文件，不得带ID或版本');
+    const schema=workbook.getWorksheet('_字段定义');
+    if(schema){
+      if(schema.getCell('B1').text!=='mps-review-due-dates'||schema.rowCount-2!==columns.size)throw new BadRequestException('隐藏字段映射与当前表头不一致，请重新下载模板');
+      const seen=new Set<string>();for(let n=3;n<=schema.rowCount;n++){const key=schema.getCell(n,1).text,position=Number(schema.getCell(n,2).value),label=schema.getCell(n,3).text;if(seen.has(key)||columns.get(key)!==position||sheet.getCell(1,position).text.trim()!==label||allowed.get(label)!==key)throw new BadRequestException('隐藏字段映射与当前表头不一致，请重新下载模板');seen.add(key);}
+    }
+    if(sheet.rowCount>50001)throw new BadRequestException('单次最多导入50000行');
+    const rows:ReviewDueImportRow[]=[],errors:Array<{row:number;reason:string}>=[];
+    const value=(cell:ExcelJS.Cell,key:string)=>{
+      let v=cell.value;
+      if(cell.type===ExcelJS.ValueType.Error)throw new Error('单元格包含错误值');
+      if(cell.type===ExcelJS.ValueType.Formula){v=(v as ExcelJS.CellFormulaValue).result??null;if(v==null||typeof v==='object'&&!(v instanceof Date))throw new Error('公式缺少有效缓存结果，请在Excel重算并保存');}
+      if(key==='inboundDate'&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('入库时间不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
+      if(v instanceof Date)return v.toISOString().slice(0,10);
+      if(key==='quantity'&&typeof v==='number'&&(!Number.isFinite(v)||Math.abs(v)>Number.MAX_SAFE_INTEGER||v.toString().replace(/[.e+-]/g,'').length>15))throw new Error('数量数值精度不可靠，请使用精确十进制文本');
+      return v==null?'':typeof v==='object'?cell.text.trim():String(v).trim();
+    };
+    sheet.eachRow((row,index)=>{
+      if(index===1||![...columns.values()].some(c=>row.getCell(c).value!=null&&row.getCell(c).text.trim()!==''))return;
+      try{const cells=Object.fromEntries([...columns].map(([key,col])=>[key,value(row.getCell(col),key)])),id=cells.id||null,version=cells.version||null;
+        if(Boolean(id)!==Boolean(version))throw new Error('新增时记录ID和版本都应留空；更新时必须同时填写');
+        rows.push({row:index,id,expectedVersion:version?Number(version):null,values:Object.fromEntries(reviewDueDateCreateFields.filter(f=>columns.has(f.key)).map(f=>[f.key,cells[f.key]]))});
+      }catch(e){errors.push({row:index,reason:(e as Error).message});}
+    });
+    if(!rows.length&&!errors.length)errors.push({row:2,reason:'文件中没有可导入的数据'});
+    if(errors.length)return {total:rows.length+errors.length,counts:{total:rows.length+errors.length,created:0,updated:0,earlier:0,later:0,quantityChanged:0,unchanged:0,conflicts:0,errors:errors.length},errors,rows:[],previewId:null,mode};
+    const fileHash=createHash('sha256').update(file.buffer).digest('hex');
+    return this.dataSource.transaction(async m=>{
+      const result=await this.reviewImport!.prepare(rows,mode,actor,m);
+      if(result.errors.length)return {total:rows.length,counts:result.publicCounts,restrictedComparison:result.restrictedComparison,errors:result.errors,rows:result.previewRows,previewId:null,mode};
+      const [preview]=await m.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
+        VALUES($1,$2::uuid,'mps-review-due-dates',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,fileHash,JSON.stringify({rows:result.rows,mode})]);
+      return {total:rows.length,counts:result.publicCounts,restrictedComparison:result.restrictedComparison,errors:[],rows:result.previewRows,previewId:preview.id,mode};
+    });
   }
 
   private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
@@ -266,8 +328,9 @@ export class MasterPlanSpreadsheetService {
       recipients:(errors.length?[]:resolved.routing.recipients).map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities})),recipientErrors:resolved.routing.errors};
   }
 
-  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean; includeIdentityColumns?: boolean } = {}) {
+  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean; includeIdentityColumns?: boolean; exactNumericText?:boolean } = {}) {
     const workbook = new ExcelJS.Workbook(); workbook.creator = "KDOS 主计划系统";
+    if(options.exactNumericText)workbook.title=tableResourceRegistry.find(r=>r.code===label)?.label??label;
     const sheet = workbook.addWorksheet(label.slice(0, 31));
     const firstBusinessColumn=options.includeIdentityColumns===false?1:3;
     sheet.columns = [
@@ -276,11 +339,12 @@ export class MasterPlanSpreadsheetService {
       ...fields.map((field) => ({
         header: field.label, key: field.key, width: field.type === "date" ? 14 : 20,
         ...(field.type === "date" ? { style: { numFmt: "yyyy-mm-dd" } } : {}),
+        ...(options.exactNumericText&&field.exactNumeric ? { style:{numFmt:"@"} } : {}),
         ...(this.isProductionProgressField(field) ? { style: { numFmt: "0.#%" } } : {})
       }))
     ];
     if (options.hideIdentityColumns && options.includeIdentityColumns!==false) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
-    const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
+    const organizationPaths = new Map((options.exactNumericText?[]:await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
     /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
     for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, field.key==="importedBy"?row.importedByName??(row.importedBy?"未匹配操作人":null):this.displayValue(field, row[field.key], organizationPaths)])) });
     /* 需要人工填写的列给一个简洁的浅色底纹，明确「可填写区域」。 */

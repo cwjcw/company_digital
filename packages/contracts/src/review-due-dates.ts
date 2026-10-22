@@ -25,3 +25,16 @@ export type ReviewDueDateHistoryRow = {
   changeDays: number; changeDirection: 'EARLIER' | 'LATER'; sourceKind: string;
   sourceBatchId: string; changedByName: string | null;
 };
+
+/** The two import meanings are explicit; header presence never switches mode. */
+export type ReviewDueImportMode = 'STANDARD' | 'SOURCE';
+export const reviewDueDateTemplateFilename = 'mps_review_due_dates_import_template.xlsx';
+export const reviewDueDateTemplateNotes = [
+  '评审交期表：入库时间是评审计划入库日期，不是WMS实际入库。',
+  '标准模板：记录ID和版本同时留空表示新增；更新必须同时填写原始记录ID和有效正整数版本；只填一个非法。',
+  '订单号、批次号、试制计划图号、入库时间、数量必填；验货时间名称可空。日期YYYY-MM-DD，数量使用精确十进制文本（建议将数量列保持文本格式）。',
+  '更新版本冲突时整批拒绝；请取得最新ID及版本后重新填写、上传和预览，不能猜测身份或覆盖。',
+  '上传后核对预览并明确点击确认才写入；取消不修改正式业务记录。首次新增计数0；真实日期变更写IMPORT历史；数量或验货名称变化不增加改期次数。',
+  '原始六列文件必须在页面显式选择来源身份匹配模式，以不可变初始来源三键匹配；人工新增或来源身份冲突需要人工核实，不自动合并。',
+  '系统累计、来源身份、审计字段不可填写。下载模板不授予导入或写入权限。'
+];

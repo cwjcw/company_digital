@@ -117,7 +117,7 @@ export class ReviewDueDateApplicationService {
       if (receipt) { if(receipt.request_hash!==hash) throw new ConflictException('同一来源批次不能提交不同评审交期快照'); return {...receipt.response_json,repeated:true}; }
       const [current]=await m.query(`SELECT *,inbound_date::text AS date_text FROM mps_review_due_dates
         WHERE tenant_id=$1 AND source_order_number=$2 AND source_batch_number=$3 AND source_drawing_number=$4 FOR UPDATE`,[actor.tenantId,snapshot.orderNumber,snapshot.batchNumber,snapshot.drawingNumber]);
-      if (current && (await m.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND resource='mps-review-due-dates' AND action='review_due_date.manually_created' LIMIT 1",[actor.tenantId,current.id])).length) throw new ConflictException('手工新增记录尚未确认外部来源身份，请人工核实后再接入同步');
+      if (current && (await m.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND resource='mps-review-due-dates' AND (action='review_due_date.manually_created' OR (action='review_due_date.import_created' AND after_json->>'mode'='STANDARD')) LIMIT 1",[actor.tenantId,current.id])).length) throw new ConflictException('手工新增记录尚未确认外部来源身份，请人工核实后再接入同步');
       if (!current && input.allowInitialCreate !== true) throw new ConflictException('来源身份无法可靠匹配，请人工核实；不会自动合并或新建记录');
       if (input.expectedVersion!==undefined && (!current || current.version!==input.expectedVersion)) throw new ConflictException('评审交期版本已变化，请刷新后重试');
       const [{observed_at:observedAt}]=await m.query('SELECT clock_timestamp()::text observed_at');

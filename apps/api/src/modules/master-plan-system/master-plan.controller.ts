@@ -46,7 +46,7 @@ export class MasterPlanController {
   list(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.queries.list(resource, query, this.actor(request)); }
 
   @Get("resources/:resource/import-template")
-  async importTemplate(@Param("resource") resource: string, @Query("view") view: string, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, `${resource}-导入模板.xlsx`, await this.spreadsheets.template(resource, this.actor(request), view)); }
+  async importTemplate(@Param("resource") resource: string, @Query("view") view: string, @Req() request: MasterPlanRequest, @Res() response: Response) { this.sendWorkbook(response, resource === "mps-review-due-dates" ? "mps_review_due_dates_import_template.xlsx" : `${resource}-导入模板.xlsx`, await this.spreadsheets.template(resource, this.actor(request), view)); }
 
   @Post("resources/:resource/import-preview") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 20 * 1024 * 1024 } }))
   importPreview(@Param("resource") resource: string, @Query("view") view: string, @UploadedFile() file: Express.Multer.File, @Req() request: MasterPlanRequest) { return this.spreadsheets.preview(resource, file, this.actor(request), view); }

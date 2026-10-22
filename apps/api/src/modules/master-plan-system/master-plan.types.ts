@@ -16,7 +16,7 @@ export type MasterPlanActor = {
 };
 
 export function hasMasterPlanPermission(actor: MasterPlanActor, resource: string, action: string) {
-  if (resource === "mps-review-due-dates" && !["read", "export", "update", "create"].includes(action)) return false;
+  if (resource === "mps-review-due-dates" && !["read", "export", "update", "create", "import"].includes(action)) return false;
   return actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning") === true
     || actor.permissions.includes(`${resource}:*:${action}`);
 }
