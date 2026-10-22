@@ -7,6 +7,7 @@ from pathlib import Path
 logging.disable(logging.CRITICAL)
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = json.loads((ROOT/'packages/contracts/src/finance-order-fields.json').read_text())
+UUID_PATTERN = __import__('re').compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
 JOINS = '''FROM dbo.SALES_ORDER_DOC h JOIN dbo.SALES_ORDER_DOC_D d ON d.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
 LEFT JOIN dbo.DOC dt ON dt.DOC_ID=h.DOC_ID
 LEFT JOIN dbo.CUSTOMER c ON c.CUSTOMER_BUSINESS_ID=h.CUSTOMER_ID
@@ -27,7 +28,7 @@ def normalize(v):
     if isinstance(v,(datetime,date)):return v.isoformat()
     return str(v) if v is not None and not isinstance(v,(str,int,float,bool)) else v
 
-def extract(emit, checkpoint=None, since=None):
+def extract(emit, checkpoint=None, since=None, recover_line_ids=None):
     basic_root=Path(os.getenv('RD_BASIC_CODE_ROOT','/data/automation/code/work/basci/basic_code'))
     sys.path.insert(0,str(basic_root))
     with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
@@ -43,23 +44,48 @@ def extract(emit, checkpoint=None, since=None):
         now=query('SELECT CONVERT(varchar(33),GETDATE(),126) observedAt')[0]['observedAt']
         currency=query('SELECT DISTINCT c.CURRENCY_CODE FROM dbo.PARA_COMPANY p JOIN dbo.CURRENCY c ON c.CURRENCY_ID=p.FUNCTION_CURRENCY_ID')
         if len(currency)!=1 or currency[0]['CURRENCY_CODE']!='RMB':raise ValueError('Unsupported local currency')
+        recover_line_ids=recover_line_ids or []
+        if not isinstance(recover_line_ids,list) or len(recover_line_ids)>5000 or any(not isinstance(v,str) or not UUID_PATTERN.fullmatch(v) for v in recover_line_ids):
+            raise ValueError('Invalid recovery identities')
         scope=""
         scope_params=[]
         if since:
             # Any header/line/schedule change re-reads all lines of the affected order.
             # A two-minute overlap makes equality/clock and same-timestamp changes replay safe.
-            scope=""" AND (h.LastModifiedDate>=DATEADD(minute,-2,CONVERT(datetime2,%s)) OR EXISTS(
+            changed="""h.LastModifiedDate>=DATEADD(minute,-2,CONVERT(datetime2,%s)) OR EXISTS(
               SELECT 1 FROM dbo.SALES_ORDER_DOC_D xd LEFT JOIN dbo.SALES_ORDER_DOC_SD xs ON xs.SALES_ORDER_DOC_D_ID=xd.SALES_ORDER_DOC_D_ID
               WHERE xd.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID AND (xd.LastModifiedDate>=DATEADD(minute,-2,CONVERT(datetime2,%s))
-               OR xs.LastModifiedDate>=DATEADD(minute,-2,CONVERT(datetime2,%s)))))"""
+               OR xs.LastModifiedDate>=DATEADD(minute,-2,CONVERT(datetime2,%s))))"""
             scope_params=[since]*3
+            if recover_line_ids:
+                changed+=f" OR d.SALES_ORDER_DOC_D_ID IN ({','.join(['CONVERT(uniqueidentifier,%s)']*len(recover_line_ids))})"
+                scope_params.extend(recover_line_ids)
+            scope=' AND ('+changed+')'
         # Capture independent source aggregates (no dimension joins and no approval exclusion).
         coverage=query('''SELECT YEAR(h.ORDER_DATE) year,COUNT_BIG(DISTINCT h.SALES_ORDER_DOC_ID) orders,
  COUNT_BIG(d.SALES_ORDER_DOC_D_ID) lines,SUM(d.AMT_UNINCLUDE_TAX_BC+d.TAX_BC) localGross,
  MIN(h.ORDER_DATE) firstDate,MAX(h.ORDER_DATE) lastDate
  FROM dbo.SALES_ORDER_DOC h LEFT JOIN dbo.SALES_ORDER_DOC_D d ON d.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
  WHERE h.ORDER_DATE >= %s '''+scope+' GROUP BY YEAR(h.ORDER_DATE)',tuple([SCHEMA['minimumOrderDate']]+scope_params))
-        emit({'kind':'source','observedAt':now,'database':db.database,'localCurrency':'RMB','mode':'INCREMENTAL' if since else 'FULL','since':since,'coverage':[{k:normalize(v) for k,v in row.items()} for row in coverage]})
+        presence=[]
+        if since:
+            presence=query('''SELECT YEAR(h.ORDER_DATE) year,COUNT_BIG(DISTINCT h.SALES_ORDER_DOC_ID) orders,
+             COUNT_BIG(d.SALES_ORDER_DOC_D_ID) lines
+             FROM dbo.SALES_ORDER_DOC h JOIN dbo.SALES_ORDER_DOC_D d ON d.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
+             WHERE h.ORDER_DATE >= %s GROUP BY YEAR(h.ORDER_DATE)''',(SCHEMA['minimumOrderDate'],))
+        emit({'kind':'source','observedAt':now,'database':db.database,'localCurrency':'RMB','mode':'INCREMENTAL' if since else 'FULL','since':since,
+          'coverage':[{k:normalize(v) for k,v in row.items()} for row in coverage],
+          'presenceCoverage':[{k:normalize(v) for k,v in row.items()} for row in presence] if since else None})
+        if since:
+            cur.execute('''SELECT CONVERT(varchar(36),h.SALES_ORDER_DOC_ID) sourceOrderId,
+             CONVERT(varchar(36),d.SALES_ORDER_DOC_D_ID) sourceLineId,YEAR(h.ORDER_DATE) orderYear
+             FROM dbo.SALES_ORDER_DOC h JOIN dbo.SALES_ORDER_DOC_D d ON d.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID
+             WHERE h.ORDER_DATE >= %s ORDER BY h.SALES_ORDER_DOC_ID,d.SALES_ORDER_DOC_D_ID''',(SCHEMA['minimumOrderDate'],))
+            columns=[c[0] for c in cur.description]
+            while True:
+                batch=cur.fetchmany(1000)
+                if not batch:break
+                emit({'kind':'presence','rows':[{k:normalize(v) for k,v in zip(columns,row)} for row in batch]})
         last=checkpoint or {'date':SCHEMA['minimumOrderDate'],'lineId':'00000000-0000-0000-0000-000000000000'}
         selections=','.join(f"{f['source']} [{f['key']}]" for f in SCHEMA['fields'])
         while True:
@@ -83,7 +109,7 @@ def extract(emit, checkpoint=None, since=None):
 def main():
     try:
         options=json.loads(sys.stdin.read() or '{}') or {}
-        extract(lambda page:print(json.dumps(page,ensure_ascii=False),flush=True),options.get('cursor'),options.get('since'));return 0
+        extract(lambda page:print(json.dumps(page,ensure_ascii=False),flush=True),options.get('cursor'),options.get('since'),options.get('recoverLineIds'));return 0
     except Exception as error:
         # No upstream exception text: drivers can include credentials or source rows.
         print(json.dumps({'kind':'failure','errorType':type(error).__name__}),file=sys.stderr);return 1

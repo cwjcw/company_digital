@@ -34,7 +34,7 @@ const resource = "mps-weekly-plans"; /* 已注册为 PRINTABLE 的正式 resourc
 const fullPrintPermissions = [`${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:quantity:read`, `${resource}:status:read`];
 
 describe("平台打印服务（KN-PRINT-001）", () => {
-  it("财务模板导出保留34/9列和金额，空交期为空单元格（含流式输出）", async () => {
+  it("财务模板导出保留36/17列、KDOS时间和金额，空交期为空单元格（含流式输出）", async () => {
     for (const [code, fields] of [["finance-e10-lines", financeOrderFields], ["finance-e10-monthly", financeMonthlyFields]] as const) {
       const registry = new TableFilterRegistry();
       registry.register({code, table:"synthetic", fields, buildScope:()=>"1=1", columns:Object.fromEntries(fields.map(f=>[f.key,f.key])),

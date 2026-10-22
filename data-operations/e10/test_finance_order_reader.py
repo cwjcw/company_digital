@@ -3,17 +3,21 @@ from pathlib import Path
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('finance_reader',Path(__file__).with_name('finance_order_reader.py'));reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
 class Cursor:
- def __init__(self):self.calls=[];self.description=[];self.rows=[];self.page=0
+ def __init__(self):self.calls=[];self.description=[];self.rows=[];self.page=0;self.batch_read=False
  def execute(self,sql,params=()):
-  self.calls.append((sql,params));value=[]
+  self.calls.append((sql,params));value=[];self.batch_read=False
   if 'GETDATE()' in sql:value=[{'observedAt':'2026-10-14T09:00:00'}]
   elif 'PARA_COMPANY' in sql:value=[{'CURRENCY_CODE':'RMB'}]
-  elif 'COUNT_BIG(DISTINCT' in sql:value=[{'year':2025,'orders':1,'lines':1,'localGross':'0.30'}]
+  elif 'COUNT_BIG(DISTINCT' in sql:value=[{'year':2025,'orders':1,'lines':1,**({'localGross':'0.30'} if 'SUM(' in sql else {})}]
+  elif 'sourceOrderId' in sql and 'TOP (500)' not in sql:value=[{'sourceOrderId':'0199e000-0000-7000-8000-000000000010','sourceLineId':'0199e000-0000-7000-8000-000000000011','orderYear':2025}]
   elif 'TOP (500)' in sql:
    if self.page==0:value=[{'headerCloseCode':'1','hasSpecifiedCloseSchedule':True,'orderDate':'2025-01-01','sourceLineId':'0199e000-0000-7000-8000-000000000011'}]
    self.page+=1
   self.description=[(k,) for k in value[0]] if value else [];self.rows=[tuple(v.values()) for v in value]
  def fetchall(self):return self.rows
+ def fetchmany(self,_size):
+  if self.batch_read:return []
+  self.batch_read=True;return self.rows
  def close(self):pass
 class Connection:
  def __init__(self):self.cur=Cursor();self.closed=False
@@ -38,7 +42,9 @@ class ReaderTests(unittest.TestCase):
   where=sql.split(' WHERE h.ORDER_DATE')[1]
   self.assertNotIn('h.[CLOSE]',where);self.assertNotIn('ApproveStatus',where)
  def test_incremental_reloads_all_lines_of_changed_header_or_line_or_schedule(self):
-  con,pages=self.run_extract(since='2026-10-14T08:00:00.1234567');sql,params=next(q for q in con.cur.calls if 'TOP (500)' in q[0]);self.assertIn('xd.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID',sql);self.assertIn('xs.LastModifiedDate',sql);self.assertIn('DATEADD(minute,-2',sql);self.assertEqual(params[1:4],tuple(['2026-10-14T08:00:00.1234567']*3));self.assertEqual(pages[0]['mode'],'INCREMENTAL')
+  con,pages=self.run_extract(since='2026-10-14T08:00:00.1234567');sql,params=next(q for q in con.cur.calls if 'TOP (500)' in q[0]);self.assertIn('xd.SALES_ORDER_DOC_ID=h.SALES_ORDER_DOC_ID',sql);self.assertIn('xs.LastModifiedDate',sql);self.assertIn('DATEADD(minute,-2',sql);self.assertEqual(params[1:4],tuple(['2026-10-14T08:00:00.1234567']*3));self.assertEqual(pages[0]['mode'],'INCREMENTAL');self.assertEqual(pages[0]['presenceCoverage'][0]['lines'],1);self.assertEqual([p['kind'] for p in pages],['source','presence','page','complete'])
+ def test_incremental_rechecks_previously_missing_source_identity_for_safe_restore(self):
+  missing='0199e000-0000-7000-8000-000000000011';con,_=self.run_extract(since='2026-10-14T08:00:00',recover_line_ids=[missing]);sql,params=next(q for q in con.cur.calls if 'TOP (500)' in q[0]);self.assertIn('d.SALES_ORDER_DOC_D_ID IN (CONVERT(uniqueidentifier,%s))',sql);self.assertEqual(params[4],missing)
  def test_resume_uses_persisted_source_cursor_and_never_executes_writes(self):
   con,_=self.run_extract(checkpoint={'date':'2025-07-01','lineId':'0199e000-0000-7000-8000-000000000010'});sql,params=next(q for q in con.cur.calls if 'TOP (500)' in q[0]);self.assertEqual(params[-3:],('2025-07-01','2025-07-01','0199e000-0000-7000-8000-000000000010'))
   for sql,_ in con.cur.calls:

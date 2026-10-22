@@ -64,9 +64,9 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 
 系统导出页的“刷新E10数据”是显式 Application Command，支持全量、增量和失败后“继续读取”。无周期任务、新定时器或自动刷新轮询 ERP。页面只轮询已请求的批次状态。
 
-全量读取包含初始化历史和全部主档显示值；增量按头/品项/交货计划 LastModifiedDate 及两分钟重叠窗口筛选影响订单，重读该单所有品项以重算金额。财务映射不需要ERP刷新。ERP客户/人员/品名等主档显示值改名如未使订单来源修改日期变化，应手动全量刷新；增量不擅自把源消失判作取消，后续全量只标记缺失并留存。
+全量读取包含初始化历史和全部主档显示值；增量按头/品项/交货计划 LastModifiedDate 及两分钟重叠窗口筛选影响订单，重读该单所有品项以重算金额。财务映射不需要ERP刷新。ERP客户/人员/品名等主档显示值改名如未使订单来源修改日期变化，应手动全量刷新。2026-10-22起，增量还读取自2025年以来的稳定订单/品项UUID存在性清单；它不依赖LastModifiedDate，在按年度订单数、行数、全局行身份唯一性及安全降幅完成独立核验后，才把确认消失的来源行标为`source_missing`。连接或清单不完整时不发布；恢复出现的旧身份定向重读并复用原行。该技术失效不创建删除月的金额事件。
 
-500行源页持久化到 `finance_e10_pages`，同时保存 UUID/date 游标、计数和批次。完整读取后先按年度核对来源独立 COUNT/SUM，再在一事务中发布所有页、写入变化前后审计并完成批次。重复读取不增加订单或品项、不改变未变化记录的业务版本。发布成功清除本批临时页，游标/计数/源汇总/审计保留。失败及服务重启保留已发布数据和断点；恢复会重新核实源总额，若源已变化导致不能勾稽，选择全量重试。READ COMMITTED 是读取观察，不能宣称 ERP 历史一致性快照。
+500行源页持久化到 `finance_e10_pages`，存在性清单以1000行页暂存到`finance_e10_presence_pages`，同时保存 UUID/date 游标、计数和批次。完整读取后先按年度核对来源独立 COUNT/SUM，再核对存在性年度订单/品项数和全局唯一性，最后在一事务中发布业务页、缺失/恢复状态和审计。重复读取不增加订单或品项、不改变未变化记录的业务版本或`updated_at`。发布成功清除两类临时页，游标/计数/源汇总/审计保留。失败及服务重启保留已发布数据和断点；恢复会重新读取完整存在性清单并核实源总额，若源已变化导致不能勾稽，选择全量重试。READ COMMITTED 是读取观察，不能宣称 ERP 历史一致性快照。
 
 同租户唯一 RUNNING 批次 + advisory lock 防并发。重启将中断批次标为失败，不能伪装仍在读取。只允许完整源字段、全部更新范围及 refresh/update 权限执行；异常明细限财务/系统管理员，受限用户不能从源统计旁路读取隐藏金额。
 
@@ -80,7 +80,7 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 - `GET /api/v1/finance/e10-orders/exceptions`：管理员异常复核（不提供业务数据上传/写入）。
 - `POST /api/v1/finance/e10-orders/dashboard`：所选年度/月份/日期/客户/事业部/内外销/业务员；单个源快照计算分组、趋势、矩阵、KPI。
 - `POST /api/v1/finance/e10-orders/ranking`：同源条件、分页/搜索/类型化筛选/排序及前10/20/全部客户。
-- Excel 导出使用原平台 `table-exports`，继承字段、操作和数据范围及全部已应用条件。大型源允许最多20万行并使用平台 streaming XLSX writer，其他资源默认8万行上限不变。财务模板导出将来源NULL保留为空单元格，数值使用数据库/适配器精确十进制字符串，不经公共呈现格式的四位小数截断或JavaScript浮点转换。
+- Excel 导出使用原平台 `table-exports`，继承字段、操作和数据范围及全部已应用条件。大型源允许最多20万行并使用平台 streaming XLSX writer，其他资源默认8万行上限不变。财务模板导出将来源NULL保留为空单元格，数值使用数据库/适配器精确十进制字符串，不经公共呈现格式的四位小数截断或JavaScript浮点转换。系统导出和月度数据均导出“创建时间/更新时间”，按Asia/Shanghai呈现。
 
 大屏严格保留模板表头、年合计/合计，空月补0；元/万元只改变呈现。公共 KdosChart 增加可选数据点击回调，图表与排名/交叉表下钻传递年度、月份、日期、业务员、客户及分类条件。
 
@@ -89,6 +89,8 @@ Join 固定为 h.DOC_ID→dt.DOC_ID、h.Owner_Emp→e.EMPLOYEE_ID、h.Owner_Dept
 迁移 `FinanceE10Analytics1722920089000` 只新增财务读模型/临时页/批次和视图；`FinanceE10DeliveryDateConflicts1722920090000` 记录此前日期冲突政策；最新 `FinanceE10EarliestDeliveryDate1722920091000` 只将订单视图预交货日改为MIN，依赖视图即时重算既有订单，不刷新E10或改源记录，不修改已应用的旧迁移。按标准 backup → TypeORM/KDOS迁移 → deploy all → health/version → 线上真实 E10初始化/金额勾稽/下载和浏览器验收。不安装systemd/n8n任务、不变更ERP任务。回滚保留新财务数据和审计，使用之前保留的应用镜像；down 主动拒绝删除财务历史。
 
 验证入口：财务单元/表头测试、`scripts/test-finance-orders-postgres.cjs` 的隔离 PostgreSQL真实Command/权限/导出/幂等/异常/恢复测试、`scripts/test-finance-postgres.cjs` 的客户表及完整fresh迁移回归、财务页面及公共图表 Vitest、`finance-orders-ui.spec.ts` 的真实Chrome合成角色/导航/图表/移动布局验证。生产验收报告写 `outputs/FINANCE_E10_ORDER_ANALYTICS_ACCEPTANCE.md`（本机保留，财务数据不得推送）。
+
+`FinanceE10SourcePresenceAndTimestamps1722920105000`是前向迁移：原始物理行继续保留；正常系统导出隐藏`source_missing`，订单/资格/金额派生视图只聚合当前存在品项，因此部分品项删除不会误排整单，完全删除订单不进入有效统计。系统导出时间直接来自`finance_e10_lines.created_at/updated_at`。月度行的创建时间取组成该“订单×发生月份”行的最早持久化来源行/变更事件创建时间，更新时间取来源行、变更事件和当前客户分类的最晚持久化更新时间；不使用视图查询时钟，历史无法还原的时间不虚构。
 
 
 ## 2026-10-19：订单头指定结束过滤

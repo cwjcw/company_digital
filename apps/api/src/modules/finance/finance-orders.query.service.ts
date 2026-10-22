@@ -19,7 +19,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   for(const key of Object.keys(expressions))delete columns[key];
   this.registry.register({code:r,exportNullAsBlank:true,exportExactNumbers:true,table:r==='finance-e10-lines'?'finance_e10_raw':r==='finance-e10-ranking'?'finance_e10_ranking':'finance_e10_order_monthly_movements',columns,expressions,fields,
    authorize:a=>orderAuthorize(a,r),buildScope:(a,p,action)=>r==='finance-e10-ranking'?'1=0':orderScope(a,r,p,action),
-   buildContext:(c,p,a)=>{if(r==='finance-e10-monthly')return orderMonthlyContext(c,p,a);if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return '1=1';},
+   buildContext:(c,p,a)=>{if(r==='finance-e10-monthly')return orderMonthlyContext(c,p,a);if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return r==='finance-e10-lines'?'NOT record.source_missing':'1=1';},
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
    ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:['year_month']),'id']}}:{}),
    ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
