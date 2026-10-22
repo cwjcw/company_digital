@@ -3,12 +3,12 @@
 ## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-CREATE-001 评审交期表专用手工新增。
 任务目标：同一标准工具栏新增及六字段表单、专用manualCreate与POST、字段/租户/创建范围/幂等/审计、隔离测试及生产零记录部署。
-当前状态：进行中。
+当前状态：WAITING_MANUAL_ACCEPTANCE（功能、测试和生产Chrome完成，等待用户人工验收；不自动判PASS）。
 最后更新时间：2026-10-22（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：测试、递归typecheck/lint/build与备份完成，进入提交及生产发布。
-当前子任务：复用现有领域/触发器和标准Form，保留create:false与通用写入口保护。
+当前阶段：功能提交4036ff046093b271827a8cf103a1bed94176dc92已上线且Chrome/保护核验通过，收尾文档与最终发布闭环。
+当前子任务：仅补齐本报告及验收记录，按标准脚本保持最终Repository=Web=API=GitHub main；最终完整SHA见交付回复。
 
 ## 已完成
 - [x] 读取AGENTS、最新表单Skill、任务调度Skill/台账、原进度及现有代码测试；实际起始HEAD d6d736988f0c7eeb7334bc221b8a0fb5f06b645b，工作区clean。
@@ -22,17 +22,18 @@
 ## 待完成
 - [x] API/Web/contracts/隔离PG+HTTP+真实Chrome、原编辑/历史/Excel回归及递归lint/typecheck/build通过；既有lint警告1/错误0。
 - [x] 发布前090128两库/uploads备份，SHA/恢复目录/压缩格式/600权限通过；隔离测试容器、数据库及临时socket清理。
-- [ ] 标准deploy all/check、线上Chrome仅只读/填表取消、0/0保护核验、安全commit/push。
-- [ ] 报告outputs/KDOS_MPS_REVIEW_DUE_CREATE_ACCEPTANCE.md；最终WAITING_MANUAL_ACCEPTANCE。
+- [x] 21任务文件功能提交4036ff0，标准deploy all/check一致；线上Chrome创建草稿取消、权限操作及六字段/四字段、筛选/导出/编辑模式/旧页面通过；生产0写入、主表/历史0/0及9权限映射/6flags/8视图保护一致。
+- [x] 收尾仅提交报告，正常push github/main并复核最终版本；最终证据data/mps-review-due-create-20261022，完整SHA见交付回复。
+- [x] 报告outputs/KDOS_MPS_REVIEW_DUE_CREATE_ACCEPTANCE.md；最终WAITING_MANUAL_ACCEPTANCE。
 
 ## 修改文件
-- 待记录。
+- 21任务文件：contracts定义/导出/测试；API专用manualCreate/Controller/创建能力/权限/校验及测试；Web Modal/Toolbar及新增/编辑测试；隔离PG+HTTP+Chrome脚本；integration-guide、设计文档、本进度及验收报告。详细列表见验收报告和git show --stat 4036ff0。
 
 ## 数据库 Migration
 - 无需新增；生产103号ledger/来源触发器/两表FORCE RLS/5保护触发器核对，不修改历史migration。
 
 ## 新增或修改测试
-- 待记录；所有实际写入测试仅隔离PostgreSQL。
+- API create14项及原权限回归、contracts32项、Web创建5项与原编辑竞态定位、隔离PG/HTTP/Chrome扩展至43组；所有实际写入测试仅隔离PostgreSQL。
 
 ## 已运行测试
 - API全量1179通过/33跳过；contracts32通过；Web新增5通过，原编辑5/页面6通过；隔离PG+HTTP+Chrome43组通过；Web全量454通过、1项旧编辑DOM竞态已修正测试并重跑该组5项全通过，全部455项完成验证。API构建/Web typecheck通过。
@@ -42,12 +43,11 @@
 - 无。参考HEAD 3c46692后仅文档同步d6d7369，当前代码基线与生产功能1b728c4一致。
 
 ## 等待用户确认
-- 无；开发/备份/部署及正常GitHub同步已授权，完成后等待人工验收。
+- 用户人工验收；本轮不导入1139条、不启动每日同步、不改6flags/生产授权组。
 
 ## 下一步
-1. 只提交本任务21文件、标准deploy all/check。
-2. 生产零行Chrome/保护核验和GitHub同步。
-3. 报告补齐并保持最终部署一致性，WAITING_MANUAL_ACCEPTANCE。
+1. 等待用户人工验收。
+2. 完成后停止，不自行进入Excel导入、来源身份确认或每日同步。
 
 ## 恢复执行说明
 规范→Skill→本文件→git status/diff，继续现有实现，不重做前两期。禁止生产演示/回滚写入、导入1139条、ERP/每日同步、改6flags/生产授权/旧业务表。证据data/mps-review-due-create-20261022，最终状态WAITING_MANUAL_ACCEPTANCE。
