@@ -1,16 +1,15 @@
 import { useRef, useState } from 'react';
-import { Alert, Button, Modal, Radio, Space, Table, Upload } from 'antd';
-import type { ReviewDueImportMode } from '@kdos/contracts';
+import { Alert, Button, Modal, Space, Table, Upload } from 'antd';
 import { api } from '../../api';
 type Preview={previewId:string|null;total:number;errors:Array<{row:number;reason:string}>;counts:Record<string,number|null>;restrictedComparison?:boolean;rows:Array<Record<string,unknown>&{row:number}>};
 const summaryLabels:Record<string,string>={total:'总记录数',created:'新增',updated:'更新',earlier:'交期提前',later:'交期推迟',quantityChanged:'数量变化',unchanged:'未变化',conflicts:'冲突',errors:'错误'};
 export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCreated:()=>Promise<void>}){
-  const [mode,setMode]=useState<ReviewDueImportMode>('STANDARD'),[preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null),[result,setResult]=useState<{created:number;updated:number;unchanged:number}|null>(null);
+  const [preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null),[result,setResult]=useState<{created:number;updated:number;unchanged:number}|null>(null);
   const lock=useRef(false),confirmed=useRef(false);
   const parse=async(file:File)=>{
     if(lock.current)return;lock.current=true;setBusy(true);setError(null);setPreview(null);setResult(null);confirmed.current=false;
     const body=new FormData();body.append('file',file);
-    try{setPreview(await api<Preview>(`/master-plan-system/resources/mps-review-due-dates/import-preview?view=${mode}`,{method:'POST',body}));}
+    try{setPreview(await api<Preview>(`/master-plan-system/resources/mps-review-due-dates/import-preview`,{method:'POST',body}));}
     catch(e){setError((e as Error).message);}finally{lock.current=false;setBusy(false);}
   };
   const confirm=async()=>{
@@ -21,15 +20,14 @@ export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCre
       await onCreated();
     }catch(e){setError((e as Error).message);}finally{lock.current=false;setBusy(false);}
   };
-  return <Modal title="评审交期导入" width={1250} open onCancel={()=>{if(!lock.current)onClose();}} maskClosable={!busy} closable={!busy} footer={<Space>
+  return <Modal title="导入Excel" width={1250} open onCancel={()=>{if(!lock.current)onClose();}} maskClosable={!busy} closable={!busy} footer={<Space>
     <Button disabled={busy} onClick={onClose}>{result?'关闭':'取消'}</Button>
     {!result&&<Button type="primary" disabled={!preview?.previewId||!!preview.errors.length} loading={busy} onClick={()=>void confirm()}>确认导入</Button>}
     {result&&error&&<Button loading={busy} onClick={()=>void onCreated().then(()=>setError(null)).catch(e=>setError((e as Error).message))}>重新刷新</Button>}
   </Space>}>
     <Space direction="vertical" style={{width:'100%'}}>
-      <Radio.Group aria-label="导入模式" disabled={busy||!!result} value={mode} options={[{value:'STANDARD',label:'标准模板（记录ID和版本）'},{value:'SOURCE',label:'原始六列（来源身份匹配）'}]} onChange={e=>{setMode(e.target.value);setPreview(null);setError(null);}}/>
+      <Alert type="info" message="六列业务Excel全部按新增处理；八列标准模板按记录ID和版本判断新增或更新。已存在业务键不会自动覆盖。"/>
       <Upload accept=".xlsx" disabled={busy||!!result} showUploadList={false} beforeUpload={file=>{void parse(file);return false;}}><Button disabled={busy||!!result} loading={busy}>选择Excel文件</Button></Upload>
-      {mode==='SOURCE'&&<Alert type="info" message="按初始来源身份匹配；人工新增或身份冲突需人工核实，不自动覆盖。"/>}
       {error&&<Alert type="error" showIcon message={error}/>}
       {result&&<Alert type="success" message={`导入完成：新增${result.created}，更新${result.updated}，未变化${result.unchanged}`}/>}
       {preview?.restrictedComparison&&<Alert type="info" message="部分记录无查看权限，既有值和变更比较已隐藏；导入仍按当前授权校验。"/>}

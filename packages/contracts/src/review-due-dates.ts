@@ -26,7 +26,7 @@ export type ReviewDueDateHistoryRow = {
   sourceBatchId: string; changedByName: string | null;
 };
 
-/** The two import meanings are explicit; header presence never switches mode. */
+/** Internal ledger compatibility only. New uploads always use STANDARD ID/version semantics. */
 export type ReviewDueImportMode = 'STANDARD' | 'SOURCE';
 export const reviewDueDateTemplateFilename = 'mps_review_due_dates_import_template.xlsx';
 export const reviewDueDateTemplateNotes = [
@@ -35,6 +35,6 @@ export const reviewDueDateTemplateNotes = [
   '订单号、批次号、试制计划图号、入库时间、数量必填；验货时间名称可空。日期YYYY-MM-DD，数量使用精确十进制文本（建议将数量列保持文本格式）。',
   '更新版本冲突时整批拒绝；请取得最新ID及版本后重新填写、上传和预览，不能猜测身份或覆盖。',
   '上传后核对预览并明确点击确认才写入；取消不修改正式业务记录。首次新增计数0；真实日期变更写IMPORT历史；数量或验货名称变化不增加改期次数。',
-  '原始六列文件必须在页面显式选择来源身份匹配模式，以不可变初始来源三键匹配；人工新增或来源身份冲突需要人工核实，不自动合并。',
+  '支持不含记录ID和版本的原始六列Excel，全部按新增处理；无需选择导入模式。业务键已存在时冲突，不自动转为更新；更新请填写有效ID和版本。',
   '系统累计、来源身份、审计字段不可填写。下载模板不授予导入或写入权限。'
 ];

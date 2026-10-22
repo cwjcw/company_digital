@@ -23,7 +23,7 @@ export class ReviewDueDateImportApplicationService {
   /** Validates proposed contents without mutating business rows; resolved identities stay in the private preview ledger. */
   async prepare(rows:ReviewDueImportRow[],mode:ReviewDueImportMode,actor:MasterPlanActor,m:EntityManager,resolved=false) {
     await this.authorize(actor,m);
-    if(!['STANDARD','SOURCE'].includes(mode)||!rows.length||rows.length>50000)throw new BadRequestException('请选择明确导入模式且提供1至50000行');
+    if(!['STANDARD','SOURCE'].includes(mode)||!rows.length||rows.length>50000)throw new BadRequestException('导入批次类型无效，或未提供1至50000行');
     const errors:Array<{row:number;reason:string;conflict?:boolean}>=[],prepared:ReviewDueImportRow[]=[],plans:Array<{input:ReviewDueImportRow;current:Current|null;next:ReviewDueDateSnapshot;changed:string[];event:ReturnType<typeof reviewDueDateChange>;submitted:Record<string,unknown>}>=[];
     const seen=new Set<string>(),ids=new Set<string>();
     for(const input of rows){try{

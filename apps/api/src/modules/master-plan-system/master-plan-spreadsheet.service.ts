@@ -1,3 +1,4 @@
+import { loadReviewDueWorkbook } from './review-due-date-workbook';
 import { ReviewDueDateImportApplicationService, type ReviewDueImportRow } from './review-due-date-import.application.service';
 import { reviewDueImportCapabilities } from './review-due-date.query.service';
 import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tableResourceRegistry, type ReviewDueImportMode } from '@kdos/contracts';
@@ -104,7 +105,7 @@ export class MasterPlanSpreadsheetService {
   async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
-    if(code==='mps-review-due-dates')return this.reviewPreview(file,actor,view);
+    if(code==='mps-review-due-dates')return this.reviewPreview(file,actor);
     if (code === "mps-order-allocations") return this.allocationPreview(file, actor, view === "OVERRIDE_DIVISION");
     const pending = this.isPendingImport(code, view);
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
@@ -227,18 +228,19 @@ export class MasterPlanSpreadsheetService {
   }
 
   /** Resource adapter over the existing ExcelJS + preview ledger, never a second import store. */
-  private async reviewPreview(file:Express.Multer.File,actor:MasterPlanActor,view:unknown) {
+  private async reviewPreview(file:Express.Multer.File,actor:MasterPlanActor) {
     if(!this.reviewImport)throw new ForbiddenException('评审交期导入服务未配置');
-    if(view!=='STANDARD'&&view!=='SOURCE')throw new BadRequestException('请明确选择标准模板或原始六列来源模式');
-    const mode=view as ReviewDueImportMode;
+    // New uploads always use explicit ID/version semantics. SOURCE remains only in historical preview ledgers.
+    const mode:ReviewDueImportMode='STANDARD';
     if(!file?.buffer?.length||!/\.xlsx$/i.test(file.originalname))throw new BadRequestException('请选择 .xlsx Excel 文件');
     assertSpreadsheetNotEncrypted(file.buffer);
-    const workbook=new ExcelJS.Workbook();try{await workbook.xlsx.load(file.buffer as never);}catch{throw new BadRequestException(unreadableSpreadsheetMessage);}
+    const workbook=await loadReviewDueWorkbook(file.buffer,actor.requestId);
     const sheet=workbook.getWorksheet('mps-review-due-dates')??workbook.worksheets.find(x=>!x.name.startsWith('_')&&x.name!=='填写说明');if(!sheet)throw new BadRequestException('文件没有业务工作表');
-    const allowed=new Map<string,string>([...(mode==='STANDARD'?[['记录ID','id'],['版本','version']]:[]),...reviewDueDateCreateFields.map(f=>[f.label,f.key])] as Array<[string,string]>);
-    const columns=new Map<string,number>();sheet.getRow(1).eachCell((cell,index)=>{const label=cell.text.trim(),key=allowed.get(label);if(!key||cell.type===ExcelJS.ValueType.Formula)throw new BadRequestException('当前模式不接受表头：'+label);if(columns.has(key))throw new BadRequestException('表头重复：'+label);columns.set(key,index);});
-    const required=[...(mode==='STANDARD'?['id','version']:[]),...reviewDueDateCreateFields.map(f=>f.key)];
-    if(required.some(k=>!columns.has(k)))throw new BadRequestException(mode==='STANDARD'?'标准模板必须保留记录ID、版本及六个业务列；新增时两个技术列均留空':'来源模式必须使用原始六列文件，不得带ID或版本');
+    const allowed=new Map<string,string>([['记录ID','id'],['版本','version'],...reviewDueDateCreateFields.map(f=>[f.label,f.key])] as Array<[string,string]>);
+    const columns=new Map<string,number>();sheet.getRow(1).eachCell((cell,index)=>{const label=cell.text.trim(),key=allowed.get(label);if(!key||cell.type===ExcelJS.ValueType.Formula)throw new BadRequestException('不接受表头：'+label);if(columns.has(key))throw new BadRequestException('表头重复：'+label);columns.set(key,index);});
+    const missing=reviewDueDateCreateFields.filter(f=>!columns.has(f.key));
+    if(missing.length)throw new BadRequestException('缺少业务字段：'+missing.map(f=>f.label).join('、'));
+    if(columns.has('id')!==columns.has('version'))throw new BadRequestException('记录ID和版本列必须同时存在或同时省略');
     const schema=workbook.getWorksheet('_字段定义');
     if(schema){
       if(schema.getCell('B1').text!=='mps-review-due-dates'||schema.rowCount-2!==columns.size)throw new BadRequestException('隐藏字段映射与当前表头不一致，请重新下载模板');
@@ -246,6 +248,7 @@ export class MasterPlanSpreadsheetService {
     }
     if(sheet.rowCount>50001)throw new BadRequestException('单次最多导入50000行');
     const rows:ReviewDueImportRow[]=[],errors:Array<{row:number;reason:string}>=[];
+    const allowedLabel=(key:string)=>key==='id'?'记录ID':key==='version'?'版本':reviewDueDateCreateFields.find(f=>f.key===key)!.label;
     const value=(cell:ExcelJS.Cell,key:string)=>{
       let v=cell.value;
       if(cell.type===ExcelJS.ValueType.Error)throw new Error('单元格包含错误值');
@@ -257,20 +260,23 @@ export class MasterPlanSpreadsheetService {
     };
     sheet.eachRow((row,index)=>{
       if(index===1||![...columns.values()].some(c=>row.getCell(c).value!=null&&row.getCell(c).text.trim()!==''))return;
-      try{const cells=Object.fromEntries([...columns].map(([key,col])=>[key,value(row.getCell(col),key)])),id=cells.id||null,version=cells.version||null;
-        if(Boolean(id)!==Boolean(version))throw new Error('新增时记录ID和版本都应留空；更新时必须同时填写');
+      try{const cells=Object.fromEntries([...columns].map(([key,col])=>{try{return [key,value(row.getCell(col),key)];}catch(error){throw new Error(`${allowedLabel(key)}：${(error as Error).message}`);}})),id=cells.id||null,version=cells.version||null;
+        if(Boolean(id)!==Boolean(version))throw new Error('记录ID/版本：新增时记录ID和版本都应留空；更新时必须同时填写');
+        if(version&&(!/^[1-9]\d*$/.test(version)||!Number.isSafeInteger(Number(version))))throw new Error('版本必须为有效正整数');
         rows.push({row:index,id,expectedVersion:version?Number(version):null,values:Object.fromEntries(reviewDueDateCreateFields.filter(f=>columns.has(f.key)).map(f=>[f.key,cells[f.key]]))});
       }catch(e){errors.push({row:index,reason:(e as Error).message});}
     });
     if(!rows.length&&!errors.length)errors.push({row:2,reason:'文件中没有可导入的数据'});
-    if(errors.length)return {total:rows.length+errors.length,counts:{total:rows.length+errors.length,created:0,updated:0,earlier:0,later:0,quantityChanged:0,unchanged:0,conflicts:0,errors:errors.length},errors,rows:[],previewId:null,mode};
     const fileHash=createHash('sha256').update(file.buffer).digest('hex');
     return this.dataSource.transaction(async m=>{
+      if(!rows.length)return {total:errors.length,counts:{total:errors.length,created:0,updated:0,earlier:0,later:0,quantityChanged:0,unchanged:0,conflicts:0,errors:errors.length},errors,rows:[],previewId:null};
       const result=await this.reviewImport!.prepare(rows,mode,actor,m);
-      if(result.errors.length)return {total:rows.length,counts:result.publicCounts,restrictedComparison:result.restrictedComparison,errors:result.errors,rows:result.previewRows,previewId:null,mode};
+      const allErrors=[...errors,...result.errors].sort((a,b)=>a.row-b.row),total=rows.length+errors.length;
+      const counts={...result.publicCounts,total,errors:result.counts.errors+errors.length};
+      if(allErrors.length)return {total,counts,restrictedComparison:result.restrictedComparison,errors:allErrors,rows:result.previewRows,previewId:null};
       const [preview]=await m.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
         VALUES($1,$2::uuid,'mps-review-due-dates',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,fileHash,JSON.stringify({rows:result.rows,mode})]);
-      return {total:rows.length,counts:result.publicCounts,restrictedComparison:result.restrictedComparison,errors:[],rows:result.previewRows,previewId:preview.id,mode};
+      return {total,counts,restrictedComparison:result.restrictedComparison,errors:[],rows:result.previewRows,previewId:preview.id};
     });
   }
 

@@ -87,7 +87,7 @@ export function ReviewDueDates(){
     <KdosDataTable<Row> resource={RESOURCE} rowKey="id" systemFields={false} editable={meta.data?.actions?.update===true}
       toolbar={<>
         {canRequestCreate&&meta.data?.actions?.create&&<Button type="primary" onClick={()=>setCreateOpen(true)}>新增</Button>}
-        {canImport&&meta.data?.actions?.import&&<Button onClick={()=>setImportOpen(true)}>导入</Button>}
+        {canImport&&meta.data?.actions?.import&&<Button onClick={()=>setImportOpen(true)}>导入Excel</Button>}
         {meta.data?.actions?.template&&<Button loading={templateBusy} onClick={()=>void downloadTemplate()}>下载导入模板</Button>}
       </>}
       exportFilename={reviewDueDateExportFilename} loading={rows.isLoading||meta.isLoading} dataSource={rows.data?.rows??[]}

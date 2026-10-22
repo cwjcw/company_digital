@@ -1,3 +1,15 @@
+# 当前导入规则（KDOS-MPS-REVIEW-DUE-IMPORT-FIX-003 / DEPLOY-001，2026-10-22）
+
+本节优先于下文历史IMPORT-001双模式说明。页面只提供一个「导入Excel」，不再选择模式；import-preview无需view。六列业务Excel全部新增；八列模板的ID/版本都空为新增、都有有效值按tenant+UUID及版本更新、只填其一拒绝。新增遇现有业务键或保留来源身份冲突，不按业务键自动更新、覆盖或合并。
+
+模板仍为Registry生成的八列，独立「下载导入模板」保留。新上传统一写既有STANDARD语义的私有ledger；仅既存SOURCE预览和回执保持旧来源语义，绝不从新上传开启来源键自动更新。初始来源键/UUID/历史、权限/数据范围/RLS、版本、审计、事务及幂等不变；统一新增不代表已核实外部来源，不自动填写同步时间。
+
+真实ExcelJS4.4.0兼容缺口是合法SpreadsheetML前缀及内部table绝对Target。评审交期专用读取器先统一加密检测、ZIP CRC及全部XML验证，按SAX namespace URI/位置在内存做等价表示适配；不修改原文件、业务文本/日期/数量，不删工作表或表格，不影响其他资源解析。加密、结构损坏、兼容性、表头与行字段错误分别提示。生产算法不写死记录数或数量合计。
+
+本轮发布只上线功能，生产真实原件只上传/预览/取消；绝不import-confirm、首次导入、seed、同步或变更生产授权组/六flags。无新Migration。完整本地93 API/20 Web/33 Contracts/64隔离PG+Chrome验收见KDOS_MPS_REVIEW_DUE_IMPORT_FIX_ACCEPTANCE.md；正式发布证据见KDOS_MPS_REVIEW_DUE_IMPORT_DEPLOY_ACCEPTANCE.md。最终仍等待用户人工验收。
+
+---
+
 # Excel导入增量规则（KDOS-MPS-REVIEW-DUE-IMPORT-001，2026-10-22）
 
 本节更新此前阶段“不开导入”的限制；开发阶段仅本地实现及隔离验证；用户后续已授权同步GitHub，生产部署仍须另行确认。通用资源create:false及通用新增/PATCH/批量/删除保护继续保留。独立导入通过现有resources/:resource/import-template、import-preview?view=STANDARD|SOURCE、import-confirm进入专用ReviewDueDateImportApplicationService；不调用通用importUpdates绕过历史。

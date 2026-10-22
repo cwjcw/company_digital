@@ -1,6 +1,124 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-IMPORT-DEPLOY-001 评审交期Excel导入修复正式上线。
+任务目标：安全提交及推送已验收修复，备份、正式部署与版本一致性检查，真实Excel仅生产预览并取消，验证业务数据及授权/同步配置不变。
+当前状态：进行中；用户已授权GitHub提交/部署，仅禁止生产确认导入。
+最后更新时间：2026-10-22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：正式提交及发布准备。
+当前子任务：白名单提交推送，随后deploy all/check；正式Chrome只预览取消。
+
+## 已完成
+- [x] 规范、表单/任务Skill、台账、既有修复验收/设计及部署备份/回退流程阅读。
+- [x] 起始HEAD及github/main、远端GitHub main均18357f6bb3a3384b902eec3c76315b73a893edd8；工作区仅本任务修复，无他人混杂改动。
+- [x] 项目remote为github，无origin，实际git fetch github完成，无远端超前/冲突；此前93 API/20 Web/33 Contracts/64隔离PG+Chrome证据存在。
+
+## 正在进行
+- [x] 正式账号Chrome登录及metadata200，create/update/import/export/template齐全；不保存明文凭据到文件。
+- [x] 生产当前Web/API=6aedfdc220ae071ea3a05bf88875811bbac532be；4服务健康，103 Migration无pending。主表0/历史0/数量0/改期次数0，完整业务指纹/7权限表/6flags已记录。
+- [x] 152012两库及附件备份，SHA-256、PGDMP/pg_restore目录及tar全部可读，600权限；不执行生产恢复。
+- [x] 实文件SHA=e65a4abb13e22d4b9a1603e5e324431919040ede1c43df610eeeb628860614f1，43966字节；本轮新跑API93/Web20全部通过。
+
+## 待完成
+- [ ] 本任务文件白名单提交/push、正式deploy all/check及健康/Migration验证。
+- [ ] 生产Chrome单一流程、模板、新增取消/只读编辑/导出、真实1114行文件预览取消及权限验收。
+- [ ] 生产数据/权限/同步flags不变性检查及正式上线报告。
+
+## 修改文件
+- 上轮修复及必要测试/验收文档；本轮新增部署验收报告、更新设计当前规则及本进度。
+
+## 数据库 Migration
+- 无新增Migration；上线前检查数据库ledger与仓库对应，无待运行结构变更才部署。
+
+## 新增或修改测试
+- 不重复开发；复核现有测试证据，生产只做受控预览和读取，不执行确认写入。
+
+## 已运行测试
+- Git本地/远端及工作区核验通过；此前聚焦、隔离、typecheck/lint/build证据通过。
+
+## 当前已知问题
+- 无；正式登录正在验证，不记录账号密码或令牌到文档/日志。
+
+## 等待用户确认
+- 最终用户人工验收；本轮已授权发布，不再等待重复许可。
+
+## 下一步
+1. 生产基线/真实文件/登录/备份检查。
+2. 白名单commit/push，正式部署，健康和版本核验。
+3. 生产Chrome预览取消，前后不变性对比；WAITING_MANUAL_ACCEPTANCE后停止。
+
+## 恢复执行说明
+项目规范→Skill→本文件→git status/diff→继续。用户已解除上轮不提交/不部署限制，但绝对禁止import-confirm、真实业务新增/编辑及同步。证据仅忽略目录data/mps-review-due-import-deploy-20261022/；不写入凭据到跟踪文件。异常按用户要求停止，不擅自回填、清表或恢复生产数据库。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-IMPORT-FIX-003 统一导入方式及Excel解析修复。
+任务目标：复用现有Preview/Confirm命令，统一六列新增与八列ID/版本更新，精确区分Excel错误并完成本地隔离验证。
+当前状态：WAITING_MANUAL_ACCEPTANCE（本地修复及隔离测试已完成，待用户人工验收；未上线、未提交GitHub、未写生产业务数据）。
+最后更新时间：2026-10-22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：本地开发、真实原件解析和全部隔离回归完成，验收报告已生成。
+当前子任务：无；停止，等待用户人工验收及另行授权上线。
+
+## 已完成
+- [x] 附件完整要求、项目AGENTS、表单Skill、既有导入实现与相关安全规范核对。
+- [x] 起始HEAD=18357f6bb3a3384b902eec3c76315b73a893edd8，工作区干净；不改用户既有提交。
+- [x] 本机/home/Jerry及项目data搜索本次原文件未找到，已请求准确路径；不以模拟文件替代真实故障复现。
+
+## 正在进行
+- [x] 统一上传表头识别及前端流程，保留历史预览兼容；无view要求，历史SOURCE只用于旧账本。
+- [x] 加密/ZIP结构/ExcelJS兼容/表头/逐行错误分类及真实类型、堆栈帧、requestId脱敏诊断。
+
+## 待完成
+- 用户人工验收及另行授权GitHub同步/部署；本轮按要求停止。
+- [x] API93项、Contracts33项及隔离PG/HTTP/真实Chrome64场景通过。
+- [x] Web完整20项全部通过；修正测试旧DOM引用和AntD动画等待，保留全部断言。
+- [x] 最新源码递归typecheck/lint/build通过；保留既有FastRefresh及大包提示。
+- [x] outputs/KDOS_MPS_REVIEW_DUE_IMPORT_FIX_ACCEPTANCE.md及最终状态记录完成；临时PG容器/Vite已清理。
+
+## 修改文件
+- 专属review-due-date-workbook.ts及测试；既有Spreadsheet评审交期分支、Import Application错误文案。
+- ReviewDueDates.tsx / import.tsx及import/edit测试；Contracts字段模板说明及测试。
+- apps/api/package.json / pnpm-lock.yaml直接依赖saxes6；两个既有隔离PG/Chrome脚本。
+- 本进度及outputs/KDOS_MPS_REVIEW_DUE_IMPORT_FIX_ACCEPTANCE.md；完整路径见报告。
+
+## 数据库 Migration
+- 无；既有结构、RLS、来源键及历史约束均保持。
+
+## 新增或修改测试
+- 既有导入、手工创建/编辑、权限及隔离数据库用例将复用扩展。
+
+## 已运行测试
+- 最终API93项、Web20项、Contracts全量33项通过；递归typecheck/lint/build及最终Web typecheck/lint通过。
+- PostgreSQL18 + HTTP +真实Chrome 64场景通过，临时容器network=none/tmpfs/独立Unix socket，不接生产卷；覆盖人工编辑/创建/导出、六八列、历史SOURCE、日期/Decimal、权限/RLS、乐观锁及整批回滚。
+- 真文件直接ExcelJS错误及堆栈证据位于忽略目录data/mps-review-due-import-fix-20261022/real-exceljs-original.json（600）。
+
+## 当前已知问题
+- 用户已在同一路径更新为未加密文件；43966字节，SHA256=e65a4abb13e22d4b9a1603e5e324431919040ede1c43df610eeeb628860614f1。
+- 真实ExcelJS4.4.0异常为TypeError读取sheets：合法x:命名空间标签未被识别；仅改命名空间后还有TypeError读取table.name：ExcelJS不能处理绝对内部table Target。已用SAX按URI/精确位置进行内存等价适配，不改原文件或任何业务文字/属性值，不删除工作表/表格。
+- 独立XML读取全部1114行与兼容ExcelJS六列逐项一致，数量1009696、重复键0、公式0；批次含斜线237行、图号含斜线28行全部保留，日期与Decimal全部一致。所有XML语义和内部table目标等价核对通过；真实文件Chrome只预览后取消，无正式业务写入。
+
+## 等待用户确认
+- 本地验收完成后等待用户人工验收及单独授权GitHub同步/上线；本任务明确不自动部署。
+
+## 下一步
+1. 等待用户人工验收；本轮停止，不上线、不提交、不确认导入。
+2. 仅在用户另行授权后，按验收报告部署前检查继续；不重新实现已通过的导入能力。
+
+## 恢复执行说明
+规范→Skill→本文件→git status/diff→继续未完成项。当前用户明确禁止部署、GitHub提交及生产导入，优先于此前全局发布要求。旧任务记录以下保留，仅为历史；不得继续旧SOURCE首次导入要求。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：系统管理员手工重置用户密码入口完善。
 任务目标：在现有用户管理列表/编辑窗口提供清晰的重置入口、确认/加载/失败与刷新反馈，沿用默认密码和强制改密规则；修复相关权限/租户/审计边界。
 当前状态：开发与发布已完成；生产管理员登录后的人工验收待确认。
