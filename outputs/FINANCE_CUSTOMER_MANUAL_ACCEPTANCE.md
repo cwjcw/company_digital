@@ -49,3 +49,20 @@ E10客户同步仍使用原ingest来源白名单/日期窗口/锁/幂等及冲�
 生产Chrome发现“先空填触发必填，再补齐三字段保存”未发请求的边界。已调整为同步ref防重、客户端校验期间保持控件稳定、过期校验重新验证、验证完成后统一trim并进入提交loading，去掉失焦时重复写回表单值。错误仍保留草稿和明确原因；客户编号缺失依旧不发送请求。
 
 Web成功创建测试及真实隔离Chrome已加入完整的空填→补齐编号/两字典→保存201→刷新表格/数量流程；重开重复409/返回列表也通过。该修复后再次运行Web59文件444项、typecheck/lint/build以及隔离PG/HTTP/Chrome11组，均通过。API/契约无变化，沿用最终1153/31项记录。最终版本生产Chrome待补记，不冒称已创建生产客户。
+
+
+## 最终部署与GitHub结果（2026-10-21 19:03，Asia/Shanghai）
+
+状态：**已完成**。上线版本/Web/API/Repository/GitHub main均为`a86b321e7df27cb78f5a14b6c74e37ec3402c4cf`，标准deploy all/check及健康检查成功，STATUS=CONSISTENT。GitHub正常fast-forward推送4bfced6..a86b321成功，ls-remote再次确认同SHA，无force/合并冲突。
+
+功能提交71932de、客户导出交集补丁bbdba6d、表单纠错提交a86b321。共17个本任务文件，源码/测试/迁移/同步README/台账/报告已安全提交；原6份outputs差异和本机最终运行/SHA补记保留，未混入其他任务工作。
+
+生产Chrome实际页面200：创建按钮可见；先空填被前端拦截、补齐三字段后能正常提交；字典4个部门/2个内外销值准确；提交现有编号（带首尾空格）按trim发送并返回409，草稿与“返回列表修改”正常；原修改分类弹窗能打开、客户编号只读，取消后数据不变。普通无创建权限用户按钮隐藏、直接POST403；后端空编号400。实际下载finance-customer-mappings.xlsx，当前筛选1条/3业务列，字段值、筛选及排序与数据库完全一致，无UUID/source。创建成功201/操作人/时间/审计/即时总数刷新在隔离Nest+PG的真实Chrome验证；生产没有伪造新增客户进行演示。
+
+生产验收后客户147、MANUAL0，客户及同步run10完整指纹不变；PMC客户映射3/接收映射5完整指纹、8份财务视图定义及6flags不变。新source CHECK已验证，仅映射表允许MANUAL，同步run表仍只允许INITIAL_IMPORT/E10_SYNC。01:00客户Timer enabled/active及下次时间不变；n8n16定义/11active/发布版本逐字段不变。没有生产同步补跑、新任务、真实通知发送或金额计算修改。
+
+最终验证：API1153通过/33skip，Web444通过，contracts31通过，隔离PG/真实HTTP/Chrome11组通过；API/Web构建、lint/typecheck完成，原有warning保留。临时Vite和隔离PostgreSQL容器/socket已清理，备份与受限证据保留。开发/发布备份分别145417、183232，未恢复或覆盖任何生产库。
+
+访问：http://192.168.1.249:15172/finance/base-data/customer-mappings 。具备客户对应表create权限即可使用；未自动变更人员授权。
+
+已知旁路问题：发布时发现的原发生额长查询，详见上文；仅取消已核实的5条旧SELECT以释放迁移锁，未更改其金额SQL或宣称性能问题已彻底解决。本任务无未完成开发或上线事项。

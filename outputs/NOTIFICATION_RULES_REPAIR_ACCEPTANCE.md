@@ -1,6 +1,6 @@
 # 消息规则修复验收
 
-状态：验证版生产部署/Chrome验收通过，待正式版本同步。基线API/Web/GitHub：7c3176b61c36486c51a6723895b10b2b92674a9a。
+状态：已完成，正式部署/Chrome验收/GitHub同步均通过。基线API/Web/GitHub：7c3176b61c36486c51a6723895b10b2b92674a9a。
 
 根因：员工候选SQL遗漏enabled，前端将全部员工过滤；弹窗外持有Form实例，initialValues跨关闭/重开保留；固定接收人校验没有区分停用草稿与启用，且启用只反馈toast；原状态更新复用完整规则重写路径、前端只异步失效缓存且无409恢复操作。
 
@@ -16,4 +16,20 @@
 
 实际生产Chrome8项通过：空接收人拒绝启用并进入编辑；三类真实目录对象保存；页面刷新/重开勾选回显；只读有效性预览；启用后停用且config完全保留；三类逐项取消并恢复原配置；旧版本409；财务队列始终0。受控期间持有财务汇总当日/次日锁，浏览器阻断非指定规则写操作，不调用发送/重试。财务规则最终停用/空接收人、原模板完整保留，版本1→5，仅审计与版本正常增长。
 
-PMC专属规则、接收人和供应商映射、财务视图定义、n8n16工作流/12active全部定义摘要核对不变。正式SHA/运行版本发布后补记。
+PMC专属规则、接收人和供应商映射、财务视图定义、n8n16工作流/12active全部定义摘要核对不变。正式Web/API/Repository/GitHub main一致：ccfc5fb5533cdb6b276e1befea862e26d899734c。正式健康检查与只读Chrome三类目录候选验证通过，原config/停用状态保留。临时PG/socket/worktree已清理。
+
+修改文件（本次安全提交13个）：
+
+- `apps/api/src/modules/notifications/notification-admin.service.spec.ts`
+- `apps/api/src/modules/notifications/notification-admin.service.ts`
+- `apps/api/src/modules/notifications/notification.admin.controller.ts`
+- `apps/api/src/modules/notifications/notification.service.spec.ts`
+- `apps/api/src/modules/notifications/notification.service.ts`
+- `apps/web/e2e/notification-rules.spec.ts`
+- `apps/web/src/modules/notifications/NotificationCenterPage.spec.tsx`
+- `apps/web/src/modules/notifications/NotificationCenterPage.tsx`
+- `docs/message-center-rules.md`
+- `docs/operations/TASK_REGISTRY.md`
+- `outputs/CODEX_PROGRESS.md`
+- `outputs/NOTIFICATION_RULES_REPAIR_ACCEPTANCE.md`
+- `scripts/test-notification-rules-postgres.cjs`

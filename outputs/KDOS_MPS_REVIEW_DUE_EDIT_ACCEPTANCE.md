@@ -1,9 +1,9 @@
 # KDOS-MPS-REVIEW-DUE-EDIT-001 人工编辑验收
 
-状态：本地实现/验证完成，准备正式迁移与部署；最终交付为 **WAITING_MANUAL_ACCEPTANCE**，不自动判PASS。
+状态：**WAITING_MANUAL_ACCEPTANCE**。开发、测试、备份、前向迁移、部署、线上Chrome及GitHub同步已完成；等待用户人工验收，不自动判整体PASS。
 
 起始SHA：`a86b321e7df27cb78f5a14b6c74e37ec3402c4cf`。
-最终SHA、正式部署及Chrome结果在发布后补记。
+最终GitHub Commit SHA：`1b728c452e157e7048ef9c134bd3e6cf6fafe5b7`，github/main正常fast-forward推送，远程ls-remote确认一致。
 
 ## 本次范围
 
@@ -53,7 +53,7 @@ commandId绑定租户、真实用户、record ID和请求内容；重复请求�
 
 生产只读基线：主表0、历史0；6flags、9项权限/授权/PMC映射表内容摘要、8财务视图定义摘要已保存。旧业务仍正常运行；本任务不暂停既有调度，也不把自然业务变化冒称本任务写入。
 
-本地测试与构建通过；发布前保护基线再次验证0/0、9项保护表/6flags/8视图相同。发布待办：发布前备份→只执行唯一新增迁移→标准deploy all/check→Chrome空表/编辑按钮/权限字段/Excel/403复验→生产0/0及保护基线对比→正常GitHub main push。未导入1139条、无演示数据、未触发ERP或Excel同步、未改6flags/生产权限组/财务公式/PMC通知。
+本地测试与构建通过；发布前保护基线再次验证0/0、9项保护表/6flags/8视图相同。发布前备份、唯一新增迁移、标准deploy all/check、Chrome空表/编辑按钮/权限字段/Excel/403、生产0/0及保护基线对比和正常GitHub main push均已完成。未导入1139条、无演示数据、未触发ERP或Excel同步、未改6flags/生产权限组/财务公式/PMC通知。
 
 ## 修改文件
 
@@ -62,3 +62,23 @@ commandId绑定租户、真实用户、record ID和请求内容；重复请求�
 - Web ReviewDueDates.tsx、新编辑测试及权限页字段测试；不修改共享表格实现或生产权限页面业务逻辑。
 - scripts/test-review-due-dates-postgres.cjs扩展隔离事务、HTTP/Chrome测试。
 - 本报告、原设计文档、CODEX_PROGRESS新任务段。原7份outputs差异完整保留，不混入本提交。
+
+## 正式迁移记录
+
+本任务提交`1b728c452e157e7048ef9c134bd3e6cf6fafe5b7`，仅19文件。222458发布前两库/uploads备份完成并校验；API镜像构建完成。migration:show核实102已执行且仅本任务1条待执行；使用lock_timeout=5s、statement_timeout=30s运行同一TypeORM正式迁移，103成功COMMIT。
+
+迁移后只读核验：主表0/历史0，3来源text字段NOT NULL、来源/当前双唯一、两表FORCE RLS及5项保护触发器有效；9项授权/PMC映射表、6flags、8财务视图摘要完全不变。标准deploy all/check已完成，STATUS=CONSISTENT。本任务没有在生产执行任何人工业务编辑或写入测试。
+
+## 最终上线、Chrome与GitHub记录
+
+Repository=Web=API=GitHub main=`1b728c452e157e7048ef9c134bd3e6cf6fafe5b7`；标准`./scripts/deploy.sh all`与`./scripts/deploy.sh check`成功，STATUS=CONSISTENT，运行服务健康。正式入口：http://192.168.1.249:15172/master-plan-system/mps-review-due-dates 。
+
+实际Chrome（Chrome channel）线上验收：页面200、十列及空状态、导航、搜索、稳定排序、日期范围/精确数值筛选、服务端Excel下载、进入/退出编辑模式、原集团主计划页面通过。Excel为mps_review_due_dates_20261021.xlsx，0业务行/10列。未授权普通账号meta/list/export/history均403；专用编辑403/409及各字段实际保存只在隔离HTTP/Chrome测试验证，不在生产空表造记录。
+
+权限页使用真实已授权管理员的受控会话，打开成员选择和自定义权限草稿，通过键盘选择权限类型，逐项核验六个业务字段可见/可编辑复选框、勾选编辑自动勾选可见、四个统计字段编辑框禁用；取消弹窗，未提交任何授权。浏览器阻止所有非GET业务请求，记录productionWrites=0。初期自动化按钮/下拉定位曾超时，修正测试定位与交互后全流程完成；生产页面源码没有因此额外改动。
+
+最终只读基线：当前表0/历史0、3来源NOT NULL、双唯一、两表FORCE RLS和5保护触发器有效；9项权限/授权/PMC映射表内容摘要、6同步flags、8财务视图定义摘要与开发前一致。未导入1139条，未新增演示数据，未调用ERP/每日Excel同步，未改生产授权组/财务公式/PMC通知。正常旧任务继续运行，不声称所有旧业务表在整个发布时段自然静止。
+
+仅19个本任务文件进入commit；没有提交前任务7份outputs差异、凭据、备份、数据库或实际业务数据。push前再次核实远程仍为起始a86b321、源码与已验收提交一致；正常push github/main成功，无force，无Git冲突。最终SHA和线上运行补记保留在本机outputs，未混入其他任务。隔离PG临时库已删除，专用容器/匿名卷/socket和Vite已清理，备份及受限证据data/mps-review-due-edit-20261021保留。
+
+最终交付：**WAITING_MANUAL_ACCEPTANCE**。本轮停止，不执行首次数据导入或每日同步。

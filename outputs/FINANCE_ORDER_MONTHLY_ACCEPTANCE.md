@@ -12,3 +12,5 @@
 - Web/API构建、类型检查和lint完成，保留既有非本任务fast-refresh/bundle体积告警，无新增lint错误。
 
 真实订单、金额、来源标识、备份和完整验收证据仅保存在受限本机data/finance-order-monthly-20261020，未提交Git。正式版本及GitHub提交在本机最终报告和生产build-info中核对；源代码Git同步及最终版本收尾由主进度文件记录。
+
+最终收尾（2026-10-21 08:41:17）：GitHub main、Repository、生产API/Web均为`7c3176b61c36486c51a6723895b10b2b92674a9a`；healthcheck、deploy check及正式版本真实Chrome/月份/Excel复核通过。两套临时源码及隔离PG/socket已清理，生产服务保持健康。最新主进度已标记完成。

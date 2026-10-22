@@ -105,3 +105,21 @@
 6flags前后完全相同；n8n16条定义、11active及已发布版本完全相同。未重启/修改n8n，未新增/停用/迁移任务或Dispatcher，未执行1139条导入或第二阶段。保留受限证据/备份，临时测试环境在交付后清理。
 
 GitHub同步采用github/main正常fast-forward push，不force；最终发布SHA以本报告末尾部署补记和实际deploy.sh check为准。报告的后续实际运行补记留在本机outputs，不将其混入其他任务文件。
+
+## 最终部署补记（2026-10-21 14:52，Asia/Shanghai）
+
+最终GitHub Commit SHA：`4bfced6c7ff51b67b30adc539d8c37d3aa4fde46`。功能提交76acf4c，后续4bfced6只补充本任务进度/验收证据。已正常push github/main，远程ls-remote确认一致。Repository=Web=API=该SHA，标准deploy all/check成功，STATUS=CONSISTENT；健康检查和实际Chrome最终全流程复验完成。Chrome验证下载mps_review_due_dates_20261021.xlsx（0业务行/10列），meta/list/export/history普通未授权403，原集团主计划可访问。
+
+正式主表COUNT=0、历史COUNT=0，6flags最终复核完全不变；n8n16定义/11active及发布版本最终复核不变。本任务clean验证worktree及隔离PostgreSQL容器/socket已安全清理，备份及受限证据保留。其他4份前任务报告与旧进度未提交补记保留；本报告本机最终运行/SHA补记不改变已发布源码。
+
+最终交付：**WAITING_MANUAL_ACCEPTANCE**。第一期开发、测试、备份、迁移、部署及GitHub同步已完成；未自动判整体PASS。第二阶段导入/首次同步/每日同步均未执行，停止于本阶段。
+
+## 重复附件恢复复核（2026-10-21 19:08，Asia/Shanghai）
+
+新附件097fa08f与原bf4d8c95附件SHA256均为8bf79e83bd5e30f5e3bbf72fc0f2a9eb83f1e008fb3aac529cc7aa7ef3a9ebbd，属于同一任务，无新增范围。继续既有实现，不重复开发、迁移或部署。
+
+当前整体发布已包含后续财务客户功能，Repository=Web=API=GitHub main=`a86b321e7df27cb78f5a14b6c74e37ec3402c4cf`；标准deploy.sh check为CONSISTENT，远程ls-remote一致。PMC第一期功能提交仍为76acf4c，原发布记录4bfced6保留。
+
+只读事务复核：正式主表0条、历史0条，PMC迁移已存在，两表FORCE RLS有效，6flags与第一期最终基线一致。实际Chrome复验页面200、导航/十列/空状态、搜索/排序、日期范围及精确数量API筛选、十列空Excel下载、原集团主计划页面；普通未授权用户meta/list/export/history全部403。浏览器禁止所有非GET业务请求，本次生产业务写入0。受限证据为data/mps-review-due-20261021/chrome-a86b321.json及readonly-recheck-20261021.json。
+
+未执行1139条导入、首次/每日同步，未创建或修改任务、同步开关。本次只复验相关生产行为，不重复运行已完成的全套或隔离数据库测试。状态继续为**WAITING_MANUAL_ACCEPTANCE**，不进入第二阶段。

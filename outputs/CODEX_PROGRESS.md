@@ -1,14 +1,22 @@
 # Codex 工作进度
 
+## GitHub 文档同步（2026-10-22，Asia/Shanghai）
+
+- 状态：已完成同步内容审核；本次提交汇总此前8份进度/验收报告的上线、测试及GitHub结果补记。
+- 远端新增Skill提交3c46692已正常fast-forward拉取，无冲突；未覆盖本地报告。
+- 本次为文档同步，不修改业务源码、数据库、授权组或调度；生产功能发布版本仍为1b728c452e157e7048ef9c134bd3e6cf6fafe5b7。
+- 下文各任务的四方版本一致性及“本机补记未提交”为各次发布时点记录；此前保留的补记由本次文档提交统一入库。最新Git提交以git log -1及GitHub main为准，文档提交不表示重新发布应用。
+- 文档验证：逐份diff核对、git diff --check及敏感内容检查；没有新增源码变动，无需重跑应用测试或部署。仅同步文档，不代表PMC任务已经人工验收。
+
 ## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-EDIT-001 评审交期表开放6个业务字段人工编辑。
 任务目标：专用ID定位人工编辑、字段/资源/范围权限、版本/锁/幂等/审计、原始来源身份保留、新前向迁移、隔离测试及正式空表上线。
-当前状态：本地开发/测试完成，准备正式迁移、部署与线上验收。
-最后更新时间：2026-10-21（Asia/Shanghai）。
+当前状态：WAITING_MANUAL_ACCEPTANCE（开发、测试、备份、迁移、部署、真实Chrome与GitHub同步已完成；等待人工验收，不自动判PASS）。
+最后更新时间：2026-10-21（Asia/Shanghai），发布与GitHub同步完成。
 
 ## 当前阶段
-当前阶段：本地验证完成，发布前备份与Git安全检查。
-当前子任务：仅提交19个任务文件，再用该SHA执行唯一迁移与标准部署；保留原7份outputs差异。
+当前阶段：交付完成，等待用户人工验收。
+当前子任务：无。Repository=Web=API=GitHub main=1b728c452e157e7048ef9c134bd3e6cf6fafe5b7；STATUS=CONSISTENT，生产0/0。
 
 ## 已完成
 - [x] 用户新规则、项目规范、表单/任务Skill、原进度及Git状态核对；起始SHA a86b321e7df27cb78f5a14b6c74e37ec3402c4cf。
@@ -22,36 +30,36 @@
 
 ## 待完成
 - [x] API/Web/contracts/隔离PostgreSQL/Chrome、lint/typecheck/build通过。
-- [ ] 发布前备份、前向迁移、标准all/check、生产Chrome/0行/保护复核。
-- [ ] 安全commit/push，最终WAITING_MANUAL_ACCEPTANCE，不导入/同步。
+- [x] 发布前222458两库/uploads备份、唯一前向迁移103、标准all/check、生产Chrome/0行/保护复核通过。
+- [x] 仅19任务文件安全commit、正常push github/main并ls-remote核实；最终WAITING_MANUAL_ACCEPTANCE，不导入/同步。
 
 ## 修改文件
 - contracts注册/测试、API前向迁移及专用人工命令/读模型/权限/通用PATCH封闭及测试、Web编辑及权限测试、隔离PG+HTTP+Chrome脚本和3份文档；共19文件。
 
 ## 数据库 Migration
-- 计划1722920104000-MpsReviewDueDateManualEdit.ts；不改旧migration。
+- 已执行1722920104000-MpsReviewDueDateManualEdit.ts，累计103；只增加3来源字段/唯一/初始化触发器及替换本表更新守卫，5保护触发器/2表FORCE RLS/0行验证通过；不改旧migration。
 
 ## 新增或修改测试
-- 待记录；所有业务写入测试只在隔离PG。
+- 新API manual.spec、原domain权限回归、contracts六字段/四字段注册、Web编辑5项/权限页1项、PG脚本扩展非空旧结构升级/事务/权限/幂等/HTTP/真实Chrome；所有实际写入测试仅隔离PG。
 
 ## 已运行测试
 - API全套1165通过/33skip（119套）；Web聚焦12通过，contracts31通过，隔离PG+HTTP+Chrome及非空升级32组通过；API/Web构建、API/Web typecheck、API/Web lint通过（仅原ModulePortal快刷warning）。
 - Web全量450项均已有通过证据：447直接通过，3个超时用例分批复验；其中连续6次导出单项CLI 15秒预算7.76秒通过（不改全局配置/断言），详见验收报告。
 
 ## 当前已知问题
-- 非空旧结构升级的延迟触发器/ALTER顺序问题已修复，隔离升级通过；生产尚未迁移，仍0/0。
+- 非空旧结构升级的延迟触发器/ALTER顺序问题已修复，隔离升级通过；生产迁移及结构复核已成功，仍0/0。
 - 既有六次导出测试需较长单项执行预算，已用CLI 15秒复验通过；未修改测试文件/全局配置。
 
 ## 等待用户确认
-- 最终人工验收；开发部署已授权，无需重复确认。
+- 等待用户人工验收；本轮实现/发布工作已完成。
 
 ## 下一步
-1. 发布前备份、仅本任务安全commit，原outputs差异不混入。
-2. 构建API镜像并只执行唯一前向迁移，部署all/check。
-3. 生产Chrome只读/空编辑/字段配置取消/Excel，0/0及权限/flags保护复核后正常push，最终WAITING_MANUAL_ACCEPTANCE。
+1. 无未完成开发/部署事项；用户人工验收，不进入首次导入或每日同步。
+2. 最终报告outputs/KDOS_MPS_REVIEW_DUE_EDIT_ACCEPTANCE.md；起始a86b321，最终1b728c452e157e7048ef9c134bd3e6cf6fafe5b7，GitHub main正常推送且四方一致。
+3. 仅本机outputs最终运行补记与原7份报告差异保留，源码clean/无staged；隔离PG容器/卷/socket及Vite已清理，受限证据与备份保留。
 
 ## 恢复执行说明
-按规范→Skill→本进度→git status/diff恢复。禁止重新实现既有第一期。仅本任务必要结构DDL；不插生产演示/回滚测试数据、不导入1139条、不触发ERP/Excel/新任务、不改6flags或生产授权组。证据data/mps-review-due-edit-20261021。
+本任务已交付WAITING_MANUAL_ACCEPTANCE。按规范→Skill→本进度→git status/diff恢复；不重复开发/迁移/部署。禁止重新实现既有第一期。仅本任务必要结构DDL；不插生产演示/回滚测试数据、不导入1139条、不触发ERP/Excel/新任务、不改6flags或生产授权组。证据data/mps-review-due-edit-20261021。
 
 ---
 
@@ -60,12 +68,12 @@
 ## 任务
 任务名称：财务客户对应表手动新增。
 任务目标：顶部新增按钮/三字段弹窗、独立手工创建API/权限/范围/唯一键/审计、前向MANUAL来源迁移、同步分类保护、API/Web/隔离PG/Excel/Chrome/正式部署和安全GitHub同步。
-当前状态：bbdba6d已正式all/check一致（含客户导出交集修复），生产数据/PMC/视图/flags/调度不变。生产Chrome发现先空填校验再补填保存未发请求；正在修复校验/提交状态竞争（同步ref防重、校验期间不禁用表单、过期校验重试、验证后trim），完整纠错真实Chrome11组和Web444全套/构建/typecheck/lint已通过。GitHub未推送，正在提交并部署最终前端修复后复验。API1153通过/33skip、Web444通过、契约31、隔离PG/HTTP/Chrome11组通过；API/Web构建/lint/typecheck通过。
-最后更新时间：2026-10-21 18:58（Asia/Shanghai）。
+当前状态：已完成。Repository/Web/API/GitHub main=a86b321e7df27cb78f5a14b6c74e37ec3402c4cf，生产Chrome、健康/一致性、迁移及安全推送通过。
+最后更新时间：2026-10-21 19:03（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：生产迁移完成；补齐客户表导出交集权限，再最终部署/Chrome/推送。
-当前子任务：沿用财务独立字典/资源/事务审计和KdosDataTable，不改PMC映射/金额视图或调度。
+当前阶段：已完成，保留最终运行记录。
+当前子任务：无。客户手动新增已上线；生产147客户/0演示新增，PMC/8视图/6flags/同步Timer/n8n不变。
 
 ## 已完成
 - [x] 规范、架构、安全、两项Skill、任务台账及现有财务代码/权限/同步检查。
@@ -80,13 +88,13 @@
 - [x] 独立POST /finance/customer-mappings/manual，trim/字典/服务端身份/租户/创建字段与范围/唯一键和事务审计。
 - [x] 新增弹窗、持久错误/重复返回列表、成功刷新表格/总数；沿用字典与原分类修改。
 - [x] API/Web/隔离PG及Excel回归；生产Chrome无持久测试客户，新增成功路径在隔离环境验证。
-- [ ] 发布前备份/迁移/clean验证/正式版本all/check/Chrome/安全commit-push。
+- [x] 183232发布前备份、唯一新迁移、标准all/check/最终Chrome及安全commit/push完成；无额外验证worktree，隔离运行环境已清理。
 
 ## 修改文件
 - finance应用/权限/controller、FinanceCustomerMappings及测试、共享finance契约、App/Portal仅填报入口及测试、新migration、隔离PG/HTTP/Chrome测试、客户同步README/任务台账/验收报告。
 
 ## 数据库 Migration
-- 计划1722920103000-FinanceCustomerManualSource.ts；只安全扩展现有source CHECK，不改历史migration，不改已有记录。
+- 已执行1722920103000-FinanceCustomerManualSource.ts；只映射表source CHECK扩展MANUAL并验证，102迁移已应用；不改历史migration或旧记录。
 
 ## 新增或修改测试
 - API finance-manual.spec、Web创建/错误/权限/刷新/Portal填报回归；scripts/test-finance-customer-manual-postgres.cjs含受保护隔离数据库及真实Chrome。
@@ -96,20 +104,20 @@
 
 ## 当前已知问题
 - 183232发布备份成功；首次DDL被5条旧财务SELECT阻塞4小时以上，已取消自身迁移并验证回滚；核实只读后仅取消这5条旧查询，再用PGOPTIONS lock_timeout=5s/statement_timeout=30s重试唯一迁移成功，不终止写事务、不改金额SQL。原发生额慢查询性能需单独处理。
-- 客户导出原范围只使用export；仅finance.filter-sources补读∩导交集，新OUTSIDE-READ反例必须被排除。
+- 客户导出原范围缺交集已修复，OUTSIDE-READ反例旧7行/修复6行（含表头）；空填纠错提交已修复并在最终生产Chrome验证。
 - 客户编号是只读身份字段，仅新增时填写；沿用平台创建字段策略（可见字段可填写、无查看的ADD_ONLY仅允许NONE填报范围）。字段隐藏不允许伪造写入。
 - 财务无组织事实，不猜PMC/事业部ID；未知CUSTOM条件整组拒绝。
 
 ## 等待用户确认
-- 无，开发/迁移/部署/安全GitHub同步已授权。
+- 无；本任务已交付。
 
 ## 下一步
-1. 纠错流程复验已通过；仅前端/测试/本任务进度和报告安全提交，最终all/check/生产Chrome。
-2. 仅补丁文件安全commit，再标准all/check和生产Chrome无持久测试客户；不重跑已成功迁移。
-3. 比对PMC/视图/客户/flags及调度保护，正常push并核验版本，最终补记和清理隔离环境。
+1. 无未完成开发或部署。最终报告outputs/FINANCE_CUSTOMER_MANUAL_ACCEPTANCE.md。
+2. 正式SHA a86b321e7df27cb78f5a14b6c74e37ec3402c4cf，GitHub main/Repository/Web/API一致，STATUS=CONSISTENT。
+3. 不重复迁移或同步补跑；仅旧发生额慢查询性能如需另行处理，应开独立需求，不改本次已验收金额口径。
 
 ## 恢复执行说明
-规范→Skill→本文件→git status/diff→下一步；受限证据data/finance-customer-manual-20261021。不要重做此前PMC评审或财务附件任务，不覆盖其outputs改动，不改PMC/金额/调度，不向真实接收人发测试消息。
+本任务已完成。规范→Skill→本文件→git status/diff；只保留本机outputs最终补记及前任务差异，源码clean，无staged；不重做新增/迁移/部署；受限证据data/finance-customer-manual-20261021。不要重做此前PMC评审或财务附件任务，不覆盖其outputs改动，不改PMC/金额/调度，不向真实接收人发测试消息。
 
 ---
 
@@ -118,12 +126,12 @@
 ## 任务
 任务名称：KDOS-MPS-REVIEW-DUE-001 PMC评审交期表第一期建设。
 任务目标：新建空白正式表/历史、只读页面/独立权限/筛选/稳定排序/完整导出、未来变更领域及Application隔离测试；正式部署后WAITING_MANUAL_ACCEPTANCE。
-当前状态：进行中。本地实现及回归完成：API1135通过/33skip、Web439通过、contracts31通过、隔离PG19组通过；API/Web构建、lint/typecheck通过。clean验证版c998c27f2282ab48f3bb2414cfed21eeed36b961 API镜像已完成，仅1条新migration待执行，标准143301备份与唯一前向迁移成功，两表COUNT=0/FORCE RLS/结构核验通过，clean验证版deploy all/check和真实Chrome通过，已仅34任务文件安全commit 76acf4c635c91a14872f06614f0fe43d08f949bd，30个实现/测试与验证版逐字节一致；正式all/check/Chrome已通过，功能版本76acf4c；最终旧业务基线归因完成，记录补充后统一最终发布版本并同步GitHub。
-最后更新时间：2026-10-21 14:49:00（Asia/Shanghai）。
+当前状态：WAITING_MANUAL_ACCEPTANCE（第一期开发、测试、备份、前向迁移、正式部署/Chrome及GitHub同步已完成，等待人工验收，不自动判PASS）。
+最后更新时间：2026-10-21 19:08（Asia/Shanghai）；重复附件恢复检查完成。
 
 ## 当前阶段
-当前阶段：验证版上线验收完成，正式commit/部署/同步闭环。
-当前子任务：复用KdosDataTable/统一筛选编译器/标准导出；只新增两张tenant/RLS表，内部Application命令复用既有idempotency_keys，禁止公开写入/导入/同步入口。
+当前阶段：第一期交付完成，等待人工验收。
+当前子任务：无。原第一期发布4bfced6；19:08复核当前Repository=Web=API=GitHub main=a86b321e7df27cb78f5a14b6c74e37ec3402c4cf（包含后续财务客户功能），STATUS=CONSISTENT；两正式表0/0，6flags不变。本次只读复核，不改调度。
 
 ## 已完成
 - [x] 附件需求/工程规范/架构/安全/两项Skill/任务台账已阅读；起始HEAD d80a768677c05b2e3b671362461c0718dbdaad74。
@@ -141,14 +149,15 @@
 - [x] 领域/事务/权限/精度/并发/回滚隔离PG19组通过，含旧事务等待时间戳、数据库不可改名/无历史改期守卫、历史不可改删/计数与日期一致性；18至27从未在生产执行。
 - [x] Web最终59文件439项通过，无未处理异常；未改全局测试配置或降低断言。
 - [x] clean生产真实Chrome空表/10列/导航/搜索排序/日期范围/空Excel及普通账号4接口403，原集团主计划页面通过，写入0。
-- [ ] 备份/迁移/标准deploy all/check/健康/Chrome空表验收/保护基线/安全commit-push。
-- [ ] outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md和ACCEPTANCE.md，最终WAITING_MANUAL_ACCEPTANCE，不自动PASS。
+- [x] 143301发布前备份/唯一前向迁移、最终标准all/check/健康/Chrome、保护基线和安全commit/push完成。
+- [x] 设计/验收报告完成，最终WAITING_MANUAL_ACCEPTANCE，不自动PASS；临时验证worktree/隔离PG已清理，证据/备份保留。
+- [x] 19:08新附件SHA256与原任务附件一致；复用既有实现，只读核验迁移存在、两表FORCE RLS/0行/6flags，当前a86b321实际Chrome十列/导航/搜索排序/日期筛选/十列空Excel/普通账号四接口403/原集团计划页面通过。未重新迁移、导入或触发同步；仍WAITING_MANUAL_ACCEPTANCE。
 
 ## 修改文件
 - 已实现contracts/index.ts+独立review-due-date契约，MPS config/types/module/query/filter-source/spreadsheet/controller最小适配、独立domain/application/query及页面、通用导出可选filename、App入口、前向1722920102000迁移和测试/文档。
 
 ## 数据库 Migration
-- 计划1722920102000-MpsReviewDueDates.ts，只新建mps_review_due_dates及mps_review_due_date_changes和自身约束/索引/RLS/触发器。
+- 已执行1722920102000-MpsReviewDueDates.ts，仅两新表及自身约束/索引/RLS/触发器；结构/类型/唯一键/FK/默认/两表FORCE RLS正式核验通过。
 - 不改历史migration，不创建数据库，不写任何既有业务表或sync flags。生产新表/历史必须0。
 
 ## 新增或修改测试
@@ -163,86 +172,81 @@
 - 日期不能为空的正式记录使用ISO业务日期，变更天数按日历日差；数量任意精确numeric/Decimal，不引入浮点或自动合并。
 
 ## 等待用户确认
-- 无；完成后等待人工验收，不开展第二阶段。
+- 等待用户人工验收第一期；不开展第二阶段。
 
 ## 下一步
-1. 已完成安全commit（只提交新进度段）；继续正式SHA部署与Chrome复核。
-2. 正式SHA deploy all/check/Chrome复核、GitHub main正常push并验证远程。
-3. 最终零记录/flags/调度复核、报告记录SHA；清理本任务验证worktree/隔离PG，WAITING_MANUAL_ACCEPTANCE后停止。
+1. 无未完成开发/部署事项。用户人工验收页面；不自行导入1139条或启动同步。
+2. 最终报告：outputs/KDOS_MPS_REVIEW_DUE_DATE_ACCEPTANCE.md；设计：outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md。
+3. 最终SHA 4bfced6c7ff51b67b30adc539d8c37d3aa4fde46，正常push github/main已核实。仅本机outputs运行补记及前任务差异保留，源码clean，无staged内容。
 
 ## 恢复执行说明
-规范→Skill→本任务进度→git status/diff；附件位于/home/Jerry/.codex/attachments/bf4d8c95-060e-4aa4-b7d5-577c5f21c11c/已粘贴的文本.txt。勿恢复或重做上一财务附件任务，保留原outputs差异。禁止导入1139条、首次/每日同步、n8n、新业务数据演示或旧业务写入。
+任务已交付WAITING_MANUAL_ACCEPTANCE。规范→Skill→本任务进度→git status/diff；不重复开发/迁移/部署，不进入第二阶段；附件位于/home/Jerry/.codex/attachments/bf4d8c95-060e-4aa4-b7d5-577c5f21c11c/已粘贴的文本.txt。勿恢复或重做上一财务附件任务，保留原outputs差异。禁止导入1139条、首次/每日同步、n8n、新业务数据演示或旧业务写入。
 
 ---
 
 # Codex 工作进度
 
 ## 任务
-任务名称：财务每日08:30推送新增当月Excel附件及指定中文文件名。
-任务目标：当月月度数据Excel按“YYYY年M月接单统计-生管.xlsx”命名，例如2026年10月接单统计-生管.xlsx；复用现有日报/导出/权限/Dispatcher，不改调度、金额、PMC。
-当前状态：两人权限补齐/审计、436行15字段回滚预览、验证版部署/健康/Chrome均通过；正在正式commit、发布SHA及push，尚未结束。
-最后更新时间：2026-10-21 13:26（Asia/Shanghai）。
+任务名称：财务每日08:30推送当月Excel附件及指定文件名。
+任务目标：原财务文字日报附加当月月度数据Excel，命名YYYY年M月接单统计-生管.xlsx；复用金额/导出/消息投递，保留PMC和原调度。
+当前状态：已完成。正式API/Web/Dispatcher=GitHub main=d80a768677c05b2e3b671362461c0718dbdaad74，部署/健康/真实Chrome复验/推送均通过；无真实测试发送。
+最后更新时间：2026-10-21 13:42:58（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：恢复上线准备及只读权限差异核验。用户已通知“涂思梦、陈小云权限配好”并要求继续。
-当前子任务：clean验证快照a59e06b7bbb48ad1adbaa9b48a457e5e0827632b已通过真实Chrome，1人月度UI/网页导出，另1人首次改密页保留且后端导出通过，两人436行15字段金额一致；消息中心3类编辑页/原规则完整/401与403均通过。准备只提交19个任务文件，排除原3个outputs差异。
+当前阶段：已完成，保留最终记录。
+当前子任务：无。正式服务与HEAD/remote SHA一致，规则启用/版本8/config不变，IAM 2/2 ready，PMC/财务视图/outbox/n8n基线不变。
 
 ## 已完成
-- [x] 规范/两项Skill/原进度/git恢复，保留原3份outputs最终记录修改，不覆盖用户版本8财务规则。
-- [x] 104210开发前两库/uploads备份及校验；只读PMC/规则/财务视图/outbox和16个n8n工作流基线。
-- [x] 财务独立附件服务，正式发生额视图+15字段统一导出，单repeatable-read临时快照、读取∩导出范围/字段权限；精确金额/稳定排序、不截断。
-- [x] 冻结附件/SHA/实时IAM指纹/受控租约下载，text/file:1独立成功/重试；旧text配置兼容，不改已保存规则，不改PMC专属代码。
-- [x] Dispatcher仅追加指定财务中文文件名及finance-attachments受控路径白名单，原PMC测试保持。
-- [x] API完整1119通过/33skip，后续聚焦11套144项通过；API最终build/lint通过。
-- [x] 财务隔离PostgreSQL18共8项（205行/金额/字段/范围/租户/撤权/身份/重试）通过；PMC真实PG20项通过；Dispatcher Python10项通过；隔离PG仅本任务资源清理。
-- [x] 只读复核：生产PMC配置/非财务规则/财务视图/财务outbox及全部16个n8n定义/启停/发布版本不变，11active；未触发同步、入队或真实测试消息。
-- [x] 用户明确等待自行配置权限后再上线；API/Web运行版只读核实仍为eb4fb76b76f2551858da4d09818eb28bdac81f4b。
+- [x] 规范/两项Skill/原进度/git恢复；保留前3份outputs差异，未覆盖用户配置。
+- [x] 104210开发前备份、132547发布前两库/uploads备份及格式/SHA/权限校验；PMC/财务视图/outbox/n8n基线保存。
+- [x] 财务独立附件服务，正式发生额视图+15字段统一导出，repeatable-read临时快照、接收人read∩export范围/字段权限、精确金额/稳定排序；无migration/第二套金额算法。
+- [x] 冻结文件/SHA/实时权限指纹、租约私有下载、text/file:1独立重试、旧text配置兼容；Dispatcher仅追加财务中文名/路径，PMC专属代码不改。
+- [x] API全套1119通过/33skip；最终聚焦144通过（11套），最终build/lint通过；财务隔离PG8、PMC隔离PG20、Python10通过。
+- [x] 用户明确授权仅补齐涂思梦、陈小云权限；正式Application API独立CUSTOM组，仅2USER/read/export/15字段/原ALL范围，无写操作；原共享及其他组不变、审计验证，IAM2/2 ready。
+- [x] 实际2人生产回滚预览，各436行15字段/金额一致、4个组成领取/0路由错误；回滚后outbox/attachments/log计数不增，不调用真实provider。
+- [x] clean验证快照a59e06b7bbb48ad1adbaa9b48a457e5e0827632b已部署API/Web/既有Dispatcher，版本一致/服务健康。
+- [x] 真实Chrome通过：涂思梦月度UI/网页导出；陈小云首次改密屏障保留，未改密码或绕过，后端导出/附件权限436行15字段金额一致。消息中心3类编辑页可打开，取消后启用/版本8/接收人/模板不变，内部无凭据401/无效租约403。
+- [x] 16个n8n定义/启停/发布版本不变，11active；PMC/非财务规则/财务视图/outbox基线不变，新增任务/内部消费者/Timer/cron均0。
+- [x] 安全commit仅19个任务文件，源码/测试14个逐字节与已验收发布相同，私有证据/备份/原3份outputs差异未提交。
 
 ## 正在进行
-- 无运行中的开发或部署。等待用户完成权限配置。
+- [x] 正式deploy all及Dispatcher更新、标准health/check和最终Chrome通过。
 
 ## 待完成
-- [ ] 用户配置后重新只读核验实际接收人的月度查看、导出、所需字段（完整报表15字段）及数据范围。
-- [ ] 重新评审实现边界/更新备份，受控生产预览（回滚/不入队、不真实发送）、标准API/Web和既有Dispatcher部署。
-- [ ] Chrome线上验收/健康/受保护基线核对，安全task-only commit及push GitHub/main，记录正式SHA。
+- [x] GitHub main安全push成功，remote=Web=API=Dispatcher=HEAD=d80a768677c05b2e3b671362461c0718dbdaad74。
+- [x] 最终规则/权限/PMC/n8n基线复核及最终报告完成；只清理本任务干净验证worktree，保留源/证据/备份/原3份outputs差异。
 
 ## 修改文件
-- apps/api/src/modules/finance/finance-monthly-file.service.ts及.spec.ts（新）。
-- apps/api/src/modules/finance/finance-monthly-notification.service.ts及.spec.ts；finance.module.ts。
-- apps/api/src/modules/notifications/notification.service.ts、notification.types.ts、notification.internal.controller.ts及新.spec.ts、notification-event.registry.ts及.spec.ts。
-- automation/wechat_push_projects/kdos-notification-dispatcher/dispatcher.py及test_dispatcher.py。
-- scripts/test-finance-monthly-file-postgres.cjs（新）。
-- docs/finance-monthly-notifications.md、docs/operations/TASK_REGISTRY.md。
-- outputs/CODEX_PROGRESS.md、outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md（新）。
-- 原3份验收outputs差异是前任务留存，未归入当前功能。
+- FinanceMonthlyFileService及.spec.ts、FinanceMonthlyNotificationService及.spec.ts、finance.module.ts。
+- notification.service/types/internal.controller及新.spec/event.registry及.spec。
+- Dispatcher.py/test_dispatcher.py、scripts/test-finance-monthly-file-postgres.cjs。
+- docs/finance-monthly-notifications.md、integration-guide.md、operations/TASK_REGISTRY.md。
+- outputs/CODEX_PROGRESS.md、FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。
 
 ## 数据库 Migration
-- 无；复用notification_attachments/component日志，仅隔离测试库生成合成数据；生产没有写入。
+- 无；生产仅用户明确授权的2人权限通过正式API保存并有审计。所有通知预览写入回滚，不改源/金额/规则/同步水位。
 
 ## 新增或修改测试
-- 文件月份/安全命名、权限指纹/旧text配置、内部下载UTF8及worker校验、日事件格式标记、事件登记、Dispatcher中文名/路径、隔离PG8项。
+- 文件月份/安全命名/权限指纹/旧text配置、内部UTF8下载/worker校验、日事件格式、Dispatcher中文名及隔离PG。
 
 ## 已运行测试
-- API full1119 passed/33skip；最终focused144 passed；最终build/lint passed。
-- 财务附件PG8 passed；PMC PG20 passed；Python10 passed。
-- git diff --check通过。最终日志在本机data/finance-monthly-attachment-20261021，勿提交真实证据/凭据。
+- API full1119 passed/33skip；focused144 passed；build/lint passed；PG8/PMC PG20/Python10 passed。
+- 验证版和正式版health/check/Chrome passed，最终服务SHA及GitHub远程SHA一致。受限证据data/finance-monthly-attachment-20261021，禁止提交真实数据/凭据。
 
 ## 当前已知问题
-- 生产解析2名接收人均无月度export；1名只有9字段read、另1名无月度read/字段；因此不能安全投递完整Excel。
-- 用户要求先配权限后上线，当前生产仍文字日报；未做新功能线上预览/部署/真实Chrome验收，不宣称已交付/已送达。
-- 标准deploy.sh check也有源码clean gate，当前本地源码改动使其拒绝；未绕过或触发部署。已直接只读HTTP核实当前API/Web SHA。
-- 冻结附件权限变更后不再投递旧文件；修复权限以下一次正式日报重建为准，不伪造历史报表。
+- 陈小云账号仍需本人首次登录改密；不影响已验证的消息附件权限，不修改或跳过账号安全流程，不宣称其月度UI已通过。
+- 08:30为流程启动，更新成功后发送；本次未真实发送测试，未来正式触发/企微实际送达待记录，不冒称已收到。
+- 冻结旧附件在权限指纹变化后停止投递；权限修复以下一次正式日报重新生成为准，不重新构建历史冻结报表。
 
 ## 等待用户确认
-- 用户自行完成权限配置后通知继续；不得反复要求其重复授权已有功能。
+- 无；用户已授权仅补齐2人的月度导出/15字段，且要求继续完成上线。
 
 ## 下一步
-1. 恢复时读取规范/本节/git差异，复用已有实现；检查用户是否已完成权限配置。
-2. 以新文件名保存最新规则/权限快照，不覆盖before证据；实际有效接收人需具备read/export及报表必要字段/正确范围。不自动扩大权限。
-3. 权限通过后完成受控无发送预览、备份、部署/Dispatcher/Chrome/健康/基线，正式commit/push（按项目clean发布流程）；无需重做已通过实现和无变动测试。
+- 无未完成开发或上线事项。下一次正式自动执行2026-10-22 08:30（上海时间），先增量成功再按已有规则推送；未来实际送达待运行记录，不冒称已实发。
+- 完整本机报告：outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。若用户反馈首次送达问题，先查既有n8n/消息中心日志，不重复FULL或自动补发到真实员工。
 
 ## 恢复执行说明
-规范→Skill→本节→git status/diff。当前HEAD/GitHub及运行基线eb4fb76，当前源码未提交未发布；保留原outputs差异。生产每日08:30、每日一次、当前规则版本/接收人不可覆盖；用户已授权新增附件，但明确等其配置权限后才上线。报告outputs/FINANCE_MONTHLY_ATTACHMENT_ACCEPTANCE.md。
+任务已完成。HEAD/GitHub main/正式Web/API/Dispatcher均为d80a768677c05b2e3b671362461c0718dbdaad74。仅outputs最终运行/SHA补记及原3份outputs差异保留，源码clean，无staged内容。勿重新实现/再次授权/全量同步/真实测试投递。若未来另有需求从新任务开始，不覆盖本次记录。
 
 ---
 
