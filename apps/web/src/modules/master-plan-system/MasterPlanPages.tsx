@@ -2,7 +2,7 @@ import { auxiliaryPlanGroups } from "@kdos/contracts";
 /* eslint-disable react-refresh/only-export-components -- 工序配色/进度格式化等纯函数与页面组件同文件，供测试与表格渲染共用 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
+import { Alert, App as AntApp, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
 import { DownloadOutlined, MoreOutlined, SyncOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
@@ -419,6 +419,7 @@ function RowActions({ metadata, row, onEdit, onSync, onRefreshExecution, onRepor
 }
 
 export function MasterPlanResourcePage({ resource }: { resource: string }) {
+  const { message: appMessage } = AntApp.useApp();
   const info = definitionMap.get(resource as any);
   const queryClient = useQueryClient(); const navigate = useNavigate(); const [searchParams] = useSearchParams(); const basePlanId = resource === "mps-weekly-plans" ? searchParams.get("basePlanId") ?? undefined : undefined;
   const [tableQuery, setTableQuery] = useState(initialQuery); const [view, setView] = useState("ALL");
@@ -451,10 +452,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     await Promise.all(reportDependentResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
   const applyReconciliationFeedback = useCallback((reconciliation: Reconciliation | undefined, successText: string) => {
-    if (reconciliation?.status === "FAILED") { message.warning(reconciliation.message ?? `${successText}，但执行状态同步失败。`); return; }
-    if (reconciliation && reconciliation.status !== "SUCCESS") { message.info(reconciliation.message ?? `${successText}，执行状态正在同步，请稍后刷新查看。`); return; }
-    message.success(successText);
-  }, []);
+    if (reconciliation?.status === "FAILED") { appMessage.warning(reconciliation.message ?? `${successText}，但执行状态同步失败。`); return; }
+    if (reconciliation && reconciliation.status !== "SUCCESS") { appMessage.info(reconciliation.message ?? `${successText}，执行状态正在同步，请稍后刷新查看。`); return; }
+    appMessage.success(successText);
+  }, [appMessage]);
   const refreshRelatedPlans = useCallback(async () => {
     await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -674,7 +675,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const submitPendingReports = async () => {
     if (pendingSubmitLock.current || pendingSubmitting) return;
     if (!pendingSubmittable.length) {
-      message.warning("请至少填写一条大于0的报工数量");
+      appMessage.warning("请至少填写一条大于0的报工数量");
       return;
     }
     pendingSubmitLock.current = true;
@@ -704,9 +705,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       }
       /* 4. POST 结束后立即反馈（不等待任何刷新）。全部失败时绝不出现“报工成功”。 */
       if (!created) {
-        message.error(`报工提交失败：${failures.slice(0, 3).join("；")}`);
+        appMessage.error(`报工提交失败：${failures.slice(0, 3).join("；")}`);
       } else if (failures.length) {
-        message.warning(`已成功提交 ${created} 条报工，${failures.length} 条提交失败：${failures.slice(0, 3).join("；")}`);
+        appMessage.warning(`已成功提交 ${created} 条报工，${failures.length} 条提交失败：${failures.slice(0, 3).join("；")}`);
       } else {
         const base = created === 1 ? "报工成功" : `已成功提交 ${created} 条报工`;
         applyReconciliationFeedback(reconciliation, `${base}；事业部计划已刷新`);
@@ -724,7 +725,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         for (const id of successfulIds) delete next[id];
         return next;
       });
-      message.warning(created > 0
+      appMessage.warning(created > 0
         ? `已成功提交 ${created} 条报工，但界面提示异常，请刷新页面确认。`
         : `报工提交异常：${(error as Error).message}`);
     } finally {
@@ -737,7 +738,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       await refresh();
       await refreshExecutionPlans();
     } catch {
-      message.warning(created > 0 ? "报工已保存，但页面数据刷新失败，请手动刷新页面" : "页面数据刷新失败，请手动刷新页面");
+      appMessage.warning(created > 0 ? "报工已保存，但页面数据刷新失败，请手动刷新页面" : "页面数据刷新失败，请手动刷新页面");
     }
   };
   if (!info) return null;

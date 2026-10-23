@@ -9,6 +9,17 @@ import { MasterPlanResourcePage } from "./MasterPlanPages";
 
 vi.mock("../../api", () => ({ api: vi.fn() }));
 
+const appMessage = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), destroy: vi.fn() }));
+vi.mock("antd", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("antd")>();
+  const RealApp = actual.App;
+  const stubNotification = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), open: vi.fn(), destroy: vi.fn() };
+  const stubModal = { confirm: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn(), destroy: vi.fn() };
+  const App = ((props: Parameters<typeof RealApp>[0]) => RealApp(props)) as typeof RealApp;
+  (App as unknown as { useApp: () => unknown }).useApp = () => ({ message: appMessage, notification: stubNotification, modal: stubModal });
+  return { ...actual, App, message: appMessage };
+});
+
 let currentLocation = "";
 
 function LocationSpy() {
