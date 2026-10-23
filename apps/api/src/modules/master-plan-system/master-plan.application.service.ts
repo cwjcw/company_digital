@@ -279,7 +279,7 @@ export class MasterPlanApplicationService {
   }
 
   async importUpdates(code: string, rows: Array<{ row?:number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, fileHash: string, actor: MasterPlanActor, transactionManager?: EntityManager, allocationBatch?:{id:string;worksheet:string;fileHash:string}) {
-    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用历史命令");
+    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用事务命令");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     await this.enforceShippingWindow(resource, actor);
@@ -367,7 +367,7 @@ export class MasterPlanApplicationService {
   }
 
   async validateImportUpdates(code: string, rows: Array<{ row: number; id: string | null; expectedVersion: number | null; values: Record<string, unknown> }>, actor: MasterPlanActor) {
-    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用历史命令");
+    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用事务命令");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     const errors: Array<{ row: number; reason: string }> = [];
@@ -680,7 +680,7 @@ export class MasterPlanApplicationService {
   }
 
   async importBlockedReason(code: string, actor: MasterPlanActor) {
-    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用历史命令");
+    if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用事务命令");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     try { await this.enforceShippingWindow(resource, actor); return null; }

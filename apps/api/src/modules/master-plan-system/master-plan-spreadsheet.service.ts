@@ -73,7 +73,7 @@ export class MasterPlanSpreadsheetService {
     const resource = this.resource(code);
     if(code==='mps-review-due-dates'){
       const capabilities=reviewDueImportCapabilities(actor);if(!capabilities.template)throw new ForbiddenException('没有评审交期模板字段权限');
-      return this.workbook(code,capabilities.templateFields,[],capabilities.templateFields.length===6?reviewDueDateTemplateNotes:[reviewDueDateTemplateNotes[1],"此模板仅作获权字段结构参考，不可直接导入；导入需要完整模板列和相应写入授权。",...capabilities.templateFields.map(f=>`${f.label}：${f.required?"必填":"可空"}；类型${f.type}`)],{exactNumericText:true});
+      return this.workbook(code,capabilities.templateFields,[],capabilities.templateFields.length===reviewDueDateCreateFields.length?reviewDueDateTemplateNotes:[reviewDueDateTemplateNotes[1],"此模板仅作获权字段结构参考，不可直接导入；导入需要完整必填列和相应写入授权。",...capabilities.templateFields.map(f=>`${f.label}：${f.required?"必填":"可空"}；类型${f.type}`)],{exactNumericText:true});
     }
     if (!hasMasterPlanPermission(actor, code, "import")) throw new BadRequestException("当前权限组没有该表导入权限");
     if (this.isPendingImport(code, view)) {
@@ -238,7 +238,7 @@ export class MasterPlanSpreadsheetService {
     const sheet=workbook.getWorksheet('mps-review-due-dates')??workbook.worksheets.find(x=>!x.name.startsWith('_')&&x.name!=='填写说明');if(!sheet)throw new BadRequestException('文件没有业务工作表');
     const allowed=new Map<string,string>([['记录ID','id'],['版本','version'],...reviewDueDateCreateFields.map(f=>[f.label,f.key])] as Array<[string,string]>);
     const columns=new Map<string,number>();sheet.getRow(1).eachCell((cell,index)=>{const label=cell.text.trim(),key=allowed.get(label);if(!key||cell.type===ExcelJS.ValueType.Formula)throw new BadRequestException('不接受表头：'+label);if(columns.has(key))throw new BadRequestException('表头重复：'+label);columns.set(key,index);});
-    const missing=reviewDueDateCreateFields.filter(f=>!columns.has(f.key));
+    const missing=reviewDueDateCreateFields.filter(f=>f.required&&!columns.has(f.key));
     if(missing.length)throw new BadRequestException('缺少业务字段：'+missing.map(f=>f.label).join('、'));
     if(columns.has('id')!==columns.has('version'))throw new BadRequestException('记录ID和版本列必须同时存在或同时省略');
     const schema=workbook.getWorksheet('_字段定义');
@@ -253,7 +253,7 @@ export class MasterPlanSpreadsheetService {
       let v=cell.value;
       if(cell.type===ExcelJS.ValueType.Error)throw new Error('单元格包含错误值');
       if(cell.type===ExcelJS.ValueType.Formula){v=(v as ExcelJS.CellFormulaValue).result??null;if(v==null||typeof v==='object'&&!(v instanceof Date))throw new Error('公式缺少有效缓存结果，请在Excel重算并保存');}
-      if(key==='inboundDate'&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('入库时间不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
+      if(['inboundDate','previousInboundDate'].includes(key)&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
       if(v instanceof Date)return v.toISOString().slice(0,10);
       if(key==='quantity'&&typeof v==='number'&&(!Number.isFinite(v)||Math.abs(v)>Number.MAX_SAFE_INTEGER||v.toString().replace(/[.e+-]/g,'').length>15))throw new Error('数量数值精度不可靠，请使用精确十进制文本');
       return v==null?'':typeof v==='object'?cell.text.trim():String(v).trim();
@@ -263,7 +263,11 @@ export class MasterPlanSpreadsheetService {
       try{const cells=Object.fromEntries([...columns].map(([key,col])=>{try{return [key,value(row.getCell(col),key)];}catch(error){throw new Error(`${allowedLabel(key)}：${(error as Error).message}`);}})),id=cells.id||null,version=cells.version||null;
         if(Boolean(id)!==Boolean(version))throw new Error('记录ID/版本：新增时记录ID和版本都应留空；更新时必须同时填写');
         if(version&&(!/^[1-9]\d*$/.test(version)||!Number.isSafeInteger(Number(version))))throw new Error('版本必须为有效正整数');
-        rows.push({row:index,id,expectedVersion:version?Number(version):null,values:Object.fromEntries(reviewDueDateCreateFields.filter(f=>columns.has(f.key)).map(f=>[f.key,cells[f.key]]))});
+        const values=Object.fromEntries(reviewDueDateCreateFields.filter(f=>columns.has(f.key)&&(!id||f.required||cells[f.key]!=='')).map(f=>{
+          const cell=cells[f.key];if(cell==='[清空]'){if(f.required)throw new Error(f.label+'为必填字段，不能清空');return [f.key,null];}
+          return [f.key,!f.required&&cell===''?null:cell];
+        }));
+        rows.push({row:index,id,expectedVersion:version?Number(version):null,values});
       }catch(e){errors.push({row:index,reason:(e as Error).message});}
     });
     if(!rows.length&&!errors.length)errors.push({row:2,reason:'文件中没有可导入的数据'});
@@ -350,7 +354,7 @@ export class MasterPlanSpreadsheetService {
       }))
     ];
     if (options.hideIdentityColumns && options.includeIdentityColumns!==false) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
-    const organizationPaths = new Map((options.exactNumericText?[]:await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
+    const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
     /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
     for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, field.key==="importedBy"?row.importedByName??(row.importedBy?"未匹配操作人":null):this.displayValue(field, row[field.key], organizationPaths)])) });
     /* 需要人工填写的列给一个简洁的浅色底纹，明确「可填写区域」。 */

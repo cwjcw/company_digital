@@ -7,6 +7,8 @@ import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { TablePrintService } from '../../common/printing/table-print.service';
 import { hasMasterPlanPermission, hasReviewDueCreateFieldPermission, type MasterPlanActor } from './master-plan.types';
 import { normalizeKdosPageSize } from '../../common/pagination';
+import { OrganizationDirectoryService } from '../organization-directory/organization-directory.service';
+import { reviewDueDivisionOptions } from './review-due-date.domain';
 
 export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
 const searchFields=['orderNumber','batchNumber','drawingNumber','inspectionTimeName'];
@@ -39,13 +41,16 @@ export function reviewDueImportCapabilities(actor:MasterPlanActor) {
 
 @Injectable()
 export class ReviewDueDateQueryService implements OnModuleInit {
-  constructor(private readonly db:DataSource,private readonly registry:TableFilterRegistry){}
+  constructor(private readonly db:DataSource,private readonly registry:TableFilterRegistry,private readonly directory:OrganizationDirectoryService){}
   onModuleInit(){
     this.registry.register({code:RESOURCE,table:'mps_review_due_dates',columns:{id:'id',...reviewDueColumns},
       expressions:Object.fromEntries(reviewDueDateFields.filter(f=>f.type==='date').map(f=>[f.key,`record.${reviewDueColumns[f.key]}::text`])),
       fields:reviewDueDateFields,authorize:a=>reviewDueAuthorize(a),searchColumns:searchFields,
+      // Candidate requests need DISTINCT authorized values, never paginated business rows.
+      candidateVariant:()=>({listRows:undefined}),
+      departmentCandidates:async(search,limit)=>reviewDueDivisionOptions(await this.directory.listEnabled()).filter(o=>!search||o.name.includes(search)||o.pathLabel.includes(search)).slice(0,limit).map(o=>({value:o.id,label:o.pathLabel})),
       buildScope:(a,p,action)=>action==='export'?`(${reviewDueScope(a,p,'read')}) AND (${reviewDueScope(a,p,'export')})`:reviewDueScope(a,p),
-      defaultSort:{field:'inboundDate',order:'asc',stableColumns:['order_number','batch_number','drawing_number','id']},
+      defaultSort:{field:'inboundDate',order:'asc',stableColumns:['division_id','order_number','batch_number','drawing_number','id']},
       exportExactNumbers:true,exportNullAsBlank:true,exportFilename:()=>reviewDueDateExportFilename(),
       listRows:q=>this.rows(q),printRows:q=>this.rows(q),runQuery:(sql,p)=>this.read(String(p[0]),m=>m.query(sql,p))});
   }
@@ -81,7 +86,9 @@ export class ReviewDueDateQueryService implements OnModuleInit {
       const updateScope=hasMasterPlanPermission(q.actor as import('./master-plan.types').MasterPlanActor,RESOURCE,'update')?reviewDueScope(q.actor,params,'update'):'1=0';
       params.push(q.pageSize,(q.page-1)*q.pageSize);
       const selected=keys.map(k=>`record.${reviewDueColumns[k]}${reviewDueDateFields.find(f=>f.key===k)?.type==='date'?'::text':''} "${k}"`);
-      const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",${selected.join(',')} FROM mps_review_due_dates record WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
+      const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",${keys.includes('divisionId')?'division.name AS "divisionName",':''}${selected.join(',')}
+        FROM mps_review_due_dates record LEFT JOIN organization_units division ON division.id=record.division_id
+        WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
       return {rows,total:Number(n),page:q.page,pageSize:q.pageSize,visibleFields:keys};
     };
     return manager?work(manager):this.read(q.actor.tenantId,work);
@@ -89,7 +96,7 @@ export class ReviewDueDateQueryService implements OnModuleInit {
   async history(id:string,input:Record<string,unknown>,actor:TableFilterActor){
     reviewDueAuthorize(actor);
     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))throw new BadRequestException('评审交期记录ID无效');
-    if(['inboundDate','previousInboundDate','changeCount','lastChangedAt'].some(k=>!readable(actor,k)))throw new ForbiddenException('变更历史需要交期及变更统计字段读取权限');
+    if(!readable(actor,'inboundDate'))throw new ForbiddenException('历史交期记录需要入库时间读取权限');
     const page=Math.max(1,Math.floor(Number(input.page)||1)),pageSize=normalizeKdosPageSize(Number(input.pageSize)||100);
     return this.read(actor.tenantId,async m=>{
       const p:unknown[]=[actor.tenantId,id],scope=reviewDueScope(actor,p,'read');

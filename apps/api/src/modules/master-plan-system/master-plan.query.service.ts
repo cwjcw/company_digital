@@ -9,6 +9,7 @@ import { FieldCandidateService } from "../../common/filtering/field-candidate.se
 import { normalizeKdosPageSize } from "../../common/pagination";
 import { tableSupportFieldsFor } from "@kdos/contracts";
 import { ReviewDueDateQueryService, reviewDueScope, reviewDueCreateCapabilities, reviewDueImportCapabilities } from './review-due-date.query.service';
+import { reviewDueDivisionOptions } from './review-due-date.domain';
 
 type ListInput = { page?: unknown; pageSize?: unknown; search?: unknown; filters?: unknown; filterGroup?: unknown; sortField?: unknown; sortOrder?: unknown; view?: unknown; basePlanId?: unknown; /** KN-PRINT-001 打印已选：稳定记录 ID。 */ ids?: unknown };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -186,7 +187,8 @@ export class MasterPlanQueryService {
     const hasTableAccess = ["read", "create", "update", "import"].some((action) => hasMasterPlanPermission(actor, code, action));
     const hasFieldAccess = departmentFields.some((field) => this.visible(actor, code, field.key));
     if (!hasTableAccess || !hasFieldAccess) throw new ForbiddenException("当前权限组不能访问该表事业部选项");
-    return this.directory.listEnabled();
+    const options=await this.directory.listEnabled();
+    return code==='mps-review-due-dates'?reviewDueDivisionOptions(options):options;
   }
 
   async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {

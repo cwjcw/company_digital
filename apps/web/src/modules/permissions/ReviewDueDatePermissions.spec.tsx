@@ -7,7 +7,7 @@ import { api } from '../../api';
 import { TablePermissionsPage } from './TablePermissionsPage';
 vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-it('offers independent visible/update checkboxes for six business fields and disables all four system updates',async()=>{
+it('offers independent visible/update checkboxes for nine business fields and disables all four system updates',async()=>{
  const group={id:'synthetic',displayName:'Synthetic review permissions',groupType:'CUSTOM',dataScope:'ALL',dataMatch:'ALL',enabled:true,subjects:[],permissions:[{fieldKey:'*',read:true},...reviewDueDateFields.map(f=>({fieldKey:f.key,read:true,update:false}))]};
  vi.mocked(api).mockImplementation(async path=>path.includes('table-permission-context')?{roles:[],roleGroups:[],users:[],organizations:[]} as never:[group] as never);
  render(<BrowserRouter><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TablePermissionsPage resourceCode="mps-review-due-dates"/></QueryClientProvider></BrowserRouter>);

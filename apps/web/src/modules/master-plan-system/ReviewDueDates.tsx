@@ -1,31 +1,35 @@
 import { ReviewDueImportModal } from './ReviewDueDates.import';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Drawer, Form, Input, Modal, Table } from 'antd';
+import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Table } from 'antd';
 import { reviewDueDateTemplateFilename, reviewDueDateFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
 import dayjs from 'dayjs';
 import { api } from '../../api';
-import { KdosDataTable, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
+import { KdosDataTable, ensureTableFieldVisibleOnce, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
 import type { AdvancedFilterGroup } from '../../shared/advanced-filter';
+import { OrganizationSelect, type OrganizationSelectOption } from '../../shared/OrganizationSelect';
+import { useAuditColumns } from '../../shared/audit-fields';
 type Query={page:number;pageSize:number;search:string;filterGroup?:AdvancedFilterGroup;sortField?:string;sortOrder?:'asc'|'desc'};
 type Row=Record<string,unknown>&{id:string;version:number;canUpdate?:boolean};
 const time=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai'}):'—';
-function ReviewDueDateCell({field,row,busy,onSave}:{field:TablePermissionFieldDefinition;row:Row;busy:boolean;onSave:(row:Row,key:string,value:string)=>Promise<void>}){
+function ReviewDueDateCell({field,row,busy,onSave,organizations}:{field:TablePermissionFieldDefinition;row:Row;busy:boolean;organizations:OrganizationSelectOption[];onSave:(row:Row,key:string,value:unknown)=>Promise<void>}){
   const {editing}=useKdosTableEditMode(),value=row[field.key],lock=useRef(false);
   const [draft,setDraft]=useState(value==null?'':String(value));
   useEffect(()=>setDraft(value==null?'':String(value)),[value,row.version]);
   const editable=editing&&field.editable&&row.canUpdate!==false&&hasFieldPermission(RESOURCE,field.key,'update');
-  if(!editable)return <>{field.type==='datetime'?time(value):value==null?'—':String(value)}</>;
-  const commit=async(next=draft)=>{
-    if(lock.current||busy||next===String(value??''))return;
+  if(!editable)return <>{field.type==='department'?String(row.divisionName??organizations.find(o=>o.id===value)?.pathLabel??'—'):field.type==='datetime'?time(value):value==null?'—':String(value)}</>;
+  const commit=async(next:unknown=draft)=>{
+    if(lock.current||busy||String(next??'')===String(value??''))return;
     lock.current=true;
     try{await onSave(row,field.key,next);}catch{setDraft(value==null?'':String(value));}finally{lock.current=false;}
   };
-  if(field.type==='date')return <DatePicker aria-label={field.label} size="small" value={draft?dayjs(draft):null} allowClear={false} disabled={busy} onChange={next=>{if(next){const text=next.format('YYYY-MM-DD');setDraft(text);void commit(text);}}} style={{width:'100%'}}/>;
+  if(field.type==='department')return <OrganizationSelect aria-label={field.label} size="small" value={draft||undefined} disabled={busy} organizations={organizations} onChange={next=>{setDraft(next);void commit(next);}}/>;
+  if(field.key==='changeCount')return <InputNumber aria-label={field.label} size="small" min={0} precision={0} value={draft===''?null:Number(draft)} disabled={busy} onChange={next=>setDraft(next==null?'':String(next))} onBlur={()=>void commit(draft===''?null:Number(draft))} onPressEnter={e=>e.currentTarget.blur()}/>;
+  if(field.type==='date')return <DatePicker aria-label={field.label} size="small" value={draft?dayjs(draft):null} allowClear={!field.required} disabled={busy} onChange={next=>{const text=next?.format('YYYY-MM-DD')??null;setDraft(text??'');void commit(text);}} style={{width:'100%'}}/>;
   // Keep exact decimal text end-to-end; InputNumber without stringMode would round large quantities.
   return <Input aria-label={field.label} size="small" value={draft} disabled={busy} inputMode={field.key==='quantity'?'decimal':undefined} onChange={e=>setDraft(e.target.value)} onBlur={()=>void commit()} onPressEnter={e=>e.currentTarget.blur()}/>;
 }
-function ReviewDueCreateModal({fields,onCreated,onClose}:{fields:TablePermissionFieldDefinition[];onCreated:()=>Promise<void>;onClose:()=>void}){
+function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:TablePermissionFieldDefinition[];onCreated:()=>Promise<void>;onClose:()=>void;organizations:OrganizationSelectOption[]}){
   const [form]=Form.useForm(),pending=useRef(false),request=useRef<{payload:string;commandId:string}|null>(null);
   const [saving,setSaving]=useState(false),[error,setError]=useState<string|null>(null);
   const save=async()=>{
@@ -34,7 +38,7 @@ function ReviewDueCreateModal({fields,onCreated,onClose}:{fields:TablePermission
     try{
       let values;
       try{values=await form.validateFields();}catch(validation){if(!(validation as {outOfDate?:boolean}).outOfDate)throw validation;values=await form.validateFields();}
-      const body=Object.fromEntries(fields.map(field=>[field.key,field.type==='date'?values[field.key]?.format('YYYY-MM-DD'):values[field.key]??'']));
+      const body=Object.fromEntries(fields.map(field=>[field.key,field.type==='date'?values[field.key]?.format('YYYY-MM-DD')??null:values[field.key]??null]));
       const payload=JSON.stringify(body);
       if(request.current?.payload!==payload)request.current={payload,commandId:crypto.randomUUID()};
       setSaving(true);
@@ -46,13 +50,15 @@ function ReviewDueCreateModal({fields,onCreated,onClose}:{fields:TablePermission
   return <Modal title="新增评审交期" open onCancel={()=>{if(!pending.current)onClose();}} onOk={()=>void save()} okText="保存" cancelText="取消" confirmLoading={saving} maskClosable={!saving} cancelButtonProps={{disabled:saving}} closable={!saving}>
     {error&&<Alert type="error" showIcon message={error}/>}
     <Form form={form} layout="vertical" disabled={saving} preserve={false}>
-      {fields.map(field=><Form.Item key={field.key} label={field.label} name={field.key} rules={field.required?[{required:true,...(field.type==='date'?{}:{whitespace:true}),message:field.label+'必填'}]:[]}>
-        {field.type==='date'?<DatePicker allowClear style={{width:'100%'}}/>:<Input inputMode={field.exactNumeric?'decimal':undefined}/>}
+      {fields.map(field=><Form.Item key={field.key} label={field.label} name={field.key} rules={field.required?[{required:true,...(field.type==='text'?{whitespace:true}:{}),message:field.label+'必填'}]:[]}>
+        {field.type==='department'?<OrganizationSelect organizations={organizations}/>:field.key==='changeCount'?<InputNumber min={0} precision={0} style={{width:'100%'}}/>:field.type==='date'?<DatePicker allowClear style={{width:'100%'}}/>:<Input inputMode={field.exactNumeric?'decimal':undefined}/>}
       </Form.Item>)}
     </Form>
   </Modal>;
 }
 export function ReviewDueDates(){
+  for(const key of ['divisionId','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
+  const auditColumns=useAuditColumns();
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);
   const client=useQueryClient(),savingIds=useRef(new Set<string>());
@@ -65,8 +71,9 @@ export function ReviewDueDates(){
   if(query.sortField)params.set('sortField',query.sortField);if(query.sortOrder)params.set('sortOrder',query.sortOrder);
   const meta=useQuery({queryKey:['review-due-meta',session],queryFn:()=>api<{fields:TablePermissionFieldDefinition[];createFields?:TablePermissionFieldDefinition[];actions:{update:boolean;create?:boolean;import?:boolean;template?:boolean}}>(`/master-plan-system/resources/${RESOURCE}/meta`),enabled:canRead||canRequestCreate||canImport});
   const rows=useQuery({queryKey:['review-due-rows',session,params.toString()],queryFn:({signal})=>api<{rows:Row[];total:number}>(`/master-plan-system/resources/${RESOURCE}?${params}`,{signal}),enabled:canRead});
+  const organizations=useQuery({queryKey:['review-due-organizations',session],queryFn:()=>api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${RESOURCE}`),staleTime:300_000,enabled:!!meta.data?.fields.some(f=>f.key==='divisionId')||!!meta.data?.createFields?.some(f=>f.key==='divisionId')});
   const history=useQuery({queryKey:['review-due-history',session,selected?.id,historyPage],queryFn:()=>api<{rows:ReviewDueDateHistoryRow[];total:number}>(`/master-plan-system/review-due-dates/${selected!.id}/history?page=${historyPage}&pageSize=100`),enabled:canRead&&!!selected});
-  const save=async(row:Row,key:string,value:string)=>{
+  const save=async(row:Row,key:string,value:unknown)=>{
     if(savingIds.current.has(row.id))throw new Error('当前记录正在保存，请稍后重试');
     savingIds.current.add(row.id);setBusy(new Set(savingIds.current));setSaveError(null);
     try{
@@ -79,11 +86,11 @@ export function ReviewDueDates(){
   const downloadTemplate=async()=>{if(templateLock.current)return;templateLock.current=true;setTemplateBusy(true);setTemplateError(null);try{const blob=await api<Blob>(`/master-plan-system/resources/${RESOURCE}/import-template`),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=reviewDueDateTemplateFilename;anchor.click();URL.revokeObjectURL(url);}catch(e){setTemplateError((e as Error).message);}finally{templateLock.current=false;setTemplateBusy(false);}};
   if(!canRead&&!canRequestCreate&&!canImport)return <Alert type="warning" message="当前权限组没有评审交期表查看权限"/>;
   const visible=new Set(meta.data?.fields.map(f=>f.key)??[]);
-  const canHistory=['inboundDate','previousInboundDate','changeCount','lastChangedAt'].every(k=>visible.has(k));
+  const canHistory=visible.has('inboundDate');
   return <Card title="评审交期表">
     {templateError&&<Alert type="error" message={templateError}/>}
     {saveError&&<Alert type="error" message={saveError} action={<Button size="small" onClick={()=>void Promise.all([rows.refetch(),...(selected?[history.refetch()]:[])])}>刷新后重试</Button>}/>}
-    {(rows.error||meta.error)&&<Alert type="error" message={(rows.error??meta.error)?.message}/>}
+    {(rows.error||meta.error||organizations.error)&&<Alert type="error" message={(rows.error??meta.error??organizations.error)?.message}/>}
     <KdosDataTable<Row> resource={RESOURCE} rowKey="id" systemFields={false} editable={meta.data?.actions?.update===true}
       toolbar={<>
         {canRequestCreate&&meta.data?.actions?.create&&<Button type="primary" onClick={()=>setCreateOpen(true)}>新增</Button>}
@@ -91,12 +98,14 @@ export function ReviewDueDates(){
         {meta.data?.actions?.template&&<Button loading={templateBusy} onClick={()=>void downloadTemplate()}>下载导入模板</Button>}
       </>}
       exportFilename={reviewDueDateExportFilename} loading={rows.isLoading||meta.isLoading} dataSource={rows.data?.rows??[]}
-      columns={[...reviewDueDateFields.filter(f=>visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} busy={busy.has(row.id)} onSave={save}/>})),
-        ...(canHistory?[{title:'操作',key:'__history',width:110,render:(_:unknown,row:Row)=><Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>变更历史</Button>}]:[])]}
+      columns={[...reviewDueDateFields.filter(f=>f.editable&&visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} organizations={organizations.data??[]} busy={busy.has(row.id)} onSave={save}/>})),
+        ...auditColumns.filter(c=>visible.has(String(c.key))).map(c=>c.key==='createdAt'||c.key==='updatedAt'?{...c,render:time}:c),
+        ...(canHistory?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}]:[])]}
       serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}/>
     {importOpen&&<ReviewDueImportModal onClose={()=>setImportOpen(false)} onCreated={async()=>{await Promise.all([client.invalidateQueries({queryKey:['review-due-rows',session]},{throwOnError:true}),client.invalidateQueries({queryKey:['review-due-history',session]},{throwOnError:true})]);}}/>}
-    {createOpen&&<ReviewDueCreateModal fields={meta.data?.createFields??[]} onClose={()=>setCreateOpen(false)} onCreated={async()=>{await client.invalidateQueries({queryKey:['review-due-rows',session]});}}/>}
-    <Drawer title="变更历史" width={980} open={!!selected} onClose={()=>setSelected(null)}>
+    {createOpen&&<ReviewDueCreateModal fields={meta.data?.createFields??[]} organizations={organizations.data??[]} onClose={()=>setCreateOpen(false)} onCreated={async()=>{await client.invalidateQueries({queryKey:['review-due-rows',session]});}}/>}
+    <Drawer title="历史交期记录" width={980} open={!!selected} onClose={()=>setSelected(null)}>
+      <Alert type="info" message="此处保留旧版真实交期事件；事件条数与当前人工填写的交期变更次数无关。业务修改记录请查看系统操作审计。"/>
       {history.error&&<Alert type="error" message={history.error.message}/>}
       <Table<ReviewDueDateHistoryRow> rowKey="id" size="small" loading={history.isLoading} dataSource={history.data?.rows??[]} locale={{emptyText:'暂无变更记录'}}
         pagination={{current:historyPage,pageSize:100,total:history.data?.total??0,onChange:setHistoryPage,showSizeChanger:false}}

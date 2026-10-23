@@ -12,17 +12,17 @@ describe('Review due date dedicated create boundary',()=>{
   expect(MASTER_PLAN_RESOURCE_MAP.get(resource)?.create).toBe(false);expect(reviewDueCreateCapabilities(actor)).toMatchObject({create:true,createFields:reviewDueDateCreateFields});
   expect(reviewDueCreateCapabilities({...actor,permissions:actor.permissions.filter(p=>p!==resource+':*:create')})).toEqual({create:false,createFields:[]});
   expect(reviewDueCreateCapabilities({...actor,tableDataScopes:[]})).toEqual({create:false,createFields:[]});
-  expect(reviewDueCreateCapabilities({...actor,tableDataScopes:[{resource,scope:'CUSTOM',rules:[{fieldKey:'divisionId',operator:'EQ',value:'guessed'}]}]}).create).toBe(false);
+  expect(reviewDueCreateCapabilities({...actor,tableDataScopes:[{resource,scope:'CUSTOM',rules:[{fieldKey:'bogus',operator:'EQ',value:'guessed'}]}]}).create).toBe(false);
  });
  it('requires resource create and required field filling grants, with no update grant needed',async()=>{
-  const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never);
+  const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never,{} as never);
   await expect(app.manualCreate(input,{...actor,permissions:[]})).rejects.toMatchObject({status:403});
   await expect(app.manualCreate(input,{...actor,permissions:actor.permissions.filter(p=>p!==resource+':quantity:read')})).rejects.toMatchObject({status:403});
   expect(db.transaction).not.toHaveBeenCalled();
   expect(reviewDueCreateCapabilities(actor).create).toBe(true);
  });
- it.each(['id','tenantId','version','expectedVersion','changeCount','previousInboundDate','lastChangedAt','lastSyncedAt','sourceOrderNumber','createdBy','updatedAt'])('rejects client system/identity field %s',async key=>{
-  const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never);
+ it.each(['id','tenantId','version','expectedVersion','lastChangedAt','lastSyncedAt','sourceOrderNumber','createdBy','updatedAt'])('rejects client system/identity field %s',async key=>{
+  const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never,{} as never);
   await expect(app.manualCreate({...input,[key]:'forged'},actor)).rejects.toMatchObject({status:400});expect(db.transaction).not.toHaveBeenCalled();
  });
  it('never accepts an administrator identity from the request body',async()=>{

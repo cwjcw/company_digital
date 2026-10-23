@@ -26,7 +26,7 @@ export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCre
     {result&&error&&<Button loading={busy} onClick={()=>void onCreated().then(()=>setError(null)).catch(e=>setError((e as Error).message))}>重新刷新</Button>}
   </Space>}>
     <Space direction="vertical" style={{width:'100%'}}>
-      <Alert type="info" message="六列业务Excel全部按新增处理；八列标准模板按记录ID和版本判断新增或更新。已存在业务键不会自动覆盖。"/>
+      <Alert type="info" message="使用含事业部的当前模板；记录ID和版本同时为空表示新增，同时有效表示更新。更新时可选字段空白保留原值，填写[清空]才清空。交期变更次数及上次入库时间由人工维护，日期变化不自动计次。"/>
       <Upload accept=".xlsx" disabled={busy||!!result} showUploadList={false} beforeUpload={file=>{void parse(file);return false;}}><Button disabled={busy||!!result} loading={busy}>选择Excel文件</Button></Upload>
       {error&&<Alert type="error" showIcon message={error}/>}
       {result&&<Alert type="success" message={`导入完成：新增${result.created}，更新${result.updated}，未变化${result.unchanged}`}/>}
@@ -35,7 +35,7 @@ export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCre
         <Space wrap>{Object.entries(summaryLabels).map(([key,label])=><span key={key}>{label}：{Object.hasOwn(preview.counts,key)?preview.counts[key]??'—':0}</span>)}</Space>
         {preview.errors.length>0&&<Alert type="error" message="整批未提交，请修正后重新预览" description={preview.errors.map(e=>`第${e.row}行：${e.reason}`).join('；')}/>}
         <Table size="small" rowKey="row" dataSource={preview.rows} pagination={{pageSize:20}} scroll={{x:'max-content'}} columns={[
-          {title:'行',dataIndex:'row'},{title:'处理',dataIndex:'classification'},...([['orderNumber','订单号'],['batchNumber','批次号'],['drawingNumber','试制计划图号'],['oldInboundDate','原入库时间'],['newInboundDate','新入库时间'],['oldQuantity','原数量'],['newQuantity','新数量'],['expectedChangeCount','预计交期变更次数']] as const).map(([dataIndex,title])=>({dataIndex,title,render:(v:unknown)=>v==null?'—':String(v)}))
+          {title:'行',dataIndex:'row'},{title:'处理',dataIndex:'classification'},...([['divisionName','事业部'],['orderNumber','订单号'],['batchNumber','批次号'],['drawingNumber','品项编码'],['oldInboundDate','原入库时间'],['newInboundDate','新入库时间'],['oldQuantity','原数量'],['newQuantity','新数量'],['expectedChangeCount','交期变更次数（手工）']] as const).map(([dataIndex,title])=>({dataIndex,title,render:(v:unknown)=>v==null?'—':String(v)}))
         ]}/>
       </>}
     </Space>
