@@ -668,6 +668,34 @@ describe("MasterPlanResourcePage pending process reporting", () => {
   };
   const submitButton = () => screen.getByRole("button", { name: /提交报工/ });
 
+  it("没有填写正数报工数量时点击会解释原因，且不会发送请求", async () => {
+    mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    const warning = vi.spyOn(message, "warning").mockImplementation(() => undefined as never);
+    await openPending();
+
+    expect(submitButton()).toBeEnabled();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(warning).toHaveBeenCalledWith("请至少填写一条大于0的报工数量"));
+    expect(vi.mocked(api).mock.calls.some(([path, init]) => path === "/master-plan-system/resources/mps-process-reports" && init?.method === "POST")).toBe(false);
+  }, 25_000);
+
+  it("连续点击同一提交入口只创建一条报工请求", async () => {
+    let resolveReport: ((value: unknown) => void) | undefined;
+    const report = vi.fn(() => new Promise((resolve) => { resolveReport = resolve; }));
+    mockSubmit(() => report());
+    const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
+    await openPending(); await fill(["20"]);
+    const button = submitButton();
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+    await act(async () => resolveReport?.({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
+    await waitFor(() => expect(success).toHaveBeenCalledWith("报工成功；事业部计划已刷新"));
+  }, 25_000);
+
   it("Case 1：单条成功后立即反馈，清空该条输入并恢复 loading", async () => {
     mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
     const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
@@ -677,7 +705,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(success).toHaveBeenCalledWith("报工成功；事业部计划已刷新"));
     await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
     const button = submitButton();
-    expect(button).toBeDisabled();
+    expect(button).toBeEnabled();
     await waitFor(() => expect(button.className).not.toContain("ant-btn-loading"));
   }, 25_000);
 
@@ -728,7 +756,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
     await waitFor(() => expect(quantityValues()).toEqual([0, 20]));
   }, 25_000);
 
-  it("Case 5：多条全部成功时清空全部输入并让按钮回到 disabled", async () => {
+  it("Case 5：多条全部成功时清空全部输入并恢复按钮可用状态", async () => {
     mockSubmit(() => ({ id: "report-1", reconciliation: { status: "SUCCESS", message: null } }));
     const success = vi.spyOn(message, "success").mockImplementation(() => undefined as never);
     await openPending(); await fill(["20", "30"]);
@@ -736,7 +764,7 @@ describe("MasterPlanResourcePage pending process reporting", () => {
 
     await waitFor(() => expect(success).toHaveBeenCalledWith("已成功提交 2 条报工；事业部计划已刷新"));
     await waitFor(() => expect(quantityValues()).toEqual([0, 0]));
-    expect(submitButton()).toBeDisabled();
+    expect(submitButton()).toBeEnabled();
   }, 25_000);
 
   it("Case 6：意外异常后 loading 必须恢复（finally），且不残留已成功输入", async () => {

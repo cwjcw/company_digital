@@ -175,7 +175,7 @@ function PendingReportCell({ field, draft, onChange }: { field: PendingField; dr
 function PendingReportSubmit({ count, submitting, onSubmit }: { count: number; submitting: boolean; onSubmit: () => void }) {
   const { editing } = useKdosTableEditMode();
   if (!editing) return null;
-  return <Button type="primary" loading={submitting} disabled={!count} onClick={onSubmit}>提交报工{count ? `（${count}）` : ""}</Button>;
+  return <Button type="primary" loading={submitting} disabled={submitting} onClick={onSubmit}>提交报工{count ? `（${count}）` : ""}</Button>;
 }
 
 /**
@@ -425,6 +425,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const isPendingView = resource === "mps-process-reports" && view === "PENDING";
   const [pendingDrafts, setPendingDrafts] = useState<Record<string, PendingDraft>>({});
   const [pendingSubmitting, setPendingSubmitting] = useState(false);
+  const pendingSubmitLock = useRef(false);
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
   const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
   const saveLock = useRef(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState<string | null>(null);
@@ -669,9 +670,14 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
    * KN-MPS-UI-REPORT-001：报工成功与页面刷新是两个不同结果。
    * 顺序必须是「提交 → 立即给出成功反馈 → 只清理已成功的输入 → 恢复 loading → 最后刷新」，
    * 刷新（或缓存失效）失败绝不能把已经写入的报工表现成“报工失败”。
-   */
+  */
   const submitPendingReports = async () => {
-    if (!pendingSubmittable.length || pendingSubmitting) return;
+    if (pendingSubmitLock.current || pendingSubmitting) return;
+    if (!pendingSubmittable.length) {
+      message.warning("请至少填写一条大于0的报工数量");
+      return;
+    }
+    pendingSubmitLock.current = true;
     setPendingSubmitting(true);
     const successfulIds = new Set<string>();
     const failures: string[] = [];
@@ -723,6 +729,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         : `报工提交异常：${(error as Error).message}`);
     } finally {
       /* 6. 无论 POST / 反馈 / 清理是否异常，loading 都必须恢复。 */
+      pendingSubmitLock.current = false;
       setPendingSubmitting(false);
     }
     /* 7. 刷新与报工结果解耦：刷新失败只提示刷新问题，不否定已保存的报工。 */
