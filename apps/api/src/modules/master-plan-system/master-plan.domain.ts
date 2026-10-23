@@ -9,13 +9,12 @@ export const STANDARD_PROCESSES = standardProcesses.map((process) => [process.co
 
 export type ProcessCode = string;
 export type ProcessCycleInput = Partial<Record<string, number | null>>;
+export type ProcessScheduleDefinition = { code: ProcessCode; name: string; sequence: number; cycleDays: number | null };
 
-/**
- * KN-MPS-PROC-PACKAGING-001：包装是所有生产方式的收尾工序；其余内部工序
- * 仅适用于自制及自制+外协。执行任务同步与人工报工准入必须共同使用此规则。
- */
+/** 纯外协和中心外购由采购/外协入库跟踪；自制及自制+外协走内部工艺路线。 */
 export function shouldEnableProcess(manufacturingMethod: string | null | undefined, processCode: string) {
-  return processCode === "packaging" || ["自制", "自制+外协"].includes(manufacturingMethod ?? "");
+  return ["自制", "自制+外协"].includes(manufacturingMethod ?? "")
+    && STANDARD_PROCESSES.some(([code]) => code === processCode);
 }
 
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -23,16 +22,23 @@ const isoDate = (value: Date) => value.toISOString().slice(0, 10);
 
 /** Natural-day reverse scheduling: the last applicable process shares the review anchor date. */
 export function reverseSchedule(anchorDate: string, cycles: ProcessCycleInput) {
+  return reverseScheduleForProcesses(anchorDate, STANDARD_PROCESSES.map(([code, name, field], index) => ({
+    code, name, sequence: index + 1, cycleDays: cycles[field] ?? null
+  })));
+}
+
+/** 按计划配置中的选择集合和顺序倒排；周期只用于承接事业部提供的值。 */
+export function reverseScheduleForProcesses(anchorDate: string, processes: ProcessScheduleDefinition[]) {
   let cursor = dateOnly(anchorDate);
   const result: Array<{ code: ProcessCode; name: string; sequence: number; cycleDays: number | null; dueDate: string | null }> = [];
-  for (let index = STANDARD_PROCESSES.length - 1; index >= 0; index -= 1) {
-    const [code, name, field] = STANDARD_PROCESSES[index]!;
-    const cycle = cycles[field];
+  const ordered = [...processes].sort((left, right) => left.sequence - right.sequence || left.code.localeCompare(right.code));
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const { code, name, sequence, cycleDays: cycle } = ordered[index]!;
     if (cycle == null) {
-      result.push({ code, name, sequence: index + 1, cycleDays: null, dueDate: null });
+      result.push({ code, name, sequence, cycleDays: null, dueDate: null });
       continue;
     }
-    result.push({ code, name, sequence: index + 1, cycleDays: cycle, dueDate: isoDate(cursor) });
+    result.push({ code, name, sequence, cycleDays: cycle, dueDate: isoDate(cursor) });
     cursor = new Date(cursor.getTime() - Math.max(0, cycle) * 86_400_000);
   }
   return result.reverse();

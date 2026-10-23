@@ -8040,3 +8040,18 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 当前已知问题：无。
 等待用户确认：无。
 下一步：无。
+
+## PMC 主计划系统第1期工序改造（2026-10-23）
+任务目标：实现事业部工序配置、租户品号工艺路线及导入、周计划工艺继承/锁定、计划数量变更后完成状态重算、采购/外协排除、报工与技术周期兼容；完成针对性验证、Migration 前一次必要备份及正式部署。按用户要求不推送 GitHub。
+当前状态：实施与针对性验证完成，待本地提交后按既有流程迁移、部署与线上验收。
+当前阶段：工艺配置/API/界面/迁移已实现；不修改调度入口；正式备份尚未执行。
+已完成：确认 `main` 与 `github/main` 起始于 `15ac5ad`；已阅读 Skills、架构、运行手册和 MPS 任务台账；只读核对生产 MPS 同步配置；仅调整既有 base-to-weekly 行为；没有 GitHub push 授权。
+正在进行：检查最终 diff，准备本地 commit 以满足 deploy.sh 工作区门禁。
+待完成：最终检查→本地 commit（不 push）→`scripts/upgrade.sh` 仅执行一次备份并迁移→`scripts/deploy.sh all/check`→health/SHA/线上验收。
+修改文件：API migration、MPS API 服务与测试、Web 页面与测试、contracts、MPS 任务台账、进度文件。
+数据库 Migration：新增 `1722920107000-MpsProcessRoutingV1`，尚未运行。
+新增或修改测试：API 6 suites / 115 tests，Web MasterPlanPages 36 tests，Contracts 33 tests。
+已运行测试：API 6 suites 通过；Web 页面 36 tests 通过；Contracts 33 tests 通过；API/Web/Contracts typecheck 通过；API/Web build 通过；`git diff --check` 通过。当前宿主 Node v22.23.1 低于仓库声明的 >=24，但上述本地验证均通过。
+当前已知问题：真实生产迁移和线上验收尚未完成；未写生产合成数据验证业务。
+等待用户确认：无；用户已授权部署并禁止推送 GitHub。
+下一步：完成最终审阅与本地 commit，然后执行一次备份、migration 和部署。

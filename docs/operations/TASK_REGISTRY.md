@@ -147,6 +147,8 @@
 
 - Mapping repair (2026-10-15): supply-chain/procurement configuration restored through the versioned audited API after read-only diagnosis. Initial seed failures and disabled/invalid mappings are visible; organization choices use existing enabled directory IDs, without creating organizations. No notification trigger, dispatcher, schedule or official-rule state changes; allocation append batches and suspended downstream reconciliation remain in force.
 
+- MPS process-routing v1 (2026-10-23): Existing `runDue`/outbox checker and sync configuration were not rescheduled or duplicated. Read-only runtime check found `erp-orders`, `shipping-to-base`, `base-to-weekly`, `inbound-allocation`, and `execution-rollup` enabled at 30 minutes; `plan-projections` remains disabled at 30 minutes. The host's existing ERP Timer instances and other jobs remain untouched. `base-to-weekly` now snapshots route/cycle settings only when it creates a weekly plan; existing weeks require preview + explicit confirmation and become immutable after the first positive report. Quantity synchronization and execution rollup remain on the existing entrypoints. This delivery adds no scheduler, timer, cron, n8n workflow, or internal interval. Production writes are not used as synthetic acceptance data; deployment evidence and health/build SHA are recorded with this change.
+
 - 2026-10-15：按用户明确选择，一次性归档清空订单分配当前页面并保留历史计划。Migration94／Application管理员命令；无新增定时器、无通知事件或下游对账。现有调度及正式通知配置保持执行前真实值；08:53:51已有配置操作将正式规则设为ON/version4，本次归档未更改或发消息。生产执行和备份证据见outputs/PMC_ALLOCATION_CLEAR_ACCEPTANCE.md。
 
 ## FIN-003 财务订单金额变更台账增量

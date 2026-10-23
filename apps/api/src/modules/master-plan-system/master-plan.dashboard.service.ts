@@ -112,7 +112,7 @@ export class MasterPlanDashboardService {
       `dashboard_scope AS MATERIALIZED (SELECT s.* FROM scope_identities s ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""})`);
     for (const key of ["monthly", "base", "weekly", "shipping"]) ctes.push(`scoped_${key} AS MATERIALIZED (SELECT r.*,d.order_date dashboard_order_date,d.delivery_date dashboard_delivery_date FROM authorized_${key} r JOIN dashboard_scope d ON d.business_key=r.business_key)`);
     ctes.push(`scoped_group AS MATERIALIZED (SELECT g.* FROM authorized_group g WHERE EXISTS(SELECT 1 FROM dashboard_scope d WHERE d.order_key=g.order_key))`,
-      `scoped_tasks AS MATERIALIZED (SELECT task.tenant_id,task.weekly_plan_id,task.process_code,task.status FROM mps_weekly_process_plans task JOIN scoped_weekly w ON w.id=task.weekly_plan_id)`);
+      `scoped_tasks AS MATERIALIZED (SELECT task.tenant_id,task.weekly_plan_id,task.process_code,task.status,task.execution_enabled FROM mps_weekly_process_plans task JOIN scoped_weekly w ON w.tenant_id=task.tenant_id AND w.id=task.weekly_plan_id WHERE task.execution_enabled=true AND w.manufacturing_method IN ('自制','自制+外协'))`);
     for (const [key, columns] of Object.entries({ process: "process_code,production_date,production_quantity,exception_text", technical: "status,exception_text", material: "material_name,received,actual_inbound_date,exception_text", outsourcing: "status,exception_text" })) {
       const sql = authorized(`mps_${key}_reports`, `${identity},weekly_plan_id,${columns}`);
       ctes.push(`scoped_${key}_reports AS MATERIALIZED (SELECT r.* FROM (${sql}) r JOIN scoped_weekly w ON w.id=r.weekly_plan_id ${input.divisionId ? `WHERE r.division_id=${bind(input.divisionId)}::uuid` : ""})`);

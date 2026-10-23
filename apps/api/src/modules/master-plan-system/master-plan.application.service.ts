@@ -126,16 +126,23 @@ export class MasterPlanApplicationService {
     await this.enforceShippingWindow(resource, actor);
     const values = this.writable(resource, body, actor, "create");
     this.validateRequiredOnCreate(resource, values);
-    await this.fillReportSource(resource, values, actor.tenantId);
-    /* 来源快照（例如报工所属事业部）由服务端解析后，必须再经业务数据范围校验，不能依赖前端不传越权 ID。 */
-    this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
-    this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
+    if (resource.code !== "mps-process-reports") await this.fillReportSource(resource, values, actor.tenantId);
+    /* 报工来源与工序任务在同一写事务中锁定、解析并校验，避免确认路线期间发生竞争。 */
+    if (resource.code !== "mps-process-reports") {
+      this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
+      this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
+    }
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
       const generatedEntries = Object.entries(values);
       if (!generatedEntries.length) throw new BadRequestException("没有可写入的业务字段");
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+      if (resource.code === "mps-process-reports") {
+        await this.fillReportSource(resource, values, actor.tenantId, manager);
+        this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
+        this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
+      }
       const params = [actor.tenantId, actorId, actorId, ...generatedEntries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${generatedEntries.map(([field]) => columns[field]).join(",")}${code==="mps-order-allocations"?",manually_maintained":""}) VALUES($1,$2::uuid,$3,${generatedEntries.map((_, index) => `$${index + 4}`).join(",")}${code==="mps-order-allocations"?",true":""}) RETURNING *`, params);
       await this.allocationEvent(manager, code, actor, [{ before: null, after: inserted[0] }]);
@@ -480,6 +487,7 @@ export class MasterPlanApplicationService {
         || (action === "create" && (hasMasterPlanFieldPermission(actor, resource.code, field, "read") || !hasMasterPlanPermission(actor, resource.code, "read")));
       if (!canWrite) throw new ForbiddenException(`当前权限组不能填写字段：${definition.label}`);
       output[field] = this.normalize(definition.type, raw, definition.label);
+      if (output[field] != null && definition.format === "integer" && !Number.isInteger(Number(output[field]))) throw new BadRequestException(`${definition.label}必须为整数`);
       const allowedValues = definition.options?.map((option) => option.value);
       if (output[field] != null && allowedValues && !allowedValues.includes(String(output[field]))) throw new BadRequestException(`${definition.label}只能选择：${allowedValues.join("、")}`);
     }
@@ -569,7 +577,7 @@ export class MasterPlanApplicationService {
     if (resource.code === "mps-weekly-plans") values.pendingQuantity = values.plannedQuantity;
     if (!["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code)) return;
     const weeklyPlanId = String(values.weeklyPlanId ?? ""); if (!uuidPattern.test(weeklyPlanId)) throw new BadRequestException("请选择有效的周计划");
-    const [weekly] = await manager.query(`SELECT division_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId]);
+    const [weekly] = await manager.query(`SELECT division_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid${resource.code === "mps-process-reports" ? " FOR UPDATE" : ""}`, [tenantId, weeklyPlanId]);
     if (!weekly) throw new BadRequestException("周计划不存在");
     if (["mps-weekly-process-plans", "mps-process-reports"].includes(resource.code) && !shouldEnableProcess(weekly.manufacturing_method, String(values.processCode ?? ""))) throw new BadRequestException("当前生产方式不允许创建该工序任务或工序报工");
     if (resource.code === "mps-weekly-process-plans") {
@@ -585,6 +593,8 @@ export class MasterPlanApplicationService {
       values.plannedQuantity = weekly.planned_quantity;
       const process = STANDARD_PROCESSES.find(([code]) => code === values.processCode);
       if (!process) throw new BadRequestException("工序必须是系统标准工序");
+      const [task] = await manager.query(`SELECT id FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND process_code=$3 AND execution_enabled=true`, [tenantId, weeklyPlanId, values.processCode]);
+      if (!task) throw new BadRequestException("该工序未包含在周计划工艺路线中，不能报工");
       values.processName = process[1];
     }
     this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));

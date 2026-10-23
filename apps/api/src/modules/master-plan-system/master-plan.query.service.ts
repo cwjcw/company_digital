@@ -89,6 +89,7 @@ export class MasterPlanQueryService {
     if (trustedScope) clauses.push(trustedScope(params));
     if (code === "mps-order-allocations") clauses.push("record.archived_at IS NULL");
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
+    if (code === "mps-weekly-process-plans") clauses.push("EXISTS (SELECT 1 FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.id=record.weekly_plan_id AND weekly.manufacturing_method IN ('自制','自制+外协'))");
     /* KN-PRINT-001：打印已选只取选中记录（与列表共用同一 where/排序/分页语义）。 */
     const printIds = Array.isArray(input.ids) ? input.ids.map((id) => String(id)).filter(Boolean) : [];
     if (printIds.length) { params.push(printIds); clauses.push(`record.id = ANY($${params.length}::uuid[])`); }

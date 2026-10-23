@@ -15,6 +15,8 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
   { code: "mps-customer-divisions", table: "mps_customer_division_mappings", create: true, remove: true, defaultOrder: "customer_code", divisionField: "primaryDivisionId", requiredOnCreate: ["customerCode", "primaryDivisionId"], uniqueKeyFields: ["customerCode"] },
   { code: "mps-order-allocations", table: "mps_order_allocations", create: true, remove: false, defaultOrder: "order_date DESC,order_number,item_code,created_at DESC,id", divisionField: "divisionId", requiredOnCreate: ["orderNumber", "itemCode", "allocatedQuantity", "divisionId"], uniqueKeyFields: [] },
   { code: "mps-process-cycles", table: "mps_process_cycles", create: true, remove: true, defaultOrder: "item_code", requiredOnCreate: ["itemCode"], uniqueKeyFields: ["itemCode"] },
+  { code: "mps-division-process-configs", table: "mps_division_process_configs", create: true, remove: true, defaultOrder: "division_id,sequence,process_code", divisionField: "divisionId", requiredOnCreate: ["divisionId", "processCode", "defaultEnabled", "sequence"], uniqueKeyFields: ["divisionId", "processCode"] },
+  { code: "mps-item-process-routes", table: "mps_item_process_routes", create: true, remove: true, defaultOrder: "item_code,sequence,process_code", requiredOnCreate: ["itemCode", "processCode", "sequence"], uniqueKeyFields: ["itemCode", "processCode"] },
   { code: "mps-group-plans", table: "mps_group_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number", divisionField: "primaryDivisionId" },
   { code: "mps-monthly-plans", table: "mps_monthly_plans", create: false, remove: false, defaultOrder: "order_date DESC,order_number,item_code", divisionField: "divisionId" },
   { code: "mps-shipping-plans", table: "mps_shipping_plans", create: true, remove: true, defaultOrder: "latest_customer_due_date,order_number,item_code,delivery_number::numeric", divisionField: "divisionId", requiredOnCreate: ["customerCode", "orderNumber", "itemCode", "latestCustomerDueDate", "plannedQuantity", "divisionId"], requiredAlways: ["divisionId"], uniqueKeyFields: ["orderNumber", "itemCode", "deliveryNumber"], extraColumns: { monthlyPlanId: "monthly_plan_id" } },
@@ -25,7 +27,7 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
    * remove=false（不做普通删除）；同步身份唯一键是 weeklyPlanId（绝不使用订单号+品项+交期定位）。
    */
   { code: "mps-three-day-work-orders", table: "mps_three_day_work_orders", create: false, remove: false, defaultOrder: "order_number,item_code,weekly_plan_id", divisionField: "divisionId", uniqueKeyFields: ["weeklyPlanId"] },
-  { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: true, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", requiredOnCreate: ["weeklyPlanId", "processCode"], uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
+  { code: "mps-weekly-process-plans", table: "mps_weekly_process_plans", create: false, remove: false, defaultOrder: "report_date DESC,due_date,weekly_plan_id", uniqueKeyFields: ["weeklyPlanId", "processCode"], extraColumns: { processName: "process_name", sequence: "sequence" } },
   { code: "mps-technical-reports", table: "mps_technical_reports", create: false, remove: false, defaultOrder: "drawing_due_date,order_number,item_code,delivery_number::numeric", divisionField: "divisionId" },
   { code: "mps-material-reports", table: "mps_material_reports", create: true, remove: true, defaultOrder: "order_number,item_code,delivery_number::numeric,material_name", divisionField: "divisionId", requiredOnCreate: ["weeklyPlanId", "materialName"], uniqueKeyFields: ["weeklyPlanId", "materialName"] },
   { code: "mps-outsourcing-reports", table: "mps_outsourcing_reports", create: false, remove: false, defaultOrder: "outsourcing_due_date,order_number,item_code,delivery_number::numeric", divisionField: "divisionId" },
@@ -73,10 +75,10 @@ export const masterPlanExceptionPartSql = (label: string, texts: string) => {
 
 /** 周计划某工序的累计实际报工（按 tenant+weekly_plan_id+process_code 聚合，禁止 JOIN 重复累计）。 */
 const weeklyReportSum = (code: string) =>
-  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report JOIN mps_weekly_process_plans task ON task.tenant_id=report.tenant_id AND task.weekly_plan_id=report.weekly_plan_id AND task.process_code=report.process_code AND task.execution_enabled=true WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
 /** 月计划：先按 tenant+weekly_plan_id+process_code 聚合报工，再按关联周计划求和（避免一对多 JOIN 放大）。 */
 const monthlyReportSum = (code: string) =>
-  `(SELECT COALESCE(sum(per_week.reported),0) FROM mps_weekly_plans weekly JOIN (SELECT report.tenant_id,report.weekly_plan_id,sum(report.production_quantity) reported FROM mps_process_reports report WHERE report.process_code='${code}' GROUP BY report.tenant_id,report.weekly_plan_id) per_week ON per_week.tenant_id=weekly.tenant_id AND per_week.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans task ON task.tenant_id=weekly.tenant_id AND task.weekly_plan_id=weekly.id AND task.process_code='${code}' AND task.execution_enabled=true JOIN mps_process_reports report ON report.tenant_id=task.tenant_id AND report.weekly_plan_id=task.weekly_plan_id AND report.process_code=task.process_code WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.manufacturing_method IN ('自制','自制+外协'))`;
 /**
  * KN-MPS-EXEC-001 口径修正：月计划生产进度 = 整个订单/月度总需求完成率。
  * 分母固定使用月计划正式总需求 `record.required_quantity`；
@@ -122,7 +124,7 @@ export function virtualColumns(resource: MasterPlanResource) {
   const output: Record<string, string> = {};
   for (const code of processes) {
     if (resource.code === "mps-weekly-plans") {
-      const base = `FROM mps_weekly_process_plans process WHERE process.tenant_id=record.tenant_id AND process.weekly_plan_id=record.id AND process.process_code='${code}'`;
+      const base = `FROM mps_weekly_process_plans process JOIN mps_weekly_plans weekly ON weekly.tenant_id=process.tenant_id AND weekly.id=process.weekly_plan_id WHERE process.tenant_id=record.tenant_id AND process.weekly_plan_id=record.id AND process.process_code='${code}' AND process.execution_enabled=true AND weekly.manufacturing_method IN ('自制','自制+外协')`;
       output[`${code}CycleDays`] = `(SELECT max(process.cycle_days) ${base})`;
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${base})`;
       output[`${code}Status`] = `(SELECT CASE WHEN count(*)=0 THEN NULL WHEN bool_or(process.status='延期') THEN '延期' WHEN bool_and(process.status='已完成') THEN '已完成' WHEN bool_or(process.status='进行中') THEN '进行中' ELSE '未开始' END ${base})`;
@@ -134,7 +136,7 @@ export function virtualColumns(resource: MasterPlanResource) {
       output[`${code}ProductionProgress`] = masterPlanProductionProgressSql(weeklyReportSum(code), "record.planned_quantity");
     }
     if (resource.code === "mps-monthly-plans") {
-      const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND process.process_code='${code}'`;
+      const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.manufacturing_method IN ('自制','自制+外协') AND process.execution_enabled=true AND process.process_code='${code}'`;
       output[`${code}CycleDays`] = `(SELECT max(process.cycle_days) ${joined})`;
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${joined} AND process.status<>'已完成')`;
       output[`${code}Status`] = `(SELECT ${masterPlanProcessStatusSql("process.status")} ${joined})`;
@@ -267,7 +269,8 @@ export const processReportPendingSourceSql = `SELECT task.id,task.version,task.t
       JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
       LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
         ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
-      WHERE task.execution_enabled=true AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
+      WHERE task.execution_enabled=true AND weekly.manufacturing_method IN ('自制','自制+外协')
+        AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
 
 export function processReportPendingFields(): Array<TablePermissionFieldDefinition & { input: boolean }> {
   const registry = new Map(fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-reports")!).map((field) => [field.key, field]));

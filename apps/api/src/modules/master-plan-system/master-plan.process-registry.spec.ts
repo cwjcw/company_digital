@@ -21,17 +21,14 @@ describe("KN-PROC-001 unified process registry", () => {
     expect(standardProcesses.find((process) => process.code === "surfaceTreatment")?.cycleField).toBe("surfaceTreatmentDays");
   });
 
-  it("derives the 工序周期表 columns from the registry, including 毛坯周期 in the approved position", () => {
+  it("keeps legacy technical cycle access without using legacy item process cycles", () => {
     const cycles = fieldsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-cycles")!).map((field) => field.key);
     expect(cycles).toEqual([
       "itemCode", "itemName", "technicalDays",
-      "cuttingDays", "machiningDays", "bendingDays", "spotWeldingDays", "weldingDays",
-      "woodworkingDays", "grindingDays", "blankDays", "surfaceTreatmentDays", "packagingDays",
       "createdBy", "createdAt", "updatedBy", "updatedAt"
     ]);
-    expect(cycles.indexOf("blankDays")).toBeGreaterThan(cycles.indexOf("grindingDays"));
-    expect(cycles.indexOf("blankDays")).toBeLessThan(cycles.indexOf("surfaceTreatmentDays"));
-    expect(columnsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-cycles")!).blankDays).toBe("blank_days");
+    expect(columnsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-cycles")!).technicalDays).toBe("technical_days");
+    expect(columnsFor(MASTER_PLAN_RESOURCE_MAP.get("mps-process-cycles")!).cuttingDays).toBeUndefined();
   });
 
   it("keeps only the ten canonical process options everywhere processCode is selectable", () => {
@@ -79,15 +76,15 @@ describe("KN-PROC-001 unified process registry", () => {
       technical_days: 1, cutting_days: 1, machining_days: 1, bending_days: 1, spot_welding_days: 1, welding_days: 1,
       woodworking_days: 1, grinding_days: 1, blank_days: 2, surface_treatment_days: 1, packaging_days: 1
     };
-    await (service as any).ensureExecutionRows(manager, weekly, "KAINAN", "11111111-1111-4111-8111-111111111111", "tester");
+    await (service as any).ensureExecutionRows(manager, weekly, "KAINAN", "11111111-1111-4111-8111-111111111111", "tester", true);
     const inserts = manager.query.mock.calls.map(([sql]) => String(sql)).filter((sql) => sql.startsWith("INSERT INTO mps_weekly_process_plans"));
     expect(inserts).toHaveLength(10);
     expect(JSON.stringify(manager.query.mock.calls)).toContain("blank");
     expect(inserts.every((sql) => sql.includes("ON CONFLICT(tenant_id,weekly_plan_id,process_code)"))).toBe(true);
     /* 重跑同一周计划不会生成第二条毛坯任务（唯一身份仍是 tenant+weekly_plan_id+process_code）。 */
     manager.query.mockClear();
-    await (service as any).ensureExecutionRows(manager, weekly, "KAINAN", "11111111-1111-4111-8111-111111111111", "tester");
-    expect(manager.query.mock.calls.map(([sql]) => String(sql)).filter((sql) => sql.startsWith("INSERT INTO mps_weekly_process_plans"))).toHaveLength(10);
+    await (service as any).ensureExecutionRows(manager, weekly, "KAINAN", "11111111-1111-4111-8111-111111111111", "tester", false);
+    expect(manager.query.mock.calls.map(([sql]) => String(sql)).filter((sql) => sql.startsWith("INSERT INTO mps_weekly_process_plans"))).toHaveLength(0);
   });
 });
 

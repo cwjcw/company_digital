@@ -2,10 +2,21 @@ import { aggregateGroup, allocateInboundFifo, outsourcingStatus, processStatus, 
 
 describe("master plan domain", () => {
   it.each([
-    ["自制", "packaging", true], ["自制+外协", "packaging", true], ["外协", "packaging", true], ["中心外购", "packaging", true],
+    ["自制", "packaging", true], ["自制+外协", "packaging", true], ["外协", "packaging", false], ["中心外购", "packaging", false],
     ["外协", "cutting", false], ["中心外购", "welding", false], ["自制", "cutting", true], ["自制+外协", "welding", true]
   ])("enables %s / %s = %s through the single process rule", (manufacturingMethod, processCode, expected) => {
     expect(shouldEnableProcess(manufacturingMethod, processCode)).toBe(expected);
+  });
+
+  it("schedules only the configured process set in its configured order", async () => {
+    const { reverseScheduleForProcesses } = await import("./master-plan.domain");
+    expect(reverseScheduleForProcesses("2026-10-20", [
+      { code: "packaging", name: "包装", sequence: 2, cycleDays: 1 },
+      { code: "cutting", name: "下料", sequence: 1, cycleDays: 2 }
+    ])).toEqual([
+      { code: "cutting", name: "下料", sequence: 1, cycleDays: 2, dueDate: "2026-10-19" },
+      { code: "packaging", name: "包装", sequence: 2, cycleDays: 1, dueDate: "2026-10-20" }
+    ]);
   });
 
   it("reverse schedules natural dates and keeps zero-day processes on the cursor", () => {

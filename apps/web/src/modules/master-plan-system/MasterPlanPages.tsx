@@ -403,7 +403,7 @@ function RowActions({ metadata, row, onEdit, onSync, onRefreshExecution, onRepor
     editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
     editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
     editing && onSync ? { key: "sync", label: "立即同步", onClick: onSync } : null,
-    onRefreshExecution ? { key: "refreshExecution", label: "刷新工序任务", onClick: onRefreshExecution } : null
+    onRefreshExecution ? { key: "refreshExecution", label: "预览工序配置差异", onClick: onRefreshExecution } : null
   ].filter(Boolean) as Array<{ key: string; label: string; danger?: boolean; onClick: () => void }>;
   if (!items.length) return null;
   return <Dropdown trigger={["click"]} menu={{ items }} placement="bottomRight">
@@ -426,7 +426,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchField, setBatchField] = useState<TablePermissionFieldDefinition | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
   const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
-  const [executionRefreshRow, setExecutionRefreshRow] = useState<any | null>(null);
+  const [processConfigPreview, setProcessConfigPreview] = useState<any | null>(null);
+  const [processConfigLoading, setProcessConfigLoading] = useState(false);
   const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification:string;fields:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -563,7 +564,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     } finally { setBatchSaving(false); }
   };
   const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number; skipped?: boolean; reason?: string }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
-  const executionRefreshMutation = useMutation({ mutationFn: (weeklyPlanId: string) => api<{ id: string; version: number }>(`/master-plan-system/resources/mps-weekly-plans/${weeklyPlanId}/refresh-execution`, { method: "POST" }) });
+  const processConfigConfirmMutation = useMutation({ mutationFn: (input: { weeklyPlanId: string; expectedVersion: number; previewHash: string }) => api<{ weeklyPlanId: string; version: number }>(`/master-plan-system/resources/mps-weekly-plans/${input.weeklyPlanId}/process-config/confirm`, { method: "POST", body: JSON.stringify({ expectedVersion: input.expectedVersion, previewHash: input.previewHash }) }) });
   const refreshBaseToWeeklyResources = useCallback(async () => {
     await Promise.all(baseToWeeklyRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -583,14 +584,23 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       message.error(syncKey === "base-to-weekly" ? `同步到周计划失败：${(error as Error).message}` : (error as Error).message);
     }
   }, [refresh, refreshBaseToWeeklyResources, queryClient, syncMutation]);
-  const executeWeeklyExecutionRefresh = async () => {
-    if (!executionRefreshRow?.id || executionRefreshMutation.isPending) return;
+  const previewWeeklyProcessConfig = async (row: any) => {
+    if (!row?.id || processConfigLoading) return;
+    setProcessConfigLoading(true);
     try {
-      await executionRefreshMutation.mutateAsync(String(executionRefreshRow.id));
+      const preview = await api<any>(`/master-plan-system/resources/mps-weekly-plans/${row.id}/process-config/preview`, { method: "POST" });
+      setProcessConfigPreview(preview);
+    } catch (error) { message.error(`预览工序配置失败：${(error as Error).message}`); }
+    finally { setProcessConfigLoading(false); }
+  };
+  const confirmWeeklyProcessConfig = async () => {
+    if (!processConfigPreview || processConfigConfirmMutation.isPending || !processConfigPreview.canConfirm) return;
+    try {
+      await processConfigConfirmMutation.mutateAsync({ weeklyPlanId: processConfigPreview.weeklyPlanId, expectedVersion: processConfigPreview.expectedVersion, previewHash: processConfigPreview.previewHash });
       await refreshWeeklyExecutionResources();
-      message.success("工序任务已刷新，可进入工序报工查看");
-      setExecutionRefreshRow(null);
-    } catch (error) { message.error(`刷新工序任务失败：${(error as Error).message}`); }
+      setProcessConfigPreview(null);
+      message.success("已按预览更新周计划工序配置");
+    } catch (error) { message.error(`确认工序配置失败：${(error as Error).message}，请重新预览`); }
   };
   const download = async (path: string, filename: string) => {
     const blob = await api<Blob>(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
@@ -704,7 +714,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined}
-      onRefreshExecution={resource === "mps-weekly-plans" && metadata.data?.actions.update && hasResourcePermission("mps-weekly-plans", "update") && row.canUpdate !== false ? () => setExecutionRefreshRow(row) : undefined} />
+      onRefreshExecution={resource === "mps-weekly-plans" && metadata.data?.actions.update && hasResourcePermission("mps-weekly-plans", "update")
+        && hasResourcePermission("mps-division-process-configs", "read") && hasResourcePermission("mps-item-process-routes", "read") && row.canUpdate !== false
+        ? () => void previewWeeklyProcessConfig(row) : undefined} />
   }] : activeColumns;
   const viewTabs = ["mps-group-plans", "mps-monthly-plans"].includes(resource) ? <Tabs activeKey={view} onChange={setView} items={[{ key: "ALL", label: "全部" }, { key: "INCOMPLETE", label: "未完成" }, { key: "COMPLETE", label: "已完成" }]} />
     : resource === "mps-process-reports" ? <Tabs activeKey={view === "PENDING" ? "PENDING" : "ACTUAL"} onChange={setView} items={[{ key: "ACTUAL", label: "实际报工" }, { key: "PENDING", label: "待报工任务" }]} /> : undefined;
@@ -765,10 +777,17 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       <p>该操作不是只同步当前筛选结果。</p>
       <p>是否继续？</p>
     </Modal>
-    <Modal title="确认刷新工序任务？" open={Boolean(executionRefreshRow)} onCancel={() => { if (!executionRefreshMutation.isPending) setExecutionRefreshRow(null); }} onOk={() => void executeWeeklyExecutionRefresh()}
-      okText="确认刷新" cancelText="取消" confirmLoading={executionRefreshMutation.isPending}>
-      <p>系统将根据当前周计划的生产方式、最迟评审日期及工序周期配置重新计算该计划的工序执行状态和计划日期，不会删除已有实际报工记录。</p>
-      <p>是否继续？</p>
+    <Modal title="工序配置差异预览" open={Boolean(processConfigPreview)} onCancel={() => { if (!processConfigConfirmMutation.isPending) setProcessConfigPreview(null); }} onOk={() => void confirmWeeklyProcessConfig()}
+      okText="确认更新工序" cancelText="取消" confirmLoading={processConfigConfirmMutation.isPending} okButtonProps={{ disabled: !processConfigPreview?.canConfirm }} width={760}>
+      {processConfigPreview?.locked && <Alert type="warning" showIcon message="该周计划已有有效工序报工，工序集合、顺序和标准周期已锁定。" style={{ marginBottom: 12 }} />}
+      {processConfigPreview && <>
+        <p>工艺来源：{processConfigPreview.source}。确认后按当前配置更新该周计划工序；计划数量和历史报工不变。</p>
+        {processConfigPreview.changes?.added?.map((row: any) => <div key={`add-${row.processCode}`}>新增：{row.sequence}. {row.processName}（事业部周期 {row.cycleDays ?? "未维护"} 天）</div>)}
+        {processConfigPreview.changes?.removed?.map((row: any) => <div key={`remove-${row.processCode}`}>移除：{row.sequence}. {row.processName}</div>)}
+        {processConfigPreview.changes?.changed?.map((row: any) => <div key={`change-${row.after.processCode}`}>调整：{row.before.processName} 顺序 {row.before.sequence}→{row.after.sequence}，周期 {row.before.cycleDays ?? "未维护"}→{row.after.cycleDays ?? "未维护"} 天</div>)}
+        {!processConfigPreview.changes?.added?.length && !processConfigPreview.changes?.removed?.length && !processConfigPreview.changes?.changed?.length && <Tag color="success">没有配置差异</Tag>}
+        <p style={{ marginTop: 12 }}>只有确认此预览中的差异后，才会更新未锁定周计划。</p>
+      </>}
     </Modal>
     <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>

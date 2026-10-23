@@ -1,8 +1,8 @@
-import { ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
-import { reverseSchedule, shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master-plan.domain";
+import { reverseScheduleForProcesses, shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES, type ProcessScheduleDefinition } from "./master-plan.domain";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql, type MasterPlanResource } from "./master-plan.config";
 import {
   MASTER_PLAN_ERP_ADMISSION, SNAPSHOT_BUSINESS_KEY_BINDING, erpAccountWhitelistSql, erpOrderAdmissibleStatusSql, erpOrderDateAdmissionSql,
@@ -25,6 +25,137 @@ export class MasterPlanSyncService {
   async manual(syncKey: string, actor: MasterPlanActor) {
     if (!hasMasterPlanPermission(actor, "mps-sync-configs", "update")) throw new ForbiddenException("当前权限组没有手工同步权限");
     return this.run(actor.tenantId, syncKey, "MANUAL", actor.userId, actor.username, `manual:${actor.requestId}:${syncKey}`);
+  }
+
+  async previewWeeklyProcessConfig(weeklyPlanId: string, actor: MasterPlanActor) {
+    this.assertProcessConfigAccess(actor);
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      const [weekly] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, weeklyPlanId]);
+      if (!weekly) throw new NotFoundException("周计划不存在");
+      this.assertWeeklyUpdateScope(weekly, actor);
+      const current = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date,execution_enabled
+        FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY sequence,process_code`, [actor.tenantId, weeklyPlanId]);
+      const reports = await manager.query(`SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND production_quantity>0 LIMIT 1`, [actor.tenantId, weeklyPlanId]);
+      const locked = weekly.process_config_locked_at != null || reports.length > 0;
+      const desired = await this.desiredProcessSnapshot(manager, weekly, actor.tenantId);
+      const hashPayload = { weeklyPlanId, weeklyVersion: Number(weekly.version), current, desired };
+      const previewHash = createHash("sha256").update(JSON.stringify(hashPayload)).digest("hex");
+      return {
+        weeklyPlanId, expectedVersion: Number(weekly.version), previewHash, locked,
+        source: (await manager.query(`SELECT 1 FROM mps_item_process_routes WHERE tenant_id=$1 AND item_code=$2 LIMIT 1`, [actor.tenantId, weekly.item_code])).length ? "品项独立路线" : "事业部默认工序",
+        canConfirm: !locked,
+        changes: this.processConfigDiff(current, desired),
+        before: current.map((row: any) => ({ processCode: row.process_code, processName: row.process_name, sequence: Number(row.sequence), cycleDays: row.cycle_days == null ? null : Number(row.cycle_days), dueDate: this.dateOnly(row.due_date), executionEnabled: row.execution_enabled })),
+        after: desired
+      };
+    });
+  }
+
+  async confirmWeeklyProcessConfig(weeklyPlanId: string, input: { expectedVersion: number; previewHash: string }, actor: MasterPlanActor) {
+    this.assertProcessConfigAccess(actor);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1 || !/^[0-9a-f]{64}$/i.test(input.previewHash)) throw new BadRequestException("工序配置预览已失效，请重新预览");
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      const [weekly] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, weeklyPlanId]);
+      if (!weekly) throw new NotFoundException("周计划不存在");
+      this.assertWeeklyUpdateScope(weekly, actor);
+      if (Number(weekly.version) !== input.expectedVersion) throw new ConflictException("周计划已变化，请重新预览工序配置");
+      const current = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date,execution_enabled
+        FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY sequence,process_code FOR UPDATE`, [actor.tenantId, weeklyPlanId]);
+      const reports = await manager.query(`SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND production_quantity>0 LIMIT 1`, [actor.tenantId, weeklyPlanId]);
+      if (weekly.process_config_locked_at != null || reports.length > 0) throw new ConflictException("该周计划已有有效工序报工，工序集合、顺序和标准周期已锁定");
+      const desired = await this.desiredProcessSnapshot(manager, weekly, actor.tenantId);
+      const currentHash = createHash("sha256").update(JSON.stringify({ weeklyPlanId, weeklyVersion: Number(weekly.version), current, desired })).digest("hex");
+      if (currentHash !== input.previewHash) throw new ConflictException("工序配置或差异已变化，请重新预览后确认");
+
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      const desiredCodes = desired.map((row: any) => row.processCode);
+      const removed = await manager.query(`DELETE FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND NOT (process_code=ANY($3::text[])) RETURNING *`, [actor.tenantId, weeklyPlanId, desiredCodes]);
+      for (const process of desired) {
+        await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,status,exception_text,execution_enabled,created_by,updated_by)
+          VALUES($1,$2::uuid,$3,$4,$5,$6,$7,CASE WHEN $7::date IS NOT NULL AND $7::date<$8::date THEN '延期' ELSE '未开始' END,$9,true,$10::uuid,$11)
+          ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO UPDATE SET process_name=excluded.process_name,sequence=excluded.sequence,cycle_days=excluded.cycle_days,due_date=excluded.due_date,
+            status=CASE WHEN excluded.due_date IS NOT NULL AND $8::date>excluded.due_date THEN '延期' ELSE '未开始' END,
+            exception_text=excluded.exception_text,execution_enabled=true,updated_at=now(),updated_by=$11,version=mps_weekly_process_plans.version+1
+          WHERE (mps_weekly_process_plans.process_name,mps_weekly_process_plans.sequence,mps_weekly_process_plans.cycle_days,mps_weekly_process_plans.due_date,mps_weekly_process_plans.execution_enabled)
+            IS DISTINCT FROM (excluded.process_name,excluded.sequence,excluded.cycle_days,excluded.due_date,true)`,
+        [actor.tenantId, weeklyPlanId, process.processCode, process.processName, process.sequence, process.cycleDays, process.dueDate, shanghaiToday(), process.cycleDays == null ? "未维护工序周期" : null, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, actor.userId ?? actor.username]);
+      }
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+      const updatedWeekly = await manager.query(`UPDATE mps_weekly_plans SET updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid RETURNING *`, [actor.tenantId, weeklyPlanId, actor.userId ?? actor.username]);
+      const after = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date,execution_enabled FROM mps_weekly_process_plans
+        WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY sequence,process_code`, [actor.tenantId, weeklyPlanId]);
+      const afterMap = new Map(after.map((row: any) => [String(row.process_code), row]));
+      const beforeMap = new Map(current.map((row: any) => [String(row.process_code), row]));
+      for (const [code, before] of beforeMap) {
+        const next = afterMap.get(code);
+        if (next) {
+          if (JSON.stringify(before) !== JSON.stringify(next)) await this.auditProcessConfig(manager, actor, (before as any).id ?? null, "mps-weekly-process-plans.updated_by_config", before, next);
+        } else await this.auditProcessConfig(manager, actor, current.find((row: any) => row.process_code === code)?.id ?? null, "mps-weekly-process-plans.removed_by_config", before, null);
+      }
+      for (const [code, next] of afterMap) if (!beforeMap.has(code)) await this.auditProcessConfig(manager, actor, (next as any).id ?? null, "mps-weekly-process-plans.created_by_config", null, next);
+      const response = { weeklyPlanId, version: Number(updatedWeekly[0].version), removed: Array.isArray(removed[0]) ? removed[0].length : removed.length, processCount: after.length };
+      await this.auditProcessConfig(manager, actor, weeklyPlanId, "mps-weekly-plans.process_config_confirmed", { processConfigLockedAt: null, processes: current }, response);
+      return response;
+    });
+  }
+
+  private async desiredProcessSnapshot(manager: EntityManager, weekly: any, tenantId: string) {
+    const definitions = await this.processDefinitions(manager, weekly, tenantId);
+    const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
+    const schedule = reviewDueDate ? reverseScheduleForProcesses(reviewDueDate, definitions)
+      : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
+    return schedule.map((process) => ({ processCode: process.code, processName: process.name, sequence: process.sequence, cycleDays: process.cycleDays, dueDate: process.dueDate, executionEnabled: true }));
+  }
+
+  private processConfigDiff(current: any[], desired: any[]) {
+    const currentMap = new Map(current.map((row) => [String(row.process_code), row]));
+    const desiredMap = new Map(desired.map((row) => [String(row.processCode), row]));
+    const added = desired.filter((row) => !currentMap.has(row.processCode));
+    const present = (row: any) => ({ processCode: row.process_code, processName: row.process_name, sequence: Number(row.sequence), cycleDays: row.cycle_days == null ? null : Number(row.cycle_days), dueDate: this.dateOnly(row.due_date), executionEnabled: row.execution_enabled });
+    const removed = current.filter((row) => !desiredMap.has(String(row.process_code))).map(present);
+    const changed = desired.filter((row) => {
+      const before = currentMap.get(row.processCode);
+      return before && (String(before.process_name) !== row.processName || Number(before.sequence) !== row.sequence
+        || (before.cycle_days == null ? null : Number(before.cycle_days)) !== row.cycleDays
+        || this.dateOnly(before.due_date) !== row.dueDate || before.execution_enabled !== row.executionEnabled);
+    }).map((after) => ({ before: present(currentMap.get(after.processCode)), after }));
+    return { added, removed, changed };
+  }
+
+  private assertProcessConfigAccess(actor: MasterPlanActor) {
+    if (!hasMasterPlanPermission(actor, "mps-weekly-plans", "update")) throw new ForbiddenException("当前权限组没有更新周计划工序配置的权限");
+    for (const resource of ["mps-division-process-configs", "mps-item-process-routes"]) {
+      if (!hasMasterPlanPermission(actor, resource, "read")) throw new ForbiddenException("当前权限组没有读取工艺配置的权限");
+    }
+  }
+
+  private assertWeeklyUpdateScope(weekly: any, actor: MasterPlanActor) {
+    if (actor.isSystemAdmin || actor.permissions.includes("*") || actor.moduleAdminCodes?.includes("planning")) return;
+    const scopes = actor.tableDataScopes.filter((scope) => scope.resource === "mps-weekly-plans" && (!scope.actions || scope.actions.includes("update")));
+    if (!scopes.length) throw new ForbiddenException("当前数据范围不允许更新该周计划的工序配置");
+    if (scopes.some((scope) => scope.scope === "ALL")) return;
+    const allowed = scopes.some((scope) => {
+      if (scope.scope === "OWN") return String(weekly.created_by ?? "") === String(actor.userId ?? "");
+      if (scope.scope !== "CUSTOM") return false;
+      const matches = (scope.rules ?? []).map((rule) => {
+        const value = rule.fieldKey === "divisionId" ? weekly.division_id : rule.fieldKey === "orderNumber" ? weekly.order_number : rule.fieldKey === "itemCode" ? weekly.item_code : null;
+        const expected = rule.value === "CURRENT_USER" ? actor.userId : rule.value;
+        if (rule.operator === "EQ") return String(value ?? "") === String(expected ?? "");
+        if (rule.operator === "IN") return Array.isArray(expected) && expected.map(String).includes(String(value ?? ""));
+        return false;
+      });
+      return matches.length > 0 && (scope.match === "ANY" ? matches.some(Boolean) : matches.every(Boolean));
+    });
+    if (!allowed) throw new ForbiddenException("当前数据范围不允许更新该周计划的工序配置");
+  }
+
+  private auditProcessConfig(manager: EntityManager, actor: MasterPlanActor, recordId: string | null, action: string, before: unknown, after: unknown) {
+    const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
+    return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id)
+      VALUES($1::uuid,$2,'mps-weekly-process-plans',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,$8,$1::uuid,$1::uuid,$9)`,
+    [actorId, actor.username, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.source === "system" ? "api" : actor.source, actor.tenantId]);
   }
 
   @Interval(60_000)
@@ -293,7 +424,7 @@ export class MasterPlanSyncService {
           updated_at=now(),updated_by=$3,version=mps_monthly_plans.version+1
         WHERE (mps_monthly_plans.division_id,mps_monthly_plans.customer_code,mps_monthly_plans.customer_name,mps_monthly_plans.order_date,mps_monthly_plans.customer_due_date,mps_monthly_plans.preproduction_review_date,mps_monthly_plans.latest_customer_due_date,mps_monthly_plans.item_name,mps_monthly_plans.required_quantity)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.latest_customer_due_date,excluded.item_name,excluded.required_quantity)
-        RETURNING id`, [tenantId, userId, updatedBy]);
+        RETURNING id,created_at`, [tenantId, userId, updatedBy]);
       const inbound = await manager.query(`
         WITH ${this.eligibleMonthlyProjectionScopeCte()}, totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound
           WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
@@ -429,13 +560,12 @@ export class MasterPlanSyncService {
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
         RETURNING id`, [tenantId, userId, updatedBy]);
-      /* KN-MPS-SYNC-001：执行副作用的范围必须与主投影共用同一份 admission。
-         只允许处理「关联 base 当前满足 weeklyAdmissionSql」的 weekly；禁止像旧实现那样按 tenant 全表扫描，
-         否则未准入的历史 weekly 会被意外改动（execution_enabled、工序周期、技术/主材/外协占位、报工快照）。
-         这里刻意不复用 INSERT ... RETURNING：工序周期/规则变化时 weekly 主字段可能无变化（RETURNING=0），
-         但 admitted weekly 仍需要按最新 process cycle 重算执行计划，因此范围取「全部当前 admitted weekly」。 */
-      const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,c.cutting_days,c.machining_days,c.bending_days,c.spot_welding_days,c.welding_days,c.woodworking_days,c.grinding_days,c.blank_days,c.surface_treatment_days,c.packaging_days FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND ${admission}`, [tenantId]);
-      for (const weekly of weeklyRows) await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy);
+      /* 工艺只在新周计划创建时取一次快照。已存在周计划（包括未报工）不得被定时/手工同步重写。 */
+      const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
+        FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
+        LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
+        WHERE w.tenant_id=$1 AND ${admission}`, [tenantId]);
+      for (const weekly of weeklyRows) await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
       return this.changedCount(rows);
     });
   }
@@ -446,31 +576,42 @@ export class MasterPlanSyncService {
    * 以稳定 weekly_plan_id + tenant 定位，绝不按订单/品项等可变业务键推算。
    */
   async refreshWeeklyExecution(manager: EntityManager, weeklyPlanId: string, tenantId: string, userId: string | null, updatedBy: string) {
-    const [weekly] = await manager.query(`SELECT w.*,c.technical_days,c.cutting_days,c.machining_days,c.bending_days,c.spot_welding_days,c.welding_days,c.woodworking_days,c.grinding_days,c.blank_days,c.surface_treatment_days,c.packaging_days FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
+    const [weekly] = await manager.query(`SELECT w.*,c.technical_days FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) return false;
-    await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy);
+    await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, false);
     return true;
   }
 
-  private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string) {
+  private async processDefinitions(manager: EntityManager, weekly: any, tenantId: string): Promise<ProcessScheduleDefinition[]> {
+    if (!shouldEnableProcess(weekly.manufacturing_method, "cutting")) return [];
+    const divisionRows = await manager.query(`SELECT process_code,cycle_days,default_enabled,sequence FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2::uuid ORDER BY sequence,process_code`, [tenantId, weekly.division_id]);
+    const itemRows = await manager.query(`SELECT process_code,sequence FROM mps_item_process_routes WHERE tenant_id=$1 AND item_code=$2 ORDER BY sequence,process_code`, [tenantId, weekly.item_code]);
+    const canonical = new Map(STANDARD_PROCESSES.map(([code, name]) => [code, name]));
+    const cycles = new Map(divisionRows.map((row: any) => [String(row.process_code), row.cycle_days == null ? null : Number(row.cycle_days)]));
+    const selected = itemRows.length
+      ? itemRows
+      : divisionRows.length
+        ? divisionRows.filter((row: any) => row.default_enabled === true)
+        : STANDARD_PROCESSES.map(([processCode], index) => ({ process_code: processCode, sequence: index + 1 }));
+    return selected.map((row: any) => ({
+      code: String(row.process_code), name: canonical.get(String(row.process_code)) ?? String(row.process_code),
+      sequence: Number(row.sequence), cycleDays: cycles.get(String(row.process_code)) ?? null
+    }));
+  }
+
+  private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig: boolean) {
     const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
-    const schedules = reviewDueDate ? reverseSchedule(reviewDueDate, {
-      cuttingDays: this.nullableNumber(weekly.cutting_days), machiningDays: this.nullableNumber(weekly.machining_days), bendingDays: this.nullableNumber(weekly.bending_days),
-      spotWeldingDays: this.nullableNumber(weekly.spot_welding_days), weldingDays: this.nullableNumber(weekly.welding_days), woodworkingDays: this.nullableNumber(weekly.woodworking_days),
-      grindingDays: this.nullableNumber(weekly.grinding_days), blankDays: this.nullableNumber(weekly.blank_days),
-      surfaceTreatmentDays: this.nullableNumber(weekly.surface_treatment_days), packagingDays: this.nullableNumber(weekly.packaging_days)
-    }) : [];
-    const enabledSchedules = schedules.filter((schedule) => shouldEnableProcess(weekly.manufacturing_method, schedule.code));
-    /* 包装不依赖工序周期或评审交期；缺失时仍创建同一唯一键下的可报工任务。 */
-    if (!enabledSchedules.some((schedule) => schedule.code === "packaging")) {
-      const packagingIndex = STANDARD_PROCESSES.findIndex(([code]) => code === "packaging");
-      const [, packagingName] = STANDARD_PROCESSES[packagingIndex]!;
-      enabledSchedules.push({ code: "packaging", name: packagingName, sequence: packagingIndex + 1, cycleDays: null, dueDate: null });
+    if (initializeProcessConfig) {
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','INITIALIZE',true)");
+      const definitions = await this.processDefinitions(manager, weekly, tenantId);
+      const scheduled = reviewDueDate
+        ? reverseScheduleForProcesses(reviewDueDate, definitions)
+        : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
+      for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO NOTHING`,
+        [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
     }
-    /* KN-MPS-UI-001：工序任务上的提示文本只是「计划提示」，不是生产异常；它绝不参与周/月计划统一异常汇总。 */
-    for (const schedule of enabledSchedules) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO UPDATE SET process_name=excluded.process_name,sequence=excluded.sequence,cycle_days=excluded.cycle_days,due_date=excluded.due_date,execution_enabled=true,updated_at=now(),updated_by=$10,version=mps_weekly_process_plans.version+1 WHERE (mps_weekly_process_plans.process_name,mps_weekly_process_plans.sequence,mps_weekly_process_plans.cycle_days,mps_weekly_process_plans.due_date,mps_weekly_process_plans.execution_enabled) IS DISTINCT FROM (excluded.process_name,excluded.sequence,excluded.cycle_days,excluded.due_date,true)`, [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
-    /* 生产方式切换为外协/中心外购时，保留包装启用，只关闭其余既存内部工序。 */
-    if (!shouldEnableProcess(weekly.manufacturing_method, "cutting")) await manager.query(`UPDATE mps_weekly_process_plans SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND process_code<>'packaging' AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     const technicalDays = this.nullableNumber(weekly.technical_days);
     const drawingDueDate = technicalDays == null || !reviewDueDate ? null : new Date(Date.parse(`${reviewDueDate}T00:00:00Z`) - technicalDays * 86_400_000).toISOString().slice(0, 10);
     await manager.query(`UPDATE mps_weekly_plans SET technical_cycle_days=$3,drawing_due_date=$4,updated_at=now(),updated_by=$5,version=version+1 WHERE tenant_id=$1 AND id=$2 AND (technical_cycle_days,drawing_due_date) IS DISTINCT FROM ($3,$4)`, [tenantId, weekly.id, technicalDays, drawingDueDate, updatedBy]);
@@ -482,6 +623,29 @@ export class MasterPlanSyncService {
     if (outsourcingEnabled) await manager.query(`INSERT INTO mps_outsourcing_reports(tenant_id,weekly_plan_id,division_id,order_number,item_code,item_name,delivery_number,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8::uuid,$9) ON CONFLICT(tenant_id,weekly_plan_id) DO UPDATE SET division_id=excluded.division_id,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,execution_enabled=true,updated_at=now(),updated_by=$9,version=mps_outsourcing_reports.version+1 WHERE (mps_outsourcing_reports.division_id,mps_outsourcing_reports.order_number,mps_outsourcing_reports.item_code,mps_outsourcing_reports.item_name,mps_outsourcing_reports.delivery_number,mps_outsourcing_reports.execution_enabled) IS DISTINCT FROM (excluded.division_id,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,true)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, userId, updatedBy]);
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     await manager.query(`UPDATE mps_process_reports SET division_id=$3,order_number=$4,item_code=$5,item_name=$6,delivery_number=$7,planned_quantity=$8,updated_at=now(),updated_by=$9,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND (division_id,order_number,item_code,item_name,delivery_number,planned_quantity) IS DISTINCT FROM ($3,$4,$5,$6,$7,$8)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, weekly.planned_quantity, updatedBy]);
+    await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
+  }
+
+  private async rollupWeeklyProcesses(manager: EntityManager, weeklyPlanId: string, tenantId: string, updatedBy: string) {
+    const today = shanghaiToday();
+    await manager.query(`WITH aggregates AS (
+      SELECT p.id,p.due_date,p.report_date,w.planned_quantity,
+        COALESCE(sum(r.production_quantity),0) cumulative_reported,
+        COALESCE(sum(r.production_quantity) FILTER (WHERE r.production_date=p.report_date),0) daily_reported
+      FROM mps_weekly_process_plans p
+      JOIN mps_weekly_plans w ON w.tenant_id=p.tenant_id AND w.id=p.weekly_plan_id
+      LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code
+      WHERE p.tenant_id=$1 AND p.weekly_plan_id=$2::uuid AND p.execution_enabled=true
+        AND w.manufacturing_method IN ('自制','自制+外协')
+      GROUP BY p.id,p.due_date,p.report_date,w.planned_quantity
+    ), desired AS (
+      SELECT id,daily_reported,CASE WHEN planned_quantity>0 AND cumulative_reported>=planned_quantity THEN '已完成'
+        WHEN due_date IS NOT NULL AND $3::date>due_date THEN '延期'
+        WHEN cumulative_reported>0 THEN '进行中' ELSE '未开始' END status FROM aggregates
+    )
+    UPDATE mps_weekly_process_plans p SET daily_reported_quantity=d.daily_reported,status=d.status,updated_at=now(),updated_by=$4,version=p.version+1
+    FROM desired d WHERE p.tenant_id=$1 AND p.id=d.id
+      AND (p.daily_reported_quantity,p.status) IS DISTINCT FROM (d.daily_reported,d.status)`, [tenantId, weeklyPlanId, today, updatedBy]);
   }
 
   private async allocateInbound(tenantId: string, updatedBy: string) {
@@ -526,7 +690,7 @@ export class MasterPlanSyncService {
         FROM mps_weekly_process_plans p
         JOIN mps_weekly_plans w ON w.id=p.weekly_plan_id AND w.tenant_id=p.tenant_id
         LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code
-        WHERE p.tenant_id=$1 ${scoped}
+        WHERE p.tenant_id=$1 AND p.execution_enabled=true AND w.manufacturing_method IN ('自制','自制+外协') ${scoped}
         GROUP BY p.id,p.due_date,p.report_date,w.planned_quantity
       ), desired AS (
         SELECT id,daily_reported,CASE

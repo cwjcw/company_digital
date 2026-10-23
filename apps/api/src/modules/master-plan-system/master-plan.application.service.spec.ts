@@ -29,24 +29,31 @@ describe("MasterPlanApplicationService imports", () => {
     ], actor)).resolves.toEqual([]);
   });
 
-  it.each(["自制", "自制+外协", "外协", "中心外购"])("allows packaging task and report source for %s", async (manufacturingMethod) => {
+  it.each(["自制", "自制+外协"])("allows report only for a selected internal process route: %s", async (manufacturingMethod) => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: manufacturingMethod };
-    const query = jest.fn().mockResolvedValue([weekly]);
+    const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : [{ id: "task" }]);
     const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
-    for (const code of ["mps-weekly-process-plans", "mps-process-reports"]) {
-      const values: Record<string, unknown> = { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "packaging" };
-      await expect((service as any).fillReportSource((service as any).resource(code), values, actor.tenantId)).resolves.toBeUndefined();
-      expect(values.processName).toBe("包装");
-    }
+    const values: Record<string, unknown> = { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "cutting" };
+    await expect((service as any).fillReportSource((service as any).resource("mps-process-reports"), values, actor.tenantId)).resolves.toBeUndefined();
+    expect(values.processName).toBe("下料");
   });
 
-  it.each([["外协", "cutting"], ["中心外购", "welding"]])("rejects non-packaging process reports for %s", async (manufacturingMethod, processCode) => {
+  it.each([["外协", "cutting"], ["中心外购", "packaging"]])("rejects internal process reports for %s", async (manufacturingMethod, processCode) => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: manufacturingMethod };
     const query = jest.fn().mockResolvedValue([weekly]);
     const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
     await expect((service as any).fillReportSource((service as any).resource("mps-process-reports"), {
       weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode
     }, actor.tenantId)).rejects.toThrow("当前生产方式不允许创建该工序任务或工序报工");
+  });
+
+  it("rejects reporting a process omitted from the weekly route", async () => {
+    const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "10", manufacturing_method: "自制" };
+    const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : []);
+    const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
+    await expect((service as any).fillReportSource((service as any).resource("mps-process-reports"), {
+      weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "cutting"
+    }, actor.tenantId)).rejects.toThrow("该工序未包含在周计划工艺路线中，不能报工");
   });
 
   it("rejects direct POST and Excel creation of a division weekly plan", async () => {
@@ -71,7 +78,7 @@ describe("MasterPlanApplicationService imports", () => {
 
   it("accepts zero business quantities but still rejects negative values and version zero", async () => {
     const weekly = { division_id: "22222222-2222-4222-8222-222222222222", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 0, planned_quantity: 0, manufacturing_method: "自制" };
-    const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : []);
+    const query = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? [weekly] : [{ id: "task" }]);
     const service = new MasterPlanApplicationService({ query, manager: { query } } as never, { processOutbox: jest.fn() } as never);
     await expect(service.validateImportUpdates("mps-shipping-plans", [{ row: 1, id: null, expectedVersion: null, values: { customerCode: "C1", orderNumber: "SO-1", itemCode: "ITEM-1", itemName: "品项", latestCustomerDueDate: "2026-10-01", plannedQuantity: 0, divisionId: "22222222-2222-4222-8222-222222222222" } }], actor)).resolves.toEqual([]);
     await expect(service.validateImportUpdates("mps-process-reports", [{ row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "cutting", productionDate: "2026-09-15", productionQuantity: 0 } }], actor)).resolves.toEqual([]);
@@ -192,15 +199,9 @@ describe("MasterPlanApplicationService imports", () => {
       /* processCode 的 label（折弯）与 value（bending）不同：label 不得被直接持久化。 */
       const processActor = { ...actor, isSystemAdmin: false, permissions: ["*"] };
       const codes = "cutting、machining、bending、spotWelding、welding、woodworking、grinding、blank、surfaceTreatment、packaging";
-      await expect(instance.validateImportUpdates("mps-weekly-process-plans", [
-        { row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "折弯" } }
+      await expect(instance.validateImportUpdates("mps-process-reports", [
+        { row: 2, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "折弯", productionDate: "2026-09-15", productionQuantity: 1 } }
       ], processActor)).resolves.toEqual([{ row: 2, reason: `工序只能选择：${codes}` }]);
-      const weeklyRow = [{ division_id: "44444444-4444-4444-8444-444444444444", order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1, planned_quantity: "1", manufacturing_method: "自制" }];
-      const weeklyQuery = jest.fn(async (sql: string) => sql.includes("FROM mps_weekly_plans") ? weeklyRow : []);
-      const weeklyAware = new MasterPlanApplicationService({ query: weeklyQuery, manager: { query: weeklyQuery } } as never, { processOutbox: jest.fn() } as never);
-      await expect(weeklyAware.validateImportUpdates("mps-weekly-process-plans", [
-        { row: 3, id: null, expectedVersion: null, values: { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "bending" } }
-      ], processActor)).resolves.toEqual([]);
     });
   });
 
