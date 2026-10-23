@@ -135,14 +135,15 @@ export class MasterPlanApplicationService {
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
-      const generatedEntries = Object.entries(values);
-      if (!generatedEntries.length) throw new BadRequestException("没有可写入的业务字段");
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
       if (resource.code === "mps-process-reports") {
         await this.fillReportSource(resource, values, actor.tenantId, manager);
         this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
         this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
       }
+      /* 报工字段由周计划在事务内补齐，必须在来源解析后生成最终 INSERT 字段和值。 */
+      const generatedEntries = Object.entries(values);
+      if (!generatedEntries.length) throw new BadRequestException("没有可写入的业务字段");
       const params = [actor.tenantId, actorId, actorId, ...generatedEntries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${generatedEntries.map(([field]) => columns[field]).join(",")}${code==="mps-order-allocations"?",manually_maintained":""}) VALUES($1,$2::uuid,$3,${generatedEntries.map((_, index) => `$${index + 4}`).join(",")}${code==="mps-order-allocations"?",true":""}) RETURNING *`, params);
       await this.allocationEvent(manager, code, actor, [{ before: null, after: inserted[0] }]);

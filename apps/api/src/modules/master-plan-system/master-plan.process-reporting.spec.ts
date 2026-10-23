@@ -106,7 +106,12 @@ describe("KN-PR-001 actual process reports", () => {
       weeklyPlanId: task.weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: 10
     }, reporter());
     expect(inserted).toBeDefined();
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO mps_process_reports"))).toBe(true);
+    const insert = query.mock.calls.find(([sql]) => String(sql).startsWith("INSERT INTO mps_process_reports"));
+    expect(String(insert?.[0])).toContain("order_number,item_code,item_name,delivery_number");
+    expect(String(insert?.[0])).toContain("division_id");
+    expect(insert?.[1]).toEqual(expect.arrayContaining([
+      "SO-1", "ITEM-1", "品项", 1, "88888888-8888-4888-8888-888888888888", "100", "折弯"
+    ]));
     const outbox = query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO mps_reconciliation_outbox"));
     expect(String(outbox?.[0])).toContain("scope_json");
     expect(outbox?.[1]).toEqual(expect.arrayContaining([JSON.stringify({ weeklyPlanId: task.weeklyPlanId, processCode: "bending" })]));
@@ -226,12 +231,15 @@ describe("KN-PR-001 actual process reports", () => {
   it("never fabricates empty reports and leaves identity resolution to the server", async () => {
     const query = reportQuery();
     const service = buildService(query);
-    await service.create("mps-process-reports", { weeklyPlanId: task.weeklyPlanId, processCode: "bending", productionDate: "2026-09-16", productionQuantity: 10 }, admin);
-    const insert = String(query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO mps_process_reports"))?.[0] ?? "");
+    await service.create("mps-process-reports", { weeklyPlanId: task.weeklyPlanId, processCode: "packaging", productionDate: "2026-09-16", productionQuantity: 10 }, admin);
+    const insertCall = query.mock.calls.find(([sql]) => String(sql).startsWith("INSERT INTO mps_process_reports"));
+    const insert = String(insertCall?.[0] ?? "");
 
     expect(insert).toContain("weekly_plan_id");
+    expect(insert).toContain("order_number,item_code,item_name,delivery_number");
+    expect(insert).toContain("process_name");
+    expect(insertCall?.[1]).toEqual(expect.arrayContaining(["SO-1", "ITEM-1", "品项", 1, "包装"]));
     expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_weekly_process_plans") && String(sql).includes("execution_enabled=true"))).toBe(true);
-    /* 仅验证已选择的内部工序任务；报工表不复制 process_name / 订单等可变快照字段。 */
-    expect(insert).not.toContain("process_name");
+    /* 周计划来源及标准工序名称由服务端写入必需的报工身份字段，不信任前端提供。 */
   });
 });
