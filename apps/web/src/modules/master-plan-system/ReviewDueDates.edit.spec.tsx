@@ -9,13 +9,18 @@ const resource='mps-review-due-dates';
 const initial={id:'0199ea00-0000-7000-8000-000000000001',version:1,canUpdate:true,orderNumber:'ORDER-1/2',batchNumber:'BATCH-2/2',drawingNumber:'DRAW-1/3',inspectionTimeName:'Inspection',inboundDate:'2026-11-10',quantity:'9007199254740993.1234567890123456789',changeCount:0,previousInboundDate:null,lastChangedAt:null,lastSyncedAt:null};
 let row={...initial};
 function session(permissions=['*']){localStorage.setItem('sessionUser',JSON.stringify({sub:'test-editor',permissions}));}
-async function enterEdit(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/进入编辑模式/}));});}
+async function enterEdit(){
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/进入编辑模式/}));});
+ // The table's initial server-query callback can replace the first page after metadata settles.
+ if(row.canUpdate)await screen.findByRole('textbox',{name:'数量'});
+ else await waitFor(()=>expect(document.querySelector('.ant-table-row')).not.toBeNull());
+}
 function mount(){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><ReviewDueDates/></QueryClientProvider>);}
 beforeEach(()=>{
  localStorage.clear();session();row={...initial};
  vi.mocked(api).mockImplementation(async(path,opts)=>{
    if(opts?.method==='PATCH'){const body=JSON.parse(String(opts.body));row={...row,...Object.fromEntries(Object.entries(body).filter(([k])=>!['expectedVersion','commandId'].includes(k))),version:row.version+1};return {id:row.id,version:row.version} as never;}
-   if(path.endsWith('/meta'))return {fields:reviewDueDateFields,actions:{update:true}} as never;
+   if(path.includes('/references/organizations'))return [] as never;if(path.endsWith('/meta'))return {fields:reviewDueDateFields,actions:{update:true}} as never;
    if(path.includes('/history'))return {rows:[],total:0} as never;
    if(path.includes('/resources/'))return {rows:[row],total:1} as never;
    return [] as never;
@@ -23,12 +28,13 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe('Review due dates manual editor',()=>{
- it('uses the shared edit-mode button, exposes exactly six editable cells and keeps four system columns readonly',async()=>{
+ it('uses the shared edit-mode button, exposes all nine editable business fields and keeps four audit fields readonly',async()=>{
    mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
    await enterEdit();
    // Query again inside the assertion: metadata/row refresh can replace an earlier async locator.
-   await waitFor(()=>{for(const field of reviewDueDateFields.slice(0,6))expect(screen.getByRole('textbox',{name:field.label})).toBeVisible();});
-   for(const field of reviewDueDateFields.slice(6))expect(screen.queryByRole('textbox',{name:field.label})).toBeNull();
+   await waitFor(()=>{for(const field of reviewDueDateFields.filter(f=>f.editable&&f.type!=='department'&&f.key!=='changeCount'))expect(screen.getByRole('textbox',{name:field.label})).toBeVisible();});
+   expect(screen.getByRole('combobox',{name:'事业部'})).toBeVisible();expect(screen.getByRole('spinbutton',{name:'交期变更次数'})).toBeVisible();
+   for(const field of reviewDueDateFields.filter(f=>!f.editable))expect(screen.queryByRole('textbox',{name:field.label})).toBeNull();
    fireEvent.click(screen.getByRole('button',{name:/退出编辑模式/}));expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
  });
  it('sends precise quantity text and the loaded version to the dedicated command and refreshes the row',async()=>{
@@ -56,7 +62,7 @@ describe('Review due dates manual editor',()=>{
    session([resource+':*:read',resource+':*:update',resource+':quantity:update']);
    const normal=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(path,opts)=>path.endsWith('/meta')?{fields,actions:{update:true}} as never:normal(path,opts));
    mount();await screen.findByText(initial.orderNumber);await enterEdit();
-   expect(screen.getByRole('textbox',{name:'数量'})).toBeVisible();expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
+   expect(await screen.findByRole('textbox',{name:'数量'})).toBeVisible();expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
    cleanup();row={...row,canUpdate:false};mount();await screen.findByText(initial.orderNumber);await enterEdit();expect(screen.queryByRole('textbox',{name:'数量'})).toBeNull();
  });
  it('blocks overlapping writes on the same record until its authoritative refresh completes',async()=>{

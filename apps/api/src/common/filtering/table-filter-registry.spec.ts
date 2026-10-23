@@ -27,7 +27,7 @@ function buildRegistry() {
   new FinanceOrdersQueryService({query:async()=>[]} as never,registry).onModuleInit();
   new FinanceFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
   new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
-  new ReviewDueDateQueryService({} as never,registry).onModuleInit();
+  new ReviewDueDateQueryService({} as never,registry,{} as never).onModuleInit();
   new MasterDataFilterSourceProvider(registry).onModuleInit();
   new EquipmentFilterSourceProvider(registry).onModuleInit();
   new SupplyChainFilterSourceProvider(registry).onModuleInit();

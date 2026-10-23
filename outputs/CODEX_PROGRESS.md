@@ -1,14 +1,290 @@
 # Codex 工作进度
 
 ## 任务
-任务名称：KDOS-MPS-REVIEW-DUE-IMPORT-DEPLOY-001 评审交期Excel导入修复正式上线。
-任务目标：安全提交及推送已验收修复，备份、正式部署与版本一致性检查，真实Excel仅生产预览并取消，验证业务数据及授权/同步配置不变。
-当前状态：进行中；用户已授权GitHub提交/部署，仅禁止生产确认导入。
+任务名称：KDOS 评审交期表 V2 生产上线预检。
+任务目标：只读检查Git工作区、生产Migration/数据基线、备份与发布/回退流程、Node版本风险，并产出上线就绪报告；不修改生产。
+当前状态：DEPLOYED_WAITING_MANUAL_ACCEPTANCE；V2已隔离提交、推送GitHub main并部署；生产数据保持空表。
+最后更新时间：2026-10-23（Asia/Shanghai）。
+
+---
+
+## 当前阶段
+当前阶段：V2生产部署完成，等待人工验收。
+当前子任务：无；生产Chrome已完成字段、模板、导出及取消式预览核验。
+
+## 已完成
+- [x] 阅读项目规范、kdos-form-platform Skill、现有V2验收/设计文档及当前Git进度；保护所有既有未提交变更。
+- [x] 检查分支 `main`、HEAD `6c19507225f692c8e80a2f4d7e7a7f0c6cfc27be`、工作区改动，并区分V2文件、独立导入部署报告和多任务混合进度文件。
+- [x] 只读检查Migration 105/106内容、前置表结构、顺序、生产ledger及Migration 106非可逆边界。
+- [x] 生产数据库只读事务核对评审交期主表0行、历史表0行、V2组织列尚不存在、现存唯一约束/RLS/触发器。
+- [x] 检查备份、升级、迁移、部署脚本，核实Node22宿主/Node24 Docker构建及生产API运行版本。
+- [x] 生成 `outputs/KDOS_MPS_REVIEW_DUE_V2_RELEASE_READINESS.md`；未运行备份、Migration、部署、数据写入、commit或push。
+- [x] 本轮按用户授权重新只读核对生产：主表0行、历史表0行、migration105已执行、106未执行；migration106只涉及评审交期表结构及其自身触发器/约束。
+- [x] 运行 `./scripts/deploy.sh check`，正式门禁因未提交 API/Web/Contracts 等改动拒绝执行；未绕过，不运行备份/Migration/部署，也未commit/push。
+- [x] 只读GET生产`build-info.json`和API health，Web/API仍是`6c19507225f692c8e80a2f4d7e7a7f0c6cfc27be`且健康。
+- [x] 建立独立 worktree/发布分支，仅提交29个V2 Web/API/Contracts/Migration/测试及规格文件；提交`beb7267f19609b5b774a6d8c221449d80b9794c3`，普通push到发布分支及GitHub main；原始混合工作区未被覆盖。
+- [x] `scripts/upgrade.sh`完成双库/附件备份、Node24 Docker build、停止Web/API、仅执行待运行Migration106及恢复服务；备份文件mode600，pg_restore --list通过。
+- [x] `scripts/deploy.sh check`两次结果`Repository=Web=API=beb7267`、`STATUS=CONSISTENT`；API/Web/PostgreSQL/Document Worker健康。
+- [x] Chrome153生产浏览器确认“事业部/品项编码/品项名称”、四个事业部选项；实际下载11列导入模板、13列导出；合成单行Excel返回201预览、新增1/错误0，取消且未调用import-confirm。
+- [x] 部署后只读确认Migration106已登记，主表0行、历史表0行，RLS/FORCE RLS保留。
+
+## 正在进行
+- [x] 汇总生产上线条件、当前阻塞项及安全的上线/回退步骤。
+
+## 待完成
+- [ ] 等待用户人工验收。由于生产主表和历史表均为空，未执行新增/编辑的生产持久化写入；避免在无删除权限的正式业务表留下虚构测试数据。V2新增/编辑保存语义由既有隔离PostgreSQL/Chrome测试覆盖。
+
+## 修改文件
+- `outputs/KDOS_MPS_REVIEW_DUE_V2_RELEASE_READINESS.md`：只读预检报告。
+- `outputs/CODEX_PROGRESS.md`：新增本任务恢复入口；保留既有多任务记录。
+
+## 数据库 Migration
+- 未新增或执行Migration。检查Migration 105已在生产执行（ledger id104）；Migration 106 V2未执行且`down()`拒绝安全降级。
+
+## 新增或修改测试
+- 无；本任务是生产上线只读预检。
+
+## 已运行测试
+测试名称：无。
+结果：未运行测试；复用V2既有验收报告。生产查询只在`BEGIN READ ONLY`事务中执行后`ROLLBACK`。
+
+## 当前已知问题
+- V2源码仍在未提交工作区，`deploy.sh`部署门禁将拒绝；包含需排除的其它任务报告及混合历史的进度文件。
+- 生产Chrome未执行新增/编辑持久化；待有真实业务记录或可安全清理的正式测试数据策略后补充验证。
+- 宿主Node 22低于仓库Node >=24要求；正式Docker/API使用Node 24，发布构建/迁移应限定Docker Node24。
+- Migration 106为前向不可逆迁移；目前两张业务表均为0行，但执行时必须重查。
+- 本轮未执行真实备份或隔离恢复演练，不能声称已生成/验证发布备份。
+
+## 等待用户确认
+- 等待审核`outputs/KDOS_MPS_REVIEW_DUE_V2_RELEASE_READINESS.md`及后续是否开展生产发布。
+
+## 下一步
+1. 等待人工验收。
+2. 不导入真实业务数据，不开启Excel自动同步；其余工作区的未提交功能继续保留在原位置，没有进入V2提交。
+
+## 恢复执行说明
+只读预检已完成。后续会话先读本段、项目Skill、`git status`与`git diff --stat`；不要覆盖或清理此前任何V2或其它任务未提交改动。未经明确批准不得运行备份、Migration或部署。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS PMC 主计划系统评审交期表 V2 整改与真实验收复核。
+任务目标：核实“试制计划图号/验货时间名称/事业部”线上显示问题根因，验证本地 V2 真实页面与 Excel，必要时仅修复本地缺陷并留存截图/文件证据。
+当前状态：LOCAL_VERIFIED_WAITING_MANUAL_ACCEPTANCE；本地 V2 字段、Chrome与Excel验收通过；生产版本未部署，线上仍是旧版。
+最后更新时间：2026-10-23（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：本地验收完成，等待人工验收。
+当前子任务：已生成专属报告及隔离证据；停止，不进入生产发布。
+
+## 已完成
+- [x] 阅读用户任务、项目AGENTS、kdos-form-platform Skill、V2验收报告、设计文档及本进度；恢复检查HEAD=6c19507225f692c8e80a2f4d7e7a7f0c6cfc27be，保护既有工作区改动及另一任务报告。
+- [x] 调用链事实核查：Contracts定义标签；ReviewDueDates.tsx从字段合同生成表格/表单；API query按资源/字段权限返回divisionId；Spreadsheet模板及导出从同一字段合同生成。
+- [x] 本地合同为“事业部/品项编码/品项名称”，V2新增Migration106存在；生产Web/API健康版本仍为6c19507，生产ledger仍104且无V2事业部列，根因是V2没有提交/部署，生产旧页面自然显示旧名称且缺事业部。
+- [x] 将本地Chrome验收脚本扩展为多张页面状态截图，并保存真实浏览器下载的Excel模板/导出文件；仅指向隔离API/数据库。
+- [x] 生产只读核验：Web/API=`6c19507225f692c8e80a2f4d7e7a7f0c6cfc27be`且健康；数据库最新migration id104 FinanceE10SourcePresenceAndTimestamps1722920105000，V2两事业部列不存在，主表0行，change_count仍NOT NULL、updated_by仍varchar；生产静态包目标字段合同仍是旧中文名。
+- [x] Contracts33、API511通过（既有3套件20项跳过）、Web21通过、隔离PostgreSQL/HTTP/Chrome32通过；全项目typecheck/lint/build通过，lint仅既有warning，build仅既有大包warning，Node22因仓库要求>=24有引擎提示。
+- [x] 本地真实Chrome 153页面截图7张，实际下载11列空模板和13列导出并逐列核对；所有写入只到无网络隔离PostgreSQL，productionRequests=0。
+- [x] 修正Web测试里过期的“六个旧字段”描述，并补充事业部选择控件/手工次数控件编辑态可见断言；未发现需要改动V2业务实现的本地功能缺陷。
+- [x] 生成`outputs/KDOS_MPS_REVIEW_DUE_V2_FIX_ACCEPTANCE.md`，分别说明本地通过与生产未部署，保留本任务截图和合成Excel证据。
+
+## 正在进行
+- [x] 本地相关API、Contracts、Web、类型检查/lint/build及隔离PostgreSQL/真实Chrome复核。
+- [x] 生成验收报告及截图/Excel证据索引，更新本进度。
+
+## 待完成
+- [x] 完成本地实际V2浏览器及Excel复核并检查每张截图。
+- [x] 输出版本差异、三项根因及尚未部署范围。
+- [ ] 等待用户人工验收；生产V2上线需另行解除本任务明确的“不提交、不迁移、不部署”限制。
+
+## 修改文件
+- `scripts/review-due-fields-v2.browser-checks.cjs`：新增多状态截图、实际下载模板/导出文件留证和精确表头断言。
+- `apps/web/src/modules/master-plan-system/ReviewDueDates.spec.tsx`、`ReviewDueDates.create.spec.tsx`、`ReviewDueDates.edit.spec.tsx`、`apps/web/src/modules/permissions/ReviewDueDatePermissions.spec.tsx`：更新V2测试描述并核验组织/计数控件。
+- `outputs/KDOS_MPS_REVIEW_DUE_V2_FIX_ACCEPTANCE.md`：新增本任务验收报告；忽略目录`data/review-due-v2-fix-20261023/`存放本地合成证据。
+- `outputs/CODEX_PROGRESS.md`：更新本任务状态，保留后续所有历史任务记录。
+
+## 数据库 Migration
+- 复核既有`1722920106000-MpsReviewDueDateFieldsV2.ts`；本任务未新增Migration、未执行生产Migration。
+
+## 新增或修改测试
+- 扩展既有V2隔离PostgreSQL/Chrome验收脚本截图与实际下载文件归档；更新4个过期Web测试描述并补控件断言。
+
+## 已运行测试
+- Contracts：33项通过。
+- API相关：511项通过，3个既有环境型套件20项跳过。
+- Web资源/权限：21项通过；首次默认5秒时限有2项超时，使用15秒测试等待窗口后全部通过，断言保留。
+- 隔离PostgreSQL/HTTP/Chrome：32项通过，Chrome153真实页面、7张截图、模板11列/导出13列。
+- `pnpm typecheck`、`pnpm lint`、`pnpm build`、`git diff --check`通过；lint保留1项既有warning，build保留大包warning。宿主Node22与仓库>=24引擎要求不符，命令发warning；Node24容器尝试触发依赖目录重装时被pnpm的无TTY保护中止，未清理或替换依赖。
+
+## 当前已知问题
+- 生产旧版本差异已证实；本任务明确禁止部署，因此不能在本轮让生产页面即时显示V2。
+
+## 等待用户确认
+- 本地验收完成后等待人工确认；本任务禁止Git commit/push、生产Migration和部署。
+
+## 下一步
+1. 交付`outputs/KDOS_MPS_REVIEW_DUE_V2_FIX_ACCEPTANCE.md`并等待用户人工验收。
+2. 不commit/push，不执行生产Migration或部署；只有用户另行授权上线阶段后再按备份和非空数据门禁实施。
+3. 保持生产旧版本现状，本轮到此停止。
+
+## 恢复执行说明
+本地验收完成。保持当前V2源码、其他任务未提交内容和独立报告；不暂存/提交/推送，不调用生产写入或部署；浏览器HARNESS仅访问本地隔离Nest和/tmp PostgreSQL。报告说明生产当前仍旧版，且该发布被本任务明确禁止。
+
+---
+
+## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-FIELDS-V2-001 评审交期表字段结构调整及标准审计字段改造。
+任务目标：在不写生产业务数据、不提交、不部署的前提下，完成事业部组织字段、手工变更次数/上次入库时间、四个标准审计字段及统一 Excel/API/页面合同的本地实现与隔离验收。
+当前状态：WAITING_MANUAL_ACCEPTANCE（本地开发、隔离验收及环境清理已完成；未提交、未部署、未执行生产Migration，等待人工审核）。
+最后更新时间：2026-10-23（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：本地工作已完成，停止等待人工验收。
+当前子任务：无；不进入GitHub、生产部署或真实数据导入。
+
+## 已完成
+- [x] 读取用户完整任务、项目 AGENTS、kdos-form-platform Skill、现有进度、Git 状态和评审交期核心文件清单。
+- [x] 确认起始 HEAD `6c19507225f692c8e80a2f4d7e7a7f0c6cfc27be`；工作区只有既有进度文件修改和另一任务未跟踪验收报告，无源码遗留修改。
+- [x] 确认本轮禁止 Git commit/push、生产部署、真实 Excel 导入及生产写入；生产数据库只读。
+- [x] 上轮生产只读确认：主表0、历史0、相关审计0、导入预览0；四事业部均为企业微信目录中启用的凯南直属二级节点。updated_by为varchar且无历史值。
+- [x] 保留drawingNumber/inspectionTimeName稳定键，业务显示改为品项编码/品项名称；9个业务字段与4个只读审计字段合同完成。
+- [x] 前向Migration106草稿完成：事业部/初始来源事业部、双唯一、UUID更新人、可空手工字段；移除自动计次数量/日期一致性约束，保留历史不可修改及RLS。非空旧表不能推断归属时原子拒绝。
+- [x] 人工编辑、Excel Confirm及observe不再自动计次或创建交期事件；Excel可选空白更新保留、[清空]显式清空，保留正式审计/事务/幂等。
+- [x] API聚焦86项、Web/权限21项通过；Web typecheck通过。隔离PG V2脚本已建立，未连接生产执行任何写入。
+- [x] V2隔离PostgreSQL/HTTP/Chrome153共32场景最终全部通过；跨200行导出、read∩export、真实组织候选/筛选、手工清空、审计失败回滚、租户/RLS、原身份和旧历史保护通过。
+- [x] API相关41组511项通过（既有3组20项环境型跳过）；Contracts33项通过；本资源Web/权限21项最终整组通过，既有主计划页面36项通过。
+- [x] Chrome真实下载11列空模板及13列筛选Excel；单一导入取消/合成确认一次，仅隔离数据库写入。业务数值和姓名/上海时间正确，未请求生产写入。
+- [x] 完成时生产只读仍主表0/历史0/审计0/预览0、ledger104、未出现V2新字段，Web/API仍6c19507；本地源码未提交时deploy check按既有门禁拒绝，未绕过。
+- [x] 本地设计文档和`outputs/KDOS_MPS_REVIEW_DUE_FIELDS_V2_ACCEPTANCE.md`已生成，明确WAITING_MANUAL_ACCEPTANCE、兼容边界和未来上线/回退方案。
+- [x] 最新源码全项目typecheck/lint/build通过，git diff --check通过；临时Vite及无网络tmpfs PostgreSQL容器已清理，证据目录700/文件600。未stage/commit/push，HEAD保持6c19507。
+
+## 正在进行
+- [x] 读取现有 Migration、Application/Import/Query、Web、Excel、组织目录和测试，形成兼容实现方案。
+- [x] 只读核验生产主表/历史表数量、真实约束、审计历史值及四事业部组织 UUID。
+
+## 待完成
+- [x] 增加前向 Migration，调整事业部/唯一约束/手工字段/旧自动计次约束并保护历史。
+- [x] 统一 Contracts、领域校验、专用人工命令、Excel Preview/Confirm、查询/导出及权限边界。
+- [x] 调整网页字段顺序、组织选择器、新增/编辑/筛选/模板和历史说明。
+- [x] 完成 API/Web/Contracts、隔离 PostgreSQL、本地 Chrome及最终typecheck/lint/build验收。
+- [x] 生成 `outputs/KDOS_MPS_REVIEW_DUE_FIELDS_V2_ACCEPTANCE.md`，状态 WAITING_MANUAL_ACCEPTANCE。
+
+## 修改文件
+- Contracts评审交期/Registry；Migration106及测试；专用Application/Import/Query、组织选项、资源配置、Spreadsheet及通用拒绝提示；评审交期Web/导入及测试；V2隔离/Chrome脚本；设计/验收报告及本进度。完整范围见验收报告。
+
+## 数据库 Migration
+- 新增1722920106000-MpsReviewDueDateFieldsV2.ts；只在隔离PostgreSQL执行，生产未执行，不修改历史Migration。
+
+## 新增或修改测试
+- 9业务/4审计字段合同、专用写入权限/字段/域校验、V2迁移、Web/权限编辑器、组织候选/筛选及32项隔离PostgreSQL/HTTP/Chrome。旧自动计次断言由V2手工语义取代。
+
+## 已运行测试
+测试名称：API/Contracts/Web/隔离PostgreSQL及Chrome。
+结果：API511、Contracts33、Web21+既有主计划36、隔离PG/HTTP/Chrome32项通过。最新全项目typecheck/lint/build通过；既有FastRefresh/大包提示保留。API原有3组20项环境型跳过，本任务写入已由隔离32项覆盖。
+
+## 当前已知问题
+- 无未解释业务或迁移异常。旧表若在未来上线前出现记录，Migration会拒绝，不会猜事业部；上线前必须再次只读检查。
+- V2是手工维护语义；旧应用不能直接恢复旧自动计次写入。回退需先暂停本资源写入口并部署经验证的V2兼容版本/前向修复，不恢复旧库覆盖业务。
+
+## 等待用户确认
+- 无；本轮已明确授权本地开发和隔离测试，完成后等待人工验收。
+
+## 下一步
+1. 已完成本地工作并停止，等待用户人工审核；正式报告`outputs/KDOS_MPS_REVIEW_DUE_FIELDS_V2_ACCEPTANCE.md`。
+2. 未获后续明确授权前，不提交/push、不迁移/部署生产、不导入真实文件、不启动同步。
+3. 用户授权上线后按报告门禁重新只读检查生产；若旧表非空，先完成人工事业部归属核实，不猜测或清表。
+
+## 恢复执行说明
+新会话按项目规范→kdos-form-platform Skill→本文件首段→git status/diff继续。保留 `outputs/KDOS_MPS_REVIEW_DUE_IMPORT_DEPLOY_ACCEPTANCE.md` 和既有进度修改；不得提交、部署或向生产评审交期表写入。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS 财务中心订单缺失、ERP删除同步及系统审计时间修复。
+任务目标：只读取证两张指定订单，修复可确认的月度误排除与ERP删除识别，并在系统导出/月度数据透出真实KDOS创建和更新时间，完成测试、备份、迁移、部署、Chrome验收及GitHub同步。
+当前状态：已完成（根因调查、实现、回归、备份、迁移、生产数据修复、Chrome/Excel验收及GitHub同步完成）。
 最后更新时间：2026-10-22（Asia/Shanghai）。
 
 ## 当前阶段
-当前阶段：正式提交及发布准备。
-当前子任务：白名单提交推送，随后deploy all/check；正式Chrome只预览取消。
+当前阶段：生产发布与验收完成。
+当前子任务：验收报告及最终版本一致性收尾。
+
+## 已完成
+- [x] 读取项目AGENTS、kdos-form-platform、kdos-task-orchestration及现有任务台账；确认FIN-003/FIN-004当前由n8n每日08:30统一编排，现有调度不得擅自停用或新增独立Timer。
+- [x] 恢复检查：起始HEAD、github/main和生产版本均为b05df9153671ef9aab2a4e71760035ed270278d4；工作区仅上一任务本地验收报告及本进度文件，无源码遗留修改。
+- [x] 生产实际视图及七表只读复演：2301-2026A003326对应两个来源ID；当前有效2718.60元来源通过审核/非材料/非指定结束/无序号或品项异常，唯一命中条件为`NOT o.duplicate_order_no`。
+- [x] E10当前仅保留2718.60元来源；旧0元来源已于2026-10-20物理删除且DataLog ActionType=1。此前2301-2026A5001026为同型，旧来源已被FULL标记缺失，现行重复判断不再误伤。
+- [x] S-2610020在E10订单头/品项均0行，2026-10-21 11:19:39有稳定订单ID及两个品项ID的ActionType=1删除证据；KDOS仍保留source_missing=false并计入39090.52元。
+- [x] 全源只读身份快照实测19115单/108090行，1.457秒；与KDOS比较发现11个待失效品项、3张整单删除、2张部分品项删除、0条需恢复。正常统计仍误含1张/39090.52元；重复单号误排仅1张/2718.60元。
+- [x] Reader/Application已实现增量Presence分页、年度/全局唯一/降幅门禁、缺失及恢复审计；失败对账不写入，恢复复用原UUID且不生成金额事件。
+- [x] Migration105已在隔离PostgreSQL真实执行：系统导出隐藏历史缺失行，订单/资格/余额/月度发生额按当前品项重算，部分删除不整单误排；原始行和变更事件保留。
+- [x] 系统导出与月度合同、网页和Excel已增加KDOS创建/更新时间；系统源时间来自持久行，月度时间来自来源行、变更事件和客户分类持久时间，不使用视图当前时钟。
+- [x] 隔离PostgreSQL 50场景通过，覆盖不完整清单原子拒绝、整单/品项删除、重复身份修复、恢复、无事件伪造、无变化时间不更新、真实变化/分类变更更新时间、Excel时间列及RLS/权限回归。
+- [x] 变更台账隔离PostgreSQL 12场景通过；删除品项关联的历史变更仍保留在台账，但动态统计停止计入，恢复同一来源身份后安全恢复且不复制事件。
+- [x] 聚焦API 55项、Web 13项、Contracts 33项及Python Reader 5项通过；表格公共审计列会去重同名时间字段。
+- [x] 全项目typecheck/lint/build通过；生产双库和附件备份已完成并验证格式、权限和SHA，发布前四服务健康且Web/API版本一致。
+- [x] 功能Commit `4ee9a798eb81444b1648a6aaf749b4108775fd52` 已正常push github/main；部署及Migration105成功，生产ledger ID 104。
+- [x] 受控`run-finance-daily.sh --update-only`成功，108090个E10来源身份完整，11个缺失品项被审计失效，企业微信通知0条；未执行FULL。
+- [x] A003326已显示2个系统导出品项和1条2026-10月度发生额2718.60；S-2610020正常系统导出/月度均已排除，历史2行及39090.52原金额保留。
+- [x] 2026-10月度/大屏/事业部/内外销/客户排名均勾稽为514单、39115212.02；精确来源订单跨月差异0.00。
+- [x] Chrome153及Excel真实验收通过：系统导出36列/2行，月度17列/1行，两个KDOS时间均正确按Asia/Shanghai显示且无重复列。
+- [x] n8n运行态核验：唯一自动入口`KDOSFinanceMonthlySummaryV1`启用，每天08:30；旧台账工作流停用，仅保留人工补跑。本次未修改调度。
+
+## 正在进行
+- [x] 最终验收报告和版本一致性闭环。
+
+## 待完成
+- [x] 确定两张订单根因、同类影响订单数量和金额及最小修复边界。
+- [x] 设计并实现低成本、可恢复、失败不误删的ERP来源存在性校验，复用现有n8n日流程且不新增调度器。
+- [x] 为系统导出和月度数据增加真实KDOS创建/更新时间，含字段权限、网页、Excel与Asia/Shanghai显示。
+- [x] 完成前向Migration、API/Web/Contracts/隔离PostgreSQL、金额对账、性能及Chrome验证。
+- [x] 修改生产前备份，安全部署、健康检查、生产定向校验、Git提交和正常push；未发生冲突或金额归属不明。
+
+## 修改文件
+- Contracts财务字段；Finance Order Application/Query、Migration105及测试；财务Web页面/测试；E10 Reader/测试；两个隔离PG脚本；财务实现文档、runbook、任务台账及本进度。
+
+## 数据库 Migration
+- 1722920105000-FinanceE10SourcePresenceAndTimestamps.ts；仅前向增加Presence暂存、重建派生视图并回填时间字段读取权限，不修改历史migration或物理删除财务数据。
+
+## 新增或修改测试
+- Reader存在性/恢复参数；合同与UI列；Migration SQL；隔离PostgreSQL删除、恢复、误判、时间、Excel及原子失败场景。
+
+## 已运行测试
+测试名称：核心专项及隔离PostgreSQL。
+结果：Python Reader 5项、API聚焦55项、Web财务13项、Contracts 33项、隔离PostgreSQL 50+12场景通过；全项目typecheck/lint/build通过。生产视图定义、金额勾稽、性能、Chrome及Excel验收通过。
+
+## 当前已知问题
+- 无阻塞问题。生产实测指定订单约4.66秒、整月汇总约3.25秒；未恢复此前约30秒慢查询。
+- 月度派生时间已严格来自持久化的finance_e10_lines、finance_e10_change_events和finance_customer_mappings时间，不使用视图计算时钟。
+
+## 等待用户确认
+- 无；用户已授权在证据充分后实施修复、备份、部署、commit及push。
+
+## 下一步
+1. 提交最终验收报告并正常push GitHub main，排除上一任务未提交报告及本进度文件。
+2. 部署最终文档Commit并确认Repository=Web=API一致。
+3. 停止，不重复运行同步或修改生产数据。
+
+## 恢复执行说明
+任务已完成。保留上一任务未提交的outputs/KDOS_MPS_REVIEW_DUE_IMPORT_DEPLOY_ACCEPTANCE.md及本进度文件当前工作区修改，不得混入本任务最终报告提交。E10始终只读，未运行FULL、未直接修改E10、未新增Timer。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：KDOS-MPS-REVIEW-DUE-IMPORT-DEPLOY-001 评审交期Excel导入修复正式上线。
+任务目标：安全提交及推送已验收修复，备份、正式部署与版本一致性检查，真实Excel仅生产预览并取消，验证业务数据及授权/同步配置不变。
+当前状态：WAITING_MANUAL_ACCEPTANCE；正式发布和受控Chrome验收完成，用户人工验收待完成；无生产确认导入。
+最后更新时间：2026-10-22（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：发布及验收收尾完成，停止。
+当前子任务：无；等待用户人工验收，不进入真实数据确认或每日同步。
 
 ## 已完成
 - [x] 规范、表单/任务Skill、台账、既有修复验收/设计及部署备份/回退流程阅读。
@@ -22,9 +298,12 @@
 - [x] 实文件SHA=e65a4abb13e22d4b9a1603e5e324431919040ede1c43df610eeeb628860614f1，43966字节；本轮新跑API93/Web20全部通过。
 
 ## 待完成
-- [ ] 本任务文件白名单提交/push、正式deploy all/check及健康/Migration验证。
-- [ ] 生产Chrome单一流程、模板、新增取消/只读编辑/导出、真实1114行文件预览取消及权限验收。
-- [ ] 生产数据/权限/同步flags不变性检查及正式上线报告。
+- [x] 17任务文件白名单提交并push github/main，远端完整SHA=b05df9153671ef9aab2a4e71760035ed270278d4，无force、无其他任务/真实数据/凭据。
+- [x] deploy all/check成功，Repository=Web=API=b05df9153671ef9aab2a4e71760035ed270278d4，STATUS=CONSISTENT，四服务健康，103 Migration无pending。
+- [x] 部署后保护门禁发现role_organization_scopes 6→7后立即停止；只读审计定位15:30:19系统管理员网页更新采购角色，组织1→2。用户明确确认其并行授权调整并要求保留、继续；原始基线保留，只有该已确认例外允许，当前7条作为恢复后的基线。其他6权限表/评审权限/业务指纹/flags/ledger均不变。
+- [x] 正式Chrome153：真实1114行/1009696完整预览、逐行匹配、全部新增且无错误冲突，取消，确认请求0；八列识别、八列模板真实下载、新增取消/编辑模式/10列空表导出、加密/损坏提示及401通过。
+- [x] 最终主表0/历史0/数量0/改期次数0，完整业务指纹/103 Migration/六flags/评审权限明细与原始基线一致。其余6权限表不变，采购角色并行变更经用户明确确认；恢复后的7条组织范围指纹保持不变。
+- [x] outputs/KDOS_MPS_REVIEW_DUE_IMPORT_DEPLOY_ACCEPTANCE.md正式报告完成；代码提交/GitHub/部署/预览/模板/业务不变六项PASS，最终仅WAITING_MANUAL_ACCEPTANCE。
 
 ## 修改文件
 - 上轮修复及必要测试/验收文档；本轮新增部署验收报告、更新设计当前规则及本进度。
@@ -36,18 +315,19 @@
 - 不重复开发；复核现有测试证据，生产只做受控预览和读取，不执行确认写入。
 
 ## 已运行测试
-- Git本地/远端及工作区核验通过；此前聚焦、隔离、typecheck/lint/build证据通过。
+- Git远端main、正式Repository/Web/API完整SHA全部b05df9153671ef9aab2a4e71760035ed270278d4，STATUS=CONSISTENT；四服务健康。
+- 本轮API93/Web20通过，既有Contracts33/PG+Chrome64/typecheck/lint/build证据复核通过。
+- 正式Chrome预览/模板/错误/取消及前后只读不变性检查通过，详见正式报告和忽略目录证据。
 
 ## 当前已知问题
-- 无；正式登录正在验证，不记录账号密码或令牌到文档/日志。
+- 无未解决异常；采购角色并行授权已按用户确认保留。生产空表不实际保存新增/编辑，写入回归来自隔离测试；不冒用其他员工做生产403测试。
 
 ## 等待用户确认
 - 最终用户人工验收；本轮已授权发布，不再等待重复许可。
 
 ## 下一步
-1. 生产基线/真实文件/登录/备份检查。
-2. 白名单commit/push，正式部署，健康和版本核验。
-3. 生产Chrome预览取消，前后不变性对比；WAITING_MANUAL_ACCEPTANCE后停止。
+1. 已停止，等待用户人工验收。
+2. 不确认导入、不开发或启用同步、不处理其他PMC任务。
 
 ## 恢复执行说明
 项目规范→Skill→本文件→git status/diff→继续。用户已解除上轮不提交/不部署限制，但绝对禁止import-confirm、真实业务新增/编辑及同步。证据仅忽略目录data/mps-review-due-import-deploy-20261022/；不写入凭据到跟踪文件。异常按用户要求停止，不擅自回填、清表或恢复生产数据库。
