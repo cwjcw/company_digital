@@ -23,7 +23,8 @@ describe("master plan domain", () => {
     const rows = reverseSchedule("2026-09-20", { packagingDays: 2, surfaceTreatmentDays: 0, grindingDays: 3 });
     expect(rows.find((row) => row.code === "packaging")?.dueDate).toBe("2026-09-20");
     expect(rows.find((row) => row.code === "surfaceTreatment")?.dueDate).toBe("2026-09-18");
-    expect(rows.find((row) => row.code === "grinding")?.dueDate).toBe("2026-09-18");
+    expect(rows.find((row) => row.code === "blank")?.dueDate).toBe("2026-09-18");
+    expect(rows.find((row) => row.code === "grinding")?.dueDate).toBeNull();
     expect(rows.find((row) => row.code === "welding")?.dueDate).toBeNull();
   });
 
@@ -66,12 +67,13 @@ describe("master plan domain", () => {
     });
   });
 
-  it("keeps 毛坯 in the reverse chain when blankDays is null without breaking the schedule", () => {
+  it("does not treat a missing intermediate cycle as zero when calculating earlier due dates", () => {
     const rows = reverseSchedule("2026-10-20", { grindingDays: 1, surfaceTreatmentDays: 1, packagingDays: 1 });
     const blank = rows.find((row) => row.code === "blank")!;
-    expect(blank).toMatchObject({ name: "毛坯", sequence: 8, cycleDays: null, dueDate: null });
-    /* 未维护毛坯周期时不得阻止其它工序生成计划。 */
-    expect(rows.filter((row) => row.dueDate).map((row) => row.code)).toEqual(["grinding", "surfaceTreatment", "packaging"]);
+    expect(blank).toMatchObject({ name: "毛坯", sequence: 8, cycleDays: null, dueDate: "2026-10-18" });
+    /* 毛坯交期可依后续周期计算；更早的研磨交期未知，不得静默把毛坯周期当0天。 */
+    expect(rows.find((row) => row.code === "grinding")?.dueDate).toBeNull();
+    expect(rows.filter((row) => row.dueDate).map((row) => row.code)).toEqual(["blank", "surfaceTreatment", "packaging"]);
   });
 
   it("carries 毛坯 days through the reverse chain when configured", () => {

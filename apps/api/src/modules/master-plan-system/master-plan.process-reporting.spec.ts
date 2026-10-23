@@ -90,6 +90,7 @@ describe("KN-PR-001 actual process reports", () => {
   const reportQuery = (extra?: (sql: string) => unknown[] | undefined) => jest.fn(async (sql: string, params?: unknown[]) => {
     void params;
     if (sql.includes("FROM mps_weekly_plans")) return [weeklyPlanRow()];
+    if (sql.includes("FROM mps_weekly_process_plans") && sql.includes("execution_enabled=true")) return [{ id: "process-task-1" }];
     if (sql.startsWith("INSERT INTO mps_process_reports")) return [insertedReport];
     return extra?.(sql) ?? [];
   });
@@ -201,6 +202,7 @@ describe("KN-PR-001 actual process reports", () => {
     const scoped = reporter([{ resource: "mps-process-reports", scope: "CUSTOM", actions: ["create"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: divisionId }] }]);
     const query = jest.fn(async (sql: string) => {
       if (sql.includes("FROM mps_weekly_plans")) return [weeklyPlanRow(divisionId)];
+      if (sql.includes("FROM mps_weekly_process_plans") && sql.includes("execution_enabled=true")) return [{ id: "process-task-1" }];
       if (sql.startsWith("INSERT INTO mps_process_reports")) return [insertedReport];
       return [];
     });
@@ -228,8 +230,8 @@ describe("KN-PR-001 actual process reports", () => {
     const insert = String(query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO mps_process_reports"))?.[0] ?? "");
 
     expect(insert).toContain("weekly_plan_id");
-    expect(insert).toContain("process_name");
-    /* 创建时服务端补齐来源快照，不允许前端传入订单/品项/事业部。 */
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_weekly_plans"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_weekly_process_plans") && String(sql).includes("execution_enabled=true"))).toBe(true);
+    /* 仅验证已选择的内部工序任务；报工表不复制 process_name / 订单等可变快照字段。 */
+    expect(insert).not.toContain("process_name");
   });
 });

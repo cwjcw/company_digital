@@ -101,6 +101,43 @@ export class MasterPlanSyncService {
     });
   }
 
+  async previewWeeklyProcessConfigBatch(weeklyPlanIds: string[], actor: MasterPlanActor) {
+    this.assertProcessConfigAccess(actor);
+    if (!Array.isArray(weeklyPlanIds)) throw new BadRequestException("批量预览需提交周计划ID列表");
+    const ids = [...new Set(weeklyPlanIds.map(String))];
+    if (!ids.length || ids.length > 1000 || ids.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) throw new BadRequestException("批量预览需选择 1 至 1000 条有效周计划");
+    const plans: any[] = [];
+    for (let offset = 0; offset < ids.length; offset += 8) plans.push(...await Promise.all(ids.slice(offset, offset + 8).map(async (weeklyPlanId) => {
+      try { return await this.previewWeeklyProcessConfig(weeklyPlanId, actor); }
+      catch (error) { return { weeklyPlanId, canConfirm: false, locked: false, skipReason: (error as Error).message, changes: { added: [], removed: [], changed: [] } }; }
+    })));
+    const updatePlans = plans.filter((plan: any) => plan.canConfirm && (plan.changes.added.length + plan.changes.removed.length + plan.changes.changed.length > 0));
+    const skipPlans = plans.filter((plan: any) => !plan.canConfirm || !(plan.changes.added.length + plan.changes.removed.length + plan.changes.changed.length));
+    const diffCounts = new Map<string, { processName: string; added: number; removed: number; changed: number }>();
+    for (const plan of updatePlans as any[]) for (const kind of ["added", "removed", "changed"] as const) for (const diff of plan.changes[kind]) {
+      const process = kind === "changed" ? diff.after : diff;
+      const item = diffCounts.get(process.processCode) ?? { processName: process.processName, added: 0, removed: 0, changed: 0 };
+      item[kind] += 1; diffCounts.set(process.processCode, item);
+    }
+    return { total: plans.length, updateCount: updatePlans.length, skipCount: skipPlans.length,
+      skipReasons: { locked: skipPlans.filter((plan: any) => plan.locked).length, noDifference: skipPlans.filter((plan: any) => plan.canConfirm && !plan.skipReason && !plan.changes.added.length && !plan.changes.removed.length && !plan.changes.changed.length).length, inaccessibleOrChanged: skipPlans.filter((plan: any) => plan.skipReason).length },
+      mainDifferences: [...diffCounts.entries()].map(([processCode, counts]) => ({ processCode, ...counts })), plans };
+  }
+
+  async confirmWeeklyProcessConfigBatch(plans: Array<{ weeklyPlanId: string; expectedVersion: number; previewHash: string }>, actor: MasterPlanActor) {
+    this.assertProcessConfigAccess(actor);
+    if (!Array.isArray(plans) || plans.length < 1 || plans.length > 1000) throw new BadRequestException("批量确认需包含 1 至 1000 条预览计划");
+    let succeeded = 0; const failed: Array<{ weeklyPlanId: string; reason: string }> = [];
+    for (let offset = 0; offset < plans.length; offset += 8) {
+      const results = await Promise.all(plans.slice(offset, offset + 8).map(async (plan) => {
+        try { await this.confirmWeeklyProcessConfig(plan.weeklyPlanId, plan, actor); return null; }
+        catch (error) { return { weeklyPlanId: plan.weeklyPlanId, reason: (error as Error).message }; }
+      }));
+      for (const result of results) if (result) failed.push(result); else succeeded += 1;
+    }
+    return { succeeded, failed: failed.length, items: failed };
+  }
+
   private async desiredProcessSnapshot(manager: EntityManager, weekly: any, tenantId: string) {
     const definitions = await this.processDefinitions(manager, weekly, tenantId);
     const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
@@ -612,6 +649,7 @@ export class MasterPlanSyncService {
         [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
       await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
     }
+    await this.recalculateSnapshotDueDates(manager, weekly, tenantId, updatedBy);
     const technicalDays = this.nullableNumber(weekly.technical_days);
     const drawingDueDate = technicalDays == null || !reviewDueDate ? null : new Date(Date.parse(`${reviewDueDate}T00:00:00Z`) - technicalDays * 86_400_000).toISOString().slice(0, 10);
     await manager.query(`UPDATE mps_weekly_plans SET technical_cycle_days=$3,drawing_due_date=$4,updated_at=now(),updated_by=$5,version=version+1 WHERE tenant_id=$1 AND id=$2 AND (technical_cycle_days,drawing_due_date) IS DISTINCT FROM ($3,$4)`, [tenantId, weekly.id, technicalDays, drawingDueDate, updatedBy]);
@@ -624,6 +662,34 @@ export class MasterPlanSyncService {
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     await manager.query(`UPDATE mps_process_reports SET division_id=$3,order_number=$4,item_code=$5,item_name=$6,delivery_number=$7,planned_quantity=$8,updated_at=now(),updated_by=$9,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND (division_id,order_number,item_code,item_name,delivery_number,planned_quantity) IS DISTINCT FROM ($3,$4,$5,$6,$7,$8)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, weekly.planned_quantity, updatedBy]);
     await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
+  }
+
+  /** 只按周计划已保存的工序集合、顺序和周期重算日期；永不读取最新路线配置。 */
+  private async recalculateSnapshotDueDates(manager: EntityManager, weekly: any, tenantId: string, updatedBy: string) {
+    const rows = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date
+      FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND execution_enabled=true
+      ORDER BY sequence,process_code`, [tenantId, weekly.id]);
+    if (!rows.length) return;
+    const anchor = this.dateOnly(weekly.latest_review_due_date);
+    const definitions = rows.map((row: any) => ({
+      code: String(row.process_code) as ProcessScheduleDefinition["code"], name: String(row.process_name),
+      sequence: Number(row.sequence), cycleDays: row.cycle_days == null ? null : Number(row.cycle_days)
+    }));
+    const scheduled = anchor
+      ? reverseScheduleForProcesses(anchor, definitions)
+      : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
+    const dueDates = new Map(scheduled.map((row) => [row.code, row.dueDate]));
+    await manager.query("SELECT set_config('app.mps_process_config_write_mode','RECALCULATE_DATES',true)");
+    try {
+      for (const row of rows) {
+        const dueDate = dueDates.get(String(row.process_code) as ProcessScheduleDefinition["code"]) ?? null;
+        if (this.dateOnly(row.due_date) === dueDate) continue;
+        await manager.query(`UPDATE mps_weekly_process_plans SET due_date=$3::date,updated_at=now(),updated_by=$4,version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND due_date IS DISTINCT FROM $3::date`, [tenantId, row.id, dueDate, updatedBy]);
+      }
+    } finally {
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+    }
   }
 
   private async rollupWeeklyProcesses(manager: EntityManager, weeklyPlanId: string, tenantId: string, updatedBy: string) {

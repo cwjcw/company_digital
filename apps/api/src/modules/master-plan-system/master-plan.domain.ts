@@ -30,16 +30,14 @@ export function reverseSchedule(anchorDate: string, cycles: ProcessCycleInput) {
 /** 按计划配置中的选择集合和顺序倒排；周期只用于承接事业部提供的值。 */
 export function reverseScheduleForProcesses(anchorDate: string, processes: ProcessScheduleDefinition[]) {
   let cursor = dateOnly(anchorDate);
+  let cursorKnown = true;
   const result: Array<{ code: ProcessCode; name: string; sequence: number; cycleDays: number | null; dueDate: string | null }> = [];
   const ordered = [...processes].sort((left, right) => left.sequence - right.sequence || left.code.localeCompare(right.code));
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
     const { code, name, sequence, cycleDays: cycle } = ordered[index]!;
-    if (cycle == null) {
-      result.push({ code, name, sequence, cycleDays: null, dueDate: null });
-      continue;
-    }
-    result.push({ code, name, sequence, cycleDays: cycle, dueDate: isoDate(cursor) });
-    cursor = new Date(cursor.getTime() - Math.max(0, cycle) * 86_400_000);
+    result.push({ code, name, sequence, cycleDays: cycle, dueDate: cursorKnown ? isoDate(cursor) : null });
+    if (cycle == null) cursorKnown = false;
+    else if (cursorKnown) cursor = new Date(cursor.getTime() - Math.max(0, cycle) * 86_400_000);
   }
   return result.reverse();
 }

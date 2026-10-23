@@ -79,6 +79,16 @@ export class MasterPlanController {
     return this.sync.confirmWeeklyProcessConfig(id, body, this.actor(request));
   }
 
+  @Post("resources/mps-weekly-plans/process-config/batch-preview")
+  previewWeeklyProcessConfigBatch(@Body() body: { weeklyPlanIds: string[] }, @Req() request: MasterPlanRequest) {
+    return this.sync.previewWeeklyProcessConfigBatch(body.weeklyPlanIds, this.actor(request));
+  }
+
+  @Post("resources/mps-weekly-plans/process-config/batch-confirm")
+  confirmWeeklyProcessConfigBatch(@Body() body: { plans: Array<{ weeklyPlanId: string; expectedVersion: number; previewHash: string }> }, @Req() request: MasterPlanRequest) {
+    return this.sync.confirmWeeklyProcessConfigBatch(body.plans, this.actor(request));
+  }
+
   @Patch("resources/:resource/batch")
   batchUpdate(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.batchUpdate(resource, body, this.actor(request)); }
 

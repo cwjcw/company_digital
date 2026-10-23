@@ -8043,15 +8043,29 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 
 ## PMC 主计划系统第1期工序改造（2026-10-23）
 任务目标：实现事业部工序配置、租户品号工艺路线及导入、周计划工艺继承/锁定、计划数量变更后完成状态重算、采购/外协排除、报工与技术周期兼容；完成针对性验证、Migration 前一次必要备份及正式部署。按用户要求不推送 GitHub。
-当前状态：实施与针对性验证完成，待本地提交后按既有流程迁移、部署与线上验收。
-当前阶段：工艺配置/API/界面/迁移已实现；不修改调度入口；正式备份尚未执行。
+当前状态：已完成并部署生产，未推送 GitHub。
+当前阶段：主计划工序改造一期 Migration、部署与线上健康/SHA验收完成。
 已完成：确认 `main` 与 `github/main` 起始于 `15ac5ad`；已阅读 Skills、架构、运行手册和 MPS 任务台账；只读核对生产 MPS 同步配置；仅调整既有 base-to-weekly 行为；没有 GitHub push 授权。
-正在进行：检查最终 diff，准备本地 commit 以满足 deploy.sh 工作区门禁。
-待完成：最终检查→本地 commit（不 push）→`scripts/upgrade.sh` 仅执行一次备份并迁移→`scripts/deploy.sh all/check`→health/SHA/线上验收。
+已完成：执行本地提交 `a564b44297eaee00d643fa17fadc2510a3903cf7` 以满足部署脚本门禁；未 push。`scripts/upgrade.sh` 只运行一次，主库/KDOS库/uploads 备份时间 `20261023_114506` 且 pg_restore 列表校验通过；哈希分别见升级输出及下方记录。Migration `MpsProcessRoutingV11722920107000` 执行成功；`scripts/deploy.sh all` 与 build SHA 完全一致。
 修改文件：API migration、MPS API 服务与测试、Web 页面与测试、contracts、MPS 任务台账、进度文件。
-数据库 Migration：新增 `1722920107000-MpsProcessRoutingV1`，尚未运行。
-新增或修改测试：API 6 suites / 115 tests，Web MasterPlanPages 36 tests，Contracts 33 tests。
-已运行测试：API 6 suites 通过；Web 页面 36 tests 通过；Contracts 33 tests 通过；API/Web/Contracts typecheck 通过；API/Web build 通过；`git diff --check` 通过。当前宿主 Node v22.23.1 低于仓库声明的 >=24，但上述本地验证均通过。
-当前已知问题：真实生产迁移和线上验收尚未完成；未写生产合成数据验证业务。
+数据库 Migration：`1722920107000-MpsProcessRoutingV1` 已应用；新表 RLS 与两项触发器存在；查询确认所有已有正数报工周计划均已锁定（未锁定数 0）。
+新增或修改测试：API 6 suites / 115 tests、Web MasterPlanPages 36 tests、Contracts 33 tests，均通过。API/Web/Contracts typecheck、API/Web build、`git diff --check` 通过。生产容器使用 Node 24 构建；本地验证运行时为 Node v22.23.1（低于仓库声明 >=24）。
+备份：`data/backups/four_department_tracker_20261023_114506.backup` SHA256 `ff6be70244795f7d7343ec2cab0f65c9b3d939044996ac9727bf950f5f2eac8e`；`kdos_20261023_114506.backup` SHA256 `e72bc3b8170fe6d45c7c9ce2c395543fe889d6425ed13ffa266786b7335aff40`；`uploads_20261023_114506.tar.gz` SHA256 `3c0818f235d5cb217ce325508f7f3c356e8ba43e91e52bf6759e1625a5845a35`。
+线上验证：API/Web/Document Worker/PostgreSQL health 通过；`deploy.sh all` 显示 Repository/Web/API SHA 均为 `a564b44297eaee00d643fa17fadc2510a3903cf7`；Chrome 打开正式站登录页 HTTP 200、输入控件正常、无页面错误。
+当前已知问题：未使用生产合成业务记录写入来模拟新增/报工流程；线上浏览器仅核对登录页与部署版本，业务页面流程由通过的 API/Web/Contracts 测试覆盖。
 等待用户确认：无；用户已授权部署并禁止推送 GitHub。
-下一步：完成最终审阅与本地 commit，然后执行一次备份、migration 和部署。
+下一步：无。
+
+## PMC主计划周计划工序优化（2026-10-23）
+任务目标：为存量未开工周计划提供批量工艺差异检查与确认；按周计划保存的工艺快照重算工序最迟理论交期；改善未选择工序展示并淡化历史品项周期维护入口；验证并部署，不推送GitHub。
+当前状态：实现与针对性验证完成，待一次备份、Migration和正式部署。
+当前阶段：批量刷新、快照交期重算和页面展示实现完成；单测、类型检查、lint和构建通过。
+已完成：检查工作区、先前第1期实现、MPS控制器/同步服务/查询契约/页面；复读kdos-form-platform、kdos-form-validation、kdos-task-orchestration；确认本轮不新增调度入口。新增批量工序预览/确认API及选中周计划页面入口；批量预览返回更新/跳过数量、跳过原因和按工序汇总主要差异。存量计划只按真实选中周计划处理，确认仍经单条既有版本/报工锁校验。
+已完成：增加 `RECALCULATE_DATES` 数据库守卫模式，只允许更新工序记录的due_date、其余工艺结构字段必须原样；同步按周计划快照和最新评审交期重算交期，再按最新计划数量重算状态；未选择工序展示“不适用”，缺周期展示“未配置周期”；历史周期页面重命名为“历史品项周期表（含技术周期）”。
+修改文件：`apps/api/src/migrations/1722920108000-MpsProcessDueDateRefresh.ts`、MPS同步服务/控制器及相关测试、`apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`及测试、`packages/contracts/src/index.ts`、`docs/operations/TASK_REGISTRY.md`、本进度文件。
+数据库Migration：新增 `MpsProcessDueDateRefreshV1`，尚未运行；这是支持已锁定周计划只重算理论交期、同时由数据库拒绝工艺结构变化所必需。待按既有 `upgrade.sh` 进行一次备份后应用；备份尚未执行。
+新增或修改测试：API 4 suites / 63 tests，Web MasterPlanPages 36 tests，Contracts 33 tests，均通过。
+已运行测试：API/Web/Contracts typecheck、API/Web build、contracts build、改动范围 ESLint、git diff --check通过。本机Node v22.23.1低于仓库>=24要求；正式部署容器使用项目现有Node 24镜像构建。
+当前已知问题：正式Migration、部署及线上健康/版本核验尚未完成；不写入合成生产周计划或报工数据。
+等待用户确认：无（本轮需求已授权开发和部署）。
+下一步：完成最后Web构建→仅提交本轮改动到本地（不推送）→`scripts/upgrade.sh`（一次必要备份并应用Migration）→`scripts/deploy.sh all/check`→线上健康/版本核验→记录备份与部署版本并完成本节。

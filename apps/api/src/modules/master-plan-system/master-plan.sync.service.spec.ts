@@ -59,6 +59,36 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(manager.query.mock.calls.some(([statement]) => String(statement).includes("UPDATE mps_weekly_process_plans SET execution_enabled=false"))).toBe(false);
   });
 
+  it("recalculates only snapshot due dates from the latest review date, including locked plans", async () => {
+    const manager = { query: jest.fn(async (sql: string, _params?: unknown[]) => {
+      void _params;
+      return String(sql).startsWith("SELECT id,process_code,process_name,sequence,cycle_days,due_date") ? [
+      { id: "task-1", process_code: "cutting", process_name: "下料", sequence: 1, cycle_days: 2, due_date: "2026-09-26" },
+      { id: "task-2", process_code: "packaging", process_name: "包装", sequence: 2, cycle_days: 1, due_date: "2026-09-30" }
+      ] : [];
+    }) };
+    const service = new MasterPlanSyncService({} as never);
+    await (service as any).recalculateSnapshotDueDates(manager, { ...weekly("自制"), latest_review_due_date: "2026-10-01" }, "KAINAN", "tester");
+    const calls = manager.query.mock.calls.map(([sql, params]) => ({ sql: String(sql), params }));
+    expect(calls.map((call) => call.sql).filter((sql) => sql.startsWith("UPDATE mps_weekly_process_plans"))).toHaveLength(2);
+    expect(calls.find((call) => call.sql.startsWith("UPDATE mps_weekly_process_plans"))?.params?.[2]).toBe("2026-09-30");
+    expect(calls.some((call) => call.sql.includes("set_config('app.mps_process_config_write_mode','RECALCULATE_DATES'"))).toBe(true);
+    expect(calls.filter((call) => call.sql.startsWith("UPDATE mps_weekly_process_plans")).every((call) => call.sql.includes("SET due_date=") && !/cycle_days=|sequence=|process_code=/.test(call.sql))).toBe(true);
+  });
+
+  it("summarizes batch preview update/skip counts and main process differences", async () => {
+    const service = new MasterPlanSyncService({} as never);
+    const actor = {} as never;
+    jest.spyOn(service as any, "assertProcessConfigAccess").mockReturnValue(undefined);
+    const readyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"; const lockedId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    jest.spyOn(service, "previewWeeklyProcessConfig").mockImplementation(async (weeklyPlanId: string) => weeklyPlanId === lockedId
+      ? { weeklyPlanId, canConfirm: false, locked: true, changes: { added: [], removed: [], changed: [] } } as never
+      : { weeklyPlanId, expectedVersion: 1, previewHash: "a".repeat(64), canConfirm: true, locked: false,
+          changes: { added: [{ processCode: "cutting", processName: "下料" }], removed: [], changed: [] } } as never);
+    const result = await service.previewWeeklyProcessConfigBatch([readyId, lockedId], actor);
+    expect(result).toMatchObject({ total: 2, updateCount: 1, skipCount: 1, skipReasons: { locked: 1 }, mainDifferences: [{ processCode: "cutting", processName: "下料", added: 1, removed: 0, changed: 0 }] });
+  });
+
   it("recalculates completion from the latest weekly quantity and selected tasks only", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) };
     const service = new MasterPlanSyncService({} as never);

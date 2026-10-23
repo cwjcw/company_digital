@@ -796,6 +796,7 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
     const { container } = renderPage("mps-weekly-plans");
     await screen.findByDisplayValue("") .catch(() => undefined);
     await waitFor(() => expect(container.querySelectorAll(".ant-table-thead").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("不适用").length).toBeGreaterThan(0);
 
     const headerRows = Array.from(container.querySelectorAll(".ant-table-thead tr"));
     const headers = Array.from(container.querySelectorAll(".ant-table-thead th")).map((cell) => cell.textContent?.trim() ?? "");

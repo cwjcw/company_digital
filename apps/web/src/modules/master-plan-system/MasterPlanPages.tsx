@@ -333,6 +333,13 @@ function groupedColumns(resource: string, fields: TablePermissionFieldDefinition
         const base = field.key.endsWith("ProductionProgress") ? progressColumn(field, process, resource) : column(field);
         return {
           ...base,
+          ...(field.key.endsWith("ProductionProgress") ? {} : { render: (value: unknown, row: any) => {
+            const selected = row?.[`${process.code}Status`] != null;
+            if (!selected && ["CycleDays", "DueDate", "Status"].some((suffix) => field.key === `${process.code}${suffix}`)) return "不适用";
+            if (selected && field.key === `${process.code}DueDate` && value == null) return <Tooltip title="缺少必要的事业部标准周期，无法计算该工序的最迟理论交期">未配置周期</Tooltip>;
+            if (selected && field.key === `${process.code}CycleDays` && value == null) return "未维护";
+            return compactCellValue(value, renderCell ? renderCell(value, field, row) : display(value, field, row), field, density);
+          } }),
           onHeaderCell: () => ({ className: `${processColorClass(process.code)} kdos-process-sub`, style: { background: color.sub, color: color.text } })
         };
       });
@@ -427,6 +434,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [batchSaving, setBatchSaving] = useState(false);
   const [baseSyncConfirmOpen, setBaseSyncConfirmOpen] = useState(false);
   const [processConfigPreview, setProcessConfigPreview] = useState<any | null>(null);
+  const [processConfigBatchPreview, setProcessConfigBatchPreview] = useState<any | null>(null);
   const [processConfigLoading, setProcessConfigLoading] = useState(false);
   const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification:string;fields:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -565,6 +573,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   const syncMutation = useMutation({ mutationFn: (syncKey: string) => api<{ count: number; skipped?: boolean; reason?: string }>(`/master-plan-system/sync/${syncKey}`, { method: "POST" }) });
   const processConfigConfirmMutation = useMutation({ mutationFn: (input: { weeklyPlanId: string; expectedVersion: number; previewHash: string }) => api<{ weeklyPlanId: string; version: number }>(`/master-plan-system/resources/mps-weekly-plans/${input.weeklyPlanId}/process-config/confirm`, { method: "POST", body: JSON.stringify({ expectedVersion: input.expectedVersion, previewHash: input.previewHash }) }) });
+  const processConfigBatchConfirmMutation = useMutation({ mutationFn: (plans: Array<{ weeklyPlanId: string; expectedVersion: number; previewHash: string }>) => api<{ succeeded: number; failed: number; items: Array<{ weeklyPlanId: string; reason: string }> }>("/master-plan-system/resources/mps-weekly-plans/process-config/batch-confirm", { method: "POST", body: JSON.stringify({ plans }) }) });
   const refreshBaseToWeeklyResources = useCallback(async () => {
     await Promise.all(baseToWeeklyRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -601,6 +610,27 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       setProcessConfigPreview(null);
       message.success("已按预览更新周计划工序配置");
     } catch (error) { message.error(`确认工序配置失败：${(error as Error).message}，请重新预览`); }
+  };
+  const previewWeeklyProcessConfigBatch = async (selection: KdosTableSelection<any>) => {
+    const weeklyPlanIds = selection.selectedRows.map((row) => String(row.id)).filter(Boolean);
+    if (!weeklyPlanIds.length) return;
+    setProcessConfigLoading(true);
+    try {
+      setProcessConfigBatchPreview(await api<any>("/master-plan-system/resources/mps-weekly-plans/process-config/batch-preview", { method: "POST", body: JSON.stringify({ weeklyPlanIds }) }));
+    } catch (error) { message.error(`批量预览工序配置失败：${(error as Error).message}`); }
+    finally { setProcessConfigLoading(false); }
+  };
+  const confirmWeeklyProcessConfigBatch = async () => {
+    const plans = processConfigBatchPreview?.plans?.filter((plan: any) => plan.canConfirm && (plan.changes.added.length + plan.changes.removed.length + plan.changes.changed.length > 0)) ?? [];
+    if (!plans.length || processConfigBatchConfirmMutation.isPending) return;
+    try {
+      const result = await processConfigBatchConfirmMutation.mutateAsync(plans.map((plan: any) => ({ weeklyPlanId: plan.weeklyPlanId, expectedVersion: plan.expectedVersion, previewHash: plan.previewHash })));
+      await refreshWeeklyExecutionResources();
+      setProcessConfigBatchPreview(null);
+      const skipped = result.failed + (processConfigBatchPreview.skipCount ?? 0);
+      if (result.failed) Modal.warning({ title: `批量应用完成：更新 ${result.succeeded} 条，跳过/失败 ${skipped} 条`, content: <div>{result.items?.slice(0, 20).map((item: any) => <div key={item.weeklyPlanId}>{item.weeklyPlanId}：{item.reason}</div>)}</div> });
+      else message.success(`批量应用完成：更新 ${result.succeeded} 条，跳过 ${skipped} 条`);
+    } catch (error) { message.error(`批量应用工序配置失败：${(error as Error).message}`); }
   };
   const download = async (path: string, filename: string) => {
     const blob = await api<Blob>(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
@@ -767,9 +797,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
           return result;
         }
       } : undefined}
-      selectionActions={(selection) => selection.editing && metadata.data?.actions.batchUpdate
-        ? <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>
-        : null}
+      selectionActions={(selection) => <Space>
+        {resource === "mps-weekly-plans" && metadata.data?.actions.update && hasResourcePermission("mps-division-process-configs", "read") && hasResourcePermission("mps-item-process-routes", "read") && <Button loading={processConfigLoading} onClick={() => void previewWeeklyProcessConfigBatch(selection)}>批量检查并应用工序</Button>}
+        {selection.editing && metadata.data?.actions.batchUpdate && <Button type="primary" onClick={() => { batchForm.resetFields(); setBatchField(null); setBatchSelection(selection); }}>批量修改</Button>}
+      </Space>}
       scroll={{ x: "max-content" }} />
     <Modal title="确认同步到周计划？" open={baseSyncConfirmOpen} onCancel={() => { if (!syncMutation.isPending) setBaseSyncConfirmOpen(false); }} onOk={() => void executeBaseToWeeklySync()}
       okText="确认同步" cancelText="取消" confirmLoading={syncMutation.isPending}>
@@ -787,6 +818,14 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         {processConfigPreview.changes?.changed?.map((row: any) => <div key={`change-${row.after.processCode}`}>调整：{row.before.processName} 顺序 {row.before.sequence}→{row.after.sequence}，周期 {row.before.cycleDays ?? "未维护"}→{row.after.cycleDays ?? "未维护"} 天</div>)}
         {!processConfigPreview.changes?.added?.length && !processConfigPreview.changes?.removed?.length && !processConfigPreview.changes?.changed?.length && <Tag color="success">没有配置差异</Tag>}
         <p style={{ marginTop: 12 }}>只有确认此预览中的差异后，才会更新未锁定周计划。</p>
+      </>}
+    </Modal>
+    <Modal title="批量工序配置检查" open={Boolean(processConfigBatchPreview)} onCancel={() => { if (!processConfigBatchConfirmMutation.isPending) setProcessConfigBatchPreview(null); }} onOk={() => void confirmWeeklyProcessConfigBatch()}
+      okText={`确认应用 ${processConfigBatchPreview?.updateCount ?? 0} 条`} cancelText="取消" confirmLoading={processConfigBatchConfirmMutation.isPending} okButtonProps={{ disabled: !processConfigBatchPreview?.updateCount }} width={760}>
+      {processConfigBatchPreview && <>
+        <Alert type="info" showIcon message={`已检查 ${processConfigBatchPreview.total} 条周计划：预计更新 ${processConfigBatchPreview.updateCount} 条，跳过 ${processConfigBatchPreview.skipCount} 条。`} description={`跳过原因：已开工锁定 ${processConfigBatchPreview.skipReasons.locked} 条；无差异 ${processConfigBatchPreview.skipReasons.noDifference} 条；无权限或预览异常 ${processConfigBatchPreview.skipReasons.inaccessibleOrChanged} 条。`} />
+        <p style={{ marginTop: 12 }}>主要差异（涉及周计划数）：{processConfigBatchPreview.mainDifferences.length ? processConfigBatchPreview.mainDifferences.map((row: any) => `${row.processName}：新增 ${row.added}、移除 ${row.removed}、调整 ${row.changed}`).join("；") : "无"}</p>
+        <p>确认后仅更新预览中的未开工周计划；已开工计划及历史报工不变。若预览期间记录发生变化，该记录会跳过并报告。</p>
       </>}
     </Modal>
     <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>

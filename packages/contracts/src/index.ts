@@ -78,7 +78,7 @@ export const masterPlanResourceDefinitions = [
   { code: "mps-erp-orders", label: "ERP订单明细", area: "数据准备" },
   { code: "mps-customer-divisions", label: "客户事业部映射", area: "数据准备" },
   { code: "mps-order-allocations", label: "订单分配表", area: "数据准备" },
-  { code: "mps-process-cycles", label: "工序周期表", area: "数据准备" },
+  { code: "mps-process-cycles", label: "历史品项周期表（含技术周期）", area: "数据准备" },
   { code: "mps-division-process-configs", label: "事业部工序配置", area: "数据准备" },
   { code: "mps-item-process-routes", label: "品项工艺路线", area: "数据准备" },
   { code: "mps-group-plans", label: "集团主计划", area: "计划管理" },
@@ -509,7 +509,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["divisionId", "承接事业部", "department", false],
     ["weeklyPlanId", "来源周计划", "reference", false, false, { filterable: false, filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }]
   ]),
-  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", false, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", false, true], ["cycleDays", "周期天数", "number", false], ["dueDate", "工序交期", "date", false], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "计划提示", "text", false]]),
+  "mps-weekly-process-plans": fields([["weeklyPlanId", "所属事业部周计划", "reference", false, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["processCode", "工序", "dictionary", false, true], ["cycleDays", "周期天数", "number", false], ["dueDate", "最迟理论交期", "date", false], ["reportDate", "报工日期", "date", true, true], ["dailyReportedQuantity", "当日报工", "number", false], ["status", "状态", "dictionary", false], ["exceptionText", "计划提示", "text", false]]),
   "mps-technical-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "text", false], ["responsibleUserId", "责任人", "member"], ["drawingDueDate", "图纸交期", "date", false], ["status", "状态", "dictionary"], ["exceptionText", "异常"]]),
   "mps-material-reports": fields([["divisionId", "事业部", "department", false], ["weeklyPlanId", "所属事业部周计划", "reference", true, true, { filterBinding: { kind: "relation", referenceResource: "mps-weekly-plans", valueField: "id" } }], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "text", false], ["materialName", "主材", "dictionary", true, true], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["exceptionText", "异常"]]),
   "mps-outsourcing-reports": fields([["divisionId", "事业部", "department", false], ["orderNumber", "订单编号", "text", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["deliveryNumber", "交期编码", "text", false], ["purchaseOrderNumber", "采购单号"], ["supplierId", "供应商", "reference", true, false, { filterBinding: { kind: "relation", referenceResource: "supplier-list", valueField: "id", labelField: "code,name" } }], ["outsourcingMethod", "外协方式", "dictionary"], ["outsourcingDueDate", "外协交期", "date"], ["cycleDays", "周期天数", "number"], ["received", "已入库", "boolean"], ["actualInboundDate", "实际入库日期", "date"], ["status", "状态", "dictionary", false], ["exceptionText", "异常"]]),
@@ -583,7 +583,7 @@ const standardMpsProcesses = standardProcesses.map((process) => [process.code, p
 
 const mpsProcessPermissionFields: TablePermissionFieldDefinition[] = standardMpsProcesses.flatMap(([code, label]) => [
   { key: `${code}CycleDays`, label: `${label}·所需周期`, type: "number" as const, editable: false },
-  { key: `${code}DueDate`, label: `${label}·交期`, type: "date" as const, editable: false },
+  { key: `${code}DueDate`, label: `${label}·最迟理论交期`, type: "date" as const, editable: false },
   { key: `${code}Status`, label: `${label}·状态`, type: "dictionary" as const, editable: false }
 ]);
 
