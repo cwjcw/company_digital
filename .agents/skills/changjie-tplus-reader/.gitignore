@@ -1,0 +1,4 @@
+# Local vendor reference and extracted working files are intentionally not staged by default.
+assets/*.chm
+working/
+__pycache__/
