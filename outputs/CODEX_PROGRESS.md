@@ -8058,14 +8058,16 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 
 ## PMC主计划周计划工序优化（2026-10-23）
 任务目标：为存量未开工周计划提供批量工艺差异检查与确认；按周计划保存的工艺快照重算工序最迟理论交期；改善未选择工序展示并淡化历史品项周期维护入口；验证并部署，不推送GitHub。
-当前状态：实现与针对性验证完成，待一次备份、Migration和正式部署。
-当前阶段：批量刷新、快照交期重算和页面展示实现完成；单测、类型检查、lint和构建通过。
+当前状态：已完成并部署生产；未推送GitHub。
+当前阶段：单次备份、Migration、部署与生产健康/版本验收完成。
 已完成：检查工作区、先前第1期实现、MPS控制器/同步服务/查询契约/页面；复读kdos-form-platform、kdos-form-validation、kdos-task-orchestration；确认本轮不新增调度入口。新增批量工序预览/确认API及选中周计划页面入口；批量预览返回更新/跳过数量、跳过原因和按工序汇总主要差异。存量计划只按真实选中周计划处理，确认仍经单条既有版本/报工锁校验。
 已完成：增加 `RECALCULATE_DATES` 数据库守卫模式，只允许更新工序记录的due_date、其余工艺结构字段必须原样；同步按周计划快照和最新评审交期重算交期，再按最新计划数量重算状态；未选择工序展示“不适用”，缺周期展示“未配置周期”；历史周期页面重命名为“历史品项周期表（含技术周期）”。
 修改文件：`apps/api/src/migrations/1722920108000-MpsProcessDueDateRefresh.ts`、MPS同步服务/控制器及相关测试、`apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`及测试、`packages/contracts/src/index.ts`、`docs/operations/TASK_REGISTRY.md`、本进度文件。
-数据库Migration：新增 `MpsProcessDueDateRefreshV1`，尚未运行；这是支持已锁定周计划只重算理论交期、同时由数据库拒绝工艺结构变化所必需。待按既有 `upgrade.sh` 进行一次备份后应用；备份尚未执行。
+数据库Migration：`MpsProcessDueDateRefreshV11722920108000` 已成功应用；只修改工序快照守卫函数，不新增业务表/列。生产查询确认 migration 记录存在且 `RECALCULATE_DATES` 守卫已安装。
 新增或修改测试：API 4 suites / 63 tests，Web MasterPlanPages 36 tests，Contracts 33 tests，均通过。
 已运行测试：API/Web/Contracts typecheck、API/Web build、contracts build、改动范围 ESLint、git diff --check通过。本机Node v22.23.1低于仓库>=24要求；正式部署容器使用项目现有Node 24镜像构建。
-当前已知问题：正式Migration、部署及线上健康/版本核验尚未完成；不写入合成生产周计划或报工数据。
+备份：仅运行一次 `scripts/upgrade.sh`。`data/backups/four_department_tracker_20261023_150310.backup` SHA256 `6e7130fe2e9aae7c0af7808099ad1de2bd1569e535f99261e3006bda5a77ac41`；`kdos_20261023_150310.backup` SHA256 `e2299c39670fcb76f249c94fd640bc6be7537a7e82ee092b36d7f2d84feb9438`；`uploads_20261023_150310.tar.gz` SHA256 `3c0818f235d5cb217ce325508f7f3c356e8ba43e91e52bf6759e1625a5845a35`。脚本已用 `pg_restore --list` 校验两个数据库备份。
+部署：本地提交 `5b1eaaf`；未推送。`scripts/upgrade.sh` 和 `scripts/deploy.sh all` 成功；生产 Repository/Web/API SHA 均为 `5b1eaaf`。`scripts/deploy.sh check` 与 `scripts/healthcheck.sh` 通过，API/Web/PostgreSQL/Document Worker 均 healthy；线上 Web 与 API health HTTP 200。
+当前已知问题：未使用生产合成业务记录执行新增/报工写入验收；批量锁定与快照重算由API/UI针对性测试及生产守卫/Migration核验覆盖。没有其他遗留问题。
 等待用户确认：无（本轮需求已授权开发和部署）。
-下一步：完成最后Web构建→仅提交本轮改动到本地（不推送）→`scripts/upgrade.sh`（一次必要备份并应用Migration）→`scripts/deploy.sh all/check`→线上健康/版本核验→记录备份与部署版本并完成本节。
+下一步：无。
