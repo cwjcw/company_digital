@@ -200,10 +200,12 @@ export class MasterPlanQueryService {
   async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {
     if(code==='mps-review-due-dates') throw new ForbiddenException('评审交期必须使用统一完整Excel导出');
     if (!hasMasterPlanPermission(actor, code, "export")) throw new ForbiddenException("当前权限组没有该表导出权限");
-    const first = await this.list(code, { ...input, page: 1, pageSize: 200 }, actor);
+    const mapping = code === "mps-external-process-mappings" ? this.resource(code) : null;
+    const exportScope = mapping ? (params: unknown[]) => this.scopeClause(mapping,actor,"export",columnsFor(mapping),params) : undefined;
+    const first = await this.list(code, { ...input, page: 1, pageSize: 200 }, actor, exportScope);
     const rows = [...first.rows];
     for (let page = 2; rows.length < first.total; page++) {
-      const next = await this.list(code, { ...input, page, pageSize: 200 }, actor);
+      const next = await this.list(code, { ...input, page, pageSize: 200 }, actor, exportScope);
       rows.push(...next.rows);
       if (!next.rows.length) break;
     }
