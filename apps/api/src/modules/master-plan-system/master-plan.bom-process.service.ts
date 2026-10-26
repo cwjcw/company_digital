@@ -27,7 +27,7 @@ export class MasterPlanBomProcessService {
       await m.query('SET TRANSACTION READ ONLY');
       await m.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
       const [parent] = await m.query(`SELECT p.division_id,o.name division_name FROM mps_monthly_plans p
-        JOIN organization_units o ON o.tenant_id=p.tenant_id AND o.id=p.division_id
+        JOIN organization_units o ON o.id=p.division_id
         WHERE p.tenant_id=$1 AND p.id=$2::uuid AND p.order_number=$3 AND p.item_code=$4`,[actor.tenantId,row.id,row.orderNumber,row.itemCode]);
       if (!parent) throw new NotFoundException('月计划或事业部不存在');
       const sources = await m.query(`SELECT DISTINCT source_key FROM mps_erp_order_lines WHERE tenant_id=$1

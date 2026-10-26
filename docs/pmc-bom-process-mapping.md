@@ -21,7 +21,7 @@
 - 查看沿用 `mps-order-progress-dashboard` 的read权限、数据范围、`bomConfiguration`及订单/品号/事业部字段权限；数量/状态继续受各标准工序字段权限控制。
 - 配置使用独立资源 `mps-external-process-mappings`，沿用字段权限、行范围、审计、乐观版本和统一加密文件检测。行内保存按钮按实际创建/修改能力和数据范围显示，后端命令再次校验。
 - `GET /master-plan-system/order-progress/bom-process?orderId=&itemId=`；各表通过 `/bom-process/export/{children|bindings|progress}` 服务端导出，表名白名单、read∩export范围、业务显示值、导出审计。
-- 新表 `mps_external_process_mappings` 有tenant上下文/RLS、事业部租户校验和唯一约束；Migration `1722920109000`。回退存在配置时会拒绝丢弃，先保护配置再决定回退。
+- 新表 `mps_external_process_mappings` 有tenant上下文/RLS、共享组织目录外键、事业部操作范围校验和唯一约束；Migration `1722920109000`及兼容修复`1722920110000`（组织目录本身没有tenant_id，不为本功能重建组织体系）。回退存在配置时会拒绝丢弃，先保护配置再决定回退。
 - 来源读取在Integration Adapter内完成，使用共享basic_code的MSSQLDatabase配置和既有TPLUS_SQL环境；T+只读。API镜像复用已安装Python/pytds和basic_code只读挂载。
 - TDS优先复用共享工具包内与运行时Python小版本一致的已验证客户端（当前python-tds 1.17.1）；避免容器发行版旧客户端的prelogin超时，不安装新框架。
 - 当前T+ Cloudflare隧道保留宿主机loopback监听。`bash automation/tplus_bom_proxy/install.sh` 注册用户级systemd Socket及按需激活的systemd-socket-proxyd，使用独立的本地Unix socket转接原loopback SQL端口；API通过只读目录挂载连接，不新增TCP监听或修改防火墙，不复制凭据，不改变原隧道。Compose仅给BOM reader设置非密钥 `TPLUS_BOM_SQL_SOCKET`；其他同步保持原连接。凭据已注入时不读取不可读的工具包.env。回退先回退应用，再停用`kdos-tplus-bom-proxy.socket`及同名service。主机重启由现有Linger用户服务自动激活，首次安装先于Compose部署。
