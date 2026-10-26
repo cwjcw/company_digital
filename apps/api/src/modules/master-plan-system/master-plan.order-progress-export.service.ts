@@ -23,7 +23,10 @@ export class MasterPlanOrderProgressExportService {
     for(const row of data.rows)sheet.addRow(Object.fromEntries(columns.map(([k])=>{
       const value=k==="divisionId"?row.divisionName:row[k];if(value==null)return[k,null];
       if(!/Quantity$|Rate$|Progress$|Count$/.test(k))return[k,String(value)];
-      const d=new Decimal(value);return[k,d.sd()<=15?d.toNumber():d.toFixed()];
+      const d=new Decimal(value);
+      // Composite ratios are bounded to 0..1: keep repeating averages numeric in Excel.
+      if(k==="orderProductionProgress"||k==="itemProductionProgress")return[k,d.toDecimalPlaces(12).toNumber()];
+      return[k,d.sd()<=15?d.toNumber():d.toFixed()];
     })));
     const buffer=Buffer.from(await book.xlsx.writeBuffer());
     await this.application.recordOrderProgressExport({tableKey:key,rowCount:data.rows.length,fields:columns.map(([k])=>k)},actor);

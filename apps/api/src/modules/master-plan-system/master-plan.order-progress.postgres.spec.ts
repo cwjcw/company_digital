@@ -167,6 +167,7 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
       expect(values).toContain("0.51");
       const headers=sheet.getRow(1).values as unknown[];const col=headers.indexOf("综合生产进度");
       expect(col).toBeGreaterThan(0);expect(sheet.getColumn(col).numFmt).toBe("0.0%");
+      expect(typeof sheet.getRow(2).getCell(col).value).toBe("number");
       expect(Number(sheet.getRow(2).getCell(col).value)).toBeCloseTo((.25+.51+1)/3,10);
     }}
     expect(audit).toHaveBeenCalledTimes(2);
