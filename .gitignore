@@ -45,3 +45,4 @@ __pycache__/
 *.xlsx
 *.xls
 !docs/*导入模板.xlsx
+test/

@@ -1,6 +1,144 @@
 # Codex 工作进度
 
 ## 任务
+任务名称：KDOS 生产报工提交无响应排查与局部修复。
+任务目标：只读核查指定订单/品项的生产任务及报工事实，修复报工提交无响应并按授权提交、推送、发布 Web 和真实浏览器验收；不写生产业务数据。
+当前状态：已完成（Web/API 已发布至 a63fcc2；前端交互与后端报工字段回归通过；未写生产业务数据）。
+最后更新时间：2026-10-23（Asia/Shanghai）。
+
+## 当前阶段
+当前阶段：前端交互发布及后续 API 字段映射缺陷修复发布完成。
+当前子任务：无。
+
+## 已完成
+- [x] 阅读 AGENTS.md、kdos-form-validation Skill 及其 L2 验证规则；检查既有工作区，保护先前调查报告、进度文件和未跟踪 Skill 压缩包。
+- [x] 核实生产 Web/API 健康，运行版本 `5b1eaaf`；当前本地 HEAD `f80d6fa`，报工页面相关代码与生产版本一致。
+- [x] 生产 PostgreSQL 只读事务确认订单 `2026A027377` + 品项 `TGH704BD1-1/1` 存在一个周计划，计划数量 2，自制+外协，10 道工序可报工。
+- [x] 已有两条报工：点焊 2、毛坯 2，均达到计划数量；其余 8 道工序暂无报工并处于待报工，未发现该 8 道工序有重复记录。
+- [x] 定位前端按钮：待报工数量为空/非正数时 `disabled`，点击不会触发事件或 HTTP 请求，且无解释性提示；服务端/API错误路径已有明确 toast。
+- [x] 首次线上浏览器实测发现静态 AntD message 在页面未呈现；改用项目 `App.useApp().message` 上下文反馈，保证提示可见。
+- [x] 仅提交报工页面及定向组件测试两文件；最终 commit `647c914362fe9d96774b9b8b292f54afab5f6308` 已推送 `github/main`。
+- [x] 使用干净 linked worktree 执行 Web-only 部署；生产 Web SHA 与 commit 一致为 `647c914`，API 保持 `5b1eaaf`；Web、API、PostgreSQL、Document Worker 健康。
+- [x] 使用生产 Web 页面及真实 Chrome 验收，拦截报工 API 并返回合成响应：空值、0 值均可见提示且不发 POST；有效数量成功提示；快速连点仅发一个合成 POST；API 400 错误明确显示；没有未捕获 JS 错误或生产写入。
+- [x] 后续排查 `order_number` 必填失败：`create()` 在 `fillReportSource()` 从周计划补齐业务字段之前创建 INSERT 字段和值列表，导致请求中的已关联周计划数据没有进入 INSERT。
+- [x] 生产只读复核订单 `2026A027377` / 品项 `TGH704BD1-1/1` / `packaging` 仍启用、计划数量 2、报工记录 0；失败请求未留下报工或重复记录。
+- [x] 修复为在来源字段补齐和权限/业务校验后创建 INSERT 列表；强化 `packaging` 回归断言验证订单、品项、交期和标准工序名称都落入 INSERT。
+- [x] 报工 API 定向测试 13/13、API typecheck、build、`git diff --check` 通过；commit `a63fcc2c6581dc546dc0e6c6ff0e78c6ebfd3ccb` 已推送 `github/main`。
+- [x] 使用干净 linked worktree 执行 `deploy.sh api` 与 `deploy.sh all`；最终 Repository/Web/API SHA 均为 `a63fcc2`，`deploy.sh check` 一致；API、Web、PostgreSQL、Document Worker 健康。
+
+## 正在进行
+- [x] 修改报工按钮零输入时的反馈，并加同步锁防止快速重复点击。
+- [x] 运行报工页面目标组件测试及 Web 类型检查。
+
+## 待完成
+- [x] 复核 diff、提交推送、部署、健康检查和线上交互验收。
+
+## 修改文件
+- apps/web/src/modules/master-plan-system/MasterPlanPages.tsx
+- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx
+- outputs/CODEX_PROGRESS.md（保留既有报告与历史进度）
+
+## 数据库 Migration
+- 无；Web-only 部署，无 Migration、数据库备份或业务数据写入。
+
+## 新增或修改测试
+- 报工页面组件测试：空数量提示、快速重复点击只发出一次请求；更新成功后提交按钮状态断言。
+- 生产 Chrome 浏览器交互：报告 POST 完全由浏览器路由返回合成响应，生产业务数据零写入。
+
+## 已运行测试
+测试名称：`pnpm --filter @tracker/web exec vitest run src/modules/master-plan-system/MasterPlanPages.spec.tsx --maxWorkers=2`
+结果：38/38 通过。
+
+测试名称：`pnpm --filter @tracker/web typecheck`
+结果：最终代码通过（退出码 0；宿主环境提示 Node v22.23.1，项目包声明要求 >=24；生产镜像 Node 24 Web 构建通过）。
+
+测试名称：`git diff --check`。
+结果：通过。
+
+测试名称：生产订单/品项及周计划、工序任务、实际报工只读查询；生产健康与版本核验。
+结果：只读核验完成；未执行任何生产写入。
+
+测试名称：生产 Web build info、`/health`、API `/api/v1/health`、容器健康。
+结果：Web `647c914`；API `5b1eaaf`；四个服务均 healthy。
+
+## 当前已知问题
+- 订单指定的真实生产数据未用于写入验收；有效报工通过生产 Web 页面向合成 API 验证，避免修改订单/工序/历史报工。实际数据持久化仍由既有 API 实现负责。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+1. 无；如之后需核实生产新报工记录，按正常授权业务流程由用户提交。
+
+## 恢复执行说明
+本轮已完成：最终 commit `647c914362fe9d96774b9b8b292f54afab5f6308` 已推送并发布至 Web；浏览器验收使用合成 API，未写生产业务数据。原工作区未提交的 T+ 调查进度、报告和 zip 文件均保留且未夹带进发布。
+
+---
+
+# Codex 工作进度
+
+## 任务
+任务名称：科加智能 T+19 工艺数据只读调查。
+任务目标：复用 tplus-kejia 连接核实目标账套、工序/路线/BOM/存货/加工单实际工序结构与关联，解析 CHM 并生成中文报告。
+当前状态：已完成（只读调查及报告）。
+最后更新时间：2026-10-23（Asia/Shanghai）。
+
+---
+
+## 当前阶段
+当前阶段：真实库关系核验及报告完成。
+当前子任务：无。
+
+## 已完成
+- [x] 阅读项目 AGENTS.md；目标 Skill 路径缺失，从现有未跟踪压缩包中临时解压读取，未改动项目 Skill。
+- [x] 使用项目同步器的 tplus-kejia 数据源与既有 Python 环境连接，DB_NAME() 确认为 UFTData418971_000003；未输出密钥。
+- [x] 使用随 Skill 附带的 inspect_kejia_routing.py 核实候选表及字段；仅在 /tmp 副本对 LIKE 通配符做 pytds 转义后运行。
+- [x] 用现有 7z 解压 CHM 并提取关键词索引；未安装软件。
+- [x] 核实标准路线、BOM 版本/BOM工序、加工单实际工序及报工关联；最多读取每次 TOP 5 的样例，另以聚合统计验证连接匹配。
+- [x] 生成 outputs/科加工艺数据只读调查报告.md。
+
+## 正在进行
+- [x] 无。
+
+## 待完成
+- [x] 无；报告列明未确认项。
+
+## 修改文件
+- outputs/科加工艺数据只读调查报告.md
+- outputs/CODEX_PROGRESS.md（新增本任务恢复入口，保留既有内容）
+- 无业务代码修改；压缩包 kdos-tplus-readonly-skill.zip 为任务前已有未跟踪文件，未修改。
+
+## 数据库 Migration
+- 无。
+
+## 新增或修改测试
+- 无；本任务为只读调查。
+
+## 已运行测试
+测试名称：SQL Server 只读元数据、行数概况、ID 关联聚合及每表最多 5 行样例；CHM 解压和索引。
+结果：DB_NAME 正确；实际逻辑关系及数量见调查报告；未写入数据库。
+
+## 当前已知问题
+- 13,946 条 BOM 子件未能连接到现存 BOM 表头；原因未知。
+- 8 条加工单路线来源工序的实际顺序与来源路线顺序不同；业务原因未知。
+- idDefaultRouting 的 CHM 文字释义与实际 ID 关联用途存在语义歧义。
+- 原始 Skill 文件只存在于未跟踪 zip，项目预期目录不存在；脚本原样运行会触发 pytds LIKE 百分号格式错误，已在 /tmp 脚本副本转义后完成。
+
+## 等待用户确认
+- 无。
+
+## 下一步
+1. 查阅 outputs/科加工艺数据只读调查报告.md。
+2. 若后续要设计同步映射，先处理报告列出的未确认业务差异，不在本次调查范围内直接实现。
+
+## 恢复执行说明
+本任务已完成且止于只读调查与报告；没有同步、结构变更、部署或 Git 提交。
+
+---
+
+# Codex 工作进度
+
+## 任务
 任务名称：KDOS 评审交期表 V2 生产上线预检。
 任务目标：只读检查Git工作区、生产Migration/数据基线、备份与发布/回退流程、Node版本风险，并产出上线就绪报告；不修改生产。
 当前状态：DEPLOYED_WAITING_MANUAL_ACCEPTANCE；V2已隔离提交、推送GitHub main并部署；生产数据保持空表。
@@ -8071,3 +8209,89 @@ E10 是实时生产系统；以下为 2026-10-06 本轮快照，BOM 判断时点
 当前已知问题：未使用生产合成业务记录执行新增/报工写入验收；批量锁定与快照重算由API/UI针对性测试及生产守卫/Migration核验覆盖。没有其他遗留问题。
 等待用户确认：无（本轮需求已授权开发和部署）。
 下一步：无。
+
+
+## 安装 Changjie T+ Reader Skill（2026-10-23）
+任务目标：将现有畅捷通 T+ 只读 Skill 安装到 `.agents/skills/changjie-tplus-reader/` 并验证 Codex 可发现。
+当前状态：已完成。
+已完成：目标目录原先不存在；从已有本地 Skill 包安装完整内容，重命名 frontmatter 并修正内部目录引用；验证 `SKILL.md`、YAML/frontmatter、参考链接、Python 脚本语法和 CHM 资源；`quick_validate.py` 显示 `Skill is valid!`。
+修改文件：`.agents/skills/changjie-tplus-reader/` 下8个文件。
+Git：提交 `01dee20` 已推送至 `github/main`。
+数据库 Migration/业务代码/部署：无。
+遗留问题：无。
+
+---
+
+# Codex 工作进度
+
+## 任务
+
+任务名称：科加 T+ 工序数据分类、订单加工单链路说明及本地导出。
+任务目标：只读核实科加账套中工序档案、路线/BOM工序、加工单实际工序及订单关联，提供中文说明和 Excel，并将本轮输出放到 `test/`。
+当前状态：已完成。
+最后更新时间：2026-10-26（Asia/Shanghai）。
+
+## 当前阶段
+
+当前阶段：调查、导出和验证完成。
+当前子任务：无。
+
+## 已完成
+
+- [x] 阅读项目 AGENTS.md 与 `changjie-tplus-reader` Skill，保护既有工作区内容。
+- [x] 复用 `tplus-kejia` 只读连接，`DB_NAME()` 确认 `UFTData418971_000003`。
+- [x] 核实工序主档 `AA_Process`、标准路线明细 `AA_Routing_b`、BOM工序 `AA_BOMProcess`、加工单实际工序 `MP_ManufactureOrder_Process` 的职责边界及来源关联。
+- [x] 核实订单/加工单头和行的 ID 关联并记录未匹配数量及证据限制。
+- [x] 在 `test/` 生成中文报告、可复用只读导出脚本、Excel 导出和目录说明。
+- [x] 导出 12,303 条 2026-09-01 以来的加工单实际工序；另外导出 8 条期间工序档案、193 条期间标准路线工序明细、172 条期间 BOM 工序明细。
+- [x] 明确报告不声称确认了 T+ 前台具体按钮或加工单自动/手工生成方式；未修改源库。
+
+## 正在进行
+
+- [x] 无。
+
+## 待完成
+
+- [x] 无。
+
+## 修改文件
+
+- `test/README.md`
+- `test/TPLUS_KEJIA_PROCESS_FLOW_AND_EXPORT.md`
+- `test/export_tplus_kejia_processes.py`
+- `test/tplus_kejia_process_operations_since_2026-09-01.xlsx`（本地导出，Git 忽略）
+- `outputs/CODEX_PROGRESS.md`（本记录，保留历史任务）
+
+## 数据库 Migration
+
+- 无。SQL Server 仅 SELECT；无同步、写入、部署或迁移。
+
+## 新增或修改测试
+
+- 无测试框架测试；对导出脚本和工作簿执行针对性结构/行数验证。
+
+## 已运行测试
+
+测试名称：科加 T+ 只读导出及工作簿复核。
+结果：数据库名正确；12,303 条实际工序，工序来源路线 11,931/11,931 匹配、BOM 372/372 匹配；期间主档 8 条、标准路线工序明细 193 条、BOM工序 172 条。无源数据写入。
+
+测试名称：Python 脚本语法、Excel 工作簿可读性及 Git diff 检查。
+结果：Python 编译通过；工作簿 6 个工作表均可读取，实际工序 12,303 行、当前工序档案 40 行、期间工序主档 8 行、标准路线明细 193 行、BOM工序 172 行；`git diff --check` 通过。
+
+## 当前已知问题
+
+- SQL 数据不能确认 T+ 前台用户如何触发加工单创建（手工、MRP建议转换或其他入口）；具体 UI 流程未核验。
+- 工艺主数据日期按表行 `createdtime`/`updated` 判断，不代表业务生效日期或历史版本审计。
+- 9 张期间加工单头未关联到当前销售订单头；加工单明细中有 71 行所匹配销售订单父项与加工单头订单不一致，原因未知。
+
+## 等待用户确认
+
+- 无。
+
+## 下一步
+
+1. 已完成；用户可查看 `test/TPLUS_KEJIA_PROCESS_FLOW_AND_EXPORT.md` 和 Excel。
+
+## 恢复执行说明
+
+本任务已完成；源 T+ 只读、未部署、未执行 Git 提交或推送。后续用户明确要求输出到 `test/` 时，继续使用该目录。
