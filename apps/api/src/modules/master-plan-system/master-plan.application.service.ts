@@ -133,6 +133,7 @@ export class MasterPlanApplicationService {
       this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
     }
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
@@ -165,6 +166,7 @@ export class MasterPlanApplicationService {
     const values = this.writable(resource, body, actor);
     if (!Object.keys(values).length) throw new BadRequestException("没有可修改的业务字段");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
@@ -177,6 +179,7 @@ export class MasterPlanApplicationService {
       if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
       this.validateRequiredOnUpdate(resource, values, current);
       this.validateCrossFields(resource, { ...current, ...this.toDatabaseRecord(resource, values) });
+      this.assertMappingTargetScope(resource, { ...current, ...this.toDatabaseRecord(resource, values) }, actor, "update");
       if (code === "mps-order-allocations" && !allocationChange(current, { ...current, ...this.toDatabaseRecord(resource, values) }).fields.length) return { id: current.id, version: Number(current.version), values, unchanged: true };
       const columns = columnsFor(resource); const entries = Object.entries(values); const params: unknown[] = [actor.tenantId, id, expectedVersion, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, ...entries.map(([, value]) => value)];
       const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
@@ -239,6 +242,7 @@ export class MasterPlanApplicationService {
     const storageKey = `mps-batch:${actor.tenantId}:${code}:${actor.userId ?? "system"}:${idempotencyKey}`;
     const requestHash = createHash("sha256").update(JSON.stringify({ records, fieldKey, value })).digest("hex");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
       const [existing] = await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
       if (existing) {
@@ -263,6 +267,7 @@ export class MasterPlanApplicationService {
         try {
           this.validateRequiredOnUpdate(resource, { [fieldKey]: value }, current);
           this.validateCrossFields(resource, { ...current, [column]: value });
+          this.assertMappingTargetScope(resource, { ...current, [column]: value }, actor, "batch_update");
         } catch (error) {
           items.push({ id, success: false, reason: error instanceof Error ? error.message : "字段值不符合业务规则" }); continue;
         }
@@ -351,6 +356,7 @@ export class MasterPlanApplicationService {
         const databaseValues = this.toDatabaseRecord(resource, values);
         this.validateRequiredOnUpdate(resource, values, current);
         this.validateCrossFields(resource, { ...current, ...databaseValues });
+        this.assertMappingTargetScope(resource, { ...current, ...databaseValues }, actor, "import");
         if (code === "mps-order-allocations" && !allocationChange(current, { ...current, ...databaseValues }).fields.length) continue;
         const params: unknown[] = [actor.tenantId, input.id, input.expectedVersion, actorId, ...entries.map(([, value]) => value)];
         const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
@@ -414,6 +420,7 @@ export class MasterPlanApplicationService {
         this.validateRequiredOnUpdate(resource, values, current);
         const mergedValues = this.completeValues(resource, current, values);
         this.validateCrossFields(resource, { ...current, ...this.toDatabaseRecord(resource, values) });
+        this.assertMappingTargetScope(resource, { ...current, ...this.toDatabaseRecord(resource, values) }, actor, "update");
         if (resource.uniqueKeyFields?.some((field) => field in values) && await this.businessRecordExists(resource, mergedValues, actor.tenantId, this.dataSource.manager, input.id!)) throw new ConflictException("修改后的业务唯一键与现有记录重复");
       } catch (error) { errors.push({ row: input.row, reason: error instanceof Error ? error.message : "数据校验失败" }); }
     }
@@ -426,6 +433,7 @@ export class MasterPlanApplicationService {
     await this.enforceShippingWindow(resource, actor);
     const version = Number(expectedVersion); if (!Number.isInteger(version) || version < 1) throw new BadRequestException("expectedVersion 必须是正整数");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
+      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "delete")) throw new ForbiddenException("当前数据范围不允许删除该记录");
@@ -662,6 +670,13 @@ export class MasterPlanApplicationService {
     }
   }
   private validateCrossFields(resource: MasterPlanResource, row: Record<string, unknown>) {
+    if (resource.code === "mps-external-process-mappings") {
+      if (row.source_key !== "tplus-kejia" || !/^[A-Za-z0-9_.:/-]{1,128}$/.test(String(row.source_process_code ?? ""))) throw new BadRequestException("来源账套或ERP工序编码无效");
+      if (!["MATCH", "IGNORE"].includes(String(row.mapping_mode))) throw new BadRequestException("请选择匹配方式");
+      if (row.mapping_mode === "MATCH" && !row.process_code) throw new BadRequestException("绑定时必须选择KDOS工序");
+      if (row.mapping_mode === "IGNORE" && row.process_code != null) throw new BadRequestException("不参与内部报工时请清空KDOS工序");
+    }
+
     if(resource.code === "mps-order-allocations") for(const [key,label,type] of ALLOCATION_FIELDS) {
       if(type !== "number" || row[allocationColumn(key)] == null) continue;
       const value=new Decimal(String(row[allocationColumn(key)])),scale=["financialExchangeRate","settlementRatio"].includes(key)?8:4;
@@ -699,6 +714,21 @@ export class MasterPlanApplicationService {
       if (resource.code === "mps-shipping-plans" && error instanceof ForbiddenException) return "数据校验通过，但当前不在出货计划开放修改时间，暂不能确认导入。";
       throw error;
     }
+  }
+
+  /** Inline mapping controls follow the same field and row rules as the command. */
+  externalProcessMappingCanWrite(row: Record<string, unknown>, actor: MasterPlanActor, existing: boolean) {
+    const resource = this.resource("mps-external-process-mappings");
+    const action = existing ? "update" : "create";
+    if (!hasMasterPlanPermission(actor, resource.code, action) || !this.recordAllowed(resource, row, actor, "read")) return false;
+    const fields = existing ? ["mappingMode", "processCode", "enabled"] : ["divisionId", "sourceKey", "sourceProcessCode", "sourceProcessName", "mappingMode", "processCode", "enabled"];
+    if (!fields.every(f => hasMasterPlanFieldPermission(actor, resource.code, f, "update") || (!existing && hasMasterPlanFieldPermission(actor, resource.code, f, "read")))) return false;
+    if (existing) return this.recordAllowed(resource, row, actor, "update");
+    try { this.assertCreateScope(resource, row, actor); return true; } catch { return false; }
+  }
+
+  private assertMappingTargetScope(resource: MasterPlanResource, row: Record<string, unknown>, actor: MasterPlanActor, action: string) {
+    if (resource.code === "mps-external-process-mappings" && !this.recordAllowed(resource,row,actor,action)) throw new ForbiddenException("工序映射不能移入未授权的事业部");
   }
 
   private recordAllowed(resource: MasterPlanResource, row: Record<string, unknown>, actor: MasterPlanActor, action: string) {
@@ -828,7 +858,7 @@ export class MasterPlanApplicationService {
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {
-    if (resource.code === "mps-order-allocations" || resource.code === "mps-customer-divisions") return undefined;
+    if (["mps-order-allocations", "mps-customer-divisions", "mps-external-process-mappings"].includes(resource.code)) return undefined;
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */

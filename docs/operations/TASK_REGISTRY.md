@@ -236,3 +236,17 @@
 - 原E10 ingest冲突跳过，因此手工客户已存在时不覆盖人工分类、source或version；并发与重放在独立PG验证，不手工触发生产同步。
 - 本项仓库新增调度定义/候选0，生产新增或迁移自动入口0；n8n只读盘点16定义/11active，保留原定义/启停/发布版本。其余主机scheduler审计留受限证据，不将模板数冒充新启用任务。
 - 验证/迁移/正式版本见outputs/FINANCE_CUSTOMER_MANUAL_ACCEPTANCE.md；回退应用保留MANUAL来源及记录，不恢复旧CHECK丢弃手工客户，不擅自停用FIN-001。
+
+## PMC-BOM-001：事业四部一级BOM工序查询（2026-10-26）
+
+- 归属：PMC订单进度；入口为用户打开「一级BOM工序匹配」的受权API请求，**按需读取，无周期调度**。不新增/改停systemd、cron、n8n或现有ERP投影。
+- 代码：`apps/api/src/integrations/tplus/kejia-bom.reader.ts` → `data-operations/tplus/kejia-bom-reader.py`；运行身份沿用API容器node用户与basic_code只读挂载，科加账套 `UFTData418971_000003` SELECT-only。
+- 同请求合并；120秒TTL、100键上限、120秒超时；失败503由页面明确显示，用户重试；无外部写入或补偿作业。映射保存经MPS Application Commands，tenant/事业部唯一键、审计及乐观锁，不触发生产工序重投影。
+- 验证：真实科加单订单一级读取、Python/服务/页面专项测试、网络隔离PostgreSQL CRUD/Excel/RLS、Chrome合成业务操作；生产部署及效果证据记于`outputs/CODEX_PROGRESS.md`和`test/`。责任归属PMC，后续按需查询状态由请求本身反馈。
+- 详细合同：[事业四部一级BOM工序对应](../pmc-bom-process-mapping.md)。
+
+### PMC-BOM-002：容器至既有T+隧道转接
+- 必要性实测：宿主机T+端口可达，API容器同一127.0.0.1端口ConnectionRefused；现有`tplus-cloudflared.service`保持active，不修改其loopback监听。
+- 归属基础设施，用户级systemd `kdos-tplus-bom-proxy.socket`按需激活同名service，入口`automation/tplus_bom_proxy/install.sh`；非Timer/cron/n8n，无周期。调用系统已有`systemd-socket-proxyd`，仅监听data/tplus-bom-proxy/tplus.sock本地Unix socket，转至host loopback；API只读挂载该目录，不新增TCP监听，不修改防火墙，不读取或保存SQL凭据。
+- 运行用户沿用当前部署用户，已有Linger=yes；连接是只读BOM adapter的传输层，业务只读保护仍由adapter执行。Socket由systemd管理并发，无数据写入/重放补偿；service空闲5分钟退出，下一请求重新激活。隧道故障在BOM API以503告知用户，journal记录转接故障，不记录密码。
+- 2026-10-26安装前实测现有用户Timer10项、crontab1项，原任务维持；安装后以socket active/enabled及容器真实DB_NAME/一级读取核验。回退stop/disable该socket及service；不操作原cloudflared或ERP同步。目录挂载及BOM socket环境配置随Compose发布；首次安装先于部署。

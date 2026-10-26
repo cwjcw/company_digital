@@ -1,3 +1,4 @@
+import { MasterPlanBomProcesses } from "./MasterPlanBomProcesses";
 import { orderProgressUrl } from "./master-plan-order-progress.utils";
 import { useState, type Key } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,15 +46,17 @@ function ItemTable({order,filters,session,canExport,onOpen}:{order:MpsProgressRo
 }
 const detailTabs=[{key:"mps-weekly-plans",label:"关联周计划"},{key:"mps-technical-reports",label:"图纸"},{key:"mps-material-reports",label:"主材"},{key:"mps-outsourcing-reports",label:"外协"},{key:"mps-weekly-process-plans",label:"工序任务"},{key:"mps-process-reports",label:"实际报工"}];
 const detailLabels:Record<string,string>={divisionId:"事业部",orderNumber:"订单号",itemCode:"品号",itemName:"品名",deliveryNumber:"交期编码",orderDate:"订单日期",latestCustomerDueDate:"交付日期",plannedQuantity:"周计划数量",technicalStatus:"图纸状态",hardwareStatus:"五金状态",woodStatus:"木作状态",outsourcingStatus:"外协状态",drawingDueDate:"图纸交期",hardwareDueDate:"五金交期",woodDueDate:"木作交期",materialName:"主材",received:"已到位",actualInboundDate:"实际入库日期",outsourcingDueDate:"外协交期",status:"状态",processCode:"工序",productionDate:"报工日期",productionQuantity:"本次报工数量",exceptionText:"人工异常",exceptionSummary:"人工异常"};
-function Detail({item,filters,session,user,close}:{item:MpsProgressRow;filters:MpsOrderProgressFilters;session:string;user:Parameters<typeof hasSessionResourcePermission>[0];close:()=>void}){
-  const tabs=detailTabs.filter(t=>hasSessionResourcePermission(user,t.key,"read"));const [code,setCode]=useState(tabs[0]?.key??""),[query,setQuery]=useState<Query>(blankQuery);
-  const result=useQuery({queryKey:[resource,session,"detail",item.id,filters,code,query],queryFn:()=>api<MpsProgressPage>(orderProgressUrl(filters,`/detail/${code}`,{...params(query),orderId:String(item.orderId),itemId:item.id})),enabled:!!code,retry:false});
+function Detail({item,filters,session,user,close,bomAllowed}:{item:MpsProgressRow;filters:MpsOrderProgressFilters;session:string;user:Parameters<typeof hasSessionResourcePermission>[0];close:()=>void;bomAllowed:boolean}){
+  const tabs=[...(bomAllowed&&item.sourceKind==="月计划"&&item.divisionName==="事业四部"?[{key:"bom-process",label:"一级BOM工序匹配"}]:[]),...detailTabs.filter(t=>hasSessionResourcePermission(user,t.key,"read"))];const [code,setCode]=useState(tabs[0]?.key??""),[query,setQuery]=useState<Query>(blankQuery);
+  const result=useQuery({queryKey:[resource,session,"detail",item.id,filters,code,query],queryFn:()=>api<MpsProgressPage>(orderProgressUrl(filters,`/detail/${code}`,{...params(query),orderId:String(item.orderId),itemId:item.id})),enabled:!!code&&code!=="bom-process",retry:false});
   const columns=(result.data?.visibleFields??[]).filter(k=>detailLabels[k]).map(k=>({key:k,dataIndex:k,title:detailLabels[k],width:k==="exceptionText"||k==="exceptionSummary"?300:150,ellipsis:true,render:(value:unknown,row:MpsProgressRow)=>k==="divisionId"?String(row.divisionName??"—"):k==="processCode"?standardProcesses.find(p=>p.code===value)?.name??"—":k==="received"?value===true?"已到位":value===false?"未到位":"—":String(value??"—")}));
   return <Drawer title={`${String(item.itemCode??"品号")} · ${String(item.itemName??"")}`} width="90vw" open onClose={close} destroyOnHidden>
     {!tabs.length?<Alert type="info" message="没有关联业务表的查看权限"/>:<>
       <Tabs activeKey={code} items={tabs} onChange={key=>{setCode(key);setQuery(blankQuery())}}/>
+      {code==="bom-process"?<MasterPlanBomProcesses item={item} session={session} user={user}/>:<>
       {result.error&&<Alert type="error" showIcon message={(result.error as Error).message}/>}
       <KdosDataTable<MpsProgressRow> key={code} resource={resource} viewKey={`detail-${code}`} simple systemFields={false} rowKey="id" dataSource={result.data?.rows??[]} loading={result.isFetching} columns={columns} scroll={{x:columns.length*150}} serverData={{total:result.data?.total??0,onQueryChange:q=>setQuery({page:q.page,pageSize:q.pageSize})}} pagination={{pageSize:query.pageSize}}/>
+      </>}
     </>}
   </Drawer>;
 }
@@ -85,6 +88,6 @@ export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:
         expandable={{expandedRowKeys:expanded,onExpandedRowsChange:keys=>setExpanded([...keys]),expandedRowRender:row=><ItemTable key={session+row.id+JSON.stringify(filters)} order={row} filters={filters} session={session} canExport={canExport} onOpen={setItem}/>}}
         serverData={{resetKey:JSON.stringify(filters),total:result.data?.total??0,onQueryChange:q=>{if(query.page!==q.page||query.pageSize!==q.pageSize||query.sortField!==q.sortField||query.sortOrder!==q.sortOrder){setQuery({page:q.page,pageSize:q.pageSize,sortField:q.sortField,sortOrder:q.sortOrder});setExpanded([])}}}} pagination={{pageSize:query.pageSize}}/>
     </Card>
-    {item&&<Detail key={item.id+JSON.stringify(filters)} item={item} filters={filters} session={session} user={user} close={()=>setItem(null)}/>}
+    {item&&<Detail key={item.id+JSON.stringify(filters)} item={item} filters={filters} session={session} user={user} bomAllowed={has("bomConfiguration")} close={()=>setItem(null)}/>}
   </div>;
 }

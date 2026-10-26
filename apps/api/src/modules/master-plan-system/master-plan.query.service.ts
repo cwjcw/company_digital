@@ -62,6 +62,11 @@ export class MasterPlanQueryService {
       if (!this.reviewDue || trustedScope) throw new ForbiddenException('评审交期查询必须使用独立授权范围');
       return this.reviewDue.list(input,actor);
     }
+    if(!trustedScope && code === "mps-external-process-mappings") return this.dataSource.transaction("REPEATABLE READ",async manager=>{
+      await manager.query("SET TRANSACTION READ ONLY");
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      return this.listRows(code,input,actor,undefined,manager);
+    });
     if(!trustedScope) return this.listRows(code,input,actor);
     return this.dataSource.transaction("REPEATABLE READ",async manager=>{
       await manager.query("SET TRANSACTION READ ONLY");

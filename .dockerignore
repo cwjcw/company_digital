@@ -15,7 +15,7 @@ backups
 coverage
 playwright-report
 test-results
+test/
 .codex-tmp
 *.xlsx
 *.xls
-

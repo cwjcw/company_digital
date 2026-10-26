@@ -1,3 +1,6 @@
+import { KejiaBomReader } from "../../integrations/tplus/kejia-bom.reader";
+import { MasterPlanBomProcessService } from "./master-plan.bom-process.service";
+import { MasterPlanBomProcessController } from "./master-plan.bom-process.controller";
 import { ReviewDueDateImportApplicationService } from './review-due-date-import.application.service';
 import { MasterPlanOrderProgressService } from "./master-plan.order-progress.service";
 import { ReviewDueDateQueryService } from './review-due-date.query.service';
@@ -26,8 +29,8 @@ import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
-  controllers: [ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
-  providers: [ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  controllers: [MasterPlanBomProcessController, ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
+  providers: [KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

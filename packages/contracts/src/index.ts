@@ -81,6 +81,7 @@ export const masterPlanResourceDefinitions = [
   { code: "mps-process-cycles", label: "历史品项周期表（含技术周期）", area: "数据准备" },
   { code: "mps-division-process-configs", label: "事业部工序配置", area: "数据准备" },
   { code: "mps-item-process-routes", label: "品项工艺路线", area: "数据准备" },
+  { code: "mps-external-process-mappings", label: "事业部ERP工序映射", area: "数据准备" },
   { code: "mps-group-plans", label: "集团主计划", area: "计划管理" },
   { code: "mps-review-due-dates", label: "评审交期表", area: "计划管理" },
   { code: "mps-monthly-plans", label: "事业部月度计划", area: "计划管理" },
@@ -450,6 +451,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "equipment-status-report": fields([["equipmentId", "设备（关联台账）", "reference", true, false, { filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["divisionId", "事业部", "department", false], ["usageDepartmentId", "使用部门", "department", false], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["reportDate", "填报日期", "date"], ["plannedRuntimeMinutes", "计划运行时间", "number", true, true, { format: "durationMinutes" }], ["runtimeMinutes", "实际运行时长", "number", true, false, { format: "durationMinutes" }], ["utilizationRate", "稼动率", "number", false, false, { format: "percentage", percentageScale: "percent", filterable: false }], ["faultMinutes", "故障时长", "number", true, false, { format: "durationMinutes" }], ["faultReason", "故障原因", "dictionary"]]),
   "mps-order-progress-dashboard": fields([
     ...Array.from(new Map([...mpsOrderProgressOrderColumns, ...mpsOrderProgressItemColumns].map(([key,label])=>[key,label])).entries()).map(([key,label])=>[key,label,key==="divisionId"?"department":/Date$/.test(key)?"date":/Quantity$|Rate$|Count$/.test(key)?"number":"text",false] as [string,string,"department"|"date"|"number"|"text",boolean]),
+    ["bomConfiguration","一级BOM工序匹配","text",false],
     ["deliveryNumber","交期编码","text",false], ["drawingDueDate","图纸交期","date",false],
     ["hardwareDueDate","五金交期","date",false], ["woodDueDate","木作交期","date",false], ["outsourcingDueDate","外协交期","date",false],
     ["hardwareActualInboundDate","五金实际到位日期","date",false], ["woodActualInboundDate","木作实际到位日期","date",false], ["outsourcingActualInboundDate","外协实际入库日期","date",false],
@@ -480,6 +482,13 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   /* 历史品项周期只保留技术周期维护；旧工序周期字段留在数据库但不再用于路线/周计划生成。 */
   "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"]]),
   "mps-division-process-configs": fields([["divisionId", "事业部", "department", true, true], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "标准周期天数", "number", true, false, { format: "integer" }], ["defaultEnabled", "默认工序", "boolean", true, true], ["sequence", "执行顺序", "number", true, true, { format: "integer" }]]),
+  "mps-external-process-mappings": fields([
+    ["divisionId", "事业部", "department", true, true],
+    ["sourceKey", "来源账套", "dictionary", true, true, { options: [{ value: "tplus-kejia", label: "科加智能" }] }],
+    ["sourceProcessCode", "ERP工序编码", "text", true, true], ["sourceProcessName", "ERP工序名称", "text", true, true],
+    ["mappingMode", "匹配方式", "dictionary", true, true, { options: [{ value: "MATCH", label: "绑定KDOS工序" }, { value: "IGNORE", label: "不参与内部报工" }] }],
+    ["processCode", "KDOS工序", "dictionary", true, false], ["enabled", "启用", "boolean", true, true]
+  ]),
   "mps-item-process-routes": fields([["itemCode", "品项编码", "text", true, true], ["processCode", "工序", "dictionary", true, true], ["sequence", "执行顺序", "number", true, true, { format: "integer" }]]),
   "mps-group-plans": fields([["sourceAccounts", "来源账套", "text", false, false, { filterBinding: { kind: "aggregate", note: "由多个来源账套聚合拼接，按包含匹配筛选" } }], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["customerCode", "客户编码", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["orderAmount", "订单金额", "number", false, false, { format: "currency" }], ["requiredQuantity", "需求数量", "number", false], ["primaryDivisionId", "主责事业部", "department", false], ["completedQuantity", "完成数量", "number", false], ["pendingQuantity", "待完成数量", "number", false], ["completionRate", "完成比例", "number", false, false, { format: "percentage" }]]),
   /* KN-MPS-UI-001：月计划基础数量区域固定为 需求数量 → 已下达周计划数量 → 累计入库数量 → 欠数；全表只有一个「已下达周计划数量」。 */
@@ -861,7 +870,7 @@ export interface TableFilterResourceCapability {
 const mpsFilterCapabilities = Object.fromEntries(
   [
     "mps-review-due-dates",
-    "mps-erp-orders", "mps-customer-divisions", "mps-order-allocations", "mps-process-cycles", "mps-division-process-configs", "mps-item-process-routes", "mps-group-plans",
+    "mps-erp-orders", "mps-customer-divisions", "mps-order-allocations", "mps-process-cycles", "mps-division-process-configs", "mps-item-process-routes", "mps-external-process-mappings", "mps-group-plans",
     "mps-monthly-plans", "mps-shipping-plans", "mps-base-plans", "mps-weekly-plans", "mps-weekly-process-plans",
     "mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports",
     "mps-three-day-work-orders",
@@ -1092,3 +1101,5 @@ export * from "./master-plan-dashboard";
 export * from "./master-plan-dashboard-navigation";
 
 export * from "./master-plan-order-progress";
+
+export * from "./master-plan-bom-process";

@@ -188,3 +188,6 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 复用resources/mps-review-due-dates的import-template、import-preview?view=STANDARD|SOURCE及import-confirm接口；Spreadsheet适配器进入专用ReviewDueDateImportApplicationService和既有mps_import_previews事务，不开放通用create/PATCH/批量/删除。空白模板由Registry生成8列及说明；独立模板读取授权不等于写入，受限字段仅生成结构参考。实际表头与隐藏映射必须一致。STANDARD按原ID+version，SOURCE必须明确选择并按不可变初始三键匹配；MANUAL或STANDARD创建的来源未核实记录遇SOURCE/observe需人工核实。
 
 预览不修改业务表；确认复查租户有效用户、import、新增create、字段/动作范围、唯一性与版本，同事务更新主表、IMPORT日期历史、逐行/批次审计及幂等收据。无read或不在read范围的既有值、日期方向/数量比较不经预览泄露。完全未变化不更新业务行；重复确认不重复计次。原十列业务导出保留，标准更新身份需由获权系统记录提供。详情见outputs/KDOS_MPS_REVIEW_DUE_IMPORT_ACCEPTANCE.md；用户后续已授权同步GitHub；本次不生产导入、部署或启用任何调度。
+# 科加一级BOM工序匹配
+
+事业四部在制订单的一级子件工序按需只读获取，按事业部绑定到KDOS十标准工序，再读取已有产品报工进度；不生成新任务或改写历史报工。接口、来源优先级、权限及运行边界见[一级BOM工序对应](pmc-bom-process-mapping.md)。
