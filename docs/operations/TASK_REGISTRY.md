@@ -250,3 +250,9 @@
 - 归属基础设施，用户级systemd `kdos-tplus-bom-proxy.socket`按需激活同名service，入口`automation/tplus_bom_proxy/install.sh`；非Timer/cron/n8n，无周期。调用系统已有`systemd-socket-proxyd`，仅监听data/tplus-bom-proxy/tplus.sock本地Unix socket，转至host loopback；API只读挂载该目录，不新增TCP监听，不修改防火墙，不读取或保存SQL凭据。
 - 运行用户沿用当前部署用户，已有Linger=yes；连接是只读BOM adapter的传输层，业务只读保护仍由adapter执行。Socket由systemd管理并发，无数据写入/重放补偿；service空闲5分钟退出，下一请求重新激活。隧道故障在BOM API以503告知用户，journal记录转接故障，不记录密码。
 - 2026-10-26安装前实测现有用户Timer10项、crontab1项，原任务维持；安装后以socket active/enabled及容器真实DB_NAME/一级读取核验。回退stop/disable该socket及service；不操作原cloudflared或ERP同步。目录挂载及BOM socket环境配置随Compose发布；首次安装先于部署。
+
+### PMC-BOM-001 综合生产进度查询补齐（2026-10-26）
+
+- 由既有在制订单看板请求和Excel导出按需计算有效工序快照＋入库的等权综合进度；只读KDOS正式数据，无ERP读取、业务写入或新投影。
+- 新增调度定义/候选0，生产新增自动入口/常驻服务0；未调整systemd/cron/n8n及原消费者。查询走原15秒超时和租户只读事务，失败由页面明确报错，用户可重试。
+- 无Migration；应用回退即可恢复旧显示，保留原事实和配置。测试及实际版本记录于outputs/CODEX_PROGRESS.md和test/composite-*；权重及缺配置处理见docs/pmc-bom-process-mapping.md。

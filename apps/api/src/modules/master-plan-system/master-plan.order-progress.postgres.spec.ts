@@ -29,7 +29,7 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
     for(const n of [0,1]){
       await insert("mps_shipping_plans",{...common,id:id(40+n),monthly_plan_id:id(20),delivery_number:String(n+1).padStart(3,"0"),planned_quantity:n===0?200:100});
       await insert("mps_base_plans",{...common,id:id(45+n),shipping_plan_id:id(40+n),delivery_number:String(n+1).padStart(3,"0"),planned_quantity:n===0?200:100});
-      await insert("mps_weekly_plans",{...common,id:id(50+n),base_plan_id:id(45+n),delivery_number:String(n+1).padStart(3,"0"),planned_quantity:n===0?200:100,pending_quantity:100,hardware_due_date:"2020-01-01",wood_due_date:"2020-01-01"});
+      await insert("mps_weekly_plans",{...common,id:id(50+n),manufacturing_method:"自制",base_plan_id:id(45+n),delivery_number:String(n+1).padStart(3,"0"),planned_quantity:n===0?200:100,pending_quantity:100,hardware_due_date:"2020-01-01",wood_due_date:"2020-01-01"});
     }
     await insert("mps_weekly_plans",{...common,id:id(52),division_id:other,base_plan_id:null,delivery_number:"003",planned_quantity:100,pending_quantity:100});
     for(const [n,weekly,code,quantity]of [[60,50,"cutting",100],[61,50,"cutting",155],[62,51,"packaging",525],[63,52,"cutting",1000],[64,50,"cutting",9999]]as const)await insert("mps_process_reports",{id:id(n),division_id:n===63?other:division,order_number:"ORDER-A",item_code:"ITEM-A",item_name:"测试品项",weekly_plan_id:id(weekly),process_code:code,production_quantity:quantity,production_date:"2026-10-15",exception_text:n===61?"人工工序异常":null,...(n===64?{tenant_id:tenant+"-OTHER"}:{})});
@@ -69,6 +69,60 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
     expect(Number(row.dispatchedWeeklyQuantity)).toBe(300);expect(Number(row.cuttingReportedQuantity)).toBe(255);expect(Number(row.cuttingProductionProgress)).toBe(.51);expect(Number(row.packagingProductionProgress)).toBe(1.05);expect(Number(row.packagingReportedQuantity)).toBe(525);
     expect(row).toMatchObject({cuttingStatus:"已完成",packagingStatus:"延期",cuttingLastReportDate:"2026-10-15",itemCompletionRate:"0.2500"});
   });
+  it("综合进度以两道有效快照与入库三个阶段等权，跨周同工序去重且封顶",async()=>{
+    const row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(Number(row.itemProductionProgress)).toBeCloseTo((.25+.51+1)/3,10);
+    expect(row.itemProgressBasis).toContain("下料"); expect(row.itemProgressBasis).toContain("包装");
+    expect(row.itemProgressBasis).not.toContain("焊接");
+    expect(Number(row.packagingProductionProgress)).toBe(1.05); // raw report metric stays truthful
+  });
+  it("已确认示例：三道工序全报完而未入库为75%",async()=>{
+    await runner.query("UPDATE mps_monthly_plans SET cumulative_inbound_quantity=0 WHERE id=$1",[id(20)]);
+    await runner.query("UPDATE mps_process_reports SET production_quantity=500 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND process_code='cutting'",[tenant,id(50)]);
+    await runner.query("INSERT INTO mps_weekly_process_plans(id,tenant_id,weekly_plan_id,process_code,execution_enabled) VALUES($1,$2,$3,'machining',true)",[id(73),tenant,id(50)]);
+    await runner.query("INSERT INTO mps_process_reports(id,tenant_id,division_id,weekly_plan_id,process_code,production_quantity) VALUES($1,$2,$3,$4,'machining',500)",[id(66),tenant,division,id(50)]);
+    expect(Number((await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!.itemProductionProgress)).toBe(.75);
+  });
+  it("入库覆盖缺报工阶段；全量入库100%，不补写历史报工",async()=>{
+    await runner.query("UPDATE mps_monthly_plans SET cumulative_inbound_quantity=400 WHERE id=$1",[id(20)]);
+    let row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(Number(row.itemProductionProgress)).toBeCloseTo((.8+.8+1)/3,10);
+    expect(Number(row.cuttingReportedQuantity)).toBe(255);
+    await runner.query("UPDATE mps_monthly_plans SET cumulative_inbound_quantity=500 WHERE id=$1",[id(20)]);
+    row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;expect(Number(row.itemProductionProgress)).toBe(1);
+  });
+  it("未选工序不参与综合进度，数量变更按最新需求重算",async()=>{
+    await runner.query("UPDATE mps_weekly_process_plans SET execution_enabled=false WHERE process_code='packaging'");
+    await runner.query("INSERT INTO mps_weekly_process_plans(id,tenant_id,weekly_plan_id,process_code,execution_enabled) VALUES($1,$2,$3,'cutting',true)",[id(72),tenant,id(51)]);
+    const row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(Number(row.itemProductionProgress)).toBeCloseTo((.25+.51)/2,10);
+    await runner.query("UPDATE mps_monthly_plans SET required_quantity=1000 WHERE id=$1",[id(20)]);
+    expect(Number((await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!.itemProductionProgress)).toBeCloseTo((.125+.255)/2,10);
+  });
+  it("纯外协只按入库，无有效工艺或无效需求不冒报进度",async()=>{
+    await runner.query("UPDATE mps_weekly_plans SET manufacturing_method='外协' WHERE id IN ($1,$2)",[id(50),id(51)]);
+    let row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(Number(row.itemProductionProgress)).toBe(.25);
+    await runner.query("UPDATE mps_weekly_plans SET manufacturing_method='中心外购' WHERE id IN ($1,$2)",[id(50),id(51)]);
+    expect(Number((await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!.itemProductionProgress)).toBe(.25);
+    await runner.query("UPDATE mps_weekly_plans SET manufacturing_method=NULL WHERE id IN ($1,$2)",[id(50),id(51)]);
+    row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(row.itemProductionProgress).toBeNull(); expect(row.itemProgressBasis).toContain("待核实");
+    await runner.query("UPDATE mps_monthly_plans SET required_quantity=0 WHERE id=$1",[id(20)]);
+    expect((await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!.itemProductionProgress).toBeNull();
+  });
+  it("部分交期缺少有效快照时不以剩余交期工序冒充完整路线",async()=>{
+    await runner.query("UPDATE mps_weekly_process_plans SET execution_enabled=false WHERE weekly_plan_id=$1",[id(51)]);
+    const row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
+    expect(row.itemProductionProgress).toBeNull();expect(row.itemProgressBasis).toContain("部分周计划");
+  });
+  it("订单包含已完成但被列表隐藏的品项；缺计划阻止不完整平均，品号筛选不改订单口径",async()=>{
+    let row=(await page("orders",{orderId:id(10)})).rows[0]!;
+    expect(row.orderProductionProgress).toBeNull(); expect(row.orderProgressBasis).toContain("2个品项");
+    await runner.query("DELETE FROM mps_order_allocations WHERE id IN ($1,$2)",[id(31),id(32)]);
+    row=(await page("orders",{orderId:id(10),itemCodes:["ITEM-A"]})).rows[0]!;
+    expect(Number(row.orderProductionProgress)).toBeCloseTo(((.25+.51+1)/3+1)/2,10);
+  });
   it("formal preparation status, absent records and absent process tasks stay distinguishable; only manual exceptions",async()=>{
     const row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
     expect(row).toMatchObject({technicalStatus:"延期",hardwareStatus:"已完成",woodStatus:null,outsourcingStatus:"进行中",machiningStatus:null,machiningTaskCount:0});
@@ -93,7 +147,8 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   });
   it("field dependencies crop rows, ratios and sorting; input cannot probe hidden fields",async()=>{
     const who=scoped();who.permissions=who.permissions.filter(p=>![`${resource}:cuttingReportedQuantity:read`,`${resource}:itemName:read`].includes(p));
-    const row=(await page("items",{orderId:id(10),itemId:id(20)},who)).rows[0]!;expect(row.itemName).toBeUndefined();expect(row.cuttingReportedQuantity).toBeUndefined();expect(row.cuttingProductionProgress).toBeUndefined();
+    const row=(await page("items",{orderId:id(10),itemId:id(20)},who)).rows[0]!;expect(row.itemName).toBeUndefined();expect(row.cuttingReportedQuantity).toBeUndefined();expect(row.cuttingProductionProgress).toBeUndefined();expect(row.itemProductionProgress).toBeUndefined();expect(row.itemProgressBasis).toBeUndefined();
+    expect((await page("orders",{},who)).rows[0]!.orderProductionProgress).toBeUndefined();
     await expect(page("items",{sortField:"cuttingProductionProgress"},who)).rejects.toThrow("排序字段权限");
   });
   it("formal detail preserves both weekly delivery IDs and report facts; rejects fabricated item/order, tenant and original read bypass",async()=>{
@@ -108,7 +163,12 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   });
   it("both XLSX exports inherit all top filters, ignore expansion/page and omit UUID/tenant; null is not zero",async()=>{
     const exporter=new MasterPlanOrderProgressExportService(service,{recordOrderProgressExport:audit}as never);
-    for(const key of ["orders","items"]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.export(key,{orderNumbers:["ORDER-A"],orderId:id(14),itemId:id(23),page:10},actor)as never);const sheet=book.worksheets[0]!;expect(sheet.rowCount-1).toBe(key==="orders"?1:3);const values=JSON.stringify(sheet.getSheetValues());expect(values).not.toContain("0199bb00");expect(values).not.toContain("tenant");if(key==="items")expect(values).toContain("0.51");}
+    for(const key of ["orders","items"]){const book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.export(key,{orderNumbers:["ORDER-A"],orderId:id(14),itemId:id(23),page:10},actor)as never);const sheet=book.worksheets[0]!;expect(sheet.rowCount-1).toBe(key==="orders"?1:3);const values=JSON.stringify(sheet.getSheetValues());expect(values).not.toContain("0199bb00");expect(values).not.toContain("tenant");if(key==="items"){
+      expect(values).toContain("0.51");
+      const headers=sheet.getRow(1).values as unknown[];const col=headers.indexOf("综合生产进度");
+      expect(col).toBeGreaterThan(0);expect(sheet.getColumn(col).numFmt).toBe("0.0%");
+      expect(Number(sheet.getRow(2).getCell(col).value)).toBeCloseTo((.25+.51+1)/3,10);
+    }}
     expect(audit).toHaveBeenCalledTimes(2);
   });
 });

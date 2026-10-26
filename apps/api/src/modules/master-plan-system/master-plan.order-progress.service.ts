@@ -26,6 +26,8 @@ export class MasterPlanOrderProgressService {
       orderCompletionRate:["orderRequiredQuantity","orderCompletedQuantity"], itemCompletionRate:["requiredQuantity","cumulativeInboundQuantity"],
       unfinishedItemCount:["pendingQuantity","planStatus"], coverageStatus:["planStatus"]
     };
+    const compositeDependencies = ["requiredQuantity","cumulativeInboundQuantity",...processes.flatMap(p=>[p.code+"ReportedQuantity",p.code+"TaskCount"])];
+    for (const key of ["orderProductionProgress","itemProductionProgress","orderProgressBasis","itemProgressBasis"]) deps[key]=compositeDependencies;
     for(const p of processes)deps[p.code+"ProductionProgress"]=[p.code+"RequiredQuantity",p.code+"ReportedQuantity"];
     return hasMasterPlanFieldPermission(actor,resource,key,"read") && (deps[key]??[]).every(k=>hasMasterPlanFieldPermission(actor,resource,k,"read"));
   }
@@ -83,11 +85,46 @@ export class MasterPlanOrderProgressService {
       `exception_parts AS (SELECT monthly_id,source_order,source_label,string_agg(DISTINCT exception_text,'、' ORDER BY exception_text) texts FROM exception_records GROUP BY 1,2,3)`,
       `exception_facts AS MATERIALIZED (SELECT monthly_id,string_agg(${masterPlanExceptionPartSql("source_label","texts")},'；' ORDER BY source_order) summary FROM exception_parts GROUP BY 1)`
     );
+    // Use only actual enabled snapshots. Never infer stages from the canonical registry or refresh a locked route.
+    const processNames = processes.map(p=>`WHEN '${p.code}' THEN '${p.name}'`).join(" ");
+    ctes.push(
+      `composite_stages AS MATERIALIZED (SELECT t.monthly_id,count(*) stage_count,
+        string_agg(CASE t.process_code ${processNames} END,'、' ORDER BY t.process_code) process_names,
+        sum(least(1,greatest(0,COALESCE(m.cumulative_inbound_quantity,0)/NULLIF(m.required_quantity,0),COALESCE(p.reported,0)/NULLIF(m.required_quantity,0)))) stage_sum
+        FROM task_facts t JOIN a_monthly m ON m.id=t.monthly_id
+        LEFT JOIN process_facts p ON p.monthly_id=t.monthly_id AND p.process_code=t.process_code
+        WHERE t.process_code IN (${processes.map(p=>`'${p.code}'`).join(',')}) GROUP BY t.monthly_id)`,
+      `composite_methods AS MATERIALIZED (SELECT monthly_id,count(*) weekly_count,
+        bool_and(COALESCE(manufacturing_method IN ('外协','纯外协','中心外购'),false)) procurement_only,
+        bool_or(manufacturing_method IS NULL OR manufacturing_method NOT IN ('自制','自制+外协','外协','纯外协','中心外购')
+          OR (manufacturing_method IN ('自制','自制+外协') AND NOT EXISTS(SELECT 1 FROM actual_tasks t WHERE t.weekly_plan_id=related_weekly.id))) unresolved
+        FROM related_weekly GROUP BY monthly_id)`,
+      `composite_items AS MATERIALIZED (SELECT m.id,
+        CASE WHEN m.required_quantity IS NULL OR m.required_quantity<=0 THEN NULL
+          WHEN m.cumulative_inbound_quantity>=m.required_quantity THEN 1
+          WHEN methods.unresolved THEN NULL
+          WHEN COALESCE(s.stage_count,0)>0 THEN
+            (least(1,greatest(0,COALESCE(m.cumulative_inbound_quantity,0)/m.required_quantity))+s.stage_sum)/(s.stage_count+1)
+          WHEN methods.procurement_only OR m.manufacturing_method IN ('外协','纯外协','中心外购') THEN least(1,greatest(0,COALESCE(m.cumulative_inbound_quantity,0)/m.required_quantity))
+          ELSE NULL END production_progress,
+        CASE WHEN m.required_quantity IS NULL OR m.required_quantity<=0 THEN '需求数量无效，待核实'
+          WHEN methods.unresolved AND COALESCE(m.cumulative_inbound_quantity,0)<m.required_quantity THEN '部分周计划工艺未确认，综合进度待核实'
+          WHEN COALESCE(s.stage_count,0)>0 THEN '周计划有效工序快照：'||s.process_names||'；各工序与入库等权'
+          WHEN methods.procurement_only OR m.manufacturing_method IN ('外协','纯外协','中心外购') THEN '纯外协/中心外购，仅按入库'
+          WHEN m.cumulative_inbound_quantity>=m.required_quantity THEN '已全部入库'
+          ELSE '有效工序未确认，综合进度待核实' END progress_basis
+        FROM a_monthly m LEFT JOIN composite_stages s ON s.monthly_id=m.id LEFT JOIN composite_methods methods ON methods.monthly_id=m.id)`
+    );
     ctes.push(`source_items AS MATERIALIZED (
       SELECT m.id,m.tenant_id,m.order_number,m.item_code,m.item_name,m.division_id,m.customer_code,m.order_date,${masterPlanDeliveryDateSql("wt.outstanding_due","wt.latest_due","m.latest_customer_due_date")} delivery_date,'月计划'::text source_kind,NULL::numeric source_quantity,m.required_quantity,m.cumulative_inbound_quantity,m.pending_quantity,m.completion_rate,'已建立月计划'::text plan_status FROM a_monthly m LEFT JOIN weekly_totals wt ON wt.monthly_id=m.id
       UNION ALL SELECT a.id,a.tenant_id,a.order_number,a.item_code,a.item_name,a.division_id,a.customer_code,a.order_date,NULL::date,'订单分配',a.allocated_quantity,NULL,NULL,NULL,NULL,'尚未建立月计划' FROM a_allocation a WHERE NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=a.tenant_id AND m.allocation_id=a.id)
       UNION ALL SELECT e.id,e.tenant_id,e.order_number,e.item_code,e.item_name,e.division_id,e.customer_code,e.order_date,NULL::date,'ERP订单行',e.order_quantity,NULL,NULL,NULL,NULL,CASE WHEN EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) THEN '来源行与月计划关联待核实' ELSE '尚未建立月计划' END FROM a_erp e WHERE e.source_line_count>1 OR (NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) AND NOT EXISTS(SELECT 1 FROM a_allocation a WHERE a.tenant_id=e.tenant_id AND a.order_number=e.order_number AND a.item_code=e.item_code))
     )`);
+    ctes.push(`composite_orders AS MATERIALIZED (SELECT i.order_number,
+      CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN NULL ELSE avg(c.production_progress) END production_progress,
+      CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN count(*) FILTER(WHERE c.production_progress IS NULL)::text||'个品项工艺或需求待核实'
+      ELSE '品项综合进度等权平均；有效工序＋入库分阶段等权' END progress_basis
+      FROM source_items i LEFT JOIN composite_items c ON c.id=i.id GROUP BY i.order_number)`);
     const itemWhere:string[]=[],groupWhere:string[]=[];
     if(q.divisionId){const b=bind(q.divisionId);itemWhere.push(`i.division_id=${b}::uuid`);groupWhere.push(`g.primary_division_id=${b}::uuid`)}
     if(q.customerCode){const b=bind(q.customerCode);itemWhere.push(`i.customer_code=${b}`);groupWhere.push(`g.customer_code=${b}`)}
@@ -108,7 +145,7 @@ export class MasterPlanOrderProgressService {
     const q=this.normalize(input,actor,kind);if(action==="export")this.assert(actor,"export");
     const params:unknown[]=[actor.tenantId],facts=this.facts(q,actor,params,action),page=Math.max(1,Math.floor(Number(q.page)||1)),pageSize=normalizeKdosPageSize(Number(q.pageSize)||100);
     const json=(values:Record<string,string>)=>{const entries=Object.entries(values),chunks:string[]=[];for(let i=0;i<entries.length;i+=40)chunks.push(`jsonb_build_object(${entries.slice(i,i+40).flatMap(([k,v])=>[`'${k}'`,v]).join(",")})`);return chunks.join(" || ")};
-    const itemValues:Record<string,string>={id:"i.id::text",orderId:"g.id::text",divisionId:"i.division_id",divisionName:"o.name",orderNumber:"i.order_number",itemCode:"i.item_code",itemName:"i.item_name",customerCode:"i.customer_code",orderDate:"COALESCE(g.order_date,i.order_date)::text",deliveryDate:"i.delivery_date::text",sourceKind:"i.source_kind",sourceQuantity:"i.source_quantity::text",planStatus:"i.plan_status",requiredQuantity:"i.required_quantity::text",cumulativeInboundQuantity:"i.cumulative_inbound_quantity::text",pendingQuantity:"i.pending_quantity::text",itemCompletionRate:"i.completion_rate::text",dispatchedWeeklyQuantity:`CASE WHEN record.id IS NOT NULL THEN COALESCE(wt.dispatched,0)::text END`,exceptionSummary:`CASE WHEN record.id IS NOT NULL THEN COALESCE(ef.summary,'') END`};
+    const itemValues:Record<string,string>={id:"i.id::text",orderId:"g.id::text",divisionId:"i.division_id",divisionName:"o.name",orderNumber:"i.order_number",itemCode:"i.item_code",itemName:"i.item_name",customerCode:"i.customer_code",orderDate:"COALESCE(g.order_date,i.order_date)::text",deliveryDate:"i.delivery_date::text",sourceKind:"i.source_kind",sourceQuantity:"i.source_quantity::text",planStatus:"i.plan_status",requiredQuantity:"i.required_quantity::text",cumulativeInboundQuantity:"i.cumulative_inbound_quantity::text",pendingQuantity:"i.pending_quantity::text",itemCompletionRate:"i.completion_rate::text",itemProductionProgress:"ci.production_progress::text",itemProgressBasis:"ci.progress_basis",dispatchedWeeklyQuantity:`CASE WHEN record.id IS NOT NULL THEN COALESCE(wt.dispatched,0)::text END`,exceptionSummary:`CASE WHEN record.id IS NOT NULL THEN COALESCE(ef.summary,'') END`};
     for(const [key,alias]of Object.entries({technical:"tf",hardware:"hf",wood:"wf",outsourcing:"ofc"}))itemValues[key+"Status"]=`${alias}.status`;
     for(const p of processes){const k=p.code,reported=`COALESCE((pf.metrics->'${k}'->>'reported')::numeric,0)`;
       itemValues[k+"RequiredQuantity"]="i.required_quantity::text";
@@ -118,13 +155,13 @@ export class MasterPlanOrderProgressService {
       itemValues[k+"TaskCount"]=`CASE WHEN record.id IS NOT NULL THEN COALESCE((pt.metrics->'${k}'->>'count')::int,0) END`;
       itemValues[k+"LastReportDate"]=`pf.metrics->'${k}'->>'lastReport'`;
     }
-    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number) THEN '暂无品项数据' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
+    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",orderProductionProgress:"co.production_progress::text",orderProgressBasis:"co.progress_basis",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number) THEN '暂无品项数据' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
     const values=kind==="orders"?orderValues:itemValues,projection=json(values);
     // Whitelisted projection expressions are safe identifiers; never interpolate user SQL.
     const sort=q.sortField?`(${values[q.sortField]??"NULL"})${/Quantity$|Rate$|Progress$|Count$/.test(q.sortField)?"::numeric":""} ${q.sortOrder==="desc"?"DESC":"ASC"} NULLS LAST,`:"";
     const tail=all?"":`LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`;
-    const rows=kind==="orders"?`SELECT ${projection} row FROM filtered_orders g LEFT JOIN organization_units o ON o.id=g.primary_division_id ORDER BY ${sort}g.order_date DESC NULLS LAST,g.order_number,g.id ${tail}`:
-      `SELECT ${projection} row FROM filtered_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number LEFT JOIN a_monthly record ON record.tenant_id=i.tenant_id AND record.id=i.id LEFT JOIN weekly_totals wt ON wt.monthly_id=record.id LEFT JOIN exception_facts ef ON ef.monthly_id=record.id LEFT JOIN process_by_monthly pf ON pf.monthly_id=record.id LEFT JOIN task_by_monthly pt ON pt.monthly_id=record.id LEFT JOIN technical_facts tf ON tf.monthly_id=record.id LEFT JOIN material_facts hf ON hf.monthly_id=record.id AND hf.material_name='五金' LEFT JOIN material_facts wf ON wf.monthly_id=record.id AND wf.material_name='木作' LEFT JOIN outsourcing_facts ofc ON ofc.monthly_id=record.id LEFT JOIN organization_units o ON o.id=i.division_id ORDER BY ${sort}i.order_number,i.item_code,i.source_kind,i.id ${tail}`;
+    const rows=kind==="orders"?`SELECT ${projection} row FROM filtered_orders g LEFT JOIN composite_orders co ON co.order_number=g.order_number LEFT JOIN organization_units o ON o.id=g.primary_division_id ORDER BY ${sort}g.order_date DESC NULLS LAST,g.order_number,g.id ${tail}`:
+      `SELECT ${projection} row FROM filtered_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number LEFT JOIN a_monthly record ON record.tenant_id=i.tenant_id AND record.id=i.id LEFT JOIN composite_items ci ON ci.id=i.id LEFT JOIN weekly_totals wt ON wt.monthly_id=record.id LEFT JOIN exception_facts ef ON ef.monthly_id=record.id LEFT JOIN process_by_monthly pf ON pf.monthly_id=record.id LEFT JOIN task_by_monthly pt ON pt.monthly_id=record.id LEFT JOIN technical_facts tf ON tf.monthly_id=record.id LEFT JOIN material_facts hf ON hf.monthly_id=record.id AND hf.material_name='五金' LEFT JOIN material_facts wf ON wf.monthly_id=record.id AND wf.material_name='木作' LEFT JOIN outsourcing_facts ofc ON ofc.monthly_id=record.id LEFT JOIN organization_units o ON o.id=i.division_id ORDER BY ${sort}i.order_number,i.item_code,i.source_kind,i.id ${tail}`;
     return {sql:`WITH ${facts} SELECT jsonb_build_object('total',(SELECT count(*) FROM ${kind==="orders"?"filtered_orders":"filtered_items"}),'rows',COALESCE((SELECT jsonb_agg(row) FROM (${rows}) x),'[]'::jsonb)) data`,params,page,pageSize};
   }
   async page(input:OrderProgressQuery,actor:MasterPlanActor,kind:Kind,action:"read"|"export"="read",all=false):Promise<MpsProgressPage> {

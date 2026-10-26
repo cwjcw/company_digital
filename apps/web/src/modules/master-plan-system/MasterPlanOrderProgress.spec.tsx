@@ -6,8 +6,8 @@ import { api } from "../../api";
 import { downloadApiFile } from "../../shared/legacy-ui";
 import { MasterPlanOrderProgress, ProcessCell } from "./MasterPlanOrderProgress";
 vi.mock("../../api",()=>({api:vi.fn()}));vi.mock("../../shared/legacy-ui",()=>({downloadApiFile:vi.fn().mockResolvedValue(undefined)}));
-const fields=tablePermissionFieldsFor(resource).map(f=>f.key),order={id:"0199bb00-0000-7000-8000-000000000010",orderNumber:"ORDER-A",divisionName:"事业甲",orderCompletionRate:"0.1234",unfinishedItemCount:3};
-const item={id:"0199bb00-0000-7000-8000-000000000020",orderId:order.id,itemCode:"ITEM-A",itemName:"测试品项",sourceKind:"月计划",requiredQuantity:"500",dispatchedWeeklyQuantity:"300",cuttingReportedQuantity:"255",cuttingProductionProgress:"0.51",cuttingStatus:"已完成",packagingReportedQuantity:"525",packagingProductionProgress:"1.05",packagingStatus:"延期",woodStatus:null};
+const fields=tablePermissionFieldsFor(resource).map(f=>f.key),order={id:"0199bb00-0000-7000-8000-000000000010",orderNumber:"ORDER-A",divisionName:"事业甲",orderProductionProgress:".75",orderProgressBasis:"有效工序＋入库",orderCompletionRate:"0.1234",unfinishedItemCount:3};
+const item={id:"0199bb00-0000-7000-8000-000000000020",orderId:order.id,itemCode:"ITEM-A",itemName:"测试品项",itemProductionProgress:".5866667",itemProgressBasis:"下料、包装＋入库",sourceKind:"月计划",requiredQuantity:"500",dispatchedWeeklyQuantity:"300",cuttingReportedQuantity:"255",cuttingProductionProgress:"0.51",cuttingStatus:"已完成",packagingReportedQuantity:"525",packagingProductionProgress:"1.05",packagingStatus:"延期",woodStatus:null};
 let client:QueryClient,canExport=true,denied=false;
 const urls=()=>vi.mocked(api).mock.calls.map(([u])=>new URL(u,"http://fixture"));
 beforeEach(()=>{vi.clearAllMocks();localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({sub:"fixture-user",permissions:["*"]}));canExport=true;denied=false;
@@ -20,9 +20,9 @@ afterEach(()=>{cleanup();client?.clear()});
 function mount(){client=new QueryClient({defaultOptions:{queries:{retry:false}}});return render(<QueryClientProvider client={client}><MasterPlanOrderProgress/></QueryClientProvider>)}
 describe("In-production order progress",()=>{
   it("defaults to unfinished, loads only orders first and preserves formal rate; expansion is lazy and collapsible",async()=>{
-    const {container}=mount();await screen.findByText('ORDER-A');expect(screen.getByText('12.3%')).toBeInTheDocument();expect(urls().some(u=>u.pathname.endsWith('/items'))).toBe(false);
+    const {container}=mount();await screen.findByText('ORDER-A');expect(screen.getByText('12.3%')).toBeInTheDocument();expect(screen.getByText('75%')).toBeInTheDocument();expect(urls().some(u=>u.pathname.endsWith('/items'))).toBe(false);
     const initial=urls().find(u=>u.pathname.endsWith('/orders'))!;expect(initial.searchParams.get('onlyUnfinishedOrders')).toBe('true');expect(initial.searchParams.get('onlyUnfinishedItems')).toBe('true');expect(initial.searchParams.get('pageSize')).toBe('100');
-    fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);await screen.findByRole('button',{name:'ITEM-A'});expect(screen.getByText('51%')).toBeInTheDocument();expect(screen.getByText('105%')).toBeInTheDocument();expect(screen.getAllByText('无记录').length).toBeGreaterThan(0);
+    fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);await screen.findByRole('button',{name:'ITEM-A'});expect(screen.getByText('51%')).toBeInTheDocument();expect(screen.getByText('58.7%')).toBeInTheDocument();expect(screen.getByText('105%')).toBeInTheDocument();expect(screen.getAllByText('无记录').length).toBeGreaterThan(0);
     fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);expect(container.querySelector('button.ant-table-row-expand-icon')).toHaveAttribute('aria-expanded','false');
   });
   it("expanded table exports its own order while the top item export keeps the complete scope",async()=>{

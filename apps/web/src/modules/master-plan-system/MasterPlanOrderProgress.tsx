@@ -36,7 +36,7 @@ function ItemTable({order,filters,session,canExport,onOpen}:{order:MpsProgressRo
   const result=useQuery({queryKey:[resource,session,"items",order.id,filters,query],queryFn:()=>api<MpsProgressPage>(orderProgressUrl(filters,"/items",{...params(query),orderId:order.id})),staleTime:60_000,retry:false});
   const fields=result.data?.visibleFields??[];
   const columns:ColumnsType<MpsProgressRow>=mpsOrderProgressItemColumns.filter(([k])=>fields.includes(k)).map(([key,title])=>({key,title,dataIndex:key,width:["itemName","exceptionSummary"].includes(key)?220:135,fixed:["orderNumber","itemCode","itemName"].includes(key)?"left" as const:undefined,ellipsis:true,sorter:true,
-    render:(value:unknown,row)=>key==="itemCode"?<Button type="link" className="mps-item-link" onClick={()=>onOpen(row)}>{String(value??"—")}</Button>:key==="divisionId"?String(row.divisionName??"—"):/^(technical|hardware|wood|outsourcing)Status$/.test(key)?<State value={value}/>:key==="planStatus"?<State value={value} missing="暂无数据"/>:/Quantity$|Rate$/.test(key)?mpsMetric(value,key):String(value??"—")}));
+    render:(value:unknown,row)=>key==="itemCode"?<Button type="link" className="mps-item-link" onClick={()=>onOpen(row)}>{String(value??"—")}</Button>:key==="divisionId"?String(row.divisionName??"—"):/^(technical|hardware|wood|outsourcing)Status$/.test(key)?<State value={value}/>:key==="planStatus"?<State value={value} missing="暂无数据"/>:/Quantity$|Rate$|Progress$/.test(key)?mpsMetric(value,key):String(value??"—")}));
   for(const p of [...standardProcesses].sort((a,b)=>a.order-b.order))if(fields.some(k=>[p.code+"Status",p.code+"ProductionProgress",p.code+"ReportedQuantity"].includes(k)))columns.push({key:p.code+"ProductionProgress",title:p.name,width:160,render:(_,row)=><ProcessCell row={row} code={p.code} fields={fields}/>});
   return <div className="mps-order-items" aria-label={`${String(order.orderNumber??"订单")}品号明细`}>
     <div className="mps-order-table-toolbar"><span>品号明细</span><ExportButton kind="items" filters={{...filters,orderNumbers:[String(order.orderNumber)]}} allowed={canExport} label="导出本订单品号"/></div>
@@ -70,7 +70,7 @@ export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:
   const result=useQuery({queryKey:[resource,session,"orders",filters,query],queryFn:()=>api<MpsProgressPage>(orderProgressUrl(filters,"/orders",params(query))),enabled:canRead&&!!meta.data,retry:false,staleTime:60_000});
   const apply=(patch:Partial<MpsOrderProgressFilters>)=>{setFilters(f=>({...f,...patch}));setQuery(blankQuery());setExpanded([]);setItem(null)};
   const canExport=!!meta.data?.canExport;
-  const columns:ColumnsType<MpsProgressRow>=mpsOrderProgressOrderColumns.filter(([k])=>has(k)).map(([key,title])=>({key,title,dataIndex:key,width:key==="exceptionSummary"?280:key==="orderNumber"?180:150,ellipsis:true,fixed:key==="orderNumber"?"left" as const:undefined,sorter:true,render:(value:unknown,row)=>key==="divisionId"?String(row.divisionName??"—"):key==="orderCompletionRate"?<Tooltip title="集团主计划正式订单完成率">{mpsMetric(value,key)}</Tooltip>:/Quantity$|Rate$/.test(key)?mpsMetric(value,key):String(value??"—")}));
+  const columns:ColumnsType<MpsProgressRow>=mpsOrderProgressOrderColumns.filter(([k])=>has(k)).map(([key,title])=>({key,title,dataIndex:key,width:key==="exceptionSummary"?280:key==="orderNumber"?180:150,ellipsis:true,fixed:key==="orderNumber"?"left" as const:undefined,sorter:true,render:(value:unknown,row)=>key==="divisionId"?String(row.divisionName??"—"):key==="orderProductionProgress"?<Tooltip title="有效工序与入库各占一阶段；已入库部分计入全部阶段；各品项等权平均">{mpsMetric(value,key)}</Tooltip>:/Quantity$|Rate$|Progress$/.test(key)?mpsMetric(value,key):String(value??"—")}));
   if(!canRead)return <Alert type="error" message="没有在制订单进度看板权限"/>;
   return <div className="mps-order-progress">
     <div className="mps-order-filters">
@@ -83,6 +83,7 @@ export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:
     </div>
     {(meta.error||result.error)&&<Alert type="error" showIcon message={((meta.error||result.error)as Error).message}/>}
     {meta.isLoading&&<Spin aria-label="加载字段权限"/>}
+    {has("orderProductionProgress")&&<div style={{marginBottom:12}}>综合生产进度：有效工序与入库各占一阶段，已入库部分计入全部阶段；订单按各品项进度平均。</div>}
     <Card title="订单进度" extra={<Space wrap><ExportButton kind="orders" filters={filters} query={query} allowed={canExport}/><ExportButton kind="items" filters={filters} allowed={canExport}/></Space>}>
       <KdosDataTable<MpsProgressRow> resource={resource} viewKey="orders" simple systemFields={false} rowKey="id" dataSource={result.data?.rows??[]} columns={columns} loading={result.isFetching} locale={{emptyText:<Empty description="暂无匹配订单"/>}} scroll={{x:columns.reduce((n,c)=>n+Number(c.width??150),0)}}
         expandable={{expandedRowKeys:expanded,onExpandedRowsChange:keys=>setExpanded([...keys]),expandedRowRender:row=><ItemTable key={session+row.id+JSON.stringify(filters)} order={row} filters={filters} session={session} canExport={canExport} onOpen={setItem}/>}}
