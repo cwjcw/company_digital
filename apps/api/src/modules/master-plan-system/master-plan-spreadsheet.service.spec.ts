@@ -105,6 +105,27 @@ describe("MasterPlanSpreadsheetService", () => {
     expect(sheet.getRow(2).getCell(3).text).toBe("000123");
   });
 
+  it("exports order allocation monthly dates as formatted date cells and keeps them out of the import template", async () => {
+    queries.exportRows.mockResolvedValue({
+      visibleFields: ["orderNumber", "itemCode", "orderDate", "productReviewDueDate"],
+      rows: [{ id: "row-1", version: 1, orderNumber: "SO-1", itemCode: "ITEM-1", orderDate: "2026-10-01", productReviewDueDate: "2026-10-20" }]
+    });
+    const exported = new ExcelJS.Workbook(); await exported.xlsx.load(await service.export("mps-order-allocations", {}, actor) as never);
+    const sheet = exported.getWorksheet("mps-order-allocations")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    for (const [label, expected] of [["下单日期", "2026-10-01"], ["产品评审交期", "2026-10-20"]] as const) {
+      const cell = sheet.getRow(2).getCell(headers.indexOf(label));
+      expect(cell.value).toBeInstanceOf(Date);
+      expect(cell.numFmt).toBe("yyyy-mm-dd");
+      expect((cell.value as Date).toISOString().slice(0, 10)).toBe(expected);
+    }
+
+    const template = new ExcelJS.Workbook(); await template.xlsx.load(await service.template("mps-order-allocations", actor) as never);
+    const templateHeaders = template.getWorksheet("mps-order-allocations")!.getRow(1).values as unknown[];
+    expect(templateHeaders).toContain("下单日期");
+    expect(templateHeaders).not.toContain("产品评审交期");
+  });
+
   it("exports weekly production progress as numeric ratio cells with the frontend percentage format", async () => {
     queries.exportRows.mockResolvedValue({
       visibleFields: ["cuttingProductionProgress", "machiningProductionProgress"],

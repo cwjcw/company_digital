@@ -861,6 +861,26 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
 
 
 describe("allocation append preview", () => {
+  it("shows the monthly-plan dates as read-only date columns", async () => {
+    const fields = tablePermissionFieldsFor("mps-order-allocations");
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-order-allocations", fields, createFields: fields.filter((field) => field.editable), actions: { create: false, update: true, delete: false, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-order-allocations?")) return { rows: [{ id: "a1", version: 1, orderNumber: "SO-1", itemCode: "ITEM-1", orderDate: "2026-10-01", productReviewDueDate: "2026-10-20", divisionId: "d1" }], total: 1 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const { container } = renderPage("mps-order-allocations");
+    await screen.findByText("SO-1");
+    await waitFor(() => expect(container.querySelectorAll(".ant-table-thead th").length).toBeGreaterThan(0));
+    const headers = Array.from(container.querySelectorAll(".ant-table-thead th")).map((cell) => cell.textContent?.trim() ?? "");
+    expect(headers).toContain("下单日期");
+    expect(headers).toContain("产品评审交期");
+    expect(screen.getByText("2026-10-01")).toBeInTheDocument();
+    expect(screen.getByText("2026-10-20")).toBeInTheDocument();
+    expect(fields.find((field) => field.key === "orderDate")?.editable).toBe(false);
+    expect(fields.find((field) => field.key === "productReviewDueDate")?.editable).toBe(false);
+  }, 15_000);
+
   it("shows batch append, quantity mapping, repeated-file and ignored-identity notices", async () => {
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;

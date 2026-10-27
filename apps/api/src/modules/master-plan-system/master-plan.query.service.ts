@@ -33,10 +33,14 @@ export class MasterPlanQueryService {
     const importCapabilities = code === "mps-review-due-dates" ? reviewDueImportCapabilities(actor) : undefined;
     const canCreate = manualCreate?.create ?? (resource.create && hasMasterPlanPermission(actor, code, "create"));
     if (!canRead && !(manualCreate && canCreate) && !importCapabilities?.import && !importCapabilities?.template) throw new ForbiddenException("当前权限组没有该表查看权限");
+    const metadataFields = (canRead ? fieldsFor(resource) : []).filter((field) => this.visible(actor, code, field.key)).map(field => {
+      if (code === "mps-order-allocations" && field.key === "orderDate") return { ...field, editable: false };
+      return code === "mps-review-due-dates" ? {...field, editable: field.editable && hasMasterPlanPermission(actor,code,"update") && hasMasterPlanFieldPermission(actor,code,field.key,"update")} : field;
+    });
     return {
       resource: resource.code,
-      fields: (canRead ? fieldsFor(resource) : []).filter((field) => this.visible(actor, code, field.key)).map(field => code === "mps-review-due-dates" ? {...field, editable: field.editable && hasMasterPlanPermission(actor,code,"update") && hasMasterPlanFieldPermission(actor,code,field.key,"update")} : field),
-      createFields: manualCreate?.createFields ?? (canCreate ? fieldsFor(resource).filter((field) => (field.editable || (field as { createOnly?: boolean }).createOnly) && this.visible(actor, code, field.key)) : []),
+      fields: metadataFields,
+      createFields: manualCreate?.createFields ?? (canCreate ? fieldsFor(resource).filter((field) => (field.editable || (field as { createOnly?: boolean }).createOnly) && !(code === "mps-order-allocations" && field.key === "orderDate") && this.visible(actor, code, field.key)) : []),
       templateFields: importCapabilities?.templateFields,
       actions: {
         template: importCapabilities?.template,
@@ -84,6 +88,13 @@ export class MasterPlanQueryService {
       return this.processReportTasks(input, actor);
     }
     const allColumns = columnsFor(resource);
+    if (code === "mps-order-allocations") {
+      /* Allocation rows keep their existing import storage; these read-only dates always reflect
+       * the current monthly plan. Include tenant and receiving division to prevent cross-scope matches. */
+      const monthlyMatch = "monthly.tenant_id=record.tenant_id AND monthly.order_number=record.order_number AND monthly.item_code=record.item_code AND record.division_id IS NOT NULL AND monthly.division_id=record.division_id";
+      allColumns.orderDate = `(SELECT CASE WHEN count(*)=1 THEN max(monthly.order_date) END FROM mps_monthly_plans monthly WHERE ${monthlyMatch})`;
+      allColumns.productReviewDueDate = `(SELECT CASE WHEN count(*)=1 THEN max(monthly.preproduction_review_date) END FROM mps_monthly_plans monthly WHERE ${monthlyMatch})`;
+    }
     const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
