@@ -485,7 +485,7 @@ export class MasterPlanSpreadsheetService {
   private importFields(resource: ReturnType<MasterPlanSpreadsheetService["resource"]>, code: string, actor: MasterPlanActor) {
     const canCreate = resource.create && hasMasterPlanPermission(actor, code, "create");
     const canReadTable = hasMasterPlanPermission(actor, code, "read");
-    return fieldsFor(resource).filter((field) => (field.editable || (code === "mps-order-allocations" && field.key === "orderDate")) && (
+    return fieldsFor(resource).filter((field) => field.editable && (
       hasMasterPlanFieldPermission(actor, code, field.key, "update")
       || (canCreate && (hasMasterPlanFieldPermission(actor, code, field.key, "read") || !canReadTable))
     ));

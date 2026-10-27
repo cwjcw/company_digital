@@ -6,6 +6,8 @@ export const reviewDueDateBusinessFields: TablePermissionFieldDefinition[] = [
   { key: 'orderNumber', label: '订单号', type: 'text', editable: true, required: true },
   { key: 'batchNumber', label: '批次号', type: 'text', editable: true, required: true },
   { key: 'drawingNumber', label: '品项编码', type: 'text', editable: true, required: true },
+  { key: 'orderDate', label: '下单日期', type: 'date', editable: false },
+  { key: 'productReviewDueDate', label: '产品评审交期', type: 'date', editable: false },
   { key: 'inspectionTimeName', label: '品项名称', type: 'text', editable: true },
   { key: 'inboundDate', label: '入库时间', type: 'date', editable: true, required: true },
   { key: 'quantity', label: '数量', type: 'number', format: 'decimal', exactNumeric: true, editable: true, required: true },

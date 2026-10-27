@@ -42,33 +42,6 @@ describe("MasterPlanQueryService metadata", () => {
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-monthly-plans:*:read", "mps-monthly-plans:divisionId:read"]))).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read"]))).rejects.toBeInstanceOf(ForbiddenException);
   });
-
-  it("exposes allocation dates as read-only monthly-plan fields without adding them to the create form", () => {
-    const metadata = service.metadata("mps-order-allocations", { ...actor(["*"]), isSystemAdmin: true });
-    expect(metadata.fields.find((field) => field.key === "orderDate")).toMatchObject({ label: "下单日期", type: "date", editable: false });
-    expect(metadata.fields.find((field) => field.key === "productReviewDueDate")).toMatchObject({ label: "产品评审交期", type: "date", editable: false });
-    expect(metadata.createFields.map((field) => field.key)).not.toEqual(expect.arrayContaining(["orderDate", "productReviewDueDate"]));
-  });
-});
-
-describe("MasterPlanQueryService allocation monthly dates", () => {
-  const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: "division-1", name: "事业一部", pathLabel: "凯南 / 事业一部" }]) };
-  const allocationActor = { ...actor(["*"]), isSystemAdmin: true };
-  it("projects current monthly dates with tenant/order/item/receiving-division keys and returns them in the shared list query", async () => {
-    const query = jest.fn(async (sql: string) => sql.includes("count(*)::integer count") ? [{ count: 1 }] : [{ id: "allocation-1", version: 1, orderDate: "2026-10-01", productReviewDueDate: "2026-10-20" }]);
-    const result = await new MasterPlanQueryService({ query } as never, directory as never).list("mps-order-allocations", {}, allocationActor);
-    const dataSql = query.mock.calls.map(([sql]) => sql).find((sql) => sql.startsWith("SELECT record.id")) ?? "";
-    expect(result.rows[0]).toMatchObject({ orderDate: "2026-10-01", productReviewDueDate: "2026-10-20" });
-    expect(dataSql).toContain("monthly.tenant_id=record.tenant_id");
-    expect(dataSql).toContain("monthly.order_number=record.order_number");
-    expect(dataSql).toContain("monthly.item_code=record.item_code");
-    expect(dataSql).toContain("monthly.division_id=record.division_id");
-    expect(dataSql).toContain("max(monthly.order_date)");
-    expect(dataSql).toContain("max(monthly.preproduction_review_date)");
-    expect(dataSql).toContain("CASE WHEN count(*)=1 THEN");
-    expect(dataSql).toContain('"orderDate"');
-    expect(dataSql).toContain('"productReviewDueDate"');
-  });
 });
 
 describe("MasterPlanQueryService base plan weekly feedback", () => {

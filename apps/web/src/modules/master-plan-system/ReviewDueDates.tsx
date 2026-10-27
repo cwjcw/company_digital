@@ -2,7 +2,7 @@ import { ReviewDueImportModal } from './ReviewDueDates.import';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Table } from 'antd';
-import { reviewDueDateTemplateFilename, reviewDueDateFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
+import { reviewDueDateTemplateFilename, reviewDueDateBusinessFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
 import dayjs from 'dayjs';
 import { api } from '../../api';
 import { KdosDataTable, ensureTableFieldVisibleOnce, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
@@ -57,7 +57,7 @@ function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:T
   </Modal>;
 }
 export function ReviewDueDates(){
-  for(const key of ['divisionId','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
+  for(const key of ['divisionId','orderDate','productReviewDueDate','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
   const auditColumns=useAuditColumns();
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);
@@ -98,7 +98,7 @@ export function ReviewDueDates(){
         {meta.data?.actions?.template&&<Button loading={templateBusy} onClick={()=>void downloadTemplate()}>下载导入模板</Button>}
       </>}
       exportFilename={reviewDueDateExportFilename} loading={rows.isLoading||meta.isLoading} dataSource={rows.data?.rows??[]}
-      columns={[...reviewDueDateFields.filter(f=>f.editable&&visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} organizations={organizations.data??[]} busy={busy.has(row.id)} onSave={save}/>})),
+      columns={[...reviewDueDateBusinessFields.filter(f=>visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} organizations={organizations.data??[]} busy={busy.has(row.id)} onSave={save}/>})),
         ...auditColumns.filter(c=>visible.has(String(c.key))).map(c=>c.key==='createdAt'||c.key==='updatedAt'?{...c,render:time}:c),
         ...(canHistory?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}]:[])]}
       serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}/>

@@ -17,7 +17,7 @@ describe('Review due date manual edit boundary',()=>{
     await expect(app.manualEdit(actor.userId!,body,{...actor,permissions:[...actor.permissions,resource+':*:update']})).rejects.toMatchObject({status:403});
     expect(db.transaction).not.toHaveBeenCalled();
   });
-  it.each(['lastChangedAt','lastSyncedAt','id','tenantId','sourceOrderNumber','createdBy','version'])('rejects client system/identity field %s',async field=>{
+  it.each(['orderDate','productReviewDueDate','lastChangedAt','lastSyncedAt','id','tenantId','sourceOrderNumber','createdBy','version'])('rejects client system/identity field %s',async field=>{
     const db={transaction:jest.fn()},app=new ReviewDueDateApplicationService(db as never,{} as never);
     await expect(app.manualEdit(actor.userId!,{[field]:1,expectedVersion:1,commandId:actor.userId},{...actor,isSystemAdmin:true})).rejects.toMatchObject({status:400});
     expect(db.transaction).not.toHaveBeenCalled();

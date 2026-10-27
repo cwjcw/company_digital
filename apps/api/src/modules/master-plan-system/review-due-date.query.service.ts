@@ -11,6 +11,14 @@ import { OrganizationDirectoryService } from '../organization-directory/organiza
 import { reviewDueDivisionOptions } from './review-due-date.domain';
 
 export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
+/** Display dates are live monthly-plan projections; they are never review-date write columns. */
+export function reviewDueExpression(column:string) {
+  const monthlyColumn:Record<string,string>={order_date:'order_date',product_review_due_date:'preproduction_review_date'};
+  if(!Object.hasOwn(monthlyColumn,column))return `record.${column}`;
+  return `(SELECT CASE WHEN count(*)=1 THEN max(monthly.${monthlyColumn[column]}) END FROM mps_monthly_plans monthly
+    WHERE monthly.tenant_id=record.tenant_id AND monthly.order_number=record.order_number
+      AND monthly.item_code=record.drawing_number AND record.division_id IS NOT NULL AND monthly.division_id=record.division_id)`;
+}
 const searchFields=['orderNumber','batchNumber','drawingNumber','inspectionTimeName'];
 const admin=(a:TableFilterActor)=>a.isSystemAdmin||a.permissions.includes('*')||a.moduleAdminCodes?.includes('planning');
 const readable=(a:TableFilterActor,k:string)=>!!admin(a)||a.permissions.includes(`${RESOURCE}:${k}:read`);
@@ -22,7 +30,7 @@ export function reviewDueScope(a:TableFilterActor,p:unknown[],action='read') {
   if(admin(a))return '1=1';
   const operators=new Set(['EQ','NE','GT','GTE','LT','LTE','IN','NOT_IN','CONTAINS','NOT_CONTAINS','STARTS_WITH','IS_EMPTY','IS_NOT_EMPTY']);
   const scopes=(a.tableDataScopes??[]).filter(s=>s.resource===RESOURCE&&(!s.actions||s.actions.includes(action))).filter(s=>s.scope!=='CUSTOM'||(!!s.rules?.length&&s.rules.every(r=>Object.hasOwn(reviewDueColumns,String(r.fieldKey))&&operators.has(String(r.operator))&&(r.operator==='IS_EMPTY'||r.operator==='IS_NOT_EMPTY'||r.value!=null))));
-  return buildDataScopeClause({resource:RESOURCE,actor:{...a,tableDataScopes:scopes,moduleAdminCodes:[]},columns:reviewDueColumns,params:p,action,numericFields:['quantity','changeCount']});
+  return buildDataScopeClause({resource:RESOURCE,actor:{...a,tableDataScopes:scopes,moduleAdminCodes:[]},columns:reviewDueColumns,params:p,action,expression:reviewDueExpression,numericFields:['quantity','changeCount']});
 }
 
 /** Only advertises a dedicated create command; the generic resource create flag stays false. */
@@ -44,7 +52,7 @@ export class ReviewDueDateQueryService implements OnModuleInit {
   constructor(private readonly db:DataSource,private readonly registry:TableFilterRegistry,private readonly directory:OrganizationDirectoryService){}
   onModuleInit(){
     this.registry.register({code:RESOURCE,table:'mps_review_due_dates',columns:{id:'id',...reviewDueColumns},
-      expressions:Object.fromEntries(reviewDueDateFields.filter(f=>f.type==='date').map(f=>[f.key,`record.${reviewDueColumns[f.key]}::text`])),
+      expressions:Object.fromEntries(reviewDueDateFields.filter(f=>f.type==='date').map(f=>[f.key,`${reviewDueExpression(reviewDueColumns[f.key])}::text`])),
       fields:reviewDueDateFields,authorize:a=>reviewDueAuthorize(a),searchColumns:searchFields,
       // Candidate requests need DISTINCT authorized values, never paginated business rows.
       candidateVariant:()=>({listRows:undefined}),
@@ -75,7 +83,7 @@ export class ReviewDueDateQueryService implements OnModuleInit {
     const p:unknown[]=[q.actor.tenantId],where=['record.tenant_id=$1',reviewDueScope(q.actor,p,'read')];
     if(q.action==='export')where.push(reviewDueScope(q.actor,p,'export'));
     if(q.search){const fields=searchFields.filter(k=>readable(q.actor,k));p.push('%'+q.search+'%');where.push('('+ (fields.map(k=>`record.${reviewDueColumns[k]} ILIKE $${p.length}`).join(' OR ')||'1=0')+')');}
-    const expression=(column:string)=>`record.${column}`;
+    const expression=reviewDueExpression;
     if(q.filterGroup)where.push(new SqlFilterCompiler(reviewDueDateFields,reviewDueColumns,k=>readable(q.actor,k),expression).compile(q.filterGroup,p));
     if(q.ids?.length){p.push(q.ids);where.push(`record.id=ANY($${p.length}::uuid[])`);}
     const sort=String(q.sortField??'');if(sort&&!Object.hasOwn(reviewDueColumns,sort))throw new BadRequestException('排序字段无效');if(sort&&!readable(q.actor,sort))throw new ForbiddenException('不能按隐藏字段排序');
@@ -85,7 +93,7 @@ export class ReviewDueDateQueryService implements OnModuleInit {
       const params=[...p];
       const updateScope=hasMasterPlanPermission(q.actor as import('./master-plan.types').MasterPlanActor,RESOURCE,'update')?reviewDueScope(q.actor,params,'update'):'1=0';
       params.push(q.pageSize,(q.page-1)*q.pageSize);
-      const selected=keys.map(k=>`record.${reviewDueColumns[k]}${reviewDueDateFields.find(f=>f.key===k)?.type==='date'?'::text':''} "${k}"`);
+      const selected=keys.map(k=>`${expression(reviewDueColumns[k])}${reviewDueDateFields.find(f=>f.key===k)?.type==='date'?'::text':''} "${k}"`);
       const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",${keys.includes('divisionId')?'division.name AS "divisionName",':''}${selected.join(',')}
         FROM mps_review_due_dates record LEFT JOIN organization_units division ON division.id=record.division_id
         WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
