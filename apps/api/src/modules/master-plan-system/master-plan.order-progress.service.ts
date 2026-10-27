@@ -27,7 +27,7 @@ export class MasterPlanOrderProgressService {
       unfinishedItemCount:["pendingQuantity","planStatus"], coverageStatus:["planStatus"]
     };
     const compositeDependencies = ["requiredQuantity","cumulativeInboundQuantity",...processes.flatMap(p=>[p.code+"ReportedQuantity",p.code+"TaskCount"])];
-    for (const key of ["orderProductionProgress","itemProductionProgress","orderProgressBasis","itemProgressBasis"]) deps[key]=compositeDependencies;
+    for (const key of ["orderProductionProgress","itemProductionProgress","itemProgressBasis"]) deps[key]=compositeDependencies;
     for(const p of processes)deps[p.code+"ProductionProgress"]=[p.code+"RequiredQuantity",p.code+"ReportedQuantity"];
     return hasMasterPlanFieldPermission(actor,resource,key,"read") && (deps[key]??[]).every(k=>hasMasterPlanFieldPermission(actor,resource,k,"read"));
   }
@@ -121,9 +121,7 @@ export class MasterPlanOrderProgressService {
       UNION ALL SELECT e.id,e.tenant_id,e.order_number,e.item_code,e.item_name,e.division_id,e.customer_code,e.order_date,NULL::date,'ERP订单行',e.order_quantity,NULL,NULL,NULL,NULL,CASE WHEN EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) THEN '来源行与月计划关联待核实' ELSE '尚未建立月计划' END FROM a_erp e WHERE e.source_line_count>1 OR (NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) AND NOT EXISTS(SELECT 1 FROM a_allocation a WHERE a.tenant_id=e.tenant_id AND a.order_number=e.order_number AND a.item_code=e.item_code))
     )`);
     ctes.push(`composite_orders AS MATERIALIZED (SELECT i.order_number,
-      CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN NULL ELSE avg(c.production_progress) END production_progress,
-      CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN count(*) FILTER(WHERE c.production_progress IS NULL)::text||'个品项工艺或需求待核实'
-      ELSE '品项综合进度等权平均；有效工序＋入库分阶段等权' END progress_basis
+      CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN NULL ELSE avg(c.production_progress) END production_progress
       FROM source_items i LEFT JOIN composite_items c ON c.id=i.id GROUP BY i.order_number)`);
     const itemWhere:string[]=[],groupWhere:string[]=[];
     if(q.divisionId){const b=bind(q.divisionId);itemWhere.push(`i.division_id=${b}::uuid`);groupWhere.push(`g.primary_division_id=${b}::uuid`)}
@@ -155,7 +153,7 @@ export class MasterPlanOrderProgressService {
       itemValues[k+"TaskCount"]=`CASE WHEN record.id IS NOT NULL THEN COALESCE((pt.metrics->'${k}'->>'count')::int,0) END`;
       itemValues[k+"LastReportDate"]=`pf.metrics->'${k}'->>'lastReport'`;
     }
-    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",orderProductionProgress:"co.production_progress::text",orderProgressBasis:"co.progress_basis",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number) THEN '暂无品项数据' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
+    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",orderProductionProgress:"co.production_progress::text",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number) THEN '暂无品项数据' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
     const values=kind==="orders"?orderValues:itemValues,projection=json(values);
     // Whitelisted projection expressions are safe identifiers; never interpolate user SQL.
     const sort=q.sortField?`(${values[q.sortField]??"NULL"})${/Quantity$|Rate$|Progress$|Count$/.test(q.sortField)?"::numeric":""} ${q.sortOrder==="desc"?"DESC":"ASC"} NULLS LAST,`:"";

@@ -118,7 +118,7 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   });
   it("订单包含已完成但被列表隐藏的品项；缺计划阻止不完整平均，品号筛选不改订单口径",async()=>{
     let row=(await page("orders",{orderId:id(10)})).rows[0]!;
-    expect(row.orderProductionProgress).toBeNull(); expect(row.orderProgressBasis).toContain("2个品项");
+    expect(row.orderProductionProgress).toBeNull(); expect(row).not.toHaveProperty("orderProgressBasis");
     await runner.query("DELETE FROM mps_order_allocations WHERE id IN ($1,$2)",[id(31),id(32)]);
     row=(await page("orders",{orderId:id(10),itemCodes:["ITEM-A"]})).rows[0]!;
     expect(Number(row.orderProductionProgress)).toBeCloseTo(((.25+.51+1)/3+1)/2,10);
