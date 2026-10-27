@@ -114,6 +114,7 @@ describe("Overview resource and scope contract", () => {
     const actor = { ...base, tableDataScopes: [{ resource, scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: div }] }, { resource, scope: "ALL", actions: ["export"] }] };
     for (const column of ["primary_division_id", "division_id"]) { const params: unknown[] = []; expect(service.scopeSql(actor, column, params)).toContain(`record.${column}`); expect(params).toEqual([div]); }
     const sql = service.querySql({}, { ...actor, permissions: ["*"] }, "export");
+    expect(sql.sql).toContain("record.wood_due_date,record.manufacturing_method");
     expect(sql.sql).toContain("report_totals AS MATERIALIZED"); expect(sql.sql).toContain("sum(production_quantity)");
     expect(sql.sql).not.toContain("AVG("); expect(sql.sql).not.toContain("mps_data_exceptions");
   });

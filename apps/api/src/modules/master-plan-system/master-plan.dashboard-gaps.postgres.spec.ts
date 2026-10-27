@@ -51,10 +51,10 @@ integration("Dashboard REV2 gap/report PostgreSQL queries", () => {
     // Use a different unlinked shipping fixture to avoid covering B's second batch.
     await runner.query("UPDATE pg_temp.mps_base_plans SET shipping_plan_id=$1 WHERE id=$2",[id(22),id(31)]);
     for (const [n,order,quantity] of [[40,"D",100],[41,"F",100],[42,"ZERO-WEEK",0]] as const) {
-      await insert("mps_weekly_plans",{...common,id:id(n),base_plan_id:id(200+n),order_number:order,delivery_number:"001",planned_quantity:quantity,pending_quantity:quantity});
+      await insert("mps_weekly_plans",{...common,id:id(n),base_plan_id:id(200+n),order_number:order,delivery_number:"001",planned_quantity:quantity,pending_quantity:quantity,manufacturing_method:"自制"});
     }
     await insert("mps_process_reports",{division_id:division,item_code:"ITEM",item_name:"产品",id:id(50),weekly_plan_id:id(41),order_number:"F",process_code:"cutting",production_quantity:25,production_date:"2026-10-14",exception_text:"人工异常"});
-    await insert("mps_weekly_process_plans",{id:id(51),weekly_plan_id:id(41),process_code:"cutting",status:"延期",exception_text:"计划提示不能算生产异常"});
+    await insert("mps_weekly_process_plans",{id:id(51),weekly_plan_id:id(41),process_code:"cutting",status:"延期",execution_enabled:true,exception_text:"计划提示不能算生产异常"});
     const adapter = { transaction: async (...args: unknown[]) => (args[args.length-1] as (manager: unknown)=>unknown)({ query: (sql: string, params?: unknown[]) => sql==="SET TRANSACTION READ ONLY" ? Promise.resolve([]) : runner.query(sql,params) }) };
     service = new MasterPlanDashboardService(adapter as never);
   },30000);

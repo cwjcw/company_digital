@@ -94,7 +94,7 @@ export class MasterPlanDashboardService {
       shipping: authorized("mps_shipping_plans", `${identity},customer_code,order_date,latest_customer_due_date,planned_quantity,delivery_number,monthly_plan_id`),
       monthly: authorized("mps_monthly_plans", `${identity},customer_code,order_date,latest_customer_due_date,required_quantity,cumulative_inbound_quantity,pending_quantity`),
       base: authorized("mps_base_plans", `${identity},customer_code,order_date,latest_customer_due_date,planned_quantity,shipping_plan_id,delivery_number,latest_review_due_date,product_attribute,surface_nature,manufacturing_method`),
-      weekly: authorized("mps_weekly_plans", `${identity},customer_code,order_date,base_plan_id,delivery_number,planned_quantity,pending_quantity,latest_customer_due_date,hardware_due_date,wood_due_date`)
+      weekly: authorized("mps_weekly_plans", `${identity},customer_code,order_date,base_plan_id,delivery_number,planned_quantity,pending_quantity,latest_customer_due_date,hardware_due_date,wood_due_date,manufacturing_method`)
     };
     const clauses: string[] = [];
     const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
