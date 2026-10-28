@@ -256,3 +256,12 @@
 - 由既有在制订单看板请求和Excel导出按需计算有效工序快照＋入库的等权综合进度；只读KDOS正式数据，无ERP读取、业务写入或新投影。
 - 新增调度定义/候选0，生产新增自动入口/常驻服务0；未调整systemd/cron/n8n及原消费者。查询走原15秒超时和租户只读事务，失败由页面明确报错，用户可重试。
 - 无Migration；应用回退即可恢复旧显示，保留原事实和配置。测试及实际版本记录于outputs/CODEX_PROGRESS.md和test/composite-*；权重及缺配置处理见docs/pmc-bom-process-mapping.md。
+
+## LOG-001 营销物流台账（2026-10-28）
+
+- 入口：`/marketing/logistics-ledger`，资源`logistics-ledger`，网页及人工Excel Preview/Confirm。
+- 状态：本地62项专项及真实Chrome验收已通过；用户已追加授权生产迁移、部署后推送GitHub。实际发布版本、生产验收及推送结果见outputs/CODEX_PROGRESS.md。
+- 持久化：KDOS SQL migration `0019_marketing_logistics.sql`；整柜主表、装柜明细、导入幂等表及RLS安全视图。未读取或迁入真实物流历史数据。
+- 业务写入：Application Commands；全文件事务、版本校验、幂等及Audit。费用按整柜去重，订单不分摊。
+- 调度：无新增定时、异步同步、systemd、cron、n8n或ERP采集任务；既有运行任务保持原状。
+- 恢复入口：`outputs/CODEX_PROGRESS.md`物流台账节；实现合同与本地验证说明：`docs/marketing-logistics.md`。

@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { CFB } from "@e965/xlsx";
 
 export const ENCRYPTED_SPREADSHEET_MESSAGE = "该文件被加密,请解密后再导入.";
 
@@ -20,8 +21,23 @@ export function isEncryptedSpreadsheet(buffer: Buffer | null | undefined) {
   if (!buffer?.length) return false;
   if (startsWith(buffer, wpsEncryptedHeader)) return true;
   if (zipHeaderIsEncrypted(buffer)) return true;
-  return startsWith(buffer, compoundFileHeader)
-    && (buffer.includes(encryptedPackageName) || buffer.includes(encryptionInfoName));
+  if (!startsWith(buffer, compoundFileHeader)) return false;
+  if (buffer.includes(encryptedPackageName) || buffer.includes(encryptionInfoName)) return true;
+  // Legacy XLS encryption uses a BIFF FILEPASS record inside the Workbook stream.
+  // Inspect record boundaries only; a byte-pattern scan could mistake business data for a record.
+  try {
+    const container = CFB.read(buffer, { type: 'buffer' });
+    const stream = container.FileIndex.find((entry: { name: string }) => /^(Workbook|Book)$/i.test(entry.name));
+    if (!stream?.content) return false;
+    const content = Buffer.from(stream.content);
+    for (let offset = 0; offset + 4 <= content.length;) {
+      const type = content.readUInt16LE(offset), length = content.readUInt16LE(offset + 2);
+      if (offset + 4 + length > content.length) break;
+      if (type === 0x002f) return true;
+      offset += 4 + length;
+    }
+  } catch { /* Malformed containers are handled by the importing parser. */ }
+  return false;
 }
 
 export function assertSpreadsheetNotEncrypted(buffer: Buffer | null | undefined) {

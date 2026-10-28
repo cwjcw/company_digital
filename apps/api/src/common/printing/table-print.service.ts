@@ -489,7 +489,8 @@ export class TablePrintService {
         resolved.set(String(row[keyField] ?? ""), formatted);
       }
     }
-    const labelFields = fields.filter((field) => !isAuditActorField(field) && ["dictionary", "member", "department", "reference"].includes(field.type));
+    const labelFields = fields.filter((field) => !isAuditActorField(field) &&
+      (["dictionary", "member", "department", "reference"].includes(field.type) || source.printResolvers?.[field.key]));
     const resolvers: Array<Promise<void>> = [];
     for (const field of labelFields) {
       const resolver = source.printResolvers?.[field.key] ?? this.defaultResolver(field, source);

@@ -1,3 +1,11 @@
+import { LogisticsQueryService } from "./logistics.query.service";
+import { LogisticsController } from './logistics.controller';
+import { LogisticsApplicationService } from './logistics.application.service';
+import { LogisticsImportService } from './logistics-import.service';
+import { LogisticsDirectoryQueryService } from './logistics-directory.query.service';
+import { LogisticsFilterSourceProvider } from './logistics.filter-sources';
+import { LOGISTICS_REPOSITORY } from './logistics.repository';
+import { DrizzleLogisticsRepository } from './drizzle-logistics.repository';
 import { OrderScheduleImportService } from "./order-schedule-import.service";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
@@ -15,7 +23,7 @@ import { TableFilterModule } from "../../common/filtering/table-filter.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User, OrganizationUnit]), OrganizationDirectoryModule, TableFilterModule],
-  controllers: [MarketingController],
-  providers: [OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, MarketingFilterSourceProvider, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
+  controllers: [MarketingController, LogisticsController],
+  providers: [LogisticsQueryService, LogisticsApplicationService, LogisticsImportService, LogisticsDirectoryQueryService, LogisticsFilterSourceProvider, { provide: LOGISTICS_REPOSITORY, useClass: DrizzleLogisticsRepository }, OrderScheduleImportService, AuthGuard, MarketingApplicationService, MarketingDirectoryQueryService, MarketingImportService, MarketingFilterSourceProvider, { provide: MARKETING_REPOSITORY, useClass: DrizzleMarketingRepository }]
 })
 export class MarketingModule {}

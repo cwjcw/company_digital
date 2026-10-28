@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean, check, date, index, integer, jsonb, numeric, pgSchema, primaryKey,
+  boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgSchema, primaryKey,
   text, timestamp, uniqueIndex, uuid, varchar
 } from "drizzle-orm/pg-core";
 
@@ -391,11 +391,52 @@ export const workReports = planning.table("work_reports", {
   index("work_reports_tenant_division_idx").on(table.tenantId, table.divisionId)
 ]);
 
+
+export const logisticsShipments = marketing.table("logistics_shipments", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  logisticsNumber: text("logistics_number").notNull(),
+  customerCode: text("customer_code"),
+  ownerUserId: uuid("owner_user_id"),
+  shipmentDate: date("shipment_date"),
+  containerType: text("container_type"),
+  containerNumber: text("container_number"),
+  portFee: numeric("port_fee"),
+  customsFee: numeric("customs_fee"),
+  inspectionFee: numeric("inspection_fee"),
+  truckingFee: numeric("trucking_fee"),
+  fumigationFee: numeric("fumigation_fee"),
+  exceptionFee: numeric("exception_fee"),
+  remark: text("remark"),
+  totalFee: numeric("total_fee").generatedAlwaysAs(sql`CASE WHEN port_fee IS NULL AND customs_fee IS NULL AND inspection_fee IS NULL AND trucking_fee IS NULL AND fumigation_fee IS NULL AND exception_fee IS NULL THEN NULL ELSE COALESCE(port_fee,0)+COALESCE(customs_fee,0)+COALESCE(inspection_fee,0)+COALESCE(trucking_fee,0)+COALESCE(fumigation_fee,0)+COALESCE(exception_fee,0) END`),
+  ...auditColumns
+}, table => [uniqueIndex("logistics_shipments_tenant_number_uq").on(table.tenantId, table.logisticsNumber), uniqueIndex("logistics_shipments_tenant_id_uq").on(table.tenantId, table.id), check("logistics_shipments_number_ck", sql`length(btrim(${table.logisticsNumber}))>0`)]);
+export const logisticsDetails = marketing.table("logistics_details", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  shipmentId: uuid("shipment_id").notNull(),
+  sequence: text("sequence"),
+  styleNumber: text("style_number"),
+  itemName: text("item_name"),
+  material: text("material"),
+  quantity: numeric("quantity"),
+  packingQuantity: numeric("packing_quantity"),
+  netWeight: numeric("net_weight"),
+  grossWeight: numeric("gross_weight"),
+  orderNumber: text("order_number"),
+  ...auditColumns
+}, table => [foreignKey({ columns: [table.tenantId, table.shipmentId], foreignColumns: [logisticsShipments.tenantId, logisticsShipments.id] }).onDelete("cascade"), index("logistics_details_shipment_idx").on(table.tenantId, table.shipmentId), index("logistics_details_order_idx").on(table.tenantId, table.orderNumber)]);
+export const logisticsImports = marketing.table("logistics_imports", {
+  id: uuid("id").primaryKey().default(sql`uuidv7()`), tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  commandKey: text("command_key").notNull(), fileHash: text("file_hash").notNull(), result: jsonb("result").notNull(),
+  ...auditColumns
+}, table => [uniqueIndex("logistics_imports_tenant_command_uq").on(table.tenantId, table.commandKey), uniqueIndex("logistics_imports_tenant_hash_uq").on(table.tenantId, table.fileHash)]);
+
 export const schema = {
   tenants, organizations, departments, positions, employees, iamUsers, identities, roles, permissions, rolePermissions, roleBindings, fieldPolicies,
   planPeriods, planVersions, salesOrders, salesOrderLines, planItems, rollingPlanItems, divisionOrderReviews,
   processDefinitions, processProgress, planSnapshots, planChanges,
-  auditLogs, importJobs, businessCustomerMappings, orderSchedules, weeklyPlanPeriods, weeklyPlanItems, workReports
+  auditLogs, importJobs, logisticsShipments, logisticsDetails, logisticsImports, businessCustomerMappings, orderSchedules, weeklyPlanPeriods, weeklyPlanItems, workReports
 };
 
 export type KdosSchema = typeof schema;

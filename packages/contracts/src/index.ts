@@ -1,3 +1,5 @@
+import { logisticsFields } from "./logistics";
+export * from "./logistics";
 import { financeMovementFields } from './finance-movements';
 export * from './finance-movements';
 import { mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, mpsOrderProgressProcessFields } from "./master-plan-order-progress";
@@ -160,6 +162,7 @@ export const tableResourceRegistry = [
   { code: "finished-goods-outbound", label: "出库表", module: "数据中心", moduleCode: "data" },
   { code: "supplier-list", label: "供应商清单", module: "数据中心", moduleCode: "data" },
   { code: "business-customer-mapping", label: "业务人员与客户对应表", module: "营销中心", moduleCode: "marketing" },
+  { code: "logistics-ledger", label: "物流台账", module: "营销中心", moduleCode: "marketing" },
   { code: "order-schedule", label: "订单排期", module: "营销中心", moduleCode: "marketing" },
   { code: "hr-departure-check", label: "离职人员检查", module: "人力资源", moduleCode: "hr" },
   { code: "equipment-register", label: "设备总台账", module: "PMC中心", moduleCode: "planning" },
@@ -434,6 +437,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["fax", "传真", "text", false], ["email", "邮箱", "text", false], ["address", "地址", "text", false],
     ["enabled", "状态", "boolean", false], ["sourceUpdatedAt", "T+更新时间", "date", false]
   ]),
+  "logistics-ledger": logisticsFields,
   "business-customer-mapping": fields([
     ["departmentId", "部门", "department"], ["department", "部门（文本，历史兼容）", "text", false],
     ["departmentPath", "组织路径", "text", false, false, { filterable: false, filterBinding: { kind: "virtual", note: "由组织架构解析的完整路径，仅展示" } }],
@@ -921,6 +925,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   /* 本轮尚未接入：真实业务表，但需要按资源核实数据范围语义后再接入平台编译器。 */
     "business-customer-mapping": { status: "REGISTERED_AND_FILTERABLE" },
     "order-schedule": { status: "REGISTERED_AND_FILTERABLE" },
+    "logistics-ledger": { status: "REGISTERED_AND_FILTERABLE" },
     "development-requests": { status: "REGISTERED_AND_FILTERABLE" },
     "approval-flow-configs": { status: "REGISTERED_AND_FILTERABLE" },
   dictionaries: { status: "REGISTERED_AND_FILTERABLE" },

@@ -78,7 +78,7 @@ export class TableFilterController {
       departmentCandidates: source.departmentCandidates ?? (async (term, size) => (await this.directory.listEnabled())
         .filter((option) => !term || option.name.includes(term) || option.pathLabel.includes(term))
         .slice(0, size).map((option) => ({ value: option.id, label: option.pathLabel }))),
-      memberCandidates: source.memberCandidates ?? (async (term, size) => (await this.dataSource.query(
+      memberCandidates: source.memberCandidates ? (term, size) => source.memberCandidates!(term, size, actor) : (async (term, size) => (await this.dataSource.query(
         `SELECT id, COALESCE(NULLIF(display_name,''),username) label FROM users WHERE enabled=true${term ? " AND (COALESCE(display_name,'') ILIKE $1 OR username ILIKE $1)" : ""} ORDER BY label LIMIT $${term ? 2 : 1}`,
         term ? [`%${term}%`, size] : [size]
       )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label })))

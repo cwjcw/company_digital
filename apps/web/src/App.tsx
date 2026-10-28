@@ -1,3 +1,4 @@
+import { LogisticsLedgerPage } from "./modules/marketing/LogisticsLedgerPage";
 import { FinanceMovements } from './modules/finance/FinanceMovements';
 import { ReviewDueDates } from './modules/master-plan-system/ReviewDueDates';
 import { MasterPlanDashboardDestination } from "./modules/master-plan-system/MasterPlanDashboardDestination";
@@ -261,7 +262,8 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     marketing: [{ key: "marketing-root", label: "营销中心", children: [
       { key: "/marketing/business-customers", icon: <TeamOutlined />, label: "业务人员与客户对应表" },
-      { key: "/marketing/order-schedule", icon: <ScheduleOutlined />, label: "订单排期" }
+      { key: "/marketing/order-schedule", icon: <ScheduleOutlined />, label: "订单排期" },
+      { key: "marketing-logistics", icon: <FolderOpenOutlined />, label: "物流", children: [{ key: "/marketing/logistics-ledger", icon: <ScheduleOutlined />, label: "物流台账" }] }
     ] }],
     hr: [{ key: "hr-root", label: "人力资源", children: [
       { key: "/hr/workforce-planning", icon: <FolderOpenOutlined />, label: "人力资源规划" },
@@ -315,7 +317,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
       "/data-center/supply-chain/suppliers": "供应商清单",
-      "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
+      "/marketing/logistics-ledger": "物流台账", "/marketing/business-customers": "业务人员与客户对应表", "/marketing/order-schedule": "订单排期",
       "/finance/base-data/customer-mappings": "客户对应表",
       "/finance/orders/system-export": "系统导出",
       "/finance/orders/monthly": "月度数据",
@@ -383,6 +385,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/finance/orders/dashboard" element={<FinanceOrderDashboard/>}/>
           <Route path="/marketing/business-customers" element={<BusinessCustomerMappingsPage />} />
           <Route path="/marketing/two-week-schedule" element={<Navigate to="/marketing/order-schedule" replace />} />
+          <Route path="/marketing/logistics-ledger" element={<LogisticsLedgerPage />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/knowledge/*" element={<KnowledgeRoutes />}/>
           <Route path="/rd/items" element={<RdItemsPage />} />
