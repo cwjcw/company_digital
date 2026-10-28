@@ -17,7 +17,7 @@ type Query={page:number;pageSize:number;sortField?:string;sortOrder?:string};
 const blankQuery=():Query=>({page:1,pageSize:kdosDefaultPageSize});
 
 const params=(query:Query)=>Object.fromEntries(Object.entries(query).filter(([,v])=>v!=null).map(([k,v])=>[k,String(v)]));
-function initialFilters():MpsOrderProgressFilters {return {dateType:"ORDER",datePeriod:"DAY",dateValue:new Date(Date.now()-86400000).toLocaleDateString("sv-SE",{timeZone:"Asia/Shanghai"}),onlyUnfinishedOrders:true,onlyUnfinishedItems:true};}
+function initialFilters():MpsOrderProgressFilters {return {dateType:"ORDER",datePeriod:"MONTH",dateValue:new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Shanghai"}).slice(0,7),onlyUnfinishedOrders:false,onlyUnfinishedItems:false};}
 function ExportButton({kind,filters,query,allowed,label}:{kind:"orders"|"items";filters:MpsOrderProgressFilters;query?:Query;allowed:boolean;label?:string}){
   const [busy,setBusy]=useState(false);if(!allowed)return null;
   return <Button aria-label={label??(kind==="orders"?"导出订单进度汇总":"导出品号生产进度明细")} loading={busy} disabled={busy} onClick={()=>{if(busy)return;setBusy(true);void downloadApiFile(orderProgressUrl(filters,`/export/${kind}`,query?params(query):{}),`mps_${kind==="orders"?"order":"item"}_progress_${new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Shanghai"}).replaceAll("-","")}.xlsx`).catch(e=>message.error((e as Error).message)).finally(()=>setBusy(false));}}>{label??`导出${kind==="orders"?"订单汇总":"品号明细"}`}</Button>;
@@ -62,7 +62,7 @@ function Detail({item,filters,session,user,close,bomAllowed}:{item:MpsProgressRo
 }
 export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:MpsDashboardFilters}={}){
   const user=JSON.parse(localStorage.getItem("sessionUser")??"{}"),session=JSON.stringify(user),canRead=hasSessionResourcePermission(user,resource,"read");
-  const [draft,setFilters]=useState<MpsOrderProgressFilters>(()=>navigationFilters?{...navigationFilters,onlyUnfinishedOrders:true,onlyUnfinishedItems:true}:initialFilters()),[query,setQuery]=useState<Query>(blankQuery),[expanded,setExpanded]=useState<Key[]>([]),[item,setItem]=useState<MpsProgressRow|null>(null);
+  const [draft,setFilters]=useState<MpsOrderProgressFilters>(()=>navigationFilters?{...navigationFilters,onlyUnfinishedOrders:false,onlyUnfinishedItems:false}:initialFilters()),[query,setQuery]=useState<Query>(blankQuery),[expanded,setExpanded]=useState<Key[]>([]),[item,setItem]=useState<MpsProgressRow|null>(null);
   const client=useQueryClient();
   const meta=useQuery({queryKey:[resource,session,"meta"],queryFn:()=>api<{visibleFields:string[];canExport:boolean}>(orderProgressUrl({},"/meta")),enabled:canRead,retry:false});
   const fields=meta.data?.visibleFields??[],has=(k:string)=>fields.includes(k);
@@ -76,8 +76,8 @@ export function MasterPlanOrderProgress({navigationFilters}:{navigationFilters?:
     <div className="mps-order-filters">
       {(["divisionId","customerCode","orderNumber","itemCode"]as const).filter(has).map(field=><MpsRemoteSelect key={session+field} field={field} filters={filters} session={session} onChange={apply} resourceCode={resource} url={orderProgressUrl}/>)}
       {!!meta.data&&<MpsDateFilter filters={filters} onChange={apply} allowOrder={has("orderDate")} allowDelivery={has("deliveryDate")}/>}
-      {has("orderPendingQuantity")&&has("coverageStatus")&&<Checkbox checked={filters.onlyUnfinishedOrders} onChange={e=>apply({onlyUnfinishedOrders:e.target.checked})}>只看未完成订单</Checkbox>}
-      {has("pendingQuantity")&&has("planStatus")&&<Checkbox checked={filters.onlyUnfinishedItems} onChange={e=>apply({onlyUnfinishedItems:e.target.checked})}>只看未完成品号</Checkbox>}
+      {has("orderPendingQuantity")&&has("coverageStatus")&&<Checkbox checked={filters.onlyUnfinishedOrders} onChange={e=>apply({onlyUnfinishedOrders:e.target.checked})}>未完成订单</Checkbox>}
+      {has("pendingQuantity")&&has("planStatus")&&<Checkbox checked={filters.onlyUnfinishedItems} onChange={e=>apply({onlyUnfinishedItems:e.target.checked})}>未完成品号</Checkbox>}
       <Button onClick={()=>{setFilters(initialFilters());setQuery(blankQuery());setExpanded([]);setItem(null)}}>重置筛选</Button>
       <Button aria-label="刷新" loading={result.isFetching} onClick={()=>void client.invalidateQueries({queryKey:[resource,session]})}>刷新</Button><TablePermissionButton resource={resource}/>
     </div>

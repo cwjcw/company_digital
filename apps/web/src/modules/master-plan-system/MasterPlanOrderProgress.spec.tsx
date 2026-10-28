@@ -19,9 +19,9 @@ beforeEach(()=>{vi.clearAllMocks();localStorage.clear();localStorage.setItem('se
 afterEach(()=>{cleanup();client?.clear()});
 function mount(){client=new QueryClient({defaultOptions:{queries:{retry:false}}});return render(<QueryClientProvider client={client}><MasterPlanOrderProgress/></QueryClientProvider>)}
 describe("In-production order progress",()=>{
-  it("defaults to unfinished, loads only orders first and preserves formal rate; expansion is lazy and collapsible",async()=>{
+  it("defaults to all orders in the current Shanghai month, loads only orders first and preserves formal rate; expansion is lazy and collapsible",async()=>{
     const {container}=mount();await screen.findByText('ORDER-A');expect(screen.getByText('12.3%')).toBeInTheDocument();expect(screen.getByText('75%')).toBeInTheDocument();expect(screen.queryByRole('columnheader',{name:'综合进度说明'})).not.toBeInTheDocument();expect(urls().some(u=>u.pathname.endsWith('/items'))).toBe(false);
-    const initial=urls().find(u=>u.pathname.endsWith('/orders'))!;expect(initial.searchParams.get('onlyUnfinishedOrders')).toBe('true');expect(initial.searchParams.get('onlyUnfinishedItems')).toBe('true');expect(initial.searchParams.get('pageSize')).toBe('100');
+    const initial=urls().find(u=>u.pathname.endsWith('/orders'))!;expect(initial.searchParams.get('onlyUnfinishedOrders')).toBe('false');expect(initial.searchParams.get('onlyUnfinishedItems')).toBe('false');expect(initial.searchParams.get('pageSize')).toBe('100');expect(initial.searchParams.get('datePeriod')).toBe('MONTH');expect(initial.searchParams.get('dateValue')).toBe(new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7));
     fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);await screen.findByRole('button',{name:'ITEM-A'});expect(screen.getByText('51%')).toBeInTheDocument();expect(screen.getByText('58.7%')).toBeInTheDocument();expect(screen.getByText('105%')).toBeInTheDocument();expect(screen.getAllByText('无记录').length).toBeGreaterThan(0);
     fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);expect(container.querySelector('button.ant-table-row-expand-icon')).toHaveAttribute('aria-expanded','false');
   });
@@ -32,19 +32,19 @@ describe("In-production order progress",()=>{
   });
   it("opens permission-checked detail with exact stable IDs and retains batch labels",async()=>{
     const {container}=mount();await screen.findByText('ORDER-A');fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);fireEvent.click(await screen.findByRole('button',{name:'ITEM-A'}));
-    await screen.findByText('001');const detail=urls().find(u=>u.pathname.includes('/detail/'))!;expect(detail.searchParams.get('orderId')).toBe(order.id);expect(detail.searchParams.get('itemId')).toBe(item.id);expect(detail.searchParams.get('onlyUnfinishedOrders')).toBe('true');
+    await screen.findByText('001');const detail=urls().find(u=>u.pathname.includes('/detail/'))!;expect(detail.searchParams.get('orderId')).toBe(order.id);expect(detail.searchParams.get('itemId')).toBe(item.id);expect(detail.searchParams.get('onlyUnfinishedOrders')).toBe('false');
   });
-  it("two exports are independent, inherit unfinished and date filters and never depend on expansion",async()=>{
+  it("two exports are independent, inherit the default all-order and current-month filters and never depend on expansion",async()=>{
     mount();await screen.findByText('ORDER-A');fireEvent.click(screen.getByRole('button',{name:'导出订单进度汇总'}));fireEvent.click(screen.getByRole('button',{name:'导出品号生产进度明细'}));
-    await waitFor(()=>expect(downloadApiFile).toHaveBeenCalledTimes(2));const calls=vi.mocked(downloadApiFile).mock.calls.map(([u])=>new URL(u,"http://fixture"));expect(calls.map(u=>u.pathname.split('/').at(-1))).toEqual(['orders','items']);for(const u of calls){expect(u.searchParams.get('onlyUnfinishedOrders')).toBe('true');expect(u.searchParams.get('dateType')).toBe('ORDER');expect(u.searchParams.has('itemId')).toBe(false);expect(u.searchParams.has('orderId')).toBe(false);}
+    await waitFor(()=>expect(downloadApiFile).toHaveBeenCalledTimes(2));const calls=vi.mocked(downloadApiFile).mock.calls.map(([u])=>new URL(u,"http://fixture"));expect(calls.map(u=>u.pathname.split('/').at(-1))).toEqual(['orders','items']);for(const u of calls){expect(u.searchParams.get('onlyUnfinishedOrders')).toBe('false');expect(u.searchParams.get('dateType')).toBe('ORDER');expect(u.searchParams.has('itemId')).toBe(false);expect(u.searchParams.has('orderId')).toBe(false);}
   });
   it("no export hides all export entries; no new read cannot borrow old overview",async()=>{
     canExport=false;mount();await screen.findByText('ORDER-A');expect(screen.queryByRole('button',{name:'导出订单进度汇总'})).not.toBeInTheDocument();cleanup();client.clear();vi.mocked(api).mockClear();localStorage.setItem('sessionUser',JSON.stringify({permissions:['mps-overview-dashboard:*:read']}));mount();expect(screen.getByText('没有在制订单进度看板权限')).toBeInTheDocument();expect(api).not.toHaveBeenCalled();
   });
   it("unfinished toggles refresh server queries, preserve date context and reset expansion",async()=>{
     const {container}=mount();await screen.findByText('ORDER-A');fireEvent.click(container.querySelector('button.ant-table-row-expand-icon')!);await screen.findByRole('button',{name:'ITEM-A'});
-    fireEvent.click(screen.getByRole('checkbox',{name:'只看未完成品号'}));await waitFor(()=>expect(urls().filter(u=>u.pathname.endsWith('/orders')).at(-1)?.searchParams.get('onlyUnfinishedItems')).toBe('false'));await waitFor(()=>expect(container.querySelector('button.ant-table-row-expand-icon')).toHaveAttribute('aria-expanded','false'));
-    fireEvent.click(screen.getByRole('checkbox',{name:'只看未完成订单'}));await waitFor(()=>expect(urls().filter(u=>u.pathname.endsWith('/orders')).at(-1)?.searchParams.get('onlyUnfinishedOrders')).toBe('false'));
+    fireEvent.click(screen.getByRole('checkbox',{name:'未完成品号'}));await waitFor(()=>expect(urls().filter(u=>u.pathname.endsWith('/orders')).at(-1)?.searchParams.get('onlyUnfinishedItems')).toBe('true'));await waitFor(()=>expect(container.querySelector('button.ant-table-row-expand-icon')).toHaveAttribute('aria-expanded','false'));
+    fireEvent.click(screen.getByRole('checkbox',{name:'未完成订单'}));await waitFor(()=>expect(urls().filter(u=>u.pathname.endsWith('/orders')).at(-1)?.searchParams.get('onlyUnfinishedOrders')).toBe('true'));
   });
   it("exposes query failures without manufacturing zero-complete data",async()=>{denied=true;mount();expect(await screen.findByText('读取失败')).toBeInTheDocument();expect(screen.queryByText('100%')).not.toBeInTheDocument()});
   it("process status and quantity progress are independent; absent evidence never claims not applicable",()=>{

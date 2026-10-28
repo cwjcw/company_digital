@@ -180,7 +180,7 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 
 ### 在制订单进度Demo
 
-入口 `/master-plan-order-progress`，资源 `mps-order-progress-dashboard`。普通用户通过现有权限组管理显式授权，不能借用综合大屏权限；管理员按平台既有规则可用。本次不运行seed、不更改业务数据/6项flags/调度，不新增migration或索引。首次日期为上海昨天，可切换不限日期；“订单完成率”“入库完成率”“工序生产进度”为不同正式口径。
+入口 `/master-plan-order-progress`，资源 `mps-order-progress-dashboard`。普通用户通过现有权限组管理显式授权，不能借用综合大屏权限；管理员按平台既有规则可用。本次不运行seed、不更改业务数据/6项flags/调度，不新增migration或索引。首次日期为上海当月订单日期（ORDER/MONTH）；“未完成订单”和“未完成品号”默认不勾选，重置恢复同一默认值；明确的大屏跳转日期条件继续保留，可切换不限日期；“订单完成率”“入库完成率”“工序生产进度”为不同正式口径。
 
 上线前执行相关测试、真实只读对账与标准备份，提交推送后 `./scripts/deploy.sh all` / `check`，要求Repository/Web/API一致及4容器healthy。真实样本、Excel和EXPLAIN只留私有忽略目录。列宽使用公共localStorage按tenant/user/resource/viewKey隔离。无多周计划真实样本时保留人工验收缺口，不造生产数据；只交付REV3-B，不启动A/C/D。指标与验收见outputs/KDOS_MPS_ORDER_PROGRESS_*。
 
