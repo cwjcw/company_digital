@@ -258,7 +258,7 @@ export class MasterDataController {
       "sales-orders": salesOrderImportFields.map((field) => field.headers[0]!),
       "finished-goods-inbound": [
         "分类编号", "入库单单号", "单据全称", "单据日期", "入库日期", "序号", "工单单号", "销售单号",
-        "产品品号", "快捷码", "品名", "规格", "允收数量", "业务单位", "类别"
+        "产品品号", "快捷码", "品名", "规格", "入库数量", "业务单位", "类别"
       ]
     };
     const headers = dynamicHeaders[kind];
@@ -514,7 +514,7 @@ export class MasterDataController {
       ["documentDate", "单据日期"], ["inboundDate", "入库日期"], ["lineNumber", "序号"],
       ["workOrderNumber", "工单单号"], ["salesOrderNumber", "销售单号"], ["inventoryCode", "产品品号"],
       ["quickCode", "快捷码"], ["inventoryName", "品名"], ["specification", "规格"],
-      ["receivedQuantity", "允收数量"], ["unit", "业务单位"], ["category", "类别"]
+      ["receivedQuantity", "入库数量"], ["unit", "业务单位"], ["category", "类别"]
     ];
     const extension = format === "csv" ? "csv" : "xlsx";
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`成品入库数据.${extension}`)}`);
@@ -600,7 +600,7 @@ export class MasterDataController {
         this.importValueErrors(source.documentDate ?? source["单据日期"], "date", "单据日期", line),
         this.importValueErrors(source.inboundDate ?? source["入库日期"], "date", "入库日期", line),
         this.importValueErrors(source.lineNumber ?? source["序号"], "number", "序号", line),
-        this.importValueErrors(source.receivedQuantity ?? source["允收数量"] ?? source["实收数量"], "number", "允收数量", line)
+        this.importValueErrors(source.receivedQuantity ?? source["入库数量"] ?? source["允收数量"] ?? source["实收数量"], "number", "入库数量", line)
       ]) if (error) errors.push(error);
       prepared.push(row);
     }
@@ -650,7 +650,7 @@ export class MasterDataController {
       specification: this.text(row.specification ?? row["规格"] ?? row["规格型号"]),
       unit: this.text(row.unit ?? row["业务单位"] ?? row["计量单位"]),
       relationInfo: this.text(row.relationInfo ?? row["关联信息"]) ?? `${workOrderNumber ?? ""}|${lineNumberValue ?? ""}`,
-      receivedQuantity: this.numeric(row.receivedQuantity ?? row["允收数量"] ?? row["实收数量"]),
+      receivedQuantity: this.numeric(row.receivedQuantity ?? row["入库数量"] ?? row["允收数量"] ?? row["实收数量"]),
       unitPrice: this.numeric(row.unitPrice ?? row["单价"]),
       totalAmount: this.numeric(row.totalAmount ?? row["总金额"]),
       voucherWord: this.text(row.voucherWord ?? row["凭证字号"]),

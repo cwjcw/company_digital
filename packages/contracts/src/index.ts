@@ -398,7 +398,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["documentDate", "单据日期", "date"], ["inboundDate", "入库日期", "date"], ["lineNumber", "序号", "number", true, false, { format: "integer" }],
     ["workOrderNumber", "工单单号"], ["salesOrderNumber", "销售单号"], ["inventoryCode", "产品品号", "text", true, true],
     ["quickCode", "快捷码"], ["inventoryName", "品名"], ["specification", "规格"], ["unit", "业务单位"],
-    ["receivedQuantity", "允收数量", "number", true, false, { format: "decimal" }], ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"],
+    ["receivedQuantity", "入库数量", "number", true, false, { format: "decimal" }], ["warehouseCode", "仓库编码"], ["warehouse", "仓库名称"],
     ["inboundCategory", "入库类别"], ["workshopCode", "车间编码"], ["workshop", "车间"], ["handlerCode", "经手人编码"], ["handler", "经手人"],
     ["businessType", "业务类型"], ["voucherWord", "单据字"], ["category", "类别"], ["creator", "制单人"], ["auditor", "审核人"],
     ["relationInfo", "关联信息"], ["unitPrice", "单价", "number", true, false, { format: "decimal" }],

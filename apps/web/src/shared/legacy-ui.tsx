@@ -226,7 +226,7 @@ export const inboundFieldLabels: Record<string, string> = {
   documentDate: "单据日期", inboundDate: "入库日期", lineNumber: "序号",
   workOrderNumber: "工单单号", salesOrderNumber: "销售单号", inventoryCode: "产品品号",
   quickCode: "快捷码", inventoryName: "品名", specification: "规格",
-  receivedQuantity: "允收数量", unit: "业务单位", category: "类别",
+  receivedQuantity: "入库数量", unit: "业务单位", category: "类别",
   createdBy: "创建人", createdAt: "创建时间", updatedBy: "更新人", updatedAt: "更新时间"
 };
 export const inboundFields = Object.keys(inboundFieldLabels);
