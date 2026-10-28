@@ -860,13 +860,51 @@ describe("MasterPlanResourcePage weekly plan process groups", () => {
 });
 
 
+describe("generic import preview", () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-1", permissions: ["*"], isSystemAdmin: true }));
+  });
+
+  it.each([false, true])("keeps base-plan preview visible without allocation fields (invalid=%s)", async (invalid) => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-base-plans", fields: [], createFields: [], actions: { import: true } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-base-plans?")) return { rows: [], total: 0 } as never;
+      if (path.endsWith("/import-preview")) return {
+        total: 2, errors: invalid ? [{ row: 3, reason: "计划数量必须大于0" }] : [],
+        previewId: invalid ? null : "synthetic-preview",
+        rows: invalid ? [] : [{ row: 2, id: "synthetic-row", expectedVersion: 1, values: { itemCode: "ITEM", plannedQuantity: "10" } }]
+      } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const { container } = renderPage("mps-base-plans");
+    await screen.findByText("导入");
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(["fixture"], "base-plan.xlsx")] } });
+    const dialog = await screen.findByRole("dialog", { name: "导入预览" });
+    expect(within(dialog).getByText("共解析 2 条。确认后整批事务提交。")).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: /确认导入/ });
+    if (invalid) {
+      await waitFor(() => expect(within(dialog).getByText("第 3 行：计划数量必须大于0")).toBeVisible());
+      expect(confirm).toBeDisabled();
+    } else {
+      await waitFor(() => expect(within(dialog).getByText("校验通过，可以确认导入")).toBeVisible());
+      expect(confirm).toBeEnabled();
+    }
+    fireEvent.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("导入")).toBeVisible();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/import-confirm"))).toBe(false);
+  }, 15_000);
+});
+
 describe("allocation append preview", () => {
   it("shows batch append, quantity mapping, repeated-file and ignored-identity notices", async () => {
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
       if (path.endsWith("/meta")) return {resource:"mps-order-allocations",fields:[],createFields:[],actions:{import:true}} as never;
       if (path.startsWith("/master-plan-system/resources/mps-order-allocations?")) return {rows:[],total:0} as never;
-      if (path.endsWith("/import-preview")) return {total:2,fileTotalRows:3,validRows:2,orderCount:1,importBatchId:"synthetic-batch",quantitySource:"ERP_UNALLOCATED",ignoredIdentity:true,repeatedFile:true,errors:[],rows:[],previewId:"synthetic-preview",counts:{created:2,updated:0,unchanged:0,errors:0}} as never;
+      if (path.endsWith("/import-preview")) return {total:2,fileTotalRows:3,validRows:2,orderCount:1,importBatchId:"synthetic-batch",quantitySource:"ERP_UNALLOCATED",ignoredIdentity:true,repeatedFile:true,errors:[],rows:[{row:2,classification:"NEW",fields:[{label:"已分配数量",before:null,after:"10"}]}],previewId:"synthetic-preview",counts:{created:2,updated:0,unchanged:0,errors:0}} as never;
       throw new Error(`unexpected request: ${path}`);
     });
     const {container}=renderPage("mps-order-allocations");
@@ -874,6 +912,7 @@ describe("allocation append preview", () => {
     fireEvent.change(container.querySelector('input[type="file"]')!,{target:{files:[new File(["fixture"],"allocation.xlsx")]}});
     const dialog=await screen.findByRole("dialog");
     expect(within(dialog).getByText(/导入批次：synthetic-batch/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已分配数量：空 → 10/)).toBeInTheDocument();
     expect(within(dialog).getByText(/ERP未分配数量 → 已分配数量/)).toBeInTheDocument();
     expect(within(dialog).getByText(/源文件记录ID和版本不用于更新历史数据/)).toBeInTheDocument();
     expect(within(dialog).getByText(/新的独立批次新增全部记录/)).toBeInTheDocument();
