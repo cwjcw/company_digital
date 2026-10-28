@@ -42,3 +42,9 @@
 纯外协/中心外购沿用入库进度；无效需求、尚未建立月计划、内部生产未确认工艺或任一交期缺少有效快照时综合进度为空，显示待核实，订单亦不排除这些品项凑出完整百分比。零报工有已确认有效快照时为真实0；不能把缺工艺解释为零道工序而仅看入库。
 
 查询、排序、分页和两个服务端Excel使用同一SQL计算，不改存储的集团/月计划入库完成率；无Migration、无同步作业、无报工/入库数据回写。综合值和说明同时依赖需求、入库以及全部标准工序的报工/任务字段读取权限；缺任一依赖时隐藏，防止通过反算泄露。租户与read∩export范围沿用看板合同。
+
+## Existing monthly-plan inbound facts (2026-10-28)
+
+The existing `inbound-allocation` sync now reconciles division-four retained monthly-plan stock facts from verified Kejia canonical incoming records, independently of archived allocations and the suspended plan-generation projection. Its current 30-minute scheduler is retained. It updates cumulative inbound, pending quantity, completion rate and existing group aggregates, with row audits and idempotent no-op replay; no new plan generation or process-snapshot refresh is performed.
+
+BOM mappings currently drive the BOM detail's bound-process view. New weekly execution snapshots still use item routes or division defaults; automatic adoption of mapped BOM processes into new weekly snapshots/composite denominators is not implemented by this stock-fact restoration. A fully received item can therefore correctly reach 100% without proving that this separate mapping integration is complete.

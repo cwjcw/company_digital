@@ -9,6 +9,7 @@ import {
   erpSourceIdentitySql, snapshotSourceSystemSql
 } from "./master-plan.erp-admission";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
+import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 type ExecutionRollupScope = { weeklyPlanId: string; processCode: string };
@@ -715,33 +716,39 @@ export class MasterPlanSyncService {
   }
 
   private async allocateInbound(tenantId: string, updatedBy: string) {
-    /* KN-MPS-LIVE-002：入库分摊只统计科加账套，禁止把其它账套入库加进事业四部。 */
-    const changed = await this.dataSource.query(`
-      WITH inbound_totals AS (
-        SELECT sales_order_number order_number,inventory_code item_code,sum(greatest(COALESCE(received_quantity,0),0)) quantity
-        FROM finished_goods_inbound WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
-        GROUP BY sales_order_number,inventory_code
-      ), ordered AS (
-        SELECT w.id,w.planned_quantity,COALESCE(t.quantity,0) inbound_quantity,
-          COALESCE(sum(w.planned_quantity) OVER (
-            PARTITION BY w.order_number,w.item_code
-            ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number::numeric,w.id
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-          ),0) prior_planned
-        FROM mps_weekly_plans w
-        LEFT JOIN inbound_totals t ON t.order_number=w.order_number AND t.item_code=w.item_code
-        WHERE w.tenant_id=$1
-      ), allocations AS (
-        SELECT id,greatest(least(inbound_quantity-prior_planned,planned_quantity),0) allocated_quantity
-        FROM ordered
-      )
-      UPDATE mps_weekly_plans w SET allocated_inbound_quantity=a.allocated_quantity,
-        pending_quantity=greatest(w.planned_quantity-a.allocated_quantity,0),updated_at=now(),updated_by=$2,version=w.version+1
-      FROM allocations a WHERE w.tenant_id=$1 AND w.id=a.id
-        AND (w.allocated_inbound_quantity,w.pending_quantity) IS DISTINCT FROM
-          (a.allocated_quantity,greatest(w.planned_quantity-a.allocated_quantity,0))
-      RETURNING w.id`, [tenantId, updatedBy]);
-    return this.changedCount(changed);
+    return this.dataSource.transaction(async (manager) => {
+      const actorId = /^[0-9a-f-]{36}$/i.test(updatedBy) ? updatedBy : MASTER_PLAN_SYSTEM_USER_ID;
+      const monthly = await reconcileExistingMonthlyInbound(manager, tenantId, updatedBy, actorId);
+      /* KN-MPS-LIVE-002：入库分摊只统计科加账套，禁止把其它账套入库加进事业四部。 */
+      const changed = await manager.query(`
+        WITH inbound_totals AS (
+          SELECT sales_order_number order_number,inventory_code item_code,sum(greatest(COALESCE(received_quantity,0),0)) quantity
+          FROM finished_goods_inbound WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
+          GROUP BY sales_order_number,inventory_code
+        ), ordered AS (
+          SELECT w.id,w.planned_quantity,COALESCE(t.quantity,0) inbound_quantity,
+            COALESCE(sum(w.planned_quantity) OVER (
+              PARTITION BY w.order_number,w.item_code
+              ORDER BY w.latest_customer_due_date NULLS LAST,w.delivery_number::numeric,w.id
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ),0) prior_planned
+          FROM mps_weekly_plans w
+          LEFT JOIN inbound_totals t ON t.order_number=w.order_number AND t.item_code=w.item_code
+          WHERE w.tenant_id=$1
+        ), allocations AS (
+          SELECT id,greatest(least(inbound_quantity-prior_planned,planned_quantity),0) allocated_quantity
+          FROM ordered
+        )
+        UPDATE mps_weekly_plans w SET allocated_inbound_quantity=a.allocated_quantity,
+          pending_quantity=greatest(w.planned_quantity-a.allocated_quantity,0),updated_at=now(),updated_by=$2,version=w.version+1
+        FROM allocations a WHERE w.tenant_id=$1 AND w.id=a.id
+          AND (w.allocated_inbound_quantity,w.pending_quantity) IS DISTINCT FROM
+            (a.allocated_quantity,greatest(w.planned_quantity-a.allocated_quantity,0))
+        RETURNING w.id`, [tenantId, updatedBy]);
+      const weeklyRows = this.changedCount(changed);
+      return { count: monthly.monthlyRows + monthly.groupRows + weeklyRows,
+        metrics: { monthly_inbound_recalculated: monthly.monthlyRows, group_inbound_recalculated: monthly.groupRows, monthly_inbound_source_unverified: monthly.unverifiedSourceItems, weekly_inbound_allocated: weeklyRows } };
+    });
   }
 
   private async executionRollup(tenantId: string, updatedBy: string, scope: ExecutionRollupScope | null = null) {
