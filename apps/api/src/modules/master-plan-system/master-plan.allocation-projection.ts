@@ -92,7 +92,7 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
       if (resultRows(updated).length) { monthlyUpdated++; await audit("mps-monthly-plans",before,resultRows(updated)[0]!); }
     }
   }
-  const inbound = await reconcileExistingMonthlyInbound(manager,tenantId,actorName,actorId);
+  const inbound = await reconcileExistingMonthlyInbound(manager,tenantId,actorId,actorId);
   const orderNumbers = [...new Set(eligible.map(row => row.order_number))];
   if (orderNumbers.length) {
     const groups: Array<Record<string, any>> = await manager.query(`WITH source_orders AS (
@@ -151,6 +151,8 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
         WHERE tenant_id=$1 AND exception_key=$2 AND active=true`, [tenantId,key,actorId]);
     }
   }
+  await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$2::uuid,version=version+1
+    WHERE tenant_id=$1 AND exception_key='sync:plan-projections' AND active=true`, [tenantId,actorId]);
   const metrics: Record<string, number> = { allocations: 0,monthly_created:monthlyCreated,monthly_updated:monthlyUpdated,
     monthly_plans:monthlyCreated+monthlyUpdated,group_created:groupCreated,group_updated:groupUpdated,
     group_plans:groupCreated+groupUpdated,skipped:candidates.length-eligible.length,eligible:eligible.length,
