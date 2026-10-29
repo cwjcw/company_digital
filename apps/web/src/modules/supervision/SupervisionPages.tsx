@@ -149,7 +149,7 @@ function AttachmentInput({ value = [], onChange }: { value?: Attachment[]; onCha
   const { message } = App.useApp(); const [uploading, setUploading] = useState(false);
   const upload = async (file: File) => {
     setUploading(true);
-    try { const data = new FormData(); data.append("file", file); const attachment = await api<Attachment>("/supervision/attachments", { method: "POST", body: data }); onChange?.([...value, attachment]); message.success("附件已上传"); }
+    try { const data = new FormData(); data.append("originalName", file.name); data.append("file", file); const attachment = await api<Attachment>("/supervision/attachments", { method: "POST", body: data }); onChange?.([...value, attachment]); message.success("附件已上传"); }
     catch (error) { message.error(errorText(error)); }
     finally { setUploading(false); }
     return false;

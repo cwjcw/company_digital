@@ -44,11 +44,11 @@ describe("Supervision attachment upload keys", () => {
   ])("stores %s using a safe key while preserving the display filename", async (originalname) => {
     const body = Buffer.from("attachment test content");
     const attachment = await controller.uploadAttachment({
-      originalname,
+      originalname: Buffer.from(originalname, "utf8").toString("latin1"),
       buffer: body,
       mimetype: "application/octet-stream",
       size: body.length,
-    } as Express.Multer.File, request);
+    } as Express.Multer.File, { ...request, body: { originalName: originalname } });
 
     expect(attachment.name).toBe(originalname);
     expect(attachment.key).toMatch(/^supervision\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/);
@@ -60,11 +60,11 @@ describe("Supervision attachment upload keys", () => {
   it("downloads the uploaded Chinese filename using RFC 5987 Content-Disposition", async () => {
     const originalname = "任务附件测试.xlsx";
     const attachment = await controller.uploadAttachment({
-      originalname,
+      originalname: Buffer.from(originalname, "utf8").toString("latin1"),
       buffer: Buffer.from("xlsx bytes"),
       mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       size: 10,
-    } as Express.Multer.File, request);
+    } as Express.Multer.File, { ...request, body: { originalName: originalname } });
     queries.attachment.mockResolvedValue(attachment);
     const response = { setHeader: jest.fn(), send: jest.fn() } as any;
 

@@ -52,7 +52,8 @@ export class SupervisionController {
       hasSupervisionPermission(actor, resource, "create") || hasSupervisionPermission(actor, resource, "update"));
     if (!allowed) throw new ForbiddenException("当前权限组不能上传督办附件");
     const safeTenant = actor.tenantId.replace(/[^A-Za-z0-9_-]/g, "_");
-    const originalName = String(file.originalname || "attachment");
+    const suppliedName = typeof request.body?.originalName === "string" ? request.body.originalName : file.originalname;
+    const originalName = String(suppliedName || "attachment").split(/[\\/]/).pop() || "attachment";
     const fileName = originalName.split(/[\\/]/).pop() ?? "";
     const extension = fileName.match(/\.([A-Za-z0-9]{1,16})$/)?.[1]?.toLowerCase();
     const objectName = `${randomUUID()}${extension ? `.${extension}` : ""}`;
