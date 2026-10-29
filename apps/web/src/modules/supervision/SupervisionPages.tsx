@@ -88,6 +88,12 @@ function useSupervisionOptions() {
   return useQuery({ queryKey: ["supervision-options"], queryFn: () => api<Options>("/supervision/options"), staleTime: 300_000 });
 }
 
+function invalidateSupervisionProjectDependencies(queryClient: ReturnType<typeof useQueryClient>) {
+  const affected = new Set(["supervision-projects", "supervision-options", "supervision-tasks", "supervision-task-progress",
+    "supervision-project-dashboard", "supervision-employee-dashboard", "supervision-owner-report", "supervision-owner-drill"]);
+  return queryClient.invalidateQueries({ predicate: (query) => affected.has(String(query.queryKey[0])) }, { throwOnError: true });
+}
+
 function useSupervisionDeleteAction<T extends ProjectRow | TaskRow>(resource: "supervision-projects" | "supervision-tasks"): KdosTableDeleteAction<T> | undefined {
   const queryClient = useQueryClient();
   const deleting = useRef(false);
@@ -113,9 +119,7 @@ function useSupervisionDeleteAction<T extends ProjectRow | TaskRow>(resource: "s
           result.message = `删除完成：成功 ${deletedCount} 条，失败 ${failures.length} 条。${failures.map((failure) => `${byId.get(String(failure.key)) ?? "所选记录"}：${failure.reason}`).join("；")}`;
         }
         if (deletedCount) {
-          const affected = new Set(["supervision-projects", "supervision-tasks", "supervision-task-progress", "supervision-options",
-            "supervision-project-dashboard", "supervision-employee-dashboard", "supervision-owner-report", "supervision-owner-drill"]);
-          try { await queryClient.invalidateQueries({ predicate: (query) => affected.has(String(query.queryKey[0])) }, { throwOnError: true }); }
+          try { await invalidateSupervisionProjectDependencies(queryClient); }
           catch {
             result.feedback = "warning";
             result.message = `${result.message ?? `已删除 ${deletedCount} 条数据`}；关联页面刷新失败，请手动刷新，勿重复删除。`;
@@ -239,11 +243,11 @@ function ProjectActionModal({ action, row, onClose, onSaved }: { action?: "compl
 }
 
 export function SupervisionProjectsPage({ embedded = false, externalFilter }: { embedded?: boolean; externalFilter?: AdvancedFilterGroup }) {
-  const options = useSupervisionOptions(); const { setQuery, result } = usePlatformRows<ProjectRow>("supervision-projects"); const queryClient = useQueryClient();
+  const options = useSupervisionOptions(); const { setQuery, result } = usePlatformRows<ProjectRow>("supervision-projects"); const queryClient = useQueryClient(); const { message } = App.useApp();
   const deleteAction = useSupervisionDeleteAction<ProjectRow>("supervision-projects");
   const [statusView, setStatusView] = useState(embedded ? "ALL" : "OPEN");
   const [formRow, setFormRow] = useState<ProjectRow | null | undefined>(); const [action, setAction] = useState<{ action: "complete" | "abort"; row: ProjectRow }>();
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-projects"] });
+  const refresh = () => invalidateSupervisionProjectDependencies(queryClient).catch(() => { message.warning("关联页面刷新失败，请点击刷新重试"); });
   const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN"
     ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] }
     : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] };
@@ -251,6 +255,7 @@ export function SupervisionProjectsPage({ embedded = false, externalFilter }: { 
   const saveInline = async (row: ProjectRow, field: string, value: unknown) => {
     const saved = await api<Record<string, unknown>>(`/supervision/projects/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
     updatePlatformRowCache(queryClient, "supervision-projects", row.id, saved);
+    await refresh();
     return saved;
   };
   const columns: any[] = [
@@ -324,11 +329,19 @@ function TaskHistoryDrawer({ row, onClose }: { row?: TaskRow; onClose: () => voi
 }
 
 export function SupervisionTasksPage() {
-  const options = useSupervisionOptions(); const table = usePlatformRows<TaskRow>("supervision-tasks"); const queryClient = useQueryClient();
+  const options = useSupervisionOptions(); const table = usePlatformRows<TaskRow>("supervision-tasks"); const queryClient = useQueryClient(); const { message } = App.useApp();
   const deleteAction = useSupervisionDeleteAction<TaskRow>("supervision-tasks");
+  const openingCreate = useRef(false); const [loadingCreate, setLoadingCreate] = useState(false);
   const [statusView, setStatusView] = useState("OPEN");
   const [formRow, setFormRow] = useState<TaskRow | null | undefined>(); const [action, setAction] = useState<{ action: TaskAction; row: TaskRow }>(); const [history, setHistory] = useState<TaskRow>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-tasks"] });
+  const openCreate = async () => {
+    if (openingCreate.current) return;
+    openingCreate.current = true; setLoadingCreate(true);
+    try { await options.refetch({ throwOnError: true }); setFormRow(null); }
+    catch { message.error("项目候选加载失败，请重试"); }
+    finally { openingCreate.current = false; setLoadingCreate(false); }
+  };
   const saveInline = async (row: TaskRow, field: string, value: unknown) => {
     const saved = await api<Record<string, unknown>>(`/supervision/tasks/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
     updatePlatformRowCache(queryClient, "supervision-tasks", row.id, saved);
@@ -349,7 +362,7 @@ export function SupervisionTasksPage() {
   return <div>
     <Tabs activeKey={statusView} onChange={setStatusView} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
     <KdosDataTable resource="supervision-tasks" deleteAction={deleteAction} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={table.result.data?.rows} loading={table.result.isLoading} serverData={{ total: table.result.data?.total ?? 0, onQueryChange: (next) => { const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN" ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] } : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] }; const groups = [statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); table.setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); } }}
-      toolbar={<>{hasResourcePermission("supervision-tasks", "create") && <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormRow(null)}>创建任务</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
+      toolbar={<>{hasResourcePermission("supervision-tasks", "create") && <Button type="primary" icon={<PlusOutlined />} loading={loadingCreate} onClick={() => void openCreate()}>创建任务</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
     {formRow !== undefined && <TaskForm open row={formRow ?? undefined} options={options.data} onClose={() => setFormRow(undefined)} onSaved={refresh} />}
     <TaskActionModal action={action?.action} row={action?.row} onClose={() => setAction(undefined)} onSaved={refresh} />
     <TaskHistoryDrawer row={history} onClose={() => setHistory(undefined)} />

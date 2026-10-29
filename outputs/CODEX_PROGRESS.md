@@ -8582,3 +8582,30 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 已合并已上线c324f3e，完整保留a7a63fd。真实audit_logs.record_id为varchar，原SQL只读EXPLAIN确认类型不兼容；关联改为b.id::text，隔离fixture对齐varchar。
 - 仅复跑相关monthly-base两套18项，全部通过。原112/40/类型构建/Chrome与5项历史失败结论继续复用。
 - 当前进入镜像构建、仅Migration111和生产发布；用户本轮明确不增加全库备份。无新来源标识、无新调度器，保护已有人工/工艺/报工及上轮已上线删除功能。
+
+## 项目候选缓存一致性修复（2026-10-29）
+- 任务目标：统一项目创建/修改/完成/中止/删除后的依赖失效；每次创建任务前主动重取候选，失败时不打开旧数据窗口；测试、GitHub同步、部署及实际页面闭环。
+- 当前状态：进行中；当前阶段：已确认实现方式，准备最小前端修复；最后更新时间：2026-10-29。
+- 已完成：[x] 阅读附件、AGENTS/SECURITY、form-platform/form-validation及删除规范；[x] 确认原options五分钟缓存，inline及form/action仅刷新projects；[x] 确认候选及列表名称从supervision_projects.project_name当前查询，任务未存名称副本。
+- 正在进行：[ ] 前端统一依赖helper与创建前refetch/失败提示/防连点；[ ] 定向测试。
+- 待完成：[ ] Web类型/build/lint及API候选权限回归；[ ] 隔离发布提交/push及既有脚本部署；[ ] Chrome实际改名到创建候选/刷新验证。
+- 修改文件：预计SupervisionPages.tsx及spec、本进度；其他历史未提交代码与进度保护。
+- 数据库Migration：无；不新增冗余名称、来源或同步字段，不改后端权限。
+- 新增或修改测试：拟覆盖同浏览器改名、跨浏览器最新候选、失败/重复点击、成员/状态/新增及各变更依赖。已运行测试：本轮尚无。
+- 当前已知问题/等待用户确认：无，用户已授权修复、Git同步、部署和指定实际改名验收。
+- 下一步/恢复说明：继续最小实现→测试→仅白名单复制当前fbff基线隔离worktree→提交/push/web部署→Chrome验收。所有脚本与输出放test/supervision_options_cache/，不覆盖其他任务。
+
+### 缓存修复实现完成与定向验收进行中
+- 已完成：[x] 单一invalidateSupervisionProjectDependencies覆盖项目/候选/任务/进展/两大屏/责任人报表及下钻；inline保存、项目新增/弹窗修改/完成/中止及删除共用。
+- 已完成：[x] 创建任务每次refetch(throwOnError)，完成后才打开；失败明确提示且不开旧数据窗口；按钮loading+同步ref防重复；保留常规5分钟缓存。
+- 已验证：[x] API相关5套38项；[x] Node24 Web类型+生产构建；[x] 相关lint；前端28项通过，刷新失败保护用例正在解决测试fixture独立性后收尾。
+- 已有功能保护：删除/权限/候选成员规则保留；后端名称查询为项目主表实时读取，不改历史task.projectId，不加Migration。
+- 发布隔离：新worktree test/supervision_options_cache/release-source从当前github/main fbff2a3创建，只复制本次两个Web文件；原main及其他未提交内容不动。
+- 下一步：完成Web29项最终回归→仅提交白名单与本节进度并普通push→保留原Web镜像回退→原脚本web部署→实际Chrome改名及候选检查后恢复原名称。无数据库结构/调度变更，不追加数据库备份。
+
+### 定向验收全部通过，准备正式发布
+- 已运行测试：Node24 SupervisionPages.spec.tsx 29/29（新增14项）；API相关5套38/38；Node24 Web类型与生产构建、最终相关lint及git diff --check均PASS。
+- 测试等待问题已解决：公共表格250ms初始化筛选需要完成后再做刷新失败断言；没有扩大业务实现范围。
+- 当前阶段：仅本次两个Web文件及本任务进度复制隔离发布源，安全审查后commit/push；旧Web镜像before-supervision-options-20261029保留供回退。
+- 无Migration，不修改数据库结构、权限或调度，不执行额外数据库备份；部署使用原scripts/deploy.sh web，API/Worker保持当前已验证fbff版本。
+- 下一步：提交/push→web部署→健康检查→真实Chrome同浏览器SPA改名/跨标签页候选刷新/失败提示/页面刷新/恢复原名。
