@@ -7,7 +7,6 @@ describe("master plan manual-entry configuration", () => {
   it.each([
     "mps-shipping-plans",
     "mps-base-plans",
-    "mps-weekly-process-plans",
     "mps-customer-divisions",
     "mps-order-allocations",
     "mps-process-cycles"
@@ -17,6 +16,7 @@ describe("master plan manual-entry configuration", () => {
 
   it("only allows base-to-weekly to create division weekly plans", () => {
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")?.create).toBe(false);
+    expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-process-plans")?.create).toBe(false);
   });
 
   it("uses the approved full field names and new/old product meaning", () => {
@@ -38,7 +38,7 @@ describe("master plan manual-entry configuration", () => {
 
   it("makes the requested base-plan fields required dictionaries with fixed options", () => {
     const fields = tablePermissionFieldsFor("mps-base-plans");
-    const requiredKeys = ["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"];
+    const requiredKeys = ["latestCustomerDueDate", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"];
     expect(fields.filter((field) => requiredKeys.includes(field.key)).every((field) => field.required)).toBe(true);
     expect(fields.find((field) => field.key === "productAttribute")?.type).toBe("dictionary");
     expect(fields.find((field) => field.key === "surfaceNature")?.type).toBe("dictionary");
@@ -64,9 +64,9 @@ describe("master plan manual-entry configuration", () => {
   it("separates weekly admission fields from ordinary update required fields", () => {
     const base = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
     expect(base.requiredAlways).toBeUndefined();
-    expect(base.weeklyAdmissionRequiredFields).toEqual(["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
-    expect(weeklyAdmissionMissingFields(base, { latestReviewDueDate: "2026-09-20", productAttribute: "五金" })).toEqual(["surfaceNature", "manufacturingMethod"]);
-    expect(weeklyAdmissionMissingFields(base, { latestReviewDueDate: "2026-09-20", productAttribute: "  ", surfaceNature: null, manufacturingMethod: "自制" })).toEqual(["productAttribute", "surfaceNature"]);
+    expect(base.weeklyAdmissionRequiredFields).toEqual(["latestCustomerDueDate", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
+    expect(weeklyAdmissionMissingFields(base, { latestCustomerDueDate: "2026-11-03", latestReviewDueDate: "2026-09-20", productAttribute: "五金" })).toEqual(["surfaceNature", "manufacturingMethod"]);
+    expect(weeklyAdmissionMissingFields(base, { latestCustomerDueDate: "2026-11-03", latestReviewDueDate: "2026-09-20", productAttribute: "  ", surfaceNature: null, manufacturingMethod: "自制" })).toEqual(["productAttribute", "surfaceNature"]);
   });
 
   it("derives the admission predicate and missing labels from the single admission field list", () => {

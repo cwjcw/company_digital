@@ -10,13 +10,14 @@ import { shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master
 import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 import { NotificationService } from "../notifications/notification.service";
+import { nextMasterPlanDeliveryCode } from "./master-plan.delivery-code";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** 写入后需要独立对账的同步任务（单一权威映射，enqueue 与反馈共用）。 */
 const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
   "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
-  "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
+  "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": [],
   "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
   "mps-weekly-process-plans": ["execution-rollup"],
   "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
@@ -621,18 +622,7 @@ export class MasterPlanApplicationService {
     const orderNumber = String(values.orderNumber ?? "").trim();
     const itemCode = String(values.itemCode ?? "").trim();
     if (!orderNumber || !itemCode) throw new BadRequestException("生成交期编码前必须先填写订单编号和品项编码");
-    const lockKey = `mps-delivery-code:${tenantId}:${orderNumber}:${itemCode}`;
-    await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-    const [counter] = await manager.query(`
-      INSERT INTO mps_delivery_code_counters(tenant_id,order_number,item_code,next_number,created_by,updated_by)
-      VALUES($1,$2,$3,2,$4::uuid,$4)
-      ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET
-        next_number=mps_delivery_code_counters.next_number+1,updated_at=now(),updated_by=$4
-      RETURNING next_number-1 AS generated
-    `, [tenantId, orderNumber, itemCode, actorId]);
-    const generated = String(counter?.generated ?? "");
-    if (!/^\d+$/.test(generated) || BigInt(generated) < 1n) throw new BadRequestException("系统无法生成有效的交期编码");
-    values.deliveryNumber = generated.padStart(3, "0");
+    values.deliveryNumber = await nextMasterPlanDeliveryCode(manager, tenantId, orderNumber, itemCode, actorId);
   }
 
   private async translateDatabaseError<T>(operation: () => Promise<T>): Promise<T> {

@@ -33,17 +33,17 @@ describe("MasterPlanHistoricalWeeklyReviewDate1722920062000", () => {
   it("正常周计划准入规则未被放宽：仍然强制要求 latestReviewDueDate", () => {
     const base = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
     /* 准入字段清单与 SQL 谓词都必须继续包含评审交期。 */
-    expect(base.weeklyAdmissionRequiredFields).toEqual(["latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
+    expect(base.weeklyAdmissionRequiredFields).toEqual(["latestCustomerDueDate", "latestReviewDueDate", "productAttribute", "surfaceNature", "manufacturingMethod"]);
     const admission = weeklyAdmissionSql(base, "base");
     expect(admission).toContain("NULLIF(btrim(base.latest_review_due_date::text),'') IS NOT NULL");
     /* 缺评审交期的 base（哪怕其他字段齐全）仍然被判定为未满足准入。 */
     const missing = weeklyAdmissionMissingFields(base, {
-      latestReviewDueDate: null, productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制"
+      latestCustomerDueDate: "2026-11-03", latestReviewDueDate: null, productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制"
     });
     expect(missing).toEqual(["latestReviewDueDate"]);
     /* 其他三个字段缺失同样继续阻挡准入。 */
     expect(weeklyAdmissionMissingFields(base, {
-      latestReviewDueDate: "2026-09-30", productAttribute: null, surfaceNature: null, manufacturingMethod: null
+      latestCustomerDueDate: "2026-11-03", latestReviewDueDate: "2026-09-30", productAttribute: null, surfaceNature: null, manufacturingMethod: null
     })).toEqual(["productAttribute", "surfaceNature", "manufacturingMethod"]);
   });
 });

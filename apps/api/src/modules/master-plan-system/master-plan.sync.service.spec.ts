@@ -1,3 +1,4 @@
+import { monthlyBaseValues } from "./master-plan.monthly-base";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql } from "./master-plan.config";
 import { ConflictException } from "@nestjs/common";
@@ -119,7 +120,9 @@ describe("MasterPlanSyncService execution matrix", () => {
     const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
     const service = new MasterPlanSyncService(dataSource as never);
     await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
-    const sql = manager.query.mock.calls.map(([statement]) => String(statement));
+    const statements = manager.query.mock.calls.map(([statement]) => String(statement));
+    expect(statements[0]).toContain("set_config('app.tenant_id'");
+    const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'"));
     expect(sql[0]).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base");
     expect(sql[0]).toContain("order_number=excluded.order_number");
     expect(sql[0]).toContain("item_code=excluded.item_code");
@@ -218,18 +221,12 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(insert).toContain("WHERE base.tenant_id=$1");
   });
 
-  it("never copies an illegal dictionary value from the monthly plan into the base plan", async () => {
-    const query = jest.fn().mockResolvedValue([]);
-    const service = new MasterPlanSyncService({ query } as never);
-    await (service as any).shippingToBase("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
-    const insert = String(query.mock.calls[0][0]);
-
-    expect(insert).toContain("WHEN m.product_attribute::text IN ('五金','木作','亚克力','五金+木作','其他','五金+亚克力','塑料') THEN m.product_attribute::text ELSE existing.product_attribute END");
-    expect(insert).toContain("WHEN m.surface_nature::text IN ('烤漆','电镀','热转印','毛坯','其他') THEN m.surface_nature::text ELSE existing.surface_nature END");
-    expect(insert).toContain("WHEN m.manufacturing_method::text IN ('自制','中心外购','外协','自制+外协') THEN m.manufacturing_method::text ELSE existing.manufacturing_method END");
-    expect(insert).toContain("WHEN s.model_age::text IN ('新','旧') THEN s.model_age::text ELSE existing.model_age END");
-    expect(insert).toContain("LEFT JOIN mps_base_plans existing ON existing.tenant_id=s.tenant_id AND existing.order_number=s.order_number AND existing.item_code=s.item_code AND existing.delivery_number=s.delivery_number");
-    expect(insert).toContain("WHERE s.tenant_id=$1");
+  it("never copies an illegal dictionary value from the monthly plan into the base plan", () => {
+    const values = monthlyBaseValues({ required_quantity: "10", product_attribute: "错误属性", surface_nature: "错误表面", manufacturing_method: "错误方式", model_age: "错误新旧款" });
+    expect(values).not.toHaveProperty("product_attribute");
+    expect(values).not.toHaveProperty("surface_nature");
+    expect(values).not.toHaveProperty("manufacturing_method");
+    expect(values).not.toHaveProperty("model_age");
   });
 
   it("uses weekly-plan identity for every generated child and keeps manual execution fields", async () => {

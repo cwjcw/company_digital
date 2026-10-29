@@ -11,6 +11,7 @@ import {
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
+import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 type ExecutionRollupScope = { weeklyPlanId: string; processCode: string };
@@ -276,7 +277,7 @@ export class MasterPlanSyncService {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
       "plan-projections": () => this.projectPlans(tenantId, userId, actorName),
-      "shipping-to-base": () => this.shippingToBase(tenantId, userId, updatedBy),
+      "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName),
       "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),
       "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope)
@@ -449,28 +450,10 @@ export class MasterPlanSyncService {
       userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy));
   }
 
-  private async shippingToBase(tenantId: string, userId: string | null, updatedBy: string) {
-    const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
-    const dictionaryColumn = (field: string, column: string, source: string, existing: string) =>
-      this.dictionaryCopySql(basePlan, field, column, source, existing);
-    const rows = await this.dataSource.query(`
-      INSERT INTO mps_base_plans(tenant_id,shipping_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,planned_quantity,model_age,image_refs,product_attribute,surface_nature,manufacturing_method,created_by,updated_by)
-      SELECT s.tenant_id,s.id,s.division_id,s.customer_code,s.order_number,s.item_code,s.item_name,s.delivery_number,s.order_date,s.latest_customer_due_date,s.planned_quantity,
-        ${dictionaryColumn("modelAge", "model_age", "s.model_age", "existing.model_age")},
-        COALESCE(m.image_refs,'[]'::jsonb),
-        ${dictionaryColumn("productAttribute", "product_attribute", "m.product_attribute", "existing.product_attribute")},
-        ${dictionaryColumn("surfaceNature", "surface_nature", "m.surface_nature", "existing.surface_nature")},
-        ${dictionaryColumn("manufacturingMethod", "manufacturing_method", "m.manufacturing_method", "existing.manufacturing_method")},
-        $2::uuid,$3
-      FROM mps_shipping_plans s
-      LEFT JOIN mps_monthly_plans m ON m.tenant_id=s.tenant_id AND m.order_number=s.order_number AND m.item_code=s.item_code
-      LEFT JOIN mps_base_plans existing ON existing.tenant_id=s.tenant_id AND existing.order_number=s.order_number AND existing.item_code=s.item_code AND existing.delivery_number=s.delivery_number
-      WHERE s.tenant_id=$1
-      ON CONFLICT(tenant_id,order_number,item_code,delivery_number) DO UPDATE SET shipping_plan_id=excluded.shipping_plan_id,division_id=excluded.division_id,customer_code=excluded.customer_code,item_name=excluded.item_name,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,planned_quantity=excluded.planned_quantity,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_base_plans.version+1
-      WHERE (mps_base_plans.shipping_plan_id,mps_base_plans.division_id,mps_base_plans.customer_code,mps_base_plans.item_name,mps_base_plans.order_date,mps_base_plans.latest_customer_due_date,mps_base_plans.planned_quantity,mps_base_plans.model_age,mps_base_plans.image_refs,mps_base_plans.product_attribute,mps_base_plans.surface_nature,mps_base_plans.manufacturing_method)
-        IS DISTINCT FROM (excluded.shipping_plan_id,excluded.division_id,excluded.customer_code,excluded.item_name,excluded.order_date,excluded.latest_customer_due_date,excluded.planned_quantity,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.manufacturing_method)
-      RETURNING id`, [tenantId, userId, updatedBy]);
-    return rows.length;
+  /** Retain the existing task key and entrypoint; its sole input is now monthly plans. */
+  private shippingToBase(tenantId: string, userId: string | null, actorName: string): Promise<SyncOutcome> {
+    return this.dataSource.transaction(manager => reconcileMonthlyBasePlans(manager, tenantId,
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName));
   }
 
   private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string) {
@@ -479,6 +462,7 @@ export class MasterPlanSyncService {
     const dictionaryColumn = (field: string, column: string) =>
       this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
     return this.dataSource.transaction(async (manager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
         SELECT base.tenant_id,base.id,base.division_id,base.customer_code,base.order_number,base.item_code,base.item_name,base.delivery_number,base.order_date,base.latest_customer_due_date,base.latest_review_due_date,
