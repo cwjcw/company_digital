@@ -8609,3 +8609,16 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 当前阶段：仅本次两个Web文件及本任务进度复制隔离发布源，安全审查后commit/push；旧Web镜像before-supervision-options-20261029保留供回退。
 - 无Migration，不修改数据库结构、权限或调度，不执行额外数据库备份；部署使用原scripts/deploy.sh web，API/Worker保持当前已验证fbff版本。
 - 下一步：提交/push→web部署→健康检查→真实Chrome同浏览器SPA改名/跨标签页候选刷新/失败提示/页面刷新/恢复原名。
+
+### 标准业务表详情窗口：本地实现及定向验收
+- 当前状态：本地开发与定向验收通过，准备发布；无Migration。
+- 规范：`kdos-form-platform/SKILL.md` 已新增标准业务表记录详情页通用规范；项目内未发现独立 `table-record-detail` Skill 文件或引用，因此无冗余文件清理。
+- 实现：`KdosDataTable` 提供双击事件及已应用搜索/筛选/排序/页码上下文；共享 `KdosRecordDetailModal` 提供居中默认窗口、序号导航、最大化/恢复、关闭和权限入口。项目管理、任务管理详情通过现有授权列表接口跨页取数；列表查询和页码保持不变。
+- 权限/操作：详情字段仅依据服务端已授权返回的字段显示；编辑、删除按资源权限控制，打印复用既有打印能力。编辑复用原有业务表单和后端验证。
+- 测试：Web `KdosDataTable.spec.tsx` 与 `SupervisionPages.spec.tsx` 共49项通过；新增跨页搜索保持、页码不变、最大化恢复、只读及权限按钮测试。Web typecheck、相关ESLint和production build通过；build存在既有 bundle size warning。本机Node22低于项目Node24要求，pnpm给出engine warning。
+- 正在进行：[ ] Git diff与敏感文件复核；[ ] 本地commit并普通push；[ ] 原脚本Web部署；[ ] 健康/版本及线上非破坏性页面验收。
+- 修改文件：`kdos-form-platform/SKILL.md`、`apps/web/src/shared/KdosDataTable.tsx`、`apps/web/src/shared/KdosRecordDetailModal.tsx`、`apps/web/src/shared/kdos-record-detail.css`、`apps/web/src/modules/supervision/SupervisionPages.tsx`、对应spec。
+- 下一步：只提交上述文件和本进度条目，在clean linked worktree使用`KDOS_RUNTIME_ROOT=/data/automation/code/work/PMC/knweb ./scripts/deploy.sh web`部署。
+- 最近进展：最终改动的Web构建和相关ESLint已通过；新增项目、任务详情交互专项测试通过。完整49项回归正在最后复跑；排序字段已在`KdosDataTable`行双击上下文中提供，跨页读取直接沿用该查询字段。
+- 最终回归结果：`KdosDataTable.spec.tsx` 18/18 与 `SupervisionPages.spec.tsx` 31/31，共49/49通过；typecheck/build和相关lint通过，`git diff --check`待提交前复核。
+- 当前阶段：本地实现及验收完成，准备提交/push和生产Web发布；无API、数据库或Migration变更。

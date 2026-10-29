@@ -8,15 +8,18 @@ import {
   supervisionProgressUpdateTypeOptions, supervisionSourceTypeOptions
 } from "@kdos/contracts";
 import {
-  Alert, App, Button, Card, Col, DatePicker, Drawer, Dropdown, Empty, Flex, Form, Input, InputNumber,
+  Alert, App, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Empty, Flex, Form, Input, InputNumber,
   Modal, Progress, Row, Select, Space, Statistic, Steps, Tabs, Tag, Typography, Upload
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../api";
-import { KdosDataTable, TablePermissionButton, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, useKdosTableEditMode, type KdosTableDeleteAction } from "../../shared/KdosDataTable";
+import { KdosDataTable, TablePermissionButton, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, useKdosTableEditMode, type KdosRecordDoubleClickContext, type KdosTableDeleteAction } from "../../shared/KdosDataTable";
 import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 import { formatDateOnly, formatDateRange } from "../../shared/date-format";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { KdosRecordDetailModal, type KdosRecordDetailTarget } from "../../shared/KdosRecordDetailModal";
+import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities } from "../../shared/table-print";
 
 const { Title, Paragraph, Text } = Typography;
 type Attachment = { key: string; name: string; contentType: string; size: number };
@@ -36,6 +39,72 @@ const dateValue = (value: unknown) => value ? dayjs(formatDateOnly(value)) : nul
 const dateText = (value: unknown) => formatDateOnly(value) || "—";
 const userLabel = (options: Options | undefined, id: unknown) => options?.users.find((item) => item.id === id)?.label ?? (id ? "—" : "—");
 const departmentLabel = (options: Options | undefined, id: unknown) => { const department = options?.departments.find((item) => item.id === id); return department?.pathLabel ?? department?.name ?? "—"; };
+
+type SupervisionDetailState<T extends ProjectRow | TaskRow> = { target: KdosRecordDetailTarget<T>; query: PlatformTableQuery };
+
+function combineDetailFilters(...groups: Array<AdvancedFilterGroup | undefined>): AdvancedFilterGroup {
+  const active = groups.filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length)));
+  return active.length ? { logic: "AND", rules: [], groups: active } : { logic: "AND", rules: [] };
+}
+
+function SupervisionRecordDetails({ resource, row, options }: { resource: "supervision-projects" | "supervision-tasks"; row: ProjectRow | TaskRow; options?: Options }) {
+  /* The read API already applies row and field scopes; absent properties are never reconstructed here. */
+  const fields = tablePermissionFieldsFor(resource).filter((field) => field.key in row && (hasFieldPermission(resource, field.key, "read") || hasResourcePermission(resource, "read")));
+  const renderValue = (key: string, value: unknown) => {
+    if (value == null || value === "") return "—";
+    if (key === "ownerId" || key === "supervisorId" || key === "createdBy" || key === "updatedBy") return userLabel(options, value);
+    if (key === "participantIds" || key === "collaboratorIds") return Array.isArray(value) ? value.map((id) => userLabel(options, id)).join("、") || "—" : "—";
+    if (key === "departmentId") return departmentLabel(options, value);
+    if (key === "sourceType") return sourceLabels[String(value)] ?? String(value);
+    if (key === "priority") return priorityLabels[String(value)] ?? String(value);
+    if (key === "lifecycleStatus") return lifecycleLabels[String(value)] ?? String(value);
+    if (key === "displayStatus") return displayLabels[String(value)] ?? String(value);
+    if (key.toLowerCase().includes("date")) return dateText(value);
+    if (key === "progress") return `${Number(value)}%`;
+    if (key === "attachments" && Array.isArray(value)) return value.map((attachment) => typeof attachment === "object" && attachment && "name" in attachment ? String(attachment.name) : "附件").join("、") || "—";
+    if (Array.isArray(value)) return value.map(String).join("、") || "—";
+    if (typeof value === "object") return "—";
+    return String(value);
+  };
+  return <Descriptions bordered size="small" column={{ xs: 1, sm: 2, lg: 2 }} items={fields.map((field) => ({ key: field.key, label: field.label, children: renderValue(field.key, row[field.key]) }))} />;
+}
+
+function useSupervisionRecordPrint(resource: "supervision-projects" | "supervision-tasks") {
+  const capability = useTablePrintCapabilities();
+  const canPrint = tablePrintAllowed(capability.data, resource);
+  const print = async (row: ProjectRow | TaskRow, query: PlatformTableQuery) => {
+    if (!canPrint) throw new Error("当前用户没有该表的打印权限");
+    const request = { resource, rangeType: "SELECTED" as const, search: query.search, filterGroup: query.filterGroup, sortField: query.sortField, sortOrder: query.sortOrder, selectedIds: [row.id] };
+    const { manifest, requiresConfirm } = await planPrint(request);
+    if (!manifest.total) throw new Error("当前记录已无可打印数据");
+    if (requiresConfirm) {
+      const confirmed = await new Promise<boolean>((resolve) => Modal.confirm({ title: "确认打印", content: printConfirmMessage(manifest), okText: "继续打印", cancelText: "取消", onOk: () => resolve(true), onCancel: () => resolve(false) }));
+      if (!confirmed) return;
+    }
+    await renderPrint(request);
+  };
+  return { canPrint, print };
+}
+
+function detailQueryFromContext(context: { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" }, filterGroup: AdvancedFilterGroup): PlatformTableQuery {
+  return { page: context.page, pageSize: context.pageSize, search: context.search, filters: context.filters, filterGroup, sortField: context.sortField, sortOrder: context.sortOrder };
+}
+
+async function readDetailTarget<T extends ProjectRow | TaskRow>(resource: "supervision-projects" | "supervision-tasks", detail: SupervisionDetailState<T>, direction: -1 | 1): Promise<KdosRecordDetailTarget<T> | null> {
+  const index = detail.target.index + direction;
+  if (index < 1 || index > detail.target.total) return null;
+  const page = Math.ceil(index / detail.query.pageSize);
+  const result = await api<PlatformTablePage<T>>(platformRowsUrl(resource, { ...detail.query, page }));
+  const record = result.rows[(index - 1) % detail.query.pageSize];
+  return record ? { record, index, total: result.total } : null;
+}
+
+function deleteDetailRecord<T extends ProjectRow | TaskRow>(action: KdosTableDeleteAction<T> | undefined, row: T) {
+  if (!action?.permitted || action.canDelete?.(row) === false) throw new Error("当前记录不可删除");
+  return action.onDelete([row]).then((result) => {
+    if (result?.failures?.length) throw new Error(result.message ?? result.failures[0]?.reason ?? "删除失败");
+  });
+}
 
 function updatePlatformRowCache(queryClient: ReturnType<typeof useQueryClient>, resource: string, id: string, saved: Record<string, unknown>) {
   queryClient.setQueriesData<PlatformTablePage<any>>({ queryKey: [resource] }, (current) => current
@@ -245,13 +314,25 @@ function ProjectActionModal({ action, row, onClose, onSaved }: { action?: "compl
 export function SupervisionProjectsPage({ embedded = false, externalFilter }: { embedded?: boolean; externalFilter?: AdvancedFilterGroup }) {
   const options = useSupervisionOptions(); const { setQuery, result } = usePlatformRows<ProjectRow>("supervision-projects"); const queryClient = useQueryClient(); const { message } = App.useApp();
   const deleteAction = useSupervisionDeleteAction<ProjectRow>("supervision-projects");
+  const printRecord = useSupervisionRecordPrint("supervision-projects");
   const [statusView, setStatusView] = useState(embedded ? "ALL" : "OPEN");
+  const [detail, setDetail] = useState<SupervisionDetailState<ProjectRow> | null>(null);
   const [formRow, setFormRow] = useState<ProjectRow | null | undefined>(); const [action, setAction] = useState<{ action: "complete" | "abort"; row: ProjectRow }>();
   const refresh = () => invalidateSupervisionProjectDependencies(queryClient).catch(() => { message.warning("关联页面刷新失败，请点击刷新重试"); });
   const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN"
     ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] }
     : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] };
   const onQuery = (next: PlatformTableQuery) => { const groups = [externalFilter, statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); };
+  const openDetail = (row: ProjectRow, context: KdosRecordDoubleClickContext) => {
+    const query = detailQueryFromContext(context, combineDetailFilters(externalFilter, statusGroup, context.filterGroup));
+    setDetail({ target: { record: row, index: (context.page - 1) * context.pageSize + context.rowIndex + 1, total: context.total }, query });
+  };
+  const navigateDetail = async (direction: -1 | 1) => {
+    if (!detail) return null;
+    const next = await readDetailTarget("supervision-projects", detail, direction);
+    if (next) setDetail((current) => current ? { ...current, target: next } : current);
+    return next;
+  };
   const saveInline = async (row: ProjectRow, field: string, value: unknown) => {
     const saved = await api<Record<string, unknown>>(`/supervision/projects/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value, expectedVersion: row.version }) });
     updatePlatformRowCache(queryClient, "supervision-projects", row.id, saved);
@@ -274,9 +355,15 @@ export function SupervisionProjectsPage({ embedded = false, externalFilter }: { 
     { title: "", key: "__actions", width: 52, fixed: "right", render: (_: unknown, row: ProjectRow) => <ProjectRowActions row={row} onAction={(key, target) => key === "edit" ? setFormRow(target) : setAction({ action: key as "complete" | "abort", row: target })} /> }
   ];
   return <div>
-    <Tabs activeKey={statusView} onChange={setStatusView} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
-    <KdosDataTable resource="supervision-projects" deleteAction={deleteAction} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={result.data?.rows} loading={result.isLoading} serverData={{ total: result.data?.total ?? 0, onQueryChange: onQuery }}
+    <Tabs activeKey={statusView} onChange={(key) => { setDetail(null); setStatusView(key); }} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
+    <KdosDataTable resource="supervision-projects" deleteAction={deleteAction} onRecordDoubleClick={openDetail} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={result.data?.rows} loading={result.isLoading} serverData={{ total: result.data?.total ?? 0, onQueryChange: onQuery }}
       toolbar={<>{hasResourcePermission("supervision-projects", "create") && <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormRow(null)}>创建项目</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
+    <KdosRecordDetailModal open={Boolean(detail)} target={detail?.target ?? null} title={(row) => `${row.projectCode} · ${row.projectName}`} onClose={() => setDetail(null)} onNavigate={navigateDetail}
+      onPrint={detail && printRecord.canPrint ? () => printRecord.print(detail.target.record, detail.query) : undefined}
+      onEdit={detail && hasResourcePermission("supervision-projects", "update") ? () => setFormRow(detail.target.record) : undefined}
+      onDelete={detail && deleteAction?.permitted && deleteAction.canDelete?.(detail.target.record) !== false ? () => deleteDetailRecord(deleteAction, detail.target.record).then(refresh) : undefined}>
+      {detail && <SupervisionRecordDetails resource="supervision-projects" row={detail.target.record} options={options.data} />}
+    </KdosRecordDetailModal>
     {formRow !== undefined && <ProjectForm open row={formRow ?? undefined} options={options.data} onClose={() => setFormRow(undefined)} onSaved={refresh} />}
     <ProjectActionModal action={action?.action} row={action?.row} onClose={() => setAction(undefined)} onSaved={refresh} />
   </div>;
@@ -331,10 +418,18 @@ function TaskHistoryDrawer({ row, onClose }: { row?: TaskRow; onClose: () => voi
 export function SupervisionTasksPage() {
   const options = useSupervisionOptions(); const table = usePlatformRows<TaskRow>("supervision-tasks"); const queryClient = useQueryClient(); const { message } = App.useApp();
   const deleteAction = useSupervisionDeleteAction<TaskRow>("supervision-tasks");
+  const printRecord = useSupervisionRecordPrint("supervision-tasks");
   const openingCreate = useRef(false); const [loadingCreate, setLoadingCreate] = useState(false);
   const [statusView, setStatusView] = useState("OPEN");
+  const [detail, setDetail] = useState<SupervisionDetailState<TaskRow> | null>(null);
   const [formRow, setFormRow] = useState<TaskRow | null | undefined>(); const [action, setAction] = useState<{ action: TaskAction; row: TaskRow }>(); const [history, setHistory] = useState<TaskRow>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-tasks"] });
+  const taskStatusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN"
+    ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] }
+    : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] };
+  const openDetail = (row: TaskRow, context: KdosRecordDoubleClickContext) => {
+    setDetail({ target: { record: row, index: (context.page - 1) * context.pageSize + context.rowIndex + 1, total: context.total }, query: detailQueryFromContext(context, combineDetailFilters(taskStatusGroup, context.filterGroup)) });
+  };
   const openCreate = async () => {
     if (openingCreate.current) return;
     openingCreate.current = true; setLoadingCreate(true);
@@ -360,9 +455,19 @@ export function SupervisionTasksPage() {
     { title: "", key: "__actions", width: 52, fixed: "right", render: (_: unknown, row: TaskRow) => <TaskRowActions row={row} onAction={(key, target) => key === "history" ? setHistory(target) : key === "edit" ? setFormRow(target) : setAction({ action: key as TaskAction, row: target })} /> }
   ];
   return <div>
-    <Tabs activeKey={statusView} onChange={setStatusView} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
-    <KdosDataTable resource="supervision-tasks" deleteAction={deleteAction} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={table.result.data?.rows} loading={table.result.isLoading} serverData={{ total: table.result.data?.total ?? 0, onQueryChange: (next) => { const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN" ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] } : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] }; const groups = [statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); table.setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); } }}
+    <Tabs activeKey={statusView} onChange={(key) => { setDetail(null); setStatusView(key); }} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
+    <KdosDataTable resource="supervision-tasks" deleteAction={deleteAction} onRecordDoubleClick={openDetail} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={table.result.data?.rows} loading={table.result.isLoading} serverData={{ total: table.result.data?.total ?? 0, onQueryChange: (next) => { const groups = [taskStatusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); table.setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); } }}
       toolbar={<>{hasResourcePermission("supervision-tasks", "create") && <Button type="primary" icon={<PlusOutlined />} loading={loadingCreate} onClick={() => void openCreate()}>创建任务</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
+    <KdosRecordDetailModal open={Boolean(detail)} target={detail?.target ?? null} title={(row) => `${row.taskCode} · ${row.taskName}`} onClose={() => setDetail(null)} onNavigate={async (direction) => {
+      if (!detail) return null;
+      const next = await readDetailTarget("supervision-tasks", detail, direction);
+      if (next) setDetail((current) => current ? { ...current, target: next } : current);
+      return next;
+    }} onPrint={detail && printRecord.canPrint ? () => printRecord.print(detail.target.record, detail.query) : undefined}
+      onEdit={detail && hasResourcePermission("supervision-tasks", "update") ? () => setFormRow(detail.target.record) : undefined}
+      onDelete={detail && deleteAction?.permitted && deleteAction.canDelete?.(detail.target.record) !== false ? () => deleteDetailRecord(deleteAction, detail.target.record).then(refresh) : undefined}>
+      {detail && <SupervisionRecordDetails resource="supervision-tasks" row={detail.target.record} options={options.data} />}
+    </KdosRecordDetailModal>
     {formRow !== undefined && <TaskForm open row={formRow ?? undefined} options={options.data} onClose={() => setFormRow(undefined)} onSaved={refresh} />}
     <TaskActionModal action={action?.action} row={action?.row} onClose={() => setAction(undefined)} onSaved={refresh} />
     <TaskHistoryDrawer row={history} onClose={() => setHistory(undefined)} />

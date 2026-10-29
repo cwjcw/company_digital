@@ -13,6 +13,7 @@ import type { AdvancedFilterRule } from "./advanced-filter";
 import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
 import { exportTable, tableExportAllowed, useTableExportCapabilities } from "./table-export";
+import type { AdvancedFilterGroup as DetailFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
 
@@ -314,6 +315,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   selectionActions?: (selection: KdosTableSelection<RecordType>) => ReactNode;
   /** Standard destructive action: select records, use the top toolbar, confirm, then call formal application APIs. */
   deleteAction?: KdosTableDeleteAction<RecordType>;
+  /** Called on a business row double click; the context is the applied server query and visual page position. */
+  onRecordDoubleClick?: (record: RecordType, context: KdosRecordDoubleClickContext) => void;
   /** Explicit exception for embedded/fixed-viewport tables that need their own vertical scroll area. */
   internalVerticalScroll?: boolean;
   /** Server-backed paging/search/filtering for ERP-sized tables. */
@@ -323,6 +326,18 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
     total: number;
     onQueryChange: (query: { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" }) => void;
   };
+};
+
+export type KdosRecordDoubleClickContext = {
+  page: number;
+  pageSize: number;
+  rowIndex: number;
+  total: number;
+  search: string;
+  filters: Record<string, string>;
+  filterGroup: DetailFilterGroup;
+  sortField?: string;
+  sortOrder?: "asc" | "desc";
 };
 
 export type KdosTableDensity = "default" | "compact";
@@ -387,7 +402,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
-  filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction,
+  filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
@@ -800,6 +815,26 @@ export function KdosDataTable<RecordType extends DataRecord>({
       requestedPagination?.onChange?.(sizeChanged ? 1 : page, nextPageSize);
     }
   };
+  const rowEventHandlers: TableProps<RecordType>["onRow"] = (record, index) => {
+    const supplied = tableProps.onRow?.(record, index) ?? {};
+    const originalDoubleClick = supplied.onDoubleClick;
+    return {
+      ...supplied,
+      ...(onRecordDoubleClick ? { className: [supplied.className, "kdos-record-detail-row"].filter(Boolean).join(" ") } : {}),
+      onDoubleClick: (event) => {
+        originalDoubleClick?.(event);
+        if (event.defaultPrevented || !onRecordDoubleClick || !serverMode) return;
+        const target = event.target;
+        if (target instanceof Element && target.closest("button, input, textarea, .ant-select, .ant-dropdown, a")) return;
+        onRecordDoubleClick(record, {
+          page: currentPage, pageSize, rowIndex: index ?? 0, total: serverData?.total ?? rows.length,
+          search: search.trim(), filters, filterGroup: effectiveFilterGroup,
+          sortField: sortField || undefined,
+          sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined
+        });
+      }
+    };
+  };
   const suppliedTableComponents = tableProps.components as { header?: Record<string, unknown> } | undefined;
   const tableComponents = useMemo(() => {
     const existing = suppliedTableComponents;
@@ -856,6 +891,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       components={tableComponents as TableProps<RecordType>["components"]}
       className={["kdos-data-table", density === "compact" ? "kdos-data-table-compact" : "", className].filter(Boolean).join(" ")}
       rowKey={tableProps.rowKey ?? "id"}
+      onRow={rowEventHandlers}
       rowSelection={effectiveRowSelection}
       dataSource={rows}
       columns={renderedColumns}

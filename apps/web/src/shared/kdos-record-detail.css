@@ -1,0 +1,41 @@
+.kdos-record-detail-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 24px;
+}
+
+.kdos-record-detail-modal .ant-modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.kdos-record-detail-topbar {
+  min-height: 40px;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 10px;
+}
+
+.kdos-record-detail-actions {
+  margin: 14px 0 18px;
+}
+
+.kdos-record-detail-title.ant-typography {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.kdos-record-detail-content {
+  min-height: 0;
+}
+
+.kdos-record-detail-row {
+  cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  .kdos-record-detail-modal .ant-modal-content {
+    padding: 16px;
+  }
+}

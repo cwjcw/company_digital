@@ -62,6 +62,57 @@ afterEach(async () => {
 });
 
 describe("项目与任务表格编辑", () => {
+  it("双击项目打开只读详情，跨页下一条保持搜索条件和列表页码，最大化可恢复", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({ ...project, id: `project-${index + 1}`, projectCode: `SP-${String(index + 1).padStart(3, "0")}`, projectName: `项目${index + 1}` }));
+    const last = { ...project, id: "project-101", projectCode: "SP-101", projectName: "项目101" };
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/supervision/options") return { users: [], departments: [], projects: [] } as never;
+      if (path === "/table-filters/resources") return [{ code: "supervision-projects", filterableFields: [] }] as never;
+      if (path.startsWith("/table-filters/rows?resource=supervision-projects")) {
+        if (path.includes("page=2")) return { rows: [last], total: 101, page: 2, pageSize: 100 } as never;
+        return { rows: firstPage, total: 101, page: 1, pageSize: 100 } as never;
+      }
+      return [] as never;
+    });
+    const view = renderPage(<SupervisionProjectsPage />, { sub: "user-1", username: "worker", permissions: [...permissions("supervision-projects"), "supervision-projects:*:delete", "supervision-projects:projectCode:read"] });
+    const search = await screen.findByPlaceholderText("搜索当前表格");
+    fireEvent.change(search, { target: { value: "needle" } });
+    const row = await view.findByText("SP-100").then((cell) => cell.closest("tr")!);
+    fireEvent.doubleClick(row);
+    const detail = await screen.findByRole("dialog");
+    expect(within(detail).getByText("100 / 101")).toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: /编辑/ })).toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: /删除/ })).toBeInTheDocument();
+    expect(within(detail).getByText("项目100")).toBeInTheDocument();
+    expect(within(detail).queryByDisplayValue("项目100")).not.toBeInTheDocument();
+
+    fireEvent.click(within(detail).getByRole("button", { name: "最大化" }));
+    expect(within(detail).getByRole("button", { name: "恢复原状" })).toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "恢复原状" }));
+    expect(within(detail).getByRole("button", { name: "最大化" })).toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "下一条" }));
+    expect(await within(detail).findByText("101 / 101")).toBeInTheDocument();
+    expect(within(detail).getByText("项目101")).toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.includes("page=2") && path.includes("search=needle") && path.includes("filterGroup="))).toBe(true);
+    expect(view.container.querySelector(".ant-pagination-item-1")).toHaveClass("ant-pagination-item-active");
+    fireEvent.click(within(detail).getByRole("button", { name: "关闭详情" }));
+    expect(await screen.findByPlaceholderText("搜索当前表格")).toHaveValue("needle");
+    expect(view.container.querySelector(".ant-pagination-item-1")).toHaveClass("ant-pagination-item-active");
+  }, 15000);
+
+  it("任务双击打开只读详情且隐藏无权的编辑、删除和打印操作", async () => {
+    const view = renderPage(<SupervisionTasksPage />, { sub: "user-1", username: "worker", permissions: ["supervision-tasks:*:read"] });
+    const row = await view.findByText("ST-001").then((cell) => cell.closest("tr")!);
+    fireEvent.doubleClick(row);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("ST-001 · 任务甲")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /编辑/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /打印/ })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "上一条" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "下一条" })).toBeDisabled();
+  });
+
   it("仅为项目参与人的普通用户，无项目read权限时仍能选择API返回的创建任务项目", async () => {
     const fallback = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
