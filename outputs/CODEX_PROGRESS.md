@@ -8622,3 +8622,5 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 最近进展：最终改动的Web构建和相关ESLint已通过；新增项目、任务详情交互专项测试通过。完整49项回归正在最后复跑；排序字段已在`KdosDataTable`行双击上下文中提供，跨页读取直接沿用该查询字段。
 - 最终回归结果：`KdosDataTable.spec.tsx` 18/18 与 `SupervisionPages.spec.tsx` 31/31，共49/49通过；typecheck/build和相关lint通过，`git diff --check`待提交前复核。
 - 当前阶段：本地实现及验收完成，准备提交/push和生产Web发布；无API、数据库或Migration变更。
+- 已完成：普通推送`1be183f810295650fe9c56493a0fa6f36ce80246`至GitHub main；`scripts/deploy.sh web`已发布该版本。健康检查覆盖Web、API、Swagger、OpenAPI、PostgreSQL及Document Worker，全部通过。真实生产Chrome对项目管理和任务管理只读验证双击详情、序号、跨条导航、最大化/恢复、关闭；未执行编辑/删除。
+- 最终状态：已完成；无Migration、无API改动、无业务数据写入；API继续运行`438620d`版本。主工作区其他任务未提交文件未纳入提交。
