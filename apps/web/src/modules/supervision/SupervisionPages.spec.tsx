@@ -27,7 +27,7 @@ const permissions = (resource: string, update = true) => [
 function renderPage(page: React.ReactNode, session: Record<string, unknown>) {
   localStorage.setItem("sessionUser", JSON.stringify(session));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><AntApp>{page}</AntApp></QueryClientProvider>);
+  return { ...render(<QueryClientProvider client={client}><AntApp>{page}</AntApp></QueryClientProvider>), client };
 }
 
 beforeEach(() => {
@@ -136,5 +136,74 @@ describe("项目与任务表格编辑", () => {
     const input = await screen.findByDisplayValue("任务甲");
     fireEvent.change(input, { target: { value: "任务乙" } }); fireEvent.blur(input);
     await waitFor(() => expect(screen.getByDisplayValue("任务甲")).toBeInTheDocument());
+  });
+});
+
+describe("项目与任务顶部安全删除", () => {
+  const deleteRequests = () => vi.mocked(api).mock.calls.filter(([, init]) => init?.method === "DELETE");
+  const selectRow = (container: HTMLElement, id: string) => fireEvent.click(container.querySelector(`tr[data-row-key="${id}"] input[type="checkbox"]`)!);
+  const confirm = async () => {
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(dialog.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+  };
+
+  it.each(["projects", "tasks"] as const)("%s: no delete action hides the button, including when only the other table grants deletion", async kind => {
+    const resource = `supervision-${kind}`, other = kind === "projects" ? "tasks" : "projects";
+    renderPage(kind === "projects" ? <SupervisionProjectsPage /> : <SupervisionTasksPage />, { permissions: [...permissions(resource), `supervision-${other}:*:delete`] });
+    await screen.findByText(kind === "projects" ? project.projectCode : task.taskCode);
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument(); expect(deleteRequests()).toHaveLength(0);
+  });
+  it.each([{ isSystemAdmin: true }, { moduleAdminCodes: ["project-task"] }])("existing administrator grants show the toolbar delete: %j", async grant => {
+    renderPage(<SupervisionProjectsPage />, { permissions: [], ...grant }); await screen.findByText(project.projectCode);
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+  });
+  it.each(["projects", "tasks"] as const)("%s: readonly browsing can select, confirmation names the record, cancellation does not delete", async kind => {
+    const row = kind === "projects" ? project : task;
+    const view = renderPage(kind === "projects" ? <SupervisionProjectsPage /> : <SupervisionTasksPage />, { permissions: [...permissions(`supervision-${kind}`, false), `supervision-${kind}:*:delete`] });
+    await screen.findByText(kind === "projects" ? project.projectCode : task.taskCode);
+    const button = screen.getByRole("button", { name: "删除" }); expect(button).toBeDisabled(); selectRow(view.container, row.id); expect(button).toBeEnabled();
+    expect(view.container.querySelector("section")?.getAttribute("data-edit-mode")).toBe("readonly");
+    fireEvent.click(button); const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(`确认删除选中的 1 个${kind === "projects" ? "项目" : "任务"}`); expect(dialog).toHaveTextContent(kind === "projects" ? project.projectCode : task.taskCode);
+    expect(dialog).toHaveTextContent("不会级联删除"); fireEvent.click(within(dialog).getByRole("button", { name: /取.*消/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument()); expect(deleteRequests()).toHaveLength(0);
+  });
+  it("single project delete sends expectedVersion, refreshes dependencies and removes successful selection", async () => {
+    const original = vi.mocked(api).getMockImplementation()!; let deleted = false;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (init?.method === "DELETE") { deleted = true; return { deleted: true } as never; }
+      if (path.startsWith("/table-filters/rows?resource=supervision-projects") && deleted) return { rows: [], total: 0 } as never;
+      return original(path, init);
+    });
+    const view = renderPage(<SupervisionProjectsPage />, { permissions: [...permissions("supervision-projects", false), "supervision-projects:*:delete"] });
+    for (const key of ["supervision-tasks", "supervision-project-dashboard", "supervision-employee-dashboard", "supervision-owner-report", "supervision-owner-drill"]) view.client.setQueryData([key, "fixture"], {});
+    view.client.setQueryData(["unrelated-module"], {});
+    await screen.findByText(project.projectCode); selectRow(view.container, project.id); fireEvent.click(screen.getByRole("button", { name: "删除" })); await confirm();
+    await waitFor(() => expect(deleteRequests()).toHaveLength(1)); expect(deleteRequests()[0]).toEqual(["/supervision/projects/project-1?expectedVersion=1", { method: "DELETE" }]);
+    await waitFor(() => expect(screen.queryByText(project.projectCode)).not.toBeInTheDocument()); expect(screen.queryByText("已选 1/1")).not.toBeInTheDocument();
+    for (const key of ["supervision-tasks", "supervision-project-dashboard", "supervision-employee-dashboard", "supervision-owner-report", "supervision-owner-drill"]) expect(view.client.getQueryState([key, "fixture"])?.isInvalidated).toBe(true);
+    expect(view.client.getQueryState(["unrelated-module"])?.isInvalidated).toBe(false);
+  });
+  it("multiple tasks: confirms both codes, reports success/failure and preserves failed selection and reason", async () => {
+    const original = vi.mocked(api).getMockImplementation()!;
+    const blocked = { ...task, id: "task-2", taskCode: "ST-002", taskName: "任务乙", version: 3 }; let deleted = false;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (init?.method === "DELETE") { if (path.includes("task-2")) throw new Error("任务存在进展历史，不能删除"); deleted = true; return { deleted: true } as never; }
+      if (path.startsWith("/table-filters/rows?resource=supervision-tasks")) return { rows: deleted ? [blocked] : [task, blocked], total: deleted ? 1 : 2 } as never;
+      return original(path, init);
+    });
+    const view = renderPage(<SupervisionTasksPage />, { permissions: [...permissions("supervision-tasks", false), "supervision-tasks:*:delete"] });
+    await screen.findByText("ST-002"); selectRow(view.container, task.id); selectRow(view.container, blocked.id); fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("确认删除选中的 2 个任务？ST-001、ST-002"); await confirm();
+    await waitFor(() => expect(deleteRequests()).toHaveLength(2)); expect(deleteRequests()[1]![0]).toBe("/supervision/tasks/task-2?expectedVersion=3");
+    expect(await screen.findByText(/成功 1 条，失败 1 条。ST-002：任务存在进展历史/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("ST-001")).not.toBeInTheDocument()); expect(view.container.querySelector('tr[data-row-key="task-2"] input[type="checkbox"]')).toBeChecked();
+  });
+  it("all failures preserve rows and never announce success", async () => {
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path, init) => { if (init?.method === "DELETE") throw new Error("数据已被其他人修改，请刷新后重试"); return original(path, init); });
+    const view = renderPage(<SupervisionTasksPage />, { permissions: [...permissions("supervision-tasks", false), "supervision-tasks:*:delete"] });
+    await screen.findByText(task.taskCode); selectRow(view.container, task.id); fireEvent.click(screen.getByRole("button", { name: "删除" })); await confirm();
+    expect(await screen.findByText(/成功 0 条，失败 1 条。ST-001：数据已被其他人修改/)).toBeInTheDocument(); expect(view.container.querySelector('tr[data-row-key="task-1"] input[type="checkbox"]')).toBeChecked();
   });
 });

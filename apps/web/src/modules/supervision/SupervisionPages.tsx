@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   EllipsisOutlined, FileAddOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, UploadOutlined
 } from "@ant-design/icons";
@@ -13,7 +13,7 @@ import {
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { api } from "../../api";
-import { KdosDataTable, TablePermissionButton, hasFieldPermission, hasResourcePermission, useKdosTableEditMode } from "../../shared/KdosDataTable";
+import { KdosDataTable, TablePermissionButton, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, useKdosTableEditMode, type KdosTableDeleteAction } from "../../shared/KdosDataTable";
 import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from "../../shared/platform-table";
 import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 import { formatDateOnly, formatDateRange } from "../../shared/date-format";
@@ -86,6 +86,45 @@ function InlineSupervisionCell({ resource, field, row, value, options, onSave }:
 
 function useSupervisionOptions() {
   return useQuery({ queryKey: ["supervision-options"], queryFn: () => api<Options>("/supervision/options"), staleTime: 300_000 });
+}
+
+function useSupervisionDeleteAction<T extends ProjectRow | TaskRow>(resource: "supervision-projects" | "supervision-tasks"): KdosTableDeleteAction<T> | undefined {
+  const queryClient = useQueryClient();
+  const deleting = useRef(false);
+  if (!hasResourcePermission(resource, "delete")) return undefined;
+  const projects = resource === "supervision-projects";
+  const label = (row: T) => String((projects ? row.projectCode : row.taskCode) || (projects ? row.projectName : row.taskName) || "所选记录");
+  return {
+    permitted: true,
+    canDelete: (row) => row.canDelete !== false,
+    confirmTitle: (count, rows) => `确认删除选中的 ${count} 个${projects ? "项目" : "任务"}？${rows.slice(0, 5).map(label).join("、")}${count > 5 ? "等" : ""}`,
+    confirmContent: "仅删除无业务关联的记录，删除后不能从页面恢复。有下属任务、进展历史、附件或已结束的记录将被拒绝，不会级联删除。",
+    onDelete: async (rows) => {
+      if (deleting.current) throw new Error("删除正在处理中，请勿重复提交");
+      deleting.current = true;
+      try {
+        const result = await deleteTableRowsSequentially(rows, (row) => row.id, async (row) => {
+          await api(`/supervision/${projects ? "projects" : "tasks"}/${encodeURIComponent(row.id)}?expectedVersion=${encodeURIComponent(String(row.version))}`, { method: "DELETE" });
+        });
+        const deletedCount = result.deletedKeys?.length ?? 0;
+        const failures = result.failures ?? [];
+        if (failures.length) {
+          const byId = new Map(rows.map((row) => [row.id, label(row)]));
+          result.message = `删除完成：成功 ${deletedCount} 条，失败 ${failures.length} 条。${failures.map((failure) => `${byId.get(String(failure.key)) ?? "所选记录"}：${failure.reason}`).join("；")}`;
+        }
+        if (deletedCount) {
+          const affected = new Set(["supervision-projects", "supervision-tasks", "supervision-task-progress", "supervision-options",
+            "supervision-project-dashboard", "supervision-employee-dashboard", "supervision-owner-report", "supervision-owner-drill"]);
+          try { await queryClient.invalidateQueries({ predicate: (query) => affected.has(String(query.queryKey[0])) }, { throwOnError: true }); }
+          catch {
+            result.feedback = "warning";
+            result.message = `${result.message ?? `已删除 ${deletedCount} 条数据`}；关联页面刷新失败，请手动刷新，勿重复删除。`;
+          }
+        }
+        return result;
+      } finally { deleting.current = false; }
+    }
+  };
 }
 
 function usePlatformRows<T>(resource: string, initial?: PlatformTableQuery) {
@@ -201,6 +240,7 @@ function ProjectActionModal({ action, row, onClose, onSaved }: { action?: "compl
 
 export function SupervisionProjectsPage({ embedded = false, externalFilter }: { embedded?: boolean; externalFilter?: AdvancedFilterGroup }) {
   const options = useSupervisionOptions(); const { setQuery, result } = usePlatformRows<ProjectRow>("supervision-projects"); const queryClient = useQueryClient();
+  const deleteAction = useSupervisionDeleteAction<ProjectRow>("supervision-projects");
   const [statusView, setStatusView] = useState(embedded ? "ALL" : "OPEN");
   const [formRow, setFormRow] = useState<ProjectRow | null | undefined>(); const [action, setAction] = useState<{ action: "complete" | "abort"; row: ProjectRow }>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-projects"] });
@@ -230,7 +270,7 @@ export function SupervisionProjectsPage({ embedded = false, externalFilter }: { 
   ];
   return <div>
     <Tabs activeKey={statusView} onChange={setStatusView} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
-    <KdosDataTable resource="supervision-projects" viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={result.data?.rows} loading={result.isLoading} serverData={{ total: result.data?.total ?? 0, onQueryChange: onQuery }}
+    <KdosDataTable resource="supervision-projects" deleteAction={deleteAction} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={result.data?.rows} loading={result.isLoading} serverData={{ total: result.data?.total ?? 0, onQueryChange: onQuery }}
       toolbar={<>{hasResourcePermission("supervision-projects", "create") && <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormRow(null)}>创建项目</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
     {formRow !== undefined && <ProjectForm open row={formRow ?? undefined} options={options.data} onClose={() => setFormRow(undefined)} onSaved={refresh} />}
     <ProjectActionModal action={action?.action} row={action?.row} onClose={() => setAction(undefined)} onSaved={refresh} />
@@ -285,6 +325,7 @@ function TaskHistoryDrawer({ row, onClose }: { row?: TaskRow; onClose: () => voi
 
 export function SupervisionTasksPage() {
   const options = useSupervisionOptions(); const table = usePlatformRows<TaskRow>("supervision-tasks"); const queryClient = useQueryClient();
+  const deleteAction = useSupervisionDeleteAction<TaskRow>("supervision-tasks");
   const [statusView, setStatusView] = useState("OPEN");
   const [formRow, setFormRow] = useState<TaskRow | null | undefined>(); const [action, setAction] = useState<{ action: TaskAction; row: TaskRow }>(); const [history, setHistory] = useState<TaskRow>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["supervision-tasks"] });
@@ -307,7 +348,7 @@ export function SupervisionTasksPage() {
   ];
   return <div>
     <Tabs activeKey={statusView} onChange={setStatusView} items={[{ key: "OPEN", label: "未完成" }, { key: "ALL", label: "全部" }, { key: "NORMAL", label: "正常推进" }, { key: "OVERDUE", label: "已延期" }, { key: "COMPLETED", label: "已完成" }, { key: "ABORTED", label: "已中止" }]} />
-    <KdosDataTable resource="supervision-tasks" viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={table.result.data?.rows} loading={table.result.isLoading} serverData={{ total: table.result.data?.total ?? 0, onQueryChange: (next) => { const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN" ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] } : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] }; const groups = [statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); table.setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); } }}
+    <KdosDataTable resource="supervision-tasks" deleteAction={deleteAction} viewKey={`status-${statusView}`} rowKey="id" editable columns={columns} dataSource={table.result.data?.rows} loading={table.result.isLoading} serverData={{ total: table.result.data?.total ?? 0, onQueryChange: (next) => { const statusGroup: AdvancedFilterGroup = statusView === "ALL" ? { logic: "AND", rules: [] } : statusView === "OPEN" ? { logic: "OR", rules: [{ field: "displayStatus", operator: "eq", value: "NORMAL" }, { field: "displayStatus", operator: "eq", value: "OVERDUE" }] } : { logic: "AND", rules: [{ field: "displayStatus", operator: "eq", value: statusView }] }; const groups = [statusGroup, next.filterGroup].filter((group): group is AdvancedFilterGroup => Boolean(group && (group.rules.length || group.groups?.length))); table.setQuery({ ...next, filterGroup: groups.length ? { logic: "AND", rules: [], groups } : { logic: "AND", rules: [] } }); } }}
       toolbar={<>{hasResourcePermission("supervision-tasks", "create") && <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormRow(null)}>创建任务</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></>} />
     {formRow !== undefined && <TaskForm open row={formRow ?? undefined} options={options.data} onClose={() => setFormRow(undefined)} onSaved={refresh} />}
     <TaskActionModal action={action?.action} row={action?.row} onClose={() => setAction(undefined)} onSaved={refresh} />

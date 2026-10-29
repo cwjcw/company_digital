@@ -63,7 +63,9 @@ export function supervisionScopeClause(actor: SupervisionActor, resource: Superv
   /* Related-person scope is configured through the generic permission framework: member EQ CURRENT_USER,
      or member-array CONTAINS CURRENT_USER with match ANY. OWN remains the platform's created_by scope. */
   return buildDataScopeClause({
-    resource, action, columns: expressions, actor, params, expression: (value) => value,
+    // The shared scope compiler also serves Planning; a Planning module grant
+    // must not become an administrator bypass for the project-task module.
+    resource, action, columns: expressions, actor: { ...actor, moduleAdminCodes: [] }, params, expression: (value) => value,
     memberArrayFields: resource === "supervision-projects" ? ["participantIds"] : resource === "supervision-tasks" ? ["collaboratorIds"] : []
   });
 }

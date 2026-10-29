@@ -85,3 +85,10 @@ describe("任务督办数据范围", () => {
     expect(supervisionScopeClause(actor({ tableDataScopes: [{ resource: "supervision-tasks", scope: "ALL", actions: ["read"] }] }), "supervision-tasks", "update", "record", params)).toBe("1=0");
   });
 });
+
+describe("supervision delete scope stays in its own module", () => {
+  it("a Planning administrator with an explicit delete action still needs a supervision data scope", () => {
+    const viewer: any = { tenantId: "A", userId: "user", permissions: ["supervision-tasks:*:delete"], moduleAdminCodes: ["planning"], tableDataScopes: [] };
+    expect(supervisionScopeClause(viewer, "supervision-tasks", "delete", "record", [])).toBe("1=0");
+  });
+});
