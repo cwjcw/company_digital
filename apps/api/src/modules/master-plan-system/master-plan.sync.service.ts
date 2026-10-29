@@ -10,6 +10,7 @@ import {
 } from "./master-plan.erp-admission";
 import { hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
+import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
 
 type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 type ExecutionRollupScope = { weeklyPlanId: string; processCode: string };
@@ -211,7 +212,7 @@ export class MasterPlanSyncService {
       const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,updated_at=now(),version=version+1
       WHERE id IN (
         SELECT id FROM mps_reconciliation_outbox
-        WHERE status IN ('PENDING','FAILED') AND sync_key<>'plan-projections' AND next_attempt_at<=now()
+        WHERE status IN ('PENDING','FAILED') AND next_attempt_at<=now()
         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20
       ) RETURNING *`);
       return Array.isArray(result[0]) ? result[0] : result;
@@ -243,9 +244,6 @@ export class MasterPlanSyncService {
   }
 
   async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, executionScope: ExecutionRollupScope | null = null) {
-    // Explicit user policy: allocation changes must not reconcile downstream plans.
-    // Applies to scheduled, event, replay and manual entrypoints alike.
-    if (syncKey === "plan-projections") return { syncKey, skipped: true, count: 0, reason: "订单分配下游计划对账已停用" };
     const runningKey = `${tenantId}:${syncKey}`;
     if (this.running.has(runningKey)) throw new ConflictException("该同步任务正在运行");
     this.running.add(runningKey);
@@ -258,7 +256,7 @@ export class MasterPlanSyncService {
       await this.dataSource.query(`INSERT INTO mps_sync_logs(tenant_id,sync_config_id,sync_key,run_type,status,started_at,idempotency_key,created_by,updated_by) VALUES($1,$2,$3,$4,'RUNNING',now(),$5,$6::uuid,$7)`, [tenantId, config.id, syncKey, runType, idempotencyKey, userId, userId ?? username]);
       await this.dataSource.query(`UPDATE mps_sync_configs SET status='RUNNING',last_started_at=now(),error_message=NULL,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, userId ?? username]);
       try {
-        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username, executionScope);
+        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username, executionScope, username);
         const count = outcome.count;
         await this.dataSource.query(`UPDATE mps_sync_logs SET status='SUCCESS',completed_at=now(),sync_count=$3,metrics=$5::jsonb,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`,
           [tenantId, idempotencyKey, count, userId ?? username, outcome.metrics ? JSON.stringify(outcome.metrics) : null]);
@@ -274,10 +272,10 @@ export class MasterPlanSyncService {
     } finally { this.running.delete(runningKey); }
   }
 
-  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null): Promise<SyncOutcome> {
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null, actorName = updatedBy): Promise<SyncOutcome> {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
-      "plan-projections": async () => ({ count: 0 }),
+      "plan-projections": () => this.projectPlans(tenantId, userId, actorName),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, updatedBy),
       "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),
@@ -447,109 +445,8 @@ export class MasterPlanSyncService {
    * 3) 累计入库/欠数/完成率只统计科加账套 `UFTData418971_000003`，不再跨账套加总。
    */
   private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
-    return this.dataSource.transaction(async (manager) => {
-      // Allocation rows are maintained only by authorized manual/Excel commands.
-      // ERP staging and downstream reconciliation remain scheduled as before.
-      const allocations: Array<{ id: string }> = [];
-      const monthly = await manager.query(`
-        INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,latest_customer_due_date,item_name,required_quantity,created_by,updated_by)
-        SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,max(e.customer_name),a.order_date,max(e.customer_due_date),max(e.preproduction_review_date),max(COALESCE(a.expected_shipping_date,e.customer_due_date)),a.item_name,a.allocated_quantity,$2::uuid,$3
-        FROM mps_order_allocations a LEFT JOIN mps_erp_order_lines e ON e.tenant_id=a.tenant_id AND e.order_number=a.order_number AND e.item_code=a.item_code AND e.source_active=true
-        WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.division_id IS NOT NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
-        GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id,a.customer_code,a.order_date,a.expected_shipping_date,a.item_name,a.allocated_quantity
-        ON CONFLICT(tenant_id,order_number,item_code) DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,
-          customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,latest_customer_due_date=excluded.latest_customer_due_date,item_name=excluded.item_name,required_quantity=excluded.required_quantity,
-          updated_at=now(),updated_by=$3,version=mps_monthly_plans.version+1
-        WHERE (mps_monthly_plans.division_id,mps_monthly_plans.customer_code,mps_monthly_plans.customer_name,mps_monthly_plans.order_date,mps_monthly_plans.customer_due_date,mps_monthly_plans.preproduction_review_date,mps_monthly_plans.latest_customer_due_date,mps_monthly_plans.item_name,mps_monthly_plans.required_quantity)
-          IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.latest_customer_due_date,excluded.item_name,excluded.required_quantity)
-        RETURNING id,created_at`, [tenantId, userId, updatedBy]);
-      const inbound = await manager.query(`
-        WITH ${this.eligibleMonthlyProjectionScopeCte()}, totals AS (SELECT sales_order_number order_number,inventory_code item_code,sum(COALESCE(received_quantity,0)) quantity FROM finished_goods_inbound
-          WHERE sales_order_number IS NOT NULL AND source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}'
-          GROUP BY sales_order_number,inventory_code)
-        UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=COALESCE(t.quantity,0),pending_quantity=greatest(p.required_quantity-COALESCE(t.quantity,0),0),
-          completion_rate=CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END,
-          updated_at=now(),updated_by=$2,version=p.version+1 FROM totals t JOIN eligible_allocations a ON a.tenant_id=$1 AND a.order_number=t.order_number AND a.item_code=t.item_code
-          WHERE p.tenant_id=$1 AND p.order_number=t.order_number AND p.item_code=t.item_code
-          AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (COALESCE(t.quantity,0),greatest(p.required_quantity-COALESCE(t.quantity,0),0),CASE WHEN p.required_quantity<=0 THEN 0 ELSE round(least(COALESCE(t.quantity,0)/p.required_quantity,1),4) END)
-        RETURNING p.id`, [tenantId, updatedBy]);
-      await manager.query(`WITH ${this.eligibleMonthlyProjectionScopeCte()}
-        UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=0,pending_quantity=greatest(p.required_quantity,0),completion_rate=0,updated_at=now(),updated_by=$2,version=p.version+1
-        FROM eligible_allocations a WHERE p.tenant_id=$1 AND a.tenant_id=p.tenant_id AND a.order_number=p.order_number AND a.item_code=p.item_code
-        AND NOT EXISTS(SELECT 1 FROM finished_goods_inbound i WHERE i.sales_order_number=p.order_number AND i.inventory_code=p.item_code AND i.source_database='${MASTER_PLAN_ERP_ADMISSION.sourceDatabase}')
-        AND (p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate) IS DISTINCT FROM (0,greatest(p.required_quantity,0),0)`, [tenantId, updatedBy]);
-      const groups = await manager.query(`
-        WITH source_orders AS (
-          SELECT tenant_id,order_number,
-            string_agg(DISTINCT COALESCE(source_account_name,source_database),',') source_accounts,
-            max(order_type) order_type,max(customer_code) customer_code,max(customer_name) customer_name,
-            min(order_date) order_date,max(customer_due_date) customer_due_date,
-            max(preproduction_review_date) preproduction_review_date,
-            sum(COALESCE(tax_included_amount,0)) order_amount
-          FROM mps_erp_order_lines
-          WHERE tenant_id=$1 AND source_active=true
-          GROUP BY tenant_id,order_number
-          /* 一个订单任一活动明细缺少客户代码，就不能以其他明细穿透到集团主计划。 */
-          HAVING bool_and(NULLIF(BTRIM(customer_code),'') IS NOT NULL)
-        ), item_totals AS (
-          SELECT tenant_id,order_number,sum(required_quantity) required_quantity,
-            sum(least(cumulative_inbound_quantity,required_quantity)) completed_quantity,
-            sum(greatest(required_quantity-cumulative_inbound_quantity,0)) pending_quantity,
-            avg(CASE WHEN required_quantity<=0 THEN 0 ELSE least(cumulative_inbound_quantity/required_quantity,1) END) completion_rate
-          FROM mps_monthly_plans
-          WHERE tenant_id=$1
-          GROUP BY tenant_id,order_number
-        )
-        INSERT INTO mps_group_plans(tenant_id,order_number,source_accounts,order_type,customer_code,customer_name,order_date,customer_due_date,preproduction_review_date,order_amount,required_quantity,primary_division_id,completed_quantity,pending_quantity,completion_rate,created_by,updated_by)
-        SELECT s.tenant_id,s.order_number,s.source_accounts,s.order_type,s.customer_code,s.customer_name,s.order_date,s.customer_due_date,s.preproduction_review_date,s.order_amount,i.required_quantity,map.primary_division_id,i.completed_quantity,i.pending_quantity,i.completion_rate,$2::uuid,$3
-        FROM source_orders s JOIN item_totals i ON i.tenant_id=s.tenant_id AND i.order_number=s.order_number
-        /* 没有 enabled 客户映射的订单同样不得自动进入集团主计划。 */
-        JOIN mps_customer_division_mappings map ON map.tenant_id=s.tenant_id AND map.customer_code=s.customer_code AND map.enabled=true
-        ON CONFLICT(tenant_id,order_number) DO UPDATE SET source_accounts=excluded.source_accounts,order_type=excluded.order_type,customer_code=excluded.customer_code,customer_name=excluded.customer_name,order_date=excluded.order_date,customer_due_date=excluded.customer_due_date,preproduction_review_date=excluded.preproduction_review_date,order_amount=excluded.order_amount,required_quantity=excluded.required_quantity,primary_division_id=excluded.primary_division_id,completed_quantity=excluded.completed_quantity,pending_quantity=excluded.pending_quantity,completion_rate=excluded.completion_rate,updated_at=now(),updated_by=$3,version=mps_group_plans.version+1
-        WHERE (mps_group_plans.source_accounts,mps_group_plans.order_type,mps_group_plans.customer_code,mps_group_plans.customer_name,mps_group_plans.order_date,mps_group_plans.customer_due_date,mps_group_plans.preproduction_review_date,mps_group_plans.order_amount,mps_group_plans.required_quantity,mps_group_plans.primary_division_id,mps_group_plans.completed_quantity,mps_group_plans.pending_quantity,mps_group_plans.completion_rate)
-          IS DISTINCT FROM (excluded.source_accounts,excluded.order_type,excluded.customer_code,excluded.customer_name,excluded.order_date,excluded.customer_due_date,excluded.preproduction_review_date,excluded.order_amount,excluded.required_quantity,excluded.primary_division_id,excluded.completed_quantity,excluded.pending_quantity,excluded.completion_rate)
-        RETURNING id`, [tenantId, userId, updatedBy]);
-      await this.refreshExceptions(manager, tenantId, userId, updatedBy);
-      const [unmapped] = await manager.query(`SELECT
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND NULLIF(BTRIM(a.customer_code),'') IS NULL) AS blocked_by_missing_customer_code,
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL AND a.division_id IS NULL) AS blocked_by_missing_customer_mapping,
-        (SELECT count(*)::integer FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.division_id IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM mps_customer_division_mappings m WHERE m.tenant_id=a.tenant_id AND m.customer_code=a.customer_code AND m.enabled=true AND m.primary_division_id=a.division_id)) AS division_defaulted`, [tenantId]);
-      return {
-        count: this.changedCount(allocations) + this.changedCount(monthly) + this.changedCount(inbound) + this.changedCount(groups),
-        metrics: {
-          allocations: this.changedCount(allocations), monthly_plans: this.changedCount(monthly), group_plans: this.changedCount(groups),
-          inbound_recalculated: this.changedCount(inbound),
-          blocked_by_missing_customer_code: Number(unmapped?.blocked_by_missing_customer_code ?? 0),
-          blocked_by_missing_customer_mapping: Number(unmapped?.blocked_by_missing_customer_mapping ?? 0),
-          division_defaulted: Number(unmapped?.division_defaulted ?? 0)
-        }
-      };
-    });
-  }
-
-  /**
-   * KN-MPS-PROJ-INBOUND-GUARD-001：月计划入库重算的唯一合法范围。
-   *
-   * 历史 monthly 可以保留，但只有当前 allocation 仍具备非空客户代码、有效事业部且
-   * 与 enabled customer→division mapping 一致时，才允许同步接管入库、欠数和完成率。
-   * 有入库与无入库清零两段 SQL 必须复用这个 CTE，避免出现一处放行、一处冻结的漂移。
-   */
-  private eligibleMonthlyProjectionScopeCte() {
-    return `eligible_allocations AS (
-      SELECT a.tenant_id,a.order_number,a.item_code
-      FROM mps_order_allocations a
-      WHERE a.tenant_id=$1 AND a.archived_at IS NULL
-        AND a.division_id IS NOT NULL
-        AND NULLIF(BTRIM(a.customer_code),'') IS NOT NULL
-        AND EXISTS(
-          SELECT 1 FROM mps_customer_division_mappings map
-          WHERE map.tenant_id=a.tenant_id
-            AND map.customer_code=a.customer_code
-            AND map.enabled=true
-            AND map.primary_division_id=a.division_id
-        )
-    )`;
+    return this.dataSource.transaction(manager => reconcileAllocationPlans(manager, tenantId,
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy));
   }
 
   private async shippingToBase(tenantId: string, userId: string | null, updatedBy: string) {

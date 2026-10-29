@@ -15,7 +15,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 /** 写入后需要独立对账的同步任务（单一权威映射，enqueue 与反馈共用）。 */
 const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
-  "mps-customer-divisions": [], "mps-order-allocations": [],
+  "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
   "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": ["shipping-to-base", "base-to-weekly"],
   "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
   "mps-weekly-process-plans": ["execution-rollup"],
@@ -27,6 +27,7 @@ const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
  * 否则前端刚刷新周计划就会读到旧状态。反馈状态由 outbox 行本身决定，不使用定时器猜测。
  */
 const RECONCILIATION_FEEDBACK: Partial<Record<string, { syncKey: string; failure: (error: string) => string; pending: string }>> = {
+  "mps-order-allocations": { syncKey: "plan-projections", failure: (error) => `订单分配已保存，但计划生成失败：${error}`, pending: "订单分配已保存，集团/月度计划正在生成，请稍后刷新查看。" },
   "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存，周计划正在生成，请稍后刷新查看。" },
   "mps-process-reports": { syncKey: "execution-rollup", failure: (error) => `报工已保存，但执行状态同步失败：${error}`, pending: "报工已保存，执行状态正在同步，请稍后刷新查看。" },
   "mps-weekly-process-plans": { syncKey: "execution-rollup", failure: (error) => `工序任务已保存，但执行状态同步失败：${error}`, pending: "工序任务已保存，执行状态正在同步，请稍后刷新查看。" },
@@ -858,7 +859,7 @@ export class MasterPlanApplicationService {
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {
-    if (["mps-order-allocations", "mps-customer-divisions", "mps-external-process-mappings"].includes(resource.code)) return undefined;
+    if (resource.code === "mps-external-process-mappings") return undefined;
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */

@@ -203,3 +203,12 @@ When the original checkout has unrelated work, use a clean linked Git worktree. 
 迁移101新增finance_e10_order_monthly_movements，月度/大屏/排名/Excel/日报改用该视图；finance_e10_monthly保留内部余额。发布前备份两库/uploads，同一REPEATABLE READ事务逐完整来源键及月份核对现有发生额分量，并与全期间余额对账、核对原始/事件/权限指纹。任何不明差异回滚事务并停止上线；不全量同步、不改历史migration。回退应用保留新只读视图和全部金融历史。调度保持原FIN-003/004入口，规则继续停用等待用户选择收件人。合同及权限/过滤/排序见docs/finance-order-monthly-movements.md。
 
 迁移105加入增量来源存在性暂存和KDOS时间字段。发布后只通过现有`run-finance-daily.sh`每日增量入口执行；不得新增第二个删除扫描任务。增量必须先通过存在性年度计数、UUID唯一性和安全降幅门禁，才允许标记`source_missing`；失败保留原有效状态并在批次中报错。技术删除只改变有效资格和原发生月的当前派生结果，不写入删除当月变更流水。回滚应用时保留105结构、源行和审计，不能恢复旧数据库覆盖发布后的业务写入。
+
+
+## Confirmed allocation to monthly/group plans (2026-10-29)
+
+`plan-projections` now reconciles confirmed manual/Excel allocations using the existing transactional outbox and 30-minute application schedule. ERP still cannot create or replace order allocations. Enable/disable only this existing config through the versioned, audited master-plan resource API; its prior hard skip is retired. Do not reintroduce the old bulk projection SQL, which predates append batches and the required `allocation_id` foreign key.
+
+Check sync log metrics `monthly_created`, `monthly_updated`, `group_created`, `group_updated`, `eligible`, `skipped` and the existing inbound metrics. Per-key `ALLOCATION_PROJECTION_BLOCKED` data exceptions describe quantity/ownership/source conflicts; fix the source through authorized business commands and rerun, never change quantities merely to bypass a guard. Pending/failed durable events are retried by the existing consumer. The group/monthly record check and online version prove delivery; a successful ERP sync alone does not prove plan creation.
+
+Existing historical plans with archived allocation parents retain their identity, manual fields and facts. Existing active matched plans can refresh confirmed demand; receipts use verified facts, and locked processes/reports are untouched. A rollback disables the original configuration and redeploys the retained version while keeping generated rows/audits. No database structure change or extra full backup is required for this restoration; scoped recovery evidence is under ignored `test/plan_projection_restore/`.
