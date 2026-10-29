@@ -52,8 +52,11 @@ export class SupervisionController {
       hasSupervisionPermission(actor, resource, "create") || hasSupervisionPermission(actor, resource, "update"));
     if (!allowed) throw new ForbiddenException("当前权限组不能上传督办附件");
     const safeTenant = actor.tenantId.replace(/[^A-Za-z0-9_-]/g, "_");
-    const safeName = String(file.originalname || "attachment").normalize("NFKC").replace(/[^\p{L}\p{N}_.-]+/gu, "_").slice(-120) || "attachment";
-    const attachment = { key: `supervision/${safeTenant}/${randomUUID()}/${safeName}`, name: String(file.originalname || safeName).slice(0, 255), contentType: String(file.mimetype || "application/octet-stream"), size: file.size };
+    const originalName = String(file.originalname || "attachment");
+    const fileName = originalName.split(/[\\/]/).pop() ?? "";
+    const extension = fileName.match(/\.([A-Za-z0-9]{1,16})$/)?.[1]?.toLowerCase();
+    const objectName = `${randomUUID()}${extension ? `.${extension}` : ""}`;
+    const attachment = { key: `supervision/${safeTenant}/${randomUUID()}/${objectName}`, name: originalName.slice(0, 255), contentType: String(file.mimetype || "application/octet-stream"), size: file.size };
     await this.storage.put({ key: attachment.key, body: file.buffer, contentType: attachment.contentType });
     try { await this.application.recordAttachmentUpload(attachment, actor); }
     catch (error) { await this.storage.delete(attachment.key); throw error; }
