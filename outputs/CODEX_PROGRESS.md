@@ -8451,3 +8451,32 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - c323de7标准部署及健康/SHA核对通过；原配置经审计API启用后，真实SCHEDULED首次运行因传入入库helper的updatedBy使用系统显示名而非UUID失败。
 - 同一事务已完整回滚；只读实测分配/2106历史月计划/19836工序结构/4190报工保护哈希与发布前全部一致，本订单计划仍0。已通过同一审计API安全停用配置，未手工改库。
 - 修正为传递稳定actor UUID至既有helper；成功恢复后自动resolve本任务失败异常，保留失败日志历史。正在类型检查并标准重发；不将失败版本称为交付完成。
+
+## 安装table-delete-standard Skill（2026-10-29）
+- 任务：从下载目录压缩包安装项目级Skill，追加AGENTS引用并核对冲突/触发。
+- 当前状态：已完成；当前阶段：已阅读AGENTS/现有Skill结构/包内2文件与Skill创建规范，确认目标目录不存在。
+- 已完成：[x] 下载目录zip存在且结构清晰；[x] 对照现有删除权限/表格能力/分级验收，发现行级删除例外与强制全层测试需适配。
+- 正在进行：[ ] 安全解压/安装新Skill；[ ] 原样保留根AGENTS并追加包内引用/项目适配说明。
+- 待完成：[ ] YAML结构与Codex实际发现/触发配置校验；[ ] 保留原Skill与业务文件验证；[ ] 清理临时解压与根目录安装包。
+- 修改文件：新Skill目录、根AGENTS、本进度；验证产物在test/table_delete_standard_install/。
+- 数据库Migration/业务测试/备份/部署/真实删除/权限变更：无。
+- Git：用户本轮明确禁止commit/push，遵守本次限定，不执行。
+- 当前已知问题/等待用户确认：适配上述2处规则，无待审批操作。
+- 下一步/恢复说明：继续安装、静态/实际发现校验与清理，不启动业务改造。
+
+### 安装完成及验证
+- 已完成：[x] 安全解压并安装SKILL.md/AGENTS_REFERENCE.md；[x] 根AGENTS保留全部原文并追加包内4条规则及项目适配；[x] 冲突核对；[x] 格式校验与Codex实际识别；[x] 原文件保护与临时清理。
+- 安装位置：.agents/skills/table-delete-standard/SKILL.md。原4个Skill文件哈希均一致；新Skill不强制所有资源删除、不授予权限、不改变删除/归档语义。
+- 适配：遵守现有顶部工具栏删除，移除标准表行内删除例外；验证按kdos-form-validation分级，资源枚举/能力补齐受本次授权范围约束。原根AGENTS正文逐字保留。
+- 验证结果：quick_validate PASS；Codex0.160.1 app-server skills/list(forceReload=true)真实返回table-delete-standard，路径正确、enabled=true、scope=repo、errors=[]。普通业务表新增修改/删除/批量/权限触发规则及显式$table-delete-standard入口已核对。
+- 清理：本任务临时解压目录删除，根目录无安装zip；下载目录源文件保留。
+- 最终修改文件：AGENTS.md；新Skill目录SKILL.md/AGENTS_REFERENCE.md；本进度本节。安装验收资料统一test/table_delete_standard_install/。
+- Migration/业务表格改造/数据库操作/用户权限变更/真实删除/业务测试/生产部署：均无；Git commit/push均未执行，遵守本轮明确要求。
+- 当前已知问题/等待用户确认/待完成/下一步：无，安装已完成。
+- 最终报告路径：test/table_delete_standard_install/REPORT.md。
+- 恢复说明：以后从本节和Git状态继续，无需重复安装；新Skill已能被项目发现。
+
+### 用户追加授权：提交GitHub（2026-10-29）
+- 用户现明确要求提交GitHub，覆盖安装阶段仅对Git的禁止；生产部署仍不执行。
+- 本次提交仅包含新Skill的两个文件、根AGENTS新增规则及本任务进度节，不夹带此前历史未提交进度或业务数据。
+- 安装结构校验、Codex实际发现及git diff --check已通过；正在提交并推送github/main。
