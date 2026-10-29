@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors, ForbiddenException, BadRequestException, NotFoundException } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors, ForbiddenException, BadRequestException, NotFoundException } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
@@ -31,11 +31,13 @@ export class SupervisionController {
 
   @Post("projects") createProject(@Body() body: any, @Req() request: SupervisionRequest) { return this.application.createProject(body, this.actor(request)); }
   @Patch("projects/:id") updateProject(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.updateProject(id, body, this.actor(request)); }
+  @Delete("projects/:id") deleteProject(@Param("id", new ParseUUIDPipe()) id: string, @Query("expectedVersion") expectedVersion: string, @Req() request: SupervisionRequest) { return this.application.deleteProject(id, expectedVersion, this.actor(request)); }
   @Post("projects/:id/complete") completeProject(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.completeProject(id, body, this.actor(request)); }
   @Post("projects/:id/abort") abortProject(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.abortProject(id, body, this.actor(request)); }
 
   @Post("tasks") createTask(@Body() body: any, @Req() request: SupervisionRequest) { return this.application.createTask(body, this.actor(request)); }
   @Patch("tasks/:id") updateTask(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.updateTask(id, body, this.actor(request)); }
+  @Delete("tasks/:id") deleteTask(@Param("id", new ParseUUIDPipe()) id: string, @Query("expectedVersion") expectedVersion: string, @Req() request: SupervisionRequest) { return this.application.deleteTask(id, expectedVersion, this.actor(request)); }
   @Post("tasks/:id/progress") addProgress(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.addProgress({ ...body, taskId: id }, this.actor(request)); }
   @Post("tasks/:id/change-due-date") changeDueDate(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.changeTaskDueDate(id, body, this.actor(request)); }
   @Post("tasks/:id/complete") completeTask(@Param("id") id: string, @Body() body: any, @Req() request: SupervisionRequest) { return this.application.completeTask(id, body, this.actor(request)); }

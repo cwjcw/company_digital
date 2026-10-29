@@ -8524,3 +8524,61 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 等待用户确认：无。本轮未授权生产部署，保持未上线状态。
 - 最终报告路径：test/monthly_base_generation/acceptance.md。
 - 下一步/恢复说明：仅提交本任务文件及本节进度、普通push到github/main；原有历史进度修改不夹带。完成后记录SHA，不部署。
+
+## 项目与任务模块删除功能（2026-10-29）
+- 任务目标：仅supervision-projects/tasks，复用KdosDataTable顶部删除、独立权限及Application事务审计；隔离测试，生产非破坏性核验。
+- 当前状态：进行中；最后更新时间：2026-10-29。当前阶段：已读取AGENTS/SECURITY/删除/表单/验证Skill与现有Controller/Application/scope/页面/外键/部署规范。
+- 已完成：[x] 两资源已注册独立delete，无需默认授权；[x] 项目→任务、任务→进展、项目→进展均RESTRICT，附件为JSON+对象存储，报表实时聚合，无已确认软删。
+- 正在进行：[ ] 版本/租户/范围/关联安全的硬删除及同事务审计；[ ] 页面顶部单多选确认/准确反馈/关联缓存刷新。
+- 待完成：[ ] 定向权限/HTTP/隔离PG/UI测试、类型/构建；[ ] 线上健康及非破坏性核验（视部署门禁）。
+- 修改文件：待实现；仅supervision模块及本进度，临时脚本/输出放test/supervision_delete/。保护此前历史未提交进度。
+- 数据库Migration：预计无；不改表结构/权限组/普通用户授权，不删除生产真实记录。
+- 新增修改测试/已运行测试：待完成，按用户要求覆盖独立delete、跨租户/范围、版本、关联、审计回滚、统计及批量交互。
+- 当前已知问题：scripts/deploy.sh的assert_deployable_worktree拒绝任何未提交源码且构建SHA取git HEAD；本轮用户禁止commit/push，不能按现有流程部署本次未提交源码。不得绕过门禁、伪报已上线或夹带此前未授权上线的月→基础改造。
+- 等待用户确认：先完成可审查代码与本地验收；若用户仍要求上线，需要最小范围允许本次本地提交（不push），及使用既有干净来源发布，保留其余功能。
+- 下一步/恢复说明：从本节+git状态继续实现与验收；不执行commit/push，不重新分析已确认关联，不修改生产业务数据。
+
+### 删除功能代码与定向验证完成
+- 已完成：[x] DELETE projects/tasks + expectedVersion；[x] 原delete权限/租户/范围/锁定后二次范围校验；[x] 独立行条件删除与同事务AuditLog；[x] 项目任务/进展/附件/结束状态阻止；[x] 23503/PG18 RESTRICT 23001友好409。
+- 删除语义：仅无业务关联且未结束记录物理删除；不级联/不清理附件/不删历史审计。项目进度/责任人统计保持原实时聚合，剩余任务不重写。
+- 已完成：[x] 顶部勾选删除/业务编号与数量确认/取消/同步防重复/部分失败业务编号原因/成功行取消选择/关联缓存失效；行内操作原样保留。
+- 修复本模块范围隔离：非project-task的模块管理员不能通过通用scope编译器继承Planning范围绕过；不调整其他模块或普通用户授权。
+- 测试：Node24 API6套59/59（含专用PG+HTTP21项）；Web本模块15/15；共享勾选/删除定向5/5；API/Web类型与构建通过（仅既有bundle体积提示）；改动文件lint与git diff --check通过。
+- 修改文件：supervision.controller/application.service/scope、scope.spec、新delete.postgres.spec；SupervisionPages及spec；docs/supervision-deletion.md；本进度。
+- 实际部署门禁：执行scripts/deploy.sh check只读核对被assert_deployable_worktree以未提交源码拒绝（exit1，deployment-gate.log）。不执行commit/push、不绕过门禁。生产Web/API只读health均607eaecce99647180b80990a03a5eb23c82973ee。
+- 当前阶段：本地Chrome真实页面闭环，之后交付结果与部署所需最小授权；无生产写入/Migration/备份/部署。
+- 下一步：完成Chrome→保存验收报告→说明本地提交门禁冲突，不重复已通过测试。
+
+### Chrome通过，等待最小部署授权
+- 当前状态：代码/本地验收PASS，生产部署BLOCKED。真实Chrome已验证单项目确认/取消/删除/刷新、多任务部分成功与失败勾选/原因、项目进度50→80、责任人统计2→1、无权限隐藏；JS异常0/生产请求0。使用合成会话，不冒充生产验收。
+- 已通过：API59（隔离PG+HTTP21）+Web15+共享选择/删除5；类型/构建/lint/diff。未解决功能缺陷：无；本轮无Migration。
+- 已向用户请求：允许隔离发布分支只做本次本地commit、不push，以满足deploy.sh门禁。用户未回答前不执行commit/部署；如保持禁止commit，保留已完成代码和测试。
+- 发布基线：生产Web/API607eaecce99647180b80990a03a5eb23c82973ee，HEAD另含未上线月→基础功能。恢复部署时从生产commit隔离仅本轮supervision白名单，不夹带Migration111。
+- 最终报告：test/supervision_delete/acceptance.md；补丁/文件哈希task.patch、scope-manifest.json。当前全部改动未提交，原历史进度保留。
+- 下一步/恢复说明：等待部署门禁授权；若授权，仅按既有干净worktree部署流程执行本轮功能，健康/线上只读核验；不得生产尝试删除真实数据，不重复本轮已完成验证。
+
+### 用户已授权本地提交并部署（2026-10-29）
+- 用户明确追加允许：在隔离发布分支仅提交本次项目/任务删除改动，不push，然后按既有流程部署。覆盖先前只对本次local commit的禁止；不授权推送或生产真实删除。
+- 当前状态：部署进行中；当前阶段：从生产607eaec创建隔离来源，白名单复制本轮代码/测试/文档，不带月→基础及Migration111。
+- 已确认：本轮scope-manifest全部哈希与已验收代码一致；生产版本到HEAD的supervision/共享表格/contracts/filter依赖无变化，不重复全套测试。
+- 下一步：本地发布commit→既有升级备份一次→deploy all/check→真实线上只读页面/确认取消/权限核验；不执行任何生产DELETE。
+
+
+## 月度直接生成基础计划生产部署（2026-10-29）
+- 任务目标：正式发布完整a7a63fd，保留已上线c324f3e项目删除功能；必要Migration→原任务生产同步→页面/去重/保护/周计划衔接验收。
+- 当前状态：进行中；当前阶段：已读最新规范/技能/进度/部署脚本，核对Git和生产字段；最后更新时间2026-10-29。
+- 已完成：[x] main及github/main均a7a63fd；生产Web/API为c324f3e，后者是基于607的有效发布分支；原工作区含该功能未提交源码/历史进度，保护不覆盖。[x] Migration111仅客户交期可空及原任务默认名称，无删除/覆盖。
+- 生产基线与真实候选字段证据保存在忽略目录test/monthly_base_production/，不提交真实订单、品号或业务行。
+- 发现必要兼容修复：实际audit_logs.record_id为varchar，原helper将b.id uuid直接等于该列，真实SQL会拒绝；隔离测试误设uuid。仅修正关联类型并将fixture对齐真实结构，定向重跑相关用例。
+- 正在进行：[ ] 独立worktree正常合并a7与c324，保护当前有效版本；[ ] 必要兼容修复/定向测试；[ ] 生产Migration及deploy all/check。
+- 待完成：[ ] 原任务一次必要同步及幂等对账；[ ] Chrome基础/周/出货验收；[ ] 正常push及报告。
+- 修改文件：预计helper/PG fixture和任务文档进度；实际运行产物统一test/monthly_base_production/，不提交真实ERP资料。
+- 数据库Migration：仅MpsMonthlyBaseGeneration1722920111000；不默认备份，无整库/第二套/额外备份流程，遵守用户本轮明确要求。
+- 测试：复用原API112/Web40/类型构建/Chrome及历史5失败基线结论，不重复完整套件；新真实类型修复单独验证。
+- 当前已知问题：审计ID类型修复待完成；无待用户确认事项。
+- 下一步：合并有效发布→修复/定向验证→应用Migration→部署→原同步及生产验收，持续完成，不触碰既有未完成修改。
+
+### 发布必要修复与验证
+- 已合并已上线c324f3e，完整保留a7a63fd。真实audit_logs.record_id为varchar，原SQL只读EXPLAIN确认类型不兼容；关联改为b.id::text，隔离fixture对齐varchar。
+- 仅复跑相关monthly-base两套18项，全部通过。原112/40/类型构建/Chrome与5项历史失败结论继续复用。
+- 当前进入镜像构建、仅Migration111和生产发布；用户本轮明确不增加全库备份。无新来源标识、无新调度器，保护已有人工/工艺/报工及上轮已上线删除功能。

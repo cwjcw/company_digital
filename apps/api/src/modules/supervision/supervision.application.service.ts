@@ -227,6 +227,61 @@ export class SupervisionApplicationService {
     return this.transaction(actor, (manager) => this.audit(manager, actor, "supervision-attachments", null, "supervision.attachment.uploaded", null, attachment));
   }
 
+  deleteProject(id: string, expectedVersion: unknown, actor: SupervisionActor) {
+    this.assertAction(actor, "supervision-projects", "delete");
+    return this.deleteTransaction(actor, async (manager) => {
+      const project = await this.lockProject(manager, id, actor, "delete");
+      // Recheck after acquiring the row lock: a concurrent edit may change a CUSTOM scope.
+      await this.assertRecordScope(manager, "supervision_projects", "supervision-projects", id, actor, "delete");
+      this.assertVersion(project.version, expectedVersion);
+      this.assertIndependentDelete(project, "项目");
+      if (await manager.count(SupervisionTask, { where: { tenantId: actor.tenantId, projectId: id } })) {
+        throw new ConflictException("项目存在下属任务，不能删除；请保留项目及任务关联");
+      }
+      if (await manager.count(SupervisionTaskProgress, { where: { tenantId: actor.tenantId, projectId: id } })) {
+        throw new ConflictException("项目存在进展历史，不能删除");
+      }
+      const result = await manager.delete(SupervisionProject, { tenantId: actor.tenantId, id, version: project.version });
+      if (result.affected !== 1) throw new ConflictException("记录已变化，请刷新后重试");
+      await this.audit(manager, actor, "supervision-projects", id, "supervision.project.deleted", this.projectAudit(project), null);
+      return { id, deleted: true };
+    });
+  }
+
+  deleteTask(id: string, expectedVersion: unknown, actor: SupervisionActor) {
+    this.assertAction(actor, "supervision-tasks", "delete");
+    return this.deleteTransaction(actor, async (manager) => {
+      const task = await this.lockTask(manager, id, actor, "delete");
+      await this.assertRecordScope(manager, "supervision_tasks", "supervision-tasks", id, actor, "delete");
+      this.assertVersion(task.version, expectedVersion);
+      this.assertIndependentDelete(task, "任务");
+      if (await manager.count(SupervisionTaskProgress, { where: { tenantId: actor.tenantId, taskId: id } })) {
+        throw new ConflictException("任务存在进展历史（含风险、交期变更或完成记录），不能删除");
+      }
+      const result = await manager.delete(SupervisionTask, { tenantId: actor.tenantId, id, version: task.version });
+      if (result.affected !== 1) throw new ConflictException("记录已变化，请刷新后重试");
+      await this.audit(manager, actor, "supervision-tasks", id, "supervision.task.deleted", this.taskAudit(task), null);
+      // Project progress and owner reports are live aggregates; no stored totals to rewrite.
+      return { id, projectId: task.projectId, deleted: true };
+    });
+  }
+
+  private assertIndependentDelete(record: SupervisionProject | SupervisionTask, label: string) {
+    if (["COMPLETED", "ABORTED"].includes(record.lifecycleStatus)) throw new ConflictException(`已完成或已中止的${label}需保留业务留痕，不能删除`);
+    if (record.attachments.length) throw new ConflictException(`${label}存在附件，不能删除；请先通过原有编辑功能处理附件`);
+  }
+
+  private async deleteTransaction<T>(actor: SupervisionActor, work: (manager: EntityManager) => Promise<T>) {
+    try { return await this.transaction(actor, work); }
+    catch (error) {
+      const code = (error as { driverError?: { code?: string } })?.driverError?.code;
+      if (code === "23503" || code === "23001") {
+        throw new ConflictException("记录存在关联数据，不能删除；请刷新后核对关联关系");
+      }
+      throw error;
+    }
+  }
+
   private async transaction<T>(actor: SupervisionActor, work: (manager: EntityManager) => Promise<T>): Promise<T> {
     return this.dataSource.transaction(async (manager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);

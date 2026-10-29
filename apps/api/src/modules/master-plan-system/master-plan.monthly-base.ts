@@ -57,7 +57,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   const requestId = `base-sync:${randomUUID()}`;
   // Fetch all prior automatic baselines once; ordinary human audit records are not ownership evidence.
   const histories: Row[] = monthly.length ? await manager.query(`SELECT DISTINCT ON (a.record_id) a.record_id,a.after_json->'syncValues' values
-    FROM audit_logs a JOIN mps_base_plans b ON b.tenant_id=a.tenant_id AND b.id=a.record_id
+    FROM audit_logs a JOIN mps_base_plans b ON b.tenant_id=a.tenant_id AND b.id::text=a.record_id
     WHERE a.tenant_id=$1 AND a.resource='mps-base-plans' AND a.action='mps-base-plans.synchronized'
     ORDER BY a.record_id,a.created_at DESC,a.id DESC`, [tenantId]) : [];
   const baselines = new Map(histories.map(row => [row.record_id,row.values as Row]));

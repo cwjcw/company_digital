@@ -288,9 +288,9 @@
 - Deployment/runtime evidence: the final deployed commit, manual replay and scheduled-run status, page result and preserved-field evidence are recorded in `outputs/CODEX_PROGRESS.md` and `test/monthly_inbound_restore/acceptance.md`. Code alone is not evidence of restored scheduling.
 
 
-### MPS-003：月度计划直接生成基础计划（2026-10-29，本地改造，未部署）
+### MPS-003：月度计划直接生成基础计划（2026-10-29，正式发布）
 
-- 用户本轮授权代码及本地验收，明确暂不生产部署；生产仍运行既有版本，不能把本段代码行为写成生产已切换。
+- 用户已追加授权正式部署及原任务一次必要生产同步验收；发布来源合并a7a63fd与已上线c324f3e，保留两项有效功能。实际发布SHA、Migration、生产指标和Chrome证据以outputs/CODEX_PROGRESS.md与test/monthly_base_production/为准。
 - 复用原shipping-to-base配置/同步入口与runDue、durable outbox，任务编码、enabled和30分钟周期不变；上线后显示名称为“月度计划同步基础计划”。唯一生成数据源改为mps_monthly_plans，出货计划不再触发基础创建/覆盖，出货的维护/查询/批次/通知保持独立。
 - 源粒度为现有tenant+order_number+item_code唯一月计划，有效组织、非空业务键和正required_quantity；基础planned_quantity取完整required_quantity（不取欠数），客户交期取同名latest_customer_due_date，不把客户交期或preproduction_review_date当作人工latest_review_due_date。
 - 原交期编码计数器/锁共用，唯一既有基础复用id/交期编码，旧shipping_plan_id保留且新记录不填该引用；多基础批次或事业部冲突明确记录MONTHLY_BASE_CONFLICT，保留所有原记录、不自动合并/删除。
@@ -298,5 +298,5 @@
 - 原事务设置tenant context，按租户任务锁和共用交期编码锁串行创建、基础行锁/版本控制、写入与审计/后续base-to-weekly事件同事务；无变化不改版本/审计。失败沿用原日志/异常/任务重试，周期任务作为遗漏补偿；无新调度器或告警渠道。
 - Migration111仅允许基础客户交期为空，供待完善记录正常保存，并更新原任务默认显示名；缺真实客户交期仍在统一周计划准入中阻断，不自动编造日期。无历史数据回填、来源字段或新权限。
 - 仓库新增调度定义/候选0，生产启停/迁移/频率改动0；本轮不触碰外部n8n/systemd/cron或生产配置。生产现有任务状态沿用之前记录，本地改造不冒充上线审计。
-- 验证使用network=none的临时PG18和专用Unix socket/数据库、合成数据；本地类型/构建/Chrome及专项记录见outputs/CODEX_PROGRESS.md、忽略目录test/monthly_base_generation/。负责人PMC/系统维护。
-- 回滚/后续发布：不恢复覆盖数据库。未来上线前应用必要Migration，旧运行版本和出货数据保留；若有空客户交期的待完善基础，禁止直接回退非空约束或部署不含该准入保护的旧周计划生成逻辑，应前向修复或先按真实业务补齐日期。用户未授权本轮部署或生产补齐。
+- 原本地验收已通过；本轮实际varchar审计ID关联兼容性修复另在network=none PG18对齐真实结构验证。生产同步、幂等、字段/人工值保护、基础/周/出货页面证据见test/monthly_base_production/；不重复完整测试或增加全库备份。负责人PMC/系统维护。
+- 回滚/后续发布：不恢复覆盖数据库。未来上线前应用必要Migration，旧运行版本和出货数据保留；若有空客户交期的待完善基础，禁止直接回退非空约束或部署不含该准入保护的旧周计划生成逻辑，应前向修复或先按真实业务补齐日期。本轮用户已授权原任务正常补齐，不授权擅改冲突基础或人工业务值。

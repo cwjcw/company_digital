@@ -42,7 +42,7 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     await db.query(`CREATE TABLE supply_chain_suppliers(id uuid PRIMARY KEY);
       CREATE TABLE users(id uuid PRIMARY KEY,username text UNIQUE,display_name text,password_hash text,enabled boolean DEFAULT true,must_change_password boolean,created_by uuid,updated_by uuid);
       CREATE TABLE organization_units(id uuid PRIMARY KEY,name text,enabled boolean DEFAULT true);
-      CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text,record_id uuid,action text,before_json jsonb,after_json jsonb,request_id text,source text,created_by uuid,updated_by uuid,created_at timestamptz DEFAULT clock_timestamp());
+      CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text,record_id varchar,action text,before_json jsonb,after_json jsonb,request_id text,source text,created_by uuid,updated_by uuid,created_at timestamptz DEFAULT clock_timestamp());
       INSERT INTO users(id,username,display_name)VALUES('${user}','synthetic','合成用户');
       INSERT INTO organization_units(id,name)VALUES('${division}','合成事业部'),('${other}','另一事业部');`);
     const runner={query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner;
