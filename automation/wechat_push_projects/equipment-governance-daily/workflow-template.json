@@ -1,0 +1,190 @@
+{
+  "id": "e0dwMjv9OnWmcESk",
+  "name": "设备管理日报",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "f8a675f6-31e9-566c-a5c3-afe2d92c712e",
+      "name": "每天12点",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 12 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dd40c447-2026-503d-a9b7-d287862e233f",
+      "name": "手工执行",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "61c5bfd1-7b8d-5b7f-a5fd-2340c3f374a9",
+      "name": "发送设备管理日报",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipment-governance-daily && timeout 540s /data/automation/code/work/basci/basic_code/.venv/bin/python report.py --send-production --confirm-production"
+      },
+      "credentials": {
+        "sshPassword": {
+          "id": "__EXISTING_SSH_CREDENTIAL_ID__",
+          "name": "__EXISTING_SSH_CREDENTIAL_NAME__"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b8bab219-a095-59e6-a1ec-7c7ca6c1771d",
+      "name": "核验发送结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const expectedMode = 'production';\nconst item = $input.first().json;\nif (Number(item.code) !== 0) throw new Error('设备日报SSH非零退出，请检查该节点stderr');\nconst lines = String(item.stdout || '').trim().split(/\\r?\\n/).filter(Boolean);\nlet result;\ntry { result = JSON.parse(lines[lines.length - 1]); } catch { throw new Error('设备日报未返回有效JSON'); }\nif (result.mode !== expectedMode || result.recipientCount !== 9) throw new Error('设备日报模式或正式人数不符');\nif (expectedMode === 'production') {\n  const expected = ['text', 'operation_image', ...(result.reportingImageSent ? ['reporting_image'] : [])];\n  if (result.sent !== true || JSON.stringify(result.sequence) !== JSON.stringify(expected)) throw new Error('设备日报没有完成规定发送顺序');\n} else if (result.ready !== true || result.sent !== false) throw new Error('设备日报预检失败或发生了非预期发送');\nreturn [{json: result}];"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d3f22120-dae2-57e2-aa46-c22eee771097",
+      "name": "发送失败告警",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        780,
+        200
+      ],
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipment-governance-daily && timeout 90s /data/automation/code/work/basci/basic_code/.venv/bin/python report.py --notify-failure"
+      },
+      "credentials": {
+        "sshPassword": {
+          "id": "__EXISTING_SSH_CREDENTIAL_ID__",
+          "name": "__EXISTING_SSH_CREDENTIAL_NAME__"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fe43e0fd-4c85-559b-ad8b-c301d141081f",
+      "name": "日报执行失败",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        200
+      ],
+      "parameters": {
+        "errorType": "errorMessage",
+        "errorMessage": "设备日报执行失败；请检查本次执行记录及逐人回执，勿重发已成功组件。"
+      }
+    }
+  ],
+  "connections": {
+    "每天12点": {
+      "main": [
+        [
+          {
+            "node": "发送设备管理日报",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "手工执行": {
+      "main": [
+        [
+          {
+            "node": "发送设备管理日报",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "发送设备管理日报": {
+      "main": [
+        [
+          {
+            "node": "核验发送结果",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "发送失败告警",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "核验发送结果": {
+      "main": [
+        [],
+        [
+          {
+            "node": "发送失败告警",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "发送失败告警": {
+      "main": [
+        [
+          {
+            "node": "日报执行失败",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai",
+    "executionTimeout": 720,
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "pinData": {}
+}

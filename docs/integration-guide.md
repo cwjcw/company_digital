@@ -117,7 +117,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 
 设备总台账的 `plannedStartupMinutes` 表示“设备计划开机时间”，接口和数据库使用非负整数分钟，网页统一显示为 `X小时X分钟`。系统管理员身份在设备读取和写入时由后端显式识别为最高权限，不依赖浏览器缓存的普通表权限声明；设备状态删除仍执行租户校验、乐观锁、软删除和审计。
 
-设备总台账的新建设备和工作簿导入设备均默认“无需填报”。存量批量重置只能由系统身份调用 `EquipmentApplicationService.resetAllMonitoring`，每台发生变化的设备均递增乐观版本并记录变更前后审计。设备治理企业微信日报通过 `EquipmentQueryService.governanceSummary` 读取事业部、监测数量和责任人设备数量，不直接访问数据库，也不复制企业微信密钥。
+设备总台账的新建设备和工作簿导入设备均默认“无需填报”。存量批量重置只能由系统身份调用 `EquipmentApplicationService.resetAllMonitoring`，每台发生变化的设备均递增乐观版本并记录变更前后审计。设备管理双日报通过原查询CLI复用 `EquipmentQueryService.dashboard()` 的日指标、单位明细和七日填报原始台次，在单个租户只读事务中读取五单位数据，不复制统计SQL或企业微信密钥；Python不直接访问数据库。当前先个性化文字、后高清运行图，按真实七日已填/应填台次相等决定是否省略填报图。10月31日用户确认正式9人部署（不含高婷武/崔玮杰），测试仍仅崔玮杰，n8n为Asia/Shanghai每日12:00、同一工作流正式双确认，失败单独告警维护人；实际激活状态见任务台账，详见 `automation/wechat_push_projects/equipment-governance-daily/README.md`。
 
 设备状态列表通过状态行的稳定 `equipmentId` 实时关联设备总台账的 `equipment_responsibles`，响应中的 `responsibleUserIds` 和 `responsibleUsers` 始终反映总台账当前责任人，不在状态记录中复制快照。该字段已注册为只读成员字段，网页默认隐藏，用户可通过“字段显示”主动开启；搜索和字段筛选可按责任人姓名命中。
 

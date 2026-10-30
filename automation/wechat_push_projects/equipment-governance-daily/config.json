@@ -1,20 +1,34 @@
 {
-  "title": "设备管理上线进度日报",
-  "message_title": "设备管理上线进度表",
-  "text_delay_seconds": 15,
-  "divisions": ["事业一部", "事业二部", "事业三部", "事业四部"],
-  "test_recipients": ["崔玮杰"],
+  "text_delay_seconds": 3,
+  "divisions": [
+    "事业一部",
+    "事业二部",
+    "事业三部",
+    "事业四部",
+    "研发中心"
+  ],
+  "test_recipients": [
+    "崔玮杰"
+  ],
   "production_recipients": [
     "刘义响",
     "朱永远",
     "周志明",
-    "崔玮杰",
     "张建中",
     "蒋青国",
     "徐玉鹏",
-    "高婷武",
     "廖焕敏",
     "刘丽秋",
     "黄开亮"
+  ],
+  "reporting_image_delay_seconds": 5,
+  "allow_production_send": true,
+  "schedule": {
+    "time": "12:00",
+    "timezone": "Asia/Shanghai",
+    "mode": "--send-production --confirm-production"
+  },
+  "failure_recipients": [
+    "崔玮杰"
   ]
 }
