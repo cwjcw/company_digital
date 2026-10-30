@@ -74,6 +74,12 @@ export class MasterDataFilterSourceProvider implements OnModuleInit {
         columns,
         tenantColumn: null,
         fields: tablePermissionFieldsFor(source.code),
+        exportDisplayValue: (field, value) => {
+          if (field.type !== "date" || !field.label.includes("交期") || !value) return undefined;
+          const date = value instanceof Date ? value.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" }) : String(value);
+          const match = date.match(/^\d{4}-(\d{2})-(\d{2})/);
+          return match ? `${Number(match[1])}月${Number(match[2])}日` : undefined;
+        },
         searchColumns: source.code === "sales-orders"
           ? ["orderNumber", "customerCode", "itemNumber", "itemName", "specification", "sourceSystem", "sourceDatabase"]
           : source.code === "finished-goods-inbound"

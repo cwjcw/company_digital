@@ -230,7 +230,7 @@ export function EquipmentStatusReportPage() {
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string>();
   const [open, setOpen] = useState(false); const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false); const [confirmingImport, setConfirmingImport] = useState(false);
-  const [exporting, setExporting] = useState(false); const [importPreview, setImportPreview] = useState<StatusImportPreview>();
+  const [importPreview, setImportPreview] = useState<StatusImportPreview>();
   const [importError, setImportError] = useState<string>();
   const [confirmImportError, setConfirmImportError] = useState<string>();
   const [form] = Form.useForm();
@@ -272,18 +272,6 @@ export function EquipmentStatusReportPage() {
       message.error(text);
     }
     finally { setConfirmingImport(false); }
-  };
-  const exportRows = async () => {
-    setExporting(true);
-    try {
-      const query = new URLSearchParams(); if (tableQuery.search) query.set("search", tableQuery.search);
-      for (const [key, value] of Object.entries(tableQuery.filters)) if (value.trim()) query.set(key, value.trim());
-      if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) query.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
-      if (tableQuery.sortField) query.set("sortField", tableQuery.sortField);
-      if (tableQuery.sortOrder) query.set("sortOrder", tableQuery.sortOrder);
-      await downloadApiFile(`/equipment/status-reports/export?${query}`, "设备状态填报.xlsx"); message.success("设备状态填报已导出");
-    } catch (error) { message.error(errorText(error)); }
-    finally { setExporting(false); }
   };
   const [exportingTemplate, setExportingTemplate] = useState(false);
   const [saveError, setSaveError] = useState<string>();
@@ -364,7 +352,6 @@ export function EquipmentStatusReportPage() {
         {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setInitial(); }}>填报设备状态</Button>}
         {canImport && <Upload accept=".xlsx,.csv" showUploadList={false} beforeUpload={(file) => previewImport(file as File)}><Button icon={<UploadOutlined />} loading={importing}>导入</Button></Upload>}
         {(canCreate || canImport || canExport) && <Button icon={<DownloadOutlined />} loading={exportingTemplate} onClick={() => void exportTemplate()}>导出模板</Button>}
-        {canExport && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportRows()}>导出</Button>}
         <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
       </>}
       loading={records.isLoading} serverData={{ total: records.data?.total ?? 0, onQueryChange: setTableQuery }} scroll={{ x: 1450 }} />

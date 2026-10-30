@@ -129,7 +129,6 @@ export function FinishedGoodsOutboundPage() {
   ];
   return <div><PageHeader title="出库表" actions={<Space>
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增出库记录</Button>
-    <Button onClick={() => { const params = new URLSearchParams(); if (tableQuery.search) params.set("search", tableQuery.search); if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup)); if (tableQuery.sortField) params.set("sortField", tableQuery.sortField); if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder); void downloadApiFile(`/master-data/finished-goods-outbound/export${params.toString() ? `?${params}` : ""}`, "出库数据.xlsx"); }}>导出 XLSX</Button>
   </Space>} />
     <KdosDataTable resource="finished-goods-outbound" editable rowKey="id" loading={rows.isLoading} dataSource={rows.data?.rows} columns={columns}
       serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}

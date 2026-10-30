@@ -36,7 +36,7 @@ export async function exportTable(request: TableExportRequest) {
   if (request.sortField) params.set("sortField", request.sortField);
   if (request.sortOrder) params.set("sortOrder", request.sortOrder);
   if (request.context && Object.keys(request.context).length) params.set("context", JSON.stringify(request.context));
-  if (request.columnKeys?.length) params.set("columnKeys", request.columnKeys.join(","));
+  if (request.columnKeys) params.set("columnKeys", request.columnKeys.join(","));
   const blob = await api<Blob>(`/table-exports/${encodeURIComponent(request.resource)}${params.toString() ? `?${params}` : ""}`);
   if (!(blob instanceof Blob) || blob.size === 0) throw new Error("导出文件为空");
   const url = URL.createObjectURL(blob);

@@ -11,6 +11,19 @@ describe("MasterPlanQueryService metadata", () => {
   const directory = { listEnabled: jest.fn().mockResolvedValue([{ id: "org-1", name: "事业一部", pathLabel: "凯南 / 事业一部" }]) };
   const service = new MasterPlanQueryService({} as never, directory as never);
 
+  it("待报工导出额外范围与读取范围相交，排序使用同一任务列", async () => {
+    const query = jest.fn(async (sql: string) => sql.includes("count(*)::integer count") ? [{ count: 1 }] : sql.includes("SELECT record.id") ? [{ id: "task" }] : []);
+    const db = { query, transaction: jest.fn(async (_level, work) => work({ query })) };
+    const principal = { ...actor(["*"]), isSystemAdmin: true };
+    await new MasterPlanQueryService(db as never, directory as never).list("mps-process-reports", {
+      view: "PENDING", sortField: "remainingQuantity", sortOrder: "desc"
+    }, principal, params => { params.push(principal.userId); return `record.created_by=$${params.length}::uuid`; });
+    const sql = query.mock.calls.map(([statement]) => statement).filter(statement => statement.startsWith("WITH record"));
+    expect(sql).toHaveLength(2);
+    expect(sql.every(statement => statement.includes("record.created_by=$2::uuid"))).toBe(true);
+    expect(sql[1]).toContain("ORDER BY record.remaining_quantity DESC NULLS LAST,record.id");
+  });
+
   it("never exposes direct weekly-plan creation even when a create claim exists", () => {
     const allowed = service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:read", "mps-weekly-plans:*:create", "mps-weekly-plans:orderNumber:read"]));
     expect(allowed.actions.create).toBe(false);

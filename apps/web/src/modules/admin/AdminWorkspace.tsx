@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState, type Key } from "react";
 import {
-  ApartmentOutlined, CheckCircleFilled, EditOutlined, EllipsisOutlined, ExportOutlined,
+  ApartmentOutlined, CheckCircleFilled, EditOutlined, EllipsisOutlined,
   FolderOutlined, HolderOutlined, ImportOutlined, MoreOutlined, PlusOutlined, SearchOutlined, StopOutlined,
   SwapOutlined, TeamOutlined, UserAddOutlined, UserDeleteOutlined, UserSwitchOutlined
 } from "@ant-design/icons";
@@ -250,18 +250,6 @@ export function AdminWorkspace() {
   const setCandidateSelection = (candidates: any[], selected: boolean) => setMemberDraft((current) => selected
     ? [...new Set([...current, ...candidates.map((user) => user.id)])]
     : current.filter((id) => !candidates.some((user) => user.id === id)));
-  const exportMembers = async () => {
-    /* 导出使用与服务端同一约束（selectedRoleId + 搜索 + FilterGroup）分页取全量，禁止只导出当前页。 */
-    const rows: any[] = [];
-    for (let page = 1; page <= 50; page++) {
-      const result = await api<PlatformTablePage<any>>(adminUsersUrl({ ...roleMemberQuery, page, pageSize: 200 }, { search: roleMemberSearch, roleId: selectedRoleId }));
-      rows.push(...result.rows);
-      if (rows.length >= result.total || result.rows.length === 0) break;
-    }
-    const header = "姓名,编号,所属部门,角色\n"; const csv = header + rows.map((user) => [user.displayName, user.employeeNo || user.username, (user.departmentPaths ?? []).map((path: string[]) => path.at(-1)).join("|"), selectedRole?.name].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `${selectedRole?.name ?? "角色"}-成员.csv`; link.click(); URL.revokeObjectURL(url);
-  };
-
   const roleTree = (roleGroups.data ?? []).map((group) => ({ ...group, roles: (roles.data ?? []).filter((role) => role.roleGroupId === group.id && role.name.includes(roleSearch.trim())) }));
   return <div className="employee-admin-page">
     <aside className="employee-admin-sidebar">
@@ -287,14 +275,14 @@ export function AdminWorkspace() {
     <main className="employee-admin-main">{mode === "departments" ? <>
       <div className="employee-admin-title"><Title level={3}>{selectedDepartment ? organizationMap.get(selectedDepartment)?.name : status === "disabled" ? "离职成员" : "全部成员"}</Title></div>
       <Flex className="employee-admin-toolbar" justify="space-between" align="center" gap={16}>
-        <Space><Button type="primary" icon={<UserAddOutlined />} onClick={() => openEmployee()}>邀请成员</Button><Button icon={<ExportOutlined />} onClick={() => message.info("可通过角色页按角色导出成员")}>导出</Button></Space>
+        <Space><Button type="primary" icon={<UserAddOutlined />} onClick={() => openEmployee()}>邀请成员</Button></Space>
         <Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 310 }} /><Text>账号状态</Text><Select value={status} onChange={setStatus} style={{ width: 130 }} options={[{ value: "all", label: "全部" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} /></Space>
       </Flex>
-      <KdosDataTable resource="users" internalVerticalScroll shellClassName="employee-admin-member-table-shell" className="employee-admin-table employee-admin-member-table" rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={visibleUsers} loading={departmentMembers.isLoading} columns={userColumns} serverData={{ total: departmentMembers.data?.total ?? 0, onQueryChange: setDepartmentQuery }} printContext={{ departmentId: selectedDepartment ?? "", status }} scroll={{ x: 1750, y: "100%" }} />
+      <KdosDataTable resource="users" searchValue={search} onSearchValueChange={setSearch} internalVerticalScroll shellClassName="employee-admin-member-table-shell" className="employee-admin-table employee-admin-member-table" rowKey="id" rowSelection={{ selectedRowKeys: selectedUserIds, onChange: setSelectedUserIds }} dataSource={visibleUsers} loading={departmentMembers.isLoading} columns={userColumns} serverData={{ total: departmentMembers.data?.total ?? 0, onQueryChange: setDepartmentQuery }} printContext={{ departmentId: selectedDepartment ?? "", status }} scroll={{ x: 1750, y: "100%" }} />
     </> : selectedRole ? <>
       <Flex className="employee-admin-title" justify="space-between" align="center"><Title level={3}>{selectedRole.name}</Title><Space split={<span className="role-title-divider" />}><Button type="link" onClick={() => openRoleDialog("rename", selectedRole)}>修改名称</Button><Button type="link" onClick={() => { setMoveRole(selectedRole); setMoveGroupId(selectedRole.roleGroupId); }}>调整分组</Button></Space></Flex>
-      <Flex className="employee-admin-toolbar" justify="space-between"><Space><Button type="primary" onClick={openMemberDialog}>添加成员</Button><Button icon={<ImportOutlined />} disabled>导入</Button><Button icon={<ExportOutlined />} onClick={exportMembers}>导出</Button></Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={roleMemberSearch} onChange={(event) => setRoleMemberSearch(event.target.value)} style={{ width: 310 }} /></Flex>
-      <KdosDataTable resource="users" className="employee-admin-table" rowKey="id" dataSource={roleMembers} serverData={{ total: roleMembersPage.data?.total ?? 0, onQueryChange: setRoleMemberQuery }} printContext={{ roleId: selectedRoleId ?? "" }} columns={[
+      <Flex className="employee-admin-toolbar" justify="space-between"><Space><Button type="primary" onClick={openMemberDialog}>添加成员</Button><Button icon={<ImportOutlined />} disabled>导入</Button></Space><Input prefix={<SearchOutlined />} allowClear placeholder="搜索成员" value={roleMemberSearch} onChange={(event) => setRoleMemberSearch(event.target.value)} style={{ width: 310 }} /></Flex>
+      <KdosDataTable resource="users" searchValue={roleMemberSearch} onSearchValueChange={setRoleMemberSearch} className="employee-admin-table" rowKey="id" dataSource={roleMembers} serverData={{ total: roleMembersPage.data?.total ?? 0, onQueryChange: setRoleMemberQuery }} printContext={{ roleId: selectedRoleId ?? "" }} columns={[
         { title: "姓名", dataIndex: "displayName", render: (value: string) => <Space><Avatar className="employee-table-avatar">{initials(value)}</Avatar>{value}</Space> },
         { title: "所属部门", dataIndex: "departmentPaths", render: (paths: string[][]) => (paths ?? []).map((path) => path.at(-1)).join("、") || "—" },
         { title: "分管部门", render: () => (selectedRole.organizationUnitIds ?? []).map((id: string) => organizationMap.get(id)?.name).filter(Boolean).join("、") || "—" },

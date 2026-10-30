@@ -60,6 +60,11 @@ export type TableFilterSource = {
   exportNullAsBlank?: boolean;
   /** Verified financial source strings retain all numeric digits in template exports. */
   exportExactNumbers?: boolean;
+  /** Server-owned presentation for an alternate view (for example pending production tasks). */
+  exportVariant?: (context: Record<string, unknown>) => Partial<Pick<TableFilterSource, "fields" | "columns">> | undefined;
+  /** Derived display columns may depend on another official read permission. */
+  fieldReadPermission?: (actor: TableFilterActor, key: string) => boolean;
+  exportDisplayValue?: (field: TablePermissionFieldDefinition, value: unknown, row: Record<string, unknown>) => string | undefined;
   /** 物理表名。 */
   table: string;
   /** field key → 列名（不含别名）。 */

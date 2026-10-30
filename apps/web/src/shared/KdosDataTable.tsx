@@ -234,6 +234,17 @@ function flatten<RecordType>(columns: ColumnsType<RecordType>): Array<{ key: str
   });
 }
 
+/** Export leaves of the final visible/fixed column tree in screen order. */
+export function displayedExportKeys<RecordType>(columns: ColumnsType<RecordType>): string[] {
+  const keys = columns.flatMap(raw => {
+    const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType>; exportFieldKey?: string };
+    if (column.children?.length) return displayedExportKeys(column.children);
+    const key = column.exportFieldKey ?? columnKey(column);
+    return key && !key.startsWith("__") ? [key] : [];
+  });
+  return [...new Set(keys)];
+}
+
 function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Set<string>): ColumnsType<RecordType> {
   return columns.flatMap((raw) => {
     const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
@@ -289,6 +300,9 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   /** Customize the platform permission caption without changing its authorization. */
   permissionButtonLabel?: string;
   searchPlaceholder?: string;
+  /** Pages with an existing search control share its value with list/export/print. */
+  searchValue?: string;
+  onSearchValueChange?: (value: string) => void;
   /** Hide quick search for reports whose complete conditions live in the advanced panel. */
   quickSearch?: boolean;
   advancedFilterSection?: AdvancedFilterSection;
@@ -401,7 +415,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
+  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
   defaultHiddenFields = [],
@@ -419,7 +433,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const columnWidthsStorageKey = preferenceStorageKey("kdos-form-column-widths", tenantKey, userKey, resource, viewKey);
   const legacyStorageKey = legacyPreferenceStorageKey("kdos-form-view", userKey, resource, viewKey);
   const legacyPageSizeStorageKey = legacyPreferenceStorageKey("kdos-form-page-size", userKey, resource, viewKey);
-  const [search, setSearch] = useState("");
+  const [localSearch, setLocalSearch] = useState("");
+  const search = searchValue ?? localSearch;
+  const setSearch = onSearchValueChange ?? setLocalSearch;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -516,7 +532,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     try {
       await exportTable({ resource, filename:exportFilename?.(), search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
         sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
-        context: printContext, columnKeys: effectiveVisible.filter((key) => !key.startsWith("__")) });
+        context: printContext, columnKeys: displayedExportKeys(renderedColumns) });
       exportMessage.success("导出已开始");
     } catch (error) {
       exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
@@ -621,6 +637,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       const width = Math.max(columnWidths[key] ?? defaultWidth, minWidth);
       const baseColumn = {
         ...column,
+        exportFieldKey: field?.key ?? key,
         width,
         minWidth,
         onHeaderCell: (headerColumn: ColumnType<RecordType>) => ({

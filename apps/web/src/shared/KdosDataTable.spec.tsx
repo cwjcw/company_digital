@@ -3,13 +3,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App as AntApp } from "antd";
 import { api } from "../api";
-import { KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
+import { displayedExportKeys, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
 
 afterEach(() => cleanup());
 
 vi.mock("../api", () => ({ api: vi.fn() }));
 
 describe("KdosDataTable server pagination", () => {
+  it("导出沿用最终列树顺序，保留分组子列和展示别名，排除操作列", () => {
+    expect(displayedExportKeys([
+      { key: "orderNumber", dataIndex: "orderNumber" },
+      { title: "工序", children: [{ key: "weldingStatus", dataIndex: "weldingStatus" }, { key: "packagingStatus", dataIndex: "packagingStatus" }] },
+      { key: "salespersonNames", exportFieldKey: "salespersonUserIds" } as never,
+      { key: "__actions" }, { key: "createdAt", dataIndex: "createdAt" }
+    ])).toEqual(["orderNumber", "weldingStatus", "packagingStatus", "salespersonUserIds", "createdAt"]);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();

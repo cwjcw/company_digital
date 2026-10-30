@@ -771,7 +771,6 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
       {resource === "mps-order-allocations" && metadata.data?.actions.import && <Space><Switch checked={overrideAllocationDivision} onChange={setOverrideAllocationDivision}/><span>导入时覆盖事业部分配冲突</span></Space>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
-      {metadata.data?.actions.export && <Button icon={<DownloadOutlined />} onClick={() => void download(`${pageUrl(resource, tableQuery, view, basePlanId).replace("?", "/export?")}`, `${info.label}.xlsx`).catch((error) => message.error((error as Error).message))}>导出</Button>}
       {canSyncBaseToWeekly && <Button icon={<SyncOutlined />} loading={syncMutation.isPending} disabled={syncMutation.isPending} onClick={confirmBaseToWeeklySync}>同步到周计划</Button>}
       {resource === WORK_ORDER_RESOURCE && metadata.data?.actions.update && <Button type="primary" icon={<SyncOutlined />} loading={syncingWorkOrders} onClick={() => void syncWorkOrders()}>从周计划同步</Button>}
       {metadata.data?.actions.create && hasResourcePermission(resource, "create") && <Button type="primary" onClick={openCreate}>新增</Button>}
@@ -781,7 +780,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     {viewTabs}
     <KdosDataTable resource={resource} viewKey={isPendingView ? "PENDING" : undefined} editable={isPendingView ? Boolean(metadata.data?.actions.reportProcess) : Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
       filterFields={isPendingView ? pendingFields.filter((field) => !field.input) : metadata.data?.fields}
-      printContext={{ view: isPendingView ? "PENDING" : "ACTUAL" }}
+      printContext={{ view: isPendingView ? "PENDING" : "ACTUAL", ...(basePlanId ? { basePlanId } : {}) }}
       toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       deleteAction={!isPendingView && metadata.data?.actions.delete ? {

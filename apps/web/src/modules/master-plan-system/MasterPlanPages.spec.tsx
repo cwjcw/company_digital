@@ -86,6 +86,16 @@ describe("MasterPlanResourcePage create feedback", () => {
 
   afterEach(() => cleanup());
 
+  it("标准业务表只显示公共导出，不再与导入同行重复显示", async () => {
+    const implementation = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path, init) => path === "/table-exports/capabilities"
+      ? [{ code: "mps-shipping-plans", supported: true, allowed: true }] as never
+      : implementation(path, init));
+    renderPage("mps-shipping-plans");
+    await screen.findByRole("button", { name: /导入模板/ });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /导\s*出$/ })).toHaveLength(1));
+  }, 15_000);
+
   it("shows a concrete validation error instead of silently ignoring confirm", async () => {
     renderPage("mps-shipping-plans");
 

@@ -1,9 +1,10 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor, processReportPendingColumns, processReportPendingFields, processReportPendingSourceSql } from "./master-plan.config";
+import { formatProductionProgress } from "@tracker/shared";
+import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql } from "./master-plan.config";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { TableFilterRegistry, type TablePrintRowQuery } from "../../common/filtering/table-filter.registry";
 import { MasterPlanQueryService } from "./master-plan.query.service";
-import type { MasterPlanActor } from "./master-plan.types";
+import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 /**
  * 把主计划资源注册进平台筛选注册表（表、字段列映射、租户+数据范围构造），
@@ -22,6 +23,39 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
         table: resource.table,
         columns,
         fields: fieldsFor(resource),
+        exportVariant: context => {
+          if (resource.code === "mps-process-reports" && String(context.view ?? "").toUpperCase() === "PENDING") {
+            return {
+              columns: { ...processReportPendingColumns(), createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at" },
+              fields: [...processReportPendingFields(), ...fieldsFor(resource).filter(field => ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(field.key))]
+            };
+          }
+          if (resource.code === "mps-three-day-work-orders") return {
+            columns: { ...columns, productionDateRange: "production_date_range" },
+            fields: [...fieldsFor(resource), { key: "productionDateRange", label: "生产日期", type: "text", editable: false }]
+          };
+          return undefined;
+        },
+        fieldReadPermission: (actor, key) => {
+          const principal = { ...actor, username: actor.username ?? "", tableDataScopes: actor.tableDataScopes ?? [], requestId: "", source: "system" as const };
+          if (resource.code === "mps-process-reports" && ["remainingQuantity", "cumulativeReportedQuantity"].includes(key)) return hasMasterPlanPermission(principal, resource.code, "read");
+          if (key === "productionDateRange") return ["productionStartDate", "productionEndDate"].every(k => hasMasterPlanFieldPermission(principal, resource.code, k, "read"));
+          return hasMasterPlanFieldPermission(principal, resource.code, key, "read");
+        },
+        exportDisplayValue: (field, value, row) => {
+          if (row.pendingTask && processReportPendingInputKeys().includes(field.key)) return "";
+          if (field.key.endsWith("ProductionProgress")) return formatProductionProgress(value);
+          if (field.type === "attachment") {
+            const items = Array.isArray(value) ? value : [];
+            if (!items.length) return "—";
+            const first = items[0];
+            const label = typeof first === "string" ? first : String(first?.name ?? first?.url ?? "附件");
+            return items.length > 1 ? `${label} 等 ${items.length} 个` : label;
+          }
+          if (field.key === "completionRate") return `${Math.round(Number(value || 0) * 100)}%`;
+          if (field.type === "number" && value != null && value !== "") return String(value);
+          return undefined;
+        },
         buildScope: (actor, params) => `(${buildDataScopeClause({ resource: resource.code, columns, actor, params })})${resource.code === "mps-order-allocations" ? " AND record.archived_at IS NULL" : ""}`,
         candidateVariant: resource.code === "mps-process-reports" ? (context) => String(context.view ?? "").toUpperCase() === "PENDING" ? {
           table: `(${processReportPendingSourceSql})`, columns: processReportPendingColumns(),
@@ -44,8 +78,17 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
     const result = await this.queries.list(code, {
       page: query.page, pageSize: 200, search: query.search, filterGroup: query.filterGroup,
       sortField: query.sortField, sortOrder: query.sortOrder, view: query.context.view ?? "ACTUAL",
-      ids: query.ids
-    }, actor);
-    return { rows: result.rows as Array<Record<string, unknown>>, total: result.total };
+      ids: query.ids, basePlanId: query.context.basePlanId
+    }, actor, query.action === "export" ? params => buildDataScopeClause({
+      resource: code, actor, params, action: "export",
+      columns: code === "mps-process-reports" && String(query.context.view ?? "").toUpperCase() === "PENDING" ? processReportPendingColumns() : columnsFor(MASTER_PLAN_RESOURCES.find(r => r.code === code)!)
+    }) : undefined);
+    const rows = result.rows as Array<Record<string, unknown>>;
+    if (code === "mps-three-day-work-orders") for (const row of rows) {
+      const start = row.productionStartDate ? String(row.productionStartDate).slice(0, 10) : "";
+      const end = row.productionEndDate ? String(row.productionEndDate).slice(0, 10) : "";
+      row.productionDateRange = start && end ? `${start} → ${end}` : start || end;
+    }
+    return { rows, total: result.total };
   }
 }

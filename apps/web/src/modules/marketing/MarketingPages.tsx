@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Upload } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { api, ApiError } from "../../api";
+import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 import { downloadApiFile, ImportFeedbackAlert, InlineText, PageHeader, failedImport, type ImportFeedback } from "../../shared/legacy-ui";
 import { DUE_DATE_DISPLAY_FORMAT, formatDueDate } from "../../shared/date-format";
 import { deleteTableRowsSequentially, hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
@@ -97,7 +98,6 @@ export function BusinessCustomerMappingsPage() {
     <Button type="primary" onClick={() => { form.resetFields(); setOpen(true); }}>新增对应关系</Button>
     <Upload accept=".xlsx" showUploadList={false} beforeUpload={(file) => importFile(file as File)}><Button loading={importing}>导入业务接单周报</Button></Upload>
     {hasResourcePermission("business-customer-mapping", "import") ? <Button loading={syncingDirectory} onClick={() => void syncDepartments()}>按通讯录更新部门</Button> : null}
-    <Button onClick={() => void downloadApiFile("/marketing/business-customer-mappings/export", "业务人员与客户对应表.csv")}>导出 CSV</Button>
   </Space>} />
     <ImportFeedbackAlert value={feedback} onClose={() => setFeedback(undefined)} />
     <KdosDataTable resource="business-customer-mapping" editable rowKey="id" loading={rows.isLoading} dataSource={pageRows(rows.data)} columns={columns}
@@ -145,6 +145,11 @@ export function OrderSchedulePage() {
   const [completion, setCompletion] = useState("all"); const [dueRange, setDueRange] = useState<[Dayjs | null, Dayjs | null] | null>(null); const [batchDate, setBatchDate] = useState<Dayjs | null>(null);
   const [editing, setEditing] = useState<any>(); const [saving, setSaving] = useState(false); const [editForm] = Form.useForm();
   const scheduleExtra={completion,dueStart:dueRange?.[0]?.format("YYYY-MM-DD")??"",dueEnd:dueRange?.[1]?.format("YYYY-MM-DD")??""};
+  const exportContext = useMemo<AdvancedFilterGroup>(() => ({ logic: "AND", rules: [
+    ...(completion === "unfinished" ? [{ field: "completionRatio", operator: "lt" as const, value: 100 }] : completion === "completed" ? [{ field: "completionRatio", operator: "gte" as const, value: 100 }] : []),
+    ...(scheduleExtra.dueStart ? [{ field: "customerDueDate", operator: "gte" as const, value: scheduleExtra.dueStart }] : []),
+    ...(scheduleExtra.dueEnd ? [{ field: "customerDueDate", operator: "lte" as const, value: scheduleExtra.dueEnd }] : [])
+  ] }), [completion, scheduleExtra.dueStart, scheduleExtra.dueEnd]);
   const rows = useQuery({ queryKey: ["order-schedules",tableQuery,scheduleExtra], queryFn: () => api<TablePage<any>|any[]>(tableUrl("/marketing/order-schedules",tableQuery,scheduleExtra)) });
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["order-schedules"] }); };
   const data = pageRows(rows.data);
@@ -188,10 +193,9 @@ export function OrderSchedulePage() {
   return <div><PageHeader title="订单排期" actions={<Space wrap>
     <Select value={completion} onChange={setCompletion} style={{ width: 130 }} options={[{ value: "all", label: "全部完成度" }, { value: "unfinished", label: "未完成" }, { value: "completed", label: "已完成" }]} />
     <DatePicker.RangePicker format={DUE_DATE_DISPLAY_FORMAT} value={dueRange} onChange={(value) => setDueRange(value as [Dayjs | null, Dayjs | null] | null)} />
-    <Button onClick={() => void downloadApiFile("/marketing/order-schedules/export", "订单排期.csv")}>导出 CSV</Button>
   </Space>} />
     <KdosDataTable resource="order-schedule" rowKey="id" loading={rows.isLoading} dataSource={data} columns={columns}
-      serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、业务员、客户或订单"
+      contextFilterGroup={exportContext} serverData={{total:pageTotal(rows.data),onQueryChange:setTableQuery}} searchPlaceholder="搜索部门、课室、业务员、客户或订单"
       deleteAction={hasResourcePermission("order-schedule", "delete") ? {
         permitted: true,
         canDelete: (row) => row.canDelete !== false,
