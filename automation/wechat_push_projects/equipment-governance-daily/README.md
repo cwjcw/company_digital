@@ -74,6 +74,8 @@ cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipmen
 
 ## n8n正式发布
 
+2026-10-31正式部署已完成：原工作流已解除归档并发布当前版本，n8n实际启动日志确认激活；下次计划为2026-10-31 12:00（Asia/Shanghai）。真实SSH只读预检执行1337成功，9名正式联系人匹配、高清两图生成、未提前发送；其余15个工作流配置保持不变。正式接收从每日12点自然执行开始，首次正式送达尚未冒充已验证。
+
 唯一任务身份 **EQ-001**，始终复用工作流 `e0dwMjv9OnWmcESk`，不创建第二个设备日报或Timer。仓库 `workflow-template.json` 默认inactive，只有显式发布才启用；SSH Credential为占位符，发布时从原工作流保留，不能写入凭据或导出解密密码。
 
 正式流程：每天12:00（`0 0 12 * * *`），Workflow时区`Asia/Shanghai` → 原SSH凭据调用宿主机 → Code节点检查退出码、JSON、production模式、9人及发送顺序。任何异常走同一工作流的失败分支，用共享WeChatPusher通知维护人崔玮杰，然后Stop And Error，不能把SSH返回code=1当成成功。

@@ -54,7 +54,7 @@
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
-| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式9人，SSH双确认 | n8n | RELEASE_PREPARED | 用户10月31日已确认正式部署；实际激活及预检待记录 |
+| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式9人，SSH双确认 | n8n | ACTIVE_VERIFIED | 10月31日已发布；真实SSH预检1337成功、readiness通过，下次当日12:00 |
 | MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd Service，轮询约1秒 | systemd Service | UNVERIFIED_RUNTIME | 保留常驻，不迁 n8n |
 | OPS-001 | PostgreSQL 与上传文件备份；`scripts/backup.sh` | 只确认脚本，未发现仓库定时器 | systemd Timer | UNVERIFIED_RUNTIME | 核实生产备份策略、日志与恢复测试 |
 | OPS-002 | DWG本地索引 | 本仓库未发现定义；主机存在 `dwg-index-update.timer` | systemd Timer | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已核实系统级启用，查作业日志及任务归属 |
@@ -309,7 +309,9 @@
 - 原本地验收已通过；本轮实际varchar审计ID关联兼容性修复另在network=none PG18对齐真实结构验证。生产同步、幂等、字段/人工值保护、基础/周/出货页面证据见test/monthly_base_production/；不重复完整测试或增加全库备份。负责人PMC/系统维护。
 - 回滚/后续发布：不恢复覆盖数据库。未来上线前应用必要Migration，旧运行版本和出货数据保留；若有空客户交期的待完善基础，禁止直接回退非空约束或部署不含该准入保护的旧周计划生成逻辑，应前向修复或先按真实业务补齐日期。本轮用户已授权原任务正常补齐，不授权擅改冲突基础或人工业务值。
 
-## EQ-001 设备管理双日报（2026-10-30工作区改造）
+## EQ-001 设备管理双日报（2026-10-30工作区改造，历史阶段）
+
+本段是初次工作区阶段记录；当前生产状态以本节末“正式部署实证”和上表为准。
 
 - 唯一任务/原目录不变：equipment-governance-daily/report.py；目标调度n8n每天12:00 Asia/Shanghai，经原SSH节点执行--send-test，仅崔玮杰。保持正式发送配置关闭；本轮用户明确不提交/推送GitHub、不部署、不修改在线调度。
 - 只读数据源：原print-equipment-governance-summary查询CLI复用EquipmentQueryService.dashboard；上海昨日及连续7日、四事业部+研发中心，按稳定组织ID限制范围。单事务只读，无业务SQL副本、无AppModule额外任务、无设备业务写入。
@@ -327,3 +329,12 @@
 - SSH非零/JSON无效/模式、人数或顺序异常均为失败；同工作流错误分支只给维护人崔玮杰运维告警，再标失败。告警名单独立于9人日报名单；无真实错误注入群发验收。
 - 发布前备份单工作流，真实SSH只读production-check验证9人联系人和两图，不提前正式发送。无API Key时用官方import/publish并在无执行任务的安全窗口重启原n8n，核验其他工作流配置/激活集合不变。
 - 回滚反向unpublish/恢复原受限导出/受控重启；旧任务保持归档停用，保留成功回执，不删除记录补发。实际发布状态及最近成功/下次计划在本任务末尾补录。
+
+### EQ-001 正式部署实证（2026-10-31）
+
+- 发布代码ad2aabbbe907c27362a6227bec37c0ae1722059a已push github/main，仅10个本任务文件；包含模板但无真实SSH引用/密钥/业务图片。使用原宿主机入口和已构建只读适配，不更新API/Web容器、不执行Migration112。
+- 官方CLI对同一工作流import、publish；active=true、isArchived=false、activeVersionId=versionId。确认无运行中任务后短暂重启原n8n，readiness PASS，实际启动日志含Activated workflow设备管理日报。原owner/SSH引用保留。
+- 正式12:00 Asia/Shanghai，表达式0 0 12 * * *；下一计划2026-10-31T12:00:00+08:00。每人个性化文字→高清运行图→原始七日台次判定→可选填报图。正式业务接收9人，失败分支只告警维护人崔玮杰。
+- 真实SSH预检1337，cli/success，ready=true、sent=false、9人匹配，两图成功；部署不提前发送，首次正式群发待12点自然执行。Python37/API18/build/typecheck/lint/py_compile PASS，主应用原健康检查PASS。
+- 本任务n8n定义1/实际启用1，未创建第二份设备工作流；专用宿主机systemd/cron文件及当前用户cron匹配0。全实例active从11→12，仅增加本任务激活；其余15个工作流配置hash逐项一致。
+- 受限原导出、预检执行记录、激活日志、只读调度及健康证明在ignored test/equipment_daily/deploy；回滚保留原归档/禁用状态和全部发送回执。n8n执行记录保存最近成功/失败、耗时和结果，错误分支告警可见；网络不确定仍要求人工先核对。
