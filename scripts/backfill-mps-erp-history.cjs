@@ -21,7 +21,7 @@ let raw='';process.stdin.on('data',x=>raw+=x);process.stdin.on('end',()=>{
      if(!user.isSystemAdmin||!user.sub)throw Error('Current system administrator required');
      const actor={tenantId:process.env.KDOS_DEFAULT_TENANT_CODE||'KAINAN',userId:user.sub,username:user.username,isSystemAdmin:true,permissions:user.permissions||[],tableDataScopes:[],requestId:input.scope.requestId,source:'system'};
      const load=(name,relative,overrides={})=>{const code=input.modules[name];if(crypto.createHash('sha256').update(code).digest('hex')!==input.hashes[name])throw Error('Module integrity mismatch');
-      const filename=path.join(process.cwd(),'dist',relative),m=new Module(filename,module);m.paths=Module._nodeModulePaths(path.dirname(filename));const original=m.require.bind(m);m.require=request=>overrides[request]||original(request);m._compile(code,filename);return m.exports;};
+      const filename=path.join(process.cwd(),'dist',relative),m=new Module(filename,module);m.filename=filename;m.path=path.dirname(filename);m.paths=Module._nodeModulePaths(m.path);const original=m.require.bind(m);m.require=request=>overrides[request]||original(request);m._compile(code,filename);return m.exports;};
      const base=load('base','modules/master-plan-system/master-plan.monthly-base.js');
      const command=load('command','modules/master-plan-system/master-plan.erp-history-backfill.js',{'./master-plan.monthly-base':base});
      const {MpsHistoricalUnknownAmount1722920111500:Compat}=load('migration','migrations/1722920111500-MpsHistoricalUnknownAmount.js');
