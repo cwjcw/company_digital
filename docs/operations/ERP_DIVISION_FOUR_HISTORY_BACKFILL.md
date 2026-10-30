@@ -17,3 +17,9 @@
 生产执行前保留候选/局部前镜像和源版本；本次不默认新增整库备份。`scripts/backfill-mps-erp-history.cjs --apply` 从stdin接受 `{accessToken, scope:{divisionId,sources:[{id,version}],requestId}}`，token不得写入参数/公开日志。执行器把已编译Application命令、范围化base helper及金额兼容迁移作为校验hash的临时维护包，在现有API运行环境内执行；不引导第二个Nest实例/定时器，不替换常驻应用，不执行其他pending migration。
 
 验证实际创建/保留/冲突数量、幂等重放、现有周计划/工艺/报工和有效分配未被命令修改；用生产Chrome搜索具体补齐订单并刷新。日志、真实源数据、局部前镜像、token及截图只留ignored本地test目录，不提交Git。失败事务整体回滚，兼容的可空字段保持；不要删除历史数据强行回退。
+
+## 本次执行状态
+
+2026-10-30 已通过受控维护命令完成生产补齐并验证冻结范围的集团、月度及基础计划覆盖。缺少准入资料的基础计划保持“待完善”，关闭品项不新建周计划。重复执行返回持久幂等结果；原月度/基础记录、周计划、工序任务、报工、有效分配和任务配置核对未变。生产 Chrome 四表检索与刷新通过，原健康检查通过。
+
+仅执行金额可空兼容迁移；生产月度原三列唯一键保留，112未执行，订单分配来源升级未部署，常驻 Web/API 继续原版本。本地受限验收报告为 `outputs/ERP_DIVISION_FOUR_HISTORY_BACKFILL_ACCEPTANCE.md`；真实数量、业务明细及截图不上传公共仓库。
