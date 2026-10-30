@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+/** Same isolated PostgreSQL fixture pattern as other MPS acceptance scripts. */
+const assert=require('assert/strict'),fs=require('fs'),path=require('path'),{createRequire}=require('module');
+const root=path.resolve(__dirname,'..'),req=createRequire(root+'/apps/api/package.json'),{DataSource}=req('typeorm'),{Client}=req('pg');
+const {MasterPlanErpHistoryBackfill}=req('./dist/modules/master-plan-system/master-plan.erp-history-backfill');
+const {MpsHistoricalUnknownAmount1722920111500:Compat}=req('./dist/migrations/1722920111500-MpsHistoricalUnknownAmount');
+const host=process.env.KDOS_ERP_HISTORY_TEST_SOCKET;if(host!==root+'/test/erp_division_four_backfill/pg_socket')throw Error('Dedicated isolated socket required');
+const database='erp_history_'+Date.now(),control=new Client({host,user:'knplan',database:'postgres'}),id=n=>'0199bd00-0000-7000-8000-'+String(n).padStart(12,'0'),user=id(1),division='d23442f9-4862-4641-b4a7-c8d470bc56ea',other=id(3);let db;
+(async()=>{await control.connect();await control.query(`CREATE DATABASE ${database}`);db=new DataSource({type:'postgres',host,username:'knplan',database,migrations:fs.readdirSync(root+'/apps/api/dist/migrations').filter(f=>f.endsWith('.js')&&!f.startsWith('1722920112000')).map(f=>root+'/apps/api/dist/migrations/'+f),logging:false});await db.initialize();await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');await db.runMigrations();
+ await db.query("INSERT INTO users(id,username,password_hash,display_name)VALUES($1,'history-fixture','unused','合成管理员')",[user]);
+ await db.query('INSERT INTO administrator_grants(tenant_id,user_id,system_admin)VALUES($1,$2,true)',['KAINAN',user]);
+ for(const who of[division,other])await db.query("INSERT INTO organization_units(id,name,level,enabled)VALUES($1,$2,1,true)",[who,who===division?'合成四部':'其他部']);
+ const actor={tenantId:'KAINAN',userId:user,username:'合成管理员',isSystemAdmin:true,permissions:['*'],tableDataScopes:[],requestId:'fixture',source:'system'};
+ const insert=async(table,values)=>{const entries=Object.entries({tenant_id:'KAINAN',created_by:user,updated_by:user,...values});return(await db.query(`INSERT INTO ${table}(${entries.map(([k])=>k)})VALUES(${entries.map((_,i)=>'$'+(i+1))})RETURNING *`,entries.map(([,v])=>v)))[0]};
+ await insert('mps_customer_division_mappings',{customer_code:'SYN-C',primary_division_id:division});
+ const erp=async(order,item,qty,extra={})=>insert('mps_erp_order_lines',{order_number:order,item_code:item,item_name:'合成物料',customer_code:'SYN-C',source_system:'T+',source_database:'UFTData418971_000003',source_key:order+item,order_quantity:qty,order_date:'2026-10-15',customer_due_date:'2026-11-01',preproduction_review_date:'2026-10-25',...extra});
+ const one=await erp('SYN-OLD','ITEM-OLD',20),two=await erp('SYN-OLD','ITEM-NEW',10),three=await erp('SYN-NEW','ITEM-NEW',6),closed=await erp('SYN-CLOSED','CLOSED',3,{source_active:false,order_status:'已关闭'});
+ const parent=await insert('mps_order_allocations',{order_number:'SYN-OLD',item_code:'ITEM-OLD',customer_code:'SYN-C',division_id:division,allocated_quantity:17,archived_at:new Date()});
+ const monthly=await insert('mps_monthly_plans',{allocation_id:parent.id,order_number:'SYN-OLD',item_code:'ITEM-OLD',customer_code:'SYN-C',division_id:division,required_quantity:17,cumulative_inbound_quantity:4,pending_quantity:13,remark:'保留人工',latest_customer_due_date:'2028-01-01'});
+ const base=await insert('mps_base_plans',{order_number:'SYN-OLD',item_code:'ITEM-OLD',customer_code:'SYN-C',division_id:division,delivery_number:'001',planned_quantity:99,latest_customer_due_date:'2028-01-01',latest_review_due_date:'2027-01-01',product_attribute:'五金',surface_nature:'烤漆',manufacturing_method:'自制'});
+ const group=await insert('mps_group_plans',{order_number:'SYN-OLD',customer_code:'SYN-C',order_amount:100,order_type:'保留历史类型',required_quantity:17,pending_quantity:13});
+ // Unrelated monthly must not acquire a base through a scoped helper call.
+ const unlinked=await insert('mps_order_allocations',{order_number:'UNRELATED',item_code:'U',division_id:other,allocated_quantity:8});await insert('mps_monthly_plans',{allocation_id:unlinked.id,order_number:'UNRELATED',item_code:'U',division_id:other,required_quantity:8});
+ const scope={divisionId:division,sources:[one,two,three,closed].map(e=>({id:e.id,version:e.version})),requestId:'synthetic-backfill'};
+ const command=new MasterPlanErpHistoryBackfill(db);
+ await assert.rejects(()=>command.apply(scope,{...actor,isSystemAdmin:false}));
+ await assert.rejects(()=>command.apply({...scope,sources:[{id:one.id,version:999}]},actor),/来源已变化/);
+ const result=await command.apply(scope,actor);assert.equal(result.monthlyCreated,2);assert.equal(result.anchorsCreated,2);assert.equal(result.groupCreated,1);assert.equal(result.conflicts.length,1);
+ assert.deepEqual((await db.query('SELECT * FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0],monthly);
+ assert.deepEqual((await db.query('SELECT * FROM mps_base_plans WHERE id=$1',[base.id]))[0],base);
+ const [g]=await db.query('SELECT * FROM mps_group_plans WHERE id=$1',[group.id]);assert.equal(g.order_type,group.order_type);assert.equal(g.order_amount,group.order_amount);assert.equal(g.required_quantity,'27.0000');
+ assert.equal((await db.query("SELECT * FROM mps_base_plans WHERE order_number='UNRELATED'")).length,0);
+ const [newGroup]=await db.query("SELECT * FROM mps_group_plans WHERE order_number='SYN-NEW'");assert.equal(newGroup.order_amount,null);
+ const anchors=await db.query("SELECT * FROM mps_order_allocations WHERE order_number='SYN-NEW'");assert.equal(anchors[0].allocated_quantity,'0.0000');assert(anchors[0].archived_at);assert.equal(anchors[0].manually_maintained,false);
+ const fingerprint=()=>db.query("SELECT * FROM (SELECT 'monthly' kind,to_jsonb(p) payload FROM mps_monthly_plans p UNION ALL SELECT 'base',to_jsonb(b) FROM mps_base_plans b UNION ALL SELECT 'audit',to_jsonb(a) FROM audit_logs a) facts ORDER BY kind,payload::text");
+ const before=await fingerprint();assert((await command.apply(scope,actor)).repeated);assert.deepEqual(await fingerprint(),before);
+ await assert.rejects(()=>command.apply({...scope,sources:scope.sources.slice(1)},actor),/幂等键/);
+ await assert.rejects(()=>db.transaction(m=>new Compat().down({query:(...a)=>m.query(...a)})),/未知金额/);
+ assert.equal((await db.query("SELECT count(*)::int n FROM migrations WHERE name='MpsAllocationPlanSource1722920112000'"))[0].n,0);
+ console.log(JSON.stringify({status:'PASS',checks:12,result:{monthlyCreated:result.monthlyCreated,groupCreated:result.groupCreated,bases:result.bases.metrics,conflicts:result.conflicts.length},legacyMonthlyUniqueKeyPreserved:true}));
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(db?.isInitialized)await db.destroy();await control.end()});

@@ -46,13 +46,13 @@ export function monthlyBasePatch(current: Row, desired: Row, previous?: Row): Ro
   return patch;
 }
 
-export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string) {
+export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[]) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
   const monthly: Row[] = await manager.query(`SELECT m.*,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
     JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
-    WHERE m.tenant_id=$1 AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>'' AND m.required_quantity>0
-    ORDER BY m.id FOR SHARE OF m`, [tenantId]);
+    WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>'' AND m.required_quantity>0
+    ORDER BY m.id FOR SHARE OF m`, [tenantId,monthlyPlanIds ?? null]);
   let created = 0, updated = 0, conflicts = 0;
   const requestId = `base-sync:${randomUUID()}`;
   // Fetch all prior automatic baselines once; ordinary human audit records are not ownership evidence.
