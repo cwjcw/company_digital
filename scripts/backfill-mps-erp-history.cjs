@@ -18,8 +18,8 @@ let raw='';process.stdin.on('data',x=>raw+=x);process.stdin.on('end',()=>{
     try{const input=JSON.parse(raw);
      const res=await fetch('http://127.0.0.1:15173/api/v1/auth/me',{headers:{Authorization:'Bearer '+input.accessToken}});
      if(!res.ok)throw Error('Current authentication failed: '+res.status);const user=await res.json();
-     if(!user.isSystemAdmin||!user.id)throw Error('Current system administrator required');
-     const actor={tenantId:process.env.KDOS_DEFAULT_TENANT_CODE||'KAINAN',userId:user.id,username:user.username,isSystemAdmin:true,permissions:user.permissions||[],tableDataScopes:[],requestId:input.scope.requestId,source:'system'};
+     if(!user.isSystemAdmin||!user.sub)throw Error('Current system administrator required');
+     const actor={tenantId:process.env.KDOS_DEFAULT_TENANT_CODE||'KAINAN',userId:user.sub,username:user.username,isSystemAdmin:true,permissions:user.permissions||[],tableDataScopes:[],requestId:input.scope.requestId,source:'system'};
      const load=(name,relative,overrides={})=>{const code=input.modules[name];if(crypto.createHash('sha256').update(code).digest('hex')!==input.hashes[name])throw Error('Module integrity mismatch');
       const filename=path.join(process.cwd(),'dist',relative),m=new Module(filename,module);m.paths=Module._nodeModulePaths(path.dirname(filename));const original=m.require.bind(m);m.require=request=>overrides[request]||original(request);m._compile(code,filename);return m.exports;};
      const base=load('base','modules/master-plan-system/master-plan.monthly-base.js');
