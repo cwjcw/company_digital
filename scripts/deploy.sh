@@ -90,7 +90,26 @@ check_versions() {
 }
 
 build_services() {
-  "${COMPOSE[@]}" build --build-arg "KDOS_BUILD_SHA=$REPOSITORY_HEAD" "$@"
+  local compose_version bake_file build_status=0
+  compose_version="$(docker compose version --short)"
+  if [[ "${compose_version#v}" != 5.* ]]; then
+    "${COMPOSE[@]}" build --build-arg "KDOS_BUILD_SHA=$REPOSITORY_HEAD" "$@"
+    return
+  fi
+  # Compose 5 omits network.host from Bake's --allow flags. Use its exact
+  # generated targets, granting host networking only when a target declares it.
+  bake_file="$(mktemp /tmp/kdos-build-targets.XXXXXX.json)"
+  if ! "${COMPOSE[@]}" build --build-arg "KDOS_BUILD_SHA=$REPOSITORY_HEAD" --print "$@" > "$bake_file"; then
+    rm -f "$bake_file"
+    return 1
+  fi
+  local -a bake_args=(--file "$bake_file" --load --allow "fs.read=$PROJECT_ROOT")
+  if node -e 'const fs=require("fs"); const config=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.exit(Object.values(config.target??{}).some(t=>t.network==="host")?0:1)' "$bake_file"; then
+    bake_args+=(--allow network.host)
+  fi
+  docker buildx bake "${bake_args[@]}" || build_status=$?
+  rm -f "$bake_file"
+  return "$build_status"
 }
 
 deploy_web() {

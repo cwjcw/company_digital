@@ -229,3 +229,5 @@ The user has now authorized this production release, the necessary Migration and
 平台打印保留原Print Service，前端由共享设置/真实DOM测量分页/毫米布局负责。重点验收项目管理、任务管理、实际报工、待报工和宽表：当前可见列默认、增减/拖序/mm输入及拖宽、A4/A3方向、超宽阻止与自动适配、个人默认重开/隔离/恢复、已选/筛选范围、权限拒绝、完整多页与重复表头。Chrome原生PDF页数/纸张/每条记录一次是自动化证据，headed Chrome原生打印窗口另行核验。
 
 相关测试：contracts `table-print-layout.spec.ts`，Web `table-print*.spec.tsx`，API `table-print.service|table-export.presentation|audit-actor-print`，Chrome `e2e/configurable-print.spec.ts`；现有导出与表格行为回归保持。发布仍执行原backup、待运行migration检查、deploy.sh all/check、健康/SHA验证，不改变调度。无新增Migration；回退保留数据库与个人偏好（旧版忽略kdos-print-v1），从保留的旧干净源码执行原部署流程。个人默认仅当前浏览器，保存失败需提示；字段权限改变后偏好过滤，空字段不得打印。验收报告：`outputs/KDOS_CONFIGURABLE_PRINT_ACCEPTANCE.md`。
+
+Docker Compose 5.6的Bake调用遗漏network.host授权时，deploy.sh仅在Compose 5使用其原样生成的Bake目标，保留commit build arg及本地镜像加载；仅当目标声明build.network=host时显式传network.host，并限制读取为当前发布源码目录。仍保留原干净工作区、持久路径、健康和Repository/Web/API SHA全部检查，不改变容器运行网络或增加security.insecure。Compose其他主版本继续原build命令。临时目标文件权限600，构建后删除。
