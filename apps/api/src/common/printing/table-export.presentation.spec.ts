@@ -74,6 +74,18 @@ describe("标准导出跟随页面展示", () => {
 
 
 describe("统一打印业务视图元数据", () => {
+  it("管理员打印待报工也不包含临时填报输入，实际报工事实和原Excel合同不受影响", async () => {
+    const { service } = setup({ id: "task", pendingTask: true, processCode: "welding", productionQuantity: null });
+    const pending = await service.render(code, { context: { view: "PENDING" } }, admin);
+    for (const key of ["productionQuantity", "productionDate", "exceptionText"]) {
+      expect(pending.columns.map(column => column.key)).not.toContain(key);
+      expect(pending.rows[0]).not.toHaveProperty(key);
+    }
+    const actual = await service.render(code, { context: { view: "ACTUAL" }, columnKeys: ["productionQuantity", "productionDate", "exceptionText"] }, admin);
+    expect(actual.columns.map(column => column.key)).toEqual(["productionQuantity", "productionDate", "exceptionText"]);
+    const exported = await sheet(await service.exportXlsx(code, { context: { view: "PENDING" }, columnKeys: ["productionQuantity", "productionDate", "exceptionText"] }, admin));
+    expect(exported.columnCount).toBe(3);
+  });
   it("实际与待报工采用各自正式字段、中文值和原有read权限，打印不改变导出", async () => {
     const { service, list } = setup({ id: "task", pendingTask: true, processCode: "packaging", remainingQuantity: "6", cumulativeReportedQuantity: "4", productionQuantity: null });
     const principal = { ...admin, permissions: [`${code}:*:read`, `${code}:*:batch_print`, `${code}:processCode:read`] };

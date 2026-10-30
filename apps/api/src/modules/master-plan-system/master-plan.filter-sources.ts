@@ -37,7 +37,14 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
         columns,
         fields: fieldsFor(resource),
         exportVariant: presentationVariant,
-        printVariant: presentationVariant,
+        printVariant: context => {
+          const variant = presentationVariant(context);
+          // Pending report inputs are UI drafts, not persisted task facts.
+          if (resource.code === "mps-process-reports" && String(context.view ?? "").toUpperCase() === "PENDING") {
+            return { ...variant, fields: processReportPendingFields().filter(field => !field.input) };
+          }
+          return variant;
+        },
         printDisplayValue: (field, value, row) => {
           if (row.pendingTask && processReportPendingInputKeys().includes(field.key)) return "";
           if (field.key.endsWith("ProductionProgress")) return formatProductionProgress(value);
