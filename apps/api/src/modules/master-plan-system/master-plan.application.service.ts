@@ -173,8 +173,8 @@ export class MasterPlanApplicationService {
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
       if (Number(current.version) !== expectedVersion) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
-      if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
-        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code]);
+      if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values || "divisionId" in values)) {
+        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id IS NOT DISTINCT FROM $4::uuid`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code, (Object.hasOwn(values,"divisionId") ? values.divisionId : current.division_id)]);
         values.monthlyPlanId = monthly?.id ?? null;
       }
       this.normalizeSystemSetting(resource, current, values);
@@ -350,8 +350,10 @@ export class MasterPlanApplicationService {
         const values = this.writable(resource, input.values, actor);
         this.normalizeSystemSetting(resource, current, values);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
-        if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values)) {
-          values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code)) ?? null;
+        if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values || "divisionId" in values)) {
+          const link = { orderNumber:values.orderNumber ?? current.order_number,itemCode:values.itemCode ?? current.item_code,divisionId:(Object.hasOwn(values,"divisionId") ? values.divisionId : current.division_id) };
+          await this.fillReportSource(resource,link,actor.tenantId,manager);
+          values.monthlyPlanId = (link as Record<string,unknown>).monthlyPlanId;
         }
         if (!Object.keys(values).length) continue;
         const columns = columnsFor(resource); const entries = Object.entries(values);
@@ -563,7 +565,7 @@ export class MasterPlanApplicationService {
     const normalized = String(value).trim(); if (normalized.length > 4000) throw new BadRequestException(`${label}内容过长`); return normalized || null;
   }
 
-  private monthlyPlanKey(orderNumber: unknown, itemCode: unknown) { return `${String(orderNumber ?? "")}\u0000${String(itemCode ?? "")}`; }
+  private monthlyPlanKey(orderNumber: unknown, itemCode: unknown, divisionId: unknown) { return `${String(orderNumber ?? "")}\u0000${String(itemCode ?? "")}\u0000${String(divisionId ?? "")}`; }
 
   private async shippingMonthlyPlanIds(resource: MasterPlanResource, rows: Array<{ values: Record<string, unknown> }>, tenantId: string, manager: Pick<EntityManager, "query">) {
     const result = new Map<string, string>();
@@ -571,17 +573,17 @@ export class MasterPlanApplicationService {
     const pairs = rows.map((row) => ({ orderNumber: row.values.orderNumber, itemCode: row.values.itemCode }))
       .filter((pair) => pair.orderNumber != null && pair.itemCode != null);
     if (!pairs.length) return result;
-    const monthlyRows = await manager.query(`SELECT id,order_number,item_code FROM mps_monthly_plans
+    const monthlyRows = await manager.query(`SELECT id,order_number,item_code,division_id FROM mps_monthly_plans
       WHERE tenant_id=$1 AND (order_number,item_code) IN (SELECT * FROM unnest($2::text[],$3::text[]))`, [tenantId, pairs.map((pair) => String(pair.orderNumber)), pairs.map((pair) => String(pair.itemCode))]);
-    for (const row of monthlyRows) result.set(this.monthlyPlanKey(row.order_number, row.item_code), row.id);
+    for (const row of monthlyRows) result.set(this.monthlyPlanKey(row.order_number, row.item_code, row.division_id), row.id);
     return result;
   }
 
   private async fillReportSource(resource: MasterPlanResource, values: Record<string, unknown>, tenantId: string, manager: Pick<EntityManager, "query"> = this.dataSource.manager, shippingMonthlyPlanIds?: Map<string, string>) {
     if (resource.code === "mps-shipping-plans") {
-      if (shippingMonthlyPlanIds) values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber, values.itemCode)) ?? null;
+      if (shippingMonthlyPlanIds) values.monthlyPlanId = shippingMonthlyPlanIds.get(this.monthlyPlanKey(values.orderNumber, values.itemCode, values.divisionId)) ?? null;
       else {
-        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3`, [tenantId, values.orderNumber, values.itemCode]);
+        const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id IS NOT DISTINCT FROM $4::uuid`, [tenantId, values.orderNumber, values.itemCode, values.divisionId]);
         values.monthlyPlanId = monthly?.id ?? null;
       }
     }

@@ -38,11 +38,15 @@ export class MasterPlanBomProcessService {
     });
     const canConfigure = hasMasterPlanPermission(actor,mappingResource,'read') && ['create','update'].some(a => hasMasterPlanPermission(actor,mappingResource,a))
       && ['divisionId','sourceKey','sourceProcessCode','sourceProcessName','mappingMode','processCode','enabled'].every(f => hasMasterPlanFieldPermission(actor,mappingResource,f,'read'));
-    const base: MpsBomProcessView = { supported:false,message:'目前仅支持事业四部科加订单',divisionId:context.parent.division_id,divisionName:context.parent.division_name,
+    const base: MpsBomProcessView = { supported:false,message:'按科加物料范围匹配BOM与工艺',divisionId:context.parent.division_id,divisionName:context.parent.division_name,
       facts:null,bindings:[],progress:[],progressFields:['processName'],unmappedCount:0,canConfigure,canExport:hasMasterPlanPermission(actor,mpsOrderProgressResource,'export') };
-    if (context.parent.division_name !== '事业四部') return base;
-    if (context.sources.length !== 1 || !/^\d+$/.test(String(context.sources[0]?.source_key))) return {...base,message:context.sources.length ? '当前品项存在多个或无效ERP订单明细来源，需明确来源后匹配' : '未找到科加订单明细来源'};
-    const facts = await this.reader.read({ tenantId:actor.tenantId,orderNumber:String(row.orderNumber),itemCode:String(row.itemCode),orderLineId:String(context.sources[0].source_key) });
+    // Division controls responsibility/mapping permissions, not material identity.
+    // A unique ERP line can refine executed versions; absent/ambiguous lines use
+    // the adapter's explicit Kejia material scope and version rules by item code.
+    const line = context.sources.length === 1 && /^\d+$/.test(String(context.sources[0]?.source_key))
+      ? String(context.sources[0].source_key) : undefined;
+    const facts = await this.reader.read({ tenantId:actor.tenantId,orderNumber:String(row.orderNumber),itemCode:String(row.itemCode),
+      ...(line ? { orderLineId:line } : {}) });
     const result = bindBomProcesses(facts,context.mappings);
     for (const b of result.bindings) {
       const current = context.mappings.find(m => m.source_process_code === b.sourceCode);

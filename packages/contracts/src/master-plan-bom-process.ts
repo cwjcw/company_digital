@@ -9,7 +9,7 @@ export interface BomChildFact {
 }
 export interface BomProcessFacts {
   sourceKey: typeof kejiaSourceKey; sourceDatabase: string; observedAt: string;
-  orderNumber: string; itemCode: string; orderLineId: string;
+  orderNumber: string; itemCode: string; orderLineId: string | null;
   state: 'READY' | 'NO_BOM' | 'AMBIGUOUS'; message: string;
   bomId: string | null; bomVersion: string | null; children: BomChildFact[];
   catalog: Array<{ code: string; name: string }>;

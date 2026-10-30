@@ -437,16 +437,10 @@ export class MasterPlanSyncService {
     });
   }
 
-  /**
-   * KN-MPS-LIVE-002：集团/月度计划对账。
-   *
-   * 三处口径修正（均由 LIVE-001 审计暴露）：
-   * 1) 订单分配的事业部**必须由客户→事业部映射派生**，不再依赖 `division_id` 列默认值（否则未映射订单会被静默归入事业四部）；
-   * 2) 缺少客户代码或客户事业部映射的订单**禁止继续投影到月计划/集团主计划**，但保留订单分配并产生可追踪数据异常；
-   * 3) 累计入库/欠数/完成率只统计科加账套 `UFTData418971_000003`，不再跨账套加总。
-   */
+  /** Approved active KDOS allocations own plan demand. ERP collection stays independent.
+   * Preserve retained plan identities/manual metadata; receipts still use verified inbound facts. */
   private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
-    return this.dataSource.transaction(manager => reconcileAllocationPlans(manager, tenantId,
+    return this.dataSource.transaction("REPEATABLE READ", manager => reconcileAllocationPlans(manager, tenantId,
       userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy));
   }
 
@@ -683,12 +677,12 @@ export class MasterPlanSyncService {
     await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
     SELECT $1,exception_key,resource,record_id,business_key,exception_type,severity,message,true,$2::uuid,$3 FROM (SELECT DISTINCT ON (exception_key) * FROM (
       /* 业务字段可为空时，异常键必须仍是稳定、非空的业务主键，绝不依赖 NULL 拼接。 */
-      SELECT 'group:'||order_number||':missing-customer-code' exception_key,'mps-group-plans' resource,id record_id,order_number business_key,'MISSING_CUSTOMER_CODE' exception_type,'ERROR' severity,'ERP订单缺少客户代码，无法确定承接事业部' message FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
-      UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','ERP订单缺少客户代码，无法确定承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NULL
-      UNION ALL SELECT 'customer:'||BTRIM(customer_code),'mps-group-plans',id,BTRIM(customer_code),'MISSING_PRIMARY_DIVISION','ERROR','客户未配置主责事业部' FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND primary_division_id IS NULL
+      SELECT 'group:'||order_number||':missing-customer-code' exception_key,'mps-group-plans' resource,id record_id,order_number business_key,'MISSING_CUSTOMER_CODE' exception_type,'ERROR' severity,'订单缺少客户代码，请核对来源数据' message FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
+      UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','订单缺少客户代码，请核对来源数据' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NULL
+      UNION ALL SELECT 'customer:'||BTRIM(customer_code),'mps-group-plans',id,BTRIM(customer_code),'MISSING_PRIMARY_DIVISION','ERROR','客户未配置主责事业部' FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND primary_division_id IS NULL AND NOT EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=mps_group_plans.tenant_id AND a.order_number=mps_group_plans.order_number AND a.archived_at IS NULL AND a.order_status='已审核')
       UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL
-      UNION ALL SELECT 'demand:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'NON_POSITIVE_DEMAND','ERROR','订单需求数量必须大于0' FROM mps_monthly_plans WHERE tenant_id=$1 AND required_quantity<=0
-      UNION ALL SELECT 'over-inbound:'||order_number||':'||item_code,'mps-monthly-plans',id,order_number||'/'||item_code,'INBOUND_EXCEEDS_DEMAND','WARNING','累计入库数量超过订单需求数量' FROM mps_monthly_plans WHERE tenant_id=$1 AND cumulative_inbound_quantity>required_quantity
+      UNION ALL SELECT 'demand:'||id::text,'mps-monthly-plans',id,order_number||'/'||item_code,'NON_POSITIVE_DEMAND','ERROR','订单需求数量必须大于0' FROM mps_monthly_plans WHERE tenant_id=$1 AND required_quantity<=0
+      UNION ALL SELECT 'over-inbound:'||id::text,'mps-monthly-plans',id,order_number||'/'||item_code,'INBOUND_EXCEEDS_DEMAND','WARNING','累计入库数量超过订单需求数量' FROM mps_monthly_plans WHERE tenant_id=$1 AND cumulative_inbound_quantity>required_quantity
     ) exceptions_raw ORDER BY exception_key) exceptions ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$3,version=mps_data_exceptions.version+1`, [tenantId, userId, updatedBy]);
   }
 

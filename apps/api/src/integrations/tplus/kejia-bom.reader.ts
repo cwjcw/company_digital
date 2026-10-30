@@ -3,12 +3,12 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { BomProcessFacts } from '@kdos/contracts';
 
-export interface KejiaBomRequest { tenantId: string; orderNumber: string; itemCode: string; orderLineId: string }
+export interface KejiaBomRequest { tenantId: string; orderNumber: string; itemCode: string; orderLineId?: string }
 @Injectable()
 export class KejiaBomReader {
   private readonly cache = new Map<string, { expires: number; promise: Promise<BomProcessFacts> }>();
   read(input: KejiaBomRequest): Promise<BomProcessFacts> {
-    if (!/^\d+$/.test(input.orderLineId)) throw new ServiceUnavailableException('科加订单明细来源ID无效');
+    if (input.orderLineId !== undefined && !/^[1-9]\d*$/.test(input.orderLineId)) throw new ServiceUnavailableException('科加订单明细来源ID无效');
     const key = JSON.stringify(input), prior = this.cache.get(key);
     if (prior && prior.expires > Date.now()) return prior.promise;
     if (this.cache.size >= 100) this.cache.delete(this.cache.keys().next().value!);
@@ -33,7 +33,7 @@ export class KejiaBomReader {
         clearTimeout(timer); if (settled) return; if (code !== 0) return fail();
         try {
           const facts = JSON.parse(output) as BomProcessFacts;
-          if (facts.sourceKey !== 'tplus-kejia' || facts.sourceDatabase !== 'UFTData418971_000003' || facts.orderLineId !== input.orderLineId
+          if (facts.sourceKey !== 'tplus-kejia' || facts.sourceDatabase !== 'UFTData418971_000003' || facts.orderLineId !== (input.orderLineId ?? null)
             || facts.orderNumber !== input.orderNumber || facts.itemCode !== input.itemCode || !facts.observedAt
             || !['READY','NO_BOM','AMBIGUOUS'].includes(facts.state) || !Array.isArray(facts.children) || facts.children.length > 2000 || !Array.isArray(facts.catalog)) return fail();
           if (facts.children.some(c => !c.id || !c.itemCode || !Array.isArray(c.processes) || c.processes.some(p => typeof p.code !== 'string' || !p.code || typeof p.name !== 'string'))) return fail();

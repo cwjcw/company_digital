@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { EntityManager } from "typeorm";
+import { allocationDemandCtesSql, allocationOrderTotalsSql } from "./master-plan.allocation-source";
 import { MASTER_PLAN_ERP_ADMISSION } from "./master-plan.erp-admission";
 
 // Existing shared-directory identity. Do not infer department ownership from its display name.
@@ -45,10 +46,10 @@ WHERE p.tenant_id=$1 AND p.division_id=$2::uuid AND p.required_quantity>=0
 
 export const monthlyInboundParams = (tenantId: string) => [tenantId, MONTHLY_INBOUND_DIVISION_ID, MASTER_PLAN_ERP_ADMISSION.sourceDatabase];
 
-export async function reconcileExistingMonthlyInbound(manager: EntityManager, tenantId: string, updatedBy: string, actorId: string) {
+export async function reconcileExistingMonthlyInbound(manager: EntityManager, tenantId: string, actorName: string, actorId: string, allocationOnly = false) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-existing-monthly-inbound`]);
-  const before: Array<Record<string, any>> = await manager.query(`${monthlyInboundCandidatesSql} FOR UPDATE OF p`, monthlyInboundParams(tenantId));
+  const before: Array<Record<string, any>> = await manager.query(`${monthlyInboundCandidatesSql} ${allocationOnly ? `AND p.id IN (WITH ${allocationDemandCtesSql} SELECT existing_id FROM candidates WHERE skip_reason IS NULL)` : ""} FOR UPDATE OF p`, monthlyInboundParams(tenantId));
   const [blocked] = await manager.query(`${monthlyInboundFactsSql} SELECT count(*)::integer count FROM stock_facts WHERE NOT trusted`, monthlyInboundParams(tenantId));
   const requestId = `monthly-inbound:${randomUUID()}`;
   const audit = async (resource: string, rows: Array<Record<string, any>>) => {
@@ -56,13 +57,13 @@ export async function reconcileExistingMonthlyInbound(manager: EntityManager, te
     await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
       SELECT $1,$2::uuid,$3,$4,x.id,'inbound.reconciled',x.before_json,x.after_json,$6,'api',$2::uuid,$2::uuid
       FROM jsonb_to_recordset($5::jsonb) x(id uuid,before_json jsonb,after_json jsonb)`,
-    [tenantId, actorId, updatedBy, resource, JSON.stringify(rows), requestId]);
+    [tenantId, actorId, actorName, resource, JSON.stringify(rows), requestId]);
   };
   if (before.length) {
     const changed = await manager.query(`UPDATE mps_monthly_plans p SET cumulative_inbound_quantity=x.after_inbound,
       pending_quantity=x.after_pending,completion_rate=x.after_rate,updated_at=now(),updated_by=$3,version=p.version+1
       FROM jsonb_to_recordset($2::jsonb) x(id uuid,version integer,after_inbound numeric,after_pending numeric,after_rate numeric)
-      WHERE p.tenant_id=$1 AND p.id=x.id AND p.version=x.version RETURNING p.id`, [tenantId, JSON.stringify(before), updatedBy]);
+      WHERE p.tenant_id=$1 AND p.id=x.id AND p.version=x.version RETURNING p.id`, [tenantId, JSON.stringify(before), actorId]);
     const changedRows = Array.isArray(changed[0]) ? changed[0] : changed;
     if (changedRows.length !== before.length) throw new Error("月计划入库回算发生并发变化，事务已回滚，稍后重试");
     await audit("mps-monthly-plans", before.map(r => ({ id: r.id,
@@ -71,24 +72,30 @@ export async function reconcileExistingMonthlyInbound(manager: EntityManager, te
     })));
   }
   // Repair retained group summaries as well, including a later run after an interrupted old deployment.
-  const groups: Array<Record<string, any>> = await manager.query(`WITH totals AS (
+  const groups: Array<Record<string, any>> = await manager.query(`WITH active_totals AS (${allocationOrderTotalsSql}), historical_totals AS (
     SELECT p.order_number,sum(p.required_quantity) required,sum(least(p.cumulative_inbound_quantity,p.required_quantity)) completed,
       sum(greatest(p.required_quantity-p.cumulative_inbound_quantity,0)) pending,
       avg(CASE WHEN p.required_quantity<=0 THEN 0 ELSE least(greatest(p.cumulative_inbound_quantity,0)/p.required_quantity,1) END) rate
-    FROM mps_monthly_plans p WHERE p.tenant_id=$1 GROUP BY p.order_number
+    FROM mps_monthly_plans p WHERE p.tenant_id=$1 AND ${allocationOnly ? "false" : "true"}
+      AND NOT EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=p.tenant_id
+        AND a.order_number=p.order_number AND a.archived_at IS NULL AND a.order_status='已审核')
+      GROUP BY p.order_number
+  ), totals AS (
+    SELECT order_number,required_quantity required,completed_quantity completed,pending_quantity pending,completion_rate rate FROM active_totals
+    UNION ALL SELECT * FROM historical_totals
   ) SELECT g.id,g.version,g.required_quantity::text before_required,g.completed_quantity::text before_completed,
     g.pending_quantity::text before_pending,g.completion_rate::text before_rate,
     t.required::text after_required,t.completed::text after_completed,t.pending::text after_pending,round(t.rate,4)::text after_rate
     FROM mps_group_plans g JOIN totals t ON t.order_number=g.order_number
-    WHERE g.tenant_id=$1 AND g.primary_division_id=$2::uuid
-      AND EXISTS(SELECT 1 FROM mps_monthly_plans p WHERE p.tenant_id=g.tenant_id AND p.order_number=g.order_number AND p.division_id=$2::uuid)
+    WHERE g.tenant_id=$1 AND (EXISTS(SELECT 1 FROM active_totals a WHERE a.order_number=g.order_number)
+      OR g.primary_division_id=$2::uuid)
       AND (g.required_quantity,g.completed_quantity,g.pending_quantity,g.completion_rate)
         IS DISTINCT FROM (t.required,t.completed,t.pending,round(t.rate,4)) FOR UPDATE OF g`, [tenantId, MONTHLY_INBOUND_DIVISION_ID]);
   if (groups.length) {
     await manager.query(`UPDATE mps_group_plans g SET required_quantity=x.after_required,completed_quantity=x.after_completed,
       pending_quantity=x.after_pending,completion_rate=x.after_rate,updated_at=now(),updated_by=$3,version=g.version+1
       FROM jsonb_to_recordset($2::jsonb) x(id uuid,after_required numeric,after_completed numeric,after_pending numeric,after_rate numeric)
-      WHERE g.tenant_id=$1 AND g.id=x.id`, [tenantId, JSON.stringify(groups), updatedBy]);
+      WHERE g.tenant_id=$1 AND g.id=x.id`, [tenantId, JSON.stringify(groups), actorId]);
     await audit("mps-group-plans", groups.map(r => ({ id: r.id,
       before_json: { requiredQuantity: r.before_required, completedQuantity: r.before_completed, pendingQuantity: r.before_pending, completionRate: r.before_rate, version: Number(r.version) },
       after_json: { requiredQuantity: r.after_required, completedQuantity: r.after_completed, pendingQuantity: r.after_pending, completionRate: r.after_rate, version: Number(r.version) + 1 }

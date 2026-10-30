@@ -79,7 +79,7 @@ const weeklyReportSum = (code: string) =>
   `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report JOIN mps_weekly_process_plans task ON task.tenant_id=report.tenant_id AND task.weekly_plan_id=report.weekly_plan_id AND task.process_code=report.process_code AND task.execution_enabled=true WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
 /** 月计划：先按 tenant+weekly_plan_id+process_code 聚合报工，再按关联周计划求和（避免一对多 JOIN 放大）。 */
 const monthlyReportSum = (code: string) =>
-  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans task ON task.tenant_id=weekly.tenant_id AND task.weekly_plan_id=weekly.id AND task.process_code='${code}' AND task.execution_enabled=true JOIN mps_process_reports report ON report.tenant_id=task.tenant_id AND report.weekly_plan_id=task.weekly_plan_id AND report.process_code=task.process_code WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.manufacturing_method IN ('自制','自制+外协'))`;
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans task ON task.tenant_id=weekly.tenant_id AND task.weekly_plan_id=weekly.id AND task.process_code='${code}' AND task.execution_enabled=true JOIN mps_process_reports report ON report.tenant_id=task.tenant_id AND report.weekly_plan_id=task.weekly_plan_id AND report.process_code=task.process_code WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id AND weekly.manufacturing_method IN ('自制','自制+外协'))`;
 /**
  * KN-MPS-EXEC-001 口径修正：月计划生产进度 = 整个订单/月度总需求完成率。
  * 分母固定使用月计划正式总需求 `record.required_quantity`；
@@ -90,7 +90,7 @@ const monthlyReportedTotal = (code: string) => `(${monthlyReportSum(code)})::num
  * KN-MPS-UI-001：月计划唯一的「已下达周计划数量」= 当前月计划范围内所有关联周计划 planned_quantity 之和。
  * 它与工序无关，因此只计算一次（不再是 10 个重复的 per-process 字段），且绝不参与生产进度分母。
  */
-export const dispatchedWeeklyQuantitySql = `(SELECT COALESCE(sum(weekly.planned_quantity),0) FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+export const dispatchedWeeklyQuantitySql = `(SELECT COALESCE(sum(weekly.planned_quantity),0) FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id)`;
 
 /**
  * KN-MPS-UI-001：异常只来自人工报工事实，因此工序异常的来源是 `mps_process_reports.exception_text`。
@@ -113,7 +113,7 @@ function weeklyExceptionSummary() {
 
 /** 月计划统一异常：同样只读人工报工事实，跨当前月计划范围内所有关联周计划汇总（同一来源+文本只出现一次）。 */
 function monthlyExceptionSummary() {
-  const monthlyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
+  const monthlyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id`;
   const joinedSource = (table: string, extra: string) =>
     `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM mps_weekly_plans weekly JOIN ${table} report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere} ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
   const parts = masterPlanHumanExceptionSources.map(source => exceptionPart(source.label, joinedSource(source.table, `AND ${source.condition}`)));
@@ -137,7 +137,7 @@ export function virtualColumns(resource: MasterPlanResource) {
       output[`${code}ProductionProgress`] = masterPlanProductionProgressSql(weeklyReportSum(code), "record.planned_quantity");
     }
     if (resource.code === "mps-monthly-plans") {
-      const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.manufacturing_method IN ('自制','自制+外协') AND process.execution_enabled=true AND process.process_code='${code}'`;
+      const joined = `FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans process ON process.tenant_id=weekly.tenant_id AND process.weekly_plan_id=weekly.id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id AND weekly.manufacturing_method IN ('自制','自制+外协') AND process.execution_enabled=true AND process.process_code='${code}'`;
       output[`${code}CycleDays`] = `(SELECT max(process.cycle_days) ${joined})`;
       output[`${code}DueDate`] = `(SELECT min(process.due_date) ${joined} AND process.status<>'已完成')`;
       output[`${code}Status`] = `(SELECT ${masterPlanProcessStatusSql("process.status")} ${joined})`;
@@ -183,7 +183,7 @@ export function virtualColumns(resource: MasterPlanResource) {
   }
   if (resource.code === "mps-monthly-plans") {
     const weeklyFrom = `FROM mps_weekly_plans weekly`;
-    const weeklyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code`;
+    const weeklyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id`;
     const weekly = `${weeklyFrom} WHERE ${weeklyWhere}`;
     const statusAggregate = masterPlanAuxiliaryStatusSql;
     Object.assign(output, {

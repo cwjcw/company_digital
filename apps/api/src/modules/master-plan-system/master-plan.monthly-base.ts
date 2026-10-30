@@ -64,10 +64,15 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   for (const monthlyPlan of monthly) {
     // Same lock as ordinary base creation: manual creation cannot race the absence check.
     await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mps-delivery-code:${tenantId}:${monthlyPlan.order_number}:${monthlyPlan.item_code}`]);
-    const bases: Row[] = await manager.query(`SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date FROM mps_base_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 ORDER BY id FOR UPDATE`,
+    const allBases: Row[] = await manager.query(`SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date FROM mps_base_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 ORDER BY id FOR UPDATE`,
     [tenantId,monthlyPlan.order_number,monthlyPlan.item_code]);
+    const bases = allBases.filter(base => base.division_id === monthlyPlan.division_id);
+    // Another division's legitimate monthly plan owns its own batch. An unexplained
+    // legacy ownership mismatch still needs manual reconciliation, as before.
+    const unmatchedDivision = allBases.some(base => base.division_id !== monthlyPlan.division_id && !monthly.some(plan =>
+      plan.order_number === monthlyPlan.order_number && plan.item_code === monthlyPlan.item_code && plan.division_id === base.division_id));
     const conflictKey = `monthly-base:${monthlyPlan.id}`;
-    if (bases.length > 1 || (bases.length === 1 && bases[0]!.division_id !== monthlyPlan.division_id)) {
+    if (bases.length > 1 || unmatchedDivision) {
       conflicts++;
       const reason = bases.length > 1 ? "存在多个基础计划批次，保留原记录，请核对对应关系" : "既有基础计划与月计划事业部不一致，保留原记录";
       await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)

@@ -1,4 +1,4 @@
-"""Scoped, read-only Kejia T+ adapter. Reads one order line and one BOM level.
+"""Scoped, read-only Kejia T+ adapter. Reads one scoped material and one BOM level; an order line is optional.
 
 Credentials stay in the existing environment/shared MSSQLDatabase utility.
 No scheduling, writes, manufacturing classification, process mapping or quantity math.
@@ -36,26 +36,32 @@ def fact_process(row,source):
     return {'code':row['process_code'],'name':row['process_name'],'sequence':int(row['seq'] or 0),'source':source}
 
 def read_facts(cur,request):
-    line=int(request['orderLineId'])
-    if line<=0 or len(str(request['orderNumber']))>200 or len(str(request['itemCode']))>128:raise ValueError('INVALID_SCOPE')
+    line=int(request['orderLineId']) if request.get('orderLineId') is not None else None
+    if (line is not None and line<=0) or not str(request['itemCode']).strip() or len(str(request['orderNumber']))>200 or len(str(request['itemCode']))>128:raise ValueError('INVALID_SCOPE')
     if select(cur,'SELECT DB_NAME() db')[0]['db']!=DB:raise ValueError('WRONG_SOURCE_DATABASE')
-    rows=select(cur,'''SELECT h.code order_number,d.id line_id,d.idinventory item_id,d.idbom order_bom_id,i.code item_code
- FROM dbo.SA_SaleOrder_b d JOIN dbo.SA_SaleOrder h ON h.ID=d.idSaleOrderDTO
- JOIN dbo.AA_InventoryEntity i ON i.id=d.idinventory WHERE d.id=%s AND h.code=%s AND i.code=%s''',(line,request['orderNumber'],request['itemCode']))
-    if len(rows)!=1:raise ValueError('ORDER_LINE_NOT_FOUND')
-    root=rows[0]
     result={'sourceKey':'tplus-kejia','sourceDatabase':DB,'observedAt':datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'orderNumber':root['order_number'],'itemCode':root['item_code'],'orderLineId':str(line),
+        'orderNumber':request['orderNumber'],'itemCode':request['itemCode'],'orderLineId':str(line) if line is not None else None,
         'state':'NO_BOM','message':'未找到唯一适用主BOM','bomId':None,'bomVersion':None,'children':[],
         'catalog':select(cur,'SELECT code,name FROM dbo.AA_Process WHERE ISNULL(disabled,0)=0 ORDER BY code')}
+    if line is not None:
+        rows=select(cur,'''SELECT h.code order_number,d.id line_id,d.idinventory item_id,d.idbom order_bom_id,i.code item_code
+ FROM dbo.SA_SaleOrder_b d JOIN dbo.SA_SaleOrder h ON h.ID=d.idSaleOrderDTO
+ JOIN dbo.AA_InventoryEntity i ON i.id=d.idinventory WHERE d.id=%s AND h.code=%s AND i.code=%s''',(line,request['orderNumber'],request['itemCode']))
+        if len(rows)!=1:raise ValueError('ORDER_LINE_NOT_FOUND')
+    else:
+        rows=select(cur,'SELECT id item_id,code item_code FROM dbo.AA_InventoryEntity WHERE code=%s',(request['itemCode'],))
+        if len(rows)>1:
+            result.update(state='AMBIGUOUS',message='科加物料范围存在同码物料，不能自动确定BOM');return result
+        if not rows:return result
+    root=rows[0]
     headers=select(cur,'''SELECT id,version,isDefaultBom,disabled,idrouting FROM dbo.AA_BOM WHERE idinventory=%s''',(root['item_id'],))
     production=select(cur,'''SELECT d.id,d.idbom,d.idrouting FROM dbo.MP_ManufactureOrder_b d
  JOIN dbo.MP_ManufactureOrder h ON h.ID=d.idManufactureOrderDTO
- WHERE d.saleOrderDetailId=%s AND d.idinventory=%s''',(line,root['item_id']))
+ WHERE d.saleOrderDetailId=%s AND d.idinventory=%s''',(line,root['item_id'])) if line is not None else []
     ids=unique(r['idbom'] for r in production)
-    if not ids and root['order_bom_id'] is not None:ids=[root['order_bom_id']]
+    if not ids and root.get('order_bom_id') is not None:ids=[root.get('order_bom_id')]
     if not ids:ids=[r['id'] for r in headers if not r['disabled'] and r['isDefaultBom']]
-    if len(ids)>1:result.update(state='AMBIGUOUS',message='本订单品项存在多个BOM来源，不能自动确定一级工艺');return result
+    if len(ids)>1:result.update(state='AMBIGUOUS',message='本品项存在多个有效BOM来源，不能自动确定一级工艺');return result
     header=next((h for h in headers if ids and h['id']==ids[0]),None)
     if not header:return result
     result.update(state='READY',message='',bomId=str(header['id']),bomVersion=str(header['version'] or ''))
@@ -67,7 +73,7 @@ def read_facts(cur,request):
     if not item_ids:return result
     manufactured=select(cur,f'''SELECT d.id,d.idinventory,d.idbom,d.idrouting FROM dbo.MP_ManufactureOrder_b d
  JOIN dbo.MP_ManufactureOrder h ON h.ID=d.idManufactureOrderDTO
- WHERE d.saleOrderDetailId=%s AND d.idinventory IN ({placeholders(item_ids)})''',(line,*item_ids))
+ WHERE d.saleOrderDetailId=%s AND d.idinventory IN ({placeholders(item_ids)})''',(line,*item_ids)) if line is not None else []
     child_bom_ids=unique([c['idchildbom'] for c in children]+[m['idbom'] for m in manufactured])
     child_headers=select(cur,f'SELECT id,idinventory,idrouting FROM dbo.AA_BOM WHERE id IN ({placeholders(child_bom_ids)})',child_bom_ids) if child_bom_ids else []
     bom_steps=select(cur,f'''SELECT b.idbom,b.sequenceNumber seq,p.code process_code,p.name process_name
@@ -143,5 +149,5 @@ if __name__=='__main__':
     try:main()
     except Exception:
         # SQL/driver errors may contain credentials or SQL parameters; do not print them.
-        print('科加一级BOM读取失败：请检查来源连接及订单明细关联',file=sys.stderr)
+        print('科加一级BOM读取失败：请检查来源连接及品项关联',file=sys.stderr)
         sys.exit(1)

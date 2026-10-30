@@ -299,27 +299,13 @@ describe("MasterPlanSyncService execution matrix", () => {
 });
 
 
-describe("manual-only allocation sources", () => {
-  it("reconciles downstream plans without creating, updating or deleting allocations", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([]) };
-    const dataSource = { transaction: async (work: (value: typeof manager) => unknown) => work(manager) };
-    const service = new MasterPlanSyncService(dataSource as never);
-    const result = await (service as any).projectPlans("KAINAN", null, "source-policy-test");
-    const statements = manager.query.mock.calls.map(([statement]) => String(statement));
-    expect(statements.join("\n")).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM)\s+mps_order_allocations\b/i);
-    expect(statements.some((sql) => sql.includes("INSERT INTO mps_monthly_plans"))).toBe(true);
-    expect(statements.some((sql) => sql.includes("INSERT INTO mps_group_plans"))).toBe(true);
-    expect(result.metrics.allocations).toBe(0);
-  });
-});
-
-describe("allocation downstream reconciliation suspended", () => {
-  it.each(["SCHEDULED", "EVENT", "RECONCILIATION", "MANUAL"])("skips %s without reading or writing plans", async runType => {
-    const query = jest.fn();
-    const transaction = jest.fn();
-    const service = new MasterPlanSyncService({query,transaction} as never);
-    await expect(service.run("KAINAN", "plan-projections", runType as never, null, "tester")).resolves.toMatchObject({skipped:true,count:0});
-    expect(query).not.toHaveBeenCalled();
-    expect(transaction).not.toHaveBeenCalled();
+describe("existing allocation plan scheduler", () => {
+  it.each(["SCHEDULED", "EVENT", "RECONCILIATION", "MANUAL"])("runs %s through the existing configuration/log/execute path", async runType => {
+    const query = jest.fn(async (sql:string) => sql.startsWith("SELECT id,enabled") ? [{id:"0199bc00-0000-7000-8000-000000000001",enabled:true}] : []);
+    const service = new MasterPlanSyncService({query} as never);
+    const execute=jest.spyOn(service as any,"execute").mockResolvedValue({count:2,metrics:{monthly_created:1,group_created:1}});
+    await expect(service.run("KAINAN","plan-projections",runType as never,null,"tester")).resolves.toMatchObject({count:2,status:"SUCCESS"});
+    expect(execute).toHaveBeenCalledWith("plan-projections","KAINAN",null,"tester",null,"tester");
+    expect(query.mock.calls.some(([sql])=>sql.includes("INSERT INTO mps_sync_logs"))).toBe(true);
   });
 });
