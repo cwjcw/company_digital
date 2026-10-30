@@ -474,10 +474,6 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const exportingSupported = tableExportAllowed(exportCapabilities.data, resource);
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const printableColumnKeys = useMemo(() => {
-    const keys = columns.map((column) => columnKey(column as ColumnType<RecordType>)).filter(Boolean) as string[];
-    return keys.length ? keys : undefined;
-  }, [columns]);
   const [pendingPrint, setPendingPrint] = useState<{ manifest: TablePrintManifest; rangeType: "FILTERED" | "SELECTED"; selectedIds?: string[] } | null>(null);
   /* KN-PRINT-001：单一主打印入口——有选中记录就是「打印已选（N）」（SELECTED 优先），否则「打印筛选结果」。 */
   const selectedCount = selectedRowKeys.length;
@@ -491,7 +487,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
     sortOrder: (sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined) as "asc" | "desc" | undefined,
     context: printContext ?? {},
     selectedIds: rangeType === "SELECTED" ? selectedIds : undefined,
-    columnKeys: printableColumnKeys
+    columnKeys: displayedExportKeys(renderedColumns),
+    viewKey,
+    preferenceScope: { tenantKey, userKey }
   });
   /** 打印筛选结果 / 打印已选：先 count（不加载数据）→ 需要时确认 → 生成 Print DTO → 打开打印预览。 */
   const runPrint = async () => {

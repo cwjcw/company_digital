@@ -34,6 +34,20 @@ const resource = "mps-weekly-plans"; /* 已注册为 PRINTABLE 的正式 resourc
 const fullPrintPermissions = [`${resource}:*:batch_print`, `${resource}:*:read`, `${resource}:orderNumber:read`, `${resource}:quantity:read`, `${resource}:status:read`];
 
 describe("平台打印服务（KN-PRINT-001）", () => {
+  it("字段设置按客户端顺序取获权交集，空字段拒绝，分组表头覆盖每一列", async () => {
+    const registry = registryWith({ code: resource, printHeaderGroups: [{ label: "业务", columns: ["orderNumber", "quantity"] }],
+      printRows: async () => ({ rows: [{ id: "row", orderNumber: "A", quantity: 2, status: "NORMAL" }], total: 1 }) });
+    const service = new TablePrintService(registry, {} as never);
+    const dto = await service.render(resource, { columnKeys: ["quantity", "password", "status", "orderNumber", "quantity", "id"] }, actor(fullPrintPermissions));
+    expect(dto.columns.map(column => column.key)).toEqual(["quantity", "status", "orderNumber"]);
+    expect(dto.headerGroups.map(group => group.columns)).toEqual([["quantity"], ["status"], ["orderNumber"]]);
+    expect(Object.keys(dto.rows[0]!)).toEqual(["quantity", "status", "orderNumber"]);
+    for (const columnKeys of [[], "", ["password", "id"], ["deleted"]]) {
+      await expect(service.render(resource, { columnKeys }, actor(fullPrintPermissions))).rejects.toThrow(/字段/);
+    }
+    await expect(service.render(resource, { columnKeys: ["quantity"] }, actor(fullPrintPermissions.filter(p => p !== `${resource}:quantity:read`)))).rejects.toThrow(/没有可打印字段/);
+  });
+
   it("财务模板导出保留36/17列、KDOS时间和金额，空交期为空单元格（含流式输出）", async () => {
     for (const [code, fields] of [["finance-e10-lines", financeOrderFields], ["finance-e10-monthly", financeMonthlyFields]] as const) {
       const registry = new TableFilterRegistry();

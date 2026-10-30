@@ -5,7 +5,7 @@ import { DataSource } from "typeorm";
 import ExcelJS from "exceljs";
 import {
   formatAuditActor, isAuditActorField, isTablePrintFieldPrintable, isTablePrintFieldSafe, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry,
-  type TablePermissionFieldDefinition, type TableResourceCode
+  orderedPrintHeaderGroups, type TablePermissionFieldDefinition, type TableResourceCode
 } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../filtering/sql-filter.compiler";
 import { TableFilterRegistry, recordKeyOf, registeredOrderBy, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from "../filtering/table-filter.registry";
@@ -72,7 +72,8 @@ export class TablePrintService {
     if (capability.status !== "PRINTABLE") {
       throw new ForbiddenException(capability.reason ?? "该表不适用标准表格打印");
     }
-    const { source, resource } = this.sourceFor(resourceCode);
+    const { source: registeredSource, resource } = this.sourceFor(resourceCode);
+    const source = { ...registeredSource, ...registeredSource.printVariant?.(query.context ?? {}) };
     this.assertPrintPermission(actor, resourceCode);
     source.authorize?.(actor);
     if (!this.canReadResource(actor, source)) throw new ForbiddenException("当前权限组没有此表的查看权限");
@@ -100,7 +101,8 @@ export class TablePrintService {
   /** 生成打印 DTO：筛选结果=全部匹配记录（受控分批）；打印已选=按稳定 ID 重新取数。 */
   async render(resourceCode: string, query: TablePrintQuery, actor: TableFilterActor): Promise<TablePrintDto> {
     const manifest = await this.manifest(resourceCode, query, actor);
-    const { source, resource } = this.sourceFor(resourceCode);
+    const { source: registeredSource, resource } = this.sourceFor(resourceCode);
+    const source = { ...registeredSource, ...registeredSource.printVariant?.(query.context ?? {}) };
     const fields = this.printableFields(source, actor, query.columnKeys);
     const columns = this.columnsFor(source, fields);
     const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
@@ -131,7 +133,8 @@ export class TablePrintService {
     const formatted = rows.map((row) => {
       const output: Record<string, string> = {};
       for (const field of fields) {
-        output[field.key] = this.formatValue(field, resolved.get(String(row[keyField]))?.[field.key] ?? row[field.key]);
+        const value = resolved.get(String(row[keyField]))?.[field.key] ?? row[field.key];
+        output[field.key] = source.printDisplayValue?.(field, value, row) ?? this.formatValue(field, value);
       }
       return output;
     });
@@ -267,12 +270,15 @@ export class TablePrintService {
 
   /** 打印列 = 正式 metadata ∩ 字段读权限 ∩ 客户端可收窄集合；客户端无法扩大字段。 */
   private printableFields(source: TableFilterSource, actor: TableFilterActor, columnKeys: unknown) {
-    const requested = this.normalizeKeys(columnKeys);
-    return source.fields
-      .filter((field) => isTablePrintFieldPrintable(field))
-      .filter((field) => requested.size === 0 || requested.has(field.key))
-      .filter((field) => this.canReadField(actor, source.code, field.key))
-      .filter((field) => this.supportsValue(field, source));
+    if (columnKeys != null && !Array.isArray(columnKeys) && typeof columnKeys !== "string") throw new BadRequestException("打印字段格式无效");
+    const requested = [...this.normalizeKeys(columnKeys)];
+    if (columnKeys != null && !requested.length) throw new BadRequestException("请至少选择一个打印字段");
+    const known = new Map(source.fields.map(field => [field.key, field]));
+    const ordered = columnKeys == null ? source.fields : requested.flatMap(key => known.has(key) ? [known.get(key)!] : []);
+    return ordered
+      .filter(field => isTablePrintFieldPrintable(field))
+      .filter(field => source.fieldReadPermission?.(actor, field.key) ?? this.canReadField(actor, source.code, field.key))
+      .filter(field => this.supportsValue(field, source));
   }
 
   private exportableFields(source: TableFilterSource, actor: TableFilterActor, columnKeys: unknown) {
@@ -362,12 +368,7 @@ export class TablePrintService {
   }
 
   private headerGroupsFor(source: TableFilterSource, columns: TablePrintColumn[]): TablePrintHeaderGroup[] {
-    const groups = source.printHeaderGroups;
-    if (!groups?.length) return [];
-    const known = new Set(columns.map((column) => column.key));
-    return groups
-      .map((group) => ({ label: group.label, columns: group.columns.filter((key) => known.has(key)) }))
-      .filter((group) => group.columns.length > 0);
+    return orderedPrintHeaderGroups(columns.map(column => column.key), source.printHeaderGroups ?? []);
   }
 
   private async countFiltered(source: TableFilterSource, actor: TableFilterActor, query: TablePrintQuery, fields: TablePermissionFieldDefinition[]) {

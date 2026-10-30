@@ -2,7 +2,7 @@ import { Injectable, type OnModuleInit } from "@nestjs/common";
 import { formatProductionProgress } from "@tracker/shared";
 import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql } from "./master-plan.config";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
-import { TableFilterRegistry, type TablePrintRowQuery } from "../../common/filtering/table-filter.registry";
+import { TableFilterRegistry, type TableFilterSource, type TablePrintRowQuery } from "../../common/filtering/table-filter.registry";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
@@ -18,22 +18,29 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
     for (const resource of MASTER_PLAN_RESOURCES) {
       if (resource.code === 'mps-review-due-dates') continue; // Dedicated strict scope and canonical read/export provider.
       const columns = columnsFor(resource);
+      const presentationVariant: TableFilterSource["exportVariant"] = context => {
+        if (resource.code === "mps-process-reports" && String(context.view ?? "").toUpperCase() === "PENDING") {
+          return {
+            columns: { ...processReportPendingColumns(), createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at" },
+            fields: [...processReportPendingFields(), ...fieldsFor(resource).filter(field => ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(field.key))]
+          };
+        }
+        if (resource.code === "mps-three-day-work-orders") return {
+          columns: { ...columns, productionDateRange: "production_date_range" },
+          fields: [...fieldsFor(resource), { key: "productionDateRange", label: "生产日期", type: "text", editable: false }]
+        };
+        return undefined;
+      };
       this.registry.register({
         code: resource.code,
         table: resource.table,
         columns,
         fields: fieldsFor(resource),
-        exportVariant: context => {
-          if (resource.code === "mps-process-reports" && String(context.view ?? "").toUpperCase() === "PENDING") {
-            return {
-              columns: { ...processReportPendingColumns(), createdBy: "created_by", createdAt: "created_at", updatedBy: "updated_by", updatedAt: "updated_at" },
-              fields: [...processReportPendingFields(), ...fieldsFor(resource).filter(field => ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(field.key))]
-            };
-          }
-          if (resource.code === "mps-three-day-work-orders") return {
-            columns: { ...columns, productionDateRange: "production_date_range" },
-            fields: [...fieldsFor(resource), { key: "productionDateRange", label: "生产日期", type: "text", editable: false }]
-          };
+        exportVariant: presentationVariant,
+        printVariant: presentationVariant,
+        printDisplayValue: (field, value, row) => {
+          if (row.pendingTask && processReportPendingInputKeys().includes(field.key)) return "";
+          if (field.key.endsWith("ProductionProgress")) return formatProductionProgress(value);
           return undefined;
         },
         fieldReadPermission: (actor, key) => {

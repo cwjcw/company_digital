@@ -9,7 +9,7 @@ export type TablePrintColumn = {
   key: string;
   label: string;
   align: "left" | "center" | "right";
-  /** 相对宽度权重（平台统一计算，避免各页面自己猜）。 */
+  /** Relative recommendation weight, NOT a CSS percentage or mm. The shared client layout converts it to explicit mm. */
   width: number;
 };
 

@@ -394,6 +394,43 @@ description: Implement, review, or refactor the KDOS/凯南信息化平台的表
 
 #### 3.1.0.3 KDOS 统一表格打印（KN-PRINT-001，强制）
 
+1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
+2. 打印筛选结果复用：page context + quick search + applied Advanced FilterGroup + sort，然后打印全部匹配记录（不是当前页）。
+2.1 标准表格只保留一个主打印入口（工具栏按钮）：未选中记录时显示「打印筛选结果」，一旦有选中记录就自动变为「打印已选（N）」；禁止在 selection toolbar 再放第二个打印按钮，也禁止新增“操作”列。
+2.2 选中优先于筛选：只要存在选中记录，打印就是 SELECTED，不能用当前 search/FilterGroup 覆盖为 FILTERED。
+2.3 Print API 必须显式传 `rangeType: "FILTERED" | "SELECTED"`，禁止根据 selectedIds 是否为空猜模式。
+2.4 `rangeType=SELECTED` 但稳定 ID 为空或非法时必须 400，绝不退化打印整表；部分记录无权时只返回可打印部分并给出 requestedCount/printedCount，全部无权时 printedCount=0 且提示“当前选中记录已无可打印数据”。
+2.5 稳定 ID 不允许平台假设都是 UUID：每个 resource 必须声明 `recordKey`（`{ field, type: uuid|text|integer|bigint }`），打印查询按真实主键参数化并做类型化校验。
+2.6 页面自定义 rowSelection 时必须同步到平台选择状态，保证“打印已选”与用户看到的选择一致。
+2.7 选中 N 条只能打印 N 条（平台级回归测试）：manifest.total、requestedCount、printedCount、预览行数必须一致。
+3. 高级筛选与列头筛选共用唯一 Filter engine；打印不得重新引入旧筛选或 legacy filter UI。
+4. Print 平台不得创建第二套 FilterCompiler（复用 `SqlFilterCompiler` / `TableFilterRegistry` / operator、reference、date、permission 语义）。
+5. 打印已选只能提交 stable IDs，后端必须重新取数并重新校验权限（跨页选择必须正确打印）。
+6. 统一使用 `batch_print` 权限；没有 batch_print → 403；拥有 batch_print 不扩大 read/字段/租户/数据范围。
+7. 打印仍受 read、tenant、data scope、page context、field read permission 约束；客户端只能在当前获权且安全可打印的字段集合内选择与排序，服务端重新求交集、保持合法请求顺序，显式空字段不得回退全部字段。
+8. 敏感字段（password/hash/token/secret/API Key）永不进入 Print DTO；审计字段默认不打印；默认不打印技术字段、selection、UI-only 字段、按钮与“操作”列。
+9. dictionary/member/department/reference 必须输出正式 label（成员显示姓名，reference 显示编码+名称，不打印 UUID）。
+10. percentage/durationMinutes/date/datetime/boolean 按 metadata 正式格式输出（duration 用“小时+分钟”，空值统一“—”）。
+11. Dedicated Print DOM + Print CSS + Browser Print；禁止截图打印/长 PNG；所有适用标准表共用平台打印设置与实时纸张预览（配置面板＋预览），不调用 Fullscreen API；新增业务表默认复用，不另建第二套打印设置/查询/布局。
+12. 支持 A4/A3、portrait/landscape 和自动适应/保持自定义宽度；纸张比例、可用打印区域及分页实时更新。同一业务表全部列必须位于一页物理宽度内，禁止横向拆表；超宽明确提示并阻止打印，可改自动适应、横向/A3、缩小列宽或减少字段，不静默截列、不无限缩小字体。纵向分页重复表头，长文本换行，避免截断行；超高单行明确提示处理。
+13. >300 行必须先确认（300 只是确认阈值，不是硬上限）；超大数据先给真实 count 并二次警示；受控分批查询，禁止 pageSize=1000000 与静默截断。
+13.1 打印业务时间统一按 **Asia/Shanghai** 显示为 `YYYY-MM-DD HH:mm:ss`：后端返回 ISO instant，前端必须用 `Intl.DateTimeFormat` + `timeZone: "Asia/Shanghai"` 转换；禁止依赖浏览器本机时区、禁止手工 +8、禁止直接输出 ISO 字符串或毫秒。
+13.2 打印人必须来自可信认证身份的 `displayName`（回退 `username`，再回退 `—`）；**禁止显示 userId/UUID**，也禁止前端查 `/auth/me` 覆盖服务端打印元数据；API Key 触发打印时按现有 actor 名称语义展示，同样不显示 UUID。
+13.3 打印页眉不显示“已应用搜索和筛选条件”等无业务价值描述（也不得换成“已筛选/高级筛选已生效”等同类文案）；只保留有意义的范围信息：`已选 / 筛选结果 / 全部记录` + 数量。
+13.4 打印页眉结构固定为：平台名 → 业务表中文名 → `打印时间：…` + `打印人：…`（flex + 列间距，不得粘连）→ `打印范围：…`；不显示 resource code、UUID、FilterGroup JSON 或检索条件描述。
+13.5 打印文档的排版规则必须同时作用于「屏幕预览」与「实际打印」（只把隐藏业务页面/预览工具条与分页控制放进 `@media print`），否则预览版式与纸上不一致。
+14. 树形配置/Dashboard 等非记录型页面可以 NOT_APPLICABLE，但必须写真实中文产品理由；上下文视图（如 selectedRoleId）必须服务端 AND 到打印 Query。
+15. Print DTO 必须 server-side projection；打印纯读取，不得改变任何业务数据；禁止新增独立“操作”列。
+
+16. **默认字段＝当前页面最终实际可见的获权业务叶子列及其顺序**（包含隐藏/固定/分组处理后的结果），不可直接取原始columns。打印面板列出服务端所有安全可打印的获权字段，允许增减隐藏字段、拖拽排序；字段中文名和正式展示值由metadata/资源适配器提供，不显示技术/敏感/操作/选择列。不选字段明确提示且禁用打印，权限变化/删除/禁用字段自动忽略并要求核对，不借偏好获取无权字段。
+17. **列宽统一物理单位mm**：每列支持自动分配、数字输入及预览表头边界拖动，最小8mm。TablePrintColumn.width是相对推荐权重，禁止直接当百分比或毫米；共享layout将其转为显式mm，通过同一个colgroup及table宽度作用于预览和正式打印。按当前列顺序重建连续分组表头，不能错位或丢列。
+18. **所见即所得分页**：按真实DOM/字体/行高受控批量测量，预览可单页浏览，正式打印必须使用相同分页范围、纸张、列宽和CSS，全部打印行各出现一次。打印前重新通过原Print Service验证read/batch_print/field/tenant/data scope及原范围，权限或数量减少须明确提示复核；大数据继续数量确认、受控批查询及性能保护，不静默缺失。
+19. **两个独立操作**：“本次打印”只使用当前配置，不隐式保存；“保存为我的默认配置”显式保存字段集合/顺序/mm宽度/纸张/方向/适配模式，按tenant＋user＋resource＋viewKey隔离（如ACTUAL/PENDING），不得影响原表格显示偏好或其他员工。优先复用既有个人视图存储机制，本期独立版本化localStorage键kdos-print-v1，仅当前浏览器持久化，不存业务数据/凭据；无必要不新增表/Migration。
+20. 重开自动加载合法个人默认；新增字段留在可选目录，不破坏旧配置；已删除/禁用/无权字段及非法宽度自动剔除，空配置不扩大字段。恢复默认恢复系统推荐布局及当前可见字段，保存默认为独立操作；存储失败必须明确提示，不能虚报成功。
+21. 验证覆盖可见默认/增减/拖序/mm拖动及数值/纸张方向/超宽与适配/分页重复表头/个人持久化及四维隔离/恢复/原范围/权限变化/空字段/可信标题时间姓名；同时用真实Chrome原生打印引擎核对预览与正式输出，不能仅组件测试。测试不写生产业务数据。
+22. 本期不含字体自由配置、复杂模板、页眉页脚设计器及特殊分页规则；后续仍扩展共享布局和metadata，不按业务模块复制打印实现。
+
+
 #### 3.1.0.6 派生业务表的同步身份、字段所有权与日期范围（KN-MPS-WO-001，强制）
 
 适用：任何“从上游业务表/来源生成”的派生业务表（例如从事业部周计划生成的 3天生产工单）。
@@ -422,33 +459,6 @@ D. **准入条件只能有一份权威来源**：admission 谓词必须复用同
 
 说明：系统级同步按 tenant 工作，不套用页面 data scope（不要把用户 `scopeClause` 误加进系统同步）。
 
-1. 标准 KdosDataTable 的打印必须走平台统一 Print Service（`apps/api/src/common/printing/`），业务页面禁止自建独立打印查询。
-2. 打印筛选结果复用：page context + quick search + applied Advanced FilterGroup + sort，然后打印全部匹配记录（不是当前页）。
-2.1 标准表格只保留一个主打印入口（工具栏按钮）：未选中记录时显示「打印筛选结果」，一旦有选中记录就自动变为「打印已选（N）」；禁止在 selection toolbar 再放第二个打印按钮，也禁止新增“操作”列。
-2.2 选中优先于筛选：只要存在选中记录，打印就是 SELECTED，不能用当前 search/FilterGroup 覆盖为 FILTERED。
-2.3 Print API 必须显式传 `rangeType: "FILTERED" | "SELECTED"`，禁止根据 selectedIds 是否为空猜模式。
-2.4 `rangeType=SELECTED` 但稳定 ID 为空或非法时必须 400，绝不退化打印整表；部分记录无权时只返回可打印部分并给出 requestedCount/printedCount，全部无权时 printedCount=0 且提示“当前选中记录已无可打印数据”。
-2.5 稳定 ID 不允许平台假设都是 UUID：每个 resource 必须声明 `recordKey`（`{ field, type: uuid|text|integer|bigint }`），打印查询按真实主键参数化并做类型化校验。
-2.6 页面自定义 rowSelection 时必须同步到平台选择状态，保证“打印已选”与用户看到的选择一致。
-2.7 选中 N 条只能打印 N 条（平台级回归测试）：manifest.total、requestedCount、printedCount、预览行数必须一致。
-3. 高级筛选与列头筛选共用唯一 Filter engine；打印不得重新引入旧筛选或 legacy filter UI。
-4. Print 平台不得创建第二套 FilterCompiler（复用 `SqlFilterCompiler` / `TableFilterRegistry` / operator、reference、date、permission 语义）。
-5. 打印已选只能提交 stable IDs，后端必须重新取数并重新校验权限（跨页选择必须正确打印）。
-6. 统一使用 `batch_print` 权限；没有 batch_print → 403；拥有 batch_print 不扩大 read/字段/租户/数据范围。
-7. 打印仍受 read、tenant、data scope、page context、field read permission 约束；客户端列只能收窄字段，不能扩大字段。
-8. 敏感字段（password/hash/token/secret/API Key）永不进入 Print DTO；审计字段默认不打印；默认不打印技术字段、selection、UI-only 字段、按钮与“操作”列。
-9. dictionary/member/department/reference 必须输出正式 label（成员显示姓名，reference 显示编码+名称，不打印 UUID）。
-10. percentage/durationMinutes/date/datetime/boolean 按 metadata 正式格式输出（duration 用“小时+分钟”，空值统一“—”）。
-11. Dedicated Print DOM + Print CSS + Browser Print；禁止截图打印/长 PNG；打印前必须提供可见的打印预览与方向选择。
-12. A4 支持 portrait/landscape，宽表自动横向；同一业务表所有打印列必须在同一物理页宽度内（禁止横向拆表）；纵向允许分页并重复表头。
-13. >300 行必须先确认（300 只是确认阈值，不是硬上限）；超大数据先给真实 count 并二次警示；受控分批查询，禁止 pageSize=1000000 与静默截断。
-13.1 打印业务时间统一按 **Asia/Shanghai** 显示为 `YYYY-MM-DD HH:mm:ss`：后端返回 ISO instant，前端必须用 `Intl.DateTimeFormat` + `timeZone: "Asia/Shanghai"` 转换；禁止依赖浏览器本机时区、禁止手工 +8、禁止直接输出 ISO 字符串或毫秒。
-13.2 打印人必须来自可信认证身份的 `displayName`（回退 `username`，再回退 `—`）；**禁止显示 userId/UUID**，也禁止前端查 `/auth/me` 覆盖服务端打印元数据；API Key 触发打印时按现有 actor 名称语义展示，同样不显示 UUID。
-13.3 打印页眉不显示“已应用搜索和筛选条件”等无业务价值描述（也不得换成“已筛选/高级筛选已生效”等同类文案）；只保留有意义的范围信息：`已选 / 筛选结果 / 全部记录` + 数量。
-13.4 打印页眉结构固定为：平台名 → 业务表中文名 → `打印时间：…` + `打印人：…`（flex + 列间距，不得粘连）→ `打印范围：…`；不显示 resource code、UUID、FilterGroup JSON 或检索条件描述。
-13.5 打印文档的排版规则必须同时作用于「屏幕预览」与「实际打印」（只把隐藏业务页面/预览工具条与分页控制放进 `@media print`），否则预览版式与纸上不一致。
-14. 树形配置/Dashboard 等非记录型页面可以 NOT_APPLICABLE，但必须写真实中文产品理由；上下文视图（如 selectedRoleId）必须服务端 AND 到打印 Query。
-15. Print DTO 必须 server-side projection；打印纯读取，不得改变任何业务数据；禁止新增独立“操作”列。
 
 #### 3.1.2 企业微信推送项目目录（强制）
 

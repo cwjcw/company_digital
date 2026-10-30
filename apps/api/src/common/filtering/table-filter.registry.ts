@@ -62,6 +62,9 @@ export type TableFilterSource = {
   exportExactNumbers?: boolean;
   /** Server-owned presentation for an alternate view (for example pending production tasks). */
   exportVariant?: (context: Record<string, unknown>) => Partial<Pick<TableFilterSource, "fields" | "columns">> | undefined;
+  /** Shared server-owned business view metadata for printing (never accepts client field definitions). */
+  printVariant?: TableFilterSource["exportVariant"];
+  printDisplayValue?: TableFilterSource["exportDisplayValue"];
   /** Derived display columns may depend on another official read permission. */
   fieldReadPermission?: (actor: TableFilterActor, key: string) => boolean;
   exportDisplayValue?: (field: TablePermissionFieldDefinition, value: unknown, row: Record<string, unknown>) => string | undefined;

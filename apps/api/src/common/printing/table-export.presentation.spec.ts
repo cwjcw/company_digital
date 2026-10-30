@@ -71,3 +71,17 @@ describe("标准导出跟随页面展示", () => {
     expect(progress.getCell("A2").text).toBe("71.4%");
   });
 });
+
+
+describe("统一打印业务视图元数据", () => {
+  it("实际与待报工采用各自正式字段、中文值和原有read权限，打印不改变导出", async () => {
+    const { service, list } = setup({ id: "task", pendingTask: true, processCode: "packaging", remainingQuantity: "6", cumulativeReportedQuantity: "4", productionQuantity: null });
+    const principal = { ...admin, permissions: [`${code}:*:read`, `${code}:*:batch_print`, `${code}:processCode:read`] };
+    const pending = await service.render(code, { context: { view: "PENDING" }, columnKeys: ["remainingQuantity", "processCode", "cumulativeReportedQuantity"] }, principal);
+    expect(pending.columns.map(c => c.label)).toEqual(["剩余数量", "工序", "累计报工"]);
+    expect(pending.rows[0]).toEqual({ remainingQuantity: "6", processCode: "包装", cumulativeReportedQuantity: "4" });
+    expect(list.mock.calls[0]?.[1].view).toBe("PENDING");
+    expect(list.mock.calls[0]?.[3]).toBeUndefined();
+    await expect(service.render(code, { context: { view: "ACTUAL" }, columnKeys: ["remainingQuantity"] }, principal)).rejects.toThrow(/没有可打印字段/);
+  });
+});

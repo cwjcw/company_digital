@@ -11,6 +11,14 @@ import { KdosPrintDocument, formatPrintDateTime, printTable, type TablePrintDto 
  */
 vi.mock("../api", () => ({ api: vi.fn() }));
 
+// Dedicated print portals own independent React roots and must be closed between tests.
+afterEach(() => {
+  for (const portal of document.querySelectorAll<HTMLElement>(".kdos-print-portal")) {
+    const close = within(portal).queryByRole("button", { name: "关闭" });
+    if (close) fireEvent.click(close);
+  }
+});
+
 const fields: TablePermissionFieldDefinition[] = [
   { key: "orderNumber", label: "订单编号", type: "text", editable: true },
   { key: "quantity", label: "数量", type: "number", editable: true, format: "decimal" }
@@ -84,6 +92,22 @@ describe("KN-PRINT-001 标准表格打印入口", () => {
     expect(calls[0]).toContain("rangeType=FILTERED");
     expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path) === "/table-prints/render" && String(init?.body ?? "").includes('"rangeType":"FILTERED"'))).toBe(true);
     expect(container.querySelector(".kdos-data-table-selection-toolbar")).toBeNull();
+  });
+
+  it("初选字段取最终可见列，隐藏和顺序偏好不被原始columns覆盖", async () => {
+    localStorage.setItem("kdos-form-view:KAINAN:u1:mps-weekly-plans", JSON.stringify(["quantity"]));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-filters/resources") return [] as never;
+      if (path === "/table-prints/capabilities") return capabilities as never;
+      if (path.startsWith("/table-prints/manifest")) return { total: 1, confirmThreshold: 300 } as never;
+      if (path === "/table-prints/render") return { resource: "mps-weekly-plans", title: "事业部周计划", columns: fields.map(field => ({key:field.key,label:field.label,align:"left",width:12})), headerGroups: [], rows: [{quantity:"1",orderNumber:"A1"}], meta: {rangeType:"FILTERED",printedCount:1,orientation:"portrait"} } as never;
+      return [] as never;
+    });
+    renderTable(); fireEvent.click(await screen.findByRole("button", {name:/打印筛选结果/}));
+    const dialog = await screen.findByRole("dialog", {name:"打印设置与预览"});
+    expect(within(dialog).getByRole("checkbox", {name:"数量"})).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", {name:"订单编号"})).not.toBeChecked();
+    fireEvent.click(within(dialog).getByRole("button", {name:"关闭"}));
   });
 
   it("打印筛选结果继承列头筛选生成的递归 effective FilterGroup", async () => {

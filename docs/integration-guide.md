@@ -191,3 +191,11 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 # 科加一级BOM工序匹配
 
 事业四部在制订单的一级子件工序按需只读获取，按事业部绑定到KDOS十标准工序，再读取已有产品报工进度；不生成新任务或改写历史报工。接口、来源优先级、权限及运行边界见[一级BOM工序对应](pmc-bom-process-mapping.md)。
+
+## 可配置统一打印（KN-PRINT-001）
+
+`GET /table-prints/manifest` 保持原范围/count/确认合同；`POST /table-prints/render` 保持原 Print DTO 与 read、batch_print、字段、租户、数据范围及上下文鉴权。`columnKeys` 不传表示服务端全部安全可打印字段；显式空数组/空字符串返回400，不回退全字段；合法字段按请求顺序与当前权限求交，无合法字段403。前端设置先取全部获权字段作候选目录，初选为最终可见列；正式打印再次经原服务校验并刷新数据，权限变化要求复核。资源适配可提供 `printVariant(context)` 和 `printDisplayValue`，复用正式视图/格式，不接受客户端字段定义。
+
+`TablePrintColumn.width` 继续表示相对推荐权重（兼容旧DTO），不是百分比/mm；`@kdos/contracts/table-print-layout`（经主入口导出）的共享计算将选中列及个人宽度转换为毫米，统一colgroup与纸张。A4/A3、方向及宽度适配仅控制布局，不改变查询范围。真实行高分批测量产生同一分页范围，预览逐页展示，正式打印全部页面；原生直接打印页面时提示使用“本次打印”，避免误印预览当前页。
+
+个人打印偏好复用当前浏览器localStorage，独立版本键 `kdos-print-v1:<tenant>:<user>:<resource>:<viewKey>`（各段URL编码），保存version/columnKeys/widths(mm)/paperSize/orientation/widthMode，不含业务行、凭据或原表偏好。不跨浏览器同步；默认ACTUAL/PENDING分别使用既有viewKey。“恢复默认”恢复当前配置，需显式“保存为我的默认配置”才覆盖已保存值。无Migration、新权限资源或调度。

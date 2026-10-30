@@ -1,3 +1,4 @@
+export * from "./table-print-layout";
 import { logisticsFields } from "./logistics";
 export * from "./logistics";
 import { financeMovementFields } from './finance-movements';

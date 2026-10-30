@@ -1,10 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- shared print helpers are intentionally co-located with the print document component */
-import { Modal } from "antd";
-import { useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { api } from "../api";
 import { useQuery } from "@tanstack/react-query";
 import type { AdvancedFilterGroup } from "./advanced-filter";
+import { PrintSettingsPreview } from "./table-print-settings";
+export { KdosPrintDocument, formatPrintDateTime } from "./table-print-document";
 
 /**
  * KN-PRINT-001 平台统一打印（前端侧）：所有标准表格共用这一份实现。
@@ -40,9 +40,12 @@ export type TablePrintRequest = {
   context?: Record<string, unknown>;
   /** 打印已选：稳定记录 ID；后端会重新取数并做权限过滤。 */
   selectedIds?: string[];
-  /** 客户端只能收窄列集合。 */
+  /** Initial visible business keys; settings may add other server-authorized printable fields. */
   columnKeys?: string[];
   titleHint?: string;
+  /** Independent business view and preference identity; never used as authorization. */
+  viewKey?: string;
+  preferenceScope?: { tenantKey: string; userKey: string };
 };
 
 /** 打印能力（后端为唯一真相，前端只用于显示/隐藏入口）。 */
@@ -52,22 +55,6 @@ export function useTablePrintCapabilities() {
     queryFn: () => api<Array<{ code: string; label: string; print: { status: string; reason?: string }; allowed: boolean }>>("/table-prints/capabilities"),
     staleTime: 300_000
   });
-}
-
-/**
- * KN-PRINT-001：打印业务时间统一按 Asia/Shanghai 显示为 `YYYY-MM-DD HH:mm:ss`。
- * 后端始终返回 ISO instant；这里显式指定时区，禁止依赖浏览器本机时区、禁止手工 +8。
- */
-export function formatPrintDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  const parts = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-  }).formatToParts(date);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
-  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
 export function tablePrintAllowed(capabilities: Array<{ code: string; print: { status: string }; allowed: boolean }> | undefined, resource: string) {
@@ -86,77 +73,21 @@ const printBody = (request: TablePrintRequest) => ({
   sortOrder: request.sortOrder,
   context: request.context ?? {},
   selectedIds: request.selectedIds ?? [],
-  columnKeys: request.columnKeys ?? []
+  columnKeys: request.columnKeys
 });
 
 /**
  * 打开打印预览（Dedicated Print DOM）：用户可以在打印前看到标题/字段/数据/方向，并可切换纵向/横向。
  * 点“打印”后才调用浏览器打印；打印时只输出打印文档，业务页面不会进入打印内容。
  */
-function openPrintPreview(dto: TablePrintDto, initialOrientation: "portrait" | "landscape") {
+function openPrintPreview(dto: TablePrintDto, request: TablePrintRequest) {
   const portal = document.createElement("div");
   portal.className = "kdos-print-portal";
   document.body.appendChild(portal);
-  const sizeStyle = document.createElement("style");
-  document.head.appendChild(sizeStyle);
   const root: Root = createRoot(portal);
-  const cleanup = () => { root.unmount(); portal.remove(); sizeStyle.remove(); };
-  const applyOrientation = (orientation: "portrait" | "landscape") => {
-    sizeStyle.textContent = `@page { size: A4 ${orientation}; margin: ${orientation === "landscape" ? "8mm" : "10mm"}; }`;
-  };
-  const PrintPreview = () => {
-    const [orientation, setOrientation] = useState<"portrait" | "landscape">(initialOrientation);
-    useEffect(() => { applyOrientation(orientation); }, [orientation]);
-    const current: TablePrintDto = { ...dto, meta: { ...dto.meta, orientation } };
-    return <div className="kdos-print-preview" data-testid="kdos-print-preview">
-      <div className="kdos-print-preview-bar">
-        <span className="kdos-print-preview-hint">打印预览：共 {dto.meta.printedCount} 条 · 方向：{orientation === "landscape" ? "横向 A4" : "纵向 A4"}</span>
-        <button type="button" onClick={() => setOrientation(orientation === "landscape" ? "portrait" : "landscape")}>
-          切换为{orientation === "landscape" ? "纵向" : "横向"}
-        </button>
-        <button type="button" onClick={() => window.print()}>打印</button>
-        <button type="button" onClick={cleanup}>关闭</button>
-      </div>
-      <div className={`kdos-print-paper paper-${orientation}`}>
-        <KdosPrintDocument dto={current} />
-      </div>
-    </div>;
-  };
-  root.render(<PrintPreview />);
+  const cleanup = () => { root.unmount(); portal.remove(); };
+  root.render(<PrintSettingsPreview dto={dto} request={request} onClose={cleanup} />);
   return cleanup;
-}
-
-export function KdosPrintDocument({ dto }: { dto: TablePrintDto }) {
-  const { meta } = dto;
-  const scope = meta.rangeType === "SELECTED"
-    ? `打印范围：已选，共 ${meta.printedCount} 条`
-    : `打印范围：${meta.filtered || meta.searched ? "筛选结果" : "全部记录"}，共 ${meta.printedCount} 条`;
-  return <div className={`kdos-print-root orientation-${meta.orientation}`} data-testid="kdos-print-root">
-    <div className="kdos-print-header">
-      <div className="kdos-print-platform">凯南数字化工作台</div>
-      <div className="kdos-print-title">{dto.title}</div>
-      <div className="kdos-print-meta">
-        <span>打印时间：{formatPrintDateTime(meta.printedAt)}</span>
-        <span>打印人：{meta.printedBy?.trim() || "—"}</span>
-      </div>
-      <div className="kdos-print-scope">{scope}</div>
-    </div>
-    {dto.rows.length
-      ? <table className="kdos-print-table" data-testid="kdos-print-table">
-        <thead>
-          {dto.headerGroups.length > 0 && <tr>
-            {dto.headerGroups.map((group) => <th key={group.label} colSpan={group.columns.length}>{group.label}</th>)}
-          </tr>}
-          <tr>{dto.columns.map((column) => <th key={column.key} style={{ width: `${column.width}%` }}>{column.label}</th>)}</tr>
-        </thead>
-        <tbody>
-          {dto.rows.map((row, index) => <tr key={index}>
-            {dto.columns.map((column) => <td key={column.key} className={`kdos-print-align-${column.align}`}>{row[column.key] ?? "—"}</td>)}
-          </tr>)}
-        </tbody>
-      </table>
-      : <div className="kdos-print-empty">当前没有可打印数据。</div>}
-  </div>;
 }
 
 /**
@@ -179,18 +110,15 @@ export async function planPrint(request: TablePrintRequest) {
   return { manifest, requiresConfirm: manifest.total > manifest.confirmThreshold };
 }
 
+export async function fetchPrintDto(request: TablePrintRequest) {
+  return api<TablePrintDto>("/table-prints/render", { method: "POST", body: JSON.stringify(printBody(request)) });
+}
+
 export async function renderPrint(request: TablePrintRequest) {
-  const dto = await api<TablePrintDto>("/table-prints/render", { method: "POST", body: JSON.stringify(printBody(request)) });
+  // Load all server-authorized printable business fields so hidden fields can be added in settings.
+  const dto = await fetchPrintDto({ ...request, columnKeys: undefined });
   if (!dto.rows.length) return { printed: false as const, reason: "empty" as const, dto };
-  if (dto.meta.requestedCount != null && dto.meta.printedCount < dto.meta.requestedCount) {
-    /* 越权/状态变化导致部分记录不可打印时：只提示数量，不泄漏这些记录是否存在或内容。 */
-    Modal.info({
-      title: "部分记录未包含在打印内容中",
-      content: "部分记录因权限或状态变化未包含在打印内容中。",
-      okText: "知道了"
-    });
-  }
-  const cleanup = openPrintPreview(dto, dto.meta.orientation);
+  const cleanup = openPrintPreview(dto, request);
   return { printed: true as const, reason: "printed" as const, dto, cleanup };
 }
 
