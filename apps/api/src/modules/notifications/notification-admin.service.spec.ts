@@ -35,12 +35,15 @@ describe("NotificationAdminService", () => {
     }
   });
 
-  it("does not reveal ciphertext from the group-webhook read query", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([{ id: "group-1", group_name: "设备群", webhook_masked: "****1234", webhook_configured: true }]) };
+  it("maps group webhook rows to the UI contract and reports configured without selecting ciphertext", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([{ id: "group-1", group_name: "设备群", robot_name: "日报机器人", webhook_masked: "****1234", webhook_configured: true, module_code: "planning", enabled: true, version: 1 }]) };
     const source = { transaction: jest.fn(async (work: (value: typeof manager) => unknown) => work(manager)) };
     const service = new NotificationAdminService(source as never, {} as never);
-    await service.listGroupWebhooks({ ...systemActor, isSystemAdmin: false, moduleAdminCodes: [], permissions: ["notification-group-webhook:*:read"] });
-    expect(String(manager.query.mock.calls[1]?.[0])).not.toContain("webhook_ciphertext");
+    const result = await service.listGroupWebhooks({ ...systemActor, isSystemAdmin: false, moduleAdminCodes: [], permissions: ["notification-group-webhook:*:read"] });
+    expect(result).toEqual([expect.objectContaining({ groupName: "设备群", robotName: "日报机器人", webhookMasked: "****1234", webhookConfigured: true })]);
+    expect(String(manager.query.mock.calls[1]?.[0])).toContain("AS webhook_configured");
+    expect(String(manager.query.mock.calls[1]?.[0])).not.toContain("SELECT *");
+    expect(JSON.stringify(result)).not.toContain("webhook_ciphertext");
   });
 
   it("exposes finance events only to the owning module or system administrators", () => {

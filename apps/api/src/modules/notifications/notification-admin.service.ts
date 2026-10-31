@@ -239,8 +239,10 @@ export class NotificationAdminService {
 
   async listGroupWebhooks(actor: NotificationAdminActor) {
     this.requirePermission(actor, "notification-group-webhook", "read");
-    return this.write(actor, manager => manager.query(`SELECT id,group_name,robot_name,channel_type,webhook_masked,module_code,responsible_user_id,
+    const rows: Array<Record<string, unknown>> = await this.write(actor, manager => manager.query(`SELECT id,group_name,robot_name,channel_type,webhook_masked,
+      webhook_ciphertext IS NOT NULL AS webhook_configured,module_code,responsible_user_id,
       enabled,remark,created_by,created_at,updated_by,updated_at,version FROM notification_group_webhooks WHERE tenant_id=$1 ORDER BY group_name,id`, [actor.tenantId]));
+    return rows.map(row => this.groupWebhookView(row));
   }
 
   async createGroupWebhook(actor: NotificationAdminActor, body: Record<string, unknown>) {
@@ -371,7 +373,7 @@ export class NotificationAdminService {
   }
 
   private groupWebhookView(row: Record<string, unknown>) {
-    return { id: row.id, groupName: row.group_name, robotName: row.robot_name, channelType: row.channel_type, webhookMasked: row.webhook_masked, webhookConfigured: Boolean(row.webhook_ciphertext), moduleCode: row.module_code, responsibleUserId: row.responsible_user_id ?? null, enabled: row.enabled, remark: row.remark ?? "", createdBy: row.created_by ?? null, createdAt: row.created_at, updatedBy: row.updated_by ?? null, updatedAt: row.updated_at, version: row.version };
+    return { id: row.id, groupName: row.group_name, robotName: row.robot_name, channelType: row.channel_type, webhookMasked: row.webhook_masked, webhookConfigured: Boolean(row.webhook_configured ?? row.webhook_ciphertext), moduleCode: row.module_code, responsibleUserId: row.responsible_user_id ?? null, enabled: row.enabled, remark: row.remark ?? "", createdBy: row.created_by ?? null, createdAt: row.created_at, updatedBy: row.updated_by ?? null, updatedAt: row.updated_at, version: row.version };
   }
 
   private requiredAdminText(value: unknown, label: string, max: number) { const result = String(value ?? "").trim(); if (!result || result.length > max) throw new BadRequestException(`${label}不能为空且不能超过${max}个字符`); return result; }
