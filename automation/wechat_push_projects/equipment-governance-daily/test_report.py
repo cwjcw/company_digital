@@ -6,6 +6,7 @@ import types
 import copy
 import io
 import json
+import base64
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -377,6 +378,39 @@ class RenderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(report, 'MAX_IMAGE_BYTES', 1):
             with self.assertRaisesRegex(ValueError, '超过企业微信2MB限制'):
                 report.render_operation_report(fixture(), Path(folder)/'oversize.png')
+
+
+class NotificationEventSubmissionTest(unittest.TestCase):
+    def test_submits_one_ordered_event_and_omits_reporting_image_at_exact_100_percent(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def read(self): return json.dumps({'created':True,'row':{'id':'synthetic-event'}}).encode()
+        with tempfile.TemporaryDirectory() as folder, patch.dict('os.environ', {'KDOS_NOTIFICATION_INTERNAL_TOKEN':'synthetic-token'}):
+            operation=Path(folder)/'operation.png'; operation.write_bytes(b'operation-png')
+            reporting=Path(folder)/'reporting.png'; reporting.write_bytes(b'reporting-png')
+            calls=[]
+            with patch.object(report.urllib.request,'urlopen',side_effect=lambda req,timeout:(calls.append((req,timeout)) or Response())):
+                result=report.submit_notification_event(date(2026,10,29),operation,lambda:reporting,False)
+            request=calls[0][0]; body=json.loads(request.data)
+            self.assertEqual(body['eventType'],'equipment.daily_report')
+            self.assertEqual(body['dedupKey'],'equipment-daily-report:2026-10-29')
+            self.assertEqual([item['type'] for item in body['components']],['text','image'])
+            self.assertEqual(base64.b64decode(body['components'][1]['base64']),b'operation-png')
+            self.assertEqual(result['sequence'],['text','operation_image'])
+            self.assertEqual(request.get_header('X-kdos-internal-token'),'synthetic-token')
+
+    def test_includes_reporting_image_only_when_business_count_condition_is_incomplete(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def read(self): return b'{"created":true,"row":{"id":"synthetic"}}'
+        with tempfile.TemporaryDirectory() as folder, patch.dict('os.environ', {'KDOS_NOTIFICATION_INTERNAL_TOKEN':'synthetic-token'}):
+            operation=Path(folder)/'operation.png'; operation.write_bytes(b'op')
+            reporting=Path(folder)/'reporting.png'; reporting.write_bytes(b'report')
+            with patch.object(report.urllib.request,'urlopen',return_value=Response()):
+                result=report.submit_notification_event(date(2026,10,29),operation,lambda:reporting,True)
+            self.assertEqual(result['sequence'],['text','operation_image','reporting_image'])
 
     def test_main_preview_never_sends(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(report, 'load_live_summary', return_value=fixture()), patch.object(report, 'reporting_window', return_value=(date(2026, 10, 23), date(2026, 10, 29))), patch.object(report, 'send_report') as sender:

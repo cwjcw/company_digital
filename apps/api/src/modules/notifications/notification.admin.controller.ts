@@ -13,6 +13,7 @@ type NotificationRequest = Request & { user: any; requestId: string };
 export class NotificationAdminController {
   constructor(private readonly service: NotificationAdminService) {}
   @Get("events") events(@Req() request: NotificationRequest) { return this.service.availableEvents(this.actor(request)); }
+  @Get("routes/events") routeEvents(@Req() request: NotificationRequest) { return this.service.availableGroupRouteEvents(this.actor(request)); }
   @Get("recipient-users") recipientUsers(@Req() request: NotificationRequest) { return this.service.recipientUsers(this.actor(request)); }
   @Get("recipient-options") recipientOptions(@Req() request: NotificationRequest) { return this.service.recipientOptions(this.actor(request)); }
   @Get("template-variables") variables(@Query("eventType") eventType: string, @Req() request: NotificationRequest) { return this.service.templateVariables(this.actor(request), eventType); }
@@ -25,6 +26,15 @@ export class NotificationAdminController {
   @Get("delivery-logs") logs(@Query() query: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.logs(this.actor(request), query); }
   @Get("failures") failures(@Query() query: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.logs(this.actor(request), query, true); }
   @Post("outbox/:id/retry") retry(@Param("id") id: string, @Req() request: NotificationRequest) { return this.service.retry(this.actor(request), id); }
+  @Get("management-access") managementAccess(@Req() request: NotificationRequest) { const actor=this.actor(request); return { groupWebhooks:this.service.groupWebhookAccess(actor), routes:this.service.routeAccess(actor) }; }
+  @Get("group-webhooks") groupWebhooks(@Req() request: NotificationRequest) { return this.service.listGroupWebhooks(this.actor(request)); }
+  @Post("group-webhooks") createGroupWebhook(@Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.createGroupWebhook(this.actor(request), body); }
+  @Patch("group-webhooks/:id") updateGroupWebhook(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.updateGroupWebhook(this.actor(request), id, body); }
+  @Post("group-webhooks/:id/delete") deleteGroupWebhook(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.deleteGroupWebhook(this.actor(request), id, Number(body.expectedVersion)); }
+  @Post("group-webhooks/:id/test") testGroupWebhook(@Param("id") id: string, @Req() request: NotificationRequest) { return this.service.testGroupWebhook(this.actor(request), id); }
+  @Get("routes") routes(@Req() request: NotificationRequest) { return this.service.listRoutes(this.actor(request)); }
+  @Post("routes") saveRoute(@Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.saveRoute(this.actor(request), body); }
+  @Post("routes/:id/delete") deleteRoute(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() request: NotificationRequest) { return this.service.deleteRoute(this.actor(request), id, Number(body.expectedVersion)); }
 
-  private actor(request: NotificationRequest): NotificationAdminActor { return { tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", userId: request.user?.sub ?? null, name: request.user?.displayName ?? request.user?.username ?? "unknown", username: request.user?.username ?? "unknown", requestId: request.requestId, isSystemAdmin: request.user?.isSystemAdmin === true, moduleAdminCodes: request.user?.moduleAdminCodes ?? [] }; }
+  private actor(request: NotificationRequest): NotificationAdminActor { return { tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN", userId: request.user?.sub ?? null, name: request.user?.displayName ?? request.user?.username ?? "unknown", username: request.user?.username ?? "unknown", requestId: request.requestId, isSystemAdmin: request.user?.isSystemAdmin === true, moduleAdminCodes: request.user?.moduleAdminCodes ?? [], permissions: request.user?.permissions ?? [] }; }
 }

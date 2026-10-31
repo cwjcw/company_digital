@@ -10,6 +10,9 @@ import re
 import subprocess
 import sys
 import time
+import base64
+import os
+import urllib.request
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from fractions import Fraction
@@ -434,11 +437,43 @@ def send_report(operation_image: Path, reporting_image: Callable[[], Path], text
             'sequence': ['text', 'operation_image'] + (['reporting_image'] if reporting_requested else [])}
 
 
+def submit_notification_event(report_date: date, operation_image: Path, reporting_image: Callable[[], Path],
+                              should_send_reporting: bool) -> dict[str, Any]:
+    """Submit one ordered event to KDOS; routing and per-group delivery stay in Notification Center."""
+    token = os.getenv('KDOS_NOTIFICATION_INTERNAL_TOKEN', '').strip()
+    if not token:
+        raise RuntimeError('缺少KDOS_NOTIFICATION_INTERNAL_TOKEN，拒绝提交通知事件')
+    api_base = os.getenv('KDOS_API_BASE_URL', 'http://127.0.0.1/api/v1').rstrip('/')
+    tenant = os.getenv('KDOS_DEFAULT_TENANT_CODE', 'KAINAN').strip()
+    worker = os.getenv('KDOS_NOTIFICATION_WORKER_ID', 'equipment-governance-daily').strip()
+    components: list[dict[str, str]] = [{'type': 'text', 'content': notification_text(report_date)}]
+    components.append({'type': 'image', 'filename': f'equipment-operation-{report_date.isoformat()}.png',
+                       'mimeType': 'image/png', 'base64': base64.b64encode(operation_image.read_bytes()).decode('ascii')})
+    if should_send_reporting:
+        path = reporting_image()
+        components.append({'type': 'image', 'filename': f'equipment-reporting-{report_date.isoformat()}.png',
+                           'mimeType': 'image/png', 'base64': base64.b64encode(path.read_bytes()).decode('ascii')})
+    payload = {'eventType': 'equipment.daily_report', 'dedupKey': f'equipment-daily-report:{report_date.isoformat()}', 'components': components}
+    request = urllib.request.Request(f'{api_base}/internal/notifications/events/group-webhook',
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'), method='POST', headers={
+            'Content-Type': 'application/json', 'X-KDOS-Internal-Token': token,
+            'X-KDOS-Tenant-Id': tenant, 'X-KDOS-Worker-Id': worker})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            result = json.loads(response.read().decode('utf-8'))
+    except Exception as error:
+        raise RuntimeError('KDOS群通知事件提交失败') from error
+    return {'sent': False, 'queued': True, 'eventType': payload['eventType'], 'reportDate': report_date.isoformat(),
+            'created': bool(result.get('created')), 'notificationId': result.get('row', {}).get('id'),
+            'sequence': ['text', 'operation_image'] + (['reporting_image'] if should_send_reporting else [])}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='设备运行/填报双日报，默认只生成图片不发送')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--send-test', action='store_true', help='只发送给崔玮杰')
     mode.add_argument('--send-production', action='store_true', help='正式发送，另需配置开启及二次确认')
+    mode.add_argument('--submit-notification-event', action='store_true', help='将日报作为一个事件交给KDOS群路由；需要配置KDOS内部通知凭据')
     mode.add_argument('--check-production', action='store_true', help='正式发布预检：只读取数/检查联系人/生成图片，不发送')
     mode.add_argument('--notify-failure', action='store_true', help='n8n失败分支通知维护人，不发送业务日报')
     parser.add_argument('--confirm-production', action='store_true')
@@ -457,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError('当前禁止正式发送；未来需显式开启allow_production_send并提供--confirm-production')
     if (args.check_production or args.notify_failure) and config.get('allow_production_send') is not True:
         raise ValueError('正式发布尚未开启，不能执行正式预检或告警')
-    if args.data_json and (args.send_test or args.send_production or args.check_production or args.notify_failure):
+    if args.data_json and (args.send_test or args.send_production or args.submit_notification_event or args.check_production or args.notify_failure):
         raise ValueError('本地调试数据不能用于真实发送')
     if args.notify_failure:
         print(json.dumps(send_failure_alert(config['failure_recipients']), ensure_ascii=False))
@@ -474,6 +509,8 @@ def main(argv: list[str] | None = None) -> int:
         folder = args.output_dir / end.isoformat()
         if args.send_production or args.check_production:
             folder = folder / 'production'
+        elif args.submit_notification_event:
+            folder = folder / 'group-event'
         elif args.test_run_id:
             folder = folder / 'tests' / args.test_run_id
         operation = render_operation_report(summary, folder / 'operation.png')
@@ -495,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
             result['mode'] = mode
             if args.test_run_id:
                 result['testRunId'] = args.test_run_id
+        elif args.submit_notification_event:
+            result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary)))
         else:
             if args.check_production:
                 users = resolve_user_ids(create_pusher(), config['production_recipients'])

@@ -31,10 +31,26 @@ export class NotificationInternalController {
     response.setHeader("Cache-Control","no-store");response.send(file.content);
   }
 
+  @Get(":id/group-attachments/:componentId")
+  async groupImage(@Param("id") id: string, @Param("componentId") componentId: string, @Req() request: NotificationInternalRequest, @Res() response: Response) {
+    const file = await this.notifications.groupImageAttachment(this.tenant(request), id, componentId, this.worker(request));
+    response.setHeader("Content-Type", file.mimeType);
+    response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(file.filename)}"`);
+    response.setHeader("Cache-Control", "no-store"); response.send(file.content);
+  }
+
   @Post("claim")
   claim(@Req() request: NotificationInternalRequest, @Body() body: InternalBody) {
     const limit = this.optionalPositiveInteger(body.limit, 10, 20);
     return this.notifications.claimForDispatcher(this.tenant(request), this.worker(request), limit);
+  }
+
+  @Post("events/group-webhook")
+  enqueueGroupWebhookEvent(@Req() request: NotificationInternalRequest, @Body() body: InternalBody) {
+    return this.notifications.enqueueGroupEvent(this.tenant(request), {
+      eventType: String(body.eventType ?? ""), dedupKey: String(body.dedupKey ?? ""),
+      components: Array.isArray(body.components) ? body.components as never : [], createdBy: null
+    });
   }
 
   @Post(":id/success")

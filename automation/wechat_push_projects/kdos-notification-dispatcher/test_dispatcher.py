@@ -23,6 +23,24 @@ class FakePusher:
         return self.response
 
 
+class FakeGroupPusher:
+    def __init__(self):
+        self.robot_webhook = None
+        self.calls = []
+
+    def send_robot_text(self, content):
+        self.calls.append(("text", content, self.robot_webhook))
+        return {"errcode": 500 if "failed" in self.robot_webhook else 0, "errmsg": "group failure"}
+
+    def send_robot_markdown(self, content):
+        self.calls.append(("markdown", content, self.robot_webhook))
+        return {"errcode": 0}
+
+    def send_robot_image(self, path):
+        self.calls.append(("image", Path(path).read_bytes(), self.robot_webhook))
+        return {"errcode": 0}
+
+
 class DispatcherTest(unittest.TestCase):
     def config(self, **kwargs):
         values = {
@@ -183,6 +201,39 @@ class FileDeliveryTest(unittest.TestCase):
                 self.assertEqual(service.run_once()["failed"],1)
                 service._get_attachment.assert_not_called()
                 pusher.send_app_file.assert_not_called()
+
+class GroupWebhookDeliveryTest(unittest.TestCase):
+    def test_dispatches_ordered_components_to_each_group_and_logs_only_failed_target(self):
+        group_a = {"deliveryId":"group-a-text","targetType":"WECHAT_GROUP_WEBHOOK","targetId":"a","targetName":"设备群","webhookUrl":"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=failedkey0000000000"}
+        group_b = {"deliveryId":"group-b-text","targetType":"WECHAT_GROUP_WEBHOOK","targetId":"b","targetName":"PMC群","webhookUrl":"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=successkey0000000000"}
+        text = {"notificationId":"event-1","content":"设备日报文字","messageType":"group_text","recipients":[group_a,group_b]}
+        image = {"notificationId":"event-1","content":"","messageType":"group_image","attachment":{"downloadPath":"/internal/notifications/0199f000-0000-7000-8000-000000000001/group-attachments/0199f000-0000-7000-8000-000000000002","filename":"operation.png"},"recipients":[{**group_a,"deliveryId":"group-a-image"},{**group_b,"deliveryId":"group-b-image"}]}
+        callbacks=[]; pusher=FakeGroupPusher()
+        def post(path,body):
+            callbacks.append((path,body))
+            return {"notifications":[text,image]} if path.endswith("/claim") else {}
+        service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,pusher)
+        service._get_group_image=lambda path:b"\x89PNG\r\n\x1a\nimage-data"
+        result=service.run_once()
+        self.assertEqual(result,{"claimed":2,"sent":3,"failed":1})
+        self.assertEqual([call[0] for call in pusher.calls],["text","text","image","image"])
+        self.assertEqual([body["deliveryId"] for path,body in callbacks if path.endswith("/failure")],["group-a-text"])
+        self.assertEqual([body["deliveryId"] for path,body in callbacks if path.endswith("/success")],["group-b-text","group-a-image","group-b-image"])
+
+    def test_webhook_is_never_in_reported_error(self):
+        secret_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=verysecretcredential"
+        item={"notificationId":"event-2","content":"x","messageType":"group_text","recipients":[{"deliveryId":"group-error","targetType":"WECHAT_GROUP_WEBHOOK","webhookUrl":secret_url}]}
+        callbacks=[]
+        def post(path,body):
+            callbacks.append((path,body))
+            return {"notifications":[item]} if path.endswith("/claim") else {}
+        class Broken(FakeGroupPusher):
+            def send_robot_text(self,content): raise RuntimeError(f"request failed {self.robot_webhook}")
+        service=dispatcher.KdosNotificationDispatcher(DispatcherTest().config(),post,Broken())
+        service.run_once()
+        failed=next(body for path,body in callbacks if path.endswith("/failure"))
+        self.assertNotIn("verysecretcredential",failed["errmsg"])
+        self.assertIn("[webhook已隐藏]",failed["errmsg"])
 
     def test_success_receipt_prevents_resend_after_callback_failure(self):
         import tempfile

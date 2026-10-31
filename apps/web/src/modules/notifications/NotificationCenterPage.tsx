@@ -5,6 +5,7 @@ import { ApartmentOutlined, EditOutlined, ReloadOutlined, SendOutlined, TeamOutl
 import { api, ApiError } from "../../api";
 import { KdosDataTable } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
+import { NotificationGroupRouting } from "./NotificationGroupRouting";
 
 type RecipientTarget = { type: "ORGANIZATION"; organizationUnitId: string; includeDescendants: boolean } | { type: "ROLE"; roleId: string } | { type: "USER"; userId: string };
 type Rule = { id: string; name: string; eventType: string; module: string; resource: string; resourceLabel: string; condition: string; recipientRule: string; recipientLabel: string; recipientTargets?: RecipientTarget[]; recipientUserIds?: string[]; channelLabel: string; enabled: boolean; latestSendAt?: string | null; config?: { template?: string; recipientTargets?: RecipientTarget[]; recipientUserIds?: string[] }; version: number };
@@ -18,6 +19,7 @@ const formatTime = (value?: string | null) => value ? new Date(value).toLocaleSt
 
 export function NotificationCenterPage() {
   const queryClient = useQueryClient(); const [activeTab, setActiveTab] = useState("rules");
+  const managementAccess=useQuery({queryKey:["notification-management-access"],queryFn:()=>api<{groupWebhooks:Record<string,boolean>;routes:Record<string,boolean>}>("/notifications/management-access"),staleTime:60_000});
   const events = useQuery({ queryKey: ["notification-events"], queryFn: () => api<EventDefinition[]>("/notifications/events"), staleTime: 300_000 });
   const recipientOptions = useQuery({ queryKey: ["notification-recipient-options"], queryFn: () => api<RecipientOptions>("/notifications/recipient-options"), staleTime: 300_000 });
   const [module, setModule] = useState(""); const [resource, setResource] = useState(""); const [status, setStatus] = useState(""); const [eventType, setEventType] = useState("");
@@ -82,8 +84,8 @@ export function NotificationCenterPage() {
     <PageHeader title="消息中心" actions={<Button icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新</Button>} />
     {editor === undefined && errorAlert}
     {(events.error || rules.error) && <Alert type="error" showIcon message={(events.error || rules.error)?.message} />}
-    <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "rules", label: "消息规则" }, { key: "logs", label: "发送记录" }, { key: "failures", label: "失败消息" }]} />
-    {activeTab === "rules" ? <>
+    <Tabs activeKey={activeTab} onChange={setActiveTab} items={[{ key: "rules", label: "消息规则" }, { key: "logs", label: "发送记录" }, { key: "failures", label: "失败消息" }, ...(managementAccess.data?.groupWebhooks.read?[{key:"webhooks",label:"群机器人管理"}]:[]), ...(managementAccess.data?.routes.read?[{key:"routes",label:"消息路由"}]:[])]} />
+    {activeTab === "webhooks"||activeTab === "routes" ? <NotificationGroupRouting tab={activeTab} access={managementAccess.data??{groupWebhooks:{},routes:{}}}/> : activeTab === "rules" ? <>
       <Space wrap style={{ marginBottom: 16 }}><Select aria-label="模块" allowClear placeholder="模块" value={module || undefined} onChange={(value) => setModule(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.moduleCode, { value: item.moduleCode, label: item.module }])).values()]} style={{ width: 150 }} /><Select allowClear placeholder="资源/数据表" value={resource || undefined} onChange={(value) => setResource(value ?? "")} options={[...new Map((events.data ?? []).map((item) => [item.resource, { value: item.resource, label: item.resourceLabel }])).values()]} style={{ width: 190 }} /><Select allowClear placeholder="事件" value={eventType || undefined} onChange={(value) => setEventType(value ?? "")} options={eventOptions} style={{ width: 300 }} /><Select allowClear placeholder="状态" value={status || undefined} onChange={(value) => setStatus(value ?? "")} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} style={{ width: 130 }} /><Button type="primary" disabled={events.isError || events.isLoading} onClick={() => void openEditor()}>新增规则</Button></Space>
       {!events.isLoading && !events.data?.length && <Alert type="info" showIcon message="当前数据表暂未注册可用的实时通知事件。" />}
       {events.data?.length ? <Alert type="info" showIcon message={<span>已注册事件：{events.data.map((item) => `${item.resourceLabel} / ${item.eventType}`).join("、")}</span>} style={{ marginBottom: 16 }} /> : null}

@@ -75,7 +75,7 @@ class KdosNotificationDispatcher:
             try:
                 notification_id = str(notification.get("notificationId", ""))
                 content = str(notification.get("content", ""))
-                if not notification_id or not content:
+                if not notification_id or (not content and notification.get("messageType") != "group_image"):
                     continue
                 for recipient in notification.get("recipients", []):
                     delivery_id = str(recipient.get("deliveryId", ""))
@@ -103,6 +103,27 @@ class KdosNotificationDispatcher:
                                 target.write_bytes(data)
                                 target.chmod(0o600)
                                 response = self._get_pusher().send_app_file(str(target), touser=str(recipient["wechatUserId"]))
+                        elif message_type in {"group_text", "group_markdown", "group_image"}:
+                            webhook = str(recipient.get("webhookUrl", ""))
+                            if not webhook.startswith("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="):
+                                raise RuntimeError("群机器人目标地址无效")
+                            robot = self._get_pusher()
+                            robot.robot_webhook = webhook
+                            if message_type == "group_image":
+                                attachment = notification.get("attachment", {})
+                                download_path = str(attachment.get("downloadPath", ""))
+                                if not re.fullmatch(r"/internal/notifications/[a-f0-9-]+/group-attachments/[a-f0-9-]+", download_path):
+                                    raise RuntimeError("群机器人图片标识无效")
+                                data = self._get_group_image(download_path)
+                                with tempfile.TemporaryDirectory(prefix="kdos-notification-image-") as temp_dir:
+                                    target = Path(temp_dir) / "notification.png"
+                                    target.write_bytes(data)
+                                    target.chmod(0o600)
+                                    response = robot.send_robot_image(str(target))
+                            elif message_type == "group_markdown":
+                                response = robot.send_robot_markdown(content)
+                            else:
+                                response = robot.send_robot_text(content)
                         elif message_type == "text":
                             response = self._get_pusher().send_app_text(content, touser=str(recipient["wechatUserId"]))
                         else:
@@ -124,10 +145,12 @@ class KdosNotificationDispatcher:
                             # Reclaimed PENDING attempts reuse this delivery ID and receipt.
                             LOGGER.error("成功投递回执暂未确认 notification=%s delivery=%s", notification_id, delivery_id)
                         else:
-                            self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", re.sub(r"(access_token|token|secret|password)=[^\s&]+", r"\1=[redacted]", str(exc)))
+                            safe_error = re.sub(r"https://qyapi\.weixin\.qq\.com/cgi-bin/webhook/send\?key=[^\s&]+", "[webhook已隐藏]", str(exc), flags=re.IGNORECASE)
+                            safe_error = re.sub(r"(access_token|token|secret|password)=[^\s&]+", r"\1=[redacted]", safe_error, flags=re.IGNORECASE)
+                            self._report_failure(notification_id, delivery_id, "WECHAT_SEND_FAILED", safe_error)
                         failed += 1
-            except Exception:  # noqa: BLE001 - one malformed notification must not stop the batch
-                LOGGER.exception("处理通知 %s 失败，继续处理下一条", notification.get("notificationId"))
+            except Exception as exc:  # noqa: BLE001 - avoid logging opaque dispatcher payloads or credentials
+                LOGGER.error("处理通知 %s 失败，异常类型=%s，继续处理下一条", notification.get("notificationId"), type(exc).__name__)
                 failed += 1
         return {"claimed": len(notifications), "sent": sent, "failed": failed}
 
@@ -178,6 +201,18 @@ class KdosNotificationDispatcher:
             data = response.read(20 * 1024 * 1024 + 1)
             if len(data) > 20 * 1024 * 1024 or not data.startswith(b"PK"):
                 raise RuntimeError("通知附件无效或超出20MB")
+            return data
+
+    def _get_group_image(self, path: str) -> bytes:
+        request = Request(self.config.api_base_url + path, headers={
+            "x-kdos-internal-token": self.config.token,
+            "x-kdos-tenant-id": self.config.tenant_id,
+            "x-kdos-worker-id": self.config.worker_id,
+        })
+        with urlopen(request, timeout=30) as response:
+            data = response.read(4 * 1024 * 1024 + 1)
+            if len(data) > 4 * 1024 * 1024 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("群通知图片无效或超出4MB")
             return data
 
     def _get_pusher(self) -> Any:

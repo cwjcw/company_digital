@@ -11,6 +11,7 @@ import {
 } from "./notification-event.registry";
 import { NotificationService } from "./notification.service";
 import type { NotificationEventDefinition, NotificationRecipientTarget } from "./notification.types";
+import { encryptGroupWebhook, validateGroupWebhook } from "./group-webhook.crypto";
 
 export type NotificationAdminActor = {
   tenantId: string;
@@ -20,6 +21,7 @@ export type NotificationAdminActor = {
   requestId: string;
   isSystemAdmin: boolean;
   moduleAdminCodes: string[];
+  permissions?: string[];
 };
 
 const RECIPIENT = EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE;
@@ -46,6 +48,10 @@ export class NotificationAdminService {
       channelLabel: "企业微信工作通知", recipientLabels: RECIPIENT_LABELS,
       templateVariables: event.templateVariables
     }));
+  }
+
+  availableGroupRouteEvents(actor: NotificationAdminActor) {
+    return this.availableEvents(actor).filter(event => event.channel === "WECHAT_GROUP_WEBHOOK");
   }
 
   templateVariables(actor: NotificationAdminActor, eventType: string) {
@@ -183,10 +189,10 @@ export class NotificationAdminService {
     for (const [column, input] of [["r.id", query.ruleId], ["r.resource", query.resource], ["l.status", query.status]] as Array<[string, unknown]>) {
       const text = String(input ?? "").trim(); if (!text) continue; values.push(text); where.push(`${column}=$${values.length}`);
     }
-    const recipient = String(query.recipient ?? "").trim(); if (recipient) { values.push(`%${recipient}%`); where.push("(COALESCE(l.wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.recipient_user_id::text,'') ILIKE $" + values.length + ")"); }
+    const recipient = String(query.recipient ?? "").trim(); if (recipient) { values.push(`%${recipient}%`); where.push("(COALESCE(l.wechat_user_id,'') ILIKE $" + values.length + " OR COALESCE(l.recipient_user_id::text,'') ILIKE $" + values.length + " OR COALESCE(l.target_name,'') ILIKE $" + values.length + ")"); }
     const from = String(query.from ?? "").trim(); if (from) { values.push(from); where.push(`l.created_at >= $${values.length}::timestamptz`); }
     const to = String(query.to ?? "").trim(); if (to) { values.push(to); where.push(`l.created_at < ($${values.length}::date + interval '1 day')`); }
-    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.component,a.filename,l.status,l.recipient_user_id,l.wechat_user_id,l.errcode,l.errmsg,l.error_message,l.provider_message_id,
+    const rows = await this.dataSource.query(`SELECT l.id,l.created_at,l.attempt,l.component,a.filename,l.status,l.recipient_user_id,l.wechat_user_id,l.errcode,l.errmsg,l.error_message,l.provider_message_id,l.target_type,l.target_id,l.target_name,
       COALESCE(NULLIF(u.display_name,''),u.username,l.recipient_user_id::text) resolved_recipient,
       r.id rule_id,r.name rule_name,r.module_code,r.resource,r.event_type,r.recipient_rule,o.id outbox_id,o.payload,o.status outbox_status
       FROM notification_delivery_logs l JOIN notification_outbox o ON o.tenant_id=l.tenant_id AND o.id=l.notification_outbox_id
@@ -202,7 +208,8 @@ export class NotificationAdminService {
       const [row] = await manager.query(`SELECT o.*,r.resource FROM notification_outbox o LEFT JOIN notification_rules r ON r.tenant_id=o.tenant_id AND r.id=o.notification_rule_id WHERE o.tenant_id=$1 AND o.id=$2::uuid`, [actor.tenantId, outboxId]);
       if (!row) throw new NotFoundException("通知任务不存在");
       const event = notificationEventDefinition(String(row.event_type ?? ""));
-      this.assertResourceAccess(actor, String(row.resource ?? event?.resourceCode ?? ""));
+      if (row.channel === "WECHAT_GROUP_WEBHOOK") this.requirePermission(actor, "notification-route", "update");
+      else this.assertResourceAccess(actor, String(row.resource ?? event?.resourceCode ?? ""));
       const skipped = await manager.query("SELECT errcode,errmsg FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND status='SKIPPED'", [actor.tenantId, outboxId]);
       if (skipped.some((entry: Record<string, unknown>) => ["SKIPPED_MISSING_WECHAT_ID", "SKIPPED_DISABLED"].includes(String(entry.errcode)))) throw new ConflictException("缺少企业微信 UserId 或用户处于禁用状态，不能重试");
       const updated = this.rowsOf(await manager.query("UPDATE notification_outbox SET payload=CASE WHEN event_type='mps.order_allocation.batch_changed' AND EXISTS(SELECT 1 FROM notification_delivery_logs d WHERE d.notification_outbox_id=notification_outbox.id AND d.tenant_id=notification_outbox.tenant_id AND d.component='routing' AND d.status='FAILED') THEN payload - 'routes' - 'routingErrors' ELSE payload END,status='PENDING',next_retry_at=now(),last_error=NULL,failed_at=NULL,locked_at=NULL,locked_by=NULL,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND status='FAILED' RETURNING *", [actor.tenantId, outboxId]))[0];
@@ -220,6 +227,165 @@ export class NotificationAdminService {
     const result = await this.notifications.enqueueEvent(actor.tenantId, { ruleId: id, eventType: event.eventType, channel: event.defaultChannel, dedupKey: `test:${id}:${randomUUID()}`, payload: payload as Record<string, unknown>, createdBy: actor.userId });
     await this.dataSource.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by) VALUES($1::uuid,$2,'notification_rules',$3::uuid,'notification.test_requested',$4::jsonb,$5,'web',$1::uuid,$1::uuid)", [actor.userId, actor.name, id, JSON.stringify({ outboxId: result.row.id }), actor.requestId]);
     return { ...result, message: "已创建规则测试通知，将发送给当前规则实际接收人。" };
+  }
+
+  groupWebhookAccess(actor: NotificationAdminActor) {
+    return Object.fromEntries(["read", "create", "update", "delete", "test"].map(action => [action, this.hasResourcePermission(actor, "notification-group-webhook", action)]));
+  }
+
+  routeAccess(actor: NotificationAdminActor) {
+    return Object.fromEntries(["read", "create", "update", "delete"].map(action => [action, this.hasResourcePermission(actor, "notification-route", action)]));
+  }
+
+  async listGroupWebhooks(actor: NotificationAdminActor) {
+    this.requirePermission(actor, "notification-group-webhook", "read");
+    return this.write(actor, manager => manager.query(`SELECT id,group_name,robot_name,channel_type,webhook_masked,module_code,responsible_user_id,
+      enabled,remark,created_by,created_at,updated_by,updated_at,version FROM notification_group_webhooks WHERE tenant_id=$1 ORDER BY group_name,id`, [actor.tenantId]));
+  }
+
+  async createGroupWebhook(actor: NotificationAdminActor, body: Record<string, unknown>) {
+    this.requirePermission(actor, "notification-group-webhook", "create");
+    const groupName = this.requiredAdminText(body.groupName, "群名称", 128);
+    const robotName = this.requiredAdminText(body.robotName, "机器人名称", 128);
+    const moduleCode = this.requiredAdminText(body.moduleCode, "所属模块", 64);
+    this.validateModuleCode(moduleCode);
+    const webhook = validateGroupWebhook(body.webhook);
+    return this.write(actor, async manager => {
+      const responsibleUserId = await this.validateResponsibleUser(actor, body.responsibleUserId, manager);
+      const [row] = await manager.query(`INSERT INTO notification_group_webhooks(tenant_id,group_name,robot_name,webhook_ciphertext,webhook_masked,module_code,responsible_user_id,enabled,remark,created_by,updated_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9,$10::uuid,$10::uuid) RETURNING *`, [actor.tenantId, groupName, robotName, encryptGroupWebhook(webhook.plaintext), webhook.masked, moduleCode, responsibleUserId, body.enabled !== false, this.optionalAdminText(body.remark, 1000), actor.userId]);
+      const view = this.groupWebhookView(row); await this.auditEntity(manager, actor, "notification-group-webhook", row.id, "notification_group_webhook.created", null, view); return view;
+    });
+  }
+
+  async updateGroupWebhook(actor: NotificationAdminActor, id: string, body: Record<string, unknown>) {
+    this.requirePermission(actor, "notification-group-webhook", "update");
+    return this.write(actor, async manager => {
+      const [current] = await manager.query("SELECT * FROM notification_group_webhooks WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [actor.tenantId, id]);
+      if (!current) throw new NotFoundException("群机器人不存在");
+      if (Number(current.version) !== Number(body.expectedVersion)) throw new ConflictException("群机器人配置已变化，请刷新后重试");
+      const webhook = String(body.webhook ?? "").trim() ? validateGroupWebhook(body.webhook) : null;
+      const row = (await manager.query(`UPDATE notification_group_webhooks SET group_name=$3,robot_name=$4,
+        webhook_ciphertext=COALESCE($5,webhook_ciphertext),webhook_masked=COALESCE($6,webhook_masked),module_code=$7,
+        responsible_user_id=$8::uuid,enabled=$9,remark=$10,updated_by=$11::uuid,updated_at=now(),version=version+1
+        WHERE tenant_id=$1 AND id=$2::uuid AND version=$12 RETURNING *`, [actor.tenantId, id,
+        this.requiredAdminText(body.groupName ?? current.group_name, "群名称", 128), this.requiredAdminText(body.robotName ?? current.robot_name, "机器人名称", 128),
+        webhook ? encryptGroupWebhook(webhook.plaintext) : null, webhook?.masked ?? null, this.validModuleCode(body.moduleCode ?? current.module_code),
+        body.responsibleUserId === undefined ? current.responsible_user_id : await this.validateResponsibleUser(actor, body.responsibleUserId, manager),
+        typeof body.enabled === "boolean" ? body.enabled : current.enabled, body.remark === undefined ? current.remark : this.optionalAdminText(body.remark, 1000), actor.userId, Number(current.version)]))[0];
+      if (!row) throw new ConflictException("群机器人配置已变化，请刷新后重试");
+      const before = this.groupWebhookView(current); const after = this.groupWebhookView(row);
+      await this.auditEntity(manager, actor, "notification-group-webhook", id, "notification_group_webhook.updated", before, after); return after;
+    });
+  }
+
+  async deleteGroupWebhook(actor: NotificationAdminActor, id: string, expectedVersion: number) {
+    this.requirePermission(actor, "notification-group-webhook", "delete");
+    return this.write(actor, async manager => {
+      const [current] = await manager.query("SELECT * FROM notification_group_webhooks WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [actor.tenantId, id]);
+      if (!current) throw new NotFoundException("群机器人不存在");
+      if (Number(current.version) !== Number(expectedVersion)) throw new ConflictException("群机器人配置已变化，请刷新后重试");
+      const [reference] = await manager.query(`SELECT r.enabled route_enabled FROM notification_route_targets t JOIN notification_routes r ON r.tenant_id=t.tenant_id AND r.id=t.route_id
+        WHERE t.tenant_id=$1 AND t.target_id=$2::uuid LIMIT 1`, [actor.tenantId, id]);
+      if (reference?.route_enabled) throw new ConflictException("该群机器人正在被消息路由使用，无法删除，请先解除路由关系。");
+      if (reference) throw new ConflictException("该群机器人仍被消息路由引用，请先解除路由关系。");
+      await manager.query("DELETE FROM notification_group_webhooks WHERE tenant_id=$1 AND id=$2::uuid", [actor.tenantId, id]);
+      await this.auditEntity(manager, actor, "notification-group-webhook", id, "notification_group_webhook.deleted", this.groupWebhookView(current), null);
+      return { id, deleted: true };
+    });
+  }
+
+  async testGroupWebhook(actor: NotificationAdminActor, id: string) {
+    this.requirePermission(actor, "notification-group-webhook", "test");
+    return this.write(actor, async manager => {
+      const [target] = await manager.query("SELECT id,enabled,group_name FROM notification_group_webhooks WHERE tenant_id=$1 AND id=$2::uuid", [actor.tenantId, id]);
+      if (!target) throw new NotFoundException("群机器人不存在");
+      if (!target.enabled) throw new ConflictException("请先启用该群机器人再测试");
+      if (!process.env.KDOS_NOTIFICATION_SECRET_KEY) throw new ConflictException("通知Webhook加密密钥未配置，无法测试发送");
+      const content = `【KDOS测试消息】\n企业微信群机器人连接正常。\n发送时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}`;
+      const result = await this.notifications.enqueueEvent(actor.tenantId, { eventType: "notification.group_webhook.test", channel: "WECHAT_GROUP_WEBHOOK", dedupKey: `group-webhook-test:${id}:${randomUUID()}`, payload: { groupWebhookId: id, content }, createdBy: actor.userId }, manager);
+      await this.auditEntity(manager, actor, "notification-group-webhook", id, "notification_group_webhook.test_requested", null, { outboxId: result.row.id });
+      return { ...result, message: "测试消息已进入 Dispatcher 队列。" };
+    });
+  }
+
+  async listRoutes(actor: NotificationAdminActor) {
+    this.requirePermission(actor, "notification-route", "read");
+    return this.write(actor, async manager => {
+      const result: Array<Record<string, unknown>> = [];
+      for (const event of notificationEventDefinitions().filter(item => this.canManageResource(actor, item.resourceCode))) {
+        const [route] = await manager.query("SELECT id,name,enabled,remark,version FROM notification_routes WHERE tenant_id=$1 AND event_type=$2", [actor.tenantId, event.eventType]);
+        const targets = route ? await manager.query(`SELECT w.id,w.group_name,w.robot_name,w.enabled webhook_enabled,t.enabled route_enabled
+          FROM notification_route_targets t JOIN notification_group_webhooks w ON w.tenant_id=t.tenant_id AND w.id=t.target_id
+          WHERE t.tenant_id=$1 AND t.route_id=$2::uuid ORDER BY w.group_name`, [actor.tenantId, route.id]) : [];
+        result.push({ ...event, ...(route ? { id: route.id, name: route.name, enabled: route.enabled, remark: route.remark ?? "", version: route.version } : {}), targets });
+      }
+      return result;
+    });
+  }
+
+  async saveRoute(actor: NotificationAdminActor, body: Record<string, unknown>) {
+    const event = this.event(String(body.eventType ?? "")); this.assertResourceAccess(actor, event.resourceCode);
+    if (event.defaultChannel !== "WECHAT_GROUP_WEBHOOK") throw new BadRequestException("该通知事件未开放企业微信群机器人路由");
+    const name = this.requiredAdminText(body.name ?? event.label, "路由名称", 255);
+    const targetIds = Array.isArray(body.targetIds) ? [...new Set(body.targetIds.map(value => this.requiredAdminUuid(value, "群机器人ID")))] : [];
+    if (body.enabled === true && !targetIds.length) throw new BadRequestException("启用的消息路由至少需要一个接收群机器人");
+    return this.write(actor, async manager => {
+      const [existing] = await manager.query("SELECT id FROM notification_routes WHERE tenant_id=$1 AND event_type=$2", [actor.tenantId, event.eventType]);
+      this.requirePermission(actor, "notification-route", existing ? "update" : "create");
+      if (targetIds.length) {
+        const found = await manager.query("SELECT id FROM notification_group_webhooks WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [actor.tenantId, targetIds]);
+        if (found.length !== targetIds.length) throw new BadRequestException("接收群机器人不存在或跨租户");
+      }
+      let route: Record<string, unknown>;
+      if (existing) {
+        const [current] = await manager.query("SELECT * FROM notification_routes WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [actor.tenantId, existing.id]);
+        if (Number(current.version) !== Number(body.expectedVersion)) throw new ConflictException("消息路由已变化，请刷新后重试");
+        [route] = await manager.query(`UPDATE notification_routes SET name=$3,enabled=$4,remark=$5,updated_by=$6::uuid,updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND version=$7 RETURNING *`, [actor.tenantId, existing.id, name, body.enabled === true, this.optionalAdminText(body.remark, 1000), actor.userId, Number(current.version)]);
+        if (!route) throw new ConflictException("消息路由已变化，请刷新后重试");
+        await manager.query("DELETE FROM notification_route_targets WHERE tenant_id=$1 AND route_id=$2::uuid", [actor.tenantId, route.id]);
+        await this.auditEntity(manager, actor, "notification-route", String(route.id), "notification_route.updated", { ...current }, { ...route, targetIds });
+      } else {
+        [route] = await manager.query(`INSERT INTO notification_routes(tenant_id,event_type,name,enabled,remark,created_by,updated_by)
+          VALUES($1,$2,$3,$4,$5,$6::uuid,$6::uuid) RETURNING *`, [actor.tenantId, event.eventType, name, body.enabled === true, this.optionalAdminText(body.remark, 1000), actor.userId]);
+        await this.auditEntity(manager, actor, "notification-route", String(route.id), "notification_route.created", null, { ...route, targetIds });
+      }
+      for (const targetId of targetIds) await manager.query("INSERT INTO notification_route_targets(tenant_id,route_id,target_id,created_by) VALUES($1,$2::uuid,$3::uuid,$4::uuid)", [actor.tenantId, route.id, targetId, actor.userId]);
+      return { id: route.id, eventType: route.event_type, name: route.name, enabled: route.enabled, remark: route.remark ?? "", version: route.version, targets: targetIds };
+    });
+  }
+
+  async deleteRoute(actor: NotificationAdminActor, id: string, expectedVersion: number) {
+    this.requirePermission(actor, "notification-route", "delete");
+    return this.write(actor, async manager => {
+      const [current] = await manager.query("SELECT * FROM notification_routes WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [actor.tenantId, id]);
+      if (!current) throw new NotFoundException("消息路由不存在");
+      this.assertResourceAccess(actor, String(notificationEventDefinition(String(current.event_type))?.resourceCode ?? ""));
+      if (Number(current.version) !== Number(expectedVersion)) throw new ConflictException("消息路由已变化，请刷新后重试");
+      await manager.query("DELETE FROM notification_route_targets WHERE tenant_id=$1 AND route_id=$2::uuid", [actor.tenantId, id]);
+      await manager.query("DELETE FROM notification_routes WHERE tenant_id=$1 AND id=$2::uuid", [actor.tenantId, id]);
+      await this.auditEntity(manager, actor, "notification-route", id, "notification_route.deleted", current, null);
+      return { id, deleted: true };
+    });
+  }
+
+  private groupWebhookView(row: Record<string, unknown>) {
+    return { id: row.id, groupName: row.group_name, robotName: row.robot_name, channelType: row.channel_type, webhookMasked: row.webhook_masked, webhookConfigured: Boolean(row.webhook_ciphertext), moduleCode: row.module_code, responsibleUserId: row.responsible_user_id ?? null, enabled: row.enabled, remark: row.remark ?? "", createdBy: row.created_by ?? null, createdAt: row.created_at, updatedBy: row.updated_by ?? null, updatedAt: row.updated_at, version: row.version };
+  }
+
+  private requiredAdminText(value: unknown, label: string, max: number) { const result = String(value ?? "").trim(); if (!result || result.length > max) throw new BadRequestException(`${label}不能为空且不能超过${max}个字符`); return result; }
+  private validModuleCode(value: unknown) { const code=this.requiredAdminText(value,"所属模块",64);this.validateModuleCode(code);return code; }
+  private validateModuleCode(code: string) { if (!tableResourceRegistry.some(resource=>resource.moduleCode===code)) throw new BadRequestException("所属模块无效"); }
+  private optionalAdminText(value: unknown, max: number) { const result = String(value ?? "").trim(); if (result.length > max) throw new BadRequestException(`备注不能超过${max}个字符`); return result || null; }
+  private requiredAdminUuid(value: unknown, label: string) { const result = String(value ?? "").trim(); if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result)) throw new BadRequestException(`${label}无效`); return result; }
+  private async validateResponsibleUser(actor: NotificationAdminActor, value: unknown, manager: EntityManager) { if (!value) return null; const id = this.requiredAdminUuid(value, "负责人"); const [user] = await manager.query("SELECT id FROM users WHERE tenant_id=$1 AND id=$2::uuid AND enabled=true", [actor.tenantId, id]); if (!user) throw new BadRequestException("负责人不存在、已禁用或不属于当前租户"); return id; }
+  private hasResourcePermission(actor: NotificationAdminActor, resource: string, action: string) { const permissions=actor.permissions??[]; return actor.isSystemAdmin || permissions.includes("*") || permissions.includes(`${resource}:*:${action}`) || permissions.includes(`${resource}:${action}`); }
+  private requirePermission(actor: NotificationAdminActor, resource: string, action: string) { if (!this.hasResourcePermission(actor, resource, action)) throw new ForbiddenException("当前用户没有此操作权限"); }
+  private async auditEntity(manager: EntityManager, actor: NotificationAdminActor, resource: string, id: string, action: string, before: unknown, after: unknown) {
+    await manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id)
+      VALUES($1::uuid,$2,$3,$4::text,$5,$6::jsonb,$7::jsonb,$8,'web',$1::uuid,$1::uuid,$9)`,
+      [actor.userId, actor.name, resource, id, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.tenantId]);
   }
 
   private validRule(body: Record<string, unknown>) {
@@ -321,7 +487,7 @@ export class NotificationAdminService {
     const status = row.status === "SKIPPED" ? String(row.errcode ?? "SKIPPED") : row.status;
     const recipientRule = String(row.recipient_rule ?? RECIPIENT);
     const event = notificationEventDefinition(String(row.event_type ?? ""));
-    return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: resourceModule(String(row.resource ?? event?.resourceCode ?? "")), resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id };
+    return { batchId: (row.payload as Record<string,unknown>)?.batchId, component:row.component, attachmentFilename:row.filename, identities: ((row.payload as {routes?: Array<{userId:string;identities:string[]}>})?.routes??[]).find(route=>route.userId===row.recipient_user_id)?.identities??[], id: row.id, sendTime: row.created_at, ruleId: row.rule_id, ruleName: row.rule_name ?? "—", module: resourceModule(String(row.resource ?? event?.resourceCode ?? "")), resource: row.resource ?? event?.resourceCode ?? "—", eventType: row.event_type, recipientRule, recipientRuleLabel: row.target_type === "WECHAT_GROUP_WEBHOOK" ? "企业微信群机器人" : RECIPIENT_LABELS[recipientRule as keyof typeof RECIPIENT_LABELS] ?? recipientRule, resolvedRecipient: row.target_name ?? row.resolved_recipient ?? row.recipient_user_id ?? "—", wechatUserId: row.target_type === "WECHAT_GROUP_WEBHOOK" ? "—" : row.wechat_user_id ?? "—", status, retryCount: row.attempt, providerMessageId: row.provider_message_id ?? null, failureReason: row.error_message ?? row.errmsg ?? null, outboxId: row.outbox_id, targetType: row.target_type, targetId: row.target_id };
   }
   private async write<T>(actor: NotificationAdminActor, work: (manager: EntityManager) => Promise<T>) { return this.dataSource.transaction(async (manager) => { await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]); return work(manager); }); }
   private async audit(manager: EntityManager, actor: NotificationAdminActor, recordId: string, action: string, before: unknown, after: unknown) { await manager.query("INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id) VALUES($1::uuid,$2,'notification_rules',$3::uuid,$4,$5::jsonb,$6::jsonb,$7,'web',$1::uuid,$1::uuid,$8)", [actor.userId, actor.name, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, actor.tenantId]); }

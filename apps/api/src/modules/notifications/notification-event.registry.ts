@@ -53,6 +53,18 @@ const definitions = [
     ]
   },
   {
+    eventType: "equipment.daily_report",
+    moduleCode: "planning",
+    resourceCode: "equipment-dashboard",
+    label: "设备管理日报",
+    conditionDescription: "由设备日报任务生成文字和图片，再按启用路由发送至企业微信群",
+    defaultChannel: "WECHAT_GROUP_WEBHOOK",
+    messageType: "text",
+    defaultTemplate: "{content}",
+    allowedRecipientRules: [],
+    templateVariables: []
+  },
+  {
     eventType: "shipping_plan.key_fields_changed",
     moduleCode: "planning",
     resourceCode: "mps-shipping-plans",

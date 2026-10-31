@@ -28,6 +28,10 @@ export type NotificationActor = {
   userId: string | null;
 };
 
+export type NotificationGroupEventComponent =
+  | { type: "text" | "markdown"; content: string }
+  | { type: "image"; filename: string; mimeType: "image/png"; base64: string };
+
 export type NotificationRuleInput = {
   ruleKey: string;
   name: string;
@@ -69,17 +73,17 @@ export type NotificationEnqueueResult = {
 
 export type NotificationRecipient = {
   deliveryId: string;
-  userId: string;
-  displayName: string;
-  wechatUserId: string;
+  userId?: string;
+  displayName?: string;
+  wechatUserId?: string;
 };
 
 export type NotificationClaim = {
   notificationId: string;
-  messageType: "text" | "file" | "text_file";
-  attachment?: { id: string; filename: string; downloadPath: string };
+  messageType: "text" | "file" | "text_file" | "group_text" | "group_markdown" | "group_image";
   content: string;
-  recipients: NotificationRecipient[];
+  recipients: Array<NotificationRecipient & { targetType?: "USER" | "WECHAT_GROUP_WEBHOOK"; targetId?: string; targetName?: string; webhookUrl?: string }>;
+  attachment?: { id: string; filename: string; downloadPath: string; mimeType?: string };
 };
 
 export type NotificationDeliveryResult = {

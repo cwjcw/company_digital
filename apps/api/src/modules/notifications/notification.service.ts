@@ -1,5 +1,6 @@
 import { OrderAllocationDeliveryService } from "./order-allocation.delivery.service";
 import { ConflictException, Injectable, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import {
   EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
@@ -16,8 +17,10 @@ import type {
   NotificationOutboxInput,
   NotificationRuleInput,
   NotificationRecipientTarget,
-  NotificationFileDelivery
+  NotificationFileDelivery,
+  NotificationGroupEventComponent
 } from "./notification.types";
+import { decryptGroupWebhook } from "./group-webhook.crypto";
 
 const MAX_ERROR_LENGTH = 4000;
 const DEFAULT_LOCK_TIMEOUT_SECONDS = 300;
@@ -99,6 +102,42 @@ export class NotificationService {
     }, manager);
   }
 
+  /** A trusted internal producer submits one event and ordered text/image components; no webhook is accepted from callers. */
+  async enqueueGroupEvent(tenantId: string, input: { eventType: string; dedupKey: string; components: NotificationGroupEventComponent[]; createdBy?: string | null }) {
+    this.requireTenant(tenantId);
+    const event = notificationEventDefinition(input.eventType);
+    if (!event || event.defaultChannel !== "WECHAT_GROUP_WEBHOOK") throw new ConflictException("通知事件未注册群机器人渠道");
+    this.requireText(input.dedupKey, "dedupKey", 255);
+    if (!Array.isArray(input.components) || input.components.length < 1 || input.components.length > 3 || !["text", "markdown"].includes(input.components[0]?.type)) throw new ConflictException("日报组件顺序无效，必须先发送文字");
+    const totalImageBytes = input.components.reduce((sum, component) => sum + (component.type === "image" ? Buffer.from(component.base64, "base64").length : 0), 0);
+    if (totalImageBytes > 6 * 1024 * 1024) throw new ConflictException("日报图片总大小不能超过6MB");
+    for (const component of input.components) {
+      if (component.type === "image") {
+        const bytes = Buffer.from(component.base64, "base64");
+        if (!component.filename || component.filename.length > 255 || component.mimeType !== "image/png" || bytes.length < 8 || bytes.length > 4 * 1024 * 1024 || bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new ConflictException("设备日报只接受有效PNG图片（单张不超过4MB）");
+      } else if (!component.content.trim() || Buffer.byteLength(component.content, "utf8") > 12000) throw new ConflictException("日报文字内容无效或超长");
+    }
+    return this.withManager(tenantId, undefined, async manager => {
+      const [row] = await manager.query(`INSERT INTO notification_outbox(tenant_id,event_type,channel,dedup_key,payload,created_by,updated_by)
+        VALUES($1,$2,'WECHAT_GROUP_WEBHOOK',$3,'{}'::jsonb,$4::uuid,$4::uuid)
+        ON CONFLICT(tenant_id,dedup_key) DO NOTHING RETURNING *`, [tenantId, input.eventType, input.dedupKey, input.createdBy ?? null]);
+      if (!row) {
+        const [existing] = await manager.query("SELECT * FROM notification_outbox WHERE tenant_id=$1 AND dedup_key=$2", [tenantId, input.dedupKey]);
+        return { row: existing, created: false };
+      }
+      for (let index = 0; index < input.components.length; index += 1) {
+        const component = input.components[index];
+        if (component.type === "image") {
+          const bytes = Buffer.from(component.base64, "base64");
+          await manager.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,filename,mime_type,content,sha256)
+            VALUES($1,$2::uuid,$3,'image',$4,'image/png',$5,$6)`, [tenantId, row.id, index + 1, component.filename, bytes, createHash("sha256").update(bytes).digest("hex")]);
+        } else await manager.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,content_text)
+          VALUES($1,$2::uuid,$3,$4,$5)`, [tenantId, row.id, index + 1, component.type, component.content]);
+      }
+      return { row, created: true };
+    });
+  }
+
   /** 使用数据库行锁领取任务；锁超时的 PROCESSING 行可被后续 worker 恢复。 */
   async claim(tenantId: string, workerId: string, limit = 20, lockTimeoutSeconds = DEFAULT_LOCK_TIMEOUT_SECONDS) {
     this.requireTenant(tenantId); this.requireText(workerId, "workerId", 255);
@@ -112,26 +151,35 @@ export class NotificationService {
       const rows = this.rowsOf(await manager.query(this.claimSql(), [tenantId, workerId, this.normalizeLimit(limit), this.normalizeTimeout(lockTimeoutSeconds)]));
       const claims: NotificationClaim[] = [];
       for (const outbox of rows as Array<Record<string, unknown>>) {
+        if (outbox.event_type === "notification.group_webhook.test") {
+          const directClaims=await this.prepareDirectGroupWebhookTest(manager, tenantId, outbox);
+          claims.push(...directClaims);
+          if (!directClaims.length) await this.quarantine(manager, tenantId, outbox, workerId, "GROUP_WEBHOOK_TEST_TARGET_MISSING", "群机器人测试目标不可用");
+          continue;
+        }
         const eventDefinition = notificationEventDefinition(String(outbox.event_type ?? ""));
         if (!eventDefinition) {
           await this.quarantine(manager, tenantId, outbox, workerId, "UNREGISTERED_NOTIFICATION_EVENT", "通知事件未在 Notification Event Registry 注册");
           continue;
         }
         const rule = await this.resolveRule(manager, tenantId, outbox);
-        if (!rule) {
-          await this.quarantine(manager, tenantId, outbox, workerId, "NO_MATCHING_RULE", "没有匹配的启用通知规则");
-          continue;
-        }
-        if (rule.resource !== eventDefinition.resourceCode) {
+        if (rule && rule.resource !== eventDefinition.resourceCode) {
           await this.quarantine(manager, tenantId, outbox, workerId, "NOTIFICATION_EVENT_RESOURCE_MISMATCH", "通知规则资源与注册事件资源不一致");
           continue;
         }
-        const recipientRule = String(rule.recipient_rule ?? "");
-        if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) {
+        const recipientRule = String(rule?.recipient_rule ?? "");
+        if (rule && !eventDefinition.allowedRecipientRules.includes(recipientRule)) {
           await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知事件不允许使用该接收人规则");
           continue;
         }
-        if (eventDefinition.eventType === "mps.order_allocation.batch_changed") {
+        const groupClaims = eventDefinition.defaultChannel === "WECHAT_GROUP_WEBHOOK"
+          ? await this.prepareGroupWebhookClaims(manager, tenantId, outbox)
+          : [];
+        if (!rule && !groupClaims.length) {
+          await this.quarantine(manager, tenantId, outbox, workerId, "NO_MATCHING_RULE", "没有匹配的启用通知规则或消息路由");
+          continue;
+        }
+        if (rule && eventDefinition.eventType === "mps.order_allocation.batch_changed") {
           if (!this.allocationDelivery) throw new ConflictException("订单分配通知投递器未配置");
           await manager.query("SAVEPOINT allocation_delivery");
           try { claims.push(...await this.allocationDelivery.prepare(manager,tenantId,outbox,workerId)); }
@@ -140,8 +188,8 @@ export class NotificationService {
           continue;
         }
         const payload = this.objectPayload(outbox.payload);
-        const users = await this.resolveRecipients(manager, tenantId, rule, eventDefinition, payload);
-        if (eventDefinition.eventType === "finance.monthly.daily_summary" && payload.financeReportFormat === 1) {
+        const users = rule ? await this.resolveRecipients(manager, tenantId, rule, eventDefinition, payload) : [];
+        if (rule && eventDefinition.eventType === "finance.monthly.daily_summary" && payload.financeReportFormat === 1) {
           await manager.query("SAVEPOINT finance_file_delivery");
           try {
             if (!this.financeFiles) throw new ConflictException("财务附件服务未配置");
@@ -155,15 +203,30 @@ export class NotificationService {
         }
         const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users);
         await manager.query(`
-          UPDATE notification_outbox SET notification_rule_id=$3::uuid,updated_at=now(),version=version+1
-          WHERE tenant_id=$1 AND id=$2::uuid AND status='PROCESSING' AND locked_by=$4`, [tenantId, outbox.id, rule.id, workerId]);
-        if (!deliveryRecipients.length) {
+          UPDATE notification_outbox SET notification_rule_id=COALESCE($3::uuid,notification_rule_id),updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND status='PROCESSING' AND locked_by=$4`, [tenantId, outbox.id, rule?.id ?? null, workerId]);
+        if (!deliveryRecipients.length && !groupClaims.length) {
           await this.completeWithoutDelivery(manager, tenantId, outbox, workerId);
           continue;
         }
-        claims.push({ notificationId: String(outbox.id), messageType: eventDefinition.eventType === "finance.monthly.daily_summary" ? "text" : eventDefinition.messageType, content: this.renderContent(rule, eventDefinition, payload), recipients: deliveryRecipients });
+        if (deliveryRecipients.length && rule) claims.push({ notificationId: String(outbox.id), messageType: eventDefinition.eventType === "finance.monthly.daily_summary" ? "text" : eventDefinition.messageType, content: this.renderContent(rule, eventDefinition, payload), recipients: deliveryRecipients });
+        claims.push(...groupClaims);
       }
       return claims;
+    });
+  }
+
+  async groupImageAttachment(tenantId: string, outboxId: string, componentId: string, workerId: string) {
+    this.requireJobIdentity(tenantId, outboxId, workerId);
+    return this.withManager(tenantId, undefined, async manager => {
+      const [row] = await manager.query(`SELECT c.filename,c.mime_type,c.content FROM notification_event_components c
+        JOIN notification_outbox o ON o.tenant_id=c.tenant_id AND o.id=c.notification_outbox_id
+        JOIN notification_delivery_logs d ON d.tenant_id=o.tenant_id AND d.notification_outbox_id=o.id
+          AND d.target_type='WECHAT_GROUP_WEBHOOK' AND d.status IN ('PENDING','PROCESSING')
+        WHERE c.tenant_id=$1 AND o.id=$2::uuid AND c.id=$3::uuid AND c.component_type='image'
+          AND o.status='PROCESSING' AND o.locked_by=$4`, [tenantId, outboxId, componentId, workerId]);
+      if (!row) throw new ConflictException("群机器人图片不存在或投递租约已失效");
+      return { filename: row.filename, mimeType: row.mime_type, content: row.content as Buffer };
     });
   }
 
@@ -240,7 +303,58 @@ export class NotificationService {
     const rows = outbox.notification_rule_id
       ? await manager.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND id=$2::uuid AND (enabled=true OR $3::boolean)", [tenantId, outbox.notification_rule_id, outbox.event_type === "mps.order_allocation.batch_changed" && (outbox.payload as Record<string,unknown>)?.deliveryMode === "TEST"])
       : await manager.query("SELECT * FROM notification_rules WHERE tenant_id=$1 AND event_type=$2 AND channel=$3 AND enabled=true ORDER BY updated_at DESC,id DESC LIMIT 1", [tenantId, outbox.event_type, outbox.channel]);
-    return rows[0] ?? null;
+    return (rows ?? [])[0] ?? null;
+  }
+
+  private async prepareGroupWebhookClaims(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationClaim[]> {
+    const targets = (await manager.query(`SELECT w.id,w.group_name,w.webhook_ciphertext FROM notification_routes r
+      JOIN notification_route_targets t ON t.tenant_id=r.tenant_id AND t.route_id=r.id AND t.enabled=true
+      JOIN notification_group_webhooks w ON w.tenant_id=t.tenant_id AND w.id=t.target_id AND w.enabled=true
+      WHERE r.tenant_id=$1 AND r.event_type=$2 AND r.enabled=true ORDER BY w.group_name,w.id`, [tenantId, outbox.event_type]) ?? []) as Array<Record<string, unknown>>;
+    if (!targets.length) return [];
+    const components = await manager.query(`SELECT id,sequence,component_type,content_text,filename FROM notification_event_components
+      WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY sequence,id`, [tenantId, outbox.id]) as Array<Record<string, unknown>>;
+    if (!components.length) throw new ConflictException("群消息没有内容组件");
+    const claims: NotificationClaim[] = [];
+    for (const component of components) {
+      const componentKey = `group_${String(component.component_type)}`;
+      const recipients: NotificationClaim["recipients"] = [];
+      for (const target of targets) {
+        const [previous] = await manager.query(`SELECT id,attempt,status FROM notification_delivery_logs
+          WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND target_type='WECHAT_GROUP_WEBHOOK' AND target_id=$3::uuid AND component=$4
+          ORDER BY attempt DESC,id DESC LIMIT 1`, [tenantId, outbox.id, target.id, componentKey]);
+        if (previous?.status === "SENT" || previous?.status === "SKIPPED") continue;
+        const webhookUrl = decryptGroupWebhook(String(target.webhook_ciphertext));
+        let delivery = previous;
+        if (!delivery || !["PENDING", "PROCESSING"].includes(String(delivery.status))) {
+          [delivery] = await manager.query(`INSERT INTO notification_delivery_logs(tenant_id,notification_outbox_id,attempt,status,component,target_type,target_id,target_name)
+            VALUES($1,$2::uuid,$3,'PENDING',$4,'WECHAT_GROUP_WEBHOOK',$5::uuid,$6) RETURNING id,attempt,status`, [tenantId, outbox.id, Number(previous?.attempt ?? 0) + 1, componentKey, target.id, target.group_name]);
+        }
+        recipients.push({ deliveryId: String(delivery.id), userId: "", displayName: String(target.group_name), targetType: "WECHAT_GROUP_WEBHOOK", targetId: String(target.id), targetName: String(target.group_name), webhookUrl });
+      }
+      if (!recipients.length) continue;
+      const messageType = (String(component.component_type) === "image" ? "group_image" : `group_${String(component.component_type)}`) as NotificationClaim["messageType"];
+      claims.push({ notificationId: String(outbox.id), messageType, content: String(component.content_text ?? ""), recipients,
+        ...(component.component_type === "image" ? { attachment: { id: String(component.id), filename: String(component.filename), mimeType: "image/png", downloadPath: `/internal/notifications/${outbox.id}/group-attachments/${component.id}` } } : {}) });
+    }
+    return claims;
+  }
+
+  private async prepareDirectGroupWebhookTest(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationClaim[]> {
+    const payload = this.objectPayload(outbox.payload);
+    const [target] = await manager.query("SELECT id,group_name,webhook_ciphertext FROM notification_group_webhooks WHERE tenant_id=$1 AND id=$2::uuid AND enabled=true", [tenantId, payload.groupWebhookId]);
+    if (!target) return [];
+    const [previous] = await manager.query(`SELECT id,attempt,status FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid
+      AND target_type='WECHAT_GROUP_WEBHOOK' AND target_id=$3::uuid AND component='test_text' ORDER BY attempt DESC,id DESC LIMIT 1`, [tenantId, outbox.id, target.id]);
+    if (previous?.status === "SENT") return [];
+    let delivery = previous;
+    if (!delivery || !["PENDING", "PROCESSING"].includes(String(delivery.status))) {
+      [delivery] = await manager.query(`INSERT INTO notification_delivery_logs(tenant_id,notification_outbox_id,attempt,status,component,target_type,target_id,target_name)
+        VALUES($1,$2::uuid,$3,'PENDING','test_text','WECHAT_GROUP_WEBHOOK',$4::uuid,$5) RETURNING id,status`, [tenantId, outbox.id, Number(previous?.attempt ?? 0) + 1, target.id, target.group_name]);
+    }
+    return [{ notificationId: String(outbox.id), messageType: "group_text", content: String(payload.content ?? "【KDOS测试消息】企业微信群机器人连接正常。"), recipients: [{
+      deliveryId: String(delivery.id), userId: "", displayName: String(target.group_name), targetType: "WECHAT_GROUP_WEBHOOK", targetId: String(target.id), targetName: String(target.group_name), webhookUrl: decryptGroupWebhook(String(target.webhook_ciphertext))
+    }] }];
   }
 
   private async resolveRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, eventDefinition: NotificationEventDefinition, payload: Record<string, unknown>) {
@@ -369,7 +483,7 @@ export class NotificationService {
   }
 
   private async reconcileOutbox(manager: EntityManager, tenantId: string, outboxId: string, workerId: string) {
-    const states = await manager.query("SELECT status,component,count(*)::int count FROM (SELECT DISTINCT ON (recipient_user_id,component) status,component FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY recipient_user_id,component,attempt DESC,id DESC) latest GROUP BY status,component", [tenantId, outboxId]) as Array<{ status: string; component?: string; count: number }>;
+    const states = await manager.query("SELECT status,component,count(*)::int count FROM (SELECT DISTINCT ON (COALESCE(target_type,'USER'),COALESCE(target_id::text,recipient_user_id::text),component) status,component FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY COALESCE(target_type,'USER'),COALESCE(target_id::text,recipient_user_id::text),component,attempt DESC,id DESC) latest GROUP BY status,component", [tenantId, outboxId]) as Array<{ status: string; component?: string; count: number }>;
     const hasActive = states.some((state) => ["PENDING", "PROCESSING"].includes(state.status) && state.count > 0);
     const hasRetry = states.some((state) => state.component !== "routing" && ["RETRY_PENDING", "FAILED"].includes(state.status) && state.count > 0);
     const hasRoutingError = states.some(state => state.component === "routing" && state.status === "FAILED");

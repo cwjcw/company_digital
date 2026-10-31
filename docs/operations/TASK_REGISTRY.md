@@ -55,7 +55,7 @@
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
 | EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式9人，SSH双确认 | n8n | ACTIVE_VERIFIED | 10月31日已发布；真实SSH预检1337成功、readiness通过，下次当日12:00 |
-| MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd Service，轮询约1秒 | systemd Service | UNVERIFIED_RUNTIME | 保留常驻，不迁 n8n |
+| MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd Service，轮询约1秒；Notification Center 支持个人 WECHAT_WORK 与按事件配置的 WECHAT_GROUP_WEBHOOK 路由 | systemd Service | UNVERIFIED_RUNTIME | 保留现有常驻实例，不迁 n8n；群路由/日报群事件当前仅本地实现，未配置生产路由或修改设备日报工作流 |
 | OPS-001 | PostgreSQL 与上传文件备份；`scripts/backup.sh` | 只确认脚本，未发现仓库定时器 | systemd Timer | UNVERIFIED_RUNTIME | 核实生产备份策略、日志与恢复测试 |
 | OPS-002 | DWG本地索引 | 本仓库未发现定义；主机存在 `dwg-index-update.timer` | systemd Timer | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已核实系统级启用，查作业日志及任务归属 |
 | SUP-001 | T+供应商导入；`automation/tplus_supplier_import/extract.py` | 脚本存在、仓库未确认周期触发 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |

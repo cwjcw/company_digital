@@ -2,6 +2,7 @@ import { NotificationInfrastructure1722920067000 } from "../../migrations/172292
 import { NotificationRoutingAndRecipientDeliveries1722920068000 } from "../../migrations/1722920068000-NotificationRoutingAndRecipientDeliveries";
 import { NotificationTestModeDelivery1722920070000 } from "../../migrations/1722920070000-NotificationTestModeDelivery";
 import { NotificationProductionCutover1722920081000 } from "../../migrations/1722920081000-NotificationProductionCutover";
+import { NotificationGroupWebhookRouting1722920113000 } from "../../migrations/1722920113000-NotificationGroupWebhookRouting";
 
 describe("KDOS notification infrastructure migration", () => {
   it("creates tenant-scoped rules, outbox and delivery log tables", async () => {
@@ -51,5 +52,17 @@ describe("KDOS notification infrastructure migration", () => {
     expect(sql).toContain("DROP COLUMN IF EXISTS test_mode");
     expect(sql).toContain("DROP COLUMN IF EXISTS actual_wechat_user_id");
     expect(sql).toContain("DROP COLUMN IF EXISTS actual_recipient_user_id");
+  });
+
+  it("adds tenant-scoped encrypted group targets, routes, image components and per-target delivery identity", async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    await new NotificationGroupWebhookRouting1722920113000().up({ query } as never);
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("webhook_ciphertext text NOT NULL");
+    expect(sql).toContain("CREATE TABLE notification_routes");
+    expect(sql).toContain("CREATE TABLE notification_route_targets");
+    expect(sql).toContain("CREATE TABLE notification_event_components");
+    expect(sql).toContain("CREATE UNIQUE INDEX uq_notification_delivery_group_attempt");
+    expect(sql.match(/FORCE ROW LEVEL SECURITY/g)).toHaveLength(4);
   });
 });

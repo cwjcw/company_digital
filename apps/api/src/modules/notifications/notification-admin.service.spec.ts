@@ -6,6 +6,43 @@ const planningActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: 
 const ordinaryActor = { ...systemActor, isSystemAdmin: false, moduleAdminCodes: [] };
 
 describe("NotificationAdminService", () => {
+  it("requires resource action permissions for group robot management", async () => {
+    const source = { transaction: jest.fn(async (work: (manager: unknown) => unknown) => work({ query: jest.fn() })) };
+    const service = new NotificationAdminService(source as never, {} as never);
+    const actor = { ...ordinaryActor, permissions: ["notification-group-webhook:*:read", "notification-route:*:read"] };
+    expect(service.groupWebhookAccess(actor)).toEqual({ read: true, create: false, update: false, delete: false, test: false });
+    expect(service.routeAccess(actor)).toEqual({ read: true, create: false, update: false, delete: false });
+    await expect(service.listGroupWebhooks({ ...actor, permissions: [] })).rejects.toThrow(ForbiddenException);
+  });
+
+  it("stores only encrypted webhook data and returns the mask on create", async () => {
+    const previous = process.env.KDOS_NOTIFICATION_SECRET_KEY;
+    process.env.KDOS_NOTIFICATION_SECRET_KEY = "admin-test-key";
+    const webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop1234";
+    const manager = { query: jest.fn(async (sql: string, params?: unknown[]) => sql.includes("INSERT INTO notification_group_webhooks") ? [{ id: "group-1", group_name: params?.[1], robot_name: params?.[2], webhook_ciphertext: params?.[3], webhook_masked: params?.[4], module_code: params?.[5], enabled: true, version: 1 }] : []) };
+    const source = { transaction: jest.fn(async (work: (value: typeof manager) => unknown) => work(manager)) };
+    try {
+      const service = new NotificationAdminService(source as never, {} as never);
+      const result = await service.createGroupWebhook({ ...systemActor, permissions: ["notification-group-webhook:*:create"] }, { groupName: "测试群", robotName: "KDOS", moduleCode: "planning", webhook });
+      expect(result.webhookMasked).toBe("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=****1234");
+      expect(JSON.stringify(result)).not.toContain("abcdefghijklmnop1234");
+      const insert = manager.query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO notification_group_webhooks"));
+      expect(String(insert?.[1]?.[3])).not.toContain("abcdefghijklmnop1234");
+      const audit = manager.query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO audit_logs"));
+      expect(JSON.stringify(audit)).not.toContain("abcdefghijklmnop1234");
+    } finally {
+      if (previous === undefined) delete process.env.KDOS_NOTIFICATION_SECRET_KEY; else process.env.KDOS_NOTIFICATION_SECRET_KEY = previous;
+    }
+  });
+
+  it("does not reveal ciphertext from the group-webhook read query", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([{ id: "group-1", group_name: "设备群", webhook_masked: "****1234", webhook_configured: true }]) };
+    const source = { transaction: jest.fn(async (work: (value: typeof manager) => unknown) => work(manager)) };
+    const service = new NotificationAdminService(source as never, {} as never);
+    await service.listGroupWebhooks({ ...systemActor, isSystemAdmin: false, moduleAdminCodes: [], permissions: ["notification-group-webhook:*:read"] });
+    expect(String(manager.query.mock.calls[1]?.[0])).not.toContain("webhook_ciphertext");
+  });
+
   it("exposes finance events only to the owning module or system administrators", () => {
     const service=new NotificationAdminService({} as never,{} as never);
     const financeActor={...ordinaryActor,moduleAdminCodes:["finance"]};

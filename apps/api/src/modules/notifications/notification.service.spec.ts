@@ -1,5 +1,6 @@
 import { NotificationService } from "./notification.service";
 import { notificationEventDefinition } from "./notification-event.registry";
+import { encryptGroupWebhook } from "./group-webhook.crypto";
 
 const tenantId = "KAINAN";
 const ruleId = "00000000-0000-7000-8000-000000000001";
@@ -13,6 +14,32 @@ function dataSource() {
 }
 
 describe("NotificationService", () => {
+  it("creates one delivery row per group and component and reclaims only failed target attempts", async () => {
+    const previousKey=process.env.KDOS_NOTIFICATION_SECRET_KEY;process.env.KDOS_NOTIFICATION_SECRET_KEY="service-test-key";
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([
+      {id:"group-a",group_name:"已送达群",webhook_ciphertext:encryptGroupWebhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop1111")},
+      {id:"group-b",group_name:"待重试群",webhook_ciphertext:encryptGroupWebhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop2222")}
+    ]).mockResolvedValueOnce([{id:"component-text",sequence:1,component_type:"text",content_text:"日报"}])
+      .mockResolvedValueOnce([{id:"sent-a",attempt:1,status:"SENT"}])
+      .mockResolvedValueOnce([{id:"failed-b",attempt:1,status:"FAILED"}])
+      .mockResolvedValueOnce([{id:"retry-b",attempt:2,status:"PENDING"}]);
+    try {
+      const service=new NotificationService(source as never);
+      const claims=await (service as any).prepareGroupWebhookClaims(manager,tenantId,{id:outboxId,event_type:"equipment.daily_report"});
+      expect(claims).toHaveLength(1);
+      expect(claims[0]).toMatchObject({messageType:"group_text",content:"日报",recipients:[{deliveryId:"retry-b",targetName:"待重试群",webhookUrl:"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop2222"}]});
+      expect(String(manager.query.mock.calls[0][0])).toContain("w.enabled=true");
+      expect(manager.query.mock.calls.filter(([sql])=>String(sql).includes("INSERT INTO notification_delivery_logs"))).toHaveLength(1);
+      expect(JSON.stringify(manager.query.mock.calls.filter(([sql])=>String(sql).includes("INSERT INTO notification_delivery_logs")))).not.toContain("abcdefghijklmnop2222");
+    } finally { if(previousKey===undefined)delete process.env.KDOS_NOTIFICATION_SECRET_KEY;else process.env.KDOS_NOTIFICATION_SECRET_KEY=previousKey; }
+  });
+
+  it("rejects routed events that do not start with text and blocks unknown event types", async () => {
+    const {source}=dataSource();const service=new NotificationService(source as never);
+    await expect(service.enqueueGroupEvent(tenantId,{eventType:"equipment.daily_report",dedupKey:"one",components:[{type:"image",filename:"x.png",mimeType:"image/png",base64:"iVBORw0KGgo="}]})).rejects.toThrow(/必须先发送文字/);
+    await expect(service.enqueueGroupEvent(tenantId,{eventType:"unknown",dedupKey:"two",components:[{type:"text",content:"x"}]})).rejects.toThrow(/未注册/);
+  });
   it("skips disabled users and creates a delivery for each enabled user", async () => {
     const { manager, source } = dataSource();
     manager.query.mockResolvedValueOnce([])
@@ -253,7 +280,7 @@ describe("NotificationService", () => {
       recipients: [{ deliveryId, userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", wechatUserId: "wx-zhang" }]
     }]);
     expect(String(manager.query.mock.calls[4]?.[0])).toContain("notification_delivery_logs");
-    expect(String(manager.query.mock.calls[6]?.[0])).toContain("notification_rule_id=$3::uuid");
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("notification_rule_id=COALESCE($3::uuid"))).toBe(true);
   });
 
   it("skips a missing wechat id without blocking other recipients", async () => {
