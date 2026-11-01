@@ -374,7 +374,7 @@ export class NotificationService {
       if (updated.length !== 1) throw new ConflictException("日报事件状态已变化，未执行恢复");
       await manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id)
         VALUES(NULL,'KDOS notification recovery','notification_outbox',$1::text,'notification_group_event.image_recovery',
-          $2::jsonb,$3::jsonb,$4,'system',NULL,'notification-recovery',$5)`, [outboxId, JSON.stringify({status:"SENT",legacyTextDeliveries:4,legacyImageDeliveries:4}), JSON.stringify({status:"PENDING",preservedTextSequence:1,preservedImageSequence:2,retryImageSequence:3,targetIds}), `image-recovery:${outboxId}`, tenantId]);
+          $2::jsonb,$3::jsonb,$4,'api',NULL,'notification-recovery',$5)`, [outboxId, JSON.stringify({status:"SENT",legacyTextDeliveries:4,legacyImageDeliveries:4}), JSON.stringify({status:"PENDING",preservedTextSequence:1,preservedImageSequence:2,retryImageSequence:3,targetIds}), `image-recovery:${outboxId}`, tenantId]);
       return {outboxId,requeued:true,preservedTextDeliveries:renamedText.length,preservedImageDeliveries:renamed.length,retrySequence:Number(components[2].sequence)};
     });
   }
