@@ -29,6 +29,10 @@ describe("NotificationService", () => {
       const claims=await (service as any).prepareGroupWebhookClaims(manager,tenantId,{id:outboxId,event_type:"equipment.daily_report"});
       expect(claims).toHaveLength(1);
       expect(claims[0]).toMatchObject({messageType:"group_text",content:"日报",recipients:[{deliveryId:"retry-b",targetName:"待重试群",webhookUrl:"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop2222"}]});
+      expect(String(manager.query.mock.calls[0][0])).toContain("target_type='WECHAT_GROUP_WEBHOOK'");
+      expect(String(manager.query.mock.calls[0][0])).toContain("target_type='RECIPIENT_GROUP'");
+      expect(String(manager.query.mock.calls[0][0])).toContain("g.enabled=true");
+      expect(String(manager.query.mock.calls[0][0])).toContain("DISTINCT ON(id)");
       expect(String(manager.query.mock.calls[0][0])).toContain("w.enabled=true");
       expect(manager.query.mock.calls.filter(([sql])=>String(sql).includes("INSERT INTO notification_delivery_logs"))).toHaveLength(1);
       expect(JSON.stringify(manager.query.mock.calls.filter(([sql])=>String(sql).includes("INSERT INTO notification_delivery_logs")))).not.toContain("abcdefghijklmnop2222");

@@ -307,10 +307,19 @@ export class NotificationService {
   }
 
   private async prepareGroupWebhookClaims(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationClaim[]> {
-    const targets = (await manager.query(`SELECT w.id,w.group_name,w.webhook_ciphertext FROM notification_routes r
-      JOIN notification_route_targets t ON t.tenant_id=r.tenant_id AND t.route_id=r.id AND t.enabled=true
-      JOIN notification_group_webhooks w ON w.tenant_id=t.tenant_id AND w.id=t.target_id AND w.enabled=true
-      WHERE r.tenant_id=$1 AND r.event_type=$2 AND r.enabled=true ORDER BY w.group_name,w.id`, [tenantId, outbox.event_type]) ?? []) as Array<Record<string, unknown>>;
+    const targets = (await manager.query(`WITH expanded AS (
+        SELECT w.id,w.group_name,w.webhook_ciphertext FROM notification_routes r
+        JOIN notification_route_targets t ON t.tenant_id=r.tenant_id AND t.route_id=r.id AND t.enabled=true AND t.target_type='WECHAT_GROUP_WEBHOOK'
+        JOIN notification_group_webhooks w ON w.tenant_id=t.tenant_id AND w.id=t.target_id AND w.enabled=true
+        WHERE r.tenant_id=$1 AND r.event_type=$2 AND r.enabled=true
+        UNION ALL
+        SELECT w.id,w.group_name,w.webhook_ciphertext FROM notification_routes r
+        JOIN notification_route_targets t ON t.tenant_id=r.tenant_id AND t.route_id=r.id AND t.enabled=true AND t.target_type='RECIPIENT_GROUP'
+        JOIN notification_recipient_groups g ON g.tenant_id=t.tenant_id AND g.id=t.target_id AND g.enabled=true
+        JOIN notification_recipient_group_members m ON m.tenant_id=g.tenant_id AND m.recipient_group_id=g.id
+        JOIN notification_group_webhooks w ON w.tenant_id=m.tenant_id AND w.id=m.target_id AND w.enabled=true
+        WHERE r.tenant_id=$1 AND r.event_type=$2 AND r.enabled=true
+      ) SELECT DISTINCT ON(id) id,group_name,webhook_ciphertext FROM expanded ORDER BY id,group_name`, [tenantId, outbox.event_type]) ?? []) as Array<Record<string, unknown>>;
     if (!targets.length) return [];
     const components = await manager.query(`SELECT id,sequence,component_type,content_text,filename FROM notification_event_components
       WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY sequence,id`, [tenantId, outbox.id]) as Array<Record<string, unknown>>;

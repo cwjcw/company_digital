@@ -5,6 +5,7 @@ const root=path.resolve(__dirname,'..'),req=createRequire(path.join(root,'apps/a
 const {DataSource}=req('typeorm'),{Client}=req('pg');
 const {NotificationAdminService}=req('./dist/modules/notifications/notification-admin.service');
 const {NotificationService}=req('./dist/modules/notifications/notification.service');
+const {encryptGroupWebhook}=req('./dist/modules/notifications/group-webhook.crypto');
 const host=process.env.NOTIFICATION_TEST_POSTGRES_HOST;
 if(!host?.startsWith('/tmp/kdos-notification-pg-'))throw Error('Isolated notification test socket required');
 const name='notification_rules_'+Date.now(),control=new Client({host,user:'knplan',database:'postgres'});
@@ -18,6 +19,28 @@ const check=async(label,run)=>{await run();checks.push(label);console.log('PASS 
  await db.query(`INSERT INTO roles(id,name) VALUES($1,'Synthetic role')`,[id(20)]);
  for(const n of [1,2,3,4])await db.query('INSERT INTO user_roles(user_id,role_id) VALUES($1,$2)',[id(n),id(20)]);
  const notifications=new NotificationService(db),service=new NotificationAdminService(db,notifications);
+ await check('recipient groups expand at dispatch, deduplicate direct/group matches and skip disabled groups or robots',async()=>{
+   const previousKey=process.env.KDOS_NOTIFICATION_SECRET_KEY;process.env.KDOS_NOTIFICATION_SECRET_KEY='notification-group-test-key';
+   try {
+     const webhookIds=[];
+     for(const [n,name,enabled] of [[41,'Synthetic group target 1',true],[42,'Synthetic group target 2',true],[43,'Synthetic disabled target',false]]){
+       const webhook=`https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=synthetic-notification-${n}-abcdefghijkl`;
+       const saved=await service.createGroupWebhook(actor,{groupName:name,robotName:'Synthetic robot',moduleCode:'planning',enabled,webhook});webhookIds.push(saved.id);
+     }
+     let group=await service.createRecipientGroup(actor,{name:'Synthetic equipment recipients',category:'Synthetic org',purpose:'PostgreSQL test',memberIds:webhookIds,enabled:true});
+     const groups=await service.listRecipientGroups(actor);assert.equal(groups.find(row=>row.id===group.id).members.length,3);assert.doesNotMatch(JSON.stringify(groups),/ciphertext|synthetic-notification/);assert.equal((await service.listRecipientGroups({...actor,tenantId:'OTHER',userId:id(4)})).length,0);
+     await service.saveRoute(actor,{eventType:'equipment.daily_report',name:'Synthetic equipment daily report',enabled:true,targets:[{type:'RECIPIENT_GROUP',id:group.id},{type:'WECHAT_GROUP_WEBHOOK',id:webhookIds[0]}]});
+     await assert.rejects(service.saveRoute({...actor,tenantId:'OTHER',userId:id(4)},{eventType:'equipment.daily_report',name:'Foreign tenant route',enabled:true,targets:[{type:'RECIPIENT_GROUP',id:group.id}]}),/不存在或跨租户/);
+     await assert.rejects(service.deleteRecipientGroup(actor,group.id,group.version),/消息路由使用/);
+     const claimFor=async(key)=>{const queued=await notifications.enqueueGroupEvent('KAINAN',{eventType:'equipment.daily_report',dedupKey:key,components:[{type:'text',content:'Synthetic only'}]});return db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",['KAINAN']);const [outbox]=await manager.query('SELECT * FROM notification_outbox WHERE tenant_id=$1 AND id=$2::uuid',['KAINAN',queued.row.id]);const claims=await notifications.prepareGroupWebhookClaims(manager,'KAINAN',outbox);await manager.query("UPDATE notification_outbox SET status='FAILED',next_retry_at=NULL,last_error='synthetic claim expansion test' WHERE tenant_id=$1 AND id=$2::uuid",['KAINAN',queued.row.id]);return claims;});};
+     let claims=await claimFor('group-dispatch-dedup-1');
+     assert.deepEqual(claims.flatMap(c=>c.recipients.map(r=>r.targetId)).sort(),webhookIds.slice(0,2).sort());
+     group=await service.updateRecipientGroup(actor,group.id,{name:group.name,category:group.category,purpose:group.purpose,description:group.description,memberIds:webhookIds,enabled:false,expectedVersion:group.version});
+     claims=await claimFor('group-dispatch-disabled-group');
+     assert.deepEqual(claims.flatMap(c=>c.recipients.map(r=>r.targetId)),[webhookIds[0]]);
+     assert(claims.every(c=>c.recipients.every(r=>!r.targetName.includes('Synthetic disabled target'))));
+   } finally { if(previousKey===undefined)delete process.env.KDOS_NOTIFICATION_SECRET_KEY;else process.env.KDOS_NOTIFICATION_SECRET_KEY=previousKey; }
+ });
  let rule=await service.create(actor,{name:'Synthetic finance summary',eventType:'finance.monthly.daily_summary',recipientRule:'FIXED_USERS',enabled:false,recipientTargets:[],config:{custom:{preserve:true}},template:'{yearMonth}: {orderTotal}'});
  await check('disabled empty draft is editable; missing recipients cannot activate',async()=>{await assert.rejects(service.toggle(actor,rule.id,true,rule.version),/未配置有效接收人/);rule=await service.update(actor,rule.id,{name:'Saved disabled draft',expectedVersion:rule.version});assert.equal(rule.enabled,false);});
  await check('candidate users are enabled, tenant scoped and include users without WeChat mapping',async()=>{const o=await service.recipientOptions(actor);assert.deepEqual(o.users.map(u=>u.id).sort(),[id(1),id(2)]);assert(o.users.every(u=>u.enabled===true));assert(o.organizations.some(o=>o.id===id(10)));assert(o.roles.some(r=>r.id===id(20)));});

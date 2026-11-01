@@ -186,6 +186,7 @@ export const tableResourceRegistry = [
   { code: "tplus-sales-orders", label: "T+ 销售订单同步", module: "系统管理", moduleCode: "system" },
   { code: "customer-data-import", label: "客户数据导入", module: "系统管理", moduleCode: "system" },
   { code: "notification-group-webhook", label: "群机器人管理", module: "系统管理", moduleCode: "system" },
+  { code: "notification-recipient-group", label: "通知收件人组", module: "系统管理", moduleCode: "system" },
   { code: "notification-route", label: "消息路由", module: "系统管理", moduleCode: "system" }
 ] as const;
 
@@ -270,6 +271,7 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  "notification-recipient-group": [],
   "mps-review-due-dates": reviewDueDateFields,
   "knowledge-spaces": fields([
     ["code", "空间编码", "text", true, true], ["name", "空间名称", "text", true, true], ["description", "说明"],
@@ -887,6 +889,7 @@ const mpsFilterCapabilities = Object.fromEntries(
 
 export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
   "notification-group-webhook": { status: "NOT_APPLICABLE", reason: "群机器人管理是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
+  "notification-recipient-group": { status: "NOT_APPLICABLE", reason: "通知收件人组是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
   "notification-route": { status: "NOT_APPLICABLE", reason: "消息路由是通知目标配置页，不对应标准业务数据表的筛选结果集。" },
   "knowledge-spaces": { status: "REGISTERED_AND_FILTERABLE" },
   "knowledge-pages": { status: "REGISTERED_AND_FILTERABLE" },
@@ -955,6 +958,7 @@ export interface TablePrintResourceCapability { status: TablePrintResourceStatus
 
 const printNotApplicable: Record<string, string> = {
   "notification-group-webhook": "群机器人管理属于系统配置页面，Webhook 凭据为敏感信息，不提供标准业务打印。",
+  "notification-recipient-group": "通知收件人组属于通知系统配置页面，不提供标准业务打印。",
   "notification-route": "消息路由属于通知系统配置页面，不是标准业务记录表，不提供打印。",
   "mps-review-due-dates": "评审交期表开放查看、专用人工新增/编辑和Excel导出，不启用打印、通用新增、删除或批量修改；导入走专用事务命令，变更次数和上次入库时间由人工维护。",
   "knowledge-spaces": "知识空间是管理边界，没有独立业务打印需求。",

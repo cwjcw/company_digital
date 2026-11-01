@@ -3,6 +3,7 @@ import { NotificationRoutingAndRecipientDeliveries1722920068000 } from "../../mi
 import { NotificationTestModeDelivery1722920070000 } from "../../migrations/1722920070000-NotificationTestModeDelivery";
 import { NotificationProductionCutover1722920081000 } from "../../migrations/1722920081000-NotificationProductionCutover";
 import { NotificationGroupWebhookRouting1722920113000 } from "../../migrations/1722920113000-NotificationGroupWebhookRouting";
+import { NotificationRecipientGroups1722920114000 } from "../../migrations/1722920114000-NotificationRecipientGroups";
 
 describe("KDOS notification infrastructure migration", () => {
   it("creates tenant-scoped rules, outbox and delivery log tables", async () => {
@@ -64,5 +65,18 @@ describe("KDOS notification infrastructure migration", () => {
     expect(sql).toContain("CREATE TABLE notification_event_components");
     expect(sql).toContain("CREATE UNIQUE INDEX uq_notification_delivery_group_attempt");
     expect(sql.match(/FORCE ROW LEVEL SECURITY/g)).toHaveLength(4);
+  });
+
+  it("adds tenant-scoped recipient groups and permits both group and direct route targets", async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    await new NotificationRecipientGroups1722920114000().up({ query } as never);
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("CREATE TABLE notification_recipient_groups");
+    expect(sql).toContain("CREATE TABLE notification_recipient_group_members");
+    expect(sql).toContain("FOREIGN KEY(tenant_id,target_id) REFERENCES notification_group_webhooks(tenant_id,id)");
+    expect(sql).toContain("target_type IN ('WECHAT_GROUP_WEBHOOK','RECIPIENT_GROUP')");
+    expect(sql).toContain("PRIMARY KEY(tenant_id,route_id,target_type,target_id)");
+    expect(sql).toContain("DROP INDEX IF EXISTS uq_notification_delivery_legacy_attempt");
+    expect(sql.match(/FORCE ROW LEVEL SECURITY/g)).toHaveLength(2);
   });
 });

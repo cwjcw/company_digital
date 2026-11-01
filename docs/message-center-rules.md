@@ -8,6 +8,14 @@
 
 只提交 `enabled` 和 `expectedVersion` 的 PATCH 仅更新状态、审计信息和版本，原配置JSON、接收人、模板均保留；停用不要求历史接收人仍然有效。保存成功先应用返回的新版本，再刷新列表。409提示“刷新后重试”，编辑中刷新会重新读取最新配置，需重新确认修改。
 
+## 企业微信群机器人路由与收件人组
+
+群机器人管理、通知收件人组、消息路由各有独立资源权限。收件人组按当前租户保存组名、可选组织/业务分类、用途、说明及群机器人成员；成员只引用已登记的机器人ID，管理日志记录成员标识，不记录Webhook密文。启用组至少包含一个机器人，引用中的群机器人可独立停用；停用组或机器人不会收到消息。
+
+群路由可选择一个或多个收件人组，也可继续选择单个群机器人。派发时按当前路由和组成员实时展开，过滤停用对象，并按Webhook目标ID去重；因此同一机器人同时直接选中和经一个或多个组命中时，每个消息组件只向该机器人创建一条投递。所有配置服务端按租户校验并写入审计，版本冲突要求刷新；仍复用现有 `WECHAT_GROUP_WEBHOOK` Dispatcher，不改变 `WECHAT_WORK`。
+
+`GET /api/v1/notifications/recipient-groups`、`POST /api/v1/notifications/recipient-groups`、`PATCH /api/v1/notifications/recipient-groups/:id` 和 `POST /api/v1/notifications/recipient-groups/:id/delete` 维护收件人组。组成员不能删除仍被组引用的机器人；消息路由引用中的组不能删除。需要移除时，先更新路由或组成员关系。
+
 ## 只读接收人校验
 
 `GET /api/v1/notifications/rules/:id/recipient-preview` 适用于 `FIXED_USERS`，返回去重后的 `total / deliverable / disabled / missingWechatId`。它复用正式成员解析，不入队、不创建投递记录，也不向企业微信发送；同规则详情一样校验租户和模块管理员权限。它不返回员工身份明细。
@@ -16,7 +24,7 @@
 
 ## 回归及发布
 
-- API单元：notification-admin / notification.service / notification-event.registry，以及原PMC通知/分配相关测试。
-- Web单元：NotificationCenterPage；Chrome合成：`pnpm --filter @tracker/web exec playwright test notification-rules.spec.ts --workers=1`。
+- API单元：notification-admin / notification.service / notification-event.registry / notification.migration，以及原PMC通知/分配相关测试。
+- Web单元：NotificationGroupRouting、NotificationCenterPage；Chrome合成：`pnpm --filter @tracker/web exec playwright test notification-rules.spec.ts --workers=1`。
 - PostgreSQL合成：构建API后，以隔离socket `/tmp/kdos-notification-pg-*` 设置 `NOTIFICATION_TEST_POSTGRES_HOST`，执行 `node scripts/test-notification-rules-postgres.cjs`。脚本拒绝其他连接目标，使用临时数据库并自动清理，不调用投递provider。
-- 无数据库结构变更、无新消息模块、无财务金额或08:30调度调整。回滚应用镜像即可；保留配置、审计、既有通知记录。
+- 收件人组变更附加migration；应用回滚不删除组、路由及投递历史。不会因本功能修改设备日报生成流程或n8n调度。

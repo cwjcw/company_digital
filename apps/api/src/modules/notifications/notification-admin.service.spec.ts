@@ -11,8 +11,47 @@ describe("NotificationAdminService", () => {
     const service = new NotificationAdminService(source as never, {} as never);
     const actor = { ...ordinaryActor, permissions: ["notification-group-webhook:*:read", "notification-route:*:read"] };
     expect(service.groupWebhookAccess(actor)).toEqual({ read: true, create: false, update: false, delete: false, test: false });
+    expect(service.recipientGroupAccess(actor)).toEqual({ read: false, create: false, update: false, delete: false });
     expect(service.routeAccess(actor)).toEqual({ read: true, create: false, update: false, delete: false });
     await expect(service.listGroupWebhooks({ ...actor, permissions: [] })).rejects.toThrow(ForbiddenException);
+  });
+
+  it("normalizes searchable recipient-group metadata and retains unique webhook members", () => {
+    const service=new NotificationAdminService({} as never,{} as never);
+    const target="00000000-0000-7000-8000-000000000021";
+    expect((service as any).validRecipientGroup({name:"设备管理群",category:"事业部",purpose:"日报",memberIds:[target,target]})).toEqual({name:"设备管理群",category:"事业部",purpose:"日报",description:null,enabled:true,memberIds:[target]});
+    expect(()=> (service as any).validRecipientGroup({name:"组",memberIds:["not-a-uuid"]})).toThrow("群机器人ID");
+  });
+
+  it("supports direct and recipient-group route targets without confusing equal IDs", () => {
+    const service=new NotificationAdminService({} as never,{} as never);
+    const id="00000000-0000-7000-8000-000000000022";
+    expect((service as any).normalizeRouteTargets({targets:[{type:"RECIPIENT_GROUP",id},{type:"WECHAT_GROUP_WEBHOOK",id},{type:"RECIPIENT_GROUP",id}]})).toEqual([
+      {type:"RECIPIENT_GROUP",id},{type:"WECHAT_GROUP_WEBHOOK",id}
+    ]);
+    expect((service as any).normalizeRouteTargets({targetIds:[id]})).toEqual([{type:"WECHAT_GROUP_WEBHOOK",id}]);
+    expect(()=> (service as any).normalizeRouteTargets({targets:[{type:"UNSAFE",id}]})).toThrow("只支持群机器人或收件人组");
+  });
+
+  it("saves mixed typed route targets only after tenant-scoped recipient-group validation",async()=>{
+    const groupId="00000000-0000-7000-8000-000000000031";
+    const routeId="00000000-0000-7000-8000-000000000032";
+    const current={id:routeId,event_type:"equipment.daily_report",name:"设备日报",enabled:true,remark:null,version:2};
+    const manager={query:jest.fn(async(sql:string,args?:unknown[])=>{
+      void args;
+      if(sql.includes("SELECT id FROM notification_routes"))return [{id:routeId}];
+      if(sql.includes("FROM notification_recipient_groups WHERE"))return [{id:groupId}];
+      if(sql.includes("FOR UPDATE"))return [current];
+      if(sql.startsWith("UPDATE notification_routes"))return [{...current,version:3,enabled:true}];
+      return [];
+    })};
+    const source={transaction:jest.fn(async(work:(value:typeof manager)=>unknown)=>work(manager))};
+    const service=new NotificationAdminService(source as never,{} as never);
+    await service.saveRoute(systemActor,{eventType:"equipment.daily_report",name:"设备日报",enabled:true,expectedVersion:2,targets:[{type:"RECIPIENT_GROUP",id:groupId}]});
+    const insert=manager.query.mock.calls.find(([sql])=>sql.includes("INSERT INTO notification_route_targets"));
+    expect(insert?.[0]).toContain("recipient_group_id");
+    expect(insert?.[1]).toContain(groupId);
+    expect(manager.query.mock.calls.some(([sql,args])=>sql.includes("FROM notification_recipient_groups WHERE")&&JSON.stringify(args).includes("KAINAN"))).toBe(true);
   });
 
   it("stores only encrypted webhook data and returns the mask on create", async () => {
