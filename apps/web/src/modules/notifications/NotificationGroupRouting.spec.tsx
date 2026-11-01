@@ -25,8 +25,19 @@ describe("NotificationGroupRouting",()=>{
     render(<QueryClientProvider client={client}><NotificationGroupRouting tab="recipient-groups" access={{groupWebhooks:{read:true},recipientGroups:{read:true,create:false,update:true,delete:false},routes:{}}}/></QueryClientProvider>);
     expect(await screen.findByText("设备管理群")).toBeInTheDocument();
     expect(screen.getByText("设备管理")).toBeInTheDocument();
+    expect(screen.getAllByText("创建时间").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("更新时间").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("搜索组名称、分类或用途"),{target:{value:"不存在"}});
     await waitFor(()=>expect(screen.queryByText("设备管理群")).not.toBeInTheDocument());
+  });
+
+  it("provides searchable, status-filtered group members and a selected-only view",async()=>{
+    const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+    render(<QueryClientProvider client={client}><NotificationGroupRouting tab="recipient-groups" access={{groupWebhooks:{read:true},recipientGroups:{read:true,create:true,update:true,delete:false},routes:{}}}/></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button",{name:"新增收件人组"}));
+    expect(await screen.findByPlaceholderText("搜索群名称或机器人名称")).toBeInTheDocument();
+    expect(screen.getByText("仅显示已选择")).toBeInTheDocument();
+    expect(screen.getByText("全部机器人状态")).toBeInTheDocument();
   });
 
   it("preserves typed recipient-group targets when saving a route",async()=>{
