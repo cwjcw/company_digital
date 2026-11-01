@@ -42,7 +42,7 @@ describe("NotificationAdminService", () => {
       if(sql.includes("SELECT id FROM notification_routes"))return [{id:routeId}];
       if(sql.includes("FROM notification_recipient_groups WHERE"))return [{id:groupId}];
       if(sql.includes("FOR UPDATE"))return [current];
-      if(sql.startsWith("UPDATE notification_routes"))return [{...current,version:3,enabled:true}];
+      if(sql.startsWith("UPDATE notification_routes"))return [[{...current,version:3,enabled:true}],1];
       return [];
     })};
     const source={transaction:jest.fn(async(work:(value:typeof manager)=>unknown)=>work(manager))};
@@ -51,6 +51,7 @@ describe("NotificationAdminService", () => {
     const insert=manager.query.mock.calls.find(([sql])=>sql.includes("INSERT INTO notification_route_targets"));
     expect(insert?.[0]).toContain("recipient_group_id");
     expect(insert?.[1]).toContain(groupId);
+    expect(insert?.[1]?.[1]).toBe(routeId);
     expect(manager.query.mock.calls.some(([sql,args])=>sql.includes("FROM notification_recipient_groups WHERE")&&JSON.stringify(args).includes("KAINAN"))).toBe(true);
   });
 

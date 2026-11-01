@@ -284,8 +284,9 @@ export class NotificationAdminService {
       const beforeMembers = await this.groupMemberViews(manager,actor.tenantId,(await manager.query("SELECT target_id id FROM notification_recipient_group_members WHERE tenant_id=$1 AND recipient_group_id=$2::uuid",[actor.tenantId,id])).map((member:Record<string,unknown>)=>String(member.id)));
       await this.validateGroupMembers(manager,actor,input.memberIds);
       if (input.enabled && !input.memberIds.length) throw new BadRequestException("启用的收件人组至少需要一个群机器人");
-      const [row] = await manager.query(`UPDATE notification_recipient_groups SET name=$3,category=$4,purpose=$5,description=$6,enabled=$7,updated_by=$8::uuid,updated_at=now(),version=version+1
-        WHERE tenant_id=$1 AND id=$2::uuid AND version=$9 RETURNING *`,[actor.tenantId,id,input.name,input.category,input.purpose,input.description,input.enabled,actor.userId,Number(current.version)]);
+      const rows = this.rowsOf(await manager.query(`UPDATE notification_recipient_groups SET name=$3,category=$4,purpose=$5,description=$6,enabled=$7,updated_by=$8::uuid,updated_at=now(),version=version+1
+        WHERE tenant_id=$1 AND id=$2::uuid AND version=$9 RETURNING *`,[actor.tenantId,id,input.name,input.category,input.purpose,input.description,input.enabled,actor.userId,Number(current.version)]));
+      const [row] = rows;
       if (!row) throw new ConflictException("收件人组已变化，请刷新后重试");
       await manager.query("DELETE FROM notification_recipient_group_members WHERE tenant_id=$1 AND recipient_group_id=$2::uuid",[actor.tenantId,id]);
       for (const targetId of input.memberIds) await manager.query(`INSERT INTO notification_recipient_group_members(tenant_id,recipient_group_id,target_id,created_by) VALUES($1,$2::uuid,$3::uuid,$4::uuid)`,[actor.tenantId,id,targetId,actor.userId]);
@@ -417,8 +418,9 @@ export class NotificationAdminService {
         const [current] = await manager.query("SELECT * FROM notification_routes WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [actor.tenantId, existing.id]);
         if (Number(current.version) !== Number(body.expectedVersion)) throw new ConflictException("消息路由已变化，请刷新后重试");
         const oldTargets=await manager.query("SELECT target_type type,target_id id FROM notification_route_targets WHERE tenant_id=$1 AND route_id=$2::uuid",[actor.tenantId,existing.id]);
-        [route] = await manager.query(`UPDATE notification_routes SET name=$3,enabled=$4,remark=$5,updated_by=$6::uuid,updated_at=now(),version=version+1
-          WHERE tenant_id=$1 AND id=$2::uuid AND version=$7 RETURNING *`, [actor.tenantId, existing.id, name, body.enabled === true, this.optionalAdminText(body.remark, 1000), actor.userId, Number(current.version)]);
+        const updatedRows = this.rowsOf(await manager.query(`UPDATE notification_routes SET name=$3,enabled=$4,remark=$5,updated_by=$6::uuid,updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND version=$7 RETURNING *`, [actor.tenantId, existing.id, name, body.enabled === true, this.optionalAdminText(body.remark, 1000), actor.userId, Number(current.version)]));
+        [route] = updatedRows;
         if (!route) throw new ConflictException("消息路由已变化，请刷新后重试");
         await manager.query("DELETE FROM notification_route_targets WHERE tenant_id=$1 AND route_id=$2::uuid", [actor.tenantId, route.id]);
         await this.auditEntity(manager, actor, "notification-route", String(route.id), "notification_route.updated", { ...current,targets:oldTargets }, { ...route, targets });
