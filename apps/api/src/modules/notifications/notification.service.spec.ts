@@ -39,6 +39,43 @@ describe("NotificationService", () => {
     } finally { if(previousKey===undefined)delete process.env.KDOS_NOTIFICATION_SECRET_KEY;else process.env.KDOS_NOTIFICATION_SECRET_KEY=previousKey; }
   });
 
+  it("recovers only the missing second image while preserving four successful first-image deliveries", async () => {
+    const {manager,source}=dataSource();
+    const ids=["target-a","target-b","target-c","target-d"];
+    manager.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:outboxId,event_type:"equipment.daily_report",status:"SENT"}])
+      .mockResolvedValueOnce([{sequence:1,component_type:"text"},{sequence:2,component_type:"image"},{sequence:3,component_type:"image"}])
+      .mockResolvedValueOnce(ids.map(target_id=>({target_id})))
+      .mockResolvedValueOnce(ids.map(target_id=>({target_id})))
+      .mockResolvedValueOnce([ids.map((_,index)=>({id:`text-${index}`})),4])
+      .mockResolvedValueOnce([ids.map((_,index)=>({id:`image-${index}`})),4])
+      .mockResolvedValueOnce([[{id:outboxId}],1])
+      .mockResolvedValueOnce([]);
+    const service=new NotificationService(source as never);
+    await expect(service.recoverLegacyDailyReportImage(tenantId,outboxId)).resolves.toEqual({outboxId,requeued:true,preservedTextDeliveries:4,preservedImageDeliveries:4,retrySequence:3});
+    expect(manager.query.mock.calls[5][0]).toContain("component='group_text_1'");
+    expect(manager.query.mock.calls[6][0]).toContain("component='group_image_2'");
+    expect(manager.query.mock.calls[7][0]).toContain("status='PENDING'");
+    expect(manager.query.mock.calls[8][0]).toContain("audit_logs");
+  });
+
+  it("uses sequence-specific keys for consecutive images", async () => {
+    const previousKey=process.env.KDOS_NOTIFICATION_SECRET_KEY;process.env.KDOS_NOTIFICATION_SECRET_KEY="service-test-key";
+    const {manager,source}=dataSource();
+    manager.query.mockResolvedValueOnce([{id:"target-a",group_name:"设备群",webhook_ciphertext:encryptGroupWebhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop3333")}])
+      .mockResolvedValueOnce([{id:"operation",sequence:2,component_type:"image",filename:"operation.png"},{id:"reporting",sequence:3,component_type:"image",filename:"reporting.png"}])
+      .mockResolvedValueOnce([]).mockResolvedValueOnce([{id:"operation-delivery",attempt:1,status:"PENDING"}])
+      .mockResolvedValueOnce([]).mockResolvedValueOnce([{id:"reporting-delivery",attempt:1,status:"PENDING"}]);
+    try {
+      const service=new NotificationService(source as never);
+      const claims=await (service as any).prepareGroupWebhookClaims(manager,tenantId,{id:outboxId,event_type:"equipment.daily_report"});
+      expect(claims.map((claim:any)=>claim.messageType)).toEqual(["group_image","group_image"]);
+      expect(claims.map((claim:any)=>claim.attachment.id)).toEqual(["operation","reporting"]);
+      const inserts=manager.query.mock.calls.filter(([sql])=>String(sql).includes("INSERT INTO notification_delivery_logs"));
+      expect(inserts.map(([,params])=>(params as unknown[])[3])).toEqual(["group_image_2","group_image_3"]);
+      expect(new Set(claims.map((claim:any)=>claim.recipients[0].deliveryId)).size).toBe(2);
+    } finally {if(previousKey===undefined)delete process.env.KDOS_NOTIFICATION_SECRET_KEY;else process.env.KDOS_NOTIFICATION_SECRET_KEY=previousKey;}
+  });
+
   it("rejects routed events that do not start with text and blocks unknown event types", async () => {
     const {source}=dataSource();const service=new NotificationService(source as never);
     await expect(service.enqueueGroupEvent(tenantId,{eventType:"equipment.daily_report",dedupKey:"one",components:[{type:"image",filename:"x.png",mimeType:"image/png",base64:"iVBORw0KGgo="}]})).rejects.toThrow(/必须先发送文字/);

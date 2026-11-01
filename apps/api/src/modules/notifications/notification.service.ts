@@ -326,7 +326,8 @@ export class NotificationService {
     if (!components.length) throw new ConflictException("群消息没有内容组件");
     const claims: NotificationClaim[] = [];
     for (const component of components) {
-      const componentKey = `group_${String(component.component_type)}`;
+      // Delivery identity must distinguish two image components in the same event.
+      const componentKey = `group_${String(component.component_type)}_${String(component.sequence)}`;
       const recipients: NotificationClaim["recipients"] = [];
       for (const target of targets) {
         const [previous] = await manager.query(`SELECT id,attempt,status FROM notification_delivery_logs
@@ -347,6 +348,35 @@ export class NotificationService {
         ...(component.component_type === "image" ? { attachment: { id: String(component.id), filename: String(component.filename), mimeType: "image/png", downloadPath: `/internal/notifications/${outbox.id}/group-attachments/${component.id}` } } : {}) });
     }
     return claims;
+  }
+
+  /** One-time, audited recovery for legacy daily reports whose image deliveries shared one component key. */
+  async recoverLegacyDailyReportImage(tenantId: string, outboxId: string) {
+    this.requireTenant(tenantId);
+    return this.withManager(tenantId, undefined, async manager => {
+      const [outbox] = await manager.query("SELECT id,event_type,status FROM notification_outbox WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE", [tenantId, outboxId]);
+      if (!outbox || outbox.event_type !== "equipment.daily_report" || outbox.status !== "SENT") throw new ConflictException("日报事件不处于可恢复状态");
+      const components = await manager.query("SELECT sequence,component_type FROM notification_event_components WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY sequence", [tenantId, outboxId]);
+      if (components.length !== 3 || components[0].component_type !== "text" || components[1].component_type !== "image" || components[2].component_type !== "image") throw new ConflictException("日报组件结构不符合单张填报图恢复条件");
+      const targets = await manager.query(`SELECT target_id FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND component='group_text' AND status='SENT' ORDER BY target_id`, [tenantId, outboxId]);
+      const legacyImages = await manager.query(`SELECT target_id FROM notification_delivery_logs WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND component='group_image' AND status='SENT' ORDER BY target_id`, [tenantId, outboxId]);
+      const targetIds = targets.map((row: Record<string, unknown>) => String(row.target_id));
+      const imageTargetIds = legacyImages.map((row: Record<string, unknown>) => String(row.target_id));
+      if (targetIds.length !== 4 || new Set(targetIds).size !== 4 || JSON.stringify(targetIds) !== JSON.stringify(imageTargetIds)) throw new ConflictException("已投递目标不符合四群单图恢复条件");
+      const renamedText = this.rowsOf(await manager.query(`UPDATE notification_delivery_logs SET component='group_text_1'
+        WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND component='group_text' AND status='SENT' RETURNING id`, [tenantId, outboxId]));
+      if (renamedText.length !== 4) throw new ConflictException("无法唯一识别已送达的日报文字");
+      const renamed = this.rowsOf(await manager.query(`UPDATE notification_delivery_logs SET component='group_image_2'
+        WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid AND component='group_image' AND status='SENT' RETURNING id`, [tenantId, outboxId]));
+      if (renamed.length !== 4) throw new ConflictException("无法唯一识别已送达的运行日报图片");
+      const updated = this.rowsOf(await manager.query(`UPDATE notification_outbox SET status='PENDING',sent_at=NULL,next_retry_at=now(),failed_at=NULL,last_error=NULL,locked_at=NULL,locked_by=NULL,updated_at=now(),version=version+1
+        WHERE tenant_id=$1 AND id=$2::uuid AND status='SENT' RETURNING id`, [tenantId, outboxId]));
+      if (updated.length !== 1) throw new ConflictException("日报事件状态已变化，未执行恢复");
+      await manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id)
+        VALUES(NULL,'KDOS notification recovery','notification_outbox',$1::text,'notification_group_event.image_recovery',
+          $2::jsonb,$3::jsonb,$4,'system',NULL,NULL,$5)`, [outboxId, JSON.stringify({status:"SENT",legacyTextDeliveries:4,legacyImageDeliveries:4}), JSON.stringify({status:"PENDING",preservedTextSequence:1,preservedImageSequence:2,retryImageSequence:3,targetIds}), `image-recovery:${outboxId}`, tenantId]);
+      return {outboxId,requeued:true,preservedTextDeliveries:renamedText.length,preservedImageDeliveries:renamed.length,retrySequence:Number(components[2].sequence)};
+    });
   }
 
   private async prepareDirectGroupWebhookTest(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationClaim[]> {
