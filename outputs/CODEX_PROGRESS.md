@@ -9889,19 +9889,16 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 ## 设备日报个人正式接收名单增加两人（2026-11-02）
 - 任务目标：在现有设备日报个人正式发送名单中增加李光明、Linton，保留原名单和测试/失败告警收件人。
-- 当前状态：生产配置和验证已完成；仅本任务提交与GitHub同步待完成。没有发送日报。
+- 当前状态：已完成。生产配置、验证及GitHub同步完成；日报发送未触发。
 - 已完成：将两人加入`production_recipients`，原9人保留；测试和失败告警仍只给崔玮杰。同步Python和n8n 11人保护，更新README/调度台账。
-- 已完成：Python unittest 39/39、JSON校验、py_compile通过；真实`--check-production`返回ready=true、sent=false、recipientCount=11，联系人均唯一匹配，两图成功。
+- 已完成：Python unittest 39/39、JSON校验、py_compile通过；真实`--check-production`返回ready=true、sent=false、recipientCount=11，联系人均唯一匹配，两张图片成功。
 - 已完成：保存旧工作流受限备份；n8n官方CLI导入/发布原EQ-001工作流，只更新Code节点人数校验。原SSH凭据引用、owner、active状态、Asia/Shanghai每日12:00调度保留。重启后healthz=ok且启动日志确认activated；16个workflow ID不变、12个active，其它workflow定义未变。
-- 正在进行：复核diff、敏感文件和工作区，然后仅提交本任务文件并push GitHub。
-- 待完成：commit/push并复核最终远程SHA；保留本地`TODO.md`修改。
+- GitHub：功能提交`41c4cff3b341e94d75beeb3281738ebae88b3f76`已推送`github/main`；本进度收尾记录随后的文档提交同步。用户已有`TODO.md`变更未提交。
 - 修改文件：automation/wechat_push_projects/equipment-governance-daily/config.json、test_report.py、workflow-template.json、README.md；automation/wechat_push_projects/README.md；docs/operations/TASK_REGISTRY.md；outputs/CODEX_PROGRESS.md。
 - Migration：无。
-- 新增或修改测试：更新11人配置、逐人发送计数、n8n validator接受11并拒绝旧9的断言。
-- 已运行测试：设备日报Python测试39/39 PASS；真实只读生产预检ready=true、sent=false、11联系人；n8n readiness和schedule校验PASS。
-- 当前已知问题：无；尚未执行任何日报发送。
-- 等待用户确认：无。
-- 下一步：完成敏感diff审核，仅提交本任务文件并同步github/main。
+- 测试：设备日报Python测试39/39 PASS；真实只读生产预检ready=true、sent=false、11联系人；n8n readiness/schedule校验PASS；`git diff --check`通过。
+- 当前已知问题/等待用户确认：无；尚未执行任何日报消息发送。
+- 下一步：无。
 
 ## TODO完成标记及GitHub同步（2026-10-31 07:26 北京时间）
 - 任务：打印待办标记完成；新增廖焕敏提出的“增加设备情况启动推送”并标记完成；同步GitHub。

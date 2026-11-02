@@ -347,4 +347,4 @@
 - 验证结果：Python unittest 39/39 PASS；真实`--check-production`返回ready=true、sent=false、recipientCount=11（姓名均唯一匹配），两张图片成功生成。没有真实发送。
 - 同一个活动工作流已通过n8n官方CLI更新并发布；Code人数保护从9改为11，原SSH凭据引用、owner、active状态及Asia/Shanghai每日12:00调度保持。n8n重启后healthz=ok，服务ready，启动日志确认EQ-001 activated；16个工作流ID保持，12个active，其余工作流定义未变。
 - 发布版本已核实activeVersionId与versionId一致；下一计划为每日12:00（Asia/Shanghai）。测试、联系人预检、工作流回滚快照均存本机受限目录`test/equipment_daily/recipients-20261102`，不提交。
-- 当前状态：生产配置和验证完成；待任务commit/push。未新增调度、不改数据库或设备业务数据，不触发测试/正式日报消息。
+- 当前状态：生产配置、验证和GitHub同步完成；任务提交`41c4cff3b341e94d75beeb3281738ebae88b3f76`已推送`github/main`。未新增调度、不改数据库或设备业务数据，不触发测试/正式日报消息。
