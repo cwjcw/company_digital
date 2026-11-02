@@ -8296,6 +8296,341 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 本任务已完成；源 T+ 只读、未部署、未执行 Git 提交或推送。后续用户明确要求输出到 `test/` 时，继续使用该目录。
 
+## 2026-10-26 继续：流程图、录入账号与品项工序对应表
+- 当前状态：进行中；所有交付文件放入 test/。
+- 已完成：读取规范/Skill/已有成果；准备只读核实制单人、用户名称及 Excel 导入证据。
+- 下一步：确认用户映射和导入日志；导出当前品项工序对应关系；生成带录入账号名称的流程图及证据报告。
+
+### 本轮完成（2026-10-26）
+- 当前状态：已完成只读调查、流程图及对应表导出；工艺Excel实际上传入口/文件/上传者作为未确认项明确交付。
+- 新增文件：`test/tplus_information_flow.html`、`.svg`、`.png`；`test/tplus_kejia_item_process_mapping.xlsx`；`test/TPLUS_FLOW_AND_IMPORT_FINDINGS.md`；同目录只读调查/导出/绘图脚本、JSON证据和验证结果。更新test/README.md。
+- 主要结果：真实菜单确认工序AA1111、工艺路线AA1055、物料清单AA1041。当前默认品项路线工序23973行、BOM工序532行、BOM引用路线532行；按配置相关创建/更新时间筛出九月起602行。账号输出中文PersonName/Code，历史Maker回退明确区分，登录手机号不输出。
+- 上传证据：当前日志覆盖09-26至10-26，共23270条；31次数据导入均为销售订单，未找到工艺Excel入口证据。不得把工艺维护人称为Excel上传人。
+- 验证：Python AST语法、SVG XML、PNG文件、Excel工作表行数及无公式/手机号式登录名检查；结果见test/flow_validation_results.json。git diff --check通过。
+- 数据库Migration/同步/部署/Git提交：无。
+- 未解决：工艺Excel的原始文件、实际入口和上传人；别名真实姓名及既有订单关联差异原因。下一步：本轮无需继续执行；如获得原Excel表头/导入记录，可在本证据上定位。
+
+## 2026-10-26 工艺路线/BOM主档九月起定向导出
+- 当前状态：进行中。
+- 范围：科加账套AA_Routing、AA_BOM主档及当前版本；createdtime或updated自2026-09-01起；输出及脚本放test/，保留中文制单/修改账号。
+- 下一步：执行只读查询、生成Excel并验证日期范围和行数。
+- 当前状态：已完成（2026-10-26）；最终文件test/tplus_kejia_routing_bom_masters_since_2026-09-01.xlsx。
+- 导出结果：工艺路线主档49条（期间新增49）；BOM主档及版本2535条（期间新增2143，历史创建但期间更新392）。按主档createdtime或updated>=2026-09-01筛选，含当天，筛选依据列明确区分。
+- 新增/更新文件：test/export_tplus_master_data_since_20260901.py、test/routing_bom_master_export_result.json、上述Excel及test/README.md；outputs/CODEX_PROGRESS.md保持单一进度入口。
+- 验证结果：DB_NAME正确；日期范围和主档行数断言、工作簿重新读取通过。无Migration、业务代码修改、生产写入、部署或Git提交。未解决问题：无本次导出阻塞；本文件不证明实际Excel上传日期或上传者。
+
+## 2026-10-26 品项、BOM、路线、生产单关联示意
+- 状态：进行中。复用已验证的科加数据库关联证据，不重复查询业务数据。
+- 输出：test/内生成四对象关系图（HTML/SVG/PNG）及文字说明，重点说明关联位于加工单品项明细，当前配置与执行记录分别查看。
+- 状态：已完成。最终报告test/tplus_item_bom_routing_order_relationship.md；可视化HTML、SVG、PNG同名前缀均在test/，绘图脚本test/build_item_bom_routing_order_diagram.py。
+- 内容：四对象关系与生产单品项明细的关联；同品项多BOM版本、品项默认路线、BOM路线、生产单实际引用及实际工序来源；假设例子明确标识。保留已证实字段映射，不推断建单路线优先级。
+- 验证：脚本语法、SVG XML、PNG可读性、文件存在性及图片人工检查通过；长行溢出已调整。无Migration、业务代码修改、源库操作、部署或Git提交。未解决：既有路线选择优先级未由UI验证，不影响本次关系图交付。
+
+## 2026-10-26 路线起源真实例子
+- 状态：已完成。只读核实GY000031（主档ID79，名称二保焊，烤漆，制单丘丽红，createdtime2026-05-20）。
+- 品项GFF108KB-01（ID18057）idDefaultRouting=79；BOM ID15391/01版idinventory=18057、idrouting=79；路线明细174/175都以idRoutingDTO=79关联，工序二保焊→烤漆。
+- 输出均在test/：ROUTING_ORIGIN_REAL_EXAMPLE.md、routing_origin_real_example.json、trace_routing_origin_example.py、trace_example_item_default.py。每类最多5行，DB_NAME确认科加账套，无写入/部署/提交。
+- 边界：AA_Routing是路线主档定义起点，不据此推断实际首次INSERT先后、Excel/手工/BOM派生入口。制单账号不等于已证实上传人。
+
+## 2026-10-26 GFF108KB-01工艺与BOM定向导出
+- 状态：进行中。范围：指定品项当前资料、默认/BOM关联路线及工序、全部BOM版本及直属子件、BOM工序。按品项精确筛选，不套用此前九月日期限制。
+- 下一步：核实子件数量/单位字段，导出Excel并验证关联范围与行数。输出均在test/。
+- 状态：已完成。最终文件test/GFF108KB-01_routing_BOM.xlsx；同目录脚本export_GFF108KB_01_routing_bom.py、inspect_gff108_bom_columns.py、字段证据GFF108KB-01_bom_columns.json及结果GFF108KB-01_export_result.json，更新test/README.md。
+- 结果：品项1条，BOM主档1条（版本01），路线GY000031一条（二保焊→烤漆），路线工序2条，BOM工序2条，一级子件4条。
+- 验证：DB_NAME科加正确；精确品项/BOM/路线关联范围断言、单位引用4/4、重新读取Excel及各页行数通过。数量原值保留Decimal文本精度，不推导单位用量。无Migration、生产写入、部署或Git提交；无本次未解决问题。
+
+## 2026-10-26 三表分开导出
+- 状态：进行中。仅GFF108KB-01相关品项表、BOM表、工艺路线表；分别一个Excel文件、一张数据表，不含工序/子件/说明页。
+- 状态：已完成。test/GFF108KB-01_品项表.xlsx、test/GFF108KB-01_BOM表.xlsx、test/GFF108KB-01_工艺路线表.xlsx，各1行、单工作表。直接导出原始表字段及关联ID，无额外说明页/工序/子件。
+- 验证：DB_NAME科加正确、品号唯一匹配、限定对应BOM/路线ID、三个工作簿重新读取及单表行数通过。无Migration、源库写入、部署或Git提交。
+
+## 2026-10-26 科加订单进度结合现有KDOS方案
+- 状态：方案整理中；只读查看项目订单进度看板、正式订单来源映射、周计划工序与调度台账。未改业务代码/生产数据/同步配置。
+- 已发现：已有订单/品项进度看板及周计划报工聚合；工序由KDOS品项路线/事业部配置快照生成。现有研发进度文档属于E10，不能直接认定支持T+科加。
+- 待明确：用户所说“主BOM”指仅主档还是展开一级子件，已发出文字选项；先按一级可选展开整理方案，不据此创建任务。
+- 状态：建议方案已完成，待用户明确“主BOM”展示深度再细化实施。方案文件test/KEJIA_ORDER_PROGRESS_PROPOSAL.md。
+- 推荐：先复用现有订单/成品/周计划工序进度链路，主BOM及一级子件按需展开；T+配置与KDOS执行事实分开，不按品号跨订单累加，不把BOM具备视为完成。
+- 明确保留：源账套+订单明细身份、实际BOM版本/生产快照、十标准工序映射和事业部周期、首次有效报工锁定、外购/外协入库语义及单位换算验证。方案不代表生产数据覆盖率已核验。
+- 修改范围：仅test/建议文档与既有进度记录；无业务代码、Migration、测试、真实数据写入、运行任务变更、部署或Git提交。下一步从单个真实科加订单的只读匹配预览开始，不重复全系统调查。
+
+## 2026-10-26 已确认一级BOM范围并开始只读样单匹配
+- 用户确认：展开主BOM的一级子件，不继续向下拆。该范围已确定，不重复询问。
+- 状态：进行中；选择有科加来源与KDOS正式任务的样单，核实一级子件/工艺/报工关联。只读，不启动同步，不生成或修改生产计划。
+- 状态：一级范围确认及只读样单预览已完成。方案文档已去除BOM深度待确认项。
+- 样单：科加2026A027396/TGH768HT-1/1；T+订单明细21664与KDOSsource_key精确一致；加工单根品项明细引用BOM23626/01，一级子件10条。
+- 重要发现：成品路线是仓库；一级子件TGH768HT的路线是碰焊、烤漆、包装。KDOS现有23条报工挂成品周计划，一级子件同订单同品号独立周计划候选0。不可把成品默认路线当作全部制造工艺，亦不可把成品报工分摊/复制给子件。
+- 输出：test/kejia_order_progress_one_level_preview.html、.xlsx，kejia_one_level_preview_result.json，相关只读脚本及T+/KDOS事实JSON均在test/；更新test/KEJIA_ORDER_PROGRESS_PROPOSAL.md。
+- 验证：DB_NAME正确，KDOS BEGIN READ ONLY+tenant上下文后ROLLBACK；一级子件行数10、成品来源ID精确匹配、报工聚合23、工作簿重新读取通过。未读取子件BOM明细。
+- 未解决：子件尚无正式KDOS任务绑定；两个T+制造属性同时为1不能决定分类；样单月计划入库0、周计划分配入库1047的来源口径待追溯。未修改任何生产数据或配置。
+- 下一步：按成品保留总览、一级BOM展开、子件显示真实来源绑定及进度的方式细化正式适配；源工序映射、单位换算和入库来源需按现有业务事实落定，不自动迁移历史报工。当前业务功能尚未开发/部署，无Migration或Git提交。
+
+# 事业四部一级BOM工序映射与现有报工进度
+## 任务
+- 当前状态：已完成并上线，2026-10-26；最终版本fc4d25c。
+- 用户确认：主BOM只展开一级；从一级子件获取来源工序，按事业部独立绑定到KDOS既有十标准工序；产品所需工序按绑定去重，用产品现有报工查看进度。第一期只接入事业四部科加。
+## 实现方式
+- 一张部门/账套/来源工序映射配置表，复用MPS通用CRUD/Excel/权限/审计/版本；来源读取经T+ Integration Adapter，仅只读、按已授权订单明细精确定位；不新增调度任务。
+- 在既有在制订单进度的品项详情中增加一级BOM工艺匹配，展示一级子件、来源工序绑定、产品去重后对应KDOS工序及既有报工进度。来源事实用短TTL有界内存缓存，不建立另一套生产任务或报工。
+- 已开工周计划快照/历史报工不动。多BOM或来源歧义明确提示；相同KDOS工序仅取现有汇总一次。
+## 已完成
+- 已读取项目规则、适用Skills和既有控制器/应用命令/报表/资源注册/Migration/Docker读取方式。
+## 正在进行
+- 新Migration、来源适配器、映射配置与品项详情集成。
+## 待完成
+- 针对性单测、类型/构建、隔离数据库与浏览器验收、检查diff、按现行授权Git同步和既有部署流程上线/健康/效果核验。
+## 数据库Migration
+- 计划仅新增映射配置表；不修改原业务事实。
+## 下一步
+1. 完成来源契约与只读适配器、配置资源及查询应用。
+2. 接入现有订单详情与逐项保存映射。
+3. 运行相关验证并交付。
+
+## 开发阶段检查点
+- 已实现未提交：contracts新增mps-external-process-mappings配置资源及bomConfiguration读字段；Migration1722920109000仅新增映射表（tenant+division+sourceKey+sourceProcessCode唯一）；通用创建/编辑/导入跨字段规则MATCH/IGNORE；读取适配器data-operations/tplus/kejia-bom-reader.py经共享MSSQLDatabase只读单订单明细，主BOM只读一级子件，优先加工单实际工序/子件BOM工序/关联或默认路线；不读取子件BOMChild。
+- 新来源适配器apps/api/src/integrations/tplus/kejia-bom.reader.ts：120秒TTL有界缓存/合并并发读取/8MB输出上限/120秒超时/不输出驱动敏感错误。API Dockerfile复制新reader。
+- 新bom-process service/controller：复用OrderProgress正式scope+字段权限，精确绑定科加source_key；第一期仅事业四部；查询本部门映射；产品工序按标准代码去重，仅取现有月计划报工聚合一次。独立服务端Excel导出children/bindings/progress，各自遵守read∩export并审计。
+- 前端新增MasterPlanBomProcesses.tsx与现有品项Drawer“一级BOM工序匹配”Tab，支持逐项选择并保存MATCH/IGNORE，展示子件来源、映射、产品工序现有报工；每表导出。配置资源自动进入数据准备导航，复用MPS通用CRUD/Excel模板导入导出。
+- 已运行：contracts build、API typecheck、Web typecheck通过（宿主Node22提示，正式镜像Node24）。尚未运行专项测试/构建/迁移/部署。
+- 下一步：加强新配置租户上下文；补充分部隔离/去重/权限/并发/Excel/一级读取针对性测试；真实来源reader核验；隔离DB migration与浏览器；只备份一次后正式迁移、Git同步及部署。
+
+## 2026-10-26 验证阶段检查点
+- 用户已确认：事业四部碰焊→焊接，烤漆→表面处理；包装→包装按同名绑定。其余不猜测，不把历史点焊改成焊接。
+- 已完成：API14/14、Python4/4、Web新旧相关页面15/15；contracts/API/Web类型与构建通过。真实科加reader读取10个一级子件、3个来源工序成功。
+- 网络隔离PostgreSQL18真实Migration/CRUD/查询/编辑/版本/审计/部门独立唯一键/跨租户事业部拒绝/非owner RLS/Excel模板→预览→确认→幂等重放→导出共6组通过，证据test/bom-mapping-postgres-results.json。
+- 本地真实Chrome验证一级显示、碰焊选择焊接并保存显示60%、连续双击仅1POST、三个表下载及API错误显示通过；test/bom-browser-results.json及合成数据截图。
+- 增加行内绑定按钮的后端行范围及字段能力判断，与写命令保持一致。两个旧测试已在HEAD存在规则不一致（周工序禁止手工新增、createOnly工序导入）；没有改既有业务规则来迎合旧测试。
+- 下一步：最终diff与Git安全检查，单次必要备份、新Migration、Git同步和既有部署脚本；通过Application配置3个确认映射；生产健康和真实页面验收。已异步请求安全凭据文件路径用于生产浏览器验收；无密码/Token落地。
+
+## 容器真实读取和上线准备
+- 上线前发现既有T+隧道仅host loopback，API容器访问自身loopback被拒绝；Docker→host网桥亦受现有防火墙限制。没有更改原隧道/防火墙；改用用户级systemd Socket本地Unix传输，原SQL账号认证仍生效，Compose只读挂载独立目录，不新增TCP监听。
+- 共享工具包目录.env无container node读取权限，调整为已注入环境优先，MSSQLDatabase env_path=/dev/null；复用共享同Python小版本python-tds1.17.1，修复发行版旧客户端prelogin超时。
+- 真实容器验证：原生产API镜像、node用户、network=none、同只读挂载，经Unix socket→原cloudflared→科加真实库，state READY/10个一级子件/3工序通过；证据test/bom-reader-runtime-diagnostic.json。无源库写入。
+- Python测试增加环境注入回归，5/5 PASS；Web正确限定运行新旧两文件15/15 PASS。曾因pnpm参数转发触发未筛选测试，已立即停止，没有以其输出作为专项通过证据。
+- 运维新增仅socket按需转接，无新周期任务；原10项用户Timer/1条cron/原cloudflared active保持。准备只做一次现行backup，随后新增表Migration及既有deploy脚本。
+
+## 发布检查点（2026-10-26）
+- 已提交并成功推送github/main：84b14e5eaf9dceb01856bd7077773ed1f9b7e2c8，24个本任务代码/测试/文档文件；无ERP快照/Excel/密钥/环境文件入Git。outputs进度及test证据保持本地。
+- 已做且仅做一次现行scripts/backup.sh，备份批次20261026_170211，两库及上传目录均成功并记录SHA256；不重复执行upgrade.sh中的备份。
+- 当前生产已应用Migration107，预期本次仅新增108映射表；不改历史数据。
+- 用户已提供现有登录账号；运行时使用，真实Chrome登录生产成功。已获取样单报工/工序任务只读基线test/bom-production-before.json；未保存凭据、令牌或storageState。
+- 当前生产镜像构建中；下一步candidate API执行Migration，再scripts/deploy.sh all/check，真实页面3条映射配置/刷新/导出及原报工快照对比。
+
+## 生产验收发现并修复共享组织目录兼容性
+- 真实登录已通过，但新BOM接口500。准确根因：现有organization_units是共享目录，没有tenant_id；新查询和108的PL/pgSQL组织校验误用该字段。原隔离fixture错误地加了该列，导致没有提前发现。
+- 正在修复：Query按既有共享组织ID关联，仍按月计划tenant/授权范围定位；保持已应用108不可变，新增109移除本功能多余且不兼容的组织trigger/function，保留组织外键、映射tenant/RLS和Application事业部权限。此时生产映射表0行，无历史报工/工序快照改动。
+- 已将隔离fixture改成真实共享组织结构，补充BOM Service执行真实SQL而非mock SQL的验收，并验证不同租户可引用同一共享组织且映射不可混读。API14/14重跑通过；七组隔离验收进行中。
+- 原生产其他功能正常，四容器healthy；新BOM功能尚未验收通过，不宣称本任务完成。接着提交修复、应用109（沿用本批次已做的单次备份，不重复备份）、重新部署，再执行真实浏览器验收。
+- 兼容修复已完成并推送github/main：3cf2d68。API15/15、按真实共享组织结构的七组隔离PostgreSQL（含BOM Service真实SQL）全部通过。候选镜像构建、109迁移及deploy/check连续执行中，不再重复备份。
+
+## 最终交付：已完成（事业四部一级BOM工序映射）
+- 当前阶段/子任务：开发、测试、迁移、GitHub同步、生产部署及真实Chrome验收全部完成；无正在进行项，无等待用户确认。
+- 最后更新时间：2026-10-26T17:35:17+08:00
+- 最终版本：fc4d25ca17a8aa6e3c11d7288e7b3d98dfe9a6ec，已推送github/main；Web/API同SHA，现行deploy.sh all/check一致。25个本任务代码/测试/文档文件，清单见最终报告；outputs及test保持本地，不夹带历史记录或ERP数据。
+- Migration：108新增映射表、109共享组织目录兼容修复，均成功；同批次仅一次现行backup.sh（20261026_170211），未修改其他业务表结构或历史报工。
+- 针对性验证：API15/15、Web15/15、Python5/5；隔离PostgreSQL真实结构8组；Contracts/API/Web类型及构建；真实容器T+一级读取；本地Chrome交互与正式登录Chrome验收均通过。没有全系统测试通过的声明；既有两个规则不一致旧用例保留在报告。
+- 生产验收：3条事业四部映射已通过正式页面保存，碰焊→焊接、烤漆→表面处理、包装→包装；刷新回显、3表真实下载/工作簿复核及原报工/工序任务逐行基线对比通过，无未捕获JS异常。
+- 样单焊接0%，表面处理约100.3%，包装100%；历史点焊不转换为焊接。没有复制子件报工/重写周计划快照，也没有写T+。
+- 运维：现有T+ cloudflared不变，本地Unix socket转接active/enabled，不新增TCP监听、周期调度或防火墙改动；测试容器/临时预览清理。账号凭据仅stdin运行时使用，未落地密码、令牌、storageState。
+- 当前已知问题：本次无功能阻塞。其他来源工序需按业务配置，未猜测；既有入库口径差异/旧测试问题保留原状。
+- 最终报告：test/KDOS_DIVISION4_BOM_PROCESS_ACCEPTANCE.md；证据test/bom-production-acceptance.json、bom-production-excel-validation.json、bom-production-page.png。
+- 下一步/恢复执行说明：本任务已完成；无需重复实现/测试/备份/部署。如用户继续扩展，先读AGENTS、适用Skill、本进度和git状态，从新授权范围继续。
+
+- 导出文件复核发现验收脚本按按钮索引定位，在loading期间误点了两次进度表；正在按各Card标题定位重新获取三张独立文件并断言文件名唯一。这是验收脚本定位问题，不修改业务代码或部署。
+
+- 最终导出复核已完成：按三张Card标题分别真实下载children/bindings/progress，文件名唯一、10/3/3业务行、无内部UUID全部PASS；生产再次读取已保存三条关系，0次新增/修改，无重复绑定。上述脚本定位问题已解决，当前状态已完成，无待办。
+
+
+# 入库与工序报工综合进度（2026-10-26）
+## 任务
+- 当前状态：已完成并上线。最终d8d5a6d，Web/API一致，真实Chrome及两张服务端Excel验收PASS。
+- 用户已确认：有效工序去重＋入库各为一个等权阶段，已入库部分计入全部阶段但不补写报工，纯外协/外购只看入库，订单维持品项等权平均。
+- 当前阶段：核实实际有效快照、查询、字段权限和导出。
+- 已确认：目标订单来源为FOURTH_DIVISION_20260917/KDOS_INIT，50条来源均无科加原始明细ID；不允许猜测T+身份。已开工以实际锁定快照为准，BOM匹配不自动覆盖快照。
+- 修改文件：本进度。Migration暂不需要。测试尚未运行。
+- 等待用户确认：无。下一步：实现综合查询和UI/导出，专项验证、Git同步与部署验收。
+
+## 综合进度开发与验收检查点
+- 已实现：看板SQL基于启用周计划快照和有效报工，分工序＋入库等权；已入库作为各阶段下限；纯外协外购仅入库；无效需求/缺工艺/缺月计划显式待核实；完整订单含隐藏已完品项，品号筛选不改变分母。
+- 订单/品项新增综合指标及口径说明，保留原入库指标；服务端排序分页/Excel同源；新增字段权限依赖全部工序数量/任务及入库需求，无权不可反算。无Migration，无生产数据写入。
+- 真实结构元数据创建network=none隔离PG18，17项专项通过；BOM API回归15/15，Web8/8；Contracts/API/Web类型及API构建通过，Web构建进行中。
+- 生产只读新SQL试算：订单2026A027377全部50品项有有效快照，综合0.3651393612（36.5%），入库仍0.1533（15.3%）；目标品项TGH704BD1-1/1为3道已报完/（10有效工序＋入库）=27.3%。新查询各约4秒。报工和工序快照只读指纹已记录test/composite-production-before.json。
+- 待完成：最终Excel断言及构建，Git安全同步，复用当日已做备份（无新结构不重复备份），正式deploy.sh上线/健康/浏览器及真实Excel验证。
+
+## 综合进度发布检查点
+- Git：558be5a已提交并成功推送github/main，仅8个本任务代码/测试/文档文件；历史outputs及真实test证据未提交。
+- 验证最终：隔离PG18 17/17（含已确认三工序未入库75%示例、read∩export、租户/字段依赖、Excel数值格式），BOM API15/15，Web8/8，API/Web定向ESLint与类型/构建通过，git diff --check通过。
+- 分类复用了真实业务字典“外协”，兼容纯外协说明名，中心外购均仅看入库；未新增或变更调度。
+- 正在执行scripts/deploy.sh all，日志test/composite-deploy.log。无Migration；沿用20261026_170211已做备份，无重复备份或业务数据修改。
+- 下一步：健康/版本一致性、生产真实Chrome订单及品项/两个Excel验收、报工和快照前后只读指纹核对、写最终报告。
+
+## 综合进度Excel类型修正
+- 首次558be5a部署完成，随后发现原Excel服务对超过15位有效数字的循环小数采用文本保存，综合进度新平均值会受影响。
+- 已局部修复新综合比例按12位小数写Excel数值单元格（比例本身0..1，足以保留显示精度），原精确数量/金额导出策略不变。增加实际Excel单元格typeof number断言；重新运行受影响的17项隔离SQL/Excel验收。
+- 新增修改文件：master-plan.order-progress-export.service.ts。完成后提交小修复，正常脚本部署，不绕过dirty gate、不改数据/无新备份。
+
+- Excel类型修复通过最终17/17隔离验收与API构建，已提交推送d8d5a6d至github/main，正式deploy.sh all再次发布该修正。隔离测试容器/卷已移除。下一步仅健康、真实页面/两个Excel及只读指纹核验。
+
+## 综合进度最终交付：已完成
+- 最后更新时间：2026-10-26T18:18:15+08:00。当前阶段：已交付；正在进行/待完成/等待确认：无。
+- 最终修改9个源码/测试/文档文件，清单见test/KDOS_COMPOSITE_PROGRESS_ACCEPTANCE.md；outputs保留历史及恢复记录，test真实证据均保持本机。
+- Git：558be5a和d8d5a6d已推送github/main，HEAD与远程0/0；最终Web/API版本d8d5a6d，现有deploy.sh all/check通过，四容器healthy。
+- Migration：无；无数据库业务写入，无新调度或重复备份，沿用当日已做备份。
+- 验证：最终隔离PG17/17、相关BOM API15/15、Web8/8，共40项专项通过；类型/定向lint/构建/diff检查通过。Excel循环小数文本问题已修复并验证实际单元格为number且有百分比格式。
+- 生产真实Chrome：订单2026A027377综合36.5%、入库15.3%，品项TGH704BD1-1/1综合27.3%；50品项平均与整单一致，隐藏已完品项/刷新不改变口径；两张真实服务端Excel1/50行业务值与页面/API一致；无JS未捕获异常。
+- 原报工及工艺快照前后只读指纹完全一致；未改订单原始数量/入库/报工事实/锁定结构。隔离测试容器/卷已移除，无后台测试服务。
+- 已知问题：本次无阻塞。历史锁定工艺仍按实际快照；其他缺工艺数据显式待核实，不进行猜测或自动覆盖。
+- 最终报告：test/KDOS_COMPOSITE_PROGRESS_ACCEPTANCE.md。证据：test/composite-production-acceptance.json、composite-production-page.png、composite-order.xlsx、composite-item.xlsx。
+- 下一步：无；后续新任务先读规范/本进度/Git状态，不重复本任务的测试、备份或部署。
+
+
+# 移除订单综合进度说明列（2026-10-27）
+- 当前状态：已完成并上线。说明列从页面/API/Excel移除，计算规则已整理。最终版本d6fc849。
+- 范围：订单表、字段注册/API响应及服务端Excel移除orderProgressBasis；综合进度公式和品项有效工序说明不变。
+- 已读取AGENTS、kdos-form-validation、既有进度及Git状态；保护已有outputs修改。
+- Migration：无。下一步：局部修改与针对性验证，正常Git同步和既有发布/健康/真实页面与Excel核验。
+
+## 2026-10-27说明列移除检查点
+- 已从共享订单列合同/字段注册、API响应和订单聚合说明投影移除orderProgressBasis；网页和Excel随同一合同移除。综合计算SQL未改。
+- 检查：Contracts构建、API/Web类型检查、订单进度Web8/8和diff检查通过；没有重复运行上一轮计算回归/数据库测试。
+- 仅4个本任务源码/测试文件准备正常提交推送、deploy.sh all，生产实测将核对页面/API/导出不再有该列且综合比例保留为数值。无Migration或数据库业务修改/额外备份。
+
+## 说明列移除最终交付：已完成
+- 最后更新时间：2026-10-27T08:53:00+08:00。无正在进行/待完成/等待确认项。
+- 最终修改：contracts/master-plan-order-progress.ts、API master-plan.order-progress.service.ts及原API/Web两份相关测试，共4个源文件；历史outputs保留。
+- 检查：Contracts构建、API/Web类型、Web8/8与diff检查通过；生产Node24构建通过。仅移除派生说明，不重复执行上一轮数据库/计算回归。
+- Git：d6fc849已提交推送github/main。scripts/deploy.sh all/check成功，Web/API/HEAD同版本；无Migration、业务数据改写或额外备份。
+- 生产真实Chrome PASS：无“综合进度说明”表头；API及visibleFields无orderProgressBasis；实际服务端Excel无该列，综合进度仍为数值且与API一致；无JS异常。
+- 最终报告及规则：test/KDOS_PROGRESS_RULES.md。证据：test/remove-progress-basis-acceptance.json、remove-progress-basis-order.xlsx、remove-progress-basis-health.log。
+- 当前已知问题：无本次功能阻塞。下一步：无；后续按新需求继续，不重复已完成发布和检查。
+
+## 2026-10-27订单2026A027424待核实提示只读调查（已完成）
+- 用户询问“4个品项工艺或需求待核实”的具体含义。使用生产已部署d6fc849的正式querySql，只读事务及tenant上下文查询，未修改代码或业务数据。
+- 确认4条正式月计划：GFC568KB-1/1数量5，GFE301KB-1/1数量15，GFE658KB-1/1数量40，GFQ345KB-1/1数量5，共65；四项入库均0，需求数量有效。
+- 四项manufacturing_method均NULL；订单周计划0条，因而没有有效工序快照可确定综合阶段分母，四项综合进度NULL，整单NULL。不是将未报工自动当作配置错误，也没有查询或断言T+缺BOM。
+- 后续业务步骤：按既有计划流程确认生产方式、下达周计划/形成有效工序；明确外协外购时按入库口径。此次止于解释，无等待确认、Migration、测试或部署。
+- 证据：test/order-2026A027424-progress-investigation.json。
+
+
+# PMC驾驶舱及待处理事项500修复（2026-10-27）
+- 当前状态：已完成并上线589ed6e。两个页面真实Chrome验收恢复正常，summary/gap-counts均200。
+- 根因：共用MasterPlanDashboardService的scoped_tasks引用scoped_weekly.manufacturing_method，但authorized_weekly显式投影漏选该字段，SQL42703：column w.manufacturing_method does not exist。
+- 当前阶段：局部补齐中间投影，完善真实SQL回归，生产只读试运行/浏览器复现与修复验收。
+- 范围：看板查询与对应测试，无数据库结构或业务数据变更，不改调度，不额外备份。
+- 下一步：修复、针对性真实PG及API检查、按现有Git同步和部署，健康及两页实际效果验证。
+
+## 驾驶舱500修复验证检查点
+- 已局部补齐authorized_weekly投影manufacturing_method，一个查询字段；未修改统计公式/权限/数据。
+- 回归：API12/12；真实结构元数据创建network=none隔离PG18，dashboard/gaps专项9/9（两页统计、九类待处理明细/Excel、租户范围/权限），共21项通过；API类型构建、定向ESLint、diff检查通过。
+- 隔离fixture补齐实际自制方式及execution_enabled，确保真实工序过滤被覆盖。
+- 修复版SQL生产只读运行summary1560ms/counts971ms均PASS。下一步正常Git同步、deploy.sh all/check、真实Chrome验收两个页面；无Migration/业务写入/备份/调度变更。
+
+## 驾驶舱500修复最终交付：已完成
+- 最后更新时间：2026-10-27T09:02:23+08:00。无正在进行/待完成/等待用户确认项。
+- 最终修改3文件：master-plan.dashboard.service.ts、master-plan.dashboard.spec.ts、master-plan.dashboard-gaps.postgres.spec.ts。业务修复仅补齐周计划中间查询生产方式字段。
+- API12/12、隔离PG9/9共21专项PASS；API构建/定向lint/diff检查PASS，修复SQL在生产只读运行1.6秒/1秒成功。
+- Git589ed6e已推送github/main，正常deploy.sh all/check完成，Web/API/HEAD同版本，四容器healthy。无Migration/生产业务写入/额外备份，无调度定义或自动入口变更。
+- 真实Chrome：PMC综合驾驶舱与待处理事项大屏均恢复；summary/gap-counts200，统计卡片渲染，无看板失败HTTP请求或未捕获JS错误。隔离PG测试容器及卷已清理。
+- 最终报告：test/KDOS_PMC_DASHBOARD_ERROR_FIX.md。证据：test/pmc-dashboard-error-browser-acceptance.json、pmc-dashboard-error-health.log、pmc-dashboard-production-readonly.json。
+- 当前已知问题：无本次阻塞。下一步：无，不重复本任务验证/备份/部署。
+
+
+# 订单分配表显示月度计划日期（2026-10-27）
+## 任务
+- 当前状态：已完成并部署生产；Git同步、生产健康及真实浏览器验收完成。
+- 目标：订单分配查询和Excel导出读取月度计划的下单日期及产品评审交期，按租户、订单、品号、承接事业部匹配。
+- 已确认字段：`mps_monthly_plans.order_number/item_code/division_id/order_date/preproduction_review_date`；后者当前合同显示为“产前评审日期”。订单分配表为`mps_order_allocations.order_number/item_code/division_id`。月计划唯一约束为`(tenant_id,order_number,item_code)`。
+- 工作区初始状态：只有历史`outputs/CODEX_PROGRESS.md`有未提交修改；保持该内容不变，仅追加本任务记录。
+- Migration：预计无；不增加存储字段。
+- 修改文件：packages/contracts/src/index.ts、API master-plan.query.service.ts/.spec.ts、master-plan-spreadsheet.service.ts/.spec.ts、Web MasterPlanPages.spec.tsx。
+- 实现：订单分配查询实时投影月计划`order_date`和`preproduction_review_date`；按tenant/order/item/非空division联合匹配，计数非1时返回NULL；页面只读；Excel导出复用列表投影。旧下单日期模板列继续可导入，新增日期不进入导入模板。无Migration。
+- 验证：Contracts测试33/33、Web订单分配页面专项39/39、API查询完整专项30/30、API日期Excel导出专项1/1、API/Web/Contracts类型检查、API build、相关lint、git diff --check均通过。
+- 已知测试问题：一并运行API spreadsheet整文件时，原有“周计划工序明细导入工序字典”用例失败，因该用例要求导入当前合同标为只读的`processCode`；该资源/合同未在本次变更范围，订单分配相关导出专项通过。
+- 用户授权部署后，按runbook执行一次标准部署备份（2026-10-27 10:09）；无Migration。deploy.sh all/check通过，Repository/Web/API均为5a0f76b，全部4个容器healthy。
+- Git commit `5a0f76b` 已推送至github/main；无本任务以外代码提交。
+- 真实Chrome登录生产并验证下单日期、产品评审交期两列；可见65条分配记录均无匹配月度计划日期，所查记录在月度计划接口无对应键，故页面为空值符合规则。生产环境没有正向匹配样例可供浏览器验证；正向映射和Excel日期值由隔离专项测试覆盖。
+- 浏览器实际请求Excel导出接口并解析文件通过：两列存在、与API/页面数据一致、列日期格式`yyyy-mm-dd`；未捕获JS异常/分配查询失败请求均为0。生产验收摘要：`test/order-allocation-date-browser-acceptance.json`（本地忽略文件）。
+- 剩余限制：真实生产数据当前无匹配月计划的日期样例，不能报告生产正向样例已验收；部署、页面、未匹配空值行为和Excel导出已通过。当前状态：已完成。
+
+# 日期需求目标更正：评审交期表（2026-10-27）
+- 当前状态：进行中；用户明确订单分配表不要修改，原两个日期需求改为评审交期表。
+- 已完成：核实新目标mps_review_due_dates；品项键drawing_number，事业部division_id；月计划源字段维持order_date/preproduction_review_date。已撤回5a0f76b的6文件变更，恢复原订单分配导入及显示。
+- 正在进行：评审交期表只读日期实时匹配，页面/筛选/导出同源，不变动原9个可写字段、导入模板与审计字段。
+- Migration：无；无需新备份，沿用本次10:09标准备份。Git：当前仅本次撤回、后续日期更正和已有outputs记录。
+- 待完成：定向测试、类型/构建、Git同步、deploy.sh all和健康/浏览器核验。
+- 下一步：实现评审交期日期投影及回归验证；不向生产确认导入10.27.xlsx。
+- 功能已完成：订单分配6文件完全撤回；评审交期按drawing_number关联月计划，两个日期只读投影，统一筛选/排序/导出/数据范围表达式共用；原9个编辑/模板字段保持不变。
+- 验证：API既有91项PASS，新只读合成CTE PostgreSQL及导入回归4项PASS；覆盖正向/空值/跨事业部租户/同键多批次/冲突/实时日期变更/过滤/隐藏字段。Web20项最终PASS（创建用例5秒阈值在本机超时后仅重跑该文件，15秒阈值通过）。API/Web类型、API构建PASS；定向lint修复未使用import后复查中。
+- 下一步：Git同步与标准deploy.sh all，生产确认订单分配恢复及10.27.xlsx预览（不确认入库），评审交期页面和实际Excel核验。
+- 最终状态：已完成。Git e5aa16e 已推送github/main；deploy.sh all/check通过，生产Web/API均同版本，四容器healthy。
+- 实际Chrome：订单分配原字段及编辑属性恢复；10.27.xlsx上传预览49条0错误，未点击确认，分配记录数不变。评审交期两日期列显示、只读及实际Excel解析一致性通过；无JS异常。
+- 已知限制：评审交期当前全量“两个日期任一非空”筛选为0条，因此没有生产正向日期样例可核验；合成CTE正向/异常/实时更新验证PASS，未写生产数据补造样例。
+- 最终净修改6个评审交期源码/测试文件（相对实施前589ed6e），订单分配改动已完全撤回。Migration无；无新调度/重复备份。
+- 最终报告：test/KDOS_REVIEW_DATES_CORRECTION.md；线上证据test/review-dates-correction-acceptance.json。等待确认/正在进行/下一步：无。
+
+# 评审交期已有记录读取月度计划日期（2026-10-27）
+- 当前状态：源数据关联条件不满足，已完成只读核查；等待明确是否要求新增评审记录。
+- 用户要求：已有评审交期数据从事业部月度计划取得新增两列日期。现实现为实时查询，不需要物理回填或新增定时任务。
+- 实库事实：同一KAINAN租户，评审交期1114条/195订单，全部事业一部；月度计划2106条/171订单，事业一部105、二部101、三部5、四部1895。
+- 匹配核查：仅订单号交集0；订单号+品项0；加事业部0；对订单号/品项TRIM后仍0。不能因日期为空而放松键或套用其他订单日期。
+- 月度计划下单日期2106条非空，产品评审源日期1175条非空；不是源日期字段全部为空。
+- 变更/Migration/Git/部署：无。未修改任何生产业务记录。当前生产版本仍e5aa16e。
+- 下一步：若仅补现有记录，需要正确对应的源记录或已确认映射；若改为新增月计划订单，需要明确新增范围、批次号及评审入库时间来源，不能自行构造。
+
+# 凯南智能T+订单明细导出（2026-10-27）
+- 当前状态：进行中。用户要求凯南智能账套2026-09-01以来订单明细，只读查询后Excel放test。
+- 已确认：现有数据源tplus-kainan，预期数据库UFTData741219_000012；复用MSSQLDatabase与现有Source只读守卫。订单日期口径为SA_SaleOrder.voucherdate，含9月1日。
+- 正在进行：DB_NAME及真实字段核实、限定日期统计、Excel导出和行数/日期/可读性核验。
+- 修改范围：test导出脚本/工作簿/结果摘要和本进度文件；不写ERP/KDOS、不部署、不提交真实数据。
+- 下一步：核实源结构后导出，仅报告文件、日期范围、数量。
+- 最终状态：已完成。实测DB_NAME()=UFTData741219_000012，日期2026-09-01至2026-10-27，252张订单、1340条明细。
+- 修改文件：test/inspect_kainan_order_export.py、kainan_order_export_columns.json、export_kainan_orders_since_20260901.py、Tplus_Kainan_Order_Details_20260901_20261027.xlsx及同名JSON摘要；业务代码无变更，Migration/Git提交/部署均无。
+- 验证：导出前后源记录计数一致，JOIN明细无增减、明细ID唯一、日期范围正确、Excel重新打开及行数/订单数量/无意外公式核验PASS。
+- 最终交付文件：test/Tplus_Kainan_Order_Details_20260901_20261027.xlsx（211408字节）；仅只读源库，本地test包含业务数据且保持Git忽略。
+- 待完成/已知问题/等待确认：无。下一步：无。
+
+# 凯南智能导出订单类型复核（2026-10-27）
+- 当前状态：已完成。用户质疑客户像供应商，已实测原SQL、账套销售/采购表和往来单位枚举。
+- 结论：原252张取自SA_SaleOrder/idcustomer；251单往来档案类型228=客户/供应商，1单211=纯客户。同期PU_PurchaseOrder1678张，供应商键idpartner；未混入采购明细。
+- 实际例：2026A007114科为销售单，2026A007114科加烤漆为采购单，两单往来单位均科加；不凭此推断业务关联。
+- 变更：仅test核查脚本、JSON证据和中文报告；没有修改原Excel、业务代码或生产数据，无Migration/部署/Git提交。
+- 最终报告：test/凯南智能订单类型核查.md。下一步/等待确认：无。
+
+# 双账套销售采购识别规律（2026-10-27）
+- 当前状态：进行中；核实两账套核心表结构差异、订单编号及往来单位角色差异。
+- 范围：2026-09-01至2026-10-27，销售/采购单据表头最小必要字段，只读；输出均在test。不按企业名称或编号单独改变单据类型。
+- 已知：凯南252销售单中251单使用客户/供应商两用档案；采购1678单；存在3个销售单号也见于采购表（此前计数另一侧不限日期，本轮统一日期范围核实）。
+- 下一步：对比核心表字段及两账套分布，形成有统计支持的规则和不能确定的业务解释。
+- 最终状态：已完成。5张核心表共有852字段类型一致；科加仅销售/采购明细各多pubuserdefnvc5。类别区别来自源表而非此结构差异。
+- 统计：凯南销售252（纯客户1/两用251），采购1679；科加销售156（纯客户104/两用52），采购637。科加也有32张PO前缀销售和13个销售采购同号；凯南2张PO前缀销售及3个同号。
+- 结论：编号/企业名/档案双角色不足以分类；应采用账套+单据类型+源ID。客户构成区别解释了两账套观感差异；没有将同号推断为已证实的跨单关系。
+- 输出：test/双账套销售采购识别规律.md；test/Tplus_Sales_Purchase_Classification_20260901_20261027.xlsx（四类表头清单，已重新打开核对行数）及JSON证据。
+- 变更/Migration/部署/Git提交：无业务变更；均为test本地只读分析产物及本进度记录。正在进行/待完成/下一步：无。
+
+# 重新导出凯南智能销售订单（2026-10-27）
+- 当前状态：进行中。用户明确重新导出销售订单，沿用2026-09-01至2026-10-27范围。
+- 方案：复用test导出脚本及tplus-kainan/MSSQLDatabase，只读SA_SaleOrder与SA_SaleOrder_b；新增明确的单据类型标签，文件名与sheet标明销售订单，不覆盖前份文件。
+- 验证：导出前后源计数、JOIN行数/唯一性、日期范围和工作簿重新打开核对。无需软件全系统测试或部署。
+- 下一步：运行导出，记录结果并交付Excel链接。
+- 最终状态：已完成。实测凯南UFTData741219_000012，252张销售订单、1340条明细，日期2026-09-01至2026-10-27。
+- 交付：test/Tplus_Kainan_Sales_Order_Details_20260901_20261027.xlsx（217923字节）及同名JSON摘要。单据类型均为销售订单，源计数/唯一性/日期/文件可读性PASS，保留原导出文件。
+- 变更：仅test导出脚本及本地文件/进度记录；未修改ERP/KDOS业务数据，无Git提交/部署。待完成/等待确认/下一步：无。
+
+# 事业部基础计划导入白屏（2026-10-28）
+- 当前状态：排查中。用户文件/home/Jerry/下载/事业部基础计划表.xlsx（约285KB），点击导入后白屏。
+- 当前生产：e5aa16e，Web/API/HEAD一致；初始只有历史outputs进度未提交。
+- 线索：通用导入预览rows为row/id/expectedVersion/values，前端却用订单分配特有的r.fields.length渲染所有资源；需实际Chrome复现证实。
+- 范围：导入预览渲染、必要的错误反馈和相关回归；不确认生产导入，不改数量/工艺/原业务数据。预计无Migration。
+- 下一步：用真实文件复现、定位JS异常、局部修复、定向测试与部署/线上预览验收。
+- 根因已由真实Chrome确认：2156行后端预览201、错误0、返回20个row/id/expectedVersion/values；前端误访问r.fields.length导致Cannot read properties of undefined (reading 'length')并清空React根。证据test/base-plan-import-before.json。
+- 已局部修复：订单分配差异行渲染仅用于mps-order-allocations，fields/classification按实际可选类型并安全访问；通用预览恢复原总数/校验/确认/取消流程，不改API或数据校验。
+- 新回归：基础计划含正常预览行时不会白屏、无效预览显示行错误且禁用确认、取消后页面保留；订单分配非空差异仍显示。原代码已确认回归测试复现同一异常，修复后专项执行中。
+- 发布范围：仅Web，采用deploy.sh web；API与数据库不更新，无Migration或数据库备份/任务调度变更。下一步：测试/类型/lint通过后Git同步、Web部署、真实文件预览及取消验收。
+- 验证检查点：MasterPlanPages.spec.tsx40/40PASS（新增通用预览成功/失败回归，补充原订单分配非空差异断言）；Web typecheck/定向lint/git diff --check均PASS。准备仅提交2个Web文件并发布。
+- 最终状态：已完成。6f93312已推送github/main；deploy.sh web生产构建与Web版本核对PASS；API保持e5aa16e未重建，四容器healthy，healthcheck全通过。
+- 真实Chrome原文件复验：2156条、错误0、预览可见、确认按钮可用、无JS异常/白屏，取消后页面保留；未确认导入，正式基础计划记录数不变。证据test/base-plan-import-after.json。
+- 最终修改：apps/web/src/modules/master-plan-system/MasterPlanPages.tsx、MasterPlanPages.spec.tsx（2个任务源码文件）及已有进度记录。Migration/数据库备份/调度变更：无。
+- 最终报告：test/KDOS_BASE_PLAN_IMPORT_BLANK_FIX.md。已知未解决问题：无本次故障；正式导入未代用户确认。正在进行/等待确认/下一步：无。
+
 # 营销中心物流台账（2026-10-28）
 ## 任务
 - 任务目标：23列Excel物流台账，主从存储、费用去重、权限、网页维护及本地验收。
@@ -8367,6 +8702,106 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 下一步：核实生产当前schema版本和待运行范围，提交本任务文件，执行一次必要备份与上线。
 - 不夹带前期未提交的历史outputs进度内容；既有调度和历史业务数据保持原状。
 
+### 生产发布检查点
+- 本地commit：e998f5f1bfe0aec960b4d19e2d81f999c89da4e1，30个本任务文件；此前历史进度追加保持未提交。GitHub fetch后原HEAD与远程main一致，等待上线后push。
+- 一次标准备份完成：20261028_115140，legacy/KDOS/uploads三份，pg_restore目录及SHA256由既有脚本校验；不重复备份。
+- 生产TypeORM检查：109项已应用，无待运行；KDOS SQL只新增执行0019，先前18项SKIP，校验和无变化。
+- 迁移后新主表/明细/幂等表均0行，三表RLS与FORCE均开启；未写正式物流数据。证据test/logistics/production-schema-after.json、production-migration.log。
+- 当前：既有构建函数预构建API/Web/Worker镜像，原运行容器维持；完成后deploy.sh all使用构建缓存切换并核对e998f5f版本。
+- 下一步：部署/健康检查、生产Chrome只预览并取消、GitHub推送。
+
+- 构建检查点：API/Web e998f5f镜像已成功。Worker首次构建在代理下载依赖时超时退出（pnpm完整性检查已通过），未切换任何运行容器；仅对Worker构建进程清空HTTP/HTTPS代理后重试，保留lockfile/完整性/现有Dockerfile与部署门禁，不更改生产代理或服务网络。
+
+- 上线检查点：Worker仅构建下载代理调整后重试成功；已使用原deploy.sh all切换，Repository/Web/API均e998f5f，四个容器healthy；healthcheck和deploy.sh check通过。
+- 生产Chrome真实登录验收PASS：23列模板下载，2行/1柜预览0错误后取消，新增空单号明确提示、费用合计只读、实际Excel导出；前后物流记录均0，JS异常0。未确认生产导入或保存测试记录。
+- 当前阶段：按用户要求在上线验收完成后推送github/main；生产证据test/logistics/production-browser-acceptance.json、production-health.log、production-version-check.log。
+
+### 物流台账发布最终状态
+- 当前状态：已完成。
+- 生产版本：Web/API e998f5f1bfe0aec960b4d19e2d81f999c89da4e1，四个容器healthy，标准all/check及healthcheck通过。
+- GitHub：已推送github/main，远端refs/heads/main与部署SHA实测一致。仅本任务30文件提交；旧历史进度追加原样保留本地。
+- 数据库：一次备份20261028_115140后应用0019，未重复备份；生产三张物流表保持0行，RLS/FORCE均已核验。
+- 生产浏览器：真实认证及API，模板/预览取消/必填/只读/导出PASS，未写测试物流记录，JS异常0。
+- 最终报告：test/logistics/production-release.json；证据production-browser-acceptance.json、production-schema-after.json、production-deploy.log、production-health.log、production-github-push.log。
+- 已知问题：无本轮发布阻塞；原有评审交期旧测试断言问题未改动，见前期本地验收记录。
+- 待完成/等待用户确认/下一步：无。
+
+## T+科加与E10完工订单工单样例（2026-10-28）
+- 任务目标：两系统各选一张约3—5品项、尽量100%实际入库的简单销售订单，导出关联完整工单及实际工序/材料/入库证据。
+- 当前状态：进行中；已读AGENTS、T+只读及调度规范、既有进度和Git状态，复用已有调查与连接，不修改业务代码。
+- 当前阶段：核实真实表/字段和连接，筛选候选并逐行验证入库数量。
+- 已完成：确认现有只读Source及T+历史精确关联查询；既有物流发布已完成，不重复。
+- 正在进行：候选订单与制造工单/入库关联查询。
+- 待完成：两份Excel、范围/行数/完成率复核和简明报告。
+- 修改文件：本进度；脚本和所有真实业务输出仅置于test/erp_completed_work_orders/。
+- 数据库Migration：无；不写ERP/KDOS，不部署、不备份、不提交真实ERP数据。
+- 新增或修改测试：无；仅核对本次数据关联与工作簿。
+- 已运行验证：Git状态仅历史outputs进度未提交。
+- 当前已知问题/等待用户确认：无。
+- 下一步：元数据与DB_NAME核实→小范围候选→精确明细导出→完成记录。
+- 恢复执行说明：读规范、本节、Git状态后从未完成项继续，不重新执行历史物流任务。
+- 选单检查点：实测DB_NAME为UFTData418971_000003与E10_6.0.0.1.NEW.CHS。T+选2026A027406（5品项、130件入库/130件需求、加工单MO-2026-10-0005，含10产物行/35实际工序/24用料行）。E10选2301-2026A062063（3品项、2100/2100，3张直接关联工单/3实际工序/12用料行）。已核实E10通过MO_DEMAND.DEMAND_DOC_ROid引用销售交期明细，不能用工单头SOURCE_ID猜关联。正在逐单导出、确认下级范围与审核/退回口径。
+
+### ERP完工样单最终状态（2026-10-28）
+- 当前状态：已完成。
+- 已完成：两套现有只读连接实测；按订单行/品项/工单ID核实实际入库；下级及共享需求检查；全部关联工单产物、实际工序、用料和入库/执行记录导出；工作簿重新读取核验。
+- 交付：test/erp_completed_work_orders/Tplus_KeJia_2026A027406_complete_work_orders.xlsx；E10_2301-2026A062063_complete_work_orders.xlsx；README.md中文说明；export_result.json数量/行数/哈希证据。
+- T+：2026A027406，5成品130/130，工单MO-2026-10-0005，含5一级半成品共10产物行、35实际工序、24用料、5入库行/3单。
+- E10：2301-2026A062063，3品项2100/2100，工单5103-202609240036/0037/0038，3工序、12用料、3现场采集、3移转、10领退料、3入库行/3单。无额外下级，无其他订单共享需求。
+- 已运行验证：逐品项入库严格等于需求、T+基本单位匹配、入库有效状态/类型与品项核对、E10头行审核Y、源累计完工/成品入库量复核、关联主键唯一、Excel重读行数及无公式均PASS。未运行与数据提取无关的软件测试。
+- 已知事实：T+成品入库100%但加工单头/5半成品仍未完工，独立报工0且35工序累计报工0；E10只有包装工序，现场采集为移转（不改称人工报工），部分材料已领0；E10项目ID为零GUID。均在Excel/README说明，不修改源数据。
+- 修改文件：仅本进度与test/erp_completed_work_orders/下本任务脚本、SQL、JSON、Excel、README；test路径受Git忽略。
+- 数据库Migration/部署/备份/Git提交推送：无；只读调查任务，不动生产业务。
+- 最终报告：test/erp_completed_work_orders/README.md。
+- 正在进行/待完成/等待用户确认/下一步：无。
+- 恢复执行说明：本任务已完成，后续以本报告与export_result.json为依据；不重复采集或恢复历史物流任务。
+
+## 2026A027406月计划入库及34.5%综合进度排查（2026-10-28）
+- 任务目标：精确核对T+科加、ERP staging/入库投影、月计划及工序报工，定位仅WKF401-1/1有入库的原因。
+- 当前状态：进行中；适用AGENTS与只读/表单验收/调度规范已读，现有工作区仅历史进度未提交。
+- 已完成：恢复上轮订单导出实测，5成品入库130/130，真实关联工序与入库凭证已留test。
+- 当前阶段/正在进行：生产KDOS只读逐段对账与同步运行状态检查。
+- 待完成：确认实际断点、解释34.5%构成，按实际故障范围确定修复；涉及生产业务数据修复先说明影响取得确认，不直接补数量。
+- 修改文件：本进度；本次诊断代码与真实数据置test/order_2026A027406_diagnosis/。
+- 数据库Migration/新增测试/已运行测试：无；只读核对中。
+- 当前已知问题/等待用户确认：尚未确定根因。
+- 下一步：生产schema→该订单各层数据→实际同步状态→结论/必要修复。
+- 恢复执行说明：从本节和Git状态继续，不重做前次完整工单导出。
+
+### 2026A027406入库/综合进度排查结论
+- 当前状态：已完成（本轮只读排查；修复未执行）。
+- 实测：KDOS ERP staging及finished_goods_inbound五品项分别4/38/42/42/4，总130，均已正常同步；月计划仍0/0/0/0/4，集团存4件、品项平均入库20%。
+- 根因：既有用户政策已停用plan-projections（配置false且run入口硬返回skipped），月计划入库重算与旧projectPlans耦合而连带停止；10月15日五分配归档又被eligible_allocations排除。WKF入库在停用前已同步，四项在停用后入库未回算。不能擅自恢复分配/下游任务或解除历史归档。
+- 34.5%：生产已部署服务原querySql只读运行确认，四品项各2/11=18.18%（10道已锁定有效工序中毛坯/包装足量、入库旧0），WKF入库足量为100%，订单(4×2/11+1)/5=34.54545%。KDOS有11真实报工，不与T+独立报工0混淆。
+- 最小修复建议：独立恢复已有月计划入库事实回算，保留分配手工/Excel、归档和生成停用规则，不补报工不改工艺；本订单预期四条月计划0→4/38/42/42、集团汇总及综合进度100%。涉及生产派生数据/同步策略调整，尚未执行。
+- 验证：真实生产只读对账、精确五源行、同步配置/运行状态、生产服务原查询结果全部已核实；未执行软件测试、备份、Migration、部署、Git提交推送。
+- 修改文件：仅本进度及test/order_2026A027406_diagnosis/下诊断脚本/请求/只读结果/REPORT.md；无业务源码改动。
+- 最终报告：test/order_2026A027406_diagnosis/REPORT.md。
+- 正在进行/待完成：本轮排查无待完成项；生产修复留待新指示，不标记为已修复。
+- 下一步/恢复说明：以本报告及生产证据继续修复评审，不重复ERP工单导出和已完成排查。
+
+## 工序匹配衔接复核与恢复月计划同步风险评估（2026-10-28）
+- 任务：回答2026A027406为何仍按10工序计算，并评估恢复事业部月计划同步的风险与等级；本轮先评估，不切换生产同步。
+- 当前状态：进行中。
+- 已完成：复核BOM绑定domain/service与综合进度SQL；确认匹配processCodes仅用于BOM详情绑定/进度列表，综合进度独立读取已启用周工序快照，历史本单快照10道未被匹配结果约束。此为需求衔接未完成，不应把旧快照保护当作完整实现的理由。
+- 当前阶段：只读量化已有月计划入库差异、归档与新分配潜在覆盖范围，区分只回算现有计划与重新打开完整投影。
+- 待完成：风险报告、明确推荐边界、记录未执行事项。
+- 修改文件：本进度；test/order_2026A027406_diagnosis/内本轮评估材料。
+- 数据库Migration/测试/生产变更：无；仅只读检查。
+- 下一步：只读范围统计→中文风险等级与影响说明。
+
+### 工序衔接与月计划恢复风险评估最终状态
+- 当前状态：已完成（评估交付，无生产变更）。
+- 工序结论：一级BOM匹配processCodes仅用于详情展示，综合进度仍读周任务快照，本单10道全启用；用户要求匹配驱动进度的完整衔接未完成，已明确说明实现缺口。已锁定快照应保留历史，不可拿锁定替代需求实现。
+- 生产只读量化：现有2106月计划；1281有科加入库匹配，825无匹配且源缺失但存非0者0；32订单368项入库落后，368均关联归档分配，当前差异全上调、338项将足量入库。
+- 完整旧流程风险：活动分配2412行/2298订单品号键，均不匹配现有月计划；110键重复。按旧月计划INSERT实际分组2322候选/2298目标，20目标多组重复命中，存在同一目标重复更新事务失败风险；保持合法分配批次规则，不擅自合并/去重。
+- 风险等级：单张已核实入库回算低；已有事业四部月计划批量事实同步中、限制字段/差异确认后可控；整条旧计划生成/覆盖高；按最新匹配重写已报工工序高。
+- 推荐：恢复已有月计划入库/欠数/完成率与集团派生汇总，保留分配归档、人工数量/交期/归属、工艺快照和历史报工；新计划生成与历史匹配口径单独处理。先样单再确认范围扩展。
+- 报告：test/order_2026A027406_diagnosis/RESTORE_RISK.md；统计证据restore-risk-counts.json、restore-duplicate-counts.json。
+- 已运行验证：生产只读统计/旧分组模拟；无软件测试。
+- 修改文件：仅本进度与test评估材料；Migration/备份/生产写入/部署/Git提交推送均无。
+- 正在进行/待完成/下一步：本轮评估无待完成；恢复同步及工序修正尚未执行，按后续明确实施范围继续。
+
 ## 恢复事业四部既有月计划持续入库同步（2026-10-28，用户明确授权）
 - 任务：恢复已有事业四部月计划的入库事实同步，并持续运行；另核对并如实回答未来新订单是否按BOM工序匹配。
 - 当前状态：进行中；复用已完成诊断和风险报告，不恢复旧plan-projections，不重新生成月计划。
@@ -8383,6 +8818,25 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 来源状态真实核实：T+181=未审、189=生效。第一版预览识别额外15项下调来自未审；已改为包含未审/不稳定来源的品项整项保留原值并单独计数，避免自动冲减。最终生效来源预览366项/32订单，无下调（原368中另2项混有未审也跳过）。
 - 本地API类型/构建、定向lint与diff空白检查通过；Node22主机有engine提示，最终生产镜像由现有Node24 Dockerfile构建验证。未运行用户未要求的软件测试套件。
 - 已保存范围旧值before-approved.json（2.8MB）、全部人工业务字段/归档/报工/工艺哈希、6项配置及现有调度/n8n只读快照。准备本任务提交和API标准部署，之后真实管理员入口回算与Chrome验收。
+- 发布检查点：本地commit a9c737c（5文件，本任务进度单独暂存，旧历史输出保持未提交），标准deploy.sh api成功；Node24 API与Worker镜像构建通过，四容器healthy，健康检查通过。Web源码未变，Web保留e998f5f。
+- 正式管理员Command首次回算SUCCESS：366月计划/30集团汇总/0周计划分摊，396条逐行审计；17个含未审来源品项保留原值。第二次SUCCESS，月/集团/周修改均0，审计不重复。
+- 生产只读保护校验：所有月计划人工字段/身份、其他事业部完整月计划、集团非派生字段、全部分配、历史实际报工、工艺结构哈希与部署前一致；6项enabled/30分钟interval保持一致。正式订单进度接口已确认本单5品项入库全额、综合及入库100%。
+- 浏览器第一轮仅因脚本把百分比文本写成100.0%而超时（实际组件用toLocaleString显示100%），不是页面业务失败；已修正脚本文本，从已保存成功回算结果恢复，只重做页面读取，不重复业务写入。
+
+### 事业四部月计划持续入库同步最终状态（2026-10-28）
+- 当前状态：已完成（本轮授权的持续入库事实同步恢复；第2项问题已如实回答）。
+- 生产/Git：a9c737c5783537872c74d88aa4a7dbaf5cafbb59，5个本任务文件。已推送github/main，远端SHA实测一致。API标准部署后更新Web版本标识，最终Web/API/HEAD一致，四容器healthy，deploy.sh check及healthcheck通过。
+- 正式回算：32订单366条月计划、30集团汇总更新；396条逐行before/after审计，0周计划分摊变更。第二次Command成功且修改0、审计不增加；可信来源剩余差异0。
+- 线上效果：2026A027406五项累计4/38/42/42/4、欠数0、入库率100%；最终同SHA真实Chrome订单和5品项综合100%、刷新正确、JS异常0，截图production-order-progress.png。
+- 持续入口：既有inbound-allocation每30分钟、既有每分钟runDue检查，enabled=true。6项flags/周期及n8n激活清单前后一致，无新增Timer/cron/n8n/internal interval。最近一次正式手工成功18:57，下一到期19:27:46上海；本轮未等待下一轮定时执行，不伪称已观察到自动触发。
+- 保留验证：全部月计划非派生字段/身份/需求/日期、其他事业部月计划完整行、集团非派生字段、分配归档、实际报工、工艺结构哈希全部不变。
+- 明确未处理：17个含未审来源品项（2个同时关联不稳定）保留原值，metrics显式计数，来源生效完整后继续自动处理；未按不确定记录清零。新订单一级BOM工序映射→新执行快照/综合分母仍未打通；本次仅入库事实恢复，不能承诺所有新单已按BOM匹配。
+- 修改文件：新增master-plan.monthly-inbound.ts；修改master-plan.sync.service.ts、TASK_REGISTRY.md、pmc-bom-process-mapping.md、本进度。旧历史未提交进度原样保留；真实ERP/生产记录全部在忽略test目录。
+- 数据库Migration：无。数据保护：范围旧值before-approved.json与逐行审计，无额外全库备份。未改SQL Server或生产业务原始报工/工艺。
+- 验证：API类型/构建、定向lint、diff检查、Node24生产API/Web构建、真实只读差异/保护哈希、正式Command/幂等、Chrome、健康及版本均PASS；未新增或运行用户未要求的测试套件。
+- 最终报告：test/monthly_inbound_restore/acceptance.md；结构化release-result.json；browser-acceptance.json、after.json、remaining.json、github-remote.txt。
+- 正在进行/待完成/等待用户确认：本轮入库恢复无待完成；未来BOM匹配自动进入新计划仍是已明确的功能缺口。
+- 下一步/恢复说明：以acceptance.md与release-result.json继续维护，不重复回填已通过的入库事实；工序匹配接入作为后续明确范围处理，保留已开工快照。
 
 ## 在制订单进度筛选默认值与入库字段说明（2026-10-28）
 - 任务：解释30分钟inbound-allocation职责/来源与允收数量映射；将订单进度默认未完成筛选改为不勾选、日期改为上海当月ORDER/MONTH，去掉“只看”文案。
@@ -8396,11 +8850,25 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 下一步：前端小改→构建→发布与页面核验。
 - 实现检查点：在制订单进度直接打开/重置使用上海当月ORDER/MONTH，两项默认false；大屏明确日期上下文保留，两项仍false；复选框文案已去“只看”。已更新既有相关断言及运行手册/工序说明。
 - Web类型检查、两修改TSX定向lint、diff空白检查通过；不新增/运行测试套件。准备本任务局部暂存、本地commit及标准部署，真实浏览器核对初始/重置/勾选/导航条件。
+- 发布检查点：commit 28b0cc0（5个本任务文件，历史进度原样保留），deploy.sh all成功，Node24生产构建及Web/API/HEAD一致、4容器healthy、healthcheck通过；无数据库操作。
+- Chrome首次核验确认初始MONTH/2026-10/false参数与两项可勾选。重置环节因React Query的60秒缓存复用没有新HTTP，验收脚本等待新请求超时；已修正为检查重置后的实际复选框/日期状态，保留首次请求参数核验，重做只读交互。
+
+### 在制订单进度默认筛选最终状态（2026-10-28）
+- 当前状态：已完成。
+- 修改：直接打开/重置默认上海当月ORDER/MONTH，两项未完成筛选false；名称“未完成订单”“未完成品号”；大屏明确带入日期/订单条件保留。既有相关断言与文档同步。
+- 生产/Git：28b0cc0b19bc233f9c9bb8d9b2fe8fdc33d908cb，5个本任务文件；标准all/check、Node24构建、健康检查通过，Web/API/HEAD一致，4容器healthy；GitHub main推送及远程SHA实测一致。
+- 浏览器：真实管理员Chrome，初始MONTH/2026-10/false/false；两项手动勾选true，重置和刷新恢复当月false，带入2026-09-24/2026A027406保留且两项false；页面及网络核验PASS，JS异常0、HTTP失败0。重置会复用React Query缓存，按实际UI状态核验。
+- 第1/2项核实：30分钟inbound-allocation只读KDOS finished_goods_inbound，经科加T+原采集/正式投影提供数据，负责月计划/集团回算和周计划按交期分摊；当前允收数量receivedQuantity→received_quantity→T+ST_RDRecord_b.quantity，审核生效另判，未额外从质检表读取合格量。
+- 数据库Migration/备份/业务数据写入/调度变更：无。
+- 验证：Web类型、定向lint、diff、生产构建、真实Chrome、健康与版本PASS；既有断言已更新，未新增/运行测试套件。
+- 最终报告：test/order_progress_filter_defaults/acceptance.md，release-result.json，FIELD_SOURCES.md；browser-acceptance.json与production-defaults.png。
+- 修改文件：MasterPlanOrderProgress.tsx及其.spec.tsx、docs/runbook.md、docs/pmc-bom-process-mapping.md、本进度；历史进度未覆盖或夹带提交。
+- 正在进行/待完成/等待用户确认/下一步：无。本轮任务完成；原BOM匹配衔接缺口未在本轮改动。
 
 ## 入库数量显示名称统一（2026-10-28）
 - 任务名称：将入库表“允收数量”改为“入库数量”。
 - 任务目标：页面、字段注册、导入模板与导出统一名称，保留receivedQuantity和旧表头兼容。
-- 当前状态：进行中。
+- 当前状态：已完成。
 - 最后更新时间：2026-10-28。
 - 当前阶段/子任务：已核实全部6处引用；实施显示名称与导入别名调整。
 - 已完成：[x] 阅读规范、适用Skill、进度和Git状态；确认范围为3个源码文件。
@@ -8420,9 +8888,49 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 未触及Entity、数量、权限、同步、Migration或数据库；不增加备份。
 - 当前阶段：准备提交本任务3个源码文件与本节进度，随后标准部署与线上只读核验。
 
+### 入库数量改名：最终交付
+- 当前阶段：已上线并完成GitHub同步，无待办、阻塞或用户确认。
+- 已完成：[x] 3文件标签/别名修改；[x] 类型检查与标准Node24生产构建；[x] 标准部署及健康检查；[x] 线上Chrome只读页面/Excel核验；[x] GitHub推送。
+- 最终修改文件：apps/api/src/controllers.ts；apps/web/src/shared/legacy-ui.tsx；packages/contracts/src/index.ts；本进度本任务节。
+- 数据库Migration：无；未变更业务数据或数量同步，未安排备份。
+- 验证结果：Contracts/API/Web typecheck、git diff --check、Docker生产构建、deploy.sh check、healthcheck.sh均PASS。Chrome核实列表与新增窗口标签、XLSX模板/服务端导出表头一致为“入库数量”，页面JS错误0，生产业务写入0。
+- 旧表头兼容：源码保留允收数量/实收数量导入别名；本轮未向生产执行导入。
+- 浏览器定位脚本曾因复合表头accessible name与取消按钮空格超时，改用实际表头文本/关闭按钮后验收PASS；未因此修改产品代码。
+- 部署及GitHub版本：53298e4df6bda5cba4db4a6a4bdcd3dae7b436f4；远端github/main与Repository/Web/API完全一致。
+- 当前已知问题/等待用户确认/待完成：无。
+- 下一步：无；以后维护从本节和实际Git状态继续，不重做已完成验收。
+- 最终报告路径：test/inbound_quantity_label/acceptance.md；线上证据：browser-acceptance.json、deploy.log、version-check.txt、health.log、github-remote.txt。
+
+## 2026A027449未进入集团/月度计划排查（2026-10-29）
+- 任务名称：精确调查ERP已有订单2026A027449为何集团主计划、事业部月计划缺失。
+- 任务目标：查明真实数据断点与现行来源政策，报告事实；不擅自恢复停用生成策略。
+- 当前状态：已完成（只读调查与报告）；最后更新时间：2026-10-29（Asia/Shanghai）。
+- 当前阶段/子任务：已阅读AGENTS、调度Skill及任务台账、历史恢复进度和Git状态，核对生产各层记录及配置。
+- 已完成：[x] 现有政策及代码入口核对；[x] 生产4服务健康。
+- 正在进行：[ ] 本订单ERP/分配/集团/月计划与同步日志只读调查。
+- 待完成：[ ] 形成结论并记录报告。
+- 修改文件：仅本进度；查询脚本与结果位于test/order_2026A027449_diagnosis/。
+- 数据库Migration：无；新增或修改测试：无；已运行测试：无，只读调查无需测试套件。
+- 当前已知问题/等待用户确认：尚待数据库实证；没有待审批操作。
+- 下一步：核对生产数据库记录→具体断点→中文报告。
+- 恢复执行说明：读取本节/适用规范，检查Git状态和test下结果，从未完成项继续，不重复既往已完成任务。
+
+### 2026A027449调查完成
+- 已完成：[x] 生产各层精确核对；[x] 同步配置、最近日志、导入审计、事业部映射、运行容器代码验证；[x] 中文报告。
+- 结果：本订单ERP/主计划ERP各5行，分配5行均未归档且归事业四部，集团/月度均0；其余发货/基础/周均0。五品项共33，来源科加、状态有效。
+- 2026-10-29 09:10:54上海时间吴志琴已成功导入分配（同批13行，本单5行），A027→事业四部映射有效；09:15 ERP同步SUCCESS。
+- 根因：plan-projections.enabled=false，run各入口直接skipped，分配Application不再enqueue。停用策略阻断新月/集团计划生成；昨天恢复只更新已有计划入库，不会创建新计划。
+- 修改文件：本进度；test/order_2026A027449_diagnosis下只读查询/结果/REPORT.md。业务源码未修改。
+- 数据库Migration/测试/备份/部署/生产数据修复/Git提交推送：均无；只读检查不需要发布。
+- 当前已知问题：业务缺失原因已查明；新计划生成链仍停用，本次未恢复，不称已修复。
+- 等待用户确认：本轮无待执行审批；后续恢复生成需要新指示/明确范围，不能擅自开启旧全量入口。
+- 待完成/下一步：本轮调查无未完成；若后续恢复，按本报告从已确认分配到计划生成范围评估继续。
+- 最终报告路径：test/order_2026A027449_diagnosis/REPORT.md。
+- 恢复执行说明：复用本报告及生产证据，不重跑已完成ERP采集或无关历史任务。
+
 ## 恢复已确认分配到集团/月度计划链路（2026-10-29，用户授权）
 - 任务名称/目标：恢复现有手工/Excel分配后的计划生成及持续对账；不恢复ERP自动写分配。
-- 当前状态：进行中；最后更新时间：2026-10-29。
+- 当前状态：已完成；最后更新时间：2026-10-29。
 - 当前阶段：已完成中断恢复、规范/调度Skill/相关代码阅读；精确预览当前分配、现有计划、约束及风险。
 - 已完成：[x] 定位run、execute、outbox与Application四处停用点；[x] 确认旧SQL不兼容追加批次与历史保护，不能直接启用。
 - 正在进行：[ ] 生产只读范围预览；[ ] 复用现有事务/幂等/审计实现安全生成与持续同步。
@@ -8451,6 +8959,62 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - c323de7标准部署及健康/SHA核对通过；原配置经审计API启用后，真实SCHEDULED首次运行因传入入库helper的updatedBy使用系统显示名而非UUID失败。
 - 同一事务已完整回滚；只读实测分配/2106历史月计划/19836工序结构/4190报工保护哈希与发布前全部一致，本订单计划仍0。已通过同一审计API安全停用配置，未手工改库。
 - 修正为传递稳定actor UUID至既有helper；成功恢复后自动resolve本任务失败异常，保留失败日志历史。正在类型检查并标准重发；不将失败版本称为交付完成。
+
+### 最终交付：链路已恢复并上线
+- 已完成：[x] 生产范围预览、事务/锁/外键/审计实现；[x] API类型与Node24生产构建；[x] 更新任务台账与运行手册；[x] 正式部署/健康/SHA一致；[x] 配置审计API激活；[x] 正式补偿和幂等验收；[x] Chrome集团/月计划页面；[x] GitHub同步。
+- 实际补偿（MANUAL SUCCESS）：364月计划新增、20集团新增、7月计划可信入库更新，count391；立即重跑SUCCESS/count0，零重复写入。
+- 2026A027449实际页面：集团1/月计划5，事业四部，需求9/16/6/1/1共33，Chrome无JS错误。
+- 原配置plan-projections.enabled=true、interval30/statusSUCCESS；事件队列/保存及导入触发已恢复。首次失败记录保留且异常已解除；下一到期约2026-10-29 10:27:06上海时间。成功补偿为手工入口，不冒称未来定时已成功；其余5个应用配置及所有间隔不变。
+- 保护核验PASS：4763分配、2106历史月计划身份及人工字段、19836工序结构、4190报工数量/日期摘要一致；n8n前后16定义/11active完全一致。未变更外部调度器；仓库新增调度定义0，仅原应用配置启用5→6。
+- 修改文件：apps/api/src/modules/master-plan-system/master-plan.allocation-projection.ts、master-plan.application.service.ts、master-plan.sync.service.ts；docs/operations/TASK_REGISTRY.md；docs/runbook.md；本进度本任务节。
+- 数据库Migration：无；无ERP源修改、生产测试数据、人工报工改写或全库备份。受影响已有月/集团记录预览均为空，恢复配置及保护证据保存在test目录。
+- 验证：API typecheck、生产Docker构建、deploy.sh check、healthcheck.sh、实际正式同步与重复执行、Chrome两页面全部PASS；本轮未新增/运行测试套件。
+- 部署/Web/API/GitHub main：607eaecce99647180b80990a03a5eb23c82973ee（c323de7及修正607eaec均已推送）。
+- 当前已知问题：8个样单S-26A027122品项重复分配合计超ERP数量，已阻断并记录明确数据异常；不改原数量。1931键无当前准入的有效科加来源，未生成。此前17项未确认入库来源仍保留原事实。
+- 等待用户确认/本任务待完成：无；业务冲突记录按后续明确业务修正处理，链路与本订单已交付。
+- 最终报告路径：test/plan_projection_restore/acceptance.md；证据browser-acceptance.json、manual-first/second.json、preservation.json、final-proof.json、run-final.json、部署/健康/GitHub日志。
+- 下一步/恢复执行说明：本轮无代码待办；以后从本节及实际Git状态继续，不重跑已完成补偿、不覆盖历史进度。
+
+## 8个重复分配超量品项明细追查（2026-10-29）
+- 任务：回答8品项所属订单、分配记录在哪张表重复、批次/数量来源。
+- 当前状态：已完成；范围为只读调查，不修改或删除分配/计划。
+- 已完成：读取此前恢复报告与精确候选；8项均属S-26A027122，每项2条活动分配。
+- 正在进行：核对生产原始分配行、批次、原始行号、操作人及ERP明细数量。
+- 待完成：明细与中文结论，产物统一test/allocation_conflict_8_items/。
+- 修改文件：仅本进度及test忽略目录；Migration、测试、备份、部署、Git操作均无。
+- 已运行测试：无；当前已知问题/等待用户确认：无。
+- 下一步/恢复说明：从生产只读结果继续，不重复补齐或修改业务数据。
+
+### 明细追查完成
+- 8项全属S-26A027122、事业四部；重复在mps_order_allocations的两批导入之间，不是ERP订单重复。每项2条活动分配，ERP与sales_orders各1条源行。
+- 吴志琴于10/28 08:51:00导入分配表117–124行，10/29 09:10:54再导入7–14行（上海）；两批每品项数量都等于ERP数量。ERP共15，两批各15，当前合计30。
+- 批次文件哈希不同，未由数据库猜测原文件名；合法追加语义不等同于已确认业务误操作。现计划生成按合计超量拦截，原分配均保留。
+- 已完成：[x] 16分配行/8 ERP行/8 canonical行、批次/用户/原行号/审计核对；[x] 中文明细报告。
+- 修改文件：仅本进度及test/allocation_conflict_8_items下请求/结果/REPORT.md；无业务代码、生产数据写入、Migration、测试、备份、部署或Git提交。
+- 当前已知问题：第二次导入业务意图未确定，不能直接据此删除；本轮未要求数据修复。
+- 等待用户确认/待完成/下一步：无，本轮调查完成。
+- 最终报告路径：test/allocation_conflict_8_items/REPORT.md；以后以此与Git状态恢复，不重复已完成查询。
+
+## 2026A027424月计划有而基础计划无的排查（2026-10-29）
+- 任务目标：核实本订单月度、出货、基础、周计划的实际记录及同步断点，说明当前流程。
+- 当前状态：已完成；当前阶段：已读取规范/进度/Git状态及实际shippingToBase代码，生产只读核对。
+- 已完成：[x] 确认基础同步实际读取mps_shipping_plans，而非直接读取月计划。
+- 正在进行：[ ] 本订单各层记录及同步日志；待完成：[ ] 中文结论。
+- 修改文件：仅本进度与test/order_2026A027424_base_diagnosis/查询、证据和报告。
+- Migration/新增修改测试/已运行测试/备份/部署：无；本次为只读排查。
+- 当前已知问题/等待用户确认：待生产实证；无待审批操作。
+- 下一步/恢复说明：从本节与实际查询继续，不修改计划或重跑同步。
+
+### 本订单断点确认
+- 月计划4条/65件（5/15/40/5），事业四部；出货/基础/周计划均0。
+- shipping-to-base生产配置enabled=true/30分钟，最近09:55:15上海SCHEDULED SUCCESS/count0，无错误；其基础来源是出货计划，不直接由月计划生成。
+- 月计划4条于10/14创建，对应分配10/15已归档并保留；本轮恢复的分配→集团/月计划不包含创建出货批次。
+- 缺口为未有当前出货批次记录，需按现有业务确认出货数量/交期并维护出货计划，然后现有同步生成基础；没有自动猜测或新增批次。
+- 已完成：[x] 各层数据、生产配置和近期日志、代码来源核实；[x] 简明中文报告。
+- 修改文件：仅本进度与test/order_2026A027424_base_diagnosis/请求/结果/REPORT.md。无业务代码、生产写入、测试、Migration、备份、部署或Git操作。
+- 当前已知问题：本订单尚无出货及基础记录；本轮仅解释原因，未执行业务补建。
+- 等待用户确认/本轮待完成/下一步：无；后续维护出货批次按实际业务数量和交期执行。
+- 最终报告路径：test/order_2026A027424_base_diagnosis/REPORT.md；恢复时复用本节，不重复已完成调查。
 
 ## 安装table-delete-standard Skill（2026-10-29）
 - 任务：从下载目录压缩包安装项目级Skill，追加AGENTS引用并核对冲突/触发。
@@ -8481,12 +9045,19 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 本次提交仅包含新Skill的两个文件、根AGENTS新增规则及本任务进度节，不夹带此前历史未提交进度或业务数据。
 - 安装结构校验、Codex实际发现及git diff --check已通过；正在提交并推送github/main。
 
+### Skill GitHub同步完成
+- 状态：已完成。按用户追加授权仅提交本任务4个文件，未夹带历史进度或真实ERP资料。
+- commit：e920a34a92231c47d17ed41e774aff8ebc6f3f22；远端github/main已核对为相同SHA，普通push成功，无force。
+- 验证：Skill格式与实际发现既有PASS、暂存文件白名单及敏感信息检查PASS、git diff --cached --check PASS。
+- 生产部署：未执行（本次仅文档/Skill提交）。既有历史进度工作区修改保留。
+- 等待用户确认/下一步：无。同步证据：test/table_delete_standard_install/github-push.log、github-remote.txt。
+
 ## 月度计划直接生成基础计划（2026-10-29，代码与本地验收）
 - 任务目标：月计划→自动基础→人工完善→周计划；出货独立保留，无新增来源字段。
-- 当前状态：本地开发与验收已完成，正在按项目规范同步GitHub；最后更新时间：2026-10-29。
-- 当前阶段：本地代码与验收完成，安全GitHub同步。
+- 当前状态：已完成；代码、本地验收及GitHub同步完成，生产未部署；最后更新时间：2026-10-29。
+- 当前阶段：已完成本轮授权范围。
 - 已完成：[x] 实际月计划唯一键tenant/order/item；基础唯一键tenant/order/item/delivery；shipping_plan_id已有可空；周计划按base_plan_id关联，无强制出货引用。
-- 正在进行：[ ] 仅本任务文件提交、普通push与远端SHA确认。
+- 正在进行/待完成：无。
 - 已完成：[x] 同步入口/保护/必要Migration；[x] 针对性单元/隔离PG/页面闭环；[x] 类型/构建/文档。
 - 设计：有效月计划required_quantity→基础planned_quantity；latest_customer_due_date→同名交期；latest_review_due_date保留人工，不映射其他评审/出货日期。已有唯一基础复用ID/交期编码；多批次/事业部冲突不合并不删除。
 - 人工保护：使用既有审计中的上次同步值做三方对账，首次接管不覆盖无法证明的非空人工值；保持周计划/报工/工艺逻辑。
@@ -8536,6 +9107,24 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 新增修改测试/已运行测试：待完成，按用户要求覆盖独立delete、跨租户/范围、版本、关联、审计回滚、统计及批量交互。
 - 当前已知问题：scripts/deploy.sh的assert_deployable_worktree拒绝任何未提交源码且构建SHA取git HEAD；本轮用户禁止commit/push，不能按现有流程部署本次未提交源码。不得绕过门禁、伪报已上线或夹带此前未授权上线的月→基础改造。
 - 等待用户确认：先完成可审查代码与本地验收；若用户仍要求上线，需要最小范围允许本次本地提交（不push），及使用既有干净来源发布，保留其余功能。
+### GitHub同步完成
+- 当前状态：已完成。commit：a7a63fde6d937c91f1287efbf850149013579fa9；github/main远端SHA实测相同，普通push成功。
+- 提交15个本任务文件（含仅本任务进度），未提交原有历史进度改动、验收合成数据/脚本、截图或密钥；未部署生产。
+- 暂存白名单/敏感字面量/git diff --cached --check均PASS。证据github-commit.log、github-push.log、github-remote.txt。
+- 本节完成凭证与此前历史进度一起保留在本地进度工作区；代码文件无遗留未提交修改。
+- 下一步/恢复说明：本轮无待完成工作；以后如授权上线，从已验证commit及必要Migration继续，不重复本轮开发验收。
+
+## 项目与任务模块删除功能（2026-10-29）
+- 任务目标：仅supervision-projects/tasks，复用KdosDataTable顶部删除、独立权限及Application事务审计；隔离测试，生产非破坏性核验。
+- 当前状态：已完成；最后更新时间：2026-10-29。当前阶段：隔离本地提交、生产部署与线上非破坏性核验全部通过。
+- 已完成：[x] 两资源已注册独立delete，无需默认授权；[x] 项目→任务、任务→进展、项目→进展均RESTRICT，附件为JSON+对象存储，报表实时聚合，无已确认软删。
+- 已完成：[x] 安全删除及同事务审计；[x] 顶部单多选确认/准确反馈/关联刷新。
+- 已完成：[x] 定向权限/HTTP/隔离PG/UI/类型/构建；[x] 本地commit及生产部署/线上核验。待完成：无。
+- 修改文件：见最终发布完成节；临时脚本/证据放test/supervision_delete/，此前历史未提交进度完整保留。
+- 数据库Migration：无；未改数据库结构、普通用户授权或生产历史数据。
+- 已运行测试：API59+Web15+共享选择/删除5，类型/构建/lint、本地及生产Chrome已通过。
+- 初始部署门禁已解决：用户允许隔离本地commit、不push；原deploy.sh部署及版本核验已通过，见最终发布节。
+- 等待用户确认：无，用户已明确授权本次本地commit及部署。
 - 下一步/恢复说明：从本节+git状态继续实现与验收；不执行commit/push，不重新分析已确认关联，不修改生产业务数据。
 
 ### 删除功能代码与定向验证完成
@@ -8586,6 +9175,81 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 ## 项目候选缓存一致性修复（2026-10-29）
 - 任务目标：统一项目创建/修改/完成/中止/删除后的依赖失效；每次创建任务前主动重取候选，失败时不打开旧数据窗口；测试、GitHub同步、部署及实际页面闭环。
 - 当前状态：进行中；当前阶段：已确认实现方式，准备最小前端修复；最后更新时间：2026-10-29。
+### 隔离发布提交及备份完成，进入部署
+- 本地发布分支release/supervision-delete-20261029，commit c324f3eb3b2983fc068da1378e2040ce2ce87911，直接基于生产607eaec，仅9个本轮白名单文件；来源test/supervision_delete/release-source工作区干净，不含Migration111/主计划改造。未push。
+- 已核对Compose project=knplan及原PostgreSQL/上传持久挂载，源码context仅切换隔离worktree；无新Compose项目、无凭据复制。
+- 已按既有runbook/backup.sh单次备份legacy/KDOS/uploads，时间标记20261029_122520；pg_restore --list和SHA256通过，日志upgrade-backup.log。旧API/Web/Worker镜像另保留before-supervision-delete-20261029标签供回滚，不恢复覆盖业务库。
+- 正在原脚本KDOS_RUNTIME_ROOT=<当前runtime> scripts/deploy.sh all构建并更新API/Web/Worker，日志deploy.log；本轮无Migration，不执行结构/权限/生产业务删除。
+- 用户追加“继续”维持现有授权，不重复开发或已通过的79项定向测试。
+- 下一步：等待deploy完成→同一来源deploy.sh check→线上真实登录/勾选/确认取消/只读路由及统计核验；禁止生产DELETE。
+
+### 发布与线上验收完成（2026-10-29）
+- 当前状态：已完成。用户授权的隔离本地提交、生产部署、健康与线上非破坏性核验均完成，无待完成/待审批项。
+- 本地分支release/supervision-delete-20261029，commit c324f3eb3b2983fc068da1378e2040ce2ce87911，直接基于原生产607eaec；仅本轮9文件，不含月→基础改造或Migration111，未Git push。
+- 原scripts/deploy.sh all/check均通过；隔离来源HEAD、Web和API完整SHA一致，STATUS CONSISTENT；API/Web/Worker/PostgreSQL健康，PostgreSQL容器ID与全部持久挂载未变。
+- 无Migration，仅只读核对TypeORM待运行项=[]；未改数据库结构/用户授权。升级备份20261029_122520单次完成并验证，旧镜像保留before-supervision-delete-20261029可回滚。
+- 生产真实Chrome登录：两表顶部删除可见、未选择禁用、勾选后数量/业务编号确认、取消无写入、权限管理入口、两条DELETE路由注册均通过；JS异常0，业务写请求0，项目/任务数量不变。
+- 无delete隐藏采用仅本浏览器模拟低权限会话核对；服务端403/范围/版本/关联/回滚/删除统计仍以隔离PG+HTTP实测为据，不冒充生产普通用户删除验收。未发送生产DELETE或尝试删除真实项目/任务。
+- 本地API59+Web15+共享选择/删除5、类型/构建/lint及Chrome均通过，不重复全套。
+- 修改文件：supervision Controller/Application/Scope、scope.spec、新delete.postgres.spec、SupervisionPages及spec、docs/supervision-deletion.md、仅本任务进度。原main HEAD及历史未提交修改完整保留。
+- 最终报告：test/supervision_delete/acceptance.md。证据production-browser-result.json、deploy.log、deploy-check.log、migration-readonly.log、runtime-before/after.json、upgrade-backup.log、release-version.json。
+- 当前已知问题/等待用户确认/下一步：无，本轮已交付。源worktree保留用于版本核验/回滚，不擅自push或部署主计划改造。
+
+## 月度直接生成基础计划生产部署（2026-10-29）
+- 任务目标：正式发布完整a7a63fd，保留已上线c324f3e项目删除功能；必要Migration→原任务生产同步→页面/去重/保护/周计划衔接验收。
+- 当前状态：已完成；当前阶段：正式部署及生产业务验收均通过；最后更新时间2026-10-29。
+- 已完成：[x] main及github/main均a7a63fd；生产Web/API为c324f3e，后者是基于607的有效发布分支；原工作区含该功能未提交源码/历史进度，保护不覆盖。[x] Migration111仅客户交期可空及原任务默认名称，无删除/覆盖。
+- 生产基线：月度2470、基础2160、出货1233、周计划2160；原shipping-to-base启用/30分钟/最近SUCCESS。选定无出货无基础候选2026A027028-1/GFH502KB-1/1，需求300。
+- 发现必要兼容修复：实际audit_logs.record_id为varchar，原helper将b.id uuid直接等于该列，真实SQL会拒绝；隔离测试误设uuid。仅修正关联类型并将fixture对齐真实结构，定向重跑相关用例。
+- 已完成：[x] 隔离正常合并有效版本；[x] 必要兼容修复/18项定向验证；[x] Migration111及deploy all/check。
+- 已完成：[x] 原任务同步及幂等/保护对账；[x] 生产Chrome；[x] 正常push及报告。待完成：无。
+- 修改文件：预计helper/PG fixture和任务文档进度；实际运行产物统一test/monthly_base_production/，不提交真实ERP资料。
+- 数据库Migration：仅MpsMonthlyBaseGeneration1722920111000；不默认备份，无整库/第二套/额外备份流程，遵守用户本轮明确要求。
+- 测试：复用原API112/Web40/类型构建/Chrome及历史5失败基线结论，不重复完整套件；新真实类型修复单独验证。
+- 当前已知问题/等待用户确认：无，审计ID兼容修复已部署并验证。
+- 下一步：合并有效发布→修复/定向验证→应用Migration→部署→原同步及生产验收，持续完成，不触碰既有未完成修改。
+
+### 合并与必要兼容修复验证完成
+- 发布来源已正常合并a7a63fd与生产c324f3e，仅进度文件存在追加冲突，已保留双方记录；业务源码无冲突。
+- 生产只读EXPLAIN实证原审计关联报operator uuid=varchar错误；修正b.id::text=a.record_id后EXPLAIN通过。PG fixture已改为实际varchar，定向18/18通过，不重复完整112/40。
+- 上线前必要保护证据只保存ID/摘要，非数据备份：2160条既有基础关键人工数量/日期/引用、1470锁定周计划工艺集合顺序周期、1233出货及4229实际报工事实摘要；不导出完整业务行，不修改事实。
+- 现有任务仍启用/30分钟，保留原flags与所有既有任务，不新建调度器。用户明确无需本次全库备份，未安排备份。
+- 下一步：提交合并及类型修复→构建镜像→只应用Migration111→deploy all/check→正常任务生产补齐及Chrome。
+
+### Migration已执行，正式镜像部署中
+- 最终发布commit fbff2a364a3946b1bcdee18030ebc84be1deb497；正常merge保留a7a63fd完整改造与已上线c324f3e。github/main普通push成功，未覆盖原main工作区修改。提交前已清除新进度中的真实候选业务值，真实证据仅保存在ignored test目录。
+- 生产通过既有TypeORM DataSource.runMigrations(transaction=all)执行，事前强制仅允许pending Migration111；结果仅MpsMonthlyBaseGeneration1722920111000执行成功，migration.log有记录。没有其他Migration、删除/批量覆盖/整库备份。
+- 当前执行干净隔离source的既有scripts/deploy.sh all，runtime环境/挂载沿用原目录，不改脚本/门禁；其最终镜像内嵌fbff2a3。旧镜像before-monthly-base-20261029保留，无数据库备份操作。
+- 下一步：部署健康/版本一致→正常shipping-to-base手工验收及二次幂等→真实Chrome页面/编辑控件/周计划衔接/出货保留→比对关键保护摘要和任务flags。
+
+### 正式发布与生产验收完成
+- 当前状态：已完成；最后更新时间2026-10-29。实际生产API/Web/发布commit fbff2a364a3946b1bcdee18030ebc84be1deb497，原deploy.sh all/check一致通过；github/main普通push成功，保留a7a63fd与c324f3e两项有效改造。
+- Migration仅MpsMonthlyBaseGeneration1722920111000成功；无整库/第二套/额外备份，无业务删除、无新来源标识、无新任务。
+- 原任务shipping-to-base已更名月度计划同步基础计划；启用/30分钟/SUCCESS，原配置flags/interval全部保留。总月度2470，2259有效读取；新增424、更新1、无变化1834、冲突0；211需求非正未纳入。再次独立同步新增/更新均0，基础总2584。
+- 生产真实Chrome：无出货候选正常生成且字段匹配；基础查询/刷新/编辑控件可用，未改真实数量日期；旧基础→周计划关联正常，新待完善记录不强推周；原base-to-weekly事件自动成功消费count1，周计划仍2160；出货1233条和维护入口保留。JS错误0/非预期写请求0。
+- 数据保护：原2160基础关键人工字段/引用、1470锁定工序结构周期、1233出货全行摘要一致；原4229报工事实摘要一致，正常员工期间新增6条已从审计核实，不误判为覆盖；历史48多批次组未增加/未合并。
+- 必要修复及测试：生产varchar审计ID关联兼容修复，真实只读EXPLAIN及相关18/18通过；未重复原完整112/40或历史5失败套件。
+- Git：新合并发布commit已push；原main工作区/既有未提交源码及历史进度全部保留（前任务哈希验证），不清理/覆盖其他任务；隔离source保留便于版本核验。
+- 当前已知问题/等待用户确认/待完成/下一步：无，本轮已交付。最终报告test/monthly_base_production/acceptance.md；实际候选与业务值只留ignored证据，不提交真实ERP行。
+- 恢复执行说明：从本节、实际生产SHA、原任务日志和报告继续维护，不重新开发已完成流程；新发布以已合并有效版本为基线，不单独回退a7a63fd。
+
+## 项目与任务删除交付复核（2026-10-29，用户重新授权 Git 全流程）
+- 任务目标：核实既有项目/任务删除功能、GitHub同步、生产版本与线上非破坏性验收，不重复开发。
+- 当前状态：已完成；当前阶段：最终线上Chrome复核通过；最后更新时间：2026-10-29。
+- 已完成：[x] 当前GitHub main实测fbff2a364a3946b1bcdee18030ebc84be1deb497；[x] 生产API/Web同SHA、原deploy.sh check为CONSISTENT；[x] API/Web/Worker/PostgreSQL健康。
+- 已完成：[x] 该发布包含c324f3eb3b2983fc068da1378e2040ce2ce87911删除功能；8个代码/测试/文档文件与原工作区逐字一致，原未提交内容已包含在发布版本，并非未完成功能。
+- 已运行测试：复用相同代码已通过API59（含隔离PG+HTTP21）、Web15、共享删除/选择5、类型/构建/lint和隔离Chrome；不重复完整套件。
+- 修改文件：本轮仅本进度及test/supervision_delete内复核证据；不修改业务代码。数据库Migration：无。
+- 当前已知问题/等待用户确认：无。用户已允许commit/push/部署，先前“不push”仅为历史授权，当前不再适用；既有功能已普通push并上线，本轮无需空提交或重复部署。
+- 已完成：[x] 生产真实登录，两表删除可见/未勾选禁用/勾选启用/数量与编号确认取消/权限入口/DELETE路由注册；JS错误0、业务写请求0、记录数量不变。
+- 待完成：无。无权限隐藏采用浏览器会话模拟；实际无权限403、跨租户/范围/版本/关联/审计与真实删除仍以隔离PG+HTTP实测为准。
+- 最终报告路径：test/supervision_delete/acceptance.md（本轮复核追加节）；新证据current-source-verification.json、production-current-browser-result.json。
+- 最终修改文件：本轮仅本进度及ignored test验收证据；功能8个源码/测试/文档文件已在c324提交、随fbff正常push至github/main并部署。无新业务代码、无新commit/push、无重复部署或备份；其他工作区内容保持。
+- 下一步/恢复说明：无未完成工作，保留进度与证据；生产API/Web/Worker健康，本次不执行生产删除。
+
+## 项目候选缓存一致性修复（2026-10-29）
+- 任务目标：统一项目创建/修改/完成/中止/删除后的依赖失效；每次创建任务前主动重取候选，失败时不打开旧数据窗口；测试、GitHub同步、部署及实际页面闭环。
+- 当前状态：已完成；当前阶段：已开发、验证、GitHub同步、正式Web部署与真实页面验收；最后更新时间：2026-10-29。
 - 已完成：[x] 阅读附件、AGENTS/SECURITY、form-platform/form-validation及删除规范；[x] 确认原options五分钟缓存，inline及form/action仅刷新projects；[x] 确认候选及列表名称从supervision_projects.project_name当前查询，任务未存名称副本。
 - 正在进行：[ ] 前端统一依赖helper与创建前refetch/失败提示/防连点；[ ] 定向测试。
 - 待完成：[ ] Web类型/build/lint及API候选权限回归；[ ] 隔离发布提交/push及既有脚本部署；[ ] Chrome实际改名到创建候选/刷新验证。
@@ -8638,3 +9302,725 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 已运行：API相关51项通过；Web相关88项通过（设备仪表盘并行超时后定向4项复跑通过）；API/Web类型及构建、相关ESLint、git diff --check通过。
 - 无Migration、无业务数据写入、无调度变化；保留既有镜像用于回退，不增加数据库备份。
 - 下一步：白名单提交并普通push→原deploy.sh all→健康及版本一致性→真实Chrome实际/待报工下载核对。
+### 已提交GitHub，正式Web部署中
+- commit：a571758a4945cfde1b55bd3653cb523f672287a9；普通push到github/main成功，远端SHA实测一致，仅两个Web文件及本任务进度。
+- 正在原脚本KDOS_RUNTIME_ROOT=<原运行目录> scripts/deploy.sh web发布；来源worktree干净，不修改deploy.sh门禁，不带其他未提交历史内容。
+- 回退使用保留的旧Web镜像；无数据库迁移、数据库备份或API/Worker重建。
+- 下一步：部署完成版本/健康检查→生产Chrome指定改名流程及跨标签页、刷新失败提示→恢复项目原名→最终报告。
+
+### 正式Web部署成功，生产Chrome验收中
+- 原scripts/deploy.sh web成功：来源HEAD/Web内嵌SHA均a571758，STATUS CONSISTENT；GitHub main完整SHA a571758a4945cfde1b55bd3653cb523f672287a9。
+- 本次仅更新Web；API继续fbff2a3，API/Worker/PostgreSQL原容器及数据挂载保持，不将Web单独发布误判成API必须更新。
+- 正在真实登录验收：只允许选定既有项目的projectName+expectedVersion两字段PATCH（验收改名及恢复）；拦截其他业务写操作，不创建任务、不删除或改变成员/状态。
+- 下一步：查看production-browser-result及healthcheck→确认项目原名恢复、记录数和其他字段不变→保存验收报告并将任务置为已完成。
+
+### 最终交付完成
+- 当前状态：已完成；最后更新时间：2026-10-29。待完成/等待用户确认：无。
+- 最终修改文件：apps/web/src/modules/supervision/SupervisionPages.tsx及SupervisionPages.spec.tsx，本任务进度；其余任务代码原样保留，见workspace-protection.json。
+- 数据库Migration：无。后端/数据库结构/权限规则/任务关联/业务调度均未改动；不增加数据库备份。
+- 已运行测试：Web29/29（新增14项）、API相关38/38；Node24 Web类型/生产构建/相关lint、diff检查PASS。
+- Git：a571758a4945cfde1b55bd3653cb523f672287a9，普通push github/main成功；隔离发布仅3文件，不覆盖其他未提交工作。
+- 生产：原deploy.sh web成功，HEAD/Web均a571758，STATUS CONSISTENT；API保持fbff2a3，Web/API/Worker/PostgreSQL健康，其他三容器ID均未变。旧Web镜像before-supervision-options-20261029保留供回退。
+- 真实Chrome：既有项目实际改名→不刷新整页、SPA切换任务→创建候选新名称PASS；另一已缓存标签页强制重取PASS；浏览器刷新后新名称PASS；模拟本浏览器候选请求503时明确提示且不开窗PASS；无JS异常。
+- 验收只经正式API修改projectName及expectedVersion，完成后已恢复原名（保留两次修改审计与版本）；未创建任务/项目、未删除、未调整成员/状态，其他业务字段与两表记录数不变。
+- 当前已知问题：无。最终报告路径：test/supervision_options_cache/acceptance.md；证据production-browser-result.json、web-tests.log、api-tests.log、final-typecheck-lint.log、build.log、deploy-web.log、healthcheck.log和Git日志。
+- 下一步/恢复说明：本任务无未完成工作，保留本进度；发布后验收记录本地追加，不重复提交或重建业务源码。
+
+## 督办新建任务附件上传失败（2026-10-29）
+- 任务目标：修复中文附件名导致生产 `/supervision/attachments` 返回500；完成定向测试、GitHub同步、API部署及真实附件验收/清理。
+- 当前状态：定位完成，修复实施中；严格保留主工作区项目/任务删除相关未提交修改。
+- 已完成：[x] 阅读附件需求、项目规则、Architecture、Security、表单平台/验收Skill、上传控制器和本地对象存储。
+- 已完成：[x] 生产日志确认根因：`LocalObjectStorage.safePath → put → SupervisionController.uploadAttachment` 抛出 `Invalid object key`；其ASCII key规则与上传端允许Unicode的safeName不一致。
+- 正在进行：[ ] 在独立github/main发布worktree将object key改为纯ASCII唯一名并保留原始显示文件名；补回归测试。
+- 待完成：[ ] 定向API测试、类型检查/lint/build；普通commit/push；原deploy.sh api；健康/版本检查。
+- 待完成：[ ] 生产真实页面上传“任务附件测试.xlsx”、保存任务、下载核验中文名与内容，清理测试记录及对象。
+- 修改文件：预计`apps/api/src/modules/supervision/supervision.controller.ts`及其定向测试；测试日志/结果仅放`test/supervision_attachment_upload/`。
+- 数据库Migration：无；不改Schema、不修改附件文件名安全策略、不新增权限。
+- 新增或修改测试：尚未创建；计划覆盖中文、中文空格括号、英文、特殊字符、ASCII key和下载Content-Disposition。
+- 当前已知问题：现有生产日志确定上传失败发生在对象存储写入阶段，审计记录尚未发生；真实生产端到端验收待部署后完成。
+- 等待用户确认：无，原请求已明确要求修复、部署及生产验收。
+- 下一步：读取任务表单/API创建与下载要求，最小修复并定向验证，再发布。
+
+### 附件上传修复进展：中文 multipart 文件名
+- 首个API改动已提交并推送`6e24d25d5d76fd3b7a5121664f3540a5f80c00ca`，部署后生产上传API返回201，验证ASCII object key不再被拒绝。
+- 真实Chrome进一步验证发现浏览器原始文件名经Multer Latin-1解码会变为乱码。Web现已附加UTF-8 `originalName` multipart字段，API使用它保留原始显示名；测试覆盖模拟Latin-1乱码还原及UTF-8下载Content-Disposition。
+- 第二提交`438620dc56b033953fabe80637e2c84fc2b076cd`已普通推送至github/main，包含API和Web修正。
+- 定向测试：API督办18/18、Web SupervisionPages 29/29；API+Web typecheck/build/lint通过。lint只有既有ModulePortal Fast Refresh warning。因本机Node 22低于项目声明24，测试脚本有engine warning；部署镜像以Docker Node24构建。
+- 第一次生产表单尝试停在任务创建前。上传产生的唯一临时对象已按其与本地合成xlsx内容相同的SHA256验证并删除；未创建任务。此上传审计事件按系统审计保留。
+- 当前阶段：使用438620d通过既有deploy.sh all重新部署；待进行中文文件真实页面上传、任务保存、下载和测试数据清理闭环。
+- 修改范围仍限督办上传API/测试及上传组件；无Migration、无数据库备份、无权限/业务规则调整。主工作区其他未提交内容保持原样。
+
+### 督办任务附件上传修复：生产闭环完成
+- 当前状态：已完成；最后更新时间2026-10-29。
+- 根因确认：生产API原始堆栈`LocalObjectStorage.safePath → put → SupervisionController.uploadAttachment`抛`Invalid object key`；Multer浏览器multipart文件名另经Latin-1造成乱码。
+- 修改：`apps/api/src/modules/supervision/supervision.controller.ts`只用UUID+ASCII扩展名作object key，并从UTF-8 multipart originalName保持显示名；新增controller测试；`apps/web/src/modules/supervision/SupervisionPages.tsx`附加UTF-8 originalName。对象存储校验未放宽。
+- Git：`6e24d25d5d76fd3b7a5121664f3540a5f80c00ca`及`438620dc56b033953fabe80637e2c84fc2b076cd`普通push成功，GitHub main为438620d。主工作区既有督办删除任务未提交更改未纳入此次提交。
+- 测试：API监督定向18/18、Web SupervisionPages 29/29；API/Web typecheck、lint、build通过。仅既有lint Fast Refresh warning和build大chunk warning。本机Node22有项目要求Node24的engine warning，正式Docker构建使用Node24。
+- 部署：`scripts/deploy.sh api`先上6e24d25；后`deploy.sh all`完成438620d全栈发布；最终`deploy.sh check` Web/API一致，Worker、PostgreSQL健康。无Migration、无数据库备份。
+- 生产Chrome：真实上传`任务附件测试.xlsx`、中文原名显示、创建任务后保存附件、下载HTTP200且中文Content-Disposition/文件字节一致；任务删除、附件解除并删除测试对象后任务数恢复。审计日志保留。首次上传试验对象曾以内容SHA验证后清理，未创建任务；已再次确认最近测试对象为空。
+- 最终报告：`test/supervision_attachment_upload/acceptance.md`；真实页面结果：`test/supervision_attachment_upload/production-browser-result.json`。无遗留业务问题。
+
+# Codex 工作进度
+
+## 任务
+
+任务名称：KDOS 标准业务表记录详情窗口
+任务目标：更新 kdos-form-platform 统一规范，并在项目管理、任务管理接入通用详情窗口；完成验证、Git 同步和 Web 部署。
+当前状态：进行中
+最后更新时间：2026-10-29
+
+---
+
+## 当前阶段
+
+当前阶段：规范合并与组件实现
+当前子任务：在独立 worktree 中基于 GitHub main 实施，避免影响主工作区未提交改动。
+
+---
+
+## 已完成
+
+- [x] 检查 kdos-form-platform、kdos-form-validation 及项目工作区状态。
+- [x] 确认项目中不存在独立 table-record-detail Skill 文件，未发现该 Skill 的项目内引用。
+- [x] 确认主工作区存在其他任务未提交改动；采用独立 worktree。
+
+## 正在进行
+
+- [ ] 合并详情页规范到 kdos-form-platform。
+- [ ] 实现共享详情窗口并接入项目管理、任务管理。
+
+## 待完成
+
+- [ ] 添加和运行定向测试、类型检查及构建。
+- [ ] 检查变更范围，提交并推送。
+- [ ] 按项目部署规范发布 Web 并进行线上非破坏性验收。
+
+---
+
+## 修改文件
+
+- 无
+
+## 数据库 Migration
+
+- 无
+
+## 新增或修改测试
+
+- 待实现
+
+## 已运行测试
+
+测试名称：项目内独立详情 Skill 和引用扫描
+结果：通过，未发现独立 table-record-detail Skill 或其引用。
+
+## 当前已知问题
+
+- 无
+
+## 等待用户确认
+
+- 无
+
+## 下一步
+
+1. 阅读详情表格、Supervision 页面和部署规范中的查询/权限接口。
+2. 设计跨页顺序导航并实现可复用详情窗口。
+3. 完成定向验收、Git 同步和 Web 部署。
+
+## 恢复执行说明
+
+从本进度文件继续；发布工作区位于 test/table_record_detail/release-source，分支 feat/table-record-detail-20261029。
+
+### 标准业务表记录详情窗口：生产交付完成
+- Skill已合并`kdos-form-platform`；没有独立`table-record-detail`文件或引用，无冗余文件清理。
+- 项目管理、任务管理接入共享详情窗口；服务端分页跨页导航沿用当前搜索、筛选、排序，不改列表状态。字段按已授权列表结果展示，操作继续走既有权限、表单和API。
+- 验证：Web定向49/49；typecheck、相关lint、production build通过。Production Chrome两张表均PASS：双击、详情序号、下一条、最大化/恢复、关闭；没有做真实写操作。健康检查Web/API/Worker/PostgreSQL PASS。
+- GitHub main与Web生产版本：`1be183f810295650fe9c56493a0fa6f36ce80246`。API保持`438620d`，无API/Migration。主工作区其他未提交项目与任务改动保留且未夹带。
+
+## 订单分配表作为主计划来源可行性调查（2026-10-29）
+- 任务目标：只读检查现有代码及生产计划数据库，评估订单分配表作为集团主计划和事业部月度计划主来源的字段/数据可行性。
+- 当前状态：已完成调查，未修改业务代码或数据库。
+- 已验证代码：订单分配保存会触发`plan-projections`；投影按租户+订单号+品号聚合活动分配，月计划唯一键为租户+订单号+品号，集团计划唯一键为租户+订单号。现实现仍要求匹配科加ERP有效订单、ERP数量不低于分配合计且客户映射有效；集团字段仍从ERP明细/客户映射读取。
+- 生产只读数据（2026-10-29，tenant KAINAN）：活动分配2493行、2371个订单+品号键、366个订单；客户/事业部/下单日期/品名齐全；预计发货日期2378/2493行；118个键存在多条分配，均未跨客户或事业部；7行未审核；8个键分配合计高于ERP单行订单量。
+- 现有计划：月计划2470行，其中364行挂活动分配，2106行挂已归档分配且不与当前活动分配键重合；集团计划150单，仅20单与当前活动分配重合。当前投影364个可处理键，2007个键因无科加ERP活动明细而跳过（1999无canonical匹配，另8超ERP数量）。
+- 字段缺口：分配表没有集团来源账套/订单类型/预投产评审日期；活动分配的含税金额和单价目前均为空。预计发货日期是否可作为客户交期须业务确认。原ERP准入下单日期水位为2026-09-17；当前分配中有1个订单品号键日期早于水位，若切换来源需明确是否仍保留该限制。
+- 下一步：将调查结论回复用户；未授权前不修改投影规则或写入计划数据。
+- 补充只读核验：生产`mps_sync_configs`显示`erp-orders`当前enabled=true、30分钟调度，最近一次成功扫描131826条canonical行，eligible 2526、写入0；`plan-projections`运行时也enabled=true（最近2026-10-29 14:03Z成功，0写入、跳过2007、候选364），与TASK_REGISTRY历史记载其disabled存在运行时状态差异，按数据库实况报告。
+- 依赖影响：停止更新`mps_erp_order_lines`不会停止上游canonical `sales_orders`采集，但ERP明细页面将冻结；在制订单进度仍读取ERP行作未匹配明细；BOM工序匹配通过该表的数字`source_key`读取T+工艺来源，新分配订单若没有source_key将无法沿当前路径匹配。若仅停止表更新而保留历史只读数据，需评估并调整这些消费者。
+
+## 2026A027338周计划未显示待报工调查（2026-10-30）
+- 任务目标：定位订单周计划存在但报工计划没有的原因；当前状态：已确认根因，等待用户提供必填业务字段。
+- 只读事实：事业四部17条历史周计划均制造方式NULL、最迟评审交期NULL；关联基础计划均自制/评审2026-09-24/产品属性五金，但表面性质17条全NULL。170条历史工序任务存在且execution_enabled=true；实际工序报工0条、主材报工0条。
+- 代码根因：processReportPendingSourceSql仅接受周计划制造方式自制/自制+外协；baseToWeekly的同一完整准入条件也应用于已有周计划更新，因此基础表面性质缺失导致17条均未同步制造方式与日期。同步任务运行成功不表示每条周计划都具备同步准入。
+- 工艺保护：17品号没有独立工艺路线；当前事业四部默认为折弯/毛坯/表面处理/包装各1天，与历史10道有效工序不同，未报工工艺变更须按已有预览确认流程，不能直接暴露旧10道工序或自动覆盖快照。
+- 已运行检查：生产只读SQL核对周计划/基础计划/工序任务/报工/同步配置；代码对应谓词核验；未运行无关测试，未修改业务代码、生产数据或调度。
+- 等待用户：17个品项表面性质，已发问题；下一步：取得真实业务值后按已有Application命令完善基础计划、核对同步及必要的工艺差异预览确认，再验证待报工页面。未擅自填值或执行历史工艺覆盖。
+- 生产恢复完成（2026-10-30）：用户确认17品项表面性质统一烤漆；通过生产Web登录及正式batch PATCH（expectedVersion/幂等/审计）写入17条基础计划，17成功0失败。既有outbox同步完成，17条周计划均已为自制/烤漆。
+- 工序处理：实际batch-preview预览17待更新、0跳过/锁定、预计170→68任务；用户明确选择“保留现有工序，暂不应用”。未调用工艺confirm，170条原工序任务保留，未写入任何报工。
+- 验收：生产API待报工按订单搜索total=170；真实Chrome进入实际报工→待报工任务并搜索2026A027338，订单行实际可见PASS。生产只读核对17周计划已同步、170任务保留、实际报工0；无业务代码/数据库结构/调度配置改动，无需重新部署。
+- 当前状态：已完成。遗留业务选择：工序沿用用户要求的现有快照，不应用默认4道。脚本及私有验收产物位于ignored test/order_2026A027338_recovery，未纳入Git，不夹带其他任务未提交内容。
+- 后续原因追溯：这17条基础/周计划同建于2026-09-17 22:10:43（上海时间）；一次性历史初始化脚本基础计划明确未知字段留NULL、周计划允许manufacturingMethod按源值NULL，数据库两字段也允许NULL。基础计划最早保留的2026-10-28 import_updated审计前后均制造方式自制、表面性质NULL，故不能把基础制造方式误说成用户未填；周计划本次修复前version=1，保持初始化空值。
+- 现有通用校验缺口：基础requiredOnCreate含surfaceNature/manufacturingMethod，但requiredOnUpdate显式仅orderNumber/itemCode/plannedQuantity；validateRequiredOnUpdate采用后者，不会强制上述业务字段非空；历史/自动生成待完善记录因此可留空。baseToWeekly又用全部准入字段过滤已有周计划更新，造成已知制造方式也未同步。weeklyPlanMissingFields对已关联周计划一律NULL，缺项不提示。当前仅本单数据已修复，未改这些通用规则或宣称已修复通用缺陷。
+
+## 同类周计划待报工恢复（2026-10-30）
+- 任务目标：用户要求排查全部类似订单并恢复待报工；当前状态：已完成2167条周计划只读排查，准备正式API定向修复。
+- 已发现：23条周计划生产方式空；其中4订单9品项的关联基础计划明确为自制/自制+外协、评审及客户交期有值且数量一致，9条有90个有效原工序任务，3条有实际报工/锁定标记，保持工序结构/顺序/周期及报工。另14条关联基础为纯外协，按已有业务规则不纳入内部工序报工，未擅改为自制。
+- 全量补查：2064条已有内部生产方式周计划全部有有效工序任务，无“已自制但无有效任务”漏项。
+- 恢复方式：现有周计划PATCH命令，expectedVersion校验与事务审计，补已知基础生产方式及缺失评审日期；不猜表面性质，不改变数量，不批量应用最新工艺配置。新计划生成准入规则不变。
+- 修改/产物：只读候选和恢复脚本放ignored test/pending_report_recovery_20261030；未更改业务代码，原工作区其他未提交文件保留。
+- 下一步：保存9条局部恢复依据→正式API逐条修复→验证待报工及工艺/报工不变→真实Chrome验收→进度完成。
+- 用户追加授权：本次同类记录缺失表面性质统一“烤漆”。范围固定为只读发现的23条周计划及其关联基础计划，不扩大到全库其他表面性质。
+- 生产执行：正式基础计划batch API补21条空表面性质（另2条原为烤漆），21成功0失败；既有outbox完成生产方式/日期同步；对尚未同步的已知字段经周计划PATCH补齐，遇并发409后重读确认既有同步已完成，不强行覆盖；2条周计划表面性质经正式PATCH补为基础已确认烤漆。所有写入均走权限/版本/事务/审计，未直写数据库。
+- 最终生产验收：2167条周计划生产方式空值0；本次23条基础/周计划均烤漆且制造方式一致；4个内部生产订单9品项恢复87条未完成待报工任务：2026A027296=2品项20任务，2026A027342=4品项37任务，2026A027344=2品项20任务，2026A027352=1品项10任务。已完成工序按原规则不再待报工。另14条明确外协按原业务继续外协跟踪，不冒充内部报工。
+- 真实Chrome4订单在“待报工任务”搜索显示均PASS；对23条局部前后数据逐项比对：基础/周数量、锁定标记、工序集合/顺序/标准周期/启用状态、全部既有报工原值不变PASS；59条工序理论日期按已知基础评审日期与原工艺快照由既有逻辑重算。未应用最新工艺配置，未新增报工。
+- 当前状态：已完成；无业务源码修改、Migration或调度配置变化，无需部署；恢复脚本、局部前后及验收证据位于ignored test/pending_report_recovery_20261030；原工作区其他未完成代码未纳入提交。通用准入/缺项提示缺口未在本数据修复任务中擅自重构。
+
+## 标准业务表统一所见即所得导出（2026-10-30）
+- 恢复入口：test/unified_table_export/release-source/outputs/CODEX_PROGRESS.md，本任务唯一详细进度在该隔离发布源；保护本工作区其他监督模块未提交修改。
+- 已完成代码与定向验证：API51/Web88、类型构建与lint；提交fd029a3已push github/main。原deploy.sh all生产构建中，尚待健康与真实Chrome下载核验。
+- 下一步：从隔离源进度继续部署验收，不重新开发，不改业务数据。
+
+### 统一导出最终结果
+- 已完成：fd029a3已push github/main并通过原脚本上线，API/Web均fd029a3，健康/版本一致性PASS。
+- 生产Chrome实际报工3条/待报工170条下载验证PASS：单一入口、可见列顺序及隐藏列、中文工序、全部匹配记录。无Migration/业务数据修改/未解决阻塞。
+- 最终报告test/unified_table_export/acceptance.md；详细恢复进度仍为隔离发布源outputs/CODEX_PROGRESS.md。其他任务未提交修改保持原样。
+
+## GitHub主工作区同步（2026-10-30）
+- 任务目标：本地主main安全同步GitHub，保留独有进度和其他任务修改。当前状态：进行中。
+- 已确认：main a7a63fd落后github/main 9aa62eb共9提交；6个本地已修改源码及2个未跟踪源码/文档快照均已完整存在远程历史c324f3e/a571758；本地Skill仅缺少远程已发布详情规则，导出修订一致。
+- 下一步：保留本地stash快照→fast-forward main→保留独有进度并核对源码/远程一致；不重复测试/部署，不推送业务资料。
+
+### GitHub主工作区同步完成
+- 当前状态：已完成。main已fast-forward到9aa62eb，与github/main一致；git push github main返回Everything up-to-date。无新增源码提交，无历史重写，无生产部署。
+- 本地原源码逐文件核实均已纳入远程历史，采用远程后续有效版本，未将旧快照重新覆盖最新修复。
+- 本地完整安全快照保留stash d67eef1e7050a4af3c515e23404a0570e1c14f8a，不drop；独有进度与远程进度采用保留双方新增内容的合并，留在本地未提交，避免上传真实业务调查资料。
+- 变更文件：仅outputs/CODEX_PROGRESS.md保留本地差异；Migration/新增修改测试/部署均无；无未解决源码冲突。
+- 下一步：无需继续同步源码；本地进度不自动上传。
+
+## 可配置统一打印升级（2026-10-30，本任务恢复入口）
+
+### 任务
+任务名称：KDOS 通用打印系统第一阶段升级。
+任务目标：共享字段选择/排序/mm列宽/A4+A3/方向/适配/分页实时预览/个人默认及Skill整合，测试、GitHub同步、标准部署和生产Chrome验收。
+当前状态：已完成（最终2bdd190已推送、上线并完成五表生产Chrome验收）。
+最后更新时间：2026-10-30（Asia/Shanghai）。
+
+### 当前阶段
+当前阶段：已完成交付。
+当前子任务：无。
+
+### 已完成
+- [x] 已读AGENTS、form-platform、form-validation、delete-standard（仅核对，本次不改删除）、架构/安全/运行手册；部署备份前已读task-orchestration及TASK_REGISTRY，不变更任何调度。
+- [x] 核实最新统一导出成果已经在main，不覆盖其代码；初始工作区仅进度和未跟踪TODO.md，保留。
+- [x] 确认现有Print Service、两阶段数量确认、授权/格式化/范围可复用；默认列误取原columns、width权重误当百分比和服务端排序需修复。
+- [x] 个人视图现有localStorage方案，打印采用独立版本化键按tenant/user/resource/view隔离，无Migration。
+
+### 正在进行
+- [x] 实现共享布局、设置和真实分页；权限重查及DTO顺序修复。
+
+### 待完成
+- [x] 定向测试、类型检查、lint、构建与Chrome测试。
+- [x] Skill/契约/报告更新，安全commit/push，备份及原deploy.sh上线。
+- [x] 生产健康/SHA、项目/任务/实际报工/待报工/宽表Chrome验收。
+
+### 修改文件
+- 完整21项修改文件清单见最终报告。
+
+### 数据库 Migration
+- 无；复用本地用户偏好，不新建表。
+
+### 新增或修改测试
+- 新增contracts布局、Web设置和Chrome配置测试；扩展入口/后台服务/展示回归。
+
+### 已运行测试
+- 定向Web22、共享表格/项目任务50、API28、contracts5、Chrome6 PASS；typecheck/lint/build PASS；全量既有失败及基线复现见最终报告。
+
+### 当前已知问题
+- 本任务无未解决功能阻塞。全量既有失败已在升级前基线复现，详见最终报告，不虚报全绿。
+
+### 等待用户确认
+- 无。
+
+### 下一步
+1. 完成共享打印实现及后端字段交集/顺序/空列防护。
+2. 补足自动化与真实Chrome验证，更新Skill及报告。
+3. 仅提交本任务源码/文档（不提交原进度业务调查资料和TODO），推送并从干净linked worktree执行标准部署，验证生产。
+
+### 恢复执行说明
+依次读取AGENTS→适用Skill→本文件最新本任务章节→git status→git diff --stat→检查未完成修改，从上方下一步首个未完成项继续，不重写已完成功能。
+最终报告路径：outputs/KDOS_CONFIGURABLE_PRINT_ACCEPTANCE.md。
+
+### 可配置打印：实现与首轮验证（2026-10-30）
+- 已完成共享PrintSettingsPreview、KdosPrintDocument、contracts布局/mm/偏好过滤及四维键；原表最终可见叶子列默认；后台保序交集、显式空列拒绝、分组重建及PENDING正式元数据适配。
+- 真分页采用200行一批DOM测量，预览单页，正式输出全部同一页面，超宽/超高行阻止，不缩字体；本次打印再次manifest/render，权限变化复核。
+- 已通过：原Web打印14、新设置7、contracts布局5、API首轮24；Chrome字段/拖序/mm拖宽/纸张/存储PASS，120条长文本原生PDF8页，每条一次且重复表头PASS。
+- 类型检查发现新增测试用了不支持的exact选项，已纠正待复验；继续补headed原生打印窗口及其他纸张PDF。
+- 已更新现有Skill §3.1.0.3，并将错挂在其他章节下的原打印规定归回原章；整合§16–22，无新增Skill。
+- 并行工作区出现导入.MD移至docs/主计划导入.MD，属于其他任务，保持且不纳入本次提交。
+- 下一步：完成定向回归/Chrome→Git安全同步→备份+干净worktree标准部署→真实生产五表验收和报告。
+
+### 可配置打印：恢复后验证与发布准备（2026-10-30）
+- 当前状态：功能/定向验证已完成，待提交推送、标准部署和生产浏览器五表验收；不是已交付。
+- 定向：Web打印22 + 表格/项目任务50，API打印/展示/审计27，contracts布局5，Chrome6（四种纸张方向PDF、120行8页无遗漏、原生headed预览）全部PASS。Web/API类型检查、相关lint和生产构建通过；Node22宿主告警，Docker正式构建使用Node24。
+- 全量：Web 67文件/518测试，507PASS、11FAIL；API 139套/1349测试，1240PASS、28FAIL、81SKIP；contracts 40PASS/1FAIL。没有虚报全绿。
+- 已创建未改动基线9aa62eb于ignored test/configurable_print/baseline，API同7套28失败完全复现；contracts评审交期旧字段断言同样复现。Web正在按20s单worker复核（原5s全量并行超时及硬编码日期），不修改无关业务代码/测试。
+- 标准备份已完成：four_department_tracker、kdos、uploads（含私有附件），时间20261030_110217，校验保存在ignored test/configurable_print/backup.log。TypeORM migration:show 1–110均已执行，本次无新Migration；尚待部署源再核对SQL台账。
+- 已获得用户提供的可用登录并通过正式auth API；不把凭据写入源码/报告，临时session仅在ignored且0600文件中。生产只读验收脚本test/configurable_print/accept.cjs已准备。
+- 修改清单：共享打印设置/文档/CSS/table入口；contracts table-print-layout及测试；Print Service/contract/registry/主计划视图adapter及测试；现有Skill/运行手册/集成文档。其他导入文档移动、TODO和原进度继续保留。
+- 下一步：确认Web失败基线→仅任务文件commit/push github/main→干净linked source原deploy.sh all/check→生产项目/任务/实际/PENDING/宽表原生Chrome及PDF→最终报告和进度完成。
+
+### 可配置打印：GitHub同步与生产部署进行中（2026-10-30）
+- 应用commit：61f93fc9a73095da1e7c51b119ff7e3bcf4e062b；已成功push github/main（9aa62eb→61f93fc）。仅本任务20文件，敏感路径/值检查PASS，未包含原进度、TODO、导入文档移动或私有验收资料。
+- 干净发布源：test/configurable_print/release-source（detached应用commit）；用KDOS_RUNTIME_ROOT指向原工作区，原scripts/deploy.sh all正在执行，日志test/configurable_print/deploy.log。
+- TypeORM110项全部已执行；KDOS19份SQL迁移checksum一致，无待迁移。备份已完成且三份SHA256可查；无新Migration。
+- Web失败复核：基线设备/RD/Gaps 49/49 PASS（单worker20s），基线DashboardDestination旧硬编码日期失败复现、ReviewDueDates.create在20s下通过。当前源码同5文件复核进行中。API同28FAIL与contracts同1FAIL已基线复现，不修改无关代码。
+- 下一步：等待原deploy.sh完成→all/check+health→执行test/configurable_print/accept.cjs五表生产Chrome/PDF，修复真实发现→报告及进度已完成。
+
+### 可配置打印：部署构建兼容重试
+- 首次原deploy.sh all在任何生产容器更新之前被新版Docker Bake network.host entitlement检查拦住；非业务/测试失败，旧生产fd029a3继续运行。
+- 现以COMPOSE_BAKE=false调用同一个原deploy.sh all，使用Compose常规BuildKit构建路径，未修改/削弱脚本、健康或版本检查。日志test/configurable_print/deploy-retry.log。
+- Web原失败项复核：当前20s单worker模式下设备/RD/Gaps及ReviewDueDates.create通过；DashboardDestination日期语义断言仍失败，与未改基线一致。全量未宣称PASS。
+
+### 可配置打印：Compose5兼容修复已同步
+- 已核实Compose5.6.1源码build_bake.go遗漏network.host授权参数（COMPOSE_BAKE=false亦无效）。对原deploy.sh仅改build_services：Compose5消费原生成目标，只对目标已声明network=host授予相应build entitlement，文件读取限发布源；其他版本原build路径不变。未增加security.insecure、未动运行网络、未削弱工作区/健康/SHA门禁。
+- bash -n及diff检查PASS。第二commit 9add236已push github/main，发布源已切换此commit。原deploy.sh all已进入Docker真实构建（Node24），日志deploy-compose5.log；旧应用运行至切换阶段。
+- 当前Web失败复核最终57PASS/1FAIL；唯一FAIL为DashboardDestination日期语义，与基线相同。相关打印22、共享表格/项目任务50、API27、contracts5、Chrome6通过。
+- 下一步：等待发布成功并执行生产Chrome五表验收；不改业务数据或任何调度。
+
+### 可配置打印：首轮生产验收与输入列修复
+- 9add236原all/check和healthcheck均PASS，Repository/Web/API一致、4容器healthy；生产API空字段400、技术/敏感字段403、空SELECTED400。
+- 生产headed Chrome项目、任务、实际报工：默认获权可见字段、A3横向、保存重开、真实原生窗口、PDF页数/行数/mm一致均PASS；PDF中UUID出现0。
+- 待报工暴露原metadata中的3列UI草稿输入也被列为可打印：productionQuantity/productionDate/exceptionText。根据禁止UI-only规则只过滤printVariant的input字段，实际报工及Excel合同保留。新增管理员/实际事实/导出不变回归，API打印/展示/审计28PASS，typecheck/lint PASS。
+- 修复commit 2bdd190已push github/main，干净发布源切至该commit再次执行原deploy.sh all（日志deploy-final.log）；无新Migration/业务写入/调度变更，不重复全库备份。
+- 下一步：最终版本健康/SHA→再次五表生产Chrome验收（重点PENDING与宽表）→报告及进度已完成。
+
+### 可配置打印最终交付（2026-10-30）
+- 当前状态：**已完成**。最终commit `2bdd1900adf3b8cb11059b5fcd91fbe0443a31ca`已push github/main；应用/发布源码/生产Web/API版本一致。三个提交61f93fc、9add236、2bdd190均推送成功，仅本任务21文件。
+- 原deploy.sh all/check、healthcheck PASS，4容器healthy。两库/uploads备份与三份SHA256已留存，TypeORM110项、KDOS19份SQL checksum一致无待迁移；无新增Migration、业务写入或调度变更。
+- 生产Chrome全部PASS：项目13列2条1页、任务12列2条1页、实际报工11列204条8页、待报工7列70条2页、周计划初始76项主动选45列/SELECTED1条1页。均实际打开chrome://print，原生PDF与预览mm、页数/行数、可信标题/人/上海时间一致，UUID0/浏览器异常0。
+- 已验证默认可见字段、配置保存重开、资源/视图隔离；本地四纸张方向、120条长文本8页完整且重复表头、拖序/拖宽/数字输入/超宽/权限变化/存储失败/空字段均自动化PASS。待报工UI草稿输入误入打印目录已修复，原实际事实/Excel合同保持。
+- 个人默认仅当前浏览器，按tenant/user/resource/view隔离且独立原表偏好；不存业务行或凭据。字体自由配置、复杂模板、页眉页脚设计器、特殊分页规则不在本期，实体打印机未验证。
+- 最终报告：outputs/KDOS_CONFIGURABLE_PRINT_ACCEPTANCE.md。真实会话/截图/PDF/日志仅ignored test/configurable_print；恢复入口仍本文件。
+- 用户原进度、TODO、导入.MD→docs/主计划导入.MD移动全部保留；源码已提交推送。进度/报告留本地，不上传原进度的业务调查资料。
+- 下一步：本任务无待完成项；后续维护依规范→本章节→Git状态继续，不重做已完成能力。
+
+## 订单分配驱动集团/月度计划（2026-10-30，本任务恢复入口）
+### 任务
+任务名称：集团及事业部月度计划数据源改造。
+任务目标：有效已审核分配成为计划需求唯一来源，保留ERP同步、历史计划和下游；本地验收、commit/push，暂不生产部署。
+当前状态：已完成（本轮授权的本地改造/验收/commit/push）；按要求未生产部署。
+最后更新时间：2026-10-30。
+### 当前阶段
+当前阶段：本地交付完成，部署不在本轮范围。
+当前子任务：无；待用户后续确认才上线。
+### 已完成
+- [x] 读取附件最终方案、项目规范和既有调查；核对Git，保护其他导入文档移动、TODO、进度及打印报告。
+- [x] 确认复用plan-projections、shipping-to-base，不修改erp-orders和生产调度。
+### 正在进行
+- [x] 实现分配投影、必要Migration、下游事业部匹配和BOM最小兼容。
+### 待完成
+- [x] 定向及隔离Postgres A–K验证、类型/lint/build、真实本地页面验收。
+- [x] 更新任务台账/报告，仅提交本任务文件并push；提供待确认的最短上线步骤。
+### 修改文件
+- 最终22文件见outputs/KDOS_ALLOCATION_PLAN_SOURCE_ACCEPTANCE.md；本进度只留本地，不提交历史业务调查。
+### 数据库 Migration
+- Migration112：月度唯一键加入事业部，集团订单金额允许未知NULL；无数据删除/重建；生产未执行。
+### 新增或修改测试
+- API旧投影/调度/BOM测试更新，Python品号fallback及歧义测试，隔离PG合成集成脚本。
+### 已运行测试
+- API定向125、PG12组及原基础10、Web16、Python7、Chrome六表+立即同步全部PASS，类型/lint/build PASS；广回归5旧失败已在2bdd190基线复现。
+### 当前已知问题
+- 本轮无未解决阻塞；生产未上线。广回归有5项既有失败，不虚报全绿。BOM仅原科加数据范围，跨账套自动选版不扩展。
+### 等待用户确认
+- 无；生产部署不在本轮授权内。
+### 下一步
+1. 本轮已完成，无待补开发或本地验收。
+2. 用户后续确认部署时按docs/mps-allocation-plan-source.md执行；不要默认重做开发/整库备份。
+3. 保留历史与人工数据，112迁移必须早于新API投影启动。
+### 恢复执行说明
+规范→适用Skill→本文件最新任务章节→git status/diff→从下一步未完成项继续，不重新调查或重写已完成实现。
+
+### 分配计划来源：核心实现及首轮验证
+- 已完成分配独立准入/已审核过滤、事业部维度精确numeric汇总、集团按品项完成率汇总；未知客户交期及金额NULL，现有手工字段/历史身份保留。
+- 新Migration112只扩充月计划唯一键和集团金额可空，回退遇已生效跨事业部/未知金额拒绝有损操作；无数据重建、无生产迁移。
+- 最小下游兼容：月度→基础按事业部独立交期编码，三方人工保护不变；出货关联/月度工序汇总加入事业部；进度页不把同组追加分配重复当缺月计划。
+- BOM现有科加只读Adapter增加品号查默认有效BOM路径，无ERP行号可用；明确多物料/多默认版本歧义，既有执行工艺路径保留。
+- 首轮Jest6套112PASS、Python7PASS；隔离PG18全量112个Migration已成功，场景测试继续中（修正真实测试暴露的入库审计姓名/UUID绑定，待复验）。
+- 运行时只读：26未审核、2656已审核活动分配；erp-orders/plan-projections/shipping-to-base均enabled且30min，未改生产数据或调度。旧快照数字不硬编码。
+- 下一步：完成PG A–K、局部历史/权限/并发/升级验收、真实本地浏览器、文档及Git同步；本轮禁止生产部署。
+
+### 分配计划来源：本地验收与提交准备
+- 隔离PG18全量迁移及12组业务验证PASS：A–I/K、同品项跨部60/40、追加/归档/撤销、审核后纳入、未知日期金额、历史冲突及字段/租户范围、手工基础保护/锁定工艺/报工、并发幂等、失败原子回滚、已验证入库事实、ERP独立真实写入、出货关联、带数据升级和拒绝有损回退。
+- 现有月度→基础PG回归10PASS。定向API7套124PASS，保留FIFO单测补充中。主计划模块广回归506PASS/5FAIL/40SKIP，5失败在未修改2bdd190基线复现（45PASS/5FAIL）；不修无关旧断言/待报工导入问题，不虚报全绿。
+- Web相关3文件16PASS；API/Web类型检查、lint、构建PASS（最终API局部修改复验中）；Python7PASS。真实T+只读按品号、无orderLineId获得READY主BOM01、10一级子件、1个有路线/工序，来源事实只留ignored test。
+- 本地headed Chrome六表搜索/事业部分行/刷新PASS，API全部拦截转实际Query/Sync Services+隔离PG，未连接生产；正在补实际界面“立即同步”点击最终核验。
+- 生产只读新源preview：2534获准分组、372订单、2177待新增月计划；2477当前月计划中2106仍关联归档父记录。未执行生产投影、Migration或部署；三个原任务enabled/30min/SUCCESS保持。
+- 文档：更新MPS-003当前来源政策，新增docs/mps-allocation-plan-source.md含现有脚本函数构建→停API→新镜像TypeORM迁移→原deploy all/check/health最短待确认步骤，无默认整库备份、无门禁削弱。
+- 下一步：最后核验→仅任务文件commit/push github/main→报告/进度标记完成（本地任务），明确生产未上线；保护用户文档移动、TODO、打印报告及历史进度不提交。
+
+
+### 分配计划来源：最终交付
+- 当前状态：**已完成本轮授权范围**。Commit `885ed079166db5548145e8b732df06ec94262967` 已成功push github/main，本地/远程0/0一致，仅22任务文件。
+- 最终验证：API7套125PASS；PG12组+原基础10PASS；Web3文件16PASS；Python7PASS；API/Web类型检查、API lint、API/Web build PASS；真实T+无ERP行号查询READY；本地headed Chrome六表及“立即同步”实际菜单200、JS异常0。
+- 广回归506PASS/5FAIL/40SKIP（补FIFO前），5旧失败在未修改2bdd190基线同样复现，未修改无关业务来消除断言。
+- 未生产部署、未执行生产Migration/投影、未改生产数据/调度。原生产Web/API仍2bdd190且四容器healthy；ERP/投影/基础原enabled与30min保持。新代码候选只读预览2534组/372单/2177待新增，2106历史归档父月计划仍在；不把预览当上线结果。
+- Migration112为唯一待上线结构变化，无清表/回填/来源标志；已生效跨部或NULL金额时down拒绝有损回退。最短待确认上线步骤在docs/mps-allocation-plan-source.md。
+- 用户导入文档移动、TODO、原进度和打印报告完整保留，未提交。临时专用PG容器/Vite及本任务创建的socket链接已清理；ignored test/allocation_plan_source保留证据。未动生产容器或其他测试环境。
+- 最终报告：outputs/KDOS_ALLOCATION_PLAN_SOURCE_ACCEPTANCE.md；本任务恢复入口仍本章节；下一步仅用户后续明确确认的生产上线，不重复已完成调查与开发。
+
+## 订单2026A027425未进入计划：只读诊断（2026-10-30）
+- 当前状态：已完成诊断；本轮只读，不修改业务数据/源码/调度，不部署。
+- 实际生产核对：ERP明细5品项、合计113，科加来源有效/未关闭、下单2026-10-15；订单分配表（含归档）该单0条，集团/月度/基础/周计划各0，投影候选0，相关数据异常0。
+- 根因：该订单尚无KDOS订单分配记录，缺少计划需求及承接事业部来源，故原计划投影无候选。不是任务停用或同步失败：erp-orders/plan-projections/shipping-to-base/base-to-weekly均enabled、30min、SUCCESS。
+- 当前生产仍2bdd190且healthy；885ed07新来源改造按上一轮要求未部署。新旧规则都不从ERP自动创建分配，新版上线也不会补造本单分配。
+- 业务后续条件：先在原分配入口维护实际分配数量、承接事业部并审核；集团/月度按有效分配生成，基础计划完善现有准入字段后再进入周计划。不依据ERP来源猜测承接部门或擅自创建分配。
+- 修改/测试/Migration：仅本地进度和ignored test/order_2026A027425_diagnosis只读证据，无源码修改及Migration，无需运行无关测试/commit/push。
+- 下一步：本诊断无待办；若用户另行授权维护分配或部署，按实际授权和正式Application流程执行。
+
+### 2026A027425：用户指出历史时间后补充追溯
+- 用户指出该单10月15日已进入订单池，昨天才恢复/建立的新分配准入不能直接解释历史遗漏；上一轮仅“当前无分配所以无候选”的解释不完整，不应据此直接要求用户重新分配旧单。
+- 生产只读证据：该单5品项canonical首次创建2026-10-15 12:05:00，MPS ERP表首次创建12:25:54（上海时间）。配置审计2026-10-14 22:07:53将plan-projections从true→false；历史代码e8c021a同时使手动/事件/定时/回放直接skipped。10月15日至28日没有该任务执行日志；10月29日09:54:50最终恢复enabled，09:57:02首次成功恢复执行。
+- 历史断档结论：本单在计划自动生成停用期间进入ERP；ERP采集继续，但计划链未生成。29日恢复仅处理已有人工/导入分配，未对无分配的ERP历史积压补齐，因此该单仍未进入集团/月度/基础/周计划。昨天规则解释恢复后继续漏过的机制，不能倒推成10月15日未分配即用户遗漏。
+- 当前表及按业务号查询的现存计划审计均未查到本单记录；现有证据支持当时未生成，无“曾生成后被删除”的证据。生产仍2bdd190，本地885ed07未部署。
+- 当前状态：历史原因诊断完成。只读核验，未执行历史补单/创建分配/修改计划/部署；新旧准入切换如需补历史，应先给出明确历史边界和可审阅补偿范围，不能擅造新分配或把计划直接塞入周计划。
+- 证据：ignored test/order_2026A027425_diagnosis/history.json、times.json及既有历史提交；源码、Migration、测试、生产数据均未变；本次无需Git提交/推送。
+
+## 事业四部ERP缺周计划历史补齐（2026-10-30，本任务恢复入口）
+### 任务
+- 目标：用户授权将ERP中事业四部尚无周计划的记录一次性补齐集团/月度/周计划，保留已有身份、人工计划和报工。
+- 状态：已完成用户修订后的本轮范围；已实际生产补齐及Chrome验收，不部署上一轮885ed07，不改变长期分配来源规则或周期调度。
+### 已完成
+- [x] 接续历史断档诊断；读取相关Skill/当前Git及Application/同步入口。
+### 正在进行
+- [x] 范围快照和只读预览；用户确认闭单不补周、缺字段至少进入基础。
+### 待完成
+- [x] 最小受控Application命令已完成生产补齐；隔离验证/审计/幂等/版本保护通过。
+- [x] 生产核对及四表Chrome刷新验收通过；任务代码commit/push，仅7个任务文件。
+### 修改文件 / Migration / 测试
+- 最终7个源码/脚本/文档文件见outputs/ERP_DIVISION_FOUR_HISTORY_BACKFILL_ACCEPTANCE.md；已生产执行兼容金额可空Migration1722920111500及受控Application补齐，112未执行。
+### 当前已知问题
+- 月度表有稳定allocation_id必填FK；通用API禁止直接创建集团/月度。周计划需要真实客户/评审日期、产品属性、表面性质、制造方式等，不得用猜值通过准入。
+### 等待用户确认
+- 暂无；先完成具体可审阅范围及缺项清单，不重复询问已授权的历史同步本身。
+### 下一步
+1. 本轮已完成，无待补生产写入或验收。
+2. 后续在基础计划维护真实准入字段后，沿用原流程进入周计划；闭单不补周。
+3. 保留本地报告和受限证据，不重新执行已完成补齐。
+
+### 四部历史补齐：范围及执行方式
+- 冻结预览：503条ERP来源/502订单品项/48单无四部周计划，其中499活动来源、4已关闭来源；424既有月度/基础，78缺月度；缺集团14单。新缺月度中70项无分配引用，8项已有真实多批分配。
+- 所有424既有基础缺产品属性/表面性质/生产方式及最迟评审交期；137条ERP缺客户及评审日期。已通过异步问题请求真实业务取值及4闭单是否补周，继续独立处理集团/月度/基础；不猜业务值。
+- 增加显式管理维护Application命令（无公开路由/调度），冻结来源ID/version/四部归属，持久幂等/权限回查/事务锁/逐记录审计；只新增缺月度，保留旧月度/人工计划。新历史引用仅为必填FK建立归档/零量/非人工来源锚点，不改变有效分配，不恢复ERP自动写分配。
+- 必要兼容Migration1722920111500仅允许集团未知金额NULL，保留生产旧三列月度唯一键；不执行待发布112，不上线885ed07新长期来源。保留可空金额避免伪造0金额，未来112重复DROP NOT NULL幂等兼容。
+- 共享monthly-base补可选ID范围，沿用原三方人工保护/交期编码；维护命令只处理冻结月度集合。新月度入库只复用原可信链路，不把分配/ERP数量当入库，不覆盖既有事实。
+- 首轮隔离PG18（生产旧唯一键＋新金额兼容）12组PASS，新增权限/范围/版本/幂等/闭单/历史字段和无关记录保护验证；近期修改继续复验。待准备正式执行manifest，所有源码先安全commit/push再运行已审阅维护命令。
+
+### 四部历史补齐：用户范围确认与执行准备
+- 用户已明确：关闭4项不新增周计划；缺必要数据至少进入基础计划。498活动品项目前均缺生产属性，不伪造字段或放宽准入。目标为全部502键的集团/月度/基础覆盖，保留已有闭单计划。
+- 已完成隔离PG12组、原基础PG10组、Jest36、类型/lint/build。源码ab8715c、认证subject修复ae32126已push；正在修复维护包Module相对依赖解析（设置filename/path），生产只读加载三个包PASS。两次先前尝试均在迁移及业务写入前失败，尚未生产写入。
+- 维护脚本/文档同步后执行冻结manifest；仅应用金额可空兼容迁移，不执行112或部署885ed07。令牌、前镜像、日志仅ignored目录。
+
+### 四部历史补齐：生产完成与验收
+- 当前状态：**已完成**用户最后确认的范围（闭单不新建周、缺项至少基础）；最后更新2026-10-30。
+- 受控维护命令SUCCESS：新增集团14、更新派生汇总2、新增月度78/基础78、保留424、归档零量历史FK锚点70、入库更新0、冲突0。503ERP物理来源/502品项/48单均有集团/月度/基础，498活动+4关闭，缺失0。
+- 502基础均缺周准入生产属性，周计划新增0；4关闭保留原计划且不补周。2026A027425现集团1/月度5/基础5，总量113，基础待完善，金额未知NULL；未伪造日期/属性。
+- 已有月度424/基础424逐行完整一致，周计划2168/工序任务19868/报工4425/活动分配2782前后hash一致；6项原任务enabled/30min/SUCCESS保持。迁移台账仅新增111500金额可空，旧三列月度唯一键仍在，112未执行。
+- 重放同requestId得到repeated=true，持久幂等仅1；保护集合重放后不变。审计原子写入；无通知、ERP源修改或常驻应用更新。
+- 生产headed Chrome真实API四表搜索和刷新2026A027425通过，各1/5/5/0，基础待完善，JS异常0；原healthcheck PASS，四容器healthy，Web/API仍2bdd190。
+- 隔离PG12组、原基础PG10、Jest36、API类型/lint/build PASS。Git前三提交ab8715c/ae32126/d8784a5均push github/main，最终执行说明83fa535也已push github/main（本地/远程0/0一致）；不提交任何真实业务快照/凭据/本地进度/报告。
+- 最终修改文件/Migration/测试/生产与Git证据详见outputs/ERP_DIVISION_FOUR_HISTORY_BACKFILL_ACCEPTANCE.md。等待用户确认：无。当前已知问题：本轮无阻塞，缺少真实业务字段继续由原基础计划待完善流程处理。
+- 下一步：无。本任务专用PG容器及仅本任务socket链接已清理；用户其他修改完整保留。未来维护按规范→本最新章节→Git状态继续，不重做。
+
+## 事业部基础计划删除说明文案（2026-10-30）
+- 任务目标：删除基础计划表“基础计划由事业部月度计划自动生成；完善必要业务字段后可生成周计划，无需先维护出货计划。”整条提示。
+- 当前状态：已完成；已删除唯一匹配的Alert并生产上线，业务行为/API/数据不变。
+- 修改文件：apps/web/src/modules/master-plan-system/MasterPlanPages.tsx。Migration/新增测试：无。
+- 验证级别L1：定向页面测试、原Web构建、生产Chrome实际页面及刷新；不做全套/数据库测试或备份。
+- 下一步：无；仅发布Web，上一轮待上线API/112仍不发布。
+- 等待用户确认/已知阻塞：无。保护现有文档移动、TODO、进度及验收报告。
+
+### 基础计划说明删除：验证及发布中
+- 仅删除MasterPlanPages.tsx一行Alert；3个基础状态/权限定向测试PASS，文件lint PASS。首次Vitest参数分隔错误误启动广测试，已停止；整文件运行过慢后收窄为本次基础计划3项，无虚报广回归通过。
+- Commit6bbad00已push github/main，源码仅本任务一行。干净发布源test/base_plan_hint/release-source，沿用原deploy.sh web，构建中；日志test/base_plan_hint/deploy.log。
+- 未启动API部署或迁移；其余Web运行源码与2bdd190一致，仅contracts一个BOM类型可空变更在TS编译时擦除，无运行行为变化。
+- 下一步：等待原Web发布健康/版本校验→生产Chrome删除提示/刷新/表格检索→记录完成。
+
+### 基础计划说明删除：已完成
+- 最终文件：apps/web/src/modules/master-plan-system/MasterPlanPages.tsx，仅删一行说明Alert。Migration/数据写入/新测试：无。
+- Commit6bbad0085f3bd937371fe7f753f912b4d4e36019已push github/main，本地/远程0/0一致。原deploy.sh web构建（含TS类型检查）/健康/版本一致校验PASS，原healthcheck PASS。
+- 生产headed Chrome真实页面确认整条说明已消失，刷新后仍无提示、检索2026A027425正常显示5条基础计划，JS异常0。3个定向组件测试及文件lint PASS。浏览器验收以此次文本/刷新/查询为范围；未把前端权限决定的其他按钮可见性当作本次文案变更条件。
+- Web版本6bbad00，API仍原2bdd190；未上线待确认来源改造或执行112。用户其他文档/进度/TODO/报告完整保留。
+- 验收证据：ignored test/base_plan_hint/{test-base.log,lint.log,deploy.log,health.log,browser.log,acceptance.json,production.png}。本任务无独立报告，恢复及最终记录就在本章节。当前问题/等待用户确认：无；下一步：无。
+
+## 设备管理双日报（2026-10-30，本任务恢复入口）
+### 任务
+- 目标：原equipment-governance-daily原地升级，上海昨日/含昨日7日、五单位，文字→运行图→原始数量判定→可选填报图；仅测试崔玮杰；n8n每日12:00 SSH文档。
+- 当前状态：已完成本轮仅工作区范围；用户明确不commit/push、不部署或改在线调度、不正式群发。未真实发送，单人手工测试命令已提供。
+### 已完成
+- [x] 发现旧脚本仍为四部上线/责任人/培训日报，先图后文；无两张新日报模板，沿用现有深色BI风格及用户规定区块。
+- [x] 确认dashboard()既有日视图/7日填报原始台次及各事业部明细；无需修改统计SQL，运行趋势故障时长用相同日视图metrics读取。
+### 正在进行
+- [x] 原查询CLI复用dashboard读取昨日及7日/五单位；单事务只读，不启动AppModule额外调度。
+- [x] 原Python脚本/配置/测试/README更新，原始数量判定、接收人隔离、发送失败/防重放。
+### 待完成
+- [x] Python28/API18、图片生成/在线只读取数、API类型/build/lint均通过，EQ-001/集成说明已更新。
+### 修改文件
+- 9个代码/配置/测试/文档文件，另更新本进度及本地验收报告；详见outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md。保留用户其他文档/TODO/进度及先前报告。
+### Migration
+- 无。
+### 当前问题/等待用户确认
+- 无需确认；未找到既有两日报图模板，保留原BI视觉。
+### 下一步
+1. 本轮工作区改造已完成，无待开发或待验证项，不commit/push。
+2. 用户可按报告手工--send-test实际验收；未经后续授权不修改/启用线上工作流。
+3. 未来正式启用遵循README显式配置和二次确认，不自动切换多人。
+
+### 双日报完成（2026-10-30）
+- Python28、API2套18、API build/typecheck/文件eslint、Python语法编译和diff检查PASS；在线只读preview成功，2张1440×1520非空图已打开检查。未实发、未部署、未commit/push。
+- 新增主入口验证：测试收件人只崔玮杰、真实磁盘回执0600/重跑不重复、100%不生成填报图、并发锁阻止查询；三发送失败分支和未知结果人工恢复均覆盖。
+- 当前n8n设备定义1、已启用0（e0dwMjv9OnWmcESk已归档/disabled）；原08:00/正式参数未改，本地README和config目标12:00 Asia/Shanghai --send-test。其他类别在线数未专门核查，不当作0。未新增调度器或周期入口。
+- 最终文件清单/数据口径/测试结果/生产未变范围/手工单人测试/未来正式步骤：outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md。原设备业务Service/SQL/填报/故障原因均未改，无Migration。
+- 本轮当前状态：已完成。已知限制：未获得独立的既有双图模板，只沿用仓库原深色BI基础；未真实接收验证、未启用12点任务（按用户仅工作区要求）。没有等待批准的开发步骤。下一步仅用户手工单人验收及后续另行授权的线上配置。
+
+### 设备双日报：用户授权真实单人测试（2026-10-31）
+- 用户明确要求执行report.py --send-test；已执行，退出0，sent=true，mode=test，recipientCount=1（崔玮杰）。统计日2026-10-30。
+- 顺序text→operation_image→reporting_image；过去7天未完成真实填报，条件发送填报图；三组件本地回执均sent（企业微信接口成功，不代表用户已阅读）。
+- 图片及0600回执位于ignored data/wechat-push/equipment-governance-daily/2026-10-30；无正式群发、无调度变更、无Git提交/推送。basic_code requests发出依赖版本兼容警告，但没有阻止本次成功发送；不改共享工具包依赖。
+
+### 双日报反馈：页脚与清晰度（2026-10-31）
+- 状态：进行中。用户要求运行图页脚只保留“数据口径：KDOS设备管理大屏”，改善图片模糊；第3项未提供内容，不推测需求。
+- 已核对当前Git及现有渲染；共享WeChatPusher按原始字节上传，不在工具包缩图。本轮调整原生渲染分辨率、关键文字字号，不修改业务数据或发送策略，不改共享SDK。
+- 下一步：原生2倍渲染/页脚精简→定向Python回归和本地高清预览→检查体积/可读性。保留当天真实发送回执及原图，不绕过幂等重发；继续仅工作区，不commit/push或调度变更。
+
+### 双日报清晰度反馈完成（2026-10-31）
+- 当前状态：已完成工作区修改和本地检查。运行图页脚仅“数据口径：KDOS设备管理大屏”。两图改为原生2880×3040无损PNG，字体/图形/坐标同步2倍绘制，并增大表格和坐标文字；不是放大旧位图。
+- Python29测试、py_compile及diff检查PASS；新增高清实际尺寸/字体像素、精简页脚和企业微信2MB上限保护测试。仅渲染改动，不重复API/Web无关测试。
+- 在线只读高清preview成功，图分别322928/282885字节（均远低于2MB），已打开检查文字布局。预览在ignored data/wechat-push/equipment-governance-daily/preview-hd/2026-10-30/{operation,reporting}.png，sent=false。
+- 本次修改report.py、test_report.py、README及本地进度/验收报告；没有重发、没有覆盖2026-10-30原实发图和回执，没有commit/push或调度变更。
+- 测试证据：test/equipment_daily/python-tests-hd.log和hd-preview.log。已知限制：企业微信客户端缩略图显示仍由其自身控制，接收端高清效果尚未重新实发验证。下一步：无待开发项，后续用户另行授权实发时保留现有幂等回执。
+
+### 设备日报：继续单人测试、调整正式名单及个性化称呼（2026-10-31）
+- 状态：进行中。用户明确授权继续测试；从之前正式名单移除高婷武/崔玮杰，测试仍崔玮杰；文字前加“您好,{收件人姓名},请收”。正式发送保持关闭，不commit/push。
+- 实现：按收件人分别发送个性化文字及图片、分别记录回执；兼容既有单人成功回执不重复发送。为用户明确授权的同日新一轮单人测试增加稳定test-run-id，不能对正式发送使用；不删除或重置旧成功回执。
+- 下一步：修改名单/逐人称呼/测试独立批次及测试→Python定向回归→仅崔玮杰实发高清两图和新称呼，核验发送结果。
+
+- 个性化发送/正式名单9人/独立test-run-id及旧回执保护已完成，Python32项PASS，准备执行单人新版批次greeting-hd-20261031。原共享SDK/Query/业务规则不变。
+
+### 个性化新版单人测试完成（2026-10-31）
+- 当前状态：已完成。正式名单已移除高婷武/崔玮杰，余9人；test_recipients仍仅崔玮杰，allow_production_send=false。
+- 文本逐人前置“您好,{姓名},请收”，未来多人不使用同一群发touser承载不同称呼；逐人回执保留顺序和失败/幂等保护，旧单人回执兼容。
+- Python32测试、py_compile、diff检查PASS；覆盖多人各自称呼和各自收件ID、独立单人测试批次、禁止生产使用test-run-id、原回执保留及同批次重跑不重复。
+- 用户授权的新版实发：report.py --send-test --test-run-id greeting-hd-20261031，退出0，sent=true，recipientCount=1，mode=test；统计2026-10-30，文字→运行图→条件填报图三项均sent。文字开头“您好,崔玮杰,请收”，图片均2880×3040；接口成功不表示用户已阅读。
+- 新批次图片/回执在ignored data/wechat-push/equipment-governance-daily/2026-10-30/tests/greeting-hd-20261031；旧实发3文件hash核对未变。日志test/equipment_daily/send-greeting-hd.log。未正式群发/改调度/commit/push。
+- 下一步：本轮无待办；用户接收端主观清晰度由实际查看确认，后续继续保留同批次幂等。
+
+## 设备管理双日报正式部署与GitHub同步（2026-10-31）
+- 任务目标：用户已确认单人新版效果并授权正式部署/GitHub同步，正式9人（不含高婷武、崔玮杰），北京时间每日12:00。
+- 状态：已完成。正式开关true，原n8n设备工作流已启用并加载当前版本；测试名单仍仅崔玮杰。正式名单9人，首个计划2026-10-31 12:00上海时间。
+- 已完成：规范/既有进度/Git差异核对，保护其他文档移动、TODO、历史进度及真实数据报告，不将它们纳入提交。
+- 计划：配置正式开关/名单及发布文档→定向验证及敏感检查→仅设备日报文件commit/push→原宿主机发布入口构建只读查询适配（不部署待确认的主计划API/112）→备份并更新同一n8n工作流12:00上海/正式双参数→受控正式验收和调度核验。
+- Migration：无。不要全量部署当前API，以免顺带启用之前待确认的主计划来源升级。
+- 阻塞/等待用户确认：无；首先查找已有n8n受控管理入口，保持凭据私有，不新建重复任务、不重置用户或停无关工作流。
+- 下一步：查清n8n工作流修改/发布能力与既有运维错误工作流，完成正式配置和回归。
+
+### 正式部署：Git及n8n发布完成，核验中
+- 源码commit ad2aabbbe907c27362a6227bec37c0ae1722059a已push github/main，仅10个设备日报文件，未包含私有数据/其他用户文件。Python37、API18、build/typecheck/lint PASS。
+- 原工作流官方import后通过真实SSH预检，n8n执行1337 success/cli，ready=true、sent=false、正式9个联系人匹配成功，两图生成，无正式提前群发或失败告警。
+- 已导入正式命令、发布同一ID e0dwMjv9OnWmcESk（currentVersion=activeVersion，active=true、isArchived=false）；确认无执行中任务，15个其他工作流配置hash全部一致。原n8n容器已短暂重启以加载发布，正在检查readiness/实际激活日志/下一次12:00计划。
+- 单工作流回滚前镜像保存在受限test/equipment_daily/deploy/workflow-before.txt；只有n8n元数据/执行日志变化，无业务写入/Migration，未部署待确认主计划API/112。
+
+### 设备双日报正式交付完成（2026-10-31）
+- 当前状态：**已完成**。源码ad2aabbbe907c27362a6227bec37c0ae1722059a、最终部署说明3faf31f均已push github/main，工作区与远程提交0/0一致。只提交10个本任务文件，用户其他导入文档移动、TODO、历史进度/验收资料全部保留。
+- 生产原工作流e0dwMjv9OnWmcESk已正式启用、解除归档，currentVersion=activeVersion；真实启动日志确认Activated。时区Asia/Shanghai，cron 0 0 12 * * *，下一计划2026-10-31T12:00:00+08:00；正式命令双确认，9人名单无高婷武/崔玮杰。
+- 真实SSH预检执行1337 success，9人匹配/两图生成/ready=true、sent=false；部署没有提前群发，首次正式送达待12点自然执行，不虚报9人已收到。失败分支独立通知维护人崔玮杰并显式失败。
+- Python37/API18、API build/typecheck/改动TS lint、py_compile/diff检查PASS；n8n readiness、原主应用healthcheck全部PASS。宿主Node22 engine既有告警，现有API容器Node24执行已验收。
+- 只有同一个n8n逻辑任务从inactive→active（实例active11→12），总16个工作流定义未增加；其他15个配置hash一致；专用宿主机unit/cron文件及当前用户cron匹配0。确认无运行中任务后仅重启原n8n，未变更其他调度或API/Web容器。
+- 无Migration/设备业务写入，不部署此前待确认主计划来源升级或112。回滚保留原工作流受限前镜像、测试/正式回执和版本记录。
+- 最终报告：outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md（最新正式交付章节）。受限证据test/equipment_daily/deploy内含部署proof、预检1337、原导出、发布/激活日志、调度/hash/健康证明，目录0700、文件0600，未上传Git。
+- 当前已知问题/等待用户确认：无部署阻塞；首次正式计划尚未到点属正常待运行状态，发送接收/失败由n8n执行日志及运维告警观察。下一步：本次无待开发/待同步/待部署项；后续按最新章节及Git状态维护，不重做。
+
+## TODO完成标记及GitHub同步（2026-10-31 07:26 北京时间）
+- 任务：打印待办标记完成；新增廖焕敏提出的“增加设备情况启动推送”并标记完成；同步GitHub。
+- 当前状态：进行中。已沿用TODO.md，保留原编号/记录时间及其他未完成项目；完成日期依据既有打印及设备日报交付记录。
+- 修改文件：TODO.md；同步既有导入.MD→docs/主计划导入.MD原样移动（字节一致）；本进度文件。
+- Migration/新增测试：无。仅Markdown记录，不变更生产运行配置，不重复构建部署。
+- 已知问题/等待用户确认：无。含真实业务数据的历史进度和验收资料保留本地，不提交。
+- 下一步：核验TODO内容与差异→fetch并检查远程→仅提交安全文档→push并核对提交一致性。
+
+### TODO与GitHub同步完成（2026-10-31 07:27 北京时间）
+- 当前状态：已完成。TODO.md打印项☑；新增第6项，提出人廖焕敏、“增加设备情况启动推送”☑；其他4项未改状态，记录时间保留。
+- 最终提交文件：TODO.md及既有导入.MD→docs/主计划导入.MD（100%相同内容重命名）。
+- 验证：TODO六项/两项完成/其他项保留自动核验PASS；git diff --cached --check PASS；无运行代码更改，测试/构建/部署不适用；无Migration。
+- GitHub：d6775b582f1b5bdeb8d19ce398f62c0f3fcac738，已正常push github/main；远程refs/heads/main SHA与本地HEAD完全一致，ahead/behind=0/0。
+- 尚存本地文件：本进度及4份包含真实业务数据/验收记录的outputs报告，按AGENTS不得提交真实ERP数据规则保留本地；因此Git提交已同步，不宣称工作区无差异。
+- 最终报告：本次会话最终回复。等待用户确认/下一步：无。
+
+### TODO编号2完成（2026-10-31）
+- 状态：已完成。按用户确认将“两个导出按钮合并为一个”标记☑，完成日期2026-10-31，保留提出人/原记录时间/其他条目。
+- 仅提交TODO.md，diff检查通过，无Migration/代码变更，无需构建部署。commit aa5ef2d59db2ac3bb5c14546c12c8ca7535f99f7 已push github/main，远程SHA核对一致；私有本地资料未提交。无剩余步骤。
+
+## Notification Center 群机器人与消息路由（2026-10-31）
+- 任务目标：基于现有 Notification Center/Dispatcher 新增企业微信群机器人密文管理、多群路由、独立投递/重试、文本/Markdown/图片，并为 equipment.daily_report 提供后续接入能力。
+- 当前状态：进行中；用户明确本轮只改本地，不部署、不推送、不实发、不启用正式路由。用户要求 Luna，当前执行环境没有模型切换工具，按可用模型继续。
+- 已完成调查：既有 NotificationService/规则/outbox/个人 WECHAT_WORK 发送保留；常驻 Dispatcher 由 systemd，脚本不直连业务数据库。消息中心现有规则页和投递日志页。WeChatPusher 已有显式 robot_* 接口但只能读取 basic_code 自己的 WX_ROBOT_WEBHOOK，不能直接动态指定Webhook。
+- 正在进行：权限/数据表/migration/路由界面和 Dispatcher 扩展设计；必须确保 webhook 环境主密钥未配置时关闭保存/发送，严禁明文、日志泄漏。
+- Migration：预计新增正式 migration；仅开发环境验证，不运行数据库 migration。
+- 新增/修改测试：按需求覆盖加密/校验/权限/群路由和逐群失败重试、图片/文本发送，不连接生产 webhook。
+- 已运行测试：目前无。
+- 当前已知问题：设备日报是现有 n8n→SSH→脚本链路，不能假设已迁到 Dispatcher。接入应先增加通用 NotificationService/API/API 内部 dispatcher 路径，而不要让脚本持有多个 webhook；本轮不改生产 n8n。
+- 等待用户确认：无；仅本地实现和报告。
+- 下一步：盘点权限注册、router/menu、schema版本及 current delivery 状态约束；形成兼容实现→添加 migration/服务/控制器/页面/Dispatcher适配→定向测试/typecheck/lint/build→记录不部署/不推送。
+
+### 本地实现与验证完成（2026-10-31）
+- 当前状态：本轮实现完成，仅本地工作区；遵照要求未运行 Migration、未部署、未提交/推送、未发送群测试，也未修改/启用 n8n。Luna 模型切换工具不可用，任务使用当前会话模型完成。
+- 实现：企业微信 Webhook AES-256-GCM 加密和掩码管理；权限保护的群机器人/事件路由界面；`equipment.daily_report` 文本+PNG 组件 outbox；按群及组件独立投递/失败单项重试；共享 WeChatPusher 显式群机器人文本/Markdown/图片；日报脚本增加显式 `--submit-notification-event`，默认现有个人流程不变。生产 API 必须由受限环境注入 `KDOS_NOTIFICATION_SECRET_KEY` 后才可配置或解密群机器人；本地未添加密钥或路由。
+- 修改文件：apps/api/src/migrations/1722920113000-NotificationGroupWebhookRouting.ts；apps/api/src/modules/notifications/{group-webhook.crypto.ts,group-webhook.crypto.spec.ts,notification-admin.service.ts,notification-admin.service.spec.ts,notification-event.registry.ts,notification-event.registry.spec.ts,notification.admin.controller.ts,notification.internal.controller.ts,notification.migration.spec.ts,notification.service.ts,notification.service.spec.ts,notification.types.ts}；apps/web/src/modules/notifications/{NotificationCenterPage.tsx,NotificationGroupRouting.tsx,NotificationGroupRouting.spec.tsx}；packages/contracts/src/index.ts；automation/wechat_push_projects/{kdos-notification-dispatcher/{dispatcher.py,test_dispatcher.py,README.md},equipment-governance-daily/{report.py,test_report.py,README.md}}；docs/operations/TASK_REGISTRY.md；本进度文件。
+- 验证：API 通知模块 7 套件/63 项 PASS；群路由 UI 1 项 PASS；契约注册审计 22 项 PASS；日报 Python 39 项 PASS；Dispatcher Python 6 项 PASS；API/Web/contracts typecheck、API build、Web production build、API lint、改动前端 ESLint、Python py_compile、git diff --check 均 PASS。Web build 只有既有大 chunk 提示；pnpm 在当前 Node 22 对仓库 Node>=24 声明给出环境告警。
+- 已知既有测试失败：contracts 全量 7 套件中的 review-due-dates.spec.ts 有1项字段列表预期不包含已存在的“下单日期/产品评审交期”，与本任务无关；该文件22项目标审计用例通过，未改该基线测试。
+- 最终补充安全检查：重复 Webhook `key` 参数明确拒绝，Dispatcher 对单条通知兜底异常只记录异常类型、不打印不透明异常正文；相关 crypto 9项、Dispatcher 6项和 API lint 复核 PASS。
+- Migration：新增迁移文件并有 mock 测试；按要求未连接或修改数据库、未执行迁移。
+- 剩余：生产运行需先安全注入 master key、执行正式 migration，再按独立授权添加路由/验证；设备日报 n8n 仍保持个人发送路径。不得把本轮本地实现描述为已上线。
+
+### 受控上线前核验（2026-10-31）
+- 当前状态：上线流程在正式部署门禁前暂停；没有执行 Migration、生产部署、个人实发或群测试，没有配置路由、改动/启用 n8n，也没有 commit/push。
+- 密钥安全核验：`.env` 中 `KDOS_NOTIFICATION_SECRET_KEY` 恰好1条，长度64且为hex；`.env` 权限600、Git 忽略。Compose 临时 `run --rm --no-deps api` 确认变量已注入，输出仅“已注入，长度=64”，临时容器退出并移除。没有打印值。
+- 生产只读状态：`docker compose ps` 显示 API、Web、Postgres、document-worker healthy；API `/api/v1/health` 与 Web `/health` 返回成功；现运行版本API SHA为 `2bdd1900adf3b8cb11059b5fcd91fbe0443a31ca`。常驻 `kdos-notification-dispatcher.service` active/running。
+- Migration 复核：`NotificationGroupWebhookRouting1722920113000` 新增租户隔离 webhook/route/target/component 表及 delivery target 列、索引/唯一/FK/RLS，无旧通知表删除、无明文Webhook；未执行。
+- 最新验证：API notifications 7套件/64项PASS；Web group-routing 1项PASS；Contracts index 22项PASS；设备日报Python39项PASS；Dispatcher Python6项PASS；API typecheck/build/lint PASS。之前contracts全量仍存在 review-due-dates 字段期望基线失败，未更改。
+- 阻塞：正式 `scripts/deploy.sh` 的 `assert_deployable_worktree` 只允许 `outputs/**` 有未提交改动，目前本任务源码文件未提交，脚本明确拒绝部署；附件要求报告Git未提交/未推送，所以不提交、不绕过门禁。未提供可确认属于测试群的Webhook，故不录入密钥、不测试、不建立日报路由。
+- 下一步：需先处理正式发布对未提交源码的门禁（明确授权本地提交但不推送，或提供项目批准的可审计发布流程）；完成部署后再提供测试群Webhook，执行单群测试/日报事件验证。当前n8n保持原个人WECHAT_WORK流程与原调度。
+
+### 本地提交、Migration 与生产部署完成（2026-10-31）
+- 状态：代码/Migration/API/Web/Dispatcher 已部署；未推送GitHub；未改n8n；未配置/发送群机器人。端到端群测试 `WAITING_TEST_WEBHOOK`。
+- 本地提交：`b15006a3116db14c4aba6bb8e87a43ed58262c54`（功能）；`80245506e0cbf63bc09cb641ab3874d9dd1cdd4e`（生产状态台账/README更新）。两个commit均仅本地，未push。功能提交24文件，不包含.env或outputs；第二提交仅2个文档。当前outputs/**仍未提交。
+- Migration：2026-10-31已通过 TypeORM `DataSource.runMigrations()` 仅应用 `NotificationGroupWebhookRouting1722920113000`。此前 migration:show发现 `MpsAllocationPlanSource1722920112000` 仍pending，为避免无关MPS结构修改没有应用它。验证migrations历史、新增四表、delivery target列、索引、约束、FK与RLS均存在；group targets=0、测试名targets=0、明文ciphertext行=0、日报routes=0。
+- 备份：官方 `scripts/backup.sh` 成功，生成 legacy DB、KDOS DB及uploads三份受限备份并完成校验；文件留在 ignored data/backups。
+- 部署：原工作区有outputs未提交，因此使用项目正式 `deploy.sh` 支持的同仓库干净detached worktree + `KDOS_RUNTIME_ROOT`，未绕过门禁。`deploy.sh all`成功，API/Web/document-worker及原Postgres均healthy；`deploy.sh check`最终Repository/API/Web SHA均为 `8024550`。临时worktree已删除。
+- Secret：`.env`仍仅1条64位hex，600、gitignored；临时Compose与正式API容器都只输出确认“已加载，长度=64”，从未显示值。敏感扫描实际环境密钥在提交文件中0匹配；10个完整URL只存在于模拟测试夹具，非测试源文件完整Webhook 0条。
+- Dispatcher：官方 `scripts/deploy-notification-dispatcher.sh` 更新同一个user systemd service到release `80245506e0cbf63bc09cb641ab3874d9dd1cdd4e`；active/running，新日志持续claimed=0/sent=0/failed=0，没有启动错误或群发送。个人WECHAT_WORK与群channel代码路径保留；未做真实个人消息发送。
+- 页面：生产 `/system/notifications` SPA返回200，部署JS包含群机器人及消息路由tab/接口；未认证群API返回401；群路由UI权限/掩码组件自动测试通过。没有登录态进行生产人工交互验收。
+- 回归：部署前API notifications 7套件/64项、Web群路由1项、contracts index 22项、日报Python39项、Dispatcher Python6项通过；API/Web/contracts typecheck、API/Web build、API lint、Web定向ESLint、Python编译、diff检查通过。contracts全量仍保留既有review-due-dates测试字段列表基线失败（遗漏下单日期/产品评审交期）。
+- 安全/调度：没有真实Webhook或正式群路由；数据库target=0、route=0。日报事件未提交，未实发。n8n未修改、未启用；部署没有改变旧WECHAT_WORK流程。
+- 下一步：待用户提供/在受控页面录入明确标记为测试群的Webhook后，再进行单群测试发送、`equipment.daily_report` 测试路由与条件组件真实验收；在此之前保持无群路由、不改n8n、不正式群发。
+
+### 群机器人配置列表字段映射修复（2026-10-31）
+- 当前状态：已完成并部署；遵守此前约束不推送GitHub。
+- 问题原因：`listGroupWebhooks` 曾直接返回数据库 snake_case 行，Web表格读取 camelCase，导致群名/机器人名空白；列表又未查询 webhook 配置存在标志，故 UI 显示“未配置”。
+- 修改：API 列表显式映射为既有脱敏 view DTO，并只查询 `webhook_ciphertext IS NOT NULL AS webhook_configured` 布尔标志；不读取或返回密文。
+- 测试：`notification-admin.service.spec.ts` 17项通过；API typecheck、改动文件 ESLint、git diff --check通过。
+- 本地提交：`d0e7bbf129f488cb28d37d2e8b1eea74d42ad8e7`，仅含API服务与测试文件，未push。
+- 生产记录脱敏核对：机器人记录1条，群名“事业一部设备管理”、机器人名“设备管理”，密文存在、启用；未读取/输出密文。
+- 部署：用正式 `scripts/deploy.sh all` 从干净detached worktree构建发布，版本检查显示Repo/API/Web均为`d0e7bbf`；API、Web、Postgres、document-worker均healthy。生产API secret只验证“已加载，长度=64”。
+- 部署后验证：API健康检查commit为`d0e7bbf129f488cb28d37d2e8b1eea74d42ad8e7`；无需更新Dispatcher（本修复不改Dispatcher），未发送测试消息、未创建路由、未改n8n。
+
+### 群机器人测试发送端到端修复（2026-11-01）
+- 状态：已修复、正式部署、真实测试成功；GitHub未push。
+- 运行时核验：生产仓库/API/Web SHA均为`d0e7bbf129f488cb28d37d2e8b1eea74d42ad8e7`。Dispatcher是用户级systemd服务；旧sudo/system journal查询针对错误的系统级unit而没有日志。实际unit active，日志写journal；WorkingDirectory为knweb根目录，EnvironmentFile为项目`.env`，StandardOutput=journal、StandardError=inherit，ExecStart运行venv Python及release脚本。
+- 根因：API/outbox/claim已正确处理`notification.group_webhook.test`、`WECHAT_GROUP_WEBHOOK`并绑定目标；Dispatcher正确选择group_text分支，但basic_code/wechat.py中的群机器人发送方法缩进在export_contacts函数return之后，未成为WeChatPusher类方法，导致每次调用均以`WeChatPusher has no attribute send_robot_text`失败。
+- 修改与提交：在`/data/automation/code/work/basci/basic_code/wechat.py`将既有群机器人发送方法归回WeChatPusher类；新增`tests/test_wechat_robot.py`覆盖类方法及文本/Markdown请求。basic_code本地commit `fa7ba9333c53ccb05e320bbc082e141dd3632d21`，未push。项目源代码未改，knweb版本仍与生产一致。
+- 部署：按项目正式`./scripts/deploy-notification-dispatcher.sh`发布并重启既有service，release路径使用knweb SHA `d0e7bbf...`；无第二个Dispatcher。service active/running，持续轮询。
+- 安全验证：API密钥只确认已加载、长度64；通过PostgreSQL到API容器的内存管道执行解密和validateGroupWebhook，输出PASS且不打印密文/完整URL。API及Dispatcher日志敏感字符串扫描PASS。
+- 数据与实发：三条此前由UI测试按钮创建的outbox均为`notification.group_webhook.test`/`WECHAT_GROUP_WEBHOOK`，绑定群`事业一部设备管理`及组件`test_text`；部署后均最终状态SENT，errcode=0、errmsg=ok，无剩余非成功/待重试测试任务。Dispatcher日志至少确认claimed=1/sent=1/failed=0。未修改路由或n8n。
+- 测试：basic_code新增3项测试PASS；Dispatcher 12项PASS；API通知定向测试40项PASS；API typecheck/build和定向lint PASS；Python compile、git diff --check、部署版本一致性和API健康检查PASS。现有WECHAT_WORK调用路径未修改，既有Dispatcher回归通过。
+
+## 通知收件人组与设备日报路由迁移（2026-11-01）
+- 任务：新增可维护的租户收件人组，并将 `equipment.daily_report` 从四个直接群目标迁移为“设备管理群”；保留原四个实际接收群、不改日报生成和n8n；本轮允许本地commit/正式部署/真实四群测试，明确禁止push GitHub。
+- 状态：已完成（已部署并完成四群真实投递）。已检查唯一进度文件、Git状态/差异；保留已有outputs验收资料。生产四个目标均启用且Webhook密文存在；只核对配置存在性和稳定ID，没有读取密文。
+- 计划实现：新增租户级收件人组及成员关系/RLS/审计；管理接口、权限资源和UI；路由支持组/直接机器人并在派发时动态展开、按Webhook目标ID去重，忽略停用组/机器人。
+- Migration/测试：Migration `NotificationRecipientGroups1722920114000` 已应用；租户/扩展路由/动态展开与去重均通过隔离PostgreSQL测试，正式迁移前完成 `scripts/backup.sh` 完整备份。
+- n8n：本轮不修改、不启停。
+- 最终验收：见下方“收件人组生产验收进展”；API/Web/Worker/Postgres健康，生产Repository/API/Web SHA一致为`edba75c`。没有push GitHub、没有修改或启停n8n。
+
+### 收件人组生产验收进展（2026-11-01 23:45 北京时间）
+- Migration `NotificationRecipientGroups1722920114000` 已通过 TypeORM 仅执行本次 migration（刻意保留更早的 MPS allocation source migration pending），RLS/组表/成员表/typed route FK 已上线。
+- 变更上线提交：`bcae1e0`（收件人组功能）、`78eee07`（规范 TypeORM UPDATE RETURNING rows/count）、`2af1a50`（按组件序号隔离图片 delivery）、`8aec04e`（恢复审计字段约束）、`edba75c`（成员管理UI与任务台账）。每次均用官方 `scripts/deploy.sh all`；当前生产 API/Web SHA=`edba75c`，Postgres/API/Web/document-worker healthy。
+- 生产通过 NotificationAdminService 建立“设备管理群”，成员原四个稳定ID完全一致：事业一部、二部、三部、四部设备管理；原日报 direct target IDs 与组成员 IDs 比较完全相等；`equipment.daily_report` 当前只绑定 `RECIPIENT_GROUP:设备管理群`。
+- 真实日报 outbox `01a197b5-b8d8-7439-9380-2f321af8ed59`（日期2026-10-31）第一次投递暴露两张image使用同一 component key 的缺陷：四群文本及运行图成功，填报图被误判重复而跳过。未重发文本/运行图；上线唯一组件序号和受限恢复逻辑后，只重新排队缺失的第三组件。最终四群每群各有1条文本、1张运行图、1张填报图，全部delivery `SENT`、attempt=1、errcode=0/errmsg=ok，outbox `SENT`。恢复变更写审计，无重复组件。
+- 另一个实际切路由错误由TypeORM `UPDATE ... RETURNING` 的 `[rows,rowCount]` 返回形态导致，事务回滚且原direct route保持完整；修复后才切换。两次恢复审计尝试遇到约束时也全事务回滚，没有产生额外消息。
+- 定向测试：API notification service 25项、admin service 20项；Web NotificationGroupRouting 4项、NotificationCenterPage 6项；API/Web typecheck/build、改动文件lint、diff检查通过。contracts index 22项、全量隔离Postgres测试14场景在功能主提交前已通过。宿主Node22仅有仓库要求Node>=24的既有engine告警，部署容器构建用Node24。
+- 本机从受限`.env`内存注入一次性事件令牌及既有 `KDOS_API_BASE_URL` 执行脚本；密钥/令牌没有回显或提交。n8n未改动/未启停，Dispatcher仍是同一user systemd service，GitHub未push。
+- 完成：UI已上线成员搜索、机器人启停筛选、仅显示已选、组创建/更新时间；TASK_REGISTRY已记录MSG-001现状。最终生产检查：API/Web/Postgres/document-worker均healthy，secret已加载且只报告长度64，Migration history存在；四个目标每个恰有3条组件投递、全部errcode=0、attempt=1；直接群路由数为0。当前仅`outputs/**`进度/验收资料保留未提交。
+
+## 财务月报纳入无交货排程订单规则调整（2026-11-02）
+
+### 任务目标
+经用户明确要求，财务统计应纳入符合其他统计条件、但缺少交货排程的订单；调查订单为`2307-261026007`。保持其他资格、结束状态、冲突/重复及权限规则；不改日报调度、收件人或直接重发历史报表。
+
+### 当前状态
+已完成并生产部署；目标订单已进入财务月度数据及发生额视图，未重发历史附件。
+
+### 已完成
+- [x] 阅读`kdos-form-platform`、`kdos-task-orchestration`、FIN-004任务台账和现有财务代码/迁移/进度。
+- [x] 读取E10与PostgreSQL真实数据，确认第6品项`SALES_ORDER_DOC_SD`排程条数为0；9品项合计21,103.50；批准状态Y、订单头结束码2、没有金额变更。
+- [x] 从历史已发送附件快照确认10月31日两名财务接收人的表格单元格相同且都不含该订单；订单已于10月27日同步，10月30/31日增量运行均成功。
+- [x] 确认月度视图`retained.issue_lines=0`是整单被排除的门槛；当前另有6张同类缺排程订单，总额90,698.50（含目标共7张、111,802.00）。
+
+### 正在进行
+- [x] 新增向前Migration修改财务月度视图：仅允许纯“交货计划缺失”或空排程导致的“交货计划缺失+结束码冲突”质量标记通过；质量标记仍保留，其它排除规则不变。
+- [x] 更新迁移单元测试、隔离PostgreSQL回归测试及财务规则文档。
+- [x] API迁移目标测试8/8、typecheck、lint、build及隔离PostgreSQL财务场景51项通过。
+- [x] 完成数据库与uploads备份；仅使用TypeORM MigrationExecutor执行本次Migration，保留既有待运行MPS Migration `MpsAllocationPlanSource1722920112000`。
+- [x] 使用官方`deploy.sh api`及`deploy.sh all`部署；生产核验目标订单进入2026-10月度和发生额视图，金额21,103.50，质量异常计数仍为1；四个核心容器健康且API/Web SHA一致。
+- [x] 本地commit `1b4120f4ff1cf6eaaa74b82ea9c676c492f63991`；推送`github/main`成功。
+
+
+### 修改文件
+- `apps/api/src/migrations/1722920115000-FinanceIncludeOrdersWithoutDeliverySchedule.ts`
+- `apps/api/src/modules/finance/finance-orders.migration.spec.ts`
+- `scripts/test-finance-orders-postgres.cjs`
+- `docs/finance-order-monthly-movements.md`
+- `outputs/CODEX_PROGRESS.md`（仅维护本任务状态；文件含其他任务未提交内容，不整体提交）
+
+### Migration
+- 新增并生产执行`FinanceIncludeOrdersWithoutDeliverySchedule1722920115000`，替换`finance_e10_monthly`视图；月度发生额视图随其动态更新。
+
+### 已知限制
+- 10月31日历史附件是不可变快照。本次未授权重发，不会发送更正附件；代码部署后可修复月度视图数据，后续自动日报仍只统计当月。
+- 当前工作区已有其他任务的进度和验收文件，必须保持原样；提交时精确选择本任务源码文件。
+
+### 下一步
+1. 无；本次规则已生效。10月31日已发送附件保持原始历史快照，未补发。
+
+## 财务日报按前一日所属月发送（2026-11-02）
+
+### 任务
+将每天早间财务月报月份切换为发送日前一日（北京时间）所属月份；每月1日发送上月月报，其余日期发送当月累计月报。
+
+### 当前状态
+已实现、测试、部署并同步GitHub；生产 API/Web/PostgreSQL/Document Worker 健康且版本一致。11月1日历史附件保持原样，没有重发。
+
+### 已完成
+- [x] 检查FIN-004服务代码、已发送outbox/附件元数据、日报调度说明与任务台账，确认原逻辑按发送当天月份取数；2026-11-01实际发送2026-11附件。
+- [x] 将默认报表月份改为前一上海日期所属月份；显式传入reportMonth仍保留原行为；发送日去重、调度时间和数据权限逻辑不变。
+- [x] 更新边界测试，覆盖月末、同月及跨年；更新财务日报文档及任务台账。
+
+### 正在进行
+- [x] 财务日报服务定向测试9/9、API typecheck、API build、改动文件lint、git diff --check均通过；宿主Node 22低于项目Node>=24要求，产生既有engine提示。
+- [x] 审查代码与文档diff；仅修改前一上海日期所属报表月份，保留实际发送日去重键和显式reportMonth调用行为。
+- [x] 正式 `deploy.sh api` 后使用 `deploy.sh all` 对齐版本；健康检查通过，Repository/API/Web SHA均为`2bbc87c45a561242c3a4954470b894d00023824a`。
+- [x] 本任务4个源码/文档文件提交并推送`github/main`，远程推进`1b4120f..2bbc87c`；其它outputs保留未提交。
+
+### 待完成
+- [x] 正式部署、生产版本/健康检查及只读行为核验。
+- [x] 只提交本任务文件并同步项目规定的GitHub分支。
+
+### 修改文件
+- apps/api/src/modules/finance/finance-monthly-notification.service.ts
+- apps/api/src/modules/finance/finance-monthly-notification.service.spec.ts
+- docs/finance-monthly-notifications.md
+- docs/operations/TASK_REGISTRY.md
+- outputs/CODEX_PROGRESS.md（此进度文件含有其它任务记录，提交时不纳入）
+
+### Migration
+无。
+
+### 下一步
+无。下一次每日调度将按已发布实现选取发送前一日所在月份；没有执行人工补发。
+
+## 财务2026年10月月报人工补发（2026-11-02）
+- 状态：已通过现有FIN-004启用规则、通知中心Outbox及Dispatcher完成补发，未改自动调度和接收人。
+- 生产只读确认仅一条启用财务月报规则、配置2个目标。单次补发使用独立幂等键`finance-monthly-summary-supplement:<rule>:2026-10`，outbox `01a199e1-a9c5-7df3-9e0f-b30e32d73e1e`，月份为2026-10。
+- 成功验证：两名接收人各收到正文和附件，共2个2026年10月Excel附件、2条正文投递、2条文件投递；所有4条`SENT`、errcode=0、errmsg=ok。以内存读取实际附件并校验，订单`2307-261026007`在两份附件中均存在；未在终端输出财务行或附件内容。
+- 原10月31日附件保持不变；新补发单独留痕。FIN-004任务台账已记录补发outbox及投递结果，待本次台账提交并同步GitHub。
+- 下一步：仅提交并推送`docs/operations/TASK_REGISTRY.md`，不提交包含其他任务记录的outputs进度文件。
