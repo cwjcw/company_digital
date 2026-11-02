@@ -1,6 +1,7 @@
 import { FinanceE10SpecifiedItems1722920096000 } from '../../migrations/1722920096000-FinanceE10SpecifiedItems';
 import { FinanceE10SpecifiedClose1722920095000 } from '../../migrations/1722920095000-FinanceE10SpecifiedClose';
 import { FinanceE10SourcePresenceAndTimestamps1722920105000 } from '../../migrations/1722920105000-FinanceE10SourcePresenceAndTimestamps';
+import { FinanceIncludeOrdersWithoutDeliverySchedule1722920115000 } from '../../migrations/1722920115000-FinanceIncludeOrdersWithoutDeliverySchedule';
 
 describe('Finance specified-close policy migration', () => {
   it('filters the shared order relation by exact header state and tenant/account/order identity, preserving old review rules', async () => {
@@ -39,6 +40,27 @@ describe('Finance E10 source-presence and KDOS timestamp migration',()=>{
   expect(sql).not.toMatch(/current_timestamp|\bnow\(\).*created_at/i);
  });
  it('does not offer a destructive rollback for retained financial evidence',async()=>{await expect(new FinanceE10SourcePresenceAndTimestamps1722920105000().down()).rejects.toThrow('Retain');});
+});
+
+describe('Finance missing-delivery-schedule inclusion migration',()=>{
+ it('includes only the exact no-schedule issue while preserving other eligibility and quality gates',async()=>{
+  const query=jest.fn().mockResolvedValue(undefined);
+  await new FinanceIncludeOrdersWithoutDeliverySchedule1722920115000().up({query} as never);
+  const sql=String(query.mock.calls[0][0]);
+  expect(sql).toContain("issue.payload->>'scheduleCount'='0'");
+  expect(sql).toContain("issue.payload->'_issues' @> '[\"交货计划缺失\",\"结束码冲突\"]'::jsonb");
+  expect(sql).toContain("issue.payload->'_issues'='[\"交货计划缺失\"]'::jsonb");
+  expect(sql).toContain('jsonb_array_length(issue.payload->\'_issues\')=2');
+  expect(sql).not.toContain('retained.issue_lines=0');
+  for(const condition of ['qualification.eligible','NOT record.conflict','NOT record.duplicate_sequence','NOT record.duplicate_order_no',"source.payload->>'headerCloseCode'='1'"])expect(sql).toContain(condition);
+ });
+ it('restores the prior strict quality gate on rollback',async()=>{
+  const query=jest.fn().mockResolvedValue(undefined);
+  await new FinanceIncludeOrdersWithoutDeliverySchedule1722920115000().down({query} as never);
+  const sql=String(query.mock.calls[0][0]);
+  expect(sql).toContain('retained.issue_lines=0');
+  expect(sql).not.toContain("issue.payload->>'scheduleCount'='0'");
+ });
 });
 
 describe('Finance specified-close item policy migration',()=>{
