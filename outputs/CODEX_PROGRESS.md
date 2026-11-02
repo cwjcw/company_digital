@@ -10182,13 +10182,14 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 ### 任务与状态
 - 任务：将评审交期表系统字段“产品评审交期”统一改为“产前评审交期”。
-- 当前状态：代码和Contracts定向测试、类型检查、构建已通过；待提交、GitHub同步及正式部署。
+- 当前状态：已完成修改、测试、GitHub同步和生产部署；生产Web构建包含新标签，旧标签已不存在。
 
 ### 修改与验证
 - 修改`packages/contracts/src/review-due-dates.ts`字段注册标签，页面/表格列和复用该字段定义的模板、导出将自动显示新名称；稳定字段键及数据结构不变。
 - 修改`packages/contracts/src/review-due-dates.spec.ts`的规范名称断言。
 - Contracts定向测试4/4、typecheck、build及`git diff --check`通过。Node 22低于仓库要求>=24，pnpm提示engine warning。
+- Web评审交期页面测试6/6、typecheck、build通过。正式`deploy.sh all`成功；版本核验Repository/Web/API均为`a8d7007`，PostgreSQL、API、Web、document-worker均healthy。生产Web实际JS资源检查：新标签存在、旧标签不存在。
 
 ### 保护与下一步
 - 保留工作区既有`TODO.md`修改，不纳入提交。
-- 下一步：精确提交这两处源码/测试与本进度记录，普通推送GitHub；用隔离干净worktree运行正式部署脚本，完成生产版本和健康检查。
+- 源码commit `a8d7007`已推送`github/main`；部署使用隔离干净worktree完成。本进度状态更新待提交推送。
