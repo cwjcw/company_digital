@@ -54,7 +54,7 @@
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
-| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式9人，SSH双确认 | n8n | ACTIVE_VERIFIED | 10月31日已发布；真实SSH预检1337成功、readiness通过，下次当日12:00 |
+| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式名单11人，SSH双确认 | n8n | ACTIVE_VERIFIED | 11月2日名单/人数校验已发布，11人不发送预检PASS，下一次12:00 |
 | MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd user Service，约1秒轮询；现有 release `d0e7bbf` 支持 WECHAT_WORK 与按 API claim 返回的 WECHAT_GROUP_WEBHOOK 路由 | systemd Service | ACTIVE_VERIFIED（2026-11-01） | 保留同一常驻服务；已创建“设备管理群”收件人组（四个事业部设备群），`equipment.daily_report` 只绑定该组并动态展开；实发事件四群各组件均 errcode=0。EQ-001 原n8n调度未修改 |
 | OPS-001 | PostgreSQL 与上传文件备份；`scripts/backup.sh` | 只确认脚本，未发现仓库定时器 | systemd Timer | UNVERIFIED_RUNTIME | 核实生产备份策略、日志与恢复测试 |
 | OPS-002 | DWG本地索引 | 本仓库未发现定义；主机存在 `dwg-index-update.timer` | systemd Timer | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已核实系统级启用，查作业日志及任务归属 |
@@ -340,3 +340,11 @@
 - 真实SSH预检1337，cli/success，ready=true、sent=false、9人匹配，两图成功；部署不提前发送，首次正式群发待12点自然执行。Python37/API18/build/typecheck/lint/py_compile PASS，主应用原健康检查PASS。
 - 本任务n8n定义1/实际启用1，未创建第二份设备工作流；专用宿主机systemd/cron文件及当前用户cron匹配0。全实例active从11→12，仅增加本任务激活；其余15个工作流配置hash逐项一致。
 - 受限原导出、预检执行记录、激活日志、只读调度及健康证明在ignored test/equipment_daily/deploy；回滚保留原归档/禁用状态和全部发送回执。n8n执行记录保存最近成功/失败、耗时和结果，错误分支告警可见；网络不确定仍要求人工先核对。
+
+### EQ-001 正式接收人增加（2026-11-02）
+- 用户要求将李光明、Linton加入个人正式日报名单，原9人保留；新正式名单11人。测试及失败告警对象仍仅崔玮杰，不发送正式日报进行验收。
+- 名单唯一来源为 `automation/wechat_push_projects/equipment-governance-daily/config.json` 的 `production_recipients`；发送时用共享 `WeChatPusher` 按姓名解析企业微信通讯录。n8n工作流Code校验器必须同步由9人更新为11人，避免把正常任务标记失败。
+- 验证结果：Python unittest 39/39 PASS；真实`--check-production`返回ready=true、sent=false、recipientCount=11（姓名均唯一匹配），两张图片成功生成。没有真实发送。
+- 同一个活动工作流已通过n8n官方CLI更新并发布；Code人数保护从9改为11，原SSH凭据引用、owner、active状态及Asia/Shanghai每日12:00调度保持。n8n重启后healthz=ok，服务ready，启动日志确认EQ-001 activated；16个工作流ID保持，12个active，其余工作流定义未变。
+- 发布版本已核实activeVersionId与versionId一致；下一计划为每日12:00（Asia/Shanghai）。测试、联系人预检、工作流回滚快照均存本机受限目录`test/equipment_daily/recipients-20261102`，不提交。
+- 当前状态：生产配置和验证完成；待任务commit/push。未新增调度、不改数据库或设备业务数据，不触发测试/正式日报消息。

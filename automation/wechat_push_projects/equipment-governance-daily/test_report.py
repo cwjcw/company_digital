@@ -226,7 +226,8 @@ class SendingTest(unittest.TestCase):
         self.assertTrue(c['allow_production_send'])
         self.assertNotIn('高婷武', c['production_recipients'])
         self.assertNotIn('崔玮杰', c['production_recipients'])
-        self.assertEqual(len(c['production_recipients']), 9)
+        self.assertEqual(c['production_recipients'][-2:], ['李光明', 'Linton'])
+        self.assertEqual(len(c['production_recipients']), 11)
         self.assertEqual(c['schedule'], {'time': '12:00', 'timezone': 'Asia/Shanghai', 'mode': '--send-production --confirm-production'})
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/'config.json'
@@ -293,7 +294,7 @@ class MainWorkflowTest(unittest.TestCase):
             self.assertEqual([x[0] for x in pusher.calls], ['text', 'operation_image'])
             self.assertFalse((Path(folder)/'2026-10-29/reporting.png').exists())
 
-    def test_enabled_confirmed_production_routes_only_the_nine_report_recipients(self):
+    def test_enabled_confirmed_production_routes_only_the_eleven_report_recipients(self):
         config = {**report.read_config(), 'text_delay_seconds': 0, 'reporting_image_delay_seconds': 0}
         p = FakePusher(); names = config['production_recipients']
         p.get_contacts = lambda **kwargs: [{'name': name, 'userid': 'formal-'+str(i)} for i, name in enumerate(names)]
@@ -301,7 +302,7 @@ class MainWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(report, 'read_config', return_value=config), patch.object(report, 'load_live_summary', return_value=fixture()), patch.object(report, 'reporting_window', return_value=(date(2026, 10, 23), date(2026, 10, 29))), patch.dict('sys.modules', {'wechat': module}), contextlib.redirect_stdout(io.StringIO()):
             report.main(['--send-production', '--confirm-production', '--output-dir', folder])
             report.main(['--send-production', '--confirm-production', '--output-dir', folder])
-            self.assertEqual(len(p.calls), 27)
+            self.assertEqual(len(p.calls), 33)
             self.assertTrue((Path(folder)/'2026-10-29/production/production-receipt.json').exists())
             self.assertFalse((Path(folder)/'2026-10-29/test-receipt.json').exists())
             for i, name in enumerate(names):
@@ -313,7 +314,7 @@ class MainWorkflowTest(unittest.TestCase):
         p.get_contacts = lambda **kwargs: [{'name': name, 'userid': 'formal-'+str(i)} for i, name in enumerate(config['production_recipients'])]
         with tempfile.TemporaryDirectory() as folder, patch.object(report, 'create_pusher', return_value=p), patch.object(report, 'load_live_summary', return_value=fixture()), patch.object(report, 'reporting_window', return_value=(date(2026, 10, 23), date(2026, 10, 29))), contextlib.redirect_stdout(io.StringIO()) as stream:
             report.main(['--check-production', '--output-dir', folder])
-            data = json.loads(stream.getvalue()); self.assertTrue(data['ready']); self.assertFalse(data['sent']); self.assertEqual(data['recipientCount'], 9); self.assertEqual(p.calls, [])
+            data = json.loads(stream.getvalue()); self.assertTrue(data['ready']); self.assertFalse(data['sent']); self.assertEqual(data['recipientCount'], 11); self.assertEqual(p.calls, [])
 
     def test_operational_failure_alert_is_separate_and_never_queries_business(self):
         p = FakePusher()
@@ -349,10 +350,10 @@ class WorkflowDefinitionTest(unittest.TestCase):
 
     def test_validator_rejects_nonzero_missing_json_wrong_mode_count_or_sequence(self):
         code = next(n['parameters']['jsCode'] for n in self.workflow['nodes'] if n['type']=='n8n-nodes-base.code')
-        result = {'mode':'production','recipientCount':9,'sent':True,'reportingImageSent':True,'sequence':['text','operation_image','reporting_image']}
+        result = {'mode':'production','recipientCount':11,'sent':True,'reportingImageSent':True,'sequence':['text','operation_image','reporting_image']}
         cases = [(True, {'code':0,'stdout':json.dumps(result)})]
         cases += [(False, {'code':1,'stdout':json.dumps(result)}), (False, {'code':0,'stdout':'not json'})]
-        for update in ({'mode':'test'}, {'recipientCount':1}, {'sent':False}, {'sequence':['operation_image','text']}):
+        for update in ({'mode':'test'}, {'recipientCount':9}, {'sent':False}, {'sequence':['operation_image','text']}):
             cases.append((False, {'code':0,'stdout':json.dumps({**result,**update})}))
         for expected, item in cases:
             worker = "const fs=require('fs');const x=JSON.parse(fs.readFileSync(0,'utf8'));try {new Function('$input',x.code)({first:()=>({json:x.item})});}catch(e){process.exitCode=1}"

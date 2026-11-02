@@ -1,6 +1,6 @@
 # 设备管理双日报
 
-原 `equipment-governance-daily` 原地升级，复用现有深色 BI 视觉与 Pillow 模板基础。不再读取培训进度；`training_status.txt` 仅保留历史。2026-10-31用户已确认单人测试效果并授权正式部署：**正式9人，不含高婷武、崔玮杰**；测试模式仍只发崔玮杰。默认只生成图片；不修改设备填报、故障原因、大屏统计 SQL 或在线调度。
+原 `equipment-governance-daily` 原地升级，复用现有深色 BI 视觉与 Pillow 模板基础。不再读取培训进度；`training_status.txt` 仅保留历史。正式个人日报名单目前11人，不含高婷武、崔玮杰；测试模式仍只发崔玮杰。默认只生成图片；不修改设备填报、故障原因或大屏统计 SQL。
 
 ## 内容与口径
 
@@ -38,7 +38,7 @@
 
 绝不使用格式化的 `100.0%` 判断；699/700、6999/7000均未完成，即使显示四舍五入为100.0%也发填报图。0/0按用户要求的原始相等规则结束，显示比率为“—”。默认预览可生成两图，便于本地检查。
 
-任一发送失败非零退出，不继续后续内容，不虚报成功；仅复用 basic_code 的默认自建应用 `WeChatPusher`，无群机器人回退、无新SDK。测试配置必须严格等于 `["崔玮杰"]`，禁止 `@all`、缺失或重名通讯录成员。正式收件人单独保留，2026-10-31已按用户要求移除高婷武、崔玮杰，剩余9人（测试名单仍仅崔玮杰），用户确认后配置`allow_production_send=true`；正式执行仍须`--send-production --confirm-production`，默认命令不发送。
+任一发送失败非零退出，不继续后续内容，不虚报成功；仅复用 basic_code 的默认自建应用 `WeChatPusher`，无群机器人回退、无新SDK。测试配置必须严格等于 `["崔玮杰"]`，禁止 `@all`、缺失或重名通讯录成员。正式个人名单保存在`config.json`的`production_recipients`；2026-10-31移除高婷武、崔玮杰，2026-11-02加入李光明、Linton，现共11人（测试名单仍仅崔玮杰）。正式执行仍须`--send-production --confirm-production`，默认命令不发送。
 
 Notification Center 的后续群路由接入由显式参数 `--submit-notification-event` 提交 `equipment.daily_report` 事件（文字→运行日报 PNG→条件填报日报 PNG）。当前 n8n 仍走上面的个人企业微信发送流程；此参数仅用于未来受控迁移验证，不配置 Webhook、不发送群消息，也不改变现行调度。
 
@@ -76,16 +76,16 @@ cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipmen
 
 ## n8n正式发布
 
-2026-10-31正式部署已完成：原工作流已解除归档并发布当前版本，n8n实际启动日志确认激活；下次计划为2026-10-31 12:00（Asia/Shanghai）。真实SSH只读预检执行1337成功，9名正式联系人匹配、高清两图生成、未提前发送；其余15个工作流配置保持不变。正式接收从每日12点自然执行开始，首次正式送达尚未冒充已验证。
+2026-10-31首次正式部署时原工作流已解除归档并发布，真实SSH只读预检当时匹配9名正式联系人并生成两图，未提前发送。2026-11-02按用户要求增加两名正式接收人后，重新完成11人不发送预检并更新同一n8n工作流的人数校验；该次变更没有发送日报。
 
 唯一任务身份 **EQ-001**，始终复用工作流 `e0dwMjv9OnWmcESk`，不创建第二个设备日报或Timer。仓库 `workflow-template.json` 默认inactive，只有显式发布才启用；SSH Credential为占位符，发布时从原工作流保留，不能写入凭据或导出解密密码。
 
-正式流程：每天12:00（`0 0 12 * * *`），Workflow时区`Asia/Shanghai` → 原SSH凭据调用宿主机 → Code节点检查退出码、JSON、production模式、9人及发送顺序。任何异常走同一工作流的失败分支，用共享WeChatPusher通知维护人崔玮杰，然后Stop And Error，不能把SSH返回code=1当成成功。
+正式流程：每天12:00（`0 0 12 * * *`），Workflow时区`Asia/Shanghai` → 原SSH凭据调用宿主机 → Code节点检查退出码、JSON、production模式、当前配置人数（现为11人）及发送顺序。任何异常走同一工作流的失败分支，用共享WeChatPusher通知维护人崔玮杰，然后Stop And Error，不能把SSH返回code=1当成成功。
 
-- 正式日报接收人：刘义响、朱永远、周志明、张建中、蒋青国、徐玉鹏、廖焕敏、刘丽秋、黄开亮。
-- 运维失败告警名单独立：`failure_recipients=["崔玮杰"]`，只告警不接收正式日报，不会把崔玮杰加回9人业务名单。
+- 正式日报接收人：刘义响、朱永远、周志明、张建中、蒋青国、徐玉鹏、廖焕敏、刘丽秋、黄开亮、李光明、Linton。
+- 运维失败告警名单独立：`failure_recipients=["崔玮杰"]`，只告警不接收正式日报，不会把崔玮杰加回11人业务名单。
 - SSH命令自身超时540秒；失败告警90秒；工作流总超时720秒。无自动重发未知组件；通过逐人回执人工安全补偿。n8n保留成功/失败执行及进度、耗时、计数。
-- 手工节点与定时节点共用同一正式入口；预检通过、用户确认正式启用后才发布，不在部署时提前给9人补发。
+- 手工节点与定时节点共用同一正式入口；预检通过后发布配置，不在部署时提前给11人补发。
 
 ```bash
 cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipment-governance-daily && \
@@ -96,7 +96,7 @@ cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipmen
 
 1. 只提交/推送本项目改动；保留无关工作区和私有数据。只需构建本地查询适配，不部署整套API或执行主计划待发布迁移。
 2. 受限导出原工作流作为回滚前镜像；确认原工作流ID/owner/SSH引用，使用模板占位符替换为原引用，保持owner及其他工作流不变。模板导入时inactive，`isArchived=false`。
-3. 同一工作流先做不发送的真实SSH预检：临时命令`report.py --check-production`，Code期望模式改为`production-check`。必须ready=true、sent=false且匹配9个真实联系人，图片成功；检查n8n真实执行记录。预检不使用测试数据，不能伪造正式成功回执。
+3. 同一工作流先做不发送的真实SSH预检：临时命令`report.py --check-production`，Code期望模式改为`production-check`。必须ready=true、sent=false且匹配当前配置的11个真实联系人，图片成功；检查n8n真实执行记录。预检不使用测试数据，不能伪造正式成功回执。
 4. 导入正式模板并显式发布同一ID。当前实例无管理API Key，沿用n8n官方CLI：`import:workflow --input=<受限hydrated文件> --projectId=<原owner project>`、`publish:workflow --id=e0dwMjv9OnWmcESk`。CLI只写配置，需确认无运行中任务后短暂重启原n8n容器，使进程加载新版本；不得停用无关工作流。
 5. 核验active/activeVersionId、Asia/Shanghai和12:00表达式、正式命令、原SSH引用、n8n启动激活日志和其他工作流配置/启用集合不变，记录下次计划及健康。发布实证见本地验收报告/进度，不能以模板存在冒充启用。
 6. 回滚先使用官方unpublish同一ID，再恢复受限原导出；确认无执行中任务后按同样窗口重启n8n。保留正式/测试回执，绝不为回滚删除它们；旧08:00正式命令保持归档/禁用，不能误恢复群发。不存在数据库Migration或业务数据回退。
