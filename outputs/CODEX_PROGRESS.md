@@ -81,7 +81,7 @@
 
 ### 任务
 任务目标：为订单分配业务表增加符合 KDOS 标准权限、审计、数据范围及历史保留规则的工具栏删除能力。
-当前状态：实现与目标验证已完成；仅服务端有效删除权限可见按钮，确认后以版本校验软归档、写审计并入计划投影reconciliation。定向测试、类型检查、Lint和API/Web构建通过；部署与GitHub同步待完成。
+当前状态：已完成并部署。仅服务端有效删除权限可见按钮；确认后按租户、数据范围、版本校验软归档，写审计并入计划投影reconciliation。测试、类型检查、Lint、API/Web构建、部署健康与版本一致性通过；任务提交与进度已同步GitHub。
 最后更新时间：2026-11-02（Asia/Shanghai）。
 
 ### 当前阶段
@@ -97,7 +97,10 @@
 - [x] 启用订单分配资源删除权限门槛，并实现带租户、数据范围、版本校验和审计的单条归档。
 - [x] 接入现有工具栏删除组件，说明归档和关联计划历史保留语义，并失效相关计划查询缓存。
 - [x] API目标测试99/99、Web主计划页面测试43/43、API/Web typecheck、改动文件Lint、API/Web build、`git diff --check`通过。
-- [ ] 安全提交、正式部署、健康/版本核验及GitHub同步。
+- [x] 执行正式备份 `scripts/backup.sh`（2026-11-02 11:34），旧库、KDOS库、上传目录均生成并通过归档/校验检查。
+- [x] TypeORM Migration 状态只读核对；除此前明确保留的 `MpsAllocationPlanSource1722920112000` 外无未应用迁移；KDOS SQL migration 账本全部已应用。未运行无关待迁移。
+- [x] 正式 `deploy.sh all` 发布；`deploy.sh check` Repository/Web/API SHA 一致，API/Web/PostgreSQL/document-worker 健康。
+- [x] 仅提交本任务 8 个文件并推送 GitHub；既有 `TODO.md` 修改仍保留本地。
 
 ### 修改文件
 - apps/api/src/modules/master-plan-system/master-plan.config.ts
@@ -112,11 +115,10 @@
 ### Migration / 数据写入
 - 预计无需 Migration；复用现存 `archived_at`。
 - 不在生产执行真实删除或归档。
+- 既有待运行 TypeORM Migration `MpsAllocationPlanSource1722920112000` 保持 pending；该项不属于本次删除功能，避免夹带改变月计划唯一约束及集团订单金额约束。
 
 ### 下一步
-1. 仅提交本任务文件，保留 `TODO.md` 本地修改。
-2. 按正式流程部署并核实生产健康状态和Repository/Web/API版本。
-3. 推送 GitHub 并记录最终提交。
+无。生产未执行真实业务删除；只有拥有该资源有效 `delete` 权限且数据范围覆盖所选记录的用户会看到并使用按钮。
 
 ---
 
