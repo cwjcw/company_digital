@@ -57,7 +57,7 @@ function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:T
   </Modal>;
 }
 export function ReviewDueDates(){
-  for(const key of ['divisionId','orderDate','productReviewDueDate','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
+  for(const key of ['divisionId','orderDate','productReviewDueDate','dueDate','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
   const auditColumns=useAuditColumns();
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);
@@ -109,8 +109,8 @@ export function ReviewDueDates(){
       {history.error&&<Alert type="error" message={history.error.message}/>}
       <Table<ReviewDueDateHistoryRow> rowKey="id" size="small" loading={history.isLoading} dataSource={history.data?.rows??[]} locale={{emptyText:'暂无变更记录'}}
         pagination={{current:historyPage,pageSize:100,total:history.data?.total??0,onChange:setHistoryPage,showSizeChanger:false}}
-        columns={[{title:'变更时间',dataIndex:'changedAt',render:time},{title:'原入库时间',dataIndex:'oldInboundDate'},
-          {title:'新入库时间',dataIndex:'newInboundDate'},{title:'提前/推迟天数',dataIndex:'changeDays',render:(v:number)=>`${v<0?'提前':'推迟'}${Math.abs(v)}天`},
+        columns={[{title:'变更时间',dataIndex:'changedAt',render:time},{title:'原最新交期',dataIndex:'oldInboundDate'},
+          {title:'新最新交期',dataIndex:'newInboundDate'},{title:'提前/推迟天数',dataIndex:'changeDays',render:(v:number)=>`${v<0?'提前':'推迟'}${Math.abs(v)}天`},
           {title:'变更来源',dataIndex:'sourceKind',render:(v:string)=>({SYNC:'同步',IMPORT:'导入',MANUAL:'人工'}[v]??v)},
           {title:'操作人或同步批次',key:'source',render:(_,row)=>row.sourceKind==='SYNC'?row.sourceBatchId:row.changedByName??row.sourceBatchId}]}/>
     </Drawer>

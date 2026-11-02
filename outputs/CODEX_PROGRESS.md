@@ -10114,3 +10114,63 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 ### 下一步
 无。用户工作簿未确认导入，也未写入业务数据。
+
+## 评审交期表1102字段修正与数据替换（2026-11-02）
+
+### 任务
+以`/home/Jerry/下载/在手未完成1102.xlsx`为来源，核实V2字段并新增“交期”、将原“入库时间”显示为“最新交期”，按用户最终规则校验并原子替换评审交期当前主表；保留历史表、审计日志及其他业务数据。
+
+### 当前状态
+进行中；字段/API/UI/Excel/迁移和隔离替换实现已完成。源文件已通过统一加密检测，完整解析结果3609源行→3608条记录、0冲突/0无效行，所有源行均可追溯；隔离PostgreSQL 28项通过。生产迁移、原子替换、部署和页面验收尚未执行。
+
+### 已完成
+- [x] 检查当前`AGENTS.md`、`kdos-form-platform`、`kdos-form-validation`、`table-delete-standard`及架构/安全/运行手册边界要求；工作区原有`TODO.md`修改已识别并保护。
+- [x] 使用`apps/api/src/spreadsheet-upload.ts`统一加密容器检查，结果PASS；后用正式`loadReviewDueWorkbook`读取，未修改来源Excel。SHA256=`4ffd8f64de3c059e07d3431257976997d78243a3d9d8222486298c9e150260c2`。
+- [x] 确认V2当前`inboundDate`/DB`inbound_date`显示“入库时间”，且本地没有独立交期字段；`previousInboundDate`是上次入库时间，不可复用。需新增`dueDate`/`due_date`，保留原稳定键映射为“最新交期”。
+- [x] 生产只读核对：当前API连接`four_department_tracker`；主表1114行，历史变更表0行；`due_date`不存在，`inbound_date`为NOT NULL，quantity为numeric，batch_number为text。只读事务中查询，未修改生产数据库。
+- [x] 当前有效组织目录确认凯南直属事业一至四部ID存在；未找到“供应链”组织映射。
+- [x] Excel有3609条有效来源行、3590个订单号+品项编码组合及19组重复；已按最终批次规则完成去重/拆批，3608条记录包含全部3609源行号。F列交期均有效，G列NULL 590条，无无效行或待决冲突。
+- [x] 用户最终确认：批次常规值为`01`；数量或最新交期不同的同订单品项拆为批次`01`、`02`……；未来同类最新交期差异同样拆批。供应链映射至采购部。
+
+### 正在进行
+- [x] 核实字段注册、页面、导入/导出、数据库约束与迁移，并完成最小向前迁移和应用层原子替换。
+- [x] 用户已决定所有业务冲突处理规则；实际工作簿全量预检无未决项。
+
+### 待完成
+- [ ] 完成API/Web/Contracts构建、lint、浏览器集成检查与最终diff/敏感信息审查。
+- [ ] 按官方备份和`deploy.sh`流程提交/推送/迁移/部署；迁移前再次确认历史关联为0且生产主表基线仍为1114，之后用受控应用服务单事务替换为3608条。
+- [ ] 验证生产审计、行数/日期/数量/批次/组织及Web页面查询/编辑/导出，并完成健康检查和GitHub版本核对。
+
+### 修改文件
+- packages/contracts/src/review-due-dates.ts、review-due-dates.spec.ts
+- apps/api/src/modules/master-plan-system/review-due-date-source.ts、review-due-date-source.spec.ts、review-due-date.domain.ts、review-due-date.domain.spec.ts、review-due-date.application.service.ts、review-due-date-import.application.service.ts、review-due-date-query.service.ts、review-due-date-manual.spec.ts、review-due-date-create.spec.ts、review-due-date-import.spec.ts、review-due-date-monthly.postgres.spec.ts、review-due-date-separate-due-date.migration.spec.ts、master-plan-spreadsheet.service.ts
+- apps/api/src/migrations/1722920116000-MpsReviewDueDateSeparateDueDate.ts
+- apps/web/src/modules/master-plan-system/ReviewDueDates.tsx及相关import/create/edit测试
+- scripts/test-review-due-fields-v2-postgres.cjs、scripts/review-due-fields-v2.browser-checks.cjs
+- outputs/KDOS_MPS_REVIEW_DUE_DATE_SPEC.md、.agents/skills/kdos-form-validation/SKILL.md、outputs/CODEX_PROGRESS.md
+- 原有TODO.md改动不属于本任务，保持未提交。
+
+### 数据库Migration
+- 新增`MpsReviewDueDateSeparateDueDate1722920116000`：新增可空`due_date date`并允许原`inbound_date`为空；保留旧行兼容、历史与审计表。尚未在生产执行。
+
+### 已运行测试
+- 统一加密文件检测：PASS。
+- 真实工作簿全量预检：3609源行/3608最终记录/3609源行追溯/3608记录，冲突0、无效0、最新交期NULL590；事业一部1565、事业二部571、事业三部389、事业四部912、采购部171。
+- API定向Jest 7 suites通过、56 passed/3 skipped；Contracts字段测试4/4；Web ReviewDueDates测试16/16（设置15s超时，初次与其他测试并发时有2项触发5s测试超时，单独运行后通过）。
+- 隔离PostgreSQL 18 + 本地真实Chrome端到端33/33通过，含迁移拒绝危险旧数据、访问控制、模板/导入导出、表单保存、替换租户隔离/审计保留/幂等/失败回滚。
+- API/Contracts/Web typecheck、Contracts/API/Web build及定向API/Web测试通过；API lint通过；Web lint仅有既有`ModulePortal.tsx` Fast Refresh warning。宿主Node 22低于仓库声明>=24，pnpm显示engine警告。
+- `git diff --check`通过；全量业务数据仍未写入生产。
+
+### 当前已知问题
+- 无未解决的数据映射或批次业务冲突。生产主表替换尚未执行，部署和生产Chrome验收尚待完成。
+- 审计JSON保存每条源Excel行号及源文件SHA256；业务表不新增追溯字段。
+
+### 下一步
+1. 完成剩余构建/lint/browser验证和差异检查。
+2. 备份并核实生产当前记录/历史基线；通过正式Migration机制及受控应用命令完成原子替换。
+3. 部署、生产验收，精确提交并推送本任务文件，更新本节为最终状态。
+
+### 用户冲突决议更新（2026-11-02）
+- 用户确认供应链映射采购部；用户确认1809/1810行同数量、不同最新交期时拆为批次01/02，并明确“以后类似的都这样拆”。
+- 完整源数据解析落实该规则：共18个业务键发生拆批（17组数量差异及用户确认的最新交期分批情形）；所有19组重复键均正确折叠/拆分，源行均覆盖，无业务键冲突。
+- 整表替换的隔离验证修复了PostgreSQL大小写别名和日期文本读取问题；28项端到端现已通过。

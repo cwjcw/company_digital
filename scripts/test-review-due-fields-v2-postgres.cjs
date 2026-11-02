@@ -21,7 +21,7 @@ const {MasterPlanSpreadsheetService:Spreadsheet}=r('./dist/modules/master-plan-s
 const {reviewDueDateFields:fields,reviewDueDateCreateFields:inputs}=r('@kdos/contracts');
 const actor={tenantId:'KAINAN',userId:uid(1),username:'Synthetic operator',isSystemAdmin:true,permissions:['*'],moduleAdminCodes:[],tableDataScopes:[],source:'web',requestId:'v2-isolated'};
 const ordinary={...actor,isSystemAdmin:false,permissions:['create','read','update','import','export'].map(a=>`${resource}:*:${a}`).concat(fields.flatMap(f=>[`${resource}:${f.key}:read`,...(f.editable?[`${resource}:${f.key}:update`]:[])])),tableDataScopes:[{resource,scope:'ALL'}]};
-const base={divisionId:uid(11),orderNumber:'V2-ORDER',batchNumber:'B-1/2',drawingNumber:'ITEM-1/3',inboundDate:'2026-11-10',quantity:'900719925474099312345.000000000000000000001'};
+const base={divisionId:uid(11),orderNumber:'V2-ORDER',batchNumber:'B-1/2',drawingNumber:'ITEM-1/3',dueDate:'2026-11-08',inboundDate:'2026-11-10',quantity:'900719925474099312345.000000000000000000001'};
 const workbook=async(rows,{omit=[],legacy=false}={})=>{const w=new Excel.Workbook(),s=w.addWorksheet(resource);s.columns=[{key:'id',header:'记录ID'},{key:'version',header:'版本'},...inputs.filter(f=>!omit.includes(f.key)&&(!legacy||!['divisionId','changeCount','previousInboundDate'].includes(f.key))).map(f=>({key:f.key,header:f.label}))];for(const row of rows)s.addRow(row);return {originalname:'synthetic.xlsx',buffer:Buffer.from(await w.xlsx.writeBuffer())};};
 const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);const d=new DataSource({type:'postgres',host,username:'knplan',database:dbname,entities:[root+'/apps/api/dist/entities.js'],migrations:[root+'/apps/api/dist/migrations/*.js']});await d.initialize();await d.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');return d;};
 (async()=>{
@@ -37,8 +37,9 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
  for(const [n,tenant]of[[1,'KAINAN'],[2,'OTHER'],[3,'KAINAN']])await db.query("INSERT INTO users(id,username,display_name,password_hash,tenant_id,enabled) VALUES($1,$2,$3,'unused',$4,true)",[uid(n),'v2-user-'+n,'测试操作人'+n,tenant]);
  await db.query("INSERT INTO organization_units(id,name,level,enabled,sort_order) VALUES($1,'凯南',1,true,0)",[uid(10)]);
  for(const[n,label]of[[11,'事业一部'],[12,'事业二部'],[13,'事业三部'],[14,'事业四部']])await db.query('INSERT INTO organization_units(id,name,parent_id,level,enabled,wechat_department_id,sort_order) VALUES($1,$2,$3,2,true,$4,$5)',[uid(n),label,uid(10),String(n),n]);
+ await db.query("INSERT INTO organization_units(id,name,parent_id,level,enabled,sort_order) VALUES($1,'计划中心',$2,2,true,5),($3,'采购部',$1,3,true,1)",[uid(18),uid(10),uid(19)]);
  await db.query("INSERT INTO organization_units(id,name,parent_id,level,enabled,sort_order) VALUES($1,'一部车间',$2,3,true,1),($3,'停用事业部',$4,2,false,1)",[uid(15),uid(11),uid(16),uid(10)]);
- const directory=new Directory(db.getRepository(r('./dist/entities').OrganizationUnit)),registry=new TableFilterRegistry(),query=new Query(db,registry,directory),app=new Application(db,directory),importer=new Import(directory);query.onModuleInit();
+ const directory=new Directory(db.getRepository(r('./dist/entities').OrganizationUnit)),registry=new TableFilterRegistry(),query=new Query(db,registry,directory),app=new Application(db,directory),importer=new Import(directory,db);query.onModuleInit();
  const generic=new GenericQuery(db,directory,undefined,query),genericApp=new GenericApplication(db),sheet=new Spreadsheet(db,generic,genericApp,directory,query,importer);
  const state=async id=>(await db.query('SELECT *,inbound_date::text date_text,previous_inbound_date::text previous_date_text FROM mps_review_due_dates WHERE id=$1',[id]))[0];
  const count=async()=>Number((await db.query('SELECT count(*)::int n FROM mps_review_due_date_changes'))[0].n);
@@ -51,8 +52,8 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
   const columns=await db.query("SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name='mps_review_due_dates'");assert.equal(columns.find(c=>c.column_name==='updated_by').data_type,'uuid');assert.equal(columns.find(c=>c.column_name==='change_count').is_nullable,'YES');assert.equal(columns.find(c=>c.column_name==='change_count').column_default,null);
   assert((await db.query("SELECT relforcerowsecurity FROM pg_class WHERE relname=ANY($1)",[['mps_review_due_dates','mps_review_due_date_changes']])).every(x=>x.relforcerowsecurity));
  });
- await check('four directory divisions are available; Chinese names resolve to UUID; manual optional fields default NULL',async()=>{
-  assert.equal((await generic.organizationOptions(resource,ordinary)).length,4);first=await make({divisionId:'事业一部'});const s=await state(first.id);assert.equal(s.division_id,uid(11));assert.equal(s.source_division_id,uid(11));assert.equal(s.id[14],'7');assert.equal(s.quantity,base.quantity);assert.equal(s.change_count,null);assert.equal(s.previous_inbound_date,null);assert.equal(s.inspection_time_name,null);assert.equal(s.last_synced_at,null);assert.equal(await count(),0);
+ await check('four divisions and the confirmed procurement unit resolve to UUID; manual optional fields default NULL',async()=>{
+  assert.equal((await generic.organizationOptions(resource,ordinary)).length,5);first=await make({divisionId:'事业一部'});const s=await state(first.id);assert.equal(s.division_id,uid(11));assert.equal(s.source_division_id,uid(11));assert.equal(s.id[14],'7');assert.equal(s.quantity,base.quantity);assert.equal(s.change_count,null);assert.equal(s.previous_inbound_date,null);assert.equal(s.inspection_time_name,null);assert.equal(s.last_synced_at,null);assert.equal(await count(),0);
  });
  await check('audit creation uses the real login and equal timestamps; no client audit/identity can be written',async()=>{
   const s=await state(first.id);assert.equal(s.created_by,ordinary.userId);assert.equal(s.updated_by,ordinary.userId);assert.equal(s.created_at.toISOString(),s.updated_at.toISOString());
@@ -106,8 +107,8 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
   const before=await state(first.id);await edit(first.id,{quantity:before.quantity});assert.deepEqual(await state(first.id),before);
   await db.query('UPDATE users SET enabled=false WHERE id=$1',[uid(3)]);await denied(()=>make({orderNumber:'DISABLED'},{...ordinary,userId:uid(3)}),403);
  });
- await check('standard template has paired identity plus nine fields, no audit, and directory dropdown',async()=>{
-  const w=new Excel.Workbook();await w.xlsx.load(await sheet.template(resource,ordinary));const s=w.getWorksheet(resource);assert.equal(s.columnCount,11);assert.equal(s.rowCount,1);assert.deepEqual(s.getRow(1).values.slice(1),['记录ID','版本',...inputs.map(f=>f.label)]);assert(w.getWorksheet('_选项').rowCount>1);
+ await check('standard template has paired identity plus ten editable fields, no audit, and directory dropdown',async()=>{
+  const w=new Excel.Workbook();await w.xlsx.load(await sheet.template(resource,ordinary));const s=w.getWorksheet(resource);assert.equal(s.columnCount,12);assert.equal(s.rowCount,1);assert.deepEqual(s.getRow(1).values.slice(1),['记录ID','版本',...inputs.map(f=>f.label)]);assert(w.getWorksheet('_选项').rowCount>1);
  });
  await check('old six-column uploads require division; audit/unknown headers and half ID/version are rejected',async()=>{
   await assert.rejects(preview([{...base}],{legacy:true}),/事业部/);
@@ -120,7 +121,7 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
  });
  await check('Excel optional blank/omitted fields retain values, explicit [清空] clears, date updates never count',async()=>{
   let s=await state(first.id);const values={...base,id:first.id,version:s.version,drawingNumber:s.drawing_number,quantity:s.quantity,inboundDate:'2027-02-01'};
-  let p=await preview([values]);assert(p.previewId);await confirm(p);s=await state(first.id);assert.equal(s.change_count,7);assert.equal(s.previous_date_text,'2026-01-01');assert.equal(s.inspection_time_name,'业务品项名');
+  let p=await preview([values]);assert(p.previewId,JSON.stringify(p.errors));await confirm(p);s=await state(first.id);assert.equal(s.change_count,7);assert.equal(s.previous_date_text,'2026-01-01');assert.equal(s.inspection_time_name,'业务品项名');
   p=await preview([{...values,version:s.version,inboundDate:'2027-02-02'}],{omit:['inspectionTimeName','changeCount','previousInboundDate']});assert(p.previewId);await confirm(p);s=await state(first.id);assert.equal(s.change_count,7);
   p=await preview([{...values,version:s.version,changeCount:'[清空]',previousInboundDate:'[清空]',inspectionTimeName:'[清空]'}]);assert(p.previewId);await confirm(p);s=await state(first.id);assert.equal(s.change_count,null);assert.equal(s.previous_date_text,null);assert.equal(s.inspection_time_name,null);assert.equal(await count(),0);
  });
@@ -152,7 +153,7 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
  });
  await check('server filter/sort/export shares division scopes, exact quantity and human audit names',async()=>{
   const f={logic:'AND',rules:[{field:'divisionId',operator:'eq',value:uid(13)}]},list=await query.list({filterGroup:f,sortField:'orderNumber',sortOrder:'desc'},ordinary);assert.equal(list.total,2);assert(list.rows.every(x=>x.divisionId===uid(13)));
-  const w=new Excel.Workbook();await w.xlsx.load(await query.export({filterGroup:f,sortField:'orderNumber',sortOrder:'desc'},ordinary));const s=w.worksheets[0];assert.equal(s.columnCount,13);assert.equal(s.rowCount,3);assert.deepEqual(s.getRow(1).values.slice(1),fields.map(f=>f.label));assert(String(s.getCell('A2').value).includes('事业三部'));assert.equal(s.getCell('G2').value,base.quantity);assert.equal(s.getCell('J2').value,'测试操作人1');assert.equal(s.getCell('L2').value,'测试操作人1');assert(!JSON.stringify(s.getRow(2).values).includes(uid(1)));
+  const w=new Excel.Workbook();await w.xlsx.load(await query.export({filterGroup:f,sortField:'orderNumber',sortOrder:'desc'},ordinary));const s=w.worksheets[0],headers=s.getRow(1).values;assert.equal(s.rowCount,3);assert.equal(s.columnCount,16);assert(headers.includes('交期')&&headers.includes('最新交期'));assert(String(s.getCell('A2').value).includes('事业三部'));assert.equal(s.getCell(2,headers.indexOf('数量')).value,base.quantity);assert.equal(s.getCell(2,headers.indexOf('创建人')).value,'测试操作人1');assert(!JSON.stringify(s.getRow(2).values).includes(uid(1)));
  });
  await check('non-owner FORCE RLS preserves tenant isolation and generic write paths remain forbidden',async()=>{
   await db.query('CREATE ROLE '+rlsRole);await db.query('GRANT SELECT ON mps_review_due_dates,mps_review_due_date_changes TO '+rlsRole);await db.transaction(async m=>{await m.query('SET LOCAL ROLE '+rlsRole);await m.query("SELECT set_config('app.tenant_id','OTHER',true)");assert.equal((await m.query('SELECT count(*)::int n FROM mps_review_due_dates'))[0].n,0);assert.equal((await m.query('SELECT count(*)::int n FROM mps_review_due_date_changes'))[0].n,0);});
@@ -162,12 +163,24 @@ const createDb=async(dbname)=>{await control.query('CREATE DATABASE '+dbname);co
   for(let n=0;n<215;n++)await make({orderNumber:'PAGE-'+String(n).padStart(3,'0'),divisionId:uid(14),quantity:n+'.0000000000000000001'});
   const a=await query.list({search:'PAGE-'},ordinary),b=await query.list({search:'PAGE-',page:2},ordinary);assert.equal(a.total,215);assert.equal(a.rows.length,100);assert.equal(b.rows.length,100);assert(!a.rows.some(row=>b.rows.some(other=>row.id===other.id)));
   const sorted=await query.list({search:'PAGE-',sortField:'quantity',sortOrder:'desc'},ordinary);assert.equal(sorted.rows[0].quantity,'214.0000000000000000001');
-  const w=new Excel.Workbook();await w.xlsx.load(await query.export({search:'PAGE-'},ordinary));assert.equal(w.worksheets[0].rowCount,216);assert.equal(w.worksheets[0].columnCount,13);assert.equal(typeof w.worksheets[0].getCell('G2').value,'string');
+  const w=new Excel.Workbook();await w.xlsx.load(await query.export({search:'PAGE-'},ordinary));assert.equal(w.worksheets[0].rowCount,216);assert.equal(w.worksheets[0].columnCount,16);assert.equal(typeof w.worksheets[0].getCell(2,w.worksheets[0].getRow(1).values.indexOf('数量')).value,'string');
  });
  await check('Excel intersects read/export scopes and excludes hidden fields; create-only access cannot read rows',async()=>{
   const who={...ordinary,permissions:ordinary.permissions.filter(p=>p!==resource+':inspectionTimeName:read'),tableDataScopes:[{resource,scope:'CUSTOM',actions:['read'],rules:[{fieldKey:'quantity',operator:'GT',value:'200'}]},{resource,scope:'CUSTOM',actions:['export'],rules:[{fieldKey:'quantity',operator:'LT',value:'210'}]}]};
-  const w=new Excel.Workbook();await w.xlsx.load(await query.export({search:'PAGE-'},who));assert.equal(w.worksheets[0].rowCount,11);assert.equal(w.worksheets[0].columnCount,12);assert(!w.worksheets[0].getRow(1).values.includes('品项名称'));
+  const w=new Excel.Workbook();await w.xlsx.load(await query.export({search:'PAGE-'},who));assert.equal(w.worksheets[0].rowCount,11);assert.equal(w.worksheets[0].columnCount,15);assert(!w.worksheets[0].getRow(1).values.includes('品项名称'));
   const creator={...ordinary,permissions:ordinary.permissions.filter(p=>!p.endsWith(':*:read'))};assert(generic.metadata(resource,creator).actions.create);await denied(()=>query.list({},creator),403);
+ });
+ await check('atomic dataset replacement is tenant-scoped, preserves audit/history, is idempotent and rolls back on audit failure',async()=>{
+  const beforeKainan=Number((await db.query("SELECT count(*)::int n FROM mps_review_due_dates WHERE tenant_id='KAINAN'"))[0].n),replaceActor={...actor,tenantId:'OTHER',userId:uid(2),username:'Synthetic replacement operator',requestId:'replacement-fixture'};
+  const replacement=[{sourceRows:[2,3],divisionName:'凯南 / 事业一部',orderNumber:'REPLACEMENT-1',batchNumber:'01',drawingNumber:'ITEM-1',inspectionTimeName:'替换测试',quantity:'10',dueDate:'2026-11-07',latestDueDate:null,changeCount:0,previousInboundDate:null}];
+  const batch=randomUUID(),hash='a'.repeat(64),first=await importer.replaceDataset(replacement,hash,batch,replaceActor);assert.deepEqual(first,{deletedCount:0,insertedCount:1,sourceRows:2,fileHash:hash,batchId:batch,repeated:false});
+  let row=(await db.query("SELECT *,due_date::text due_date_text FROM mps_review_due_dates WHERE tenant_id='OTHER'"))[0];assert.equal(row.batch_number,'01');assert.equal(row.due_date_text,'2026-11-07');assert.equal(row.inbound_date,null);assert.equal(row.change_count,0);assert.equal(row.previous_inbound_date,null);
+  const audit=await db.query("SELECT after_json FROM audit_logs WHERE tenant_id='OTHER' AND resource=$1 AND record_id=$2",[resource,row.id]);assert.deepEqual(audit[0].after_json.sourceRows,[2,3]);
+  assert.equal(Number((await db.query("SELECT count(*)::int n FROM mps_review_due_dates WHERE tenant_id='KAINAN'"))[0].n),beforeKainan);
+  assert.equal((await importer.replaceDataset(replacement,hash,batch,replaceActor)).repeated,true);
+  await db.query("CREATE FUNCTION reject_replace_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.resource='mps-review-due-dates' AND NEW.tenant_id='OTHER' THEN RAISE EXCEPTION 'replacement audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_replace_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_replace_audit()");
+  try{await assert.rejects(importer.replaceDataset([{...replacement[0],orderNumber:'REPLACEMENT-2'}],'b'.repeat(64),randomUUID(),replaceActor),/replacement audit failure/);}finally{await db.query('DROP TRIGGER reject_replace_audit ON audit_logs; DROP FUNCTION reject_replace_audit()');}
+  row=(await db.query("SELECT * FROM mps_review_due_dates WHERE tenant_id='OTHER'"))[0];assert.equal(row.order_number,'REPLACEMENT-1');assert.equal((await db.query("SELECT count(*)::int n FROM mps_review_due_date_changes WHERE tenant_id='OTHER'"))[0].n,0);
  });
  if(process.env.REVIEW_DUE_BROWSER_BASE)await require('./review-due-fields-v2.browser-checks.cjs')({r,root,db,app,query,generic,genericApp,sheet,directory,registry,actor,ordinary,base,uid,resource,fields,inputs,workbook,check,state,setHttp:v=>http=v,setBrowser:v=>browser=v});
  const result={passed:checks.length,checks};if(process.env.REVIEW_DUE_EVIDENCE_DIR)fs.writeFileSync(path.join(process.env.REVIEW_DUE_EVIDENCE_DIR,'postgres-v2-result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));

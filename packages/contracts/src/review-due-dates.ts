@@ -9,8 +9,10 @@ export const reviewDueDateBusinessFields: TablePermissionFieldDefinition[] = [
   { key: 'orderDate', label: '下单日期', type: 'date', editable: false },
   { key: 'productReviewDueDate', label: '产品评审交期', type: 'date', editable: false },
   { key: 'inspectionTimeName', label: '品项名称', type: 'text', editable: true },
-  { key: 'inboundDate', label: '入库时间', type: 'date', editable: true, required: true },
   { key: 'quantity', label: '数量', type: 'number', format: 'decimal', exactNumeric: true, editable: true, required: true },
+  { key: 'dueDate', label: '交期', type: 'date', editable: true, required: true },
+  // Keep the stable field key and storage column for existing permissions/history.
+  { key: 'inboundDate', label: '最新交期', type: 'date', editable: true },
   { key: 'changeCount', label: '交期变更次数', type: 'number', format: 'integer', editable: true },
   { key: 'previousInboundDate', label: '上次入库时间', type: 'date', editable: true }
 ];
@@ -39,13 +41,13 @@ export type ReviewDueDateHistoryRow = {
 export type ReviewDueImportMode = 'STANDARD' | 'SOURCE';
 export const reviewDueDateTemplateFilename = 'mps_review_due_dates_import_template.xlsx';
 export const reviewDueDateTemplateNotes = [
-  '评审交期表：入库时间是评审计划入库日期，不是WMS实际入库。',
+  '评审交期表：最新交期保留原字段身份；交期与最新交期分别维护。',
   '标准模板：记录ID和版本同时留空表示新增；更新必须同时填写原始记录ID和有效正整数版本；只填一个非法。',
-  '事业部、订单号、批次号、品项编码、入库时间、数量必填；品项名称、交期变更次数、上次入库时间可空。事业部请选择企业微信组织目录中的正式事业部。',
+  '事业部、订单号、批次号、品项编码、数量、交期必填；最新交期、品项名称、交期变更次数、上次入库时间可空。事业部请选择企业微信组织目录中的正式事业部或采购部。',
   '日期使用YYYY-MM-DD；数量使用精确十进制文本（建议保持文本格式）；交期变更次数只能填写非负整数。',
   '更新版本冲突时整批拒绝；请取得最新ID及版本后重新填写、上传和预览，不能猜测身份或覆盖。',
   '新增时可选字段空白保存NULL；更新时可选字段空白表示保留原值，明确填写“[清空]”才清空品项名称、交期变更次数或上次入库时间。',
-  '修改入库时间或数量不会自动改变交期变更次数、上次入库时间，也不会新增交期历史；只有文件明确提交对应字段时才修改。',
+  '修改最新交期或数量不会自动改变交期变更次数、上次入库时间，也不会新增交期历史；只有文件明确提交对应字段时才修改。',
   '旧六列文件缺少事业部，不能直接导入；请使用当前模板补齐事业部。业务键已存在时冲突，不自动转为更新。',
   '来源身份和创建人、创建时间、更新人、更新时间不可填写或覆盖。下载模板不授予导入或写入权限。'
 ];

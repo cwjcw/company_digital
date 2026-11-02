@@ -104,7 +104,7 @@ export class ReviewDueDateQueryService implements OnModuleInit {
   async history(id:string,input:Record<string,unknown>,actor:TableFilterActor){
     reviewDueAuthorize(actor);
     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))throw new BadRequestException('评审交期记录ID无效');
-    if(!readable(actor,'inboundDate'))throw new ForbiddenException('历史交期记录需要入库时间读取权限');
+    if(!readable(actor,'inboundDate'))throw new ForbiddenException('历史交期记录需要最新交期读取权限');
     const page=Math.max(1,Math.floor(Number(input.page)||1)),pageSize=normalizeKdosPageSize(Number(input.pageSize)||100);
     return this.read(actor.tenantId,async m=>{
       const p:unknown[]=[actor.tenantId,id],scope=reviewDueScope(actor,p,'read');

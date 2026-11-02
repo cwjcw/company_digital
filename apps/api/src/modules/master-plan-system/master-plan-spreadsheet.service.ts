@@ -253,7 +253,7 @@ export class MasterPlanSpreadsheetService {
       let v=cell.value;
       if(cell.type===ExcelJS.ValueType.Error)throw new Error('单元格包含错误值');
       if(cell.type===ExcelJS.ValueType.Formula){v=(v as ExcelJS.CellFormulaValue).result??null;if(v==null||typeof v==='object'&&!(v instanceof Date))throw new Error('公式缺少有效缓存结果，请在Excel重算并保存');}
-      if(['inboundDate','previousInboundDate'].includes(key)&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
+      if(['dueDate','inboundDate','previousInboundDate'].includes(key)&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
       if(v instanceof Date)return v.toISOString().slice(0,10);
       if(key==='quantity'&&typeof v==='number'&&(!Number.isFinite(v)||Math.abs(v)>Number.MAX_SAFE_INTEGER||v.toString().replace(/[.e+-]/g,'').length>15))throw new Error('数量数值精度不可靠，请使用精确十进制文本');
       return v==null?'':typeof v==='object'?cell.text.trim():String(v).trim();

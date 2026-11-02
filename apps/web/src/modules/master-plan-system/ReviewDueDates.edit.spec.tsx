@@ -6,7 +6,7 @@ import { api } from '../../api';
 import { ReviewDueDates } from './ReviewDueDates';
 vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
 const resource='mps-review-due-dates';
-const initial={id:'0199ea00-0000-7000-8000-000000000001',version:1,canUpdate:true,orderNumber:'ORDER-1/2',batchNumber:'BATCH-2/2',drawingNumber:'DRAW-1/3',inspectionTimeName:'Inspection',inboundDate:'2026-11-10',quantity:'9007199254740993.1234567890123456789',changeCount:0,previousInboundDate:null,lastChangedAt:null,lastSyncedAt:null};
+const initial={id:'0199ea00-0000-7000-8000-000000000001',version:1,canUpdate:true,orderNumber:'ORDER-1/2',batchNumber:'BATCH-2/2',drawingNumber:'DRAW-1/3',inspectionTimeName:'Inspection',dueDate:'2026-11-08',inboundDate:'2026-11-10',quantity:'9007199254740993.1234567890123456789',changeCount:0,previousInboundDate:null,lastChangedAt:null,lastSyncedAt:null};
 let row={...initial};
 function session(permissions=['*']){localStorage.setItem('sessionUser',JSON.stringify({sub:'test-editor',permissions}));}
 async function enterEdit(){
@@ -28,7 +28,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe('Review due dates manual editor',()=>{
- it('uses the shared edit-mode button, exposes all nine editable business fields and keeps four audit fields readonly',async()=>{
+  it('uses the shared edit-mode button, exposes all editable business fields and keeps four audit fields readonly',async()=>{
    mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
    await enterEdit();
    // Query again inside the assertion: metadata/row refresh can replace an earlier async locator.

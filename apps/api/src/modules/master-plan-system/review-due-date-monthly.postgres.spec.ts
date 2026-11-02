@@ -10,7 +10,7 @@ const actor:MasterPlanActor={tenantId:'TEST',userId:'0199eb00-0000-7000-8000-000
 it('preserves allocation import dates and excludes derived review dates from writable/template fields',async()=>{
   const app=new MasterPlanApplicationService({query:jest.fn().mockResolvedValue([])} as never,{} as never);
   await expect(app.validateImportUpdates('mps-order-allocations',[{row:2,id:null,expectedVersion:null,values:{orderNumber:'SO',itemCode:'ITEM',allocatedQuantity:'1',divisionId:actor.userId,orderDate:'2026-10-01'}}],actor)).resolves.toEqual([]);
-  expect(reviewDueDateCreateFields).toHaveLength(9);
+  expect(reviewDueDateCreateFields).toHaveLength(10);
   expect(reviewDueDateFields.filter(f=>['orderDate','productReviewDueDate'].includes(f.key)).every(f=>!f.editable)).toBe(true);
 });
 
@@ -31,7 +31,7 @@ integration('Review dates live monthly projections (synthetic PostgreSQL CTE)',(
         mps_review_due_dates AS (SELECT ('0199eb00-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid id,1 version,'TEST'::text tenant_id,
           CASE WHEN n=4 THEN '${other}'::uuid ELSE '${division}'::uuid END division_id,
           CASE WHEN n=3 THEN 'MISSING' WHEN n=5 THEN 'CONFLICT' ELSE 'MATCH' END order_number,
-          n::text batch_number,'I'::text drawing_number,NULL::text inspection_time_name,'2026-12-01'::date inbound_date,10::numeric quantity,0 change_count,NULL::date previous_inbound_date,
+          n::text batch_number,'I'::text drawing_number,NULL::text inspection_time_name,'2026-12-02'::date due_date,'2026-12-01'::date inbound_date,10::numeric quantity,0 change_count,NULL::date previous_inbound_date,
           NULL::uuid created_by,NULL::timestamptz created_at,NULL::uuid updated_by,NULL::timestamptz updated_at FROM generate_series(1,5) n),
         organization_units AS (SELECT '${division}'::uuid id,'事业部甲'::text name)
       `;

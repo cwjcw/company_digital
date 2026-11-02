@@ -5,8 +5,8 @@ import { reviewDueDateFields } from '@kdos/contracts';
 const resource='mps-review-due-dates';
 const actor:MasterPlanActor={tenantId:'KAINAN',userId:'0199ea00-0000-7000-8000-000000000001',username:'Synthetic reader',permissions:[`${resource}:*:read`],tableDataScopes:[],requestId:'test',source:'web'};
 describe('Review due date manual edit boundary',()=>{
-  it('enables nine business fields and denies audit updates even for administrators',()=>{
-    expect(reviewDueDateFields.filter(f=>f.editable).map(f=>f.key)).toEqual(['divisionId','orderNumber','batchNumber','drawingNumber','inspectionTimeName','inboundDate','quantity','changeCount','previousInboundDate']);
+  it('enables ten editable business fields and denies audit updates even for administrators',()=>{
+    expect(reviewDueDateFields.filter(f=>f.editable).map(f=>f.key)).toEqual(['divisionId','orderNumber','batchNumber','drawingNumber','inspectionTimeName','quantity','dueDate','inboundDate','changeCount','previousInboundDate']);
     for(const field of reviewDueDateFields.filter(f=>!f.editable))expect(hasMasterPlanFieldPermission({...actor,isSystemAdmin:true},resource,field.key,'update')).toBe(false);
     expect(hasMasterPlanPermission({...actor,isSystemAdmin:true},resource,'update')).toBe(true);
     for(const action of ['delete','batch_update','copy'])expect(hasMasterPlanPermission({...actor,isSystemAdmin:true},resource,action)).toBe(false);
