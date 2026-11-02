@@ -10121,7 +10121,7 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 以`/home/Jerry/下载/在手未完成1102.xlsx`为来源，核实V2字段并新增“交期”、将原“入库时间”显示为“最新交期”，按用户最终规则校验并原子替换评审交期当前主表；保留历史表、审计日志及其他业务数据。
 
 ### 当前状态
-进行中；字段/API/UI/Excel/迁移和隔离替换实现已完成。源文件已通过统一加密检测，完整解析结果3609源行→3608条记录、0冲突/0无效行，所有源行均可追溯；隔离PostgreSQL 28项通过。生产迁移、原子替换、部署和页面验收尚未执行。
+**已完成代码发布、生产Migration、授权数据替换和服务健康验收；生产登录态Chrome页面操作验收未能确认完成。** 最后更新时间：2026-11-02。
 
 ### 已完成
 - [x] 检查当前`AGENTS.md`、`kdos-form-platform`、`kdos-form-validation`、`table-delete-standard`及架构/安全/运行手册边界要求；工作区原有`TODO.md`修改已识别并保护。
@@ -10133,13 +10133,10 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - [x] 用户最终确认：批次常规值为`01`；数量或最新交期不同的同订单品项拆为批次`01`、`02`……；未来同类最新交期差异同样拆批。供应链映射至采购部。
 
 ### 正在进行
-- [x] 核实字段注册、页面、导入/导出、数据库约束与迁移，并完成最小向前迁移和应用层原子替换。
-- [x] 用户已决定所有业务冲突处理规则；实际工作簿全量预检无未决项。
+- 无。
 
 ### 待完成
-- [ ] 完成API/Web/Contracts构建、lint、浏览器集成检查与最终diff/敏感信息审查。
-- [ ] 按官方备份和`deploy.sh`流程提交/推送/迁移/部署；迁移前再次确认历史关联为0且生产主表基线仍为1114，之后用受控应用服务单事务替换为3608条。
-- [ ] 验证生产审计、行数/日期/数量/批次/组织及Web页面查询/编辑/导出，并完成健康检查和GitHub版本核对。
+- [ ] 取得/复用可用的生产登录态，在Chrome完成评审交期表页面查询、编辑表单只读打开、导出验收；本次隔离真实Chrome验收33/33通过，不替代生产登录态页面检查。
 
 ### 修改文件
 - packages/contracts/src/review-due-dates.ts、review-due-dates.spec.ts
@@ -10151,7 +10148,7 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 原有TODO.md改动不属于本任务，保持未提交。
 
 ### 数据库Migration
-- 新增`MpsReviewDueDateSeparateDueDate1722920116000`：新增可空`due_date date`并允许原`inbound_date`为空；保留旧行兼容、历史与审计表。尚未在生产执行。
+- 新增并已生产执行`MpsReviewDueDateSeparateDueDate1722920116000`：新增可空`due_date date`并允许原`inbound_date`为空；保留旧行兼容、历史与审计表。另一个无关待执行Migration未应用。
 
 ### 已运行测试
 - 统一加密文件检测：PASS。
@@ -10159,18 +10156,24 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - API定向Jest 7 suites通过、56 passed/3 skipped；Contracts字段测试4/4；Web ReviewDueDates测试16/16（设置15s超时，初次与其他测试并发时有2项触发5s测试超时，单独运行后通过）。
 - 隔离PostgreSQL 18 + 本地真实Chrome端到端33/33通过，含迁移拒绝危险旧数据、访问控制、模板/导入导出、表单保存、替换租户隔离/审计保留/幂等/失败回滚。
 - API/Contracts/Web typecheck、Contracts/API/Web build及定向API/Web测试通过；API lint通过；Web lint仅有既有`ModulePortal.tsx` Fast Refresh warning。宿主Node 22低于仓库声明>=24，pnpm显示engine警告。
-- `git diff --check`通过；全量业务数据仍未写入生产。
+- `git diff --check`通过。先按正式备份脚本完成数据库/附件备份，再通过正式Migration机制执行本迁移；使用`ReviewDueDateImportApplicationService.replaceDataset()`在单一事务中完成生产替换（未直接SQL写业务行）。生产结果：原主表1114条删除、3608条写入，全部3609源行可追溯；数量、日期、批次、组织逐行比对0差异；最新交期NULL 590条、due_date NULL 0、变更次数非0 0、上次入库时间非NULL 0。变更历史仍0条，审计从基线1115增至4724（增加3609），其他租户数据0条未变化。
+- 正式`deploy.sh all`成功；API/Web/Repository均为`0d738722872e8a69b037f3e21cb5e9c1b127f51c`，PostgreSQL/API/Web/document-worker健康，标准healthcheck通过。代码commit已普通push至`github/main`。
+- 生产登录态Chrome尝试未取得可确认的页面操作结果；隔离环境PostgreSQL+真实Chrome 33/33通过。不可将隔离验收表述为生产页面验收。
 
 ### 当前已知问题
-- 无未解决的数据映射或批次业务冲突。生产主表替换尚未执行，部署和生产Chrome验收尚待完成。
+- 生产页面的登录态Chrome查询/编辑表单打开/导出验收尚待完成；服务部署、健康检查、Migration及数据替换均已完成。
 - 审计JSON保存每条源Excel行号及源文件SHA256；业务表不新增追溯字段。
 
 ### 下一步
-1. 完成剩余构建/lint/browser验证和差异检查。
-2. 备份并核实生产当前记录/历史基线；通过正式Migration机制及受控应用命令完成原子替换。
-3. 部署、生产验收，精确提交并推送本任务文件，更新本节为最终状态。
+1. 使用可用的生产Chrome登录态完成只读页面、编辑表单及Excel导出验收。
+2. 将验收结果补充到本进度记录；不重复执行Migration或数据替换。
+
+### Git与发布
+- 功能commit：`0d738722872e8a69b037f3e21cb5e9c1b127f51c`，已推送`github/main`；部署由隔离干净worktree按正式脚本完成。
+- 工作区中`TODO.md`有其他任务的未提交修改，已保护，未纳入本任务提交。
 
 ### 用户冲突决议更新（2026-11-02）
 - 用户确认供应链映射采购部；用户确认1809/1810行同数量、不同最新交期时拆为批次01/02，并明确“以后类似的都这样拆”。
 - 完整源数据解析落实该规则：共18个业务键发生拆批（17组数量差异及用户确认的最新交期分批情形）；所有19组重复键均正确折叠/拆分，源行均覆盖，无业务键冲突。
 - 整表替换的隔离验证修复了PostgreSQL大小写别名和日期文本读取问题；28项端到端现已通过。
+- 最终生产执行：原主表1114→3608，Migration/部署/API SHA与健康检查全部完成；唯一剩余验收项是生产登录态Chrome UI核验。
