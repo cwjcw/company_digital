@@ -198,6 +198,7 @@
 ## FIN-004 财务月度数据每日汇总（2026-10-20新增）
 
 - 用户确认：每天08:30（Asia/Shanghai）推送当月订单数、金额及事业部分布；收件人由用户上线后在消息中心选择并启用。
+- 2026-11-02口径修正：日报以发送前一日（Asia/Shanghai）所属月份为报表月份；每月1日发送上月月报，其他日期发送当月累计月报。数据模型仍按月汇总，不是单日明细。
 - 当前唯一财务自动入口（2026-10-21）：n8n `KDOSFinanceMonthlySummaryV1`（KDOS 财务每日增量更新及月度汇总），Asia/Shanghai，`30 8 * * *` → 既有SSH凭据 → `run-finance-daily.sh` → FIN-003增量成功 → 原 `push-finance-monthly-summary.sh` → KDOS消息中心/原企业微信Dispatcher。汇总阶段不读取ERP，源更新仍由既有E10适配器完成；其他任务不变。
 - 候选增量：n8n工作流1；systemd Timer/cron/常驻服务/应用内定时器均0。上线前实测15个既有工作流、11个active，未发现同职责入口；现有Dispatcher为active。完整脱敏主机盘点及n8n基线保存在受限 `data/finance-monthly-repair-release-20261020/`。
 - 运行身份：既有启用系统/财务管理员；tenant固定取运行环境默认租户。读取正式月度视图，精确numeric/Decimal，不输出业务载荷到调度日志。

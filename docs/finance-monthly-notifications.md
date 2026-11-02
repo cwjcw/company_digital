@@ -4,7 +4,7 @@
 
 消息中心事件为 `finance.monthly.daily_summary`，资源 `finance-e10-monthly`，归属财务中心。系统管理员和财务模块管理员可配置；其他模块管理员不能管理此财务规则。事件和规则的模块显示、模块筛选从正式资源/事件注册表获得。
 
-自2026-10-21起，每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1`（KDOS 财务每日增量更新及月度汇总）经已有SSH凭据调用 `data-operations/e10/run-finance-daily.sh`：先调用既有 `sync-finance-movements.sh INCREMENTAL`，确认退出码0且返回SUCCESS，再调用 `push-finance-monthly-summary.sh`，进入 API 的 `FinanceMonthlyNotificationService.dispatch`。更新失败则不生成/推送汇总。08:30是整个流程的启动时间，消息在更新成功后发送，可能晚几秒或几分钟。汇总当月发生来源订单数、接单发生额（本币含税）、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与新版15列月度页面相同，均为finance_e10_order_monthly_movements；汇总查询本身不读取ERP，每日编排的增量更新阶段按原FIN-003适配器读取E10。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
+自2026-10-21起，每天08:30（Asia/Shanghai），n8n `KDOSFinanceMonthlySummaryV1`（KDOS 财务每日增量更新及月度汇总）经已有SSH凭据调用 `data-operations/e10/run-finance-daily.sh`：先调用既有 `sync-finance-movements.sh INCREMENTAL`，确认退出码0且返回SUCCESS，再调用 `push-finance-monthly-summary.sh`，进入 API 的 `FinanceMonthlyNotificationService.dispatch`。更新失败则不生成/推送汇总。08:30是整个流程的启动时间，消息在更新成功后发送，可能晚几秒或几分钟。报表月份按发送前一日的北京时间日期确定：通常发送当月累计数据；每月1日发送上个月的月度汇总（例如11月1日早上使用10月报表月份）。汇总所选月份的发生来源订单数、接单发生额（本币含税）、事业部订单数和金额（含待分类），并展示汇总时间与最近成功读取时间。读模型与新版15列月度页面相同，均为finance_e10_order_monthly_movements；汇总查询本身不读取ERP，每日编排的增量更新阶段按原FIN-003适配器读取E10。金额使用 PostgreSQL numeric/Decimal；空月份展示0单/0元。模板变量由事件registry提供。
 
 初始化只创建一条停用的“财务月度数据每日汇总”规则，含默认模板、空接收对象，并记录审计。重复初始化保留已有启停状态、模板、接收对象和版本。上线后在“系统管理 → 消息中心”编辑该规则，选择组织、角色或员工、保存，再启用。规则停用时每日任务正常结束但不生成待发送消息。接收对象是管理员明确选择的财务汇总接收范围，不因此授予任何表格读取权限。
 

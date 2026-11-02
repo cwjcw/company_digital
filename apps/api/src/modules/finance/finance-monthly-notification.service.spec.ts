@@ -16,12 +16,28 @@ const fixture = () => {
 };
 
 describe('Finance monthly daily summary', () => {
-  it('uses the Shanghai business month across UTC month boundaries and exact cents', async () => {
+  it('uses the previous Shanghai date month across month boundaries and exact cents', async () => {
     const f=fixture(),payload=await f.service.preview(actor,new Date('2026-10-31T16:30:00Z'));
-    expect(payload).toMatchObject({yearMonth:'2026-11',orderCount:'2',orderTotal:'123,456.78',occurredAt:'2026-11-01 00:30:00',lastReadAt:'2026-10-20 08:07:00'});
+    expect(payload).toMatchObject({yearMonth:'2026-10',orderCount:'2',orderTotal:'123,456.78',occurredAt:'2026-11-01 00:30:00',lastReadAt:'2026-10-20 08:07:00'});
     expect(payload.departmentSummary).toBe('业务一部：2单 / 123,456.78元');
-    expect(f.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_order_monthly_movements'),['SYNTHETIC','2026-11']);
+    expect(f.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_order_monthly_movements'),['SYNTHETIC','2026-10']);
     expect(f.notifications.enqueueEvent).not.toHaveBeenCalled();
+  });
+  it('uses the previous day within the same month and across a year boundary',async()=>{
+    const sameMonth=fixture();
+    await sameMonth.service.preview(actor,new Date('2026-11-02T00:30:00Z'));
+    expect(sameMonth.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_order_monthly_movements'),['SYNTHETIC','2026-11']);
+    const newYear=fixture();
+    await newYear.service.preview(actor,new Date('2027-01-01T00:30:00Z'));
+    expect(newYear.query).toHaveBeenCalledWith(expect.stringContaining('FROM finance_e10_order_monthly_movements'),['SYNTHETIC','2026-12']);
+  });
+  it('dispatches the October report on November 1 while retaining the November 1 dedup date',async()=>{
+    const f=fixture();
+    expect(await f.service.dispatch(actor,new Date('2026-11-01T00:30:00Z'))).toMatchObject({enqueued:1});
+    expect(f.notifications.enqueueEvent).toHaveBeenCalledWith('SYNTHETIC',expect.objectContaining({
+      dedupKey:'finance-monthly-summary:rule-1:2026-11-01',
+      payload:expect.objectContaining({financeReportFormat:1,yearMonth:'2026-10'})
+    }),f.manager);
   });
   it('does not dispatch before 08:30 Shanghai time',async()=>{
     const f=fixture();expect(await f.service.dispatch(actor,new Date('2026-10-20T00:29:59Z'))).toMatchObject({skipped:'BEFORE_SCHEDULE',enqueued:0});expect(f.query).not.toHaveBeenCalled();

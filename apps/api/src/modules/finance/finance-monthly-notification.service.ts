@@ -13,6 +13,10 @@ const shanghaiTime = (date: Date) => new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
 }).format(date);
+const previousShanghaiDate = (date: Date) => {
+  const [year, month, day] = shanghaiTime(date).slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
+};
 const money = (value: string) => new Decimal(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /** Scheduled Application Command; uses the same effective monthly relation as the web and Excel. */
@@ -68,7 +72,8 @@ export class FinanceMonthlyNotificationService {
   }
 
   async summary(manager: EntityManager, tenant: string, now: Date, reportMonth?: string) {
-    const localTime = shanghaiTime(now), yearMonth = reportMonth ?? localTime.slice(0, 7);
+    // The report runs in the morning and covers the month containing the previous Shanghai business date.
+    const localTime = shanghaiTime(now), yearMonth = reportMonth ?? previousShanghaiDate(now).slice(0, 7);
     // Match the monthly UI's tenant-local plan without changing the global database configuration.
     await manager.query('SET LOCAL enable_mergejoin = off');
     await manager.query('SET LOCAL enable_nestloop = off');
