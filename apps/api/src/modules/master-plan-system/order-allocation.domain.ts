@@ -46,8 +46,28 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   if (!sheet) throw new BadRequestException("未找到分配工作表");
   if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多导入50000行");
   const recognizedHeaders = new Set(["记录ID","版本","未分配数量",...ALLOCATION_FIELDS.map(f=>f[1]),...Object.values(aliases).flat()]);
-  const headers = new Map<string, number>();
-  sheet.getRow(1).eachCell((cell, col) => { const label = normalizeAllocationHeader(cell.text); if (!label || !recognizedHeaders.has(label)) return; if (headers.has(label)) throw new BadRequestException(`表头重复：${label}`); headers.set(label, col); });
+  const readHeaders = (rowNumber: number) => {
+    const headers = new Map<string, number>(), duplicates = new Set<string>();
+    sheet.getRow(rowNumber).eachCell((cell, col) => {
+      const label = normalizeAllocationHeader(cell.text);
+      if (!label || !recognizedHeaders.has(label)) return;
+      if (headers.has(label)) duplicates.add(label); else headers.set(label, col);
+    });
+    return { headers, duplicates };
+  };
+  const isAllocationHeader = (headers: Map<string, number>) => {
+    const has = (key: string) => [ALLOCATION_FIELDS.find(field => field[0] === key)![1], ...(aliases[key] ?? [])].some(label => headers.has(label));
+    return has("orderNumber") && has("itemCode") && (has("allocatedQuantity") || headers.has("未分配数量"));
+  };
+  const headerSearchEnd = Math.min(sheet.rowCount, 10);
+  let headerRow = 0, headers = new Map<string, number>(), duplicates = new Set<string>();
+  for (let rowNumber = 1; rowNumber <= headerSearchEnd; rowNumber++) {
+    const candidate = readHeaders(rowNumber);
+    if (!isAllocationHeader(candidate.headers)) continue;
+    headerRow = rowNumber; headers = candidate.headers; duplicates = candidate.duplicates; break;
+  }
+  if (!headerRow) { headerRow = 1; ({ headers, duplicates } = readHeaders(headerRow)); }
+  if (duplicates.size) throw new BadRequestException(`表头重复：${[...duplicates].join("、")}`);
   const columns = new Map<string, number>();
   for (const [key, label] of ALLOCATION_FIELDS) { const match = [label, ...(aliases[key] ?? [])].find(h => headers.has(h)); if (match) columns.set(key, headers.get(match)!); }
   const quantitySource=headers.has("未分配数量")?"ERP_UNALLOCATED":"KDOS_ALLOCATED";
@@ -55,11 +75,27 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   for (const key of ["orderNumber", "itemCode", "allocatedQuantity"]) if (!columns.has(key)) throw new BadRequestException(`缺少字段：${ALLOCATION_FIELDS.find(f => f[0] === key)![1]}`);
   if (!columns.has("supplierName") && !columns.has("divisionId")) throw new BadRequestException("缺少供应商名称或承接事业部");
   const rows: AllocationParsedRow[] = [], errors: Array<{ row: number; reason: string }> = [];
+  let fileTotalRows = 0;
   sheet.eachRow((r, n) => {
-    if (n === 1 || ![...columns.values()].some(col => {
+    if (n <= headerRow) return;
+    const orderNumberColumn = columns.get("orderNumber"), itemCodeColumn = columns.get("itemCode");
+    const hasIdentityCell = [orderNumberColumn, itemCodeColumn].some(col => col != null && r.getCell(col).value != null);
+    const hasMeaningfulNonIdentityValue = [...columns.entries()].some(([key, col]) => {
+      if (key === "orderNumber" || key === "itemCode") return false;
       const cell = r.getCell(col);
-      return cell.text.trim() || (cell.type === ExcelJS.ValueType.Formula && cell.result == null);
-    })) return;
+      if (cell.value == null) return false;
+      if (cell.type === ExcelJS.ValueType.Formula) {
+        const cached: unknown = cell.result;
+        if (cached == null || cached === false || cached === 0) return false;
+        return typeof cached !== "string" || cached.trim() !== "";
+      }
+      if (typeof cell.value === "number") return cell.value !== 0;
+      return cell.text.trim() !== "";
+    });
+    // ERP report exports can contain a formula-only spacer/total row. Ignore it only when both
+    // required identifiers are completely absent and the remaining cells carry no business data.
+    if (!hasIdentityCell && !hasMeaningfulNonIdentityValue) return;
+    fileTotalRows++;
     const values: Record<string, unknown> = {};
     let quantityInvalid=false;
     for (const [key, label, type] of ALLOCATION_FIELDS) {
@@ -106,7 +142,7 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
     rows.push({row:n,values,ignoredIdentity:Boolean(id||version)});
   });
   if (!rows.length) errors.push({row:2,reason:"文件中没有可导入的数据"});
-  return { rows, errors, sourceWorksheet:sheet.name, fileTotalRows:Math.max(0,sheet.rowCount-1), quantitySource, ignoredIdentity:rows.some(r=>r.ignoredIdentity), orderCount: new Set(rows.map(r=>r.values.orderNumber)).size };
+  return { rows, errors, sourceWorksheet:sheet.name, headerRow, fileTotalRows, quantitySource, ignoredIdentity:rows.some(r=>r.ignoredIdentity), orderCount: new Set(rows.map(r=>r.values.orderNumber)).size };
 }
 
 /** Only this mandatory supplier rule constrains the target name; other valid mappings remain configurable. */

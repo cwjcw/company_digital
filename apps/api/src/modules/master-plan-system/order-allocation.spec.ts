@@ -8,6 +8,17 @@ const workbook=async(rows:unknown[][],headers=["订单\n单号","订单\n序号"
 };
 const row=["ORDER-1","001","00001","张三","事业一部","2","2026-10-14","","99","198","99","198"];
 describe("ERP allocation parser and immutable nonmoney snapshots",()=>{
+ it("finds the allocation header below a report title and preserves Excel row numbers",async()=>{
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("分配");sheet.addRow(["凯南展示销售订单分配生产车间明细表"]);sheet.addRow(["订单单号","品号","供应商名称","未分配数量"]);sheet.addRow(["ORDER-2","ITEM-2","事业一部",12]);
+  const result=await parseAllocationWorkbook(Buffer.from(await book.xlsx.writeBuffer()));
+  expect(result.errors).toEqual([]);expect(result.headerRow).toBe(2);expect(result.fileTotalRows).toBe(1);expect(result.rows).toEqual([expect.objectContaining({row:3,values:expect.objectContaining({orderNumber:"ORDER-2",itemCode:"ITEM-2",allocatedQuantity:"12"})})]);
+ });
+ it("ignores a formula-only zero spacer row without hiding malformed data rows",async()=>{
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("分配");sheet.addRow(["报表标题"]);sheet.addRow(["订单单号","品号","供应商名称","未分配数量","排产数量","订单状态"]);
+  sheet.addRow([null,null,null,{formula:"0",result:0},0,{formula:'IF(TRUE,"","")'}]);sheet.addRow(["ORDER-3","ITEM-3","事业一部",8,0,"已审核"]);
+  const result=await parseAllocationWorkbook(Buffer.from(await book.xlsx.writeBuffer()));
+  expect(result.errors).toEqual([]);expect(result.fileTotalRows).toBe(1);expect(result.rows.map(row=>row.row)).toEqual([4]);
+ });
  it("normalizes multiline headers, preserves code zeros, excludes all four prices",async()=>{const result=await parseAllocationWorkbook(await workbook([row]));expect(result.errors).toEqual([]);expect(result.orderCount).toBe(1);expect(result.rows[0].values).toMatchObject({orderSequence:"001",itemCode:"00001",allocatedQuantity:"2",expectedShippingDate:"2026-10-14"});expect(JSON.stringify(result)).not.toMatch(/taxIncluded|采购金额|含税|原币/);});
  it("maps by header rather than position and omits blanks",async()=>{const headers=["备注","品号","已分配数量","供应商名称","订单单号"];const result=await parseAllocationWorkbook(await workbook([["","00002",1,"供应链","ORDER-2"]],headers));expect(result.rows[0].values.remark).toBeUndefined();expect(result.rows[0].values.itemCode).toBe("00002");});
  it("converts Excel serial and Date objects",async()=>{const serial=[...row];serial[6]=46309 as never;const result=await parseAllocationWorkbook(await workbook([serial]));expect(result.rows[0].values.expectedShippingDate).toMatch(/^2026-/);const d=[...row];d[6]=new Date("2026-10-14T00:00:00Z") as never;expect((await parseAllocationWorkbook(await workbook([d]))).rows[0].values.expectedShippingDate).toBe("2026-10-14");});
