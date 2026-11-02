@@ -19,6 +19,11 @@ describe("master plan manual-entry configuration", () => {
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-process-plans")?.create).toBe(false);
   });
 
+  it("allows authorized deletion of allocations while keeping ERP source rows read-only", () => {
+    expect(MASTER_PLAN_RESOURCE_MAP.get("mps-order-allocations")?.remove).toBe(true);
+    expect(MASTER_PLAN_RESOURCE_MAP.get("mps-erp-orders")?.remove).toBe(false);
+  });
+
   it("uses the approved full field names and new/old product meaning", () => {
     const fields = tablePermissionFieldsFor("mps-shipping-plans");
     expect(fields.find((field) => field.key === "itemCode")?.label).toBe("品项编码");

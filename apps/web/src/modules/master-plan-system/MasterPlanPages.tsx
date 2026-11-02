@@ -459,6 +459,9 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const refreshRelatedPlans = useCallback(async () => {
     await Promise.all(["mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
+  const refreshAllocationPlans = useCallback(async () => {
+    await Promise.all(["mps-group-plans", "mps-monthly-plans", "mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
+  }, [queryClient, sessionSubject]);
   const refreshWeeklyExecutionResources = useCallback(async () => {
     await Promise.all(weeklyExecutionRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -784,6 +787,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}
       deleteAction={!isPendingView && metadata.data?.actions.delete ? {
         permitted: true,
+        confirmTitle: (count) => `确认从订单分配表移除选中的 ${count} 条记录？`,
+        confirmContent: resource === "mps-order-allocations" ? "记录将归档并从当前列表移除；关联月计划、周计划和导入追溯信息会保留，计划投影会按有效分配重新计算。" : undefined,
         canDelete: (row) => row.canDelete !== false && !row.pendingTask,
         onDelete: async (selectedRows) => {
           let reconciliation: Reconciliation | undefined;
@@ -792,13 +797,16 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
             reconciliation = deleted?.reconciliation ?? reconciliation;
           });
           await refresh();
+          if (resource === "mps-order-allocations" && result.deletedKeys?.length) await refreshAllocationPlans();
           if (reportResources.has(resource) && result.deletedKeys?.length) await refreshExecutionPlans();
           if (!result.failures?.length) {
             result.message = reportResources.has(resource)
               ? reconciliation?.status === "FAILED" ? reconciliation.message ?? "数据已删除，但事业部计划刷新失败"
                 : reconciliation && reconciliation.status !== "SUCCESS" ? reconciliation.message ?? "数据已删除，事业部计划正在刷新"
                   : `已删除 ${result.deletedKeys?.length ?? 0} 条数据；事业部计划已刷新`
-              : `已删除 ${result.deletedKeys?.length ?? 0} 条数据`;
+              : resource === "mps-order-allocations"
+                ? `已归档 ${result.deletedKeys?.length ?? 0} 条订单分配记录；关联计划历史已保留，计划投影正在重算。`
+                : `已删除 ${result.deletedKeys?.length ?? 0} 条数据`;
             if (reportResources.has(resource) && reconciliation?.status !== "SUCCESS") result.feedback = "warning";
           }
           return result;

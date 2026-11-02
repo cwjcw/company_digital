@@ -50,6 +50,13 @@ describe("MasterPlanQueryService metadata", () => {
     expect(() => service.metadata("mps-weekly-plans", actor(["mps-weekly-plans:*:create"]))).toThrow(ForbiddenException);
   });
 
+  it("exposes allocation delete capability only to users with the resource delete grant", () => {
+    const allowed = service.metadata("mps-order-allocations", actor(["mps-order-allocations:*:read", "mps-order-allocations:*:delete"]));
+    const denied = service.metadata("mps-order-allocations", actor(["mps-order-allocations:*:read"]));
+    expect(allowed.actions.delete).toBe(true);
+    expect(denied.actions.delete).toBe(false);
+  });
+
   it("authorizes organization references against the actual resource and department field", async () => {
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-shipping-plans:*:read", "mps-shipping-plans:divisionId:read"]))).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "org-1" })]));
     await expect(service.organizationOptions("mps-shipping-plans", actor(["mps-monthly-plans:*:read", "mps-monthly-plans:divisionId:read"]))).rejects.toBeInstanceOf(ForbiddenException);

@@ -929,3 +929,40 @@ describe("allocation append preview", () => {
     expect(api).not.toHaveBeenCalledWith(expect.stringContaining("import-confirm"),expect.anything());
   },15_000);
 });
+
+describe("allocation table delete entry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "allocation-manager", permissions: ["mps-order-allocations:*:read", "mps-order-allocations:*:delete"] }));
+  });
+
+  it("shows the standard toolbar delete action only when authorized by server metadata", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-filters/resources") return [] as never;
+      if (path === "/table-exports/capabilities") return [] as never;
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-order-allocations", fields: tablePermissionFieldsFor("mps-order-allocations"), createFields: [], actions: { create: false, update: false, delete: true, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-order-allocations?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const { container } = renderPage("mps-order-allocations");
+    const deleteButton = await screen.findByRole("button", { name: "删除" });
+    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).toHaveAttribute("title", "请先勾选要删除的记录");
+    expect(container.querySelector("[data-resource='mps-order-allocations']")).toBeInTheDocument();
+  });
+
+  it("hides the delete action when server metadata denies it", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-filters/resources") return [] as never;
+      if (path === "/table-exports/capabilities") return [] as never;
+      if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
+      if (path.endsWith("/meta")) return { resource: "mps-order-allocations", fields: tablePermissionFieldsFor("mps-order-allocations"), createFields: [], actions: { create: false, update: false, delete: false, import: false, export: false, batchUpdate: false } } as never;
+      if (path.startsWith("/master-plan-system/resources/mps-order-allocations?")) return { rows: [], total: 0 } as never;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    renderPage("mps-order-allocations");
+    await screen.findByRole("button", { name: /字段显示/ });
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+  });
+});

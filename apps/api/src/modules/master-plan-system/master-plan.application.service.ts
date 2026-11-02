@@ -438,14 +438,23 @@ export class MasterPlanApplicationService {
     const version = Number(expectedVersion); if (!Number.isInteger(version) || version < 1) throw new BadRequestException("expectedVersion 必须是正整数");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
-      const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
+      const activeAllocationClause = resource.code === "mps-order-allocations" ? " AND archived_at IS NULL" : "";
+      const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid${activeAllocationClause} FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "delete")) throw new ForbiddenException("当前数据范围不允许删除该记录");
       if (Number(current.version) !== version) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
-      await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
-      await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
+      if (resource.code === "mps-order-allocations") {
+        // Monthly plans retain a restrictive FK to this source row; archive it from active allocations instead of deleting history.
+        const [archived] = await manager.query(`UPDATE mps_order_allocations SET archived_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND version=$4 AND archived_at IS NULL RETURNING *`, [actor.tenantId, id, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, version]);
+        if (!archived) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
+        await this.audit(manager, actor, code, id, `${code}.archived`, current, archived);
+      } else {
+        await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
+        await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
+      }
       await this.enqueueReconciliation(manager, resource, actor, id, current);
-      return { id, deleted: true };
+      return { id, deleted: true, ...(resource.code === "mps-order-allocations" ? { archived: true } : {}) };
     }));
     /* 删除实际报工后同样必须重新汇总，前端依据真实对账状态刷新周计划。 */
     const reconciliation = await this.completeReconciliation(resource);
@@ -882,7 +891,13 @@ export class MasterPlanApplicationService {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
     /* audit_logs 的持久化枚举将系统调用归档为 API；应用层仍以 system 表示非人工来源。 */
     const source = actor.source === "system" ? "api" : actor.source;
-    if (resource === "mps-order-allocations") { if (before && typeof before === "object" && "id" in before) before = allocationSnapshot(before as Record<string,unknown>); if (after && typeof after === "object" && "id" in after) after = allocationSnapshot(after as Record<string,unknown>); }
+    if (resource === "mps-order-allocations") {
+      if (before && typeof before === "object" && "id" in before) before = allocationSnapshot(before as Record<string,unknown>);
+      if (after && typeof after === "object" && "id" in after) {
+        const allocation = after as Record<string,unknown>, snapshot = allocationSnapshot(allocation);
+        after = allocation.archived_at == null ? snapshot : { ...snapshot, archived: true, archivedAt: allocation.archived_at instanceof Date ? allocation.archived_at.toISOString() : allocation.archived_at, version: Number(allocation.version) };
+      }
+    }
     return manager.query(`INSERT INTO audit_logs(actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by,tenant_id) VALUES($1::uuid,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$1::uuid,$1::uuid,$10)`, [actorId, actor.username, resource, recordId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), actor.requestId, source, actor.tenantId]);
   }
 }

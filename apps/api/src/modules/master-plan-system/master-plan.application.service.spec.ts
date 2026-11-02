@@ -2,6 +2,50 @@ import { MasterPlanApplicationService } from "./master-plan.application.service"
 
 const actor = { tenantId: "KAINAN", userId: "11111111-1111-4111-8111-111111111111", username: "tester", permissions: ["*"], isSystemAdmin: true, moduleAdminCodes: [], tableDataScopes: [], requestId: "request-import", source: "web" as const };
 
+describe("MasterPlanApplicationService order allocation deletion", () => {
+  const id = "22222222-2222-4222-8222-222222222222";
+  const allocation = { id, tenant_id: "KAINAN", version: 4, order_number: "SO-1", item_code: "ITEM-1", archived_at: null, created_by: actor.userId };
+  const permittedActor = { ...actor, isSystemAdmin: false, permissions: ["mps-order-allocations:*:delete"], tableDataScopes: [{ resource: "mps-order-allocations", scope: "ALL", actions: ["delete"] }] };
+
+  it("archives an allocation with tenant/scope/version checks, audit and durable projection reconciliation", async () => {
+    const archived = { ...allocation, archived_at: new Date("2026-11-02T04:00:00.000Z"), version: 5 };
+    const query = jest.fn(async (...args: [string, unknown[]?]) => {
+      const [sql] = args;
+      if (sql.startsWith("SELECT * FROM mps_order_allocations")) return [allocation];
+      if (sql.startsWith("UPDATE mps_order_allocations SET archived_at")) return [archived];
+      return [];
+    });
+    const manager = { query };
+    const sync = { processOutbox: jest.fn().mockResolvedValue(undefined) };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never, sync as never);
+
+    await expect(service.remove("mps-order-allocations", id, 4, permittedActor)).resolves.toEqual({
+      id, deleted: true, archived: true,
+      reconciliation: { status: "PENDING", message: "订单分配已保存，集团/月度计划正在生成，请稍后刷新查看。" }
+    });
+    expect(query.mock.calls.find(([sql]) => String(sql).startsWith("SELECT * FROM mps_order_allocations"))?.[0]).toContain("tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL FOR UPDATE");
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE mps_order_allocations SET archived_at=now()"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("DELETE FROM mps_order_allocations"))).toBe(false);
+    expect(query.mock.calls.some(([sql, params]) => String(sql).startsWith("INSERT INTO audit_logs") && (params as unknown[])[4] === "mps-order-allocations.archived")).toBe(true);
+    expect(query.mock.calls.some(([sql, params]) => String(sql).includes("INSERT INTO mps_reconciliation_outbox") && (params as unknown[])[3] === "plan-projections")).toBe(true);
+  });
+
+  it("rejects users without allocation delete permission before querying the record", async () => {
+    const transaction = jest.fn();
+    const service = new MasterPlanApplicationService({ transaction } as never, { processOutbox: jest.fn() } as never);
+    await expect(service.remove("mps-order-allocations", id, 4, { ...permittedActor, permissions: [] })).rejects.toThrow("当前权限组没有该表删除权限");
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects allocation deletion outside the authorized data scope without archiving", async () => {
+    const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].startsWith("SELECT * FROM mps_order_allocations") ? [allocation] : []);
+    const manager = { query };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager) } as never, { processOutbox: jest.fn() } as never);
+    await expect(service.remove("mps-order-allocations", id, 4, { ...permittedActor, tableDataScopes: [] })).rejects.toThrow("当前数据范围不允许删除该记录");
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE mps_order_allocations"))).toBe(false);
+  });
+});
+
 describe("MasterPlanApplicationService imports", () => {
   it("generates a three-digit delivery code in the backend and rejects manual PATCH", async () => {
     const inserted = { id: "22222222-2222-4222-8222-222222222222", version: 1, order_number: "SO-1", item_code: "ITEM-1", delivery_number: "001" };

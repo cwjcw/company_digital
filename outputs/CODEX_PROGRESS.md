@@ -77,6 +77,51 @@
 
 # Codex 工作进度
 
+## 订单分配表按统一规范补充删除入口
+
+### 任务
+任务目标：为订单分配业务表增加符合 KDOS 标准权限、审计、数据范围及历史保留规则的工具栏删除能力。
+当前状态：实现与目标验证已完成；仅服务端有效删除权限可见按钮，确认后以版本校验软归档、写审计并入计划投影reconciliation。定向测试、类型检查、Lint和API/Web构建通过；部署与GitHub同步待完成。
+最后更新时间：2026-11-02（Asia/Shanghai）。
+
+### 当前阶段
+当前子任务：扩展订单分配资源的删除能力，将通用删除命令限定为软归档，并补充 UI 提示、审计/投影回归验证。
+
+### 已完成
+- [x] 阅读 `table-delete-standard`、`kdos-form-platform`、`kdos-form-validation` 及项目工程/安全约束。
+- [x] 核实订单分配是可维护业务表；已有 `DELETE` 路由、`KdosDataTable.deleteAction` 和 `archived_at` 字段，但资源 `remove=false`，故 API 元数据隐藏按钮且服务端拒绝删除。
+- [x] 核实 `mps_monthly_plans` 对订单分配具有 `ON DELETE RESTRICT` 稳定引用；删除应归档并触发已有 reconciliation/outbox，不物理删除下游计划或报工历史。
+- [x] 保留现有未提交 `TODO.md` 修改，不纳入本任务。
+
+### 正在进行
+- [x] 启用订单分配资源删除权限门槛，并实现带租户、数据范围、版本校验和审计的单条归档。
+- [x] 接入现有工具栏删除组件，说明归档和关联计划历史保留语义，并失效相关计划查询缓存。
+- [x] API目标测试99/99、Web主计划页面测试43/43、API/Web typecheck、改动文件Lint、API/Web build、`git diff --check`通过。
+- [ ] 安全提交、正式部署、健康/版本核验及GitHub同步。
+
+### 修改文件
+- apps/api/src/modules/master-plan-system/master-plan.config.ts
+- apps/api/src/modules/master-plan-system/master-plan.application.service.ts
+- apps/api/src/modules/master-plan-system/master-plan.config.spec.ts
+- apps/api/src/modules/master-plan-system/master-plan.query.service.spec.ts
+- apps/api/src/modules/master-plan-system/master-plan.application.service.spec.ts
+- apps/web/src/modules/master-plan-system/MasterPlanPages.tsx
+- apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx
+- outputs/CODEX_PROGRESS.md
+
+### Migration / 数据写入
+- 预计无需 Migration；复用现存 `archived_at`。
+- 不在生产执行真实删除或归档。
+
+### 下一步
+1. 仅提交本任务文件，保留 `TODO.md` 本地修改。
+2. 按正式流程部署并核实生产健康状态和Repository/Web/API版本。
+3. 推送 GitHub 并记录最终提交。
+
+---
+
+# Codex 工作进度
+
 ## 任务
 任务名称：科加智能 T+19 工艺数据只读调查。
 任务目标：复用 tplus-kejia 连接核实目标账套、工序/路线/BOM/存货/加工单实际工序结构与关联，解析 CHM 并生成中文报告。
