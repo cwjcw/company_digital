@@ -328,7 +328,7 @@ export class MasterPlanApplicationService {
       }
       if(staleDemandExceptionIds.length){
         const stale: Array<Record<string,any>> = await manager.query(`SELECT e.* FROM mps_data_exceptions e
-          JOIN mps_monthly_plans p ON p.tenant_id=e.tenant_id AND p.id::text=e.record_id
+          JOIN mps_monthly_plans p ON p.tenant_id=e.tenant_id AND p.id=e.record_id
           WHERE e.tenant_id=$1 AND e.id=ANY($2::uuid[]) AND e.active=true AND e.exception_type='NON_POSITIVE_DEMAND' AND p.required_quantity>0
           ORDER BY e.id FOR UPDATE OF e,p`,[actor.tenantId,staleDemandExceptionIds]);
         if(stale.length!==staleDemandExceptionIds.length)throw new ConflictException("指定的非正需求异常仍未满足关闭条件，事务已回滚");
