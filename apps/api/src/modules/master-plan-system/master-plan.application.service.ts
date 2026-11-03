@@ -140,15 +140,18 @@ export class MasterPlanApplicationService {
     monthlyChanges: ResidualMonthlyChange[];
     baseChanges: ResidualBaseChange[];
     zeroQuantityBaseKeys: ResidualZeroBaseKey[];
+    groupPlanAliases?: Array<{sourceOrderNumber:string;targetOrderNumber:string}>;
   }, actor: MasterPlanActor) {
     if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以执行事业三部收尾命令");
     const actorId=actor.userId;
     if (!input || !Array.isArray(input.allocationChanges) || !Array.isArray(input.monthlyChanges)
-      || !Array.isArray(input.baseChanges) || !Array.isArray(input.zeroQuantityBaseKeys)) throw new BadRequestException("收尾命令参数格式无效");
+      || !Array.isArray(input.baseChanges) || !Array.isArray(input.zeroQuantityBaseKeys)
+      || (input.groupPlanAliases !== undefined && !Array.isArray(input.groupPlanAliases))) throw new BadRequestException("收尾命令参数格式无效");
     const allocations = input.allocationChanges, monthly = input.monthlyChanges, bases = input.baseChanges, zeroKeys = input.zeroQuantityBaseKeys;
+    const requestedAliases = input.groupPlanAliases ?? [];
     const rows = [...allocations, ...monthly, ...bases];
     if (!input || !uuidPattern.test(input.idempotencyKey) || rows.length === 0 || rows.length > 200 || zeroKeys.length > 20
-      || allocations.length > 100 || monthly.length > 100 || bases.length > 100
+      || allocations.length > 100 || monthly.length > 100 || bases.length > 100 || requestedAliases.length > 10
       || allocations.some(row => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1
         || !["UPDATE", "ARCHIVE", "RESTORE"].includes(row.action)
         || (row.divisionId !== undefined && row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
@@ -165,6 +168,11 @@ export class MasterPlanApplicationService {
         || (row.plannedQuantity !== undefined && (!Number.isFinite(Number(row.plannedQuantity)) || Number(row.plannedQuantity) < 0))
         || (row.divisionId === undefined && row.plannedQuantity === undefined))
       || zeroKeys.some(row => !row.orderNumber?.trim() || !row.itemCode?.trim() || row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
+      || requestedAliases.some(row => ![
+        "2301-2026C406004>2301-2026C406004-1",
+        "2301-2026C406006>2301-2026C406006-1"
+      ].includes(`${row.sourceOrderNumber}>${row.targetOrderNumber}`))
+      || new Set(requestedAliases.map(row=>row.sourceOrderNumber)).size!==requestedAliases.length
       || new Set(rows.map(row => row.id)).size !== rows.length
       || new Set(zeroKeys.map(row => `${row.orderNumber}\u0000${row.itemCode}`)).size !== zeroKeys.length) {
       throw new BadRequestException("收尾命令参数、版本或业务范围无效");
@@ -173,7 +181,8 @@ export class MasterPlanApplicationService {
       allocations: [...allocations].sort((a,b)=>a.id.localeCompare(b.id)),
       monthly: [...monthly].sort((a,b)=>a.id.localeCompare(b.id)),
       bases: [...bases].sort((a,b)=>a.id.localeCompare(b.id)),
-      zeroKeys: [...zeroKeys].sort((a,b)=>`${a.orderNumber}/${a.itemCode}`.localeCompare(`${b.orderNumber}/${b.itemCode}`))
+      zeroKeys: [...zeroKeys].sort((a,b)=>`${a.orderNumber}/${a.itemCode}`.localeCompare(`${b.orderNumber}/${b.itemCode}`)),
+      groupPlanAliases: [...requestedAliases].sort((a,b)=>a.sourceOrderNumber.localeCompare(b.sourceOrderNumber))
     };
     const requestHash = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
     const storageKey = `mps-d3-residual:${actor.tenantId}:${input.idempotencyKey}`;
@@ -283,14 +292,16 @@ export class MasterPlanApplicationService {
         "2026C406004":"2301-2026C406004-1",
         "2026C406006":"2301-2026C406006-1"
       };
-      for (const sourceOrderNumber of new Set(allocations
-        .map(row=>String(allocationMap.get(row.id)!.order_number)))) {
+      const explicitAliasMap=new Map(requestedAliases.map(row=>[row.sourceOrderNumber,row.targetOrderNumber]));
+      for (const sourceOrderNumber of new Set([...allocations
+        .map(row=>String(allocationMap.get(row.id)!.order_number)),...requestedAliases.map(row=>row.sourceOrderNumber)])) {
         const normalizedOrder=normOrder(sourceOrderNumber);
         const groupPlans: Array<{id:string;order_number:string;created_at:string}> = await manager.query(`SELECT id,order_number,created_at FROM mps_group_plans
           WHERE tenant_id=$1 AND regexp_replace(regexp_replace(order_number,'^23[0-9]{2}-',''),'-1$','')=$2
           ORDER BY created_at,id FOR UPDATE`,[actor.tenantId,normalizedOrder]);
-        const preferred=preferredGroupOrder[normalizedOrder];
+        const preferred=explicitAliasMap.get(sourceOrderNumber) ?? preferredGroupOrder[normalizedOrder];
         const target=groupPlans.find(row=>row.order_number===preferred)?.order_number ?? groupPlans[0]?.order_number ?? null;
+        if(preferred && target!==preferred)throw new ConflictException(`指定集团计划别名不存在：${sourceOrderNumber} → ${preferred}`);
         for (const row of groupPlans) if(row.order_number!==target) duplicateGroupPlanIds.add(String(row.id));
         if (target && target!==sourceOrderNumber) groupPlanAliases.push({sourceOrderNumber,targetOrderNumber:target});
       }
