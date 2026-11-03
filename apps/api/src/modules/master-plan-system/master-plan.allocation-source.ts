@@ -63,8 +63,8 @@ export const allocationOrderTotalsSql = `WITH ${allocationDemandCtesSql}, items 
  */
 export function allocationOrderTotalsSqlWithAliases() {
   return `WITH ${allocationDemandCtesSql}, mapped AS MATERIALIZED (
-    SELECT c.*,COALESCE((SELECT x.target_order_number FROM jsonb_to_recordset($2::jsonb)
-      x(source_order_number text,target_order_number text) WHERE x.source_order_number=c.order_number),c.order_number) group_order_number
+    SELECT c.*,COALESCE((SELECT x."targetOrderNumber" FROM jsonb_to_recordset($2::jsonb)
+      x("sourceOrderNumber" text,"targetOrderNumber" text) WHERE x."sourceOrderNumber"=c.order_number),c.order_number) group_order_number
     FROM candidates c
   ), items AS (
     SELECT a.group_order_number order_number,a.item_code,sum(a.quantity) required_quantity,

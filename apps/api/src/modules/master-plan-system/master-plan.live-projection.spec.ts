@@ -21,6 +21,7 @@ describe("allocation demand boundaries", () => {
   it("can roll a restored order alias into an existing group-plan identity", () => {
     const sql=allocationOrderTotalsSqlWithAliases();
     expect(sql).toContain("jsonb_to_recordset($2::jsonb)");
+    expect(sql).toContain('x."sourceOrderNumber"=c.order_number');
     expect(sql).toContain("group_order_number");
     expect(sql).toContain("GROUP BY a.group_order_number,a.item_code");
   });

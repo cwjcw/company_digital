@@ -278,18 +278,37 @@ export class MasterPlanApplicationService {
         await this.audit(manager,actor,"mps-base-plans",change.id,"mps-base-plans.residual_corrected",before,after);baseUpdated++;
       }
       const groupPlanAliases: Array<{sourceOrderNumber:string;targetOrderNumber:string}> = [];
-      for (const sourceOrderNumber of new Set(allocations.filter(row=>row.action==="RESTORE")
+      const duplicateGroupPlanIds = new Set<string>();
+      const preferredGroupOrder: Record<string,string> = {
+        "2026C406004":"2301-2026C406004-1",
+        "2026C406006":"2301-2026C406006-1"
+      };
+      for (const sourceOrderNumber of new Set(allocations
         .map(row=>String(allocationMap.get(row.id)!.order_number)))) {
         const normalizedOrder=normOrder(sourceOrderNumber);
-        const groupPlans: Array<{order_number:string}> = await manager.query(`SELECT order_number FROM mps_group_plans
+        const groupPlans: Array<{id:string;order_number:string;created_at:string}> = await manager.query(`SELECT id,order_number,created_at FROM mps_group_plans
           WHERE tenant_id=$1 AND regexp_replace(regexp_replace(order_number,'^23[0-9]{2}-',''),'-1$','')=$2
-          ORDER BY order_number FOR UPDATE`,[actor.tenantId,normalizedOrder]);
-        const exact=groupPlans.find(row=>row.order_number===sourceOrderNumber);
-        const target=exact?.order_number ?? (groupPlans.length===1 ? groupPlans[0]!.order_number : null);
-        if (groupPlans.length>1 && !exact) throw new ConflictException(`恢复订单存在多个集团计划别名，拒绝自动选择：${sourceOrderNumber}`);
+          ORDER BY created_at,id FOR UPDATE`,[actor.tenantId,normalizedOrder]);
+        const preferred=preferredGroupOrder[normalizedOrder];
+        const target=groupPlans.find(row=>row.order_number===preferred)?.order_number ?? groupPlans[0]?.order_number ?? null;
+        for (const row of groupPlans) if(row.order_number!==target) duplicateGroupPlanIds.add(String(row.id));
         if (target && target!==sourceOrderNumber) groupPlanAliases.push({sourceOrderNumber,targetOrderNumber:target});
       }
       const projection=await reconcileAllocationPlans(manager,actor.tenantId,actorId,actor.username,groupPlanAliases);
+      let groupPlansConsolidated=0;
+      if (duplicateGroupPlanIds.size) {
+        const duplicates: Array<Record<string,any>> = await manager.query("SELECT * FROM mps_group_plans WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE",[actor.tenantId,[...duplicateGroupPlanIds]]);
+        for (const before of duplicates) {
+          if (Number(before.required_quantity)===0 && Number(before.completed_quantity)===0 && Number(before.pending_quantity)===0
+            && Number(before.completion_rate)===0) continue;
+          const [after]=await manager.query(`UPDATE mps_group_plans SET required_quantity=0,completed_quantity=0,pending_quantity=0,completion_rate=0,
+            updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$4 RETURNING *`,
+          [actor.tenantId,before.id,actorId,before.version]);
+          if(!after)throw new ConflictException("重复集团计划汇总并发变化，事务已回滚");
+          await this.audit(manager,actor,"mps-group-plans",String(before.id),"mps-group-plans.residual_alias_consolidated",before,after);
+          groupPlansConsolidated++;
+        }
+      }
       const zeroRows: Array<Record<string,any>> = [];
       for(const key of zeroKeys){
         const matches=await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND required_quantity=0 FOR UPDATE`,[actor.tenantId,key.orderNumber,key.itemCode,key.divisionId]);
@@ -300,7 +319,7 @@ export class MasterPlanApplicationService {
         ? await manager.query("SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND allocation_id=ANY($2::uuid[])",[actor.tenantId,allocations.map(row=>row.id)]) : [];
       const monthlyIds=[...new Set([...monthly.map(row=>row.id),...allocationMonthlyRows.map(row=>String(row.id)),...zeroRows.map(row=>String(row.id))])];
       const baseProjection=await reconcileMonthlyBasePlans(manager,actor.tenantId,actorId,actor.username,monthlyIds,zeroRows.map(row=>String(row.id)),false);
-      const response={restored,archived,allocationUpdated,monthlyUpdated,baseUpdated,projection:projection.metrics,baseProjection:baseProjection.metrics,repeated:false};
+      const response={restored,archived,allocationUpdated,monthlyUpdated,baseUpdated,groupPlansConsolidated,projection:projection.metrics,baseProjection:baseProjection.metrics,repeated:false};
       await this.audit(manager,actor,"mps-order-allocations",null,"mps-order-allocations.residual_finalized",null,{...response,idempotencyKey:input.idempotencyKey});
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)",[storageKey,requestHash,JSON.stringify(response),actor.userId]);
       return response;
