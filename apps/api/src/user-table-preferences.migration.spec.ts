@@ -1,4 +1,4 @@
-import { UserTablePreferences1722920117000 } from "./1722920117000-UserTablePreferences";
+import { UserTablePreferences1722920117000 } from "./migrations/1722920117000-UserTablePreferences";
 
 describe("UserTablePreferences migration", () => {
   it("adds/removes the preference JSONB on the existing user/tenant record", async () => {
