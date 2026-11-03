@@ -10499,3 +10499,33 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - [x] 生产 `docker compose ps` 显示 PostgreSQL、API、Web、document-worker 均 healthy；`scripts/healthcheck.sh` 的 Web/API/Swagger/OpenAPI/PostgreSQL 检查通过。生产 HTTP build-info 与 API health SHA 一致。
 - [ ] 交互式 Chrome 页面验收未完成：本机未预装 Playwright 浏览器，安装下载约3分钟停在10%后中止；未获得带登录态的浏览器页面证据。可恢复条件：浏览器可用或提供本地已登录 Chrome 调试会话。
 - GitHub：提交 `3c7275ac302bccff1d7185506171b4db8a9e98b4` 已推送至 `github/main`；远端 `refs/heads/main` SHA 已核验一致。
+
+## KDOS平台级Excel双向数据维护（2026-11-03）
+
+### 当前状态：已完成
+- [x] 恢复上次工作区：仅 `outputs/CODEX_PROGRESS.md` 有未提交改动，为上一轮事业部基础计划导入验收记录；未发现其他源码改动，保留该内容。
+- [x] 确认触发问题：普通「导出本表」通过通用导出故意排除 `id`/`version`；现有主计划导入要求两列，因而普通导出文件不能作为更新模板。
+- [x] 修订 `kdos-form-platform` 中导入、模板、普通导出、第10节接口合同和验收规则，统一空值语义。
+- [x] 核对正式资源 Registry、模板生成、Preview/Confirm 适配器、权限和数据范围；共享模式仅登记真实支持的资源。
+- [x] 主计划平台实现新增/更新模板同一入口与服务端生成；普通导出链路保持 WYSIWYG。
+- [x] 事业部基础计划使用隔离 mock/Preview/Confirm 回环验收，不写入真实生产计划。
+- [x] 对73个已注册正式资源生成能力清单：共享8、业务专用26、不适用38、待补能力1（equipment-register）。
+- [x] 契约测试接入现有 contracts 测试；API/Web/contracts 类型检查、定向测试、build及lint完成。
+- [x] 通过 `scripts/deploy.sh all` 部署并用 `scripts/deploy.sh check` 核对 Repository/API/Web SHA；健康检查通过，任务文件已推送 GitHub main。
+
+### 相关验证 / 边界
+- 之前用户自己的 575 行基础计划更新已通过正式 API 完成；该行为不属于本轮测试，不重复写生产业务数据。
+- 不允许把真实生产数据用于模板更新验收；不得导入或更新业务记录。
+- 现有未提交进度记录必须保留并纳入最终整理。
+- [x] 更新 `kdos-form-platform/SKILL.md`：拆分新增模板/更新模板/普通所见即所得导出合同；补充ID+版本、更新范围校验、空白不修改与`【清空】`语义及验收要求。
+- [x] 主计划共享导入服务新增 `mode=CREATE|UPDATE`；更新模板按当前页面搜索、筛选、排序、视图和服务端`canUpdate`范围取数，包含获权可读/可修改字段、真实ID和版本；每页分页读取并在超过50000行时拒绝。
+- [x] 新更新模板写入版本化隐藏字段映射；导入解析器对该模式将普通空白解释为不修改、`【清空】`解释为显式清空；旧模板语义保持兼容。
+- [x] 主计划页面将原模板按钮扩展为同一入口下的新增/更新两种下载方式；更新模板按钮状态来自服务端资源/字段权限。普通`table-exports`链路未改。
+- [x] 增加Excel资源能力Registry、合同审计测试与覆盖清单生成脚本；当前扫描73项：共享8、业务专用26、不适用38、缺口1（设备总台账待建设双向导入适配）。生成报告 `outputs/KDOS_Excel双向维护能力覆盖清单_20261103.xlsx`。
+- [x] 更新 `docs/integration-guide.md` 的旧导出取ID方式，改为使用新增/更新模板API，并记录空值语义。
+- [x] API Excel测试31项通过；contracts测试43项通过；Web主计划页面测试44项通过；普通导出回归8项通过。
+- [x] API/Web/contracts typecheck与API/Web/contracts build通过；API/contracts lint通过，Web lint 0错误、1条既有 `ModulePortal.tsx` Fast Refresh warning。Node 22低于项目要求24，仅产生环境engine warning；Web构建有既有bundle体积提示。
+- [x] 覆盖报告生成脚本通过，结果73资源、错误0；`git diff --check`及变更内容敏感字符串扫描通过。
+- [x] 生产 `docker compose ps` 显示 PostgreSQL、API、Web、document-worker 均 healthy；`scripts/healthcheck.sh` 的 Web/API/Swagger/OpenAPI/PostgreSQL 检查通过。生产 HTTP build-info 与 API health SHA 一致。
+- [x] 生产 Chrome 登录后打开事业部基础计划页面：表格显示恰好一个「导出」按钮及一个「下载导入模板」入口；入口菜单中新增/更新两种模式都可用。仅验证页面及菜单，不下载包含生产记录的更新模板、不写生产业务数据。
+- 初次 Playwright 浏览器下载停滞后确认本机已有 Google Chrome，改用系统 Chrome 完成上述只读浏览器验收。
