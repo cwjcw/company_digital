@@ -523,6 +523,12 @@ describe("MasterPlanApplicationService Division 3 residual command", () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed stale-exception IDs before opening a transaction",async()=>{
+    const transaction=jest.fn();const service=new MasterPlanApplicationService({transaction} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.finalizeDivisionThreeResidual({...body,resolveStaleDemandExceptionIds:["not-a-uuid"]},actor)).rejects.toThrow("参数、版本或业务范围无效");
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("refuses a quantity/division correction when a matching stock fact exists, before any write",async()=>{
     const current={id:allocationId,tenant_id:"KAINAN",version:1,order_number:"2301-2026A6038005",item_code:"013032-1/1",division_id:"d23442f9-4862-4641-b4a7-c8d470bc56ea",allocated_quantity:"11040",order_status:"已审核",archived_at:null};
     const query=jest.fn(async(sql:string)=>{

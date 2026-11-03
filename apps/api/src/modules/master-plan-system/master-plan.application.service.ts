@@ -141,17 +141,20 @@ export class MasterPlanApplicationService {
     baseChanges: ResidualBaseChange[];
     zeroQuantityBaseKeys: ResidualZeroBaseKey[];
     groupPlanAliases?: Array<{sourceOrderNumber:string;targetOrderNumber:string}>;
+    resolveStaleDemandExceptionIds?: string[];
   }, actor: MasterPlanActor) {
     if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以执行事业三部收尾命令");
     const actorId=actor.userId;
     if (!input || !Array.isArray(input.allocationChanges) || !Array.isArray(input.monthlyChanges)
       || !Array.isArray(input.baseChanges) || !Array.isArray(input.zeroQuantityBaseKeys)
-      || (input.groupPlanAliases !== undefined && !Array.isArray(input.groupPlanAliases))) throw new BadRequestException("收尾命令参数格式无效");
+      || (input.groupPlanAliases !== undefined && !Array.isArray(input.groupPlanAliases))
+      || (input.resolveStaleDemandExceptionIds !== undefined && !Array.isArray(input.resolveStaleDemandExceptionIds))) throw new BadRequestException("收尾命令参数格式无效");
     const allocations = input.allocationChanges, monthly = input.monthlyChanges, bases = input.baseChanges, zeroKeys = input.zeroQuantityBaseKeys;
     const requestedAliases = input.groupPlanAliases ?? [];
+    const staleDemandExceptionIds = input.resolveStaleDemandExceptionIds ?? [];
     const rows = [...allocations, ...monthly, ...bases];
     if (!input || !uuidPattern.test(input.idempotencyKey) || rows.length === 0 || rows.length > 200 || zeroKeys.length > 20
-      || allocations.length > 100 || monthly.length > 100 || bases.length > 100 || requestedAliases.length > 10
+      || allocations.length > 100 || monthly.length > 100 || bases.length > 100 || requestedAliases.length > 10 || staleDemandExceptionIds.length > 20
       || allocations.some(row => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1
         || !["UPDATE", "ARCHIVE", "RESTORE"].includes(row.action)
         || (row.divisionId !== undefined && row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
@@ -173,6 +176,8 @@ export class MasterPlanApplicationService {
         "2301-2026C406006>2301-2026C406006-1"
       ].includes(`${row.sourceOrderNumber}>${row.targetOrderNumber}`))
       || new Set(requestedAliases.map(row=>row.sourceOrderNumber)).size!==requestedAliases.length
+      || staleDemandExceptionIds.some(id=>!uuidPattern.test(id))
+      || new Set(staleDemandExceptionIds).size!==staleDemandExceptionIds.length
       || new Set(rows.map(row => row.id)).size !== rows.length
       || new Set(zeroKeys.map(row => `${row.orderNumber}\u0000${row.itemCode}`)).size !== zeroKeys.length) {
       throw new BadRequestException("收尾命令参数、版本或业务范围无效");
@@ -182,7 +187,8 @@ export class MasterPlanApplicationService {
       monthly: [...monthly].sort((a,b)=>a.id.localeCompare(b.id)),
       bases: [...bases].sort((a,b)=>a.id.localeCompare(b.id)),
       zeroKeys: [...zeroKeys].sort((a,b)=>`${a.orderNumber}/${a.itemCode}`.localeCompare(`${b.orderNumber}/${b.itemCode}`)),
-      groupPlanAliases: [...requestedAliases].sort((a,b)=>a.sourceOrderNumber.localeCompare(b.sourceOrderNumber))
+      groupPlanAliases: [...requestedAliases].sort((a,b)=>a.sourceOrderNumber.localeCompare(b.sourceOrderNumber)),
+      resolveStaleDemandExceptionIds: [...staleDemandExceptionIds].sort()
     };
     const requestHash = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
     const storageKey = `mps-d3-residual:${actor.tenantId}:${input.idempotencyKey}`;
@@ -318,6 +324,19 @@ export class MasterPlanApplicationService {
           if(!after)throw new ConflictException("重复集团计划汇总并发变化，事务已回滚");
           await this.audit(manager,actor,"mps-group-plans",String(before.id),"mps-group-plans.residual_alias_consolidated",before,after);
           groupPlansConsolidated++;
+        }
+      }
+      if(staleDemandExceptionIds.length){
+        const stale: Array<Record<string,any>> = await manager.query(`SELECT e.* FROM mps_data_exceptions e
+          JOIN mps_monthly_plans p ON p.tenant_id=e.tenant_id AND p.id::text=e.record_id
+          WHERE e.tenant_id=$1 AND e.id=ANY($2::uuid[]) AND e.active=true AND e.exception_type='NON_POSITIVE_DEMAND' AND p.required_quantity>0
+          ORDER BY e.id FOR UPDATE OF e,p`,[actor.tenantId,staleDemandExceptionIds]);
+        if(stale.length!==staleDemandExceptionIds.length)throw new ConflictException("指定的非正需求异常仍未满足关闭条件，事务已回滚");
+        for(const before of stale){
+          const [after]=await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1
+            WHERE tenant_id=$1 AND id=$2::uuid AND version=$4 RETURNING *`,[actor.tenantId,before.id,actorId,before.version]);
+          if(!after)throw new ConflictException("异常记录并发变化，事务已回滚");
+          await this.audit(manager,actor,"mps-data-exceptions",String(before.id),"mps-data-exceptions.residual_stale_demand_resolved",before,after);
         }
       }
       const zeroRows: Array<Record<string,any>> = [];
