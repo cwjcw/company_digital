@@ -5,7 +5,7 @@ import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Moda
 import { reviewDueDateTemplateFilename, reviewDueDateBusinessFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
 import dayjs from 'dayjs';
 import { api } from '../../api';
-import { KdosDataTable, ensureTableFieldVisibleOnce, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
+import { KdosDataTable, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
 import type { AdvancedFilterGroup } from '../../shared/advanced-filter';
 import { OrganizationSelect, type OrganizationSelectOption } from '../../shared/OrganizationSelect';
 import { useAuditColumns } from '../../shared/audit-fields';
@@ -57,7 +57,6 @@ function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:T
   </Modal>;
 }
 export function ReviewDueDates(){
-  for(const key of ['divisionId','orderDate','productReviewDueDate','dueDate','createdBy','createdAt','updatedBy','updatedAt'])ensureTableFieldVisibleOnce(RESOURCE,key,'fields-v2-'+key);
   const auditColumns=useAuditColumns();
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);

@@ -6,7 +6,19 @@ const columns = [
   { key: "name", label: "项目名称", align: "left", width: 20 },
   { key: "remark", label: "备注", align: "left", width: 22 }
 ];
+const preferences = new Map<string, unknown>();
+const preferenceKey = (resource: string, viewKey: string, configType: string) => `${resource}:${viewKey}:${configType}`;
 async function mount(page: Page, rows = 120, viewKey = "ACTUAL") {
+  await page.route("**/api/v1/auth/preferences/table-config*", route => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "GET") {
+      return route.fulfill({ json: { config: preferences.get(preferenceKey(url.searchParams.get("resource") ?? "", url.searchParams.get("viewKey") ?? "", url.searchParams.get("configType") ?? "")) ?? null } });
+    }
+    const body = route.request().postDataJSON() as { resource: string; viewKey?: string; configType: string; config: unknown };
+    const key = preferenceKey(body.resource, body.viewKey ?? "", body.configType);
+    if (body.config === null) preferences.delete(key); else preferences.set(key, body.config);
+    return route.fulfill({ json: { config: body.config, reset: body.config === null } });
+  });
   await page.route("**/api/v1/table-prints/**", route => {
     const body = route.request().postDataJSON() ?? {};
     const selected = body.rangeType === "SELECTED";
@@ -32,7 +44,7 @@ const ready = (page: Page) => expect(page.getByRole("button", { name: "本次打
 test("shared field selection, drag ordering, exact and dragged mm widths, A4/A3/rotation, overflow and scoped preferences", async ({ page }) => {
   await page.setViewportSize({ width: 1800, height: 1000 }); await mount(page, 10); await ready(page);
   const fields = page.getByRole("list", { name: "打印字段" });
-  await expect(paper(page).locator('thead tr').last().locator('th')).toHaveText(["项目编号", "项目名称"]);
+  await expect(paper(page).locator('thead tr').last().locator('th')).toHaveText(["项目编号", "项目名称", "备注"]);
   await fields.getByRole('checkbox', { name: '备注', exact: true }).check();
   await fields.locator('[data-field-key=name]').dragTo(fields.locator('[data-field-key=number]'));
   await ready(page); await expect(paper(page).locator('thead tr').last().locator('th')).toHaveText(["项目名称", "项目编号", "备注"]);
@@ -47,13 +59,13 @@ test("shared field selection, drag ordering, exact and dragged mm widths, A4/A3/
   await expect(page.getByRole('button', { name: '本次打印', exact: true })).toBeDisabled();
   await page.getByLabel('列宽适配', { exact: true }).selectOption('fit'); await ready(page);
   await page.getByRole('button', { name: '保存为我的默认配置' }).click(); await expect(page.getByRole('status')).toContainText('已保存');
-  const saved = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('kdos-print-v1:'))));
+  expect(preferences.get(preferenceKey("projects", "ACTUAL", "PRINT"))).toMatchObject({ paperSize: "A3", orientation: "landscape" });
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await page.evaluate(async () => { const path='/src/shared/table-print.tsx'; const {renderPrint}=await import(/* @vite-ignore */ path); await renderPrint({resource:'projects',rangeType:'FILTERED',columnKeys:['number','name'],viewKey:'ACTUAL'}); });
   await expect(page.getByLabel('纸张大小', { exact: true })).toHaveValue('A3'); await expect(page.getByLabel('打印方向', { exact: true })).toHaveValue('landscape'); await ready(page);
   await page.getByRole('button', { name: '恢复默认', exact: true }).click();
   await expect(page.getByLabel('纸张大小', { exact: true })).toHaveValue('A4');
-  expect(await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('kdos-print-v1:'))))).toEqual(saved);
+  expect(preferences.has(preferenceKey("projects", "ACTUAL", "PRINT"))).toBe(false);
 });
 
 test("real Chrome pagination and native PDF contain every row once, repeated headers, exact paper sizes and no horizontal split", async ({ page, context }, info) => {
@@ -89,12 +101,12 @@ for (const [size, orientation, width, height] of [["A4", "landscape", 297, 210],
   test(`native PDF ${size} ${orientation} preserves preview mm widths and all pages`, async ({ page, context }, info) => {
     await mount(page, 60); await page.getByLabel("纸张大小", { exact: true }).selectOption(size);
     await page.getByLabel("打印方向", { exact: true }).selectOption(orientation); await ready(page);
-    const before = await paper(page).locator("col").evaluateAll(nodes => nodes.map(node => (node as HTMLElement).style.width));
+    const before = await paper(page).first().locator("col").evaluateAll(nodes => nodes.map(node => (node as HTMLElement).style.width));
     await page.evaluate(() => { window.print = () => {
       const css = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join("\n");
       (window as unknown as { capture: unknown }).capture = { html: document.querySelector(".kdos-print-portal")!.outerHTML, css,
         pages: document.querySelectorAll(".kdos-print-pages .kdos-print-paper").length,
-        widths: [...document.querySelectorAll(".kdos-print-pages col")].slice(0, 2).map(col => (col as HTMLElement).style.width) };
+        widths: [...document.querySelector(".kdos-print-pages .kdos-print-paper")!.querySelectorAll("col")].map(col => (col as HTMLElement).style.width) };
     }; });
     await page.getByRole("button", { name: "本次打印", exact: true }).click();
     await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { capture?: unknown }).capture))).toBe(true);

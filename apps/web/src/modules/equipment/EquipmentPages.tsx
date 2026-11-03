@@ -335,7 +335,7 @@ export function EquipmentStatusReportPage() {
   ];
 
   return <div>
-    <KdosDataTable resource="equipment-status-report" rowKey="id" columns={columns} dataSource={records.data?.rows} defaultHiddenFields={["responsibleUserIds"]}
+    <KdosDataTable resource="equipment-status-report" rowKey="id" columns={columns} dataSource={records.data?.rows}
       deleteAction={canDelete ? {
         permitted: true,
         canDelete: (row) => (row as EquipmentStatus & { canDelete?: boolean }).canDelete !== false,

@@ -55,7 +55,7 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     await waitFor(() => expect(view.container.querySelector(".ant-table-thead")).toBeInTheDocument());
     expect(view.container.querySelectorAll(".ant-table-filter-trigger").length).toBe(0);
     expect(view.container.querySelectorAll(".ant-table-filter-dropdown").length).toBe(0);
-    expect(screen.getByRole("button", { name: "订单编号列菜单" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "订单编号列菜单" })).toBeInTheDocument();
   });
 
   it("E: 高级筛选仍支持添加/删除/ALL/ANY/筛选/清空", async () => {
@@ -125,10 +125,10 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     const { view, queries } = renderTable();
     await waitFor(() => expect(view.container.querySelector(".ant-table-thead")).toBeInTheDocument());
     expect(view.container.querySelector(".ant-table-column-sorters")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     fireEvent.click(screen.getByRole("button", { name: /升序/ }));
     await waitFor(() => expect(queries.at(-1)).toEqual(expect.objectContaining({ sortField: "orderNumber", sortOrder: "asc", page: 1 })));
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     fireEvent.click(screen.getByRole("button", { name: /降序/ }));
     await waitFor(() => expect(queries.at(-1)).toEqual(expect.objectContaining({ sortField: "orderNumber", sortOrder: "desc", page: 1 })));
   });
@@ -138,7 +138,7 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
       ? [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never
       : path.startsWith("/table-filters/candidates?") ? { options: [{ value: "A", label: "A" }, { value: "B", label: "B" }], hasMore: false } as never : [] as never);
     const { queries } = renderTable();
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     const panel = await screen.findByTestId("column-menu-orderNumber");
     await waitFor(() => expect(within(panel).getByRole("button", { name: /筛选/ })).toBeEnabled());
     fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
@@ -151,7 +151,7 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
         { field: "orderNumber", operator: "in", values: ["A"] }, { field: "orderNumber", operator: "is_empty" }
       ] }] }
     ] }));
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
     await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("currentHeaderField=orderNumber"))).toBe(true));
   });
@@ -161,7 +161,7 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
       ? [{ code: "mps-weekly-plans", filterableFields: fields.map((field) => field.key) }] as never
       : path.startsWith("/table-filters/candidates?") ? { options: [{ value: "A", label: "A" }], hasMore: true } as never : [] as never);
     renderTable();
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     const panel = await screen.findByTestId("column-menu-orderNumber");
     await waitFor(() => expect(within(panel).getByRole("button", { name: /筛选/ })).toBeEnabled());
     fireEvent.click(within(panel).getByRole("button", { name: /筛选/ }));
@@ -169,18 +169,19 @@ describe("KN-FILTER-002 标准表格只有一套高级筛选入口", () => {
     expect(within(panel).getByRole("checkbox", { name: "全选" })).toBeDisabled();
   });
 
-  it("冻结/隐藏写入当前用户个人视图，隐藏后取消用户冻结", async () => {
-    renderTable();
-    const trigger = screen.getByRole("button", { name: "订单编号列菜单" });
+  it("冻结/隐藏立即反映在当前页面并标记为未保存", async () => {
+    const { view } = renderTable();
+    const trigger = await screen.findByRole("button", { name: "订单编号列菜单" });
     expect(trigger.getAttribute("tabindex")).not.toBe("-1");
     fireEvent.focus(trigger);
     fireEvent.click(trigger);
     const panel = await screen.findByTestId("column-menu-orderNumber");
     fireEvent.click(within(panel).getByRole("button", { name: /冻结到左侧/ }));
-    await waitFor(() => expect(JSON.parse(localStorage.getItem("kdos-form-pinned:KAINAN:u1:mps-weekly-plans") ?? "[]")).toContain("orderNumber"));
-    fireEvent.click(screen.getByRole("button", { name: "订单编号列菜单" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /字段显示.*未保存/ })).toBeInTheDocument());
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveClass("ant-table-cell-fix-left");
+    fireEvent.click(await screen.findByRole("button", { name: "订单编号列菜单" }));
     fireEvent.click(within(panel).getByRole("button", { name: "隐藏此列" }));
-    await waitFor(() => expect(JSON.parse(localStorage.getItem("kdos-form-pinned:KAINAN:u1:mps-weekly-plans") ?? "[]")).not.toContain("orderNumber"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /字段显示.*未保存/ })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "订单编号列菜单" })).not.toBeInTheDocument();
   });
 });

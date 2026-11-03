@@ -8,6 +8,8 @@ import { displayedExportKeys, KdosDataTable, orderKdosFixedColumns } from "./Kdo
 afterEach(() => cleanup());
 
 vi.mock("../api", () => ({ api: vi.fn() }));
+const savedPreferences = new Map<string, unknown>();
+const prefKey = (resource: string, viewKey: string | undefined, type: string) => `${resource}:${viewKey ?? ""}:${type}`;
 
 describe("KdosDataTable server pagination", () => {
   it("导出沿用最终列树顺序，保留分组子列和展示别名，排除操作列", () => {
@@ -21,7 +23,21 @@ describe("KdosDataTable server pagination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    vi.mocked(api).mockResolvedValue([] as never);
+    savedPreferences.clear();
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "table-user", tenantId: "KAINAN", permissions: ["*"] }));
+    vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/auth/preferences/table-config" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)); const key = prefKey(body.resource, body.viewKey, body.configType);
+        if (body.config === null) savedPreferences.delete(key); else savedPreferences.set(key, body.config);
+        return { config: body.config, reset: body.config === null } as never;
+      }
+      if (path.startsWith("/auth/preferences/table-config?")) {
+        const params = new URL(path, "http://local").searchParams;
+        const user = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+        return { config: user.sub === "user-b" ? null : savedPreferences.get(prefKey(params.get("resource") ?? "", params.get("viewKey") ?? undefined, params.get("configType") ?? "")) ?? null } as never;
+      }
+      return [] as never;
+    });
   });
 
   it("keeps the requested page instead of resetting a pagination action to page one", async () => {
@@ -61,6 +77,48 @@ describe("KdosDataTable server pagination", () => {
     expect(screen.queryByRole("button", { name: "设备编号列菜单" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("搜索当前表格")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /字段显示/ })).not.toBeInTheDocument();
+  });
+
+  it("首次默认显示全部获权业务字段，字段失权后立即从表格与选择器移除", async () => {
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "itemName", label: "品项", type: "text" as const, editable: false },
+      { key: "secretCode", label: "内部编码", type: "text" as const, editable: false }
+    ];
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "field-user", tenantId: "KAINAN", permissions: [
+      "mps-group-plans:orderNumber:read", "mps-group-plans:itemName:read"
+    ] }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const columns = fields.map(field => ({ title: field.label, dataIndex: field.key }));
+    const element = (onQueryChange = vi.fn()) => <QueryClientProvider client={client}><KdosDataTable resource="mps-group-plans" rowKey="id"
+      filterFields={fields} columns={columns} dataSource={[{ id: "1", orderNumber: "A1", itemName: "桌脚", secretCode: "S1" }]}
+      serverData={{ total: 1, onQueryChange }} /></QueryClientProvider>;
+    const view = render(element());
+    await screen.findByText("A1");
+    expect(screen.getByText("桌脚")).toBeInTheDocument();
+    expect(screen.queryByText("S1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    expect(await screen.findByRole("checkbox", { name: "订单编号" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "品项" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "内部编码" })).not.toBeInTheDocument();
+
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "field-user", tenantId: "KAINAN", permissions: ["mps-group-plans:orderNumber:read"] }));
+    view.rerender(element());
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="itemName"]')).toBeNull());
+    expect(screen.queryByRole("checkbox", { name: "品项" })).not.toBeInTheDocument();
+  });
+
+  it("个人设置加载失败时只回退到当前获权字段并显示说明", async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.startsWith("/auth/preferences/table-config?")) throw new Error("偏好服务暂不可用");
+      return [] as never;
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
+    expect(await view.findByText("A001")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前使用全部有权限字段");
   });
 
   it("标准模式只保留横向滚动，内部纵向滚动必须显式开启", () => {
@@ -106,7 +164,7 @@ describe("KdosDataTable server pagination", () => {
     ]);
   });
 
-  it("审计列追加和个人视图处理后，右固定操作列仍是最终最右列", () => {
+  it("审计列追加和个人视图处理后，右固定操作列仍是最终最右列", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
       columns={[
@@ -115,6 +173,7 @@ describe("KdosDataTable server pagination", () => {
         { title: "右操作甲", key: "__rightA", width: 52, fixed: "right", className: "test-right-a" },
         { title: "右操作乙", key: "__rightB", width: 52, fixed: "right", className: "test-right-b" }
       ]} dataSource={[{ id: "1", equipmentName: "设备一" }]} scroll={{ x: "max-content" }} /></QueryClientProvider>);
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="equipmentName"]')).toBeInTheDocument());
 
     const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
     const labels = headers.map((header) => header.textContent?.trim() ?? "");
@@ -128,20 +187,21 @@ describe("KdosDataTable server pagination", () => {
     expect(view.container.querySelector(".ant-table-sticky-holder")).toHaveStyle({ top: "0px" });
   });
 
-  it("个人视图隐藏审计列后，技术操作列仍保留并位于最终可见列最右端", () => {
-    localStorage.setItem("kdos-form-view:KAINAN:anonymous:equipment-register", JSON.stringify(["equipmentName"]));
+  it("个人视图隐藏审计列后，技术操作列仍保留并位于最终可见列最右端", async () => {
+    savedPreferences.set(prefKey("equipment-register", undefined, "DISPLAY"), { version: 1, visibleFieldKeys: ["equipmentName"], orderedFieldKeys: ["equipmentName"], columnWidths: {}, pinnedFieldKeys: [] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
       columns={[
         { title: "设备名称", dataIndex: "equipmentName" },
         { title: "", key: "__rowActions", width: 52, fixed: "right", className: "test-row-actions" }
       ]} dataSource={[{ id: "1", equipmentName: "设备一" }]} /></QueryClientProvider>);
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="equipmentName"]')).toBeInTheDocument());
     const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
     expect(headers.some((header) => header.textContent?.includes("创建人"))).toBe(false);
     expect(headers.at(-1)).toHaveClass("test-row-actions", "ant-table-cell-fix-right");
   });
 
-  it("技术操作列尊重 52px 显式宽度，普通业务字段仍执行类型化 minWidth", () => {
+  it("技术操作列尊重 52px 显式宽度；未注册字段不进入获权业务列", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id" systemFields={false}
       columns={[
@@ -149,64 +209,70 @@ describe("KdosDataTable server pagination", () => {
         { title: "未注册业务字段", dataIndex: "unregisteredBusinessField", width: 40 },
         { title: "", key: "__rowActions", width: 52, fixed: "right", className: "test-row-actions" }
       ]} dataSource={[{ id: "1", equipmentCode: "A001", unregisteredBusinessField: "业务值" }]} /></QueryClientProvider>);
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="equipmentCode"]')).toBeInTheDocument());
     const headers = Array.from(view.container.querySelectorAll(".ant-table-thead th"));
     const columns = Array.from(view.container.querySelectorAll(".ant-table colgroup col"));
     const businessIndex = headers.findIndex((header) => header.textContent?.includes("设备编号"));
     const unregisteredBusinessIndex = headers.findIndex((header) => header.textContent?.includes("未注册业务字段"));
     const actionIndex = headers.findIndex((header) => header.classList.contains("test-row-actions"));
     expect(businessIndex).toBeGreaterThanOrEqual(0);
-    expect(unregisteredBusinessIndex).toBeGreaterThanOrEqual(0);
+    expect(unregisteredBusinessIndex).toBe(-1);
     expect(actionIndex).toBeGreaterThanOrEqual(0);
     expect((columns[businessIndex] as HTMLElement | undefined)?.style.width).toBe("96px");
-    expect((columns[unregisteredBusinessIndex] as HTMLElement | undefined)?.style.width).toBe("96px");
     expect((columns[actionIndex] as HTMLElement | undefined)?.style.width).toBe("52px");
     expect((columns[actionIndex] as HTMLElement | undefined)?.style.minWidth).toBe("52px");
   });
 
-  it("标准表默认支持拖动列宽，并按租户、用户和资源保存宽度", async () => {
+  it("标准表支持拖动列宽，修改即时生效但必须显式保存", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-a", tenantCode: "TENANT-A", permissions: ["*"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
       columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
+    await screen.findByTestId("kdos-column-resizer-equipmentCode");
     const header = view.container.querySelector('th[data-kdos-column-key="equipmentCode"]');
     expect(header?.getAttribute("data-kdos-column-width")).toBe("120");
     fireEvent.mouseDown(await screen.findByTestId("kdos-column-resizer-equipmentCode"), { clientX: 100 });
     fireEvent.mouseMove(window, { clientX: 220 });
     fireEvent.mouseUp(window);
     await waitFor(() => expect(header?.getAttribute("data-kdos-column-width")).toBe("240"));
-    expect(JSON.parse(localStorage.getItem("kdos-form-column-widths:TENANT-A:user-a:equipment-register") ?? "{}"))
-      .toMatchObject({ equipmentCode: 240 });
+    expect(screen.getByRole("button", { name: /未保存/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存我的设置" }));
+    await waitFor(() => expect(savedPreferences.get(prefKey("equipment-register", undefined, "DISPLAY"))).toMatchObject({ columnWidths: { equipmentCode: 240 } }));
 
     cleanup();
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-b", tenantCode: "TENANT-A", permissions: ["*"] }));
-    render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
+    const otherUser = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"
       columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
-    expect(document.querySelector('th[data-kdos-column-key="equipmentCode"]')?.getAttribute("data-kdos-column-width")).toBe("120");
+    await waitFor(() => expect(otherUser.container.querySelector('th[data-kdos-column-key="equipmentCode"]')?.getAttribute("data-kdos-column-width")).toBe("120"));
   });
 
   it("用户宽度覆盖业务初始宽度，隐藏后重新显示仍可恢复", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "user-a", tenantCode: "TENANT-A", permissions: ["*"] }));
-    localStorage.setItem("kdos-form-column-widths:TENANT-A:user-a:mps-group-plans", JSON.stringify({ orderNumber: 260 }));
+    savedPreferences.set(prefKey("mps-group-plans", undefined, "DISPLAY"), { version: 1, visibleFieldKeys: ["orderNumber", "itemName"], orderedFieldKeys: ["itemName", "orderNumber"], columnWidths: { orderNumber: 260 }, pinnedFieldKeys: ["orderNumber"] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><KdosDataTable resource="mps-group-plans" rowKey="id"
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-group-plans" rowKey="id"
       columns={[{ title: "订单编号", dataIndex: "orderNumber" }, { title: "品项", dataIndex: "itemName" }]}
       dataSource={[{ id: "1", orderNumber: "A001", itemName: "品项" }]} /></QueryClientProvider>);
-    expect(document.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260");
+    await screen.findByTestId("kdos-column-resizer-orderNumber");
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260");
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveClass("ant-table-cell-fix-left");
     fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
     const orderCheckbox = await screen.findByRole("checkbox", { name: "订单编号" });
     fireEvent.click(orderCheckbox);
     fireEvent.click(orderCheckbox);
-    await waitFor(() => expect(document.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260"));
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')?.getAttribute("data-kdos-column-width")).toBe("260"));
   });
 
   it("allows stable record selection in browse mode and clears it explicitly", async () => {
-    localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read"] }));
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read", "mps-group-plans:orderNumber:read"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={client}>
       <KdosDataTable resource="mps-group-plans" rowKey="id" columns={[{ title: "订单编号", dataIndex: "orderNumber" }]}
         dataSource={[{ id: "stable-a", orderNumber: "A" }, { id: "stable-b", orderNumber: "B" }]} serverData={{ total: 12, onQueryChange: vi.fn() }} />
     </QueryClientProvider>);
 
+    await screen.findByText("A");
     const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
     expect(rowCheckboxes.length).toBeGreaterThanOrEqual(2);
     fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
@@ -223,6 +289,7 @@ describe("KdosDataTable server pagination", () => {
     const view = render(<QueryClientProvider client={client}><KdosDataTable {...props}
       dataSource={[{ id: "page-1-a", orderNumber: "A" }, { id: "page-1-b", orderNumber: "B" }]} /></QueryClientProvider>);
 
+    await screen.findByText("A");
     const firstPageCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
     fireEvent.click(firstPageCheckboxes[firstPageCheckboxes.length - 2]!);
     fireEvent.click(firstPageCheckboxes[firstPageCheckboxes.length - 1]!);
@@ -251,6 +318,7 @@ describe("KdosDataTable server pagination", () => {
       deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete: vi.fn() }} /></QueryClientProvider></AntApp>);
     const button = await screen.findByRole("button", { name: "删除" });
     expect(button).toBeDisabled();
+    await screen.findByText("A001");
     const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
     fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
     expect(button).toBeEnabled();
@@ -264,6 +332,7 @@ describe("KdosDataTable server pagination", () => {
       dataSource={[{ id: "asset-1", equipmentCode: "A001", canDelete: true }, { id: "asset-2", equipmentCode: "A002", canDelete: false }]}
       deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete: vi.fn() }} />
     </QueryClientProvider></AntApp>);
+    await screen.findByText("A001");
     const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
     fireEvent.click(rowCheckboxes[rowCheckboxes.length - 2]!);
     expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
@@ -280,6 +349,7 @@ describe("KdosDataTable server pagination", () => {
       dataSource={[{ id: "asset-1", equipmentCode: "A001", canDelete: true }]}
       deleteAction={{ permitted: true, canDelete: (row) => row.canDelete, onDelete }} />
     </QueryClientProvider></AntApp>);
+    await screen.findByText("A001");
     const rowCheckboxes = view.container.querySelectorAll("tbody tr input[type=checkbox]");
     fireEvent.click(rowCheckboxes[rowCheckboxes.length - 1]!);
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
@@ -303,7 +373,7 @@ describe("KdosDataTable server pagination", () => {
   });
 
   it("没有服务端 export 权限时不显示导出按钮", async () => {
-    localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read"] }));
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "viewer", permissions: ["mps-group-plans:*:read", "mps-group-plans:orderNumber:read"] }));
     vi.mocked(api).mockImplementation(async (path: string) => {
       if (path === "/table-exports/capabilities") return [{ code: "mps-group-plans", supported: true, allowed: false }] as never;
       if (path === "/table-filters/resources") return [] as never;

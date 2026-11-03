@@ -21,10 +21,6 @@ export function printPaperDimensions(paper: PrintPaperSize, orientation: PrintOr
   return { width: orientation === "landscape" ? long : short, height: orientation === "landscape" ? short : long };
 }
 
-export function printPreferenceKey(tenant: string, user: string, resource: string, viewKey = "") {
-  return `kdos-print-v1:${[tenant, user, resource, viewKey].map(encodeURIComponent).join(":")}`;
-}
-
 export function normalizePrintPreferences(value: unknown, allowedKeys: string[], defaults: PrintPreferences): PrintPreferences {
   if (!value || typeof value !== "object" || (value as PrintPreferences).version !== 1) return defaults;
   const saved = value as Partial<PrintPreferences>;

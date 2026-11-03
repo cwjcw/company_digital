@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import { readFinanceMonthlyPeriod } from './finance-monthly.period';
 import { financeOrderFields,financeMonthlyFields,financeRankingFields,financeDashboardLabels as L,financeDepartmentOptions,financeSalesChannelOptions } from '@kdos/contracts';
 import { api } from '../../api';
-import { hasResourcePermission,KdosDataTable,kdosDefaultPageSize,ensureTableFieldVisibleOnce } from '../../shared/KdosDataTable';
+import { hasResourcePermission,KdosDataTable,kdosDefaultPageSize } from '../../shared/KdosDataTable';
 import { formatPrintDateTime } from '../../shared/table-print';
 import { KdosChart } from '../../shared/charts/KdosChart';
 import type { AdvancedFilterGroup,AdvancedFilterRule } from '../../shared/advanced-filter';
@@ -21,7 +21,7 @@ export function FinanceOrderTable({monthly=false}:{monthly?:boolean}){
 function FinanceOrderTableContent({monthly}:{monthly:boolean}){
  const resource=monthly?'finance-e10-monthly':'finance-e10-lines';const fields=monthly?financeMonthlyFields:financeOrderFields;
  const session=localStorage.getItem('sessionUser')??'';const canRead=hasResourcePermission(resource,'read');const client=useQueryClient();
- const [query,setQuery]=useState<TableQuery>(()=>{ensureTableFieldVisibleOnce(resource,'businessRemark','finance-business-remark-v1');if(monthly)for(const key of ['yearMonth','businessType','baseAmount','increaseAmount','decreaseAmount','changeAmount','orderTotal'])ensureTableFieldVisibleOnce(resource,key,'finance-order-month-occurrence-v1-'+key);return initialQuery;});const [params,setParams]=useSearchParams();
+ const [query,setQuery]=useState<TableQuery>(initialQuery);const [params,setParams]=useSearchParams();
  const [year,setYear]=useState<number|undefined>(params.get('year')?Number(params.get('year')):undefined);
  const occurrence=readFinanceMonthlyPeriod(params);
  const [mode,setMode]=useState<'FULL'|'INCREMENTAL'>('FULL');

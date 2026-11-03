@@ -14,6 +14,8 @@ import { MailService } from "./mail.service";
 export const PASSWORD_RULE_TEXT = "密码须为 8–64 位，至少包含一个字母和一个数字，不能包含空格，且不能与当前密码相同";
 const PASSWORD_PATTERN = /^(?=.{8,64}$)(?=.*[A-Za-z])(?=.*\d)\S+$/;
 const PORTAL_MODULE_IDS = ["cockpit", "project-task", "planning", "data", "finance", "marketing", "hr", "workflow", "rd", "knowledge", "system", "profile"] as const;
+const TABLE_PREFERENCE_TYPES = ["DISPLAY", "PRINT"] as const;
+const TABLE_PREFERENCE_MAX_BYTES = 64 * 1024;
 
 @Injectable()
 export class AuthService {
@@ -212,6 +214,76 @@ export class AuthService {
       action: "portal.module_order.updated", beforeJson: { order: previousOrder }, afterJson: { order: normalized }, requestId, source: "web"
     });
     return { order: normalized };
+  }
+
+  async getTablePreference(userId: string, resource: unknown, viewKey: unknown, configType: unknown) {
+    const key = this.tablePreferenceKey(resource, viewKey, configType);
+    const user = await this.users.findOneBy({ id: userId });
+    if (!user?.enabled) throw new UnauthorizedException("账户已停用");
+    const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
+    if (user.tenantId !== tenantId) throw new UnauthorizedException("当前账户租户无效");
+    return { config: user.tablePreferences?.[key] ?? null };
+  }
+
+  async saveTablePreference(userId: string, resource: unknown, viewKey: unknown, configType: unknown, config: unknown, requestId: string, ifMissing = false) {
+    const key = this.tablePreferenceKey(resource, viewKey, configType);
+    const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
+    if (config !== null) {
+      if (!config || typeof config !== "object" || Array.isArray(config)) throw new BadRequestException("字段配置格式无效");
+      if (Buffer.byteLength(JSON.stringify(config), "utf8") > TABLE_PREFERENCE_MAX_BYTES) throw new BadRequestException("字段配置过大，请减少字段或列宽设置");
+      const preference = config as Record<string, unknown>;
+      const fieldsKey = configType === "DISPLAY" ? "visibleFieldKeys" : "columnKeys";
+      const allowedKeys = configType === "DISPLAY"
+        ? ["version", "visibleFieldKeys", "orderedFieldKeys", "columnWidths", "pinnedFieldKeys"]
+        : ["version", "columnKeys", "widths", "paperSize", "orientation", "widthMode"];
+      if (Object.keys(preference).some((key) => !allowedKeys.includes(key)) || preference.version !== 1) throw new BadRequestException("字段配置格式无效");
+      const keys = preference[fieldsKey];
+      const orderedKeys = configType === "DISPLAY" ? preference.orderedFieldKeys : keys;
+      const pinnedKeys = configType === "DISPLAY" ? preference.pinnedFieldKeys : [];
+      if (![keys, orderedKeys, pinnedKeys].every((value) => Array.isArray(value) && value.length <= 500 && value.every((key) => typeof key === "string" && key.length <= 120))) {
+        throw new BadRequestException("字段配置中的字段列表无效");
+      }
+      const widths = preference[configType === "DISPLAY" ? "columnWidths" : "widths"];
+      if (!widths || typeof widths !== "object" || Array.isArray(widths)
+        || Object.entries(widths).some(([field, width]) => field.length > 120 || typeof width !== "number" || !Number.isFinite(width) || width <= 0 || width > 10000)) {
+        throw new BadRequestException("字段配置中的列宽无效");
+      }
+      if (configType === "PRINT" && !["A4", "A3"].includes(String(preference.paperSize))) throw new BadRequestException("打印纸张规格无效");
+      if (configType === "PRINT" && !["portrait", "landscape"].includes(String(preference.orientation))) throw new BadRequestException("打印方向无效");
+      if (configType === "PRINT" && !["fit", "custom"].includes(String(preference.widthMode))) throw new BadRequestException("打印列宽模式无效");
+    }
+    return this.users.manager.transaction(async (manager) => {
+      const user = await manager.getRepository(User).createQueryBuilder("user").setLock("pessimistic_write")
+        .where("user.id = :userId", { userId }).andWhere("user.tenantId = :tenantId", { tenantId }).getOne();
+      if (!user?.enabled) throw new UnauthorizedException("账户已停用");
+      if (user.tenantId !== tenantId) throw new UnauthorizedException("当前账户租户无效");
+      const previous = user.tablePreferences ?? {};
+      if (ifMissing && key in previous) return { config: previous[key], reset: false, migrated: false };
+      const scope = { resource, viewKey, configType };
+      const beforeJson = { ...scope, config: previous[key] ?? null };
+      if (config === null && !(key in previous)) return { config: null, reset: true };
+      const next = { ...previous };
+      if (config === null) delete next[key];
+      else next[key] = config as Record<string, unknown>;
+      user.tablePreferences = next;
+      user.updatedBy = user.username;
+      user.version = (user.version ?? 0) + 1;
+      await manager.save(User, user);
+      await manager.save(AuditLog, {
+        actorId: user.id, actorName: user.displayName, resource: "table-preferences", recordId: user.id,
+        action: config === null ? "table.preference.reset" : ifMissing ? "table.preference.migrated" : "table.preference.saved",
+        beforeJson, afterJson: { ...scope, config }, requestId, source: "web", createdBy: user.id,
+        updatedBy: user.username, tenantId: user.tenantId
+      });
+      return { config, reset: config === null, migrated: ifMissing && config !== null };
+    });
+  }
+
+  private tablePreferenceKey(resource: unknown, viewKey: unknown, configType: unknown) {
+    if (typeof resource !== "string" || !tableResourceRegistry.some((entry) => entry.code === resource)) throw new BadRequestException("表格资源不存在");
+    if (viewKey !== undefined && (typeof viewKey !== "string" || viewKey.length > 120 || !/^[\p{L}\p{N}._:-]*$/u.test(viewKey))) throw new BadRequestException("表格视图标识无效");
+    if (typeof configType !== "string" || !TABLE_PREFERENCE_TYPES.includes(configType as typeof TABLE_PREFERENCE_TYPES[number])) throw new BadRequestException("字段配置类型无效");
+    return JSON.stringify([resource, viewKey ?? "", configType]);
   }
 
   async changePassword(userId: string, currentPassword: string, nextPassword: string, email: string) {

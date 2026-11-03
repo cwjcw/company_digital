@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Table, Tag, Typography } from "antd";
-import { DeleteOutlined, DownloadOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
+import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Typography } from "antd";
+import { DeleteOutlined, DownloadOutlined, DownOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UpOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
@@ -13,6 +13,7 @@ import type { AdvancedFilterRule } from "./advanced-filter";
 import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
 import { exportTable, tableExportAllowed, useTableExportCapabilities } from "./table-export";
+import { loadTablePreference, saveTablePreference, tablePreferenceQueryKey, type TableDisplayPreferences } from "./table-preferences";
 import type { AdvancedFilterGroup as DetailFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
@@ -102,30 +103,6 @@ function preferenceStorageKey(prefix: string, tenantKey: string, userKey: string
 function legacyPreferenceStorageKey(prefix: string, userKey: string, resource: string, viewKey?: string) {
   const view = viewKey ? `${resource}:${viewKey}` : resource;
   return `${prefix}:${userKey}:${view}`;
-}
-
-/** One-time business column addition, preserving the rest of the user's saved view. */
-export function ensureTableFieldVisibleOnce(resource: string, field: string, revision: string) {
-  const { tenantKey, userKey } = sessionPreferenceScope();
-  const marker = preferenceStorageKey('kdos-form-view-upgrade', tenantKey, userKey, resource, revision);
-  try {
-    if (localStorage.getItem(marker)) return;
-    const key = preferenceStorageKey('kdos-form-view', tenantKey, userKey, resource);
-    const legacy = legacyPreferenceStorageKey('kdos-form-view', userKey, resource);
-    const saved = JSON.parse(localStorage.getItem(key) ?? localStorage.getItem(legacy) ?? 'null');
-    if (Array.isArray(saved) && saved.length && !saved.includes(field)) localStorage.setItem(key, JSON.stringify([...saved, field]));
-    localStorage.setItem(marker, '1');
-  } catch { /* Unavailable or malformed preferences must not block the business table. */ }
-}
-
-function readColumnWidths(storageKey: string): Record<string, number> {
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as unknown;
-    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
-    return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 10000));
-  } catch {
-    return {};
-  }
 }
 
 function numericWidth(value: unknown) {
@@ -257,6 +234,15 @@ function filterColumns<RecordType>(columns: ColumnsType<RecordType>, visible: Se
   });
 }
 
+function orderColumns<RecordType>(columns: ColumnsType<RecordType>, orderedKeys: string[]): ColumnsType<RecordType> {
+  const rank = new Map(orderedKeys.map((key, index) => [key, index]));
+  const indexOf = (column: ColumnType<RecordType> & { children?: ColumnsType<RecordType> }): number => {
+    if (column.children?.length) return Math.min(...column.children.map((child) => indexOf(child as ColumnType<RecordType> & { children?: ColumnsType<RecordType> })));
+    return rank.get(columnKey(column)) ?? Number.MAX_SAFE_INTEGER;
+  };
+  return [...columns].sort((left, right) => indexOf(left as ColumnType<RecordType> & { children?: ColumnsType<RecordType> }) - indexOf(right as ColumnType<RecordType> & { children?: ColumnsType<RecordType> }));
+}
+
 /**
  * Ant Table 的 fixed 列必须在最终列模型两端连续排列。业务页提供的列还会在公共层追加审计列、
  * 应用个人视图和用户冻结，因此只能在所有 augmentation 完成后做一次稳定分组。
@@ -313,8 +299,6 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   simple?: boolean;
   /** Tables always start in browse mode. When enabled, authorized users can explicitly enter edit mode. */
   editable?: boolean;
-  /** Fields hidden for users who have not saved a personal column view yet. */
-  defaultHiddenFields?: string[];
   /** Optional view discriminator so different views of one resource keep separate column and page-size preferences. */
   viewKey?: string;
   /** 正式字段 metadata：提供后启用类型化高级筛选（操作符与值控件全部由 metadata 决定）。 */
@@ -418,7 +402,6 @@ export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
-  defaultHiddenFields = [],
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
   /*
@@ -428,10 +411,15 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const resolvedFilterFields = filterFields ?? tablePermissionFieldsFor(resource as TableResourceCode);
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const { tenantKey, userKey } = sessionPreferenceScope();
-  const storageKey = preferenceStorageKey("kdos-form-view", tenantKey, userKey, resource, viewKey);
+  const displayPreferenceKey = tablePreferenceQueryKey(resource, viewKey, "DISPLAY");
+  const displayPreference = useQuery({
+    queryKey: displayPreferenceKey,
+    queryFn: () => loadTablePreference<TableDisplayPreferences>(resource, viewKey, "DISPLAY"),
+    enabled: !simple,
+    staleTime: 0,
+    retry: 1
+  });
   const pageSizeStorageKey = preferenceStorageKey("kdos-form-page-size", tenantKey, userKey, resource, viewKey);
-  const columnWidthsStorageKey = preferenceStorageKey("kdos-form-column-widths", tenantKey, userKey, resource, viewKey);
-  const legacyStorageKey = legacyPreferenceStorageKey("kdos-form-view", userKey, resource, viewKey);
   const legacyPageSizeStorageKey = legacyPreferenceStorageKey("kdos-form-page-size", userKey, resource, viewKey);
   const [localSearch, setLocalSearch] = useState("");
   const search = searchValue ?? localSearch;
@@ -487,9 +475,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     sortOrder: (sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined) as "asc" | "desc" | undefined,
     context: printContext ?? {},
     selectedIds: rangeType === "SELECTED" ? selectedIds : undefined,
-    columnKeys: displayedExportKeys(renderedColumns),
-    viewKey,
-    preferenceScope: { tenantKey, userKey }
+    viewKey
   });
   /** 打印筛选结果 / 打印已选：先 count（不加载数据）→ 需要时确认 → 生成 Print DTO → 打开打印预览。 */
   const runPrint = async () => {
@@ -566,13 +552,64 @@ export function KdosDataTable<RecordType extends DataRecord>({
     return [...withoutClientAuditColumns, ...systemAuditColumns] as ColumnsType<RecordType>;
   }, [columns, simple, systemFields, systemAuditColumns]);
   const fields = useMemo(() => flatten(allColumns), [allColumns]);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => readColumnWidths(columnWidthsStorageKey));
+  const fieldPermissionSignature = (() => {
+    try {
+      const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
+      return JSON.stringify([session.permissions ?? [], session.isSystemAdmin === true, session.moduleAdminCodes ?? []]);
+    } catch { return ""; }
+  })();
+  const fieldMetadataByLabel = useMemo(() => {
+    const labels = new Map<string, TablePermissionFieldDefinition[]>();
+    for (const field of resolvedFilterFields) labels.set(field.label, [...(labels.get(field.label) ?? []), field]);
+    return new Map([...labels].filter(([, items]) => items.length === 1).map(([label, items]) => [label, items[0]!]));
+  }, [resolvedFilterFields]);
+  const availableFieldKeys = useMemo(() => fields.map((field) => {
+    const metadata = resolvedFilterFields.find((candidate) => candidate.key === field.key) ?? fieldMetadataByLabel.get(field.label);
+    return metadata && hasFieldPermission(resource, metadata.key, "read") ? field.key : null;
+  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, fieldPermissionSignature, fieldMetadataByLabel]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
+  const availableFieldSignature = JSON.stringify(availableFieldKeys);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const columnWidthsRef = useRef(columnWidths);
+  const [visibleKeys, setVisibleKeys] = useState<string[]>([]);
+  const [orderedKeys, setOrderedKeys] = useState<string[]>([]);
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
+  const preferenceIdentity = `${tenantKey}:${userKey}:${resource}:${viewKey ?? ""}`;
+  const [loadedPreferenceIdentity, setLoadedPreferenceIdentity] = useState("");
+  const preferenceLoaded = simple || loadedPreferenceIdentity === preferenceIdentity;
+  const [preferenceDirty, setPreferenceDirty] = useState(false);
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const { message: tableMessage } = AntApp.useApp();
+  const preferenceErrorNotice = useRef("");
   useEffect(() => {
-    const loaded = readColumnWidths(columnWidthsStorageKey);
-    columnWidthsRef.current = loaded;
-    setColumnWidths(loaded);
-  }, [columnWidthsStorageKey]);
+    if (simple) return;
+    if (displayPreference.isLoading) return;
+    const allowed = new Set(JSON.parse(availableFieldSignature) as string[]);
+    const saved = displayPreference.data?.config;
+    if (displayPreference.isError) {
+      setVisibleKeys([...allowed]); setOrderedKeys([...allowed]); setColumnWidths({}); setPinnedKeys([]);
+      setLoadedPreferenceIdentity(preferenceIdentity);
+      return;
+    }
+    const ordered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)) : [];
+    const mergedOrder = [...ordered, ...[...allowed].filter((key) => !ordered.includes(key))];
+    const visible = Array.isArray(saved?.visibleFieldKeys)
+      ? [...new Set(saved.visibleFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)))]
+      : [...allowed];
+    const widths = saved?.columnWidths && typeof saved.columnWidths === "object" && !Array.isArray(saved.columnWidths)
+      ? Object.fromEntries(Object.entries(saved.columnWidths).filter(([key, value]) => allowed.has(key) && typeof value === "number" && Number.isFinite(value) && value >= 40 && value <= 2000)) as Record<string, number>
+      : {};
+    setVisibleKeys(visible); setOrderedKeys(mergedOrder); setColumnWidths(widths);
+    columnWidthsRef.current = widths;
+    setPinnedKeys((Array.isArray(saved?.pinnedFieldKeys) ? saved.pinnedFieldKeys : []).filter((key): key is string => typeof key === "string" && allowed.has(key) && visible.includes(key)));
+    setPreferenceDirty(false); setLoadedPreferenceIdentity(preferenceIdentity);
+  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity]);
+  useEffect(() => {
+    if (displayPreference.isError && preferenceErrorNotice.current !== preferenceIdentity) {
+      preferenceErrorNotice.current = preferenceIdentity;
+      tableMessage.error?.("个人字段设置加载失败，当前暂用全部有权限字段；请确认服务连接后保存设置。");
+    }
+  }, [displayPreference.isError, preferenceIdentity, tableMessage]);
+  useEffect(() => { setPreferenceDirty(false); }, [preferenceIdentity]);
   const startColumnResize = useCallback<KdosResizeStart>((event, key, width, minWidth) => {
     event.preventDefault();
     event.stopPropagation();
@@ -588,26 +625,46 @@ export function KdosDataTable<RecordType extends DataRecord>({
         return next;
       });
     };
-    const stop = () => {
+  const stop = () => {
       document.body.classList.remove("kdos-column-resizing");
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", stop);
-      localStorage.setItem(columnWidthsStorageKey, JSON.stringify(columnWidthsRef.current));
+      setPreferenceDirty(true);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", stop);
-  }, [columnWidthsStorageKey]);
-  const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
-    try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey) ?? "null"); return Array.isArray(saved) ? saved : []; } catch { return []; }
-  });
-  const pinnedStorageKey = preferenceStorageKey("kdos-form-pinned", tenantKey, userKey, resource, viewKey);
-  const legacyPinnedStorageKey = legacyPreferenceStorageKey("kdos-form-pinned", userKey, resource, viewKey);
-  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
-    try { const saved = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? localStorage.getItem(legacyPinnedStorageKey) ?? "[]"); return Array.isArray(saved) ? saved : []; } catch { return []; }
-  });
-  const effectiveVisible = visibleKeys.length ? visibleKeys : fields.map((field) => field.key).filter((key) => !defaultHiddenFields.includes(key));
-  useEffect(() => { if (visibleKeys.length) localStorage.setItem(storageKey, JSON.stringify(visibleKeys)); }, [storageKey, visibleKeys]);
-  useEffect(() => { localStorage.setItem(pinnedStorageKey, JSON.stringify(pinnedKeys)); }, [pinnedStorageKey, pinnedKeys]);
+  }, []);
+  const effectiveVisible = simple ? availableFieldKeys : visibleKeys.filter((key) => availableFieldKeys.includes(key));
+  const moveDisplayField = (key: string, delta: -1 | 1) => {
+    const current = orderedKeys.filter((item) => availableFieldKeys.includes(item));
+    const index = current.indexOf(key), target = index + delta;
+    if (index < 0 || target < 0 || target >= current.length) return;
+    [current[index], current[target]] = [current[target]!, current[index]!];
+    setOrderedKeys(current); setPreferenceDirty(true);
+  };
+  const saveDisplaySettings = async () => {
+    if (!preferenceDirty || preferenceSaving || !preferenceLoaded) return;
+    setPreferenceSaving(true);
+    const config: TableDisplayPreferences = { version: 1, visibleFieldKeys: visibleKeys.filter((key) => availableFieldKeys.includes(key)),
+      orderedFieldKeys: orderedKeys.filter((key) => availableFieldKeys.includes(key)), columnWidths, pinnedFieldKeys: pinnedKeys.filter((key) => visibleKeys.includes(key)) };
+    try {
+      await saveTablePreference(resource, viewKey, "DISPLAY", config);
+      await displayPreference.refetch();
+      setPreferenceDirty(false); tableMessage.success?.("已保存为我的表格设置");
+    } catch (error) { tableMessage.error?.(error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试"); }
+    finally { setPreferenceSaving(false); }
+  };
+  const resetDisplaySettings = async () => {
+    if (preferenceSaving || !preferenceLoaded) return;
+    setPreferenceSaving(true);
+    setVisibleKeys([...availableFieldKeys]); setOrderedKeys([...availableFieldKeys]); setColumnWidths({}); columnWidthsRef.current = {}; setPinnedKeys([]);
+    try {
+      await saveTablePreference(resource, viewKey, "DISPLAY", null);
+      await displayPreference.refetch();
+      setPreferenceDirty(false); tableMessage.success?.("已恢复默认字段设置");
+    } catch (error) { setPreferenceDirty(true); tableMessage.error?.(error instanceof Error ? `恢复默认失败：${error.message}` : "恢复默认失败，请稍后重试"); }
+    finally { setPreferenceSaving(false); }
+  };
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
   const renderedColumns = useMemo(() => {
     const metadata = new Map(resolvedFilterFields.map((field) => [field.key, field]));
@@ -658,12 +715,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
           filterable={Boolean(supportedFilterFields?.some((candidate) => candidate.key === field.key))}
           tableSearch={search} advancedGroup={contextFilterGroup ? { logic: "AND", rules: [], groups: [filterGroup, contextFilterGroup] } : filterGroup} headerGroup={headerGroup} context={printContext}
           onSort={(order) => { setSortField(order ? key : ""); setSortOrder(order); setCurrentPage(1); }}
-          onPin={() => setPinnedKeys((current) => pinned ? current.filter((item) => item !== key) : [...current, key])}
-          onHide={() => { setVisibleKeys(effectiveVisible.filter((item) => item !== key)); setPinnedKeys((current) => current.filter((item) => item !== key)); }}
+          onPin={() => { setPinnedKeys((current) => pinned ? current.filter((item) => item !== key) : [...current, key]); setPreferenceDirty(true); }}
+          onHide={() => { setVisibleKeys(effectiveVisible.filter((item) => item !== key)); setPinnedKeys((current) => current.filter((item) => item !== key)); setPreferenceDirty(true); }}
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
-    return orderKdosFixedColumns(filterColumns(wrap(allColumns), visible));
-  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths]);
+    return orderKdosFixedColumns(orderColumns(filterColumns(wrap(allColumns), visible), orderedKeys));
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -890,7 +947,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
           {selectedCount > 0 ? `打印已选（${selectedCount}）` : "打印筛选结果"}
         </Button>}
-        <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>字段显示</Button>
+        <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)} disabled={!preferenceLoaded}>字段显示{preferenceDirty ? " · 未保存" : ""}</Button>
         <TablePermissionButton resource={resource} label={permissionButtonLabel} />
       </Space>
     </Flex>}
@@ -909,7 +966,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
       onRow={rowEventHandlers}
       rowSelection={effectiveRowSelection}
       dataSource={rows}
-      columns={renderedColumns}
+      columns={preferenceLoaded ? renderedColumns : []}
+      loading={Boolean(tableProps.loading) || (!simple && !preferenceLoaded)}
       pagination={resolvedPagination}
       scroll={internalVerticalScroll ? (scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }) : { ...(scroll ?? { x: "max-content" }), y: undefined }}
       sticky={internalVerticalScroll ? true : { offsetHeader: 0 }}
@@ -925,12 +983,25 @@ export function KdosDataTable<RecordType extends DataRecord>({
         tableProps.onChange?.(paginationState, tableFilters, sorter, extra);
       }}
     />
-    {!simple && <Drawer title="字段显示与个人视图" width={400} open={drawerOpen} onClose={() => setDrawerOpen(false)}
-      extra={<Button icon={<ReloadOutlined />} onClick={() => { setVisibleKeys([]); setPinnedKeys([]); localStorage.removeItem(storageKey); }}>恢复默认</Button>}>
-      <Typography.Paragraph type="secondary">字段设置只保存到当前账号；创建人、创建时间、更新人、更新时间可以隐藏，但不能编辑。</Typography.Paragraph>
-      <Checkbox.Group value={effectiveVisible} onChange={(keys) => { setVisibleKeys(keys.map(String)); setPinnedKeys((current) => current.filter((key) => keys.map(String).includes(key))); }} style={{ width: "100%" }}>
-        <Flex vertical gap={8}>{fields.map((field) => <Checkbox key={field.key} value={field.key}>{field.label}</Checkbox>)}</Flex>
-      </Checkbox.Group>
+    {!simple && <Drawer title="字段显示与个人视图" width={440} open={drawerOpen} onClose={() => setDrawerOpen(false)}
+      extra={<Space><Button icon={<ReloadOutlined />} loading={preferenceSaving} disabled={!preferenceLoaded} onClick={() => void resetDisplaySettings()}>恢复默认</Button>
+        <Button type="primary" loading={preferenceSaving} disabled={!preferenceDirty || !preferenceLoaded} onClick={() => void saveDisplaySettings()}>保存我的设置</Button></Space>}>
+      <Typography.Paragraph type="secondary">勾选、排序、列宽和固定列为当前调整；点击“保存我的设置”后会跨浏览器自动恢复。仅列出当前有读取权限的字段。</Typography.Paragraph>
+      {displayPreference.isError && <Typography.Text type="danger" role="alert">个人设置读取失败，当前使用全部有权限字段；保存前请确认服务已恢复。</Typography.Text>}
+      {!preferenceLoaded ? <Spin /> : <Flex vertical gap={8}>
+        {orderedKeys.filter((key) => availableFieldKeys.includes(key)).map((key, index) => {
+          const field = fields.find((candidate) => candidate.key === key);
+          if (!field) return null;
+          return <Flex key={key} align="center" gap={8}>
+            <Checkbox checked={effectiveVisible.includes(key)} onChange={(event) => {
+              const next = event.target.checked ? [...effectiveVisible, key] : effectiveVisible.filter((item) => item !== key);
+              setVisibleKeys(next); setPinnedKeys((current) => current.filter((item) => next.includes(item))); setPreferenceDirty(true);
+            }}>{field.label}</Checkbox>
+            <Button size="small" aria-label={`${field.label}上移`} icon={<UpOutlined />} disabled={index === 0} onClick={() => moveDisplayField(key, -1)} />
+            <Button size="small" aria-label={`${field.label}下移`} icon={<DownOutlined />} disabled={index === availableFieldKeys.length - 1} onClick={() => moveDisplayField(key, 1)} />
+          </Flex>;
+        })}
+      </Flex>}
     </Drawer>}
   </section></></KdosTableEditContext.Provider>;
 }

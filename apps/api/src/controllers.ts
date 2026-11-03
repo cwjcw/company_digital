@@ -140,6 +140,17 @@ export class AuthController {
   updatePortalModuleOrder(@Body() body: { order: string[] }, @Req() req: UserRequest) {
     return this.auth.updatePortalModuleOrder(req.user.sub, body.order, req.requestId);
   }
+  @Get("preferences/table-config")
+  @UseGuards(AuthGuard)
+  getTablePreference(@Query("resource") resource: string, @Query("viewKey") viewKey: string | undefined,
+    @Query("configType") configType: string, @Req() req: UserRequest) {
+    return this.auth.getTablePreference(req.user.sub, resource, viewKey, configType);
+  }
+  @Put("preferences/table-config")
+  @UseGuards(AuthGuard)
+  saveTablePreference(@Body() body: { resource?: unknown; viewKey?: unknown; configType?: unknown; config?: unknown; ifMissing?: boolean }, @Req() req: UserRequest) {
+    return this.auth.saveTablePreference(req.user.sub, body.resource, body.viewKey, body.configType, body.config, req.requestId, body.ifMissing === true);
+  }
   @Post("change-password")
   @UseGuards(AuthGuard)
   changePassword(@Body() body: { currentPassword: string; nextPassword: string; email: string }, @Req() req: UserRequest) {

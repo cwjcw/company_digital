@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- shared print helpers are intentionally co-located with the print document component */
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "../api";
 import { useQuery } from "@tanstack/react-query";
 import type { AdvancedFilterGroup } from "./advanced-filter";
@@ -40,12 +41,11 @@ export type TablePrintRequest = {
   context?: Record<string, unknown>;
   /** 打印已选：稳定记录 ID；后端会重新取数并做权限过滤。 */
   selectedIds?: string[];
-  /** Initial visible business keys; settings may add other server-authorized printable fields. */
+  /** Optional narrowing request. Standard KdosDataTable opens settings over all authorized printable fields. */
   columnKeys?: string[];
   titleHint?: string;
-  /** Independent business view and preference identity; never used as authorization. */
+  /** Independent business view identity for print preferences. */
   viewKey?: string;
-  preferenceScope?: { tenantKey: string; userKey: string };
 };
 
 /** 打印能力（后端为唯一真相，前端只用于显示/隐藏入口）。 */
@@ -86,7 +86,8 @@ function openPrintPreview(dto: TablePrintDto, request: TablePrintRequest) {
   document.body.appendChild(portal);
   const root: Root = createRoot(portal);
   const cleanup = () => { root.unmount(); portal.remove(); };
-  root.render(<PrintSettingsPreview dto={dto} request={request} onClose={cleanup} />);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  root.render(<QueryClientProvider client={queryClient}><PrintSettingsPreview dto={dto} request={request} onClose={cleanup} /></QueryClientProvider>);
   return cleanup;
 }
 

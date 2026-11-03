@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  computePrintLayout, normalizePrintPreferences, orderedPrintHeaderGroups, printPreferenceKey,
+  computePrintLayout, normalizePrintPreferences, orderedPrintHeaderGroups,
   PRINT_MARGIN_MM, PRINT_MAX_COLUMN_MM, PRINT_MIN_COLUMN_MM, PRINT_PX_PER_MM,
   type PrintPreferences
 } from "@kdos/contracts";
 import { fetchPrintDto, planPrint, printConfirmMessage, type TablePrintDto, type TablePrintRequest } from "./table-print";
 import { KdosPrintDocument } from "./table-print-document";
+import { loadTablePreference, saveTablePreference, tablePreferenceQueryKey } from "./table-preferences";
 
 type PageRange = { start: number; end: number };
 type Pagination = { pages: PageRange[]; error?: string };
@@ -116,20 +118,16 @@ export function PrintSettingsPreview({ dto, request, onClose }: { dto: TablePrin
   const [data, setData] = useState(dto);
   const defaults = useMemo<PrintPreferences>(() => {
     const allowed = new Set(dto.columns.map(column => column.key));
-    return { version: 1, columnKeys: (request.columnKeys ?? dto.columns.map(column => column.key)).filter(key => allowed.has(key)),
+    return { version: 1, columnKeys: dto.columns.map(column => column.key).filter(key => allowed.has(key)),
       widths: {}, paperSize: "A4", orientation: dto.meta.orientation, widthMode: "fit" };
-  }, [dto, request.columnKeys]);
-  const storageKey = useMemo(() => {
-    // Same session identity as table preferences; no token, rows or names are persisted.
-    let session: { tenantId?: string; tenantCode?: string; sub?: string } = {};
-    try { session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}") ?? {}; } catch { /* Same fallback as table preferences. */ }
-    const scope = request.preferenceScope ?? { tenantKey: String(session.tenantId ?? session.tenantCode ?? "KAINAN"), userKey: String(session.sub ?? "anonymous") };
-    return printPreferenceKey(scope.tenantKey, scope.userKey, request.resource, request.viewKey);
-  }, [request]);
-  const [preferences, setPreferences] = useState<PrintPreferences>(() => {
-    try { return normalizePrintPreferences(JSON.parse(localStorage.getItem(storageKey) ?? "null"), dto.columns.map(column => column.key), defaults); }
-    catch { return defaults; }
+  }, [dto]);
+  const preferenceQuery = useQuery({
+    queryKey: tablePreferenceQueryKey(request.resource, request.viewKey, "PRINT"),
+    queryFn: () => loadTablePreference<PrintPreferences>(request.resource, request.viewKey, "PRINT"),
+    staleTime: 0,
+    retry: 1
   });
+  const [preferences, setPreferences] = useState<PrintPreferences>(defaults);
   const [notice, setNotice] = useState(dto.meta.requestedCount != null && dto.meta.printedCount < dto.meta.requestedCount
     ? "部分已选记录因权限或状态变化未包含在打印内容中，请核对预览。" : "");
   const [busy, setBusy] = useState(false);
@@ -138,6 +136,11 @@ export function PrintSettingsPreview({ dto, request, onClose }: { dto: TablePrin
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
   const updateReady = useCallback((value: boolean) => { readyRef.current = value; setReady(value); }, []);
+  useEffect(() => {
+    if (preferenceQuery.isLoading) return;
+    setPreferences(normalizePrintPreferences(preferenceQuery.data?.config, dto.columns.map(column => column.key), defaults));
+    if (preferenceQuery.isError) setNotice("个人打印配置加载失败，当前使用默认设置；保存时请确认服务连接正常。");
+  }, [preferenceQuery.isLoading, preferenceQuery.isError, preferenceQuery.dataUpdatedAt, preferenceQuery.data, dto.columns, defaults]);
   const paginationProblem = useCallback((message: string) => {
     setNotice(message); setBusy(false); setPrintAll(false); busyRef.current = false;
   }, []);
@@ -192,12 +195,26 @@ export function PrintSettingsPreview({ dto, request, onClose }: { dto: TablePrin
     const keys = preferences.columnKeys.filter(key => key !== from);
     keys.splice(keys.indexOf(to), 0, from); change({ ...preferences, columnKeys: keys });
   };
-  const save = () => {
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const save = async () => {
+    if (savingPreferences || preferenceQuery.isLoading) return;
+    setSavingPreferences(true);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(preferences));
-      if (localStorage.getItem(storageKey) !== JSON.stringify(preferences)) throw new Error("存储校验失败");
-      setNotice("已保存为我的默认打印配置（当前浏览器）。");
-    } catch { setNotice("保存失败，浏览器存储不可用或空间不足。当前配置仍可用于本次打印。"); }
+      await saveTablePreference(request.resource, request.viewKey, "PRINT", preferences);
+      await preferenceQuery.refetch();
+      setNotice("已保存为我的默认打印配置。");
+    } catch (error) { setNotice(errorMessage(error)); }
+    finally { setSavingPreferences(false); }
+  };
+  const reset = async () => {
+    if (savingPreferences || preferenceQuery.isLoading) return;
+    setPreferences(defaults); setSavingPreferences(true);
+    try {
+      await saveTablePreference(request.resource, request.viewKey, "PRINT", null);
+      await preferenceQuery.refetch();
+      setNotice("已恢复默认打印配置。");
+    } catch (error) { setNotice(`恢复默认失败：${errorMessage(error)}`); }
+    finally { setSavingPreferences(false); }
   };
   const print = async () => {
     if (busyRef.current || !readyRef.current || layout.overflow || !selected.columns.length) return;
@@ -237,12 +254,13 @@ export function PrintSettingsPreview({ dto, request, onClose }: { dto: TablePrin
     });
     return () => { cancelled = true; cancelAnimationFrame(frame); };
   }, [printAll, ready]);
+  if (preferenceQuery.isLoading) return <div className="kdos-print-preview" role="dialog" aria-modal="true" aria-label="打印设置与预览">正在加载个人打印配置…</div>;
   return <div className="kdos-print-preview" role="dialog" aria-modal="true" aria-label="打印设置与预览" data-testid="kdos-print-preview">
     <div className="kdos-print-preview-bar">
       <strong>打印设置与预览</strong>
       <span className="kdos-print-preview-hint">{dto.title} · {dto.meta.rangeType === "SELECTED" ? "打印已选" : "打印筛选结果"} · 共 {data.rows.length} 条</span>
-      <button type="button" disabled={busy || !selected.columns.length || layout.overflow} onClick={save}>保存为我的默认配置</button>
-      <button type="button" disabled={busy} onClick={() => change({ ...defaults, columnKeys: defaults.columnKeys.filter(key => data.columns.some(column => column.key === key)) })}>恢复默认</button>
+      <button type="button" disabled={busy || savingPreferences || preferenceQuery.isLoading || !selected.columns.length || layout.overflow} onClick={() => void save()}>{savingPreferences ? "正在保存…" : "保存为我的默认配置"}</button>
+      <button type="button" disabled={busy || savingPreferences} onClick={() => void reset()}>恢复默认</button>
       <button type="button" className="kdos-print-primary" disabled={busy || !ready || layout.overflow || !selected.columns.length} onClick={() => void print()}>{busy ? "正在准备打印…" : "本次打印"}</button>
       <button type="button" disabled={busy} onClick={onClose}>关闭</button>
     </div>
@@ -257,7 +275,7 @@ export function PrintSettingsPreview({ dto, request, onClose }: { dto: TablePrin
           <label>列宽适配<select aria-label="列宽适配" value={preferences.widthMode} onChange={e => change({ ...preferences, widthMode: e.target.value as "fit" | "custom" })}><option value="fit">自动适应纸张宽度</option><option value="custom">保持自定义宽度</option></select></label>
         </div>
         <p>拖动已选字段调整顺序；列宽单位：毫米（最小 {PRINT_MIN_COLUMN_MM} mm）。</p>
-        <p>打印设置独立于表格字段显示；默认配置保存在当前浏览器。</p>
+        <p>打印设置独立于表格字段显示；默认配置保存在个人账号中。</p>
         {!selected.columns.length && <p role="alert">请至少选择一个打印字段。</p>}
         {layout.overflow && <p role="alert">列宽 {layout.totalWidth.toFixed(1)} mm 超过可用宽度 {layout.availableWidth} mm，无法打印。请选择自动适应、横向或 A3，或缩小列宽、减少字段。</p>}
         <ol className="kdos-print-fields" aria-label="打印字段">

@@ -212,7 +212,7 @@ describe("AuthService password rules", () => {
 describe("AuthService portal module preferences", () => {
   function setup() {
     const user = { id: "user-1", username: "member", displayName: "测试用户", enabled: true, portalModuleOrder: ["planning"], version: 2 };
-    const users = { findOneBy: jest.fn().mockResolvedValue(user), save: jest.fn(async (value) => value) };
+    const users: any = { findOneBy: jest.fn().mockResolvedValue(user), save: jest.fn(async (value: unknown) => value) };
     const audits = { save: jest.fn().mockResolvedValue({}) };
     const service = new AuthService(
       users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
@@ -239,5 +239,58 @@ describe("AuthService portal module preferences", () => {
 
   it("rejects unknown module identifiers", async () => {
     await expect(setup().service.updatePortalModuleOrder("user-1", ["planning", "unknown"], "request-2")).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe("AuthService table preferences", () => {
+  function setup(tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN") {
+    const user = { id: "user-1", username: "member", displayName: "测试用户", enabled: true, tenantId, tablePreferences: {}, version: 1 };
+    const users: any = { findOneBy: jest.fn().mockResolvedValue(user), save: jest.fn(async (value: unknown) => value) };
+    const audits = { save: jest.fn().mockResolvedValue({}) };
+    const query = { setLock: jest.fn(), where: jest.fn(), andWhere: jest.fn(), getOne: jest.fn().mockResolvedValue(user) };
+    query.setLock.mockReturnValue(query); query.where.mockReturnValue(query); query.andWhere.mockReturnValue(query);
+    const manager: any = { getRepository: jest.fn(() => ({ createQueryBuilder: jest.fn(() => query) })), save: jest.fn(async (_entity: unknown, value: unknown) => value) };
+    users.manager = { transaction: jest.fn(async (run: (transactionManager: any) => unknown) => run(manager)) };
+    const service = new AuthService(
+      users as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, audits as never, {} as never, {} as never
+    );
+    return { service, user, users, audits, manager };
+  }
+
+  it("persists independent resource/view/type configurations on the authenticated user's tenant record", async () => {
+    const { service, user, users, audits, manager } = setup();
+    const display = { version: 1, visibleFieldKeys: ["orderNo"], orderedFieldKeys: ["orderNo"], columnWidths: { orderNo: 160 }, pinnedFieldKeys: [] };
+    const print = { version: 1, columnKeys: ["orderNo"], widths: { orderNo: 30 }, paperSize: "A4", orientation: "portrait", widthMode: "fit" };
+    await expect(service.saveTablePreference("user-1", "mps-weekly-plans", "PENDING", "DISPLAY", display, "req-display"))
+      .resolves.toMatchObject({ config: display, reset: false });
+    await service.saveTablePreference("user-1", "mps-weekly-plans", "PENDING", "PRINT", print, "req-print");
+    await service.saveTablePreference("user-1", "mps-weekly-plans", "ACTUAL", "DISPLAY", { version: 1, visibleFieldKeys: ["itemCode"], orderedFieldKeys: ["itemCode"], columnWidths: {}, pinnedFieldKeys: [] }, "req-actual");
+    await expect(service.saveTablePreference("user-1", "mps-weekly-plans", "PENDING", "DISPLAY", { version: 1, visibleFieldKeys: [], orderedFieldKeys: [], columnWidths: {}, pinnedFieldKeys: [] }, "req-migrate", true))
+      .resolves.toMatchObject({ config: display, migrated: false });
+    await expect(service.getTablePreference("user-1", "mps-weekly-plans", "PENDING", "DISPLAY"))
+      .resolves.toEqual({ config: display });
+    await expect(service.getTablePreference("user-1", "mps-weekly-plans", "PENDING", "PRINT"))
+      .resolves.toEqual({ config: print });
+    expect(Object.keys(user.tablePreferences!)).toHaveLength(3);
+    expect(users.manager.transaction).toHaveBeenCalledTimes(4);
+    expect(manager.save).toHaveBeenCalledTimes(6);
+    expect(manager.save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({ tenantId: user.tenantId, actorId: user.id, action: "table.preference.saved" }));
+    expect(audits.save).not.toHaveBeenCalled();
+  });
+
+  it("removes only the requested preference on reset and rejects invalid resource/type/size or tenant", async () => {
+    const { service, user, manager } = setup();
+    user.tablePreferences = { [JSON.stringify(["mps-weekly-plans", "", "DISPLAY"])]: { version: 1, visibleFieldKeys: ["orderNo"], orderedFieldKeys: ["orderNo"], columnWidths: {}, pinnedFieldKeys: [] } };
+    await expect(service.saveTablePreference("user-1", "mps-weekly-plans", undefined, "DISPLAY", null, "req-reset"))
+      .resolves.toMatchObject({ config: null, reset: true });
+    expect(user.tablePreferences).toEqual({});
+    await expect(service.getTablePreference("user-1", "not-a-resource", undefined, "DISPLAY")).rejects.toThrow(/资源/);
+    await expect(service.getTablePreference("user-1", "mps-weekly-plans", undefined, "LOCAL")).rejects.toThrow(/类型/);
+    await expect(service.saveTablePreference("user-1", "mps-weekly-plans", undefined, "DISPLAY", { data: "x".repeat(65 * 1024) }, "req-large"))
+      .rejects.toThrow(/过大/);
+    await expect(setup("OTHER_TENANT").service.getTablePreference("user-1", "mps-weekly-plans", undefined, "DISPLAY"))
+      .rejects.toThrow(/租户/);
+    expect(manager.save).toHaveBeenCalledTimes(2);
   });
 });

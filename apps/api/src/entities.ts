@@ -29,6 +29,7 @@ export class User extends AuditedEntity {
   @Column({ type: "varchar", nullable: true }) email!: string | null;
   @Column({ name: "department_paths", type: "jsonb", default: () => "'[]'" }) departmentPaths!: string[][];
   @Column({ name: "portal_module_order", type: "jsonb", default: () => "'[]'" }) portalModuleOrder!: string[];
+  @Column({ name: "table_preferences", type: "jsonb", default: () => "'{}'" }) tablePreferences!: Record<string, unknown>;
   @Column({ name: "must_change_password", default: true }) mustChangePassword!: boolean;
   @Column({ name: "last_login_at", type: "timestamptz", nullable: true }) lastLoginAt!: Date | null;
   @Column({ name: "password_reset_failures", type: "integer", default: 0 }) passwordResetFailures!: number;
