@@ -992,6 +992,109 @@ export function tablePrintResourceCapabilityOf(code: string): TablePrintResource
   return tablePrintResourceCapabilities[code] ?? { status: "NOT_APPLICABLE", reason: `未登记的打印能力：${code}` };
 }
 
+/** KN-FORM-EXCEL-001: resource-level Excel round-trip capability audit. */
+export type TableExcelCapabilityStatus = "SHARED_SUPPORTED" | "SPECIALIZED" | "NOT_APPLICABLE" | "GAP";
+export type TableExcelResourceCapability = {
+  status: TableExcelCapabilityStatus;
+  normalExport: "SHARED" | "SPECIALIZED" | "NOT_APPLICABLE";
+  createTemplate: "SUPPORTED" | "SPECIALIZED" | "NOT_APPLICABLE" | "GAP";
+  updateTemplate: "SUPPORTED" | "SPECIALIZED" | "NOT_APPLICABLE" | "GAP";
+  excelCreate: "SUPPORTED" | "SPECIALIZED" | "NOT_APPLICABLE" | "GAP";
+  excelUpdate: "SUPPORTED" | "SPECIALIZED" | "NOT_APPLICABLE" | "GAP";
+  identityVersionContract: "ID_VERSION" | "SPECIALIZED_IDENTITY" | "NOT_APPLICABLE" | "GAP";
+  reason?: string;
+};
+
+const excelNotApplicableReasons: Record<string, string> = {
+  "sales-orders": "ERP订单镜像由E10/T+作为权威来源，业务页面只读，不允许Excel回写。",
+  "mps-erp-orders": "ERP订单明细由E10同步适配器维护，只读页面不允许Excel回写。",
+  "mps-group-plans": "集团主计划由订单分配投影维护，不允许Excel新增或直接覆盖投影记录。",
+  "mps-monthly-plans": "事业部月度计划由订单分配投影维护，不允许Excel新增或直接覆盖投影记录。",
+  "mps-weekly-plans": "事业部周计划由基础计划投影维护，不允许Excel新增或直接覆盖投影记录。",
+  "mps-sync-logs": "同步日志为不可变运行追溯信息，不允许Excel修改。",
+  "mps-system-settings": "系统参数使用受控配置流程维护，不作为标准业务Excel写入资源。",
+  "mps-sync-configs": "计划同步调度配置由受控任务管理流程维护，不开放通用Excel写入。",
+  "finance-e10-changes": "E10订单金额变更是源系统投影和财务追溯事实，只读展示，不允许Excel回写。",
+  "finance-e10-movements": "月度接单发生额由E10同步及财务投影计算，不允许Excel直接维护。",
+  "finance-e10-movement-departments": "接单发生额事业部分析为财务聚合只读结果，不存在可更新业务行。",
+  "finance-e10-movement-customers": "接单发生额客户分析为财务聚合只读结果，不存在可更新业务行。",
+  "finance-e10-lines": "系统导出明细是E10只读镜像，不允许Excel回写源订单。",
+  "finance-e10-monthly": "财务月度数据由E10同步及发生额重建逻辑维护，不允许Excel覆盖。",
+  "finance-e10-dashboard": "财务大屏是聚合统计视图，不存在可更新业务行。",
+  "finance-e10-ranking": "客户年度金额排名是财务聚合只读视图，不存在可更新业务行。",
+  "pmc-rd-progress": "研发进度由T+来源数据同步投影生成，不允许人工Excel覆盖来源值。",
+  "rd-material-duplicates": "一物多码检测结果由全量计算产生，resource update 用于重新计算而非维护行字段。",
+  "finished-goods-inbound": "入库事实由正式入库流程产生，不允许通过Excel覆盖库存事实。",
+  "finished-goods-outbound": "出库事实由正式出库流程产生，不允许通过Excel覆盖库存事实。",
+  "supplier-list": "供应商清单是T+同步只读投影，只允许集成适配器维护。",
+  "audit-logs": "审计日志是不可变系统记录，不提供新增或更新导入。",
+  "api-keys": "API Key属于安全凭据配置，不允许导出或Excel维护。",
+  imports: "导入记录是系统任务追溯信息，不是可维护业务数据。",
+  "tplus-sales-orders": "T+同步页面展示集成任务状态，不是可维护订单业务表。",
+  "customer-data-import": "客户数据导入是一次性导入任务入口，不是持久业务表。",
+  "hr-departure-check": "离职人员检查是即时计算结果，不形成可维护业务记录。",
+  "sales-summary-dashboard": "销售大屏是聚合指标视图，明细不属于该resource。",
+  "supervision-project-dashboard": "项目大屏是聚合视图，业务记录由督办项目资源维护。",
+  "supervision-employee-dashboard": "员工待办大屏是聚合视图，业务记录由督办任务资源维护。",
+  "supervision-owner-report": "责任人完成报表是聚合结果，不存在可更新记录。",
+  "mps-order-progress-dashboard": "在制订单进度是分层聚合报表，不对应可更新记录表。",
+  "mps-overview-dashboard": "主计划综合大屏由多个正式资源聚合，不是独立业务表。",
+  "equipment-dashboard": "设备大屏是只读汇总视图，设备记录通过设备台账维护。",
+  roles: "角色管理使用角色树与成员上下文，不以角色resource行进行Excel写入。",
+  "notification-group-webhook": "群机器人凭据与目标配置使用专用安全管理流程，禁止Excel导入。",
+  "notification-recipient-group": "通知收件人组由专用管理服务维护，尚未接入双向模板适配器。",
+  "notification-route": "消息路由由专用管理服务维护，尚未接入双向模板适配器。"
+};
+const excelSpecializedResources = new Set([
+  "mps-review-due-dates", "mps-order-allocations", "mps-process-reports", "mps-data-exceptions",
+  "mps-three-day-work-orders", "mps-technical-reports", "mps-weekly-process-plans", "mps-outsourcing-reports",
+  "business-customer-mapping", "logistics-ledger", "order-schedule", "equipment-status-report",
+  "rd-items", "knowledge-pages", "knowledge-spaces", "supervision-projects", "supervision-tasks",
+  "supervision-task-progress", "development-requests", "approval-flow-configs", "finance-customer-mappings",
+  "contacts", "users", "organization", "dictionaries", "processes", "notification-recipient-group", "notification-route"
+]);
+const excelSharedResources = new Set([
+  "mps-customer-divisions", "mps-process-cycles", "mps-division-process-configs", "mps-item-process-routes",
+  "mps-external-process-mappings", "mps-shipping-plans", "mps-base-plans", "mps-material-reports"
+]);
+
+export const tableExcelResourceCapabilities: Record<string, TableExcelResourceCapability> = Object.fromEntries(
+  tableResourceRegistry.map((resource) => {
+    const code = resource.code as string;
+    const notApplicable = excelNotApplicableReasons[code];
+    const specialized = excelSpecializedResources.has(code);
+    const shared = excelSharedResources.has(code);
+    const capability: TableExcelResourceCapability = notApplicable
+      ? { status: "NOT_APPLICABLE", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: notApplicable }
+      : specialized
+        ? { status: "SPECIALIZED", normalExport: "SHARED", createTemplate: "SPECIALIZED", updateTemplate: "SPECIALIZED", excelCreate: "SPECIALIZED", excelUpdate: "SPECIALIZED", identityVersionContract: "SPECIALIZED_IDENTITY", reason: "该资源依赖业务专属身份、状态或写入规则，当前共享模板不覆盖；需在保留原Application Command的前提下单独接入并验收。" }
+        : shared
+          ? { status: "SHARED_SUPPORTED", normalExport: "SHARED", createTemplate: "SUPPORTED", updateTemplate: "SUPPORTED", excelCreate: "SUPPORTED", excelUpdate: "SUPPORTED", identityVersionContract: "ID_VERSION" }
+          : { status: "GAP", normalExport: "SHARED", createTemplate: "GAP", updateTemplate: "GAP", excelCreate: "GAP", excelUpdate: "GAP", identityVersionContract: "GAP", reason: "未登记Excel写入适配器或只读例外；需完成资源能力分类后方可验收。" };
+    return [code, capability];
+  })
+);
+
+export function auditTableExcelCapabilities() {
+  const known = new Set(tableResourceRegistry.map((resource) => resource.code as string));
+  const errors: string[] = [];
+  let shared = 0; let specialized = 0; let notApplicable = 0; let gaps = 0;
+  for (const resource of tableResourceRegistry) {
+    const capability = tableExcelResourceCapabilities[resource.code];
+    if (!capability) { errors.push(`未登记Excel能力：${resource.code}`); continue; }
+    if (capability.status === "SHARED_SUPPORTED") shared += 1;
+    else if (capability.status === "SPECIALIZED") specialized += 1;
+    else if (capability.status === "NOT_APPLICABLE") notApplicable += 1;
+    else gaps += 1;
+    if (capability.status !== "SHARED_SUPPORTED" && !capability.reason) errors.push(`Excel能力例外缺少原因：${resource.code}`);
+    if (capability.status === "SHARED_SUPPORTED" && (capability.updateTemplate !== "SUPPORTED" || capability.excelUpdate !== "SUPPORTED" || capability.identityVersionContract !== "ID_VERSION")) {
+      errors.push(`声明支持更新但缺少ID+版本合同：${resource.code}`);
+    }
+  }
+  for (const code of Object.keys(tableExcelResourceCapabilities)) if (!known.has(code)) errors.push(`Excel能力登记未知resource：${code}`);
+  return { total: tableResourceRegistry.length, shared, specialized, notApplicable, gaps, errors };
+}
+
 export function auditTablePrintCapabilities(): { total: number; printable: number; notApplicable: number; errors: string[] } {
   const errors: string[] = [];
   const known = new Set(tableResourceRegistry.map((resource) => resource.code as string));

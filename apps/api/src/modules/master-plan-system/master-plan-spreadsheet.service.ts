@@ -40,6 +40,13 @@ const pendingTemplateNotes = [
   "同一任务可以多次导入报工（不同生产日期或同一天多笔），累计报工会自动重新汇总；累计达到计划数量后该任务不再出现在待报工列表。",
   "上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"
 ];
+const updateTemplateNotes = [
+  "更新模板按当前页面的搜索、筛选、视图、排序及用户可更新数据范围生成；仅包含当前用户有读取和修改权限的业务字段。",
+  "无法以正式导入解析器唯一还原的成员、引用、结构化或附件字段不放入共享更新模板，必须由该业务资源的专用适配器处理。",
+  "记录ID与版本由服务端按每条记录实时查询并写入，请勿修改或删除；确认导入时会再次校验身份、权限、业务规则和版本。",
+  "更新时，普通空白单元格表示不修改原值；需要清空字段时，请在对应单元格填写【清空】。是否允许清空仍由字段及业务规则决定，预览会显示清空操作。",
+  "本模板只用于当前表的正式 Excel 导入预览与确认，不要复制身份列到其他资源或工作簿。"
+];
 
 /**
  * KN-MPS-WO-001：3天生产工单的 Excel 约定。
@@ -69,12 +76,41 @@ export class MasterPlanSpreadsheetService {
     return resource;
   }
 
-  async template(code: string, actor: MasterPlanActor, view?: unknown) {
+  async template(code: string, actor: MasterPlanActor, view?: unknown, mode?: unknown, input: Record<string, unknown> = {}) {
     const resource = this.resource(code);
+    const templateMode = String(mode ?? "CREATE").toUpperCase();
+    if (templateMode !== "CREATE" && templateMode !== "UPDATE") throw new BadRequestException("模板模式只能是 CREATE 或 UPDATE");
+    if (templateMode === "UPDATE") {
+      if (this.isPendingImport(code, view) || ["mps-review-due-dates", "mps-order-allocations", "mps-process-reports"].includes(code)) {
+        throw new ForbiddenException("该业务资源使用专用 Excel 写入流程，当前不支持更新数据模板");
+      }
+      if (!hasMasterPlanPermission(actor, code, "import") || !hasMasterPlanPermission(actor, code, "update")) {
+        throw new ForbiddenException("下载更新模板需要该表导入及修改权限");
+      }
+      const fields = fieldsFor(resource).filter((field) => field.editable
+        && ["text", "number", "date", "datetime", "boolean", "dictionary", "department"].includes(field.type)
+        && hasMasterPlanFieldPermission(actor, code, field.key, "read")
+        && hasMasterPlanFieldPermission(actor, code, field.key, "update"));
+      if (!fields.length) throw new ForbiddenException("当前权限组没有可读取并修改的业务字段");
+      const first = await this.queries.list(code, { ...input, page: 1, pageSize: 200, view }, actor);
+      if (first.total > 50_000) throw new BadRequestException("更新模板超过50000条安全限额，请进一步缩小当前筛选范围后重试");
+      const editableRows = first.rows.filter((row: Record<string, unknown>) => row.canUpdate === true);
+      for (let page = 2; editableRows.length < first.total; page += 1) {
+        const next = await this.queries.list(code, { ...input, page, pageSize: 200, view }, actor);
+        if (!next.rows.length) break;
+        editableRows.push(...next.rows.filter((row: Record<string, unknown>) => row.canUpdate === true));
+      }
+      const rows = editableRows.map((row: Record<string, unknown>) => Object.fromEntries([
+        ["id", row.id], ["version", row.version],
+        ...fields.map((field) => [field.key, row[field.key]])
+      ]));
+      return this.workbook(resource.code, fields, rows, updateTemplateNotes, { templateMode: "UPDATE" });
+    }
     if(code==='mps-review-due-dates'){
       const capabilities=reviewDueImportCapabilities(actor);if(!capabilities.template)throw new ForbiddenException('没有评审交期模板字段权限');
       return this.workbook(code,capabilities.templateFields,[],capabilities.templateFields.length===reviewDueDateCreateFields.length?reviewDueDateTemplateNotes:[reviewDueDateTemplateNotes[1],"此模板仅作获权字段结构参考，不可直接导入；导入需要完整必填列和相应写入授权。",...capabilities.templateFields.map(f=>`${f.label}：${f.required?"必填":"可空"}；类型${f.type}`)],{exactNumericText:true});
     }
+    if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("该表不支持Excel新增，或当前权限组没有新增权限");
     if (!hasMasterPlanPermission(actor, code, "import")) throw new BadRequestException("当前权限组没有该表导入权限");
     if (this.isPendingImport(code, view)) {
       /* 待报工模板与页面共用同一份权威字段定义：只填本次报工数量与生产日期，其余列用于识别任务。 */
@@ -124,7 +160,7 @@ export class MasterPlanSpreadsheetService {
     }
     /* Excel 删除/移动列不会更新隐藏字段定义的旧列号。始终用当前表头定位，
      * 禁止把业务列误读为记录ID/版本，也不能把删除身份列的文件静默当作新增。 */
-    if (!headers.has("记录ID") || !headers.has("版本")) throw new BadRequestException("缺少记录ID或版本列，请使用系统导出的文件；新增时两列均保留并留空，更新时必须同时填写真实ID和版本");
+    if (!headers.has("记录ID") || !headers.has("版本")) throw new BadRequestException("缺少记录ID或版本列，请使用系统下载的导入模板；新增时两列均保留并留空，更新时必须同时填写真实ID和版本");
     columnsByKey.set("id", headers.get("记录ID")!);
     columnsByKey.set("version", headers.get("版本")!);
     /* 待报工导入：列取自同一份待报工权威定义；其余资源沿用可导入字段。 */
@@ -150,6 +186,8 @@ export class MasterPlanSpreadsheetService {
         if (!columnsByKey.has(field.key) && definition) columnsByKey.set(field.key, definition.column);
       }
     }
+    const updateTemplate = schema?.getCell("C1").text.trim().toUpperCase() === "UPDATE";
+    const blankIsUnchanged = updateTemplate && schema?.getCell("D2").text.trim() === "BLANK_UNCHANGED_CLEAR_TOKEN";
     const includedFields = editableFields.filter((field) => columnsByKey.has(field.key));
     if (!includedFields.length) throw new BadRequestException("文件中没有可导入的可编辑字段");
     if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多导入50000行");
@@ -165,7 +203,8 @@ export class MasterPlanSpreadsheetService {
         const cell = row.getCell(columnsByKey.get(field.key)!);
         if (cell.type === ExcelJS.ValueType.Formula || cell.type === ExcelJS.ValueType.Error) parseErrors.push({ row: number, reason: `${field.label}不能包含公式或错误值` });
         const raw = cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : cell.text.trim();
-        values[field.key] = this.importValue(field, raw);
+        if (blankIsUnchanged && raw === "") continue;
+        values[field.key] = blankIsUnchanged && raw === "【清空】" ? null : this.importValue(field, raw);
       }
       rows.push({ row: number, id: idText || null, expectedVersion: versionText ? Number(versionText) : null, values });
     });
@@ -198,7 +237,13 @@ export class MasterPlanSpreadsheetService {
       return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5::jsonb,now() + interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`, [actor.tenantId, actor.userId, code, hash, JSON.stringify({ rows: businessRows, view: pending ? "PENDING" : undefined })]);
     });
-    return { total: rows.length, errors: [], previewId: preview.id, rows: businessRows.slice(0, 20) };
+    const counts = {
+      created: businessRows.filter((row) => row.id == null).length,
+      updated: businessRows.filter((row) => row.id != null && Object.keys(row.values).length > 0).length,
+      unchanged: businessRows.filter((row) => row.id != null && Object.keys(row.values).length === 0).length,
+      errors: 0
+    };
+    return { total: rows.length, errors: [], counts, previewId: preview.id, rows: businessRows.slice(0, 20) };
   }
 
   async confirm(code: string, previewId: string, actor: MasterPlanActor) {
@@ -338,11 +383,12 @@ export class MasterPlanSpreadsheetService {
       recipients:(errors.length?[]:resolved.routing.recipients).map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities})),recipientErrors:resolved.routing.errors};
   }
 
-  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean; includeIdentityColumns?: boolean; exactNumericText?:boolean } = {}) {
+  private async workbook(label: string, fields: ReturnType<typeof fieldsFor>, rows: Array<Record<string, unknown>>, notes?: string[], options: { hideIdentityColumns?: boolean; highlightEditableColumns?: boolean; includeIdentityColumns?: boolean; exactNumericText?:boolean; templateMode?: "CREATE" | "UPDATE" } = {}) {
     const workbook = new ExcelJS.Workbook(); workbook.creator = "KDOS 主计划系统";
     if(options.exactNumericText)workbook.title=tableResourceRegistry.find(r=>r.code===label)?.label??label;
     const sheet = workbook.addWorksheet(label.slice(0, 31));
     const firstBusinessColumn=options.includeIdentityColumns===false?1:3;
+    const validationRows = options.templateMode === "UPDATE" ? Math.min(50_001, Math.max(1_001, rows.length + 1_000)) : 50_001;
     sheet.columns = [
       ...(options.includeIdentityColumns===false?[]:[{ header: "记录ID", key: "id", width: 38 }, { header: "版本", key: "version", width: 10 }]),
       /* 日期列统一按 yyyy-mm-dd 显示（用户看到 2026-09-20，而不是序列号或带时间的日期）。 */
@@ -356,12 +402,12 @@ export class MasterPlanSpreadsheetService {
     if (options.hideIdentityColumns && options.includeIdentityColumns!==false) { sheet.getColumn(1).hidden = true; sheet.getColumn(2).hidden = true; }
     const organizationPaths = new Map((await this.directory.listEnabled()).map((option) => [option.id, option.pathLabel]));
     /* 模板/导出按用户看到的名称展示：部门显示完整路径，字典字段显示 label（数据库仍存稳定 value）。 */
-    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, field.key==="importedBy"?row.importedByName??(row.importedBy?"未匹配操作人":null):this.displayValue(field, row[field.key], organizationPaths)])) });
+    for (const row of rows) sheet.addRow({ id: row.id, version: row.version, ...Object.fromEntries(fields.map((field) => [field.key, row[field.key] == null ? null : field.key==="importedBy"?row.importedByName??(row.importedBy?"未匹配操作人":null):this.displayValue(field, row[field.key], organizationPaths)])) });
     /* 需要人工填写的列给一个简洁的浅色底纹，明确「可填写区域」。 */
     if (options.highlightEditableColumns) for (const row of sheet.getRows(2, Math.max(rows.length, 1)) ?? []) fields.forEach((field, index) => { if (field.editable) row.getCell(index + firstBusinessColumn).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7E0" } }; });
     sheet.getRow(1).font = { bold: true }; sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }]; sheet.autoFilter = { from: "A1", to: sheet.getRow(1).getCell(sheet.columnCount).address };
     const schema = workbook.addWorksheet("_字段定义", { state: "veryHidden" });
-    schema.addRow(["resource", label]); schema.addRow(["fieldKey", "column", "templateLabel"]);
+    schema.addRow(["resource", label, options.templateMode ?? "CREATE"]); schema.addRow(["fieldKey", "column", "templateLabel", options.templateMode === "UPDATE" ? "BLANK_UNCHANGED_CLEAR_TOKEN" : "BLANK_IS_UNSET"]);
     [...(options.includeIdentityColumns===false?[]:[{ key: "id", label: "记录ID" }, { key: "version", label: "版本" }]), ...fields].forEach((field, index) => schema.addRow([field.key, index + 1, field.label]));
     const optionSheet = workbook.addWorksheet("_选项", { state: "veryHidden" }); let optionColumn = 1;
     for (const [fieldIndex, field] of fields.entries()) {
@@ -374,7 +420,7 @@ export class MasterPlanSpreadsheetService {
       const letter = optionSheet.getCell(1, optionColumn).address.replace(/\d+/g, ""); const name = `mps_options_${optionColumn}_${fieldIndex}`;
       workbook.definedNames.add(`'_选项'!$${letter}$2:$${letter}$${options.length + 1}`, name);
       const targetLetter = sheet.getCell(1, fieldIndex + firstBusinessColumn).address.replace(/\d+/g, "");
-      (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, { type: "list", allowBlank: !field.required, formulae: [name], showErrorMessage: true, errorTitle: "选项无效", error: `请选择${field.label}下拉选项` });
+      (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}${validationRows}`, { type: "list", allowBlank: !field.required, formulae: [name], showErrorMessage: true, errorTitle: "选项无效", error: `请选择${field.label}下拉选项` });
       optionColumn++;
     }
     /*
@@ -384,7 +430,7 @@ export class MasterPlanSpreadsheetService {
     for (const [fieldIndex, field] of fields.entries()) {
       if (field.type !== "date") continue;
       const targetLetter = sheet.getCell(1, fieldIndex + firstBusinessColumn).address.replace(/\d+/g, "");
-      (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}50001`, {
+      (sheet as unknown as { dataValidations: { add: (range: string, rule: unknown) => void } }).dataValidations.add(`${targetLetter}2:${targetLetter}${validationRows}`, {
         type: "date", operator: "between", allowBlank: true,
         formulae: [new Date(Date.UTC(2000, 0, 1)), new Date(Date.UTC(2100, 11, 31))],
         showErrorMessage: true, errorTitle: "日期格式无效", error: `${field.label}请填写 yyyy-mm-dd 格式的日期`
@@ -397,7 +443,7 @@ export class MasterPlanSpreadsheetService {
       ["版本：系统自动维护的正整数，用于防止多人同时修改时覆盖新数据。新增导入时留空；更新导入时必须保留导出时的版本，版本已变化时整批拒绝并提示刷新后重试。"],
       ["新增规则：记录ID和版本必须同时留空；更新规则：记录ID和版本必须同时填写。只填写其中一个会校验失败。"],
       ...(fields.some((field) => field.key === "exceptionText") ? [["异常为可选项，仅填写实际生产过程中人工确认的异常；系统提示、计划缺失等无需填写。"]] : []),
-      ["仅可修改有字段编辑权限的业务字段；空白单元格表示清空该字段。"],
+      [options.templateMode === "UPDATE" ? "更新模板：空白单元格表示不修改；填写【清空】表示请求清空该字段（需字段允许置空并通过业务校验）。" : "新增模板：空白单元格表示未填写，按必填和默认值规则校验。"],
       ["上传后必须先预览校验，确认后整批事务提交；单次最多50000行。"],
       ["创建人、创建时间、更新人、更新时间不参与导入。"]
     ]);

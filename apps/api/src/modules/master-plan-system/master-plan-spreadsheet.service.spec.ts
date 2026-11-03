@@ -10,7 +10,7 @@ describe("MasterPlanSpreadsheetService", () => {
   const previewManager = { query: jest.fn() };
   const dataSourceQuery = jest.fn();
   const dataSource = { query: dataSourceQuery, transaction: jest.fn(async (work: (manager: typeof previewManager) => unknown) => work(previewManager)) };
-  const queries = { exportRows: jest.fn(), pendingReportRows: jest.fn(async () => ({ rows: [] as Array<Record<string, unknown>>, visibleFields: [] as string[] })) };
+  const queries = { exportRows: jest.fn(), list: jest.fn(), pendingReportRows: jest.fn(async () => ({ rows: [] as Array<Record<string, unknown>>, visibleFields: [] as string[] })) };
   const application = { completeImportReconciliation: jest.fn(async (_code:string,result:unknown)=>result), validateImportUpdates: jest.fn(), importUpdates: jest.fn(), importBlockedReason: jest.fn().mockResolvedValue(null) };
   const directory = { listEnabled: jest.fn().mockResolvedValue([]), resolve: jest.fn() };
   const service = new MasterPlanSpreadsheetService(dataSource as never, queries as never, application as never, directory as never);
@@ -206,6 +206,67 @@ describe("MasterPlanSpreadsheetService", () => {
     expect(options.getColumn(1).values.flat()).toEqual(expect.arrayContaining(["凯南 / 事业一部"]));
   });
 
+  it("builds an update template from server rows with protected real identity and only update-authorized fields", async () => {
+    queries.list.mockResolvedValue({
+      total: 1,
+      rows: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", version: 7, orderNumber: "PO-1", itemCode: "ITEM-1", itemName: "测试品项", plannedQuantity: "12", canUpdate: true }]
+    });
+    const buffer = await service.template("mps-base-plans", actor, "ALL", "UPDATE", { search: "PO-1", sortField: "orderNumber", sortOrder: "asc" });
+    expect(queries.list).toHaveBeenCalledWith("mps-base-plans", expect.objectContaining({ page: 1, pageSize: 200, search: "PO-1", view: "ALL" }), actor);
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("mps-base-plans")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    expect(headers).toContain("记录ID"); expect(headers).toContain("版本");
+    expect(sheet.getCell(2, headers.indexOf("记录ID")).text).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(sheet.getCell(2, headers.indexOf("版本")).value).toBe(7);
+    expect(headers).toContain("品项名称");
+    expect(headers).not.toContain("创建人");
+    expect(workbook.getWorksheet("_字段定义")!.getCell("C1").text).toBe("UPDATE");
+    expect(workbook.getWorksheet("_字段定义")!.getCell("D2").text).toBe("BLANK_UNCHANGED_CLEAR_TOKEN");
+    expect(workbook.getWorksheet("填写说明")!.getColumn(1).values.join("\n")).toContain("空白单元格表示不修改");
+  });
+
+  it("uses blank as unchanged and 【清空】 as explicit clear for update templates", async () => {
+    queries.list.mockResolvedValue({ total: 1, rows: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", version: 7, orderNumber: "PO-1", itemCode: "ITEM-1", itemName: "测试品项", plannedQuantity: 12, canUpdate: true }] });
+    const buffer = await service.template("mps-base-plans", actor, "ALL", "UPDATE");
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("mps-base-plans")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    const unchangedColumn = headers.indexOf("订单编号");
+    const clearColumn = headers.indexOf("品项名称");
+    sheet.getCell(2, unchangedColumn).value = "";
+    sheet.getCell(2, clearColumn).value = "【清空】";
+    const file = { originalname: "base-plan-update.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()) } as Express.Multer.File;
+    application.validateImportUpdates.mockResolvedValue([]);
+    const result = await service.preview("mps-base-plans", file, actor);
+    expect(result.errors).toEqual([]);
+    const rows = application.validateImportUpdates.mock.calls.at(-1)![1];
+    expect(rows[0].values).not.toHaveProperty("orderNumber");
+    expect(rows[0].values).toHaveProperty("itemName", null);
+  });
+
+  it("round-trips an update template through preview and confirm with the same stable identity and version", async () => {
+    const recordId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    queries.list.mockResolvedValue({ total: 1, rows: [{ id: recordId, version: 12, orderNumber: "PO-2", itemCode: "ITEM-2", itemName: "旧品名", plannedQuantity: 8, canUpdate: true }] });
+    const buffer = await service.template("mps-base-plans", actor, "ALL", "UPDATE");
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("mps-base-plans")!;
+    const headers = sheet.getRow(1).values as unknown[];
+    sheet.getCell(2, headers.indexOf("品项名称")).value = "新品名";
+    const file = { originalname: "mps-base-plans-update.xlsx", buffer: Buffer.from(await workbook.xlsx.writeBuffer()) } as Express.Multer.File;
+    application.validateImportUpdates.mockResolvedValue([]);
+    const preview = await service.preview("mps-base-plans", file, actor);
+    expect(preview.counts).toEqual({ created: 0, updated: 1, unchanged: 0, errors: 0 });
+    const parsedRows = application.validateImportUpdates.mock.calls.at(-1)![1];
+    expect(parsedRows[0]).toMatchObject({ id: recordId, expectedVersion: 12, values: { itemName: "新品名" } });
+    previewManager.query.mockImplementation((sql: string) => sql.includes("SELECT * FROM mps_import_previews")
+      ? [{ id: previewId, file_hash: "update-hash", payload_json: { rows: parsedRows }, confirmed_at: null }]
+      : sql.startsWith("UPDATE mps_import_previews") ? [] : []);
+    application.importUpdates.mockResolvedValue({ total: 1, created: 0, updated: 1, repeated: false });
+    await expect(service.confirm("mps-base-plans", preview.previewId!, actor)).resolves.toMatchObject({ created: 0, updated: 1 });
+    expect(application.importUpdates).toHaveBeenCalledWith("mps-base-plans", parsedRows, "update-hash", actor, previewManager);
+  });
+
   it.each(["mps-shipping-plans", "mps-base-plans"])("uses 下单日期 in new %s templates", async (resource) => {
     const buffer = await service.template(resource, actor);
     const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
@@ -359,17 +420,14 @@ describe("MasterPlanSpreadsheetService", () => {
       ]);
     });
 
-    it("parses dictionary labels back to their stable values on import", async () => {
+    it("rejects a source-owned process field that is not editable", async () => {
       application.validateImportUpdates.mockResolvedValue([]);
       const file = await workbookFile(
         ["记录ID", "版本", "所属事业部周计划", "工序"],
         [["", "", "", "折弯"]]
       );
-      await service.preview("mps-weekly-process-plans", file, actor);
-
-      expect(application.validateImportUpdates).toHaveBeenCalledWith("mps-weekly-process-plans", [
-        expect.objectContaining({ values: expect.objectContaining({ processCode: "bending" }) })
-      ], actor);
+      await expect(service.preview("mps-weekly-process-plans", file, actor)).rejects.toThrow("文件中没有可导入的可编辑字段");
+      expect(application.validateImportUpdates).not.toHaveBeenCalled();
     });
 
     it("reuses the shared transaction and idempotency pipeline on confirm", async () => {

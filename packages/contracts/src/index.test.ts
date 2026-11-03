@@ -3,7 +3,7 @@ import {
   auditTableFieldMetadata, auditTableFilterCapabilities, auditTablePrintCapabilities,
   isTablePrintFieldSafe, isTablePrintFieldPrintable, tablePrintResourceCapabilities, isTableFieldFilterable, masterPlanResourceDefinitions,
   referenceLabelFieldsFor, tableFilterDynamicDateKeys, tableFilterDynamicDateOptions, tableFilterOperatorsFor,
-  supervisionPriorityOptions, tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionActionLabel, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor
+  supervisionPriorityOptions, tableFilterResourceCapabilities, tableFilterResourceCapabilityOf, tableFilterUiOperatorsFor, tablePermissionActionLabel, tablePermissionFieldsFor, tableResourceRegistry, tableSupportFieldsFor, auditTableExcelCapabilities, tableExcelResourceCapabilities
 } from "./index";
 import { standardProcesses } from "@tracker/shared";
 
@@ -90,6 +90,25 @@ describe("研发中心一物多码权限注册", () => {
 });
 
 describe("active PMC resources", () => {
+
+  describe("KN-FORM-EXCEL-001 双向维护能力", () => {
+    it("每个登记资源都有明确能力状态，且新增资源必须显式分类", () => {
+      const audit = auditTableExcelCapabilities();
+      expect(audit.errors).toEqual([]);
+      expect(audit.total).toBe(tableResourceRegistry.length);
+      expect(audit.shared + audit.specialized + audit.notApplicable + audit.gaps).toBe(audit.total);
+      for (const resource of tableResourceRegistry) expect(tableExcelResourceCapabilities[resource.code]).toBeDefined();
+      expect(tableExcelResourceCapabilities["mps-base-plans"]).toMatchObject({
+        status: "SHARED_SUPPORTED", updateTemplate: "SUPPORTED", excelUpdate: "SUPPORTED", identityVersionContract: "ID_VERSION"
+      });
+      expect(tableExcelResourceCapabilities["sales-orders"]).toMatchObject({ status: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE" });
+    });
+
+    it("把未分类资源作为CI合同缺口显式列出", () => {
+      const gaps = tableResourceRegistry.filter((resource) => tableExcelResourceCapabilities[resource.code]?.status === "GAP").map((resource) => resource.code).sort();
+      expect(gaps).toEqual(["equipment-register"]);
+    });
+  });
 
   it("督办项目与任务只共享高、中、低三个优先级选项", () => {
     expect(supervisionPriorityOptions).toEqual([

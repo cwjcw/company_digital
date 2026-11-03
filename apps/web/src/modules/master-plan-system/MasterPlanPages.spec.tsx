@@ -77,8 +77,9 @@ describe("MasterPlanResourcePage create feedback", () => {
       if (path.startsWith("/master-plan-system/references/organizations") || path === "/directory/users") return [] as never;
       if (path.endsWith("/meta")) {
         const fields = tablePermissionFieldsFor("mps-shipping-plans");
-        return { resource: "mps-shipping-plans", fields, createFields: fields.filter((field) => field.editable), actions: { create: true, update: true, delete: true, import: true, export: true, batchUpdate: true } } as never;
+        return { resource: "mps-shipping-plans", fields, createFields: fields.filter((field) => field.editable), actions: { create: true, createTemplate: true, update: true, delete: true, import: true, updateTemplate: true, export: true, batchUpdate: true } } as never;
       }
+      if (path.startsWith("/master-plan-system/resources/mps-shipping-plans/import-template")) return new Blob(["template"]) as never;
       if (path.startsWith("/master-plan-system/resources/mps-shipping-plans?")) return { rows: [], total: 0 } as never;
       throw new Error(`unexpected request: ${path}`);
     });
@@ -94,6 +95,20 @@ describe("MasterPlanResourcePage create feedback", () => {
     renderPage("mps-shipping-plans");
     await screen.findByRole("button", { name: /导入模板/ });
     await waitFor(() => expect(screen.getAllByRole("button", { name: /导\s*出$/ })).toHaveLength(1));
+  }, 15_000);
+
+  it("同一个下载模板入口提供更新模板，并请求当前视图下的服务端模板", async () => {
+    const implementation = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path, init) => path === "/table-exports/capabilities"
+      ? [{ code: "mps-shipping-plans", supported: true, allowed: true }] as never
+      : implementation(path, init));
+    renderPage("mps-shipping-plans");
+    fireEvent.click(await screen.findByRole("button", { name: /下载导入模板/ }));
+    fireEvent.click(await screen.findByText("新增数据模板"));
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("/import-template?mode=CREATE&view=ALL"))).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: /下载导入模板/ }));
+    fireEvent.click(await screen.findByText("更新已有数据模板"));
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("/import-template?mode=UPDATE&view=ALL"))).toBe(true));
   }, 15_000);
 
   it("shows a concrete validation error instead of silently ignoring confirm", async () => {

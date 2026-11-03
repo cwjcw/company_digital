@@ -41,9 +41,14 @@ export class MasterPlanQueryService {
       actions: {
         template: importCapabilities?.template,
         create: canCreate,
+        createTemplate: hasMasterPlanPermission(actor, code, "import")
+          && (code === "mps-review-due-dates" ? Boolean(importCapabilities?.template) : resource.create && canCreate),
         update: hasMasterPlanPermission(actor, code, "update"),
         delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),
         import: hasMasterPlanPermission(actor, code, "import"),
+        updateTemplate: hasMasterPlanPermission(actor, code, "import") && hasMasterPlanPermission(actor, code, "update")
+          && !["mps-order-allocations", "mps-review-due-dates", "mps-process-reports"].includes(code)
+          && fieldsFor(resource).some((field) => field.editable && this.visible(actor, code, field.key) && hasMasterPlanFieldPermission(actor, code, field.key, "update")),
         export: hasMasterPlanPermission(actor, code, "export"),
         viewWeekly: code === "mps-base-plans" && hasMasterPlanPermission(actor, "mps-weekly-plans", "read"),
         /* 待报工行内填报的本质是 CREATE 实际报工记录，因此按 mps-process-reports 的新增权限判定，不借用修改权限。 */

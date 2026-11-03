@@ -19,7 +19,7 @@ import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PendingField = TablePermissionFieldDefinition & { input: boolean };
 type ProcessOption = { code: string; name: string; order: number };
-type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; update: boolean; delete: boolean; import: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
+type Metadata = { resource: string; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; createTemplate?: boolean; update: boolean; delete: boolean; import: boolean; updateTemplate?: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
 type Reconciliation = { status: string; message: string | null };
 /** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
 const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
@@ -438,7 +438,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [processConfigPreview, setProcessConfigPreview] = useState<any | null>(null);
   const [processConfigBatchPreview, setProcessConfigBatchPreview] = useState<any | null>(null);
   const [processConfigLoading, setProcessConfigLoading] = useState(false);
-  const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;classification?:string;fields?:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;id?:string|null;expectedVersion?:number|null;values?:Record<string,unknown>;classification?:string;fields?:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
@@ -641,6 +641,19 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     const blob = await api<Blob>(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
     anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
   };
+  const downloadImportTemplate = async (mode: "CREATE" | "UPDATE") => {
+    const params = new URLSearchParams({ mode, view: isPendingView ? "PENDING" : view });
+    if (mode === "UPDATE") {
+      if (tableQuery.search) params.set("search", tableQuery.search);
+      if (Object.values(tableQuery.filters).some((value) => value.trim())) params.set("filters", JSON.stringify(tableQuery.filters));
+      if (tableQuery.filterGroup?.rules?.length || tableQuery.filterGroup?.groups?.length) params.set("filterGroup", JSON.stringify(tableQuery.filterGroup));
+      if (tableQuery.sortField) params.set("sortField", tableQuery.sortField);
+      if (tableQuery.sortOrder) params.set("sortOrder", tableQuery.sortOrder);
+      if (basePlanId) params.set("basePlanId", basePlanId);
+    }
+    const suffix = mode === "UPDATE" ? "-更新模板" : "-新增模板";
+    await download(`/master-plan-system/resources/${resource}/import-template?${params}`, `${info?.label ?? resource}${isPendingView ? "-待报工" : ""}${suffix}.xlsx`);
+  };
   const previewImport = async (file: File) => {
     const body = new FormData(); body.append("file", file); setImporting(true); setImportError(null); setImportPreview(null);
     try { setImportPreview(await api(`/master-plan-system/resources/${resource}/import-preview${resource === "mps-order-allocations" && overrideAllocationDivision ? "?view=OVERRIDE_DIVISION" : isPendingView ? "?view=PENDING" : ""}`, { method: "POST", body })); }
@@ -771,7 +784,13 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   };
   return <div>
     <PageHeader title={info.label} actions={<Space>
-      {metadata.data?.actions.import && <Button icon={<DownloadOutlined />} onClick={() => void download(`/master-plan-system/resources/${resource}/import-template${isPendingView ? "?view=PENDING" : ""}`, `${info.label}${isPendingView ? "-待报工" : ""}-导入模板.xlsx`).catch((error) => message.error((error as Error).message))}>导入模板</Button>}
+      {metadata.data?.actions.import && <Dropdown trigger={["click"]} menu={{
+        items: [
+          { key: "CREATE", label: "新增数据模板", disabled: !metadata.data?.actions.createTemplate },
+          { key: "UPDATE", label: "更新已有数据模板", disabled: !metadata.data?.actions.updateTemplate || isPendingView }
+        ],
+        onClick: ({ key }) => void downloadImportTemplate(key as "CREATE" | "UPDATE").catch((error) => message.error((error as Error).message))
+      }}><Button icon={<DownloadOutlined />}>下载导入模板</Button></Dropdown>}
       {resource === "mps-order-allocations" && metadata.data?.actions.import && <Space><Switch checked={overrideAllocationDivision} onChange={setOverrideAllocationDivision}/><span>导入时覆盖事业部分配冲突</span></Space>}
       {metadata.data?.actions.import && <Upload accept=".xlsx" maxCount={1} showUploadList={false} beforeUpload={previewImport}><Button loading={importing} icon={<UploadOutlined />}>导入</Button></Upload>}
       {canSyncBaseToWeekly && <Button icon={<SyncOutlined />} loading={syncMutation.isPending} disabled={syncMutation.isPending} onClick={confirmBaseToWeeklySync}>同步到周计划</Button>}
@@ -853,7 +872,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       width={1000} okText="确认导入" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: !importPreview?.previewId || Boolean(importPreview?.errors.length) }}>
       {importError && <Alert type="error" showIcon message="导入失败" description={<span style={{ whiteSpace: "pre-line" }}>{importError.replace(/^导入失败\n\n/, "")}</span>} style={{ marginBottom: 12 }} />}
       {importPreview && <>
-      <p>共解析 {importPreview?.total ?? 0} 条{importPreview.orderCount!=null?`，${importPreview.orderCount}个订单`:""}。确认后整批事务提交。</p>
+      <p>共解析 {importPreview?.total ?? 0} 条{importPreview.orderCount!=null?`，${importPreview.orderCount}个订单`:""}{importPreview.counts ? `；新增 ${importPreview.counts.created}、更新 ${importPreview.counts.updated}、无变化 ${importPreview.counts.unchanged}` : ""}。确认后整批事务提交。</p>
+      {importPreview.rows?.some((row) => row.id && row.values) && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="更新预览已按记录ID识别，不会按订单号或品号猜测记录。更新模板空白单元格不修改原值；【清空】表示请求清空。" description={importPreview.rows.filter((row) => row.values && Object.values(row.values).some((value) => value === null)).map((row) => `第${row.row}行：清空 ${Object.entries(row.values ?? {}).filter(([, value]) => value === null).map(([key]) => metadata.data?.fields.find((field) => field.key === key)?.label ?? key).join("、")}`).join("；") || "本次预览未检测到显式清空"} />}
       {importPreview.importBatchId&&<p>导入批次：{importPreview.importBatchId}；文件数据行 {importPreview.fileTotalRows??importPreview.total} 条，有效行 {importPreview.validRows??importPreview.total} 条。本批全部按新增处理，保留每条原始行。</p>}
       {importPreview.quantitySource&&<p>数量来源：{importPreview.quantitySource==="ERP_UNALLOCATED"?"ERP未分配数量 → 已分配数量（忽略ERP已分配数量）":"KDOS已分配数量"}</p>}
       {importPreview.ignoredIdentity&&<Alert type="info" message="源文件记录ID和版本不用于更新历史数据；新增记录将生成新的系统ID。"/>}
