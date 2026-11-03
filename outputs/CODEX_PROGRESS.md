@@ -10436,9 +10436,9 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - [x] 正数量基础计划归一化业务键重复数为0；保留的历史重复行已归零，未删除历史记录。4条Excel零数量需求均按0数量保留，不虚增需求。
 - [x] 历史归档4条异常均已审计关闭；生产API、Web、PostgreSQL、document-worker健康。`plan-projections`、`shipping-to-base`、`base-to-weekly`均启用且周期30分钟、状态SUCCESS；本轮未要求生成周计划。
 - [x] `scripts/deploy.sh all`与`check`通过，生产API/Web构建SHA一致为`d61434d`。
-- [x] 已更新`outputs/事业三部652条基础计划覆盖核对.xlsx`和`outputs/事业三部第三批剩余阻断清单_20261103.xlsx`，新建`outputs/事业三部剩余58处理验收_20261103.xlsx`；完成后续Git提交及GitHub `main`推送待本轮最后步骤记录。
+- [x] 已更新`outputs/事业三部652条基础计划覆盖核对.xlsx`和`outputs/事业三部第三批剩余阻断清单_20261103.xlsx`，新建`outputs/事业三部剩余58处理验收_20261103.xlsx`；工作簿与进度文件已推送`github/main`，提交`4866959e9fec0759682291b7097c574c587b3c74`。
 
 ### 本轮修改/交付
 - 代码：`master-plan.application.service.ts`、`master-plan.controller.ts`、`master-plan.monthly-base.ts`、`master-plan.allocation-source.ts`、`master-plan.allocation-projection.ts`及对应定向测试。
 - 验证：主计划定向Jest 64项通过、11项PostgreSQL集成测试因隔离测试数据库未配置而跳过；API typecheck/build/lint通过；`git diff --check`通过。
-- 当前代码commit：`d61434d`。生产已部署；GitHub最终同步SHA在提交完成后补记。
+- 当前代码commit：`d61434d`；生产已部署且API/Web版本一致。业务验收文件已同步GitHub；推送状态以本进度文件后续提交为准。
