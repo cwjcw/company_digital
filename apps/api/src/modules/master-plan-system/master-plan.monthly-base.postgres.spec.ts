@@ -14,6 +14,7 @@ import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
 import type { MasterPlanActor } from "./master-plan.types";
+import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
 const socket=process.env.KDOS_MONTHLY_BASE_TEST_SOCKET;
 const integration=socket?describe:describe.skip;
@@ -70,6 +71,14 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     expect(base.latest_customer_due_date).toBe("2026-11-03");
     await weeks();expect((await db.query("SELECT * FROM mps_weekly_plans")).length).toBe(0);
     const page=await queries.list("mps-base-plans",{search:"ORDER-A"},actor);expect(page.total).toBe(1);expect(page.rows[0].weeklyPlanMissingFields).toContain("最迟评审交期");
+  });
+  it("creates a zero-quantity base only when that monthly row is explicitly allowlisted",async()=>{
+    const zero=await month("ITEM-ZERO",{required_quantity:0,pending_quantity:0});
+    await month("ITEM-ZERO-UNLISTED",{required_quantity:0,pending_quantity:0});
+    expect((await run()).metrics.base_created).toBe(0);expect(await bases()).toHaveLength(0);
+    await db.transaction(manager=>reconcileMonthlyBasePlans(manager,tenant,user,"合成管理员",[zero.id],[zero.id],false));
+    const rows=await bases();expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({order_number:"ORDER-A",item_code:"ITEM-ZERO",planned_quantity:"0.0000"});
+    expect((await db.query("SELECT * FROM mps_reconciliation_outbox")).length).toBe(0);
   });
   it("repeated and concurrent sync does not duplicate plans, consume more codes or append audits",async()=>{
     await month();await Promise.all([run(),run()]);const [base]=await bases();

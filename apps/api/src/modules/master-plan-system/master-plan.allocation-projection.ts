@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { EntityManager } from "typeorm";
-import { allocationDemandCtesSql, allocationOrderTotalsSql } from "./master-plan.allocation-source";
+import { allocationDemandCtesSql, allocationOrderTotalsSql, allocationOrderTotalsSqlWithAliases } from "./master-plan.allocation-source";
 import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 
 /** Source validation is shared with inbound group reconciliation. No ERP admission join. */
 export const allocationProjectionCandidatesSql = `WITH ${allocationDemandCtesSql} SELECT * FROM candidates`;
 export const allocationProjectionParams = (tenantId: string) => [tenantId];
 
-export async function reconcileAllocationPlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string) {
+export async function reconcileAllocationPlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string,
+  groupPlanAliases: Array<{ sourceOrderNumber: string; targetOrderNumber: string }> = []) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-allocation-projection`]);
   // Same lock as incoming-fact reconciliation: quantities and group totals cannot interleave.
@@ -53,7 +54,9 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
   const inbound = await reconcileExistingMonthlyInbound(manager,tenantId,actorName,actorId,true);
   const orderNumbers = [...new Set(eligible.map(row => row.order_number))];
   if (orderNumbers.length) {
-    const groups: Array<Record<string, any>> = await manager.query(allocationOrderTotalsSql, [tenantId]);
+    const groups: Array<Record<string, any>> = await manager.query(
+      groupPlanAliases.length ? allocationOrderTotalsSqlWithAliases() : allocationOrderTotalsSql,
+      groupPlanAliases.length ? [tenantId,JSON.stringify(groupPlanAliases)] : [tenantId]);
     for (const row of groups) {
       const [before] = await manager.query("SELECT * FROM mps_group_plans WHERE tenant_id=$1 AND order_number=$2 FOR UPDATE", [tenantId,row.order_number]);
       if (!before) {

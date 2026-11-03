@@ -504,3 +504,36 @@ describe("MasterPlanApplicationService imports", () => {
     });
   });
 });
+
+describe("MasterPlanApplicationService Division 3 residual command", () => {
+  const allocationId="22222222-2222-4222-8222-222222222222";
+  const body={idempotencyKey:"33333333-3333-4333-8333-333333333333",allocationChanges:[{
+    id:allocationId,expectedVersion:1,action:"UPDATE" as const,divisionId:"6eec4f66-aab5-46ec-9245-b1d490d6812d"
+  }],monthlyChanges:[],baseChanges:[],zeroQuantityBaseKeys:[]};
+
+  it("is restricted to system administrators before opening a write transaction",async()=>{
+    const transaction=jest.fn();const service=new MasterPlanApplicationService({transaction} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.finalizeDivisionThreeResidual(body,{...actor,isSystemAdmin:false})).rejects.toThrow("仅系统管理员");
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a destination outside Division 3 before opening a transaction",async()=>{
+    const transaction=jest.fn();const service=new MasterPlanApplicationService({transaction} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.finalizeDivisionThreeResidual({...body,allocationChanges:[{...body.allocationChanges[0],divisionId:"ad238002-66e1-47db-94c6-8680e25fcf33"}]},actor)).rejects.toThrow("参数、版本或业务范围无效");
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a quantity/division correction when a matching stock fact exists, before any write",async()=>{
+    const current={id:allocationId,tenant_id:"KAINAN",version:1,order_number:"2301-2026A6038005",item_code:"013032-1/1",division_id:"d23442f9-4862-4641-b4a7-c8d470bc56ea",allocated_quantity:"11040",order_status:"已审核",archived_at:null};
+    const query=jest.fn(async(sql:string)=>{
+      if(sql.includes("SELECT request_hash,response_json"))return [];
+      if(sql.includes("FROM organization_units"))return [{id:"6eec4f66-aab5-46ec-9245-b1d490d6812d"}];
+      if(sql.startsWith("SELECT * FROM mps_order_allocations"))return [current];
+      if(sql.includes("FROM finished_goods_inbound"))return [{shipping:false,weekly:false,reports:false,inbound:true}];
+      return [];
+    });
+    const manager={query};const service=new MasterPlanApplicationService({transaction:(work:(m:typeof manager)=>unknown)=>work(manager)} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.finalizeDivisionThreeResidual(body,actor)).rejects.toThrow("存在出货、周计划、报工或入库事实");
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith("UPDATE "))).toBe(false);
+  });
+});

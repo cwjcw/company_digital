@@ -11,8 +11,15 @@ import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./maste
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 import { NotificationService } from "../notifications/notification.service";
 import { nextMasterPlanDeliveryCode } from "./master-plan.delivery-code";
+import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
+import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RESIDUAL_TARGET_DIVISION_ID = "6eec4f66-aab5-46ec-9245-b1d490d6812d";
+type ResidualAllocationChange = { id: string; expectedVersion: number; action: "UPDATE" | "ARCHIVE" | "RESTORE"; divisionId?: string; allocatedQuantity?: string | number; archiveBatchId?: string };
+type ResidualMonthlyChange = { id: string; expectedVersion: number; divisionId?: string; requiredQuantity?: string | number };
+type ResidualBaseChange = { id: string; expectedVersion: number; divisionId?: string; plannedQuantity?: string | number };
+type ResidualZeroBaseKey = { orderNumber: string; itemCode: string; divisionId: string };
 
 /** 写入后需要独立对账的同步任务（单一权威映射，enqueue 与反馈共用）。 */
 const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
@@ -119,6 +126,196 @@ export class MasterPlanApplicationService {
       // Archival preserves plan references and deliberately emits neither allocation messages nor reconciliation.
       return response;
     });
+  }
+
+  /**
+   * Audited, atomic close-out command for the confirmed 2026-11-03 Division 3 source workbook.
+   * It deliberately accepts only Division 3 as the destination, checks all row versions,
+   * protects stock/shipping/execution facts, and runs the existing projection services in
+   * the same transaction. This is not a general-purpose bulk editor.
+   */
+  async finalizeDivisionThreeResidual(input: {
+    idempotencyKey: string;
+    allocationChanges: ResidualAllocationChange[];
+    monthlyChanges: ResidualMonthlyChange[];
+    baseChanges: ResidualBaseChange[];
+    zeroQuantityBaseKeys: ResidualZeroBaseKey[];
+  }, actor: MasterPlanActor) {
+    if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以执行事业三部收尾命令");
+    const actorId=actor.userId;
+    if (!input || !Array.isArray(input.allocationChanges) || !Array.isArray(input.monthlyChanges)
+      || !Array.isArray(input.baseChanges) || !Array.isArray(input.zeroQuantityBaseKeys)) throw new BadRequestException("收尾命令参数格式无效");
+    const allocations = input.allocationChanges, monthly = input.monthlyChanges, bases = input.baseChanges, zeroKeys = input.zeroQuantityBaseKeys;
+    const rows = [...allocations, ...monthly, ...bases];
+    if (!input || !uuidPattern.test(input.idempotencyKey) || rows.length === 0 || rows.length > 200 || zeroKeys.length > 20
+      || allocations.length > 100 || monthly.length > 100 || bases.length > 100
+      || allocations.some(row => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1
+        || !["UPDATE", "ARCHIVE", "RESTORE"].includes(row.action)
+        || (row.divisionId !== undefined && row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
+        || (row.allocatedQuantity !== undefined && (!Number.isFinite(Number(row.allocatedQuantity)) || Number(row.allocatedQuantity) < 0))
+        || (row.action === "RESTORE" && (!row.archiveBatchId || row.divisionId !== undefined || row.allocatedQuantity !== undefined))
+        || (row.action === "ARCHIVE" && (row.divisionId !== undefined || row.allocatedQuantity !== undefined))
+        || (row.action === "UPDATE" && row.divisionId === undefined && row.allocatedQuantity === undefined))
+      || monthly.some(row => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1
+        || (row.divisionId !== undefined && row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
+        || (row.requiredQuantity !== undefined && (!Number.isFinite(Number(row.requiredQuantity)) || Number(row.requiredQuantity) < 0))
+        || (row.divisionId === undefined && row.requiredQuantity === undefined))
+      || bases.some(row => !uuidPattern.test(row.id) || !Number.isInteger(row.expectedVersion) || row.expectedVersion < 1
+        || (row.divisionId !== undefined && row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
+        || (row.plannedQuantity !== undefined && (!Number.isFinite(Number(row.plannedQuantity)) || Number(row.plannedQuantity) < 0))
+        || (row.divisionId === undefined && row.plannedQuantity === undefined))
+      || zeroKeys.some(row => !row.orderNumber?.trim() || !row.itemCode?.trim() || row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
+      || new Set(rows.map(row => row.id)).size !== rows.length
+      || new Set(zeroKeys.map(row => `${row.orderNumber}\u0000${row.itemCode}`)).size !== zeroKeys.length) {
+      throw new BadRequestException("收尾命令参数、版本或业务范围无效");
+    }
+    const normalized = {
+      allocations: [...allocations].sort((a,b)=>a.id.localeCompare(b.id)),
+      monthly: [...monthly].sort((a,b)=>a.id.localeCompare(b.id)),
+      bases: [...bases].sort((a,b)=>a.id.localeCompare(b.id)),
+      zeroKeys: [...zeroKeys].sort((a,b)=>`${a.orderNumber}/${a.itemCode}`.localeCompare(`${b.orderNumber}/${b.itemCode}`))
+    };
+    const requestHash = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+    const storageKey = `mps-d3-residual:${actor.tenantId}:${input.idempotencyKey}`;
+    const result = await this.dataSource.transaction(async manager => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [storageKey]);
+      const [prior] = await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
+      if (prior) {
+        if (prior.request_hash !== requestHash) throw new ConflictException("相同幂等键不能用于不同收尾数据");
+        return { ...prior.response_json, repeated: true };
+      }
+      await manager.query("SET LOCAL lock_timeout='10s'");
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${actor.tenantId}:mps-allocation-projection`]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${actor.tenantId}:mps-monthly-base`]);
+      const divisions=await manager.query("SELECT id FROM organization_units WHERE id=$1::uuid AND enabled=true",[RESIDUAL_TARGET_DIVISION_ID]);
+      if(!divisions.length)throw new ConflictException("事业三部当前未启用，拒绝执行计划更正");
+      const allocationMap = new Map<string, Record<string, any>>();
+      if (allocations.length) {
+        const current = await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE", [actor.tenantId, allocations.map(row=>row.id)]);
+        if (current.length !== allocations.length) throw new ConflictException("订单分配快照已变化或记录不存在");
+        for (const row of current) allocationMap.set(String(row.id),row);
+      }
+      const monthlyMap = new Map<string, Record<string, any>>();
+      if (monthly.length) {
+        const current = await manager.query("SELECT * FROM mps_monthly_plans WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE", [actor.tenantId, monthly.map(row=>row.id)]);
+        if (current.length !== monthly.length) throw new ConflictException("月度计划快照已变化或记录不存在");
+        for (const row of current) monthlyMap.set(String(row.id),row);
+      }
+      const baseMap = new Map<string, Record<string, any>>();
+      if (bases.length) {
+        const current = await manager.query("SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE", [actor.tenantId, bases.map(row=>row.id)]);
+        if (current.length !== bases.length) throw new ConflictException("基础计划快照已变化或记录不存在");
+        for (const row of current) baseMap.set(String(row.id),row);
+      }
+      const affectedKeys = new Set<string>();
+      const normOrder = (value: unknown) => String(value ?? "").replace(/^23[0-9]{2}-/,"").replace(/-1$/,"");
+      for (const change of allocations) {
+        const current = allocationMap.get(change.id)!;
+        if (Number(current.version) !== change.expectedVersion) throw new ConflictException("订单分配版本已变化，请重新核对");
+        if (change.action === "RESTORE") {
+          if (current.archived_at == null || current.division_id !== RESIDUAL_TARGET_DIVISION_ID) throw new ConflictException("只能恢复事业三部的已归档分配");
+          const [archive] = await manager.query(`SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-order-allocations'
+            AND record_id=$2 AND action='mps-order-allocations.archived' AND after_json->>'archiveBatchId'=$3 LIMIT 1`,
+          [actor.tenantId,change.id,change.archiveBatchId]);
+          if (!archive) throw new ConflictException("归档批次审计不匹配，拒绝恢复");
+          const duplicate = await manager.query(`SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3
+            AND division_id=$4::uuid AND order_status='已审核' AND archived_at IS NULL AND id<>$5::uuid LIMIT 1`,
+          [actor.tenantId,current.order_number,current.item_code,current.division_id,current.id]);
+          if (duplicate.length) throw new ConflictException("该事业部已有有效分配，拒绝重复恢复");
+        } else {
+          if (current.archived_at != null || current.order_status !== "已审核") throw new ConflictException("更正仅允许当前已审核有效分配");
+          const facts = await this.residualExecutionFacts(manager,actor.tenantId,current.order_number,current.item_code);
+          if (facts.shipping || facts.weekly || facts.reports || facts.inbound) throw new ConflictException(`存在出货、周计划、报工或入库事实，拒绝更正：${current.order_number}/${current.item_code}`);
+        }
+        affectedKeys.add(`${normOrder(current.order_number)}\u0000${current.item_code}`);
+      }
+      for (const change of monthly) {
+        const row=monthlyMap.get(change.id)!;
+        if(Number(row.version)!==change.expectedVersion)throw new ConflictException("月度计划版本已变化，请重新核对");
+        if(!affectedKeys.has(`${normOrder(row.order_number)}\u0000${row.item_code}`))throw new BadRequestException("月度计划不属于本次分配业务键");
+      }
+      for (const change of bases) {
+        const row=baseMap.get(change.id)!;
+        if(Number(row.version)!==change.expectedVersion)throw new ConflictException("基础计划版本已变化，请重新核对");
+        if(!affectedKeys.has(`${normOrder(row.order_number)}\u0000${row.item_code}`))throw new BadRequestException("基础计划不属于本次分配业务键");
+        const facts=await this.residualExecutionFacts(manager,actor.tenantId,row.order_number,row.item_code);
+        if(facts.shipping||facts.weekly||facts.reports||facts.inbound)throw new ConflictException(`存在出货、周计划、报工或入库事实，拒绝更正：${row.order_number}/${row.item_code}`);
+      }
+      let restored=0,archived=0,allocationUpdated=0,monthlyUpdated=0,baseUpdated=0;
+      for(const change of allocations){
+        const before=allocationMap.get(change.id)!; const sets:string[]=[];const params:unknown[]=[actor.tenantId,change.id,change.expectedVersion,actor.userId];
+        if(change.action==="RESTORE"){sets.push("archived_at=NULL");restored++;}
+        if(change.action==="ARCHIVE"){sets.push("archived_at=now()");archived++;}
+        if(change.divisionId!==undefined){params.push(change.divisionId);sets.push(`division_id=$${params.length}::uuid`);}
+        if(change.allocatedQuantity!==undefined){params.push(change.allocatedQuantity);sets.push(`allocated_quantity=$${params.length}::numeric`);}
+        if(!sets.length)throw new BadRequestException("没有分配更正字段");
+        sets.push("updated_at=now()","updated_by=$4::uuid","version=version+1");
+        const [after]=await manager.query(`UPDATE mps_order_allocations SET ${sets.join(",")} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`,params);
+        if(!after)throw new ConflictException("订单分配并发变化，已回滚");
+        await this.audit(manager,actor,"mps-order-allocations",change.id,`mps-order-allocations.residual_${change.action.toLowerCase()}`,before,
+          change.action==="RESTORE" ? {...after,restoredFromArchiveBatchId:change.archiveBatchId}
+            : change.action==="ARCHIVE" ? {...after,residualIdempotencyKey:input.idempotencyKey} : after);
+        if(change.action==="UPDATE")allocationUpdated++;
+      }
+      for(const change of monthly){
+        const before=monthlyMap.get(change.id)!; const quantity=change.requiredQuantity===undefined?undefined:String(change.requiredQuantity);
+        const sets:string[]=[];const params:unknown[]=[actor.tenantId,change.id,change.expectedVersion,actor.userId];
+        if(change.divisionId!==undefined){params.push(change.divisionId);sets.push(`division_id=$${params.length}::uuid`);}
+        if(quantity!==undefined){params.push(quantity);const ix=params.length;sets.push(`required_quantity=$${ix}::numeric`,`pending_quantity=greatest($${ix}::numeric-cumulative_inbound_quantity,0)`,`completion_rate=CASE WHEN $${ix}::numeric<=0 THEN 0 ELSE round(least(greatest(cumulative_inbound_quantity,0)/$${ix}::numeric,1),4) END`);}
+        sets.push("updated_at=now()","updated_by=$4::uuid","version=version+1");
+        const [after]=await manager.query(`UPDATE mps_monthly_plans SET ${sets.join(",")} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`,params);
+        if(!after)throw new ConflictException("月度计划并发变化，已回滚");
+        await this.audit(manager,actor,"mps-monthly-plans",change.id,"mps-monthly-plans.residual_corrected",before,after);monthlyUpdated++;
+      }
+      for(const change of bases){
+        const before=baseMap.get(change.id)!;const sets:string[]=[];const params:unknown[]=[actor.tenantId,change.id,change.expectedVersion,actor.userId];
+        if(change.divisionId!==undefined){params.push(change.divisionId);sets.push(`division_id=$${params.length}::uuid`);}
+        if(change.plannedQuantity!==undefined){params.push(String(change.plannedQuantity));sets.push(`planned_quantity=$${params.length}::numeric`);}
+        sets.push("updated_at=now()","updated_by=$4::uuid","version=version+1");
+        const [after]=await manager.query(`UPDATE mps_base_plans SET ${sets.join(",")} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`,params);
+        if(!after)throw new ConflictException("基础计划并发变化，已回滚");
+        await this.audit(manager,actor,"mps-base-plans",change.id,"mps-base-plans.residual_corrected",before,after);baseUpdated++;
+      }
+      const groupPlanAliases: Array<{sourceOrderNumber:string;targetOrderNumber:string}> = [];
+      for (const sourceOrderNumber of new Set(allocations.filter(row=>row.action==="RESTORE")
+        .map(row=>String(allocationMap.get(row.id)!.order_number)))) {
+        const normalizedOrder=normOrder(sourceOrderNumber);
+        const groupPlans: Array<{order_number:string}> = await manager.query(`SELECT order_number FROM mps_group_plans
+          WHERE tenant_id=$1 AND regexp_replace(regexp_replace(order_number,'^23[0-9]{2}-',''),'-1$','')=$2
+          ORDER BY order_number FOR UPDATE`,[actor.tenantId,normalizedOrder]);
+        const exact=groupPlans.find(row=>row.order_number===sourceOrderNumber);
+        const target=exact?.order_number ?? (groupPlans.length===1 ? groupPlans[0]!.order_number : null);
+        if (groupPlans.length>1 && !exact) throw new ConflictException(`恢复订单存在多个集团计划别名，拒绝自动选择：${sourceOrderNumber}`);
+        if (target && target!==sourceOrderNumber) groupPlanAliases.push({sourceOrderNumber,targetOrderNumber:target});
+      }
+      const projection=await reconcileAllocationPlans(manager,actor.tenantId,actorId,actor.username,groupPlanAliases);
+      const zeroRows: Array<Record<string,any>> = [];
+      for(const key of zeroKeys){
+        const matches=await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND required_quantity=0 FOR UPDATE`,[actor.tenantId,key.orderNumber,key.itemCode,key.divisionId]);
+        if(matches.length!==1)throw new ConflictException(`零数量月度计划不唯一或不存在：${key.orderNumber}/${key.itemCode}`);
+        zeroRows.push(matches[0]);
+      }
+      const allocationMonthlyRows: Array<Record<string,any>> = allocations.length
+        ? await manager.query("SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND allocation_id=ANY($2::uuid[])",[actor.tenantId,allocations.map(row=>row.id)]) : [];
+      const monthlyIds=[...new Set([...monthly.map(row=>row.id),...allocationMonthlyRows.map(row=>String(row.id)),...zeroRows.map(row=>String(row.id))])];
+      const baseProjection=await reconcileMonthlyBasePlans(manager,actor.tenantId,actorId,actor.username,monthlyIds,zeroRows.map(row=>String(row.id)),false);
+      const response={restored,archived,allocationUpdated,monthlyUpdated,baseUpdated,projection:projection.metrics,baseProjection:baseProjection.metrics,repeated:false};
+      await this.audit(manager,actor,"mps-order-allocations",null,"mps-order-allocations.residual_finalized",null,{...response,idempotencyKey:input.idempotencyKey});
+      await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)",[storageKey,requestHash,JSON.stringify(response),actor.userId]);
+      return response;
+    });
+    void this.sync.processOutbox().catch(() => undefined);
+    return result;
+  }
+
+  private async residualExecutionFacts(manager: EntityManager, tenantId: string, orderNumber: string, itemCode: string) {
+    const [row]=await manager.query(`SELECT
+      EXISTS(SELECT 1 FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND regexp_replace(regexp_replace(s.order_number,'^23[0-9]{2}-',''),'-1$','')=regexp_replace(regexp_replace($2,'^23[0-9]{2}-',''),'-1$','') AND s.item_code=$3) shipping,
+      EXISTS(SELECT 1 FROM mps_weekly_plans w JOIN mps_base_plans b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id WHERE b.tenant_id=$1 AND regexp_replace(regexp_replace(b.order_number,'^23[0-9]{2}-',''),'-1$','')=regexp_replace(regexp_replace($2,'^23[0-9]{2}-',''),'-1$','') AND b.item_code=$3) weekly,
+      EXISTS(SELECT 1 FROM mps_process_reports r JOIN mps_weekly_plans w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id JOIN mps_base_plans b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id WHERE b.tenant_id=$1 AND regexp_replace(regexp_replace(b.order_number,'^23[0-9]{2}-',''),'-1$','')=regexp_replace(regexp_replace($2,'^23[0-9]{2}-',''),'-1$','') AND b.item_code=$3) reports,
+      EXISTS(SELECT 1 FROM finished_goods_inbound f WHERE regexp_replace(regexp_replace(f.sales_order_number,'^23[0-9]{2}-',''),'-1$','')=regexp_replace(regexp_replace($2,'^23[0-9]{2}-',''),'-1$','') AND f.inventory_code=$3 AND f.received_quantity<>0) inbound`,[tenantId,orderNumber,itemCode]);
+    return {shipping:Boolean(row.shipping),weekly:Boolean(row.weekly),reports:Boolean(row.reports),inbound:Boolean(row.inbound)};
   }
 
   async create(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {

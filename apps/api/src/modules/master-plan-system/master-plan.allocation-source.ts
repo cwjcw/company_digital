@@ -56,3 +56,32 @@ export const allocationOrderTotalsSql = `WITH ${allocationDemandCtesSql}, items 
   FROM candidates GROUP BY order_number
 ) SELECT orders.*,metadata.customer_code,metadata.order_date,metadata.primary_division_id
   FROM orders JOIN metadata USING(order_number)`;
+
+/** One-off audited corrections can point a restored legacy allocation alias at an
+ * already-existing group plan. The underlying allocation/monthly identity remains
+ * untouched; only the group summary is rolled up under the selected existing order.
+ */
+export function allocationOrderTotalsSqlWithAliases() {
+  return `WITH ${allocationDemandCtesSql}, mapped AS MATERIALIZED (
+    SELECT c.*,COALESCE((SELECT x.target_order_number FROM jsonb_to_recordset($2::jsonb)
+      x(source_order_number text,target_order_number text) WHERE x.source_order_number=c.order_number),c.order_number) group_order_number
+    FROM candidates c
+  ), items AS (
+    SELECT a.group_order_number order_number,a.item_code,sum(a.quantity) required_quantity,
+      least(sum(greatest(p.cumulative_inbound_quantity,0)),sum(a.quantity)) completed_quantity
+    FROM mapped a JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
+    WHERE NOT EXISTS(SELECT 1 FROM mapped blocked WHERE blocked.group_order_number=a.group_order_number AND blocked.skip_reason IS NOT NULL)
+    GROUP BY a.group_order_number,a.item_code
+  ), orders AS (
+    SELECT order_number,sum(required_quantity) required_quantity,sum(completed_quantity) completed_quantity,
+      sum(greatest(required_quantity-completed_quantity,0)) pending_quantity,
+      round(avg(CASE WHEN required_quantity<=0 THEN 0 ELSE least(completed_quantity/required_quantity,1) END),4) completion_rate
+    FROM items GROUP BY order_number
+  ), metadata AS (
+    SELECT group_order_number order_number,min(customer_code) customer_code,
+      CASE WHEN count(DISTINCT order_date)=1 THEN min(order_date) END order_date,
+      CASE WHEN count(DISTINCT division_id)=1 THEN (array_agg(division_id))[1] END primary_division_id
+    FROM mapped GROUP BY group_order_number
+  ) SELECT orders.*,metadata.customer_code,metadata.order_date,metadata.primary_division_id
+    FROM orders JOIN metadata USING(order_number)`;
+}

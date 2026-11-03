@@ -46,13 +46,14 @@ export function monthlyBasePatch(current: Row, desired: Row, previous?: Row): Ro
   return patch;
 }
 
-export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[]) {
+export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
   const monthly: Row[] = await manager.query(`SELECT m.*,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
     JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
-    WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>'' AND m.required_quantity>0
-    ORDER BY m.id FOR SHARE OF m`, [tenantId,monthlyPlanIds ?? null]);
+    WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>''
+      AND (m.required_quantity>0 OR (m.required_quantity=0 AND m.id=ANY($3::uuid[])))
+    ORDER BY m.id FOR SHARE OF m`, [tenantId,monthlyPlanIds ?? null,includeZeroQuantityIds]);
   let created = 0, updated = 0, conflicts = 0;
   const requestId = `base-sync:${randomUUID()}`;
   // Fetch all prior automatic baselines once; ordinary human audit records are not ownership evidence.
@@ -119,7 +120,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1
       WHERE tenant_id=$1 AND exception_key=$2 AND active=true`, [tenantId,conflictKey,actorId]);
   }
-  if (created + updated > 0) {
+  if (enqueueBaseToWeekly && created + updated > 0) {
     await manager.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,'mps-base-plans','base-to-weekly',$2,$3::uuid,$4,$3::uuid,$3::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, [tenantId,`${requestId}:base-to-weekly`,actorId,actorName]);

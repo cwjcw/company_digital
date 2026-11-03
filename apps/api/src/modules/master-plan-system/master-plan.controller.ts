@@ -89,6 +89,12 @@ export class MasterPlanController {
     return this.sync.confirmWeeklyProcessConfigBatch(body.plans, this.actor(request));
   }
 
+  /** One-time, audited administrator command for the confirmed 2026-11-03 Division 3 source reconciliation. */
+  @Post("resources/mps-order-allocations/finalize-residual")
+  finalizeDivisionThreeResidual(@Body() body: Parameters<MasterPlanApplicationService["finalizeDivisionThreeResidual"]>[0], @Req() request: MasterPlanRequest) {
+    return this.application.finalizeDivisionThreeResidual(body, this.actor(request));
+  }
+
   @Patch("resources/:resource/batch")
   batchUpdate(@Param("resource") resource: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return this.application.batchUpdate(resource, body, this.actor(request)); }
 

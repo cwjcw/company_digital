@@ -1,6 +1,6 @@
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { allocationProjectionCandidatesSql } from "./master-plan.allocation-projection";
-import { allocationOrderTotalsSql } from "./master-plan.allocation-source";
+import { allocationOrderTotalsSql, allocationOrderTotalsSqlWithAliases } from "./master-plan.allocation-source";
 
 /** Detailed quantities, migration, idempotency/history and scope are exercised by
  * scripts/test-allocation-plan-source-postgres.cjs on real isolated PostgreSQL. */
@@ -17,6 +17,12 @@ describe("allocation demand boundaries", () => {
     expect(allocationOrderTotalsSql).toContain("GROUP BY a.order_number,a.item_code");
     expect(allocationOrderTotalsSql).toContain("avg(CASE WHEN required_quantity<=0");
     expect(allocationOrderTotalsSql).toContain("blocked.skip_reason IS NOT NULL");
+  });
+  it("can roll a restored order alias into an existing group-plan identity", () => {
+    const sql=allocationOrderTotalsSqlWithAliases();
+    expect(sql).toContain("jsonb_to_recordset($2::jsonb)");
+    expect(sql).toContain("group_order_number");
+    expect(sql).toContain("GROUP BY a.group_order_number,a.item_code");
   });
   it("keeps tenant locks and never writes allocation/ERP source records during plan reconciliation", async () => {
     const query = jest.fn(async (sql:string) => sql.includes("count(*)::integer count FROM stock_facts")
