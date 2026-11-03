@@ -61,17 +61,17 @@
 | SUP-001 | T+供应商导入；`automation/tplus_supplier_import/extract.py` | 脚本存在、仓库未确认周期触发 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |
 | MPS-001 | 主计划 E10研发进度；`data-operations/e10/run-pmc-rd-progress-sync.cjs` | 有脚本，未确认调度 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |
 | TPLUS-001 | T+销售接单明细；`data-operations/tplus/sync.mjs` | 有脚本，未确认调度 | n8n（若周期化） | UNVERIFIED_RUNTIME | 核查是否与 ERP staging 重叠 |
-| TPLUS-002 | T+凯南、科加双账套销售订单日导出及企业微信投递；NewPlant `scripts/export_named_company_orders.py` | n8n `KnKjOrders083026` 每日08:30 Asia/Shanghai | n8n | ACTIVE / FIRST_SCHEDULED_RUN_PENDING | 2026-11-03全链路手工执行成功；首次未来定时执行待观察 |
+| TPLUS-002 | T+凯南、科加双账套销售订单日导出及企业微信投递；NewPlant `scripts/export_named_company_orders.py` | n8n `KnKjOrders083026` 每日08:30 Asia/Shanghai | n8n | ACTIVE / FIRST_SCHEDULED_RUN_PENDING | 2026-11-03品项明细导出及更正发送成功；首次未来定时执行待观察 |
 
 ### TPLUS-002 / 双账套销售订单每日导出
 
 - 授权：用户要求从 T+“凯南智能”“科加智能”两个账套导出今年1月1日起全部客户的销售订单，分别发送给詹海燕、赖泽洲，并每日08:30执行。
 - 唯一自动入口：n8n 工作流 `KnKjOrders083026`，每日 `0 30 8 * * *`，Workflow timezone=`Asia/Shanghai`；Schedule Trigger → 既有 SSH Credential `本机SSH` → `/data/automation/code/work/NewPlant/database/.venv/bin/python /data/automation/code/work/NewPlant/database/scripts/export_named_company_orders.py --send`。
-- 数据源：既有 T+ 只读适配器 `knweb/data-operations/tplus/sync.mjs --dry-run --output <secure-temp>`，读取只读 SQL `/data/automation/code/sql/TplusSQL/50_双账套有效订单统一报表.sql`；账套 `UFTData741219_000012`（凯南智能）和 `UFTData418971_000003`（科加智能）。不筛客户编码。沿用源 SQL 有效订单口径：已审核、未取消、未整单关闭、至少一条有效正数量明细，不含退货/负数量订单；每单一行，含客户代码、业务员、订单日期、交期、人民币金额和数量。
+- 数据源：使用 `knweb/data-operations/tplus/config.mjs` 中的既有只读 SQL Server 配置，通过 `knweb/data-operations/tplus/config.mjs` 中的既有只读 SQL Server 配置，直接查询两个账套的 `SA_SaleOrder` 与 `SA_SaleOrder_b`，账套 `UFTData741219_000012`（凯南智能）和 `UFTData418971_000003`（科加智能）。不筛客户编码。沿用有效订单口径：已审核、未取消、未整单关闭、至少一条有效正数量明细，订单总数量大于零；每个订单的每条明细单独一行，含客户、业务员、订单号、日期、订单明细ID、品号/品名/规格、数量、单价/金额、交期、仓库及执行数量。每个有效订单下的全部明细均保留。
 - 身份与权限：复用现存 SSH 凭据、T+ 只读 SQL 凭据和 basic_code 默认企业微信应用；工作流命令中不保存 SQL/企业微信凭据，也不调用 T+ API 写入端点。
-- 防并发/幂等：主机锁 `/tmp/kdos-tplus-sales-order-export-send.lock`；按上海业务日、账套、文本/附件组件写入本地发送状态，以便 n8n 重试时跳过已确认成功的组件。T+ 快照位于权限600的临时文件，读取后删除。
+- 防并发/幂等：主机锁 `/tmp/kdos-tplus-sales-order-export-send.lock`；按上海业务日、账套、文本/附件组件写入本地发送状态，以便 n8n 重试时跳过已确认成功的组件。SQL 查询仅返回报表所需的订单表头与品项字段；企业微信投递状态按日期、粒度版本、账套和文本/附件组件分别记录，避免旧订单汇总版状态跳过本次明细附件。
 - 失败/补偿：脚本非零退出使 n8n 执行失败；尽力通过企业微信向两名收件人发送失败提示，保留 n8n 失败执行；通过同一工作流手工重跑，发送状态保护已成功投递的组件。若发送端在服务端成功后、状态落盘前中断，仍可能重复投递该组件。
-- 实测（2026-11-03）：只读查询及完整导出/发送成功。凯南智能989单/49个客户（2026-01-02至2026-11-03），科加智能925单/5个客户（2026-01-01至2026-11-03）；正确T+报表已分别发送至詹海燕、赖泽洲。自动工作流发布后服务重启，下一次计划触发2026-11-04 08:30，尚未观察首次未来定时执行。
+- 实测（2026-11-03）：按订单明细查询、导出和更正发送成功。凯南智能4891条品项/989个订单/49个客户（2026-01-02至2026-11-03），科加智能12779条品项/925个订单/5个客户（2026-01-01至2026-11-03）；两份工作簿均核验订单明细ID唯一、品号非空，已分别发送给詹海燕、赖泽洲。N8N 工作流已启用，下一次计划触发2026-11-04 08:30，首次定时执行待观察。
 - 责任人：业务报表申请人/系统维护人员。回滚：取消发布 `KnKjOrders083026`；不改动既有 T+ staging/projector 任务。
 
 
