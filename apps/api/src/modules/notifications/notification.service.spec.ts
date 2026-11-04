@@ -14,6 +14,24 @@ function dataSource() {
 }
 
 describe("NotificationService", () => {
+  it("claims one equipment fault for both existing personal recipients and configured group targets", async () => {
+    const { manager, source } = dataSource();
+    const outbox = { id: outboxId, event_type: "equipment.status.fault_changed", notification_rule_id: ruleId, payload: { equipmentCode: "EQ-1" } };
+    manager.query.mockResolvedValueOnce(undefined).mockResolvedValueOnce([outbox]).mockResolvedValueOnce([]);
+    const service = new NotificationService(source as never);
+    const personal = [{ deliveryId: "personal-delivery", userId: "user-1", displayName: "值班人", wechatUserId: "wecom-1" }];
+    const group = { notificationId: outboxId, messageType: "group_text", content: "故障提醒", recipients: [{ deliveryId: "group-delivery", targetType: "WECHAT_GROUP_WEBHOOK", targetId: "group-1", webhookUrl: "https://example.invalid" }] };
+    jest.spyOn(service as any, "resolveRule").mockResolvedValue({ resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} });
+    jest.spyOn(service as any, "resolveRecipients").mockResolvedValue([{ userId: "user-1", displayName: "值班人", wechatUserId: "wecom-1" }]);
+    jest.spyOn(service as any, "prepareRecipientDeliveries").mockResolvedValue(personal);
+    jest.spyOn(service as any, "prepareGroupWebhookClaims").mockResolvedValue([group]);
+
+    await expect(service.claimForDispatcher(tenantId, "worker-1")).resolves.toEqual([
+      { notificationId: outboxId, messageType: "text", content: expect.stringContaining("EQ-1"), recipients: personal }, group
+    ]);
+    expect((service as any).prepareGroupWebhookClaims).toHaveBeenCalledWith(manager, tenantId, outbox, expect.stringContaining("EQ-1"));
+  });
+
   it("creates one delivery row per group and component and reclaims only failed target attempts", async () => {
     const previousKey=process.env.KDOS_NOTIFICATION_SECRET_KEY;process.env.KDOS_NOTIFICATION_SECRET_KEY="service-test-key";
     const { manager, source } = dataSource();
@@ -74,6 +92,21 @@ describe("NotificationService", () => {
       expect(inserts.map(([,params])=>(params as unknown[])[3])).toEqual(["group_image_2","group_image_3"]);
       expect(new Set(claims.map((claim:any)=>claim.recipients[0].deliveryId)).size).toBe(2);
     } finally {if(previousKey===undefined)delete process.env.KDOS_NOTIFICATION_SECRET_KEY;else process.env.KDOS_NOTIFICATION_SECRET_KEY=previousKey;}
+  });
+
+  it("renders a Work fault event as one text component for its optional group route", async () => {
+    const previousKey = process.env.KDOS_NOTIFICATION_SECRET_KEY;
+    process.env.KDOS_NOTIFICATION_SECRET_KEY = "service-test-key";
+    const { manager, source } = dataSource();
+    manager.query.mockResolvedValueOnce([{ id: "target-a", group_name: "设备管理群", webhook_ciphertext: encryptGroupWebhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefghijklmnop4444") }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "group-delivery", attempt: 1, status: "PENDING" }]);
+    try {
+      const service = new NotificationService(source as never);
+      const claims = await (service as any).prepareGroupWebhookClaims(manager, tenantId, { id: outboxId, event_type: "equipment.status.fault_changed" }, "【设备故障提醒】EQ-01 发生故障");
+      expect(claims).toEqual([expect.objectContaining({ messageType: "group_text", content: "【设备故障提醒】EQ-01 发生故障", recipients: [expect.objectContaining({ deliveryId: "group-delivery", targetName: "设备管理群" })] })]);
+    } finally { if (previousKey === undefined) delete process.env.KDOS_NOTIFICATION_SECRET_KEY; else process.env.KDOS_NOTIFICATION_SECRET_KEY = previousKey; }
   });
 
   it("rejects routed events that do not start with text and blocks unknown event types", async () => {
@@ -260,13 +293,14 @@ describe("NotificationService", () => {
     manager.query.mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010" } }])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: deliveryId }]);
     const service = new NotificationService(source as never);
     await expect(service.claimForDispatcher(tenantId, "dispatcher-1")).resolves.toEqual([]);
     expect(String(manager.query.mock.calls[1]?.[0])).toContain("FOR UPDATE SKIP LOCKED");
-    expect(String(manager.query.mock.calls[3]?.[0])).toContain("next_retry_at=NULL");
-    expect(String(manager.query.mock.calls[4]?.[0])).toContain("SKIPPED");
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("next_retry_at=NULL"))).toBe(true);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("SKIPPED"))).toBe(true);
     expect(String(manager.query.mock.calls[1]?.[0])).not.toContain("RECIPIENT_NOT_ALLOWED");
   });
 
@@ -311,6 +345,7 @@ describe("NotificationService", () => {
     manager.query.mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: null, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010", divisionName: "事业一部", equipmentCode: "EQ-01", equipmentName: "冲床", oldFaultMinutes: 0, newFaultMinutes: 60, faultReason: "卡料", actorName: "填报人", occurredAt: "2026-09-23T10:00:00+08:00" } }])
       .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: { messageType: "text", template: "{equipmentCode}:{newFaultMinutes}" } }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", wechatUserId: "wx-zhang", enabled: true }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: deliveryId }])
@@ -320,7 +355,7 @@ describe("NotificationService", () => {
       notificationId: outboxId, messageType: "text", content: "EQ-01:60",
       recipients: [{ deliveryId, userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", wechatUserId: "wx-zhang" }]
     }]);
-    expect(String(manager.query.mock.calls[4]?.[0])).toContain("notification_delivery_logs");
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO notification_delivery_logs"))).toBe(true);
     expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("notification_rule_id=COALESCE($3::uuid"))).toBe(true);
   });
 
@@ -329,6 +364,7 @@ describe("NotificationService", () => {
     manager.query.mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010" } }])
       .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { userId: "00000000-0000-7000-8000-000000000011", displayName: "无企微", wechatUserId: null, enabled: true },
         { userId: "00000000-0000-7000-8000-000000000012", displayName: "李四", wechatUserId: "li", enabled: true }
@@ -349,6 +385,7 @@ describe("NotificationService", () => {
     manager.query.mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ id: outboxId, attempts: 1, notification_rule_id: ruleId, event_type: "equipment.status.fault_changed", channel: "WECHAT_WORK", payload: { equipmentId: "00000000-0000-7000-8000-000000000010" } }])
       .mockResolvedValueOnce([{ id: ruleId, resource: "equipment-status-report", recipient_rule: "EQUIPMENT_RESPONSIBLE", config: {} }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { userId: "00000000-0000-7000-8000-000000000011", displayName: "张三", wechatUserId: "zhang", enabled: true },
         { userId: "00000000-0000-7000-8000-000000000012", displayName: "李四", wechatUserId: "li", enabled: true },

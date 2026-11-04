@@ -440,7 +440,7 @@ def send_report(operation_image: Path, reporting_image: Callable[[], Path], text
 def submit_notification_event(report_date: date, operation_image: Path, reporting_image: Callable[[], Path],
                               should_send_reporting: bool) -> dict[str, Any]:
     """Submit one ordered event to KDOS; routing and per-group delivery stay in Notification Center."""
-    token = os.getenv('KDOS_NOTIFICATION_INTERNAL_TOKEN', '').strip()
+    token = os.getenv('KDOS_NOTIFICATION_INTERNAL_TOKEN', '').strip() or read_notification_internal_token()
     if not token:
         raise RuntimeError('缺少KDOS_NOTIFICATION_INTERNAL_TOKEN，拒绝提交通知事件')
     api_base = os.getenv('KDOS_API_BASE_URL', 'http://127.0.0.1/api/v1').rstrip('/')
@@ -463,9 +463,21 @@ def submit_notification_event(report_date: date, operation_image: Path, reportin
             result = json.loads(response.read().decode('utf-8'))
     except Exception as error:
         raise RuntimeError('KDOS群通知事件提交失败') from error
-    return {'sent': False, 'queued': True, 'eventType': payload['eventType'], 'reportDate': report_date.isoformat(),
+    return {'groupQueued': True, 'groupEventType': payload['eventType'], 'reportDate': report_date.isoformat(),
             'created': bool(result.get('created')), 'notificationId': result.get('row', {}).get('id'),
-            'sequence': ['text', 'operation_image'] + (['reporting_image'] if should_send_reporting else [])}
+            'groupSequence': ['text', 'operation_image'] + (['reporting_image'] if should_send_reporting else [])}
+
+
+def read_notification_internal_token() -> str:
+    """Read only the Dispatcher API token from the existing project env file."""
+    env_file = Path(__file__).resolve().parents[3] / '.env'
+    if not env_file.is_file():
+        return ''
+    for line in env_file.read_text(encoding='utf-8').splitlines():
+        key, separator, value = line.partition('=')
+        if separator and key.strip() == 'KDOS_NOTIFICATION_INTERNAL_TOKEN':
+            return value.strip().strip('"').strip("'")
+    return ''
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -473,9 +485,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--send-test', action='store_true', help='只发送给崔玮杰')
     mode.add_argument('--send-production', action='store_true', help='正式发送，另需配置开启及二次确认')
-    mode.add_argument('--submit-notification-event', action='store_true', help='将日报作为一个事件交给KDOS群路由；需要配置KDOS内部通知凭据')
     mode.add_argument('--check-production', action='store_true', help='正式发布预检：只读取数/检查联系人/生成图片，不发送')
     mode.add_argument('--notify-failure', action='store_true', help='n8n失败分支通知维护人，不发送业务日报')
+    parser.add_argument('--submit-notification-event', action='store_true', help='提交设备日报到消息中心配置的群路由；可与--send-production并用')
     parser.add_argument('--confirm-production', action='store_true')
     parser.add_argument('--test-run-id', help='经授权的新一轮单人测试标识，同标识重跑仍幂等，仅限--send-test')
     parser.add_argument('--data-json', type=Path, help='合成/本地数据，仅限不发送的预览模式')
@@ -485,6 +497,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.submit_notification_event and (args.send_test or args.check_production or args.notify_failure):
+        raise ValueError('群日报事件只能与正式个人发送并用，不能与测试、预检或失败告警并用')
     config = read_config()
     if args.test_run_id and (not args.send_test or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', args.test_run_id)):
         raise ValueError('--test-run-id仅限--send-test，标识只允许字母数字、下划线和短横线，最长64位')
@@ -532,14 +546,16 @@ def main(argv: list[str] | None = None) -> int:
             result['mode'] = mode
             if args.test_run_id:
                 result['testRunId'] = args.test_run_id
-        elif args.submit_notification_event:
-            result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary)))
-        else:
+        elif not args.submit_notification_event:
             if args.check_production:
                 users = resolve_user_ids(create_pusher(), config['production_recipients'])
                 result.update({'ready': True, 'mode': 'production-check', 'recipientCount': len(users)})
             result['reportingImage'] = str(reporting())
             result['wouldSendReportingImage'] = not seven_day_complete(summary)
+        if args.submit_notification_event:
+            result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary)))
+            if not args.send_production:
+                result['mode'] = 'group-event'
         print(json.dumps(result, ensure_ascii=False))
     return 0
 

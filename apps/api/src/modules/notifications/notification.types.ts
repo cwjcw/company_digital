@@ -15,6 +15,8 @@ export type NotificationEventDefinition = {
   label: string;
   conditionDescription: string;
   defaultChannel: string;
+  /** Allows a group route alongside the normal personal Work message. */
+  allowGroupRoute?: boolean;
   messageType: "text" | "text_file";
   defaultTemplate: string;
   allowedRecipientRules: readonly string[];

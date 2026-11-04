@@ -14,6 +14,8 @@
 
 群路由可选择一个或多个收件人组，也可继续选择单个群机器人。派发时按当前路由和组成员实时展开，过滤停用对象，并按Webhook目标ID去重；因此同一机器人同时直接选中和经一个或多个组命中时，每个消息组件只向该机器人创建一条投递。所有配置服务端按租户校验并写入审计，版本冲突要求刷新；仍复用现有 `WECHAT_GROUP_WEBHOOK` Dispatcher，不改变 `WECHAT_WORK`。
 
+设备故障变化保留既有企业微信工作通知规则，并允许额外配置一个独立群路由。管理员将 `设备故障变化` 事件关联到设备管理收件人组后，同一个 outbox 事件会为原个人规则和群路由分别创建投递记录；没有群路由时维持个人消息行为。群消息使用该规则当前渲染的内容。
+
 `GET /api/v1/notifications/recipient-groups`、`POST /api/v1/notifications/recipient-groups`、`PATCH /api/v1/notifications/recipient-groups/:id` 和 `POST /api/v1/notifications/recipient-groups/:id/delete` 维护收件人组。组成员不能删除仍被组引用的机器人；消息路由引用中的组不能删除。需要移除时，先更新路由或组成员关系。
 
 ## 只读接收人校验

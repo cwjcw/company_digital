@@ -172,8 +172,10 @@ export class NotificationService {
           await this.quarantine(manager, tenantId, outbox, workerId, "UNSUPPORTED_RECIPIENT_RULE", "通知事件不允许使用该接收人规则");
           continue;
         }
-        const groupClaims = eventDefinition.defaultChannel === "WECHAT_GROUP_WEBHOOK"
-          ? await this.prepareGroupWebhookClaims(manager, tenantId, outbox)
+        const payload = this.objectPayload(outbox.payload);
+        const groupFallback = rule ? this.renderContent(rule, eventDefinition, payload) : this.renderTemplate(eventDefinition.defaultTemplate, payload);
+        const groupClaims = eventDefinition.defaultChannel === "WECHAT_GROUP_WEBHOOK" || eventDefinition.allowGroupRoute === true
+          ? await this.prepareGroupWebhookClaims(manager, tenantId, outbox, groupFallback)
           : [];
         if (!rule && !groupClaims.length) {
           await this.quarantine(manager, tenantId, outbox, workerId, "NO_MATCHING_RULE", "没有匹配的启用通知规则或消息路由");
@@ -187,7 +189,6 @@ export class NotificationService {
           await manager.query("RELEASE SAVEPOINT allocation_delivery");
           continue;
         }
-        const payload = this.objectPayload(outbox.payload);
         const users = rule ? await this.resolveRecipients(manager, tenantId, rule, eventDefinition, payload) : [];
         if (rule && eventDefinition.eventType === "finance.monthly.daily_summary" && payload.financeReportFormat === 1) {
           await manager.query("SAVEPOINT finance_file_delivery");
@@ -306,7 +307,7 @@ export class NotificationService {
     return (rows ?? [])[0] ?? null;
   }
 
-  private async prepareGroupWebhookClaims(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>): Promise<NotificationClaim[]> {
+  private async prepareGroupWebhookClaims(manager: EntityManager, tenantId: string, outbox: Record<string, unknown>, fallbackText = ""): Promise<NotificationClaim[]> {
     const targets = (await manager.query(`WITH expanded AS (
         SELECT w.id,w.group_name,w.webhook_ciphertext FROM notification_routes r
         JOIN notification_route_targets t ON t.tenant_id=r.tenant_id AND t.route_id=r.id AND t.enabled=true AND t.target_type='WECHAT_GROUP_WEBHOOK'
@@ -321,8 +322,11 @@ export class NotificationService {
         WHERE r.tenant_id=$1 AND r.event_type=$2 AND r.enabled=true
       ) SELECT DISTINCT ON(id) id,group_name,webhook_ciphertext FROM expanded ORDER BY id,group_name`, [tenantId, outbox.event_type]) ?? []) as Array<Record<string, unknown>>;
     if (!targets.length) return [];
-    const components = await manager.query(`SELECT id,sequence,component_type,content_text,filename FROM notification_event_components
+    const storedComponents = await manager.query(`SELECT id,sequence,component_type,content_text,filename FROM notification_event_components
       WHERE tenant_id=$1 AND notification_outbox_id=$2::uuid ORDER BY sequence,id`, [tenantId, outbox.id]) as Array<Record<string, unknown>>;
+    const components = storedComponents.length ? storedComponents : fallbackText.trim()
+      ? [{ sequence: 1, component_type: "text", content_text: fallbackText }]
+      : [];
     if (!components.length) throw new ConflictException("群消息没有内容组件");
     const claims: NotificationClaim[] = [];
     for (const component of components) {
@@ -560,6 +564,9 @@ export class NotificationService {
     const legacyFinanceText = eventDefinition.eventType === "finance.monthly.daily_summary" && config.messageType === "text";
     if (config.messageType != null && config.messageType !== eventDefinition.messageType && !legacyFinanceText) throw new ConflictException("当前 Dispatcher 只支持文本通知");
     const template = typeof config.template === "string" && config.template.trim() ? config.template : eventDefinition.defaultTemplate;
+    return this.renderTemplate(template, payload);
+  }
+  private renderTemplate(template: string, payload: Record<string, unknown>) {
     return template.replace(/\{\{?([A-Za-z][A-Za-z0-9_]*)\}\}?/g, (_match, key: string) => String(payload[key] ?? "—"));
   }
   private async withManager<T>(tenantId: string, manager: EntityManager | undefined, work: (scoped: EntityManager) => Promise<T>) {

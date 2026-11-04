@@ -342,7 +342,7 @@ class WorkflowDefinitionTest(unittest.TestCase):
         self.assertEqual(w['settings']['timezone'], 'Asia/Shanghai')
         nodes = {n['name']: n for n in w['nodes']}
         self.assertEqual(nodes['每天12点']['parameters']['rule']['interval'][0]['expression'], '0 0 12 * * *')
-        self.assertIn('--send-production --confirm-production', nodes['发送设备管理日报']['parameters']['command'])
+        self.assertIn('--send-production --confirm-production --submit-notification-event', nodes['发送设备管理日报']['parameters']['command'])
         self.assertNotIn('--test-run-id', nodes['发送设备管理日报']['parameters']['command'])
         self.assertIn('--notify-failure', nodes['发送失败告警']['parameters']['command'])
         self.assertEqual(w['connections']['核验发送结果']['main'][1][0]['node'], '发送失败告警')
@@ -350,10 +350,10 @@ class WorkflowDefinitionTest(unittest.TestCase):
 
     def test_validator_rejects_nonzero_missing_json_wrong_mode_count_or_sequence(self):
         code = next(n['parameters']['jsCode'] for n in self.workflow['nodes'] if n['type']=='n8n-nodes-base.code')
-        result = {'mode':'production','recipientCount':11,'sent':True,'reportingImageSent':True,'sequence':['text','operation_image','reporting_image']}
+        result = {'mode':'production','recipientCount':11,'sent':True,'reportingImageSent':True,'sequence':['text','operation_image','reporting_image'],'groupQueued':True,'groupSequence':['text','operation_image','reporting_image']}
         cases = [(True, {'code':0,'stdout':json.dumps(result)})]
         cases += [(False, {'code':1,'stdout':json.dumps(result)}), (False, {'code':0,'stdout':'not json'})]
-        for update in ({'mode':'test'}, {'recipientCount':9}, {'sent':False}, {'sequence':['operation_image','text']}):
+        for update in ({'mode':'test'}, {'recipientCount':9}, {'sent':False}, {'sequence':['operation_image','text']}, {'groupQueued':False}, {'groupSequence':['text']}):
             cases.append((False, {'code':0,'stdout':json.dumps({**result,**update})}))
         for expected, item in cases:
             worker = "const fs=require('fs');const x=JSON.parse(fs.readFileSync(0,'utf8'));try {new Function('$input',x.code)({first:()=>({json:x.item})});}catch(e){process.exitCode=1}"
@@ -398,7 +398,8 @@ class NotificationEventSubmissionTest(unittest.TestCase):
             self.assertEqual(body['dedupKey'],'equipment-daily-report:2026-10-29')
             self.assertEqual([item['type'] for item in body['components']],['text','image'])
             self.assertEqual(base64.b64decode(body['components'][1]['base64']),b'operation-png')
-            self.assertEqual(result['sequence'],['text','operation_image'])
+            self.assertEqual(result['groupSequence'],['text','operation_image'])
+            self.assertTrue(result['groupQueued'])
             self.assertEqual(request.get_header('X-kdos-internal-token'),'synthetic-token')
 
     def test_includes_reporting_image_only_when_business_count_condition_is_incomplete(self):
@@ -411,7 +412,30 @@ class NotificationEventSubmissionTest(unittest.TestCase):
             reporting=Path(folder)/'reporting.png'; reporting.write_bytes(b'report')
             with patch.object(report.urllib.request,'urlopen',return_value=Response()):
                 result=report.submit_notification_event(date(2026,10,29),operation,lambda:reporting,True)
-            self.assertEqual(result['sequence'],['text','operation_image','reporting_image'])
+            self.assertEqual(result['groupSequence'],['text','operation_image','reporting_image'])
+            self.assertTrue(result['groupQueued'])
+
+    def test_production_mode_keeps_personal_delivery_and_then_queues_group_event(self):
+        with tempfile.TemporaryDirectory() as folder:
+            operation=Path(folder)/'operation.png'; operation.write_bytes(b'op')
+            calls=[]
+            def send_personal(*args,**kwargs):
+                calls.append('personal')
+                return {'sent':True,'recipientCount':11,'reportingImageSent':False,'sequence':['text','operation_image']}
+            def queue_group(*args,**kwargs):
+                calls.append('group')
+                return {'groupQueued':True,'groupSequence':['text','operation_image']}
+            with patch.object(report,'load_live_summary',return_value=fixture()), \
+                 patch.object(report,'reporting_window',return_value=(date(2026,10,23),date(2026,10,29))), \
+                 patch.object(report,'render_operation_report',return_value=operation), \
+                 patch.object(report,'render_reporting_report'), \
+                 patch.object(report,'send_report',side_effect=send_personal), \
+                 patch.object(report,'submit_notification_event',side_effect=queue_group), \
+                 contextlib.redirect_stdout(io.StringIO()) as stream:
+                report.main(['--send-production','--confirm-production','--submit-notification-event','--output-dir',folder])
+            result=json.loads(stream.getvalue())
+            self.assertEqual(calls,['personal','group'])
+            self.assertTrue(result['sent']); self.assertTrue(result['groupQueued']); self.assertEqual(result['recipientCount'],11)
 
     def test_main_preview_never_sends(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(report, 'load_live_summary', return_value=fixture()), patch.object(report, 'reporting_window', return_value=(date(2026, 10, 23), date(2026, 10, 29))), patch.object(report, 'send_report') as sender:

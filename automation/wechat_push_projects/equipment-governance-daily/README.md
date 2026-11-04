@@ -40,7 +40,7 @@
 
 任一发送失败非零退出，不继续后续内容，不虚报成功；仅复用 basic_code 的默认自建应用 `WeChatPusher`，无群机器人回退、无新SDK。测试配置必须严格等于 `["崔玮杰"]`，禁止 `@all`、缺失或重名通讯录成员。正式个人名单保存在`config.json`的`production_recipients`；2026-10-31移除高婷武、崔玮杰，2026-11-02加入李光明、Linton，现共11人（测试名单仍仅崔玮杰）。正式执行仍须`--send-production --confirm-production`，默认命令不发送。
 
-Notification Center 的后续群路由接入由显式参数 `--submit-notification-event` 提交 `equipment.daily_report` 事件（文字→运行日报 PNG→条件填报日报 PNG）。当前 n8n 仍走上面的个人企业微信发送流程；此参数仅用于未来受控迁移验证，不配置 Webhook、不发送群消息，也不改变现行调度。
+设备日报保留原有11人个人企业微信流程，并在个人投递成功后用 `--submit-notification-event` 提交 `equipment.daily_report` 事件（文字→运行日报 PNG→条件填报日报 PNG）到消息中心配置的群路由。事件使用按业务日幂等键；重复执行不会重复创建群日报。群投递由现有 Dispatcher 根据消息中心投递记录处理。
 
 全流程使用输出目录中的 `flock` 非并发锁。按业务日/test或production分别保存受限的逐组件回执；重复运行跳过已成功组件，明确失败仅补未成功组件。网络超时/进程中断导致 `sending` 状态时，不能知道服务端是否收到，**禁止自动重发**：管理员先核对企业微信实际接收情况，再将对应状态改为 `sent` 或 `failed` 恢复，保留原回执副本。不要直接删除当天回执重跑。收件人变化拒绝复用旧回执，避免错误补发。
 
@@ -89,7 +89,7 @@ cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipmen
 
 ```bash
 cd /data/automation/code/work/PMC/knweb/automation/wechat_push_projects/equipment-governance-daily && \
-/data/automation/code/work/basci/basic_code/.venv/bin/python report.py --send-production --confirm-production
+/data/automation/code/work/basci/basic_code/.venv/bin/python report.py --send-production --confirm-production --submit-notification-event
 ```
 
 ### 发布、预检和回滚

@@ -9,8 +9,9 @@ describe("Notification Event Registry", () => {
       moduleCode: "planning",
       resourceCode: "equipment-status-report",
       label: "设备故障变化",
-      conditionDescription: "故障时长发生变化且新值大于0时触发",
+      conditionDescription: "故障时长发生变化且新值大于0时触发；可同时投递到已配置的个人和群路由",
       defaultChannel: "WECHAT_WORK",
+      allowGroupRoute: true,
       messageType: "text",
       allowedRecipientRules: ["EQUIPMENT_RESPONSIBLE", "FIXED_USERS"]
     });

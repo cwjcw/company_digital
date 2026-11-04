@@ -42,6 +42,7 @@ export class NotificationAdminService {
       condition: event.conditionDescription,
       resource: event.resourceCode,
       moduleCode: event.moduleCode,
+      groupRouteSupported: event.defaultChannel === "WECHAT_GROUP_WEBHOOK" || event.allowGroupRoute === true,
       recipientRules: event.allowedRecipientRules,
       variables: event.templateVariables.map(({ key }) => key),
       module: resourceModule(event.resourceCode), resourceLabel: resourceLabel(event.resourceCode), channel: event.defaultChannel,
@@ -51,7 +52,7 @@ export class NotificationAdminService {
   }
 
   availableGroupRouteEvents(actor: NotificationAdminActor) {
-    return this.availableEvents(actor).filter(event => event.channel === "WECHAT_GROUP_WEBHOOK");
+    return this.availableEvents(actor).filter(event => event.groupRouteSupported);
   }
 
   templateVariables(actor: NotificationAdminActor, eventType: string) {
@@ -405,7 +406,7 @@ export class NotificationAdminService {
 
   async saveRoute(actor: NotificationAdminActor, body: Record<string, unknown>) {
     const event = this.event(String(body.eventType ?? "")); this.assertResourceAccess(actor, event.resourceCode);
-    if (event.defaultChannel !== "WECHAT_GROUP_WEBHOOK") throw new BadRequestException("该通知事件未开放企业微信群机器人路由");
+    if (event.defaultChannel !== "WECHAT_GROUP_WEBHOOK" && event.allowGroupRoute !== true) throw new BadRequestException("该通知事件未开放企业微信群机器人路由");
     const name = this.requiredAdminText(body.name ?? event.label, "路由名称", 255);
     const targets = this.normalizeRouteTargets(body);
     if (body.enabled === true && !targets.length) throw new BadRequestException("启用的消息路由至少需要一个接收目标");
