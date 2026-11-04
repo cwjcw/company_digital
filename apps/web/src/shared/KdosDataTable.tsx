@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { Alert, App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Typography } from "antd";
-import { DeleteOutlined, DownloadOutlined, DownOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UpOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
+import { DeleteOutlined, DownloadOutlined, DownOutlined, EditOutlined, EyeOutlined, LogoutOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UpOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
@@ -937,9 +937,14 @@ export function KdosDataTable<RecordType extends DataRecord>({
     <section className={["kdos-data-table-shell", density === "compact" ? "kdos-data-table-shell-compact" : "", internalVerticalScroll ? "kdos-data-table-shell-internal" : "", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-density={density} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
-        {canEdit && <Button type={editing ? "primary" : "default"} icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>
-          {editing ? "退出编辑模式" : "进入编辑模式"}
-        </Button>}
+        {canEdit && <Tooltip title={editing ? "退出编辑模式" : "进入编辑模式"}>
+          <Button color="primary" variant={editing ? "solid" : "outlined"}
+            icon={editing ? <LogoutOutlined /> : <EditOutlined />}
+            aria-label={editing ? "退出编辑模式" : "进入编辑模式"} aria-pressed={editing}
+            onClick={() => setEditing((value) => !value)}>
+            {editing ? "退出" : "编辑"}
+          </Button>
+        </Tooltip>}
         {editing && canEdit && <Tag color="processing" title="文本、数字字段在失焦/回车/Tab 时保存；选择类字段选择后保存">编辑模式 · 修改后自动保存</Tag>}
         {toolbar}
       </Space>

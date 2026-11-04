@@ -41,6 +41,33 @@ describe("KdosDataTable server pagination", () => {
     });
   });
 
+  it("uses short themed edit/exit buttons without changing permissions or triggering saves", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const element = () => <QueryClientProvider client={client}><KdosDataTable resource="equipment-register" editable
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>;
+    const view = render(element());
+    await screen.findByText("A001");
+    const edit = screen.getByRole("button", { name: "进入编辑模式" });
+    expect(edit).toHaveTextContent(/^编辑$/);
+    expect(edit).toHaveAttribute("aria-pressed", "false");
+    expect(edit).toHaveClass("ant-btn-color-primary", "ant-btn-variant-outlined");
+    expect(edit.querySelector('[aria-label="edit"]')).not.toBeNull();
+    fireEvent.click(edit);
+    const exit = screen.getByRole("button", { name: "退出编辑模式" });
+    expect(exit).toHaveTextContent(/^退出$/);
+    expect(exit).toHaveAttribute("aria-pressed", "true");
+    expect(exit).toHaveClass("ant-btn-color-primary", "ant-btn-variant-solid");
+    expect(exit.querySelector('[aria-label="logout"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-edit-mode="editing"]')).not.toBeNull();
+    fireEvent.click(exit);
+    expect(view.container.querySelector('[data-edit-mode="readonly"]')).not.toBeNull();
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method && init.method !== "GET")).toBe(false);
+
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "table-user", tenantId: "KAINAN", permissions: ["equipment-register:*:read"] }));
+    view.rerender(element());
+    expect(screen.queryByRole("button", { name: /进入编辑模式|退出编辑模式/ })).toBeNull();
+  });
+
   it("keeps the requested page instead of resetting a pagination action to page one", async () => {
     const onQueryChange = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

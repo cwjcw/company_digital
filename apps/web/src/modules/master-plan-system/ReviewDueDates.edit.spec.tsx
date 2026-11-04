@@ -58,8 +58,9 @@ describe('Review due dates manual editor',()=>{
  });
  it('keeps readonly actors out of edit mode and independently enforces field update and row scope controls',async()=>{
    const fields=reviewDueDateFields.map(f=>({...f,editable:f.key==='quantity'}));
-   session([resource+':*:read']);mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('button',{name:/进入编辑模式/})).toBeNull();cleanup();
-   session([resource+':*:read',resource+':*:update',resource+':quantity:update']);
+   const readPermissions=[resource+':*:read',...reviewDueDateFields.map(f=>`${resource}:${f.key}:read`)];
+   session(readPermissions);mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('button',{name:/进入编辑模式/})).toBeNull();cleanup();
+   session([...readPermissions,resource+':*:update',resource+':quantity:update']);
    const normal=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(path,opts)=>path.endsWith('/meta')?{fields,actions:{update:true}} as never:normal(path,opts));
    mount();await screen.findByText(initial.orderNumber);await enterEdit();
    expect(await screen.findByRole('textbox',{name:'数量'})).toBeVisible();expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
@@ -72,6 +73,10 @@ describe('Review due dates manual editor',()=>{
    const input=screen.getByRole('textbox',{name:'订单号'});fireEvent.change(input,{target:{value:'LATEST'}});fireEvent.blur(input);
    await waitFor(()=>expect(screen.getByRole('textbox',{name:'数量'})).toBeDisabled());fireEvent.blur(input);
    expect(vi.mocked(api).mock.calls.filter(([,opts])=>opts?.method==='PATCH')).toHaveLength(1);
-   release(null);await waitFor(()=>expect(screen.getByRole('textbox',{name:'数量'})).not.toBeDisabled());expect(row.orderNumber).toBe('LATEST');
+   fireEvent.click(screen.getByRole('button',{name:'退出编辑模式'}));
+   expect(screen.queryByRole('textbox',{name:'数量'})).toBeNull();
+   release(null);await screen.findByText('LATEST');
+   await enterEdit();await waitFor(()=>expect(screen.getByRole('textbox',{name:'数量'})).not.toBeDisabled());expect(row.orderNumber).toBe('LATEST');
+   expect(vi.mocked(api).mock.calls.filter(([,opts])=>opts?.method==='PATCH')).toHaveLength(1);
  });
 });
