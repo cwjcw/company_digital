@@ -52,4 +52,15 @@ describe("api response parsing", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(api("/master-plan-system/resources/mps-shipping-plans/import-preview")).rejects.toThrow("网络连接失败，请检查网络后重试");
   });
+
+  it("classifies a timeout separately from a disconnected network", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("timeout", "TimeoutError"));
+    await expect(api("/auth/preferences/table-config")).rejects.toMatchObject({ status: 0, message: "请求超时，请稍后重试" });
+  });
+
+  it("normalizes a connection failure during token refresh without leaking token values", async () => {
+    localStorage.setItem("refreshToken", "private-refresh");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 401 })).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(api("/auth/preferences/table-config")).rejects.toMatchObject({ status: 0, message: "网络连接失败，请检查网络后重试" });
+  });
 });

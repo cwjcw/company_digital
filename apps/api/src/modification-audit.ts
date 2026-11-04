@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { BadRequestException, CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { BadRequestException, CallHandler, ExecutionContext, Injectable, NestInterceptor, SetMetadata } from "@nestjs/common";
 import { EventSubscriber, EntitySubscriberInterface, InsertEvent, UpdateEvent } from "typeorm";
 import { Observable } from "rxjs";
 
@@ -10,15 +10,21 @@ const protectedSystemFields = new Set([
   "创建人", "创建时间", "更新人", "更新时间"
 ]);
 
-function protectedFieldIn(value: unknown): string | null {
+const auditColumnWidthsMetadata = "kdos:audit-column-width-preferences";
+/** Only preference commands may carry audit field names as numeric column widths. */
+export const AuditColumnWidthPreferences = () => SetMetadata(auditColumnWidthsMetadata, true);
+
+function protectedFieldIn(value: unknown, allowColumnWidths = false, path: string[] = []): string | null {
   if (!value || typeof value !== "object") return null;
   if (Array.isArray(value)) {
-    for (const entry of value) { const found = protectedFieldIn(entry); if (found) return found; }
+    for (const entry of value) { const found = protectedFieldIn(entry, allowColumnWidths, [...path, "[]"]); if (found) return found; }
     return null;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (protectedSystemFields.has(key)) return key;
-    const found = protectedFieldIn(entry); if (found) return found;
+    const columnWidth = allowColumnWidths && path.length === 2 && path[0] === "config"
+      && ["columnWidths", "widths"].includes(path[1]!) && typeof entry === "number" && Number.isFinite(entry);
+    if (protectedSystemFields.has(key) && !columnWidth) return key;
+    const found = protectedFieldIn(entry, allowColumnWidths, [...path, key]); if (found) return found;
   }
   return null;
 }
@@ -41,7 +47,7 @@ export class ModificationContextInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<{ method?: string; body?: unknown; requestId?: string; user?: { sub?: string; actorName?: string; username?: string; apiKeyId?: string } }>();
     if (["POST", "PUT", "PATCH", "DELETE"].includes(String(request.method ?? "").toUpperCase())) {
-      const protectedField = protectedFieldIn(request.body);
+      const protectedField = protectedFieldIn(request.body, Reflect.getMetadata(auditColumnWidthsMetadata, context.getHandler()) === true);
       if (protectedField) throw new BadRequestException(`系统审计字段不可由客户端赋值：${protectedField}`);
     }
     const currentActor = request.user?.actorName?.trim() || request.user?.username?.trim() || "system";

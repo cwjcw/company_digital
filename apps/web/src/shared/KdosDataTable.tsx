@@ -1,11 +1,11 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Typography } from "antd";
 import { DeleteOutlined, DownloadOutlined, DownOutlined, EditOutlined, EyeOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UpOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
 import type { TablePermissionFieldDefinition, TableResourceCode } from "@kdos/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuditColumns } from "./audit-fields";
 import { KdosAdvancedFilter, emptyFilterGroup, type AdvancedFilterGroup, type AdvancedFilterSection } from "./advanced-filter";
@@ -13,7 +13,7 @@ import type { AdvancedFilterRule } from "./advanced-filter";
 import { KdosColumnMenu } from "./table-column-menu";
 import { planPrint, printConfirmMessage, renderPrint, tablePrintAllowed, useTablePrintCapabilities, type TablePrintManifest } from "./table-print";
 import { exportTable, tableExportAllowed, useTableExportCapabilities } from "./table-export";
-import { loadTablePreference, saveTablePreference, tablePreferenceQueryKey, type TableDisplayPreferences } from "./table-preferences";
+import { describeTablePreferenceError, retryTablePreferenceMigration, saveTablePreference, tablePreferenceCacheScope, tablePreferenceQueryKey, tablePreferenceQueryOptions, type TableDisplayPreferences } from "./table-preferences";
 import type { AdvancedFilterGroup as DetailFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
@@ -414,14 +414,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const resolvedFilterFields = filterFields ?? tablePermissionFieldsFor(resource as TableResourceCode);
   const systemAuditColumns = useAuditColumns() as ColumnsType<RecordType>;
   const { tenantKey, userKey } = sessionPreferenceScope();
+  const queryClient = useQueryClient();
   const displayPreferenceKey = tablePreferenceQueryKey(resource, viewKey, "DISPLAY");
   const displayPreference = useQuery({
-    queryKey: displayPreferenceKey,
-    queryFn: () => loadTablePreference<TableDisplayPreferences>(resource, viewKey, "DISPLAY"),
-    enabled: !simple,
-    staleTime: 0,
-    retry: 1
+    ...tablePreferenceQueryOptions<TableDisplayPreferences>(resource, viewKey, "DISPLAY"),
+    enabled: !simple
   });
+  const preferenceIssue = displayPreference.data?.migrationError
+    ?? (displayPreference.isError ? describeTablePreferenceError(displayPreference.error) : undefined);
+  const reloadDisplaySettings = () => {
+    retryTablePreferenceMigration(resource, viewKey, "DISPLAY");
+    void displayPreference.refetch();
+  };
   const pageSizeStorageKey = preferenceStorageKey("kdos-form-page-size", tenantKey, userKey, resource, viewKey);
   const legacyPageSizeStorageKey = legacyPreferenceStorageKey("kdos-form-page-size", userKey, resource, viewKey);
   const [localSearch, setLocalSearch] = useState("");
@@ -582,15 +586,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [preferenceDirty, setPreferenceDirty] = useState(false);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const { message: tableMessage } = AntApp.useApp();
-  const preferenceErrorNotice = useRef("");
+  const appliedPreferenceIdentity = useRef("");
   useEffect(() => {
     if (simple) return;
     if (displayPreference.isLoading) return;
     const allowed = new Set(JSON.parse(availableFieldSignature) as string[]);
     const saved = displayPreference.data?.config;
-    if (displayPreference.isError) {
-      setVisibleKeys([...allowed]); setOrderedKeys([...allowed]); setColumnWidths({}); setPinnedKeys([]);
-      setLoadedPreferenceIdentity(preferenceIdentity);
+    /* Background failures/refetches must not discard a usable layout or an unsaved draft.
+       Permission changes still remove revoked keys immediately. */
+    if (appliedPreferenceIdentity.current === preferenceIdentity && (preferenceDirty || displayPreference.isError)) {
+      const clip = (keys: string[]) => { const next = keys.filter(key => allowed.has(key)); return next.length === keys.length ? keys : next; };
+      setVisibleKeys(clip); setOrderedKeys(clip); setPinnedKeys(clip);
+      setColumnWidths(current => Object.keys(current).every(key => allowed.has(key)) ? current : Object.fromEntries(Object.entries(current).filter(([key]) => allowed.has(key))));
       return;
     }
     const ordered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)) : [];
@@ -604,14 +611,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setVisibleKeys(visible); setOrderedKeys(mergedOrder); setColumnWidths(widths);
     columnWidthsRef.current = widths;
     setPinnedKeys((Array.isArray(saved?.pinnedFieldKeys) ? saved.pinnedFieldKeys : []).filter((key): key is string => typeof key === "string" && allowed.has(key) && visible.includes(key)));
+    appliedPreferenceIdentity.current = preferenceIdentity;
     setPreferenceDirty(false); setLoadedPreferenceIdentity(preferenceIdentity);
-  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity]);
-  useEffect(() => {
-    if (displayPreference.isError && preferenceErrorNotice.current !== preferenceIdentity) {
-      preferenceErrorNotice.current = preferenceIdentity;
-      tableMessage.error?.("个人字段设置加载失败，当前暂用全部有权限字段；请确认服务连接后保存设置。");
-    }
-  }, [displayPreference.isError, preferenceIdentity, tableMessage]);
+  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity, preferenceDirty]);
   useEffect(() => { setPreferenceDirty(false); }, [preferenceIdentity]);
   const startColumnResize = useCallback<KdosResizeStart>((event, key, width, minWidth) => {
     event.preventDefault();
@@ -646,24 +648,29 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setOrderedKeys(current); setPreferenceDirty(true);
   };
   const saveDisplaySettings = async () => {
-    if (!preferenceDirty || preferenceSaving || !preferenceLoaded) return;
+    if (!preferenceDirty || preferenceSaving || !preferenceLoaded || preferenceIssue) return;
     setPreferenceSaving(true);
     const config: TableDisplayPreferences = { version: 1, visibleFieldKeys: visibleKeys.filter((key) => availableFieldKeys.includes(key)),
       orderedFieldKeys: orderedKeys.filter((key) => availableFieldKeys.includes(key)), columnWidths, pinnedFieldKeys: pinnedKeys.filter((key) => visibleKeys.includes(key)) };
     try {
-      await saveTablePreference(resource, viewKey, "DISPLAY", config);
-      await displayPreference.refetch();
-      setPreferenceDirty(false); tableMessage.success?.("已保存为我的表格设置");
+      await queryClient.cancelQueries({ queryKey: displayPreferenceKey, exact: true });
+      if (appliedPreferenceIdentity.current !== preferenceIdentity || tablePreferenceCacheScope() !== displayPreferenceKey[1]) return;
+      const result = await saveTablePreference(resource, viewKey, "DISPLAY", config);
+      queryClient.setQueryData(displayPreferenceKey, { config: result.config });
+      if (appliedPreferenceIdentity.current === preferenceIdentity) { setPreferenceDirty(false); tableMessage.success?.("已保存为我的表格设置"); }
     } catch (error) { tableMessage.error?.(error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试"); }
     finally { setPreferenceSaving(false); }
   };
   const resetDisplaySettings = async () => {
-    if (preferenceSaving || !preferenceLoaded) return;
+    if (preferenceSaving || !preferenceLoaded || preferenceIssue) return;
     setPreferenceSaving(true);
-    setVisibleKeys([...availableFieldKeys]); setOrderedKeys([...availableFieldKeys]); setColumnWidths({}); columnWidthsRef.current = {}; setPinnedKeys([]);
     try {
+      await queryClient.cancelQueries({ queryKey: displayPreferenceKey, exact: true });
+      if (appliedPreferenceIdentity.current !== preferenceIdentity || tablePreferenceCacheScope() !== displayPreferenceKey[1]) return;
       await saveTablePreference(resource, viewKey, "DISPLAY", null);
-      await displayPreference.refetch();
+      queryClient.setQueryData(displayPreferenceKey, { config: null });
+      if (appliedPreferenceIdentity.current !== preferenceIdentity) return;
+      setVisibleKeys([...availableFieldKeys]); setOrderedKeys([...availableFieldKeys]); setColumnWidths({}); columnWidthsRef.current = {}; setPinnedKeys([]);
       setPreferenceDirty(false); tableMessage.success?.("已恢复默认字段设置");
     } catch (error) { setPreferenceDirty(true); tableMessage.error?.(error instanceof Error ? `恢复默认失败：${error.message}` : "恢复默认失败，请稍后重试"); }
     finally { setPreferenceSaving(false); }
@@ -961,6 +968,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
       </Space>
       {selectionActions?.(selectionState)}
     </Flex>}
+    {!simple && preferenceIssue && <Alert type="warning" showIcon role="alert" style={{ marginBottom: 12 }}
+      message={preferenceIssue.message}
+      description={`${displayPreference.data ? "继续使用已加载的个人布局" : "当前暂用全部有权限字段"}；当前调整会保留，配置恢复前暂停保存。`}
+      action={<Button size="small" loading={displayPreference.isFetching} onClick={reloadDisplaySettings}>重新加载个人设置</Button>} />}
     <Table<RecordType>
       {...tableProps}
       components={tableComponents as TableProps<RecordType>["components"]}
@@ -987,10 +998,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
       }}
     />
     {!simple && <Drawer title="字段显示与个人视图" width={440} open={drawerOpen} onClose={() => setDrawerOpen(false)}
-      extra={<Space><Button icon={<ReloadOutlined />} loading={preferenceSaving} disabled={!preferenceLoaded} onClick={() => void resetDisplaySettings()}>恢复默认</Button>
-        <Button type="primary" loading={preferenceSaving} disabled={!preferenceDirty || !preferenceLoaded} onClick={() => void saveDisplaySettings()}>保存我的设置</Button></Space>}>
+      extra={<Space><Button icon={<ReloadOutlined />} loading={preferenceSaving} disabled={!preferenceLoaded || Boolean(preferenceIssue)} onClick={() => void resetDisplaySettings()}>恢复默认</Button>
+        <Button type="primary" loading={preferenceSaving} disabled={!preferenceDirty || !preferenceLoaded || Boolean(preferenceIssue)} onClick={() => void saveDisplaySettings()}>保存我的设置</Button></Space>}>
       <Typography.Paragraph type="secondary">勾选、排序、列宽和固定列为当前调整；点击“保存我的设置”后会跨浏览器自动恢复。仅列出当前有读取权限的字段。</Typography.Paragraph>
-      {displayPreference.isError && <Typography.Text type="danger" role="alert">个人设置读取失败，当前使用全部有权限字段；保存前请确认服务已恢复。</Typography.Text>}
+      {preferenceIssue && <Typography.Paragraph type="danger">{preferenceIssue.message} 当前调整已保留，请关闭面板后重新加载个人设置。</Typography.Paragraph>}
       {!preferenceLoaded ? <Spin /> : <Flex vertical gap={8}>
         {orderedKeys.filter((key) => availableFieldKeys.includes(key)).map((key, index) => {
           const field = fields.find((candidate) => candidate.key === key);

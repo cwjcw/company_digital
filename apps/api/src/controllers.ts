@@ -25,7 +25,7 @@ import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { ImportService } from "./import.service";
 import { assertSpreadsheetNotEncrypted } from "./spreadsheet-upload";
 import { SalesDashboardService } from "./sales-dashboard.service";
-import { currentModificationActor } from "./modification-audit";
+import { AuditColumnWidthPreferences, currentModificationActor } from "./modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "./user-defaults";
 import { resolveBuildVersion } from "./build-version";
 import { AdminQueryService } from "./modules/admin/admin-query.service";
@@ -148,6 +148,7 @@ export class AuthController {
   }
   @Put("preferences/table-config")
   @UseGuards(AuthGuard)
+  @AuditColumnWidthPreferences()
   saveTablePreference(@Body() body: { resource?: unknown; viewKey?: unknown; configType?: unknown; config?: unknown; ifMissing?: boolean }, @Req() req: UserRequest) {
     return this.auth.saveTablePreference(req.user.sub, body.resource, body.viewKey, body.configType, body.config, req.requestId, body.ifMissing === true);
   }

@@ -21,12 +21,20 @@ function readableMessage(value: unknown, status: number) {
 
 let accessTokenRefresh: Promise<boolean> | null = null;
 
+function connectionError(error: unknown) {
+  const timeout = ["AbortError", "TimeoutError"].includes(String((error as { name?: string })?.name));
+  return new ApiError(timeout ? "请求超时，请稍后重试" : "网络连接失败，请检查网络后重试", 0);
+}
+
 async function performAccessTokenRefresh() {
   const refreshToken = localStorage.getItem("refreshToken");
   if (!refreshToken) return false;
-  const response = await fetch(`${API_ROOT}/auth/refresh`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken })
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_ROOT}/auth/refresh`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken })
+    });
+  } catch (error) { throw connectionError(error); }
   if (!response.ok) return false;
   const result = await response.json();
   localStorage.setItem("accessToken", result.accessToken);
@@ -49,10 +57,7 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   let response: Response;
   try { response = await fetch(`${API_ROOT}${path}`, { ...init, headers }); }
-  catch (error) {
-    const aborted = (error as { name?: string }).name === "AbortError";
-    throw new ApiError(aborted ? "请求超时，请稍后重试" : "网络连接失败，请检查网络后重试", 0, error);
-  }
+  catch (error) { throw connectionError(error); }
   if (response.status === 401 && !retried && await refreshAccessToken()) return api<T>(path, init, true);
   if (!response.ok) {
     let details: any;

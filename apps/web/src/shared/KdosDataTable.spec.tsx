@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App as AntApp } from "antd";
 import { api } from "../api";
 import { displayedExportKeys, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
+import { tablePreferenceQueryKey } from "./table-preferences";
 
 afterEach(() => cleanup());
 
@@ -110,7 +111,7 @@ describe("KdosDataTable server pagination", () => {
 
   it("个人设置加载失败时只回退到当前获权字段并显示说明", async () => {
     vi.mocked(api).mockImplementation(async (path: string) => {
-      if (path.startsWith("/auth/preferences/table-config?")) throw new Error("偏好服务暂不可用");
+      if (path.startsWith("/auth/preferences/table-config?")) throw Object.assign(new Error("无权限"), { status: 403 });
       return [] as never;
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -118,7 +119,57 @@ describe("KdosDataTable server pagination", () => {
       columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>);
     expect(await view.findByText("A001")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("当前使用全部有权限字段");
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前暂用全部有权限字段");
+    expect(screen.getByRole("alert")).toHaveTextContent("HTTP 403");
+    expect(screen.getByRole("button", { name: "保存我的设置" })).toBeDisabled();
+  });
+
+  it("页面往返和多个表格实例复用同一用户的有效偏好缓存", async () => {
+    const client = new QueryClient();
+    const table = <QueryClientProvider client={client}><KdosDataTable resource="equipment-register"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }]} dataSource={[{ id: "1", equipmentCode: "A001" }]} /></QueryClientProvider>;
+    const first = render(table);
+    await screen.findByText("A001");
+    first.unmount();
+    render(table);
+    await screen.findByText("A001");
+    const gets = () => vi.mocked(api).mock.calls.filter(([path]) => path.startsWith("/auth/preferences/table-config?"));
+    expect(gets()).toHaveLength(1);
+    render(table);
+    await waitFor(() => expect(screen.getAllByText("A001")).toHaveLength(2));
+    expect(gets()).toHaveLength(1);
+  });
+
+  it.each([false, true])("后台读取失败与恢复保留已有布局，未保存调整=%s", async (dirty) => {
+    savedPreferences.set(prefKey("equipment-register", undefined, "DISPLAY"), {
+      version: 1, visibleFieldKeys: dirty ? ["equipmentCode", "equipmentName"] : ["equipmentCode"],
+      orderedFieldKeys: ["equipmentCode", "equipmentName"], columnWidths: { equipmentCode: 240 }, pinnedFieldKeys: []
+    });
+    const original = vi.mocked(api).getMockImplementation()!;
+    let failed = false;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (failed && path.startsWith("/auth/preferences/table-config?")) throw Object.assign(new Error("forbidden"), { status: 403 });
+      return original(path, init);
+    });
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register"
+      columns={[{ title: "设备编号", dataIndex: "equipmentCode" }, { title: "设备名称", dataIndex: "equipmentName" }]}
+      dataSource={[{ id: "1", equipmentCode: "A001", equipmentName: "设备甲" }]} /></QueryClientProvider>);
+    await screen.findByText("A001");
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    if (dirty) fireEvent.click(await screen.findByRole("checkbox", { name: "设备名称" }));
+    failed = true;
+    await act(async () => { await client.refetchQueries({ queryKey: tablePreferenceQueryKey("equipment-register", undefined, "DISPLAY"), exact: true }); });
+    await waitFor(() => expect(screen.getByRole("alert", { hidden: true })).toHaveTextContent("继续使用已加载的个人布局"));
+    expect(view.container.querySelector('th[data-kdos-column-key="equipmentName"]')).toBeNull();
+    expect(view.container.querySelector('th[data-kdos-column-key="equipmentCode"]')).toHaveAttribute("data-kdos-column-width", "240");
+    expect(screen.getByRole("button", { name: "保存我的设置" })).toBeDisabled();
+    failed = false;
+    fireEvent.click(screen.getByRole("button", { name: "重新加载个人设置", hidden: true }));
+    await waitFor(() => expect(screen.queryByRole("alert", { hidden: true })).not.toBeInTheDocument());
+    expect(view.container.querySelector('th[data-kdos-column-key="equipmentName"]')).toBeNull();
+    if (dirty) expect(screen.getByRole("button", { name: "保存我的设置" })).toBeEnabled();
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
   });
 
   it("个人布局只影响当前用户；被隐藏的待报工输入字段仍留在个人字段选择器中", async () => {
