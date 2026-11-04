@@ -443,7 +443,8 @@ def submit_notification_event(report_date: date, operation_image: Path, reportin
     token = os.getenv('KDOS_NOTIFICATION_INTERNAL_TOKEN', '').strip() or read_notification_internal_token()
     if not token:
         raise RuntimeError('缺少KDOS_NOTIFICATION_INTERNAL_TOKEN，拒绝提交通知事件')
-    api_base = os.getenv('KDOS_API_BASE_URL', 'http://127.0.0.1/api/v1').rstrip('/')
+    # Host-side SSH tasks use the same published Web/API port as the Dispatcher.
+    api_base = os.getenv('KDOS_API_BASE_URL', 'http://127.0.0.1:15172/api/v1').rstrip('/')
     tenant = os.getenv('KDOS_DEFAULT_TENANT_CODE', 'KAINAN').strip()
     worker = os.getenv('KDOS_NOTIFICATION_WORKER_ID', 'equipment-governance-daily').strip()
     components: list[dict[str, str]] = [{'type': 'text', 'content': notification_text(report_date)}]

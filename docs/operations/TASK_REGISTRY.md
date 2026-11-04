@@ -54,8 +54,8 @@
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
-| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式名单11人，SSH双确认 | n8n | ACTIVE_VERIFIED | 11月2日名单/人数校验已发布，11人不发送预检PASS，下一次12:00 |
-| MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd user Service，约1秒轮询；现有 release `d0e7bbf` 支持 WECHAT_WORK 与按 API claim 返回的 WECHAT_GROUP_WEBHOOK 路由 | systemd Service | Dispatcher ACTIVE_VERIFIED（2026-11-04）；EQ-001新版本PUBLISHED，待安全重启加载 | 保留同一常驻服务；“设备管理群”收件人组含四个事业部设备群，`equipment.daily_report` 绑定该组；EQ-001新版保留11人个人发送并在个人成功后另提交幂等群日报。`equipment.status.fault_changed` 支持额外群路由，仍需在消息中心将该事件绑定到设备管理群；无群路由时仍走原个人规则。新版当前等待无其它n8n任务运行后重启加载。 |
+| EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式名单11人，SSH双确认 | n8n | ACTIVE_VERIFIED（2026-11-04运行加载已核验） | 12:00执行旧版本的原因已查明；无运行任务窗口安全重启后加载个人+群新版，11人不发送预检PASS，下一次11月5日12:00；未提前补发 |
+| MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd user Service，约1秒轮询；现有 release `d0e7bbf` 支持 WECHAT_WORK 与按 API claim 返回的 WECHAT_GROUP_WEBHOOK 路由 | systemd Service | Dispatcher ACTIVE_VERIFIED（2026-11-04）；EQ-001新版本已加载 | 保留同一常驻服务；“设备管理群”收件人组含四个事业部设备群，`equipment.daily_report` 绑定该组；EQ-001新版保留11人个人发送并在个人成功后另提交幂等群日报。`equipment.status.fault_changed` 支持额外群路由，仍需在消息中心将该事件绑定到设备管理群；无群路由时仍走原个人规则。11月4日22时已在无运行任务窗口重启加载，17个工作流定义/13个激活及全部配置hash不变；日报群提交默认地址修正为现有15172端口。 |
 | OPS-001 | PostgreSQL 与上传文件备份；`scripts/backup.sh` | 只确认脚本，未发现仓库定时器 | systemd Timer | UNVERIFIED_RUNTIME | 核实生产备份策略、日志与恢复测试 |
 | OPS-002 | DWG本地索引 | 本仓库未发现定义；主机存在 `dwg-index-update.timer` | systemd Timer | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已核实系统级启用，查作业日志及任务归属 |
 | SUP-001 | T+供应商导入；`automation/tplus_supplier_import/extract.py` | 脚本存在、仓库未确认周期触发 | n8n（若周期化） | UNVERIFIED_RUNTIME | 不自行激活 |
@@ -355,3 +355,15 @@
 - 原缺陷：外协创建的周计划没有内部工序，之后改为自制/自制+外协时只更新周计划快照，未首次初始化内部工艺。现修复允许在父行锁下复核无任何任务/报工/工艺锁/初始化或人工空路线确认审计后首次创建任务；复用既有CONFIRM写保护及审计，无Migration。
 - 初始工艺可由现有基础到周计划任务、周计划行内更新、单条Application执行刷新触发；同周并发、重复执行不新增重复任务或覆盖既有工艺。初始化计数写入原同步metrics，已有工艺变更继续预览确认，正数量报工锁不清除。
 - 正式修复范围和线上执行证据记录于outputs/主计划系统修复进度.md；合成测试仅在专用network=none PostgreSQL18，生产修复经既有Application Command并逐条记录审计，不伪造实际报工。
+
+
+### EQ-001：2026-11-04中午未进群的实际证据及运行发布收尾
+
+- 今日执行1389：12:00:00—12:02:19（Asia/Shanghai），n8n状态success；实际execution_data的workflowVersionId=06b2f268-bb53-4f8c-938c-d98e0ec9e639，SSH命令未含--submit-notification-event、校验未含groupQueued。11人文字/运行图/填报图均有sent回执，但没有今日equipment.daily_report群事件。
+- 已发布版本2c61836a-241f-4d8c-abdd-226a2951978f含群参数及群入队校验；之前其它工作流长运行导致安全重启未完成。旧进程继续使用旧版本，不能把数据库已发布视为运行发布完成。
+- 四群路由及机器人均启用、Dispatcher active。实际故障是群事件根本未提交；没有企业微信拒收错误码，不能归因于群Webhook失效。
+- 22时确认0运行任务后完成受限SQLite在线备份，重启原n8n_sqlite，设备日报及13个原激活工作流全部激活，17个定义/13个激活和全部配置hash完全一致；ID/owner/SSH引用/12:00上海时间及其它调度保持原样。
+- 还发现脚本缺少KDOS_API_BASE_URL时默认80端口：该群接口404，实际15172端口接口可达。默认地址与既有Dispatcher对齐，保留环境变量覆盖；无API/Web改动，无Migration。
+- 只读带认证附件探针返回预期409（不存在的投递租约），证明地址/认证链路通过，不生成通知；真实生产只读日报预检ready=true、sent=false、11人并生成两图。Python语法检查及diff检查通过；本轮未要求/未运行自动化测试套件，不借用旧测试结果冒充本轮测试。
+- 下一自然计划2026-11-05 12:00上海，届时由新版先发个人、再幂等入队群消息并由现有Dispatcher投递。此次深夜未主动补发，尚无新版自然运行或本次四群送达回执，不虚报送达。
+- 备份、配置保护hash及只读探针证据仅在gitignored test/equipment_daily/noon-group-20261104（目录0700/敏感文件0600）；恢复入口outputs/CODEX_PROGRESS.md本次设备日报章节，验收报告outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md。
