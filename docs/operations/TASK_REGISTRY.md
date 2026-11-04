@@ -348,3 +348,10 @@
 - 同一个活动工作流已通过n8n官方CLI更新并发布；Code人数保护从9改为11，原SSH凭据引用、owner、active状态及Asia/Shanghai每日12:00调度保持。n8n重启后healthz=ok，服务ready，启动日志确认EQ-001 activated；16个工作流ID保持，12个active，其余工作流定义未变。
 - 发布版本已核实activeVersionId与versionId一致；下一计划为每日12:00（Asia/Shanghai）。测试、联系人预检、工作流回滚快照均存本机受限目录`test/equipment_daily/recipients-20261102`，不提交。
 - 当前状态：生产配置、验证和GitHub同步完成；任务提交`41c4cff3b341e94d75beeb3281738ebae88b3f76`已推送`github/main`。未新增调度、不改数据库或设备业务数据，不触发测试/正式日报消息。
+
+### MPS-003：外协周计划转内部生产的首次工艺初始化修复（2026-11-04）
+
+- 保留既有API内runDue/outbox和30分钟配置，不增删迁移任何Timer/cron/n8n任务。生产只读确认6项MPS配置仍enabled；本次只修复共用执行刷新规则。
+- 原缺陷：外协创建的周计划没有内部工序，之后改为自制/自制+外协时只更新周计划快照，未首次初始化内部工艺。现修复允许在父行锁下复核无任何任务/报工/工艺锁/初始化或人工空路线确认审计后首次创建任务；复用既有CONFIRM写保护及审计，无Migration。
+- 初始工艺可由现有基础到周计划任务、周计划行内更新、单条Application执行刷新触发；同周并发、重复执行不新增重复任务或覆盖既有工艺。初始化计数写入原同步metrics，已有工艺变更继续预览确认，正数量报工锁不清除。
+- 正式修复范围和线上执行证据记录于outputs/主计划系统修复进度.md；合成测试仅在专用network=none PostgreSQL18，生产修复经既有Application Command并逐条记录审计，不伪造实际报工。

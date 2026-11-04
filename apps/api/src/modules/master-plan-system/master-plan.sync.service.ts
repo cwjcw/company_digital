@@ -473,13 +473,22 @@ export class MasterPlanSyncService {
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
         RETURNING id`, [tenantId, userId, updatedBy]);
-      /* 工艺只在新周计划创建时取一次快照。已存在周计划（包括未报工）不得被定时/手工同步重写。 */
+      /* 已有快照不重写；原外协周计划转为内部生产且从未初始化时，可首次建立空缺工艺。 */
       const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
+        ,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
         WHERE w.tenant_id=$1 AND ${admission}`, [tenantId]);
-      for (const weekly of weeklyRows) await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
-      return this.changedCount(rows);
+      let initializedSnapshots = 0, initializedTasks = 0;
+      for (const weekly of weeklyRows) {
+        const result = await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
+        if (result.initialized) initializedSnapshots++;
+        initializedTasks += result.taskCount;
+      }
+      const weeklyChanges = this.changedCount(rows);
+      return { count: weeklyChanges + initializedTasks, metrics: {
+        weekly_plans_changed: weeklyChanges, process_snapshots_initialized: initializedSnapshots, process_tasks_initialized: initializedTasks
+      } };
     });
   }
 
@@ -489,7 +498,9 @@ export class MasterPlanSyncService {
    * 以稳定 weekly_plan_id + tenant 定位，绝不按订单/品项等可变业务键推算。
    */
   async refreshWeeklyExecution(manager: EntityManager, weeklyPlanId: string, tenantId: string, userId: string | null, updatedBy: string) {
-    const [weekly] = await manager.query(`SELECT w.*,c.technical_days FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
+    const [weekly] = await manager.query(`SELECT w.*,c.technical_days,
+      EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot
+      FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) return false;
     await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, false);
     return true;
@@ -512,18 +523,52 @@ export class MasterPlanSyncService {
     }));
   }
 
-  private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig: boolean) {
+  /** Never repair a partial/disabled/confirmed snapshot or a week with any report.
+   * Lock the parent first, then re-read guards in a separate statement so a concurrent
+   * first report, manual confirmation or another initializer cannot be missed. */
+  private async uninitializedInternalWeek(manager: EntityManager, weekly: any, tenantId: string) {
+    if (weekly.has_process_snapshot === true || weekly.process_config_locked_at != null
+      || !shouldEnableProcess(weekly.manufacturing_method, "cutting")) return null;
+    const [current] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, weekly.id]);
+    if (!current || current.process_config_locked_at != null || !shouldEnableProcess(current.manufacturing_method, "cutting")) return null;
+    const [guard] = await manager.query(`SELECT
+      EXISTS(SELECT 1 FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_tasks,
+      EXISTS(SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_reports,
+      EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2::text
+        AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')) AS was_initialized`, [tenantId, weekly.id]);
+    return guard && !guard.has_tasks && !guard.has_reports && !guard.was_initialized ? current : null;
+  }
+
+  private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig = false) {
+    let mode = initializeProcessConfig ? "INITIALIZE" : null;
+    if (!mode) {
+      const current = await this.uninitializedInternalWeek(manager, weekly, tenantId);
+      if (current) { weekly = { ...weekly, ...current }; mode = "CONFIRM"; }
+    }
+    let initialized = false, taskCount = 0;
     const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
-    if (initializeProcessConfig) {
-      await manager.query("SELECT set_config('app.mps_process_config_write_mode','INITIALIZE',true)");
+    if (mode) {
       const definitions = await this.processDefinitions(manager, weekly, tenantId);
       const scheduled = reviewDueDate
         ? reverseScheduleForProcesses(reviewDueDate, definitions)
         : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
-      for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode',$1,true)", [mode]);
+      try {
+        for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO NOTHING`,
         [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
-      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+        if (shouldEnableProcess(weekly.manufacturing_method, "cutting")) {
+          initialized = true; taskCount = scheduled.length;
+          if (!initializeProcessConfig) await manager.query(`UPDATE mps_weekly_plans SET updated_at=now(),updated_by=$3,version=version+1
+            WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weekly.id, userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
+          await this.auditProcessConfig(manager, { tenantId, userId, username: "KDOS工序任务初始化", permissions: [], tableDataScopes: [],
+            requestId: `process-init:${weekly.id}`, source: "system" }, weekly.id, "mps-weekly-plans.process_config_initialized", null,
+          { weeklyPlanId: weekly.id, manufacturingMethod: weekly.manufacturing_method,
+            trigger: initializeProcessConfig ? "NEW_WEEKLY" : "EMPTY_INTERNAL_SNAPSHOT", processes: scheduled });
+        }
+      } finally {
+        await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+      }
     }
     await this.recalculateSnapshotDueDates(manager, weekly, tenantId, updatedBy);
     const technicalDays = this.nullableNumber(weekly.technical_days);
@@ -538,6 +583,7 @@ export class MasterPlanSyncService {
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     await manager.query(`UPDATE mps_process_reports SET division_id=$3,order_number=$4,item_code=$5,item_name=$6,delivery_number=$7,planned_quantity=$8,updated_at=now(),updated_by=$9,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND (division_id,order_number,item_code,item_name,delivery_number,planned_quantity) IS DISTINCT FROM ($3,$4,$5,$6,$7,$8)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, weekly.planned_quantity, updatedBy]);
     await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
+    return { initialized, taskCount };
   }
 
   /** 只按周计划已保存的工序集合、顺序和周期重算日期；永不读取最新路线配置。 */

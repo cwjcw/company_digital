@@ -60,6 +60,41 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(manager.query.mock.calls.some(([statement]) => String(statement).includes("UPDATE mps_weekly_process_plans SET execution_enabled=false"))).toBe(false);
   });
 
+  it.each(["自制", "自制+外协"])("initializes a never-created empty internal snapshot for %s", async method => {
+    const target = weekly(method);
+    const manager = { query: jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [target];
+      if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, was_initialized: false }];
+      return [];
+    }) };
+    const service = new MasterPlanSyncService({} as never);
+    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: true, taskCount: 10 });
+    const sql = manager.query.mock.calls.map(([query]) => query);
+    expect(sql.filter(query => query.startsWith("INSERT INTO mps_weekly_process_plans"))).toHaveLength(10);
+    expect(sql.some(query => query.includes("FOR UPDATE"))).toBe(true);
+    expect(sql.some(query => query.includes("process_config_confirmed"))).toBe(true);
+    expect(sql.some(query => query.includes("INSERT INTO mps_process_reports"))).toBe(false);
+  });
+
+  it.each(["has_tasks", "has_reports", "was_initialized"])("never fills an empty-looking snapshot guarded by %s", async flag => {
+    const target = weekly("自制");
+    const manager = { query: jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [target];
+      if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, was_initialized: false, [flag]: true }];
+      return [];
+    }) };
+    const service = new MasterPlanSyncService({} as never);
+    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: false, taskCount: 0 });
+    expect(manager.query.mock.calls.some(([sql]) => sql.startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+  });
+
+  it("keeps the durable report lock even when no tasks or reports remain", async () => {
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    await (new MasterPlanSyncService({} as never) as any).ensureExecutionRows(manager,
+      { ...weekly("自制"), process_config_locked_at: "2026-11-01" }, "KAINAN", null, "tester", false);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+  });
+
   it("recalculates only snapshot due dates from the latest review date, including locked plans", async () => {
     const manager = { query: jest.fn(async (sql: string, _params?: unknown[]) => {
       void _params;
@@ -149,7 +184,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     /* 稳定 parent ID + tenant 关联：不能只用 base.id = weekly.base_plan_id（会跨租户），也不能按订单号/品项/交期推算来源。 */
     expect(scope).toContain("JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id");
     /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配（cycle 的 item_code JOIN 仍允许）。 */
-    const scopeWhere = scope.split(" WHERE ")[1] ?? "";
+    const scopeWhere = scope.slice(scope.lastIndexOf("WHERE w.tenant_id=$1"));
     expect(scopeWhere).not.toMatch(/order_number|item_code|delivery_number/);
     /* 越界反模式：不得再出现「只按 tenant 全表扫描周计划」（缺 base 关联/admission 的旧查询）。 */
     expect(scope).not.toMatch(/FROM mps_weekly_plans w LEFT JOIN mps_process_cycles/);

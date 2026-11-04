@@ -151,4 +151,104 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     const page=await queries.list("mps-shipping-plans",{},actor);expect(page.total).toBe(1);expect(page.rows[0].plannedQuantity).toBe("4.0000");
     await run();expect(await bases()).toHaveLength(0);expect((await db.query("SELECT * FROM mps_reconciliation_outbox")).length).toBe(0);
   });
+
+  const externalWeek=async(method="外协")=>{
+    await month("ITEM-TRANSITION",{manufacturing_method:method});await run();
+    const [base]=await bases();
+    await application.update("mps-base-plans",base.id,{expectedVersion:base.version,latestReviewDueDate:"2026-11-10",productAttribute:"五金",surfaceNature:"烤漆"},{...actor,requestId:"prepare-transition"});
+    await weeks();
+    return {base:(await bases())[0],weekly:(await db.query("SELECT * FROM mps_weekly_plans WHERE tenant_id=$1",[tenant]))[0]};
+  };
+  const enableInternal=async(base:Record<string,any>)=>application.update("mps-base-plans",base.id,
+    {expectedVersion:base.version,manufacturingMethod:"自制+外协"},{...actor,requestId:"enable-internal"});
+
+  it.each(["外协","中心外购"])("initializes internal tasks after %s transitions, then supports real pending report creation",async method=>{
+    const {base,weekly}=await externalWeek(method);
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+    await db.query("UPDATE mps_outsourcing_reports SET purchase_order_number='SYN-PO',exception_text='人工异常' WHERE weekly_plan_id=$1",[weekly.id]);
+    await enableInternal(base);
+    const result=await weeks();expect(result.metrics).toMatchObject({process_snapshots_initialized:1,process_tasks_initialized:3});
+    const tasks=await db.query("SELECT id,process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence");
+    expect(tasks).toHaveLength(3);
+    const pending=await queries.list("mps-process-reports",{view:"PENDING"},actor);expect(pending.total).toBe(3);
+    expect(pending.rows.every((row:Record<string,unknown>)=>row.weeklyPlanId===weekly.id)).toBe(true);
+    expect((await db.query("SELECT * FROM mps_weekly_plans"))[0].id).toBe(weekly.id);
+    expect((await db.query("SELECT * FROM mps_outsourcing_reports"))[0]).toMatchObject({purchase_order_number:"SYN-PO",exception_text:"人工异常"});
+    expect((await weeks()).metrics.process_tasks_initialized).toBe(0);
+    expect(await db.query("SELECT id,process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence")).toEqual(tasks);
+    const report=await application.create("mps-process-reports",{weeklyPlanId:weekly.id,processCode:"cutting",productionDate:"2026-11-04",productionQuantity:"10"},{...actor,requestId:"synthetic-report"});
+    expect(report.production_quantity).toBe("10.0000");
+    expect((await queries.list("mps-process-reports",{view:"PENDING"},actor)).total).toBe(2);
+    const facts=await db.query("SELECT id,weekly_plan_id,process_code,production_date,production_quantity,created_by FROM mps_process_reports");
+    await weeks();expect(await db.query("SELECT id,weekly_plan_id,process_code,production_date,production_quantity,created_by FROM mps_process_reports")).toEqual(facts);
+  });
+
+  it("initializes once under concurrent sync and does not apply later route changes",async()=>{
+    const {base,weekly}=await externalWeek();await enableInternal(base);
+    await Promise.all([weeks(),weeks()]);
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(3);
+    expect((await db.query("SELECT * FROM audit_logs WHERE action='mps-weekly-plans.process_config_initialized' AND record_id=$1",[weekly.id]))).toHaveLength(1);
+    const snapshot=await db.query("SELECT id,process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence");
+    await insert("mps_item_process_routes",{item_code:base.item_code,process_code:"packaging",sequence:1});
+    await weeks();expect(await db.query("SELECT id,process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence")).toEqual(snapshot);
+  });
+
+  it("preserves an explicitly confirmed empty route instead of silently enabling it",async()=>{
+    const {base,weekly}=await externalWeek();
+    const preview=await service.previewWeeklyProcessConfig(weekly.id,actor);
+    await service.confirmWeeklyProcessConfig(weekly.id,preview,actor);
+    await enableInternal(base);await weeks();
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+  });
+
+  it("does not bootstrap a week with a legacy report even if its durable lock is missing",async()=>{
+    const {base,weekly}=await externalWeek();
+    await insert("mps_process_reports",{weekly_plan_id:weekly.id,division_id:division,order_number:weekly.order_number,item_code:weekly.item_code,delivery_number:weekly.delivery_number,process_code:"cutting",process_name:"下料",production_date:"2026-11-04",planned_quantity:10,production_quantity:1});
+    // Deliberate legacy-corruption fixture, restricted to the isolated test database.
+    await db.query("UPDATE mps_weekly_plans SET process_config_locked_at=NULL WHERE id=$1",[weekly.id]);
+    await enableInternal(base);await weeks();
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+    expect((await db.query("SELECT production_quantity FROM mps_process_reports"))[0].production_quantity).toBe("1.0000");
+  });
+
+  it("preserves partial or disabled tasks instead of treating them as an uninitialized route",async()=>{
+    const {base,weekly}=await externalWeek();
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,execution_enabled,created_by,updated_by)
+        VALUES($1,$2,'cutting','下料',1,2,false,$3,$3)`,[tenant,weekly.id,user]);
+    });
+    await enableInternal(base);await weeks();
+    expect(await db.query("SELECT process_code,execution_enabled FROM mps_weekly_process_plans")).toEqual([{process_code:"cutting",execution_enabled:false}]);
+  });
+
+  it("records an initialized empty default route so later default changes require confirmation",async()=>{
+    const {base}=await externalWeek();await enableInternal(base);
+    try {
+      await db.query("UPDATE mps_division_process_configs SET default_enabled=false WHERE tenant_id=$1",[tenant]);
+      expect((await weeks()).metrics).toMatchObject({process_snapshots_initialized:1,process_tasks_initialized:0});
+      await db.query("UPDATE mps_division_process_configs SET default_enabled=true WHERE tenant_id=$1",[tenant]);
+      expect((await weeks()).metrics.process_tasks_initialized).toBe(0);
+      expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+    } finally {await db.query("UPDATE mps_division_process_configs SET default_enabled=true WHERE tenant_id=$1",[tenant]);}
+  });
+
+  it("rolls back task initialization on failure and can safely retry",async()=>{
+    const {base,weekly}=await externalWeek();await enableInternal(base);
+    const failure=jest.spyOn(service as any,"auditProcessConfig").mockRejectedValueOnce(new Error("synthetic audit failure"));
+    try {await expect(weeks()).rejects.toThrow("synthetic audit failure");} finally {failure.mockRestore();}
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+    expect(await db.query("SELECT * FROM audit_logs WHERE action='mps-weekly-plans.process_config_initialized' AND record_id=$1",[weekly.id])).toHaveLength(0);
+    expect((await weeks()).metrics.process_tasks_initialized).toBe(3);
+  });
+
+  it("uses the same safe initializer for a single existing weekly execution refresh",async()=>{
+    const {weekly}=await externalWeek();
+    await db.query("UPDATE mps_weekly_plans SET manufacturing_method='自制+外协' WHERE id=$1",[weekly.id]);
+    await db.transaction(manager=>service.refreshWeeklyExecution(manager,weekly.id,tenant,user,user));
+    expect((await queries.list("mps-process-reports",{view:"PENDING"},actor)).total).toBe(3);
+    const snapshot=await db.query("SELECT id,process_code,cycle_days,sequence FROM mps_weekly_process_plans ORDER BY sequence");
+    await db.transaction(manager=>service.refreshWeeklyExecution(manager,weekly.id,tenant,user,user));
+    expect(await db.query("SELECT id,process_code,cycle_days,sequence FROM mps_weekly_process_plans ORDER BY sequence")).toEqual(snapshot);
+  });
 });
