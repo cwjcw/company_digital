@@ -800,7 +800,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     {basePlanId && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅显示该事业部基础计划生成的周计划" action={<Button size="small" onClick={clearWeeklyPlanFilter}>清除定位</Button>} />}
     {viewTabs}
     <KdosDataTable resource={resource} viewKey={isPendingView ? "PENDING" : undefined} editable={isPendingView ? Boolean(metadata.data?.actions.reportProcess) : Boolean(metadata.data?.actions.update)} rowKey="id" loading={metadata.isLoading || rows.isLoading}
-      filterFields={isPendingView ? pendingFields.filter((field) => !field.input) : metadata.data?.fields}
+      filterFields={isPendingView ? pendingFields : metadata.data?.fields}
+      advancedFilterFields={isPendingView ? pendingFields.filter((field) => !field.input) : undefined}
       printContext={{ view: isPendingView ? "PENDING" : "ACTUAL", ...(basePlanId ? { basePlanId } : {}) }}
       toolbar={isPendingView ? <PendingReportSubmit count={pendingSubmittable.length} submitting={pendingSubmitting} onSubmit={() => void submitPendingReports()} /> : undefined}
       dataSource={rows.data?.rows} columns={withActions} serverData={{ total: rows.data?.total ?? 0, onQueryChange: setTableQuery }}

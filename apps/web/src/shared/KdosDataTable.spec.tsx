@@ -121,6 +121,36 @@ describe("KdosDataTable server pagination", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("当前使用全部有权限字段");
   });
 
+  it("个人布局只影响当前用户；被隐藏的待报工输入字段仍留在个人字段选择器中", async () => {
+    savedPreferences.set(prefKey("mps-process-reports", "PENDING", "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber", "productionQuantity"], columnWidths: {}, pinnedFieldKeys: []
+    });
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "report-user", tenantId: "KAINAN", permissions: ["*"] }));
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "productionQuantity", label: "本次报工数量", type: "number" as const, editable: true }
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} advancedFilterFields={[fields[0]!]}
+      columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-1", orderNumber: "SO-1", productionQuantity: 10 }]} /></QueryClientProvider>);
+
+    await screen.findByText("SO-1");
+    expect(view.container.querySelector('th[data-kdos-column-key="productionQuantity"]')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /字段显示/ }));
+    const quantityField = await screen.findByRole("checkbox", { name: "本次报工数量" });
+    expect(quantityField).not.toBeChecked();
+    fireEvent.click(quantityField);
+    fireEvent.click(screen.getByRole("button", { name: "保存我的设置" }));
+    await waitFor(() => {
+      const put = vi.mocked(api).mock.calls.find(([path, init]) => path === "/auth/preferences/table-config" && init?.method === "PUT");
+      expect(put).toBeDefined();
+      expect(JSON.parse(String(put?.[1]?.body)).config.visibleFieldKeys).toContain("productionQuantity");
+    });
+    expect(view.container.querySelector('th[data-kdos-column-key="productionQuantity"]')).toBeInTheDocument();
+  });
+
   it("标准模式只保留横向滚动，内部纵向滚动必须显式开启", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const standard = render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" rowKey="id"

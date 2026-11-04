@@ -301,6 +301,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   editable?: boolean;
   /** Optional view discriminator so different views of one resource keep separate column and page-size preferences. */
   viewKey?: string;
+  /** Optional narrower set of columns eligible for advanced filtering; full field metadata still governs display and permissions. */
+  advancedFilterFields?: TablePermissionFieldDefinition[];
   /** 正式字段 metadata：提供后启用类型化高级筛选（操作符与值控件全部由 metadata 决定）。 */
   filterFields?: TablePermissionFieldDefinition[];
   /** KN-FILTER-001：页面自带列表接口时，把已应用的 FilterGroup 交给页面自行下发到后端。 */
@@ -400,6 +402,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
+  advancedFilterFields,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
   pagination, scroll, serverData, ...tableProps
@@ -449,7 +452,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const registeredFilterCodes = Array.isArray(filterCapabilities.data) ? filterCapabilities.data : [];
   const typedFilteringSupported = Boolean(resolvedFilterFields?.length) && registeredFilterCodes.some((entry: { code: string }) => entry.code === resource);
   /* 只有真正可筛选（filterable 且类型支持操作符）的字段才进入高级筛选，structure/attachment 等不会出现假筛选项。 */
-  const supportedFilterFields = typedFilteringSupported ? resolvedFilterFields.filter((field) => isTableFieldFilterable(field)) : undefined;
+  const supportedFilterFields = typedFilteringSupported ? (advancedFilterFields ?? resolvedFilterFields).filter((field) => isTableFieldFilterable(field)) : undefined;
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
