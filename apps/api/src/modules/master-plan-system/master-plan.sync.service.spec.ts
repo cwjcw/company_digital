@@ -294,53 +294,38 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql.some((statement) => statement.includes("INSERT INTO mps_process_reports"))).toBe(false);
   });
 
-  it("keeps an outbox event retryable when its sync key is already running instead of reporting a failure", async () => {
-    const query = jest.fn(async (statement: string) => statement.includes("UPDATE mps_reconciliation_outbox") && statement.includes("status='RUNNING'")
-      ? [{ id: "outbox-1", tenant_id: "KAINAN", sync_key: "base-to-weekly", actor_id: "33333333-3333-4333-8333-333333333333", actor_name: "tester", idempotency_key: "outbox:request-1:mps-base-plans:base-to-weekly" }]
-      : []);
-    const dataSource = { query, transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
-    const service = new MasterPlanSyncService(dataSource as never);
-    jest.spyOn(service, "run").mockRejectedValue(new ConflictException("该同步任务正在运行"));
-
-    await expect(service.processOutbox()).resolves.toBe(1);
-    const updates = query.mock.calls.map(([statement]) => String(statement)).filter((statement) => /UPDATE mps_reconciliation_outbox SET status='(PENDING|FAILED)'/.test(statement));
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).toContain("status='PENDING'");
-    expect(updates[0]).toContain("last_error=NULL");
-    expect(updates[0]).not.toContain("FAILED");
-  });
-
-  it.each([2, 5, 10])("coalesces %i same-process reconciliation events into one scoped rollup and completes every event", async (count) => {
-    const scope = { weeklyPlanId: "22222222-2222-4222-8222-222222222222", processCode: "bending" };
-    const events = Array.from({ length: count }, (_, index) => ({
-      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-      tenant_id: "KAINAN", sync_key: "execution-rollup", scope_json: scope,
-      actor_id: "33333333-3333-4333-8333-333333333333", actor_name: "tester", idempotency_key: `outbox-${index}`
-    }));
-    const query = jest.fn(async (statement: string, params?: unknown[]) => {
-      void params;
-      return statement.includes("UPDATE mps_reconciliation_outbox") && statement.includes("status='RUNNING'") ? events : [];
-    });
-    const dataSource = { query, transaction: async (work: (value: { query: typeof query }) => unknown) => work({ query }) };
-    const service = new MasterPlanSyncService(dataSource as never);
-    jest.spyOn(service, "run").mockResolvedValue({ syncKey: "execution-rollup", repeated: false, count: 1, metrics: null, status: "SUCCESS" });
-
-    await expect(service.processOutbox()).resolves.toBe(count);
-    expect(service.run).toHaveBeenCalledTimes(1);
-    expect(service.run).toHaveBeenCalledWith("KAINAN", "execution-rollup", "EVENT", events[0]!.actor_id, "tester", "outbox-0", scope);
-    const success = query.mock.calls.find(([statement]) => String(statement).includes("status='SUCCESS'"));
-    expect(success?.[1]?.[0]).toEqual(events.map((event) => event.id));
+  it("keeps the existing outbox entrypoint and delegates tenant-scoped consumption to the shared runner", async () => {
+    const service = new MasterPlanSyncService({} as never);
+    const process = jest.spyOn((service as any).runner, "processAvailableTenants").mockResolvedValue(3);
+    expect(await service.processOutbox()).toBe(3);
+    expect(process).toHaveBeenCalledWith();
   });
 });
 
-
 describe("existing allocation plan scheduler", () => {
-  it.each(["SCHEDULED", "EVENT", "RECONCILIATION", "MANUAL"])("runs %s through the existing configuration/log/execute path", async runType => {
-    const query = jest.fn(async (sql:string) => sql.startsWith("SELECT id,enabled") ? [{id:"0199bc00-0000-7000-8000-000000000001",enabled:true}] : []);
-    const service = new MasterPlanSyncService({query} as never);
-    const execute=jest.spyOn(service as any,"execute").mockResolvedValue({count:2,metrics:{monthly_created:1,group_created:1}});
-    await expect(service.run("KAINAN","plan-projections",runType as never,null,"tester")).resolves.toMatchObject({count:2,status:"SUCCESS"});
-    expect(execute).toHaveBeenCalledWith("plan-projections","KAINAN",null,"tester",null,"tester");
-    expect(query.mock.calls.some(([sql])=>sql.includes("INSERT INTO mps_sync_logs"))).toBe(true);
+  it("continues other due tasks and the outbox after one scheduled failure", async () => {
+    const service = new MasterPlanSyncService({} as never);
+    jest.spyOn((service as any).runner,"dueConfigurations").mockResolvedValue([{sync_key:"plan-projections"},{sync_key:"execution-rollup"}]);
+    const run = jest.spyOn(service,"run").mockRejectedValueOnce(new Error("synthetic failure"))
+      .mockResolvedValueOnce({syncKey:"execution-rollup",count:0,repeated:false,metrics:null,status:"SUCCESS"});
+    const process = jest.spyOn(service,"processOutbox").mockResolvedValue(0);
+    await service.runDue(); expect(run).toHaveBeenCalledTimes(2); expect(process).toHaveBeenCalledTimes(1);
+  });
+  it.each(["BLOCKED", "SKIPPED", "DISABLED"])("never exposes %s as a successful manual-sync response", async status => {
+    const service = new MasterPlanSyncService({} as never);
+    jest.spyOn(service,"run").mockResolvedValue({syncKey:"plan-projections",count:2,repeated:false,metrics:null,status} as never);
+    await expect(service.manual("plan-projections",{tenantId:"KAINAN",userId:null,username:"tester",permissions:["*"],tableDataScopes:[],requestId:"synthetic",source:"web"}))
+      .rejects.toThrow(`同步未完整完成（${status}）`);
+  });
+  it.each(["SCHEDULED", "EVENT", "RECONCILIATION", "MANUAL"])("delegates %s with the unchanged idempotency key and scope", async runType => {
+    const service = new MasterPlanSyncService({} as never);
+    const run = jest.spyOn((service as any).runner, "run").mockResolvedValue({count:2,status:"SUCCESS"});
+    await expect(service.run("KAINAN","plan-projections",runType as never,null,"tester","synthetic-key")).resolves.toMatchObject({count:2,status:"SUCCESS"});
+    expect(run).toHaveBeenCalledWith("KAINAN","plan-projections",runType,null,"tester","synthetic-key",null);
+  });
+  it("preserves the same busy conflict at the service boundary", async () => {
+    const service = new MasterPlanSyncService({} as never);
+    jest.spyOn((service as any).runner,"run").mockRejectedValue(new ConflictException("该同步任务正在运行"));
+    await expect(service.run("KAINAN","execution-rollup","EVENT",null,"tester")).rejects.toThrow("该同步任务正在运行");
   });
 });

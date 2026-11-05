@@ -1,7 +1,7 @@
 # KDOS 主计划系统上下游自动联动设计与风险评估
 
 - 调查日期：2026-11-04，业务时区 Asia/Shanghai；主要生产只读快照为当日 20:15—20:21。
-- 状态：**设计交付，未实施**。重大业务规则见第 13 节，需确认后才能进入相应开发阶段。
+- 状态：**完整联动仍为设计；2026-11-05仅实施第一阶段1A同步可靠性代码与隔离验收，未部署生产**。1A范围及后续安全门禁见第14节；其他重大业务规则仍见第13节。
 - 源码基准：`f569ccc38e926e580db78d16063334cff61a02a5`；生产 API 为 `4c9b1d3`，Web 为 `f569ccc`。两版本间没有 API 源码变更。本轮没有部署。
 - 本文只记录脱敏的结构、聚合结果和规则，不收录生产订单明细、员工身份、需求数量明细、凭据或原始数据库快照。
 
@@ -420,3 +420,58 @@ flowchart TD
 | 652 基准中 3 组后续人工变更 | 逐组确认导入是否获批，形成批准增量，不改原验收表 | 保留当前生产值和原验收值，两者差异可见 |
 
 **第一阶段建议先确认前三项与取消/恢复权限，落实事实保护及可靠重试门禁。本文设计完成即停止，不自动进入任何开发、数据补偿或发布。**
+
+
+## 14. 第一阶段1A：同步可靠性实现（2026-11-05，仅代码及隔离验收）
+
+### 14.1 范围和实现
+
+本节由用户单独授权，只修复同步框架。没有开启取消/删除/恢复、别名迁移、数量/关联改写或完整联动；没有部署，没有执行生产Migration/同步/历史补偿，也未改n8n或其它调度。2026-11-05显式REPEATABLE READ READ ONLY复核仍为11条Outbox SUCCESS/日志FAILED及1条旧execution-rollup RUNNING，诊断原件仅保存在受限ignored目录。不能由旧FAILED推断业务写入未发生。
+
+- 原MasterPlanSyncService入口继续使用，内部MasterPlanSyncRunner只封装原数据库队列及六项任务的执行协议，不是新增任务系统。原60秒检查器、6项任务及30分钟配置不变。
+- FAILED同键重新领取会增加attempts/version并实际进入原业务命令，前次状态/错误在audit_logs保留；只有本协议已验证的SUCCESS（attempts>0、同租户/任务/范围）可复用。旧无证明SUCCESS只阻断，不自动重做。
+- scope_json绑定日志的实际执行范围；同scope事件仍合并一次执行，但为每个事件分别建立/确认日志，不再用第一条日志替所有事件虚报成功。每轮最多20事件，准备执行下一组时才领取，不提前占住排队组租约，同轮不反复领取相同事件。
+- 业务事务先锁住并验证config/log/outbox的version和租约，原六任务使用同一EntityManager，成功状态、业务变更、日志、Outbox和审计同事务提交。失败先回滚业务，再以当前所有权记录FAILED；旧代际不能回写成功、失败或异常记录。
+- 不仅防止状态覆盖：事务行锁与数据库超时使旧业务事务也不能迟到提交。租约默认5分钟，statement_timeout最多120秒、idle_in_transaction_session_timeout最多30秒、transaction_timeout为5分钟、lock_timeout最多5秒；测试可在独立Runner中缩短。崩溃或停顿释放事务锁后，下一轮重新执行，不直接把RUNNING改成功。
+- 既有plan-projections保留REPEATABLE READ。使用有界租约和事务锁，不在独立连接上心跳改写同一config/log行，避免心跳导致RR快照每次提交都出现40001。超时的长任务将回滚并保留可诊断状态，不能靠无限续约冒充正常。
+- 消费者严格校验返回结果和数据库中每事件的成功日志/Outbox；仅“未抛异常”或返回对象不足以确认成功。事务提交ACK丢失时也不会用迟到失败覆盖已经提交的SUCCESS。
+- SKIPPED/BLOCKED/DISABLED为内部结果，持久化仍兼容既有状态枚举：日志/Outbox为FAILED并记录原因，配置为FAILED或DISABLED；不擅自扩展表格状态合同。受保护投影skipped、月度基础base_conflicts不能作完整成功；ERP准入blocked_by_*是合法输入过滤，不据此误判所有ERP任务失败。允许已受保护的有效部分进度提交，但明确不是整阶段完成。
+- 手工入口非SUCCESS返回409，沿用现有页面错误处理，防止旧页面把正常返回的BLOCKED提示为“同步完成”。Application和导入接口保持原样；原系统消费者仍扫描待处理租户元数据，按事件租户分别设置事务上下文，避免非默认租户崩溃后无人恢复。原权限校验和异步PENDING反馈保留。
+
+这一级“已验证成功”表示该同步命令及其结果已原子提交；不等同于设计8.3节的整条业务链、根事件子阶段及数量守恒验收，后者不在1A范围。
+
+### 14.2 最小Migration和历史边界
+
+新增Migration118，仅5个元数据字段和3个索引：三张既有表各加nullable lease_expires_at；sync_logs加attempts（旧记录默认0）和scope_json。原version复用为代际fence，无新表、无历史状态更新/回填、无业务数据DML。缺少显式期限和尝试证明时，单凭旧updated_at/version不能区分旧无租约RUNNING及新受管租约，因此需要此最小增量。
+
+- 历史RUNNING且lease_expires_at=NULL不进入自动恢复；旧11条SUCCESS事件不在待消费集合。本轮生产全部保留。
+- 仅本协议领取并具有期限的过期RUNNING可重新执行；过期日志先记FAILED/LEASE_EXPIRED并审计，随后同键的新attempt真正执行，只有事务验证后才记SUCCESS。
+- 不提供破坏性down：回退应用必须保留元数据/审计；禁止直接退回会误成功的旧消费者。未来上线前需确认全部旧二进制消费者已退出，不能混跑不理解fence的旧软件。迁移和运行启用需另行授权，本轮不得执行。
+- 未来启用时应先复核既有保护跳过/冲突计数；这些阻断现在会诚实显示未完整完成，不改变原保护规则或为通过而覆盖人工数据。
+
+### 14.3 隔离验收与复现
+
+使用专用PostgreSQL18容器（network=none，数据库目录tmpfs，仅绑定专用Unix socket），数据库固定mps_sync_1a_test、schema固定sync_1a_fixture；测试环境变量缺失时真实DB套件明确skip，有值时严格限制到test/mps_sync_reliability/pg_socket，绝不读取生产连接设置。夹具为合成用户/事业部/计划和报工，没有复制生产事实。
+
+- 实际应用原MPS结构/工艺保护及Migration118，覆盖FAILED→成功、连续失败、租约超时/崩溃、旧Worker迟到、真实事务超时回滚、两Worker竞速、忙等待、重复确认、同scope合并每事件日志、无效/跳过/禁用/阻断、租户/范围隔离、30分钟兼容、审计失败回滚。
+- 实际调用原基础→周计划与报工汇总：重复任务不生成第二周计划或第二套10工序；真实合成报工全行及持久工艺锁保留。注入23514后没有残留部分周计划，同键第二次实际执行成功；保留原SQLSTATE，不由清理SET LOCAL的25P02覆盖。
+- 定向API套件/类型检查/lint/build最终结果及Git SHA以outputs/主计划系统修复进度.md首节为准；不以生产只读快照冒充写入测试，也不为本轮运行Web或业务页面生产写入验收。
+
+```bash
+# 仅已启动的专用隔离PG18；不可替换为生产socket或连接串
+KDOS_SYNC_RELIABILITY_TEST_SOCKET="$PWD/test/mps_sync_reliability/pg_socket" \
+  pnpm --filter @tracker/api exec jest --runInBand --runTestsByPath \
+  src/modules/master-plan-system/master-plan.sync-runner.postgres.spec.ts \
+  src/modules/master-plan-system/mps-sync-leases.migration.spec.ts \
+  src/modules/master-plan-system/master-plan.sync.service.spec.ts \
+  src/modules/master-plan-system/master-plan.application.service.spec.ts \
+  src/modules/master-plan-system/master-plan-spreadsheet.service.spec.ts
+```
+
+### 14.4 11条矛盾事件与1条旧RUNNING的后续建议（本轮不执行）
+
+1. 保存既有事件、幂等键、执行日志、错误分类和相关事实指纹；只读检查后续周期是否已补正、当前版本/数量/身份/工艺锁及报工事实。不要仅凭日志失败认定未写入。
+2. 如当前结果已正确，保留原始失败证据，走另行批准的人工核验/诊断结论，不直接把旧日志或RUNNING改SUCCESS伪造一次执行。
+3. 如仍存在差异，先核准真实需求与保护边界，再另行授权有范围的Application补偿命令，使用新的可追踪请求；必要时明确审批旧事件转待处理的元数据迁移，不直接清幂等键或全量重放。
+4. 对旧RUNNING先确认无旧进程/事务仍在执行，保存诊断后按批准流程确认中断，再决定是否真正重跑。没有租约的历史记录不会因118的NULL字段自动被接管。
+5. 每个补偿事务都比较生产事实/工艺锁/稳定ID前后差异，并确认日志与Outbox一致；任何不确定的既有副作用先人工核实，不以强制同步“修状态”。

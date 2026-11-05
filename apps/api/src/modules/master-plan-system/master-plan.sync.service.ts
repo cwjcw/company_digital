@@ -13,21 +13,23 @@ import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
-type RunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
-type ExecutionRollupScope = { weeklyPlanId: string; processCode: string };
-/** 同步结果：`count` 继续写入 mps_sync_logs.sync_count，`metrics` 写入同表 metrics（KN-MPS-LIVE-002 可观测性）。 */
-type SyncOutcome = { count: number; metrics?: Record<string, number> };
+import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncExecutionScope as ExecutionRollupScope, type SyncOutcome } from "./master-plan.sync-runner";
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
 
 @Injectable()
 export class MasterPlanSyncService {
   private readonly logger = new Logger(MasterPlanSyncService.name);
-  private readonly running = new Set<string>();
-  constructor(private readonly dataSource: DataSource) {}
+  private readonly runner: MasterPlanSyncRunner;
+  constructor(private readonly dataSource: DataSource) {
+    this.runner = new MasterPlanSyncRunner(dataSource,
+      (manager, key, tenant, actor, name, scope) => this.execute(key, tenant, actor, actor, scope, name, manager), MASTER_PLAN_SYSTEM_USER_ID);
+  }
 
   async manual(syncKey: string, actor: MasterPlanActor) {
     if (!hasMasterPlanPermission(actor, "mps-sync-configs", "update")) throw new ForbiddenException("当前权限组没有手工同步权限");
-    return this.run(actor.tenantId, syncKey, "MANUAL", actor.userId, actor.username, `manual:${actor.requestId}:${syncKey}`);
+    const result = await this.run(actor.tenantId, syncKey, "MANUAL", actor.userId, actor.username, `manual:${actor.requestId}:${syncKey}`);
+    if (result.status !== "SUCCESS") throw new ConflictException(`同步未完整完成（${result.status}），已安全处理${result.count}条变更，请查看同步日志`);
+    return result;
   }
 
   async previewWeeklyProcessConfig(weeklyPlanId: string, actor: MasterPlanActor) {
@@ -201,86 +203,36 @@ export class MasterPlanSyncService {
   @Interval(60_000)
   async runDue() {
     const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
-    try {
-      const configs = await this.dataSource.query(`SELECT sync_key FROM mps_sync_configs WHERE tenant_id=$1 AND enabled=true AND status<>'RUNNING' AND (last_started_at IS NULL OR last_started_at + interval_minutes * interval '1 minute' <= now()) ORDER BY sync_key`, [tenantId]);
-      for (const config of configs) await this.run(tenantId, config.sync_key, "SCHEDULED", MASTER_PLAN_SYSTEM_USER_ID, "KDOS系统任务", `scheduled:${config.sync_key}:${new Date().toISOString().slice(0, 16)}`);
-      await this.processOutbox();
-    } catch (error) { this.logger.error(`主计划定时同步检查失败: ${error instanceof Error ? error.message : String(error)}`); }
-  }
-
-  async processOutbox() {
-    const events = await this.dataSource.transaction(async (manager) => {
-      const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,updated_at=now(),version=version+1
-      WHERE id IN (
-        SELECT id FROM mps_reconciliation_outbox
-        WHERE status IN ('PENDING','FAILED') AND next_attempt_at<=now()
-        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20
-      ) RETURNING *`);
-      return Array.isArray(result[0]) ? result[0] : result;
-    });
-    const groups = new Map<string, typeof events>();
-    for (const event of events) {
-      const scope = this.executionScope(event.sync_key, event.scope_json);
-      const key = `${event.tenant_id}:${event.sync_key}:${scope ? `${scope.weeklyPlanId}:${scope.processCode}` : "all"}`;
-      groups.set(key, [...(groups.get(key) ?? []), event]);
-    }
-    for (const group of groups.values()) {
-      const event = group[0]!;
-      const eventIds = group.map((item: { id: string }) => item.id);
-      const scope = this.executionScope(event.sync_key, event.scope_json);
+    let configs: Array<{ sync_key: string }>;
+    try { configs = await this.runner.dueConfigurations(tenantId); }
+    catch { this.logger.error("主计划配置检查失败；未触发任何同步"); return; }
+    for (const config of configs) {
       try {
-        await this.run(event.tenant_id, event.sync_key, "EVENT", event.actor_id, event.actor_name, event.idempotency_key, scope);
-        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now(),last_error=NULL,updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, event.actor_id]);
-      } catch (error) {
-        const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
-        /* 同一同步键正在运行时只是暂时让位，不是业务失败：保持 PENDING 稍后重试，避免把并发让位显示成“生成失败”。 */
-        if (error instanceof ConflictException && message === "该同步任务正在运行") {
-          await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='PENDING',last_error=NULL,next_attempt_at=now() + interval '5 seconds',updated_at=now(),updated_by=$2::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, event.actor_id]);
-          continue;
-        }
-        await this.dataSource.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error=$2,next_attempt_at=now() + least(attempts,30) * interval '1 minute',updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=ANY($1::uuid[])`, [eventIds, message, event.actor_id]);
-      }
+        await this.run(tenantId, config.sync_key, "SCHEDULED", MASTER_PLAN_SYSTEM_USER_ID, "KDOS系统任务",
+          `scheduled:${config.sync_key}:${new Date().toISOString().slice(0, 16)}`);
+      } catch { this.logger.warn(`主计划任务未完成：${config.sync_key}；保留数据库失败/租约状态供重试`); }
     }
-    return events.length;
+    try { await this.processOutbox(); }
+    catch { this.logger.error("主计划Outbox检查未完成；未确认的事件保持可恢复状态"); }
   }
 
-  async run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string, idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, executionScope: ExecutionRollupScope | null = null) {
-    const runningKey = `${tenantId}:${syncKey}`;
-    if (this.running.has(runningKey)) throw new ConflictException("该同步任务正在运行");
-    this.running.add(runningKey);
-    try {
-      const [config] = await this.dataSource.query(`SELECT id,enabled FROM mps_sync_configs WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey]);
-      if (!config) throw new ConflictException("同步配置不存在");
-      if (!config.enabled && runType !== "MANUAL") return { syncKey, skipped: true, count: 0 };
-      const previous = await this.dataSource.query(`SELECT status,sync_count,error_message FROM mps_sync_logs WHERE tenant_id=$1 AND idempotency_key=$2`, [tenantId, idempotencyKey]);
-      if (previous[0]) return { syncKey, repeated: true, count: Number(previous[0].sync_count), status: previous[0].status };
-      await this.dataSource.query(`INSERT INTO mps_sync_logs(tenant_id,sync_config_id,sync_key,run_type,status,started_at,idempotency_key,created_by,updated_by) VALUES($1,$2,$3,$4,'RUNNING',now(),$5,$6::uuid,$7)`, [tenantId, config.id, syncKey, runType, idempotencyKey, userId, userId ?? username]);
-      await this.dataSource.query(`UPDATE mps_sync_configs SET status='RUNNING',last_started_at=now(),error_message=NULL,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, userId ?? username]);
-      try {
-        const outcome = await this.execute(syncKey, tenantId, userId, userId ?? username, executionScope, username);
-        const count = outcome.count;
-        await this.dataSource.query(`UPDATE mps_sync_logs SET status='SUCCESS',completed_at=now(),sync_count=$3,metrics=$5::jsonb,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`,
-          [tenantId, idempotencyKey, count, userId ?? username, outcome.metrics ? JSON.stringify(outcome.metrics) : null]);
-        await this.dataSource.query(`UPDATE mps_sync_configs SET status='SUCCESS',last_success_at=now(),last_sync_count=$3,error_message=NULL,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, count, userId ?? username]);
-        return { syncKey, repeated: false, count, metrics: outcome.metrics ?? null, status: "SUCCESS" };
-      } catch (error) {
-        const message = (error instanceof Error ? error.message : String(error)).slice(0, 4000);
-        await this.dataSource.query(`UPDATE mps_sync_logs SET status='FAILED',completed_at=now(),error_message=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND idempotency_key=$2`, [tenantId, idempotencyKey, message, userId ?? username]);
-        await this.dataSource.query(`UPDATE mps_sync_configs SET status='FAILED',last_failure_at=now(),error_message=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE tenant_id=$1 AND sync_key=$2`, [tenantId, syncKey, message, userId ?? username]);
-        await this.upsertException(tenantId, `sync:${syncKey}`, "mps-sync-configs", null, syncKey, "SYNC_FAILURE", "ERROR", `同步失败：${message}`, userId, userId ?? username);
-        throw error;
-      }
-    } finally { this.running.delete(runningKey); }
+  processOutbox() {
+    return this.runner.processAvailableTenants();
   }
 
-  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null, actorName = updatedBy): Promise<SyncOutcome> {
+  run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string,
+    idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, scope: ExecutionRollupScope | null = null) {
+    return this.runner.run(tenantId, syncKey, runType, userId, username, idempotencyKey, scope);
+  }
+
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null, actorName = updatedBy, transaction?: EntityManager): Promise<SyncOutcome> {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
-      "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy),
-      "plan-projections": () => this.projectPlans(tenantId, userId, actorName),
-      "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName),
-      "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy),
-      "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy),
-      "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope)
+      "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy, transaction),
+      "plan-projections": () => this.projectPlans(tenantId, userId, actorName, transaction),
+      "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction),
+      "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy, transaction),
+      "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy, transaction),
+      "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope, transaction)
     };
     const job = jobs[syncKey]; if (!job) throw new ConflictException("未知同步任务");
     const result = await job();
@@ -302,11 +254,11 @@ export class MasterPlanSyncService {
    *
    * 增量变化仍然完全依赖 ERP 最后更新时间（`sales_orders.updated_at` ← `LastModifiedDate`）与稳定来源主键。
    */
-  private async projectOrders(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
+  private async projectOrders(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager): Promise<SyncOutcome> {
     const ss = (alias: string) => erpSourceIdentitySql(alias).sourceSystem;
     const sd = (alias: string) => erpSourceIdentitySql(alias).sourceDatabase;
     const sk = (alias: string) => erpSourceIdentitySql(alias).sourceKey;
-    const [config] = await this.dataSource.query(`SELECT watermark_at FROM mps_sync_configs WHERE tenant_id=$1 AND sync_key='erp-orders'`, [tenantId]);
+    const [config] = await (transaction ?? this.dataSource).query(`SELECT watermark_at FROM mps_sync_configs WHERE tenant_id=$1 AND sync_key='erp-orders'`, [tenantId]);
     const watermark = config?.watermark_at ?? null;
     /** ERP-owned 字段的唯一投影表达式：来源身份 + 业务字段 + 状态 + 最后更新时间。 */
     const payload = (alias: string) => `${ss(alias)} AS source_system,${sd(alias)} AS source_database,${alias}.source_database AS source_account_name,
@@ -322,7 +274,7 @@ export class MasterPlanSyncService {
     const distinctGuard = (target: string, source: string) =>
       `(${ownedColumns.map((column) => `${target}.${column}`).join(",")}) IS DISTINCT FROM (${ownedColumns.map((column) => `${source}.${column}`).join(",")})`;
 
-    return this.dataSource.transaction(async (manager) => {
+    return this.syncTransaction(transaction, async (manager) => {
       /* 1) 来源身份绑定：ERP 新来源身份与历史快照业务键相同 → 只建立别名，绝不新增第二条业务记录。 */
       const bound = await manager.query(`
         INSERT INTO mps_order_line_source_aliases(tenant_id,mps_order_line_id,source_system,source_database,source_key,bound_at,bound_reason,created_by,updated_by)
@@ -439,23 +391,23 @@ export class MasterPlanSyncService {
 
   /** Approved active KDOS allocations own plan demand. ERP collection stays independent.
    * Preserve retained plan identities/manual metadata; receipts still use verified inbound facts. */
-  private projectPlans(tenantId: string, userId: string | null, updatedBy: string): Promise<SyncOutcome> {
-    return this.dataSource.transaction("REPEATABLE READ", manager => reconcileAllocationPlans(manager, tenantId,
-      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy));
+  private projectPlans(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager): Promise<SyncOutcome> {
+    return this.syncTransaction(transaction, manager => reconcileAllocationPlans(manager, tenantId,
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy), "REPEATABLE READ");
   }
 
   /** Retain the existing task key and entrypoint; its sole input is now monthly plans. */
-  private shippingToBase(tenantId: string, userId: string | null, actorName: string): Promise<SyncOutcome> {
-    return this.dataSource.transaction(manager => reconcileMonthlyBasePlans(manager, tenantId,
+  private shippingToBase(tenantId: string, userId: string | null, actorName: string, transaction?: EntityManager): Promise<SyncOutcome> {
+    return this.syncTransaction(transaction, manager => reconcileMonthlyBasePlans(manager, tenantId,
       userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName));
   }
 
-  private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string) {
+  private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager) {
     const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
     const admission = weeklyAdmissionSql(basePlan, "base");
     const dictionaryColumn = (field: string, column: string) =>
       this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
-    return this.dataSource.transaction(async (manager) => {
+    return this.syncTransaction(transaction, async (manager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
@@ -553,22 +505,20 @@ export class MasterPlanSyncService {
         ? reverseScheduleForProcesses(reviewDueDate, definitions)
         : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
       await manager.query("SELECT set_config('app.mps_process_config_write_mode',$1,true)", [mode]);
-      try {
-        for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO NOTHING`,
-        [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
-        if (shouldEnableProcess(weekly.manufacturing_method, "cutting")) {
-          initialized = true; taskCount = scheduled.length;
-          if (!initializeProcessConfig) await manager.query(`UPDATE mps_weekly_plans SET updated_at=now(),updated_by=$3,version=version+1
-            WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weekly.id, userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
-          await this.auditProcessConfig(manager, { tenantId, userId, username: "KDOS工序任务初始化", permissions: [], tableDataScopes: [],
-            requestId: `process-init:${weekly.id}`, source: "system" }, weekly.id, "mps-weekly-plans.process_config_initialized", null,
-          { weeklyPlanId: weekly.id, manufacturingMethod: weekly.manufacturing_method,
-            trigger: initializeProcessConfig ? "NEW_WEEKLY" : "EMPTY_INTERNAL_SNAPSHOT", processes: scheduled });
-        }
-      } finally {
-        await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+      for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO NOTHING`,
+      [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
+      if (shouldEnableProcess(weekly.manufacturing_method, "cutting")) {
+        initialized = true; taskCount = scheduled.length;
+        if (!initializeProcessConfig) await manager.query(`UPDATE mps_weekly_plans SET updated_at=now(),updated_by=$3,version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weekly.id, userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
+        await this.auditProcessConfig(manager, { tenantId, userId, username: "KDOS工序任务初始化", permissions: [], tableDataScopes: [],
+          requestId: `process-init:${weekly.id}`, source: "system" }, weekly.id, "mps-weekly-plans.process_config_initialized", null,
+        { weeklyPlanId: weekly.id, manufacturingMethod: weekly.manufacturing_method,
+          trigger: initializeProcessConfig ? "NEW_WEEKLY" : "EMPTY_INTERNAL_SNAPSHOT", processes: scheduled });
       }
+      // SET LOCAL is cleared by rollback on error; avoid masking the original SQLSTATE with 25P02.
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
     }
     await this.recalculateSnapshotDueDates(manager, weekly, tenantId, updatedBy);
     const technicalDays = this.nullableNumber(weekly.technical_days);
@@ -602,16 +552,13 @@ export class MasterPlanSyncService {
       : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
     const dueDates = new Map(scheduled.map((row) => [row.code, row.dueDate]));
     await manager.query("SELECT set_config('app.mps_process_config_write_mode','RECALCULATE_DATES',true)");
-    try {
-      for (const row of rows) {
-        const dueDate = dueDates.get(String(row.process_code) as ProcessScheduleDefinition["code"]) ?? null;
-        if (this.dateOnly(row.due_date) === dueDate) continue;
-        await manager.query(`UPDATE mps_weekly_process_plans SET due_date=$3::date,updated_at=now(),updated_by=$4,version=version+1
-          WHERE tenant_id=$1 AND id=$2::uuid AND due_date IS DISTINCT FROM $3::date`, [tenantId, row.id, dueDate, updatedBy]);
-      }
-    } finally {
-      await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+    for (const row of rows) {
+      const dueDate = dueDates.get(String(row.process_code) as ProcessScheduleDefinition["code"]) ?? null;
+      if (this.dateOnly(row.due_date) === dueDate) continue;
+      await manager.query(`UPDATE mps_weekly_process_plans SET due_date=$3::date,updated_at=now(),updated_by=$4,version=version+1
+        WHERE tenant_id=$1 AND id=$2::uuid AND due_date IS DISTINCT FROM $3::date`, [tenantId, row.id, dueDate, updatedBy]);
     }
+    await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
   }
 
   private async rollupWeeklyProcesses(manager: EntityManager, weeklyPlanId: string, tenantId: string, updatedBy: string) {
@@ -636,8 +583,8 @@ export class MasterPlanSyncService {
       AND (p.daily_reported_quantity,p.status) IS DISTINCT FROM (d.daily_reported,d.status)`, [tenantId, weeklyPlanId, today, updatedBy]);
   }
 
-  private async allocateInbound(tenantId: string, updatedBy: string) {
-    return this.dataSource.transaction(async (manager) => {
+  private async allocateInbound(tenantId: string, updatedBy: string, transaction?: EntityManager) {
+    return this.syncTransaction(transaction, async (manager) => {
       const actorId = /^[0-9a-f-]{36}$/i.test(updatedBy) ? updatedBy : MASTER_PLAN_SYSTEM_USER_ID;
       const monthly = await reconcileExistingMonthlyInbound(manager, tenantId, updatedBy, actorId);
       /* KN-MPS-LIVE-002：入库分摊只统计科加账套，禁止把其它账套入库加进事业四部。 */
@@ -672,9 +619,9 @@ export class MasterPlanSyncService {
     });
   }
 
-  private async executionRollup(tenantId: string, updatedBy: string, scope: ExecutionRollupScope | null = null) {
+  private async executionRollup(tenantId: string, updatedBy: string, scope: ExecutionRollupScope | null = null, transaction?: EntityManager) {
     const today = shanghaiToday(); let count = 0;
-    await this.dataSource.transaction(async (manager) => {
+    await this.syncTransaction(transaction, async (manager) => {
       const scoped = scope ? "AND p.weekly_plan_id=$4::uuid AND p.process_code=$5" : "";
       const params = scope ? [tenantId, updatedBy, today, scope.weeklyPlanId, scope.processCode] : [tenantId, updatedBy, today];
       const processes = await manager.query(`WITH aggregates AS (
@@ -732,9 +679,6 @@ export class MasterPlanSyncService {
     ) exceptions_raw ORDER BY exception_key) exceptions ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$3,version=mps_data_exceptions.version+1`, [tenantId, userId, updatedBy]);
   }
 
-  private upsertException(tenantId: string, key: string, resource: string, recordId: string | null, businessKey: string, type: string, severity: string, message: string, userId: string | null, updatedBy: string, manager: EntityManager = this.dataSource.manager) {
-    return manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by) VALUES($1,$2,$3,$4::uuid,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$10,version=mps_data_exceptions.version+1`, [tenantId, key, resource, recordId, businessKey, type, severity, message, userId, updatedBy]);
-  }
 
   private nullableNumber(value: unknown) { return value == null ? null : Number(value); }
 
@@ -750,17 +694,14 @@ export class MasterPlanSyncService {
     return `CASE WHEN ${source} IS NULL OR btrim(${source}::text)='' THEN NULL WHEN ${source}::text IN (${allowed}) THEN ${source}::text ELSE ${existing} END AS ${column}`;
   }
 
+  private syncTransaction<T>(transaction: EntityManager | undefined, work: (manager: EntityManager) => Promise<T>, isolation?: "REPEATABLE READ") {
+    return transaction ? work(transaction) : isolation ? this.dataSource.transaction(isolation, work) : this.dataSource.transaction(work);
+  }
+
   private changedCount(result: unknown[]) { return Array.isArray(result[0]) ? result[0].length : result.length; }
   private dateOnly(value: unknown) {
     if (value == null || value === "") return null;
     const parsed = value instanceof Date ? value : new Date(String(value));
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
-  }
-  private executionScope(syncKey: string, value: unknown): ExecutionRollupScope | null {
-    if (syncKey !== "execution-rollup" || !value || typeof value !== "object") return null;
-    const scope = value as Record<string, unknown>;
-    return typeof scope.weeklyPlanId === "string" && typeof scope.processCode === "string"
-      ? { weeklyPlanId: scope.weeklyPlanId, processCode: scope.processCode }
-      : null;
   }
 }

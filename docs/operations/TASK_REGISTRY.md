@@ -367,3 +367,12 @@
 - 只读带认证附件探针返回预期409（不存在的投递租约），证明地址/认证链路通过，不生成通知；真实生产只读日报预检ready=true、sent=false、11人并生成两图。Python语法检查及diff检查通过；本轮未要求/未运行自动化测试套件，不借用旧测试结果冒充本轮测试。
 - 下一自然计划2026-11-05 12:00上海，届时由新版先发个人、再幂等入队群消息并由现有Dispatcher投递。此次深夜未主动补发，尚无新版自然运行或本次四群送达回执，不虚报送达。
 - 备份、配置保护hash及只读探针证据仅在gitignored test/equipment_daily/noon-group-20261104（目录0700/敏感文件0600）；恢复入口outputs/CODEX_PROGRESS.md本次设备日报章节，验收报告outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md。
+
+
+### MPS-003：第一阶段1A同步可靠性（2026-11-05，未部署）
+
+- 仅代码和专用network=none/tmpfs PG18验收，未重建/重启生产API或Worker，未运行生产Migration、任务或历史补偿；n8n/Timer/cron分工全部保持。仓库仍为6个MPS配置任务、1个60秒检查器；生产只读仍6项enabled、30分钟，不把代码完成当生产迁移。
+- 原run/processOutbox接入同一Runner（原PostgreSQL三表，无第二队列）；FAILED同键真实重试；version代际、5分钟有界租约、事务行锁及数据库超时；业务和成功日志/Outbox同事务提交，旧Worker迟到不能覆盖。配置、日志、队列跨租户均显式限制。
+- 同scope合并但每事件单独日志；最多20事件、逐组临执行领取；禁用/跳过/阻断不写完整SUCCESS；手工非成功409，原UI不会误提示完成。失败/保护冲突沿用mps_data_exceptions与原审计，不新增告警渠道或调度。
+- Migration118仅三表期限及日志attempt/scope（5字段/3索引），旧NULL租约RUNNING不自动恢复、旧SUCCESS无验证证明不直接确认；受管超时任务需真实重跑才可成功。前向回退保留证据，未来部署需先退出旧协议消费者，另行授权。
+- 本轮只读确认11条历史矛盾和1条旧RUNNING，原件仅ignored受限目录；不得自动改SUCCESS或推断事实未写入。处置建议见联动设计第14节，代码/隔离结果与Git证据见outputs/主计划系统修复进度.md首节。
