@@ -10509,7 +10509,7 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 ### 任务 / 当前阶段
 - 目标：在FinanceOrderDashboard刷新右侧复用TablePermissionButton，系统/财务模块管理员可见，返回原大屏，客户排名独立入口保留。
-- 当前状态：最小接入及定向验证通过，准备上线；主恢复入口本节。
+- 当前状态：**已完成**（Web部署、真实生产管理员验收及Chrome角色回归通过）；最后更新2026-11-05 08:46上海；主恢复入口本节。
 - 使用kdos-form-platform及kdos-form-validation，L2定向权限/导航验收；不改财务数据、SQL、筛选、权限组或成员授权。
 
 ### 已完成
@@ -10521,16 +10521,26 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 ### 正在进行 / 待完成
 - [x] 业务代码仅添加共享按钮import和刷新后的TablePermissionButton；保留排名原入口。Web财务单元15项通过（新增4角色），Chrome隔离4角色均通过（系统管理员、finance模块管理员、普通只读员工、其它模块管理员），双入口独立/返回/筛选/刷新/3图及无写请求通过。
 - [x] Web typecheck、lint（0错误/既有1warning）、生产build通过；E2E修正夹具异步/Contracts CJS导入及Input.Search实际searchbox角色后4项通过。
-- [ ] 备份旧Web镜像并按原deploy.sh web上线。
+- [x] 原backup.sh完成20261105_084135：legacy/KDOS/uploads SHA256已留存私有backup.log，旧Web镜像before-finance-dashboard-permission-20261105保留。
+- [x] 代码commit=6969382bad2ae4cf03fe19c53fefb285601934a7，仅本任务4文件（含新进度31行），原232行未提交记录未纳入。
+- [x] 原deploy.sh web成功；Web Build=6969382bad2ae4cf03fe19c53fefb285601934a7，与源码提交一致，API保持1c15bfc，未改后端/执行Migration；四容器及Swagger/OpenAPI/数据库健康。
 - [x] 真实生产Chrome正常admin登录复现旧Web=f569ccc：顶部无大屏权限按钮、客户排名已有1个入口；真实API读取成功（Nest查询POST返回201，已修正验收脚本仅接受200的错误断言）。
-- [ ] 上线后真实生产Chrome登录查看按钮和排名权限页/返回、金额/图表/筛选/刷新；Git安全提交推送，核对生产SHA。
+- [x] 真实Chrome正常admin登录生产http://127.0.0.1:15172，不模拟任何API响应：顶部权限按钮可见；大屏权限页/排名权限页均正常读取和返回，排名按钮仍仅1个；刷新前后KPI一致、3张图、客户筛选/刷新通过，禁止写请求为0。截图production-dashboard.png已人工查看。
+- [x] 同一生产前端资产下4类角色Chrome隔离API用例4/4通过；系统/finance管理员显示两个独立入口，普通获权读员工和其它模块管理员不显示；不把隔离角色用例声称为真实员工账号登录。
+- [x] 最终源码/敏感范围检查通过，仅本任务4文件提交，原232行未提交进度保留；收尾以独立进度提交记录，随后正常push github/main。
 
 ### 修改文件 / Migration / 测试
 - FinanceOrders.tsx、FinanceOrders.spec.tsx、e2e/finance-dashboard-permissions.spec.ts及本新增进度；不涉及数据库Migration、后端源码、共享组件或Skill修改。
 
 ### 当前已知问题 / 等待用户确认
-- 无需额外授权；真实三类账号与隔离角色Chrome结果分别记录，不修改员工授权凑验收。
+- 无代码或部署阻塞。真实生产登录验证使用用户提供的系统管理员账号；财务模块管理员/普通员工为真实Chrome隔离身份及API响应覆盖，未借用其它员工口令，未调整权限组凑验收。
+- 既有ModulePortal Fast Refresh warning、Vite包大小warning及本机Node22/目标Node24 engine warning保留；Docker生产构建使用Node24。无新增错误。
 
 ### 下一步 / 恢复执行
-1. 读取项目规范/Skill/本节、git status和diff，完成顶部按钮及定向测试。
-2. 通过校验后按原发布入口部署Web，真实登录验收并Git同步。
+1. 本任务已完成，无待实施代码或Migration；最后正常推送本任务两个提交并确认远程SHA。
+2. 恢复时读取项目规范、两个Skill、本节和git状态；不要重做已通过的开发/部署，保留其它任务未提交记录。
+
+### 最终报告 / 证据
+- 最终报告：本节及会话交付摘要；源代码上线SHA=6969382bad2ae4cf03fe19c53fefb285601934a7。
+- 测试：财务单元15/15；本地Chrome4/4、生产前端Chrome隔离4/4、生产真实管理员正常登录及双权限页导航/返回/金额/图表/筛选/刷新通过；Web typecheck/lint/build通过。
+- 生产业务图和证据仅在gitignored test/finance_dashboard_permission（目录0700、真实截图0600）；不提交真实财务内容、口令或Token。最终文档提交不重新部署无变化的代码。
