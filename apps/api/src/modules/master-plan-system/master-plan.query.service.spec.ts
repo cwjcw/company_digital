@@ -197,7 +197,7 @@ describe("MasterPlanQueryService dictionary filters", () => {
 
   it("keeps export consistent with the list for dictionary filters", async () => {
     const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 1 }] : [processRow]);
-    const service = new MasterPlanQueryService({ query } as never, directory as never);
+    const service = new MasterPlanQueryService({ query, transaction: async (_level: unknown, work: (m: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> }) => unknown) => work({ query: async (sql: string, params?: unknown[]) => sql === "SET TRANSACTION READ ONLY" || sql.startsWith("SELECT set_config(") ? [] : query(sql, params) }) } as never, directory as never);
     const exported = await service.exportRows("mps-process-reports", { filters: JSON.stringify({ processCode: "折弯" }) }, fullActor);
     const dataCall = query.mock.calls.find(([sql]) => String(sql).startsWith("SELECT record.id"))!;
     expect(exported.rows).toEqual([processRow]);
@@ -211,10 +211,10 @@ describe("MasterPlanQueryService report divisions", () => {
 
   it.each(["mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports"])("applies division field permission, path filter, data scope and export to %s", async (resource) => {
     const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 1 }] : [{ id: "row-1", version: 1, divisionId: organization.id, canUpdate: false }]);
-    const service = new MasterPlanQueryService({ query } as never, { listEnabled: jest.fn().mockResolvedValue([organization]) } as never);
+    const service = new MasterPlanQueryService({ query, transaction: async (_level: unknown, work: (m: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> }) => unknown) => work({ query: async (sql: string, params?: unknown[]) => sql === "SET TRANSACTION READ ONLY" || sql.startsWith("SELECT set_config(") ? [] : query(sql, params) }) } as never, { listEnabled: jest.fn().mockResolvedValue([organization]) } as never);
     const scopedActor: MasterPlanActor = {
       ...actor([`${resource}:*:read`, `${resource}:*:export`, `${resource}:divisionId:read`]),
-      tableDataScopes: [{ resource, scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: organization.id }] }]
+      tableDataScopes: [{ resource, scope: "CUSTOM", actions: ["read", "export"], rules: [{ fieldKey: "divisionId", operator: "EQ", value: organization.id }] }]
     };
 
     expect(service.metadata(resource, scopedActor).fields).toEqual(expect.arrayContaining([expect.objectContaining({ key: "divisionId", editable: false })]));

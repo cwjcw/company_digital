@@ -1,16 +1,6 @@
-import { DataSource, type QueryRunner, type EntityManager } from "typeorm";
-import { MasterPlanSystem1722920047000 as Initial } from "../../migrations/1722920047000-MasterPlanSystem";
-import { MasterPlanIntegrityAndOutbox1722920048000 as Integrity } from "../../migrations/1722920048000-MasterPlanIntegrityAndOutbox";
-import { MasterPlanShippingMonthlyReference1722920049000 as ShippingReference } from "../../migrations/1722920049000-MasterPlanShippingMonthlyReference";
-import { MasterPlanManualCreationAndDailyReporting1722920050000 as Manual } from "../../migrations/1722920050000-MasterPlanManualCreationAndDailyReporting";
-import { MasterPlanReportDivisions1722920051000 as Divisions } from "../../migrations/1722920051000-MasterPlanReportDivisions";
-import { MasterPlanExecutionEligibility1722920052000 as Eligibility } from "../../migrations/1722920052000-MasterPlanExecutionEligibility";
-import { MasterPlanWeeklyIdentity1722920056000 as Identity } from "../../migrations/1722920056000-MasterPlanWeeklyIdentity";
-import { MasterPlanDeliveryCodeAuto1722920075000 as Codes } from "../../migrations/1722920075000-MasterPlanDeliveryCodeAuto";
-import { MasterPlanProcessCodeConstraint1722920059000 as ProcessCodes } from "../../migrations/1722920059000-MasterPlanProcessCodeConstraint";
-import { MpsProcessRoutingV11722920107000 as Routing } from "../../migrations/1722920107000-MpsProcessRoutingV1";
-import { MpsProcessDueDateRefreshV11722920108000 as Dates } from "../../migrations/1722920108000-MpsProcessDueDateRefresh";
 import { MpsSyncLeases1722920118000 as Leases } from "../../migrations/1722920118000-MpsSyncLeases";
+import { createMpsTestDatabase } from "./master-plan.test-database";
+import { DataSource, type EntityManager } from "typeorm";
 import { MasterPlanSyncRunner, type SyncOutcome } from "./master-plan.sync-runner";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 
@@ -46,24 +36,7 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
       SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND status='RUNNING'`, [tenant]);
   };
 
-  beforeAll(async () => {
-    if (!socket?.endsWith("/test/mps_sync_reliability/pg_socket")) throw Error("Only dedicated network-none test socket is allowed");
-    db = new DataSource({ type: "postgres", host: socket, username: "postgres", database: "mps_sync_1a_test", entities: [], poolSize: 8,
-      extra: { options: "-c search_path=sync_1a_fixture,public" }, logging: false });
-    await db.initialize();
-    await db.query("DROP SCHEMA IF EXISTS sync_1a_fixture CASCADE; CREATE SCHEMA sync_1a_fixture");
-    await db.query(`CREATE TABLE supply_chain_suppliers(id uuid PRIMARY KEY);
-      CREATE TABLE users(id uuid PRIMARY KEY,username text UNIQUE,display_name text,password_hash text,enabled boolean DEFAULT true,must_change_password boolean,created_by uuid,updated_by uuid);
-      CREATE TABLE organization_units(id uuid PRIMARY KEY,name text,enabled boolean DEFAULT true);
-      CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text,record_id varchar,action text,before_json jsonb,after_json jsonb,request_id text NOT NULL,source text,created_by uuid,updated_by uuid,created_at timestamptz DEFAULT clock_timestamp());
-      CREATE TABLE fixture_effects(tenant_id text,business_key text,PRIMARY KEY(tenant_id,business_key));
-      INSERT INTO users(id,username,display_name)VALUES('${actor}','synthetic','合成用户');
-      INSERT INTO organization_units(id,name)VALUES('${division}','合成事业部');`);
-    const migrationRunner = { query: (sql: string, args?: unknown[]) => db.query(sql, args) } as QueryRunner;
-    for (const Migration of [Initial, Integrity, ShippingReference, Manual, Divisions, Eligibility, Identity, Codes, ProcessCodes, Routing, Dates]) await new Migration().up(migrationRunner);
-    await db.query("ALTER TABLE mps_sync_logs ADD COLUMN metrics jsonb; ALTER TABLE mps_reconciliation_outbox ADD COLUMN scope_json jsonb,ADD COLUMN record_id uuid");
-    await new Leases().up(migrationRunner);
-  }, 30000);
+  beforeAll(async () => { db = await createMpsTestDatabase("sync_1a_fixture", actor, division); }, 30000);
   beforeEach(async () => {
     await db.query("TRUNCATE mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,fixture_effects,mps_order_allocations,mps_base_plans CASCADE");
     await db.query("DELETE FROM mps_sync_configs WHERE tenant_id=$1", [tenant]);

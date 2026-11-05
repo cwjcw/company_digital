@@ -55,7 +55,7 @@ describe("KN-PR-001 pending process reporting view", () => {
     expect(result.rows).toHaveLength(1);
     expect((result as { view?: string }).view).toBe("PENDING");
     expect(sql).toContain("FROM mps_weekly_process_plans task");
-    expect(sql).toContain("LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports");
+    expect(sql).toContain("LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,division_id,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3,4) reports");
     expect(sql).toContain("COALESCE(reports.cumulative_quantity,0) cumulative_reported_quantity");
     expect(sql).toContain("GREATEST(COALESCE(weekly.planned_quantity,0)-COALESCE(reports.cumulative_quantity,0),0) remaining_quantity");
     /* 累计达到计划数量即完成，任务不再出现在待报工列表。 */
@@ -182,11 +182,7 @@ describe("KN-PR-001 actual process reports", () => {
       technical_days: 1, cutting_days: 1, machining_days: 1, bending_days: 1, spot_welding_days: 1, welding_days: 1,
       woodworking_days: 1, grinding_days: 1, surface_treatment_days: 1, packaging_days: 1
     }, "KAINAN", "11111111-1111-4111-8111-111111111111", "tester");
-    const reportUpdate = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.startsWith("UPDATE mps_process_reports"))!;
-
-    expect(reportUpdate).toContain("division_id=$3");
-    expect(reportUpdate).toContain("planned_quantity=$8");
-    expect(reportUpdate).not.toMatch(/production_date=|production_quantity=/);
+    expect(manager.query.mock.calls.some(([statement]) => String(statement).startsWith("UPDATE mps_process_reports"))).toBe(false);
   });
 
   it("blocks reporting into a division outside the actor data scope even with a forged weeklyPlanId", async () => {

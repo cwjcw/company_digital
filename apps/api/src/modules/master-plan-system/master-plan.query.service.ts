@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { DataSource, type EntityManager } from "typeorm";
-import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql, type MasterPlanResource } from "./master-plan.config";
+import { queryColumnsFor, columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingColumns, processReportPendingFields, processReportPendingInputKeys, processReportPendingSourceSql, type MasterPlanResource } from "./master-plan.config";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { standardProcesses } from "@tracker/shared";
@@ -87,14 +87,14 @@ export class MasterPlanQueryService {
     if (code === "mps-process-reports" && String(input.view ?? "").toUpperCase() === "PENDING") {
       return this.processReportTasks(input, actor, trustedScope, manager);
     }
-    const allColumns = columnsFor(resource);
+    const allColumns = queryColumnsFor(resource);
     const visibleFields = fieldsFor(resource).map((field) => field.key).filter((field) => this.visible(actor, code, field));
     if (!visibleFields.length) throw new ForbiddenException("当前权限组没有该表可见字段");
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const requestedPageSize = Math.floor(Number(input.pageSize) || 100);
     const pageSize = normalizeKdosPageSize(requestedPageSize);
     const params: unknown[] = [actor.tenantId];
-    const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", allColumns, params)];
+    const clauses = [`record.tenant_id=$1`, this.scopeClause(resource, actor, "read", columnsFor(resource), params)];
     if (trustedScope) clauses.push(trustedScope(params));
     if (code === "mps-order-allocations") clauses.push("record.archived_at IS NULL");
     if (["mps-weekly-process-plans", "mps-outsourcing-reports"].includes(code)) clauses.push("record.execution_enabled=true");
@@ -155,10 +155,10 @@ export class MasterPlanQueryService {
     const orderBy = sortColumn ? `${requestedSort === "deliveryNumber" ? `${this.expression(sortColumn)}::numeric` : this.expression(sortColumn)} ${String(input.sortOrder) === "desc" ? "DESC" : "ASC"} NULLS LAST` : resource.defaultOrder.split(",").map((part) => `record.${part.trim()}`).join(",");
     const dataParams = [...params];
     const updateAllowed = hasMasterPlanPermission(actor, code, "update")
-      ? this.scopeClause(resource, actor, "update", allColumns, dataParams)
+      ? this.scopeClause(resource, actor, "update", columnsFor(resource), dataParams)
       : "false";
     const deleteAllowed = resource.remove && hasMasterPlanPermission(actor, code, "delete")
-      ? this.scopeClause(resource, actor, "delete", allColumns, dataParams)
+      ? this.scopeClause(resource, actor, "delete", columnsFor(resource), dataParams)
       : "false";
     const selected = visibleFields.map((field) => `${this.expression(allColumns[field]!)} "${field}"`);
     /* KN-MPS-UI-001：辅助计算字段（累计报工）只作为行投影返回给界面解释生产进度，绝不进入列/打印/导出/筛选。 */
@@ -204,7 +204,7 @@ export class MasterPlanQueryService {
   async exportRows(code: string, input: ListInput, actor: MasterPlanActor) {
     if(code==='mps-review-due-dates') throw new ForbiddenException('评审交期必须使用统一完整Excel导出');
     if (!hasMasterPlanPermission(actor, code, "export")) throw new ForbiddenException("当前权限组没有该表导出权限");
-    const mapping = code === "mps-external-process-mappings" ? this.resource(code) : null;
+    const mapping = ["mps-external-process-mappings", "mps-process-reports"].includes(code) ? this.resource(code) : null;
     const exportScope = mapping ? (params: unknown[]) => this.scopeClause(mapping,actor,"export",columnsFor(mapping),params) : undefined;
     const first = await this.list(code, { ...input, page: 1, pageSize: 200 }, actor, exportScope);
     const rows = [...first.rows];
@@ -237,10 +237,10 @@ export class MasterPlanQueryService {
     if (!hasMasterPlanPermission(actor, code, "read")) throw new ForbiddenException("当前权限组没有该表查看权限");
     /* 只有显式请求 PENDING 视图时才使用待报工字段集（否则按实际报工字段集解析）。 */
     const pending = code === "mps-process-reports" && String(view ?? "").toUpperCase() === "PENDING";
-    const columns = pending ? processReportPendingColumns() : columnsFor(resource);
+    const columns = pending ? processReportPendingColumns() : queryColumnsFor(resource);
     const expressions = Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, this.expression(column)]));
     const params: unknown[] = [actor.tenantId];
-    const scope = this.scopeClause(resource, actor, "read", columns, params);
+    const scope = this.scopeClause(resource, actor, "read", pending ? columns : columnsFor(resource), params);
     if (!this.candidates) throw new BadRequestException("字段候选值服务不可用");
     return this.candidates.resolve(String(fieldKey ?? ""), search, limit, {
       fields: pending ? processReportPendingFields() : fieldsFor(resource),

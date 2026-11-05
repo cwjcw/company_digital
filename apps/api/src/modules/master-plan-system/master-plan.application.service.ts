@@ -890,6 +890,9 @@ export class MasterPlanApplicationService {
       if (code === "23503") throw new BadRequestException("关联的上游记录不存在或已失效");
       if (code === "23001") throw new ConflictException("该记录已被下游业务引用，不能直接删除");
       if (code === "23502") throw new BadRequestException(`必填字段${(error as { column?: string }).column ? ` ${(error as { column?: string }).column}` : ""}不能为空`);
+      if (code === "23514" && ["ck_mps_executed_identity", "ck_mps_report_context"].includes(String((error as { constraint?: string }).constraint))) {
+        throw new ConflictException((error as Error).message);
+      }
       if (code === "23514") throw new BadRequestException("字段值不符合业务约束，请检查数量范围、选项及跨字段条件");
       if (code === "22003") throw new BadRequestException("数值超出数据库允许范围，请检查数字大小或小数格式");
       if (code === "22001") throw new BadRequestException("文本内容超过字段允许长度");

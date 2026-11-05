@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { DataSource, EntityManager, In, IsNull, Not } from "typeorm";
 import {
   presetPermissionGroupTypes, presetTablePermissionDataScope, presetTablePermissionMatrix,
-  tablePermissionActions, tablePermissionFieldsFor, tableResourceRegistry,
+  tablePermissionActions, tablePermissionFieldsFor, tableResourceRegistry, mpsReportContextProjectionFieldKeys,
   type PresetPermissionGroupType, type TablePermissionAction, type TableResourceCode
 } from "@kdos/contracts";
 import { AuditLog, OrganizationUnit, Permission, PermissionGroupSubject, Role, User } from "../../entities";
@@ -95,6 +95,9 @@ export class TablePermissionGroupApplicationService {
     if (input.groupType !== "CUSTOM") return [];
     const definitions = new Map(tablePermissionFieldsFor(resource).map((field) => [field.key, field]));
     return (input.dataRules ?? []).map((rule) => {
+      if (resource === "mps-process-reports" && mpsReportContextProjectionFieldKeys.some(key => key === rule.fieldKey)) {
+        throw new BadRequestException("报工上下文显示投影不能作为授权数据范围，请使用历史事业部、订单、品项或原计划数量等历史字段");
+      }
       const definition = definitions.get(rule.fieldKey);
       if (!definition) throw new BadRequestException(`数据权限包含未知字段：${rule.fieldKey}`);
       if (!operators.has(rule.operator)) throw new BadRequestException(`${definition.label}的数据权限运算符无效`);

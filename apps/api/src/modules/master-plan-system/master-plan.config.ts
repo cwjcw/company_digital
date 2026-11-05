@@ -76,10 +76,10 @@ export const masterPlanExceptionPartSql = (label: string, texts: string) => {
 
 /** 周计划某工序的累计实际报工（按 tenant+weekly_plan_id+process_code 聚合，禁止 JOIN 重复累计）。 */
 const weeklyReportSum = (code: string) =>
-  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report JOIN mps_weekly_process_plans task ON task.tenant_id=report.tenant_id AND task.weekly_plan_id=report.weekly_plan_id AND task.process_code=report.process_code AND task.execution_enabled=true WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.process_code='${code}')`;
-/** 月计划：先按 tenant+weekly_plan_id+process_code 聚合报工，再按关联周计划求和（避免一对多 JOIN 放大）。 */
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_process_reports report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.division_id IS NOT DISTINCT FROM record.division_id AND report.process_code='${code}')`;
+/** Historical facts survive disabled/missing tasks; never transfer them to a new division. */
 const monthlyReportSum = (code: string) =>
-  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_weekly_plans weekly JOIN mps_weekly_process_plans task ON task.tenant_id=weekly.tenant_id AND task.weekly_plan_id=weekly.id AND task.process_code='${code}' AND task.execution_enabled=true JOIN mps_process_reports report ON report.tenant_id=task.tenant_id AND report.weekly_plan_id=task.weekly_plan_id AND report.process_code=task.process_code WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id AND weekly.manufacturing_method IN ('自制','自制+外协'))`;
+  `(SELECT COALESCE(sum(report.production_quantity),0) FROM mps_weekly_plans weekly JOIN mps_process_reports report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id AND report.division_id IS NOT DISTINCT FROM weekly.division_id WHERE weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id AND report.process_code='${code}')`;
 /**
  * KN-MPS-EXEC-001 口径修正：月计划生产进度 = 整个订单/月度总需求完成率。
  * 分母固定使用月计划正式总需求 `record.required_quantity`；
@@ -105,7 +105,7 @@ const exceptionPart = (label: string, sql: string) => masterPlanExceptionPartSql
  */
 function weeklyExceptionSummary() {
   const weeklySource = (table: string, extra: string) =>
-    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM ${table} report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
+    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM ${table} report WHERE report.tenant_id=record.tenant_id AND report.weekly_plan_id=record.id AND report.division_id IS NOT DISTINCT FROM record.division_id ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
   const parts = masterPlanHumanExceptionSources.map(source => exceptionPart(source.label, weeklySource(source.table, `AND ${source.condition}`)));
   /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
   return `(concat_ws('；',${parts.join(",")}))`;
@@ -115,7 +115,7 @@ function weeklyExceptionSummary() {
 function monthlyExceptionSummary() {
   const monthlyWhere = `weekly.tenant_id=record.tenant_id AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code AND weekly.division_id IS NOT DISTINCT FROM record.division_id`;
   const joinedSource = (table: string, extra: string) =>
-    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM mps_weekly_plans weekly JOIN ${table} report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere} ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
+    `SELECT string_agg(DISTINCT report.exception_text,'、' ORDER BY report.exception_text) FROM mps_weekly_plans weekly JOIN ${table} report ON report.tenant_id=weekly.tenant_id AND report.weekly_plan_id=weekly.id WHERE ${monthlyWhere} AND report.division_id IS NOT DISTINCT FROM weekly.division_id ${extra} AND btrim(COALESCE(report.exception_text,''))<>''`;
   const parts = masterPlanHumanExceptionSources.map(source => exceptionPart(source.label, joinedSource(source.table, `AND ${source.condition}`)));
   /* 必须以 ( 开头：列表查询对非括号表达式会自动加 record. 前缀，裸函数会被当成 schema 限定调用。 */
   return `(concat_ws('；',${parts.join(",")}))`;
@@ -268,8 +268,8 @@ export const processReportPendingSourceSql = `SELECT task.id,task.version,task.t
       task.created_by,task.created_at,task.updated_by,task.updated_at
       FROM mps_weekly_process_plans task
       JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
-      LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3) reports
-        ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code
+      LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,division_id,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3,4) reports
+        ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code AND reports.division_id IS NOT DISTINCT FROM weekly.division_id
       WHERE task.execution_enabled=true AND weekly.manufacturing_method IN ('自制','自制+外协')
         AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
 
@@ -308,4 +308,28 @@ export function weeklyAdmissionMissingSql(resource: MasterPlanResource, tableAli
 
 export function weeklyAdmissionMissingFields(resource: MasterPlanResource, values: Record<string, unknown>) {
   return (resource.weeklyAdmissionRequiredFields ?? []).filter((field) => values[field] == null || String(values[field]).trim() === "");
+}
+
+/** Read model only. Command column mappings must keep physical snapshot columns. */
+export function queryColumnsFor(resource: MasterPlanResource) {
+  const columns = columnsFor(resource);
+  if (resource.code !== "mps-process-reports") return columns;
+  const live = (column: string) => `(SELECT weekly.${column} FROM mps_weekly_plans weekly
+    WHERE weekly.tenant_id=record.tenant_id AND weekly.id=record.weekly_plan_id
+      AND weekly.division_id IS NOT DISTINCT FROM record.division_id
+      AND weekly.order_number=record.order_number AND weekly.item_code=record.item_code)`;
+  return { ...columns, plannedQuantity: live("planned_quantity"), currentItemName: live("item_name"),
+    currentCustomerDueDate: live("latest_customer_due_date"), currentReviewDueDate: live("latest_review_due_date"),
+    snapshotPlannedQuantity: "planned_quantity",
+    reportContextStatus: `(CASE WHEN EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=record.tenant_id
+      AND a.resource='mps-process-reports' AND a.record_id::text=record.id::text
+      AND a.action IN ('mps-process-reports.created','mps-process-reports.import_created')
+      AND a.after_json->>'weekly_plan_id'=record.weekly_plan_id::text
+      AND a.after_json->>'process_code'=record.process_code
+      AND a.after_json->>'division_id' IS NOT DISTINCT FROM record.division_id::text
+      AND a.after_json->>'order_number'=record.order_number AND a.after_json->>'item_code'=record.item_code
+      AND a.after_json->>'item_name' IS NOT DISTINCT FROM record.item_name
+      AND a.after_json->>'delivery_number'=record.delivery_number::text
+      AND a.after_json->>'planned_quantity'=record.planned_quantity::text)
+      THEN '创建审计已验证' ELSE '原始上下文未知（保留现值）' END)` };
 }

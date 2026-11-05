@@ -38,9 +38,11 @@ describe("KN-MPS-EXEC-001 生产进度 SQL", () => {
 
   it("月计划进度 = 整个订单/月度总需求完成率：SUM(actual)/record.required_quantity，禁止平均百分比", () => {
     const sql = String(monthlyColumns.cuttingProductionProgress);
-    /* 分子：先按 tenant+weekly_plan_id+process_code 聚合并 SUM（两层聚合，防一对多 JOIN 放大）。 */
-    expect(sql).toContain("GROUP BY report.tenant_id,report.weekly_plan_id");
-    expect(sql).toContain("sum(per_week.reported)");
+    /* 事实按稳定周计划关联求和，不依赖启用任务；每笔报工只 JOIN 唯一周计划一次。 */
+    expect(sql).toContain("sum(report.production_quantity)");
+    expect(sql).toContain("report.weekly_plan_id=weekly.id");
+    expect(sql).toContain("report.division_id IS NOT DISTINCT FROM weekly.division_id");
+    expect(sql).not.toContain("JOIN mps_weekly_process_plans");
     /* 分母：月计划正式总需求 required_quantity（整个订单/月度总需求），不是已下达周计划数量。 */
     expect(sql).toContain("record.required_quantity");
     expect(sql).toContain("COALESCE(record.required_quantity,0) > 0");

@@ -283,14 +283,11 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(outsourcing.split("DO UPDATE SET")[1]).not.toMatch(/purchase_order_number=|supplier_id=|outsourcing_method=|actual_inbound_date=|status=|exception_text=/);
   });
 
-  it("synchronizes report snapshots by weekly-plan id without creating fake process reports", async () => {
+  it("never updates existing report context or audit metadata and never creates fake reports", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
     await (service as any).ensureExecutionRows(manager, weekly("自制"), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const sql = manager.query.mock.calls.map(([statement]) => String(statement));
-    const reportUpdate = sql.find((statement) => statement.startsWith("UPDATE mps_process_reports"))!;
-    expect(reportUpdate).toContain("weekly_plan_id=$2");
-    expect(reportUpdate).toContain("item_code=$5");
-    expect(reportUpdate).toContain("planned_quantity=$8");
+    expect(sql.some((statement) => statement.startsWith("UPDATE mps_process_reports"))).toBe(false);
     expect(sql.some((statement) => statement.includes("INSERT INTO mps_process_reports"))).toBe(false);
   });
 

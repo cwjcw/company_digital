@@ -69,7 +69,7 @@ export class MasterPlanOrderProgressService {
       `weekly_parents AS MATERIALIZED (SELECT w.*,s.monthly_plan_id parent_monthly_id FROM a_weekly w LEFT JOIN a_base b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id LEFT JOIN a_shipping s ON s.tenant_id=b.tenant_id AND s.id=b.shipping_plan_id)`,
       `related_weekly AS MATERIALIZED (SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.id=w.parent_monthly_id AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NOT NULL UNION ALL SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.order_number=w.order_number AND m.item_code=w.item_code AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NULL)`,
       `actual_tasks AS MATERIALIZED (SELECT t.* FROM mps_weekly_process_plans t JOIN related_weekly w ON w.tenant_id=t.tenant_id AND w.id=t.weekly_plan_id WHERE t.tenant_id=$1 AND t.execution_enabled=true AND w.manufacturing_method IN ('自制','自制+外协'))`];
-    ctes.push(`actual_process AS MATERIALIZED (SELECT r.* FROM (${authorized("mps_process_reports")}) r JOIN related_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id JOIN actual_tasks t ON t.tenant_id=r.tenant_id AND t.weekly_plan_id=r.weekly_plan_id AND t.process_code=r.process_code AND t.execution_enabled=true)`);
+    ctes.push(`actual_process AS MATERIALIZED (SELECT r.* FROM (${authorized("mps_process_reports")}) r JOIN related_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id AND r.division_id IS NOT DISTINCT FROM w.division_id)`);
     for(const name of ["technical","material","outsourcing"])ctes.push(`actual_${name} AS MATERIALIZED (SELECT r.* FROM (${authorized(`mps_${name}_reports`)}) r JOIN related_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id)`);
     ctes.push(
       `weekly_totals AS MATERIALIZED (SELECT monthly_id,sum(planned_quantity) dispatched,min(latest_customer_due_date) FILTER(WHERE pending_quantity>0) outstanding_due,max(latest_customer_due_date) latest_due FROM related_weekly GROUP BY monthly_id)`,
@@ -97,6 +97,7 @@ export class MasterPlanOrderProgressService {
       `composite_methods AS MATERIALIZED (SELECT monthly_id,count(*) weekly_count,
         bool_and(COALESCE(manufacturing_method IN ('外协','纯外协','中心外购'),false)) procurement_only,
         bool_or(manufacturing_method IS NULL OR manufacturing_method NOT IN ('自制','自制+外协','外协','纯外协','中心外购')
+          OR EXISTS(SELECT 1 FROM actual_process r WHERE r.weekly_plan_id=related_weekly.id AND (related_weekly.manufacturing_method NOT IN ('自制','自制+外协') OR NOT EXISTS(SELECT 1 FROM actual_tasks t WHERE t.weekly_plan_id=r.weekly_plan_id AND t.process_code=r.process_code)))
           OR (manufacturing_method IN ('自制','自制+外协') AND NOT EXISTS(SELECT 1 FROM actual_tasks t WHERE t.weekly_plan_id=related_weekly.id))) unresolved
         FROM related_weekly GROUP BY monthly_id)`,
       `composite_items AS MATERIALIZED (SELECT m.id,
@@ -108,7 +109,7 @@ export class MasterPlanOrderProgressService {
           WHEN methods.procurement_only OR m.manufacturing_method IN ('外协','纯外协','中心外购') THEN least(1,greatest(0,COALESCE(m.cumulative_inbound_quantity,0)/m.required_quantity))
           ELSE NULL END production_progress,
         CASE WHEN m.required_quantity IS NULL OR m.required_quantity<=0 THEN '需求数量无效，待核实'
-          WHEN methods.unresolved AND COALESCE(m.cumulative_inbound_quantity,0)<m.required_quantity THEN '部分周计划工艺未确认，综合进度待核实'
+          WHEN methods.unresolved AND COALESCE(m.cumulative_inbound_quantity,0)<m.required_quantity THEN '周计划工艺未确认或历史报工范围不一致，综合进度待核实'
           WHEN COALESCE(s.stage_count,0)>0 THEN '周计划有效工序快照：'||s.process_names||'；各工序与入库等权'
           WHEN methods.procurement_only OR m.manufacturing_method IN ('外协','纯外协','中心外购') THEN '纯外协/中心外购，仅按入库'
           WHEN m.cumulative_inbound_quantity>=m.required_quantity THEN '已全部入库'

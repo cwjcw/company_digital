@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { presetPermissionGroupTypes, presetTablePermissionMatrix, tablePermissionActions } from "@kdos/contracts";
+import { mpsReportContextProjectionFieldKeys, presetPermissionGroupTypes, presetTablePermissionMatrix, tablePermissionActions } from "@kdos/contracts";
 import { AuditLog, Permission, PermissionGroupSubject, Role } from "../../entities";
 import { TablePermissionGroupApplicationService } from "./table-permission-group.application.service";
 
@@ -19,6 +19,13 @@ describe("TablePermissionGroupApplicationService", () => {
   it("never permits audit fields to become editable", () => {
     expect(() => service.fields("mps-process-reports", { groupType: "CUSTOM", fields: [{ fieldKey: "createdBy", visible: true, editable: true }] }, ["read", "update"]))
       .toThrow(BadRequestException);
+  });
+
+  it("keeps MPS report authorization on historical columns and rejects live/display projections", () => {
+    for (const fieldKey of mpsReportContextProjectionFieldKeys) {
+      expect(() => service.rules("mps-process-reports", { groupType: "CUSTOM", dataRules: [{ fieldKey, operator: "NE", value: "value" }] })).toThrow("请使用历史事业部");
+    }
+    expect(service.rules("mps-process-reports", { groupType: "CUSTOM", dataRules: [{ fieldKey: "divisionId", operator: "EQ", value: "synthetic-division" }] })).toHaveLength(1);
   });
 
   it("creates a custom group using explicit entity targets throughout the transaction", async () => {

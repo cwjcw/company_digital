@@ -287,6 +287,15 @@ describe("active PMC resources", () => {
     }
   });
 
+  it("MPS1B separates frozen report context and current plan fields, all derived fields are read-only", () => {
+    const fields = tablePermissionFieldsFor("mps-process-reports");
+    expect(fields.find(f => f.key === "plannedQuantity")).toMatchObject({ label: "当前计划数量", editable: false });
+    for (const key of ["snapshotPlannedQuantity", "reportContextStatus", "currentItemName", "currentCustomerDueDate", "currentReviewDueDate"]) {
+      expect(fields.find(f => f.key === key)).toMatchObject({ editable: false });
+    }
+    expect(fields.find(f => f.key === "productionQuantity")).toMatchObject({ editable: true });
+  });
+
   it("KN-MPS-UI-001：所有正式报工表都支持人工异常文本，工序任务文本改为计划提示", () => {
     for (const resource of ["mps-technical-reports", "mps-material-reports", "mps-outsourcing-reports", "mps-process-reports"] as const) {
       const field = tablePermissionFieldsFor(resource).find((candidate) => candidate.key === "exceptionText");

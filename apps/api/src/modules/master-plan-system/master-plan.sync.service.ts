@@ -531,7 +531,6 @@ export class MasterPlanSyncService {
     const outsourcingEnabled = ["中心外购", "外协", "自制+外协"].includes(weekly.manufacturing_method);
     if (outsourcingEnabled) await manager.query(`INSERT INTO mps_outsourcing_reports(tenant_id,weekly_plan_id,division_id,order_number,item_code,item_name,delivery_number,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8::uuid,$9) ON CONFLICT(tenant_id,weekly_plan_id) DO UPDATE SET division_id=excluded.division_id,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,execution_enabled=true,updated_at=now(),updated_by=$9,version=mps_outsourcing_reports.version+1 WHERE (mps_outsourcing_reports.division_id,mps_outsourcing_reports.order_number,mps_outsourcing_reports.item_code,mps_outsourcing_reports.item_name,mps_outsourcing_reports.delivery_number,mps_outsourcing_reports.execution_enabled) IS DISTINCT FROM (excluded.division_id,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,true)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, userId, updatedBy]);
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
-    await manager.query(`UPDATE mps_process_reports SET division_id=$3,order_number=$4,item_code=$5,item_name=$6,delivery_number=$7,planned_quantity=$8,updated_at=now(),updated_by=$9,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND (division_id,order_number,item_code,item_name,delivery_number,planned_quantity) IS DISTINCT FROM ($3,$4,$5,$6,$7,$8)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, weekly.planned_quantity, updatedBy]);
     await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
     return { initialized, taskCount };
   }
@@ -569,7 +568,7 @@ export class MasterPlanSyncService {
         COALESCE(sum(r.production_quantity) FILTER (WHERE r.production_date=p.report_date),0) daily_reported
       FROM mps_weekly_process_plans p
       JOIN mps_weekly_plans w ON w.tenant_id=p.tenant_id AND w.id=p.weekly_plan_id
-      LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code
+      LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code AND r.division_id IS NOT DISTINCT FROM w.division_id
       WHERE p.tenant_id=$1 AND p.weekly_plan_id=$2::uuid AND p.execution_enabled=true
         AND w.manufacturing_method IN ('自制','自制+外协')
       GROUP BY p.id,p.due_date,p.report_date,w.planned_quantity
@@ -630,7 +629,7 @@ export class MasterPlanSyncService {
           COALESCE(sum(r.production_quantity) FILTER (WHERE r.production_date=p.report_date),0) AS daily_reported
         FROM mps_weekly_process_plans p
         JOIN mps_weekly_plans w ON w.id=p.weekly_plan_id AND w.tenant_id=p.tenant_id
-        LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code
+        LEFT JOIN mps_process_reports r ON r.tenant_id=p.tenant_id AND r.weekly_plan_id=p.weekly_plan_id AND r.process_code=p.process_code AND r.division_id IS NOT DISTINCT FROM w.division_id
         WHERE p.tenant_id=$1 AND p.execution_enabled=true AND w.manufacturing_method IN ('自制','自制+外协') ${scoped}
         GROUP BY p.id,p.due_date,p.report_date,w.planned_quantity
       ), desired AS (
