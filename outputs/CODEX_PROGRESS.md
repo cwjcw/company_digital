@@ -10503,3 +10503,34 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 1. 已完成本次运行发布收尾；下一自然计划2026-11-05 12:00上海，新版应先个人发送再入队群事件。
 2. 尚无新版自然运行/四群本次送达证据，不把预检当成送达；本次未主动深夜补发。
 3. git status原有232行未提交进度保留，本次只提交单独新增章节；最终报告outputs/EQUIPMENT_DAILY_LOCAL_ACCEPTANCE.md。
+
+
+## 财务统计大屏缺失权限管理入口（2026-11-05）
+
+### 任务 / 当前阶段
+- 目标：在FinanceOrderDashboard刷新右侧复用TablePermissionButton，系统/财务模块管理员可见，返回原大屏，客户排名独立入口保留。
+- 当前状态：最小接入及定向验证通过，准备上线；主恢复入口本节。
+- 使用kdos-form-platform及kdos-form-validation，L2定向权限/导航验收；不改财务数据、SQL、筛选、权限组或成员授权。
+
+### 已完成
+- [x] 阅读项目规范、两个Skill及验证清单，检查原工作区仅本进度有其它任务232行未提交，受限备份并保留。
+- [x] 生产Web=f569ccc；FinanceOrderDashboard顶部只有刷新未渲染权限入口，两个财务资源均已注册且moduleCode=finance。共享组件已有管理员限制和from返回地址，无需修改共享权限规则。
+- [x] 客户排名已通过KdosDataTable内置finance-e10-ranking权限按钮，不重复添加。
+- [x] 用户提供生产验收登录账号；不打印口令、Token，不改权限或创建生产测试账户。
+
+### 正在进行 / 待完成
+- [x] 业务代码仅添加共享按钮import和刷新后的TablePermissionButton；保留排名原入口。Web财务单元15项通过（新增4角色），Chrome隔离4角色均通过（系统管理员、finance模块管理员、普通只读员工、其它模块管理员），双入口独立/返回/筛选/刷新/3图及无写请求通过。
+- [x] Web typecheck、lint（0错误/既有1warning）、生产build通过；E2E修正夹具异步/Contracts CJS导入及Input.Search实际searchbox角色后4项通过。
+- [ ] 备份旧Web镜像并按原deploy.sh web上线。
+- [x] 真实生产Chrome正常admin登录复现旧Web=f569ccc：顶部无大屏权限按钮、客户排名已有1个入口；真实API读取成功（Nest查询POST返回201，已修正验收脚本仅接受200的错误断言）。
+- [ ] 上线后真实生产Chrome登录查看按钮和排名权限页/返回、金额/图表/筛选/刷新；Git安全提交推送，核对生产SHA。
+
+### 修改文件 / Migration / 测试
+- FinanceOrders.tsx、FinanceOrders.spec.tsx、e2e/finance-dashboard-permissions.spec.ts及本新增进度；不涉及数据库Migration、后端源码、共享组件或Skill修改。
+
+### 当前已知问题 / 等待用户确认
+- 无需额外授权；真实三类账号与隔离角色Chrome结果分别记录，不修改员工授权凑验收。
+
+### 下一步 / 恢复执行
+1. 读取项目规范/Skill/本节、git status和diff，完成顶部按钮及定向测试。
+2. 通过校验后按原发布入口部署Web，真实登录验收并Git同步。

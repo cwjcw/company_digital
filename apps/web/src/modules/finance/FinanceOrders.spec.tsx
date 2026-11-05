@@ -10,8 +10,24 @@ vi.mock('../../shared/charts/KdosChart',()=>({KdosChart:({ariaLabel,onDataClick,
 vi.mock('../../shared/KdosDataTable',async original=>({...await original<object>(),KdosDataTable:({columns,toolbar,contextFilterGroup,dataSource,serverData}:any)=>{const onQueryChange=serverData?.onQueryChange;useEffect(()=>{onQueryChange?.({page:1,pageSize:100,search:'',filters:{},filterGroup:{logic:'AND',rules:[]}});},[onQueryChange]);return <div data-testid="record-table">{columns.map((c:any)=><span key={c.dataIndex}>{c.title}</span>)}{dataSource?.map((r:any)=><div key={r.id}>{columns.map((c:any)=><span key={c.dataIndex}>{c.render?.(r[c.dataIndex],r)}</span>)}</div>)}{toolbar}<pre>{JSON.stringify(contextFilterGroup)}</pre></div>;}}));
 function mount(component:React.ReactNode,url='/finance/orders/monthly',user:any={permissions:['*']}){localStorage.setItem('sessionUser',JSON.stringify(user));return render(<MemoryRouter initialEntries={[url]}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}>{component}</QueryClientProvider></MemoryRouter>);}
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.endsWith('/revision')?{revision:'synthetic-v1'} as never:p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
-afterEach(cleanup);
+afterEach(()=>{cleanup();window.history.replaceState({},'','/');});
 describe('Finance E10 UI',()=>{
+ it.each([
+  ['system administrator',{isSystemAdmin:true,permissions:[]},true],
+  ['finance module administrator',{moduleAdminCodes:['finance'],permissions:[]},true],
+  ['read-only employee',{permissions:['finance-e10-dashboard:*:read','finance-e10-ranking:*:read']},false],
+  ['other module administrator',{moduleAdminCodes:['planning'],permissions:['finance-e10-dashboard:*:read']},false],
+ ] as const)('dashboard permission entry respects %s and preserves the return path',async(_role,user,visible)=>{
+  const path='/finance/orders/dashboard?acceptance=permissions';window.history.replaceState({},'',path);
+  mount(<FinanceOrderDashboard/>,path,user);await screen.findByRole('button',{name:'刷新'});
+  const label=screen.queryByText('权限管理');
+  if(!visible){expect(label).toBeNull();return;}
+  const entry=label!.closest('a')!;
+  expect(entry).toHaveAttribute('href',`/permissions/finance-e10-dashboard?from=${encodeURIComponent(path)}`);
+  expect(screen.getByRole('button',{name:'刷新'}).compareDocumentPosition(entry)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await screen.findAllByText('100.30');
+  expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/admin/'))).toBe(false);
+ });
  it('shows earliest order dates without adding a template column and preserves dashboard money',async()=>{
   const original=vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async(p,...args)=>{
