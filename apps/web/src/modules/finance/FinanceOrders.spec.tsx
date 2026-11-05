@@ -52,7 +52,7 @@ describe('Finance E10 UI',()=>{
  it('manual refresh submits the protected command with explicit mode',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');fireEvent.click(screen.getByText('刷新E10数据'));await waitFor(()=>expect(api).toHaveBeenCalledWith('/finance/e10-orders/refresh',expect.objectContaining({method:'POST',body:JSON.stringify({mode:'FULL'})})));});
  it('starts one fixed TOP20 ranking request after the standard table supplies its initial query',async()=>{
   mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/ranking'))).toHaveLength(1));
-  const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/ranking'))!;expect(JSON.parse(call[1]!.body as string)).toMatchObject({pageSize:100,page:1,filterGroup:{logic:'AND',rules:[]},context:{rankLimit:20,month:Number(businessMonth.slice(5))}});
+  const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/ranking'))!;expect(JSON.parse(call[1]!.body as string)).toMatchObject({pageSize:100,page:1,filterGroup:{logic:'AND',rules:[]},context:{rankLimit:20,monthFrom:businessMonth,monthTo:businessMonth}});
  });
  it('reuses fresh scoped results on reentry, then refreshes both reports for a new source/classification revision',async()=>{
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});const renderDashboard=()=>render(<MemoryRouter><QueryClientProvider client={client}><FinanceOrderDashboard/></QueryClientProvider></MemoryRouter>);
@@ -69,7 +69,7 @@ describe('Finance E10 UI',()=>{
  it('loads the current business month immediately and keeps the order-date control visible',async()=>{
   mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/dashboard'))).toBe(true));
   const request=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/dashboard'))!;const context=JSON.parse(request[1]!.body as string).context;const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
-  expect(context).toMatchObject({year:Number(businessMonth.slice(0,4)),month:Number(businessMonth.slice(5))});expect(screen.getAllByLabelText('订单日期')[0]).toBeVisible();expect(screen.queryByRole('button',{name:/^刷新$/})).toBeNull();expect(screen.queryByText(/按当前分类.*接单发生额/)).toBeNull();
+  expect(context).toMatchObject({monthFrom:businessMonth,monthTo:businessMonth});expect(context).not.toHaveProperty('year');expect(context).not.toHaveProperty('orderDateFrom');expect(screen.getAllByLabelText('销售订单日期')[0]).toBeVisible();expect(screen.getAllByLabelText('金额发生月份')).toHaveLength(2);expect(screen.getByText('金额发生月份')).toBeVisible();expect(screen.getByText('销售订单日期')).toBeVisible();expect(screen.queryByText('年度')).toBeNull();expect(screen.queryByText('发生月份')).toBeNull();expect(screen.queryByRole('button',{name:/^刷新$/})).toBeNull();expect(screen.queryByText(/按当前分类.*接单发生额/)).toBeNull();
  });
 
  it('drops previous amounts when live authorization changes before the new scoped response arrives',async()=>{

@@ -8,6 +8,16 @@ import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { FinanceRepository } from './finance.repository';
 import { financeAdmin } from './finance.types';
 import { orderColumns,orderAuthorize,orderField,orderScope,orderContext,orderMonthlyContext } from './finance-orders.types';
+export function financeDashboardMonthSeries(context:Record<string,unknown>,observedMonths:string[]):string[]{
+ const legacyFrom=context.month?`${context.year}-${String(context.month).padStart(2,'0')}`:context.dateFrom?String(context.dateFrom).slice(0,7):context.year?`${context.year}-01`:undefined;
+ const legacyTo=context.month?legacyFrom:context.dateTo?String(context.dateTo).slice(0,7):context.year?`${context.year}-12`:undefined;
+ const monthFrom=String(context.monthFrom??legacyFrom??observedMonths[0]??'');const monthTo=String(context.monthTo??legacyTo??observedMonths.at(-1)??'');
+ const hasCalendarFilter=context.monthFrom!==undefined||context.monthTo!==undefined||context.year!==undefined||context.dateFrom!==undefined||context.dateTo!==undefined;
+ if(!hasCalendarFilter||!monthFrom||!monthTo)return observedMonths;
+ const toIndex=(value:string)=>{const [year,month]=value.split('-').map(Number);return year*12+month-1;};
+ const months:string[]=[];for(let index=toIndex(monthFrom);index<=toIndex(monthTo);index++)months.push(`${Math.floor(index/12)}-${String(index%12+1).padStart(2,'0')}`);
+ return months;
+}
 @Injectable()
 export class FinanceOrdersQueryService implements OnModuleInit {
  constructor(private readonly repository:FinanceRepository,private readonly registry:TableFilterRegistry){}
@@ -138,7 +148,6 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   const p:unknown[]=[a.tenantId];const context=input.context&&typeof input.context==='object'?input.context as Record<string,unknown>:{};
   if(context.salesperson&&!orderField(a,resource,'salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
   const where=[`record.tenant_id=$1`,orderScope(a,resource,p),orderContext(context,p,resource,a)];
-  if(!context.year)throw new ForbiddenException('统计大屏必须选择年度');
   if(input.filterGroup)where.push(new SqlFilterCompiler(financeMonthlyFields,orderColumns(resource),key=>orderField(a,resource,key),c=>`record.${c}`).compile(input.filterGroup,p));
   return this.repository.transaction(a.tenantId,async m=>{
    // The derived-order cardinality is underestimated: a partial-key merge replays
@@ -165,9 +174,9 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    const {totals,groups,months,matrix,quality}=result;
    const total=new Decimal(totals.amount);const share=(amt:string)=>total.isZero()?null:new Decimal(amt).div(total).toFixed(8);
    const bucket=(kind:string,labels:string[])=>[...labels,null].map(category=>{const amount=groups.find((g:any)=>g.kind===kind&&g.category===category)?.amount??'0.00';return {category:category??'待分类',amount,share:share(amount)};});
-   const monthFrom=context.month?`${context.year}-${String(context.month).padStart(2,'0')}`:context.dateFrom?String(context.dateFrom).slice(0,7):`${context.year}-01`;
-   const monthTo=context.month?monthFrom:context.dateTo?String(context.dateTo).slice(0,7):`${context.year}-12`;
-   const monthly=Array.from({length:12},(_,i)=>{const month=`${context.year}-${String(i+1).padStart(2,'0')}`,included=month>=monthFrom&&month<=monthTo,amount=included?(months.find((r:any)=>r.month===month)?.amount??'0.00'):null;return {month,amount,wan:amount===null?null:new Decimal(amount).div(10000).toFixed(6)};});
+   const actualMonths=months.map((r:any)=>String(r.month));
+   const visibleMonths=financeDashboardMonthSeries(context,actualMonths);
+   const monthly=visibleMonths.map(month=>{const amount=months.find((r:any)=>r.month===month)?.amount??'0.00';return {month,amount,wan:new Decimal(amount).div(10000).toFixed(6)};});
    return {totals:{...totals,average:totals.orders?total.div(totals.orders).toFixed(2):null},channels:bucket('channel',['内销','外销']),departments:bucket('department',['业务一部','业务二部','业务三部','业务四部']),months:monthly,matrix,quality};
   });
  }

@@ -13,12 +13,19 @@ export function orderAuthorize(a:TableFilterActor,r:string,action='read'){if(!or
 export function orderField(a:TableFilterActor,r:string,f:string){return financeAdmin(a)||a.permissions.includes(`${r}:${f}:read`);}
 export function orderScope(a:TableFilterActor,r:string,p:unknown[],action='read'){return financeAdmin(a)?'1=1':buildDataScopeClause({resource:r,columns:orderColumns(r),actor:{...a,moduleAdminCodes:[]},params:p,action,numericFields:((financeMovementResources as readonly string[]).includes(r)?financeMovementFields(r):r==='finance-e10-lines'?financeOrderFields:r==='finance-e10-ranking'?financeRankingFields:financeMonthlyFields).filter(f=>f.type==='number').map(f=>f.key)});}
 export function orderContext(context:Record<string,unknown>,p:unknown[],resource:string,a?:TableFilterActor){
- const allowed=['year','month','dateFrom','dateTo','orderDateFrom','orderDateTo','departmentCategory','salesChannel','customerCode','salesperson'];
+ const allowed=['year','month','monthFrom','monthTo','dateFrom','dateTo','orderDateFrom','orderDateTo','departmentCategory','salesChannel','customerCode','salesperson'];
  if(Object.keys(context).some(k=>!allowed.includes(k)))throw new BadRequestException('销售订单统计上下文无效');
  const clauses:string[]=[];
  const add=(value:unknown,sql:(n:number)=>string)=>{p.push(value);clauses.push(sql(p.length));};
- if(context.year!==undefined){const y=Number(context.year);if(!Number.isInteger(y)||y<2025||y>2100)throw new BadRequestException('年度无效');add(String(y),n=>`left(record.year_month,4)=$${n}`);}
- if(context.month!==undefined){const m=Number(context.month);if(!Number.isInteger(m)||m<1||m>12)throw new BadRequestException('月份无效');add(String(m).padStart(2,'0'),n=>`right(record.year_month,2)=$${n}`);}
+ const hasMonthRange=context.monthFrom!==undefined||context.monthTo!==undefined;
+ if(hasMonthRange){
+  if(!['finance-e10-dashboard','finance-e10-ranking'].includes(resource)||['year','month','dateFrom','dateTo'].some(k=>context[k]!==undefined))throw new BadRequestException('发生月份范围上下文无效');
+  for(const [key,op]of [['monthFrom','>='],['monthTo','<=']] as const)if(context[key]!==undefined){const v=String(context[key]);if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(v)||Number(v.slice(0,4))<2025||Number(v.slice(0,4))>2100)throw new BadRequestException('发生月份无效');add(v,n=>`record.year_month${op}$${n}`);}
+  if(context.monthFrom&&context.monthTo&&String(context.monthFrom)>String(context.monthTo))throw new BadRequestException('发生月份范围无效');
+ }else{
+  if(context.year!==undefined){const y=Number(context.year);if(!Number.isInteger(y)||y<2025||y>2100)throw new BadRequestException('年度无效');add(String(y),n=>`left(record.year_month,4)=$${n}`);}
+  if(context.month!==undefined){const m=Number(context.month);if(!Number.isInteger(m)||m<1||m>12)throw new BadRequestException('月份无效');add(String(m).padStart(2,'0'),n=>`right(record.year_month,2)=$${n}`);}
+ }
  for(const [k,op] of [['dateFrom','>='],['dateTo','<=']])if(context[k]){
   const v=String(context[k]);if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw new BadRequestException('日期无效');if(resource==='finance-e10-lines')add(v,n=>`record.order_date${op}$${n}::date`);else add(v.slice(0,7),n=>`record.year_month${op}$${n}`);
  }

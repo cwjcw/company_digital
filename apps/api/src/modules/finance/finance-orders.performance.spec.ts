@@ -36,20 +36,20 @@ describe('Finance dashboard performance without changing authorization or amount
   await s.dashboard({context:{year:2026},includeQuality:false},actor);expect(calls[3]).toContain('FROM finance_e10_order_monthly_movements');expect(calls[3]).not.toContain('"excludedOrders"');
   await s.dashboard({context:{year:2026}},actor);expect(calls[7]).not.toContain('"excludedOrders"');
  });
- it('returns unqueried dashboard trend months as null instead of zero',async()=>{
+ it('returns only the selected dashboard occurrence month instead of unrelated zero or null months',async()=>{
   const manager={query:jest.fn().mockImplementation(async(sql:string)=>sql.startsWith('SET LOCAL')?[]:[{totals:{orders:1,customers:1,amount:'25.00'},groups:[],months:[{month:'2026-11',amount:'25.00',orders:1}],matrix:[],quality:null}])};
   const s=new FinanceOrdersQueryService({transaction:async(_t:string,fn:any)=>fn(manager)} as any,{} as any);const result=await s.dashboard({context:{year:2026,month:11}},actor);
-  expect(result.months.find(x=>x.month==='2026-11')).toMatchObject({amount:'25.00'});expect(result.months.find(x=>x.month==='2026-10')).toMatchObject({amount:null,wan:null});
+  expect(result.months).toEqual([{month:'2026-11',amount:'25.00',wan:'0.002500'}]);
  });
  it('applies actual order-date bounds to both dashboard aggregates and customer ranking SQL',async()=>{
-  const context={year:2026,month:11,orderDateFrom:'2026-10-01',orderDateTo:'2026-10-31'};
+  const context={monthFrom:'2026-11',monthTo:'2026-11',orderDateFrom:'2026-10-01',orderDateTo:'2026-10-31'};
   const manager={query:jest.fn().mockImplementation(async(sql:string)=>sql.startsWith('SET LOCAL')?[]:[{totals:{orders:0,customers:0,amount:'0'},groups:[],months:[],matrix:[],quality:null}])};
   const dashboard=new FinanceOrdersQueryService({transaction:async(_t:string,fn:any)=>fn(manager)} as any,{} as any);
   await dashboard.dashboard({context},actor);const dashboardCall=manager.query.mock.calls.at(-1)!;
-  expect(dashboardCall[0]).toContain('record.order_date>=$4::date AND record.order_date<=$5::date');expect(dashboardCall[1]).toEqual(['SYN-T','2026','11','2026-10-01','2026-10-31']);
+  expect(dashboardCall[0]).toContain('record.year_month>=$2 AND record.year_month<=$3 AND record.order_date>=$4::date AND record.order_date<=$5::date');expect(dashboardCall[1]).toEqual(['SYN-T','2026-11','2026-11','2026-10-01','2026-10-31']);
   const query=jest.fn().mockResolvedValue([{total:0,rows:[]}]);const ranking=new FinanceOrdersQueryService(repository(query) as any,{} as any);
   await ranking.ranking({...context,rankLimit:20},actor,{page:1,pageSize:20});const [sql,params]=query.mock.calls[0];
-  expect(sql).toContain('record.order_date>=$4::date AND record.order_date<=$5::date');expect(params).toEqual(['SYN-T','2026','11','2026-10-01','2026-10-31',20,0]);
+  expect(sql).toContain('record.year_month>=$2 AND record.year_month<=$3 AND record.order_date>=$4::date AND record.order_date<=$5::date');expect(params).toEqual(['SYN-T','2026-11','2026-11','2026-10-01','2026-10-31',20,0]);
  });
  it('uses the same materialized monthly view scan for count and page, with permission-filtered fields',async()=>{
   const query=jest.fn().mockResolvedValue([{total:1,rows:[{id:'SYN-ID',customerCode:'SYN-C',orderDate:'2026-11-02',orderTotal:'0.30'}]}]);const registry=new TableFilterRegistry();
