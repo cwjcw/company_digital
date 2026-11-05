@@ -1,3 +1,5 @@
+import { mpsLifecycleCapabilities, mpsLifecycleResources, mpsPlanLifecycleOptions } from "./master-plan-lifecycle";
+export * from "./master-plan-lifecycle";
 export * from "./table-print-layout";
 import { logisticsFields } from "./logistics";
 export * from "./logistics";
@@ -30,6 +32,7 @@ export const tablePermissionActionLabels: Record<TablePermissionAction, string> 
 
 /** 资源可以声明业务化的操作名称，但仍复用同一组 read/update 权限动作。 */
 export const tableResourcePermissionActionLabels: Partial<Record<string, Partial<Record<TablePermissionAction, string>>>> = {
+  ...Object.fromEntries(mpsLifecycleCapabilities.map(c=>[c.code,{read:`查看${c.label}预览`,update:c.label}])),
   "finance-e10-lines": { update: "刷新E10数据" },
   "pmc-rd-progress": { read: "查看研发进度报表" },
   "rd-material-duplicates": {
@@ -171,6 +174,7 @@ export const tableResourceRegistry = [
   { code: "mps-order-progress-dashboard", label: "在制订单进度", module: "PMC中心", moduleCode: "planning" },
   { code: "mps-overview-dashboard", label: "主计划综合大屏", module: "PMC中心", moduleCode: "planning" },
   { code: "equipment-dashboard", label: "集团设备大屏", module: "PMC中心", moduleCode: "planning" },
+  ...mpsLifecycleCapabilities.map(({code,label})=>({code,label,module:"PMC中心" as const,moduleCode:"planning" as const})),
   ...masterPlanResourceDefinitions.map(({ code, label }) => ({ code, label, module: "PMC中心" as const, moduleCode: "planning" as const })),
   { code: "development-requests", label: "需求提报与审批", module: "流程审批", moduleCode: "workflow" },
   { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批", moduleCode: "workflow" },
@@ -676,6 +680,12 @@ for (const resource of ["mps-monthly-plans", "mps-weekly-plans"] as const) {
   ];
 }
 
+for (const capability of mpsLifecycleCapabilities) tablePermissionFieldRegistry[capability.code] = [];
+for (const resource of mpsLifecycleResources) tablePermissionFieldRegistry[resource] = [
+  ...(tablePermissionFieldRegistry[resource] ?? []),
+  {key:'lifecycleStatus',label:'计划生命周期',type:'dictionary',editable:false,options:mpsPlanLifecycleOptions}
+];
+
 export const tablePermissionFieldsFor = (resource: TableResourceCode) => tablePermissionFieldRegistry[resource] ?? auditPermissionFields;
 
 /*
@@ -892,6 +902,7 @@ const mpsFilterCapabilities = Object.fromEntries(
 );
 
 export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
+  ...Object.fromEntries(mpsLifecycleCapabilities.map(c=>[c.code,{status:"NOT_APPLICABLE" as const,reason:"计划生命周期专用命令能力，数据范围由原计划资源校验，不是第二套业务表。"}])),
   "notification-group-webhook": { status: "NOT_APPLICABLE", reason: "群机器人管理是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
   "notification-recipient-group": { status: "NOT_APPLICABLE", reason: "通知收件人组是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
   "notification-route": { status: "NOT_APPLICABLE", reason: "消息路由是通知目标配置页，不对应标准业务数据表的筛选结果集。" },
@@ -961,6 +972,7 @@ export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
 export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
 
 const printNotApplicable: Record<string, string> = {
+  ...Object.fromEntries(mpsLifecycleCapabilities.map(c=>[c.code,"计划生命周期专用命令能力，不提供独立打印。"])),
   "notification-group-webhook": "群机器人管理属于系统配置页面，Webhook 凭据为敏感信息，不提供标准业务打印。",
   "notification-recipient-group": "通知收件人组属于通知系统配置页面，不提供标准业务打印。",
   "notification-route": "消息路由属于通知系统配置页面，不是标准业务记录表，不提供打印。",
@@ -1010,6 +1022,7 @@ export type TableExcelResourceCapability = {
 };
 
 const excelNotApplicableReasons: Record<string, string> = {
+  ...Object.fromEntries(mpsLifecycleCapabilities.map(c => [c.code, "计划生命周期专用命令能力，没有独立业务记录或Excel导入导出。"])),
   "sales-orders": "ERP订单镜像由E10/T+作为权威来源，业务页面只读，不允许Excel回写。",
   "mps-erp-orders": "ERP订单明细由E10同步适配器维护，只读页面不允许Excel回写。",
   "mps-group-plans": "集团主计划由订单分配投影维护，不允许Excel新增或直接覆盖投影记录。",

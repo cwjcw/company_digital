@@ -404,6 +404,11 @@ export class MasterPlanApplicationService {
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
+  async correctHistoricalReport(id:string,body:Record<string,unknown>,actor:MasterPlanActor) {
+    if (!hasMasterPlanPermission(actor,'mps-plan-correct-facts','update') || typeof body.correctionReason!=='string' || !body.correctionReason.trim() || body.correctionReason.length>1000) throw new ForbiddenException('历史纠错需要独立权限及明确原因');
+    return this.update('mps-process-reports',id,body,actor);
+  }
+
   async update(code: string, id: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期人工编辑必须使用专用命令，禁止通用修改路径");
     const resource = this.resource(code);
@@ -423,6 +428,10 @@ export class MasterPlanApplicationService {
         const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id IS NOT DISTINCT FROM $4::uuid`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code, (Object.hasOwn(values,"divisionId") ? values.divisionId : current.division_id)]);
         values.monthlyPlanId = monthly?.id ?? null;
       }
+      if (resource.code==='mps-process-reports' && body.correctionReason!==undefined) {
+        if (!hasMasterPlanPermission(actor,'mps-plan-correct-facts','update') || typeof body.correctionReason!=='string' || !body.correctionReason.trim() || body.correctionReason.length>1000) throw new ForbiddenException('历史纠错需要独立权限及明确原因');
+        await manager.query("SELECT set_config('app.mps_lifecycle_correction','1',true)");
+      }
       this.normalizeSystemSetting(resource, current, values);
       if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
       this.validateRequiredOnUpdate(resource, values, current);
@@ -440,7 +449,9 @@ export class MasterPlanApplicationService {
         [committedRow] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, id]);
       }
       await this.allocationEvent(manager, code, actor, [{ before: current, after: committedRow }]);
-      await this.audit(manager, actor, code, id, `${code}.updated`, current, committedRow);
+      const correction = code === 'mps-process-reports' && typeof body.correctionReason === 'string';
+      await this.audit(manager, actor, code, id, correction ? `${code}.historical_corrected` : `${code}.updated`, current,
+        correction ? { ...committedRow, correctionReason: String(body.correctionReason).trim() } : committedRow);
       if (resource.code === "mps-shipping-plans") await this.enqueueShippingPlanKeyFieldsChanged(manager, actor, current, committedRow);
       await this.enqueueReconciliation(manager, resource, actor, id, committedRow);
       return {
@@ -750,6 +761,7 @@ export class MasterPlanApplicationService {
     const output: Record<string, unknown> = {};
     for (const [field, raw] of Object.entries(body)) {
       if (["expectedVersion", "id", "version", "createdBy", "createdAt", "updatedBy", "updatedAt", "tenantId"].includes(field)) continue;
+      if (field==='correctionReason' && resource.code==='mps-process-reports' && action==='update') continue;
       const definition = allowed.get(field); if (!definition) throw new BadRequestException(`字段 ${field} 不允许写入`);
       const canWrite = hasMasterPlanFieldPermission(actor, resource.code, field, "update")
         || (action === "create" && (hasMasterPlanFieldPermission(actor, resource.code, field, "read") || !hasMasterPlanPermission(actor, resource.code, "read")));
@@ -890,7 +902,7 @@ export class MasterPlanApplicationService {
       if (code === "23503") throw new BadRequestException("关联的上游记录不存在或已失效");
       if (code === "23001") throw new ConflictException("该记录已被下游业务引用，不能直接删除");
       if (code === "23502") throw new BadRequestException(`必填字段${(error as { column?: string }).column ? ` ${(error as { column?: string }).column}` : ""}不能为空`);
-      if (code === "23514" && ["ck_mps_executed_identity", "ck_mps_report_context"].includes(String((error as { constraint?: string }).constraint))) {
+      if (code === "23514" && ["ck_mps_executed_identity", "ck_mps_report_context", "ck_mps_lifecycle", "ck_mps_lifecycle_execution"].includes(String((error as { constraint?: string }).constraint))) {
         throw new ConflictException((error as Error).message);
       }
       if (code === "23514") throw new BadRequestException("字段值不符合业务约束，请检查数量范围、选项及跨字段条件");

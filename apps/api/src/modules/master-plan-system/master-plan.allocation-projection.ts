@@ -1,3 +1,4 @@
+import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { randomUUID } from "node:crypto";
 import type { EntityManager } from "typeorm";
 import { allocationDemandCtesSql, allocationOrderTotalsSql, allocationOrderTotalsSqlWithAliases } from "./master-plan.allocation-source";
@@ -10,6 +11,7 @@ export const allocationProjectionParams = (tenantId: string) => [tenantId];
 export async function reconcileAllocationPlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string,
   groupPlanAliases: Array<{ sourceOrderNumber: string; targetOrderNumber: string }> = []) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
+  await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-allocation-projection`]);
   // Same lock as incoming-fact reconciliation: quantities and group totals cannot interleave.
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-existing-monthly-inbound`]);

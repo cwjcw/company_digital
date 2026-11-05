@@ -157,7 +157,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const statements = manager.query.mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toContain("set_config('app.tenant_id'");
-    const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'"));
+    const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'") && !statement.includes("lifecycle_rows"));
     expect(sql[0]).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base");
     expect(sql[0]).toContain("order_number=excluded.order_number");
     expect(sql[0]).toContain("item_code=excluded.item_code");

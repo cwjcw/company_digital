@@ -69,6 +69,32 @@ function renderPage(resource: string, initialEntry = `/master-plan-system/${reso
   };
 }
 
+describe('lifecycle menu independent permissions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();localStorage.clear();
+    localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic-user',permissions:['mps-base-plans:*:read','mps-base-plans:*:update','mps-base-plans:orderNumber:read']}));
+    vi.mocked(api).mockImplementation(async(path:string)=>{
+      if(path.startsWith('/auth/preferences/'))return {config:null} as never;
+      if(path.endsWith('/meta'))return {resource:'mps-base-plans',fields:[{key:'orderNumber',label:'订单编号',type:'text',editable:false}],createFields:[],actions:{update:true,viewWeekly:true}} as never;
+      if(path.includes('/lifecycle/preview'))return {resource:'mps-base-plans',recordId:'synthetic-base',operation:'CANCEL',currentStatus:'ACTIVE',targetStatus:'CANCELLED',orderNumber:'SYN-ORDER',itemCode:'SYN-ITEM',divisionName:'合成事业部',plannedQuantity:'10',expectedVersion:1,facts:{reportCount:0,reportedQuantity:'0',outsourcingDependencies:0,workOrderDependencies:0},affectedPlans:[],allowed:false,blockers:['父计划消费者尚未完成'],requiredPermissions:[],writesEnabled:false,previewToken:'synthetic',expiresAt:Date.now()+300000} as never;
+      if(path.includes('/resources/mps-base-plans?'))return {rows:[{id:'synthetic-base',orderNumber:'SYN-ORDER',weeklyPlanId:'synthetic-week',version:1,canUpdate:true}],total:1} as never;
+      return [] as never;
+    });
+  });
+  it('does not offer cancellation merely because ordinary plan editing is allowed',async()=>{
+    renderPage('mps-base-plans');fireEvent.click(await screen.findByRole('button',{name:'更多操作'}));
+    await screen.findByText('查看周计划');expect(screen.queryByText('取消计划')).not.toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/lifecycle/'))).toBe(false);
+  });
+  it('opens a read-only risk preview only with the independent cancellation grant',async()=>{
+    const session=JSON.parse(localStorage.getItem('sessionUser')!);session.permissions.push('mps-plan-cancel:*:update');localStorage.setItem('sessionUser',JSON.stringify(session));
+    renderPage('mps-base-plans');fireEvent.click(await screen.findByRole('button',{name:'更多操作'}));
+    fireEvent.click(await screen.findByText('取消计划'));await screen.findByText('父计划消费者尚未完成');
+    expect(screen.getByRole('button',{name:'确认执行'})).toBeDisabled();
+    expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/lifecycle/confirm'))).toBe(false);
+  });
+});
+
 describe("MasterPlanResourcePage create feedback", () => {
   beforeEach(() => {
     vi.clearAllMocks(); localStorage.clear();

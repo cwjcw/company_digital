@@ -1,3 +1,5 @@
+import { MasterPlanLifecycleService } from "./master-plan.lifecycle.service";
+import type { MpsLifecycleOperation } from "@kdos/contracts";
 import { OrderAllocationConfigService } from "./order-allocation-config.service";
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -19,7 +21,22 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService) {}
+
+  @Post("resources/:resource/:id/lifecycle/preview")
+  previewLifecycle(@Param("resource") resource:string,@Param("id") id:string,@Body("operation") operation:MpsLifecycleOperation,@Req() request:MasterPlanRequest) {
+    return this.lifecycle.preview(resource,id,operation,this.actor(request));
+  }
+
+  @Post("resources/:resource/:id/lifecycle/confirm")
+  confirmLifecycle(@Param("resource") resource:string,@Param("id") id:string,@Body() body:Parameters<MasterPlanLifecycleService['confirm']>[2],@Req() request:MasterPlanRequest) {
+    return this.lifecycle.confirm(resource,id,body,this.actor(request));
+  }
+
+  @Post("resources/mps-process-reports/:id/correct-history")
+  correctReportHistory(@Param("id") id:string,@Body() body:Record<string,unknown>,@Req() request:MasterPlanRequest) {
+    return this.application.correctHistoricalReport(id,body,this.actor(request));
+  }
 
   @Get("order-allocation-notification-config")
   allocationNotificationConfig(@Req() request: MasterPlanRequest) { return this.allocationConfig.read(this.actor(request)); }

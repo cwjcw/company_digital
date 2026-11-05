@@ -1,3 +1,4 @@
+import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import type { EntityManager } from "typeorm";
@@ -48,6 +49,7 @@ export function monthlyBasePatch(current: Row, desired: Row, previous?: Row): Ro
 
 export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
+  await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
   const monthly: Row[] = await manager.query(`SELECT m.*,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
     JOIN organization_units o ON o.id=m.division_id AND o.enabled=true

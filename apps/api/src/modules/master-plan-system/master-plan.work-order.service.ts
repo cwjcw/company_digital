@@ -1,3 +1,4 @@
+import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { DataSource, EntityManager } from "typeorm";
 import { columnsFor, MASTER_PLAN_RESOURCE_MAP } from "./master-plan.config";
@@ -53,6 +54,8 @@ export class MasterPlanWorkOrderService {
     }
 
     const result = await this.dataSource.transaction(async (manager: EntityManager) => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      await assertMpsLifecycleSyncReady(manager,actor.tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
       const existingRows = await manager.query(
         `SELECT weekly_plan_id, ${WORK_ORDER_SOURCE_FIELDS.map((field) => columns[field]).join(", ")} FROM mps_three_day_work_orders WHERE tenant_id=$1`,
         [actor.tenantId]

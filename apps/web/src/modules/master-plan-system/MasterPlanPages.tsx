@@ -1,4 +1,5 @@
-import { auxiliaryPlanGroups } from "@kdos/contracts";
+import { MasterPlanLifecycleDialog } from './MasterPlanLifecycleDialog';
+import { mpsLifecycleResources, mpsLifecycleOperations, type MpsLifecycleOperation, auxiliaryPlanGroups } from "@kdos/contracts";
 /* eslint-disable react-refresh/only-export-components -- 工序配色/进度格式化等纯函数与页面组件同文件，供测试与表格渲染共用 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -403,9 +404,10 @@ export function MasterPlanProgressCell({ process, row, value, resource }: { proc
   </Tooltip>;
 }
 
-function RowActions({ metadata, row, onEdit, onSync, onRefreshExecution, onReport, onViewWeekly }: { metadata: Metadata; row: any; onEdit: () => void; onSync?: () => void; onRefreshExecution?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
+function RowActions({ metadata, row, onEdit, onSync, onRefreshExecution, onReport, onViewWeekly, lifecycleItems = [] }: { lifecycleItems?: Array<{key:string;label:string;onClick:()=>void}>; metadata: Metadata; row: any; onEdit: () => void; onSync?: () => void; onRefreshExecution?: () => void; onReport?: () => void; onViewWeekly?: () => void }) {
   const { editing } = useKdosTableEditMode();
   const items = [
+    ...lifecycleItems,
     onViewWeekly ? { key: "viewWeekly", label: "查看周计划", onClick: onViewWeekly } : null,
     editing && metadata.actions.update && row.canUpdate !== false && !row.pendingTask ? { key: "edit", label: "编辑", onClick: onEdit } : null,
     editing && row.pendingTask && metadata.actions.create && onReport ? { key: "report", label: "报工", onClick: onReport } : null,
@@ -428,7 +430,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [pendingSubmitting, setPendingSubmitting] = useState(false);
   const pendingSubmitLock = useRef(false);
   const sessionSubject = (() => { try { return JSON.parse(localStorage.getItem("sessionUser") ?? "{}").sub ?? "anonymous"; } catch { return "anonymous"; } })();
-  const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; row?: any } | null>(null);
+  const [lifecycle, setLifecycle] = useState<{id:string; operation:MpsLifecycleOperation}|null>(null);
+  const [form] = Form.useForm(); const [modal, setModal] = useState<{ mode: "create" | "edit"; historicalCorrection?: boolean; row?: any } | null>(null);
   const saveLock = useRef(false); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState<string | null>(null);
   const [batchForm] = Form.useForm();
   const [batchSelection, setBatchSelection] = useState<KdosTableSelection<any> | null>(null);
@@ -519,11 +522,11 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
   const openReport = (row: any) => { form.resetFields(); setSaveError(null); form.setFieldsValue({ weeklyPlanId: row.weeklyPlanId, processCode: row.processCode, productionDate: dayjs() }); setModal({ mode: "create", row }); };
-  const openEdit = (row: any) => {
+  const openEdit = (row: any, historicalCorrection = false) => {
     form.resetFields();
     setSaveError(null);
     form.setFieldsValue(Object.fromEntries(editableFields.map((field) => [field.key, field.type === "date" && row[field.key] ? dayjs(row[field.key]) : row[field.key]])));
-    setModal({ mode: "edit", row });
+    setModal({ mode: "edit", row, historicalCorrection });
   };
   const save = async () => {
     if (saveLock.current) return;
@@ -533,7 +536,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
       const payload = Object.fromEntries(Object.entries(values).map(([key, value]: [string, any]) => [key, value?.format ? value.format("YYYY-MM-DD") : value]));
       const edited = modal?.mode === "edit";
       const saved = edited
-        ? await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${modal!.row.id}`, { method: "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal!.row.version }) })
+        ? await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${modal!.row.id}${modal?.historicalCorrection ? "/correct-history" : ""}`, { method: modal?.historicalCorrection ? "POST" : "PATCH", body: JSON.stringify({ ...payload, expectedVersion: modal!.row.version }) })
         : await api<{ reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}`, { method: "POST", body: JSON.stringify(payload) });
       setModal(null);
       if (resource === "mps-base-plans") {
@@ -765,6 +768,12 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const, className: "kdos-row-actions-column",
     onHeaderCell: () => ({ className: "kdos-row-actions-column" }),
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
+      lifecycleItems={resource === "mps-process-reports" && metadata.data?.actions.update && row.canUpdate !== false && hasResourcePermission("mps-plan-correct-facts", "update")
+        ? [{key:"correct-history",label:"历史报工纠错",onClick:()=>openEdit(row,true)}]
+        : (mpsLifecycleResources as readonly string[]).includes(resource) && metadata.data?.actions.update && row.canUpdate !== false
+        ? (Object.entries(mpsLifecycleOperations) as Array<[MpsLifecycleOperation, typeof mpsLifecycleOperations[MpsLifecycleOperation]]>)
+          .filter(([,op]) => hasResourcePermission(op.capability, "update"))
+          .map(([operation,op]) => ({key:`lifecycle-${operation}`,label:op.label,onClick:()=>setLifecycle({id:row.id,operation})})) : []}
       onReport={resource === "mps-process-reports" ? () => openReport(row) : undefined}
       onViewWeekly={canViewWeekly && (row.weeklyPlanId || row.weeklyPlanState === "已进入周计划") ? () => viewWeeklyPlan(row) : undefined}
       onSync={resource === "mps-sync-configs" ? () => void runManualSync(row.syncKey) : undefined}
@@ -863,9 +872,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         <p>确认后仅更新预览中的未开工周计划；已开工计划及历史报工不变。若预览期间记录发生变化，该记录会跳过并报告。</p>
       </>}
     </Modal>
-    <Modal title={modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
+    <Modal title={modal?.historicalCorrection ? "历史报工纠错" : modal?.mode === "create" ? `新增${info.label}` : `编辑${info.label}`} open={Boolean(modal)} onCancel={() => { if (!saving) setModal(null); }} onOk={() => void save()} confirmLoading={saving} width={760} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "0 16px", maxHeight: "62vh", overflowY: "auto" }}>
         {saveError && <Alert type="error" showIcon message={saveError} style={{ gridColumn: "1 / -1" }} />}
+        {modal?.historicalCorrection && <Form.Item name="correctionReason" label="纠错原因" rules={[{required:true,whitespace:true,message:"请填写纠错原因"}]} style={{gridColumn:"1 / -1"}}><Input.TextArea maxLength={1000} /></Form.Item>}
         {formFields.map((field) => <Form.Item key={field.key} name={field.key} label={field.label} valuePropName={field.type === "boolean" ? "checked" : "value"} rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}><FieldInput resource={resource} field={field} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} /></Form.Item>)}
       </Form>
     </Modal>
@@ -907,5 +917,10 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         </Form.Item>
       </Form>
     </Modal>
+    {lifecycle && <MasterPlanLifecycleDialog key={`${lifecycle.id}-${lifecycle.operation}`} resource={resource} id={lifecycle.id} operation={lifecycle.operation}
+      onClose={() => setLifecycle(null)} onCompleted={async () => {
+        await queryClient.invalidateQueries({queryKey:["mps-rows",sessionSubject]});
+        appMessage.success("计划状态已更新，历史生产事实已保留");
+      }} />}
   </div>;
 }

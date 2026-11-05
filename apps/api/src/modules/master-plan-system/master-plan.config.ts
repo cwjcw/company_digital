@@ -1,4 +1,5 @@
-import { tablePermissionFieldsFor, tableSupportFieldsFor, type TablePermissionFieldDefinition, type TableResourceCode } from "@kdos/contracts";
+import { weeklyLifecycleExecutableSql } from "./master-plan.lifecycle-sql";
+import { mpsPlanLifecycleOptions, tablePermissionFieldsFor, tableSupportFieldsFor, type TablePermissionFieldDefinition, type TableResourceCode } from "@kdos/contracts";
 import { modelAgeOptions, productAttributeOptions, standardProcesses, surfaceNatureOptions } from "@tracker/shared";
 
 export type MasterPlanResource = {
@@ -41,6 +42,7 @@ export const MASTER_PLAN_RESOURCES: MasterPlanResource[] = [
 
 export const MASTER_PLAN_RESOURCE_MAP = new Map(MASTER_PLAN_RESOURCES.map((resource) => [resource.code, resource]));
 const commonOptions: Record<string, Array<{ value: string; label: string }>> = {
+  lifecycleStatus: mpsPlanLifecycleOptions,
   manufacturingMethod: ["自制", "中心外购", "外协", "自制+外协"].map((value) => ({ value, label: value })),
   materialName: ["五金", "木作"].map((value) => ({ value, label: value })), outsourcingMethod: ["成品", "毛坯", "部件"].map((value) => ({ value, label: value })),
   modelAge: modelAgeOptions.map((value) => ({ value, label: value })), productAttribute: productAttributeOptions.map((value) => ({ value, label: value })), surfaceNature: surfaceNatureOptions.map((value) => ({ value, label: value })),
@@ -270,7 +272,7 @@ export const processReportPendingSourceSql = `SELECT task.id,task.version,task.t
       JOIN mps_weekly_plans weekly ON weekly.tenant_id=task.tenant_id AND weekly.id=task.weekly_plan_id
       LEFT JOIN (SELECT tenant_id,weekly_plan_id,process_code,division_id,sum(production_quantity) cumulative_quantity FROM mps_process_reports GROUP BY 1,2,3,4) reports
         ON reports.tenant_id=task.tenant_id AND reports.weekly_plan_id=task.weekly_plan_id AND reports.process_code=task.process_code AND reports.division_id IS NOT DISTINCT FROM weekly.division_id
-      WHERE task.execution_enabled=true AND weekly.manufacturing_method IN ('自制','自制+外协')
+      WHERE task.execution_enabled=true AND weekly.manufacturing_method IN ('自制','自制+外协') AND (${weeklyLifecycleExecutableSql("weekly")})
         AND NOT (COALESCE(weekly.planned_quantity,0)>0 AND COALESCE(reports.cumulative_quantity,0)>=COALESCE(weekly.planned_quantity,0))`;
 
 export function processReportPendingFields(): Array<TablePermissionFieldDefinition & { input: boolean }> {
@@ -313,6 +315,7 @@ export function weeklyAdmissionMissingFields(resource: MasterPlanResource, value
 /** Read model only. Command column mappings must keep physical snapshot columns. */
 export function queryColumnsFor(resource: MasterPlanResource) {
   const columns = columnsFor(resource);
+  if (['mps-monthly-plans','mps-base-plans','mps-weekly-plans'].includes(resource.code)) return {...columns,lifecycleStatus:"(COALESCE(to_jsonb(record)->>'lifecycle_status','LEGACY_RETAINED'))"};
   if (resource.code !== "mps-process-reports") return columns;
   const live = (column: string) => `(SELECT weekly.${column} FROM mps_weekly_plans weekly
     WHERE weekly.tenant_id=record.tenant_id AND weekly.id=record.weekly_plan_id

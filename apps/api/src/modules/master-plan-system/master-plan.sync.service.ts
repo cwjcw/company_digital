@@ -1,3 +1,4 @@
+import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { createHash, randomUUID } from "node:crypto";
@@ -409,6 +410,7 @@ export class MasterPlanSyncService {
       this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
     return this.syncTransaction(transaction, async (manager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
+      await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
         SELECT base.tenant_id,base.id,base.division_id,base.customer_code,base.order_number,base.item_code,base.item_name,base.delivery_number,base.order_date,base.latest_customer_due_date,base.latest_review_due_date,
@@ -492,6 +494,7 @@ export class MasterPlanSyncService {
   }
 
   private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig = false) {
+    if (weekly.lifecycle_status && weekly.lifecycle_status !== 'ACTIVE') throw new ConflictException('LIFECYCLE_BLOCKED: 来源待确认、暂停或取消周计划不能生成或刷新执行任务');
     let mode = initializeProcessConfig ? "INITIALIZE" : null;
     if (!mode) {
       const current = await this.uninitializedInternalWeek(manager, weekly, tenantId);
