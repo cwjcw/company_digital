@@ -22,6 +22,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    buildContext:(c,p,a)=>{if(r==='finance-e10-monthly')return orderMonthlyContext(c,p,a);if(Object.keys(c).length)throw new ForbiddenException('列表请使用统一字段筛选');return r==='finance-e10-lines'?'NOT record.source_missing':'1=1';},
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
    ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:['year_month']),'id']}}:{}),
+   ...(r==='finance-e10-monthly'?{listRows:(q:TablePrintRowQuery)=>this.monthlyRows(q)}:{}),
    ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
    runQuery:(sql,p)=>r==='finance-e10-monthly'?this.repository.transaction(String(p[0]),async m=>{
     // Annual filters plus stable date ordering can select the same underestimated
@@ -33,15 +34,52 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     return m.query(sql,p);
    }):this.repository.query(sql,p),searchColumns:r==='finance-e10-ranking'?['customerCode']:['customerCode','orderNo']});
  }}
+ private async monthlyRows(q:TablePrintRowQuery){
+  const resource='finance-e10-monthly',a=q.actor,source=this.registry.get(resource);
+  orderAuthorize(a,resource);
+  const readable=(key:string)=>orderField(a,resource,key);
+  const params:unknown[]=[a.tenantId];
+  const where=[`record.tenant_id=$1`,orderScope(a,resource,params,'read'),orderMonthlyContext(q.context,params,a)];
+  if(q.search){
+   const searchable=['customerCode','orderNo'].filter(readable).map(key=>`COALESCE(record.${orderColumns(resource)[key]}::text,'') ILIKE $${params.length+1}`);
+   if(searchable.length){params.push(`%${q.search}%`);where.push(`(${searchable.join(' OR ')})`);}else where.push('1=0');
+  }
+  if(q.filterGroup){
+   const columns=orderColumns(resource),expressions=Object.fromEntries(financeMonthlyFilterFields.filter(f=>f.type==='date').map(f=>[f.key,`record.${columns[f.key]}::text`]));
+   for(const key of Object.keys(expressions))delete columns[key];
+   const bindings={...Object.fromEntries(Object.entries(columns).map(([key,column])=>[key,`record.${column}`])),...expressions};
+   where.push(new SqlFilterCompiler(financeMonthlyFilterFields,bindings,readable,column=>column).compile(q.filterGroup,params));
+  }
+  if(q.sortField&&(!source.fields.some(f=>f.key===q.sortField)||!readable(String(q.sortField))))throw new ForbiddenException('当前权限组不能按该字段排序');
+  const defaultSort=source.defaultSort,sortField=String(q.sortField??(defaultSort&&readable(defaultSort.field)?defaultSort.field:'id'));
+  const sortOrder=q.sortField?(String(q.sortOrder).toLowerCase()==='desc'?'DESC':'ASC'):(defaultSort?.order==='desc'?'DESC':'ASC');
+  const stableColumns=defaultSort?.stableColumns??[];
+  const sortDefinition=financeMonthlyFilterFields.find(f=>f.key===sortField);
+  const numericSort=Boolean(q.sortField&&sortDefinition?.type==='number');
+  const orderBy=[`${numericSort?'"__sort_value"':`"${sortField}"`} ${sortOrder} NULLS LAST`,...stableColumns.map(column=>`"__stable_${column}" ASC`)].join(',');
+  const fields=q.fieldKeys.filter(readable).filter(key=>Boolean(source.columns[key]||source.expressions?.[key]));
+  const selected=[`record.${source.columns.id} AS id`,...(numericSort?[`${source.expressions?.[sortField]??`record.${source.columns[sortField]}`} AS "__sort_value"`]:[]),...stableColumns.map(column=>`record.${column} AS "__stable_${column}"`),...fields.map(key=>{
+   const expression=source.expressions?.[key]??`record.${source.columns[key]}`;
+   return `${expression}${financeMonthlyFilterFields.find(f=>f.key===key)?.type==='number'?'::text':''} AS "${key}"`;
+  })];
+  const page=Math.max(1,Number(q.page)||1),pageSize=Math.min(1000,Math.max(1,Number(q.pageSize)||10));
+  params.push(pageSize,(page-1)*pageSize);
+  const [result]=await source.runQuery!(`WITH selected AS MATERIALIZED (
+    SELECT ${selected.join(',')} FROM ${source.table} record WHERE ${where.join(' AND ')}
+   )
+   SELECT (SELECT count(*)::integer FROM selected) total,
+    (SELECT coalesce(jsonb_agg(row_to_json(p)),'[]'::jsonb) FROM (SELECT "id"${fields.map(key=>`,"${key}"`).join('')} FROM selected ORDER BY ${orderBy} LIMIT $${params.length-1} OFFSET $${params.length}) p) rows`,params);
+  return {rows:result.rows,total:Number(result.total)};
+ }
  async ranking(context:Record<string,unknown>,a:TableFilterActor,q?:Partial<TablePrintRowQuery>){
   const resource='finance-e10-ranking';orderAuthorize(a,resource);
   if(!['customerCode','orderTotal'].every(f=>orderField(a,resource,f)))throw new ForbiddenException('客户排名需要客户和金额读取权限');
   orderAuthorize(a,'finance-e10-dashboard');
   if(financeDashboardRequiredFields.some(f=>!orderField(a,'finance-e10-dashboard',f.key)))throw new ForbiddenException('客户排名筛选需要大屏字段权限');
-  const limit=Number(context.rankLimit??0);if(![0,10,20].includes(limit))throw new ForbiddenException('排名显示范围无效');
+  const limit=Number(context.rankLimit??20);if(limit!==20)throw new ForbiddenException('客户排名固定展示前20名');
   const businessContext={...context};delete businessContext.rankLimit;
   if(context.salesperson&&!orderField(a,'finance-e10-dashboard','salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
-  const p:unknown[]=[a.tenantId];const clauses=['record.tenant_id=$1',orderScope(a,'finance-e10-dashboard',p,'read'),orderContext(businessContext,p,'finance-e10-dashboard')];
+  const p:unknown[]=[a.tenantId];const clauses=['record.tenant_id=$1',orderScope(a,'finance-e10-dashboard',p,'read'),orderContext(businessContext,p,'finance-e10-dashboard',a)];
   if(q?.search){p.push('%'+q.search+'%');clauses.push(`record.customer_code ILIKE $${p.length}`);}
   const cte=`WITH grouped AS MATERIALIZED(SELECT md5(tenant_id||customer_code)::uuid id,tenant_id,min(created_by::text)::uuid created_by,customer_code,sum(order_total) order_total FROM finance_e10_order_monthly_movements record WHERE ${clauses.join(' AND ')} GROUP BY tenant_id,customer_code)`;
   let scope=orderScope(a,resource,p,'read');
@@ -50,8 +88,8 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   if(q?.sortField&&!['customerCode','orderTotal'].includes(String(q.sortField)))throw new ForbiddenException('客户排名排序字段无效');
   if(q?.ids){p.push(q.ids);scope+=` AND record.id=ANY($${p.length}::uuid[])`;}
   const page=Math.max(1,Number(q?.page)||1),pageSize=Math.min(1000,Math.max(1,Number(q?.pageSize)||10));
-  const sort=q?.sortField==='customerCode'?'customer_code':'order_total';
-  const order=q?.sortOrder==='asc'?'ASC':'DESC';
+  const sort='order_total';
+  const order='DESC';
   const size=limit?Math.max(0,Math.min(pageSize,limit-(page-1)*pageSize)):pageSize;
   // Count and page reuse one authorized aggregate and one MVCC snapshot.
   const [{total,rows}]=await this.repository.transaction(a.tenantId,async m=>{
@@ -63,7 +101,13 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   return {rows,total:limit?Math.min(total,limit):total,page,pageSize};
  }
  async revision(a:TableFilterActor){
-  orderAuthorize(a,'finance-e10-dashboard');
+  return this.scopedRevision(a,'finance-e10-dashboard');
+ }
+ async monthlyRevision(a:TableFilterActor){
+  return this.scopedRevision(a,'finance-e10-monthly');
+ }
+ private async scopedRevision(a:TableFilterActor,resource:string){
+  orderAuthorize(a,resource);
   // Small tenant-local freshness token; no amounts, identities or source rows leave this endpoint.
   const [result]=await this.repository.query(`SELECT md5(coalesce((SELECT id::text FROM finance_e10_runs
    WHERE tenant_id=$1 AND status='SUCCESS' ORDER BY completed_at DESC,id DESC LIMIT 1),'')||':'||
@@ -72,7 +116,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     FROM finance_customer_mappings WHERE tenant_id=$1),'')) revision`,[a.tenantId]);
   // Include live authorization resolved by AuthGuard, so same-account scope/field
   // changes invalidate cached amounts as well as source/classification changes.
-  const resources=['finance-e10-dashboard','finance-e10-ranking'];
+  const resources=resource==='finance-e10-dashboard'?['finance-e10-dashboard','finance-e10-ranking']:[resource];
   const canonical=(v:any):any=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
   const accessRevision=createHash('sha256').update(JSON.stringify({tenant:a.tenantId,user:a.userId??null,admin:financeAdmin(a),
    permissions:a.permissions.filter(p=>p==='*'||resources.some(r=>p.startsWith(r+':'))).sort(),
@@ -93,7 +137,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
   if(financeDashboardRequiredFields.some(f=>!orderField(a,resource,f.key)))throw new ForbiddenException('统计大屏需要完整报表字段读取权限');
   const p:unknown[]=[a.tenantId];const context=input.context&&typeof input.context==='object'?input.context as Record<string,unknown>:{};
   if(context.salesperson&&!orderField(a,resource,'salesperson'))throw new ForbiddenException('不能按隐藏业务员字段筛选');
-  const where=[`record.tenant_id=$1`,orderScope(a,resource,p),orderContext(context,p,resource)];
+  const where=[`record.tenant_id=$1`,orderScope(a,resource,p),orderContext(context,p,resource,a)];
   if(!context.year)throw new ForbiddenException('统计大屏必须选择年度');
   if(input.filterGroup)where.push(new SqlFilterCompiler(financeMonthlyFields,orderColumns(resource),key=>orderField(a,resource,key),c=>`record.${c}`).compile(input.filterGroup,p));
   return this.repository.transaction(a.tenantId,async m=>{
@@ -121,7 +165,9 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    const {totals,groups,months,matrix,quality}=result;
    const total=new Decimal(totals.amount);const share=(amt:string)=>total.isZero()?null:new Decimal(amt).div(total).toFixed(8);
    const bucket=(kind:string,labels:string[])=>[...labels,null].map(category=>{const amount=groups.find((g:any)=>g.kind===kind&&g.category===category)?.amount??'0.00';return {category:category??'待分类',amount,share:share(amount)};});
-   const monthly=Array.from({length:12},(_,i)=>{const month=`${context.year}-${String(i+1).padStart(2,'0')}`;const amount=months.find((r:any)=>r.month===month)?.amount??'0.00';return {month,amount,wan:new Decimal(amount).div(10000).toFixed(6)};});
+   const monthFrom=context.month?`${context.year}-${String(context.month).padStart(2,'0')}`:context.dateFrom?String(context.dateFrom).slice(0,7):`${context.year}-01`;
+   const monthTo=context.month?monthFrom:context.dateTo?String(context.dateTo).slice(0,7):`${context.year}-12`;
+   const monthly=Array.from({length:12},(_,i)=>{const month=`${context.year}-${String(i+1).padStart(2,'0')}`,included=month>=monthFrom&&month<=monthTo,amount=included?(months.find((r:any)=>r.month===month)?.amount??'0.00'):null;return {month,amount,wan:amount===null?null:new Decimal(amount).div(10000).toFixed(6)};});
    return {totals:{...totals,average:totals.orders?total.div(totals.orders).toFixed(2):null},channels:bucket('channel',['内销','外销']),departments:bucket('department',['业务一部','业务二部','业务三部','业务四部']),months:monthly,matrix,quality};
   });
  }
