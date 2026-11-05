@@ -9,7 +9,7 @@ vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}))
 vi.mock('../../shared/charts/KdosChart',()=>({KdosChart:({ariaLabel,onDataClick,option}:any)=><button onClick={()=>onDataClick?.({name:'国内',dataIndex:0})}>{ariaLabel}{option?.xAxis?.data?.map((month:string)=><span key={month}>{month}</span>)}</button>}));
 vi.mock('../../shared/KdosDataTable',async original=>({...await original<object>(),KdosDataTable:({columns,toolbar,contextFilterGroup,dataSource,serverData}:any)=>{const onQueryChange=serverData?.onQueryChange;useEffect(()=>{onQueryChange?.({page:1,pageSize:100,search:'',filters:{},filterGroup:{logic:'AND',rules:[]}});},[onQueryChange]);return <div data-testid="record-table">{columns.map((c:any)=><span key={c.dataIndex}>{c.title}</span>)}{dataSource?.map((r:any)=><div key={r.id}>{columns.map((c:any)=><span key={c.dataIndex}>{c.render?.(r[c.dataIndex],r)}</span>)}</div>)}{toolbar}<pre>{JSON.stringify(contextFilterGroup)}</pre></div>;}}));
 function mount(component:React.ReactNode,url='/finance/orders/monthly',user:any={permissions:['*']}){localStorage.setItem('sessionUser',JSON.stringify(user));return render(<MemoryRouter initialEntries={[url]}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}>{component}</QueryClientProvider></MemoryRouter>);}
-beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.endsWith('/revision')?{revision:'synthetic-v1'} as never:p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
+beforeEach(()=>{localStorage.clear();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.endsWith('/monthly-revision')?{revision:'synthetic-monthly-v1',accessRevision:'synthetic-monthly-access'} as never:p.endsWith('/revision')?{revision:'synthetic-v1',accessRevision:'synthetic-access'} as never:p.includes('dashboard')?{totals:{orders:2,amount:'100.30',average:'50.15',pendingAmount:'0.00',pendingOrders:0,pendingCustomers:0},channels:[{category:'内销',amount:'100.30',share:'1'}],departments:[{category:'业务一部',amount:'100.30',share:'1'}],months:Array.from({length:12},(_,i)=>({month:`2025-${String(i+1).padStart(2,'0')}`,amount:i?'0.00':'100.30',wan:i?'0.000000':'0.010030'})),matrix:[],quality:{excludedOrders:1,excludedAmount:'3.00'}} as never:{rows:[],total:0,canInspectExceptions:true} as never);});
 afterEach(()=>{cleanup();window.history.replaceState({},'','/');});
 describe('Finance E10 UI',()=>{
  it.each([
@@ -19,12 +19,13 @@ describe('Finance E10 UI',()=>{
   ['other module administrator',{moduleAdminCodes:['planning'],permissions:['finance-e10-dashboard:*:read']},false],
  ] as const)('dashboard permission entry respects %s and preserves the return path',async(_role,user,visible)=>{
   const path='/finance/orders/dashboard?acceptance=permissions';window.history.replaceState({},'',path);
-  mount(<FinanceOrderDashboard/>,path,user);await screen.findByRole('button',{name:'刷新'});
+  mount(<FinanceOrderDashboard/>,path,user);await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/dashboard'))).toBe(true));
+  expect(screen.queryByRole('button',{name:/^刷新$/})).toBeNull();expect(screen.queryByText(/按当前分类.*接单发生额/)).toBeNull();
   const label=screen.queryByText('权限管理');
   if(!visible){expect(label).toBeNull();return;}
   const entry=label!.closest('a')!;
   expect(entry).toHaveAttribute('href',`/permissions/finance-e10-dashboard?from=${encodeURIComponent(path)}`);
-  expect(screen.getByRole('button',{name:'刷新'}).compareDocumentPosition(entry)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(entry).toBeVisible();
   await screen.findAllByText('100.30');
   expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/admin/'))).toBe(false);
  });
@@ -38,19 +39,26 @@ describe('Finance E10 UI',()=>{
   mount(<FinanceOrderDashboard/>);await screen.findByText('期间累计接单发生额');expect(screen.queryByText(/(?:多个预交货日|预交货日冲突)\s*\d+\s*张/)).toBeNull();
  });
  it('shows exactly 36 Chinese source columns and no upload control',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(36);expect(screen.queryByText('导入')).toBeNull();expect(screen.getByText('刷新E10数据')).toBeVisible();});
- it('monthly has exactly seventeen columns and propagates complete drilldown filters',async()=>{mount(<FinanceOrderTable monthly/>,'/finance/orders/monthly?year=2025&month=2&salesperson=测试&customerCode=A140-2&salesChannel=待分类');await screen.findByText('本月发生额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(17);const call=vi.mocked(api).mock.calls.find(([p])=>p.includes('/table-filters/rows'))![0];const group=JSON.parse(new URLSearchParams(call.split('?')[1]).get('filterGroup')!);expect(JSON.parse(new URLSearchParams(call.split('?')[1]).get('context')!)).toEqual({monthFrom:'2025-02',monthTo:'2025-02'});expect(JSON.stringify(group)).toContain('contains_any');expect(JSON.stringify(group)).toContain('A140-2');expect(JSON.stringify(group)).toContain('is_empty');});
+ it('monthly has exactly seventeen columns and propagates occurrence, order-date and other drilldown filters',async()=>{mount(<FinanceOrderTable monthly/>,'/finance/orders/monthly?year=2025&month=2&salesperson=测试&customerCode=A140-2&salesChannel=待分类&orderDateFrom=2025-01-01&orderDateTo=2025-01-31');await screen.findByText('本月发生额');expect(screen.getByTestId('record-table').querySelectorAll(':scope > span')).toHaveLength(17);await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/table-filters/rows'))).toBe(true));await new Promise(resolve=>setTimeout(resolve,350));expect(vi.mocked(api).mock.calls.filter(([p])=>p.includes('/table-filters/rows'))).toHaveLength(1);const call=vi.mocked(api).mock.calls.find(([p])=>p.includes('/table-filters/rows'))![0];const group=JSON.parse(new URLSearchParams(call.split('?')[1]).get('filterGroup')!);expect(JSON.parse(new URLSearchParams(call.split('?')[1]).get('context')!)).toEqual({monthFrom:'2025-02',monthTo:'2025-02'});expect(JSON.stringify(group)).toContain('contains_any');expect(JSON.stringify(group)).toContain('A140-2');expect(JSON.stringify(group)).toContain('orderDate');expect(JSON.stringify(group)).toContain('2025-01-01');expect(JSON.stringify(group)).toContain('is_empty');});
+ it('defaults monthly filters to the Asia/Shanghai current month unless an explicit all-month choice is present',async()=>{
+  const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
+  mount(<FinanceOrderTable monthly/>,'/finance/orders/monthly?customerCode=SYN-C&orderDateFrom=2026-10-01&orderDateTo=2026-10-31');await screen.findByText('本月发生额');await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/table-filters/rows'))).toBe(true));
+  let call=vi.mocked(api).mock.calls.find(([p])=>p.includes('/table-filters/rows'))![0];expect(JSON.parse(new URLSearchParams(call.split('?')[1]).get('context')!)).toEqual({monthFrom:businessMonth,monthTo:businessMonth});expect(new URLSearchParams(call.split('?')[1]).get('filterGroup')).toContain('orderDate');
+  cleanup();vi.clearAllMocks();vi.mocked(api).mockImplementation(async p=>p.endsWith('/monthly-revision')?{revision:'v',accessRevision:'a'} as never:{rows:[],total:0} as never);
+  mount(<FinanceOrderTable monthly/>,'/finance/orders/monthly?allMonths=1&customerCode=SYN-C&orderDateFrom=2026-10-01&orderDateTo=2026-10-31');await screen.findByText('本月发生额');await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/table-filters/rows'))).toBe(true));call=vi.mocked(api).mock.calls.find(([p])=>p.includes('/table-filters/rows'))![0];expect(JSON.parse(new URLSearchParams(call.split('?')[1]).get('context')!)).toEqual({});expect(new URLSearchParams(call.split('?')[1]).get('filterGroup')).toContain('orderDate');
+ });
  it('does not request data for unauthorized users',()=>{mount(<FinanceOrderTable/>,undefined,{permissions:[],moduleAdminCodes:['planning']});expect(screen.getByText('当前权限组不能查看销售订单数据')).toBeVisible();expect(api).not.toHaveBeenCalled();});
  it('renders original dashboard headers and all twelve months without the excluded-money banner',async()=>{mount(<FinanceOrderDashboard/>);await screen.findByText('期间累计接单发生额');expect(screen.queryByText(/待复核订单.*暂未纳入统计/)).toBeNull();for(const label of ['分类','接单发生额/本币含税','期间占比','期间合计','客户编号','期间累计接单发生额','发生年月','接单发生额/元','接单发生额/万元','合计'])expect(screen.getAllByText(label,{exact:true}).length).toBeGreaterThan(0);expect((await screen.findAllByText('2025-12'))[0]).toBeVisible();});
  it('manual refresh submits the protected command with explicit mode',async()=>{mount(<FinanceOrderTable/>);await screen.findByText('本币合计金额');fireEvent.click(screen.getByText('刷新E10数据'));await waitFor(()=>expect(api).toHaveBeenCalledWith('/finance/e10-orders/refresh',expect.objectContaining({method:'POST',body:JSON.stringify({mode:'FULL'})})));});
- it('starts only one ranking request after the standard table supplies its initial query',async()=>{
+ it('starts one fixed TOP20 ranking request after the standard table supplies its initial query',async()=>{
   mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/ranking'))).toHaveLength(1));
-  const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/ranking'))!;expect(JSON.parse(call[1]!.body as string)).toMatchObject({pageSize:100,page:1,filterGroup:{logic:'AND',rules:[]}});
+  const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/ranking'))!;expect(JSON.parse(call[1]!.body as string)).toMatchObject({pageSize:100,page:1,filterGroup:{logic:'AND',rules:[]},context:{rankLimit:20,month:Number(businessMonth.slice(5))}});
  });
  it('reuses fresh scoped results on reentry, then refreshes both reports for a new source/classification revision',async()=>{
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});const renderDashboard=()=>render(<MemoryRouter><QueryClientProvider client={client}><FinanceOrderDashboard/></QueryClientProvider></MemoryRouter>);
   localStorage.setItem('sessionUser',JSON.stringify({sub:'SYN-A',permissions:['*']}));let view=renderDashboard();
   const count=(end:string)=>vi.mocked(api).mock.calls.filter(([p])=>p.endsWith(end)).length;
-  await waitFor(()=>expect(count('/ranking')).toBe(1));view.unmount();view=renderDashboard();await waitFor(()=>expect(count('/revision')).toBe(2));expect(count('/dashboard')).toBe(1);expect(count('/ranking')).toBe(1);
+  await waitFor(()=>expect(count('/ranking')).toBe(1));view.unmount();view=renderDashboard();await waitFor(()=>expect(count('/revision')).toBe(1));expect(count('/dashboard')).toBe(1);expect(count('/ranking')).toBe(1);
   const original=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(p,...args)=>p.endsWith('/revision')?{revision:'synthetic-v2'} as never:original(p,...args));
   await client.invalidateQueries({queryKey:['finance-order-revision']});await waitFor(()=>expect(count('/dashboard')).toBe(2));await waitFor(()=>expect(count('/ranking')).toBe(2));
   view.unmount();localStorage.setItem('sessionUser',JSON.stringify({sub:'SYN-B',permissions:['*']}));renderDashboard();await waitFor(()=>expect(count('/dashboard')).toBe(3));await waitFor(()=>expect(count('/ranking')).toBe(3));
@@ -58,9 +66,10 @@ describe('Finance E10 UI',()=>{
  it('does not request freshness, totals or ranking without dashboard permission',()=>{
   mount(<FinanceOrderDashboard/>,undefined,{permissions:[]});expect(screen.getByText('当前权限组不能查看统计大屏')).toBeVisible();expect(api).not.toHaveBeenCalled();
  });
- it('manual display refresh refetches current reports without starting an E10 import',async()=>{
-  mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/ranking'))).toHaveLength(1));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'刷新'})).not.toHaveClass('ant-btn-loading'));fireEvent.click(screen.getByRole('button',{name:'刷新'}));await waitFor(()=>expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/dashboard'))).toHaveLength(2));expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/refresh'))).toBe(false);
+ it('loads the current business month immediately and keeps the order-date control visible',async()=>{
+  mount(<FinanceOrderDashboard/>);await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/dashboard'))).toBe(true));
+  const request=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/dashboard'))!;const context=JSON.parse(request[1]!.body as string).context;const businessMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
+  expect(context).toMatchObject({year:Number(businessMonth.slice(0,4)),month:Number(businessMonth.slice(5))});expect(screen.getAllByLabelText('订单日期')[0]).toBeVisible();expect(screen.queryByRole('button',{name:/^刷新$/})).toBeNull();expect(screen.queryByText(/按当前分类.*接单发生额/)).toBeNull();
  });
 
  it('drops previous amounts when live authorization changes before the new scoped response arrives',async()=>{

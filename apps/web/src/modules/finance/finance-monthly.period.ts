@@ -7,6 +7,9 @@ export function readFinanceMonthlyPeriod(params: URLSearchParams): { from?: stri
     if (end) { if (!valid(end)) throw new Error('发生年月无效'); to = to && to < end ? to : end; }
   };
   try {
+    if (params.has('allMonths') && params.get('allMonths') !== '1') throw new Error('全部月份参数无效');
+    if (params.get('allMonths') === '1' && ['year','month','monthFrom','monthTo','dateFrom','dateTo'].some(key=>params.has(key))) throw new Error('全部月份不能与发生年月范围同时使用');
+    if (params.get('allMonths') === '1') return {from:undefined,to:undefined};
     if (params.has('year')) {
       const year = params.get('year')!;
       if (!/^\d{4}$/.test(year)) throw new Error('发生年度无效');
