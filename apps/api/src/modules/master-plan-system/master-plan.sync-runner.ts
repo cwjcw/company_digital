@@ -3,16 +3,17 @@ import { DataSource, EntityManager } from "typeorm";
 
 export type SyncRunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 export type SyncExecutionScope = { weeklyPlanId: string; processCode: string };
+export type SyncScope = SyncExecutionScope | {basePlanIds:string[]};
 export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
 export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
 type Event = { id: string; tenant_id: string; sync_key: string; scope_json: unknown; version: number;
   actor_id: string; actor_name: string; idempotency_key: string };
 type Log = { id: string; version: number; status: string; sync_key: string; attempts: number;
-  scope_json: SyncExecutionScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
+  scope_json: SyncScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
 type Claim = { tenant: string; key: string; configId: string; version: number; actorId: string; actorName: string;
   logs: Log[]; events: Event[]; disabled: boolean };
-type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncExecutionScope | null) => Promise<SyncOutcome>;
+type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncScope | null) => Promise<SyncOutcome>;
 
 export class SyncLeaseLost extends ConflictException {
   constructor() { super("同步租约已失效，旧Worker不能提交结果"); }
@@ -84,7 +85,8 @@ export class MasterPlanSyncRunner {
   }
 
   async run(tenant: string, key: string, type: SyncRunType, actor: string | null, name: string,
-    idempotencyKey: string, scope: SyncExecutionScope | null = null, events: Event[] = []): Promise<SyncResult> {
+    idempotencyKey: string, scope: SyncScope | null = null, events: Event[] = []): Promise<SyncResult> {
+    scope=this.scope(key,scope);
     const actorId = actor ?? this.systemUser;
     const claim = await this.claim(tenant, key, type, actorId, name, idempotencyKey, scope, events);
     if ("repeated" in claim) return claim;
@@ -126,7 +128,7 @@ export class MasterPlanSyncRunner {
   }
 
   private async claim(tenant: string, key: string, type: SyncRunType, actorId: string, name: string,
-    idempotencyKey: string, scope: SyncExecutionScope | null, events: Event[]): Promise<Claim | SyncResult> {
+    idempotencyKey: string, scope: SyncScope | null, events: Event[]): Promise<Claim | SyncResult> {
     return this.db.transaction(async manager => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('lock_timeout',$2,true)", [tenant, String(Math.min(this.leaseMs, 5000))]);
       const [config] = await manager.query(`SELECT *,lease_expires_at>clock_timestamp() AS live
@@ -284,15 +286,14 @@ export class MasterPlanSyncRunner {
       [tenant, actor, name, id, `mps-sync.${action}`, JSON.stringify(before), JSON.stringify(after), `mps-sync:${id}:${action}`]);
   }
 
-  private scope(key: string, value: unknown): SyncExecutionScope | null {
-    if (key !== "execution-rollup" || !value || typeof value !== "object") return null;
-    const scope = value as Record<string, unknown>;
-    return typeof scope.weeklyPlanId === "string" && typeof scope.processCode === "string"
-      ? { weeklyPlanId: scope.weeklyPlanId, processCode: scope.processCode } : null;
+  private scope(key: string, value: unknown): SyncScope | null {
+    if(value==null)return null;
+    const scope=value as Record<string,unknown>;
+    if(key==='base-to-weekly'&&scope&&Array.isArray(scope.basePlanIds)&&scope.basePlanIds.length>0&&scope.basePlanIds.length<=100&&scope.basePlanIds.every(id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))return {basePlanIds:[...new Set(scope.basePlanIds as string[])].sort()};
+    if(key==='execution-rollup'&&scope&&typeof scope.weeklyPlanId==='string'&&typeof scope.processCode==='string')return {weeklyPlanId:scope.weeklyPlanId,processCode:scope.processCode};
+    throw new ConflictException('同步范围无效，禁止回退全租户执行');
   }
-  private sameScope(a: SyncExecutionScope | null, b: SyncExecutionScope | null) {
-    return (a?.weeklyPlanId ?? null) === (b?.weeklyPlanId ?? null) && (a?.processCode ?? null) === (b?.processCode ?? null);
-  }
+  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;return (a?.weeklyPlanId??null)===(b?.weeklyPlanId??null)&&(a?.processCode??null)===(b?.processCode??null);}
   private rows(result: any[]): any[] { return Array.isArray(result[0]) ? result[0] : result; }
   private errorText(error: unknown) {
     const e = error as { code?: string; message?: string };

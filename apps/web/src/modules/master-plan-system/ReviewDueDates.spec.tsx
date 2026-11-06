@@ -21,4 +21,12 @@ describe('Review due date phase-one page',()=>{
   it('does not offer history when protected date/statistics fields are hidden',async()=>{vi.mocked(api).mockImplementation(async path=>path.endsWith('/meta')?{fields:reviewDueDateFields.filter(f=>f.key!=='inboundDate')} as never:{rows:[sample],total:1} as never);mount();await screen.findByText('ORDER-1/2');expect(screen.queryByRole('button',{name:'历史交期记录'})).toBeNull();});
   it('does not query any data for an actor without resource read permission',()=>{localStorage.setItem('sessionUser',JSON.stringify({permissions:[]}));mount();expect(screen.getByText('当前权限组没有评审交期表查看权限')).toBeVisible();expect(vi.mocked(api).mock.calls.every(([p])=>p==='/directory/users')).toBe(true);});
   it('renders an empty formal table without creating source data',async()=>{vi.mocked(api).mockImplementation(async path=>path.endsWith('/meta')?{fields:reviewDueDateFields} as never:{rows:[],total:0} as never);mount();await waitFor(()=>expect(api).toHaveBeenCalled());expect(screen.queryByRole('button',{name:'历史交期记录'})).toBeNull();expect(vi.mocked(api).mock.calls.every(([,opts])=>!opts?.method||opts.method==='GET')).toBe(true);});
+  it('old API and unavailable schema hide review applications even for an administrator',async()=>{
+    localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic',isSystemAdmin:true,permissions:['*']}));mount();await screen.findByRole('button',{name:'历史交期记录'});expect(screen.queryByText('关联基础计划 / 应用交期')).toBeNull();cleanup();
+    const normal=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(path,opts)=>path.endsWith('/meta')?{fields:reviewDueDateFields,reviewApplications:{schemaReady:false,canApply:true}} as never:normal(path,opts));mount();await screen.findByRole('button',{name:'历史交期记录'});expect(screen.queryByText('关联基础计划 / 应用交期')).toBeNull();
+  });
+  it('only released authorized capability exposes review application entry',async()=>{
+    const normal=vi.mocked(api).getMockImplementation()!;vi.mocked(api).mockImplementation(async(path,opts)=>path.endsWith('/meta')?{fields:reviewDueDateFields,reviewApplications:{schemaReady:true,canApply:true}} as never:normal(path,opts));mount();await screen.findByText('关联基础计划 / 应用交期');cleanup();vi.mocked(api).mockImplementation(async(path,opts)=>path.endsWith('/meta')?{fields:reviewDueDateFields,reviewApplications:{schemaReady:true,canApply:false}} as never:normal(path,opts));mount();await screen.findByRole('button',{name:'历史交期记录'});expect(screen.queryByText('关联基础计划 / 应用交期')).toBeNull();
+  });
+
 });

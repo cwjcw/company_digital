@@ -1,3 +1,4 @@
+import { MasterPlanReviewApplicationService } from './master-plan.review-application.service';
 import { MasterPlanDemandQuantityService } from './master-plan.demand-quantity.service';
 import { MasterPlanDemandLinkService } from "./master-plan.demand-link.service";
 import { MasterPlanLifecycleService } from "./master-plan.lifecycle.service";
@@ -33,7 +34,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
   controllers: [MasterPlanBomProcessController, ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
-  providers: [MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  providers: [MasterPlanReviewApplicationService, MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

@@ -14,7 +14,7 @@ import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
-import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncExecutionScope as ExecutionRollupScope, type SyncOutcome } from "./master-plan.sync-runner";
+import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncScope, type SyncOutcome } from "./master-plan.sync-runner";
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
 
 @Injectable()
@@ -222,16 +222,16 @@ export class MasterPlanSyncService {
   }
 
   run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string,
-    idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, scope: ExecutionRollupScope | null = null) {
+    idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, scope: SyncScope | null = null) {
     return this.runner.run(tenantId, syncKey, runType, userId, username, idempotencyKey, scope);
   }
 
-  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: ExecutionRollupScope | null = null, actorName = updatedBy, transaction?: EntityManager): Promise<SyncOutcome> {
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: SyncScope | null = null, actorName = updatedBy, transaction?: EntityManager): Promise<SyncOutcome> {
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy, transaction),
       "plan-projections": () => this.projectPlans(tenantId, userId, actorName, transaction),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction),
-      "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy, transaction),
+      "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy, transaction, executionScope&&'basePlanIds' in executionScope?executionScope.basePlanIds:null),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy, transaction),
       "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope, transaction)
     };
@@ -403,14 +403,20 @@ export class MasterPlanSyncService {
       userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName));
   }
 
-  private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager) {
+  private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager, basePlanIds:string[]|null=null): Promise<SyncOutcome> {
     const basePlan = MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!;
     const admission = weeklyAdmissionSql(basePlan, "base");
     const dictionaryColumn = (field: string, column: string) =>
       this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
-    return this.syncTransaction(transaction, async (manager) => {
+    return this.syncTransaction(transaction, async (manager): Promise<SyncOutcome> => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
+      // A scoped application must account for every selected batch. Missing admission
+      // data cannot be reported as a successful zero-row synchronization.
+      if(basePlanIds){
+        const [eligible]=await manager.query(`SELECT count(*)::int n FROM mps_base_plans base WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND ${admission}`,[tenantId,basePlanIds]);
+        if(eligible.n!==basePlanIds.length)return {count:0,status:'BLOCKED' as const,metrics:{selected_batches:basePlanIds.length,eligible_batches:eligible.n}};
+      }
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
         SELECT base.tenant_id,base.id,base.division_id,base.customer_code,base.order_number,base.item_code,base.item_name,base.delivery_number,base.order_date,base.latest_customer_due_date,base.latest_review_due_date,
@@ -422,17 +428,17 @@ export class MasterPlanSyncService {
           NULL,false,NULL,NULL,CASE WHEN base.order_date IS NULL THEN NULL ELSE greatest(0,floor((CURRENT_DATE-base.order_date)/7.0))::integer END,$2::uuid,$3
         FROM mps_base_plans base
         LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
-        WHERE base.tenant_id=$1 AND ${admission}
+        WHERE base.tenant_id=$1 AND ($4::uuid[] IS NULL OR base.id=ANY($4::uuid[])) AND ${admission}
         ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
-        RETURNING id`, [tenantId, userId, updatedBy]);
+        RETURNING id`, [tenantId, userId, updatedBy, basePlanIds]);
       /* 已有快照不重写；原外协周计划转为内部生产且从未初始化时，可首次建立空缺工艺。 */
       const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
         ,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
-        WHERE w.tenant_id=$1 AND ${admission}`, [tenantId]);
+        WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}`, [tenantId,basePlanIds]);
       let initializedSnapshots = 0, initializedTasks = 0;
       for (const weekly of weeklyRows) {
         const result = await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
@@ -621,7 +627,8 @@ export class MasterPlanSyncService {
     });
   }
 
-  private async executionRollup(tenantId: string, updatedBy: string, scope: ExecutionRollupScope | null = null, transaction?: EntityManager) {
+  private async executionRollup(tenantId: string, updatedBy: string, scope: SyncScope | null = null, transaction?: EntityManager) {
+    if(scope&& !('weeklyPlanId' in scope))throw new BadRequestException('报工同步范围无效');
     const today = shanghaiToday(); let count = 0;
     await this.syncTransaction(transaction, async (manager) => {
       const scoped = scope ? "AND p.weekly_plan_id=$4::uuid AND p.process_code=$5" : "";

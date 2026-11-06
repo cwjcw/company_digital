@@ -106,7 +106,7 @@ export class ReviewDueDateImportApplicationService {
       if(!current) row=await linkNewDemandRecord(m,RESOURCE,row,actor.userId!,actor.username,actor.requestId);
       await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,row.id,current?'review_due_date.import_updated':'review_due_date.import_created',current?JSON.stringify(current):null,JSON.stringify({...row,sourceKind:'IMPORT',batchId,fileHash,mode,sourceRows:input.sourceRows??[input.row],changedFields:changed}),actor.requestId]);
-    }}catch(e){if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23505')throw new ConflictException('导入业务键或来源重复，整批拒绝，请重新预览');throw e;}
+    }}catch(e){if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23514')throw new ConflictException('已有确认需求或评审应用历史，身份/批次变更受保护，整批回滚');if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23505')throw new ConflictException('导入业务键或来源重复，整批拒绝，请重新预览');throw e;}
     const response={...result.publicCounts,batchId,repeated:false};
     await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
       VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.import_confirmed',$6::jsonb,$7,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,batchId,JSON.stringify({...result.counts,batchId,mode,fileHash}),actor.requestId]);

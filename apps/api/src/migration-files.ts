@@ -20,3 +20,9 @@ export function phaseAMigrationFiles(directory: string): string[] {
   if(files.length!==2)throw new Error('Phase A requires exactly migration118 and119 implementations');
   return files;
 }
+
+/** Independent unified-ID release: exactly121+122, never pending lifecycle120. */
+export function unifiedCoreMigrationFiles(directory:string):string[]{
+ const files=discoverMigrationFiles(directory).filter(f=>/(?:1722920121000-MpsDemandLinks|1722920122000-MpsReviewBatchApplications)\.(?:ts|js)$/.test(path.basename(f)));
+ if(files.length!==2)throw Error('Unified core requires exactly121 and122');return files;
+}

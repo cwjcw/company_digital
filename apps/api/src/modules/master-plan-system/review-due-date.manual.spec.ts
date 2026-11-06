@@ -23,7 +23,7 @@ describe('Review due date manual edit boundary',()=>{
     expect(db.transaction).not.toHaveBeenCalled();
   });
   it('uses only the authenticated subject as operator, ignoring forged body authority',async()=>{
-    const app={manualEdit:jest.fn().mockResolvedValue({})},controller=new ReviewDueDateController({} as never,app as never);
+    const app={manualEdit:jest.fn().mockResolvedValue({})},controller=new ReviewDueDateController({} as never,app as never,{} as never);
     const req={user:{sub:actor.userId,displayName:'Real test login',permissions:[resource+':*:update'],tableDataScopes:[]},requestId:'real-request'};
     await controller.manualEdit(actor.userId!,{quantity:'2'},req as never);
     expect(app.manualEdit).toHaveBeenCalledWith(actor.userId,{quantity:'2'},expect.objectContaining({userId:actor.userId,username:'Real test login',source:'web',isSystemAdmin:false}));

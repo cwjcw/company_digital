@@ -107,7 +107,7 @@ export class ReviewDueDateApplicationService {
         VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.manually_updated',$6::jsonb,$7::jsonb,$8,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,id,JSON.stringify(current),JSON.stringify({...row,commandId:body.commandId,sourceKind:'MANUAL',changedFields:changed}),actor.requestId]);
       const result={id,version:row.version,dateChanged:changed.includes('inboundDate'),changedFields:changed,repeated:false};
       await m.query('INSERT INTO idempotency_keys(id,key,request_hash,response_json,created_by,updated_by) VALUES(uuidv7(),$1,$2,$3::jsonb,$4::uuid,$4::uuid)',[receiptKey,hash,JSON.stringify(result),actor.userId]);return result;
-    });}catch(error){if(code(error)==='23505')throw new ConflictException('同一事业部的订单号、批次号和品项编码已存在，不能合并记录');throw error;}
+    });}catch(error){if(code(error)==='23514')throw new ConflictException('评审身份或批次已有受保护关联，不能普通修改');if(code(error)==='23505')throw new ConflictException('同一事业部的订单号、批次号和品项编码已存在，不能合并记录');throw error;}
   }
 
   async observe(input:Input,actor:MasterPlanActor,manager?:EntityManager) {

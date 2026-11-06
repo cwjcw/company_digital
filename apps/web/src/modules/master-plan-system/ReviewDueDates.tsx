@@ -1,7 +1,8 @@
+import { MasterPlanReviewApplicationDialog } from './MasterPlanReviewApplicationDialog';
 import { ReviewDueImportModal } from './ReviewDueDates.import';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Table } from 'antd';
+import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Space, Table } from 'antd';
 import { reviewDueDateTemplateFilename, reviewDueDateBusinessFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
 import dayjs from 'dayjs';
 import { api } from '../../api';
@@ -58,6 +59,7 @@ function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:T
 }
 export function ReviewDueDates(){
   const auditColumns=useAuditColumns();
+  const [applicationId,setApplicationId]=useState<string|null>(null);
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);
   const client=useQueryClient(),savingIds=useRef(new Set<string>());
@@ -68,7 +70,7 @@ export function ReviewDueDates(){
   const params=new URLSearchParams({page:String(query.page),pageSize:String(query.pageSize),search:query.search});
   if(query.filterGroup)params.set('filterGroup',JSON.stringify(query.filterGroup));
   if(query.sortField)params.set('sortField',query.sortField);if(query.sortOrder)params.set('sortOrder',query.sortOrder);
-  const meta=useQuery({queryKey:['review-due-meta',session],queryFn:()=>api<{fields:TablePermissionFieldDefinition[];createFields?:TablePermissionFieldDefinition[];actions:{update:boolean;create?:boolean;import?:boolean;template?:boolean}}>(`/master-plan-system/resources/${RESOURCE}/meta`),enabled:canRead||canRequestCreate||canImport});
+  const meta=useQuery({queryKey:['review-due-meta',session],queryFn:()=>api<{reviewApplications?:{schemaReady:boolean;canApply:boolean};fields:TablePermissionFieldDefinition[];createFields?:TablePermissionFieldDefinition[];actions:{update:boolean;create?:boolean;import?:boolean;template?:boolean}}>(`/master-plan-system/resources/${RESOURCE}/meta`),enabled:canRead||canRequestCreate||canImport});
   const rows=useQuery({queryKey:['review-due-rows',session,params.toString()],queryFn:({signal})=>api<{rows:Row[];total:number}>(`/master-plan-system/resources/${RESOURCE}?${params}`,{signal}),enabled:canRead});
   const organizations=useQuery({queryKey:['review-due-organizations',session],queryFn:()=>api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${RESOURCE}`),staleTime:300_000,enabled:!!meta.data?.fields.some(f=>f.key==='divisionId')||!!meta.data?.createFields?.some(f=>f.key==='divisionId')});
   const history=useQuery({queryKey:['review-due-history',session,selected?.id,historyPage],queryFn:()=>api<{rows:ReviewDueDateHistoryRow[];total:number}>(`/master-plan-system/review-due-dates/${selected!.id}/history?page=${historyPage}&pageSize=100`),enabled:canRead&&!!selected});
@@ -99,8 +101,9 @@ export function ReviewDueDates(){
       exportFilename={reviewDueDateExportFilename} loading={rows.isLoading||meta.isLoading} dataSource={rows.data?.rows??[]}
       columns={[...reviewDueDateBusinessFields.filter(f=>visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} organizations={organizations.data??[]} busy={busy.has(row.id)} onSave={save}/>})),
         ...auditColumns.filter(c=>visible.has(String(c.key))).map(c=>c.key==='createdAt'||c.key==='updatedAt'?{...c,render:time}:c),
-        ...(canHistory?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}]:[])]}
+        ...((canHistory||(meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply))?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Space>{canHistory&&<Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}{meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply&&<Button type="link" onClick={()=>setApplicationId(row.id)}>关联基础计划 / 应用交期</Button>}</Space>}]:[])]}
       serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}/>
+    {applicationId&&meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply&&<MasterPlanReviewApplicationDialog id={applicationId} onClose={()=>setApplicationId(null)} onSaved={async()=>{await rows.refetch();}}/>}
     {importOpen&&<ReviewDueImportModal onClose={()=>setImportOpen(false)} onCreated={async()=>{await Promise.all([client.invalidateQueries({queryKey:['review-due-rows',session]},{throwOnError:true}),client.invalidateQueries({queryKey:['review-due-history',session]},{throwOnError:true})]);}}/>}
     {createOpen&&<ReviewDueCreateModal fields={meta.data?.createFields??[]} organizations={organizations.data??[]} onClose={()=>setCreateOpen(false)} onCreated={async()=>{await client.invalidateQueries({queryKey:['review-due-rows',session]});}}/>}
     <Drawer title="历史交期记录" width={980} open={!!selected} onClose={()=>setSelected(null)}>

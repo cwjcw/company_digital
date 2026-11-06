@@ -26,7 +26,7 @@ describe('Review due date dedicated create boundary',()=>{
   await expect(app.manualCreate({...input,[key]:'forged'},actor)).rejects.toMatchObject({status:400});expect(db.transaction).not.toHaveBeenCalled();
  });
  it('never accepts an administrator identity from the request body',async()=>{
-  const app={manualCreate:jest.fn().mockResolvedValue({id,version:1})},controller=new ReviewDueDateController({} as never,app as never);
+  const app={manualCreate:jest.fn().mockResolvedValue({id,version:1})},controller=new ReviewDueDateController({} as never,app as never,{} as never);
   await controller.manualCreate(input,{user:{sub:id,displayName:'Real authenticated operator',permissions:actor.permissions},requestId:'http-request'} as never);
   expect(app.manualCreate).toHaveBeenCalledWith(input,expect.objectContaining({userId:id,username:'Real authenticated operator',isSystemAdmin:false,source:'web'}));
  });
