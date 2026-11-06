@@ -239,3 +239,11 @@ describe("equipment dashboard detail and export boundaries", () => {
     await expect(q.dashboard({}, { ...actor, permissions: ["equipment-dashboard:*:read"] }, "export")).rejects.toThrow("权限"); expect(ds.query).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('dashboard dimension aliases follow formal organization field permissions',()=>{
+ const payload=()=>({metrics:{recorded:8},divisionRows:[{divisionId:'d1',division:'事业一部',equipmentCount:10}],departmentRows:[{divisionId:'d1',division:'事业一部',departmentId:'dep1',department:'五金车间',equipmentCount:10}],operationsMonitoring:{yesterdayDivisionRows:[{divisionId:'d1',division:'事业一部',reportingRate:80}],yesterdayDepartmentRows:[{divisionId:'d1',division:'事业一部',departmentId:'dep1',department:'五金车间',reportingRate:80}],sevenDayTrend:{total:[],divisions:[]}},filters:{divisions:[],departments:[]}});
+ const actor=(permissions:string[])=>({tenantId:'SYNTHETIC',userId:null,username:'合成用户',permissions,tableDataScopes:[{resource:'equipment-dashboard',scope:'ALL'}],requestId:'synthetic'});
+ it('keeps real organization names and every statistic for authorized identities',async()=>{const data=payload(),service=new EquipmentQueryService({query:jest.fn().mockResolvedValue([{payload:structuredClone(data)}])} as never);expect(await service.dashboard({periodType:'custom',startDate:'2026-11-05',endDate:'2026-11-05'},actor(['equipment-dashboard:*:read','equipment-dashboard:divisionId:read','equipment-dashboard:departmentId:read']))).toEqual(data);});
+ it('does not return name aliases or identity IDs when their formal fields are unreadable',async()=>{const service=new EquipmentQueryService({query:jest.fn().mockResolvedValue([{payload:payload()}])} as never);const result=await service.dashboard({periodType:'custom',startDate:'2026-11-05',endDate:'2026-11-05'},actor(['equipment-dashboard:*:read']));expect(result.operationsMonitoring.yesterdayDepartmentRows).toEqual([{reportingRate:80}]);expect(result.divisionRows).toEqual([{equipmentCount:10}]);expect(result.metrics).toEqual({recorded:8});});
+});

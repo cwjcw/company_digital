@@ -146,4 +146,8 @@ describe("equipment dashboard XLSX exports", () => {
     await expect(service.dashboardExport("unreported", {}, administrator)).rejects.toThrow("没有可导出字段");
     await expect(service.dashboardExport("constructor", {}, administrator)).rejects.toThrow("不支持"); expect(application.recordDashboardExport).not.toHaveBeenCalled();
   });
+  it.each(['division_reporting','department_reporting'])('exports actual organization names for %s using identity-field permission keys',async table=>{
+    const {service,queries}=setup();const result=await service.dashboardExport(table,{},administrator);const book=new ExcelJS.Workbook();await book.xlsx.load(result.buffer as any);const sheet=book.worksheets[0]!;expect(sheet.getCell('A1').value).toBe('所属事业部');expect(sheet.getCell('A2').value).toBe('事业四部');expect(queries.dashboardFieldReadable).toHaveBeenCalledWith(administrator,'divisionId');if(table==='department_reporting'){expect(sheet.getCell('B1').value).toBe('使用部门/车间');expect(sheet.getCell('B2').value).toBe('五金车间');expect(queries.dashboardFieldReadable).toHaveBeenCalledWith(administrator,'departmentId');}
+  });
+
 });

@@ -10544,3 +10544,48 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 最终报告：本节及会话交付摘要；源代码上线SHA=6969382bad2ae4cf03fe19c53fefb285601934a7。
 - 测试：财务单元15/15；本地Chrome4/4、生产前端Chrome隔离4/4、生产真实管理员正常登录及双权限页导航/返回/金额/图表/筛选/刷新通过；Web typecheck/lint/build通过。
 - 生产业务图和证据仅在gitignored test/finance_dashboard_permission（目录0700、真实截图0600）；不提交真实财务内容、口令或Token。最终文档提交不重新部署无变化的代码。
+
+
+## 设备总台账编辑与集团设备大屏维度修复（2026-11-06）
+
+### 任务与当前阶段
+- 目标：公共编辑模式真实可用；大屏事业部/部门展示字段与metadata/字段权限一致；定向验证、隔离发布及真实生产Chrome验收。
+- 当前状态：生产验收已完成；阶段为仅本地源码汇总提交中；最后更新时间2026-11-06（Asia/Shanghai）。主恢复入口继续本文件。
+- 用户明确允许本地commit/正式部署，禁止push GitHub。保留此前260行未提交进度及两张财务截图、订单清理进度，不夹带到提交。
+
+### 已完成
+- [x] 读取附件、AGENTS、平台/验证/删除/任务Skill和相关架构；核对当前main与真实生产版本。
+- [x] 生产API eeaac326、Web755f6db；当前main392007b包含尚未部署的主计划118～122，设备发布不能整批带入。
+- [x] Git证据：设备旧openEdit(row)自e0ea011仍存在；fbdad100增加正式metadata读取白名单，把无metadata的操作列过滤；设备未传editable，所以新入口未出现。
+- [x] 大屏division/department展示键与Registry divisionId/departmentId及标签不一致，被同一过滤排除。
+
+### 下一步
+1. 仅汇总本任务15文件的本地提交，定向暂存本进度新增章节，保留先前260行未提交内容；不push GitHub。
+2. 本轮功能已上线，提交及完成记录后停止。
+
+### 修改文件 / Migration / 测试
+- 已实现：公共编辑模式＋真实字段编辑器、单字段PATCH、expectedVersion/权限/旧新scope/审计/失败回滚，设备编号只读；姓名显示列通过公共permissionField绑定组织ID metadata，保留原列key/排序/个人设置。
+- API8套98项（真实PG6项）、Web共享29项＋设备最终9项（含3项显式映射/旧布局保留）及Contracts27项PASS；类型/lint/build已通过（既有warning）。原设备Web16项10PASS/6FAIL，与上一轮基线6个失败标题完全相同；无新增失败，未删测试或放宽断言。
+- API补齐部分更新/字段read+update/旧新scope/不可变编号，读取返回canUpdate并裁剪字段；审计加入tenant与成员快照，成员未变时保留关系ID。无Migration。
+- main开发基准392007b；API隔离基准eeaac326、Web基准755f6db，设备原文件与main原始版本SHA逐个一致后复制本次限定修改；不带入主计划118～122。
+- 真实生产Chrome上线前：共享编辑按钮0；API有5事业部/22部门，但两表表头缺维度；无JS异常、没有转发设备写请求。原件仅ignored test/equipment-register-dashboard-fix。
+- 只读核实生产118～122均未执行，equipmentCode旧update授权0条，未修改任何权限组。
+
+### 已知问题 / 等待确认
+- 无需用户确认；先确认现有后端字段更新及行scope是否已满足安全编辑，存在缺口则最小补齐。
+- 真实生产不写合成业务记录；写入验收使用隔离数据，生产Chrome可拦截写请求验证payload/错误。
+
+### 恢复说明
+读取AGENTS、相关Skill、本节和git status/diff，从下一步首项继续；先前其它进度不删除、不重复提交。
+
+- 发布前进一步保护：KdosDataTable新增显式permissionField，未知映射拒绝、无读取授权不显示；保留display/key个人配置、宽度和排序，API同步裁剪对应别名。主表编号Registry只读，未新增名称身份字段。
+- 正式两库/uploads备份及归档目录检查、SHA256完成：data/backups/*_20261106_161258.*；未执行Migration。隔离发布基准设备源码逐一与main原文件字节一致，已真实PG复验98项PASS。
+
+- API隔离发布commit6d0c81bf4a0863b18eca5ee4abed8a5ab9b525ec，正式deploy.sh api成功；生产health返回同SHA，API门禁CONSISTENT。Web隔离本地commit040a6f8，正式Web部署进行中。无push、无Migration。
+
+### 最终生产验收（2026-11-06）
+- 设备总台账编辑PASS，事业部名称PASS，部门名称PASS；真实Chrome正式登录、真实页面/API，未捕获JS错误0。
+- 默认readonly，编辑/新增设备/刷新在公共工具栏，编辑后有真实控件，退出回readonly；编号不可编辑。合成修改被浏览器拦截409，原值恢复且无额外退出写请求；生产无变化PATCH真实200，名称/version未变。
+- 5事业部、22部门及两表统计指纹前后完全一致；两个真实Excel下载5/22行，表头和业务名称与页面/API一致。
+- API最终6d0c81bf4a0863b18eca5ee4abed8a5ab9b525ec，Web最终bf78d4e12c8dc57ceb28e439c476c4fe4e57f512；原脚本api/web分别CONSISTENT，4容器healthy。
+- 15项任务文件/根因/Skill/测试/备份/恢复和验收详见docs/operations/EQUIPMENT_REGISTER_DASHBOARD_FIX.md；未push GitHub，没有Migration或生产业务数据修复。

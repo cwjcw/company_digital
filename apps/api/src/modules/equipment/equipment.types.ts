@@ -119,3 +119,13 @@ export function equipmentScopeClause(actor: EquipmentActor, resource: string, ac
   }
   return clauses.length ? `(${clauses.join(" OR ")})` : "1=0";
 }
+
+
+/** Shared row eligibility for list capabilities and the formal write command. */
+export function equipmentRecordAllowed(actor:EquipmentActor,resource:string,action:string,divisionId:string,createdBy:string|null|undefined){
+  const scope=equipmentScope(actor,resource,action);
+  return scope.unrestricted||scope.divisionIds.includes(divisionId)||!!(scope.own&&actor.userId&&createdBy===actor.userId)||(action==='create'&&equipmentCreateAllowed(actor,resource,divisionId));
+}
+export function hasEquipmentFieldPermission(actor:EquipmentActor,resource:string,field:string,action:'read'|'update'){
+  return actor.isSystemAdmin===true||actor.permissions.includes('*')||actor.moduleAdminCodes?.includes('planning')===true||actor.permissions.includes(`${resource}:${field}:${action}`);
+}

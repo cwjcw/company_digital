@@ -5,9 +5,9 @@ import {
   AuditLog, DictionaryType, DictionaryValue, EquipmentAsset, EquipmentResponsible,
   EquipmentStatusReport, IdempotencyRecord, OrganizationUnit, User
 } from "../../entities";
-import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentCreateAllowed, equipmentScope, hasEquipmentPermission } from "./equipment.types";
+import { EquipmentActor, EquipmentStatusImportRow, EquipmentStatusImportSourceRow, equipmentCreateAllowed, equipmentScope, equipmentRecordAllowed, hasEquipmentFieldPermission, hasEquipmentPermission } from "./equipment.types";
 import { NotificationService } from "../notifications/notification.service";
-import { EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS } from "@kdos/contracts";
+import { tablePermissionFieldsFor, EQUIPMENT_STATUS_REPORT_DATE_WINDOW_DAYS } from "@kdos/contracts";
 
 type AssetInput = {
   divisionId: string;
@@ -41,7 +41,33 @@ export class EquipmentApplicationService {
 
   async updateAsset(id: string, input: Partial<AssetInput> & { expectedVersion?: number }, actor: EquipmentActor) {
     this.assert(actor, "equipment-register", "update");
-    return this.dataSource.transaction((manager) => this.saveAsset(manager, id, input as AssetInput, actor));
+    if(!input||typeof input!=="object"||Array.isArray(input))throw new BadRequestException("设备更新内容无效");
+    this.assert(actor,"equipment-register","read");
+    return this.dataSource.transaction(async manager=>{
+      const current=await manager.createQueryBuilder(EquipmentAsset,'asset').setLock('pessimistic_write').where('asset.id=:id AND asset.tenantId=:tenantId',{id,tenantId:actor.tenantId}).getOne();
+      if(!current)throw new NotFoundException('设备不存在');
+      this.assertRecordAccess(actor,'equipment-register','read',current.divisionOrganizationUnitId,current.createdBy);
+      this.assertRecordAccess(actor,'equipment-register','update',current.divisionOrganizationUnitId,current.createdBy);
+      if(!current.active)throw new ConflictException('设备已停用，不能通过编辑恢复');
+      if(!Number.isSafeInteger(input.expectedVersion)||current.version!==input.expectedVersion)throw new ConflictException('设备已被其他人修改，请刷新后重试');
+      const responsible=await manager.find(EquipmentResponsible,{where:{tenantId:actor.tenantId,equipmentId:current.id}});
+      const previous:AssetInput={divisionId:current.divisionOrganizationUnitId,usageDepartmentId:current.usageDepartmentOrganizationUnitId,equipmentCode:current.equipmentCode,equipmentName:current.equipmentName,purchaseDate:current.purchaseDate,plannedStartupMinutes:current.plannedStartupMinutes,monitored:current.monitored,responsibleUserIds:responsible.map(r=>r.userId)};
+      const definition=tablePermissionFieldsFor('equipment-register');
+      const canonical=(value:unknown)=>JSON.stringify(Array.isArray(value)?[...value].sort():value??null);
+      let changed=false;
+      for(const [key,value]of Object.entries(input)){
+        if(key==='expectedVersion')continue;
+        const field=definition.find(f=>f.key===key);if(!field)throw new BadRequestException('不允许更新的设备字段：'+key);
+        if(canonical(previous[key as keyof AssetInput])===canonical(value))continue;
+        if(key==='equipmentCode'||!field.editable)throw new ForbiddenException('设备编号等身份或系统字段不可修改');
+        if(!hasEquipmentFieldPermission(actor,'equipment-register',key,'read')||!hasEquipmentFieldPermission(actor,'equipment-register',key,'update'))throw new ForbiddenException('没有设备字段修改权限：'+field.label);
+        if(key==='monitored'&&typeof value!=='boolean'||key==='plannedStartupMinutes'&&(!Number.isSafeInteger(value)||Number(value)<0)||key==='responsibleUserIds'&&(!Array.isArray(value)||value.some(id=>typeof id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))))throw new BadRequestException('设备字段值类型无效：'+field.label);
+        changed=true;
+      }
+      if(!changed)return {id:current.id,version:current.version};
+      const merged={...previous,...input};if(!Object.hasOwn(input,'responsibleUserIds')||canonical(previous.responsibleUserIds)===canonical(input.responsibleUserIds))delete merged.responsibleUserIds;
+      return this.saveAsset(manager,id,merged as AssetInput,actor);
+    });
   }
 
   async resetAllMonitoring(actor: EquipmentActor) {
@@ -275,10 +301,10 @@ export class EquipmentApplicationService {
     const purchaseDate = this.optionalDate(input.purchaseDate, "购买日期");
     const responsibleUserIds = [...new Set((input.responsibleUserIds ?? []).map(String).filter(Boolean))];
     if (responsibleUserIds.length) {
-      const count = await manager.count(User, { where: { id: In(responsibleUserIds), enabled: true } });
+      const count = await manager.count(User, { where: { id: In(responsibleUserIds), tenantId: actor.tenantId, enabled: true } });
       if (count !== responsibleUserIds.length) throw new BadRequestException("责任人中包含不存在或已停用的成员");
     }
-    let asset: EquipmentAsset; let before: unknown = null;
+    let asset: EquipmentAsset; let before: unknown = null;let priorResponsibleIds:string[]=[];
     if (id) {
       const current = await manager.createQueryBuilder(EquipmentAsset, "asset").setLock("pessimistic_write")
         .where("asset.id=:id AND asset.tenantId=:tenantId", { id, tenantId: actor.tenantId }).getOne();
@@ -286,7 +312,7 @@ export class EquipmentApplicationService {
       this.assertRecordAccess(actor, "equipment-register", "update", current.divisionOrganizationUnitId, current.createdBy);
       if (current.divisionOrganizationUnitId !== division.id) this.assertRecordAccess(actor, "equipment-register", "update", division.id, current.createdBy);
       if (current.version !== Number(input.expectedVersion)) throw new ConflictException("设备已被其他人修改，请刷新后重试");
-      before = this.assetAudit(current); asset = current; asset.version += 1;
+      priorResponsibleIds=(await manager.findBy(EquipmentResponsible,{tenantId:actor.tenantId,equipmentId:id})).map(r=>r.userId);before = {...this.assetAudit(current),responsibleUserIds:priorResponsibleIds}; asset = current; asset.version += 1;
     } else {
       asset = manager.create(EquipmentAsset, { tenantId: actor.tenantId, active: true, createdBy: actor.userId, version: 1 });
     }
@@ -300,14 +326,14 @@ export class EquipmentApplicationService {
     asset.sourceSheetRow = sourceSheetRow ?? asset.sourceSheetRow ?? null; asset.updatedBy = actor.userId ?? actor.username;
     try { asset = await manager.save(EquipmentAsset, asset); }
     catch (error: any) { if (String(error?.code) === "23505") throw new ConflictException("该事业部已经存在相同设备编号"); throw error; }
-    if (input.responsibleUserIds !== undefined) {
+    if (input.responsibleUserIds !== undefined && JSON.stringify([...responsibleUserIds].sort())!==JSON.stringify([...priorResponsibleIds].sort())) {
       await manager.delete(EquipmentResponsible, { tenantId: actor.tenantId, equipmentId: asset.id });
       for (const userId of responsibleUserIds) await manager.save(EquipmentResponsible, {
         tenantId: actor.tenantId, equipmentId: asset.id, userId, createdBy: actor.userId,
         updatedBy: actor.userId ?? actor.username, version: 1
       });
     }
-    if (audit) await this.audit(manager, actor, "equipment-register", asset.id, id ? "equipment.asset.updated" : "equipment.asset.created", before, this.assetAudit(asset));
+    if (audit) await this.audit(manager, actor, "equipment-register", asset.id, id ? "equipment.asset.updated" : "equipment.asset.created", before, {...this.assetAudit(asset),responsibleUserIds:input.responsibleUserIds===undefined?priorResponsibleIds:responsibleUserIds});
     return { id: asset.id, version: asset.version };
   }
 
@@ -386,8 +412,7 @@ export class EquipmentApplicationService {
 
   private assertRecordAccess(actor: EquipmentActor, resource: string, action: string, divisionId: string, createdBy: string | null | undefined) {
     const scope = equipmentScope(actor, resource, action);
-    if (scope.unrestricted || scope.divisionIds.includes(divisionId)) return;
-    if (scope.own && actor.userId && createdBy === actor.userId) return;
+    if (equipmentRecordAllowed(actor,resource,action,divisionId,createdBy)) return;
     /* KN-EQUIP-001：新增走平台唯一 create 范围（候选/保存/导入同源），非新增仍按记录级范围判定。 */
     if (action === "create" && equipmentCreateAllowed(actor, resource, divisionId)) return;
     throw new ForbiddenException(scope.own ? "只能管理本人创建的数据" : "超出事业部数据范围");
@@ -426,6 +451,6 @@ export class EquipmentApplicationService {
   private assetAudit(asset: EquipmentAsset) { return { divisionId: asset.divisionOrganizationUnitId, usageDepartmentId: asset.usageDepartmentOrganizationUnitId, equipmentCode: asset.equipmentCode, equipmentName: asset.equipmentName, purchaseDate: asset.purchaseDate, plannedStartupMinutes: asset.plannedStartupMinutes, monitored: asset.monitored, active: asset.active, version: asset.version }; }
   private statusAudit(report: EquipmentStatusReport) { return { equipmentId: report.equipmentId, reportDate: report.reportDate, plannedRuntimeMinutes: report.plannedRuntimeMinutes, runtimeMinutes: report.runtimeMinutes, faultMinutes: report.faultMinutes, faultReason: report.faultReason, active: report.active, version: report.version }; }
   private audit(manager: EntityManager, actor: EquipmentActor, resource: string, recordId: string | null, action: string, beforeJson: unknown, afterJson: unknown) {
-    return manager.save(AuditLog, { actorId: actor.userId, actorName: actor.username, resource, recordId, action, beforeJson, afterJson, requestId: actor.requestId, source: actor.source ?? "web", updatedBy: actor.userId ?? actor.username });
+    return manager.save(AuditLog, { tenantId:actor.tenantId,createdBy:actor.userId,actorId: actor.userId, actorName: actor.username, resource, recordId, action, beforeJson, afterJson, requestId: actor.requestId, source: actor.source ?? "web", updatedBy: actor.userId ?? actor.username });
   }
 }

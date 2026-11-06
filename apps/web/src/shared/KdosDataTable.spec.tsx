@@ -492,4 +492,18 @@ describe("KdosDataTable server pagination", () => {
     </QueryClientProvider>);
     await waitFor(() => expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument());
   });
+  it('display aliases bind registered permission fields without changing saved layout keys or widths',async()=>{
+    savedPreferences.set(prefKey('equipment-register',undefined,'DISPLAY'),{version:1,visibleFieldKeys:['divisionName','equipmentCode'],orderedFieldKeys:['divisionName','equipmentCode'],columnWidths:{divisionName:232},pinnedFieldKeys:[]});
+    localStorage.setItem('sessionUser',JSON.stringify({sub:'table-user',permissions:['equipment-register:*:read','equipment-register:divisionId:read','equipment-register:equipmentCode:read']}));
+    const client=new QueryClient({defaultOptions:{queries:{retry:false}}});const view=render(<QueryClientProvider client={client}><KdosDataTable resource="equipment-register" columns={[{title:'所属事业部',key:'divisionName',dataIndex:'divisionName',permissionField:'divisionId'},{title:'设备编号',dataIndex:'equipmentCode'}]} dataSource={[{id:'1',divisionId:'SYN-UUID',divisionName:'合成事业部名称',equipmentCode:'SYN-CODE'}]}/></QueryClientProvider>);
+    await screen.findByText('合成事业部名称');expect(screen.queryByText('SYN-UUID')).toBeNull();expect(view.container.querySelector('th[data-kdos-column-key="divisionName"]')).toHaveAttribute('data-kdos-column-width','232');expect(savedPreferences.get(prefKey('equipment-register',undefined,'DISPLAY'))).toMatchObject({visibleFieldKeys:['divisionName','equipmentCode'],columnWidths:{divisionName:232}});expect(vi.mocked(api).mock.calls.some(([,o])=>o?.method==='PUT')).toBe(false);
+  });
+  it('an unknown explicit permission field fails closed even when its title matches a readable registered field',()=>{
+    render(<QueryClientProvider client={new QueryClient()}><KdosDataTable resource="equipment-register" simple columns={[{title:'事业部',dataIndex:'alias',permissionField:'notRegistered'}]} dataSource={[{id:'1',alias:'不得泄露的名称'}]}/></QueryClientProvider>);expect(screen.queryByText('不得泄露的名称')).toBeNull();
+  });
+  it('nested display aliases cannot borrow read permission from their dataIndex instead of the bound identity',()=>{
+    localStorage.setItem('sessionUser',JSON.stringify({permissions:['equipment-register:*:read','equipment-register:equipmentName:read']}));
+    render(<QueryClientProvider client={new QueryClient()}><KdosDataTable resource="equipment-register" simple columns={[{title:'组织',children:[{title:'事业部',dataIndex:'equipmentName',permissionField:'divisionId'}]}]} dataSource={[{id:'1',equipmentName:'不得借用其他字段授权'}]}/></QueryClientProvider>);expect(screen.queryByText('不得借用其他字段授权')).toBeNull();
+  });
+
 });

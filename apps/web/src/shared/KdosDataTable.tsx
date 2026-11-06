@@ -17,6 +17,15 @@ import { describeTablePreferenceError, retryTablePreferenceMigration, saveTableP
 import type { AdvancedFilterGroup as DetailFilterGroup } from "./advanced-filter";
 
 type DataRecord = Record<string, any>;
+/** Keep display/personal-layout keys stable while authorizing through a registered field. */
+export type KdosDataColumn<RecordType> = ColumnType<RecordType> & {permissionField?:string;children?:KdosDataColumn<RecordType>[]};
+function columnMetadata(definitions:TablePermissionFieldDefinition[],key:string,label:unknown,permissionField?:string){
+  // Explicit mappings never fall back to a readable label when the key is invalid.
+  if(permissionField!==undefined)return definitions.find(f=>f.key===permissionField);
+  const exact=definitions.find(f=>f.key===key);if(exact)return exact;
+  const matches=definitions.filter(f=>f.label===label);return matches.length===1?matches[0]:undefined;
+}
+
 
 type TableEditState = { editing: boolean; canEdit: boolean };
 const KdosTableEditContext = createContext<TableEditState>({ editing: false, canEdit: false });
@@ -202,12 +211,12 @@ function decorate<RecordType extends DataRecord>(columns: ColumnsType<RecordType
   });
 }
 
-function flatten<RecordType>(columns: ColumnsType<RecordType>): Array<{ key: string; label: string }> {
+function flatten<RecordType>(columns: ColumnsType<RecordType>): Array<{ key: string; label: string;permissionField?:string }> {
   return columns.flatMap((raw) => {
-    const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
+    const column = raw as KdosDataColumn<RecordType>;
     if (column.children?.length) return flatten(column.children);
     const key = columnKey(column);
-    return key && !key.startsWith("__") ? [{ key, label: typeof column.title === "string" ? column.title : key }] : [];
+    return key && !key.startsWith("__") ? [{ key, label: typeof column.title === "string" ? column.title : key,permissionField:column.permissionField }] : [];
   });
 }
 
@@ -277,7 +286,7 @@ export function KdosTableQuickSearch({ search, onSearchChange, searchPlaceholder
 export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<RecordType>, "columns" | "dataSource"> & {
   exportFilename?: () => string;
   resource: string;
-  columns: ColumnsType<RecordType>;
+  columns: KdosDataColumn<RecordType>[];
   dataSource?: readonly RecordType[];
   /** Visual density; standard business tables use compact by default, special views may opt into default. */
   density?: KdosTableDensity;
@@ -565,15 +574,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
       return JSON.stringify([session.permissions ?? [], session.isSystemAdmin === true, session.moduleAdminCodes ?? []]);
     } catch { return ""; }
   })();
-  const fieldMetadataByLabel = useMemo(() => {
-    const labels = new Map<string, TablePermissionFieldDefinition[]>();
-    for (const field of resolvedFilterFields) labels.set(field.label, [...(labels.get(field.label) ?? []), field]);
-    return new Map([...labels].filter(([, items]) => items.length === 1).map(([label, items]) => [label, items[0]!]));
-  }, [resolvedFilterFields]);
   const availableFieldKeys = useMemo(() => fields.map((field) => {
-    const metadata = resolvedFilterFields.find((candidate) => candidate.key === field.key) ?? fieldMetadataByLabel.get(field.label);
+    const metadata = columnMetadata(resolvedFilterFields,field.key,field.label,field.permissionField);
     return metadata && hasFieldPermission(resource, metadata.key, "read") ? field.key : null;
-  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, fieldPermissionSignature, fieldMetadataByLabel]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
+  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, fieldPermissionSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
   const availableFieldSignature = JSON.stringify(availableFieldKeys);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const columnWidthsRef = useRef(columnWidths);
@@ -677,17 +681,11 @@ export function KdosDataTable<RecordType extends DataRecord>({
   };
   const visible = useMemo(() => new Set(effectiveVisible), [effectiveVisible]);
   const renderedColumns = useMemo(() => {
-    const metadata = new Map(resolvedFilterFields.map((field) => [field.key, field]));
-    const metadataByLabel = new Map<string, TablePermissionFieldDefinition>();
-    for (const field of resolvedFilterFields) {
-      if (metadataByLabel.has(field.label)) metadataByLabel.delete(field.label);
-      else metadataByLabel.set(field.label, field);
-    }
     const wrap = (items: ColumnsType<RecordType>): ColumnsType<RecordType> => items.map((raw) => {
-      const column = raw as ColumnType<RecordType> & { children?: ColumnsType<RecordType> };
+      const column = raw as KdosDataColumn<RecordType>;
       if (column.children?.length) return { ...column, children: wrap(column.children) };
       const key = columnKey(column);
-      const field = metadata.get(key) ?? (typeof column.title === "string" ? metadataByLabel.get(column.title) : undefined);
+      const field = columnMetadata(resolvedFilterFields,key,column.title,column.permissionField);
       const resizable = Boolean(key && !key.startsWith("__") && column.dataIndex != null);
       const explicitWidth = numericWidth(column.width);
       const explicitMinWidth = numericWidth(column.minWidth);

@@ -3,7 +3,7 @@ import { DataSource } from "typeorm";
 import { tablePermissionFieldsFor } from "@kdos/contracts";
 import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
 import { normalizeKdosPageSize } from "../../common/pagination";
-import { EquipmentActor, equipmentCreateScopeClause, equipmentScopeClause, hasEquipmentPermission } from "./equipment.types";
+import { EquipmentActor, equipmentCreateScopeClause, equipmentScopeClause, equipmentRecordAllowed, hasEquipmentFieldPermission, hasEquipmentPermission } from "./equipment.types";
 
 type PageInput = {
   page?: number; pageSize?: number; search?: string; divisionId?: string; equipmentId?: string;
@@ -64,7 +64,9 @@ export class EquipmentQueryService {
       ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
-    return { rows, total: Number(count), page, pageSize };
+    const fields=new Set(tablePermissionFieldsFor('equipment-register').filter(f=>hasEquipmentFieldPermission(actor,'equipment-register',f.key,'read')).map(f=>f.key));
+    const aliases:Record<string,string>={divisionName:'divisionId',usageDepartmentName:'usageDepartmentId',responsibleUsers:'responsibleUserIds'};
+    return {rows:rows.map((row:Record<string,any>)=>({...Object.fromEntries(Object.entries(row).filter(([key])=>['id','version'].includes(key)||fields.has(aliases[key]??key))),canUpdate:hasEquipmentPermission(actor,'equipment-register','update')&&equipmentRecordAllowed(actor,'equipment-register','update',row.divisionId,row.createdBy),canDelete:hasEquipmentPermission(actor,'equipment-register','delete')&&equipmentRecordAllowed(actor,'equipment-register','delete',row.divisionId,row.createdBy)})),total:Number(count),page,pageSize};
   }
 
   async listStatus(input: PageInput, actor: EquipmentActor) {
@@ -466,6 +468,13 @@ export class EquipmentQueryService {
         Object.entries(row).filter(([key]) => key === "equipmentId" || this.dashboardFieldReadable(actor, fields[key] ?? key))
       ));
     }
+    const divisionReadable=this.dashboardFieldReadable(actor,'divisionId'),departmentReadable=this.dashboardFieldReadable(actor,'departmentId');
+    for(const rows of [result.divisionRows,result.departmentRows,result.equipmentRows,result.operationsMonitoring?.yesterdayDivisionRows,result.operationsMonitoring?.yesterdayDepartmentRows])for(const row of rows??[]){
+      if(!divisionReadable){delete row.division;delete row.divisionId;}
+      if(!departmentReadable){delete row.department;delete row.departmentId;}
+    }
+    if(!divisionReadable){if(result.filters)result.filters.divisions=[];if(result.operationsMonitoring?.sevenDayTrend)result.operationsMonitoring.sevenDayTrend.divisions=[];}
+    if(!departmentReadable&&result.filters)result.filters.departments=[];
     return result;
   }
 

@@ -1,3 +1,4 @@
+import {EquipmentRegisterCell} from './EquipmentRegisterCell';
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DownloadOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
@@ -23,7 +24,7 @@ type EquipmentAsset = {
   usageDepartmentName: string; equipmentCode: string; equipmentName: string; purchaseDate: string | null;
   plannedStartupMinutes: number;
   monitored: boolean; responsibleUserIds: string[]; responsibleUsers: Array<{ id: string; displayName: string }>;
-  version: number; createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
+  version: number; canUpdate?: boolean; createdBy?: string; createdAt?: string; updatedBy?: string; updatedAt?: string;
 };
 type EquipmentStatus = {
   id: string; equipmentId: string; equipmentCode: string; equipmentName: string; divisionId: string;
@@ -123,6 +124,7 @@ function useEquipmentOptions(kind: "asset" | "status", enabled: boolean) {
 
 export function EquipmentRegisterPage() {
   const queryClient = useQueryClient();
+  const pendingRows=useRef(new Set<string>()),[busyRows,setBusyRows]=useState<Set<string>>(new Set()),[cellError,setCellError]=useState<string|null>(null);
   const [tableQuery, setTableQuery] = useState<TableQuery>(blankQuery);
   const [editing, setEditing] = useState<EquipmentAsset>();
   const [open, setOpen] = useState(false);
@@ -145,15 +147,6 @@ export function EquipmentRegisterPage() {
   const openCreate = () => {
     setEditing(undefined); form.resetFields(); form.setFieldsValue({ plannedStartupHours: 0, plannedStartupMinutePart: 0, monitored: false, responsibleUserIds: [] }); setOpen(true);
   };
-  const openEdit = (row: EquipmentAsset) => {
-    const plannedStartup = Number(row.plannedStartupMinutes ?? 0);
-    setEditing(row); form.setFieldsValue({
-      divisionId: row.divisionId, usageDepartmentId: row.usageDepartmentId, equipmentCode: row.equipmentCode,
-      equipmentName: row.equipmentName, purchaseDate: row.purchaseDate ? dayjs(row.purchaseDate) : null,
-      plannedStartupHours: Math.floor(plannedStartup / 60), plannedStartupMinutePart: plannedStartup % 60,
-      monitored: row.monitored, responsibleUserIds: row.responsibleUserIds ?? []
-    }); setOpen(true);
-  };
   const save = async () => {
     try {
       const values = await form.validateFields(); setSaving(true);
@@ -170,24 +163,33 @@ export function EquipmentRegisterPage() {
       if (!Array.isArray(error?.errorFields)) message.error(errorText(error));
     } finally { setSaving(false); }
   };
+  const saveCell=async(row:EquipmentAsset,key:string,value:unknown)=>{
+    if(pendingRows.current.has(row.id))throw new Error('该设备正在保存，请稍后重试');
+    pendingRows.current.add(row.id);setBusyRows(new Set(pendingRows.current));setCellError(null);
+    try{
+      const result=await api<{id:string;version:number}>(`/equipment/assets/${row.id}`,{method:'PATCH',body:JSON.stringify({[key]:value,expectedVersion:row.version})});
+      queryClient.setQueriesData<PageResult<EquipmentAsset>>({queryKey:['equipment-assets']},old=>old?{...old,rows:old.rows.map(r=>r.id===row.id?{...r,[key]:value,version:result.version}:r)}:old);
+      const refreshed=await records.refetch();if(refreshed.isError)setCellError(`设备${row.equipmentCode}已保存，列表刷新失败，请刷新数据后继续。`);
+      void queryClient.invalidateQueries({queryKey:['equipment-options']});void queryClient.invalidateQueries({queryKey:['equipment-dashboard']});
+    }catch(e){setCellError(`设备${row.equipmentCode}：${errorText(e)}`);throw e;}finally{pendingRows.current.delete(row.id);setBusyRows(new Set(pendingRows.current));}
+  };
+  const cell=(key:string,display:(row:EquipmentAsset)=>React.ReactNode)=>(_value:unknown,row:EquipmentAsset)=><EquipmentRegisterCell row={row} fieldKey={key} display={display(row)} busy={busyRows.has(row.id)} onSave={(k,v)=>saveCell(row,k,v)} organizations={key==='divisionId'?divisionOptions:organizationOptions} members={memberOptions}/>;
   const columns: any[] = [
-    { title: "事业部", dataIndex: "divisionName", width: 110, fixed: "left" },
-    { title: "使用部门", dataIndex: "usageDepartmentName", width: 130 },
+    { title: "事业部", permissionField:"divisionId", dataIndex: "divisionName", width: 150, fixed: "left",render:cell("divisionId",row=>row.divisionName) },
+    { title: "使用部门", permissionField:"usageDepartmentId", dataIndex: "usageDepartmentName", width: 170,render:cell("usageDepartmentId",row=>row.usageDepartmentName||"—") },
     { title: "设备编号", dataIndex: "equipmentCode", width: 150, fixed: "left" },
-    { title: "设备名称", dataIndex: "equipmentName", width: 220 },
-    { title: "购买日期", dataIndex: "purchaseDate", width: 115, render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD") : "—" },
-    { title: "设备计划开机时间", dataIndex: "plannedStartupMinutes", width: 170, render: durationText },
-    { title: "状态填报", dataIndex: "monitored", width: 110, render: (value: boolean) => <Tag color={value ? "green" : "default"}>{value ? "需要填报" : "无需填报"}</Tag> },
-    { title: "责任人（可多选）", dataIndex: "responsibleUserIds", width: 240, render: (_ids: string[], row: EquipmentAsset) => row.responsibleUsers?.length ? row.responsibleUsers.map((user) => <Tag key={user.id}>{user.displayName}</Tag>) : <Typography.Text type="warning">未指定</Typography.Text> },
-    ...(canUpdate ? [{ title: "操作", key: "actions", width: 90, fixed: "right", render: (_: unknown, row: EquipmentAsset) => <Space>
-      {canUpdate && <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>}
-    </Space> }] : [])
+    { title: "设备名称", dataIndex: "equipmentName", width: 220,render:cell("equipmentName",row=>row.equipmentName) },
+    { title: "购买日期", dataIndex: "purchaseDate", width: 115, render:cell("purchaseDate",row=>row.purchaseDate?dayjs(row.purchaseDate).format("YYYY-MM-DD"):"—") },
+    { title: "设备计划开机时间", dataIndex: "plannedStartupMinutes", width: 170, render:cell("plannedStartupMinutes",row=>durationText(row.plannedStartupMinutes)) },
+    { title: "状态填报", dataIndex: "monitored", width: 110, render:cell("monitored",row=><Tag color={row.monitored?"green":"default"}>{row.monitored?"需要填报":"无需填报"}</Tag>) },
+    { title: "责任人（可多选）", dataIndex: "responsibleUserIds", width: 240, render:cell("responsibleUserIds",row=>row.responsibleUsers?.length?row.responsibleUsers.map(user=><Tag key={user.id}>{user.displayName}</Tag>):<Typography.Text type="warning">未指定</Typography.Text>) },
+
   ];
 
   return <div>
-    <PageHeader title="设备总台账"
-      actions={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} />
-    <KdosDataTable resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
+    <PageHeader title="设备总台账" />
+    {cellError&&<Alert type="error" showIcon message={cellError} action={<Button size="small" onClick={()=>void refresh()}>刷新数据</Button>}/>}
+    <KdosDataTable editable={canUpdate} toolbar={<Space>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增设备</Button>}<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button></Space>} resource="equipment-register" rowKey="id" columns={columns} dataSource={records.data?.rows}
       deleteAction={canDelete ? {
         permitted: true,
         label: "停用",
@@ -622,7 +624,7 @@ export function EquipmentDashboardPage() {
       <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}事业部填报与稼动情况`} extra={exportButton("division_reporting", monitoring?.yesterdayDivisionRows.length ?? 0)}>
         <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey="divisionId" dataSource={monitoring?.yesterdayDivisionRows ?? []} columns={[
-            { title: "所属事业部", dataIndex: "division", width: 110, render: dashboardDivisionName },
+            { title: "所属事业部", permissionField:"divisionId", dataIndex: "division", width: 110, render: dashboardDivisionName },
             { title: "应填设备", dataIndex: "expectedEquipmentCount", width: 85, align: "center" }, { title: "已填设备", dataIndex: "filledEquipmentCount", width: 85, align: "center" },
             { title: "未填设备", dataIndex: "unfilledEquipmentCount", width: 85, align: "center" }, { title: "填报率", dataIndex: "reportingRate", width: 100, align: "center", render: reportingRateCell },
             { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 125, align: "right", render: durationText },
@@ -633,8 +635,8 @@ export function EquipmentDashboardPage() {
       <Card className="equipment-monitoring-inner-card" title={`${monitoringDateLabel}部门填报与稼动情况`} extra={exportButton("department_reporting", monitoring?.yesterdayDepartmentRows.length ?? 0)}>
         <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
           rowKey={(row) => `${row.divisionId}-${row.departmentId ?? row.department}`} dataSource={monitoring?.yesterdayDepartmentRows ?? []} columns={[
-            { title: "所属事业部", dataIndex: "division", width: 105, render: dashboardDivisionName },
-            { title: "使用部门/车间", dataIndex: "department", width: 140 },
+            { title: "所属事业部", permissionField:"divisionId", dataIndex: "division", width: 105, render: dashboardDivisionName },
+            { title: "使用部门/车间", permissionField:"departmentId", dataIndex: "department", width: 140 },
             { title: "应填设备", dataIndex: "expectedEquipmentCount", width: 80, align: "center" }, { title: "已填设备", dataIndex: "filledEquipmentCount", width: 80, align: "center" },
             { title: "未填设备", dataIndex: "unfilledEquipmentCount", width: 80, align: "center" }, { title: "填报率", dataIndex: "reportingRate", width: 95, align: "center", render: reportingRateCell },
             { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 120, align: "right", render: durationText },
@@ -673,7 +675,7 @@ export function EquipmentDashboardPage() {
     </div>
     <Card className="equipment-analysis-card" title="按事业部设备运行分析" loading={dashboard.isLoading} extra={exportButton("division_operation", data?.divisionRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false} rowKey="division" dataSource={data?.divisionRows} scroll={{ x: 1300 }} columns={[
-        { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
+        { title: "事业部", permissionField:"divisionId", dataIndex: "division", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
         { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
         { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
         { title: "未运行", dataIndex: "idleCount", width: 90 }, { title: "未填报", dataIndex: "unreportedCount", width: 90 },
@@ -687,7 +689,7 @@ export function EquipmentDashboardPage() {
     <Card className="equipment-analysis-card" title="按车间/使用部门设备运行分析" loading={dashboard.isLoading} extra={exportButton("department_operation", data?.departmentRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey={(row) => `${row.division}-${row.departmentId ?? `unassigned-${row.department}`}`} dataSource={data?.departmentRows} scroll={{ x: 1450 }} columns={[
-          { title: "事业部", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
+          { title: "事业部", permissionField:"divisionId", dataIndex: "division", width: 150, fixed: "left" }, { title: "部门", permissionField:"departmentId", dataIndex: "department", width: 150, fixed: "left" }, { title: "监控设备", dataIndex: "equipmentCount", width: 100 },
           { title: "正常运行", dataIndex: "normalCount", width: 100, render: (value: number) => <Typography.Text type={value ? "success" : undefined}>{value}</Typography.Text> },
           { title: "存在故障", dataIndex: "faultCount", width: 100, render: (value: number) => <Typography.Text type={value ? "danger" : undefined}>{value}</Typography.Text> },
           { title: "未运行", dataIndex: "idleCount", width: 90 }, { title: "未填报", dataIndex: "unreportedCount", width: 90 },
@@ -701,8 +703,8 @@ export function EquipmentDashboardPage() {
     <Card className="equipment-analysis-card" title="设备稼动率明细" loading={dashboard.isLoading} extra={exportButton("utilization_detail", data?.equipmentRows?.length ?? 0)}>
       <KdosDataTable density="default" resource="equipment-dashboard" simple systemFields={false} pagination={false}
         rowKey="equipmentId" dataSource={data?.equipmentRows} scroll={{ x: 1250 }} columns={[
-          { title: "事业部", dataIndex: "division", width: 150, fixed: "left" },
-          { title: "使用部门/车间", dataIndex: "department", width: 170, fixed: "left" },
+          { title: "事业部", permissionField:"divisionId", dataIndex: "division", width: 150, fixed: "left" },
+          { title: "使用部门/车间", permissionField:"departmentId", dataIndex: "department", width: 170, fixed: "left" },
           { title: "设备编号", dataIndex: "equipmentCode", width: 150 }, { title: "设备名称", dataIndex: "equipmentName", width: 220 },
           { title: "计划运行时间", dataIndex: "plannedRuntimeMinutes", width: 150, render: nullableDurationText },
           { title: "实际运行时长", dataIndex: "runtimeMinutes", width: 130, render: durationText },
