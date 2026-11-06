@@ -218,7 +218,28 @@ export class TablePermissionGroupApplicationService {
           const mergedFields = [...new Map([...currentFields, ...(input.fields ?? [])].map(f => [f.fieldKey, f])).values()];
           if (compatibilityChanges.length) await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: `permissions:${role.permissionGroupResource}`, recordId: id, action: "table_permission_group.legacy_fields_restricted", beforeJson: compatibilityChanges.map(c => ({fieldKey:c.fieldKey,...c.before})), afterJson: compatibilityChanges.map(c => ({fieldKey:c.fieldKey,value:c.after})), requestId: actor.requestId, source: "web" });
           role.description = input.description === undefined ? role.description : input.description.trim() || null;
-          afterConfiguration = await this.replaceConfiguration(manager, role, { ...input, resource: role.permissionGroupResource!, groupType: "CUSTOM", actions: input.actions ?? currentActions, fields: mergedFields, dataRules: input.dataRules ?? role.permissionGroupDataRules as RuleInput[], dataMatch: input.dataMatch ?? role.permissionGroupConditionMatch as "ALL" | "ANY", subjects: input.subjects ?? [] } as TablePermissionGroupInput, actor);
+          const actionsOnly = input.actions !== undefined && input.fields === undefined && input.dataRules === undefined && input.dataMatch === undefined && input.description === undefined;
+          if (actionsOnly) {
+            const resource = this.resource(role.permissionGroupResource!);
+            const actions = this.actions({ resource, groupType: "CUSTOM", actions: input.actions });
+            const validatedFields = this.fields(resource, { resource, groupType: "CUSTOM", fields: currentFields }, actions);
+            // Preserve IDs, legal field grants and data scope. Only legacy
+            // invalid grants are tightened; unknown incoming grants still fail.
+            await manager.save(Permission, { ...currentOperation, roleId: id, ...this.permission(resource, "*", actions) });
+            for (const change of compatibilityChanges) {
+              if (!change.after) await manager.delete(Permission, { roleId: id, fieldKey: change.fieldKey });
+              else {
+                const permission = currentPermissions.find(p => p.fieldKey === change.fieldKey)!;
+                await manager.save(Permission, { ...permission, update: false });
+              }
+            }
+            role.updatedBy = actor.userId ?? "system";
+            role.version += 1;
+            await manager.save(Role, role);
+            afterConfiguration = { actions, fields: validatedFields };
+          } else {
+            afterConfiguration = await this.replaceConfiguration(manager, role, { ...input, resource: role.permissionGroupResource!, groupType: "CUSTOM", actions: input.actions ?? currentActions, fields: mergedFields, dataRules: input.dataRules ?? role.permissionGroupDataRules as RuleInput[], dataMatch: input.dataMatch ?? role.permissionGroupConditionMatch as "ALL" | "ANY", subjects: input.subjects ?? [] } as TablePermissionGroupInput, actor);
+          }
         } else { role.updatedBy = actor.userId ?? "system"; role.version += 1; await manager.save(Role, role); }
       } else {
         role.updatedBy = actor.userId ?? "system"; role.version += 1; await manager.save(Role, role);

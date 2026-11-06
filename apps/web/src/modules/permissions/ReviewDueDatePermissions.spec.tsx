@@ -31,5 +31,13 @@ it('clamps legacy disabled edit states, create-only save keeps legal fields and 
  fireEvent.click(screen.getByRole('tab',{name:'操作权限'}));
  const add=screen.getByText('添加',{exact:true});fireEvent.click(within(add.closest('label') as HTMLElement).getByRole('checkbox'));
  fireEvent.click(screen.getByRole('button',{name:'确 定'}));
- await vi.waitFor(()=>expect(vi.mocked(api).mock.calls.some(([,o])=>o?.method==='PATCH')).toBe(true));const body=JSON.parse(String(vi.mocked(api).mock.calls.find(([,o])=>o?.method==='PATCH')![1]!.body));expect(body.actions).not.toContain('create');expect(body.actions).toContain('read');expect(body.fields.find((f:any)=>f.fieldKey==='deliveryNumber')).toEqual({fieldKey:'deliveryNumber',visible:true,editable:false});expect(body.fields.find((f:any)=>f.fieldKey==='plannedQuantity').editable).toBe(true);expect(body.subjects).toEqual(group.subjects);expect(body.version).toBe(7);
+ await vi.waitFor(()=>expect(vi.mocked(api).mock.calls.some(([,o])=>o?.method==='PATCH')).toBe(true));const body=JSON.parse(String(vi.mocked(api).mock.calls.find(([,o])=>o?.method==='PATCH')![1]!.body));expect(body).toEqual({version:7,actions:['read','update']});
+});
+
+it.each(['mps-monthly-plans','mps-base-plans','mps-weekly-plans'])('%s action-only PATCH does not send lifecycleStatus to an older API',async resource=>{
+ const group={id:'synthetic',version:2,displayName:'合成历史组',groupType:'CUSTOM',dataScope:'CUSTOM',dataMatch:'ALL',dataRules:[{fieldKey:'orderNumber',operator:'EQ',value:'SYN'}],enabled:true,subjects:[{type:'USER',id:'synthetic-user'}],permissions:[{fieldKey:'*',read:true,create:true},{fieldKey:'orderNumber',read:true,update:false},{fieldKey:'lifecycleStatus',read:true,update:false}]};
+ vi.mocked(api).mockImplementation(async(path,opts)=>{if(opts?.method==='PATCH'){const body=JSON.parse(String(opts.body));if(body.fields)throw Error('旧API不认识lifecycleStatus');return group as never;}if(path.includes('table-permission-context'))return {roles:[],roleGroups:[],users:[{id:'synthetic-user',displayName:'合成用户',username:'synthetic-user'}],organizations:[]} as never;return [group] as never;});
+ render(<BrowserRouter><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TablePermissionsPage resourceCode={resource}/></QueryClientProvider></BrowserRouter>);
+ fireEvent.click(await screen.findByRole('button',{name:/编辑/}));fireEvent.click(screen.getByRole('tab',{name:'操作权限'}));fireEvent.click(within(screen.getByText('添加',{exact:true}).closest('label') as HTMLElement).getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'确 定'}));
+ await vi.waitFor(()=>expect(vi.mocked(api).mock.calls.some(([,opts])=>opts?.method==='PATCH')).toBe(true));expect(JSON.parse(String(vi.mocked(api).mock.calls.find(([,opts])=>opts?.method==='PATCH')![1]!.body))).toEqual({version:2,actions:['read']});
 });

@@ -79,7 +79,8 @@ describe('shared legacy grant compatibility',()=>{
   it.each(['mps-base-plans','mps-process-reports'])('%s create-only patch keeps legal fields, restricts legacy and records explicit audit',async resource=>{
     const {service,manager}=setup(resource);await service.update('synthetic',{version:3,actions:['read','update']},actor);
     expect(manager.save).toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:resource==='mps-base-plans'?'deliveryNumber':'createdBy',read:true,update:false}));
-    expect(manager.save).toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:resource==='mps-base-plans'?'plannedQuantity':'productionQuantity',read:true,update:true}));
+    expect(manager.save).not.toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:resource==='mps-base-plans'?'plannedQuantity':'productionQuantity'}));
+    expect(manager.delete).not.toHaveBeenCalledWith(Permission,{roleId:'synthetic'});
     expect(manager.save).toHaveBeenCalledWith(AuditLog,expect.objectContaining({action:'table_permission_group.legacy_fields_restricted'}));
     expect(manager.delete).not.toHaveBeenCalledWith(PermissionGroupSubject,expect.anything());
   });

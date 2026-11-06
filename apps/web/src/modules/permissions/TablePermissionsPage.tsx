@@ -131,7 +131,25 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
         }
         const body = { resource: resourceCode, groupType, displayName: groupType === "CUSTOM" || editingGroup ? displayName : undefined, description: groupType === "CUSTOM" ? description : undefined, actions: customActions, fields: fields.map((field) => ({ fieldKey: field.key, visible: Boolean(customFields[field.key]?.visible), editable: Boolean(field.editable && customFields[field.key]?.visible && customFields[field.key]?.editable) })), dataMatch, dataRules: rules, subjects };
         if (editingGroup) {
-          const updated = await api<{ restrictedFieldKeys?: string[] }>(`/admin/table-permission-groups/${editingGroup.id}`, { method: "PATCH", body: JSON.stringify({ ...body, version: editingGroup.version }) });
+          // Send only deliberate changes. A newer Web registry must not submit
+          // every field to an older API when the user only changes an action.
+          const patch: Record<string, unknown> = { version: editingGroup.version };
+          const sameSet = (left: string[], right: string[]) => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+          if (displayName !== editingGroup.displayName) patch.displayName = displayName;
+          if (!sameSet(subjects.map(subjectKey), editingGroup.subjects.map(subjectKey))) patch.subjects = subjects;
+          if (groupType === "CUSTOM") {
+            if (description !== (editingGroup.description ?? "")) patch.description = description;
+            if (!sameSet(customActions, actionsFromPermission(editingGroup.permissions.find(p => p.fieldKey === "*")))) patch.actions = customActions;
+            const changedFields = body.fields.filter(field => {
+              const original = editingGroup.permissions.find(p => p.fieldKey === field.fieldKey);
+              const definition = fields.find(f => f.key === field.fieldKey)!;
+              return field.visible !== Boolean(original?.read) || field.editable !== Boolean(original?.read && original?.update && definition.editable);
+            });
+            if (changedFields.length) patch.fields = changedFields;
+            if (dataMatch !== (editingGroup.dataMatch ?? "ALL")) patch.dataMatch = dataMatch;
+            if (JSON.stringify(rules) !== JSON.stringify(editingGroup.dataRules ?? [])) patch.dataRules = rules;
+          }
+          const updated = await api<{ restrictedFieldKeys?: string[] }>(`/admin/table-permission-groups/${editingGroup.id}`, { method: "PATCH", body: JSON.stringify(patch) });
           if (updated.restrictedFieldKeys?.length) message.warning(`已按当前字段定义收紧${updated.restrictedFieldKeys.length}项历史失效授权，其他合法权限保持`);
         } else await api("/admin/table-permission-groups", { method: "POST", body: JSON.stringify(body) });
       }
