@@ -184,6 +184,13 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     await weeks();expect(await db.query("SELECT id,weekly_plan_id,process_code,production_date,production_quantity,created_by FROM mps_process_reports")).toEqual(facts);
   });
 
+  it('does not deadlock concurrent executors on lifecycle SHARE locks when120 is absent',async()=>{
+    const {base,weekly}=await externalWeek();await enableInternal(base);
+    await Promise.all([weeks(),weeks()]);
+    expect(await db.query('SELECT * FROM mps_weekly_process_plans')).toHaveLength(3);
+    expect(await db.query("SELECT * FROM audit_logs WHERE action='mps-weekly-plans.process_config_initialized' AND record_id=$1",[weekly.id])).toHaveLength(1);
+  });
+
   it("initializes once under concurrent sync and does not apply later route changes",async()=>{
     const {base,weekly}=await externalWeek();await enableInternal(base);
     // Production synchronization has used the 1A runner since118. Exercise

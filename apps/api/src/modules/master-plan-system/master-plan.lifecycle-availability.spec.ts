@@ -1,10 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { readMpsLifecycleAvailability } from './master-plan.lifecycle-availability';
-import { MasterPlanLifecycleService } from './master-plan.lifecycle.service';
+import { assertMpsLifecycleSyncReady, MasterPlanLifecycleService } from './master-plan.lifecycle.service';
 import type { MasterPlanActor } from './master-plan.types';
 
 const actor: MasterPlanActor = { tenantId: 'SYN-AVAILABILITY', userId: '0199bd00-0000-7000-8000-000000000001', username: '合成管理员', isSystemAdmin: true, permissions: ['*'], tableDataScopes: [], source: 'web', requestId: 'synthetic' };
 describe('lifecycle deployment availability', () => {
+  it('does not acquire whole-tenant lifecycle row locks when120 is absent', async () => {
+    const query = jest.fn(async () => [{ schema_ready: false }]);
+    await assertMpsLifecycleSyncReady({ query } as never, 'SYN', ['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls.every(([sql]: any) => !sql.includes('FOR SHARE'))).toBe(true);
+  });
+  it('retains the row fence and blocked-state rejection when120 exists', async () => {
+    const query = jest.fn(async (sql: string) => sql.includes('pg_attribute') ? [{ schema_ready: true }] : [{ count: 1 }]);
+    await expect(assertMpsLifecycleSyncReady({ query } as never, 'SYN', ['mps-base-plans'])).rejects.toThrow('LIFECYCLE_BLOCKED');
+    expect(query.mock.calls.some(([sql]) => sql.includes('FOR SHARE'))).toBe(true);
+  });
+  it('does not ignore an unavailable schema probe', async () => {
+    const query = jest.fn().mockRejectedValue(new Error('synthetic catalog unavailable'));
+    await expect(assertMpsLifecycleSyncReady({ query }, 'SYN', ['mps-base-plans'])).rejects.toThrow('synthetic catalog unavailable');
+    expect(query).toHaveBeenCalledTimes(1);
+  });
   const originalSecret = process.env.JWT_ACCESS_SECRET, originalGate = process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
   beforeEach(() => { process.env.JWT_ACCESS_SECRET = 'synthetic-capability-test'; delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED; });
   afterAll(() => {

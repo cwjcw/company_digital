@@ -157,7 +157,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const statements = manager.query.mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toContain("set_config('app.tenant_id'");
-    const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'") && !statement.includes("lifecycle_rows"));
+    const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'") && !statement.includes("lifecycle_rows") && !statement.includes('FROM pg_attribute'));
     expect(sql[0]).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base");
     expect(sql[0]).toContain("order_number=excluded.order_number");
     expect(sql[0]).toContain("item_code=excluded.item_code");
@@ -180,7 +180,7 @@ describe("MasterPlanSyncService execution matrix", () => {
 
     /* 唯一权威 admission：执行范围与主投影必须使用同一份 weeklyAdmissionSql 输出，而不是手写第二套准入条件。 */
     expect(upsert).toContain(admission);
-    expect(scope).toContain(`WHERE w.tenant_id=$1 AND ${admission}`);
+    expect(scope).toContain(`WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}`);
     /* 稳定 parent ID + tenant 关联：不能只用 base.id = weekly.base_plan_id（会跨租户），也不能按订单号/品项/交期推算来源。 */
     expect(scope).toContain("JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id");
     /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配（cycle 的 item_code JOIN 仍允许）。 */

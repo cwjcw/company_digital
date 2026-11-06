@@ -19,6 +19,13 @@ export async function assertMpsLifecycleSyncReady(manager: Pick<EntityManager, '
         const table = tables[resource as keyof typeof tables];
         if (!table)
             throw new Error('Unregistered lifecycle sync resource');
+        // Profile A/U does not install120. With no lifecycle column there is
+        // no lifecycle transition to fence; tenant-wide SHARE locks would only
+        // contend with otherwise independent synchronization jobs.
+        const [schema] = await manager.query(`SELECT EXISTS(SELECT 1 FROM pg_attribute
+          WHERE attrelid=to_regclass($1) AND attname='lifecycle_status' AND NOT attisdropped) schema_ready`, [table]);
+        if (!schema?.schema_ready)
+            continue;
         // Hold the snapshot's parent rows until the existing sync transaction commits.
         // A concurrent lifecycle command cannot pass between the guard and projection writes.
         const [row] = await manager.query(`WITH lifecycle_rows AS MATERIALIZED (
