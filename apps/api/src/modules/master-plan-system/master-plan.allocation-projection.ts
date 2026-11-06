@@ -119,3 +119,31 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
     monthly_inbound_source_unverified:inbound.unverifiedSourceItems };
   return { count:monthlyCreated+monthlyUpdated+groupCreated+groupUpdated+inbound.monthlyRows+inbound.groupRows,metrics };
 }
+
+/** New source command only: establish this demand locally. Group/inbound/downstream
+ * projections retain the existing transactional outbox boundary and failure semantics. */
+export async function ensureNewAllocationDemand(manager: EntityManager, row: Record<string,any>, actorId: string, actorName: string, requestId: string) {
+  if(row.order_status!=='已审核' || row.archived_at) return;
+  const tenant=row.tenant_id;
+  await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`${tenant}:mps-allocation-projection`]);
+  const scopedCandidates=allocationProjectionCandidatesSql.replace('WHERE a.tenant_id=$1 AND a.archived_at','WHERE a.tenant_id=$1 AND a.order_number=$2 AND a.archived_at');
+  const [candidate]=await manager.query(`${scopedCandidates} WHERE order_number=$2 AND item_code=$3 AND division_id IS NOT DISTINCT FROM $4::uuid`,[tenant,row.order_number,row.item_code,row.division_id]);
+  if(!candidate || candidate.skip_reason) return;
+  let before:Record<string,any>|null=null,after:Record<string,any>|undefined;
+  if(candidate.existing_id) {
+    [before]=await manager.query('SELECT * FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE',[tenant,candidate.existing_id]);
+    if(!before || (before.lifecycle_status && before.lifecycle_status!=='ACTIVE')) return;
+    if(String(before.required_quantity)===String(candidate.quantity)) return;
+    const updated=await manager.query(`UPDATE mps_monthly_plans SET required_quantity=$3::numeric,
+      pending_quantity=greatest($3::numeric-cumulative_inbound_quantity,0),
+      completion_rate=CASE WHEN $3::numeric<=0 THEN 0 ELSE round(least(greatest(cumulative_inbound_quantity,0)/$3::numeric,1),4) END,
+      updated_at=now(),updated_by=$4::uuid,version=version+1
+      WHERE tenant_id=$1 AND id=$2::uuid AND version=$5 AND required_quantity IS DISTINCT FROM $3::numeric RETURNING *`,[tenant,before.id,candidate.quantity,actorId,before.version]);
+    after=Array.isArray(updated[0])?updated[0][0]:updated[0];
+  } else {
+    [after]=await manager.query(`INSERT INTO mps_monthly_plans(tenant_id,allocation_id,order_number,item_code,division_id,customer_code,order_date,item_name,required_quantity,pending_quantity,created_by,updated_by)
+      VALUES($1,$2::uuid,$3,$4,$5::uuid,$6,$7,$8,$9,$9,$10::uuid,$10::uuid) RETURNING *`,[tenant,candidate.allocation_id,candidate.order_number,candidate.item_code,candidate.division_id,candidate.customer_code,candidate.order_date,candidate.item_name,candidate.quantity,actorId]);
+  }
+  if(after) await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
+    VALUES($1,$2::uuid,$3,'mps-monthly-plans',$4,$5,$6::jsonb,$7::jsonb,$8,'api',$2::uuid,$2::uuid)`,[tenant,actorId,actorName,after.id,before?'allocation.plan_updated':'allocation.plan_created',before?JSON.stringify(before):null,JSON.stringify(after),requestId]);
+}

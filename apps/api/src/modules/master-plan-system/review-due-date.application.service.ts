@@ -1,3 +1,4 @@
+import { linkNewDemandRecord } from "./master-plan.demand-links";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
@@ -54,8 +55,9 @@ export class ReviewDueDateApplicationService {
       await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[receiptKey]);
       const [receipt]=await m.query('SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1',[receiptKey]);
       if(receipt){if(receipt.request_hash!==hash)throw new ConflictException('同一新增请求不能提交不同内容');return {...receipt.response_json,repeated:true};}
-      const [row]=await m.query(`INSERT INTO mps_review_due_dates(id,tenant_id,division_id,order_number,batch_number,drawing_number,inspection_time_name,due_date,inbound_date,quantity,change_count,previous_inbound_date,created_by,updated_by)
+      let [row]=await m.query(`INSERT INTO mps_review_due_dates(id,tenant_id,division_id,order_number,batch_number,drawing_number,inspection_time_name,due_date,inbound_date,quantity,change_count,previous_inbound_date,created_by,updated_by)
         VALUES($1::uuid,$2,$3::uuid,$4,$5,$6,$7,$8::date,$9::date,$10::numeric,$11::int,$12::date,$13::uuid,$13::uuid) RETURNING *`,[candidate.id,actor.tenantId,snapshot.divisionId,snapshot.orderNumber,snapshot.batchNumber,snapshot.drawingNumber,snapshot.inspectionTimeName,snapshot.dueDate,snapshot.inboundDate,snapshot.quantity,snapshot.changeCount,snapshot.previousInboundDate,actor.userId]);
+      row=await linkNewDemandRecord(m,RESOURCE,row,actor.userId!,actor.username,actor.requestId);
       await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.manually_created',NULL,$6::jsonb,$7,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,row.id,JSON.stringify({...row,sourceKind:'MANUAL',commandId:body.commandId}),actor.requestId]);
       const result={id:row.id,version:row.version,repeated:false};

@@ -1,3 +1,4 @@
+import { demandLinksReady, linkNewDemandRecord } from "./master-plan.demand-links";
 import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
@@ -56,7 +57,9 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>''
       AND (m.required_quantity>0 OR (m.required_quantity=0 AND m.id=ANY($3::uuid[])))
     ORDER BY m.id FOR SHARE OF m`, [tenantId,monthlyPlanIds ?? null,includeZeroQuantityIds]);
-  let created = 0, updated = 0, conflicts = 0;
+  const linksReady=await demandLinksReady(manager);
+  let created = 0, updated = 0, conflicts = 0, multiBatch = 0;
+  let unallocated = new Decimal(0), overallocated = new Decimal(0);
   const requestId = `base-sync:${randomUUID()}`;
   // Fetch all prior automatic baselines once; ordinary human audit records are not ownership evidence.
   const histories: Row[] = monthly.length ? await manager.query(`SELECT DISTINCT ON (a.record_id) a.record_id,a.after_json->'syncValues' values
@@ -67,17 +70,25 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   for (const monthlyPlan of monthly) {
     // Same lock as ordinary base creation: manual creation cannot race the absence check.
     await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mps-delivery-code:${tenantId}:${monthlyPlan.order_number}:${monthlyPlan.item_code}`]);
-    const allBases: Row[] = await manager.query(`SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date FROM mps_base_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 ORDER BY id FOR UPDATE`,
-    [tenantId,monthlyPlan.order_number,monthlyPlan.item_code]);
-    const bases = allBases.filter(base => base.division_id === monthlyPlan.division_id);
+    const allBases: Row[] = await manager.query(`SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date FROM mps_base_plans WHERE tenant_id=$1 AND ((to_jsonb(mps_base_plans)->>'monthly_plan_id')::uuid=$4::uuid OR (order_number=$2 AND item_code=$3)) ORDER BY id FOR UPDATE`,
+    [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,monthlyPlan.id]);
+    const conflictKey = `monthly-base:${monthlyPlan.id}`;
+    const bases = allBases.filter(base => base.monthly_plan_id ? base.monthly_plan_id===monthlyPlan.id : base.division_id===monthlyPlan.division_id);
+    if (allBases.some(base => base.monthly_plan_id && ((base.monthly_plan_id===monthlyPlan.id && (base.order_number!==monthlyPlan.order_number || base.item_code!==monthlyPlan.item_code || base.division_id!==monthlyPlan.division_id)) || (base.division_id===monthlyPlan.division_id && base.monthly_plan_id!==monthlyPlan.id)))) throw new Error('显式需求父关系冲突，禁止文本回退');
+    if (bases.length>1 && bases.every(base=>base.monthly_plan_id===monthlyPlan.id)) {
+      const assigned=bases.reduce<Decimal>((sum,base)=>sum.add(base.planned_quantity),new Decimal(0));
+      const delta=new Decimal(monthlyPlan.required_quantity).sub(assigned);
+      unallocated=unallocated.add(Decimal.max(delta,0));overallocated=overallocated.add(Decimal.max(delta.negated(),0));
+      await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE tenant_id=$1 AND exception_key=$2 AND active=true`,[tenantId,conflictKey,actorId]);
+      multiBatch++;continue; // Multiple confirmed batches are legitimate; never overwrite quantities or create another.
+    }
     // Another division's legitimate monthly plan owns its own batch. An unexplained
     // legacy ownership mismatch still needs manual reconciliation, as before.
     const unmatchedDivision = allBases.some(base => base.division_id !== monthlyPlan.division_id && !monthly.some(plan =>
       plan.order_number === monthlyPlan.order_number && plan.item_code === monthlyPlan.item_code && plan.division_id === base.division_id));
-    const conflictKey = `monthly-base:${monthlyPlan.id}`;
     if (bases.length > 1 || unmatchedDivision) {
       conflicts++;
-      const reason = bases.length > 1 ? "存在多个基础计划批次，保留原记录，请核对对应关系" : "既有基础计划与月计划事业部不一致，保留原记录";
+      const reason = bases.length > 1 ? "多个历史批次尚未确认需求父关系，保留原记录" : "既有基础计划与月计划事业部不一致，保留原记录";
       await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-monthly-plans',$3::uuid,$4,'MONTHLY_BASE_CONFLICT','WARNING',$5,true,$6::uuid,$6::uuid)
         ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,
@@ -97,6 +108,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
       [after] = await manager.query(`INSERT INTO mps_base_plans(tenant_id,order_number,item_code,delivery_number,created_by,updated_by,${entries.map(([key]) => key).join(",")})
         VALUES($1,$2,$3,$4,$5::uuid,$5::uuid,${entries.map((_,i) => `$${i+6}`).join(",")}) RETURNING *`,
       [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,delivery,actorId,...entries.map(([key,value]) => key === "image_refs" ? JSON.stringify(value) : value)]);
+      if(linksReady) after=await linkNewDemandRecord(manager,'mps-base-plans',after,actorId,actorName,requestId);
       created++; changed = true;
     } else {
       after = before;
@@ -127,5 +139,5 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
       VALUES($1,'mps-base-plans','base-to-weekly',$2,$3::uuid,$4,$3::uuid,$3::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, [tenantId,`${requestId}:base-to-weekly`,actorId,actorName]);
   }
-  return { count:created+updated,metrics:{base_created:created,base_updated:updated,base_conflicts:conflicts,monthly_eligible:monthly.length} };
+  return { count:created+updated,balance:{unallocated:unallocated.toFixed(4),overallocated:overallocated.toFixed(4)},metrics:{base_created:created,base_updated:updated,base_conflicts:conflicts,monthly_eligible:monthly.length,base_multi_batch:multiBatch} };
 }

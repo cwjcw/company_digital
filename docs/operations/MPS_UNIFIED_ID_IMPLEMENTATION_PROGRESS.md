@@ -1,0 +1,123 @@
+# 统一需求ID集中开发进度
+
+本文件记录集中开发各轮功能和验收；主恢复入口仍为 `outputs/主计划系统修复进度.md`。已确认设计见 `MPS_UNIFIED_PLAN_ID_ASSESSMENT.md`，第一阶段发布门禁见 `MPS_PHASE1_RELEASE_READINESS.md`。
+
+## 第1轮（2026-11-06）：PASS（相关代码与隔离验收）
+
+- 总目标：完成方案A兼容修复和统一需求ID核心关系，保留main成果；代码基准4b67c22。
+- 当前状态：本轮已完成；第2/3轮未开始。没有生产部署、生产Migration、生产同步、历史事件补偿或历史ID回填。
+- 方案A技术GO：限118/119，仍须正式窗口的备份、旧Worker退出、现场只读复核和生产验收；不能把隔离通过等同于已经生产上线。
+- 方案B仍NO-GO：120历史LEGACY_RETAINED全租户生成阻断未改变；生命周期写入/级联未启用。
+
+### 1. 本轮完成
+
+1. 生命周期catalog能力区分Schema、服务/事实保护、写开关与各操作支持。缺120时metadata明确不可用，预览/确认HTTP409（MPS_LIFECYCLE_SCHEMA_UNAVAILABLE），不查询缺失字段；旧API/不完整能力/管理员均不能绕过Web入口门禁。
+2. Migration发现只加载时间戳实现，排除spec/test/d.ts/map并支持src/dist。新增`@tracker/api db:migrate:phase-a`正式严格名单入口：完整117前置，只执行118/119，120/121的意外ledger/schema拒绝；设置连接、锁、语句和事务超时。未修改部署脚本。
+3. 月度UUID作为需求根、基础UUID作为批次；分配/基础/评审三表新增nullable monthly_plan_id。无需求主表、无周计划/报工重复demand_id、无需求父ID一对一唯一限制。
+4. 首次关联专用Application Command：独立mps-demand-links:update＋原表read/update＋月度read，身份字段读取/双方数据范围、源与目标版本、原因、幂等和事务审计。非空父不得改绑/清空。数据库要求同事务授权审计（精确记录、目标、原版本和事务ID），校验租户/订单/品项/事业部/客户/旧shipping来源；不使用session绕过119。
+5. 新建分配局部建立/维护当前需求根，集团/入库/下游仍走原Outbox；同一来源UUID只贡献一次。新建/导入分配、基础及正常新增评审在有可确认ACTIVE父需求时自动关联本次新行。旧NULL、已归档来源或未确认生命周期不批量自动绑定，不据此激活需求。
+6. 来源和基础已有明确父ID时校验并优先使用ID，冲突不退回文本。无父ID保留旧匹配/待确认；多条未确认历史批次不擅自合并或生成第三批。
+7. 已确认60＋40两个基础批次合法；需求100→120保持批次ID和数量，可精确返回差额20；不广播全量120。查询差额仅为已关联批次核对，可能遗漏未确认历史关系，标记provisional；取消/来源待确认时不推算可再排量，履约抵扣未实现。
+8. Web同一行菜单提供需求关联查询；独立获权者可读取目标并确认首次关联，读取失败/提交失败保留输入与请求幂等键。UUID不加入普通可编辑/导入/默认导出字段，原字段显示/打印/Excel规则保持。
+9. 评审仅绑定需求上下文，保留source_*、交期、数量、版本和历史；已绑定时禁止初始化删除重建。没有评审→基础批次应用关系，也没有日期广播。
+
+### 2. Migration及依赖
+
+- 新增：`1722920121000-MpsDemandLinks.ts` / `MpsDemandLinks1722920121000`（121）。
+- 依赖119保护函数；118为1A运行前置；不依赖120。复用已有父租户复合唯一键，仅缺少时补充；三张表建立复合租户FK及非唯一索引。
+- up只有结构/函数/触发器，没有历史业务UPDATE回填；不修改任何已交付Migration。down拒绝删除已确认关系和保护，须受控前向修复。
+
+| 隔离路径 | 实际结果 |
+|---|---|
+| 完整117→118→119，不执行120/121 | 真实ledger119行，生命周期与需求关联新列不存在；Nest HTTP启动和正常业务通过 |
+| 118/119→121，无120 | 真正执行121，120保持未执行；ledger总行数120不能误解为执行了Migration120 |
+| 121之后补120 | TypeORM按未执行名单真实补120，重复执行无新增；不伪造ledger，原事实/工艺保留 |
+| 120已存在后执行121 | 独立合成库全120基线→121；保留既有报工，首次绑定合法，生命周期保护继续存在 |
+| 编译正式phase-a入口 | 完整117只执行118/119，重复为no-op，120/121不运行；实际执行120后该入口正确拒绝 |
+
+### 3. API与权限契约
+
+- `GET /api/v1/master-plan-system/resources/:resource/:id/demand-link`：关联状态、版本；获权且范围完整时给出临时数量核对。
+- `POST`同路径：首次绑定，MpsBindDemandRequest包含demandId、expectedVersion、expectedDemandVersion、idempotencyKey、reason。
+- `GET /api/v1/master-plan-system/demands/:id`：有月度/身份字段/数据范围读取权限时返回目标ID、版本和身份供确认。
+- metadata包含demandLinks能力。新增权限资源仅注册能力，不向普通员工写入任何新授权；系统/计划模块管理员沿既有规则。
+- 事务后重试40001/40P01有界重试；同键返回原结果并重检权限，不同键并发只有一次首次绑定成功。
+
+### 4. 最终相关验收
+
+使用Node24.22.2；PostgreSQL18为独立network=none/tmpfs容器，仅专用Unix socket，拒绝生产DSN。全部记录为合成。日志/JSON和正式CLI合成预演脚本仅ignored `test/mps_phase_a_compatibility/`。
+
+| 检查 | 结果 |
+|---|---|
+| API定向12套 | **279/279 PASS**；导入索引优化后相关2套73项再次PASS |
+| 其中真实PG测试 | **103项**：新关联14＋1A34＋1B25＋1C30，均PASS |
+| Web计划/生命周期/首次关联3套 | **60/60 PASS**（单worker，20秒超时） |
+| Web评审新增/编辑/权限3套 | **11/11 PASS** |
+| Contracts全部9套 | **48/48 PASS** |
+| API/Web/Contracts typecheck | PASS |
+| API/Web lint、Contracts lint（类型检查） | PASS；Web保留既有ModulePortal热更新warning一项，无error |
+| API/Web/Contracts build | PASS；Web保留既有bundle体积提示 |
+| 严格phase-a编译CLI | PASS，119真实ledger、120/121不运行；重复无操作，120存在拒绝 |
+| Git差异/敏感内容/历史Migration | 仅本任务34文件；118/119/120无改动；不提交日志、凭据、生产UUID/数据或其他任务修改 |
+
+覆盖：新分配/同需求多来源、Excel重复确认、60＋40/增量20、显式父关系、合法与非法NULL绑定、归档来源、已有报工、重复/并发/乐观锁、专用权限/字段权限/NONE/跨事业部/跨租户范围、正常报工纠错、工序结构及报工整行不变、无120 HTTP门禁、121/120双顺序及1A/1B/1C回归。14个新PG测试包含完整链路多场景断言，不仅检查HTTP200。
+
+额外执行记录：首轮误用`pnpm test -- 文件`参数，实际触发全Web568项，492通过/76失败，包含大量5000ms超时和其他模块失败。该轮不能作为通过证据，未逐项归因或修改无关模块。随后按明确文件、Node24、单worker复验，上表71项相关Web全部通过。**不宣称全仓库Web测试通过。**
+
+### 5. 修改文件（34）
+
+- `apps/api/package.json`
+- `apps/api/src/data-source.ts`
+- `apps/api/src/migrate-phase-a.ts`
+- `apps/api/src/migration-files.spec.ts`
+- `apps/api/src/migration-files.ts`
+- `apps/api/src/migrations/1722920121000-MpsDemandLinks.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.allocation-projection.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.allocation-source.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.application.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.controller.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-link.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-links.postgres.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-links.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.lifecycle-availability.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.lifecycle-availability.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.lifecycle.postgres.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.lifecycle.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.module.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.monthly-base.ts`
+- `apps/api/src/modules/master-plan-system/review-due-date-import.application.service.ts`
+- `apps/api/src/modules/master-plan-system/review-due-date.application.service.ts`
+- `apps/web/src/modules/master-plan-system/MasterPlanDemandLinkDialog.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanDemandLinkDialog.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`
+- `docs/operations/MPS_PHASE1_RELEASE_READINESS.md`
+- `docs/operations/MPS_UNIFIED_ID_IMPLEMENTATION_PROGRESS.md`
+- `docs/operations/MPS_UPSTREAM_DOWNSTREAM_LINKAGE_DESIGN.md`
+- `docs/operations/TASK_REGISTRY.md`
+- `outputs/主计划系统修复进度.md`
+- `packages/contracts/src/index.ts`
+- `packages/contracts/src/master-plan-demand-links.spec.ts`
+- `packages/contracts/src/master-plan-demand-links.ts`
+- `packages/contracts/src/master-plan-lifecycle.ts`
+
+### 6. 历史保护、风险与发布条件
+
+- 本轮未连接生产执行写入/迁移/同步；未回填4083候选、1981历史、744人工及3冲突。上述数字仍是2026-11-05评估快照，不能作为新回填清单。
+- 652来源/634固定基础ID/3组人工计划数量变更及真实报工/入库未处理。本轮没有重读生产核数，不能把合成验收当成生产逐条核验。
+- 原代表来源归档/身份不明的旧匹配仍保留阻断，不通过首次绑定命令擅自更换代表来源；完整来源失效/恢复联动留后续。
+- 关联不是有效需求状态：归档来源、LEGACY_RETAINED、ON_HOLD、CANCELLED不能因绑定ID自动激活。历史歧义保持NULL或拒绝；不做正则别名强绑。
+- 119/120及121有前向保护，不能删除触发器/降Migration或整库回滚覆盖新报工。生产故障使用已验证兼容镜像/受控前向修复；不清空关系或回退真实数量。
+- 方案A技术GO限118/119；正式窗口须按发布评估备份、退出旧Worker、严格名单迁移、API/Web启用和真实健康/权限/报工/30分钟六配置验收。没有生产Chrome验收或实际发布版本，本轮不部署。
+- 121是独立发布范围；必须明确批准名单及SQL锁窗口，保持无历史回填；120历史过渡未解决时不能混入。121不会解除方案B原NO-GO。
+- 本轮只注册一个人工关联命令，没有新增任务系统、基础设施、第三方依赖、调度或默认员工授权。
+
+### 7. 后续第2/3轮（尚未开发）
+
+- 第2轮：需求差额视图与显式分配/拆合批命令、数量减少风险预览、ON_HOLD占用、已完成/入库去重抵扣；明确哪些批次变更，不覆盖人工排产。
+- 历史分类确认须独立授权，按当时真实版本/身份重新预览，解决源别名/人工归属；不能自动批量回填或替换634个固定ID。
+- 第3轮：评审版本→基础批次的显式应用关系、选定批次交期应用与历史追溯，不按批次号数值化或更新时间自动广播。
+
+### 8. Git与结束
+
+只提交上述文件，正常推送github/main，不强推；最终SHA及远程校验结果见本文件Git历史与最终回复。原outputs/CODEX_PROGRESS.md的260行修改、财务截图和订单定向清理记录保留。本轮完成后停止，不进入下一轮或生产操作。

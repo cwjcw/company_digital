@@ -11,7 +11,8 @@
     "test": "jest --runInBand",
     "db:migrate": "pnpm build && node node_modules/typeorm/cli.js -d dist/data-source.js migration:run",
     "db:revert": "pnpm build && node node_modules/typeorm/cli.js -d dist/data-source.js migration:revert",
-    "db:seed": "pnpm build && node dist/seed.js"
+    "db:seed": "pnpm build && node dist/seed.js",
+    "db:migrate:phase-a": "pnpm build && node dist/migrate-phase-a.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",

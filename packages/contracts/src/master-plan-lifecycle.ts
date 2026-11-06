@@ -19,6 +19,20 @@ export const mpsLifecycleOperations = {
     CANCEL_REMAINING: { label: '取消剩余需求', capability: 'mps-plan-cancel-remaining', target: 'CANCELLED' }
 } as const;
 export type MpsLifecycleOperation = keyof typeof mpsLifecycleOperations;
+/** Runtime capability only; permissions and record-specific signed previews remain mandatory. */
+export interface MpsLifecycleAvailability {
+    schemaReady: boolean;
+    serviceReady: boolean;
+    writesEnabled: boolean;
+    previewAvailable: boolean;
+    historicalCorrectionAvailable: boolean;
+    unavailableReason: string | null;
+    operations: Record<MpsLifecycleOperation, {
+        previewAvailable: boolean;
+        writeSupported: boolean;
+        confirmEnabled: boolean;
+    }>;
+}
 export interface MpsLifecyclePreview {
     resource: string;
     recordId: string;

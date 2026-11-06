@@ -76,6 +76,27 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     if(db?.isInitialized)await db.destroy();
   });
 
+  it('reports full schema, service and per-operation readiness independently of the write switch', async () => {
+    delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
+    expect(await lifecycle.availability(weekResource)).toMatchObject({ schemaReady: true, serviceReady: true, writesEnabled: false, previewAvailable: true,
+      operations: { CANCEL: { writeSupported: true, confirmEnabled: false } } });
+    process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='true';
+    expect((await lifecycle.availability('mps-base-plans')).operations.CANCEL).toMatchObject({ writeSupported: false, confirmEnabled: false });
+  });
+
+  it.each([
+    ['aa_mps_plan_lifecycle', 'mps_base_plans', 'schemaReady'],
+    ['trg_mps_report_context', 'mps_process_reports', 'serviceReady']
+  ])('rejects partial deployment with disabled %s before reading plan facts', async (trigger, table, property) => {
+    await expect(db.transaction(async manager => {
+      await manager.query(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
+      const availability = await lifecycle.assertAvailable(weekResource, manager);
+      throw Error(`Unsafe availability: ${JSON.stringify(availability)}`);
+    })).rejects.toMatchObject({ status: 409 });
+    // Rollback restores the guard; no positive capability cache can outlive structural changes.
+    expect(await lifecycle.availability(weekResource)).toMatchObject({ [property]: true, previewAvailable: true });
+  });
+
   it('defaults new plans to ACTIVE, supports hold, removes pending execution, retains historical report and process identities',async()=>{
     const {week}=await makePlan();await report(week.id);const before=await facts(),structure=await tasks();
     expect(week.lifecycle_status).toBe('ACTIVE');

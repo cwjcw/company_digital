@@ -1,3 +1,4 @@
+import { linkNewDemandRecord } from "./master-plan.demand-links";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
@@ -102,6 +103,7 @@ export class ReviewDueDateImportApplicationService {
         VALUES($1,$2::uuid,$3,$4,$5,$6,$7::date,$8::date,$9::numeric,$10::int,$11::date,$12::uuid,$12::uuid) RETURNING *`,[actor.tenantId,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.inspectionTimeName,next.dueDate,next.inboundDate,next.quantity,next.changeCount,next.previousInboundDate,actor.userId]);
       else{const updated=await m.query(`UPDATE mps_review_due_dates SET division_id=$3::uuid,order_number=$4,batch_number=$5,drawing_number=$6,inspection_time_name=$7,due_date=$8::date,inbound_date=$9::date,quantity=$10::numeric,
         change_count=$11::int,previous_inbound_date=$12::date,updated_by=$13::uuid,updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$14 RETURNING *`,[actor.tenantId,current.id,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.inspectionTimeName,next.dueDate,next.inboundDate,next.quantity,next.changeCount,next.previousInboundDate,actor.userId,current.version]);row=Array.isArray(updated[0])?updated[0][0]:updated[0];if(!row)throw new ConflictException('导入版本冲突');}
+      if(!current) row=await linkNewDemandRecord(m,RESOURCE,row,actor.userId!,actor.username,actor.requestId);
       await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,row.id,current?'review_due_date.import_updated':'review_due_date.import_created',current?JSON.stringify(current):null,JSON.stringify({...row,sourceKind:'IMPORT',batchId,fileHash,mode,sourceRows:input.sourceRows??[input.row],changedFields:changed}),actor.requestId]);
     }}catch(e){if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23505')throw new ConflictException('导入业务键或来源重复，整批拒绝，请重新预览');throw e;}
@@ -138,6 +140,7 @@ export class ReviewDueDateImportApplicationService {
       const [{count:historyCount}]=await m.query('SELECT count(*)::int count FROM mps_review_due_date_changes WHERE tenant_id=$1',[actor.tenantId]);
       if(Number(historyCount)!==0)throw new ConflictException('当前主表记录仍有关联历史交期事件；为保留历史关系，未清空主表');
       const old=await m.query('SELECT id FROM mps_review_due_dates WHERE tenant_id=$1 ORDER BY id FOR UPDATE',[actor.tenantId]);
+      if(old.some((r:Current)=>r.monthly_plan_id))throw new ConflictException('已有确认需求关联，禁止替换重建评审历史');
       await m.query('DELETE FROM mps_review_due_dates WHERE tenant_id=$1',[actor.tenantId]);
       for(const {record,snapshot} of prepared){
         const [row]=await m.query(`INSERT INTO mps_review_due_dates(tenant_id,division_id,order_number,batch_number,drawing_number,inspection_time_name,due_date,inbound_date,quantity,change_count,previous_inbound_date,created_by,updated_by)

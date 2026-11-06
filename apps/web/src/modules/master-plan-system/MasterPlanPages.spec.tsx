@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { message } from "antd";
-import { tablePermissionFieldsFor } from "@kdos/contracts";
+import { tablePermissionFieldsFor, type MpsLifecycleAvailability } from "@kdos/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { api } from "../../api";
@@ -70,12 +70,15 @@ function renderPage(resource: string, initialEntry = `/master-plan-system/${reso
 }
 
 describe('lifecycle menu independent permissions', () => {
+  let availability: MpsLifecycleAvailability | undefined;
   beforeEach(() => {
+    availability = { schemaReady: true, serviceReady: true, writesEnabled: false, previewAvailable: true, historicalCorrectionAvailable: true, unavailableReason: null,
+      operations: { HOLD: {previewAvailable:true,writeSupported:true,confirmEnabled:false}, CANCEL:{previewAvailable:true,writeSupported:false,confirmEnabled:false}, RESTORE:{previewAvailable:true,writeSupported:true,confirmEnabled:false}, CANCEL_REMAINING:{previewAvailable:true,writeSupported:false,confirmEnabled:false} } };
     vi.clearAllMocks();localStorage.clear();
     localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic-user',permissions:['mps-base-plans:*:read','mps-base-plans:*:update','mps-base-plans:orderNumber:read']}));
     vi.mocked(api).mockImplementation(async(path:string)=>{
       if(path.startsWith('/auth/preferences/'))return {config:null} as never;
-      if(path.endsWith('/meta'))return {resource:'mps-base-plans',fields:[{key:'orderNumber',label:'订单编号',type:'text',editable:false}],createFields:[],actions:{update:true,viewWeekly:true}} as never;
+      if(path.endsWith('/meta'))return {resource:'mps-base-plans',lifecycle:availability,fields:[{key:'orderNumber',label:'订单编号',type:'text',editable:false}],createFields:[],actions:{update:true,viewWeekly:true}} as never;
       if(path.includes('/lifecycle/preview'))return {resource:'mps-base-plans',recordId:'synthetic-base',operation:'CANCEL',currentStatus:'ACTIVE',targetStatus:'CANCELLED',orderNumber:'SYN-ORDER',itemCode:'SYN-ITEM',divisionName:'合成事业部',plannedQuantity:'10',expectedVersion:1,facts:{reportCount:0,reportedQuantity:'0',outsourcingDependencies:0,workOrderDependencies:0},affectedPlans:[],allowed:false,blockers:['父计划消费者尚未完成'],requiredPermissions:[],writesEnabled:false,previewToken:'synthetic',expiresAt:Date.now()+300000} as never;
       if(path.includes('/resources/mps-base-plans?'))return {rows:[{id:'synthetic-base',orderNumber:'SYN-ORDER',weeklyPlanId:'synthetic-week',version:1,canUpdate:true}],total:1} as never;
       return [] as never;
@@ -92,6 +95,18 @@ describe('lifecycle menu independent permissions', () => {
     fireEvent.click(await screen.findByText('取消计划'));await screen.findByText('父计划消费者尚未完成');
     expect(screen.getByRole('button',{name:'确认执行'})).toBeDisabled();
     expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/lifecycle/confirm'))).toBe(false);
+  });
+  it.each(['old-api', 'schema-missing', 'service-missing', 'incomplete-capability', 'operation-unavailable'])('hides lifecycle actions for an administrator when %s', async scenario => {
+    localStorage.setItem('sessionUser', JSON.stringify({sub:'synthetic-admin',permissions:['*'],isSystemAdmin:true}));
+    if (scenario === 'old-api') availability = undefined;
+    else if (scenario === 'schema-missing') availability = {...availability!,schemaReady:false,writesEnabled:true};
+    else if (scenario === 'service-missing') availability = {...availability!,serviceReady:false,previewAvailable:false};
+    else if (scenario === 'incomplete-capability') availability = {previewAvailable:true,operations:availability!.operations} as MpsLifecycleAvailability;
+    else for (const op of Object.values(availability!.operations)) op.previewAvailable = false;
+    renderPage('mps-base-plans');fireEvent.click(await screen.findByRole('button',{name:'更多操作'}));
+    await screen.findByText('查看周计划');
+    for (const label of ['暂停计划','取消计划','恢复/确认有效','取消剩余需求']) expect(screen.queryByText(label)).not.toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/lifecycle/'))).toBe(false);
   });
 });
 
@@ -1005,5 +1020,21 @@ describe("allocation table delete entry", () => {
     renderPage("mps-order-allocations");
     await screen.findByRole("button", { name: /字段显示/ });
     expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('demand association capability menu',()=>{
+  it.each([true,false])('offers read-only association only when schema is ready (%s)',async ready=>{
+    vi.clearAllMocks();localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic-reader',permissions:['*']}));
+    vi.mocked(api).mockImplementation(async(path:string)=>{
+      if(path.startsWith('/auth/preferences/'))return {config:null} as never;
+      if(path.endsWith('/meta'))return {resource:'mps-base-plans',demandLinks:{schemaReady:ready,canRead:true,canBind:false},fields:[{key:'orderNumber',label:'订单编号',type:'text',editable:false}],createFields:[],actions:{create:false,update:false,delete:false,import:false,export:false,batchUpdate:false}} as never;
+      if(path.includes('/resources/mps-base-plans?'))return {rows:[{id:'synthetic-base',orderNumber:'SYN-DEMAND',version:1,canUpdate:false}],total:1} as never;
+      return [] as never;
+    });
+    renderPage('mps-base-plans');await screen.findByText('SYN-DEMAND');
+    if(ready){fireEvent.click(await screen.findByRole('button',{name:'更多操作'}));await screen.findByText('需求关联');}
+    else expect(screen.queryByRole('button',{name:'更多操作'})).not.toBeInTheDocument();
   });
 });

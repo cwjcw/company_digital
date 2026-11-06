@@ -1,5 +1,7 @@
+import { MasterPlanDemandLinkService } from "./master-plan.demand-link.service";
+import { mpsDemandLinkResources, type MpsBindDemandRequest } from "@kdos/contracts";
 import { MasterPlanLifecycleService } from "./master-plan.lifecycle.service";
-import type { MpsLifecycleOperation } from "@kdos/contracts";
+import { mpsLifecycleResources, type MpsLifecycleOperation } from "@kdos/contracts";
 import { OrderAllocationConfigService } from "./order-allocation-config.service";
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -21,7 +23,16 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService, private readonly demandLinks: MasterPlanDemandLinkService) {}
+
+  @Get("resources/:resource/:id/demand-link")
+  demandLink(@Param("resource") resource:string,@Param("id") id:string,@Req() request:MasterPlanRequest) { return this.demandLinks.info(resource,id,this.actor(request)); }
+
+  @Post("resources/:resource/:id/demand-link")
+  bindDemand(@Param("resource") resource:string,@Param("id") id:string,@Body() body:MpsBindDemandRequest,@Req() request:MasterPlanRequest) { return this.demandLinks.bind(resource,id,body,this.actor(request)); }
+
+  @Get("demands/:id")
+  demandTarget(@Param("id") id:string,@Req() request:MasterPlanRequest) { return this.demandLinks.target(id,this.actor(request)); }
 
   @Post("resources/:resource/:id/lifecycle/preview")
   previewLifecycle(@Param("resource") resource:string,@Param("id") id:string,@Body("operation") operation:MpsLifecycleOperation,@Req() request:MasterPlanRequest) {
@@ -34,7 +45,8 @@ export class MasterPlanController {
   }
 
   @Post("resources/mps-process-reports/:id/correct-history")
-  correctReportHistory(@Param("id") id:string,@Body() body:Record<string,unknown>,@Req() request:MasterPlanRequest) {
+  async correctReportHistory(@Param("id") id:string,@Body() body:Record<string,unknown>,@Req() request:MasterPlanRequest) {
+    await this.lifecycle.assertAvailable('mps-process-reports');
     return this.application.correctHistoricalReport(id,body,this.actor(request));
   }
 
@@ -45,7 +57,13 @@ export class MasterPlanController {
   saveAllocationNotificationConfig(@Param("kind") kind: string, @Body() body: Record<string, unknown>, @Req() request: MasterPlanRequest) { return kind === "test" ? this.allocationConfig.testDelivery(body, this.actor(request)) : this.allocationConfig.save(kind, body, this.actor(request)); }
 
   @Get("resources/:resource/meta")
-  metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) { return this.queries.metadata(resource, this.actor(request)); }
+  async metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) {
+    const baseMetadata = this.queries.metadata(resource, this.actor(request));
+    const metadata = (mpsDemandLinkResources as readonly string[]).includes(resource) ? {...baseMetadata,demandLinks:await this.demandLinks.availability(resource,this.actor(request))} : baseMetadata;
+    if (!(mpsLifecycleResources as readonly string[]).includes(resource) && resource !== 'mps-process-reports') return metadata;
+    const lifecycle = await this.lifecycle.availability(resource);
+    return { ...metadata, lifecycle, fields: lifecycle.schemaReady ? metadata.fields : metadata.fields.filter(field => field.key !== 'lifecycleStatus') };
+  }
 
   @Get("references/weekly-plans")
   weeklyPlanOptions(@Query("search") search: string, @Req() request: MasterPlanRequest) { return this.queries.weeklyPlanOptions(search, this.actor(request)); }

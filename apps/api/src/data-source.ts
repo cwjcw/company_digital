@@ -4,6 +4,7 @@ import { config } from "dotenv";
 import { DataSource } from "typeorm";
 import { entities } from "./entities";
 import { ModificationAuditSubscriber } from "./modification-audit";
+import { discoverMigrationFiles } from './migration-files';
 
 config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -15,7 +16,7 @@ const dataSource = new DataSource({
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME ?? "four_department_tracker",
   entities,
-  migrations: [path.join(__dirname, "migrations/*.{ts,js}")],
+  migrations: discoverMigrationFiles(path.join(__dirname, 'migrations')),
   subscribers: [ModificationAuditSubscriber],
   synchronize: false,
   // Import failures can contain complete ERP rows in bound parameters. Never emit

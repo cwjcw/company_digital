@@ -1,3 +1,4 @@
+import { demandLinksReady, linkNewDemandRecord } from "./master-plan.demand-links";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { allocationChange, allocationSnapshot, allocationColumn, ALLOCATION_FIELDS, type AllocationChange } from "./order-allocation.domain";
@@ -11,7 +12,7 @@ import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./maste
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 import { NotificationService } from "../notifications/notification.service";
 import { nextMasterPlanDeliveryCode } from "./master-plan.delivery-code";
-import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
+import { reconcileAllocationPlans, ensureNewAllocationDemand } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -381,7 +382,7 @@ export class MasterPlanApplicationService {
       this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
     }
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
@@ -395,6 +396,11 @@ export class MasterPlanApplicationService {
       if (!generatedEntries.length) throw new BadRequestException("没有可写入的业务字段");
       const params = [actor.tenantId, actorId, actorId, ...generatedEntries.map(([, value]) => value)];
       const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${generatedEntries.map(([field]) => columns[field]).join(",")}${code==="mps-order-allocations"?",manually_maintained":""}) VALUES($1,$2::uuid,$3,${generatedEntries.map((_, index) => `$${index + 4}`).join(",")}${code==="mps-order-allocations"?",true":""}) RETURNING *`, params);
+      if (["mps-order-allocations","mps-base-plans"].includes(code) && await demandLinksReady(manager)) {
+        // Only this new row is eligible for automatic linking; existing historical NULLs stay untouched.
+        if (code === "mps-order-allocations") await ensureNewAllocationDemand(manager,inserted[0],actorId,actor.username,actor.requestId);
+        inserted[0] = await linkNewDemandRecord(manager,code as "mps-order-allocations"|"mps-base-plans",inserted[0],actorId,actor.username,actor.requestId);
+      }
       await this.allocationEvent(manager, code, actor, [{ before: null, after: inserted[0] }]);
       await this.audit(manager, actor, code, inserted[0].id, `${code}.created`, null, inserted[0]);
       await this.enqueueReconciliation(manager, resource, actor, inserted[0].id, inserted[0]);
@@ -419,7 +425,7 @@ export class MasterPlanApplicationService {
     const values = this.writable(resource, body, actor);
     if (!Object.keys(values).length) throw new BadRequestException("没有可修改的业务字段");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
@@ -501,7 +507,7 @@ export class MasterPlanApplicationService {
     const storageKey = `mps-batch:${actor.tenantId}:${code}:${actor.userId ?? "system"}:${idempotencyKey}`;
     const requestHash = createHash("sha256").update(JSON.stringify({ records, fieldKey, value })).digest("hex");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
       const [existing] = await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
       if (existing) {
@@ -570,6 +576,8 @@ export class MasterPlanApplicationService {
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
       if(code==="mps-order-allocations")await manager.query(`INSERT INTO mps_allocation_import_batches(id,tenant_id,file_hash,source_worksheet,row_count,imported_by) VALUES($1::uuid,$2,$3,$4,$5,$6::uuid)`,[allocationBatch!.id,actor.tenantId,allocationBatch!.fileHash,allocationBatch!.worksheet,rows.length,actorId]);
       const shippingMonthlyPlanIds = await this.shippingMonthlyPlanIds(resource, rows, actor.tenantId, manager);
+      const importedLinks = ["mps-order-allocations","mps-base-plans"].includes(code) && await demandLinksReady(manager);
+      const newAllocations: Array<Record<string,any>>=[];
       let createdCount = 0; let updatedCount = 0;
       const allocationChanges: Array<{before: Record<string,unknown> | null;after: Record<string,unknown>}> = [];
       for (const input of rows) {
@@ -594,6 +602,8 @@ export class MasterPlanApplicationService {
             extraValues=`,true,$${start}::uuid,$${start+1},$${start+2}::integer,now(),$2::uuid`;
           }
           const inserted = await manager.query(`INSERT INTO ${resource.table}(tenant_id,created_by,updated_by,${entries.map(([field]) => columns[field]).join(",")}${extraColumns}) VALUES($1,$2::uuid,$2::uuid,${entries.map((_, index) => `$${index + 3}`).join(",")}${extraValues}) RETURNING *`, params);
+          if(importedLinks && code==="mps-base-plans") inserted[0]=await linkNewDemandRecord(manager,'mps-base-plans',inserted[0],actorId,actor.username,actor.requestId);
+          if(importedLinks && code==="mps-order-allocations") newAllocations.push(inserted[0]);
           allocationChanges.push({before:null,after:inserted[0]});
           await this.audit(manager, actor, code, inserted[0].id, `${code}.import_created`, null, inserted[0]);
           createdCount++;
@@ -626,6 +636,16 @@ export class MasterPlanApplicationService {
         allocationChanges.push({before:current,after:updatedRow});
         await this.audit(manager, actor, code, input.id, `${code}.import_updated`, current, updatedRow);
         updatedCount++;
+      }
+      if(importedLinks && newAllocations.length) {
+        // One demand calculation per newly imported business group, never an entire-tenant projection.
+        const groups=new Map(newAllocations.filter(row=>row.order_status==='已审核').map(row=>[JSON.stringify([row.order_number,row.item_code,row.division_id]),row]));
+        for(const row of groups.values())await ensureNewAllocationDemand(manager,row,actorId,actor.username,actor.requestId);
+        const changesById=new Map(allocationChanges.map(change=>[String(change.after.id),change]));
+        for(const row of newAllocations) {
+          const linked=await linkNewDemandRecord(manager,'mps-order-allocations',row,actorId,actor.username,actor.requestId);
+          const change=changesById.get(String(row.id));if(change)change.after=linked;
+        }
       }
       await this.allocationEvent(manager, code, actor, allocationChanges);
       const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false, ...(code==="mps-order-allocations"?{importBatchId:allocationBatch!.id}:{}) };

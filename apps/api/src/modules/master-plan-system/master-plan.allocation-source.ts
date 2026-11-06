@@ -7,6 +7,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
     (array_agg(a.id ORDER BY a.created_at,a.id))[1] allocation_id,
     min(a.customer_code) customer_code,min(a.order_date) order_date,max(a.item_name) item_name,
     sum(a.allocated_quantity) quantity,count(*) allocation_count,
+    min(to_jsonb(a)->>'monthly_plan_id') demand_parent_id,count(DISTINCT to_jsonb(a)->>'monthly_plan_id') demand_parent_count,
     count(*) FILTER(WHERE a.order_date IS NULL) missing_order_dates,
     count(*) FILTER(WHERE nullif(btrim(a.item_name),'') IS NULL) missing_item_names,
     count(DISTINCT a.customer_code) customer_count,
@@ -17,7 +18,8 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
   GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id
 ), candidates AS MATERIALIZED (
   SELECT a.*,p.id existing_id,p.allocation_id existing_allocation_id,
-    CASE WHEN NOT a.valid OR a.customer_count<>1 THEN '分配客户或数量无效'
+    CASE WHEN a.demand_parent_count>1 OR (a.demand_parent_id IS NOT NULL AND (p.id IS NULL OR (p.order_number,p.item_code,p.division_id) IS DISTINCT FROM (a.order_number,a.item_code,a.division_id))) THEN '显式需求父关系冲突，禁止文本回退'
+      WHEN NOT a.valid OR a.customer_count<>1 THEN '分配客户或数量无效'
       WHEN (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=a.order_number)<>1
         THEN '同订单有效分配客户不一致'
       WHEN EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=a.tenant_id AND g.order_number=a.order_number
@@ -29,8 +31,8 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
         THEN '保留历史计划或人工归属'
       ELSE NULL END skip_reason
   FROM allocations a LEFT JOIN organization_units o ON o.id=a.division_id AND o.enabled=true
-  LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.order_number=a.order_number
-    AND p.item_code=a.item_code AND p.division_id IS NOT DISTINCT FROM a.division_id
+  LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND (p.id=a.demand_parent_id::uuid OR (a.demand_parent_id IS NULL AND p.order_number=a.order_number
+    AND p.item_code=a.item_code AND p.division_id IS NOT DISTINCT FROM a.division_id))
   LEFT JOIN mps_order_allocations parent ON parent.tenant_id=p.tenant_id AND parent.id=p.allocation_id
 )`;
 

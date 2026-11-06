@@ -6,6 +6,7 @@ import { mpsLifecycleResources, mpsLifecycleOperations, type MpsLifecycleOperati
 import { buildDataScopeClause } from '../../common/filtering/data-scope';
 import { columnsFor, fieldsFor, MASTER_PLAN_RESOURCE_MAP } from './master-plan.config';
 import { hasMasterPlanPermission, hasMasterPlanFieldPermission, type MasterPlanActor } from './master-plan.types';
+import { readMpsLifecycleAvailability, requireMpsLifecycleAvailable } from './master-plan.lifecycle-availability';
 type Row = Record<string, any>;
 const tables = { 'mps-monthly-plans': 'mps_monthly_plans', 'mps-base-plans': 'mps_base_plans', 'mps-weekly-plans': 'mps_weekly_plans' } as const;
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[1-8][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i;
@@ -30,6 +31,14 @@ export async function assertMpsLifecycleSyncReady(manager: Pick<EntityManager, '
 @Injectable()
 export class MasterPlanLifecycleService {
     constructor(private readonly db: DataSource) { }
+    availability(resource: string) {
+        return readMpsLifecycleAvailability(this.db, resource);
+    }
+    async assertAvailable(resource: string, manager: Pick<EntityManager, 'query'> = this.db) {
+        const availability = await readMpsLifecycleAvailability(manager, resource);
+        requireMpsLifecycleAvailable(availability);
+        return availability;
+    }
     private validate(resource: string, id: string, operation: string) {
         if (!(mpsLifecycleResources as readonly string[]).includes(resource) || !uuid.test(id) || !Object.hasOwn(mpsLifecycleOperations, operation))
             throw new BadRequestException('生命周期资源、记录或操作无效');
@@ -208,6 +217,7 @@ export class MasterPlanLifecycleService {
         this.requirePermission(actor, resource, operation);
         return this.db.transaction('REPEATABLE READ', async (m) => {
             await m.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+            await this.assertAvailable(resource, m);
             const { result, snapshotHash } = await this.inspect(m, resource, id, operation, actor);
             const expiresAt = Date.now() + 300000;
             const previewToken = this.sign({ tenant: actor.tenantId, user: actor.userId, resource, id, operation, version: result.expectedVersion, snapshotHash, expiresAt });
@@ -229,6 +239,7 @@ export class MasterPlanLifecycleService {
         try {
             return await this.db.transaction('SERIALIZABLE', async (m) => {
                 await m.query("SELECT set_config('app.tenant_id',$1,true),set_config('lock_timeout','5s',true),set_config('statement_timeout','15s',true)", [actor.tenantId]);
+                await this.assertAvailable(resource, m);
                 await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [key]);
                 const [prior] = await m.query('SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1', [key]);
                 if (prior) {
