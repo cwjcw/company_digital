@@ -10,6 +10,7 @@ import { MasterPlanDeliveryCodeAuto1722920075000 as Codes } from "../../migratio
 import { MpsProcessRoutingV11722920107000 as Routing } from "../../migrations/1722920107000-MpsProcessRoutingV1";
 import { MpsProcessDueDateRefreshV11722920108000 as Dates } from "../../migrations/1722920108000-MpsProcessDueDateRefresh";
 import { MpsMonthlyBaseGeneration1722920111000 as Change } from "../../migrations/1722920111000-MpsMonthlyBaseGeneration";
+import { MpsSyncLeases1722920118000 as Leases } from "../../migrations/1722920118000-MpsSyncLeases";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { MasterPlanQueryService } from "./master-plan.query.service";
@@ -114,7 +115,7 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
   it("retains multiple batches or a division conflict, reports them and never inserts a third base",async()=>{
     await month();for(const delivery of ["001","002"])await insert("mps_base_plans",{order_number:"ORDER-A",item_code:"ITEM-A",division_id:division,delivery_number:delivery,planned_quantity:5,latest_customer_due_date:"2026-11-03"});
     expect((await run()).metrics.base_conflicts).toBe(1);expect(await bases()).toHaveLength(2);
-    const [issue]=await db.query("SELECT * FROM mps_data_exceptions WHERE active");expect(issue.message).toContain("多个基础计划批次");
+    const [issue]=await db.query("SELECT * FROM mps_data_exceptions WHERE active");expect(issue.message).toContain("多个历史批次尚未确认需求父关系");
     await month("ITEM-B");await insert("mps_base_plans",{order_number:"ORDER-A",item_code:"ITEM-B",division_id:other,delivery_number:"001",planned_quantity:10,latest_customer_due_date:"2026-11-03"});
     expect((await run()).metrics.base_conflicts).toBe(2);expect(await bases()).toHaveLength(3);
   });
@@ -185,7 +186,25 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
 
   it("initializes once under concurrent sync and does not apply later route changes",async()=>{
     const {base,weekly}=await externalWeek();await enableInternal(base);
-    await Promise.all([weeks(),weeks()]);
+    // Production synchronization has used the 1A runner since118. Exercise
+    // that public entrypoint, including busy rejection and a real retry;
+    // calling the private executor twice bypasses its lease/mutex contract.
+    await db.query('ALTER TABLE mps_sync_logs ADD COLUMN IF NOT EXISTS metrics jsonb');
+    await new Leases().up({query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner);
+    await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,created_by,updated_by)
+      VALUES($1,'base-to-weekly','合成正式同步',true,$2,$2) ON CONFLICT(tenant_id,sync_key) DO UPDATE SET enabled=true`,[tenant,user]);
+    const keys=['fixture-concurrent-first','fixture-concurrent-second'];
+    const formal=(key:string)=>service.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',key);
+    const results=await Promise.allSettled(keys.map(formal));
+    expect(results.some(result=>result.status==='fulfilled')).toBe(true);
+    for(const [index,result]of results.entries()){
+      if(result.status==='fulfilled')expect(result.value.status).toBe('SUCCESS');
+      else{
+        expect(result.reason).toMatchObject({status:409});
+        expect(result.reason.message).toBe('该同步任务正在运行');
+        expect((await formal(keys[index])).status).toBe('SUCCESS');
+      }
+    }
     expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(3);
     expect((await db.query("SELECT * FROM audit_logs WHERE action='mps-weekly-plans.process_config_initialized' AND record_id=$1",[weekly.id]))).toHaveLength(1);
     const snapshot=await db.query("SELECT id,process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence");
