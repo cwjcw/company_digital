@@ -1,3 +1,4 @@
+import { mpsQuantityBatchFields } from '@kdos/contracts';
 import { demandLinksReady, linkNewDemandRecord } from "./master-plan.demand-links";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
@@ -66,6 +67,13 @@ export class MasterPlanApplicationService {
     private readonly sync: MasterPlanSyncService,
     @Optional() private readonly notifications?: NotificationService
   ) {}
+
+  /** Quantity allocation uses the same field permissions, types and dictionaries as ordinary creation. */
+  quantityBatchContext(body: Record<string, unknown>, actor: MasterPlanActor) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !(mpsQuantityBatchFields as readonly string[]).includes(k))) throw new BadRequestException('新批次属性仅允许指定获权的计划日期和生产属性');
+    const def = MASTER_PLAN_RESOURCE_MAP.get('mps-base-plans')!;
+    return this.toDatabaseRecord(def, this.writable(def, body, actor, 'create'));
+  }
 
   /** Dashboard export writes only its audit record, through the existing Application boundary. */
   async recordDashboardExport(summary: { tableKey: string; rowCount: number; fields: string[] }, actor: MasterPlanActor) {

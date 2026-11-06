@@ -121,3 +121,128 @@
 ### 8. Git与结束
 
 只提交上述文件，正常推送github/main，不强推；最终SHA及远程校验结果见本文件Git历史与最终回复。原outputs/CODEX_PROGRESS.md的260行修改、财务截图和订单定向清理记录保留。本轮完成后停止，不进入下一轮或生产操作。
+
+
+## 集中开发第2轮（2026-11-06，已完成代码与隔离验收）
+
+### 实现范围与安全边界
+
+- 基准dd819335；不部署、不执行生产Migration、不修改生产权限/业务、不批量回填历史ID。
+- 月度UUID仍为需求根、基础UUID仍为批次；不新增主表、周/报工需求ID、依赖或任务系统。无新增Migration，118～121原件保持。
+- 双页面行菜单复用Modal/Table/Select，展示精确数量、关联可信度与阻断原因；首次未确认关联不按0。计划全量、履约、未执行占用、暂停占用、取消后履约分别核算。
+- 显式INCREASE/NEW/REDUCE/SPLIT/MERGE先预览再确认。父/双方版本、完整快照摘要、原因、租户/字段/双方数据范围、事务审计、幂等及串行化有界重试；并发先锁父/批次/周计划。
+- 新增或增加受可信待分配量限制；减少受超额和执行保护限制；拆批和合批仅部分安全未执行数量，原批次必须保留正数量及ID。任何已执行/工艺锁/入库源或目标不合批，不删除/重挂报工。
+- 新批次复用业务字段、交期编码生成器与121正式关联；缺少必需属性明确阻断并要求核实模板，不猜测日期。
+- 显式数量归属由现有审计标识，后续月度→基础不自动覆盖；基础→周仍为原1A Outbox，保存仅PENDING并查询真实结果。
+- 成品履约核验canonical staging租户/来源/客户/稳定订单品项及数量，不求和工序报工。不认可旧FIFO周计划分摊为实际批次证据；多批次存在入库或证据不全时明确待确认，不自动分摊。取消后已证实履约仍占用；ON_HOLD保留占用，非ACTIVE需求不允许差额驱动新增。
+
+### 权限保存根因与只读证据
+
+- 生产真实目标组存在deliveryNumber.read=true/update=true，当前定义editable=false。Web旧状态与保存全字段携带true，操作修改触发后端全量字段校验；生产已部署校验代码只读重放返回HTTP400同一业务消息。
+- 未发送真实生产PATCH，也未修改权限。异常74条字段授权，13组资源/类型、11个资源：只读编辑4条、未知旧字段70条；无员工隐私明细进入Git。
+- 共享PATCH锁权限组，合并本次实际字段变更，保留合法未提交字段；旧非法字段收紧有独立审计，主动readonly=true仍400。UI打开/复制/全选/提交均裁剪readonly；认证实时claims过滤非法字段update，不改操作授权并集。
+- 当前组create=false不代表员工无其他create来源。相同组ID、成员、范围、其他组与普通角色继承保留。
+
+### 隔离验收入口
+
+- 独立PG18容器network=none/tmpfs，仅专用Unix socket；合成数据，无生产连接。
+- 新数量、共享权限及回归最终结果见下表；不得据此宣称全仓库PASS。
+- 最终相关Web5套67项PASS，包含新增首批创建及权限旧状态。
+- 第3轮评审批次应用未开发：不广播交期，不创建评审→基础应用关系。
+
+### 通用权限只读影响汇总
+
+以下为权限组字段授权条数，不是员工数或权限组数；没有执行生产修改。当前普通角色未发现相同异常。目标组取消create后仍须结合其他组/角色查授权来源。
+
+| 资源 | 旧未知字段 | 只读字段编辑授权 |
+|---|---:|---:|
+| `mps-base-plans` | 2 | 1 |
+| `mps-customer-divisions` | 1 | 0 |
+| `mps-erp-orders` | 1 | 0 |
+| `mps-group-plans` | 1 | 0 |
+| `mps-monthly-plans` | 24 | 0 |
+| `mps-order-allocations` | 0 | 0 |
+| `mps-process-cycles` | 18 | 0 |
+| `mps-process-reports` | 0 | 0 |
+| `mps-review-due-dates` | 4 | 0 |
+| `mps-shipping-plans` | 0 | 2 |
+| `mps-weekly-plans` | 14 | 1 |
+| `mps-weekly-process-plans` | 3 | 0 |
+| `order-schedule` | 2 | 0 |
+
+### 第2轮正式接口与文件边界
+
+- `GET /master-plan-system/demands/:id/quantities`：受范围保护的正式数量核对。原需求数量独立保留；LEGACY有效需求待确认、CANCELLED有效需求为0只为查询派生，不修改原始数量。
+- `POST .../quantities/preview`、`POST .../quantities/confirm`：MpsQuantityRequest/Confirm，显式操作、精确数量、可选源/目标、新批次受限业务属性、需求及批次版本、摘要、原因、幂等键。
+- `GET .../quantities/status/:eventId`：仅本租户、该需求及获权范围的原Outbox事件状态与错误，不把命令提交当成下游成功。
+- 没有批次时可填写获权的计划日期和生产属性创建首批；字段沿用普通新增的服务端类型、字典、权限和数据范围校验。模板或手工填写均不猜测评审日期。
+- 已有入库但缺少稳定批次履约关联时，不允许用新增批次破坏原唯一归属；可合法增加原批次，不能虚构多批分摊。入库staging尚未投影时也不按零履约计算。
+- 多批/执行风险不明、历史NULL、异事业部或租户、预览过期、版本及幂等冲突均拒绝；调整后数据范围重新检查。
+- API核心：`master-plan.demand-quantity.service.ts`、`master-plan.demand-quantity.ts`、控制器/Module、原Application新增属性验证复用入口、`master-plan.monthly-base.ts`显式数量所有权保护、`master-plan.demand-link.service.ts`复用范围读取。
+- Contracts：`master-plan-demand-quantity.ts`及index出口。Web：`MasterPlanDemandQuantityDialog.tsx`、原`MasterPlanPages.tsx`双页面行菜单；通用权限为`TablePermissionsPage.tsx`。
+- 共享权限：`table-permission-group.application.service.ts`、`auth.ts`；保留未变更成员绑定记录ID及审计字段，新增限制提示与审计配置快照。Skill第7.5节补充保存兼容规则。
+
+### 第1轮76个Web失败的对照
+
+- 本轮完整Web命令明确使用`vitest run --maxWorkers=1 --testTimeout=20000`，不是将参数错误放在`--`之后。采样579项：530通过、49失败。
+- 与第1轮76个失败按文件及用例标题逐项匹配：其中27项本次通过，49项仍失败，没有旧用例丢失或凭名称改动消除失败。
+- 在独立detached工作区、基准`dd819335`原代码，对这49项精确标题重放：49项全部失败，失败集合与当前完全一致；另49项同文件无关用例被精确过滤跳过。新功能相关定向组件测试通过。
+- 11个既有失败文件：AdminWorkspace、AdministratorsPage、EquipmentPages、LogisticsLedgerPage、MarketingPages、HumanResourcesPages、NotificationCenterPage、SupervisionPages、MasterPlanDashboard、MasterPlanDashboardDestination、master-plan-auxiliary-groups。
+- 失败表现为既有页面fixture行/按钮不出现、105%断言、默认月份/日期预期及旧工序组字段预期。不是本轮修改了这些模块；相关源码与基准相同。严格结论为基准可复现、当前未增加失败，不能把旧76项全部归因于超时，也不能宣称全Web PASS。
+- 诊断原件、JSON、单worker基线比较仅ignored `test/mps_round2/`，不提交真实权限记录、UUID、凭据或数据库。
+
+### 第2轮最终验证与生产边界
+
+| 检查 | 结果 |
+|---|---|
+| API相关17套 | 331/331 PASS；最终认证收紧另有认证定向复验 |
+| 真实隔离PG | 121项：本轮18项（含真实权限事务）＋原103项 |
+| Web计划/生命周期/需求/权限5套 | 最终67/67 PASS；新增/权限2套7项也单独通过 |
+| Web全量一次 | 579项530PASS/49FAIL；49项全部在原dd819335复现，不宣称全仓库通过 |
+| Contracts | 10套49项PASS |
+| API/Web/Contracts typecheck、lint、build | PASS；Web既有ModulePortal热更新warning、bundle体积提示，以及测试环境React/pg/ts-jest兼容提示保留 |
+| 严格phase-a编译入口 | 117真实基线，仅执行118、119；重复no-op，120/121不运行；实际120后拒绝 |
+
+- 无新增Migration、不改118～121；121→120及120→121旧回归均通过。数量功能依赖121单独发布，不能混入118/119方案A名单。120历史过渡仍NO-GO，本轮不修复也不启用。
+- 生产仅只读事务、只读代码校验重放；无部署、Migration、配置/权限/业务写入、同步触发或历史回填。未处理652/634/3组人工变更、11/1旧事件及既有历史异常。
+- API/Web代码及隔离测试通过与生产上线条件不同；本轮没有生产浏览器验收或上线交付结论。
+- 本轮安全Git同步只含任务文件，其他进度/财务截图/订单清理任务原样保留。最终SHA见本文件提交记录及最终答复。
+
+### 明确保留的限制及第3轮
+
+1. 完整合并至源批次零数量、关闭源批次、移动报工或库存不支持；本轮只做保留正数量及ID的部分安全合批。已执行、工艺锁、入库及生产属性不兼容均拒绝。
+2. 多批次履约归属不足时，暂无自动分摊或新的履约事实表；显示待确认并阻断新增/释放。已有入库单批也不允许无稳定归属地再增加批次数量。
+3. 120历史LEGACY过渡、全链暂停/取消恢复及历史ID批量回填不在本轮。数量查询不把LEGACY视为ACTIVE，保存不绕过原同步阻断。
+4. 第3轮仍需评审批次应用：确认评审→基础批次关系、版本/选择/预览/授权/审计及批次化日期应用；本轮不会广播评审日期，停止等待后续安排。
+5. 49个既有Web失败作为独立维护事项，包含fixture/页面期望差异；不为本轮通过而修改无关模块或减测试。
+
+### 本轮修改文件（26项）
+
+- `.agents/skills/kdos-form-platform/SKILL.md`
+- `apps/api/src/auth.spec.ts`
+- `apps/api/src/auth.ts`
+- `apps/api/src/modules/admin/table-permission-group.application.service.spec.ts`
+- `apps/api/src/modules/admin/table-permission-group.application.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.application.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.controller.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-link.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-links.postgres.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.module.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.monthly-base.ts`
+- `apps/web/src/modules/master-plan-system/MasterPlanPages.tsx`
+- `apps/web/src/modules/permissions/ReviewDueDatePermissions.spec.tsx`
+- `apps/web/src/modules/permissions/TablePermissionsPage.tsx`
+- `docs/operations/MPS_UNIFIED_ID_IMPLEMENTATION_PROGRESS.md`
+- `docs/operations/TASK_REGISTRY.md`
+- `outputs/主计划系统修复进度.md`
+- `packages/contracts/src/index.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-quantity.postgres.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-quantity.service.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-quantity.spec.ts`
+- `apps/api/src/modules/master-plan-system/master-plan.demand-quantity.ts`
+- `apps/web/src/modules/master-plan-system/MasterPlanDemandQuantityDialog.spec.tsx`
+- `apps/web/src/modules/master-plan-system/MasterPlanDemandQuantityDialog.tsx`
+- `packages/contracts/src/master-plan-demand-quantity.spec.ts`
+- `packages/contracts/src/master-plan-demand-quantity.ts`
+
+- 全Web579项为补充首批组件用例前的采样；新增1项已包含最终67项定向重验。最终数量/认证修订分别21项定向复验PASS，未将重复运行累计成额外覆盖数。隔离资源已清理，生产未发布。

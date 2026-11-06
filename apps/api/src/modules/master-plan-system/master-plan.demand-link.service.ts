@@ -23,7 +23,7 @@ export class MasterPlanDemandLinkService {
   async availability(resource:string, actor:MasterPlanActor) {
     return { schemaReady:await demandLinksReady(this.db.manager), canBind:this.canBind(resource,actor), canRead:hasMasterPlanPermission(actor,resource,'read')&&hasMasterPlanPermission(actor,'mps-monthly-plans','read') };
   }
-  private async scoped(m:EntityManager, resource:string, id:string, actor:MasterPlanActor, write=false, lock=false) {
+  async scoped(m:EntityManager, resource:string, id:string, actor:MasterPlanActor, write=false, lock=false) {
     if (!hasMasterPlanPermission(actor,resource,'read') || (write&&!hasMasterPlanPermission(actor,resource,'update'))) throw new ForbiddenException('没有关联资源查看/修改权限');
     const review=resource==='mps-review-due-dates';
     const keys=review?['orderNumber','drawingNumber','divisionId']:['orderNumber','itemCode','divisionId'];

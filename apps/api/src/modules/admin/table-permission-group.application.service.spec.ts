@@ -67,3 +67,23 @@ describe("TablePermissionGroupApplicationService", () => {
     expect(save.mock.calls.every((call) => call.length === 2)).toBe(true);
   });
 });
+
+describe('shared legacy grant compatibility',()=>{
+  function setup(resource='mps-base-plans'){
+    const role={id:'synthetic',version:3,permissionGroupResource:resource,permissionGroupType:'CUSTOM',permissionGroupScope:'ALL',permissionGroupConditionMatch:'ALL',permissionGroupDataRules:[],description:null};
+    const permissions=[{fieldKey:'*',read:true,create:true,update:true},{fieldKey:resource==='mps-base-plans'?'deliveryNumber':'createdBy',read:true,update:true},{fieldKey:resource==='mps-base-plans'?'plannedQuantity':'productionQuantity',read:true,update:true}];
+    const manager={findOne:jest.fn(async()=>({...role})),find:jest.fn(async()=>permissions),save:jest.fn(async(_t,v)=>v),delete:jest.fn()};
+    const service=new TablePermissionGroupApplicationService({transaction:async(fn:any)=>fn(manager)} as never);return {service,manager,role};
+  }
+  const actor={userId:'synthetic-admin',name:'合成管理员',requestId:'synthetic-request'};
+  it.each(['mps-base-plans','mps-process-reports'])('%s create-only patch keeps legal fields, restricts legacy and records explicit audit',async resource=>{
+    const {service,manager}=setup(resource);await service.update('synthetic',{version:3,actions:['read','update']},actor);
+    expect(manager.save).toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:resource==='mps-base-plans'?'deliveryNumber':'createdBy',read:true,update:false}));
+    expect(manager.save).toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:resource==='mps-base-plans'?'plannedQuantity':'productionQuantity',read:true,update:true}));
+    expect(manager.save).toHaveBeenCalledWith(AuditLog,expect.objectContaining({action:'table_permission_group.legacy_fields_restricted'}));
+    expect(manager.delete).not.toHaveBeenCalledWith(PermissionGroupSubject,expect.anything());
+  });
+  it('explicit readonly true is rejected even if old stored value was true',async()=>{const {service}=setup();await expect(service.update('synthetic',{version:3,fields:[{fieldKey:'deliveryNumber',visible:true,editable:true}]},actor)).rejects.toThrow('不能设置为可编辑');});
+  it('partial valid field edit keeps other fields instead of clearing them',async()=>{const {service,manager}=setup();await service.update('synthetic',{version:3,fields:[{fieldKey:'plannedQuantity',visible:true,editable:true}]},actor);expect(manager.save).toHaveBeenCalledWith(Permission,expect.objectContaining({fieldKey:'deliveryNumber',read:true,update:false}));});
+  it('version conflict rejects before writing and acquires row lock',async()=>{const {service,manager}=setup();await expect(service.update('synthetic',{version:2,actions:['read']},actor)).rejects.toMatchObject({status:409});expect(manager.save).not.toHaveBeenCalled();expect(manager.findOne).toHaveBeenCalledWith(Role,expect.objectContaining({lock:{mode:'pessimistic_write'}}));});
+});

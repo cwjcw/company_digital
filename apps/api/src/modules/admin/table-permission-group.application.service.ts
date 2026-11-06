@@ -149,6 +149,7 @@ export class TablePermissionGroupApplicationService {
     await manager.delete(Permission, { roleId: role.id });
     await manager.save(Permission, { roleId: role.id, ...this.permission(resource, "*", actions) });
     for (const field of fields) if (field.visible || field.editable) await manager.save(Permission, { roleId: role.id, ...this.permission(resource, field.fieldKey, [], field.visible, field.editable) });
+    return { actions, fields };
   }
 
   async create(input: TablePermissionGroupInput, actor: Actor) {
@@ -178,14 +179,21 @@ export class TablePermissionGroupApplicationService {
 
   async update(id: string, input: Partial<TablePermissionGroupInput> & { version?: number }, actor: Actor) {
     return this.dataSource.transaction(async (manager) => {
-      const role = await manager.findOneBy(Role, { id, permissionGroupResource: Not(IsNull()) });
+      const role = await manager.findOne(Role, { where: { id, permissionGroupResource: Not(IsNull()) }, lock: { mode: "pessimistic_write" } });
       if (!role) throw new NotFoundException("权限组不存在");
       if (input.version !== undefined && role.version !== input.version) throw new ConflictException({ message: "权限组已被其他管理员修改，请刷新后重试", currentVersion: role.version });
       const before = { ...role };
+      let beforeConfiguration: unknown, afterConfiguration: unknown;
+      let restrictedFieldKeys: string[] = [];
       if (input.subjects) {
         const selected = await this.subjects(manager, input.subjects);
-        await manager.delete(PermissionGroupSubject, { roleId: id });
-        for (const subject of selected) await manager.save(PermissionGroupSubject, { roleId: id, subjectType: subject.type, subjectId: subject.id, createdBy: actor.userId, updatedBy: actor.userId ?? "system" });
+        const existing = await manager.find(PermissionGroupSubject, { where: { roleId: id } });
+        const subjectKey = (s: { type: string; id: string }) => `${s.type}:${s.id}`;
+        const selectedKeys = new Set(selected.map(subjectKey));
+        const oldKeys = new Set(existing.map(s => subjectKey({ type: s.subjectType, id: s.subjectId })));
+        const removed = existing.filter(s => !selectedKeys.has(subjectKey({ type: s.subjectType, id: s.subjectId })));
+        if (removed.length) await manager.delete(PermissionGroupSubject, { roleId: id, id: In(removed.map(s => s.id)) });
+        for (const subject of selected.filter(s => !oldKeys.has(subjectKey(s)))) await manager.save(PermissionGroupSubject, { roleId: id, subjectType: subject.type, subjectId: subject.id, createdBy: actor.userId, updatedBy: actor.userId ?? "system" });
       }
       role.permissionGroupEnabled = input.enabled ?? role.permissionGroupEnabled;
       if (input.displayName !== undefined) {
@@ -197,17 +205,26 @@ export class TablePermissionGroupApplicationService {
         const changesConfiguration = input.actions !== undefined || input.fields !== undefined || input.dataRules !== undefined || input.dataMatch !== undefined || input.description !== undefined;
         if (changesConfiguration) {
           const currentPermissions = await manager.find(Permission, { where: { roleId: id } });
+          beforeConfiguration = currentPermissions;
           const currentOperation = currentPermissions.find((permission) => permission.fieldKey === "*");
           const currentActions = currentOperation ? tablePermissionActions.filter((action) => Boolean(currentOperation[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])) : [];
-          const currentFields = currentPermissions.filter((permission) => permission.fieldKey !== "*").map((permission) => ({ fieldKey: permission.fieldKey, visible: permission.read, editable: permission.update }));
+          const definitions = new Map(tablePermissionFieldsFor(this.resource(role.permissionGroupResource!)).map(field => [field.key, field]));
+          const compatibilityChanges = currentPermissions.filter(p => p.fieldKey !== "*" && (!definitions.has(p.fieldKey) || (p.update && (!definitions.get(p.fieldKey)?.editable || !p.read)))).map(p => ({ fieldKey: p.fieldKey, before: { visible: p.read, editable: p.update }, after: definitions.has(p.fieldKey) ? { visible: p.read, editable: false } : null }));
+          restrictedFieldKeys = compatibilityChanges.map(change => change.fieldKey);
+          const currentFields = currentPermissions.filter(p => definitions.has(p.fieldKey)).map(p => ({ fieldKey: p.fieldKey, visible: p.read, editable: p.update && p.read && definitions.get(p.fieldKey)!.editable }));
+          // A PATCH may omit fields; only explicitly supplied fields are validated as new grants.
+          // Unchanged legal fields survive both operation-only PATCH and partial field PATCH.
+          for (const field of input.fields ?? []) this.fields(this.resource(role.permissionGroupResource!), { resource: role.permissionGroupResource!, groupType: "CUSTOM", fields: [field] }, []);
+          const mergedFields = [...new Map([...currentFields, ...(input.fields ?? [])].map(f => [f.fieldKey, f])).values()];
+          if (compatibilityChanges.length) await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: `permissions:${role.permissionGroupResource}`, recordId: id, action: "table_permission_group.legacy_fields_restricted", beforeJson: compatibilityChanges.map(c => ({fieldKey:c.fieldKey,...c.before})), afterJson: compatibilityChanges.map(c => ({fieldKey:c.fieldKey,value:c.after})), requestId: actor.requestId, source: "web" });
           role.description = input.description === undefined ? role.description : input.description.trim() || null;
-          await this.replaceConfiguration(manager, role, { ...input, resource: role.permissionGroupResource!, groupType: "CUSTOM", actions: input.actions ?? currentActions, fields: input.fields ?? currentFields, dataRules: input.dataRules ?? role.permissionGroupDataRules as RuleInput[], dataMatch: input.dataMatch ?? role.permissionGroupConditionMatch as "ALL" | "ANY", subjects: input.subjects ?? [] } as TablePermissionGroupInput, actor);
+          afterConfiguration = await this.replaceConfiguration(manager, role, { ...input, resource: role.permissionGroupResource!, groupType: "CUSTOM", actions: input.actions ?? currentActions, fields: mergedFields, dataRules: input.dataRules ?? role.permissionGroupDataRules as RuleInput[], dataMatch: input.dataMatch ?? role.permissionGroupConditionMatch as "ALL" | "ANY", subjects: input.subjects ?? [] } as TablePermissionGroupInput, actor);
         } else { role.updatedBy = actor.userId ?? "system"; role.version += 1; await manager.save(Role, role); }
       } else {
         role.updatedBy = actor.userId ?? "system"; role.version += 1; await manager.save(Role, role);
       }
-      await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: `permissions:${role.permissionGroupResource}`, recordId: id, action: "table_permission_group.updated", beforeJson: before, afterJson: role, requestId: actor.requestId, source: "web" });
-      return role;
+      await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: `permissions:${role.permissionGroupResource}`, recordId: id, action: "table_permission_group.updated", beforeJson: { ...before, ...(beforeConfiguration ? { configuration: beforeConfiguration } : {}) }, afterJson: { ...role, ...(afterConfiguration ? { configuration: afterConfiguration } : {}) }, requestId: actor.requestId, source: "web" });
+      return { ...role, restrictedFieldKeys };
     });
   }
 

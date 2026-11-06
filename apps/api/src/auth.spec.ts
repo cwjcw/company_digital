@@ -43,13 +43,28 @@ describe("AuthService dynamic organization roles", () => {
       organizationScopes as never, permissionGroupSubjects as never, organizationUnits as never,
       administratorGrants as never, refreshTokens as never, {} as never, {} as never, {} as never, jwt as never
     );
-    return { service, user, jwt, refreshTokens };
+    return { service, user, jwt, refreshTokens, permissions };
   }
 
   it("grants a role from the user's current department without a static user-role row", async () => {
     const claims = await setup().service.claimsForEnabledUser("user-1");
     expect(claims.roles).toEqual(["营销角色"]);
     expect(claims.permissions).toContain("orders:*:read");
+  });
+
+  it("filters legacy readonly edits without removing inherited operation grants", async () => {
+    const h=setup();h.permissions.createQueryBuilder.mockReturnValue(queryBuilder([
+      {roleId:'group-four',resource:'mps-base-plans',fieldKey:'*',read:true,create:false,update:true},
+      {roleId:'other-role',resource:'mps-base-plans',fieldKey:'*',read:true,create:true},
+      {roleId:'group-four',resource:'mps-base-plans',fieldKey:'deliveryNumber',read:true,update:true},
+      {roleId:'group-four',resource:'mps-base-plans',fieldKey:'plannedQuantity',read:true,update:true}
+    ]));
+    const claims=await h.service.claimsForEnabledUser('user-1');
+    expect(claims.permissions).toContain('mps-base-plans:*:create');
+    expect(claims.permissions).toContain('mps-base-plans:*:update');
+    expect(claims.permissions).toContain('mps-base-plans:deliveryNumber:read');
+    expect(claims.permissions).not.toContain('mps-base-plans:deliveryNumber:update');
+    expect(claims.permissions).toContain('mps-base-plans:plannedQuantity:update');
   });
 
   it("rejects a departed or disabled user before reusing token claims", async () => {

@@ -66,6 +66,8 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     FROM audit_logs a JOIN mps_base_plans b ON b.tenant_id=a.tenant_id AND b.id::text=a.record_id
     WHERE a.tenant_id=$1 AND a.resource='mps-base-plans' AND a.action='mps-base-plans.synchronized'
     ORDER BY a.record_id,a.created_at DESC,a.id DESC`, [tenantId]) : [];
+  const controlledRows: Row[] = linksReady ? await manager.query(`SELECT DISTINCT record_id FROM audit_logs WHERE tenant_id=$1 AND resource='mps-base-plans' AND action='demand.quantity.confirmed'`,[tenantId]):[];
+  const controlledIds=new Set(controlledRows.map(r=>r.record_id));
   const baselines = new Map(histories.map(row => [row.record_id,row.values as Row]));
   for (const monthlyPlan of monthly) {
     // Same lock as ordinary base creation: manual creation cannot race the absence check.
@@ -113,6 +115,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     } else {
       after = before;
       const patch = monthlyBasePatch(before,desired,previous);
+      if(controlledIds.has(before.id))delete patch.planned_quantity; // Explicit allocation remains user-owned even if quantities later coincide.
       const entries = Object.entries(patch);
       if (entries.length) {
         const result = await manager.query(`UPDATE mps_base_plans SET ${entries.map(([key],i) => `${key}=$${i+5}`).join(",")},

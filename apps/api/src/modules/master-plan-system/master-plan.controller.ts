@@ -1,3 +1,5 @@
+import { MasterPlanDemandQuantityService } from './master-plan.demand-quantity.service';
+import type { MpsQuantityRequest, MpsQuantityConfirm } from '@kdos/contracts';
 import { MasterPlanDemandLinkService } from "./master-plan.demand-link.service";
 import { mpsDemandLinkResources, type MpsBindDemandRequest } from "@kdos/contracts";
 import { MasterPlanLifecycleService } from "./master-plan.lifecycle.service";
@@ -23,7 +25,16 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService, private readonly demandLinks: MasterPlanDemandLinkService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService, private readonly demandLinks: MasterPlanDemandLinkService, private readonly quantities: MasterPlanDemandQuantityService) {}
+
+  @Get('demands/:id/quantities')
+  demandQuantities(@Param('id') id:string,@Req() r:MasterPlanRequest){return this.quantities.read(id,this.actor(r));}
+  @Post('demands/:id/quantities/preview')
+  previewQuantities(@Param('id') id:string,@Body() b:MpsQuantityRequest,@Req() r:MasterPlanRequest){return this.quantities.preview(id,b,this.actor(r));}
+  @Post('demands/:id/quantities/confirm')
+  confirmQuantities(@Param('id') id:string,@Body() b:MpsQuantityConfirm,@Req() r:MasterPlanRequest){return this.quantities.confirm(id,b,this.actor(r));}
+  @Get('demands/:id/quantities/status/:eventId')
+  quantityStatus(@Param('id') id:string,@Param('eventId') eventId:string,@Req() r:MasterPlanRequest){return this.quantities.status(id,eventId,this.actor(r));}
 
   @Get("resources/:resource/:id/demand-link")
   demandLink(@Param("resource") resource:string,@Param("id") id:string,@Req() request:MasterPlanRequest) { return this.demandLinks.info(resource,id,this.actor(request)); }
@@ -62,7 +73,7 @@ export class MasterPlanController {
     const metadata = (mpsDemandLinkResources as readonly string[]).includes(resource) ? {...baseMetadata,demandLinks:await this.demandLinks.availability(resource,this.actor(request))} : baseMetadata;
     if (!(mpsLifecycleResources as readonly string[]).includes(resource) && resource !== 'mps-process-reports') return metadata;
     const lifecycle = await this.lifecycle.availability(resource);
-    return { ...metadata, lifecycle, fields: lifecycle.schemaReady ? metadata.fields : metadata.fields.filter(field => field.key !== 'lifecycleStatus') };
+    return { ...metadata, ...(resource==='mps-monthly-plans'||resource==='mps-base-plans'?{quantities:await this.quantities.availability(this.actor(request))}:{}), lifecycle, fields: lifecycle.schemaReady ? metadata.fields : metadata.fields.filter(field => field.key !== 'lifecycleStatus') };
   }
 
   @Get("references/weekly-plans")

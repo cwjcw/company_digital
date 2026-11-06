@@ -1,3 +1,4 @@
+import { MasterPlanDemandQuantityDialog } from './MasterPlanDemandQuantityDialog';
 import { MasterPlanDemandLinkDialog } from "./MasterPlanDemandLinkDialog";
 import { MasterPlanLifecycleDialog } from './MasterPlanLifecycleDialog';
 import { mpsLifecycleResources, mpsLifecycleOperations, type MpsLifecycleOperation, type MpsLifecycleAvailability, auxiliaryPlanGroups } from "@kdos/contracts";
@@ -21,7 +22,7 @@ import type { AdvancedFilterGroup } from "../../shared/advanced-filter";
 type TableQuery = { page: number; pageSize: number; search: string; filters: Record<string, string>; filterGroup?: AdvancedFilterGroup; sortField?: string; sortOrder?: "asc" | "desc" };
 type PendingField = TablePermissionFieldDefinition & { input: boolean };
 type ProcessOption = { code: string; name: string; order: number };
-type Metadata = { resource: string; demandLinks?: {schemaReady:boolean;canBind:boolean;canRead?:boolean}; lifecycle?: MpsLifecycleAvailability; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; createTemplate?: boolean; update: boolean; delete: boolean; import: boolean; updateTemplate?: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
+type Metadata = { resource: string; quantities?: {schemaReady:boolean;canRead:boolean}; demandLinks?: {schemaReady:boolean;canBind:boolean;canRead?:boolean}; lifecycle?: MpsLifecycleAvailability; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; createTemplate?: boolean; update: boolean; delete: boolean; import: boolean; updateTemplate?: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
 type Reconciliation = { status: string; message: string | null };
 /** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
 const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
@@ -446,6 +447,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const metadata = useQuery({ queryKey: ["mps-meta", sessionSubject, resource], queryFn: () => api<Metadata>(`/master-plan-system/resources/${resource}/meta`), staleTime: 60_000 });
+  const [quantityDemand,setQuantityDemand]=useState<string|null>(null);
   const [demandLink,setDemandLink]=useState<string|null>(null);
   const lifecycleReady = metadata.data?.lifecycle?.schemaReady === true && metadata.data.lifecycle.serviceReady === true && metadata.data.lifecycle.previewAvailable === true;
   const organizations = useQuery({ queryKey: ["mps-organization-options", sessionSubject, resource], queryFn: () => api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${encodeURIComponent(resource)}`), staleTime: 300_000, enabled: Boolean(metadata.data?.fields.some((field) => field.type === "department")) });
@@ -766,12 +768,12 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   if (!info) return null;
   const canViewWeekly = resource === "mps-base-plans" && Boolean(metadata.data?.actions.viewWeekly);
   /* KN-MPS-WO-001：3天生产工单不生成最右侧行操作列（新增/删除均不适用，编辑靠编辑模式 + 单元格控件）。 */
-  const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (metadata.data?.demandLinks?.canRead || canViewWeekly || metadata.data!.actions.update || (resource === "mps-process-reports" && metadata.data!.actions.create));
+  const hasRowActions = !isPendingView && resource !== WORK_ORDER_RESOURCE && Boolean(metadata.data) && (metadata.data?.quantities?.canRead || metadata.data?.demandLinks?.canRead || canViewWeekly || metadata.data!.actions.update || (resource === "mps-process-reports" && metadata.data!.actions.create));
   const withActions = hasRowActions ? [...activeColumns, {
     title: null, key: "__rowActions", width: 52, fixed: "right" as const, className: "kdos-row-actions-column",
     onHeaderCell: () => ({ className: "kdos-row-actions-column" }),
     render: (_: unknown, row: any) => <RowActions metadata={metadata.data!} row={row} onEdit={() => openEdit(row)}
-      lifecycleItems={[...(metadata.data?.demandLinks?.schemaReady && metadata.data?.demandLinks?.canRead ? [{key:"demand-link",label:"需求关联",onClick:()=>setDemandLink(row.id)}]:[]),...(resource === "mps-process-reports" && lifecycleReady && metadata.data?.lifecycle?.historicalCorrectionAvailable === true && metadata.data?.actions.update && row.canUpdate !== false && hasResourcePermission("mps-plan-correct-facts", "update")
+      lifecycleItems={[...(metadata.data?.quantities?.schemaReady && metadata.data.quantities.canRead?[{key:"demand-quantity",label:"需求数量与分配",onClick:()=>setQuantityDemand(row.id)}]:[]),...(metadata.data?.demandLinks?.schemaReady && metadata.data?.demandLinks?.canRead ? [{key:"demand-link",label:"需求关联",onClick:()=>setDemandLink(row.id)}]:[]),...(resource === "mps-process-reports" && lifecycleReady && metadata.data?.lifecycle?.historicalCorrectionAvailable === true && metadata.data?.actions.update && row.canUpdate !== false && hasResourcePermission("mps-plan-correct-facts", "update")
         ? [{key:"correct-history",label:"历史报工纠错",onClick:()=>openEdit(row,true)}]
         : (mpsLifecycleResources as readonly string[]).includes(resource) && lifecycleReady && metadata.data?.actions.update && row.canUpdate !== false
         ? (Object.entries(mpsLifecycleOperations) as Array<[MpsLifecycleOperation, typeof mpsLifecycleOperations[MpsLifecycleOperation]]>)
@@ -920,6 +922,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         </Form.Item>
       </Form>
     </Modal>
+    {quantityDemand && metadata.data?.quantities?.schemaReady && <MasterPlanDemandQuantityDialog key={quantityDemand} resource={resource} id={quantityDemand} onClose={()=>setQuantityDemand(null)} onSaved={refresh}/>}
     {demandLink && metadata.data?.demandLinks?.schemaReady && <MasterPlanDemandLinkDialog key={demandLink} resource={resource} id={demandLink} onClose={()=>setDemandLink(null)} onSaved={async()=>{await refresh();}}/>}
     {lifecycle && lifecycleReady && <MasterPlanLifecycleDialog key={`${lifecycle.id}-${lifecycle.operation}`} resource={resource} id={lifecycle.id} operation={lifecycle.operation}
       onClose={() => setLifecycle(null)} onCompleted={async () => {

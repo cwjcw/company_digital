@@ -1,3 +1,4 @@
+import { MasterPlanDemandQuantityService } from './master-plan.demand-quantity.service';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { MasterPlanController } from './master-plan.controller';
@@ -58,11 +59,11 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     await expect(l.preview('mps-base-plans',randomUUID(),'CANCEL',actor())).rejects.toMatchObject({status:409});
     await expect(l.preview('mps-base-plans',randomUUID(),'HOLD',actor())).rejects.toMatchObject({status:409});
     expect(await links.availability('mps-base-plans',actor())).toMatchObject({schemaReady:false});
-    const providers:Record<string,unknown>={MasterPlanApplicationService:app,MasterPlanQueryService:new MasterPlanQueryService(db,directory as never),MasterPlanSyncService:sync,MasterPlanLifecycleService:l,MasterPlanDemandLinkService:links};
+    const providers:Record<string,unknown>={MasterPlanApplicationService:app,MasterPlanQueryService:new MasterPlanQueryService(db,directory as never),MasterPlanSyncService:sync,MasterPlanLifecycleService:l,MasterPlanDemandLinkService:links,MasterPlanDemandQuantityService:new MasterPlanDemandQuantityService(db,links,app)};
     const mod=await Test.createTestingModule({controllers:[MasterPlanController],providers:Reflect.getMetadata('design:paramtypes',MasterPlanController).map((token:any)=>({provide:token,useValue:providers[token.name]??{}}))}).overrideGuard(AuthGuard).useValue({canActivate:(ctx:any)=>{const req=ctx.switchToHttp().getRequest();req.user={sub:user,isSystemAdmin:true,permissions:['*'],tableDataScopes:[]};req.requestId=randomUUID();return true;}}).compile();
     const http=mod.createNestApplication({logger:false});await http.init();
     try {
-      const meta=await request(http.getHttpServer()).get('/master-plan-system/resources/mps-base-plans/meta');expect(meta.status).toBe(200);expect(meta.body.lifecycle.schemaReady).toBe(false);
+      const meta=await request(http.getHttpServer()).get('/master-plan-system/resources/mps-base-plans/meta');expect(meta.status).toBe(200);expect(meta.body.lifecycle.schemaReady).toBe(false);expect(meta.body.quantities.schemaReady).toBe(false);expect((await request(http.getHttpServer()).get(`/master-plan-system/demands/${randomUUID()}/quantities`)).status).toBe(409);
       for(const operation of ['HOLD','CANCEL']) {
         const r=await request(http.getHttpServer()).post(`/master-plan-system/resources/mps-base-plans/${randomUUID()}/lifecycle/preview`).send({operation});expect(r.status).toBe(409);expect(r.body.code).toBe('MPS_LIFECYCLE_SCHEMA_UNAVAILABLE');
       }
