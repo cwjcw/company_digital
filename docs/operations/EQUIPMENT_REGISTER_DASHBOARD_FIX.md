@@ -16,7 +16,7 @@
 - 正式启用KdosDataTable公共编辑模式；默认readonly，主题蓝色“编辑”/“退出”保留完整aria-label。新增设备、刷新移入同一公共工具栏，删除仍沿用原独立顶部“停用”，不恢复固定操作列。
 - EquipmentRegisterCell根据真实Registry、字段read/update、公共模式及后端canUpdate渲染组织、文本、日期、非负整数分钟、布尔和多成员编辑器。文本/数字失焦或Enter/Tab保存；选择控件正式选定保存；未变不发请求。
 - PATCH仅发送变更字段及expectedVersion；同记录提交互斥、失败还原单元格并显示持续错误；只刷新查询缓存，不整页reload。退出不另执行保存。
-- API正式Application Command兼容单字段更新：锁定当前租户行，校验read/update、旧/新范围、字段read/update、版本及值类型，合并未修改值，沿用原保存及事务审计。409不覆盖新值，无变化不更新版本/审计。停用设备不能借编辑恢复。
+- API正式Application Command兼容单字段更新：锁定当前租户行，校验read/update、旧/新范围、字段read/update、版本及值类型；字段read在旧值比较前检查，猜中不可读旧值也403，合并未修改值，沿用原保存及事务审计。409不覆盖新值，无变化不更新版本/审计。停用设备不能借编辑恢复。
 - 设备编号被状态记录、工作簿匹配和历史快照引用，本轮将正式Registry设为只读，后端包括管理员也拒绝更改编号；新增时仍可填写。生产只读检查确认旧equipmentCode更新授权为0，没有改授权组或成员。
 - 成员未变时保留原关联ID；更新其它字段不重验/重建未变成员。新选成员必须属于本租户且启用；新审计记录tenant及成员前后快照。不修补历史审计。
 
@@ -47,7 +47,7 @@
 ## 4. 限定发布与恢复
 
 - 发布前实际API为eeaac326、Web为755f6db。主main包含未上线主计划118～122，不能整批部署main。本次从两个真实生产基准分别建立干净linked worktree，只加入设备/公共字段映射的限定改动；设备原文件与main原版本逐字节比较一致后应用补丁。
-- API分支fix/equipment-edit-api-20261106：`6d0c81bf4a0863b18eca5ee4abed8a5ab9b525ec`，8个任务文件；没有主计划变更。
+- API分支fix/equipment-edit-api-20261106：初版6d0c81b，最终`2d4b44725dcf5b607aed92c122b71bd27f61522c`，8个任务文件；没有主计划变更。
 - Web分支fix/equipment-edit-web-20261106：初版040a6f8，最终`bf78d4e12c8dc57ceb28e439c476c4fe4e57f512`（补充统一工具栏）；只有设备、公共表格及对应契约/测试改动。
 - 正式scripts/backup.sh完成两库和uploads备份、归档目录校验及SHA256，批次20261106_161258。保存在既有data/backups，未提交备份或读取/打印密钥。
 - 从干净发布worktree使用KDOS_RUNTIME_ROOT指定原运行目录，依次执行原scripts/deploy.sh api及web，组件一致性均CONSISTENT，未修改部署安全规则、未创建第二个运行实例。
@@ -66,7 +66,7 @@
 - 两表所有数值字段的统计指纹发布前后完全一致。没有改统计口径。
 - 两个真实Excel按钮下载：**PASS**，分别5行、22行；中文表头、首行业务组织名称与当前API/页面相同，行数与全部匹配分组一致，不导出UUID。
 - 页面未捕获JS错误0。截图、JSON、真实下载工作簿仅在受限ignored目录。验收时导出沿用原正式导出审计；未改设备/状态/报工/库存或权限数据。
-- API health返回6d0c81b、Web build-info返回bf78d4e；API/Web/PostgreSQL/Document Worker均healthy。API和Web脚本各自版本门禁CONSISTENT。
+- API health返回2d4b447、Web build-info返回bf78d4e；API/Web/PostgreSQL/Document Worker均healthy。API和Web脚本各自版本门禁CONSISTENT。
 
 ### 实际遵守的Skill
 
@@ -74,7 +74,7 @@
 
 ### Git与未完成事项
 
-只做本地提交，**未push GitHub**；主源码汇总提交SHA补记于主进度及最终回复。原来未提交的260行进度、财务截图及订单清理记录完整保留，主进度采用定向暂存，只提交本节新增内容。
+只做本地提交，**未push GitHub**；主源码汇总提交678218ec559ec1b4be5050219f340da689ab4f4a，最终授权补充及完成记录SHA见最终回复。原来未提交的260行进度、财务截图及订单清理记录完整保留，主进度采用定向暂存，只提交本节新增内容。
 
 本轮两个功能的生产验收已完成。既有设备Web6个失败继续如实保留，不宣称全仓库测试通过；没有本轮待处理的生产功能阻塞。
 
@@ -96,3 +96,5 @@
 - `packages/contracts/src/equipment-register.spec.ts`
 - `docs/operations/EQUIPMENT_REGISTER_DASHBOARD_FIX.md`
 - `outputs/CODEX_PROGRESS.md`
+
+- 最终授权补充：真实PG再次验证名称/编号即使提交相同旧值，缺字段read仍403。API8套98项复验PASS、构建及lint PASS；最小前移guard已发布为2d4b44725dcf5b607aed92c122b71bd27f61522c，Web保持bf78d4e；最终再次真实Chrome三项及两Excel下载PASS，统计指纹不变，4容器healthy。

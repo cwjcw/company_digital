@@ -58,6 +58,7 @@ export class EquipmentApplicationService {
       for(const [key,value]of Object.entries(input)){
         if(key==='expectedVersion')continue;
         const field=definition.find(f=>f.key===key);if(!field)throw new BadRequestException('不允许更新的设备字段：'+key);
+        if(!hasEquipmentFieldPermission(actor,'equipment-register',key,'read'))throw new ForbiddenException('没有设备字段读取权限：'+field.label);
         if(canonical(previous[key as keyof AssetInput])===canonical(value))continue;
         if(key==='equipmentCode'||!field.editable)throw new ForbiddenException('设备编号等身份或系统字段不可修改');
         if(!hasEquipmentFieldPermission(actor,'equipment-register',key,'read')||!hasEquipmentFieldPermission(actor,'equipment-register',key,'update'))throw new ForbiddenException('没有设备字段修改权限：'+field.label);

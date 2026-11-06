@@ -10550,7 +10550,7 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 
 ### 任务与当前阶段
 - 目标：公共编辑模式真实可用；大屏事业部/部门展示字段与metadata/字段权限一致；定向验证、隔离发布及真实生产Chrome验收。
-- 当前状态：生产验收已完成；阶段为仅本地源码汇总提交中；最后更新时间2026-11-06（Asia/Shanghai）。主恢复入口继续本文件。
+- 当前状态：已完成；代码、隔离验收、生产部署与最终Chrome验收完成；最后更新时间2026-11-06（Asia/Shanghai）。主恢复入口继续本文件。
 - 用户明确允许本地commit/正式部署，禁止push GitHub。保留此前260行未提交进度及两张财务截图、订单清理进度，不夹带到提交。
 
 ### 已完成
@@ -10560,8 +10560,8 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - [x] 大屏division/department展示键与Registry divisionId/departmentId及标签不一致，被同一过滤排除。
 
 ### 下一步
-1. 仅汇总本任务15文件的本地提交，定向暂存本进度新增章节，保留先前260行未提交内容；不push GitHub。
-2. 本轮功能已上线，提交及完成记录后停止。
+1. 本轮已完成并停止；未push GitHub，无待处理生产功能。
+2. 既有6个设备Web失败继续记录，未以放宽断言制造PASS；后续独立修复。
 
 ### 修改文件 / Migration / 测试
 - 已实现：公共编辑模式＋真实字段编辑器、单字段PATCH、expectedVersion/权限/旧新scope/审计/失败回滚，设备编号只读；姓名显示列通过公共permissionField绑定组织ID metadata，保留原列key/排序/个人设置。
@@ -10587,5 +10587,10 @@ Git：提交 `01dee20` 已推送至 `github/main`。
 - 设备总台账编辑PASS，事业部名称PASS，部门名称PASS；真实Chrome正式登录、真实页面/API，未捕获JS错误0。
 - 默认readonly，编辑/新增设备/刷新在公共工具栏，编辑后有真实控件，退出回readonly；编号不可编辑。合成修改被浏览器拦截409，原值恢复且无额外退出写请求；生产无变化PATCH真实200，名称/version未变。
 - 5事业部、22部门及两表统计指纹前后完全一致；两个真实Excel下载5/22行，表头和业务名称与页面/API一致。
-- API最终6d0c81bf4a0863b18eca5ee4abed8a5ab9b525ec，Web最终bf78d4e12c8dc57ceb28e439c476c4fe4e57f512；原脚本api/web分别CONSISTENT，4容器healthy。
+- API最终2d4b44725dcf5b607aed92c122b71bd27f61522c，Web最终bf78d4e12c8dc57ceb28e439c476c4fe4e57f512；原脚本api/web分别CONSISTENT，4容器healthy。
 - 15项任务文件/根因/Skill/测试/备份/恢复和验收详见docs/operations/EQUIPMENT_REGISTER_DASHBOARD_FIX.md；未push GitHub，没有Migration或生产业务数据修复。
+
+- 最后授权复核：将字段read检查前移到无变化比较之前，防止无读取权限者通过猜中旧值的200/403差异探测隐藏字段；新增真实PG断言（名称/设备编号旧值也403）。原API6d0生产三项及Excel验收已通过；补充guard复验/最小API再发布中。
+
+- 最终授权补充已发布2d4b447，98项复验PASS；再次正式Chrome三项及5/22行Excel下载PASS。设备名称/版本无变化PATCH200，合成409被拦截，统计指纹与最初生产一致。4容器healthy、Migration118～122仍0。
+- main源码汇总本地commit678218ec559ec1b4be5050219f340da689ab4f4a；当前最后一条本地补充提交包含前置字段read guard及本完成记录。所有发布分支及main均未push GitHub；其他未提交260行/财务截图/订单清理记录完整保留。
