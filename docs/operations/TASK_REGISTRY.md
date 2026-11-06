@@ -417,3 +417,11 @@
 - 显式应用只在同事务向既有base-to-weekly事件写basePlanIds范围；定时scope=null保持既有行为，execution-rollup原周/工序范围保留。非空非法范围不回退全租户，所选批次准入不齐返回BLOCKED并按原协议保留FAILED原因。
 - B1所选基础及周计划更新，B2基础/周计划/工序整行不变；保存PENDING与真实下游SUCCESS/FAILED区分。122不可变证据关联原Outbox，失败真实重试不重复应用或任务。
 - 严格发布名单A118/119、统一ID119→121/122；120仍排除，旧NULL租约RUNNING及历史11矛盾不自动重放。代码/隔离验证及恢复流程见最新 `MPS_UNIFIED_ID_IMPLEMENTATION_PROGRESS.md` 第3轮，不视为生产发布记录。
+
+
+### MPS-003：第4轮发布前只读复核（2026-11-06，未发布）
+
+- 生产实测单API内MPS消费者、6项配置均enabled=true/30分钟；最近两小时六项均有SUCCESS，1条无可信租约历史RUNNING保留。仓库仍6项配置定义、1个60秒检查器，没有新调度器。
+- n8n只读17个工作流定义/13激活，节点未见直接MPS引用；用户级ERP采集3及投影3个Timer均保留启用；不改变既有n8n/systemd/cron分工。主机审计和特权私有cron/外部人工入口的核验限制见发布预检，不虚报已穷尽外部消费者。
+- 生产仍Ledger117，118/119/120/121/122未执行；A/U严格迁移在隔离候选镜像验证通过。当前main候选存在财务月份协议回退P1，整体生产NO-GO，未停服务/暂停配置/迁移/部署/触发同步。
+- 没有重放11条旧矛盾或1条旧RUNNING；备份、隔离恢复、下一次获批窗口写屏障及两轮自动观察要求见`MPS_UNIFIED_ID_PRODUCTION_RELEASE.md`。
