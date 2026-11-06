@@ -1,4 +1,4 @@
-import { monthlyBasePatch, monthlyBaseValues } from "./master-plan.monthly-base";
+import { monthlyBaseLookupSql, monthlyBasePatch, monthlyBaseValues } from "./master-plan.monthly-base";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 
 const monthly = { division_id:"division",customer_code:"C1",item_name:"品项",order_date:"2026-10-01",
@@ -7,6 +7,17 @@ const monthly = { division_id:"division",customer_code:"C1",item_name:"品项",o
   product_attribute:"五金",surface_nature:"烤漆",manufacturing_method:"自制",model_age:"新" };
 
 describe("monthly to base mapping and manual value protection",()=>{
+  it('uses indexed parent/identity lookup after121 and never references the absent parent column before121',()=>{
+    expect(monthlyBaseLookupSql(true)).toContain('monthly_plan_id=$4::uuid');
+    expect(monthlyBaseLookupSql(false)).not.toContain('monthly_plan_id');
+    expect(monthlyBaseLookupSql(false)).not.toContain('$4');
+    for(const ready of [true,false]){
+      expect(monthlyBaseLookupSql(ready)).not.toContain('to_jsonb');
+      expect(monthlyBaseLookupSql(ready)).toContain('tenant_id=$1');
+      expect(monthlyBaseLookupSql(ready)).toContain('order_number=$2 AND item_code=$3');
+      expect(monthlyBaseLookupSql(ready)).toContain('FOR UPDATE');
+    }
+  });
   it("maps full monthly demand and the matching customer due date without inventing review/completion dates",()=>{
     const values=monthlyBaseValues(monthly);
     expect(values).toMatchObject({planned_quantity:"12.5000",latest_customer_due_date:"2026-11-03"});

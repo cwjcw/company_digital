@@ -48,6 +48,14 @@ export function monthlyBasePatch(current: Row, desired: Row, previous?: Row): Ro
   return patch;
 }
 
+/** Schema readiness is checked once per run. Keep parent and legacy identity
+ * predicates indexable; serializing every base row for every monthly row turns
+ * a tenant-wide run into repeated full scans. */
+export function monthlyBaseLookupSql(linksReady: boolean) {
+  return `SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date
+    FROM mps_base_plans WHERE tenant_id=$1 AND (${linksReady ? 'monthly_plan_id=$4::uuid OR ' : ''}(order_number=$2 AND item_code=$3)) ORDER BY id FOR UPDATE`;
+}
+
 export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
@@ -72,8 +80,8 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   for (const monthlyPlan of monthly) {
     // Same lock as ordinary base creation: manual creation cannot race the absence check.
     await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mps-delivery-code:${tenantId}:${monthlyPlan.order_number}:${monthlyPlan.item_code}`]);
-    const allBases: Row[] = await manager.query(`SELECT *,order_date::text AS order_date,latest_customer_due_date::text AS latest_customer_due_date FROM mps_base_plans WHERE tenant_id=$1 AND ((to_jsonb(mps_base_plans)->>'monthly_plan_id')::uuid=$4::uuid OR (order_number=$2 AND item_code=$3)) ORDER BY id FOR UPDATE`,
-    [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,monthlyPlan.id]);
+    const allBases: Row[] = await manager.query(monthlyBaseLookupSql(linksReady),
+      linksReady ? [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,monthlyPlan.id] : [tenantId,monthlyPlan.order_number,monthlyPlan.item_code]);
     const conflictKey = `monthly-base:${monthlyPlan.id}`;
     const bases = allBases.filter(base => base.monthly_plan_id ? base.monthly_plan_id===monthlyPlan.id : base.division_id===monthlyPlan.division_id);
     if (allBases.some(base => base.monthly_plan_id && ((base.monthly_plan_id===monthlyPlan.id && (base.order_number!==monthlyPlan.order_number || base.item_code!==monthlyPlan.item_code || base.division_id!==monthlyPlan.division_id)) || (base.division_id===monthlyPlan.division_id && base.monthly_plan_id!==monthlyPlan.id)))) throw new Error('显式需求父关系冲突，禁止文本回退');
