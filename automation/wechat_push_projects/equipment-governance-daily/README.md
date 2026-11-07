@@ -8,6 +8,8 @@
 
 所有业务数据直接来自 **`EquipmentQueryService.dashboard()`**：
 
+日报专用只读任务显式声明`equipment-dashboard`表级read及`divisionId`、`departmentId`两项字段read，使用稳定组织ID收窄到五单位；表级read不代表获得字段read，不得改为系统管理员或取消普通员工字段过滤。有设备但解析不到任何目标组织时立即报错，禁止按空范围发送全零报表。
+
 - 运行日报：连续7个按日大屏的 `metrics`、昨日 `divisionRows`，展示昨日五项指标、四种互斥状态、计划/实际/故障时长柱图和稼动率折线、五单位运行明细。不排名、不评价；稼动率直接保留大屏值，不能用各单位百分比求平均，也不能用包括无计划设备的总实际时长重新推算。
 - 填报日报：昨日大屏的 `operationsMonitoring.yesterday`、`yesterdayDivisionRows`、`sevenDayTrend.total/divisions`，展示昨日整体、近7天整体/每日趋势、五单位填报和昨日最好/最差（同率并列，应填为0不排名）。近7天集团/单位填报率按原始台次加总计算，不平均每日百分比。
 - 沿用大屏“active且monitored设备”“active填报”“故障优先于正常、未运行、无记录为未填报”的规则。五单位之外的数据不会混入集团合计。
