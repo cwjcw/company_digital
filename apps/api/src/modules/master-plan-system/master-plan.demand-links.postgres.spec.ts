@@ -18,6 +18,8 @@ import { reconcileMonthlyBasePlans } from './master-plan.monthly-base';
 import { ReviewDueDateApplicationService } from './review-due-date.application.service';
 import type { MasterPlanActor } from './master-plan.types';
 import { MpsDemandLinks1722920121000 as Links } from '../../migrations/1722920121000-MpsDemandLinks';
+import { MpsReviewBatchApplications1722920122000 as ReviewApps } from '../../migrations/1722920122000-MpsReviewBatchApplications';
+import { MpsDemandLinkServiceAuth1722920122500 as ServiceAuth } from '../../migrations/1722920122500-MpsDemandLinkServiceAuth';
 import { MpsPlanLifecycle1722920120000 as Lifecycle } from '../../migrations/1722920120000-MpsPlanLifecycle';
 
 const integration=process.env.KDOS_SYNC_RELIABILITY_TEST_SOCKET?describe:describe.skip;
@@ -85,7 +87,9 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     await app.create('mps-process-reports',{weeklyPlanId:w.id,processCode:'bending',productionDate:'2026-11-01',productionQuantity:2},actor());
     const before=await facts();const bs=await latest('mps_base_plans',b.id);
     await app.update('mps-base-plans',b.id,{expectedVersion:bs.version,plannedQuantity:12},actor());await run('base-to-weekly');expect(await facts()).toEqual(before);
-    for(const key of ['erp-orders','plan-projections','shipping-to-base','base-to-weekly','inbound-allocation','execution-rollup'])expect((await run(key)).status).toBe('SUCCESS');
+    // Plan quantity refresh is allowed after facts; report rows and process snapshots remain unchanged.
+    for(const key of ['erp-orders','plan-projections','shipping-to-base','base-to-weekly','inbound-allocation','execution-rollup'])
+      expect((await run(key)).status).toBe('SUCCESS');
     await db.query("UPDATE mps_sync_configs SET last_started_at=clock_timestamp()-interval '31 minutes' WHERE tenant_id=$1",[tenant]);
     expect(await (sync as any).runner.dueConfigurations(tenant)).toHaveLength(6);await sync.runDue();
     const configs=await db.query('SELECT sync_key,status,interval_minutes FROM mps_sync_configs WHERE tenant_id=$1',[tenant]);expect(configs).toHaveLength(6);expect(configs.every((c:any)=>c.status==='SUCCESS'&&c.interval_minutes===30)).toBe(true);expect(await facts()).toEqual(before);
@@ -97,6 +101,90 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     expect(await facts()).toEqual(before);expect(await db.query('SELECT id,version,planned_quantity FROM mps_base_plans ORDER BY id')).toEqual(bases);
     expect((await db.query('SELECT count(*)::int n FROM mps_base_plans WHERE monthly_plan_id IS NOT NULL'))[0].n).toBe(0);
     expect((await db.query("SELECT count(*)::int n FROM migrations WHERE name='MpsPlanLifecycle1722920120000'"))[0].n).toBe(0);
+    const reviewDb=new DataSource({...db.options,migrations:[ReviewApps]});await reviewDb.initialize();try{expect((await reviewDb.runMigrations({transaction:'all'})).map(m=>m.name)).toEqual(['MpsReviewBatchApplications1722920122000']);}finally{await reviewDb.destroy();}
+    const authDb=new DataSource({...db.options,migrations:[ServiceAuth]});await authDb.initialize();try{expect((await authDb.runMigrations({transaction:'all'})).map(m=>m.name)).toEqual(['MpsDemandLinkServiceAuth1722920122500']);}finally{await authDb.destroy();}
+    expect((await db.query("SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolbypassrls,rolinherit,rolreplication FROM pg_roles WHERE rolname='mps_demand_link_service'"))[0]).toEqual({rolcanlogin:false,rolsuper:false,rolcreatedb:false,rolcreaterole:false,rolbypassrls:false,rolinherit:false,rolreplication:false});
+    expect((await db.query("SELECT has_table_privilege('mps_demand_link_service','mps_monthly_plans','UPDATE') AS update_monthly"))[0].update_monthly).toBe(false);
+    expect((await db.query("SELECT count(*)::int n FROM migrations WHERE timestamp=1722920120000"))[0].n).toBe(0);
+    expect((await db.query("SELECT count(*)::int n FROM migrations WHERE timestamp IN(1722920123000)"))[0].n).toBe(0);
+  });
+  it('uses the NOLOGIN database role only on scheduled system synchronization; actor ID alone is rejected',async()=>{
+    const systemId='0199e000-0000-7000-8000-000000000001';
+    const system=(await db.query('SELECT username,enabled,password_hash FROM users WHERE id=$1',[systemId]))[0];
+    expect(system).toMatchObject({username:'__kdos_system__',enabled:false,password_hash:'!'});
+    await allocate(14,'SYN-SERVICE-LINK');const monthly=await parent('SYN-SERVICE-LINK');
+    await expect(sync.run(tenant,'shipping-to-base','SCHEDULED',systemId,'KDOS系统任务',`forged-service-auth:${randomUUID()}`)).rejects.toMatchObject({code:'23514'});
+    const result=await (sync as any).runInternal(tenant,'shipping-to-base','SCHEDULED',systemId,'KDOS系统任务',`service-auth:${randomUUID()}`);
+    expect(result.status).toBe('SUCCESS');
+    const linked=await db.query('SELECT id,monthly_plan_id,planned_quantity FROM mps_base_plans WHERE tenant_id=$1 AND item_code=$2',[tenant,'SYN-SERVICE-LINK']);
+    expect(linked).toHaveLength(1);expect(linked[0].monthly_plan_id).toBe(monthly.id);expect(linked[0].planned_quantity).toBe('14.0000');
+    const evidence=await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND resource='mps-base-plans' AND record_id=$2
+      AND action='demand.link_authorized' AND after_json->>'demandId'=$3`,[tenant,linked[0].id,monthly.id]);expect(evidence[0].n).toBe(1);
+
+    await allocate(7,'SYN-FORGED-SERVICE-ACTOR');const forged=await parent('SYN-FORGED-SERVICE-ACTOR');
+    await expect(db.transaction(manager=>reconcileMonthlyBasePlans(manager,tenant,systemId,'伪造系统actor',[forged.id]))).rejects.toMatchObject({code:'23514'});
+    expect((await db.query('SELECT count(*)::int n FROM mps_base_plans WHERE tenant_id=$1 AND item_code=$2',[tenant,'SYN-FORGED-SERVICE-ACTOR']))[0].n).toBe(0);
+
+    const disabledId=randomUUID();await db.query(`INSERT INTO users(id,tenant_id,username,display_name,password_hash,enabled,created_by,updated_by)
+      VALUES($1,$2,'synthetic-disabled','已停用员工','!',false,$3::uuid,$3::uuid)`,[disabledId,tenant,user]);
+    await allocate(3,'SYN-DISABLED-ACTOR');const disabledMonthly=await parent('SYN-DISABLED-ACTOR');
+    const [disabledBase]=await db.query(`INSERT INTO mps_base_plans(tenant_id,division_id,order_number,item_code,delivery_number,planned_quantity,created_by,updated_by)
+      VALUES($1,$2,'SYN-ORDER','SYN-DISABLED-ACTOR',999,3,$3,$3) RETURNING *`,[tenant,division,user]);
+    await expect(links.bind('mps-base-plans',disabledBase.id,{demandId:disabledMonthly.id,expectedVersion:disabledBase.version,
+      expectedDemandVersion:disabledMonthly.version,idempotencyKey:randomUUID(),reason:'停用员工不得绑定'},
+      {...actor(),userId:disabledId,username:'已停用员工'})).rejects.toMatchObject({status:409});
+    expect((await latest('mps_base_plans',disabledBase.id)).monthly_plan_id).toBeNull();
+  });
+  it('restores one reviewed missing monthly ID per stable batch and replays without duplicate bases or weeks',async()=>{
+    const item='SYN-TARGETED-RESTORE';await allocate(14,item);const monthly=await parent(item),batchId=randomUUID();
+    const previous=process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED;process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED='true';
+    try{
+      const plan={id:monthly.id,expectedVersion:Number(monthly.version)};
+      const first=await sync.restoreMissingMonthlyBaseBatch(tenant,batchId,[plan]);
+      expect(first).toMatchObject({monthlyPlanCount:1,basePlanCount:1,shipping:{status:'SUCCESS'},weekly:[{status:'BLOCKED'}]});
+      const [base]=await db.query('SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2',[tenant,monthly.id]);
+      await db.query(`UPDATE mps_base_plans SET latest_customer_due_date='2026-12-20',latest_review_due_date='2026-12-01',product_attribute='五金',surface_nature='烤漆',manufacturing_method='自制' WHERE tenant_id=$1 AND id=$2`,[tenant,base.id]);
+      const second=await sync.restoreMissingMonthlyBaseBatch(tenant,batchId,[plan]);
+      expect(second.shipping).toMatchObject({status:'SUCCESS',repeated:true});expect(second.weekly[0]).toMatchObject({status:'SUCCESS',repeated:false});
+      expect((await db.query('SELECT count(*)::int n FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2',[tenant,monthly.id]))[0].n).toBe(1);
+      expect((await db.query('SELECT count(*)::int n FROM mps_weekly_plans w JOIN mps_base_plans b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id WHERE b.tenant_id=$1 AND b.monthly_plan_id=$2',[tenant,monthly.id]))[0].n).toBe(1);
+    }finally{if(previous===undefined)delete process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED;else process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED=previous;}
+  });
+  it('reports a protected weekly snapshot as BLOCKED and still creates unrelated process tasks',async()=>{
+    const protectedItem='SYN-HAS-RECEIPT',normalItem='SYN-NO-RECEIPT';
+    await allocate(5,protectedItem);await allocate(6,normalItem);
+    await sync.run(tenant,'shipping-to-base','MANUAL',user,'合成用户',randomUUID());
+    await db.query(`UPDATE mps_base_plans SET latest_customer_due_date='2026-12-20',latest_review_due_date='2026-12-01',product_attribute='五金',surface_nature='烤漆',manufacturing_method='自制'
+      WHERE tenant_id=$1 AND item_code=ANY($2::text[])`,[tenant,[protectedItem,normalItem]]);
+    const protectedMonthly=await parent(protectedItem);
+    await db.query('UPDATE mps_monthly_plans SET cumulative_inbound_quantity=1 WHERE tenant_id=$1 AND id=$2',[tenant,protectedMonthly.id]);
+    const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());expect(result.status).toBe('BLOCKED');expect(result.metrics?.process_snapshots_protected).toBeGreaterThan(0);
+    const weeks=await db.query(`SELECT w.item_code,w.id,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) has_tasks
+      FROM mps_weekly_plans w WHERE w.tenant_id=$1 AND w.item_code=ANY($2::text[]) ORDER BY w.item_code`,[tenant,[protectedItem,normalItem]]);
+    expect(weeks).toHaveLength(2);expect(weeks.find((w:any)=>w.item_code===protectedItem)?.has_tasks).toBe(false);expect(weeks.find((w:any)=>w.item_code===normalItem)?.has_tasks).toBe(true);
+    expect((await db.query("SELECT count(*)::int n FROM mps_data_exceptions WHERE tenant_id=$1 AND exception_type='PROCESS_SNAPSHOT_PROTECTED' AND active=true" ,[tenant]))[0].n).toBeGreaterThan(0);
+  });
+  it('skips protected existing weekly rows before upsert and continues updating unrelated weeks',async()=>{
+    const protectedItem='SYN-EXISTING-RECEIPT',normalItem='SYN-EXISTING-NORMAL';
+    await allocate(5,protectedItem);await allocate(6,normalItem);
+    await sync.run(tenant,'shipping-to-base','MANUAL',user,'合成用户',randomUUID());
+    await db.query(`UPDATE mps_base_plans SET latest_customer_due_date='2026-12-20',latest_review_due_date='2026-12-01',product_attribute='五金',surface_nature='烤漆',manufacturing_method='自制'
+      WHERE tenant_id=$1 AND item_code=ANY($2::text[])`,[tenant,[protectedItem,normalItem]]);
+    const baseRows=await db.query('SELECT id,item_code FROM mps_base_plans WHERE tenant_id=$1 AND item_code=ANY($2::text[])',[tenant,[protectedItem,normalItem]]);
+    const baseIds=baseRows.map((row:any)=>row.id);
+    expect((await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID(),{basePlanIds:baseIds})).status).toBe('SUCCESS');
+    const [protectedMonthly]=await db.query('SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND item_code=$2',[tenant,protectedItem]);
+    const [protectedWeek]=await db.query('SELECT id,planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND item_code=$2',[tenant,protectedItem]);
+    const [normalWeek]=await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND item_code=$2',[tenant,normalItem]);
+    expect(protectedWeek).toBeDefined();expect(normalWeek).toBeDefined();
+    await db.query('UPDATE mps_monthly_plans SET cumulative_inbound_quantity=1 WHERE tenant_id=$1 AND id=$2',[tenant,protectedMonthly.id]);
+    await db.query('UPDATE mps_base_plans SET planned_quantity=7 WHERE tenant_id=$1 AND item_code=$2',[tenant,protectedItem]);
+    await db.query('UPDATE mps_base_plans SET planned_quantity=8 WHERE tenant_id=$1 AND item_code=$2',[tenant,normalItem]);
+    const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID(),{basePlanIds:baseIds});
+    expect(result.status).toBe('SUCCESS');
+    expect((await db.query('SELECT planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2',[tenant,protectedWeek.id]))[0].planned_quantity).toBe('7.0000');
+    expect((await db.query('SELECT planned_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2',[tenant,normalWeek.id]))[0].planned_quantity).toBe('8.0000');
+    expect((await db.query('SELECT count(*)::int n FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,protectedWeek.id]))[0].n).toBeGreaterThan(0);
   });
   it('new allocation links immediately; two sources aggregate once and keep one monthlyUUID',async()=>{
     const a=await allocate(60);const m=await parent();expect(a.monthly_plan_id).toBe(m.id);

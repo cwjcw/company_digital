@@ -3,7 +3,7 @@ import { DataSource, EntityManager } from "typeorm";
 
 export type SyncRunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 export type SyncExecutionScope = { weeklyPlanId: string; processCode: string };
-export type SyncScope = SyncExecutionScope | {basePlanIds:string[]};
+export type SyncScope = SyncExecutionScope | {basePlanIds:string[]} | {monthlyPlans:Array<{id:string;expectedVersion:number}>};
 export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
 export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
@@ -13,7 +13,7 @@ type Log = { id: string; version: number; status: string; sync_key: string; atte
   scope_json: SyncScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
 type Claim = { tenant: string; key: string; configId: string; version: number; actorId: string; actorName: string;
   logs: Log[]; events: Event[]; disabled: boolean };
-type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncScope | null) => Promise<SyncOutcome>;
+type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncScope | null, trustedInternalService: boolean) => Promise<SyncOutcome>;
 
 export class SyncLeaseLost extends ConflictException {
   constructor() { super("同步租约已失效，旧Worker不能提交结果"); }
@@ -63,7 +63,7 @@ export class MasterPlanSyncRunner {
       const first = events[0]!;
       try {
         const result = await this.run(tenant, first.sync_key, "EVENT", first.actor_id, first.actor_name,
-          first.idempotency_key, this.scope(first.sync_key, first.scope_json), events);
+          first.idempotency_key, this.scope(first.sync_key, first.scope_json), events, false);
         // Do not trust "did not throw", skipped results, or an unverified SUCCESS.
         if (result.status === "SUCCESS") {
           const [verification] = await this.db.transaction(async manager => {
@@ -85,9 +85,10 @@ export class MasterPlanSyncRunner {
   }
 
   async run(tenant: string, key: string, type: SyncRunType, actor: string | null, name: string,
-    idempotencyKey: string, scope: SyncScope | null = null, events: Event[] = []): Promise<SyncResult> {
+    idempotencyKey: string, scope: SyncScope | null = null, events: Event[] = [], trustedInternalService = false): Promise<SyncResult> {
     scope=this.scope(key,scope);
     const actorId = actor ?? this.systemUser;
+    if(trustedInternalService && (actorId!==this.systemUser || !['SCHEDULED','RECONCILIATION','EVENT'].includes(type)))throw new ConflictException('内部服务身份上下文无效');
     const claim = await this.claim(tenant, key, type, actorId, name, idempotencyKey, scope, events);
     if ("repeated" in claim) return claim;
     try {
@@ -97,7 +98,7 @@ export class MasterPlanSyncRunner {
           [String(Math.min(this.leaseMs, 120_000)), String(Math.min(this.leaseMs, 30_000)), String(this.leaseMs)]);
         await this.lockOwned(manager, claim);
         const raw = claim.disabled ? { count: 0, status: "DISABLED" as const }
-          : await this.execute(manager, key, tenant, actorId, name, scope);
+          : await this.execute(manager, key, tenant, actorId, name, scope, trustedInternalService);
         const outcome = this.verifyOutcome(key, raw);
         await this.finish(manager, claim, outcome);
         return { syncKey: key, repeated: false, count: outcome.count, metrics: outcome.metrics ?? null, status: outcome.status! };
@@ -289,11 +290,16 @@ export class MasterPlanSyncRunner {
   private scope(key: string, value: unknown): SyncScope | null {
     if(value==null)return null;
     const scope=value as Record<string,unknown>;
+    if(key==='shipping-to-base'&&scope&&Object.keys(scope).length===1&&'monthlyPlans' in scope&&Array.isArray(scope.monthlyPlans)&&scope.monthlyPlans.length>0&&scope.monthlyPlans.length<=25&&scope.monthlyPlans.every((plan:any)=>plan&&typeof plan.id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(plan.id)&&Number.isInteger(plan.expectedVersion)&&plan.expectedVersion>0)){
+      const unique=new Map((scope.monthlyPlans as Array<{id:string;expectedVersion:number}>).map(plan=>[plan.id,{id:plan.id,expectedVersion:plan.expectedVersion}]));
+      if(unique.size!==(scope.monthlyPlans as unknown[]).length)throw new ConflictException('月度计划恢复范围存在重复ID');
+      return {monthlyPlans:[...unique.values()].sort((a,b)=>a.id.localeCompare(b.id))};
+    }
     if(key==='base-to-weekly'&&scope&&Array.isArray(scope.basePlanIds)&&scope.basePlanIds.length>0&&scope.basePlanIds.length<=100&&scope.basePlanIds.every(id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))return {basePlanIds:[...new Set(scope.basePlanIds as string[])].sort()};
     if(key==='execution-rollup'&&scope&&typeof scope.weeklyPlanId==='string'&&typeof scope.processCode==='string')return {weeklyPlanId:scope.weeklyPlanId,processCode:scope.processCode};
     throw new ConflictException('同步范围无效，禁止回退全租户执行');
   }
-  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;return (a?.weeklyPlanId??null)===(b?.weeklyPlanId??null)&&(a?.processCode??null)===(b?.processCode??null);}
+  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;if(a&&'monthlyPlans' in a)return !!b&&'monthlyPlans' in b&&JSON.stringify(a.monthlyPlans)===JSON.stringify(b.monthlyPlans);if(b&&'monthlyPlans' in b)return false;if(a&&'weeklyPlanId' in a)return !!b&&'weeklyPlanId' in b&&a.weeklyPlanId===b.weeklyPlanId&&a.processCode===b.processCode;return b==null;}
   private rows(result: any[]): any[] { return Array.isArray(result[0]) ? result[0] : result; }
   private errorText(error: unknown) {
     const e = error as { code?: string; message?: string };

@@ -273,7 +273,7 @@ integration('round3: isolated full-chain + independent release B + optional120',
             const later = new DataSource({ ...common, database: 'mps_review_after120_test', migrations: discoverMigrationFiles(path.join(__dirname, '../../migrations')).filter(f => Number(path.basename(f).slice(0, 13)) >= 1722920121000) });
             await later.initialize();
             try {
-                expect((await later.runMigrations({ transaction: 'all' })).map(r => r.name)).toEqual(['MpsDemandLinks1722920121000', 'MpsReviewBatchApplications1722920122000']);
+                expect((await later.runMigrations({ transaction: 'all' })).map(r => r.name)).toEqual(['MpsDemandLinks1722920121000', 'MpsReviewBatchApplications1722920122000', 'MpsDemandLinkServiceAuth1722920122500']);
                 expect(await new MasterPlanReviewApplicationService(later,new MasterPlanDemandLinkService(later)).availability(actor())).toMatchObject({schemaReady:true});
             }
             finally {

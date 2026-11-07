@@ -13,7 +13,9 @@
     "db:revert": "pnpm build && node node_modules/typeorm/cli.js -d dist/data-source.js migration:revert",
     "db:seed": "pnpm build && node dist/seed.js",
     "db:migrate:phase-a": "pnpm build && node dist/migrate-phase-a.js",
-    "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js"
+    "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js",
+    "db:migrate:mps-demand-link-service": "pnpm build && node dist/migrate-mps-demand-link-service.js",
+    "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",

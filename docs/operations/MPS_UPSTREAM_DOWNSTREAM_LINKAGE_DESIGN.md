@@ -660,3 +660,29 @@ Migration122新增不可变逐应用版本证据（review/base/outbox、实际�
 原1A消费者新增basePlanIds范围，未选基础/周计划/工序整行不受该事件影响；非法scope拒绝，不回退全租户；准入不足记录非成功并可真实重试。未新增任务调度器或改变30分钟配置。
 
 核心完整链及两条严格发布预演已完成；具体测试计数/文件/操作步骤见 `MPS_UNIFIED_ID_IMPLEMENTATION_PROGRESS.md` 第3轮。A118/119、统一ID路线119→121/122分别验收；二者均无120。120组合DDL兼容不代表历史消费者就绪，含120方案仍NO-GO。没有生产部署、迁移、同步、数据修复或历史回填。
+
+## 20. 受限系统身份热修复与11月7日缺失基础计划恢复准备（2026-11-08）
+
+本节对应生产44热修复候选，不代表生产Schema、API或业务数据已变更。唯一进度入口为 `outputs/主计划系统修复进度.md` 首节；受控恢复步骤见 `MPS_SYSTEM_DEMAND_LINK_RECOVERY.md`。
+
+### 20.1 根因与生产只读基线
+
+生产`users`记录确认：`__kdos_system__` / `0199e000-0000-7000-8000-000000000001` / `KDOS系统任务`自2026-09-11初始化起`enabled=false`，`password_hash='!'`，创建与更新时间一致，没有后续人工停用证据。员工10026的KDOS账号启用；当前数据库没有HR在职状态的权威字段，不能由KDOS账号状态推断劳动关系。定时同步使用固定系统actor，Migration121的需求首次绑定触发器只接受启用用户的同事务授权审计，因此SQLSTATE23514、constraint `ck_mps_demand_command`使shipping事务回滚。不得启用该账号、放开密码登录或按actor UUID豁免。
+
+生产API数据库连接`knplan`本身为超级用户，不能仅凭登录连接区分同一进程内的HTTP、定时任务与Outbox执行。新方案建立`mps_demand_link_service` `NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`角色；只有服务端私有定时/受控恢复路径可在事务内`SET LOCAL ROLE`。HTTP/manual传入固定actor ID，以及actor字段同值的Outbox事件，均不升级数据库角色。Migration121触发器继续校验真实`current_user`、租户、记录/需求ID、身份、来源、旧版本、`pg_current_xact_id()`授权审计，并保留父关系不可重绑。Migration121文件不修改。服务角色只获必要读权限、审计插入和三张来源/基础表`monthly_plan_id`列更新；读锁校验函数通过固定search_path的SECURITY DEFINER读取并锁父/来源数据，避免给服务角色授予业务表UPDATE权限。DB trigger仍以调用角色执行，故数据库实际角色身份可验证。由于应用连接本身是超级用户，这不是对API进程失陷的隔离；生产上线前应确认私有代码调用边界，并将API DB凭证降权作为后续安全加固评估，不得将角色切换暴露给HTTP或普通GUC。
+
+截至2026-11-08的只读复核：11月7日固定导入窗口有307行、6批、302个有效需求组，月度302组均有稳定UUID；仅2组存在正确关联基础计划，300组仍缺且总需求134,604件，未发现文本回退候选。已确认`2026A027296 / TGH038BD-1/1-2`月度计划14件、version1仍缺基础计划。6个导入批次分别196、52、2、14、19、24行；恢复时不会以订单日期替代导入时间。
+
+### 20.2 base-to-weekly事实保护失败分类
+
+生产三个未scope Outbox事件都调用全租户base-to-weekly，日志只保留23514摘要；本地原始API/PostgreSQL日志没有保存三次失败时的约束明细。只读关联显示：`2025A027131/TGG919HT-1/1`的ERP收货为132件，`2025A027115/TGG930HT-1/1`为40件。两者当前分别有月度父ID但无周计划，Migration119会在新建执行工序触及已执行身份时拒绝。第三个事件指向`TGG955HT-1/1`，其基础无monthly_plan_id，现有周计划含4条任务；没有报工、其他执行内容或收货证据，数据库事实函数当前false。故第三行本身不是确认的保护触发源；全租户事件实际被两个入库记录连带阻断。历史记录不自动回填、重放或修复。
+
+热修复先锁定并筛出身份将变化或尚需初始化工序快照的已执行周计划，记录`PROCESS_SNAPSHOT_PROTECTED`并从该次upsert/工序刷新排除；新建周计划时如果函数检测到已有报工/收货等事实，则创建计划但不补工序/技术/主材/外协占位，记录异常并使整个SyncResult为BLOCKED。合法数量/交期更新仍可同步，实际报工和快照必须保持不变。其他不冲突基础计划仍处理。Migration119仍是最终数据库事实保护；不把BLOCKED写成SUCCESS。
+
+### 20.3 修复Migration与受控恢复
+
+新增唯一Migration `1722920122500-MpsDemandLinkServiceAuth`，只扩展同事务需求首次关联授权；不修改121、不迁移数据、不执行120/123。独立入口`db:migrate:mps-demand-link-service`严格只选该Migration，要求118、119、121、122已应用，检测120缺失与Schema兼容；时间戳位于122之后、未来123 (`1722920123000`) 之前。性能优化候选已修改相同服务文件、Migration发现器、包脚本；发布时需逐项整合本热修复到候选，不能直接整体 cherry-pick 或假设无冲突。
+
+恢复脚本默认关闭且不在HTTP路由上。外部manifest只携带租户、请求UUID及月度计划稳定ID/expectedVersion；执行前重新计算11月7日完整缺失集合，要求集合和版本完全一致，来源仍有效、身份仍匹配、月度/事业部仍准入，且稳定ID和文本身份均无基础计划。之后最多25组一批，通过同步Application Service创建并绑定基础计划；检查每个stable monthly_plan_id唯一关联，按basePlanIds继续周计划同步。相同batch/idempotency key可安全重入；version或数据集合变化即停。周计划缺字段仍返回BLOCKED并列出结果；不强行造计划任务。业务事实与`mps_order_allocations`保留不变。没有生产运行manifest或执行。
+
+代码和PG18无网络隔离库覆盖服务角色、伪造actor拒绝、员工disabled拒绝、Outbox actor不能升级角色、同事务审计、服务账号非登录、重复恢复、父关系稳定、收货事实保护和无关周计划继续同步。主计划PostgreSQL回归9套149项通过；定向关联/迁移回归后续结果记入进度文件。性能候选兼容尚未通过，不能据此发布该候选。编译镜像及候选SHA在最终交付前补记；本轮没有生产Migration、部署、同步或业务写入，等待用户针对Migration名单、候选SHA和恢复目标的明确批准。

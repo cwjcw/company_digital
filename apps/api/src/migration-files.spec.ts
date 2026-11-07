@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverMigrationFiles, unifiedCoreMigrationFiles, phaseAMigrationFiles } from './migration-files';
+import { discoverMigrationFiles, unifiedCoreMigrationFiles, phaseAMigrationFiles, demandLinkServiceMigrationFiles } from './migration-files';
 
 describe('TypeORM migration implementation discovery', () => {
   let directory: string;
@@ -21,13 +21,19 @@ describe('TypeORM migration implementation discovery', () => {
     for (const extension of ['.js', '.ts']) fs.writeFileSync(path.join(directory, '1722920118000-MpsSyncLeases' + extension), '');
     expect(discoverMigrationFiles(directory)).toHaveLength(1);
   });
+  it('keeps the service repair immediately before a later performance migration without widening its allowlist',()=>{
+    for(const name of ['1722920121000-MpsDemandLinks.ts','1722920122000-MpsReviewBatchApplications.ts','1722920122500-MpsDemandLinkServiceAuth.ts','1722920123000-MpsSyncMaintenance.ts'])fs.writeFileSync(path.join(directory,name),'');
+    expect(discoverMigrationFiles(directory).map(file=>path.basename(file).slice(0,13))).toEqual(['1722920121000','1722920122000','1722920122500','1722920123000']);
+    expect(demandLinkServiceMigrationFiles(directory).map(file=>path.basename(file).slice(0,13))).toEqual(['1722920122500']);
+  });
   it('phase A excludes120 and121 even if both are pending',()=>{expect(phaseAMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920118000','1722920119000']);});
   it('keeps all existing real migrations including the independent demand-link migration discoverable without running them', () => {
     const files = discoverMigrationFiles(path.join(__dirname, 'migrations'));
-    expect(files).toHaveLength(122);
+    expect(files).toHaveLength(123);
     expect(files.every(file => !file.includes('.spec.'))).toBe(true);
-    expect(files.at(-1)).toContain('1722920122000-MpsReviewBatchApplications');
+    expect(files.at(-1)).toContain('1722920122500-MpsDemandLinkServiceAuth');
   });
 });
 
 it('unified release excludes120 and includes only121/122',()=>{expect(unifiedCoreMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920121000','1722920122000']);});
+it('selects only the demand-link service authorization migration between122 and123',()=>{expect(demandLinkServiceMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920122500']);});

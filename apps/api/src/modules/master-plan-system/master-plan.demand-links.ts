@@ -3,6 +3,8 @@ import type { EntityManager } from 'typeorm';
 
 type Db = Pick<EntityManager,'query'>;
 export const demandLinkTables = { 'mps-order-allocations':'mps_order_allocations', 'mps-base-plans':'mps_base_plans', 'mps-review-due-dates':'mps_review_due_dates' } as const;
+export const MPS_DEMAND_LINK_SERVICE_ROLE = 'mps_demand_link_service';
+const MPS_SYSTEM_SYNC_ACTOR = '0199e000-0000-7000-8000-000000000001';
 /** Catalog-only, no deployment-positive cache; works before/after 121 without undefined columns. */
 export async function demandLinksReady(m: Db): Promise<boolean> {
   const [r] = await m.query(`SELECT to_regprocedure('mps_assert_demand_link(text,jsonb)') IS NOT NULL
@@ -20,7 +22,7 @@ export async function authorizeDemandLink(m:Db,resource:string,row:Record<string
 }
 
 /** New records only. Historical NULLs are never mass-filled by synchronization. */
-export async function linkNewDemandRecord(m: Db, resource: keyof typeof demandLinkTables, row: Record<string,any>, actorId: string, actorName: string, requestId: string) {
+export async function linkNewDemandRecord(m: Db, resource: keyof typeof demandLinkTables, row: Record<string,any>, actorId: string, actorName: string, requestId: string, trustedInternalService = false) {
   if (!await demandLinksReady(m)) return row;
   const item = resource==='mps-review-due-dates' ? row.drawing_number : row.item_code;
   const [parent] = await m.query(`SELECT m.* FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.order_number=$2 AND m.item_code=$3
@@ -29,9 +31,18 @@ export async function linkNewDemandRecord(m: Db, resource: keyof typeof demandLi
   const [source]=await m.query("SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL AND order_status='已审核' AND manually_maintained=true FOR SHARE",[row.tenant_id,parent.allocation_id]);
   if(!source)return row; // Historical membership requires an explicit reviewed command, never an automatic activation.
   await m.query('SELECT mps_assert_demand_link($1,$2::jsonb)',[demandLinkTables[resource],JSON.stringify({...row,monthly_plan_id:parent.id})]);
+  if(trustedInternalService){
+    if(actorId!==MPS_SYSTEM_SYNC_ACTOR)throw new ConflictException('内部服务首次关联主体不匹配');
+    const [capability]=await m.query(`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1 AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls AND NOT rolinherit) ready`,[MPS_DEMAND_LINK_SERVICE_ROLE]);
+    if(!capability?.ready)throw new ConflictException('数据库尚未安装受限的内部首次关联能力');
+    // This is a database role identity, not an actor-supplied value or session GUC.
+    // The role is NOLOGIN, and only this private server-side sync branch switches to it.
+    await m.query('SET LOCAL ROLE mps_demand_link_service');
+  }
   await authorizeDemandLink(m,resource,row,parent.id,actorId,actorName,requestId);
   const changed = await m.query(`UPDATE ${demandLinkTables[resource]} SET monthly_plan_id=$3::uuid
     WHERE tenant_id=$1 AND id=$2::uuid AND monthly_plan_id IS NULL RETURNING *`,[row.tenant_id,row.id,parent.id]);
+  if(trustedInternalService)await m.query('RESET ROLE');
   const after=Array.isArray(changed[0])?changed[0][0]:changed[0];
   if (!after) throw new ConflictException('新记录的需求关联发生并发变化');
   await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)

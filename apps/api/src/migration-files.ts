@@ -26,3 +26,9 @@ export function unifiedCoreMigrationFiles(directory:string):string[]{
  const files=discoverMigrationFiles(directory).filter(f=>/(?:1722920121000-MpsDemandLinks|1722920122000-MpsReviewBatchApplications)\.(?:ts|js)$/.test(path.basename(f)));
  if(files.length!==2)throw Error('Unified core requires exactly121 and122');return files;
 }
+
+/** Service-only first-link authorization repair. Never includes lifecycle120 or performance123. */
+export function demandLinkServiceMigrationFiles(directory:string):string[]{
+ const files=discoverMigrationFiles(directory).filter(f=>/1722920122500-MpsDemandLinkServiceAuth\.(?:ts|js)$/.test(path.basename(f)));
+ if(files.length!==1)throw Error('Demand-link service authorization requires exactly migration1722920122500');return files;
+}
