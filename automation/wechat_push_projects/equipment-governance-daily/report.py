@@ -46,8 +46,9 @@ def reporting_window(now: datetime | None = None) -> tuple[date, date]:
     return yesterday - timedelta(days=6), yesterday
 
 
-def notification_text(report_date: date) -> str:
-    return (f'【设备管理日报表】{report_date:%Y年%m月%d日}\n\n'
+def notification_text(report_date: date, correction_run_id: str | None = None) -> str:
+    correction = '【报表更正】此前全零报表作废，请以本次更正报表为准。\n\n' if correction_run_id else ''
+    return (correction + f'【设备管理日报表】{report_date:%Y年%m月%d日}\n\n'
             '日报1：设备运行日报。\n\n'
             '日报2：设备填报情况。过去7天集团填报率为100%时，不发送设备填报报表；未达到100%时，发送设备填报报表。')
 
@@ -438,7 +439,7 @@ def send_report(operation_image: Path, reporting_image: Callable[[], Path], text
 
 
 def submit_notification_event(report_date: date, operation_image: Path, reporting_image: Callable[[], Path],
-                              should_send_reporting: bool) -> dict[str, Any]:
+                              should_send_reporting: bool, correction_run_id: str | None = None) -> dict[str, Any]:
     """Submit one ordered event to KDOS; routing and per-group delivery stay in Notification Center."""
     token = os.getenv('KDOS_NOTIFICATION_INTERNAL_TOKEN', '').strip() or read_notification_internal_token()
     if not token:
@@ -447,7 +448,7 @@ def submit_notification_event(report_date: date, operation_image: Path, reportin
     api_base = os.getenv('KDOS_API_BASE_URL', 'http://127.0.0.1:15172/api/v1').rstrip('/')
     tenant = os.getenv('KDOS_DEFAULT_TENANT_CODE', 'KAINAN').strip()
     worker = os.getenv('KDOS_NOTIFICATION_WORKER_ID', 'equipment-governance-daily').strip()
-    components: list[dict[str, str]] = [{'type': 'text', 'content': notification_text(report_date)}]
+    components: list[dict[str, str]] = [{'type': 'text', 'content': notification_text(report_date, correction_run_id)}]
     components.append({'type': 'image', 'filename': f'equipment-operation-{report_date.isoformat()}.png',
                        'mimeType': 'image/png', 'base64': base64.b64encode(operation_image.read_bytes()).decode('ascii')})
     if should_send_reporting:
@@ -455,6 +456,8 @@ def submit_notification_event(report_date: date, operation_image: Path, reportin
         components.append({'type': 'image', 'filename': f'equipment-reporting-{report_date.isoformat()}.png',
                            'mimeType': 'image/png', 'base64': base64.b64encode(path.read_bytes()).decode('ascii')})
     payload = {'eventType': 'equipment.daily_report', 'dedupKey': f'equipment-daily-report:{report_date.isoformat()}', 'components': components}
+    if correction_run_id:
+        payload['dedupKey'] += f':correction:{correction_run_id}'
     request = urllib.request.Request(f'{api_base}/internal/notifications/events/group-webhook',
         data=json.dumps(payload, ensure_ascii=False).encode('utf-8'), method='POST', headers={
             'Content-Type': 'application/json', 'X-KDOS-Internal-Token': token,
@@ -491,6 +494,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--submit-notification-event', action='store_true', help='提交设备日报到消息中心配置的群路由；可与--send-production并用')
     parser.add_argument('--confirm-production', action='store_true')
     parser.add_argument('--test-run-id', help='经授权的新一轮单人测试标识，同标识重跑仍幂等，仅限--send-test')
+    parser.add_argument('--correction-run-id', help='经明确授权的正式更正批次；独立保存回执，相同批次重跑不重复发送')
     parser.add_argument('--data-json', type=Path, help='合成/本地数据，仅限不发送的预览模式')
     parser.add_argument('--output-dir', type=Path, default=OUTPUT_DIR)
     return parser.parse_args(argv)
@@ -503,6 +507,8 @@ def main(argv: list[str] | None = None) -> int:
     config = read_config()
     if args.test_run_id and (not args.send_test or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', args.test_run_id)):
         raise ValueError('--test-run-id仅限--send-test，标识只允许字母数字、下划线和短横线，最长64位')
+    if args.correction_run_id and (not args.send_production or not args.confirm_production or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', args.correction_run_id)):
+        raise ValueError('--correction-run-id仅限经确认的正式更正发送，标识最长64位且不能包含路径')
     if args.send_production and (not args.confirm_production or config.get('allow_production_send') is not True):
         raise ValueError('当前禁止正式发送；未来需显式开启allow_production_send并提供--confirm-production')
     if (args.check_production or args.notify_failure) and config.get('allow_production_send') is not True:
@@ -524,6 +530,8 @@ def main(argv: list[str] | None = None) -> int:
         folder = args.output_dir / end.isoformat()
         if args.send_production or args.check_production:
             folder = folder / 'production'
+            if args.correction_run_id:
+                folder = folder / 'corrections' / args.correction_run_id
         elif args.submit_notification_event:
             folder = folder / 'group-event'
         elif args.test_run_id:
@@ -540,13 +548,15 @@ def main(argv: list[str] | None = None) -> int:
                 temporary.touch(mode=0o600, exist_ok=True)
                 temporary.write_text(json.dumps(receipt, ensure_ascii=False), encoding='utf-8')
                 temporary.replace(receipt_path)
-            result.update(send_report(operation, reporting, notification_text(end), lambda: not seven_day_complete(summary),
+            result.update(send_report(operation, reporting, notification_text(end, args.correction_run_id), lambda: not seven_day_complete(summary),
                                       config['test_recipients' if args.send_test else 'production_recipients'],
                                       text_delay_seconds=config['text_delay_seconds'], image_delay_seconds=config['reporting_image_delay_seconds'],
                                       receipt=receipt, persist=persist))
             result['mode'] = mode
             if args.test_run_id:
                 result['testRunId'] = args.test_run_id
+            if args.correction_run_id:
+                result['correctionRunId'] = args.correction_run_id
         elif not args.submit_notification_event:
             if args.check_production:
                 users = resolve_user_ids(create_pusher(), config['production_recipients'])
@@ -554,7 +564,10 @@ def main(argv: list[str] | None = None) -> int:
             result['reportingImage'] = str(reporting())
             result['wouldSendReportingImage'] = not seven_day_complete(summary)
         if args.submit_notification_event:
-            result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary)))
+            if args.correction_run_id:
+                result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary), args.correction_run_id))
+            else:
+                result.update(submit_notification_event(end, operation, reporting, not seven_day_complete(summary)))
             if not args.send_production:
                 result['mode'] = 'group-event'
         print(json.dumps(result, ensure_ascii=False))
