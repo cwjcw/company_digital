@@ -444,11 +444,22 @@ export class MasterPlanSyncService {
     return this.syncTransaction(transaction, async (manager): Promise<SyncOutcome> => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
-      // A scoped application must account for every selected batch. Missing admission
-      // data cannot be reported as a successful zero-row synchronization.
+      let scopeAdmissionMetrics: Record<string, number> = {};
       if(basePlanIds){
-        const [eligible]=await manager.query(`SELECT count(*)::int n FROM mps_base_plans base WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND ${admission}`,[tenantId,basePlanIds]);
-        if(eligible.n!==basePlanIds.length)return {count:0,status:'BLOCKED' as const,metrics:{selected_batches:basePlanIds.length,eligible_batches:eligible.n}};
+        // Lock the selected parent rows before evaluating admission. A partial
+        // employee edit is a valid saved draft; it must not turn the whole
+        // reconciliation attempt into FAILED/BLOCKED or delay eligible peers.
+        const foundRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
+          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) FOR UPDATE OF base`,[tenantId,basePlanIds]);
+        const eligibleRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
+          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) AND ${admission} FOR UPDATE OF base`,[tenantId,basePlanIds]);
+        const eligibleIds=eligibleRows.map(row=>String(row.id));
+        scopeAdmissionMetrics={selected_batches:basePlanIds.length,eligible_batches:eligibleIds.length,
+          waiting_admission_batches:foundRows.length-eligibleIds.length,missing_batches:basePlanIds.length-foundRows.length};
+        if(!eligibleIds.length)return {count:0,metrics:scopeAdmissionMetrics};
+        // Process eligible IDs only. Incomplete/deleted IDs remain visible as
+        // pending/missing in the base-plan query and cannot block the rest.
+        basePlanIds=eligibleIds;
       }
       // Filter already-executed weekly rows before the upsert. Migration119's
       // trigger remains authoritative; this prevents one protected row from
@@ -499,6 +510,7 @@ export class MasterPlanSyncService {
       }
       const weeklyChanges = this.changedCount(rows);
       return { count: weeklyChanges + initializedTasks, status:protectedSnapshots?'BLOCKED':undefined, metrics: {
+        ...scopeAdmissionMetrics,
         weekly_plans_changed: weeklyChanges, process_snapshots_initialized: initializedSnapshots, process_tasks_initialized: initializedTasks,
         process_snapshots_protected:protectedSnapshots
       } };

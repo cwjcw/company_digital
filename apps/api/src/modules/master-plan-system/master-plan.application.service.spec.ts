@@ -261,7 +261,7 @@ describe("MasterPlanApplicationService imports", () => {
     const manager = { query }; const sync = { processOutbox: jest.fn().mockResolvedValue(undefined) };
     const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
-      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
     expect(query.mock.calls.some(([sql]) => String(sql).includes("mps_reconciliation_outbox"))).toBe(true);
   });
@@ -281,7 +281,7 @@ describe("MasterPlanApplicationService imports", () => {
 
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
       id, version: 4, values: { latestReviewDueDate: "2026-09-20" },
-      reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
     expect(sync.processOutbox).toHaveBeenCalledTimes(1);
     expect(query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE mps_base_plans"))).toBe(true);
@@ -301,7 +301,7 @@ describe("MasterPlanApplicationService imports", () => {
     const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
 
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
-      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
   });
 

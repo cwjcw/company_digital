@@ -38,7 +38,7 @@ const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
  */
 const RECONCILIATION_FEEDBACK: Partial<Record<string, { syncKey: string; failure: (error: string) => string; pending: string }>> = {
   "mps-order-allocations": { syncKey: "plan-projections", failure: (error) => `订单分配已保存，但计划生成失败：${error}`, pending: "订单分配已保存，集团/月度计划正在生成，请稍后刷新查看。" },
-  "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存，周计划正在生成，请稍后刷新查看。" },
+  "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" },
   "mps-process-reports": { syncKey: "execution-rollup", failure: (error) => `报工已保存，但执行状态同步失败：${error}`, pending: "报工已保存，执行状态正在同步，请稍后刷新查看。" },
   "mps-weekly-process-plans": { syncKey: "execution-rollup", failure: (error) => `工序任务已保存，但执行状态同步失败：${error}`, pending: "工序任务已保存，执行状态正在同步，请稍后刷新查看。" },
   "mps-material-reports": { syncKey: "execution-rollup", failure: (error) => `主材报工已保存，但执行状态同步失败：${error}`, pending: "主材报工已保存，执行状态正在同步，请稍后刷新查看。" },
@@ -556,7 +556,10 @@ export class MasterPlanApplicationService {
       const response = { batchId: idempotencyKey, submitted: records.length, succeeded: items.filter((item) => item.success).length, failed: items.filter((item) => !item.success).length, fieldKey, items, repeated: false };
       await this.audit(manager, actor, code, null, `${code}.batch_updated`, null, { ...response, idempotencyKey });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$5)", [storageKey, requestHash, JSON.stringify(response), actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
-      if (response.succeeded > 0) await this.enqueueReconciliation(manager, resource, actor);
+      if (response.succeeded > 0) {
+        if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else await this.enqueueReconciliation(manager, resource, actor);
+      }
       return response;
     }));
     if (result.repeated || !result.succeeded) { void this.sync.processOutbox().catch(() => undefined); return result; }
@@ -659,7 +662,10 @@ export class MasterPlanApplicationService {
       const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false, ...(code==="mps-order-allocations"?{importBatchId:allocationBatch!.id}:{}) };
       await this.audit(manager, actor, code, null, `${code}.import_confirmed`, null, { ...response, fileHash });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
-      if (createdCount || updatedCount) await this.enqueueReconciliation(manager, resource, actor);
+      if (createdCount || updatedCount) {
+        if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else await this.enqueueReconciliation(manager, resource, actor);
+      }
       return response;
     };
     const result = await this.translateDatabaseError(() => transactionManager ? work(transactionManager) : this.dataSource.transaction(work));
@@ -1066,17 +1072,31 @@ export class MasterPlanApplicationService {
     return false;
   }
 
-  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null) {
+  private async enqueueBasePlanReconciliation(manager: EntityManager, actor: MasterPlanActor, records: Array<Record<string, unknown>>) {
+    const uniqueById = new Map<string, Record<string, unknown>>();
+    for (const row of records) { const id = String(row.id ?? ""); if (id) uniqueById.set(id, row); }
+    const unique = [...uniqueById.values()];
+    for (let offset = 0; offset < unique.length; offset += 100) {
+      const chunk = unique.slice(offset, offset + 100);
+      const ids = chunk.map(row => String(row.id));
+      await this.enqueueReconciliation(manager, this.resource("mps-base-plans"), actor, ids[0]!, chunk[0]!, { basePlanIds: ids });
+    }
+  }
+
+  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null, scopeOverride?: Record<string, unknown>) {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
     /* 删除报工后事实行已不存在，故在同一事务内把稳定工序身份写入 durable outbox，而不是事后猜测。 */
-    const scope = resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
+    const scope = scopeOverride ?? (resource.code === "mps-base-plans" && recordId
+      ? { basePlanIds: [recordId] }
+      : resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
       ? this.executionScope(record)
-      : null;
+      : null);
+    const scopeIdentity = scope == null ? "" : `:${createHash("sha256").update(JSON.stringify(scope)).digest("hex").slice(0, 16)}`;
     for (const syncKey of RECONCILIATION_JOBS[resource.code] ?? []) await manager.query(`
       INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,$2,$3::uuid,$4,$5::jsonb,$6,$7::uuid,$8,$7::uuid,$7::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
-    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}${scopeIdentity}`, actorId, actor.username]);
   }
 
   private async enqueueShippingPlanKeyFieldsChanged(
