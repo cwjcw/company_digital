@@ -1,6 +1,6 @@
 # KDOS需求首次绑定服务身份修复与11月7日基础计划定向恢复
 
-状态：**候选与隔离验收中；生产Migration、API部署及业务恢复均未执行，等待用户明确批准。**
+状态：**已按授权完成生产热修复Migration、API部署及后台自动同步恢复；300组缺失基础计划已全部恢复。周计划仍受业务准入字段限制，见第6节。**
 
 主进度入口：`outputs/主计划系统修复进度.md` 首节。背景与架构决策：`MPS_UPSTREAM_DOWNSTREAM_LINKAGE_DESIGN.md` 第20节。
 
@@ -28,9 +28,9 @@ Migration创建`NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRL
 
 ## 3. 受控恢复入口
 
-`apps/api/src/restore-mps-missing-bases.ts`不会由HTTP调用。它仅接受`--execute`且`KDOS_MPS_TARGETED_RESTORE_ENABLED=true`，读取项目外受审manifest，检查Migration账本/服务角色/系统账号和当前原30分钟同步配置。执行前只读重新计算固定导入窗口下的完整缺失集合，逐一核对租户、事业部、审核有效来源、完整订单/品项/事业部身份、数量、月度version，并确保没有稳定ID基础计划或文本匹配基础计划。集合或版本与manifest任一不同即拒绝。
+`apps/api/src/restore-mps-missing-bases.ts`不会由HTTP调用。它仅接受`--execute`且`KDOS_MPS_TARGETED_RESTORE_ENABLED=true`，读取项目外受审manifest，检查Migration账本/服务角色/系统账号和当前原30分钟同步配置。执行前只读重新计算固定导入窗口下的缺失集合，逐一核对manifest目标仍属于缺失集合且月度version一致，并确保每个目标没有稳定ID基础计划或文本匹配基础计划；已变化的目标即拒绝。manifest可以是当前缺失集合的受审子集，以支持先处理指定组。
 
-manifest只包含`tenantId`、`requestId`及`monthlyPlans: [{id, expectedVersion}]`。不得提交manifest或生产业务ID到Git。目标最多300组，每批最多25组；当前快照预计12批，但正式执行批数根据获批前重新核实的缺失清单计算。使用确定性批次UUID及Application Service的`RECONCILIATION`路径：
+manifest只包含`tenantId`、`requestId`及`monthlyPlans: [{id, expectedVersion}]`。不得提交manifest或生产业务ID到Git。目标最多300组，每批最多25组；工具默认每次最多处理一批，可用`--max-batches=N`显式增加单次上限。每次处理后应重新读取、校验并生成剩余manifest。使用确定性批次UUID及Application Service的`RECONCILIATION`路径：
 
 1. `shipping-to-base`定向处理该批月度UUID。来源失效、身份冲突、版本变化、历史基础计划存在时整批停止。
 2. 校验每个`monthly_plan_id`恰好关联一条基础计划，不能修改人工批次数量。
@@ -41,13 +41,15 @@ manifest只包含`tenantId`、`requestId`及`monthlyPlans: [{id, expectedVersion
 
 ## 4. base-to-weekly三条23514事件
 
-生产失败日志保存SQLSTATE摘要而没有底层constraint文本。三条Outbox事件都未带scope，实际是全租户任务：
+生产失败日志只保存SQLSTATE摘要，没有底层constraint文本。三条Outbox事件都未带scope，实际触发全租户任务；事件`record_id`是触发源，不足以证明该行就是事务中的失败行：
 
-| 事件时间（北京时间） | 指向基础计划 | 当前关联与事实 | 结论 |
+| Outbox事件 | 触发记录 | 当前只读事实 | 本次重试结果 |
 |---|---|---|---|
-| 2026-11-08 00:00 | `2025A027115 / TGG930HT-1/1` | 月度ID存在，无周计划；ERP有效入库40件 | 创建工序触及119执行事实保护；保留入库，阻止自动新工序 |
-| 2026-11-08 00:28 | `2025A027131 / TGG919HT-1/1` | 月度ID存在，无周计划；ERP有效入库132件 | 同上 |
-| 2026-11-08 00:03 | `TGG955HT-1/1` | 基础缺monthly_plan_id；周计划已有4条工序；未发现报工/其他执行事实，事实函数false | 此记录不是已证实的执行保护触发源；它被同一次全租户同步中前两条记录连带失败 |
+| `05ed5ccc-921b-4d00-ad9e-9ba1da93d41e` | `2025A027115 / TGG930HT-1/1` | 周计划已存在；报工0、工序任务0；`mps_weekly_has_execution=true`（历史入库/上游累计入库事实） | BLOCKED；与受保护行隔离，不改写历史 |
+| `b95852b1-2d2e-4206-bb90-a93401a97e97` | `2025A027131 / TGG919HT-1/1` | 周计划已存在；报工0、工序任务0；`mps_weekly_has_execution=true`（历史入库/上游累计入库事实） | BLOCKED；与受保护行隔离，不改写历史 |
+| `82cdbcdd-ba42-4380-b2e3-f763546b70a8` | `TGG955HT-1/1` | 周计划已存在且有4条工序；报工0、事实函数false。事件scope为空，不能据此认定它触发23514 | BLOCKED；失败日志不保留原始constraint，未放宽保护 |
+
+另有触发记录`2026A027408 / GFQ558KB-1/1`，周计划有4条任务、报工0、事实函数false；由于其事件同样scope为空，不能证明它是23514根因。热修复后这类全量重试真实返回`BLOCKED`，metrics显示2条执行事实周计划被保护；不把BLOCKED改写为SUCCESS。当前证据支持全量更新触及两条已有入库/累计入库事实的周计划，但数据库日志没有保存原始constraint名称，故不伪造更精确的SQL约束结论。
 
 修复在upsert前逐条锁定/过滤已存在执行事实周计划，写入`PROCESS_SNAPSHOT_PROTECTED`并让本次任务真实返回BLOCKED；其他合法周计划继续同步。新建周计划若从月度/ERP链路检测到收货，则不生成工序及占位表。不得为了让状态SUCCESS而删除收货、降低事实保护或伪造任务。
 
@@ -57,14 +59,26 @@ manifest只包含`tenantId`、`requestId`及`monthlyPlans: [{id, expectedVersion
 
 基础计划数量和允许更新的交期可以在保留报工事实、工艺快照的条件下同步；不能因存在报工/入库就阻断所有合法计划字段更新。自动写入导致执行身份变化、工艺快照缺失需要初始化时，继续按Migration119保护机制阻断，并留下真实失败/阻断原因。
 
-## 6. 批准后的发布顺序（本轮不执行）
+## 6. 2026-11-08生产执行结果
 
-1. 用户确认本次最终候选SHA、严格Migration名单`1722920122500`（其前置118/119/121/122必须已经核实，120/123不运行）和维护窗口。
-2. 再次做生产只读检查：Migration ledger、六项配置、系统账号、300组最新缺失集合与version、已有报工/收货/基础/周计划和异常行；保存外部只读manifest及校验哈希。
-3. 依现行发布规范准备生产备份。排空旧API/消费者请求后再部署匹配代码；不新增调度、不改六项30分钟配置。
-4. 通过独立严格入口执行唯一Migration。确认角色属性、授权范围、既有121/119守卫仍启用。Migration成功后立即发布获批API镜像；若代码发布失败，不关闭/移除数据库守卫，按前向修复方式处理。
-5. API健康检查及只读验证：系统账号仍disabled/password `!`，角色NOLOGIN/受限；正常员工路径可绑定，HTTP/manual仅伪造actor ID仍失败。
-6. 用户批准恢复后才开启一次性恢复开关，执行精确manifest，按25组处理。恢复完立即清除一次性开关，不改变任何长期运行配置。
-7. 每批及全部完成后核对稳定月度/基础/周计划关系、数量、待办范围、Outbox/log最终状态、工序快照及原始报工/入库事实；另确认订单2026A027296重点行。
+- 最终生产API代码提交：`ba43b9275850eb282f7d76f19d8a95731f348781`。API镜像：`sha256:d62bcb23e4a1d4aefc234d884da9c4f9ed51cf2de594bc2fb08d05a176250eaa`。性能候选`0d1d7f6`及Migration123均未部署/执行；Web和document-worker镜像未切换。
+- 严格入口只执行`1722920122500-MpsDemandLinkServiceAuth`。账本仍含118、119、121、122；120及123未执行。121三个需求绑定触发器保持启用。服务角色为`NOLOGIN/NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOINHERIT/NOBYPASSRLS`，无成员；仅有读取、审计插入、`monthly_plan_id`列更新和校验函数执行权，不能更新计划数量。
+- `__kdos_system__`仍`enabled=false`且密码为`!`。数据库登录`knplan`现有配置是SUPERUSER；内部角色不能被普通HTTP actor参数或通用GUC伪造，HTTP手工同步调用不启用内部角色；数据库超级用户仍意味着API进程失陷时不构成隔离边界，后续应单独降低运行时DB权限，不能在本次热修复中贸然改动全平台授权。
+- 备份脚本成功完成并用`pg_restore --list`校验：`four_department_tracker` SHA256 `2f1f620447e775a07fd5006dddc7961f156bb4660076bd1c7d7d7b6546e03584`；`kdos` SHA256 `8126ca55e67fd4f82e3804265e488a7250832a4165681fe9a0b17be3d64aba6c`；uploads SHA256 `03c61abee04f09fd4c4ded500ce5adac0d31a574550a4551c128c4795b0a198f`。迁移前需求绑定触发器定义另存于权限为600的`/tmp/mps-demand-link-before-20261108.sql`。
+- API重启时Web反代短暂返回502，约4秒后健康恢复；未停止KDOS整体服务，Web与document-worker容器未重建。生产API `/api/v1/health`返回`ba43b927…`且health为healthy，Web `/health`正常。
+- API恢复后，原60秒检查器按原30分钟配置自然启动`SCHEDULED shipping-to-base`，并在系统账号仍disabled时成功处理：`monthly_eligible=6666`、`base_created=300`、`base_updated=0`、`base_conflicts=0`、`base_multi_batch=0`。没有调用人工恢复脚本或执行全租户历史Outbox重放。当天307条分配/302组现为302个稳定基础关联，缺失0、重复0；300个新增基础计划数量合计134,604，与原需求一致。另2个原有关联保持不变，总计划需求/基础数量134,608（多出的4件属于原有2组）。
+- 重点`2026A027296 / TGH038BD-1/1-2`已关联月度ID`01a1b3d1-917f-7bd0-b3a2-4762c1f9375f`与基础ID`01a1b8f7-f629-7123-9215-d306f08f1754`，两边数量14，稳定关联正确。
+- 300个新增基础计划尚无周计划，且全部缺少周计划准入必填的客户交期、评审交期、产品属性、表面性质、制造方式。没有绕过准入强造周计划。目标范围仅有此前2条已有周计划；自动`base-to-weekly`将其识别为2条受执行事实保护记录并返回BLOCKED，不是授权失败。待补齐业务字段后，按现有准入规则继续同步。
+- Migration执行后，没有新的`shipping-to-base`需求身份23514；上述自动任务以服务身份成功绑定了300条需求。历史`plan-projections`仍因已知历史归属歧义返回BLOCKED，未清理110组历史数据。原有`base-to-weekly`通用BLOCKED/旧23514事件没有被篡改为SUCCESS。
+- 自动同步仅创建基础计划，没有更新基础计划或写入报工、工序、入库、财务、设备数据。生产当前`mps_process_reports`总数5350；历史入库事实保留，表未被本次同步修改。新API改动不包含财务或设备代码；Web镜像未变。
 
-若Migration尚未成功，Migration事务应整体回滚，不做业务恢复。若Migration成功但新API未健康，保留前向数据库保护并修复/前向发布API；旧API不会取得数据库受限角色，相关自动需求绑定继续失败但不会绕过保护。不要降级或禁用119/121触发器。
+备份位于运行环境`data/backups/`，manifest及恢复数据未提交Git。此次未推送GitHub。API代码提交`ba43b927…`在本地热修复分支；仅限本地提交。
+
+## 7. 后续事项
+
+1. 补齐这300组基础计划缺少的业务准入字段后，验证对应周计划及工序任务，不得用默认值伪造。
+2. 对全scope的旧base-to-weekly事件，继续保留实际`BLOCKED`。由于旧日志只保留SQLSTATE摘要，若需要原constraint名称，需在隔离副本复现；不得在生产关闭119触发器或盲目重放。
+3. 单独评估把API数据库登录`knplan`降为受限角色；这是全平台权限变更，不纳入本次紧急热修复。
+4. 继续观察两个完整原30分钟同步周期，核对新的合法分配、Outbox及同步日志；不调整六项同步配置。
+
+若生产API后续异常，使用部署前API镜像tag `knplan-api:before-mps-demand-auth-20261108`仅恢复应用镜像；Migration是向前保护，保留服务角色/触发器，不删除Migration、不恢复整库覆盖上线后的新业务数据。
