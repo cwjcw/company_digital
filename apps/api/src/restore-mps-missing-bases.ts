@@ -9,7 +9,10 @@ const uuidFrom=(value:string)=>{const bytes=createHash('sha256').update(value).d
 
 /** Explicit operator tool. It is inert unless both a reviewed external manifest and two execute gates are present. */
 async function run(){
-  if(process.argv.length!==3||process.argv[2]!=='--execute'||process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED!=='true')throw Error('Refusing to execute without --execute and KDOS_MPS_TARGETED_RESTORE_ENABLED=true');
+  const args=process.argv.slice(2);
+  const batchArg=args[1];
+  const maxBatches=batchArg===undefined?1:Number(/^--max-batches=(\d+)$/.exec(batchArg)?.[1]);
+  if(args.length<1||args.length>2||args[0]!=='--execute'||!Number.isInteger(maxBatches)||maxBatches<1||maxBatches>12||process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED!=='true')throw Error('Refusing to execute without --execute, a valid --max-batches (default 1), and KDOS_MPS_TARGETED_RESTORE_ENABLED=true');
   const manifestPath=process.env.KDOS_MPS_RESTORE_MANIFEST;
   if(!manifestPath||!fs.existsSync(manifestPath))throw Error('A reviewed external restore manifest is required');
   const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8')) as Manifest;
@@ -38,17 +41,18 @@ async function run(){
               (b.order_number,b.item_code,b.division_id) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id))))
         ORDER BY m.id` ,[manifest.tenantId]);
     });
-    const expected=new Map(manifest.monthlyPlans.map(row=>[row.id,row.expectedVersion]));
-    if(currentMissing.length!==manifest.monthlyPlans.length||currentMissing.some((row:any)=>expected.get(String(row.id))!==Number(row.version)))
-      throw Error(`Fresh read-only scope mismatch; manifest ${manifest.monthlyPlans.length}, current eligible missing ${currentMissing.length}. Regenerate and review the manifest.`);
+    const freshVersions=new Map(currentMissing.map((row:any)=>[String(row.id),Number(row.version)]));
+    if(manifest.monthlyPlans.some(row=>freshVersions.get(row.id)!==row.expectedVersion))
+      throw Error(`Fresh read-only scope mismatch; reviewed ${manifest.monthlyPlans.length}, current eligible missing ${currentMissing.length}. Regenerate and review the manifest.`);
     const sync=new MasterPlanSyncService(db),results=[] as unknown[];
-    for(let offset=0;offset<manifest.monthlyPlans.length;offset+=25){
+    const batchLimit=Math.min(manifest.monthlyPlans.length, maxBatches*25);
+    for(let offset=0;offset<batchLimit;offset+=25){
       const rows=manifest.monthlyPlans.slice(offset,offset+25),batchId=uuidFrom(`${manifest.requestId}:${offset/25}`);
       const result=await sync.restoreMissingMonthlyBaseBatch(manifest.tenantId,batchId,rows);
       results.push({batch:offset/25+1,monthlyPlans:result.monthlyPlanCount,basePlans:result.basePlanCount,shipping:result.shipping.status,weekly:result.weekly.map((row:any)=>({status:row.status,count:row.count,metrics:row.metrics}))});
       if(result.shipping.status!=='SUCCESS')throw Error(`shipping-to-base did not complete successfully in batch ${offset/25+1}`);
     }
-    console.log(JSON.stringify({tenantId:manifest.tenantId,requested:manifest.monthlyPlans.length,batches:results},null,2));
+    console.log(JSON.stringify({tenantId:manifest.tenantId,requested:manifest.monthlyPlans.length,processed:Math.min(manifest.monthlyPlans.length,batchLimit),remaining:Math.max(0,manifest.monthlyPlans.length-batchLimit),batches:results},null,2));
   }finally{await db.destroy();}
 }
 if(require.main===module)run().catch(error=>{console.error(error instanceof Error?error.message:'Targeted MPS restore failed');process.exitCode=1;});
