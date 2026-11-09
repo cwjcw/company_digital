@@ -469,7 +469,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
-  const { message: exportMessage } = AntApp.useApp();
+  const { message: exportMessage, modal: exportModal } = AntApp.useApp();
   const { message: deleteMessage, modal: deleteModal } = AntApp.useApp();
   const [printing, setPrinting] = useState(false);
   const printCapabilities = useTablePrintCapabilities();
@@ -526,17 +526,32 @@ export function KdosDataTable<RecordType extends DataRecord>({
       setPrinting(false);
     }
   };
-  const runExport = async () => {
+  const runExport = () => {
     if (exporting) return;
-    setExporting(true);
-    try {
-      await exportTable({ resource, filename:exportFilename?.(), search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
-        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
-        context: printContext, columnKeys: displayedExportKeys(renderedColumns) });
-      exportMessage.success("导出已开始");
-    } catch (error) {
-      exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
-    } finally { setExporting(false); }
+    const selectedIds = [...new Set(selectedRowKeys.map(String))];
+    const rangeType = selectedIds.length ? "SELECTED" as const : "FILTERED" as const;
+    const request = { resource, rangeType, ...(rangeType === "SELECTED" ? { selectedIds } : {}),
+      search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
+      sortOrder: sortOrder === "descend" ? "desc" as const : sortOrder === "ascend" ? "asc" as const : undefined,
+      context: printContext, columnKeys: displayedExportKeys(renderedColumns), filename: exportFilename?.() };
+    const submitExport = async () => {
+      setExporting(true);
+      try {
+        await exportTable(request);
+        exportMessage.success(rangeType === "SELECTED" ? `已选 ${selectedIds.length} 条记录导出已开始` : "当前视图导出已开始");
+      } catch (error) {
+        exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
+      } finally { setExporting(false); }
+    };
+    if (rangeType === "SELECTED") {
+      exportModal.confirm({
+        title: "确认导出已选记录",
+        content: `本次仅导出已选中的 ${selectedIds.length} 条记录；当前筛选结果中的未选记录不会导出。`,
+        okText: `导出已选（${selectedIds.length}）`, cancelText: "取消", onOk: submitExport
+      });
+      return;
+    }
+    void submitExport();
   };
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -553,7 +568,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => {
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
-  }, [resource]);
+  }, [resource, viewKey]);
   const contextFilterKey = JSON.stringify(contextFilterGroup ?? emptyFilterGroup());
   useEffect(() => { setCurrentPage(1); }, [filters, search, tableFilterGroup, contextFilterKey, serverData?.resetKey]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);
@@ -954,7 +969,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
-        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void runExport()}>导出</Button>}
+        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>
+          {selectedCount > 0 ? `导出已选（${selectedCount}）` : "导出当前视图"}
+        </Button>}
         {deleteAction?.permitted && <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={Boolean(deleteDisabledReason)}
           aria-label={deleteAction.label ?? "删除"} title={deleteDisabledReason} onClick={confirmDelete}>{deleteAction.label ?? "删除"}</Button>}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>
