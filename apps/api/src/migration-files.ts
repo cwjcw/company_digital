@@ -46,3 +46,10 @@ export function reviewDueIndependenceMigrationFiles(directory:string):string[]{
   if(files.length!==1)throw Error('Review due independence requires exactly124');
   return files;
 }
+
+/** Additive R&D BOM report prerequisite; runs exactly 125 and never the general pending set. */
+export function rdBomReportMigrationFiles(directory: string): string[] {
+  const files = discoverMigrationFiles(directory).filter(file => /1722920125000-MpsAllocationCustomerDueDate\.(?:ts|js)$/.test(path.basename(file)));
+  if (files.length !== 1) throw new Error('R&D BOM report requires exactly migration 125');
+  return files;
+}

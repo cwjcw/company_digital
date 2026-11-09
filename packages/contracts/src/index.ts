@@ -17,6 +17,8 @@ import { isAuditActorField } from "./audit-actor";
 import { knowledgeStatusOptions } from "./knowledge";
 import { pmcRdProgressFields } from "./pmc-rd-progress";
 export { pmcRdProgressFields } from "./pmc-rd-progress";
+import { rdOrderBomReportFields } from "./rd-order-bom-report";
+export * from "./rd-order-bom-report";
 import { standardProcesses } from "@tracker/shared";
 
 /** 设备状态填报日期窗口：含上海当天在内的连续自然日数量。 */
@@ -36,6 +38,7 @@ export const tableResourcePermissionActionLabels: Partial<Record<string, Partial
   ...Object.fromEntries([...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(c=>[c.code,{read:`查看${c.label}预览`,update:c.label}])),
   "finance-e10-lines": { update: "刷新E10数据" },
   "pmc-rd-progress": { read: "查看研发进度报表" },
+  "rd-order-bom-report": { read: "查看订单 BOM 报表" },
   "rd-material-duplicates": {
     read: "一物多码查询",
     update: "一物多码全量计算"
@@ -154,6 +157,7 @@ export const tableResourceRegistry = [
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
+  { code: "rd-order-bom-report", label: "订单 BOM 报表", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
   { code: "supervision-project-dashboard", label: "项目管理大屏", module: "项目与任务", moduleCode: "project-task" },
@@ -301,6 +305,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false]
   ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
+  "rd-order-bom-report": rdOrderBomReportFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
     ["remark", "备注", "text", false], ["isGroupItem", "归类品", "boolean", false], ["sourceCreatedAt", "创建日期", "datetime", false],
@@ -492,7 +497,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
   "equipment-dashboard": fields([["divisionId", "事业部", "department", false], ["departmentId", "使用部门", "department", false], ["equipmentId", "设备", "reference", false, false, { filterable: false, filterBinding: { kind: "column", referenceResource: "equipment-register", valueField: "id", labelField: "equipmentCode" } }], ["equipmentCode", "设备编号", "text", false], ["equipmentName", "设备名称", "text", false], ["totalEquipment", "设备总数", "number", false], ["reportedEquipment", "已填报设备", "number", false], ["missingEquipment", "未填报设备", "number", false], ["expectedEquipmentCount", "应填设备", "number", false], ["filledEquipmentCount", "已填设备", "number", false], ["unfilledEquipmentCount", "未填设备", "number", false], ["reportingRate", "填报率", "number", false, false, { format: "percentage", percentageScale: "percent" }], ["plannedRuntimeMinutes", "计划运行时间", "number", false, false, { format: "durationMinutes" }], ["runtimeMinutes", "实际运行时长", "number", false, false, { format: "durationMinutes" }], ["utilizationRate", "稼动率", "number", false, false, { format: "percentage", percentageScale: "percent" }], ["faultMinutes", "故障时长", "number", false, false, { format: "durationMinutes" }], ["responsibleUserIds", "责任人", "member", false, false, { multiple: true }], ["equipmentCount", "监控设备", "number", false], ["normalCount", "正常运行", "number", false], ["faultCount", "存在故障", "number", false], ["idleCount", "未运行", "number", false], ["unreportedCount", "未填报", "number", false], ["runtimeDailyAverageMinutes", "实际运行日均", "number", false, false, { format: "durationMinutes" }], ["faultDailyAverageMinutes", "故障日均", "number", false, false, { format: "durationMinutes" }]]),
   "mps-erp-orders": fields([["sourceAccountName", "来源账套", "text", false], ["salespersonName", "业务员", "text", false], ["customerCode", "客户编码", "text", false], ["orderNumber", "订单编号", "text", false], ["orderType", "订单类型", "text", false], ["orderDate", "下单日期", "date", false], ["customerDueDate", "客户交期", "date", false], ["preproductionReviewDate", "产前评审日期", "date", false], ["expectedShippingDate", "预计出货日期", "date", false], ["itemCode", "品项编码", "text", false], ["itemName", "品项名称", "text", false], ["unit", "单位", "text", false], ["orderQuantity", "订单数量", "number", false], ["taxIncludedUnitPrice", "含税单价", "number", false], ["taxIncludedAmount", "含税金额", "number", false], ["orderStatus", "订单状态", "text", false]]),
   "mps-customer-divisions": fields([["customerCode", "客户编码", "text", true, true], ["primaryDivisionId", "主责事业部", "department", true, true], ["enabled", "启用", "boolean"], ["remark", "备注"]]),
-  "mps-order-allocations": fields([["salespersonName", "业务员"], ["customerCode", "客户代码"], ["orderNumber", "订单单号", "text", true, true], ["orderDate", "下单日期", "date"], ["expectedShippingDate", "预计发货日期", "date"], ["orderSequence", "订单序号"], ["itemCode", "品号", "text", true, true], ["itemName", "品名"], ["specification", "规格"], ["unit", "单位"], ["orderQuantity", "订单数量", "number"], ["allocatedQuantity", "已分配数量", "number", true, true], ["approvalDate", "审核日期", "date"], ["orderStatus", "订单状态"], ["supplierCode", "供应商代码"], ["supplierName", "供应商名称"], ["planNumber", "计划单号"], ["currency", "交易币种"], ["financialExchangeRate", "财务汇率", "number"], ["settlementRatio", "结算比例", "number"], ["scheduledQuantity", "排产数量", "number"], ["divisionId", "承接事业部", "department", true, true], ["remark", "备注"], ["importBatchId", "导入批次ID", "text", false], ["sourceWorksheet", "来源工作表", "text", false], ["sourceRowNumber", "原始行号", "number", false, false, {format:"integer"}], ["importedAt", "导入时间", "datetime", false], ["importedBy", "导入操作人", "member", false]]),
+  "mps-order-allocations": fields([["salespersonName", "业务员"], ["customerCode", "客户代码"], ["orderNumber", "订单单号", "text", true, true], ["orderDate", "下单日期", "date"], ["customerDueDate", "客户交期", "date"], ["expectedShippingDate", "预计发货日期", "date"], ["orderSequence", "订单序号"], ["itemCode", "品号", "text", true, true], ["itemName", "品名"], ["specification", "规格"], ["unit", "单位"], ["orderQuantity", "订单数量", "number"], ["allocatedQuantity", "已分配数量", "number", true, true], ["approvalDate", "审核日期", "date"], ["orderStatus", "订单状态"], ["supplierCode", "供应商代码"], ["supplierName", "供应商名称"], ["planNumber", "计划单号"], ["currency", "交易币种"], ["financialExchangeRate", "财务汇率", "number"], ["settlementRatio", "结算比例", "number"], ["scheduledQuantity", "排产数量", "number"], ["divisionId", "承接事业部", "department", true, true], ["remark", "备注"], ["importBatchId", "导入批次ID", "text", false], ["sourceWorksheet", "来源工作表", "text", false], ["sourceRowNumber", "原始行号", "number", false, false, {format:"integer"}], ["importedAt", "导入时间", "datetime", false], ["importedBy", "导入操作人", "member", false]]),
   /* 历史品项周期只保留技术周期维护；旧工序周期字段留在数据库但不再用于路线/周计划生成。 */
   "mps-process-cycles": fields([["itemCode", "品项编码", "text", true, true], ["itemName", "品项名称"], ["technicalDays", "技术周期", "number"]]),
   "mps-division-process-configs": fields([["divisionId", "事业部", "department", true, true], ["processCode", "工序", "dictionary", true, true], ["cycleDays", "标准周期天数", "number", true, false, { format: "integer" }], ["defaultEnabled", "默认工序", "boolean", true, true], ["sequence", "执行顺序", "number", true, true, { format: "integer" }]]),
@@ -961,7 +966,8 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "api-keys": { status: "REGISTERED_AND_FILTERABLE" },
   "pmc-rd-progress": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-items": { status: "REGISTERED_AND_FILTERABLE" },
-  "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" }
+  "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" },
+  "rd-order-bom-report": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
 /**
@@ -1041,6 +1047,7 @@ const excelNotApplicableReasons: Record<string, string> = {
   "finance-e10-dashboard": "财务大屏是聚合统计视图，不存在可更新业务行。",
   "finance-e10-ranking": "客户年度金额排名是财务聚合只读视图，不存在可更新业务行。",
   "pmc-rd-progress": "研发进度由T+来源数据同步投影生成，不允许人工Excel覆盖来源值。",
+  "rd-order-bom-report": "订单BOM报表为订单分配和E10 BOM构成的只读查询视图；支持共享服务端导出，不支持Excel写入。",
   "rd-material-duplicates": "一物多码检测结果由全量计算产生，resource update 用于重新计算而非维护行字段。",
   "finished-goods-inbound": "入库事实由正式入库流程产生，不允许通过Excel覆盖库存事实。",
   "finished-goods-outbound": "出库事实由正式出库流程产生，不允许通过Excel覆盖库存事实。",
