@@ -1,17 +1,16 @@
-import { MasterPlanReviewApplicationDialog } from './MasterPlanReviewApplicationDialog';
 import { ReviewDueImportModal } from './ReviewDueDates.import';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Space, Table } from 'antd';
+import { Alert, Button, Card, DatePicker, Drawer, Form, Input, Modal, Table } from 'antd';
 import { reviewDueDateTemplateFilename, reviewDueDateBusinessFields, reviewDueDateExportFilename, reviewDueDateResource as RESOURCE, type TablePermissionFieldDefinition, type ReviewDueDateHistoryRow } from '@kdos/contracts';
 import dayjs from 'dayjs';
 import { api } from '../../api';
-import { KdosDataTable, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
+import { KdosDataTable, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, kdosDefaultPageSize, useKdosTableEditMode } from '../../shared/KdosDataTable';
 import type { AdvancedFilterGroup } from '../../shared/advanced-filter';
 import { OrganizationSelect, type OrganizationSelectOption } from '../../shared/OrganizationSelect';
 import { useAuditColumns } from '../../shared/audit-fields';
 type Query={page:number;pageSize:number;search:string;filterGroup?:AdvancedFilterGroup;sortField?:string;sortOrder?:'asc'|'desc'};
-type Row=Record<string,unknown>&{id:string;version:number;canUpdate?:boolean};
+type Row=Record<string,unknown>&{id:string;version:number;canUpdate?:boolean;canDelete?:boolean};
 const time=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai'}):'—';
 function ReviewDueDateCell({field,row,busy,onSave,organizations}:{field:TablePermissionFieldDefinition;row:Row;busy:boolean;organizations:OrganizationSelectOption[];onSave:(row:Row,key:string,value:unknown)=>Promise<void>}){
   const {editing}=useKdosTableEditMode(),value=row[field.key],lock=useRef(false);
@@ -25,7 +24,6 @@ function ReviewDueDateCell({field,row,busy,onSave,organizations}:{field:TablePer
     try{await onSave(row,field.key,next);}catch{setDraft(value==null?'':String(value));}finally{lock.current=false;}
   };
   if(field.type==='department')return <OrganizationSelect aria-label={field.label} size="small" value={draft||undefined} disabled={busy} organizations={organizations} onChange={next=>{setDraft(next);void commit(next);}}/>;
-  if(field.key==='changeCount')return <InputNumber aria-label={field.label} size="small" min={0} precision={0} value={draft===''?null:Number(draft)} disabled={busy} onChange={next=>setDraft(next==null?'':String(next))} onBlur={()=>void commit(draft===''?null:Number(draft))} onPressEnter={e=>e.currentTarget.blur()}/>;
   if(field.type==='date')return <DatePicker aria-label={field.label} size="small" value={draft?dayjs(draft):null} allowClear={!field.required} disabled={busy} onChange={next=>{const text=next?.format('YYYY-MM-DD')??null;setDraft(text??'');void commit(text);}} style={{width:'100%'}}/>;
   // Keep exact decimal text end-to-end; InputNumber without stringMode would round large quantities.
   return <Input aria-label={field.label} size="small" value={draft} disabled={busy} inputMode={field.key==='quantity'?'decimal':undefined} onChange={e=>setDraft(e.target.value)} onBlur={()=>void commit()} onPressEnter={e=>e.currentTarget.blur()}/>;
@@ -52,14 +50,13 @@ function ReviewDueCreateModal({fields,onCreated,onClose,organizations}:{fields:T
     {error&&<Alert type="error" showIcon message={error}/>}
     <Form form={form} layout="vertical" disabled={saving} preserve={false}>
       {fields.map(field=><Form.Item key={field.key} label={field.label} name={field.key} rules={field.required?[{required:true,...(field.type==='text'?{whitespace:true}:{}),message:field.label+'必填'}]:[]}>
-        {field.type==='department'?<OrganizationSelect organizations={organizations}/>:field.key==='changeCount'?<InputNumber min={0} precision={0} style={{width:'100%'}}/>:field.type==='date'?<DatePicker allowClear style={{width:'100%'}}/>:<Input inputMode={field.exactNumeric?'decimal':undefined}/>}
+        {field.type==='department'?<OrganizationSelect organizations={organizations}/>:field.type==='date'?<DatePicker allowClear style={{width:'100%'}}/>:<Input inputMode={field.exactNumeric?'decimal':undefined}/>}
       </Form.Item>)}
     </Form>
   </Modal>;
 }
 export function ReviewDueDates(){
   const auditColumns=useAuditColumns();
-  const [applicationId,setApplicationId]=useState<string|null>(null);
   const [createOpen,setCreateOpen]=useState(false),[importOpen,setImportOpen]=useState(false),[templateError,setTemplateError]=useState<string|null>(null),[templateBusy,setTemplateBusy]=useState(false);
   const templateLock=useRef(false);
   const client=useQueryClient(),savingIds=useRef(new Set<string>());
@@ -70,7 +67,7 @@ export function ReviewDueDates(){
   const params=new URLSearchParams({page:String(query.page),pageSize:String(query.pageSize),search:query.search});
   if(query.filterGroup)params.set('filterGroup',JSON.stringify(query.filterGroup));
   if(query.sortField)params.set('sortField',query.sortField);if(query.sortOrder)params.set('sortOrder',query.sortOrder);
-  const meta=useQuery({queryKey:['review-due-meta',session],queryFn:()=>api<{reviewApplications?:{schemaReady:boolean;canApply:boolean};fields:TablePermissionFieldDefinition[];createFields?:TablePermissionFieldDefinition[];actions:{update:boolean;create?:boolean;import?:boolean;template?:boolean}}>(`/master-plan-system/resources/${RESOURCE}/meta`),enabled:canRead||canRequestCreate||canImport});
+  const meta=useQuery({queryKey:['review-due-meta',session],queryFn:()=>api<{fields:TablePermissionFieldDefinition[];createFields?:TablePermissionFieldDefinition[];actions:{update:boolean;delete?:boolean;create?:boolean;import?:boolean;template?:boolean}}>(`/master-plan-system/resources/${RESOURCE}/meta`),enabled:canRead||canRequestCreate||canImport});
   const rows=useQuery({queryKey:['review-due-rows',session,params.toString()],queryFn:({signal})=>api<{rows:Row[];total:number}>(`/master-plan-system/resources/${RESOURCE}?${params}`,{signal}),enabled:canRead});
   const organizations=useQuery({queryKey:['review-due-organizations',session],queryFn:()=>api<OrganizationSelectOption[]>(`/master-plan-system/references/organizations?resource=${RESOURCE}`),staleTime:300_000,enabled:!!meta.data?.fields.some(f=>f.key==='divisionId')||!!meta.data?.createFields?.some(f=>f.key==='divisionId')});
   const history=useQuery({queryKey:['review-due-history',session,selected?.id,historyPage],queryFn:()=>api<{rows:ReviewDueDateHistoryRow[];total:number}>(`/master-plan-system/review-due-dates/${selected!.id}/history?page=${historyPage}&pageSize=100`),enabled:canRead&&!!selected});
@@ -101,13 +98,13 @@ export function ReviewDueDates(){
       exportFilename={reviewDueDateExportFilename} loading={rows.isLoading||meta.isLoading} dataSource={rows.data?.rows??[]}
       columns={[...reviewDueDateBusinessFields.filter(f=>visible.has(f.key)).map(f=>({title:f.label,dataIndex:f.key,key:f.key,width:f.key==='drawingNumber'?200:160,render:(_:unknown,row:Row)=><ReviewDueDateCell field={{...f,editable:f.editable&&meta.data?.fields.find(x=>x.key===f.key)?.editable===true}} row={row} organizations={organizations.data??[]} busy={busy.has(row.id)} onSave={save}/>})),
         ...auditColumns.filter(c=>visible.has(String(c.key))).map(c=>c.key==='createdAt'||c.key==='updatedAt'?{...c,render:time}:c),
-        ...((canHistory||(meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply))?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Space>{canHistory&&<Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}{meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply&&<Button type="link" onClick={()=>setApplicationId(row.id)}>关联基础计划 / 应用交期</Button>}</Space>}]:[])]}
-      serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}/>
-    {applicationId&&meta.data?.reviewApplications?.schemaReady&&meta.data.reviewApplications.canApply&&<MasterPlanReviewApplicationDialog id={applicationId} onClose={()=>setApplicationId(null)} onSaved={async()=>{await rows.refetch();}}/>}
+        ...(canHistory?[{title:'操作',key:'__history',width:130,render:(_:unknown,row:Row)=><Button type="link" onClick={()=>{setSelected(row);setHistoryPage(1);}}>历史交期记录</Button>}]:[])]}
+      serverData={{total:rows.data?.total??0,onQueryChange:setQuery}} scroll={{x:'max-content'}}
+      deleteAction={meta.data?.actions?.delete?{permitted:true,confirmTitle:(count)=>`确认删除选中的 ${count} 条评审交期记录？`,confirmContent:'删除仅作用于评审交期表，并同步清理该记录的本表变更明细；系统操作审计继续保留。',canDelete:(row)=>row.canDelete!==false,onDelete:async(selectedRows)=>{const result=await deleteTableRowsSequentially(selectedRows,(row)=>row.id,(row)=>api(`/master-plan-system/resources/${RESOURCE}/${row.id}?expectedVersion=${row.version}`,{method:'DELETE'}));await rows.refetch();return result;}}:undefined}/>
     {importOpen&&<ReviewDueImportModal onClose={()=>setImportOpen(false)} onCreated={async()=>{await Promise.all([client.invalidateQueries({queryKey:['review-due-rows',session]},{throwOnError:true}),client.invalidateQueries({queryKey:['review-due-history',session]},{throwOnError:true})]);}}/>}
     {createOpen&&<ReviewDueCreateModal fields={meta.data?.createFields??[]} organizations={organizations.data??[]} onClose={()=>setCreateOpen(false)} onCreated={async()=>{await client.invalidateQueries({queryKey:['review-due-rows',session]});}}/>}
     <Drawer title="历史交期记录" width={980} open={!!selected} onClose={()=>setSelected(null)}>
-      <Alert type="info" message="此处保留旧版真实交期事件；事件条数与当前人工填写的交期变更次数无关。业务修改记录请查看系统操作审计。"/>
+      <Alert type="info" message="此处保留旧版最新交期事件历史。后续业务修改记录请查看系统操作审计。"/>
       {history.error&&<Alert type="error" message={history.error.message}/>}
       <Table<ReviewDueDateHistoryRow> rowKey="id" size="small" loading={history.isLoading} dataSource={history.data?.rows??[]} locale={{emptyText:'暂无变更记录'}}
         pagination={{current:historyPage,pageSize:100,total:history.data?.total??0,onChange:setHistoryPage,showSizeChanger:false}}

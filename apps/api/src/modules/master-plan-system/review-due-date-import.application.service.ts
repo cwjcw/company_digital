@@ -1,28 +1,27 @@
-import { linkNewDemandRecord } from "./master-plan.demand-links";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { DataSource, type EntityManager } from 'typeorm';
-import { reviewDueDateEditableKeys as keys, reviewDueDateRequiredCreateKeys, reviewDueDateResource as RESOURCE, type ReviewDueImportMode } from '@kdos/contracts';
+import { type EntityManager } from 'typeorm';
+import { reviewDueDateEditableKeys as keys, reviewDueDateRequiredCreateKeys, reviewDueDateResource as RESOURCE } from '@kdos/contracts';
 import { assertReviewDueDivision, reviewDueDateBusinessKey, reviewDueDateChange, reviewDueDateSnapshot, type ReviewDueDateSnapshot } from './review-due-date.domain';
 import { hasMasterPlanFieldPermission as field, hasMasterPlanPermission as permission, hasReviewDueCreateFieldPermission, type MasterPlanActor } from './master-plan.types';
 import { reviewDueColumns, reviewDueScope } from './review-due-date.query.service';
 import { OrganizationDirectoryService } from '../organization-directory/organization-directory.service';
-import type { ReviewDueSourceRecord } from './review-due-date-source';
+
+type ReviewDueImportMode = 'STANDARD' | 'SOURCE'; // SOURCE is accepted only to reject already-created legacy previews.
 
 export type ReviewDueImportRow = {row:number;id:string|null;expectedVersion:number|null;values:Record<string,unknown>;sourceIdentity?:string[];sourceRows?:number[];changedKeys?:string[]};
 type Current=Record<string,any>;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 @Injectable()
 export class ReviewDueDateImportApplicationService {
-  constructor(private readonly directory:OrganizationDirectoryService,@Optional() @InjectDataSource() private readonly db?:DataSource){}
+  constructor(private readonly directory:OrganizationDirectoryService){}
   async authorize(actor:MasterPlanActor,m:EntityManager) {
     if(!actor.userId||!permission(actor,RESOURCE,'import'))throw new ForbiddenException('当前权限组没有评审交期表导入权限');
     await m.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
     if(!(await m.query('SELECT id FROM users WHERE tenant_id=$1 AND id=$2::uuid AND enabled',[actor.tenantId,actor.userId])).length)throw new ForbiddenException('当前操作人不是本租户有效用户');
   }
   private snapshot(row:Current):ReviewDueDateSnapshot {
-    return reviewDueDateSnapshot(Object.fromEntries(keys.map(k=>[k,k==='dueDate'?row.due_date_text:k==='inboundDate'?row.date_text:k==='previousInboundDate'?row.previous_date_text:row[reviewDueColumns[k]]])) as ReviewDueDateSnapshot);
+    return reviewDueDateSnapshot(Object.fromEntries(keys.map(k=>[k,k==='inboundDate'?row.date_text:row[reviewDueColumns[k]]])) as ReviewDueDateSnapshot);
   }
   private async scope(row:Current,actor:MasterPlanActor,m:EntityManager,action:string) {
     const p:unknown[]=[JSON.stringify(row)],clause=reviewDueScope(actor,p,action);
@@ -42,7 +41,7 @@ export class ReviewDueDateImportApplicationService {
       // Old preview ledgers without an explicit division cannot infer ownership after V2.
       if(mode==='SOURCE')throw new ConflictException('旧来源预览缺少新版事业部身份，请下载当前模板重新预览；不会自动匹配或覆盖');
       let current:Current|null=null;
-      if(input.id){[current]=await m.query('SELECT *,due_date::text due_date_text,inbound_date::text date_text,previous_inbound_date::text previous_date_text FROM mps_review_due_dates WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,input.id]);if(!current)throw new ConflictException('记录不存在或不可访问，请核实ID与租户');}
+      if(input.id){[current]=await m.query('SELECT *,inbound_date::text date_text FROM mps_review_due_dates WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,input.id]);if(!current)throw new ConflictException('记录不存在或不可访问，请核实ID与租户');}
       if(current){
         if(ids.has(current.id))throw new ConflictException('同一记录在文件中出现多次，需人工核实');ids.add(current.id);
         if(current.version!==input.expectedVersion)throw new ConflictException('记录版本已变化，请刷新后重新预览');
@@ -54,7 +53,6 @@ export class ReviewDueDateImportApplicationService {
       const proposed={...(current?this.snapshot(current):{}),...input.values};
       const division=assertReviewDueDivision(this.directory.resolve(proposed.divisionId,options,'事业部'),options);
       const next=reviewDueDateSnapshot({...proposed,divisionId:division.id} as ReviewDueDateSnapshot);
-      if(!current&&next.dueDate==null)throw new BadRequestException('交期不能为空');
       const key=reviewDueDateBusinessKey(next);if(seen.has(key))throw new ConflictException('文件内同一事业部、订单号、批次号和品项编码重复');seen.add(key);
       const before=current?this.snapshot(current):null;
       const changed=current?keys.filter(k=>String(before![k as keyof ReviewDueDateSnapshot]??'')!==String(next[k as keyof ReviewDueDateSnapshot]??'')):Object.keys(input.values);
@@ -62,8 +60,8 @@ export class ReviewDueDateImportApplicationService {
       const candidate={...(current??{}),tenant_id:actor.tenantId,created_by:current?.created_by??actor.userId,updated_by:actor.userId,...Object.fromEntries(keys.map(k=>[reviewDueColumns[k],next[k as keyof ReviewDueDateSnapshot]]))};
       if(!await this.scope(candidate,actor,m,'import')||(!current&&!await this.scope(candidate,actor,m,'create')))throw new ForbiddenException('当前数据范围不允许导入修改后的内容');
       const duplicates=await m.query(`SELECT id FROM mps_review_due_dates WHERE tenant_id=$1 AND ($6::uuid IS NULL OR id<>$6::uuid) AND
-        ((division_id=$2::uuid AND order_number=$3 AND batch_number=$4 AND drawing_number=$5) OR (source_division_id=$2::uuid AND source_order_number=$3 AND source_batch_number=$4 AND source_drawing_number=$5)) LIMIT 1`,[actor.tenantId,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,current?.id??null]);
-      if(duplicates.length)throw new ConflictException('同一事业部的业务键或保留来源身份已存在，不合并或覆盖');
+        division_id=$2::uuid AND order_number=$3 AND batch_number=$4 AND drawing_number=$5 LIMIT 1`,[actor.tenantId,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,current?.id??null]);
+      if(duplicates.length)throw new ConflictException('同一事业部的业务键已存在，不合并或覆盖');
       // Preserve sparse update intent: omitted optional fields never become writes on confirm.
       const values=Object.fromEntries(Object.keys(input.values).map(k=>[k,next[k as keyof ReviewDueDateSnapshot]]));
       const value={...input,id:current?.id??null,expectedVersion:current?.version??null,values,changedKeys:changed};prepared.push(value);
@@ -73,7 +71,7 @@ export class ReviewDueDateImportApplicationService {
     const previewRows=[];let restrictedComparison=false;
     for(const x of plans){const visible=!!x.current&&permission(actor,RESOURCE,'read')&&await this.scope(x.current,actor,m,'read');if(x.current&&(!visible||!field(actor,RESOURCE,'inboundDate','read')||!field(actor,RESOURCE,'quantity','read')))restrictedComparison=true;
       const show=(key:keyof ReviewDueDateSnapshot)=>Object.hasOwn(x.input.values,key)||visible&&field(actor,RESOURCE,key,'read')?x.next[key]:null;
-      previewRows.push({values:x.input.values,row:x.input.row,classification:!x.current?'新增':x.changed.length?'更新':'未变化',divisionName:show('divisionId')?options.find(o=>o.id===x.next.divisionId)?.pathLabel:null,orderNumber:show('orderNumber'),batchNumber:show('batchNumber'),drawingNumber:show('drawingNumber'),dueDate:show('dueDate'),newInboundDate:show('inboundDate'),newQuantity:show('quantity'),oldInboundDate:visible&&field(actor,RESOURCE,'inboundDate','read')?x.current!.date_text:null,oldQuantity:visible&&field(actor,RESOURCE,'quantity','read')?x.current!.quantity:null,expectedChangeCount:show('changeCount')});}
+      previewRows.push({values:x.input.values,row:x.input.row,classification:!x.current?'新增':x.changed.length?'更新':'未变化',divisionName:show('divisionId')?options.find(o=>o.id===x.next.divisionId)?.pathLabel:null,orderNumber:show('orderNumber'),batchNumber:show('batchNumber'),drawingNumber:show('drawingNumber'),customerDueDate:show('productReviewDueDate'),oldCustomerDueDate:visible&&field(actor,RESOURCE,'productReviewDueDate','read')?x.current?.customer_due_date:null,newInboundDate:show('inboundDate'),newQuantity:show('quantity'),oldInboundDate:visible&&field(actor,RESOURCE,'inboundDate','read')?x.current!.date_text:null,oldQuantity:visible&&field(actor,RESOURCE,'quantity','read')?x.current!.quantity:null});}
     return {counts,publicCounts:restrictedComparison?{...counts,earlier:null,later:null,quantityChanged:null}:counts,restrictedComparison,errors,rows:prepared,plans,previewRows};
   }
   async replayAccess(rows:ReviewDueImportRow[],actor:MasterPlanActor,m:EntityManager) {
@@ -83,7 +81,7 @@ export class ReviewDueDateImportApplicationService {
       if(row.id){for(const k of row.changedKeys??[])if(!field(actor,RESOURCE,k,'update'))throw new ForbiddenException('导入字段修改授权已变化');}
       else {if(!permission(actor,RESOURCE,'create'))throw new ForbiddenException('新增导入授权已变化');for(const k of new Set([...reviewDueDateRequiredCreateKeys,...Object.keys(row.values)]))if(!hasReviewDueCreateFieldPermission(actor,k))throw new ForbiddenException('新增字段填写授权已变化');}
       const current=row.id?(await m.query('SELECT * FROM mps_review_due_dates WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,row.id]))[0]:
-        (await m.query('SELECT * FROM mps_review_due_dates WHERE tenant_id=$1 AND source_division_id=$2::uuid AND source_order_number=$3 AND source_batch_number=$4 AND source_drawing_number=$5',[actor.tenantId,row.values.divisionId,row.values.orderNumber,row.values.batchNumber,row.values.drawingNumber]))[0];
+        (await m.query('SELECT * FROM mps_review_due_dates WHERE tenant_id=$1 AND division_id=$2::uuid AND order_number=$3 AND batch_number=$4 AND drawing_number=$5',[actor.tenantId,row.values.divisionId,row.values.orderNumber,row.values.batchNumber,row.values.drawingNumber]))[0];
       if(!current||!await this.scope(current,actor,m,'import')||(!row.id&&!await this.scope(current,actor,m,'create')))throw new ForbiddenException('当前范围无权查看该导入结果');
       if(!permission(actor,RESOURCE,'read')||!field(actor,RESOURCE,'inboundDate','read')||!field(actor,RESOURCE,'quantity','read')||!await this.scope(current,actor,m,'read'))comparisonReadable=false;
     }return comparisonReadable;
@@ -91,6 +89,7 @@ export class ReviewDueDateImportApplicationService {
   /** Caller owns the preview-lock transaction: business rows, audit, receipt and result commit together. */
   async confirm(rows:ReviewDueImportRow[],mode:ReviewDueImportMode,fileHash:string,batchId:string,actor:MasterPlanActor,m:EntityManager) {
     await this.authorize(actor,m);
+    if(mode!=='STANDARD')throw new ConflictException('旧ERP来源预览已停用；评审交期表只接受本表Excel手工导入');
     await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[JSON.stringify(['review-due-write',actor.tenantId])]);
     const ids=rows.flatMap(r=>r.id?[r.id]:[]);if(ids.length)await m.query('SELECT id FROM mps_review_due_dates WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE',[actor.tenantId,ids]);
     const key=JSON.stringify(['review-due-import',actor.tenantId,actor.userId,batchId,fileHash]),hash=createHash('sha256').update(JSON.stringify([mode,rows])).digest('hex');
@@ -99,65 +98,16 @@ export class ReviewDueDateImportApplicationService {
     const result=await this.prepare(rows,mode,actor,m);if(result.errors.length)throw new ConflictException(result.errors.map(e=>`第${e.row}行：${e.reason}`).join('；'));
     try{for(const {input,current,next,changed}of result.plans){
       if(current&&!changed.length)continue;let row:Current;
-      if(!current)[row]=await m.query(`INSERT INTO mps_review_due_dates(tenant_id,division_id,order_number,batch_number,drawing_number,inspection_time_name,due_date,inbound_date,quantity,change_count,previous_inbound_date,created_by,updated_by)
-        VALUES($1,$2::uuid,$3,$4,$5,$6,$7::date,$8::date,$9::numeric,$10::int,$11::date,$12::uuid,$12::uuid) RETURNING *`,[actor.tenantId,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.inspectionTimeName,next.dueDate,next.inboundDate,next.quantity,next.changeCount,next.previousInboundDate,actor.userId]);
-      else{const updated=await m.query(`UPDATE mps_review_due_dates SET division_id=$3::uuid,order_number=$4,batch_number=$5,drawing_number=$6,inspection_time_name=$7,due_date=$8::date,inbound_date=$9::date,quantity=$10::numeric,
-        change_count=$11::int,previous_inbound_date=$12::date,updated_by=$13::uuid,updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$14 RETURNING *`,[actor.tenantId,current.id,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.inspectionTimeName,next.dueDate,next.inboundDate,next.quantity,next.changeCount,next.previousInboundDate,actor.userId,current.version]);row=Array.isArray(updated[0])?updated[0][0]:updated[0];if(!row)throw new ConflictException('导入版本冲突');}
-      if(!current) row=await linkNewDemandRecord(m,RESOURCE,row,actor.userId!,actor.username,actor.requestId);
+      if(!current)[row]=await m.query(`INSERT INTO mps_review_due_dates(tenant_id,division_id,order_number,batch_number,drawing_number,order_date,inspection_time_name,customer_due_date,inbound_date,quantity,created_by,updated_by)
+        VALUES($1,$2::uuid,$3,$4,$5,$6::date,$7,$8::date,$9::date,$10::numeric,$11::uuid,$11::uuid) RETURNING *`,[actor.tenantId,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.orderDate,next.inspectionTimeName,next.productReviewDueDate,next.inboundDate,next.quantity,actor.userId]);
+      else{const updated=await m.query(`UPDATE mps_review_due_dates SET division_id=$3::uuid,order_number=$4,batch_number=$5,drawing_number=$6,order_date=$7::date,inspection_time_name=$8,customer_due_date=$9::date,inbound_date=$10::date,quantity=$11::numeric,
+        updated_by=$12::uuid,updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$13 RETURNING *`,[actor.tenantId,current.id,next.divisionId,next.orderNumber,next.batchNumber,next.drawingNumber,next.orderDate,next.inspectionTimeName,next.productReviewDueDate,next.inboundDate,next.quantity,actor.userId,current.version]);row=Array.isArray(updated[0])?updated[0][0]:updated[0];if(!row)throw new ConflictException('导入版本冲突');}
       await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
         VALUES($1,$2::uuid,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,row.id,current?'review_due_date.import_updated':'review_due_date.import_created',current?JSON.stringify(current):null,JSON.stringify({...row,sourceKind:'IMPORT',batchId,fileHash,mode,sourceRows:input.sourceRows??[input.row],changedFields:changed}),actor.requestId]);
-    }}catch(e){if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23514')throw new ConflictException('已有确认需求或评审应用历史，身份/批次变更受保护，整批回滚');if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23505')throw new ConflictException('导入业务键或来源重复，整批拒绝，请重新预览');throw e;}
+    }}catch(e){if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23514')throw new ConflictException('评审表记录身份受保护，整批回滚');if(((e as {driverError?:{code?:string}}).driverError?.code??(e as {code?:string}).code)==='23505')throw new ConflictException('导入业务键或来源重复，整批拒绝，请重新预览');throw e;}
     const response={...result.publicCounts,batchId,repeated:false};
     await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
       VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.import_confirmed',$6::jsonb,$7,'web',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,batchId,JSON.stringify({...result.counts,batchId,mode,fileHash}),actor.requestId]);
     await m.query('INSERT INTO idempotency_keys(id,key,request_hash,response_json,created_by,updated_by) VALUES(uuidv7(),$1,$2,$3::jsonb,$4::uuid,$4::uuid)',[key,hash,JSON.stringify(response),actor.userId]);return response;
-  }
-
-  /** Controlled one-time dataset replacement; callers must be an authenticated system administrator. */
-  async replaceDataset(records:ReviewDueSourceRecord[],fileHash:string,batchId:string,actor:MasterPlanActor) {
-    if(!this.db)throw new Error('评审交期数据替换数据库未配置');
-    if(!actor.isSystemAdmin||!actor.userId||!actor.tenantId)throw new ForbiddenException('仅系统管理员可执行评审交期整表替换');
-    if(!/^[a-f0-9]{64}$/i.test(fileHash)||!uuid.test(batchId)||!records.length||records.length>50000)throw new BadRequestException('替换批次、文件摘要或数据行数无效');
-    const options=await this.directory.listEnabled(),prepared: Array<{record:ReviewDueSourceRecord;snapshot:ReviewDueDateSnapshot}> = [],keys=new Set<string>();
-    for(const record of records){
-      const division=assertReviewDueDivision(this.directory.resolve(record.divisionName,options,'事业部'),options);
-      const snapshot=reviewDueDateSnapshot({...record,divisionId:division.id,inboundDate:record.latestDueDate,changeCount:0,previousInboundDate:null} as unknown as ReviewDueDateSnapshot);
-      if(snapshot.dueDate==null)throw new BadRequestException(`Excel源行${record.sourceRows.join('/')}的交期不能为空`);
-      if(snapshot.changeCount!==0||snapshot.previousInboundDate!==null)throw new BadRequestException('导入数据的交期次数或上次入库时间不符合替换规则');
-      const key=reviewDueDateBusinessKey(snapshot);if(keys.has(key))throw new ConflictException(`同一业务键在替换数据中重复：Excel源行${record.sourceRows.join('/')}`);keys.add(key);
-      if(!record.sourceRows.length||record.sourceRows.some(row=>!Number.isSafeInteger(row)||row<2))throw new BadRequestException('替换数据缺少有效Excel源行号');
-      prepared.push({record,snapshot});
-    }
-    const requestHash=createHash('sha256').update(JSON.stringify([fileHash,prepared])).digest('hex');
-    const receiptKey=JSON.stringify(['review-due-replacement',actor.tenantId,batchId]);
-    return this.db.transaction(async m=>{
-      await m.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-      await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[JSON.stringify(['review-due-write',actor.tenantId])]);
-      const [user]=await m.query('SELECT id FROM users WHERE tenant_id=$1 AND id=$2::uuid AND enabled',[actor.tenantId,actor.userId]);
-      if(!user)throw new ForbiddenException('操作人不是当前租户有效登录用户');
-      const [receipt]=await m.query('SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1',[receiptKey]);
-      if(receipt){if(receipt.request_hash!==requestHash)throw new ConflictException('同一替换批次不能提交不同内容');return {...receipt.response_json,repeated:true};}
-      const [{count:historyCount}]=await m.query('SELECT count(*)::int count FROM mps_review_due_date_changes WHERE tenant_id=$1',[actor.tenantId]);
-      if(Number(historyCount)!==0)throw new ConflictException('当前主表记录仍有关联历史交期事件；为保留历史关系，未清空主表');
-      const old=await m.query('SELECT id FROM mps_review_due_dates WHERE tenant_id=$1 ORDER BY id FOR UPDATE',[actor.tenantId]);
-      if(old.some((r:Current)=>r.monthly_plan_id))throw new ConflictException('已有确认需求关联，禁止替换重建评审历史');
-      await m.query('DELETE FROM mps_review_due_dates WHERE tenant_id=$1',[actor.tenantId]);
-      for(const {record,snapshot} of prepared){
-        const [row]=await m.query(`INSERT INTO mps_review_due_dates(tenant_id,division_id,order_number,batch_number,drawing_number,inspection_time_name,due_date,inbound_date,quantity,change_count,previous_inbound_date,created_by,updated_by)
-          VALUES($1,$2::uuid,$3,$4,$5,$6,$7::date,$8::date,$9::numeric,0,NULL,$10::uuid,$10::uuid) RETURNING id,version,created_at,updated_at`,
-        [actor.tenantId,snapshot.divisionId,snapshot.orderNumber,snapshot.batchNumber,snapshot.drawingNumber,snapshot.inspectionTimeName,snapshot.dueDate,snapshot.inboundDate,snapshot.quantity,actor.userId]);
-        await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
-          VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.import_created',NULL,$6::jsonb,$7,'api',$2::uuid,$2::uuid)`,
-        [actor.tenantId,actor.userId,actor.username,RESOURCE,row.id,JSON.stringify({id:row.id,version:row.version,...snapshot,sourceKind:'IMPORT',batchId,fileHash,sourceRows:record.sourceRows,replacement:true,createdAt:row.created_at,updatedAt:row.updated_at}),actor.requestId]);
-      }
-      const [{insertedCount}]=await m.query(`SELECT count(*)::int AS "insertedCount" FROM mps_review_due_dates WHERE tenant_id=$1`,[actor.tenantId]);
-      const [{invalidCount}]=await m.query(`SELECT count(*)::int AS "invalidCount" FROM mps_review_due_dates WHERE tenant_id=$1 AND (due_date IS NULL OR change_count IS DISTINCT FROM 0 OR previous_inbound_date IS NOT NULL)`,[actor.tenantId]);
-      if(Number(insertedCount)!==prepared.length||Number(invalidCount)!==0)throw new ConflictException('替换后数量或业务字段校验失败，整笔事务回滚');
-      const response={deletedCount:old.length,insertedCount:Number(insertedCount),sourceRows:records.reduce((sum,row)=>sum+row.sourceRows.length,0),fileHash,batchId,repeated:false};
-      await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
-        VALUES($1,$2::uuid,$3,$4,$5,'review_due_date.import_confirmed',$6::jsonb,$7,'api',$2::uuid,$2::uuid)`,[actor.tenantId,actor.userId,actor.username,RESOURCE,batchId,JSON.stringify({...response,replacement:true}),actor.requestId]);
-      await m.query('INSERT INTO idempotency_keys(id,key,request_hash,response_json,created_by,updated_by) VALUES(uuidv7(),$1,$2,$3::jsonb,$4::uuid,$4::uuid)',[receiptKey,requestHash,JSON.stringify(response),actor.userId]);
-      return response;
-    });
   }
 }

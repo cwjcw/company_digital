@@ -728,7 +728,7 @@ export class MasterPlanApplicationService {
     await this.enforceShippingWindow(resource, actor);
     const version = Number(expectedVersion); if (!Number.isInteger(version) || version < 1) throw new BadRequestException("expectedVersion 必须是正整数");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      if (["mps-external-process-mappings", "mps-review-due-dates"].includes(resource.code)) await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const activeAllocationClause = resource.code === "mps-order-allocations" ? " AND archived_at IS NULL" : "";
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid${activeAllocationClause} FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
@@ -741,12 +741,17 @@ export class MasterPlanApplicationService {
         if (!archived) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
         await this.audit(manager, actor, code, id, `${code}.archived`, current, archived);
       } else {
+        if (resource.code === "mps-review-due-dates") {
+          await manager.query("SELECT set_config('app.review_due_delete_authorized','true',true)");
+          await manager.query("DELETE FROM mps_review_due_date_changes WHERE tenant_id=$1 AND review_due_date_id=$2::uuid", [actor.tenantId, id]);
+        }
         await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
         await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
       }
-      await this.enqueueReconciliation(manager, resource, actor, id, current);
+      if (resource.code !== "mps-review-due-dates") await this.enqueueReconciliation(manager, resource, actor, id, current);
       return { id, deleted: true, ...(resource.code === "mps-order-allocations" ? { archived: true } : {}) };
     }));
+    if (resource.code === "mps-review-due-dates") return result;
     /* 删除实际报工后同样必须重新汇总，前端依据真实对账状态刷新周计划。 */
     const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
@@ -1169,7 +1174,7 @@ export class MasterPlanApplicationService {
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {
-    if (resource.code === "mps-external-process-mappings") return undefined;
+    if (resource.code === "mps-external-process-mappings" || resource.code === "mps-review-due-dates") return undefined;
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */

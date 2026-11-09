@@ -32,3 +32,17 @@ export function demandLinkServiceMigrationFiles(directory:string):string[]{
  const files=discoverMigrationFiles(directory).filter(f=>/1722920122500-MpsDemandLinkServiceAuth\.(?:ts|js)$/.test(path.basename(f)));
  if(files.length!==1)throw Error('Demand-link service authorization requires exactly migration1722920122500');return files;
 }
+
+/** Performance/schema maintenance release: exactly123. */
+export function syncMaintenanceMigrationFiles(directory:string):string[]{
+  const files=discoverMigrationFiles(directory).filter(f=>/1722920123000-MpsSyncMaintenance\.(?:ts|js)$/.test(path.basename(f)));
+  if(files.length!==1)throw Error('Sync maintenance requires exactly123');
+  return files;
+}
+
+/** Destructive review independence release: exactly124, never part of default pending selection. */
+export function reviewDueIndependenceMigrationFiles(directory:string):string[]{
+  const files=discoverMigrationFiles(directory).filter(f=>/1722920124000-MpsReviewDueDateIndependent\.(?:ts|js)$/.test(path.basename(f)));
+  if(files.length!==1)throw Error('Review due independence requires exactly124');
+  return files;
+}

@@ -6,7 +6,7 @@ import {api} from '../../api';
 import {ReviewDueDates} from './ReviewDueDates';
 vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
 let clickedFilename='';
-const resource='mps-review-due-dates',preview={previewId:'synthetic-preview',total:1,errors:[],counts:{total:1,created:1,updated:0,earlier:0,later:0,quantityChanged:0,unchanged:0,conflicts:0,errors:0},rows:[{row:2,classification:'新增',orderNumber:'SYNTHETIC',newInboundDate:'2026-11-10',newQuantity:'9007199254740993.00000000000001',expectedChangeCount:0}]};
+const resource='mps-review-due-dates',preview={previewId:'synthetic-preview',total:1,errors:[],counts:{total:1,created:1,updated:0,earlier:0,later:0,quantityChanged:0,unchanged:0,conflicts:0,errors:0},rows:[{row:2,classification:'新增',orderNumber:'SYNTHETIC',customerDueDate:'2026-11-05',newInboundDate:'2026-11-10',newQuantity:'9007199254740993.00000000000001'}]};
 const mount=()=>render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ReviewDueDates/></QueryClientProvider>);
 const upload=()=>{const input=screen.getByRole('dialog',{name:'导入Excel'}).querySelector('input[type=file]')!;fireEvent.change(input,{target:{files:[new File(['synthetic'],'synthetic.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})]}});};
 beforeEach(()=>{clickedFilename='';localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({permissions:['*']}));Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=> 'blob:synthetic')});Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(function(this:HTMLAnchorElement){clickedFilename=this.download;});

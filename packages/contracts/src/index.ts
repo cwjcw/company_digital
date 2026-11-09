@@ -79,7 +79,7 @@ export type AdministrableModuleCode = typeof administrableModuleRegistry[number]
 
 /** New master-plan tables. These stable codes are deliberately independent from the retained legacy planning forms. */
 export { reviewDueDateTemplateFilename, reviewDueDateTemplateNotes, reviewDueDateFields, reviewDueDateBusinessFields, reviewDueDateAuditFields, reviewDueDateCreateFields, reviewDueDateRequiredCreateKeys, reviewDueDateEditableKeys, reviewDueDateResource, reviewDueDateExportFilename } from './review-due-dates';
-export type { ReviewDueImportMode, ReviewDueDateHistoryRow } from './review-due-dates';
+export type { ReviewDueDateHistoryRow, ReviewDueDateBulkImportRow, ReviewDueDateBulkImportRequest, ReviewDueDateBulkImportResponse } from './review-due-dates';
 import { reviewDueDateFields } from './review-due-dates';
 export const masterPlanResourceDefinitions = [
   { code: "mps-erp-orders", label: "ERP订单明细", area: "数据准备" },
@@ -977,7 +977,7 @@ const printNotApplicable: Record<string, string> = {
   "notification-group-webhook": "群机器人管理属于系统配置页面，Webhook 凭据为敏感信息，不提供标准业务打印。",
   "notification-recipient-group": "通知收件人组属于通知系统配置页面，不提供标准业务打印。",
   "notification-route": "消息路由属于通知系统配置页面，不是标准业务记录表，不提供打印。",
-  "mps-review-due-dates": "评审交期表开放查看、专用人工新增/编辑和Excel导出，不启用打印、通用新增、删除或批量修改；导入走专用事务命令，变更次数和上次入库时间由人工维护。",
+    "mps-review-due-dates": "评审交期表是独立业务记录，支持权限控制下的专用新增/编辑、勾选删除和Excel导入导出；不参与其他计划数据联动，不提供标准打印。",
   "knowledge-spaces": "知识空间是管理边界，没有独立业务打印需求。",
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
@@ -1244,5 +1244,3 @@ export * from "./master-plan-bom-process";
 export * from "./master-plan-demand-links";
 
 export * from "./master-plan-demand-quantity";
-
-export * from "./master-plan-review-applications";

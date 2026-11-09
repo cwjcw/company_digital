@@ -1,4 +1,3 @@
-import { MasterPlanReviewApplicationService } from './master-plan.review-application.service';
 import { MasterPlanDemandQuantityService } from './master-plan.demand-quantity.service';
 import type { MpsQuantityRequest, MpsQuantityConfirm } from '@kdos/contracts';
 import { MasterPlanDemandLinkService } from "./master-plan.demand-link.service";
@@ -26,7 +25,7 @@ type MasterPlanRequest = Request & { user: any; requestId: string };
 @UseGuards(AuthGuard)
 @Controller("master-plan-system")
 export class MasterPlanController {
-  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService, private readonly demandLinks: MasterPlanDemandLinkService, private readonly quantities: MasterPlanDemandQuantityService, private readonly reviewApplications:MasterPlanReviewApplicationService) {}
+  constructor(private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService, private readonly sync: MasterPlanSyncService, private readonly spreadsheets: MasterPlanSpreadsheetService, private readonly workOrders: MasterPlanWorkOrderService, private readonly allocationConfig: OrderAllocationConfigService, private readonly lifecycle: MasterPlanLifecycleService, private readonly demandLinks: MasterPlanDemandLinkService, private readonly quantities: MasterPlanDemandQuantityService) {}
 
   @Get('demands/:id/quantities')
   demandQuantities(@Param('id') id:string,@Req() r:MasterPlanRequest){return this.quantities.read(id,this.actor(r));}
@@ -71,8 +70,7 @@ export class MasterPlanController {
   @Get("resources/:resource/meta")
   async metadata(@Param("resource") resource: string, @Req() request: MasterPlanRequest) {
     const rawMetadata = this.queries.metadata(resource, this.actor(request));
-    const baseMetadata=resource==='mps-review-due-dates'?{...rawMetadata,reviewApplications:await this.reviewApplications.availability(this.actor(request))}:rawMetadata;
-    const metadata = (mpsDemandLinkResources as readonly string[]).includes(resource) ? {...baseMetadata,demandLinks:await this.demandLinks.availability(resource,this.actor(request))} : baseMetadata;
+    const metadata = (mpsDemandLinkResources as readonly string[]).includes(resource) ? {...rawMetadata,demandLinks:await this.demandLinks.availability(resource,this.actor(request))} : rawMetadata;
     if (!(mpsLifecycleResources as readonly string[]).includes(resource) && resource !== 'mps-process-reports') return metadata;
     const lifecycle = await this.lifecycle.availability(resource);
     return { ...metadata, ...(resource==='mps-monthly-plans'||resource==='mps-base-plans'?{quantities:await this.quantities.availability(this.actor(request))}:{}), lifecycle, fields: lifecycle.schemaReady ? metadata.fields : metadata.fields.filter(field => field.key !== 'lifecycleStatus') };

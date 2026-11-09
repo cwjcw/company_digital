@@ -1,4 +1,3 @@
-import { MasterPlanReviewApplicationService } from './master-plan.review-application.service';
 import { ReviewDueDateController } from './review-due-date.controller';
 import { MasterPlanDemandQuantityService } from './master-plan.demand-quantity.service';
 import { Test } from '@nestjs/testing';
@@ -15,7 +14,6 @@ import { MasterPlanApplicationService } from './master-plan.application.service'
 import { MasterPlanDemandLinkService } from './master-plan.demand-link.service';
 import { MasterPlanLifecycleService } from './master-plan.lifecycle.service';
 import { reconcileMonthlyBasePlans } from './master-plan.monthly-base';
-import { ReviewDueDateApplicationService } from './review-due-date.application.service';
 import type { MasterPlanActor } from './master-plan.types';
 import { MpsDemandLinks1722920121000 as Links } from '../../migrations/1722920121000-MpsDemandLinks';
 import { MpsReviewBatchApplications1722920122000 as ReviewApps } from '../../migrations/1722920122000-MpsReviewBatchApplications';
@@ -63,15 +61,14 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     await expect(l.preview('mps-base-plans',randomUUID(),'CANCEL',actor())).rejects.toMatchObject({status:409});
     await expect(l.preview('mps-base-plans',randomUUID(),'HOLD',actor())).rejects.toMatchObject({status:409});
     expect(await links.availability('mps-base-plans',actor())).toMatchObject({schemaReady:false});
-    const providers:Record<string,unknown>={MasterPlanReviewApplicationService:new MasterPlanReviewApplicationService(db,links),MasterPlanApplicationService:app,MasterPlanQueryService:new MasterPlanQueryService(db,directory as never),MasterPlanSyncService:sync,MasterPlanLifecycleService:l,MasterPlanDemandLinkService:links,MasterPlanDemandQuantityService:new MasterPlanDemandQuantityService(db,links,app)};
+    const providers:Record<string,unknown>={MasterPlanApplicationService:app,MasterPlanQueryService:new MasterPlanQueryService(db,directory as never),MasterPlanSyncService:sync,MasterPlanLifecycleService:l,MasterPlanDemandLinkService:links,MasterPlanDemandQuantityService:new MasterPlanDemandQuantityService(db,links,app)};
     const mod=await Test.createTestingModule({controllers:[MasterPlanController,ReviewDueDateController],providers:[...new Set([...Reflect.getMetadata('design:paramtypes',MasterPlanController),...Reflect.getMetadata('design:paramtypes',ReviewDueDateController)])].map((token:any)=>({provide:token,useValue:providers[token.name]??{}}))}).overrideGuard(AuthGuard).useValue({canActivate:(ctx:any)=>{const req=ctx.switchToHttp().getRequest();req.user={sub:user,isSystemAdmin:true,permissions:['*'],tableDataScopes:[]};req.requestId=randomUUID();return true;}}).compile();
     const http=mod.createNestApplication({logger:false});await http.init();
     try {
       const meta=await request(http.getHttpServer()).get('/master-plan-system/resources/mps-base-plans/meta');expect(meta.status).toBe(200);expect(meta.body.lifecycle.schemaReady).toBe(false);expect(meta.body.quantities.schemaReady).toBe(false);
-      const reviewMeta=await request(http.getHttpServer()).get('/master-plan-system/resources/mps-review-due-dates/meta');expect(reviewMeta.status).toBe(200);expect(reviewMeta.body.reviewApplications.schemaReady).toBe(false);
-      expect((await request(http.getHttpServer()).get(`/master-plan-system/review-due-dates/${randomUUID()}/applications`)).status).toBe(409);
-      expect((await request(http.getHttpServer()).post(`/master-plan-system/review-due-dates/${randomUUID()}/applications/preview`).send({expectedReviewVersion:1,targets:[{baseId:randomUUID(),expectedVersion:1}]})).status).toBe(409);
-      expect((await request(http.getHttpServer()).post(`/master-plan-system/review-due-dates/${randomUUID()}/applications/confirm`).send({expectedReviewVersion:1,targets:[{baseId:randomUUID(),expectedVersion:1}],reason:'合成请求',idempotencyKey:randomUUID(),previewHash:'none'})).status).toBe(409);expect((await request(http.getHttpServer()).get(`/master-plan-system/demands/${randomUUID()}/quantities`)).status).toBe(409);
+      const reviewMeta=await request(http.getHttpServer()).get('/master-plan-system/resources/mps-review-due-dates/meta');expect(reviewMeta.status).toBe(200);expect(reviewMeta.body.reviewApplications).toBeUndefined();
+      expect((await request(http.getHttpServer()).get(`/master-plan-system/review-due-dates/${randomUUID()}/applications`)).status).toBe(404);
+      expect((await request(http.getHttpServer()).get(`/master-plan-system/demands/${randomUUID()}/quantities`)).status).toBe(409);
       for(const operation of ['HOLD','CANCEL']) {
         const r=await request(http.getHttpServer()).post(`/master-plan-system/resources/mps-base-plans/${randomUUID()}/lifecycle/preview`).send({operation});expect(r.status).toBe(409);expect(r.body.code).toBe('MPS_LIFECYCLE_SCHEMA_UNAVAILABLE');
       }
@@ -141,7 +138,8 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     try{
       const plan={id:monthly.id,expectedVersion:Number(monthly.version)};
       const first=await sync.restoreMissingMonthlyBaseBatch(tenant,batchId,[plan]);
-      expect(first).toMatchObject({monthlyPlanCount:1,basePlanCount:1,shipping:{status:'SUCCESS'},weekly:[{status:'BLOCKED'}]});
+      // A base with missing weekly-admission fields is a normal deferred row, not a failed/blocked batch.
+      expect(first).toMatchObject({monthlyPlanCount:1,basePlanCount:1,shipping:{status:'SUCCESS'},weekly:[{status:'SUCCESS'}]});
       const [base]=await db.query('SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2',[tenant,monthly.id]);
       await db.query(`UPDATE mps_base_plans SET latest_customer_due_date='2026-12-20',latest_review_due_date='2026-12-01',product_attribute='五金',surface_nature='烤漆',manufacturing_method='自制' WHERE tenant_id=$1 AND id=$2`,[tenant,base.id]);
       const second=await sync.restoreMissingMonthlyBaseBatch(tenant,batchId,[plan]);
@@ -251,15 +249,6 @@ integration('round1: real PG18 full 117 baseline → strict 118/119 → independ
     expect(outcomes.filter(o=>o.status==='fulfilled')).toHaveLength(1);expect(outcomes.filter(o=>o.status==='rejected')).toHaveLength(1);
     expect((await latest('mps_base_plans',b.id)).monthly_plan_id).toBe(m.id);
     expect((await db.query("SELECT count(*)::int n FROM audit_logs WHERE record_id=$1 AND action='demand.first_link_confirmed'",[b.id]))[0].n).toBe(1);
-  });
-  it('review first link and query do not apply dates or quantities to any base',async()=>{
-    const m=await parent(),base=await db.query('SELECT * FROM mps_base_plans ORDER BY id');
-    const [r]=await db.query(`INSERT INTO mps_review_due_dates(tenant_id,division_id,order_number,batch_number,drawing_number,due_date,inbound_date,quantity,created_by,updated_by)VALUES($1,$2,'SYN-ORDER','01','SYN-ITEM','2026-12-01','2026-12-03',100,$3,$3)RETURNING *`,[tenant,division,user]);
-    await bind('mps-review-due-dates',r,m);expect((await links.info('mps-review-due-dates',r.id,actor())).demandId).toBe(m.id);expect(await db.query('SELECT * FROM mps_base_plans ORDER BY id')).toEqual(base);
-    await expect(db.query("UPDATE mps_review_due_dates SET order_number='SYN-OTHER' WHERE id=$1",[r.id])).rejects.toBeDefined();
-    const review=new ReviewDueDateApplicationService(db,directory as never);
-    const created=await review.manualCreate({commandId:randomUUID(),divisionId:division,orderNumber:'SYN-ORDER',batchNumber:'02',drawingNumber:'SYN-ITEM',dueDate:'2026-12-04',inboundDate:'2026-12-06',quantity:'30'},actor());
-    expect((await latest('mps_review_due_dates',created.id)).monthly_plan_id).toBe(m.id);expect(await db.query('SELECT * FROM mps_base_plans ORDER BY id')).toEqual(base);
   });
   it('existing report remains editable through authorized normal correction after binding',async()=>{
     const [r]=await facts();const before=await structure();

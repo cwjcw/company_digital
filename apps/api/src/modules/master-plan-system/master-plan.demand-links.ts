@@ -2,15 +2,15 @@ import { ConflictException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 
 type Db = Pick<EntityManager,'query'>;
-export const demandLinkTables = { 'mps-order-allocations':'mps_order_allocations', 'mps-base-plans':'mps_base_plans', 'mps-review-due-dates':'mps_review_due_dates' } as const;
+export const demandLinkTables = { 'mps-order-allocations':'mps_order_allocations', 'mps-base-plans':'mps_base_plans' } as const;
 export const MPS_DEMAND_LINK_SERVICE_ROLE = 'mps_demand_link_service';
 const MPS_SYSTEM_SYNC_ACTOR = '0199e000-0000-7000-8000-000000000001';
 /** Catalog-only, no deployment-positive cache; works before/after 121 without undefined columns. */
 export async function demandLinksReady(m: Db): Promise<boolean> {
   const [r] = await m.query(`SELECT to_regprocedure('mps_assert_demand_link(text,jsonb)') IS NOT NULL
-    AND (SELECT count(*) FROM pg_attribute WHERE attrelid IN (to_regclass('mps_order_allocations'),to_regclass('mps_base_plans'),to_regclass('mps_review_due_dates'))
-      AND attname='monthly_plan_id' AND atttypid='uuid'::regtype AND NOT attisdropped)=3
-    AND (SELECT count(*) FROM pg_trigger WHERE tgrelid IN(to_regclass('mps_order_allocations'),to_regclass('mps_base_plans'),to_regclass('mps_review_due_dates')) AND tgname='ab_mps_demand_link' AND tgenabled IN('O','A'))=3 AS ready`);
+    AND (SELECT count(*) FROM pg_attribute WHERE attrelid IN (to_regclass('mps_order_allocations'),to_regclass('mps_base_plans'))
+      AND attname='monthly_plan_id' AND atttypid='uuid'::regtype AND NOT attisdropped)=2
+    AND (SELECT count(*) FROM pg_trigger WHERE tgrelid IN(to_regclass('mps_order_allocations'),to_regclass('mps_base_plans')) AND tgname='ab_mps_demand_link' AND tgenabled IN('O','A'))=2 AS ready`);
   return r?.ready === true;
 }
 
@@ -24,7 +24,7 @@ export async function authorizeDemandLink(m:Db,resource:string,row:Record<string
 /** New records only. Historical NULLs are never mass-filled by synchronization. */
 export async function linkNewDemandRecord(m: Db, resource: keyof typeof demandLinkTables, row: Record<string,any>, actorId: string, actorName: string, requestId: string, trustedInternalService = false) {
   if (!await demandLinksReady(m)) return row;
-  const item = resource==='mps-review-due-dates' ? row.drawing_number : row.item_code;
+  const item = row.item_code;
   const [parent] = await m.query(`SELECT m.* FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.order_number=$2 AND m.item_code=$3
     AND m.division_id IS NOT DISTINCT FROM $4::uuid FOR SHARE`,[row.tenant_id,row.order_number,item,row.division_id]);
   if (!parent || (parent.lifecycle_status && parent.lifecycle_status!=='ACTIVE')) return row;

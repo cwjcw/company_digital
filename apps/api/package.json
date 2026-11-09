@@ -15,7 +15,9 @@
     "db:migrate:phase-a": "pnpm build && node dist/migrate-phase-a.js",
     "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js",
     "db:migrate:mps-demand-link-service": "pnpm build && node dist/migrate-mps-demand-link-service.js",
-    "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js"
+    "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js",
+    "db:migrate:sync-maintenance": "pnpm build && node dist/migrate-sync-maintenance.js",
+    "db:migrate:review-due-independence": "pnpm build && node dist/migrate-review-due-independence.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",

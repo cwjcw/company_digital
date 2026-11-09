@@ -1,5 +1,5 @@
 /** Monthly UUID is the demand anchor; base UUID remains the production batch. */
-export const mpsDemandLinkResources = ['mps-order-allocations','mps-base-plans','mps-review-due-dates'] as const;
+export const mpsDemandLinkResources = ['mps-order-allocations','mps-base-plans'] as const;
 export const mpsDemandLinkCapability = { code: 'mps-demand-links', label: '需求首次关联确认' } as const;
 export type MpsDemandLinkResource = typeof mpsDemandLinkResources[number];
 export interface MpsBindDemandRequest {

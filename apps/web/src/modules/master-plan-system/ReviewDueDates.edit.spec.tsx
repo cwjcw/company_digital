@@ -6,7 +6,7 @@ import { api } from '../../api';
 import { ReviewDueDates } from './ReviewDueDates';
 vi.mock('../../api',async original=>({...await original<object>(),api:vi.fn()}));
 const resource='mps-review-due-dates';
-const initial={id:'0199ea00-0000-7000-8000-000000000001',version:1,canUpdate:true,orderNumber:'ORDER-1/2',batchNumber:'BATCH-2/2',drawingNumber:'DRAW-1/3',inspectionTimeName:'Inspection',dueDate:'2026-11-08',inboundDate:'2026-11-10',quantity:'9007199254740993.1234567890123456789',changeCount:0,previousInboundDate:null,lastChangedAt:null,lastSyncedAt:null};
+const initial={id:'0199ea00-0000-7000-8000-000000000001',version:1,canUpdate:true,orderNumber:'ORDER-1/2',batchNumber:'BATCH-2/2',drawingNumber:'DRAW-1/3',orderDate:'2026-11-01',productReviewDueDate:'2026-11-08',inspectionTimeName:'Inspection',inboundDate:'2026-11-10',quantity:'9007199254740993.1234567890123456789'};
 let row={...initial};
 function session(permissions=['*']){localStorage.setItem('sessionUser',JSON.stringify({sub:'test-editor',permissions}));}
 async function enterEdit(){
@@ -32,8 +32,8 @@ describe('Review due dates manual editor',()=>{
    mount();await screen.findByText(initial.orderNumber);expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
    await enterEdit();
    // Query again inside the assertion: metadata/row refresh can replace an earlier async locator.
-   await waitFor(()=>{for(const field of reviewDueDateFields.filter(f=>f.editable&&f.type!=='department'&&f.key!=='changeCount'))expect(screen.getByRole('textbox',{name:field.label})).toBeVisible();});
-   expect(screen.getByRole('combobox',{name:'事业部'})).toBeVisible();expect(screen.getByRole('spinbutton',{name:'交期变更次数'})).toBeVisible();
+   await waitFor(()=>{for(const field of reviewDueDateFields.filter(f=>f.editable&&f.type!=='department'))expect(screen.getByRole('textbox',{name:field.label})).toBeVisible();});
+   expect(screen.getByRole('combobox',{name:'事业部'})).toBeVisible();expect(screen.getByRole('textbox',{name:'客户交期'})).toBeVisible();
    for(const field of reviewDueDateFields.filter(f=>!f.editable))expect(screen.queryByRole('textbox',{name:field.label})).toBeNull();
    fireEvent.click(screen.getByRole('button',{name:/退出编辑模式/}));expect(screen.queryByRole('textbox',{name:'订单号'})).toBeNull();
  });
