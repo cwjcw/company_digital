@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TablePermissionFieldDefinition } from "@kdos/contracts";
-import { DurationInput, KdosAdvancedFilter, PercentageInput, emptyFilterGroup, visibleOperators } from "./advanced-filter";
+import { CandidateSelect, DurationInput, KdosAdvancedFilter, PercentageInput, emptyFilterGroup, visibleOperators } from "./advanced-filter";
+import { api } from "../api";
 
 vi.mock("../api", () => ({ api: vi.fn(async () => []) }));
 
@@ -11,6 +12,7 @@ const date = { key: "productionDate", label: "生产日期", type: "date", edita
 const number = { key: "plannedQuantity", label: "计划数量", type: "number", editable: true, format: "decimal" } as TablePermissionFieldDefinition;
 const percentage = { key: "completionRate", label: "完成比例", type: "number", editable: true, format: "percentage" } as TablePermissionFieldDefinition;
 const duration = { key: "runtimeMinutes", label: "运行时长", type: "number", editable: true, format: "durationMinutes" } as TablePermissionFieldDefinition;
+const department = { key: "divisionId", label: "承接事业部", type: "department", editable: false } as TablePermissionFieldDefinition;
 
 describe("KdosAdvancedFilter", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
@@ -96,6 +98,21 @@ describe("KdosAdvancedFilter", () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ logic: "AND", rules: [expect.objectContaining({ field: "productionDate", operator: "eq", value: undefined })] }));
     const applied = onApply.mock.calls.at(-1)![0];
     expect(applied.rules[0].value).toBeUndefined();
+  });
+
+  it("候选接口返回分页对象时保持面板可用并显示可重试错误", async () => {
+    let requests = 0;
+    vi.mocked(api).mockImplementation(async () => {
+      requests += 1;
+      return (requests === 1 ? { rows: [], total: 0 } : [{ value: "division-1", label: "事业一部" }]) as never;
+    });
+    render(<CandidateSelect resource="rd-order-bom-report" field={department} multiple={false} placeholder="选择或搜索取值" onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText(/候选项加载失败，请重试/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(requests).toBeGreaterThan(1));
+    fireEvent.mouseDown(screen.getByRole("combobox"));
+    expect(await screen.findByText("事业一部", {}, { timeout: 1500 })).toBeInTheDocument();
+    expect(screen.queryByText(/候选项加载失败，请重试/)).not.toBeInTheDocument();
   });
 
   it("clears draft and applied state on 清空", async () => {

@@ -61,4 +61,36 @@ describe("平台 candidate 联动与排序权限", () => {
       request(["search-table:*:read", "search-table:department:read", "search-table:customer:read", "search-table:division:read"]));
     expect(String(runQuery.mock.calls[0]?.[0])).toContain("division_name_snapshot");
   });
+
+  it("listRows资源的candidates仍返回字段候选，rows继续返回分页报表结果", async () => {
+    const listRows = jest.fn(async () => ({ rows: [{ divisionId: "report-page-value" }], total: 1 }));
+    registry.register({ code: "report-table", table: "test_records",
+      fields: [{ key: "divisionId", label: "承接事业部", type: "department", editable: false }],
+      columns: { divisionId: "division_id" }, buildScope: () => "record.active=true", runQuery,
+      departmentCandidates: async (term) => term === "事业一部" ? [{ value: "division-1", label: "事业一部" }] : [{ value: "division-1", label: "事业一部" }],
+      listRows });
+    runQuery.mockImplementation(async (sql: string) => sql.includes("DISTINCT") ? [{ value: "division-1" }] : [{ count: 1 }]);
+
+    const options = await controller.candidateOptions({ resource: "report-table", field: "divisionId", search: "事业一部" }, request(["*"]));
+    expect(options).toEqual([{ value: "division-1", label: "事业一部" }]);
+    expect(listRows).not.toHaveBeenCalled();
+
+    const meta = await controller.candidateOptions({ resource: "report-table", field: "divisionId", withMeta: "1" }, request(["*"]));
+    expect(meta).toEqual({ options: [{ value: "division-1", label: "事业一部" }], hasMore: false });
+    const page = await controller.rows({ resource: "report-table", page: "2", pageSize: "50" }, request(["*"]));
+    expect(page).toEqual({ rows: [{ divisionId: "report-page-value" }], total: 1, page: 2, pageSize: 50 });
+    expect(listRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("派生listRows资源通过类型化候选扩展返回withMeta，不调用分页报表", async () => {
+    const listRows = jest.fn();
+    const candidateValues = jest.fn(async () => ({ options: [{ value: "C001", label: "客户一" }], hasMore: false }));
+    registry.register({ code: "derived-report", table: "derived_reporting", fields: [
+      { key: "customerCode", label: "客户", type: "text", editable: false }
+    ], columns: { customerCode: "customer_code" }, buildScope: () => "1=1", listRows, candidateValues });
+    const result = await controller.candidateOptions({ resource: "derived-report", field: "customerCode", search: "客户", withMeta: "1" }, request(["*"]));
+    expect(result).toEqual({ options: [{ value: "C001", label: "客户一" }], hasMore: false });
+    expect(candidateValues).toHaveBeenCalledWith(expect.objectContaining({ fieldKey: "customerCode", search: "客户", limit: 50 }));
+    expect(listRows).not.toHaveBeenCalled();
+  });
 });

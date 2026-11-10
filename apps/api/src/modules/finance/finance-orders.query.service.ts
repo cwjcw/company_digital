@@ -3,7 +3,7 @@ import DecimalBase from 'decimal.js';
 import { createHash } from 'node:crypto';
 const Decimal=DecimalBase.clone({precision:40});
 import { financeOrderResources, financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields, financeDashboardRequiredFields } from '@kdos/contracts';
-import { TableFilterRegistry, TableFilterActor, TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
+import { TableFilterRegistry, TableFilterActor, TablePrintRowQuery, TableFilterCandidateQuery } from '../../common/filtering/table-filter.registry';
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { FinanceRepository } from './finance.repository';
 import { financeAdmin } from './finance.types';
@@ -33,7 +33,7 @@ export class FinanceOrdersQueryService implements OnModuleInit {
    ...(r==='finance-e10-lines'?{exportMaxRows:200000}:{}),
    ...(['finance-e10-lines','finance-e10-monthly'].includes(r)?{defaultSort:{field:'orderDate',order:'asc' as const,stableColumns:['source_database','source_order_id',...(r==='finance-e10-lines'?['source_line_id']:['year_month']),'id']}}:{}),
    ...(r==='finance-e10-monthly'?{listRows:(q:TablePrintRowQuery)=>this.monthlyRows(q)}:{}),
-   ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q)}:{}),
+   ...(r==='finance-e10-ranking'?{printRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),listRows:(q:TablePrintRowQuery)=>this.ranking(q.context,q.actor,q),candidateValues:(q:TableFilterCandidateQuery)=>this.rankingCandidates(q)}:{}),
    runQuery:(sql,p)=>r==='finance-e10-monthly'?this.repository.transaction(String(p[0]),async m=>{
     // Annual filters plus stable date ordering can select the same underestimated
     // derived-order join as the dashboard. Cover rows, candidates and Excel via
@@ -109,6 +109,13 @@ export class FinanceOrdersQueryService implements OnModuleInit {
     (SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM(SELECT id,customer_code AS "customerCode",order_total::text AS "orderTotal"
      FROM selected ORDER BY ${sort} ${order},customer_code LIMIT $${p.length+1} OFFSET $${p.length+2}) x) rows`,[...p,size,(page-1)*pageSize]);});
   return {rows,total:limit?Math.min(total,limit):total,page,pageSize};
+ }
+ private async rankingCandidates(query:TableFilterCandidateQuery){
+  if(query.fieldKey!=='customerCode')return {options:[],hasMore:false};
+  const result=await this.ranking(query.context,query.actor,{page:1,pageSize:1000,search:query.tableSearch||query.search,filterGroup:query.filterGroup}) as {rows:Array<Record<string,unknown>>;total:number};
+  const term=query.search.trim().toLocaleLowerCase();
+  const matching=result.rows.filter(row=>!term||String(row.customerCode??'').toLocaleLowerCase().includes(term));
+  return {options:matching.slice(0,query.limit).map(row=>({value:String(row.customerCode),label:String(row.customerCode)})),hasMore:matching.length>query.limit};
  }
  async revision(a:TableFilterActor){
   return this.scopedRevision(a,'finance-e10-dashboard');

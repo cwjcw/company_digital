@@ -37,16 +37,8 @@ export class TableFilterController {
     const source = { ...registeredSource, ...registeredSource.candidateVariant?.(context) };
     source.authorize?.(actor);
     this.assertReadResource(actor, source.code);
-    if(source.listRows){
-      const pageSize=normalizeKdosPageSize(query.pageSize),page=Math.max(Number(query.page)||1,1);
-      const sortKey=String(query.sortField??'');
-      if(sortKey&&!source.fields.some(f=>f.key===sortKey))throw new BadRequestException('排序字段无效');
-      if(sortKey&&!this.canReadField(actor,source.code,sortKey))throw new ForbiddenException('当前权限组不能按该字段排序');
-      const fieldKeys=source.fields.filter(f=>this.canReadField(actor,source.code,f.key)).map(f=>f.key);
-      const result=await source.listRows({actor,page,pageSize,search:String(query.search??'').trim(),filterGroup:query.filterGroup,sortField:query.sortField,sortOrder:query.sortOrder,context:this.context(query.context),fieldKeys,action:'read'});
-      const readable=new Set(['id','version',...fieldKeys]);
-      return {...result,rows:result.rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>readable.has(key)))),page,pageSize};
-    }
+    // Candidate requests always use the field candidate contract below. listRows
+    // is a paginated report API and must never be returned from this endpoint.
     const params: unknown[] = [actor.tenantId];
     const scope = await source.buildScope(actor, params);
     const clauses = [this.scopedWhere(source, scope), await source.buildContext?.(context, params, actor) ?? "1=1"];
@@ -81,7 +73,11 @@ export class TableFilterController {
       memberCandidates: source.memberCandidates ? (term, size) => source.memberCandidates!(term, size, actor) : (async (term, size) => (await this.dataSource.query(
         `SELECT id, COALESCE(NULLIF(display_name,''),username) label FROM users WHERE enabled=true${term ? " AND (COALESCE(display_name,'') ILIKE $1 OR username ILIKE $1)" : ""} ORDER BY label LIMIT $${term ? 2 : 1}`,
         term ? [`%${term}%`, size] : [size]
-      )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label })))
+      )).map((row: { id: string; label: string }) => ({ value: row.id, label: row.label }))),
+      candidateValues: source.candidateValues ? (fieldKey, term, size) => source.candidateValues!({
+        fieldKey, search: term, limit: size, actor, context,
+        tableSearch, filterGroup: group
+      }) : undefined
     });
     return query.withMeta === "1" ? result : result.options;
   }

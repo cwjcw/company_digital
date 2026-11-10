@@ -56,24 +56,38 @@ export function CandidateSelect({ resource, field, multiple, placeholder, onChan
 }) {
   const [options, setOptions] = useState<Candidate[]>(field.options ?? []);
   const [loading, setLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState(false);
   const load = useCallback(async (search: string) => {
     setLoading(true);
+    setCandidateError(false);
     try {
       const view = resource === "mps-process-reports" && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "PENDING" ? "&view=PENDING" : "";
       /* 平台级筛选接口：所有正式业务表统一入口，不依赖任何模块专用 URL。 */
-      const found = await api<Candidate[]>(`/table-filters/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}${view}`);
-      setOptions(found ?? []);
-    } catch { setOptions(field.options ?? []); }
+      const found: unknown = await api<unknown>(`/table-filters/candidates?resource=${encodeURIComponent(resource)}&field=${encodeURIComponent(field.key)}&limit=50&search=${encodeURIComponent(search)}${view}`);
+      if (!Array.isArray(found) || !found.every((option) => option && typeof option === "object"
+        && typeof option.value === "string" && typeof option.label === "string")) {
+        throw new Error("候选接口返回的数据格式无效");
+      }
+      setOptions(found as Candidate[]);
+    } catch {
+      setOptions(field.options ?? []);
+      setCandidateError(true);
+    }
     finally { setLoading(false); }
   }, [field, resource]);
   useEffect(() => { if (!field.options?.length) void load(""); }, [field.key, load, field.options?.length]);
-  return <Select
-    mode={multiple ? "multiple" : undefined} showSearch allowClear virtual={false} loading={loading}
-    filterOption={false} onSearch={(search) => void load(search)} placeholder={placeholder}
-    options={options.map((option) => ({ value: option.value, label: option.label }))}
-    style={{ minWidth: 200, maxWidth: 320 }}
-    onChange={(value) => onChange((value as string | string[]) ?? null)}
-  />;
+  return <Space direction="vertical" size={2} style={{ alignItems: "flex-start" }}>
+    <Select
+      mode={multiple ? "multiple" : undefined} showSearch allowClear virtual={false} loading={loading}
+      filterOption={false} onSearch={(search) => void load(search)} placeholder={placeholder}
+      options={options.map((option) => ({ value: option.value, label: option.label }))}
+      style={{ minWidth: 200, maxWidth: 320 }}
+      onChange={(value) => onChange((value as string | string[]) ?? null)}
+    />
+    {candidateError && <Typography.Text type="danger" role="alert">
+      候选项加载失败，请重试。<Button type="link" size="small" disabled={loading} onClick={() => void load("")}>重试</Button>
+    </Typography.Text>}
+  </Space>;
 }
 
 /**

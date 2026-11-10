@@ -14,6 +14,7 @@ describe('R&D order BOM report query source', () => {
   const heads=[{bom_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',item_id:itemId,item_code:'ITEM-1',version_times:'1',approve_status:'Y',approved_at:'2026-11-03 10:00:00'}];
   const dataSource={transaction:async (...args:any[])=>{const callback=args.at(-1);return callback({query:async(sql:string)=>{
     if(sql.includes('set_config'))return [];
+    if(sql.includes('DISTINCT record.division_id'))return [{value:division}];
     if(sql.includes('FROM mps_order_allocations'))return allocations;
     if(sql.includes('FROM rd_bom_sync_state'))return [state];
     if(sql.includes('FROM rd_bom_master_heads'))return heads;
@@ -46,6 +47,12 @@ describe('R&D order BOM report query source', () => {
     await expect(source.listRows({actor,page:1,pageSize:20,search:'',filterGroup:null,context:{view:'sales-orders'},fieldKeys:[],action:'read'})).rejects.toThrow('视图无效');
     expect(source.table).toBe('mps_order_allocations');
     expect(e10.read).not.toHaveBeenCalled();
+  });
+
+  it('candidate queries keep RLS tenant context and use stable division ids',async()=>{
+    const source=registry.register.mock.calls[0][0];
+    const rows=await source.runQuery('SELECT DISTINCT record.division_id::text value FROM mps_order_allocations record WHERE record.tenant_id=$1',[tenant]);
+    expect(rows).toEqual([{value:division}]);
   });
 
   it('exports and prints BOM report dates as Shanghai calendar dates while preserving local source dates',()=>{

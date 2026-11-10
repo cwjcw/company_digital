@@ -84,6 +84,10 @@ export class RdOrderBomReportQueryService {
   onModuleInit() {
     const source: TableFilterSource = {
       code: rdOrderBomReportResource, table: 'mps_order_allocations', columns: allocationColumns, fields: rdOrderBomReportFields,
+      runQuery: (sql, params) => this.dataSource.transaction(async manager => {
+        await manager.query("SELECT set_config('app.tenant_id',$1,true)", [String(params[0])]);
+        return manager.query(sql, params);
+      }),
       searchColumns: ['orderNumber', 'itemCode', 'itemName'],
       authorize: actor => {
         const allowed = actor.isSystemAdmin || actor.permissions.includes('*') || actor.moduleAdminCodes?.includes('rd')
