@@ -436,6 +436,7 @@
 ### RD-BOM-INDEX-001：研发中心已审核 BOM 主档索引（2026-11-10）
 
 - 唯一周期入口：n8n 工作流 `RdBomMasterIndexDailyV1`，每日 01:00 `Asia/Shanghai`，只执行 E10 BOM 主档 Change Tracking 增量读取；E10 保持 SELECT-only。仓库定义文件：`automation/n8n/rd-bom-master-index-daily.json`。无新增 systemd、cron 或应用内定时入口。
-- 生产 API/Web 已运行 `ed81e55216f368491194a157f30e37a2ed3ec493`；Migration 127 已按白名单执行，Migration 120 未执行。生产初次 FULL 成功插入 287,827 条，水位 23,368,782；API 容器执行 INCREMENTAL 成功，扫描及变更均为0，水位推进到23,368,795。
+- 生产 API/Web 首轮已运行 `ed81e55216f368491194a157f30e37a2ed3ec493`；Migration 127 已按白名单执行，Migration 120 未执行。生产初次 FULL 成功插入 287,827 条，水位 23,368,782；首轮 API 容器执行 INCREMENTAL 成功，扫描及变更均为0，水位推进到23,368,795。
 - 生产工作流已由官方 CLI 导入并发布，持久库 `active=true`、上海时区及 cron 表达式核对通过。n8n 进程需要重启才能装载新发布版本；当前既有 `realtimesnap_每天_9:00` 执行1460仍在运行，因此本轮未重启、未中断它。状态为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，尚不能视为定时任务运行时验收通过。
 - 新增工作流通过容器 API 同步命令成功验证；尝试使用 CLI `n8n execute` 因 5679 Task Broker 已被现有 n8n 进程占用退出。待执行1460自然结束后受控重启，确认启动激活、SSH 节点 SUCCESS 与下次01:00触发，再将状态更新为 DEPLOYED。证据与步骤见`outputs/RD_ORDER_BOM_REPORT_RELEASE_ACCEPTANCE.md`。
+- 2026-11-10后续BOM计数热修复：生产确认E10 item UUID为大写、PostgreSQL UUID文本为小写；数据库UUID过滤成功，JavaScript字符串Map却区分大小写，致使已有BOM全显示0。API唯一变更为两侧UUID小写规范化，回归7/7、类型检查和Lint通过；API部署SHA `28ab0eb782adf4d94916a8cbdd83151a56a5e805`，镜像 `sha256:d5c2e9ffa6d59213fb0a9d87c12e3041aede4b135659ae0253ab650a69e0af12`，未执行Migration/全量同步。修复后只读复算2,365个有已审核BOM品号、3,565条分配明细；另有431个分配品号在E10 ITEM无匹配、保持待核实。运行台账状态仍为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，不因API热修复改变。

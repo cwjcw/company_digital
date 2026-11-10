@@ -1,17 +1,30 @@
 # 研发中心 BOM 主档同步生产验收
 
 日期：2026-11-10（Asia/Shanghai）  
-候选/生产源码 SHA：`ed81e55216f368491194a157f30e37a2ed3ec493`  
-状态：`PARTIAL`
+功能候选源码 SHA：`ed81e55216f368491194a157f30e37a2ed3ec493`
+生产 API 热修复 SHA：`28ab0eb782adf4d94916a8cbdd83151a56a5e805`
+状态：`PARTIAL`（BOM 计数已修复并在线；每日 n8n 运行时加载与 Chrome 页面验收仍待完成）
 
 ## 已完成
 
 - Migration 127 `1722920127000-RdBomMasterIndex` 已通过严格定向入口执行；未运行默认 pending migrations。Migration 120 未执行。本次不执行其他 Migration。
-- API、Web 均已部署到 `ed81e55`，API `/api/v1/health` 返回 HTTP 200、版本 `ed81e55216f368491194a157f30e37a2ed3ec493`。API 镜像：`sha256:f4bd54a98c772ec6a29fd361d8f3c1b6e996c67ce47ab1653703612a05c78126`；Web 镜像：`sha256:07a9baad320b9b2a84f28d9d1136efd10987918b667f518981635e0dccae0899`。
+- API、Web 首轮已部署到 `ed81e55`。之后仅 API 更新到 `28ab0eb`；最终 API `/api/v1/health` 返回 HTTP 200、版本 `28ab0eb782adf4d94916a8cbdd83151a56a5e805`。最终 API 镜像：`sha256:d5c2e9ffa6d59213fb0a9d87c12e3041aede4b135659ae0253ab650a69e0af12`；Web 镜像保持 `sha256:07a9baad320b9b2a84f28d9d1136efd10987918b667f518981635e0dccae0899`。
 - 首次全量同步成功：run `449f7c3d-cac0-47e5-ab84-2bf7712041c8`，扫描并写入 287,827 条已审核 BOM 主档头，水位 `23,368,782`；更新、撤审、删除、错误均为 0。原先一次全量尝试因 pytds bytes 游标格式失败，未推进水位/切换可见快照；修复游标解码并部署后重跑成功。
 - 生产增量命令成功：run `5fb643fb-42ca-40c2-8aa1-46e3ed996735`，状态 `SUCCESS`，扫描/插入/更新/撤审/删除均为 0，水位推进到 `23,368,795`。命令使用的租户与范围固定为 `KAINAN`。
 - E10 Change Tracking 在最小有效版本范围内可读。E10 查询保持只读；同步支持审核头更新、撤审与 CT 删除事件。
 - API/Web 容器健康检查通过。未触碰财务、设备、主计划历史事实及其他业务数据。
+
+## BOM 数量显示为 0 的根因与热修复
+
+生产复核确认索引不是空的，问题出在报表匹配层：E10 `ITEM_BUSINESS_ID` 返回大写 UUID，PostgreSQL `uuid::text` 返回小写 UUID。查询使用 PostgreSQL UUID 类型比较，因此能正确取回匹配的索引 BOM 头；随后 JavaScript `Map` 按字符串区分大小写，导致同一 UUID 无法关联，页面因此把有 BOM 计为 0。
+
+修复在报表匹配时将两侧 item UUID 转为小写，再按原 ITEM 身份关联；不改变订单筛选、审核状态或权限规则。新增回归覆盖 E10 大写 UUID 与 PostgreSQL 小写 UUID。
+
+生产热修复提交 `28ab0eb782adf4d94916a8cbdd83151a56a5e805` 已发布，仅更新 API，无 Migration、无全量重同步。API 镜像：`sha256:d5c2e9ffa6d59213fb0a9d87c12e3041aede4b135659ae0253ab650a69e0af12`；Web 未变，仍为 `sha256:07a9baad320b9b2a84f28d9d1136efd10987918b667f518981635e0dccae0899`。
+
+修复后按生产报表相同范围只读复算：5,246 条有效已审核订单分配、3,543 个不同品号；3,112 个品号在 E10 ITEM 中找到，431 个无 E10 ITEM、继续显示待核实；其中 2,365 个品号有已审核 BOM。按分配明细计，3,565 行为有 BOM；按事业部＋订单＋品号去重为 3,390 个有 BOM 项。680 个事业部订单组中，570 组至少有一个有 BOM 品号，110 组目前没有已审核 BOM。具体页面汇总计数随当前视图和去重口径不同，不应把品号数与分配行数混为一项。
+
+部署后再次执行的 INCREMENTAL 成功，处理 32 条 Change Tracking 变化并插入 32 条已审核 BOM 头；撤审、删除均为 0，水位为 `23,369,384`。回归：BOM 计算器 7/7、API TypeScript 类型检查和两文件 ESLint 均通过。
 
 ## 尚未完成
 
@@ -34,6 +47,5 @@ n8n 工作流 `RdBomMasterIndexDailyV1` 已导入并发布，SQLite 中 `active=
 ## 代码与 Git
 
 - 功能分支：`feat/rd-bom-sync-refactor-20261110`
-- 当前提交：`ed81e55216f368491194a157f30e37a2ed3ec493`（已推送 GitHub 同名分支，无强推，未合并 main）。
-- 本次追加的验收记录尚需提交。
+- 当前提交：`28ab0eb782adf4d94916a8cbdd83151a56a5e805`（已推送 GitHub 同名分支，无强推，未合并 main）。
 - 共享工作区中其他任务的修改未纳入本分支。
