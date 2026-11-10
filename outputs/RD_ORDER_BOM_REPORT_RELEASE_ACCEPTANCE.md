@@ -21,6 +21,8 @@ n8n 工作流 `RdBomMasterIndexDailyV1` 已导入并发布，SQLite 中 `active=
 
 另一次尝试通过 `n8n execute` 手动启动工作流因 Task Broker 5679 端口已由正在运行的 n8n 占用而退出，没有修改或中断现有任务。
 
+生产登录 Chrome 页面实测尚未完成；API/Web 容器健康和 API 版本端点已通过，但不能将其表述为页面交互验收。
+
 ## 继续步骤
 
 1. 等待执行 ID `1460` 自然结束，或在确认可安全恢复该任务后安排 n8n 受控重启。
