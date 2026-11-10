@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App as AntApp } from "antd";
 import { api } from "../api";
-import { displayedExportKeys, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
+import { displayedExportKeys, hasKdosTableFieldReadPermission, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
 import { tablePreferenceQueryKey } from "./table-preferences";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -233,6 +233,61 @@ describe("KdosDataTable server pagination", () => {
       expect(JSON.parse(String(put?.[1]?.body)).config.visibleFieldKeys).toContain("productionQuantity");
     });
     expect(view.container.querySelector('th[data-kdos-column-key="productionQuantity"]')).toBeInTheDocument();
+  });
+
+  it("普通报工员工按资源读取权限查看待报工派生字段，并把旧布局中从未可用的派生列补为默认可见", async () => {
+    savedPreferences.set(prefKey("mps-process-reports", "PENDING", "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber"],
+      columnWidths: { orderNumber: 260 }, pinnedFieldKeys: ["orderNumber"]
+    });
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "ordinary-reporter", tenantId: "KAINAN", permissions: [
+      "mps-process-reports:*:read", "mps-process-reports:orderNumber:read"
+    ] }));
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "cumulativeReportedQuantity", label: "累计报工", type: "number" as const, editable: false },
+      { key: "remainingQuantity", label: "剩余数量", type: "number" as const, editable: false }
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-1", orderNumber: "SO-1", cumulativeReportedQuantity: 12, remainingQuantity: 88 }]} /></QueryClientProvider>);
+
+    await screen.findByText("SO-1");
+    expect(view.container.querySelector('th[data-kdos-column-key="cumulativeReportedQuantity"]')).toBeInTheDocument();
+    expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).toBeInTheDocument();
+    expect(screen.getByText("88")).toBeInTheDocument();
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveAttribute("data-kdos-column-width", "260");
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveClass("ant-table-cell-fix-left");
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "PENDING")).toBe(true);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "ACTUAL")).toBe(false);
+  });
+
+  it("尊重用户明确隐藏的待报工剩余数量列，且无资源读取权限时不展示派生列", async () => {
+    savedPreferences.set(prefKey("mps-process-reports", "PENDING", "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber", "remainingQuantity"], columnWidths: {}, pinnedFieldKeys: []
+    });
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "report-reader", tenantId: "KAINAN", permissions: [
+      "mps-process-reports:*:read", "mps-process-reports:orderNumber:read"
+    ] }));
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "remainingQuantity", label: "剩余数量", type: "number" as const, editable: false }
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-1", orderNumber: "SO-1", remainingQuantity: 88 }]} /></QueryClientProvider>);
+    await screen.findByText("SO-1");
+    expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).not.toBeInTheDocument();
+
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "no-report-read", tenantId: "KAINAN", permissions: [] }));
+    view.rerender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-2", orderNumber: "SO-2", remainingQuantity: 77 }]} /></QueryClientProvider>);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "PENDING")).toBe(false);
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).not.toBeInTheDocument());
   });
 
   it("标准模式只保留横向滚动，内部纵向滚动必须显式开启", () => {
