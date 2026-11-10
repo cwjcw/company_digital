@@ -5,6 +5,7 @@ export type E10BomHead = { bom_id: string; item_id: string; item_code?: string |
 export type E10BomBundle = { items: E10BomItem[]; sourceSnapshotAt: string };
 export type LocalBomHead = E10BomHead;
 export type BomReportState = { status: "HAS_BOM" | "NO_BOM" | null; approvalDate: string | null };
+const normalizeItemId = (value: string) => value.trim().toLowerCase();
 
 export function dateOnly(value: unknown): string | null {
   if (value == null || value === "") return null;
@@ -38,11 +39,12 @@ export function matchE10Bom(itemCode: string, snapshot: E10BomBundle, approvedHe
 export function createBomMatcher(snapshot: E10BomBundle, approvedHeads: LocalBomHead[]) {
   const itemIdsByCode = new Map<string, Set<string>>();
   for (const row of snapshot.items) {
-    const ids = itemIdsByCode.get(row.item_code) ?? new Set<string>(); ids.add(row.item_id); itemIdsByCode.set(row.item_code, ids);
+    const ids = itemIdsByCode.get(row.item_code) ?? new Set<string>(); ids.add(normalizeItemId(row.item_id)); itemIdsByCode.set(row.item_code, ids);
   }
   const headsByItem = new Map<string, LocalBomHead[]>();
   for (const head of approvedHeads) if (head.approve_status?.trim().toUpperCase() === "Y") {
-    const rows = headsByItem.get(head.item_id) ?? []; rows.push(head); headsByItem.set(head.item_id, rows);
+    const itemId = normalizeItemId(head.item_id);
+    const rows = headsByItem.get(itemId) ?? []; rows.push(head); headsByItem.set(itemId, rows);
   }
   return (itemCode: string): BomReportState => {
   const itemIds = itemIdsByCode.get(itemCode);

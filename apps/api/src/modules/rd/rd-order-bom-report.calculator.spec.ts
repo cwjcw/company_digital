@@ -15,6 +15,12 @@ describe('R&D BOM report final matching and aggregation rules',()=>{
     expect(matchE10Bom('WHK472-1/1',items,[approved])).toEqual({status:'HAS_BOM',approvalDate:'2026-01-31 19:32:12.552702'});
     expect(matchE10Bom('WHK472-1/1',items,[{...approved,bom_id:'33333333-3333-4333-8333-333333333333',owner_org_id:'elsewhere'} as LocalBomHead])).toMatchObject({status:'HAS_BOM'});
   });
+  it('matches E10 uppercase UUIDs to PostgreSQL lowercase UUIDs',()=>{
+    const upperId='AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE';
+    const lowerId=upperId.toLowerCase();
+    const snapshot={...items,items:[{...items.items[0],item_id:upperId}]};
+    expect(matchE10Bom('WHK472-1/1',snapshot,[{...approved,item_id:lowerId}])).toMatchObject({status:'HAS_BOM'});
+  });
   it('returns empty for missing ITEM, NO_BOM for existing ITEM with no approved header',()=>{
     expect(matchE10Bom('NOT-IN-E10',{...items,items:[]},[])).toEqual({status:null,approvalDate:null});
     expect(matchE10Bom('WHK472-1/1',items,[])).toEqual({status:'NO_BOM',approvalDate:null});
