@@ -9,10 +9,10 @@ import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { RdOrderBomReader } from '../../integrations/e10/rd-order-bom.reader';
 import { matchE10Bom, orderBomStatus, waitingDays, type E10BomBundle } from './rd-order-bom-report.calculator';
 
-type Allocation = { id: string; tenantId: string; divisionId: string | null; divisionName: string | null; orderNumber: string; itemCode: string; itemName: string | null; orderDate: string | null; customerDueDate: string | null };
+type Allocation = { id: string; tenantId: string; divisionId: string | null; divisionName: string | null; orderNumber: string; itemCode: string; itemName: string | null; orderDate: string | null };
 type ReportRow = Record<string, unknown> & { id: string; divisionId: string | null; orderNumber?: string; itemCode?: string; bomStatus?: string; bomWaitingDays?: number | null; currentWaitingDays?: number | null; matchIssue?: string | null };
 const viewColumns = { detail: rdOrderBomDetailColumns, orders: rdOrderBomOrderColumns, divisions: rdOrderBomDivisionColumns } as const;
-const allocationColumns = { id: 'id', createdBy: 'created_by', divisionId: 'division_id', orderNumber: 'order_number', itemCode: 'item_code', itemName: 'item_name', orderDate: 'order_date', customerDueDate: 'customer_due_date' };
+const allocationColumns = { id: 'id', createdBy: 'created_by', divisionId: 'division_id', orderNumber: 'order_number', itemCode: 'item_code', itemName: 'item_name', orderDate: 'order_date' };
 const shanghaiToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const stableId = (key: string) => {
   const hex = createHash('sha256').update(key).digest('hex').slice(0, 32).split('');
@@ -132,7 +132,7 @@ export class RdOrderBomReportQueryService {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [query.actor.tenantId]);
       return manager.query(`SELECT record.id::text id,record.tenant_id "tenantId",record.division_id::text "divisionId",unit.name "divisionName",
         record.order_number "orderNumber",record.item_code "itemCode",record.item_name "itemName",
-        record.order_date::text "orderDate",record.customer_due_date::text "customerDueDate"
+        record.order_date::text "orderDate"
         FROM mps_order_allocations record LEFT JOIN organization_units unit ON unit.id=record.division_id
         WHERE ${where.join(' AND ')} ORDER BY record.order_date DESC NULLS LAST,record.order_number,record.item_code,record.id LIMIT 20001`, params);
     }) as Allocation[];
@@ -143,9 +143,8 @@ export class RdOrderBomReportQueryService {
       const matched = matchE10Bom(row.itemCode, snapshot, today);
       const waits = waitingDays(row.orderDate, matched.approvalDate, today, matched.status);
       const orderDay = row.orderDate?.slice(0,10) ?? null;
-      const dueDay = row.customerDueDate?.slice(0,10) ?? null;
       return { id: row.id, divisionId: row.divisionId, divisionName: row.divisionName ?? '待匹配', orderNumber: row.orderNumber,
-        itemCode: row.itemCode, itemName: row.itemName, orderDate: textDateTime(orderDay), customerDueDate: textDateTime(dueDay),
+        itemCode: row.itemCode, itemName: row.itemName, orderDate: textDateTime(orderDay),
         bomStatus: matched.status, bomApprovalDate: matched.approvalDate, bomWaitingDays: waits.bom,
         currentWaitingDays: waits.current, matchIssue: matched.matchIssue ?? (!orderDay ? '订单分配表下单日期为空或无效' : null) };
     });

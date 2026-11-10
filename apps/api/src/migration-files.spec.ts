@@ -24,9 +24,9 @@ describe('TypeORM migration implementation discovery', () => {
   it('phase A excludes120 and121 even if both are pending',()=>{expect(phaseAMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920118000','1722920119000']);});
   it('keeps all existing real migrations including the independent demand-link migration discoverable without running them', () => {
     const files = discoverMigrationFiles(path.join(__dirname, 'migrations'));
-    expect(files).toHaveLength(126);
+    expect(files).toHaveLength(127);
     expect(files.every(file => !file.includes('.spec.'))).toBe(true);
-    expect(files.at(-1)).toContain('1722920125000-MpsAllocationCustomerDueDate');
+    expect(files.at(-1)).toContain('1722920126000-MpsRemoveAllocationCustomerDueDate');
     expect(reviewDueIndependenceMigrationFiles(path.join(__dirname, 'migrations'))).toHaveLength(1);
     expect(rdBomReportMigrationFiles(path.join(__dirname, 'migrations'))).toHaveLength(1);
   });

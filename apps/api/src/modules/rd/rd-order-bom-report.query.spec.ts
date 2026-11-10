@@ -4,8 +4,8 @@ describe('R&D order BOM report query source', () => {
   const division = '11111111-1111-4111-8111-111111111111';
   const actor: any = { tenantId: 'tenant-a', userId: 'u1', permissions: [], moduleAdminCodes: ['rd'], isSystemAdmin: false, tableDataScopes: [] };
   const allocations = [
-    { id: 'allocation-1', tenantId: 'tenant-a', divisionId: division, divisionName: '事业一部', orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01', customerDueDate: '2026-11-20' },
-    { id: 'allocation-2', tenantId: 'tenant-a', divisionId: division, divisionName: '事业一部', orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01', customerDueDate: '2026-11-25' }
+    { id: 'allocation-1', tenantId: 'tenant-a', divisionId: division, divisionName: '事业一部', orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01' },
+    { id: 'allocation-2', tenantId: 'tenant-a', divisionId: division, divisionName: '事业一部', orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01' }
   ];
   const e10 = { read: jest.fn().mockResolvedValue({ sourceSnapshotAt: '2026-11-09', items: [{ item_id: 'i1', item_code: 'ITEM-1' }], plants: [{ item_id: 'i1', owner_org_id: 'org1', item_property: 'M', item_routing_control: 1 }], boms: [{ bom_id: 'b1', item_id: 'i1', owner_org_id: 'org1', version_times: '1', approve_status: 'Y', approved_at: '2026-11-03 10:00:00', detail_approve_status: 'Y', effective_date: '2026-11-03', expiry_date: null }] }) };
   const registry = { register: jest.fn() } as any;
@@ -17,10 +17,10 @@ describe('R&D order BOM report query source', () => {
 
   it('uses only approved, active KDOS allocations and returns the source six fields unchanged', async () => {
     const source = registry.register.mock.calls[0][0];
-    const result = await source.listRows({ actor, page: 1, pageSize: 20, search: '', filterGroup: null, context: { view: 'detail' }, fieldKeys: ['divisionId','orderNumber','itemCode','itemName','orderDate','customerDueDate','bomStatus','bomApprovalDate','bomWaitingDays','currentWaitingDays'], action: 'read' });
+    const result = await source.listRows({ actor, page: 1, pageSize: 20, search: '', filterGroup: null, context: { view: 'detail' }, fieldKeys: ['divisionId','orderNumber','itemCode','itemName','orderDate','bomStatus','bomApprovalDate','bomWaitingDays','currentWaitingDays'], action: 'read' });
     expect(e10.read).toHaveBeenCalledWith(['ITEM-1','ITEM-1']);
     expect(result.total).toBe(2);
-    expect(result.rows[0]).toMatchObject({ orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01 00:00:00', customerDueDate: '2026-11-20 00:00:00', bomStatus: 'HAS_BOM' });
+    expect(result.rows[0]).toMatchObject({ orderNumber: 'SO-1', itemCode: 'ITEM-1', itemName: '品项', orderDate: '2026-11-01 00:00:00', bomStatus: 'HAS_BOM' });
     expect(result.rows[0].bomWaitingDays).toBe(2);
   });
 

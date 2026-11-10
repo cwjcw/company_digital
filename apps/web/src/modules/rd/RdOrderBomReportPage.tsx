@@ -14,11 +14,11 @@ const tabs = [
   { key: 'divisions', label: '事业部BOM统计', preference: 'rd-bom-divisions' }
 ] as const;
 type View = typeof tabs[number]['key'];
-const detailKeys = ['divisionId','orderNumber','itemCode','itemName','orderDate','customerDueDate','bomStatus','bomApprovalDate','bomWaitingDays','currentWaitingDays'];
+const detailKeys = ['divisionId','orderNumber','itemCode','itemName','orderDate','bomStatus','bomApprovalDate','bomWaitingDays','currentWaitingDays'];
 const orderKeys = ['divisionId','orderNumber','orderDate','requiredBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderBomStatus'];
 const divisionKeys = ['divisionId','orderCount','requiredBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','averageBomWaitingDays'];
-const labels: Record<string,string> = { divisionId:'承接事业部',orderNumber:'订单号',itemCode:'品号',itemName:'品名',orderDate:'下单日期',customerDueDate:'客户交期',bomStatus:'BOM状态',bomApprovalDate:'BOM审核日期',bomWaitingDays:'BOM等待天数',currentWaitingDays:'当前等待天数',requiredBomItemCount:'需要BOM品号数量',existingBomItemCount:'已有BOM品号数量',missingBomItemCount:'无BOM品号数量',completionRate:'BOM完成率',orderBomStatus:'订单BOM状态',orderCount:'订单数量',averageBomWaitingDays:'平均BOM等待天数' };
-const dateKeys = new Set(['orderDate','customerDueDate','bomApprovalDate']);
+const labels: Record<string,string> = { divisionId:'承接事业部',orderNumber:'订单号',itemCode:'品号',itemName:'品名',orderDate:'下单日期',bomStatus:'BOM状态',bomApprovalDate:'BOM审核日期',bomWaitingDays:'BOM等待天数',currentWaitingDays:'当前等待天数',requiredBomItemCount:'需要BOM品号数量',existingBomItemCount:'已有BOM品号数量',missingBomItemCount:'无BOM品号数量',completionRate:'BOM完成率',orderBomStatus:'订单BOM状态',orderCount:'订单数量',averageBomWaitingDays:'平均BOM等待天数' };
+const dateKeys = new Set(['orderDate','bomApprovalDate']);
 const numberKeys = new Set(['bomWaitingDays','currentWaitingDays','requiredBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderCount','averageBomWaitingDays']);
 function columns(view: View): KdosDataColumn<ReportRow>[] {
   const keys = view === 'detail' ? detailKeys : view === 'orders' ? orderKeys : divisionKeys;

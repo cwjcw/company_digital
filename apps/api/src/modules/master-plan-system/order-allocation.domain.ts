@@ -6,7 +6,7 @@ import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 /** The only import/event/attachment field allowlist. Money is never read. */
 export const ALLOCATION_FIELDS = [
   ["salespersonName", "业务员", "text"], ["customerCode", "客户代码", "text"],
-  ["orderNumber", "订单单号", "text"], ["orderDate", "下单日期", "date"], ["customerDueDate", "客户交期", "date"],
+  ["orderNumber", "订单单号", "text"], ["orderDate", "下单日期", "date"],
   ["expectedShippingDate", "预计发货日期", "date"], ["orderSequence", "订单序号", "text"],
   ["itemCode", "品号", "text"], ["itemName", "品名", "text"], ["specification", "规格", "text"],
   ["unit", "单位", "text"], ["orderQuantity", "订单数量", "number"],
@@ -22,7 +22,7 @@ export const allocationColumn = (key: string) => key.replace(/[A-Z]/g, c => `_${
 export type AllocationSnapshot = Record<string, unknown>;
 export type AllocationChange = { before: AllocationSnapshot | null; after: AllocationSnapshot; fields: Array<{ key: string; label: string; before: unknown; after: unknown }> };
 export const normalizeAllocationHeader = (s: string) => s.replace(/\s+/g, "");
-const aliases: Record<string, string[]> = { customerCode: ["客户编码"], orderNumber: ["订单编号"], itemCode: ["品项编码"], itemName: ["品项名称"], customerDueDate: ["客户交期"], expectedShippingDate: ["预计出货日期", "预计发货日期"], allocatedQuantity: ["分配数量"] };
+const aliases: Record<string, string[]> = { customerCode: ["客户编码"], orderNumber: ["订单编号"], itemCode: ["品项编码"], itemName: ["品项名称"], expectedShippingDate: ["预计出货日期", "预计发货日期"], allocatedQuantity: ["分配数量"] };
 export function normalizedAllocationValue(key: string, value: unknown): unknown {
   if (value == null || value === "") return null;
   const field = ALLOCATION_FIELDS.find(f => f[0] === key)!;

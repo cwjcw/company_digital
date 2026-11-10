@@ -22,6 +22,10 @@ export async function migrateRdBomReportCustomerDueDate() {
     const [state] = await db.query(`SELECT to_regclass('mps_order_allocations') IS NOT NULL AS table_exists,
       EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('mps_order_allocations') AND attname='customer_due_date' AND NOT attisdropped) AS column_exists`);
     if (!state.table_exists) throw new Error('Required order allocation table is absent');
+    if (applied.has(1722920126000)) {
+      if (!applied.has(1722920125000) || state.column_exists) throw new Error('Retired allocation customer date ledger/schema mismatch');
+      return [];
+    }
     if (applied.has(1722920125000) !== state.column_exists) throw new Error('Migration 125 ledger/schema mismatch; inspect without changing the ledger');
     if (applied.has(1722920125000)) return [];
     return await db.runMigrations({ transaction: 'all' });

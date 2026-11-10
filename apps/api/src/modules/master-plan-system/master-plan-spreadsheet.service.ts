@@ -331,8 +331,16 @@ export class MasterPlanSpreadsheetService {
 
   private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
-    for (const [key] of ALLOCATION_FIELDS) if (!hasMasterPlanFieldPermission(actor,"mps-order-allocations",key,"read")) throw new ForbiddenException("导入预览需要全部非金额业务字段的读取权限");
     const parsed=await parseAllocationWorkbook(file.buffer),errors=[...parsed.errors];
+    // New/empty optional columns must not invalidate an existing import grant.
+    // Preview echoes only uploaded values plus the resolved organization; require
+    // read access to those fields before resolving mappings or returning values.
+    const previewFields = new Set(["divisionId", ...parsed.rows.flatMap(row => Object.keys(row.values))]);
+    for (const [key, label] of ALLOCATION_FIELDS) {
+      if (previewFields.has(key) && !hasMasterPlanFieldPermission(actor, "mps-order-allocations", key, "read")) {
+        throw new ForbiddenException(`导入预览没有字段读取权限：${label}，请联系管理员核实字段授权`);
+      }
+    }
     const hash=createHash("sha256").update(file.buffer).digest("hex");
     const resolved=await this.dataSource.transaction(async manager=>{
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);

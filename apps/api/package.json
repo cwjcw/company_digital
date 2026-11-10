@@ -18,6 +18,7 @@
     "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js",
     "db:migrate:sync-maintenance": "pnpm build && node dist/migrate-sync-maintenance.js",
     "db:migrate:review-due-independence": "pnpm build && node dist/migrate-review-due-independence.js",
+    "db:migrate:allocation-column-removal": "pnpm build && node dist/migrate-allocation-column-removal.js",
     "db:migrate:rd-bom-report": "pnpm build && node dist/migrate-rd-bom-report.js"
   },
   "dependencies": {

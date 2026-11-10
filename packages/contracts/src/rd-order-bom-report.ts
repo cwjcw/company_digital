@@ -8,7 +8,7 @@ export type RdOrderBomView = typeof rdOrderBomViews[number];
 
 export const rdOrderBomDetailColumns = [
   ["divisionId", "承接事业部"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"],
-  ["orderDate", "下单日期"], ["customerDueDate", "客户交期"], ["bomStatus", "BOM状态"],
+  ["orderDate", "下单日期"], ["bomStatus", "BOM状态"],
   ["bomApprovalDate", "BOM审核日期"], ["bomWaitingDays", "BOM等待天数"], ["currentWaitingDays", "当前等待天数"]
 ] as const;
 
@@ -30,7 +30,6 @@ export const rdOrderBomReportFields: TablePermissionFieldDefinition[] = [
   { key: "itemCode", label: "品号", type: "text", editable: false },
   { key: "itemName", label: "品名", type: "text", editable: false },
   { key: "orderDate", label: "下单日期", type: "date", editable: false },
-  { key: "customerDueDate", label: "客户交期", type: "date", editable: false },
   { key: "bomStatus", label: "BOM状态", type: "dictionary", editable: false, options: [
     { value: "HAS_BOM", label: "已有BOM" }, { value: "NO_BOM", label: "无BOM" },
     { value: "NOT_REQUIRED", label: "无需BOM" }, { value: "MATCH_ISSUE", label: "待确认" }
