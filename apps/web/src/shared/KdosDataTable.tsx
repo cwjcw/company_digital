@@ -62,6 +62,19 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
   }
 }
 
+const pendingProcessReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
+
+/**
+ * 工序报工待报工视图的两个汇总字段由 API 按资源 read 权限裁剪，不配置独立字段权限。
+ * 这个例外严格限定在该资源的 PENDING 视图；其他列/视图仍执行正式字段权限检查。
+ */
+export function hasKdosTableFieldReadPermission(resource: string, field: string, viewKey?: string) {
+  if (resource === "mps-process-reports" && viewKey === "PENDING" && pendingProcessReportDerivedFields.has(field)) {
+    return hasResourcePermission(resource, "read");
+  }
+  return hasFieldPermission(resource, field, "read");
+}
+
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 const emptyHeaderRules: AdvancedFilterRule[] = [];
 export const kdosPageSizeOptions = [50, 100, 200, 500, 1000] as const;
@@ -591,8 +604,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   })();
   const availableFieldKeys = useMemo(() => fields.map((field) => {
     const metadata = columnMetadata(resolvedFilterFields,field.key,field.label,field.permissionField);
-    return metadata && hasFieldPermission(resource, metadata.key, "read") ? field.key : null;
-  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, fieldPermissionSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
+    return metadata && hasKdosTableFieldReadPermission(resource, metadata.key, viewKey) ? field.key : null;
+  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, viewKey, fieldPermissionSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
   const availableFieldSignature = JSON.stringify(availableFieldKeys);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const columnWidthsRef = useRef(columnWidths);
@@ -619,11 +632,23 @@ export function KdosDataTable<RecordType extends DataRecord>({
       setColumnWidths(current => Object.keys(current).every(key => allowed.has(key)) ? current : Object.fromEntries(Object.entries(current).filter(([key]) => allowed.has(key))));
       return;
     }
-    const ordered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)) : [];
+    const savedOrdered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string") : [];
+    const savedVisible = Array.isArray(saved?.visibleFieldKeys) ? [...new Set(saved.visibleFieldKeys.filter((key): key is string => typeof key === "string"))] : null;
+    const ordered = savedOrdered.filter((key) => allowed.has(key));
     const mergedOrder = [...ordered, ...[...allowed].filter((key) => !ordered.includes(key))];
-    const visible = Array.isArray(saved?.visibleFieldKeys)
-      ? [...new Set(saved.visibleFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)))]
+    const visible = savedVisible
+      ? [...new Set(savedVisible.filter((key) => allowed.has(key)))]
       : [...allowed];
+    if (resource === "mps-process-reports" && viewKey === "PENDING" && savedVisible) {
+      /*
+       * Older layouts were saved while these derived fields were unavailable to the field selector.
+       * Such keys are absent from both arrays. A key present in order but absent from visibility is
+       * an explicit user hide and remains hidden. This only adds the two PENDING derived fields.
+       */
+      for (const key of pendingProcessReportDerivedFields) {
+        if (allowed.has(key) && !savedOrdered.includes(key) && !savedVisible.includes(key)) visible.push(key);
+      }
+    }
     const widths = saved?.columnWidths && typeof saved.columnWidths === "object" && !Array.isArray(saved.columnWidths)
       ? Object.fromEntries(Object.entries(saved.columnWidths).filter(([key, value]) => allowed.has(key) && typeof value === "number" && Number.isFinite(value) && value >= 40 && value <= 2000)) as Record<string, number>
       : {};
@@ -632,7 +657,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setPinnedKeys((Array.isArray(saved?.pinnedFieldKeys) ? saved.pinnedFieldKeys : []).filter((key): key is string => typeof key === "string" && allowed.has(key) && visible.includes(key)));
     appliedPreferenceIdentity.current = preferenceIdentity;
     setPreferenceDirty(false); setLoadedPreferenceIdentity(preferenceIdentity);
-  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity, preferenceDirty]);
+  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity, preferenceDirty, resource, viewKey]);
   useEffect(() => { setPreferenceDirty(false); }, [preferenceIdentity]);
   const startColumnResize = useCallback<KdosResizeStart>((event, key, width, minWidth) => {
     event.preventDefault();
@@ -728,7 +753,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           } : {})
         })
       } as ColumnType<RecordType>;
-      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasFieldPermission(resource, field.key, "read")) return baseColumn;
+      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasKdosTableFieldReadPermission(resource, field.key, viewKey)) return baseColumn;
       const systemFixed = Boolean(column.fixed);
       const pinned = pinnedKeys.includes(key);
       return { ...baseColumn, fixed: column.fixed ?? (pinned ? "left" : undefined),
@@ -743,7 +768,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
     return orderKdosFixedColumns(orderColumns(filterColumns(wrap(allColumns), visible), orderedKeys));
-  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, viewKey, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();

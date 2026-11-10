@@ -65,6 +65,31 @@ describe("KN-PR-001 pending process reporting view", () => {
     expect(result.visibleFields).toEqual(expect.arrayContaining(["cumulativeReportedQuantity", "remainingQuantity"]));
   });
 
+  it("allows a scoped ordinary table reader to receive both derived fields without per-field grants", async () => {
+    const divisionId = "88888888-8888-4888-8888-888888888888";
+    const scopedReader = actor(["mps-process-reports:*:read"], [{
+      resource: "mps-process-reports", scope: "CUSTOM", actions: ["read"],
+      rules: [{ fieldKey: "divisionId", operator: "EQ", value: divisionId }]
+    }]);
+    const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 1 }] : [{ ...task, canUpdate: false, canDelete: false, pendingTask: true }]);
+    const result = await new MasterPlanQueryService({ query } as never, directory as never).list("mps-process-reports", { view: "PENDING" }, scopedReader);
+    const statements = query.mock.calls.map(([statement]) => String(statement)).join(" ");
+
+    expect(result.visibleFields).toEqual(expect.arrayContaining(["cumulativeReportedQuantity", "remainingQuantity"]));
+    expect(statements).toContain("division_id");
+    expect(query.mock.calls.some(([, params]) => params?.includes(divisionId))).toBe(true);
+    expect(scopedReader.permissions).not.toContain("mps-process-reports:remainingQuantity:read");
+    expect(scopedReader.permissions).not.toContain("mps-process-reports:cumulativeReportedQuantity:read");
+  });
+
+  it("denies pending task queries when the actor lacks resource read permission", async () => {
+    const query = jest.fn();
+    const noRead = actor(["mps-process-reports:remainingQuantity:read"]);
+    await expect(new MasterPlanQueryService({ query } as never, directory as never).list("mps-process-reports", { view: "PENDING" }, noRead))
+      .rejects.toThrow("当前权限组没有该表查看权限");
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("keeps pending tasks read-only except the two reporting inputs and never exposes an action column", async () => {
     const query = jest.fn(async (...args: [string, unknown[]?]) => args[0].includes("count(*)") ? [{ count: 1 }] : [{ ...task, canUpdate: false, canDelete: false, pendingTask: true }]);
     const result = await new MasterPlanQueryService({ query } as never, directory as never).list("mps-process-reports", { view: "PENDING" }, admin);
