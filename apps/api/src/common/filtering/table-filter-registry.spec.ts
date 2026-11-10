@@ -10,9 +10,11 @@ import { EquipmentFilterSourceProvider } from "../../modules/equipment/equipment
 import { SupplyChainFilterSourceProvider } from "../../modules/supply-chain/supply-chain.filter-sources";
 import { AuditFilterSourceProvider } from "../../modules/audit/audit.filter-sources";
 import { MarketingFilterSourceProvider } from "../../modules/marketing/marketing.filter-sources";
+import { LogisticsFilterSourceProvider } from "../../modules/marketing/logistics.filter-sources";
 import { SupervisionFilterSourceProvider } from "../../modules/supervision/supervision.filter-sources";
 import { PmcRdProgressFilterSources } from "../../modules/pmc-rd-progress/pmc-rd-progress.filter-sources";
 import { RdFilterSourceProvider } from "../../modules/rd/rd.filter-sources";
+import { RdOrderBomReportQueryService } from "../../modules/rd/rd-order-bom-report.query.service";
 import { KnowledgeFilterSourceProvider } from "../../modules/knowledge/knowledge.filter-sources";
 import { KnowledgeAuthorizationService } from "../../modules/knowledge/knowledge.scope";
 import { SystemFilterSourceProvider } from "./system-filter-sources";
@@ -37,8 +39,10 @@ function buildRegistry() {
   new MarketingFilterSourceProvider(registry, { pool: { query: async () => ({ rows: [] }) } } as never, {
     listEnabledUsers: async () => [], listEnabledOrganizations: async () => []
   } as never).onModuleInit();
+  new LogisticsFilterSourceProvider(registry, {} as never, {} as never).onModuleInit();
   new SupervisionFilterSourceProvider(registry, {} as never).onModuleInit();
   new RdFilterSourceProvider(registry).onModuleInit();
+  new RdOrderBomReportQueryService({} as never, registry, {} as never).onModuleInit();
   new PmcRdProgressFilterSources(registry, {} as never).onModuleInit();
   new KnowledgeFilterSourceProvider(registry, new KnowledgeAuthorizationService({} as never), {} as never).onModuleInit();
   return registry;
@@ -68,6 +72,8 @@ describe("平台筛选资源注册表（KN-FILTER-001）", () => {
         if (["member", "department", "reference", "dictionary", "boolean", "date", "datetime"].includes(field.type)) continue;
         /* structured 字段按定义不参与筛选（filterable=false），无需列绑定。 */
         if (field.type === "structured") continue;
+        /* BOM 报表的派生字段由其专用查询器在合并 E10 快照后筛选，不映射到源表列。 */
+        if (source.code === "rd-order-bom-report" && !source.columns[field.key] && !source.expressions?.[field.key]) continue;
         expect(source.columns[field.key] ?? source.expressions?.[field.key]).toBeTruthy();
       }
     }

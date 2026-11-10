@@ -3,14 +3,14 @@
 ## 任务
 任务名称：修复研发中心 BOM 报表承接事业部高级筛选白屏。
 任务目标：确认生产错误、修正通用 candidates 契约与前端异常处理，回归所有受影响资源，部署并完成生产 Chrome 验收及 GitHub 推送。
-当前状态：进行中（代码、定向回归、Lint、typecheck、构建和上线前备份已完成；部署与生产页面验收待完成）。
+当前状态：进行中（代码、回归、Lint、typecheck、构建、备份和部署已完成；等待登录态生产 Chrome 页面验收）。
 最后更新时间：2026-11-10（Asia/Shanghai）。
 
 ---
 
 ## 当前阶段
-当前阶段：上线。
-当前子任务：部署已备份的 API/Web 构建并执行生产健康核验。
+当前阶段：生产验收与收尾。
+当前子任务：补齐公共筛选资源注册回归夹具、同步最终 SHA，并记录 Chrome 验收限制。
 
 ## 已完成
 - [x] 读取用户任务说明、项目 AGENTS.md、kdos-form-platform、kdos-form-validation 及架构/安全/运行手册。
@@ -22,6 +22,7 @@
 - [x] 移除 candidates 对 listRows 的分页结果分支；保留 rows 分页逻辑，BOM候选查询使用 `mps_order_allocations.division_id` 并通过设置 `app.tenant_id` 的事务执行。
 - [x] 前端候选响应运行时校验 Candidate[] 形状；异常显示可重试提示，避免对象被 `.map()` 触发白屏。
 - [x] 增加 listRows 资源候选/withMeta/rows 契约回归测试和 BOM divisionId 稳定ID/RLS上下文测试。
+- [x] 公共筛选资源注册测试覆盖 logistics-ledger 与 rd-order-bom-report；BOM 派生字段由专用查询器处理。
 
 ## 正在进行
 - [ ] 通过已授权生产 Chrome 会话或测试身份复现实际候选响应、浏览器异常栈和事业部数据范围。
@@ -34,8 +35,8 @@
 - [x] 后端统一 candidates 返回契约与 BOM divisionId 授权范围候选。
 - [x] 前端运行时校验异常结构并提供可重试错误提示。
 - [x] API/Web/contracts/通用表格筛选回归测试与静态检查。
-- [ ] 生产备份/部署/健康核验与线上真实 Chrome 验收。
-- [x] 任务代码提交及功能分支推送；远端 SHA 与本地 `6c33fd9dbc187834bb2d49cb7b3981eb91c60d25` 一致。
+- [ ] 登录态生产 Chrome 验收（部署和健康核验已完成）。
+- [x] 任务代码提交及功能分支推送；远端 SHA 为 `f2ffd2ccaad4ec9ba6ffeae4409e2aa978c0bba9`，注册回归夹具修正待提交。
 
 ## 修改文件
 - apps/api/src/common/filtering/table-filter.controller.ts
@@ -49,6 +50,7 @@
 - apps/web/src/shared/advanced-filter.tsx
 - apps/web/src/shared/advanced-filter.spec.tsx
 - outputs/KDOS研发中心BOM报表高级筛选白屏修复进度.md
+- apps/api/src/common/filtering/table-filter-registry.spec.ts
 
 ## 数据库 Migration
 - 无；本次仅修改筛选 API/前端候选 UI，不涉及数据库结构或 Migration。
@@ -63,10 +65,13 @@
 
 ## 已运行测试
 测试名称：生产容器状态、Web build-info、API health、候选/listRows/BOM 静态调用链检查。
-结果：生产与初始功能分支版本不同；候选数据契约缺陷成立。初始 API 筛选/BOM/finance 测试28/28，Web高级筛选测试28/28，BOM contracts测试2/2；合并生产 Web 基线后 API 相关43/43、Web高级筛选与共享表格43/43。Contracts/API/Web typecheck、API/Web/Contracts build、受影响文件 ESLint 通过。Web build 有非阻塞 chunk size 提示。生产候选实际HTTP响应尚未读取（需有效身份）。
+结果：生产与初始功能分支版本不同；候选数据契约缺陷成立。初始 API 筛选/BOM/finance 测试28/28，Web高级筛选测试28/28，BOM contracts测试2/2；合并生产 Web 基线后 API 相关43/43、Web高级筛选与共享表格43/43。补齐注册夹具后公共 filtering 回归8 suites/44 tests 全通过。Contracts/API/Web typecheck、API/Web/Contracts build、受影响文件 ESLint 通过。Web build 有非阻塞 chunk size 提示。生产候选实际HTTP响应尚未读取（需有效身份）。
 
 测试名称：功能分支提交与远端SHA检查。
-结果：`8712aad`任务提交已推送，后合并现行生产 Web 基线形成 `6c33fd9dbc187834bb2d49cb7b3981eb91c60d25` 并已推送；远端引用一致。
+结果：`8712aad`任务提交已推送，后合并现行生产 Web 基线形成 `6c33fd9dbc187834bb2d49cb7b3981eb91c60d25`，`f2ffd2c`预部署记录已推送；随后更新回归夹具，最终 SHA 待同步。
+
+测试名称：生产部署和健康检查。
+结果：在工作区 SHA `f2ffd2ccaad4ec9ba6ffeae4409e2aa978c0bba9` 完成备份后执行 `scripts/deploy.sh all`；API、Web、PostgreSQL、Document Worker healthy，Web `/build-info.json` 与 API `/api/v1/health` 返回一致 SHA，部署检查通过。随后仅更新测试注册夹具，最终交付需更新发布 SHA。
 
 测试名称：上线前备份。
 结果：legacy、KDOS和uploads备份均成功，见数据库Migration章节记录的路径与SHA256。
@@ -81,8 +86,8 @@
 
 ## 下一步
 1. 核实目标分支完整祖先及部署的 build SHA 是否已包含 BOM 功能，定位可用生产 Chrome/授权身份。
-2. 核对生产 Web `99c3701` 之后的 MPS 改动如何随本次 Web 部署保留，核实 API/Web 发布 SHA。
-3. 部署 API/Web 并核对运行镜像和健康状态。
+2. 提交并推送公共筛选注册测试夹具修正。
+3. 重新部署并核验 API/Web 发布 SHA 与健康状态。
 4. 尝试生产 Chrome 页面验收；若授权登录仍不可用，明确记录阻塞和恢复条件。
 5. 更新进度文件与交付报告。
 
