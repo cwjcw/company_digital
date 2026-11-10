@@ -52,7 +52,7 @@ n8n 工作流 `RdBomMasterIndexDailyV1` 已导入并发布，SQLite 中 `active=
 
 ## BOM 报表页面日期与布局优化（2026-11-10）
 
-当前阶段：代码实现完成；API 已更新，Web 初版已更新；生产Chrome验收发现并已修复表头标题文字左偏，等待第二版Web发布及复验。
+当前阶段：`DEPLOYED`（API与Web已更新，真实Chrome复验通过）。
 
 - 三视图日期单元格统一输出 `YYYY-MM-DD`；无时区数据库日期/E10本地时间保留来源日，带明确时区的时间戳按上海日历日显示；空日期为空字符串。
 - 业务列统一 `align=center`，包括数字和BOM状态列；仅在本报表列定义生效。
@@ -61,5 +61,8 @@ n8n 工作流 `RdBomMasterIndexDailyV1` 已导入并发布，SQLite 中 `active=
 - 当前生产 Web SHA（本轮修改前）：`ed81e55`；生产 API 为 `28ab0eb`。由于统一导出和打印由服务端格式化，单纯修改 Web 无法保证Excel及打印日期去掉时间；本轮增加了仅限本报表的服务端展示值回调，因此需要发布匹配 API 与 Web。无 Migration，不改数据库日期、筛选、统计或BOM匹配逻辑。
 - 目标回归：Web `RdOrderBomReportPage.spec.tsx` 2/2；API `rd-order-bom-report.query.spec.ts` 5/5；既有 BOM UUID 匹配回归 7/7；API/Web ESLint及类型检查通过；API/Web开发构建通过（宿主 Node 22.23.1低于包声明的 Node >=24，生产镜像仍由正式部署脚本构建）。
 - 页面测试确认三个视图的每列 `align=center`、空日期为空、时间戳不带时分秒、上海日历日换算正确，重复标题消失且标签切换仍正常。服务端回归确认 Excel/打印日期均按相同规则显示，数字等待天数保持原样。
-- 首次生产Chrome验收确认日期与重复标题行为正常，但发现共享列菜单包装器使标题字样仍靠左；已增加仅限 `.rd-bom-report-table` 的文字居中样式与浏览器几何断言，将在修复版Web发布后重测。
+- 首次生产Chrome验收确认日期与重复标题行为正常，但发现共享列菜单包装器使标题字样仍靠左；已增加仅限 `.rd-bom-report-table` 的文字居中样式，修复版Web部署后真实Chrome复验通过。
 - API通过正式发布脚本的同一套 `require_safe_env`、干净工作区、`build_services api`、API容器更新、健康与SHA门禁完成单服务更新；因无关Worker依赖下载超时，未重建或重启既有健康Worker。完整脚本失败发生在容器切换之前。
+- 修复版 Web `1750f162a131a1a0a05166acdd8e242817be2e86` 已经正式部署；API展示格式版本 `22cda3e25bf04f8cc3b96dfdc70c6f3dd5cfcd10` 正式运行。无Migration。容器镜像：Web `sha256:69495cc42f41a0b3c4a1ab000ccb7febd1457cc7a7ea1c40d18b1b3da0b8b99c`，API `sha256:46367975a4ecd59d724bea62539119f52e1fcad7ee113d3d77528d499a24cc5c`；Worker保持原镜像且healthy。
+- 第二次真实Chrome生产验收通过：三个视图均有实际数据行，表头标签与单元格的计算样式居中；三类实际日期列只显示 `YYYY-MM-DD`；三个标签切换正常；二级标题不存在；页面无视口级横向溢出。浏览器验收使用只读登录与查询，无生产数据写入。Playwright专用生产配置关闭trace、截图和视频。
+- API `/api/v1/health`、Web `/health`、PostgreSQL和Document Worker健康检查通过；无数据库结构变化。生产发布中仅短时替换API/Web容器，未停止PostgreSQL/Worker；未观察到业务错误。生产Chrome最终验收以修复版 Web SHA `1750f16` 为准。

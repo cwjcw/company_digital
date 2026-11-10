@@ -25,7 +25,8 @@ test('production R&D BOM report dates, alignment, tabs and duplicate heading', a
   for (const [tab, dateFields] of views) {
     await page.getByRole('tab', { name: tab }).click();
     const table = page.locator('.ant-table').first();
-    await expect(table.locator('thead th').first()).toBeVisible();
+    await expect(table.locator('thead')).toContainText('承接事业部');
+    await expect(table.locator('tbody tr')).not.toHaveCount(0);
     const headerAlignment = await table.locator('thead th').evaluateAll(nodes => nodes.flatMap(node => {
       const label = node.querySelector<HTMLElement>('.kdos-column-title-label');
       if (!label) return [];
