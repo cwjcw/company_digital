@@ -51,7 +51,7 @@ function ReportTable({ view }: { view: View }) {
     {result.error && <Alert type="error" showIcon message="订单BOM报表加载失败" description={error} closable />}
     {result.data?.syncWarning && <Alert type="warning" showIcon message="E10 BOM索引暂未更新" description={result.data.syncWarning} closable />}
     <KdosDataTable<ReportRow> resource={rdOrderBomReportResource} viewKey={tabs.find(tab=>tab.key===view)!.preference} systemFields={false} selectable={false}
-      columns={columns(view)} dataSource={result.data?.rows ?? []} loading={result.isPending} printContext={{ view }} quickSearch
+      columns={columns(view)} dataSource={result.data?.rows ?? []} loading={result.isPending} printContext={{ view }} quickSearch className="rd-bom-report-table"
       searchPlaceholder={view === 'detail' ? '搜索订单号、品号或品名' : view === 'orders' ? '搜索订单号' : '搜索事业部'} filterFields={fields.filter(field=>view === 'detail' ? detailKeys.includes(field.key) : view === 'orders' ? orderKeys.includes(field.key) : divisionKeys.includes(field.key))}
       serverData={{ total:result.data?.total ?? 0, resetKey:view, onQueryChange:setQuery }} scroll={{ x:'max-content' }} />
   </>;
