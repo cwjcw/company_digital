@@ -432,3 +432,10 @@
 - n8n仍17定义/13激活，节点未见直接MPS引用；原ERP三采集/三投影Timer保持。私有cron/外部人工入口核验限制不变；没有停用、合并、迁移任务或修改六项配置。
 - 生产仍API2d4b447/Webbf78d4e、Ledger117；旧11状态矛盾/1旧RUNNING保留，Outbox当前PENDING/FAILED为0。本轮只读取，不主动同步、不登录创建会话、不重置日志。
 - 本地main已ff-only整合财务兼容候选7cddcd4及文档05049ad，财务P1解除，A118/119与U121/122保持技术GO，120排除；生产执行仍需明确SHA/名单/维护窗口批准。五表历史35条报工缺月度需求单列，不自动修复；真实Chrome/两个完整自动周期尚未执行。详见`MPS_UNIFIED_ID_PRODUCTION_RELEASE.md`第11节。
+
+### RD-BOM-INDEX-001：研发中心已审核 BOM 主档索引（2026-11-10）
+
+- 唯一周期入口：n8n 工作流 `RdBomMasterIndexDailyV1`，每日 01:00 `Asia/Shanghai`，只执行 E10 BOM 主档 Change Tracking 增量读取；E10 保持 SELECT-only。仓库定义文件：`automation/n8n/rd-bom-master-index-daily.json`。无新增 systemd、cron 或应用内定时入口。
+- 生产 API/Web 已运行 `ed81e55216f368491194a157f30e37a2ed3ec493`；Migration 127 已按白名单执行，Migration 120 未执行。生产初次 FULL 成功插入 287,827 条，水位 23,368,782；API 容器执行 INCREMENTAL 成功，扫描及变更均为0，水位推进到23,368,795。
+- 生产工作流已由官方 CLI 导入并发布，持久库 `active=true`、上海时区及 cron 表达式核对通过。n8n 进程需要重启才能装载新发布版本；当前既有 `realtimesnap_每天_9:00` 执行1460仍在运行，因此本轮未重启、未中断它。状态为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，尚不能视为定时任务运行时验收通过。
+- 新增工作流通过容器 API 同步命令成功验证；尝试使用 CLI `n8n execute` 因 5679 Task Broker 已被现有 n8n 进程占用退出。待执行1460自然结束后受控重启，确认启动激活、SSH 节点 SUCCESS 与下次01:00触发，再将状态更新为 DEPLOYED。证据与步骤见`outputs/RD_ORDER_BOM_REPORT_RELEASE_ACCEPTANCE.md`。
