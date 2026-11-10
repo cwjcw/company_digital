@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Alert, Card, Tabs, Tag } from 'antd';
+import { Alert, Tabs, Tag } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { tablePermissionFieldsFor } from '@kdos/contracts';
 import { api, ApiError } from '../../api';
 import { hasResourcePermission, KdosDataTable, type KdosDataColumn } from '../../shared/KdosDataTable';
 import { blankPlatformQuery, type PlatformTablePage, type PlatformTableQuery } from '../../shared/platform-table';
 import { rdOrderBomReportResource } from '@kdos/contracts';
+import { formatRdBomDate } from './rd-bom-report-display';
 
 type ReportRow = Record<string, unknown> & { id: string; divisionId: string | null; orderNumber: string; bomStatus?: string | null };
 const tabs = [
-  { key: 'detail', label: '订单BOM明细报表', preference: 'rd-bom-detail' },
+  { key: 'detail', label: '订单BOM明细', preference: 'rd-bom-detail' },
   { key: 'orders', label: '订单BOM汇总', preference: 'rd-bom-orders' },
   { key: 'divisions', label: '事业部BOM统计', preference: 'rd-bom-divisions' }
 ] as const;
@@ -22,9 +23,9 @@ const dateKeys = new Set(['orderDate','customerDueDate','bomApprovalDate']);
 const numberKeys = new Set(['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderCount','averageBomWaitingDays']);
 function columns(view: View): KdosDataColumn<ReportRow>[] {
   const keys = view === 'detail' ? detailKeys : view === 'orders' ? orderKeys : divisionKeys;
-  return keys.map(key => ({ key, dataIndex: key, title: labels[key], width: key === 'orderNumber' ? 160 : key === 'itemName' ? 200 : 135,
-    ...(dateKeys.has(key) ? { render: (value: unknown) => value == null || value === '' ? '—' : String(value) } : {}),
-    ...(numberKeys.has(key) ? { align: 'right' as const, render: (value: unknown) => value == null || value === '' ? '—' : key === 'completionRate' ? `${value}%` : value } : {}),
+  return keys.map(key => ({ key, dataIndex: key, title: labels[key], align: 'center' as const, width: key === 'orderNumber' ? 160 : key === 'itemName' ? 200 : 135,
+    ...(dateKeys.has(key) ? { render: (value: unknown) => formatRdBomDate(value) } : {}),
+    ...(numberKeys.has(key) ? { render: (value: unknown) => value == null || value === '' ? '—' : key === 'completionRate' ? `${value}%` : value } : {}),
     ...(key === 'bomStatus' ? { render: (_value: unknown, row: ReportRow) => {
       const value = row.bomStatus;
       if (value == null || value === '') return '—';
@@ -58,8 +59,8 @@ function ReportTable({ view }: { view: View }) {
 export function RdOrderBomReportPage() {
   const [view,setView] = useState<View>('detail');
   if (!hasResourcePermission(rdOrderBomReportResource,'read')) return <Alert type="error" message="当前权限组没有订单BOM报表查看权限" />;
-  return <Card size="small" title="订单BOM报表">
+  return <div className="rd-order-bom-report">
     <Tabs activeKey={view} onChange={key=>setView(key as View)} items={tabs.map(tab=>({key:tab.key,label:tab.label}))} />
     <ReportTable key={view} view={view} />
-  </Card>;
+  </div>;
 }

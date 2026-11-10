@@ -13,7 +13,25 @@ type Allocation = { id: string; tenantId: string; divisionId: string | null; div
 type ReportRow = Record<string, unknown> & { id: string; tenantId?: string; divisionId: string | null; orderNumber?: string; itemCode?: string; bomStatus?: string | null; bomWaitingDays?: number | null; currentWaitingDays?: number | null };
 const viewColumns = { detail: rdOrderBomDetailColumns, orders: rdOrderBomOrderColumns, divisions: rdOrderBomDivisionColumns } as const;
 const allocationColumns = { id: 'id', createdBy: 'created_by', divisionId: 'division_id', orderNumber: 'order_number', itemCode: 'item_code', itemName: 'item_name', orderDate: 'order_date', customerDueDate: 'expected_shipping_date' };
+const dateKeys = new Set(['orderDate', 'customerDueDate', 'bomApprovalDate']);
 const shanghaiToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const shanghaiDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+const formatShanghaiDate = (date: Date) => {
+  const parts = shanghaiDateFormatter.formatToParts(date);
+  const part = (type: string) => parts.find(entry => entry.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+};
+function reportDateDisplay(field: { key: string }, value: unknown): string | undefined {
+  if (!dateKeys.has(field.key)) return undefined;
+  if (value == null || value === '') return '';
+  const raw = String(value).trim();
+  // These report values are SQL DATE or E10 local wall-clock timestamps without
+  // an offset. Preserve their business calendar day; convert only true instants.
+  const localCalendarValue = raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$)/);
+  if (localCalendarValue) return localCalendarValue[1];
+  const instant = new Date(raw);
+  return Number.isNaN(instant.getTime()) ? raw : formatShanghaiDate(instant);
+}
 const stableId = (key: string) => {
   const hex = createHash('sha256').update(key).digest('hex').slice(0, 32).split('');
   hex[12] = '5'; hex[16] = ((parseInt(hex[16], 16) & 3) | 8).toString(16);
@@ -79,6 +97,8 @@ export class RdOrderBomReportQueryService {
         const columns = Object.fromEntries(fields.map(field => [field.key, allocationColumns[field.key as keyof typeof allocationColumns] ?? field.key]));
         return { fields, columns };
       },
+      exportDisplayValue: reportDateDisplay,
+      printDisplayValue: reportDateDisplay,
       listRows: query => this.listRows(query),
       printRows: query => this.listRows(query)
     };

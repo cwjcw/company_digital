@@ -48,6 +48,15 @@ describe('R&D order BOM report query source', () => {
     expect(e10.read).not.toHaveBeenCalled();
   });
 
+  it('exports and prints BOM report dates as Shanghai calendar dates while preserving local source dates',()=>{
+    const source=registry.register.mock.calls[0][0];
+    expect(source.exportDisplayValue({key:'orderDate'},'2026-11-10 00:00:00')).toBe('2026-11-10');
+    expect(source.exportDisplayValue({key:'bomApprovalDate'},'2026-11-09T16:30:00.000Z')).toBe('2026-11-10');
+    expect(source.exportDisplayValue({key:'customerDueDate'},null)).toBe('');
+    expect(source.exportDisplayValue({key:'bomWaitingDays'},12)).toBeUndefined();
+    expect(source.printDisplayValue({key:'bomApprovalDate'},'2026-11-03 10:00:00')).toBe('2026-11-03');
+  });
+
   it('preserves the last usable index on sync failure and returns a visible freshness warning',async()=>{
     state.lastStatus='FAILED';state.lastErrorCode='E10_READ_OR_SYNC_FAILURE';
     const source=registry.register.mock.calls[0][0];
