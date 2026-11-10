@@ -43,6 +43,12 @@ integration('R&D BOM master index: isolated PostgreSQL full and incremental sync
     expect(result).toMatchObject({status:'SUCCESS',toVersion:11,inserted:2,updated:0,revoked:0,deleted:0});expect(snapshot.rows).toHaveLength(2);
     expect(snapshot.state).toMatchObject({last_change_version:'11',last_status:'SUCCESS'});
   });
+  it('a failed replacement full snapshot preserves the prior active generation and watermark',async()=>{
+    const before=await read();process.env.RD_BOM_TEST_EVENT='failure';
+    await expect(service().sync(tenant,'FULL')).rejects.toThrow('RD_BOM_SYNC_FAILED');
+    const after=await read();expect(after.rows).toEqual(before.rows);expect(after.state.active_generation).toBe(before.state.active_generation);expect(after.state.last_change_version).toBe(before.state.last_change_version);expect(after.state.last_status).toBe('FAILED');
+    await db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);const [row]=await manager.query('SELECT count(*)::int count FROM rd_bom_master_heads WHERE tenant_id=$1 AND generation_id<>$2',[tenant,before.state.active_generation]);expect(row.count).toBe(0);});
+  });
   it('incremental approval changes, revocation, deletion, and repeated events are idempotent',async()=>{
     process.env.RD_BOM_TEST_EVENT='delta';expect(await service().sync(tenant,'INCREMENTAL')).toMatchObject({inserted:0,updated:1,revoked:1,deleted:1});
     let snapshot=await read();expect(snapshot.rows).toHaveLength(1);expect(snapshot.rows[0]).toMatchObject({source_bom_id:bomA,approve_date:'2026-02-01 00:00:00'});

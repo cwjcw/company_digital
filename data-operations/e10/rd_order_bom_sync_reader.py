@@ -28,6 +28,13 @@ def serialize(value: Any):
     raise TypeError(type(value).__name__)
 
 
+def text_value(value: Any) -> str:
+    """pytds is configured with bytes_to_unicode=False; decode keys before paging."""
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("gb18030", "replace")
+    return str(value)
+
+
 def version(repo: E10Repository) -> int:
     rows = repo._query("SELECT CHANGE_TRACKING_CURRENT_VERSION() AS version")
     value = rows[0].get("version") if rows else None
@@ -71,7 +78,7 @@ def stream_snapshot(repo: E10Repository, page_size: int) -> tuple[int, int]:
               ORDER BY b.BOM_ID""", [page_size, cursor])
         if not rows:
             break
-        cursor = str(rows[-1]["source_bom_id"])
+        cursor = text_value(rows[-1]["source_bom_id"])
         scanned += len(rows)
         emit({"type": "snapshot", "records": rows})
     target_version = version(repo)
@@ -109,7 +116,7 @@ def stream_changes(repo: E10Repository, from_version: int, target_version: int, 
             operation = "DELETE" if row["change_operation"] == "D" else "UPSERT" if row.get("approve_status") == "Y" else "REVOKE"
             changes.append({"operation": operation, **row, "source_bom_id": row["changed_bom_id"]})
         cursor_version = int(rows[-1]["change_version"])
-        cursor_bom_id = str(rows[-1]["changed_bom_id"])
+        cursor_bom_id = text_value(rows[-1]["changed_bom_id"])
         scanned += len(rows)
         emit({"type": "changes", "records": changes})
     return scanned
