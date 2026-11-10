@@ -1,0 +1,60 @@
+{
+  "id": "RdBomMasterIndexDailyV1",
+  "name": "研发中心 BOM 主档每日增量同步",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 1 * * *"
+            }
+          ]
+        }
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07001",
+      "name": "每天01:00上海时间",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js INCREMENTAL'"
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07002",
+      "name": "执行BOM增量同步",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [260, 0],
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "每天01:00上海时间": {
+      "main": [
+        [
+          {
+            "node": "执行BOM增量同步",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1"
+  }
+}

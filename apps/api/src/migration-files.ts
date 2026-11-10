@@ -53,3 +53,10 @@ export function rdBomReportMigrationFiles(directory: string): string[] {
   if (files.length !== 1) throw new Error('R&D BOM report requires exactly migration 125');
   return files;
 }
+
+/** E10 BOM index storage only; does not include general pending migrations. */
+export function rdBomMasterIndexMigrationFiles(directory: string): string[] {
+  const files = discoverMigrationFiles(directory).filter(file => /1722920127000-RdBomMasterIndex\.(?:ts|js)$/.test(path.basename(file)));
+  if (files.length !== 1) throw new Error('R&D BOM master index requires exactly migration127');
+  return files;
+}

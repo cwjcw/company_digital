@@ -28,7 +28,7 @@ describe('研发中心订单BOM报表页面', () => {
     expect(screen.getByRole('tab', { name: '订单BOM汇总' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '事业部BOM统计' })).toBeInTheDocument();
     expect(await screen.findByText('rd-bom-detail')).toBeInTheDocument();
-    expect(screen.getByText(/承接事业部\|订单号\|品号\|品名\|下单日期\|BOM状态\|BOM审核日期\|BOM等待天数\|当前等待天数/)).toBeInTheDocument();
+    expect(screen.getByText(/承接事业部\|订单号\|品号\|品名\|下单日期\|客户交期\|BOM状态\|BOM审核日期\|BOM等待天数\|当前等待天数/)).toBeInTheDocument();
     await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining('context=%7B%22view%22%3A%22detail%22%7D'), expect.anything()));
     fireEvent.click(screen.getByRole('tab', { name: '订单BOM汇总' }));
     expect(await screen.findByText('rd-bom-orders')).toBeInTheDocument();

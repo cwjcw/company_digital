@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverMigrationFiles, unifiedCoreMigrationFiles, phaseAMigrationFiles, syncMaintenanceMigrationFiles, reviewDueIndependenceMigrationFiles, rdBomReportMigrationFiles } from './migration-files';
+import { discoverMigrationFiles, unifiedCoreMigrationFiles, phaseAMigrationFiles, syncMaintenanceMigrationFiles, reviewDueIndependenceMigrationFiles, rdBomReportMigrationFiles, rdBomMasterIndexMigrationFiles } from './migration-files';
 
 describe('TypeORM migration implementation discovery', () => {
   let directory: string;
@@ -24,11 +24,12 @@ describe('TypeORM migration implementation discovery', () => {
   it('phase A excludes120 and121 even if both are pending',()=>{expect(phaseAMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920118000','1722920119000']);});
   it('keeps all existing real migrations including the independent demand-link migration discoverable without running them', () => {
     const files = discoverMigrationFiles(path.join(__dirname, 'migrations'));
-    expect(files).toHaveLength(127);
+    expect(files).toHaveLength(128);
     expect(files.every(file => !file.includes('.spec.'))).toBe(true);
-    expect(files.at(-1)).toContain('1722920126000-MpsRemoveAllocationCustomerDueDate');
+    expect(files.at(-1)).toContain('1722920127000-RdBomMasterIndex');
     expect(reviewDueIndependenceMigrationFiles(path.join(__dirname, 'migrations'))).toHaveLength(1);
     expect(rdBomReportMigrationFiles(path.join(__dirname, 'migrations'))).toHaveLength(1);
+    expect(rdBomMasterIndexMigrationFiles(path.join(__dirname, 'migrations'))).toHaveLength(1);
   });
 });
 
