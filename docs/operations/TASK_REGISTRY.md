@@ -500,4 +500,5 @@
 - 新增只读汇总/入队API `POST /api/v1/internal/master-plan/notifications/summary`，复用 `KDOS_NOTIFICATION_INTERNAL_TOKEN`及租户/worker header；摘要统计活动总数、当日新增/解决、事业部、重点异常、尚未解决的重试耗尽任务及8条脱敏例子，异常页面链接为生产已验证的 `/master-plan-reports`。
 - 新增n8n流程模板 `automation/n8n/kdos-mps-exception-summary.json`，工作日08:35、`Asia/Shanghai`，复用现有“本机SSH”凭据并调用项目脚本。运行态现有19个工作流定义/14个active；新流程已导入但 `active=false`、已unpublish，未重启n8n、未运行/发送。
 - 消息中心当前有4个已配置的设备管理群机器人，但没有“主计划同步异常群”机器人，也没有上述两类事件路由。Webhook不写入仓库；用户表示先自行在消息中心创建配置。待群机器人和两条路由正式可用后，才能启用n8n、执行一次性聚合历史汇总并验证真实回执；当前不得标记为已上线。
-- 本轮API/web定向类型检查和构建通过；组织快照及异常通知定向测试通过（最终结果在私有 `outputs/CODEX_PROGRESS.md` 更新）。仓库代码未提交、未部署、未推送；未执行Migration、未修改生产业务数据或现有个人/群通知设置。
+- 2026-11-15联合版本 `c4feb47ffd0fa8aa3c8b2f6381006b3205914c91` 已正常提交、推送并完成API/Web联合部署；生产 `/api/v1/health`、`/build-info.json` 与仓库 SHA 一致，容器健康。部署前完成 legacy、KDOS 数据库及 uploads 备份并校验 SHA256；未执行Migration、未修改生产计划数据或现有个人/群通知设置。
+- 运行时验收仍待管理员在消息中心创建“主计划同步异常群”机器人并启用 `mps.sync_exception.immediate`、`mps.sync_exception.daily_summary` 两条路由。当前复核仍只有4个设备管理机器人、两条路由缺失；n8n流程已导入但保持inactive，未真实发送测试/首次汇总。完成管理员配置后方可验证企业微信成功回执并启用08:35工作日汇总；未完成前不得将MPS群通知标记为上线。
