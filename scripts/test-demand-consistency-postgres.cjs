@@ -113,7 +113,7 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
   await db.query('UPDATE mps_consistency_checkpoints SET source_updated_at=$2,source_id=$3,sweep_id=$4,last_sweep_at=$5 WHERE tenant_id=$1',[tenant,cp.cursor,cp.source_id,cp.sweep_id,cp.last_sweep_at]);
  });
  await check('retired empty keys verify cleanly, but retained plans without active sources stay protected',async()=>{
-  const empty=await alloc('SYN-RETIRED','SYN-RETIRED-ITEM',0,{archived_at:new Date()});const f={active:empty,key:{orderNumber:empty.order_number,itemCode:empty.item_code,divisionId:division}};
+  const empty=await alloc('SYN-RETIRED','SYN-RETIRED-ITEM',0,{archived_at:new Date(),updated_at:new Date('2020-01-01')});const f={active:empty,key:{orderNumber:empty.order_number,itemCode:empty.item_code,divisionId:division}};
   const old=await event(f,undefined,{resource:'mps-demand-consistency',status:'FAILED',attempts:1,next_attempt_at:Infinity});
   assert.deepEqual((await read(f)).reasons,[]);await sync.scanConsistencyPage(tenant,100);
   const [next]=await db.query("SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND scope_json=$2::jsonb AND status='PENDING' ORDER BY created_at DESC LIMIT 1",[tenant,JSON.stringify({allocationKey:f.key})]);assert(next);await sync.processOutboxEvent(tenant,next.id);

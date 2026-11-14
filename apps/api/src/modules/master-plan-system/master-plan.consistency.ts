@@ -62,8 +62,9 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    const sweep=await m.query(`SELECT id,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND order_status='已审核'
      AND id>$2::uuid AND ($3::timestamptz IS NULL OR $3::timestamptz<clock_timestamp()-interval '24 hours') ORDER BY id LIMIT $4`,[tenant,cp.sweep_id,cp.last_sweep_at,limit]);
    const exhausted=await m.query(`SELECT o.scope_json->'allocationKey' key,o.id FROM mps_reconciliation_outbox o
-     WHERE o.tenant_id=$1 AND o.resource='mps-demand-consistency' AND o.status='FAILED' AND o.attempts>=10
-       AND o.superseded_by IS NULL AND isfinite(o.next_attempt_at) AND o.updated_at<clock_timestamp()-interval '6 hours'
+     WHERE o.tenant_id=$1 AND o.resource='mps-demand-consistency' AND o.status='FAILED'
+       AND o.superseded_by IS NULL AND ((o.attempts>=10 AND isfinite(o.next_attempt_at) AND o.updated_at<clock_timestamp()-interval '6 hours')
+         OR o.idempotency_key NOT LIKE 'mps-consistency:v2:%')
        AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer WHERE newer.tenant_id=o.tenant_id
          AND newer.scope_json=o.scope_json AND (newer.created_at,newer.id)>(o.created_at,o.id)) ORDER BY o.updated_at,o.id LIMIT $2`,[tenant,limit]);
    const historicalFailures=await m.query(`SELECT DISTINCT ON(a.order_number,a.item_code,a.division_id)
@@ -97,7 +98,7 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
      if(pending)continue;
      const inserted=await m.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
        VALUES($1,'mps-demand-consistency',$2::uuid,'plan-projections',$3::jsonb,$4,$5::uuid,'KDOS一致性任务',$5::uuid,$5::uuid)
-       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v1:'+state.fingerprint+(unverified?':verify:'+unverified.id:'')+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
+       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v2:'+state.fingerprint+(unverified?':verify:'+unverified.id:'')+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
      if(inserted.length){enqueued++;await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
        VALUES($1,$2::uuid,'KDOS一致性任务','mps-demand-consistency',$3,'consistency.detected',$4::jsonb,$5,'api',$2::uuid,$2::uuid)`,[tenant,systemId,inserted[0].id,JSON.stringify({key,reasons}), 'mps-consistency:'+inserted[0].id]);}
    }
