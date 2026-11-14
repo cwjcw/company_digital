@@ -563,6 +563,10 @@ export class MasterPlanSyncService {
   }
 
   private async reconcileDemandKey(m:EntityManager,tenant:string,key:DemandKey,actorName:string):Promise<SyncOutcome>{
+    // Match legacy monthly/base sync and manual base creation before taking exclusive monthly rows.
+    // Otherwise a scoped source update can hold monthly X while waiting on their advisory locks.
+    await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${tenant}:mps-monthly-base`]);
+    await m.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`mps-delivery-code:${tenant}:${key.orderNumber}:${key.itemCode}`]);
     const source=await reconcileAllocationPlans(m,tenant,MASTER_PLAN_SYSTEM_USER_ID,actorName,[],key,true,false);
     const state=await inspectDemandKey(m,tenant,key);
     let base:Awaited<ReturnType<typeof reconcileMonthlyBasePlans>>|null=null;

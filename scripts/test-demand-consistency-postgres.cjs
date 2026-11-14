@@ -149,5 +149,19 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
   const first=await sync.scanConsistencyPage(tenant,1);assert.equal(first.sweepRows,1);const [one]=await db.query('SELECT sweep_id,metrics FROM mps_consistency_checkpoints WHERE tenant_id=$1',[tenant]);assert.equal(one.metrics.policyVersion,'v2');
   const second=await sync.scanConsistencyPage(tenant,1);assert.equal(second.sweepRows,1);const [two]=await db.query('SELECT sweep_id FROM mps_consistency_checkpoints WHERE tenant_id=$1',[tenant]);assert(two.sweep_id>one.sweep_id);
  });
+ for(const lockKind of ['monthly-base','delivery'])await check('lock order with concurrent '+lockKind+' owner never holds the monthly row ahead of its predecessor',async()=>{
+  const f=await fixture('LOCK-'+lockKind,4,8,{linked:true});await run(f);await db.query('UPDATE mps_order_allocations SET allocated_quantity=9,version=version+1 WHERE id=$1',[f.active.id]);
+  const owner=db.createQueryRunner();await owner.connect();await owner.startTransaction();let pending;
+  try{
+   await owner.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);
+   if(lockKind==='monthly-base')await owner.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[tenant+':mps-monthly-base']);
+   else await owner.query('SELECT pg_advisory_xact_lock(hashtext($1))',['mps-delivery-code:'+tenant+':'+f.key.orderNumber+':'+f.key.itemCode]);
+   pending=run(f);let waiting=false;
+   for(let n=0;n<100;n++){const [r]=await db.query("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted) waiting");if(r.waiting){waiting=true;break}await new Promise(r=>setTimeout(r,10));}
+   assert(waiting,'consumer must demonstrably wait at the predecessor advisory lock');
+   await owner.query('SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2 FOR SHARE NOWAIT',[tenant,f.monthly.id]);await owner.commitTransaction();
+  }finally{if(owner.isTransactionActive)await owner.rollbackTransaction();await owner.release();}
+  const result=await pending;assert.equal(result.status,'SUCCESS',result.last_error);assert.equal((await read(f)).monthly.required_quantity,'9.0000');
+ });
  console.log(JSON.stringify({passed:passed.length,checks:passed}));
 })().catch(e=>{console.error(e.stack||e);process.exitCode=1}).finally(async()=>{if(db?.isInitialized)await db.destroy()});
