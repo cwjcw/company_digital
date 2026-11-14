@@ -1251,5 +1251,3 @@ export * from "./master-plan-bom-process";
 export * from "./master-plan-demand-links";
 
 export * from "./master-plan-demand-quantity";
-
-export * from "./master-plan-review-applications";

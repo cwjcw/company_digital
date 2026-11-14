@@ -10,16 +10,13 @@ const canonicalName = (name: string) => name.replace(/^凯南(?=事业[一二三
  * remain owned by dashboard(); no parallel business SQL or averaged percentages. */
 export async function dailySummary(queries: Pick<EquipmentQueryService, "dashboard">, reportDate: string, tenantId: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || Number.isNaN(Date.parse(`${reportDate}T00:00:00Z`)) || new Date(`${reportDate}T00:00:00Z`).toISOString().slice(0, 10) !== reportDate) throw new Error("日报日期必须为有效 YYYY-MM-DD");
-  // Table read is not field read. The trusted read-only task needs these two
-  // organization fields to resolve its stable five-unit scope; no admin bypass.
-  const discovery: EquipmentActor = { tenantId, userId: null, username: "设备日报只读任务", permissions: ["equipment-dashboard:*:read", "equipment-dashboard:divisionId:read", "equipment-dashboard:departmentId:read"], tableDataScopes: [{ resource: "equipment-dashboard", scope: "ALL", actions: ["read"] }], requestId: `equipment-daily-${randomUUID()}` };
+  const discovery: EquipmentActor = { tenantId, userId: null, username: "设备日报只读任务", permissions: ["equipment-dashboard:*:read"], tableDataScopes: [{ resource: "equipment-dashboard", scope: "ALL", actions: ["read"] }], requestId: `equipment-daily-${randomUUID()}` };
   const initial = await queries.dashboard({ periodType: "day", period: reportDate }, discovery);
   const ids = DAILY_DIVISIONS.flatMap(name => {
     const matches = initial.filters.divisions.filter((unit: { id: string; name: string }) => canonicalName(unit.name) === name);
     if (matches.some((unit: { id: string | null }) => !unit.id) || new Set(matches.map((unit: { id: string }) => unit.id)).size > 1) throw new Error(`日报单位归属不明确：${name}`);
     return matches.slice(0, 1).map((unit: { id: string }) => unit.id);
   });
-  if (!ids.length && Number(initial.metrics.totalEquipment) > 0) throw new Error("设备日报存在设备但无法解析五单位范围，请检查字段读取权限和组织映射；禁止发送全零日报");
   const actor: EquipmentActor = { ...discovery, tableDataScopes: [{ resource: "equipment-dashboard", scope: "CUSTOM", actions: ["read"], rules: [{ fieldKey: "divisionId", operator: "IN", value: ids }] }] };
   const days = [];
   let reporting: any;

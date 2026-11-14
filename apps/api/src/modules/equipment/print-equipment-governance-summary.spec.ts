@@ -9,7 +9,7 @@ describe('equipment daily adapter uses the unchanged dashboard', () => {
     expect(out.days.map(day => day.date)).toEqual(['2026-10-23','2026-10-24','2026-10-25','2026-10-26','2026-10-27','2026-10-28','2026-10-29']);
     for (const [input, actor] of dashboard.mock.calls.slice(1)) {
       expect(input.periodType).toBe('day'); expect(actor.tenantId).toBe('TENANT_TEST');
-      expect(actor.permissions).toEqual(['equipment-dashboard:*:read', 'equipment-dashboard:divisionId:read', 'equipment-dashboard:departmentId:read']);
+      expect(actor.permissions).toEqual(['equipment-dashboard:*:read']);
       expect(actor.tableDataScopes[0].rules[0]).toEqual({ fieldKey:'divisionId', operator:'IN', value:['unit-0','unit-1','unit-2','unit-3','unit-4'] });
     }
     expect(out.days[6].metrics).toEqual(payload().metrics); expect(out.reporting).toEqual(payload().operationsMonitoring);
