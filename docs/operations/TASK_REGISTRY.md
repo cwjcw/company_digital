@@ -144,6 +144,14 @@
 
 ## MPS-003 Existing master-plan scheduler (confirmed-allocation projection restored)
 
+### Automatic demand consistency extension (Migration129)
+
+- Reuses the existing runDue minute checker, durable Outbox and six original sync configurations; no new n8n workflow, Timer, cron or interval. Host scheduler audit and active n8n workflow metadata were refreshed for this release; unrelated tasks retain their current ownership and schedules.
+- Incremental allocation cursor plus a resumable daily sweep each read one bounded page. Per-business-key consumers verify source identity, monthly/base/weekly quantities and whole-order totals before SUCCESS. Provenance-only recovery retains plan IDs, received/reported facts and manual quantity ownership.
+- Deterministic business conflicts keep a precise exception and stop automatic retry. Verified compensation preserves old FAILED evidence, links its successful successor, and never rewrites the historical outcome. Private bounded CLI uses the same scanner/consumer.
+- Counters/checkpoints, lease/fence, failure diagnostics and rollback: see MPS_AUTOMATIC_DEMAND_CONSISTENCY.md. Implementation does not itself certify a production migration or successful compensation; those require actual runtime verification.
+
+
 ### Current source policy — 2026-10-30 user-confirmed revision (PRODUCTION_DEPLOYED; Migration 112 applied 2026-11-02)
 
 - `plan-projections` reads active (`archived_at IS NULL`), confirmed manual/import, **已审核** KDOS allocations. Demand is PostgreSQL numeric SUM(allocated_quantity) per tenant/order/item/division, including repeated physical rows/batches once. Unapproved/revoked/archived rows are excluded. No ERP existence, quantity ceiling, date watermark, original order-line ID, or customer ownership mapping controls plan admission. Enabled receiving organizations and consistent customer/ownership remain validated; conflicts produce stable per-key diagnostics.

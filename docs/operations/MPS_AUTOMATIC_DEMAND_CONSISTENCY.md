@@ -1,0 +1,52 @@
+# 订单分配需求自动一致性
+
+## 权威来源与事务
+
+已审核、有效且人工维护的订单分配按租户/订单/品项/事业部以 numeric 归集。网页/API、批量更新和 Excel 确认在业务事务中写入同一种业务键 Outbox。消费者重新读取当前来源，旧事件不恢复旧数量。
+
+每个业务键独立执行：来源验证 → 月度需求 → 基础计划 → 周计划 → 整单集团汇总 → 实际数据核验。业务行保存与后台处理分开；HTTP 保存不等待全租户投影。现有投影锁让行、租约、版本栅栏与幂等机制继续有效。
+
+## 安全来源恢复
+
+归档零数量来源与当前有效来源须有相同租户、订单、品项、事业部和客户；有效来源只允许归集到一个正式月度需求。已有基础计划关联该月度需求是合法证据，不能因此阻断。归档非零独立需求、冲突客户、跨需求父关系和不明确多批次保留 BLOCKED。
+
+来源恢复仅改变同一个月度计划的来源指针；原月度、基础、周计划及执行事实 ID 保留。已有入库或报工本身不阻断这个同业务身份的来源补足，实际业务身份、工艺快照、历史报工和入库均不能迁移或重建。
+
+Migration129 提供受限 NOLOGIN 服务角色的来源列更新能力。数据库再次核对归档零来源、当前有效来源、完整身份及同事务授权审计；普通 HTTP actor 或伪造系统用户 ID 不获得该能力。来源旧/新 ID、版本与事务 ID 均留审计。其他执行保护保持有效。
+
+## 字段所有权
+
+月度需求由有效分配归集。基础字段继续三方比较当前值、上次自动基线和新来源；有真正人工数量变更审计或显式数量确认的基础批次保留人工所有权，即使数值以后偶然相同也不转回自动。
+
+单个可证明自动来源的历史基础计划可补首次正式关联；无自动来源基线或多条未确认历史批次不推断归属。多个已正式关联的批次保留其数量，显示已分配/未分配差额。人工周排产数量保留并生成异常；自动周需求随基础计划更新，入库与报工不覆盖，工序不重复创建。
+
+## 持久任务与补偿
+
+JSONB scope 使用字段语义比较，不依赖对象键顺序。临时失败按原退避有界重试；确定业务冲突保留失败证据并停止自动空转。来源发生变化后由新的事件重新判断。耗尽有限重试的瞬时故障由现有检查器在至少六小时后生成独立补偿任务；确定冲突不进入这个循环。
+
+补偿成功必须通过实际来源、数量与下游核验。旧失败事件仍保留 FAILED，通过 superseded_by 指向已核验成功的补偿事件并追加审计；不把旧事件直接改为 SUCCESS，不删除失败历史。每个业务键独立异常，不以其他键成功覆盖失败。
+
+## 周期检查与初次存量处理
+
+复用 MasterPlanSyncService.runDue 原一分钟检查器，未增加 n8n、Timer、cron 或第二个 interval。每次检查最多读取一页来源修改记录及一页历史有效来源；游标保留微秒时间和稳定 ID。每日历史复核可中断续跑，正常情况下优先增量，不反复全表扫描。
+
+检查仅对不一致键生成幂等 Outbox。正式恢复与增量事件使用同一消费者。mps_consistency_checkpoints 记录扫描游标及发现/入队数量，Outbox/同步日志/异常记录提供核验、修复和待人工处理结果。
+
+一次性受控存量运行使用内部运维 CLI：
+
+    node dist/reconcile-mps-demand-consistency.js --execute --pages=100 --batch-size=50 --expected-host=postgres --expected-database=DATABASE
+
+页数和批次有上限；该命令不接收生产行 ID，不包含另一套业务 SQL。实际数据库名称必须与运行配置一致。
+
+## 发布与回滚
+
+先备份并校验，再用专用入口对明确数据库执行仅129的 preflight/execute。必须已有119、121、服务身份迁移和128；拒绝120及未知未来结构，不运行通用 pending migration。
+
+    node dist/migrate-mps-automatic-demand-consistency.js --preflight --migration=1722920129000 --expected-host=postgres --expected-database=DATABASE
+    node dist/migrate-mps-automatic-demand-consistency.js --execute --migration=1722920129000 --expected-host=postgres --expected-database=DATABASE --confirm=APPLY-MPS-AUTOMATIC-CONSISTENCY-129
+
+验证最小 API 候选 SHA、健康及实际系统补偿；Web 无改动时保留原版。回滚应用镜像时保留新增审计、Checkpoint、补偿证据和数据库保护，不整库回退覆盖新业务。生产标识、原始快照和 manifest 不进入 Git。
+
+隔离验收：scripts/test-demand-consistency-postgres.cjs，以及同步可靠性和事业部变更 PostgreSQL 定向回归。
+
+隔离验收基线：22 项全链路合成场景、36 项可靠性、12 项事业部转移回归、105 项单元测试；类型检查与 API 构建通过。测试数据库仅使用 network-none PostgreSQL Unix socket。

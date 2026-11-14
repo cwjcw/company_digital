@@ -458,53 +458,12 @@ export class MasterPlanApplicationService {
         {version:Number(allocation.version),scope,reason:recoveryReason,outboxId:event.id});
       return {eventId:String(event.id),status:String(event.status),allocationVersion:Number(allocation.version),repeated:false};
     });
-    const stages:Array<Record<string,unknown>>=[];
-    const readEvent=async(eventId:string)=>this.dataSource.transaction(async manager=>{
-      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-      const [event]=await manager.query('SELECT status,last_error,attempts FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,eventId]);
-      return event;
-    });
     if(!result.repeated)await this.sync.processOutboxEvent(actor.tenantId,result.eventId);
-    let event=await readEvent(result.eventId);stages.push({syncKey:'plan-projections',...event});
-    if(event?.status==='SUCCESS'){
-      const links=await this.dataSource.transaction(async manager=>{
-        await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-        const [allocation]=await manager.query('SELECT monthly_plan_id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,id]);
-        if(!allocation?.monthly_plan_id)return null;
-        const [shipping]=await manager.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND record_id=$2::uuid
-          AND sync_key='shipping-to-base' AND created_at>=(SELECT created_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$3::uuid)
-          ORDER BY created_at DESC,id DESC LIMIT 1`,[actor.tenantId,allocation.monthly_plan_id,result.eventId]);
-        return {monthlyPlanId:String(allocation.monthly_plan_id),shippingEventId:shipping?String(shipping.id):null};
-      });
-      const processStage=async(syncKey:string,eventId:string)=>{
-        const before=await readEvent(eventId);
-        if(before?.status==='PENDING'||before?.status==='FAILED')await this.sync.processOutboxEvent(actor.tenantId,eventId);
-        const after=await readEvent(eventId);stages.push({syncKey,...after});
-        return after?.status==='SUCCESS';
-      };
-      let downstreamSucceeded=true;
-      if(links?.shippingEventId){
-        downstreamSucceeded=await processStage('shipping-to-base',links.shippingEventId);
-      }else downstreamSucceeded=false;
-      if(downstreamSucceeded&&links){
-        const weeklyEvent=await this.dataSource.transaction(async manager=>{
-          await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
-          const [base]=await manager.query('SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2::uuid ORDER BY id',[actor.tenantId,links.monthlyPlanId]);
-          if(!base)return null;
-          const [event]=await manager.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND record_id=$2::uuid
-            AND sync_key='base-to-weekly' AND created_at>=(SELECT created_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$3::uuid)
-            ORDER BY created_at DESC,id DESC LIMIT 1`,[actor.tenantId,base.id,result.eventId]);
-          return event?String(event.id):null;
-        });
-        if(weeklyEvent)await processStage('base-to-weekly',weeklyEvent);
-        else downstreamSucceeded=false;
-      }
-    }
-    event=await readEvent(result.eventId);
-    const allStagesSucceeded=stages.length===3&&stages.every(stage=>stage.status==='SUCCESS');
-    const failedStage=[...stages].reverse().find(stage=>stage.status!=='SUCCESS');
-    return {...result,status:allStagesSucceeded?'SUCCESS':event?.status==='SUCCESS'?'FAILED':event?.status??result.status,
-      lastError:failedStage?.last_error??event?.last_error??null,attempts:Number(event?.attempts??0),stages};
+    const event=await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      return (await manager.query('SELECT status,last_error,attempts FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,result.eventId]))[0];
+    });
+    return {...result,status:event?.status??result.status,lastError:event?.last_error??null,attempts:Number(event?.attempts??0),stages:[{syncKey:'demand-consistency',...event}]};
   }
 
   async update(code: string, id: string, body: Record<string, unknown>, actor: MasterPlanActor) {
@@ -556,7 +515,8 @@ export class MasterPlanApplicationService {
       await this.audit(manager, actor, code, id, correction ? `${code}.historical_corrected` : `${code}.updated`, current,
         correction ? { ...committedRow, correctionReason: String(body.correctionReason).trim() } : committedRow);
       if (resource.code === "mps-shipping-plans") await this.enqueueShippingPlanKeyFieldsChanged(manager, actor, current, committedRow);
-      await this.enqueueReconciliation(manager, resource, actor, id, committedRow);
+      if(code==='mps-order-allocations')await this.enqueueAllocationReconciliations(manager,actor,[{before:current,after:committedRow}]);
+      else await this.enqueueReconciliation(manager, resource, actor, id, committedRow);
       return {
         id: committedRow.id,
         version: Number(committedRow.version),
@@ -708,8 +668,7 @@ export class MasterPlanApplicationService {
       await this.allocationEvent(manager,"mps-order-allocations",actor,[{before:current,after}]);
       await this.audit(manager,actor,"mps-order-allocations",id,"mps-order-allocations.division_transferred",current,after);
       await this.audit(manager,actor,"mps-order-allocation-transfers",id,"division_transfer.confirmed",null,{idempotencyKey:key,reason,quantity:String(after.allocated_quantity),sourceDivisionId:current.division_id,targetDivisionId:after.division_id,allocationId:id});
-      const outboxKey=`outbox:${actor.requestId}:mps-order-allocations:plan-projections`;
-      await this.enqueueReconciliation(manager,this.resource("mps-order-allocations"),actor,id,after);
+      const [outboxKey]=await this.enqueueReconciliation(manager,this.resource("mps-order-allocations"),actor,id,after);
       const transferExpectations={shipping:sourcePlans.shipping.map(plan=>String(plan.id)),base:sourcePlans.base.map(plan=>String(plan.id)),weekly:sourcePlans.weekly.map(plan=>String(plan.id)),
         processRoutes:sourcePlans.processRoutes.filter(route=>route.current.length>0).map(route=>({weeklyPlanId:route.weeklyPlanId,processCodes:route.targetRoute.map((process:any)=>String(process.processCode)).sort()}))};
       const response={allocationId:id,version:Number(after.version),status:"PENDING",reason,message:"分配事业部及已有计划链已在同一事务提交，集团/月度投影正在对账。",outboxKey,transferExpectations};
@@ -976,6 +935,7 @@ export class MasterPlanApplicationService {
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$5)", [storageKey, requestHash, JSON.stringify(response), actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
       if (response.succeeded > 0) {
         if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else if(resource.code==='mps-order-allocations')await this.enqueueAllocationReconciliations(manager,actor,allocationChanges);
         else await this.enqueueReconciliation(manager, resource, actor);
       }
       return response;
@@ -1086,6 +1046,7 @@ export class MasterPlanApplicationService {
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
       if (createdCount || updatedCount) {
         if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else if(resource.code==='mps-order-allocations')await this.enqueueAllocationReconciliations(manager,actor,allocationChanges);
         else await this.enqueueReconciliation(manager, resource, actor);
       }
       return response;
@@ -1512,6 +1473,12 @@ export class MasterPlanApplicationService {
     }
   }
 
+  private async enqueueAllocationReconciliations(manager:EntityManager,actor:MasterPlanActor,changes:Array<{before:Record<string,unknown>|null;after:Record<string,unknown>}>){
+    const keys=new Map<string,Record<string,unknown>>();
+    for(const change of changes)for(const row of [change.before,change.after])if(row&&row.order_number&&row.item_code&&uuidPattern.test(String(row.division_id??'')))keys.set(JSON.stringify([row.order_number,row.item_code,row.division_id]),row);
+    for(const row of keys.values())await this.enqueueReconciliation(manager,this.resource('mps-order-allocations'),actor,String(row.id),row);
+  }
+
   private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null, scopeOverride?: Record<string, unknown>) {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
     /* 删除报工后事实行已不存在，故在同一事务内把稳定工序身份写入 durable outbox，而不是事后猜测。 */
@@ -1520,17 +1487,19 @@ export class MasterPlanApplicationService {
       : resource.code === "mps-order-allocations" && recordId && record
         && Number.isInteger(Number(record.version)) && typeof record.order_number === "string"
         && typeof record.item_code === "string" && uuidPattern.test(String(record.division_id ?? ""))
-      ? { allocation: { id: recordId, expectedVersion: Number(record.version), orderNumber: String(record.order_number),
+      ? { allocationKey: { orderNumber: String(record.order_number),
           itemCode: String(record.item_code), divisionId: String(record.division_id) } }
       : resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
       ? this.executionScope(record)
       : null);
     const scopeIdentity = scope == null ? "" : `:${createHash("sha256").update(JSON.stringify(scope)).digest("hex").slice(0, 16)}`;
-    for (const syncKey of RECONCILIATION_JOBS[resource.code] ?? []) await manager.query(`
+    const keys=(RECONCILIATION_JOBS[resource.code]??[]).map(syncKey=>({syncKey,key:`outbox:${actor.requestId}:${resource.code}:${syncKey}${scopeIdentity}`}));
+    for (const {syncKey,key} of keys) await manager.query(`
       INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,$2,$3::uuid,$4,$5::jsonb,$6,$7::uuid,$8,$7::uuid,$7::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
-    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}${scopeIdentity}`, actorId, actor.username]);
+    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), key, actorId, actor.username]);
+    return keys.map(entry=>entry.key);
   }
 
   private async enqueueShippingPlanKeyFieldsChanged(

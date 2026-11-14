@@ -24,7 +24,7 @@ describe('TypeORM migration implementation discovery', () => {
   it('phase A excludes120 and121 even if both are pending',()=>{expect(phaseAMigrationFiles(path.join(__dirname,'migrations')).map(f=>path.basename(f).slice(0,13))).toEqual(['1722920118000','1722920119000']);});
   it('keeps all existing real migrations including the independent demand-link migration discoverable without running them', () => {
     const files = discoverMigrationFiles(path.join(__dirname, 'migrations'));
-    expect(files).toHaveLength(129);
+    expect(files).toHaveLength(130);
     expect(files.every(file => !file.includes('.spec.'))).toBe(true);
     expect(files.some(file => file.includes('1722920127000-RdBomMasterIndex'))).toBe(true);
     expect(files.some(file => file.includes('1722920128000-MpsAuditedDemandIdentityTransfer'))).toBe(true);

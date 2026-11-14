@@ -1,14 +1,16 @@
+import {createHash} from "node:crypto";
+import type {DemandKey} from "./master-plan.consistency";
 import { ConflictException } from "@nestjs/common";
 import { DataSource, EntityManager } from "typeorm";
 
 export type SyncRunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 export type SyncExecutionScope = { weeklyPlanId: string; processCode: string };
 export type SyncScope = SyncExecutionScope | {basePlanIds:string[]} | {monthlyPlans:Array<{id:string;expectedVersion:number}>}
-  | { allocation: { id:string; expectedVersion:number; orderNumber:string; itemCode:string; divisionId:string } };
+  | {allocationKey:DemandKey} | { allocation: { id:string; expectedVersion:number; orderNumber:string; itemCode:string; divisionId:string } };
 export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
 export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
-type Event = { id: string; tenant_id: string; sync_key: string; scope_json: unknown; version: number;
+type Event = { resource?:string; id: string; tenant_id: string; sync_key: string; scope_json: unknown; version: number;
   actor_id: string; actor_name: string; idempotency_key: string };
 type Log = { id: string; version: number; status: string; sync_key: string; attempts: number;
   scope_json: SyncScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
@@ -66,8 +68,11 @@ export class MasterPlanSyncRunner {
       for (const event of events) seen.add(event.id);
       const first = events[0]!;
       try {
-        const result = await this.run(tenant, first.sync_key, "EVENT", first.actor_id, first.actor_name,
-          first.idempotency_key, this.scope(first.sync_key, first.scope_json), events, false);
+        const scope=this.scope(first.sync_key,first.scope_json);
+        // Only this durable worker path supplies system capability; actor IDs in public run() do not.
+        const systemDemand=first.sync_key==='plan-projections'&&!!scope&&('allocationKey' in scope||'allocation' in scope);
+        const result = await this.run(tenant, first.sync_key, 'EVENT', systemDemand?this.systemUser:first.actor_id,
+          systemDemand?'KDOS需求一致性任务':first.actor_name,first.idempotency_key,scope,events,systemDemand);
         // Do not trust "did not throw", skipped results, or an unverified SUCCESS.
         if (result.status === "SUCCESS") {
           const [verification] = await this.db.transaction(async manager => {
@@ -140,7 +145,7 @@ export class MasterPlanSyncRunner {
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('lock_timeout',$2,true)", [tenant, String(Math.min(this.leaseMs, 5000))]);
       const [first] = await manager.query(`SELECT * FROM mps_reconciliation_outbox
         WHERE tenant_id=$1 AND NOT(id=ANY($2::uuid[])) AND ($3::uuid IS NULL OR id=$3::uuid) AND (${this.eligible})
-        ORDER BY CASE WHEN id=$3::uuid THEN 0 ELSE 1 END,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, [tenant, exclude,preferredEventId??null]);
+        ORDER BY CASE WHEN id=$3::uuid THEN 0 WHEN sync_key='plan-projections' AND (scope_json ? 'allocationKey' OR scope_json ? 'allocation') THEN 1 ELSE 2 END,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, [tenant, exclude,preferredEventId??null]);
       if (!first) return [];
       const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,
         lease_expires_at=clock_timestamp()+$5::integer*interval '1 millisecond',completed_at=NULL,updated_at=clock_timestamp(),version=version+1
@@ -261,24 +266,41 @@ export class MasterPlanSyncRunner {
       await this.audit(manager, claim.tenant, claim.actorId, claim.actorName, log.id, "attempt_finished",
         { status: "RUNNING", version: log.version }, { status: success ? "SUCCESS" : "FAILED", outcome: failureMessage ? "FAILED" : outcome.status, count: outcome.count });
     }
-    await this.finishEvents(manager, claim.events, success ? "SUCCESS" : "FAILED", error);
+    await this.finishEvents(manager, claim.events, success ? "SUCCESS" : "FAILED", error, !failureMessage&&outcome.status==='BLOCKED');
+    if(success&&claim.key==='plan-projections'&&claim.events.length){
+      const scope=this.scope(claim.key,claim.events[0]!.scope_json);
+      const key=scope&&('allocationKey' in scope?scope.allocationKey:'allocation' in scope?scope.allocation:null);
+      if(key){
+        const superseded=this.rows(await manager.query(`UPDATE mps_reconciliation_outbox o SET superseded_by=$5::uuid,superseded_at=clock_timestamp(),next_attempt_at='infinity'::timestamptz,updated_at=clock_timestamp(),version=version+1
+          WHERE o.tenant_id=$1 AND o.sync_key='plan-projections' AND o.status='FAILED' AND o.superseded_by IS NULL AND o.id<>ALL($6::uuid[])
+            AND o.created_at<=(SELECT created_at FROM mps_reconciliation_outbox WHERE id=$5::uuid)
+            AND (o.scope_json->'allocationKey'=$7::jsonb OR o.scope_json#>>'{allocation,orderNumber}'=$2
+              AND o.scope_json#>>'{allocation,itemCode}'=$3 AND o.scope_json#>>'{allocation,divisionId}'=$4
+              OR o.scope_json IS NULL AND o.resource='mps-order-allocations' AND o.record_id IN
+                (SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid)) RETURNING o.id`,
+          [claim.tenant,key.orderNumber,key.itemCode,key.divisionId,claim.events[0]!.id,claim.events.map(e=>e.id),JSON.stringify({orderNumber:key.orderNumber,itemCode:key.itemCode,divisionId:key.divisionId})]));
+        for(const old of superseded)await this.audit(manager,claim.tenant,claim.actorId,claim.actorName,old.id,'compensated',{status:'FAILED'},{status:'FAILED',supersededBy:claim.events[0]!.id,verifiedOutcome:'SUCCESS'});
+      }
+    }
+    const failureScope=claim.logs[0]?.scope_json;
+    const exceptionKey=`sync:${claim.key}`+(failureScope?':'+createHash('sha256').update(JSON.stringify(this.scope(claim.key,failureScope))).digest('hex').slice(0,20):'');
     if (!success && outcome.status !== "DISABLED") await manager.query(`INSERT INTO mps_data_exceptions(
       tenant_id,exception_key,resource,business_key,exception_type,severity,message,active,created_by,updated_by)
       VALUES($1,$2,'mps-sync-configs',$3,'SYNC_FAILURE','ERROR',$4,true,$5::uuid,$5::uuid)
       ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,
         updated_at=clock_timestamp(),updated_by=excluded.updated_by,version=mps_data_exceptions.version+1`,
-      [claim.tenant, `sync:${claim.key}`, claim.key, error, claim.actorId]);
+      [claim.tenant, exceptionKey, claim.key, error, claim.actorId]);
   }
 
-  private async finishEvents(manager: EntityManager, events: Event[], status: "SUCCESS" | "FAILED", error: string | null) {
+  private async finishEvents(manager: EntityManager, events: Event[], status: "SUCCESS" | "FAILED", error: string | null,permanentBlocked=false) {
     await this.lockEvents(manager, events);
     for (const event of events) {
       const updated = this.rows(await manager.query(`UPDATE mps_reconciliation_outbox SET status=$4::varchar,last_error=$5,
         completed_at=CASE WHEN $4::varchar='SUCCESS' THEN clock_timestamp() ELSE NULL END,
-        next_attempt_at=clock_timestamp()+least(attempts,30)*interval '1 minute',lease_expires_at=NULL,
+        next_attempt_at=CASE WHEN $7::boolean THEN 'infinity'::timestamptz ELSE clock_timestamp()+least(attempts,30)*interval '1 minute' END,lease_expires_at=NULL,
         updated_at=clock_timestamp(),updated_by=$6::uuid,version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp() RETURNING id`,
-        [event.tenant_id, event.id, event.version, status, error, event.actor_id]));
+        [event.tenant_id, event.id, event.version, status, error, event.actor_id,permanentBlocked]));
       if (!updated.length) throw new SyncLeaseLost();
     }
   }
@@ -320,6 +342,12 @@ export class MasterPlanSyncRunner {
       return {monthlyPlans:[...unique.values()].sort((a,b)=>a.id.localeCompare(b.id))};
     }
     if(key==='base-to-weekly'&&scope&&Array.isArray(scope.basePlanIds)&&scope.basePlanIds.length>0&&scope.basePlanIds.length<=100&&scope.basePlanIds.every(id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))return {basePlanIds:[...new Set(scope.basePlanIds as string[])].sort()};
+    if(key==='plan-projections'&&scope&&Object.keys(scope).length===1&&scope.allocationKey){
+      const k=scope.allocationKey as Record<string,unknown>;
+      if(Object.keys(k).length===3&&typeof k.orderNumber==='string'&&k.orderNumber.trim()&&typeof k.itemCode==='string'&&k.itemCode.trim()
+        &&typeof k.divisionId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(k.divisionId))
+        return {allocationKey:{orderNumber:k.orderNumber,itemCode:k.itemCode,divisionId:k.divisionId}};
+    }
     if(key==='plan-projections'&&scope&&Object.keys(scope).length===1&&scope.allocation&&Object.keys(scope.allocation).length===5){
       const a=scope.allocation as Record<string,unknown>;
       if(typeof a.id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(a.id)
@@ -330,7 +358,7 @@ export class MasterPlanSyncRunner {
     if(key==='execution-rollup'&&scope&&typeof scope.weeklyPlanId==='string'&&typeof scope.processCode==='string')return {weeklyPlanId:scope.weeklyPlanId,processCode:scope.processCode};
     throw new ConflictException('同步范围无效，禁止回退全租户执行');
   }
-  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;if(a&&'monthlyPlans' in a)return !!b&&'monthlyPlans' in b&&JSON.stringify(a.monthlyPlans)===JSON.stringify(b.monthlyPlans);if(b&&'monthlyPlans' in b)return false;if(a&&'allocation' in a)return !!b&&'allocation' in b&&JSON.stringify(a.allocation)===JSON.stringify(b.allocation);if(b&&'allocation' in b)return false;if(a&&'weeklyPlanId' in a)return !!b&&'weeklyPlanId' in b&&a.weeklyPlanId===b.weeklyPlanId&&a.processCode===b.processCode;return b==null;}
+  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;if(a&&'monthlyPlans' in a)return !!b&&'monthlyPlans' in b&&JSON.stringify(a.monthlyPlans)===JSON.stringify(b.monthlyPlans);if(b&&'monthlyPlans' in b)return false;if(a&&'allocationKey' in a)return !!b&&'allocationKey' in b&&a.allocationKey.orderNumber===b.allocationKey.orderNumber&&a.allocationKey.itemCode===b.allocationKey.itemCode&&a.allocationKey.divisionId===b.allocationKey.divisionId;if(b&&'allocationKey' in b)return false;if(a&&'allocation' in a)return !!b&&'allocation' in b&&a.allocation.id===b.allocation.id&&a.allocation.expectedVersion===b.allocation.expectedVersion&&a.allocation.orderNumber===b.allocation.orderNumber&&a.allocation.itemCode===b.allocation.itemCode&&a.allocation.divisionId===b.allocation.divisionId;if(b&&'allocation' in b)return false;if(a&&'weeklyPlanId' in a)return !!b&&'weeklyPlanId' in b&&a.weeklyPlanId===b.weeklyPlanId&&a.processCode===b.processCode;return b==null;}
   private rows(result: any[]): any[] { return Array.isArray(result[0]) ? result[0] : result; }
   private errorText(error: unknown) {
     const e = error as { code?: string; message?: string };

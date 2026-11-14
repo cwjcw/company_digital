@@ -203,7 +203,7 @@ integration("Allocation division transfer actual PostgreSQL, isolated fixture",(
     await expect(service.confirmAllocationDivisionTransfer(allocationId,input,actor())).resolves.toMatchObject({status:"PENDING",repeated:true});
     expect(await db.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND action='division_transfer.confirmed'",[tenant,allocationId])).toHaveLength(1);
     await expect(service.allocationDivisionTransferStatus(allocationId,key,actor())).resolves.toMatchObject({status:"PENDING",version:2});
-    await db.query("UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now() WHERE tenant_id=$1 AND idempotency_key=$2",[tenant,`outbox:${actor().requestId}:mps-order-allocations:plan-projections`]);
+    await db.query("UPDATE mps_reconciliation_outbox SET status='SUCCESS',completed_at=now() WHERE tenant_id=$1 AND idempotency_key=$2",[tenant,(await db.query("SELECT response_json->>'outboxKey' key FROM idempotency_keys WHERE key=$1",[`mps-allocation-division-transfer:${tenant}:${MASTER_PLAN_SYSTEM_USER_ID}:${key}`]))[0].key]);
     await expect(service.allocationDivisionTransferStatus(allocationId,key,actor())).resolves.toMatchObject({
       status:"SUCCESS",version:2,
       stages:{allocation:"COMMITTED",groupAndMonthly:"SUCCESS",base:"NOT_APPLICABLE",weekly:"NOT_APPLICABLE",processTasks:"NOT_APPLICABLE"}

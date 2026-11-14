@@ -20,7 +20,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
   SELECT a.*,p.id existing_id,p.allocation_id existing_allocation_id,p.order_number existing_order_number,
     p.item_code existing_item_code,p.division_id existing_division_id,p.customer_code existing_customer_code,
     parent.archived_at parent_archived_at,parent.order_number parent_order_number,parent.item_code parent_item_code,
-    parent.division_id parent_division_id,parent.customer_code parent_customer_code,parent.allocated_quantity parent_quantity,
+    parent.division_id parent_division_id,parent.customer_code parent_customer_code,parent.allocated_quantity parent_quantity,parent.monthly_plan_id parent_monthly_plan_id,
     o.id enabled_division_id,
     (p.id IS NOT NULL AND parent.archived_at IS NOT NULL
       AND (parent.order_number,parent.item_code,parent.division_id,parent.customer_code)
@@ -38,12 +38,21 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
   LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND (p.id=a.demand_parent_id::uuid OR (a.demand_parent_id IS NULL AND p.order_number=a.order_number
     AND p.item_code=a.item_code AND p.division_id IS NOT DISTINCT FROM a.division_id))
   LEFT JOIN mps_order_allocations parent ON parent.tenant_id=p.tenant_id AND parent.id=p.allocation_id
+), classified AS MATERIALIZED (
+  SELECT j.*,(j.archived_parent_matches AND j.valid AND j.customer_count=1
+      AND j.existing_customer_code IS NOT DISTINCT FROM j.customer_code
+      AND j.demand_parent_count<=1 AND (j.demand_parent_id IS NULL OR j.demand_parent_id=j.existing_id::text)
+      AND coalesce(j.parent_quantity,0)=0 AND (j.parent_monthly_plan_id IS NULL OR j.parent_monthly_plan_id=j.existing_id)
+      AND NOT EXISTS(SELECT 1 FROM mps_order_allocations linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id
+        AND (linked.order_number,linked.item_code,linked.division_id,linked.customer_code) IS DISTINCT FROM (j.order_number,j.item_code,j.division_id,j.customer_code))
+      AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND
+        ((linked.monthly_plan_id=j.existing_id AND (linked.order_number,linked.item_code,linked.division_id,linked.customer_code)
+          IS DISTINCT FROM (j.order_number,j.item_code,j.division_id,j.customer_code))
+        OR ((linked.order_number,linked.item_code,linked.division_id) IS NOT DISTINCT FROM (j.order_number,j.item_code,j.division_id)
+          AND linked.monthly_plan_id IS NOT NULL AND linked.monthly_plan_id<>j.existing_id)))) recover_archived_source
+  FROM joined j
 ), candidates AS MATERIALIZED (
   SELECT j.*,
-    (j.archived_parent_matches AND j.allocation_count=1 AND j.demand_parent_count=0
-      AND coalesce(j.parent_quantity,0)=0 AND NOT j.has_execution
-      AND NOT EXISTS(SELECT 1 FROM mps_order_allocations linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)
-      AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)) recover_archived_source,
     (j.valid AND j.customer_count=1
       AND (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=j.order_number)=1
       AND NOT EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=j.tenant_id AND g.order_number=j.order_number
@@ -62,15 +71,11 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
         (j.parent_archived_at IS NOT NULL OR j.parent_order_number IS DISTINCT FROM j.order_number OR
           j.parent_item_code IS DISTINCT FROM j.item_code OR j.parent_division_id IS DISTINCT FROM j.division_id OR
           j.existing_customer_code IS DISTINCT FROM j.customer_code) THEN '保留历史计划或人工归属'
-      WHEN j.archived_parent_matches AND NOT (j.allocation_count=1 AND j.demand_parent_count=0
-        AND coalesce(j.parent_quantity,0)=0 AND NOT j.has_execution
-        AND NOT EXISTS(SELECT 1 FROM mps_order_allocations linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)
-        AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id))
-        THEN CASE WHEN j.has_execution THEN '归档来源仍有入库或执行事实，保留历史计划'
-          WHEN j.allocation_count<>1 THEN '存在多个有效分配来源，保留计划关联待核实'
-          ELSE '存在稳定计划关联或来源归属不明确，保留历史计划' END
+      WHEN j.archived_parent_matches AND NOT j.recover_archived_source
+        THEN CASE WHEN coalesce(j.parent_quantity,0)<>0 THEN '归档来源仍承载非零历史需求，保留独立来源'
+          ELSE '正式父关系或客户身份冲突，不能恢复归档来源' END
       ELSE NULL END skip_reason
-  FROM joined j
+  FROM classified j
 )`;
 
 /** The existing order completion rule is the average of item completion fractions.
@@ -79,8 +84,8 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
  */
 export const allocationOrderTotalsSql = `WITH ${allocationDemandCtesSql}, items AS (
   SELECT a.order_number,a.item_code,sum(a.quantity) required_quantity,
-    least(sum(greatest(p.cumulative_inbound_quantity,0)),sum(a.quantity)) completed_quantity
-  FROM candidates a JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
+    least(sum(greatest(coalesce(p.cumulative_inbound_quantity,0),0)),sum(a.quantity)) completed_quantity
+  FROM candidates a LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
   WHERE a.group_source_safe AND NOT EXISTS(SELECT 1 FROM candidates blocked WHERE blocked.order_number=a.order_number AND NOT blocked.group_source_safe)
   GROUP BY a.order_number,a.item_code
 ), orders AS (
@@ -107,8 +112,8 @@ export function allocationOrderTotalsSqlWithAliases() {
     FROM candidates c
   ), items AS (
     SELECT a.group_order_number order_number,a.item_code,sum(a.quantity) required_quantity,
-      least(sum(greatest(p.cumulative_inbound_quantity,0)),sum(a.quantity)) completed_quantity
-    FROM mapped a JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
+      least(sum(greatest(coalesce(p.cumulative_inbound_quantity,0),0)),sum(a.quantity)) completed_quantity
+    FROM mapped a LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
     WHERE a.group_source_safe AND NOT EXISTS(SELECT 1 FROM mapped blocked WHERE blocked.group_order_number=a.group_order_number AND NOT blocked.group_source_safe)
     GROUP BY a.group_order_number,a.item_code
   ), orders AS (

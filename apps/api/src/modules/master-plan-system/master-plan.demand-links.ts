@@ -74,11 +74,15 @@ export async function linkExistingDemandRecord(m: Db, resource: keyof typeof dem
     await m.query('SET LOCAL ROLE mps_demand_link_service');
   }
   await authorizeDemandLink(m,resource,row,parent.id,actorId,actorName,requestId);
-  const changed=await m.query(`UPDATE ${demandLinkTables[resource]} SET monthly_plan_id=$3::uuid,version=version+1,
-    updated_at=now(),updated_by=$4::uuid WHERE tenant_id=$1 AND id=$2::uuid AND monthly_plan_id IS NULL AND version=$5 RETURNING *`,
-    [row.tenant_id,row.id,parent.id,actorId,row.version]);
+  const changed=await m.query(`UPDATE ${demandLinkTables[resource]} SET monthly_plan_id=$3::uuid
+    WHERE tenant_id=$1 AND id=$2::uuid AND monthly_plan_id IS NULL AND version=$4 RETURNING *`,
+    [row.tenant_id,row.id,parent.id,row.version]);
   if (trustedInternalService) await m.query('RESET ROLE');
-  const after=Array.isArray(changed[0])?changed[0][0]:changed[0];
+  const linked=Array.isArray(changed[0])?changed[0][0]:changed[0];
+  if (!linked) throw new ConflictException('历史需求首次关联发生并发变化');
+  const updated=await m.query(`UPDATE ${demandLinkTables[resource]} SET version=version+1,updated_at=now(),updated_by=$3::uuid
+    WHERE tenant_id=$1 AND id=$2::uuid AND version=$4 RETURNING *`,[row.tenant_id,row.id,actorId,row.version]);
+  const after=Array.isArray(updated[0])?updated[0][0]:updated[0];
   if (!after) throw new ConflictException('历史需求首次关联发生并发变化');
   await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
     VALUES($1,$2::uuid,$3,$4,$5,'demand.first_link_confirmed',$6::jsonb,$7::jsonb,$8,'api',$2::uuid,$2::uuid)`,

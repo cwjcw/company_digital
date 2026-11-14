@@ -23,7 +23,9 @@
     "db:migrate:rd-bom-index": "pnpm build && node dist/migrate-rd-bom-master-index.js",
     "db:migrate:mps-demand-identity-transfer:preflight": "pnpm build && node dist/migrate-mps-audited-demand-identity-transfer.js --preflight",
     "db:migrate:mps-demand-identity-transfer": "pnpm build && node dist/migrate-mps-audited-demand-identity-transfer.js --execute",
-    "rd:bom-sync": "pnpm build && node dist/rd-bom-master-index-sync-cli.js"
+    "rd:bom-sync": "pnpm build && node dist/rd-bom-master-index-sync-cli.js",
+    "db:migrate:mps-demand-consistency": "node dist/migrate-mps-automatic-demand-consistency.js",
+    "mps:reconcile-demand-consistency": "node dist/reconcile-mps-demand-consistency.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",
