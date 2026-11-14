@@ -12,6 +12,7 @@ import { shanghaiToday, shouldEnableProcess, STANDARD_PROCESSES } from "./master
 import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./master-plan.shipping-window";
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 import { NotificationService } from "../notifications/notification.service";
+import { MasterPlanExceptionNotificationService } from "./master-plan-exception-notification.service";
 import { nextMasterPlanDeliveryCode } from "./master-plan.delivery-code";
 import { reconcileAllocationPlans, ensureNewAllocationDemand, allocationProjectionCandidatesSql } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
@@ -65,7 +66,8 @@ export class MasterPlanApplicationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly sync: MasterPlanSyncService,
-    @Optional() private readonly notifications?: NotificationService
+    @Optional() private readonly notifications?: NotificationService,
+    @Optional() private readonly exceptionNotifications?: MasterPlanExceptionNotificationService
   ) {}
 
   /** Quantity allocation uses the same field permissions, types and dictionaries as ordinary creation. */
@@ -316,7 +318,8 @@ export class MasterPlanApplicationService {
         for (const row of groupPlans) if(row.order_number!==target) duplicateGroupPlanIds.add(String(row.id));
         if (target && target!==sourceOrderNumber) groupPlanAliases.push({sourceOrderNumber,targetOrderNumber:target});
       }
-      const projection=await reconcileAllocationPlans(manager,actor.tenantId,actorId,actor.username,groupPlanAliases);
+      const projection=await reconcileAllocationPlans(manager,actor.tenantId,actorId,actor.username,groupPlanAliases,undefined,false,true,
+        this.exceptionNotifications ? (m,t,e)=>this.exceptionNotifications!.enqueueBusinessException(m,t,e) : undefined);
       let groupPlansConsolidated=0;
       if (duplicateGroupPlanIds.size) {
         const duplicates: Array<Record<string,any>> = await manager.query("SELECT * FROM mps_group_plans WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE",[actor.tenantId,[...duplicateGroupPlanIds]]);
@@ -353,7 +356,8 @@ export class MasterPlanApplicationService {
       const allocationMonthlyRows: Array<Record<string,any>> = allocations.length
         ? await manager.query("SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND allocation_id=ANY($2::uuid[])",[actor.tenantId,allocations.map(row=>row.id)]) : [];
       const monthlyIds=[...new Set([...monthly.map(row=>row.id),...allocationMonthlyRows.map(row=>String(row.id)),...zeroRows.map(row=>String(row.id))])];
-      const baseProjection=await reconcileMonthlyBasePlans(manager,actor.tenantId,actorId,actor.username,monthlyIds,zeroRows.map(row=>String(row.id)),false);
+      const baseProjection=await reconcileMonthlyBasePlans(manager,actor.tenantId,actorId,actor.username,monthlyIds,zeroRows.map(row=>String(row.id)),false,false,undefined,
+        this.exceptionNotifications ? (m,t,e)=>this.exceptionNotifications!.enqueueBusinessException(m,t,e) : undefined);
       const response={restored,archived,allocationUpdated,monthlyUpdated,baseUpdated,groupPlansConsolidated,projection:projection.metrics,baseProjection:baseProjection.metrics,repeated:false};
       await this.audit(manager,actor,"mps-order-allocations",null,"mps-order-allocations.residual_finalized",null,{...response,idempotencyKey:input.idempotencyKey});
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)",[storageKey,requestHash,JSON.stringify(response),actor.userId]);

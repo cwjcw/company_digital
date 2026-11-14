@@ -56,7 +56,7 @@ export function monthlyBaseLookupSql(linksReady: boolean) {
     FROM mps_base_plans WHERE tenant_id=$1 AND (${linksReady ? 'monthly_plan_id=$4::uuid OR ' : ''}(order_number=$2 AND item_code=$3)) ORDER BY id FOR UPDATE`;
 }
 
-export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true, trustedInternalService = false, expectedVersions?:Map<string,number>) {
+export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true, trustedInternalService = false, expectedVersions?:Map<string,number>, notifyException?:(manager:EntityManager,tenantId:string,exception:Record<string,unknown>)=>Promise<unknown>) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
@@ -113,11 +113,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     const sourceKey=`monthly-source:${monthlyPlan.id}`;
     if(monthlyPlan.source_confirmed===false){
       conflicts++;
-      await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-monthly-plans',$3,$4,'MONTHLY_SOURCE_UNCONFIRMED','WARNING','月度正式来源尚未确认或身份不一致，保留原计划',true,$5,$5)
-        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message
-        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+        RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
         [tenantId,sourceKey,monthlyPlan.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,actorId]);
+      if(exception&&notifyException)await notifyException(manager,tenantId,exception);
       continue;
     }
     await manager.query('UPDATE mps_data_exceptions SET active=false,resolved_at=now() WHERE tenant_id=$1 AND exception_key=$2 AND active',[tenantId,sourceKey]);
@@ -137,11 +139,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
       const gapKey=`demand-quantity-gap:${monthlyPlan.id}`;
       if(!delta.isZero()){
         quantityProtected++;
-        await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+        const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
           VALUES($1,$2,'mps-monthly-plans',$3,$4,'DEMAND_ALLOCATION_GAP','WARNING',$5,true,$6,$6)
-          ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message
-          WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+          ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
+          WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+          RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
           [tenantId,gapKey,monthlyPlan.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,'已确认多批次数量保留；未分配差额='+delta.toFixed(4),actorId]);
+        if(exception&&notifyException)await notifyException(manager,tenantId,exception);
       }else await manager.query('UPDATE mps_data_exceptions SET active=false,resolved_at=now() WHERE tenant_id=$1 AND exception_key=$2 AND active',[tenantId,gapKey]);
       multiBatch++;continue; // Multiple confirmed batches are legitimate; never overwrite quantities or create another.
     }
@@ -153,12 +157,14 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     if (formalConflict || customerConflict || bases.length > 1 || unmatchedDivision) {
       conflicts++;
       const reason = formalConflict ? "显式需求父关系冲突，禁止文本回退" : customerConflict ? "基础计划客户归属冲突，保留原记录" : bases.length > 1 ? "多个历史批次尚未确认需求父关系，保留原记录" : "既有基础计划与月计划事业部不一致，保留原记录";
-      await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-monthly-plans',$3::uuid,$4,'MONTHLY_BASE_CONFLICT','WARNING',$5,true,$6::uuid,$6::uuid)
         ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,
-          updated_at=now(),updated_by=$6::uuid,version=mps_data_exceptions.version+1
-        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+        updated_at=now(),updated_by=$6::uuid,version=mps_data_exceptions.version+1
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+        RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
       [tenantId,conflictKey,monthlyPlan.id,`${monthlyPlan.order_number}/${monthlyPlan.item_code}`,reason,actorId]);
+      if(exception&&notifyException)await notifyException(manager,tenantId,exception);
       continue;
     }
     const desired = monthlyBaseValues(monthlyPlan);
@@ -181,9 +187,12 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
         if(!previous || String(previous.division_id)!==String(monthlyPlan.division_id)
           || (previous.customer_code&&monthlyPlan.customer_code&&previous.customer_code!==monthlyPlan.customer_code)){
           conflicts++;
-          await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+          const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
             VALUES($1,$2,'mps-base-plans',$3,$4,'MONTHLY_BASE_CONFLICT','WARNING','历史基础计划没有可证明的自动来源基线，保留人工归属',true,$5,$5)
-            ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message`,[tenantId,conflictKey,before.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,actorId]);
+            ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
+            WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+            RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,[tenantId,conflictKey,before.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,actorId]);
+          if(exception&&notifyException)await notifyException(manager,tenantId,exception);
           continue;
         }
         after=await linkExistingDemandRecord(manager,'mps-base-plans',before,String(monthlyPlan.id),actorId,actorName,requestId,trustedInternalService);
@@ -207,11 +216,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     const gapKey=`demand-quantity-gap:${monthlyPlan.id}`;
     if(!delta.isZero()){
       quantityProtected++;unallocated=unallocated.add(Decimal.max(delta,0));overallocated=overallocated.add(Decimal.max(delta.negated(),0));
-      await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-monthly-plans',$3,$4,'DEMAND_ALLOCATION_GAP','WARNING',$5,true,$6,$6)
-        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message
-        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+        RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
         [tenantId,gapKey,monthlyPlan.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,'基础计划数量由人工或历史所有权保护；未分配差额='+delta.toFixed(4),actorId]);
+      if(exception&&notifyException)await notifyException(manager,tenantId,exception);
     }else await manager.query('UPDATE mps_data_exceptions SET active=false,resolved_at=now() WHERE tenant_id=$1 AND exception_key=$2 AND active',[tenantId,gapKey]);
     // Remember source values separately from the record's manual values in the existing audit only.
     // No-op reruns do not append audit entries or increment row versions.

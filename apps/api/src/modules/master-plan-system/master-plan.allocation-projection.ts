@@ -13,7 +13,8 @@ export const allocationProjectionParams = (tenantId: string) => [tenantId];
 export type AllocationProjectionScope = {id?:string;expectedVersion?:number;orderNumber:string;itemCode:string;divisionId:string};
 
 export async function reconcileAllocationPlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string,
-  groupPlanAliases: Array<{ sourceOrderNumber: string; targetOrderNumber: string }> = [], scope?:AllocationProjectionScope, trustedInternalService=false, enqueueDownstream=true) {
+  groupPlanAliases: Array<{ sourceOrderNumber: string; targetOrderNumber: string }> = [], scope?:AllocationProjectionScope, trustedInternalService=false, enqueueDownstream=true,
+  notifyException?:(manager:EntityManager,tenantId:string,exception:Record<string,unknown>)=>Promise<unknown>) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-allocation-projection`]);
@@ -120,12 +121,14 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
   for (const row of candidates) {
     const key = `allocation-projection:${JSON.stringify([row.order_number,row.item_code,row.division_id])}`;
     if (row.skip_reason) {
-      await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-order-allocations',$3::uuid,$4,'ALLOCATION_PROJECTION_BLOCKED','WARNING',$5,true,$6::uuid,$6::uuid)
         ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,
-          updated_at=now(),updated_by=$6::uuid,version=mps_data_exceptions.version+1
-        WHERE mps_data_exceptions.message IS DISTINCT FROM excluded.message OR NOT mps_data_exceptions.active`,
+        updated_at=now(),updated_by=$6::uuid,version=mps_data_exceptions.version+1
+        WHERE mps_data_exceptions.message IS DISTINCT FROM excluded.message OR NOT mps_data_exceptions.active
+        RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
       [tenantId,key,row.allocation_id,`${row.order_number}/${row.item_code}`,row.skip_reason,actorId]);
+      if(exception&&notifyException)await notifyException(manager,tenantId,exception);
     }
   }
   // Resolve obsolete ERP-gate diagnostics and keys whose source was archived or

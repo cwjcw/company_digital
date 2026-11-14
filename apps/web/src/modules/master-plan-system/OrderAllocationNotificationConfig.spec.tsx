@@ -19,6 +19,13 @@ describe("allocation notification configuration",()=>{
    mount();await screen.findByText("供应商映射配置异常");expect(screen.getByText(/供应链：映射已停用/)).toBeVisible();
    fireEvent.click(screen.getByRole("button",{name:"修复映射"}));const dialog=await screen.findByRole("dialog");await waitFor(()=>expect(within(dialog).getByDisplayValue("供应链")).toBeVisible());
  });
+ it("recovers department labels from the same organization IDs when the joined name is absent",async()=>{
+   vi.mocked(api).mockResolvedValue({...configuration,
+     vendors:configuration.vendors.map(row=>({...row,divisionName:undefined})),
+     recipients:configuration.recipients.map(row=>({...row,divisionName:undefined}))
+   } as never);
+   mount();expect(await screen.findAllByText("事业一部")).not.toHaveLength(0);expect(screen.queryAllByText("承接组织无效")).toHaveLength(0);
+ });
  it("allows selecting an enabled organization outside the five default units",async()=>{
    mount();await screen.findAllByText("采购部");fireEvent.click(screen.getByRole("button",{name:"新增映射"}));
    const dialog=await screen.findByRole("dialog");fireEvent.mouseDown(within(dialog).getByRole("combobox"));expect((await screen.findAllByText("凯南 / 仓储部")).length).toBeGreaterThan(0);

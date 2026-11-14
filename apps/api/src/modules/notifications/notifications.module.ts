@@ -13,6 +13,6 @@ import { NotificationAdminService } from "./notification-admin.service";
   imports: [TypeOrmModule.forFeature([ApiKey, User])],
   controllers: [NotificationInternalController, NotificationAdminController],
   providers: [OrderAllocationDeliveryService, AuthGuard, NotificationService, NotificationInternalGuard, NotificationAdminService],
-  exports: [NotificationService]
+  exports: [NotificationService, NotificationInternalGuard]
 })
 export class NotificationsModule {}

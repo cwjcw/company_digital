@@ -34,4 +34,28 @@ describe("enterprise WeChat organization display normalization", () => {
     expect(manager.save).toHaveBeenCalledWith(User, user);
     expect(manager.save).toHaveBeenCalledWith(AuditLog, expect.objectContaining({ action: "wecom.organization_display_names_normalized" }));
   });
+
+  it("rejects an empty or structurally incomplete organization snapshot before sync", async () => {
+    const organizations = { count: jest.fn().mockResolvedValue(1), find: jest.fn().mockResolvedValue([]) };
+    const service = new ContactSyncApplicationService({} as any, null as any, null as any, organizations as any, null as any, null as any, null as any);
+    await expect((service as any).normalize({ departments: [], contacts: [] })).rejects.toThrow("未包含组织架构");
+    await expect((service as any).normalize({
+      departments: [{ externalId: "child", name: "生产部", parentExternalId: "missing", path: ["凯南", "生产部"] }], contacts: []
+    })).rejects.toThrow("缺少上级部门");
+  });
+
+  it("does not silently rebind a managed organization when its external ID changes at the same path", async () => {
+    const organization = { id: "organization-1", name: "事业一部", wechatDepartmentId: "old-id", parentId: null, level: 1, sortOrder: 0 };
+    const organizations = { count: jest.fn().mockResolvedValue(1), find: jest.fn().mockResolvedValue([organization]) };
+    const users = { find: jest.fn().mockResolvedValue([]) };
+    const contacts = { find: jest.fn().mockResolvedValue([]) };
+    const manager = { save: jest.fn().mockResolvedValue({}) };
+    const dataSource = { transaction: jest.fn((work: (manager: unknown) => unknown) => work(manager)) };
+    const service = new ContactSyncApplicationService(dataSource as any, users as any, contacts as any, organizations as any, null as any, null as any, null as any);
+    await expect(service.sync({
+      capturedAt: new Date().toISOString(), sourceHash: "fixture", departments: [{ externalId: "new-id", name: "事业一部", parentExternalId: null, path: ["事业一部"], sortOrder: 0 }], contacts: []
+    }, { userId: null, name: "测试", requestId: "request-2", source: "api" }, true)).rejects.toMatchObject({
+      response: expect.objectContaining({ message: expect.stringContaining("部门ID变化") })
+    });
+  });
 });

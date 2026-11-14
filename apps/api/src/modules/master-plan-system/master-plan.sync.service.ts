@@ -1,5 +1,5 @@
 import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { createHash, randomUUID } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
@@ -14,6 +14,7 @@ import { reconcileExistingMonthlyInbound } from "./master-plan.monthly-inbound";
 import { inspectDemandKey,scanDemandConsistencyPage,demandKeyText,type DemandKey } from "./master-plan.consistency";
 import { reconcileAllocationPlans } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
+import { MasterPlanExceptionNotificationService } from "./master-plan-exception-notification.service";
 
 import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncScope, type SyncOutcome } from "./master-plan.sync-runner";
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
@@ -23,9 +24,12 @@ export class MasterPlanSyncService {
   private readonly logger = new Logger(MasterPlanSyncService.name);
   private readonly runner: MasterPlanSyncRunner;
   private dueRunning=false;
-  constructor(private readonly dataSource: DataSource) {
+  constructor(private readonly dataSource: DataSource, @Optional() private readonly exceptionNotifications?: MasterPlanExceptionNotificationService) {
     this.runner = new MasterPlanSyncRunner(dataSource,
-      (manager, key, tenant, actor, name, scope, trustedService) => this.execute(key, tenant, actor, actor, scope, name, manager, trustedService), MASTER_PLAN_SYSTEM_USER_ID);
+      (manager, key, tenant, actor, name, scope, trustedService) => this.execute(key, tenant, actor, actor, scope, name, manager, trustedService), MASTER_PLAN_SYSTEM_USER_ID,
+      300_000, exceptionNotifications ? (manager, tenant, event) => "exception_type" in event
+        ? exceptionNotifications.enqueueBusinessException(manager, tenant, event)
+        : exceptionNotifications.enqueueOutboxRetryLimit(manager, tenant, event) : undefined);
   }
 
   async manual(syncKey: string, actor: MasterPlanActor) {
@@ -559,7 +563,8 @@ export class MasterPlanSyncService {
   private projectPlans(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager,
     allocationScope?:{id:string;expectedVersion:number;orderNumber:string;itemCode:string;divisionId:string}|null): Promise<SyncOutcome> {
     return this.syncTransaction(transaction, manager => reconcileAllocationPlans(manager, tenantId,
-      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy, [], allocationScope ?? undefined), "REPEATABLE READ");
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy, [], allocationScope ?? undefined, false, true,
+      this.exceptionNotifications ? (m,t,e)=>this.exceptionNotifications!.enqueueBusinessException(m,t,e) : undefined), "REPEATABLE READ");
   }
 
   private async reconcileDemandKey(m:EntityManager,tenant:string,key:DemandKey,actorName:string):Promise<SyncOutcome>{
@@ -567,12 +572,14 @@ export class MasterPlanSyncService {
     // Otherwise a scoped source update can hold monthly X while waiting on their advisory locks.
     await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${tenant}:mps-monthly-base`]);
     await m.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`mps-delivery-code:${tenant}:${key.orderNumber}:${key.itemCode}`]);
-    const source=await reconcileAllocationPlans(m,tenant,MASTER_PLAN_SYSTEM_USER_ID,actorName,[],key,true,false);
+    const source=await reconcileAllocationPlans(m,tenant,MASTER_PLAN_SYSTEM_USER_ID,actorName,[],key,true,false,
+      this.exceptionNotifications ? (manager,t,e)=>this.exceptionNotifications!.enqueueBusinessException(manager,t,e) : undefined);
     const state=await inspectDemandKey(m,tenant,key);
     let base:Awaited<ReturnType<typeof reconcileMonthlyBasePlans>>|null=null;
     let weekly:SyncOutcome|null=null;
     if(state.candidate&&!state.candidate.skip_reason&&state.monthly){
-      base=await reconcileMonthlyBasePlans(m,tenant,MASTER_PLAN_SYSTEM_USER_ID,actorName,[state.monthly.id],[state.monthly.id],false,true);
+      base=await reconcileMonthlyBasePlans(m,tenant,MASTER_PLAN_SYSTEM_USER_ID,actorName,[state.monthly.id],[state.monthly.id],false,true,undefined,
+        this.exceptionNotifications ? (manager,t,e)=>this.exceptionNotifications!.enqueueBusinessException(manager,t,e) : undefined);
       const ids=await m.query('SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2 ORDER BY id',[tenant,state.monthly.id]);
       if(ids.length)weekly=await this.baseToWeekly(tenant,MASTER_PLAN_SYSTEM_USER_ID,MASTER_PLAN_SYSTEM_USER_ID,m,ids.map((r:any)=>String(r.id)));
     }
@@ -582,11 +589,15 @@ export class MasterPlanSyncService {
     if(Number(base?.metrics.base_quantity_protected)>0)reasons.push('基础计划人工数量受保护，保留未分配差额');
     if(weekly?.status==='BLOCKED')reasons.push('周计划执行身份或人工排产受保护');
     const exceptionKey='demand-consistency:'+createHash('sha256').update(demandKeyText(key)).digest('hex');
-    if(reasons.length)await m.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
-      VALUES($1,$2,'mps-order-allocations',$3,$4,'DEMAND_CONSISTENCY_BLOCKED','WARNING',$5,true,$6,$6)
-      ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message
-      WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
-      [tenant,exceptionKey,verified.allocations[0]?.id??null,key.orderNumber+'/'+key.itemCode,[...new Set(reasons)].join('；'),MASTER_PLAN_SYSTEM_USER_ID]);
+    if(reasons.length){
+      const [exception]=await m.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+        VALUES($1,$2,'mps-order-allocations',$3,$4,'DEMAND_CONSISTENCY_BLOCKED','WARNING',$5,true,$6,$6)
+        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+        RETURNING exception_key,exception_type,version`,
+        [tenant,exceptionKey,verified.allocations[0]?.id??null,key.orderNumber+'/'+key.itemCode,[...new Set(reasons)].join('；'),MASTER_PLAN_SYSTEM_USER_ID]);
+      if(exception&&this.exceptionNotifications)await this.exceptionNotifications.enqueueDemandConflict(m,tenant,exception,verified);
+    }
     else await m.query('UPDATE mps_data_exceptions SET active=false,resolved_at=now() WHERE tenant_id=$1 AND exception_key=$2 AND active',[tenant,exceptionKey]);
     return {count:source.count+(base?.count??0)+(weekly?.count??0),status:reasons.length?'BLOCKED':'SUCCESS',
       metrics:{...source.metrics,...base?.metrics,...weekly?.metrics,consistency_verified:reasons.length?0:1,consistency_blocked:reasons.length?1:0}};
@@ -596,7 +607,8 @@ export class MasterPlanSyncService {
   private shippingToBase(tenantId: string, userId: string | null, actorName: string, transaction?: EntityManager, monthlyPlans: Array<{id:string;expectedVersion:number}>|null=null, trustedInternalService=false): Promise<SyncOutcome> {
     return this.syncTransaction(transaction, manager => reconcileMonthlyBasePlans(manager, tenantId,
       userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName, monthlyPlans?.map(plan=>plan.id), [], !monthlyPlans||!trustedInternalService,
-      trustedInternalService, monthlyPlans ? new Map(monthlyPlans.map(plan=>[plan.id,plan.expectedVersion])) : undefined));
+      trustedInternalService, monthlyPlans ? new Map(monthlyPlans.map(plan=>[plan.id,plan.expectedVersion])) : undefined,
+      this.exceptionNotifications ? (m,t,e)=>this.exceptionNotifications!.enqueueBusinessException(m,t,e) : undefined));
   }
 
   private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager, basePlanIds:string[]|null=null): Promise<SyncOutcome> {
@@ -927,9 +939,7 @@ export class MasterPlanSyncService {
   }
 
   private async refreshExceptions(manager: EntityManager, tenantId: string, userId: string | null, updatedBy: string) {
-    await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$2,version=version+1 WHERE tenant_id=$1 AND active=true AND exception_type IN ('MISSING_CUSTOMER_CODE','MISSING_PRIMARY_DIVISION','MISSING_ALLOCATION_DIVISION','NON_POSITIVE_DEMAND','INBOUND_EXCEEDS_DEMAND')`, [tenantId, updatedBy]);
-    await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
-    SELECT $1,exception_key,resource,record_id,business_key,exception_type,severity,message,true,$2::uuid,$3 FROM (SELECT DISTINCT ON (exception_key) * FROM (
+    const changed: Array<Record<string, unknown>> = await manager.query(`WITH exceptions_raw AS (
       /* 业务字段可为空时，异常键必须仍是稳定、非空的业务主键，绝不依赖 NULL 拼接。 */
       SELECT 'group:'||order_number||':missing-customer-code' exception_key,'mps-group-plans' resource,id record_id,order_number business_key,'MISSING_CUSTOMER_CODE' exception_type,'ERROR' severity,'订单缺少客户代码，请核对来源数据' message FROM mps_group_plans WHERE tenant_id=$1 AND NULLIF(BTRIM(customer_code),'') IS NULL
       UNION ALL SELECT 'allocation:'||order_number||':'||item_code||':missing-customer-code','mps-order-allocations',id,order_number||'/'||item_code,'MISSING_CUSTOMER_CODE','ERROR','订单缺少客户代码，请核对来源数据' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NULL
@@ -937,7 +947,25 @@ export class MasterPlanSyncService {
       UNION ALL SELECT 'allocation:'||order_number||':'||item_code,'mps-order-allocations',id,order_number||'/'||item_code,'MISSING_ALLOCATION_DIVISION','ERROR','订单品项未分配承接事业部' FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND NULLIF(BTRIM(customer_code),'') IS NOT NULL AND division_id IS NULL
       UNION ALL SELECT 'demand:'||id::text,'mps-monthly-plans',id,order_number||'/'||item_code,'NON_POSITIVE_DEMAND','ERROR','订单需求数量必须大于0' FROM mps_monthly_plans WHERE tenant_id=$1 AND required_quantity<=0
       UNION ALL SELECT 'over-inbound:'||id::text,'mps-monthly-plans',id,order_number||'/'||item_code,'INBOUND_EXCEEDS_DEMAND','WARNING','累计入库数量超过订单需求数量' FROM mps_monthly_plans WHERE tenant_id=$1 AND cumulative_inbound_quantity>required_quantity
-    ) exceptions_raw ORDER BY exception_key) exceptions ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=$3,version=mps_data_exceptions.version+1`, [tenantId, userId, updatedBy]);
+    ), exceptions AS (
+      SELECT DISTINCT ON (exception_key) * FROM exceptions_raw ORDER BY exception_key
+    ), upserted AS (
+      INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      SELECT $1,exception_key,resource,record_id,business_key,exception_type,severity,message,true,$2::uuid,$3::uuid FROM exceptions
+      ON CONFLICT(tenant_id,exception_key) DO UPDATE SET resource=excluded.resource,record_id=excluded.record_id,business_key=excluded.business_key,
+        exception_type=excluded.exception_type,severity=excluded.severity,message=excluded.message,active=true,resolved_at=NULL,
+        updated_at=now(),updated_by=$3::uuid,version=mps_data_exceptions.version+1
+      WHERE NOT mps_data_exceptions.active OR (mps_data_exceptions.resource,mps_data_exceptions.record_id,mps_data_exceptions.business_key,
+        mps_data_exceptions.exception_type,mps_data_exceptions.severity,mps_data_exceptions.message)
+        IS DISTINCT FROM (excluded.resource,excluded.record_id,excluded.business_key,excluded.exception_type,excluded.severity,excluded.message)
+      RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by
+    ), resolved AS (
+      UPDATE mps_data_exceptions e SET active=false,resolved_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1
+      WHERE e.tenant_id=$1 AND e.active=true AND e.exception_type IN ('MISSING_CUSTOMER_CODE','MISSING_PRIMARY_DIVISION','MISSING_ALLOCATION_DIVISION','NON_POSITIVE_DEMAND','INBOUND_EXCEEDS_DEMAND')
+        AND NOT EXISTS(SELECT 1 FROM exceptions current WHERE current.exception_key=e.exception_key)
+      RETURNING e.id
+    ) SELECT * FROM upserted`, [tenantId, userId, updatedBy]);
+    if (this.exceptionNotifications) for (const exception of changed) await this.exceptionNotifications.enqueueBusinessException(manager, tenantId, exception);
   }
 
 

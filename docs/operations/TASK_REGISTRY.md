@@ -493,3 +493,11 @@
 - 生产工作流已由官方 CLI 导入并发布，持久库 `active=true`、上海时区及 cron 表达式核对通过。n8n 进程需要重启才能装载新发布版本；当前既有 `realtimesnap_每天_9:00` 执行1460仍在运行，因此本轮未重启、未中断它。状态为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，尚不能视为定时任务运行时验收通过。
 - 新增工作流通过容器 API 同步命令成功验证；尝试使用 CLI `n8n execute` 因 5679 Task Broker 已被现有 n8n 进程占用退出。待执行1460自然结束后受控重启，确认启动激活、SSH 节点 SUCCESS 与下次01:00触发，再将状态更新为 DEPLOYED。证据与步骤见`outputs/RD_ORDER_BOM_REPORT_RELEASE_ACCEPTANCE.md`。
 - 2026-11-10后续BOM计数热修复：生产确认E10 item UUID为大写、PostgreSQL UUID文本为小写；数据库UUID过滤成功，JavaScript字符串Map却区分大小写，致使已有BOM全显示0。API唯一变更为两侧UUID小写规范化，回归7/7、类型检查和Lint通过；API部署SHA `28ab0eb782adf4d94916a8cbdd83151a56a5e805`，镜像 `sha256:d5c2e9ffa6d59213fb0a9d87c12e3041aede4b135659ae0253ab650a69e0af12`，未执行Migration/全量同步。修复后只读复算2,365个有已审核BOM品号、3,565条分配明细；另有431个分配品号在E10 ITEM无匹配、保持待核实。运行台账状态仍为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，不因API热修复改变。
+
+### MPS 通知：计划同步异常企业微信群与工作日汇总（2026-11-15，待消息中心路由/未启用）
+
+- 复用既有 `MasterPlanSyncService`、`notification_outbox`、`NotificationService`、`kdos-notification-dispatcher.service`；未新增异常扫描器、systemd、cron或业务检测调度。即时事件为 `mps.sync_exception.immediate`，汇总事件为 `mps.sync_exception.daily_summary`。实现覆盖需求一致性、月度/基础冲突、分配投影阻断、同步失败及Outbox达到重试上限；异常版本和Outbox状态版本负责幂等去重。没有可用路由时跳过入队，计划事务仍继续，工作日汇总按发送时实时状态重算，不预置历史异常数量。
+- 新增只读汇总/入队API `POST /api/v1/internal/master-plan/notifications/summary`，复用 `KDOS_NOTIFICATION_INTERNAL_TOKEN`及租户/worker header；摘要统计活动总数、当日新增/解决、事业部、重点异常、尚未解决的重试耗尽任务及8条脱敏例子，异常页面链接为生产已验证的 `/master-plan-reports`。
+- 新增n8n流程模板 `automation/n8n/kdos-mps-exception-summary.json`，工作日08:35、`Asia/Shanghai`，复用现有“本机SSH”凭据并调用项目脚本。运行态现有19个工作流定义/14个active；新流程已导入但 `active=false`、已unpublish，未重启n8n、未运行/发送。
+- 消息中心当前有4个已配置的设备管理群机器人，但没有“主计划同步异常群”机器人，也没有上述两类事件路由。Webhook不写入仓库；用户表示先自行在消息中心创建配置。待群机器人和两条路由正式可用后，才能启用n8n、执行一次性聚合历史汇总并验证真实回执；当前不得标记为已上线。
+- 本轮API/web定向类型检查和构建通过；组织快照及异常通知定向测试通过（最终结果在私有 `outputs/CODEX_PROGRESS.md` 更新）。仓库代码未提交、未部署、未推送；未执行Migration、未修改生产业务数据或现有个人/群通知设置。

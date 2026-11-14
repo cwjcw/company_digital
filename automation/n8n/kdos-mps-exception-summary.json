@@ -1,0 +1,89 @@
+{
+  "id": "KdosMpsExceptionWeekdaySummaryV1",
+  "name": "KDOS主计划同步异常工作日汇总",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "35 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "d4bd92e3-314e-4b1f-b5d7-249f6558b100",
+      "name": "工作日08:35上海时间",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {},
+      "id": "d4bd92e3-314e-4b1f-b5d7-249f6558b101",
+      "name": "手工触发首次历史汇总",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 220]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "node /data/automation/code/work/PMC/knweb/scripts/kdos-mps-exception-summary.mjs daily"
+      },
+      "id": "d4bd92e3-314e-4b1f-b5d7-249f6558b102",
+      "name": "生成并入队工作日汇总",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [300, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 30000,
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "node /data/automation/code/work/PMC/knweb/scripts/kdos-mps-exception-summary.mjs initial"
+      },
+      "id": "d4bd92e3-314e-4b1f-b5d7-249f6558b103",
+      "name": "首次历史异常仅汇总一次",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [300, 220],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 30000,
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "工作日08:35上海时间": {
+      "main": [[{ "node": "生成并入队工作日汇总", "type": "main", "index": 0 }]]
+    },
+    "手工触发首次历史汇总": {
+      "main": [[{ "node": "首次历史异常仅汇总一次", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1"
+  }
+}

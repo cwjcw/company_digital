@@ -29,11 +29,13 @@ import { OrganizationDirectoryModule } from "../organization-directory/organizat
 import { TableFilterModule } from "../../common/filtering/table-filter.module";
 import { MasterPlanFilterSourceProvider } from "./master-plan.filter-sources";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { MasterPlanExceptionNotificationService } from "./master-plan-exception-notification.service";
+import { MasterPlanExceptionNotificationInternalController } from "./master-plan-exception-notification.internal.controller";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule],
-  controllers: [MasterPlanBomProcessController, ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController],
-  providers: [MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  controllers: [MasterPlanBomProcessController, ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanController, MasterPlanDashboardController, MasterPlanExceptionNotificationInternalController],
+  providers: [MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanExceptionNotificationService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

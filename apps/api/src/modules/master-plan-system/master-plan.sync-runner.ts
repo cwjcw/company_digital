@@ -11,7 +11,7 @@ export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
 export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
 type Event = { resource?:string; id: string; tenant_id: string; sync_key: string; scope_json: unknown; version: number;
-  actor_id: string; actor_name: string; idempotency_key: string };
+  actor_id: string; actor_name: string; idempotency_key: string; record_id?:string|null; business_key?:string|null; attempts?:number; last_error?:string|null };
 type Log = { id: string; version: number; status: string; sync_key: string; attempts: number;
   scope_json: SyncScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
 type Claim = { tenant: string; key: string; configId: string; version: number; actorId: string; actorName: string;
@@ -29,7 +29,8 @@ export class SyncLeaseLost extends ConflictException {
  * existing REPEATABLE READ projection snapshot. */
 export class MasterPlanSyncRunner {
   constructor(private readonly db: DataSource, private readonly execute: Executor, private readonly systemUser: string,
-    private readonly leaseMs = 300_000) {}
+    private readonly leaseMs = 300_000,
+    private readonly onTerminalFailure?: (manager:EntityManager,tenant:string,event:Record<string,unknown>)=>Promise<unknown>) {}
 
   async dueConfigurations(tenant: string) {
     return this.db.transaction(async manager => {
@@ -132,11 +133,13 @@ export class MasterPlanSyncRunner {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[row.tenant_id]);
       const expired=this.rows(await manager.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error='自动重试上限已达10次；保留失败记录，等待人工核验',
         lease_expires_at=NULL,completed_at=NULL,updated_at=clock_timestamp(),version=version+1
-        WHERE tenant_id=$1 AND status='RUNNING' AND attempts>=10 AND lease_expires_at<=clock_timestamp() RETURNING id,actor_id,attempts,version`,[row.tenant_id]));
+        WHERE tenant_id=$1 AND status='RUNNING' AND attempts>=10 AND lease_expires_at<=clock_timestamp()
+        RETURNING id,actor_id,resource,record_id,business_key,scope_json,last_error,attempts,version`,[row.tenant_id]));
       for(const event of expired) await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,source,created_by,updated_by,request_id)
         VALUES($1,$2::uuid,'KDOS Outbox Worker','mps-reconciliation-outbox',$3,'retry_limit_reached',$4::jsonb,$5::jsonb,'api',$2::uuid,$2::uuid,$6)`,
         [row.tenant_id,event.actor_id,event.id,JSON.stringify({status:'RUNNING',attempts:Number(event.attempts),version:Number(event.version)-1}),
           JSON.stringify({status:'FAILED',reason:'retry_limit_reached',version:Number(event.version)}),`mps-outbox:${event.id}:retry-limit`]);
+      for(const event of expired) if(this.onTerminalFailure) await this.onTerminalFailure(manager,row.tenant_id,event);
     });
   }
 
@@ -284,12 +287,17 @@ export class MasterPlanSyncRunner {
     }
     const failureScope=claim.logs[0]?.scope_json;
     const exceptionKey=`sync:${claim.key}`+(failureScope?':'+createHash('sha256').update(JSON.stringify(this.scope(claim.key,failureScope))).digest('hex').slice(0,20):'');
-    if (!success && outcome.status !== "DISABLED") await manager.query(`INSERT INTO mps_data_exceptions(
+    if (!success && outcome.status !== "DISABLED") {
+      const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(
       tenant_id,exception_key,resource,business_key,exception_type,severity,message,active,created_by,updated_by)
       VALUES($1,$2,'mps-sync-configs',$3,'SYNC_FAILURE','ERROR',$4,true,$5::uuid,$5::uuid)
       ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,
-        updated_at=clock_timestamp(),updated_by=excluded.updated_by,version=mps_data_exceptions.version+1`,
+        updated_at=clock_timestamp(),updated_by=excluded.updated_by,version=mps_data_exceptions.version+1
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
+        RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,
       [claim.tenant, exceptionKey, claim.key, error, claim.actorId]);
+      if(exception&&this.onTerminalFailure&&!claim.events.length)await this.onTerminalFailure(manager,claim.tenant,exception);
+    }
   }
 
   private async finishEvents(manager: EntityManager, events: Event[], status: "SUCCESS" | "FAILED", error: string | null,permanentBlocked=false) {
@@ -299,9 +307,11 @@ export class MasterPlanSyncRunner {
         completed_at=CASE WHEN $4::varchar='SUCCESS' THEN clock_timestamp() ELSE NULL END,
         next_attempt_at=CASE WHEN $7::boolean THEN 'infinity'::timestamptz ELSE clock_timestamp()+least(attempts,30)*interval '1 minute' END,lease_expires_at=NULL,
         updated_at=clock_timestamp(),updated_by=$6::uuid,version=version+1
-        WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp() RETURNING id`,
+        WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp()
+        RETURNING id,resource,record_id,business_key,scope_json,last_error,attempts,version,actor_id`,
         [event.tenant_id, event.id, event.version, status, error, event.actor_id,permanentBlocked]));
       if (!updated.length) throw new SyncLeaseLost();
+      if(status==='FAILED'&&this.onTerminalFailure&&(permanentBlocked||Number(updated[0]!.attempts)>=10)) await this.onTerminalFailure(manager,event.tenant_id,updated[0]!);
     }
   }
 
@@ -319,11 +329,15 @@ export class MasterPlanSyncRunner {
     if (!events.length) return;
     await this.db.transaction(async manager => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('lock_timeout',$2,true)", [events[0]!.tenant_id, String(Math.min(this.leaseMs, 5000))]);
-      for (const event of events) await manager.query(`UPDATE mps_reconciliation_outbox SET status=$4::varchar,last_error=$5,
+      for (const event of events) {
+        const [updated]=await manager.query(`UPDATE mps_reconciliation_outbox SET status=$4::varchar,last_error=$5,
         lease_expires_at=NULL,updated_at=clock_timestamp(),updated_by=$6::uuid,version=version+1,
         next_attempt_at=clock_timestamp()+CASE WHEN $4::varchar='PENDING' THEN interval '5 seconds' ELSE least(attempts,30)*interval '1 minute' END
-        WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp()`,
+        WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp()
+        RETURNING id,resource,record_id,business_key,scope_json,last_error,attempts,version,actor_id`,
         [event.tenant_id, event.id, event.version, busy ? "PENDING" : "FAILED", busy ? null : error, event.actor_id]);
+        if(updated&&updated.status==='FAILED'&&Number(updated.attempts)>=10&&this.onTerminalFailure) await this.onTerminalFailure(manager,event.tenant_id,updated);
+      }
     });
   }
 

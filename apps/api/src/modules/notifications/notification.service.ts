@@ -103,7 +103,7 @@ export class NotificationService {
   }
 
   /** A trusted internal producer submits one event and ordered text/image components; no webhook is accepted from callers. */
-  async enqueueGroupEvent(tenantId: string, input: { eventType: string; dedupKey: string; components: NotificationGroupEventComponent[]; createdBy?: string | null }) {
+  async enqueueGroupEvent(tenantId: string, input: { eventType: string; dedupKey: string; components: NotificationGroupEventComponent[]; createdBy?: string | null }, manager?: EntityManager) {
     this.requireTenant(tenantId);
     const event = notificationEventDefinition(input.eventType);
     if (!event || event.defaultChannel !== "WECHAT_GROUP_WEBHOOK") throw new ConflictException("通知事件未注册群机器人渠道");
@@ -117,21 +117,21 @@ export class NotificationService {
         if (!component.filename || component.filename.length > 255 || component.mimeType !== "image/png" || bytes.length < 8 || bytes.length > 4 * 1024 * 1024 || bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new ConflictException("设备日报只接受有效PNG图片（单张不超过4MB）");
       } else if (!component.content.trim() || Buffer.byteLength(component.content, "utf8") > 12000) throw new ConflictException("日报文字内容无效或超长");
     }
-    return this.withManager(tenantId, undefined, async manager => {
-      const [row] = await manager.query(`INSERT INTO notification_outbox(tenant_id,event_type,channel,dedup_key,payload,created_by,updated_by)
+    return this.withManager(tenantId, manager, async scoped => {
+      const [row] = await scoped.query(`INSERT INTO notification_outbox(tenant_id,event_type,channel,dedup_key,payload,created_by,updated_by)
         VALUES($1,$2,'WECHAT_GROUP_WEBHOOK',$3,'{}'::jsonb,$4::uuid,$4::uuid)
         ON CONFLICT(tenant_id,dedup_key) DO NOTHING RETURNING *`, [tenantId, input.eventType, input.dedupKey, input.createdBy ?? null]);
       if (!row) {
-        const [existing] = await manager.query("SELECT * FROM notification_outbox WHERE tenant_id=$1 AND dedup_key=$2", [tenantId, input.dedupKey]);
+        const [existing] = await scoped.query("SELECT * FROM notification_outbox WHERE tenant_id=$1 AND dedup_key=$2", [tenantId, input.dedupKey]);
         return { row: existing, created: false };
       }
       for (let index = 0; index < input.components.length; index += 1) {
         const component = input.components[index];
         if (component.type === "image") {
           const bytes = Buffer.from(component.base64, "base64");
-          await manager.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,filename,mime_type,content,sha256)
+          await scoped.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,filename,mime_type,content,sha256)
             VALUES($1,$2::uuid,$3,'image',$4,'image/png',$5,$6)`, [tenantId, row.id, index + 1, component.filename, bytes, createHash("sha256").update(bytes).digest("hex")]);
-        } else await manager.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,content_text)
+        } else await scoped.query(`INSERT INTO notification_event_components(tenant_id,notification_outbox_id,sequence,component_type,content_text)
           VALUES($1,$2::uuid,$3,$4,$5)`, [tenantId, row.id, index + 1, component.type, component.content]);
       }
       return { row, created: true };

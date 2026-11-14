@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import { DataSource, In, Repository } from "typeorm";
-import { ApiKey, AuditLog, Contact, OrganizationUnit, RefreshToken, Role, RoleOrganizationScope, User, UserRole } from "../../entities";
+import { ApiKey, AuditLog, Contact, OrganizationUnit, RefreshToken, Role, User, UserRole } from "../../entities";
 import { currentModificationActor, currentModificationActorId } from "../../modification-audit";
 import { DEFAULT_USER_PASSWORD, isPrimaryAdminUsername } from "../../user-defaults";
 import { normalizeOrganizationDisplayName, normalizeOrganizationPath } from "./contact-sync.normalization";
@@ -41,7 +41,7 @@ export class ContactSyncApplicationService {
     };
   }
 
-  private normalize(payload: WecomSyncPayload) {
+  private async normalize(payload: WecomSyncPayload) {
     if (!payload || !Array.isArray(payload.departments) || !Array.isArray(payload.contacts)) throw new BadRequestException("企业微信同步快照格式无效");
     const departments = payload.departments
       .map((entry, index) => {
@@ -54,7 +54,14 @@ export class ContactSyncApplicationService {
       })
       .filter((entry) => entry.externalId && entry.name && entry.path.length && !ignoredPath(entry.path));
     const departmentIds = new Set(departments.map((entry) => entry.externalId));
-    for (const department of departments) if (department.parentExternalId && !departmentIds.has(department.parentExternalId)) department.parentExternalId = null;
+    if (!departments.length && (await this.organizations.count()) > 0) {
+      throw new BadRequestException("企业微信快照未包含组织架构，为保护现有组织关系，本次通讯录同步已终止");
+    }
+    for (const department of departments) {
+      if (department.parentExternalId && !departmentIds.has(department.parentExternalId)) {
+        throw new BadRequestException(`企业微信组织快照缺少上级部门（${department.externalId}），为保护组织关系，本次同步已终止`);
+      }
+    }
     const contacts = payload.contacts.map((entry) => ({
       ...entry,
       wechatUserId: String(entry.wechatUserId ?? "").trim(), employeeNo: String(entry.employeeNo ?? "").trim() || null,
@@ -89,14 +96,22 @@ export class ContactSyncApplicationService {
     };
     const desiredDepartmentIds = new Set(departments.map((entry) => entry.externalId));
     const desiredPaths = new Set(departments.map((entry) => pathKey(entry.path)));
+    const identityConflicts = departments.flatMap((entry) => {
+      const samePath = localOrganizations.find((local) => organizationPath(local) === pathKey(entry.path));
+      return samePath?.wechatDepartmentId && samePath.wechatDepartmentId !== entry.externalId
+        ? [{ externalId: entry.externalId, existingExternalId: samePath.wechatDepartmentId, path: entry.path.join(" / ") }]
+        : [];
+    });
     if (localContacts.filter((entry) => entry.enabled).length >= 50 && contacts.length < localContacts.filter((entry) => entry.enabled).length * 0.5) {
       throw new BadRequestException("企业微信返回人数不足本地在职通讯录的 50%，为防止错误批量离职，本次同步已终止");
     }
     return {
       incomingDepartments: departments.length,
       incomingContacts: contacts.length,
-      organizationAdds: departments.filter((entry) => !localOrganizations.some((local) => local.wechatDepartmentId === entry.externalId || organizationPath(local) === pathKey(entry.path))).length,
-      organizationDeletes: localOrganizations.filter((entry) => !(entry.wechatDepartmentId && desiredDepartmentIds.has(entry.wechatDepartmentId)) && !desiredPaths.has(organizationPath(entry))).length,
+      organizationAdds: departments.filter((entry) => !localOrganizations.some((local) => local.wechatDepartmentId === entry.externalId || (!local.wechatDepartmentId && organizationPath(local) === pathKey(entry.path)))).length,
+      organizationDeletes: 0,
+      organizationRetained: localOrganizations.filter((entry) => !desiredDepartmentIds.has(entry.wechatDepartmentId ?? "") && !desiredPaths.has(organizationPath(entry))).length,
+      organizationIdentityConflicts: identityConflicts,
       contactAdds: contacts.filter((entry) => !localContacts.some((local) => local.wechatUserId === entry.wechatUserId)).length,
       contactDepartures: localContacts.filter((entry) => entry.enabled && !incomingIds.has(entry.wechatUserId)).length,
       userAdds: contacts.length - matchedUsers.length,
@@ -105,25 +120,42 @@ export class ContactSyncApplicationService {
   }
 
   async sync(payload: WecomSyncPayload, actor: SyncActor, dryRun = false) {
-    const normalized = this.normalize(payload);
+    const normalized = await this.normalize(payload);
     const preview = await this.preview(normalized.departments, normalized.contacts);
+    if (preview.organizationIdentityConflicts.length) {
+      await this.dataSource.transaction(async manager => {
+        await manager.save(AuditLog, {
+          actorId: actor.userId, actorName: actor.name, resource: "contacts", recordId: null,
+          action: "wecom.organization.sync_identity_conflict", beforeJson: null,
+          afterJson: { conflictCount: preview.organizationIdentityConflicts.length, conflicts: preview.organizationIdentityConflicts },
+          requestId: actor.requestId, source: actor.source
+        });
+      });
+      throw new BadRequestException({
+        message: "企业微信部门ID变化但组织路径相同，已停止自动重绑；请核验组织身份后处理",
+        conflicts: preview.organizationIdentityConflicts
+      });
+    }
     if (dryRun) return { dryRun: true, ...preview };
     return this.dataSource.transaction(async (manager) => {
       const existingOrganizations = await manager.find(OrganizationUnit, { order: { level: "ASC", sortOrder: "ASC" } });
       const existingByExternalId = new Map(existingOrganizations.filter((entry) => entry.wechatDepartmentId).map((entry) => [entry.wechatDepartmentId!, entry]));
-      const existingByPath = new Map<string, OrganizationUnit>();
+      const existingUnmanagedByPath = new Map<string, OrganizationUnit>();
       const existingById = new Map(existingOrganizations.map((entry) => [entry.id, entry]));
       const currentPath = (unit: OrganizationUnit) => {
         const result: string[] = []; let cursor: OrganizationUnit | undefined = unit; const seen = new Set<string>();
         while (cursor && !seen.has(cursor.id)) { seen.add(cursor.id); result.unshift(cursor.name); cursor = cursor.parentId ? existingById.get(cursor.parentId) : undefined; }
         return result;
       };
-      for (const unit of existingOrganizations) existingByPath.set(pathKey(currentPath(unit)), unit);
+      for (const unit of existingOrganizations) {
+        const path = pathKey(currentPath(unit));
+        if (!unit.wechatDepartmentId) existingUnmanagedByPath.set(path, unit);
+      }
       const desiredByExternalId = new Map<string, OrganizationUnit>();
       let organizationAdds = 0; let organizationUpdates = 0;
       for (const department of [...normalized.departments].sort((left, right) => left.path.length - right.path.length || left.sortOrder - right.sortOrder)) {
         const parent = department.parentExternalId ? desiredByExternalId.get(department.parentExternalId) : undefined;
-        let unit = existingByExternalId.get(department.externalId) ?? existingByPath.get(pathKey(department.path));
+        let unit = existingByExternalId.get(department.externalId) ?? existingUnmanagedByPath.get(pathKey(department.path));
         if (!unit) {
           unit = manager.create(OrganizationUnit, { wechatDepartmentId: department.externalId, name: department.name, level: department.path.length, parentId: parent?.id ?? null, division: department.path.find((part) => part.includes("事业部")) ?? null, sortOrder: department.sortOrder, enabled: true });
           organizationAdds++;
@@ -137,12 +169,11 @@ export class ContactSyncApplicationService {
         desiredByExternalId.set(department.externalId, unit);
       }
       const desiredOrganizationIds = new Set([...desiredByExternalId.values()].map((entry) => entry.id));
-      const obsoleteOrganizations = existingOrganizations.filter((entry) => !desiredOrganizationIds.has(entry.id)).sort((left, right) => right.level - left.level);
-      if (obsoleteOrganizations.length) {
-        const ids = obsoleteOrganizations.map((entry) => entry.id);
-        await manager.delete(RoleOrganizationScope, { organizationUnitId: In(ids) });
-        for (const organization of obsoleteOrganizations) await manager.delete(OrganizationUnit, organization.id);
-      }
+      const desiredPathsAfterSync = new Set(normalized.departments.map((entry) => pathKey(entry.path)));
+      const obsoleteOrganizations = existingOrganizations.filter((entry) => !desiredOrganizationIds.has(entry.id) && !desiredPathsAfterSync.has(pathKey(currentPath(entry))));
+      // Missing departments are retained with their IDs, enabled state and role scopes intact.
+      // A complete snapshot may still represent an intentional retirement; an administrator
+      // must review the audit record before disabling or removing that business identity.
 
       const [localContacts, localUsers, whiteboard] = await Promise.all([
         manager.find(Contact), manager.find(User), manager.findOneBy(Role, { name: "白板" })
@@ -198,7 +229,10 @@ export class ContactSyncApplicationService {
       for (const user of departedUsers) { user.enabled = false; await manager.save(user); }
       if (departedUsers.length) await manager.update(RefreshToken, { userId: In(departedUsers.map((entry) => entry.id)), revokedAt: null }, { revokedAt: new Date() });
 
-      const result = { dryRun: false, ...preview, organizationAdds, organizationUpdates, organizationLeaderUpdates, organizationDeletes: obsoleteOrganizations.length, contactAdds, contactUpdates, contactDepartures: departedContacts.length, userAdds, userUpdates, userDepartures: departedUsers.length };
+      const result = { dryRun: false, ...preview, organizationAdds, organizationUpdates, organizationLeaderUpdates, organizationDeletes: 0,
+        organizationRetained: obsoleteOrganizations.length,
+        organizationRetainedDetails: obsoleteOrganizations.map(unit => ({ externalId: unit.wechatDepartmentId, name: unit.name, path: currentPath(unit) })),
+        contactAdds, contactUpdates, contactDepartures: departedContacts.length, userAdds, userUpdates, userDepartures: departedUsers.length };
       await manager.save(AuditLog, { actorId: actor.userId, actorName: actor.name, resource: "contacts", recordId: null, action: "wecom.full_sync", beforeJson: { localContacts: localContacts.length, localUsers: localUsers.length, localOrganizations: existingOrganizations.length }, afterJson: { ...result, capturedAt: payload.capturedAt, sourceHash: payload.sourceHash }, requestId: actor.requestId, source: actor.source });
       return result;
     });

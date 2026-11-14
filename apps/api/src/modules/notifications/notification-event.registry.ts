@@ -66,6 +66,30 @@ const definitions = [
     templateVariables: []
   },
   {
+    eventType: "mps.sync_exception.immediate",
+    moduleCode: "planning",
+    resourceCode: "mps-data-exceptions",
+    label: "主计划同步异常即时提醒",
+    conditionDescription: "新建或业务状态版本变化的、需要人工处理的主计划一致性异常；持续未解决时按异常版本去重",
+    defaultChannel: "WECHAT_GROUP_WEBHOOK",
+    messageType: "text",
+    defaultTemplate: "{content}",
+    allowedRecipientRules: [],
+    templateVariables: []
+  },
+  {
+    eventType: "mps.sync_exception.daily_summary",
+    moduleCode: "planning",
+    resourceCode: "mps-data-exceptions",
+    label: "主计划同步异常工作日汇总",
+    conditionDescription: "工作日08:35（Asia/Shanghai）推送当前未解决、当日新增和已解决主计划异常汇总",
+    defaultChannel: "WECHAT_GROUP_WEBHOOK",
+    messageType: "text",
+    defaultTemplate: "{content}",
+    allowedRecipientRules: [],
+    templateVariables: []
+  },
+  {
     eventType: "shipping_plan.key_fields_changed",
     moduleCode: "planning",
     resourceCode: "mps-shipping-plans",
