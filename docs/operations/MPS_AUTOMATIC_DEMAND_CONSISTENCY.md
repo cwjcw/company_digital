@@ -51,4 +51,6 @@ JSONB scope 使用字段语义比较，不依赖对象键顺序。临时失败�
 
 隔离验收：scripts/test-demand-consistency-postgres.cjs，以及同步可靠性和事业部变更 PostgreSQL 定向回归。
 
-隔离验收基线：27 项全链路合成场景、36 项可靠性、12 项事业部转移回归、105 项单元测试；类型检查与 API 构建通过。测试数据库仅使用 network-none PostgreSQL Unix socket。
+隔离验收基线：27 项全链路合成场景、36 项可靠性、12 项事业部转移回归、114 项单元测试；类型检查与 API 构建通过。测试数据库仅使用 network-none PostgreSQL Unix socket。
+
+运行验收：2026-11-14，API `241d068` 已完成最小发布和健康/SHA核验；Web保留原版本。生产仅定向执行129，未执行120或通用Migration。系统消费者已验证自动来源恢复、实际需求一致性及旧失败承接；受控存量结果与原始证据只存私有进度及忽略目录。
