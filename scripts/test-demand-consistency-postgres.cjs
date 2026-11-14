@@ -112,6 +112,14 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
   await sync.processOutboxEvent(tenant,next.id);assert.deepEqual((await read(f)).reasons,[]);
   await db.query('UPDATE mps_consistency_checkpoints SET source_updated_at=$2,source_id=$3,sweep_id=$4,last_sweep_at=$5 WHERE tenant_id=$1',[tenant,cp.cursor,cp.source_id,cp.sweep_id,cp.last_sweep_at]);
  });
+ await check('retired empty keys verify cleanly, but retained plans without active sources stay protected',async()=>{
+  const empty=await alloc('SYN-RETIRED','SYN-RETIRED-ITEM',0,{archived_at:new Date()});const f={active:empty,key:{orderNumber:empty.order_number,itemCode:empty.item_code,divisionId:division}};
+  const old=await event(f,undefined,{resource:'mps-demand-consistency',status:'FAILED',attempts:1,next_attempt_at:Infinity});
+  assert.deepEqual((await read(f)).reasons,[]);await sync.scanConsistencyPage(tenant,100);
+  const [next]=await db.query("SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND scope_json=$2::jsonb AND status='PENDING' ORDER BY created_at DESC LIMIT 1",[tenant,JSON.stringify({allocationKey:f.key})]);assert(next);await sync.processOutboxEvent(tenant,next.id);
+  assert.equal((await db.query('SELECT superseded_by FROM mps_reconciliation_outbox WHERE id=$1',[old.id]))[0].superseded_by,next.id);
+  const retained=await fixture('RETIRED-RETAINED',4,8);await db.query('UPDATE mps_order_allocations SET archived_at=now() WHERE id=$1',[retained.active.id]);assert.equal((await run(retained)).status,'FAILED');const state=await read(retained);assert.equal(state.monthly.id,retained.monthly.id);assert(state.reasons.includes('没有可验证的有效分配来源'));assert.equal(state.monthly.required_quantity,'4.0000');
+ });
  await check('consistent reruns keep row versions, IDs and audits stable',async()=>{
   const before=await read(a),taskBefore=await tasks(a);assert.equal((await run(a)).status,'SUCCESS');const after=await read(a);assert.equal(before.monthly.version,after.monthly.version);assert.equal(before.bases[0].version,after.bases[0].version);assert.equal(before.weeks[0].version,after.weeks[0].version);assert.deepEqual(await tasks(a),taskBefore);
  });

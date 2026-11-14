@@ -15,7 +15,8 @@ export async function inspectDemandKey(m:EntityManager,tenant:string,key:DemandK
  const candidate=candidates[0];
  const allocations=await m.query(`SELECT id,version,monthly_plan_id,allocated_quantity FROM mps_order_allocations WHERE tenant_id=$1
    AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND archived_at IS NULL AND order_status='已审核' ORDER BY id`,[tenant,key.orderNumber,key.itemCode,key.divisionId]);
- const monthly=candidate?.existing_id?(await m.query('SELECT id,version,allocation_id,required_quantity,pending_quantity,cumulative_inbound_quantity FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2',[tenant,candidate.existing_id]))[0]:null;
+ const monthly=(await m.query(`SELECT id,version,allocation_id,required_quantity,pending_quantity,cumulative_inbound_quantity FROM mps_monthly_plans
+   WHERE tenant_id=$1 AND (id=$2::uuid OR ($2::uuid IS NULL AND order_number=$3 AND item_code=$4 AND division_id=$5::uuid))`,[tenant,candidate?.existing_id??null,key.orderNumber,key.itemCode,key.divisionId]))[0]??null;
  const bases=await m.query(`SELECT base.*,(${weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get('mps-base-plans')!,'base')}) admitted
    FROM mps_base_plans base WHERE base.tenant_id=$1 AND ((base.order_number=$2 AND base.item_code=$3 AND base.division_id=$4::uuid)
    OR base.monthly_plan_id=$5::uuid) ORDER BY base.id`,[tenant,key.orderNumber,key.itemCode,key.divisionId,monthly?.id??null]);
@@ -24,10 +25,10 @@ export async function inspectDemandKey(m:EntityManager,tenant:string,key:DemandK
  const group=(await m.query('SELECT required_quantity,completed_quantity,pending_quantity,completion_rate FROM mps_group_plans WHERE tenant_id=$1 AND order_number=$2',[tenant,key.orderNumber]))[0];
  const expectedGroup=groups[0];
  const reasons:string[]=[];
- if(!candidate)reasons.push('没有可验证的有效分配来源');
- else if(candidate.skip_reason)reasons.push(String(candidate.skip_reason));
- if(!monthly)reasons.push('缺少月度需求');
- else{
+ if(!candidate&&(monthly||bases.length))reasons.push('没有可验证的有效分配来源');
+ else if(candidate?.skip_reason)reasons.push(String(candidate.skip_reason));
+ if(!monthly&&candidate)reasons.push('缺少月度需求');
+ else if(monthly){
    if(candidate?.recover_archived_source)reasons.push('归档来源待恢复');
    if(candidate&&!new Decimal(monthly.required_quantity).eq(candidate.quantity))reasons.push('月度需求数量不一致');
    if(allocations.some((a:any)=>a.monthly_plan_id!==monthly.id))reasons.push('有效分配的正式需求关联缺失或冲突');
@@ -82,16 +83,23 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    for(const a of [...changed,...sweep])if(a.division_id&&a.order_number&&a.item_code){const key={orderNumber:a.order_number,itemCode:a.item_code,divisionId:String(a.division_id)};keys.set(demandKeyText(key),key);}
    let inconsistent=0,enqueued=0;
    for(const key of keys.values()){
-     const state=await inspectDemandKey(m,tenant,key);if(!state.reasons.length)continue;inconsistent++;
+     const state=await inspectDemandKey(m,tenant,key);
      const scope={allocationKey:key};
+     const [unverified]=!state.reasons.length?await m.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND sync_key='plan-projections'
+       AND status='FAILED' AND superseded_by IS NULL AND (scope_json=$2::jsonb OR scope_json#>>'{allocation,orderNumber}'=$3
+         AND scope_json#>>'{allocation,itemCode}'=$4 AND scope_json#>>'{allocation,divisionId}'=$5
+         OR resource='mps-order-allocations' AND record_id=ANY($6::uuid[])) ORDER BY created_at DESC,id DESC LIMIT 1`,
+       [tenant,JSON.stringify(scope),key.orderNumber,key.itemCode,key.divisionId,state.allocations.map((a:any)=>a.id)]):[];
+     if(!state.reasons.length&&!unverified)continue;inconsistent++;
+     const reasons=state.reasons.length?state.reasons:['历史失败待实际结果核验'];
      const [pending]=await m.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND sync_key='plan-projections'
        AND scope_json=$2::jsonb AND status IN ('PENDING','RUNNING') AND superseded_by IS NULL LIMIT 1`,[tenant,JSON.stringify(scope)]);
      if(pending)continue;
      const inserted=await m.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
        VALUES($1,'mps-demand-consistency',$2::uuid,'plan-projections',$3::jsonb,$4,$5::uuid,'KDOS一致性任务',$5::uuid,$5::uuid)
-       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v1:'+state.fingerprint+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
+       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v1:'+state.fingerprint+(unverified?':verify:'+unverified.id:'')+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
      if(inserted.length){enqueued++;await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
-       VALUES($1,$2::uuid,'KDOS一致性任务','mps-demand-consistency',$3,'consistency.detected',$4::jsonb,$5,'api',$2::uuid,$2::uuid)`,[tenant,systemId,inserted[0].id,JSON.stringify({key,reasons:state.reasons}), 'mps-consistency:'+inserted[0].id]);}
+       VALUES($1,$2::uuid,'KDOS一致性任务','mps-demand-consistency',$3,'consistency.detected',$4::jsonb,$5,'api',$2::uuid,$2::uuid)`,[tenant,systemId,inserted[0].id,JSON.stringify({key,reasons}), 'mps-consistency:'+inserted[0].id]);}
    }
    const latest=changed.at(-1),last=sweep.at(-1);
    await m.query(`UPDATE mps_consistency_checkpoints SET source_updated_at=coalesce($2,source_updated_at),source_id=coalesce($3,source_id),
