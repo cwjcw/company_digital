@@ -150,7 +150,7 @@
 - Incremental allocation cursor plus a resumable daily sweep each read one bounded page. Per-business-key consumers verify source identity, monthly/base/weekly quantities and whole-order totals before SUCCESS. Provenance-only recovery retains plan IDs, received/reported facts and manual quantity ownership.
 - Deterministic business conflicts keep a precise exception and stop automatic retry. Verified compensation preserves old FAILED evidence, links its successful successor, and never rewrites the historical outcome. Private bounded CLI uses the same scanner/consumer.
 - Counters/checkpoints, lease/fence, failure diagnostics and rollback: see MPS_AUTOMATIC_DEMAND_CONSISTENCY.md. Implementation does not itself certify a production migration or successful compensation; those require actual runtime verification.
-- Runtime verification (2026-11-14): API 64a9995 deployed through the existing deployment functions, health/SHA verified; only directed Migration129 applied. Existing runDue advances the persisted checkpoint and verifies per-key compensation; Web and unrelated schedulers/services were retained. Controlled stock results and protected production evidence remain private.
+- Runtime verification (2026-11-14): API 484386c deployed through the existing deployment functions, health/SHA verified; only directed Migration129 applied. Existing runDue advances the persisted checkpoint and verifies per-key compensation; Web and unrelated schedulers/services were retained. Controlled stock results and protected production evidence remain private.
 
 
 ### Current source policy — 2026-10-30 user-confirmed revision (PRODUCTION_DEPLOYED; Migration 112 applied 2026-11-02)
