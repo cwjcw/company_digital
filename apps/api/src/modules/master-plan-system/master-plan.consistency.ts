@@ -57,6 +57,10 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    if(!lock?.owned)return {ready:true,scanned:0,inconsistent:0,enqueued:0,busy:true};
    await m.query("INSERT INTO mps_consistency_checkpoints(tenant_id,source_updated_at) VALUES($1,clock_timestamp()-interval '1 day') ON CONFLICT DO NOTHING",[tenant]);
    const [cp]=await m.query('SELECT *,source_updated_at::text source_cursor FROM mps_consistency_checkpoints WHERE tenant_id=$1 FOR UPDATE',[tenant]);
+   if(cp.metrics?.policyVersion!=='v2'){
+     await m.query("UPDATE mps_consistency_checkpoints SET sweep_id=$2::uuid,last_sweep_at=NULL,sweep_started_at=clock_timestamp() WHERE tenant_id=$1",[tenant,zero]);
+     cp.sweep_id=zero;cp.last_sweep_at=null;
+   }
    const changed=await m.query(`SELECT id,updated_at::text updated_at,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1
      AND (updated_at,id)>($2::timestamptz,$3::uuid) ORDER BY updated_at,id LIMIT $4`,[tenant,cp.source_cursor,cp.source_id,limit]);
    const sweep=await m.query(`SELECT id,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND order_status='已审核'
@@ -106,7 +110,7 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    await m.query(`UPDATE mps_consistency_checkpoints SET source_updated_at=coalesce($2,source_updated_at),source_id=coalesce($3,source_id),
      sweep_id=CASE WHEN $4::int<$5::int AND (last_sweep_at IS NULL OR last_sweep_at<clock_timestamp()-interval '24 hours') THEN $6::uuid ELSE coalesce($7::uuid,sweep_id) END,
      last_sweep_at=CASE WHEN $4::int<$5::int AND (last_sweep_at IS NULL OR last_sweep_at<clock_timestamp()-interval '24 hours') THEN clock_timestamp() ELSE last_sweep_at END,
-     metrics=jsonb_build_object('scanned',coalesce((metrics->>'scanned')::int,0)+$8::int,'inconsistent',coalesce((metrics->>'inconsistent')::int,0)+$9::int,
+     metrics=metrics||jsonb_build_object('policyVersion','v2','scanned',coalesce((metrics->>'scanned')::int,0)+$8::int,'inconsistent',coalesce((metrics->>'inconsistent')::int,0)+$9::int,
        'enqueued',coalesce((metrics->>'enqueued')::int,0)+$10::int),updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1`,
      [tenant,latest?.updated_at??null,latest?.id??null,sweep.length,limit,zero,last?.id??null,keys.size,inconsistent,enqueued]);
    return {ready:true,scanned:keys.size,inconsistent,enqueued,incrementalRows:changed.length,sweepRows:sweep.length};
