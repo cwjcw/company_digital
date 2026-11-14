@@ -1,4 +1,4 @@
-import { demandLinksReady, linkNewDemandRecord } from "./master-plan.demand-links";
+import { demandLinksReady, linkExistingDemandRecord, linkNewDemandRecord } from "./master-plan.demand-links";
 import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
@@ -56,7 +56,7 @@ export function monthlyBaseLookupSql(linksReady: boolean) {
     FROM mps_base_plans WHERE tenant_id=$1 AND (${linksReady ? 'monthly_plan_id=$4::uuid OR ' : ''}(order_number=$2 AND item_code=$3)) ORDER BY id FOR UPDATE`;
 }
 
-export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true) {
+export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId: string, actorId: string, actorName: string, monthlyPlanIds?: string[], includeZeroQuantityIds: string[] = [], enqueueBaseToWeekly = true, trustedInternalService = false, expectedVersions?:Map<string,number>) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
@@ -65,8 +65,37 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>''
       AND (m.required_quantity>0 OR (m.required_quantity=0 AND m.id=ANY($3::uuid[])))
     ORDER BY m.id FOR SHARE OF m`, [tenantId,monthlyPlanIds ?? null,includeZeroQuantityIds]);
+  if(expectedVersions){
+    if(!monthlyPlanIds||expectedVersions.size!==monthlyPlanIds.length||monthly.length!==monthlyPlanIds.length||monthly.some(plan=>Number(plan.version)!==expectedVersions.get(String(plan.id))))
+      throw new Error('定向恢复月度计划集合或版本已变化，未执行基础计划同步');
+    const sources:Row[]=await manager.query(`SELECT m.id FROM mps_monthly_plans m
+      JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
+      JOIN mps_order_allocations a ON a.tenant_id=m.tenant_id AND a.id=m.allocation_id
+      WHERE m.tenant_id=$1 AND m.id=ANY($2::uuid[]) AND m.required_quantity>0
+        AND a.archived_at IS NULL AND a.order_status='已审核' AND a.manually_maintained=true
+        AND (a.order_number,a.item_code,a.division_id) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id)
+      ORDER BY m.id FOR SHARE OF m,a`,[tenantId,monthlyPlanIds]);
+    if(sources.length!==monthlyPlanIds.length)throw new Error('定向恢复需求来源已归档、失效或身份不一致');
+    const conflicts:Row[]=await manager.query(`SELECT b.id, b.monthly_plan_id, b.order_number,b.item_code,b.division_id,b.customer_code,
+      m.order_number monthly_order,m.item_code monthly_item,m.division_id monthly_division,m.customer_code monthly_customer,
+      COALESCE(mps_weekly_has_execution(w.tenant_id,w.id),false) has_execution
+      FROM mps_base_plans b JOIN mps_monthly_plans m ON m.tenant_id=b.tenant_id AND
+      (b.monthly_plan_id=m.id OR (b.order_number,b.item_code,b.division_id) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id))
+      LEFT JOIN mps_weekly_plans w ON w.tenant_id=b.tenant_id AND w.base_plan_id=b.id
+      WHERE m.tenant_id=$1 AND m.id=ANY($2::uuid[]) ORDER BY b.id FOR UPDATE OF b`,[tenantId,monthlyPlanIds]);
+    // Validate legacy business-key matches by the exact scoped monthly identity before allowing one first link.
+    for(const monthlyId of monthlyPlanIds){
+      const [target]=monthly.filter(row=>String(row.id)===monthlyId);
+      const matches=conflicts.filter(row=>row.order_number===target.order_number&&row.item_code===target.item_code&&String(row.division_id)===String(target.division_id));
+      if(matches.length>1 || matches.some(row=>row.monthly_plan_id!=null&&String(row.monthly_plan_id)!==monthlyId
+        || row.order_number!==row.monthly_order||row.item_code!==row.monthly_item||String(row.division_id)!==String(row.monthly_division)
+        || (row.customer_code&&target.customer_code&&row.customer_code!==target.customer_code)||row.has_execution))
+        throw new Error('定向恢复发现多条基础计划、身份冲突或执行事实，停止以避免覆盖历史归属');
+    }
+  }
   const linksReady=await demandLinksReady(manager);
   let created = 0, updated = 0, conflicts = 0, multiBatch = 0;
+  const changedBaseIds=new Set<string>();
   let unallocated = new Decimal(0), overallocated = new Decimal(0);
   const requestId = `base-sync:${randomUUID()}`;
   // Fetch all prior automatic baselines once; ordinary human audit records are not ownership evidence.
@@ -112,16 +141,21 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     const previous = before ? baselines.get(before.id) : undefined;
     let after: Row;
     let changed = false;
+    let linkedExisting=false;
     if (!before) {
       const delivery = await nextMasterPlanDeliveryCode(manager,tenantId,monthlyPlan.order_number,monthlyPlan.item_code,actorId);
       const entries = Object.entries(desired);
       [after] = await manager.query(`INSERT INTO mps_base_plans(tenant_id,order_number,item_code,delivery_number,created_by,updated_by,${entries.map(([key]) => key).join(",")})
         VALUES($1,$2,$3,$4,$5::uuid,$5::uuid,${entries.map((_,i) => `$${i+6}`).join(",")}) RETURNING *`,
       [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,delivery,actorId,...entries.map(([key,value]) => key === "image_refs" ? JSON.stringify(value) : value)]);
-      if(linksReady) after=await linkNewDemandRecord(manager,'mps-base-plans',after,actorId,actorName,requestId);
+      if(linksReady) after=await linkNewDemandRecord(manager,'mps-base-plans',after,actorId,actorName,requestId,trustedInternalService);
       created++; changed = true;
     } else {
       after = before;
+      if(expectedVersions && linksReady && before.monthly_plan_id==null){
+        after=await linkExistingDemandRecord(manager,'mps-base-plans',before,String(monthlyPlan.id),actorId,actorName,requestId);
+        linkedExisting=true;
+      }
       const patch = monthlyBasePatch(before,desired,previous);
       if(controlledIds.has(before.id))delete patch.planned_quantity; // Explicit allocation remains user-owned even if quantities later coincide.
       const entries = Object.entries(patch);
@@ -129,12 +163,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
         const result = await manager.query(`UPDATE mps_base_plans SET ${entries.map(([key],i) => `${key}=$${i+5}`).join(",")},
           updated_at=now(),updated_by=$3::uuid,version=version+1
           WHERE tenant_id=$1 AND id=$2::uuid AND version=$4 RETURNING *`,
-        [tenantId,before.id,actorId,before.version,...entries.map(([key,value]) => key === "image_refs" ? JSON.stringify(value) : value)]);
+        [tenantId,before.id,actorId,after.version,...entries.map(([key,value]) => key === "image_refs" ? JSON.stringify(value) : value)]);
         after = Array.isArray(result[0]) ? result[0][0] : result[0];
         if (!after) throw new Error("基础计划发生并发变化，请重试同步");
         updated++; changed = true;
       }
     }
+    if(changed||linkedExisting)changedBaseIds.add(String(after.id));
     // Remember source values separately from the record's manual values in the existing audit only.
     // No-op reruns do not append audit entries or increment row versions.
     if (changed || !previous || Object.keys(previous).sort().join() !== Object.keys(desired).sort().join() || columns.some(key => comparable(key,previous[key]) !== comparable(key,desired[key]))) {
@@ -145,10 +180,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$3::uuid,version=version+1
       WHERE tenant_id=$1 AND exception_key=$2 AND active=true`, [tenantId,conflictKey,actorId]);
   }
-  if (enqueueBaseToWeekly && created + updated > 0) {
-    await manager.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by)
-      VALUES($1,'mps-base-plans','base-to-weekly',$2,$3::uuid,$4,$3::uuid,$3::uuid)
-      ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, [tenantId,`${requestId}:base-to-weekly`,actorId,actorName]);
+  if (enqueueBaseToWeekly && (created + updated > 0 || changedBaseIds.size>0)) {
+    const scopedIds=expectedVersions?[...changedBaseIds]:null;
+    const scopeJson=scopedIds?.length?{basePlanIds:scopedIds}:null;
+    await manager.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
+      VALUES($1,'mps-base-plans',$2::uuid,'base-to-weekly',$3::jsonb,$4,$5::uuid,$6,$5::uuid,$5::uuid)
+      ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,[tenantId,scopedIds?.[0]??null,scopeJson?JSON.stringify(scopeJson):null,
+      `${requestId}:base-to-weekly`,actorId,actorName]);
   }
   return { count:created+updated,balance:{unallocated:unallocated.toFixed(4),overallocated:overallocated.toFixed(4)},metrics:{base_created:created,base_updated:updated,base_conflicts:conflicts,monthly_eligible:monthly.length,base_multi_batch:multiBatch} };
 }

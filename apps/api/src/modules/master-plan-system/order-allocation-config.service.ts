@@ -1,13 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { NotificationService } from "../notifications/notification.service";
-import { allocationChange, allocationVendorTargetError } from "./order-allocation.domain";
+import { allocationChange, allocationVendorTargetError, normalizeAllocationSupplierName } from "./order-allocation.domain";
 import { DataSource, EntityManager } from "typeorm";
 import type { MasterPlanActor } from "./master-plan.types";
 import { OrganizationDirectoryService } from "../organization-directory/organization-directory.service";
 import { MASTER_PLAN_SYSTEM_USER_ID } from "./master-plan.sync.service";
 export const ALLOCATION_EVENT = "mps.order_allocation.batch_changed";
 export const ALLOCATION_RULE_KEY = "pmc-order-allocation-changes";
-export const ALLOCATION_VENDOR_SEEDS = [["事业一部","事业一部"],["事业二部","事业二部"],["厦门凯南智能制造有限公司","事业三部"],["厦门科加智能制造有限公司","事业四部"],["供应链","采购部"]];
+export const ALLOCATION_VENDOR_SEEDS = [["事业一部","事业一部"],["事业二部","事业二部"],["厦门凯南智能制造有限公司","事业三部"],["厦门科加智能制造有限公司","事业四部"],["供应链","采购部"],["贻居(厦门)智能科技有限公司","贻居"]];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 @Injectable()
 export class OrderAllocationConfigService implements OnModuleInit {
@@ -22,7 +22,7 @@ export class OrderAllocationConfigService implements OnModuleInit {
       await m.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       const units = await m.query("SELECT id,name,enabled FROM organization_units", []);
       for (const [supplier, name] of ALLOCATION_VENDOR_SEEDS) {
-        const matches = units.filter((u: { name:string;enabled:boolean })=>u.enabled&&u.name===name);
+        const matches = units.filter((u: { name:string;enabled:boolean })=>u.enabled&&normalizeAllocationSupplierName(u.name)===name);
         // Any unresolved required seed is returned as a diagnostic, never silently guessed.
         if(matches.length===1){
         const inserted=await m.query(`INSERT INTO mps_allocation_vendor_mappings(tenant_id,supplier_name,division_id,created_by,updated_by) VALUES($1,$2,$3::uuid,$4::uuid,$4::uuid) ON CONFLICT(tenant_id,supplier_name) DO NOTHING RETURNING *`, [tenantId,supplier,matches[0].id,actorId]);
@@ -83,7 +83,8 @@ export class OrderAllocationConfigService implements OnModuleInit {
       if(kind!=="rule") {
         const divisionId=String(input.divisionId??before?.division_id??""); if(!uuid.test(divisionId))throw new BadRequestException("承接单位无效");
         const [unit]=await m.query("SELECT id,name,enabled FROM organization_units WHERE id=$1::uuid",[divisionId]);if(!unit||(input.enabled&&!unit.enabled))throw new BadRequestException("承接组织不存在或已停用");
-        const targetError=kind==="vendors"&&input.enabled?allocationVendorTargetError(String(input.supplierName??"").trim(),unit):null;if(targetError)throw new BadRequestException(targetError);values.division_id=divisionId;
+        const allUnits=kind==="vendors"&&input.enabled?await m.query("SELECT id,name,enabled FROM organization_units",[]):undefined;
+        const targetError=kind==="vendors"&&input.enabled?allocationVendorTargetError(input.supplierName,unit,allUnits):null;if(targetError)throw new BadRequestException(targetError);values.division_id=divisionId;
       }
       if(kind==="vendors") {const name=String(input.supplierName??"").trim();if(!name||name.length>255)throw new BadRequestException("供应商名称无效");values.supplier_name=name;}
       if(kind==="recipients") {
@@ -111,7 +112,7 @@ export class OrderAllocationConfigService implements OnModuleInit {
 export type AllocationMappingIssue={code:string;supplierName:string;mappingId?:string;message:string};
 export function allocationMappingIssues(units:Array<{id:string;name:string;enabled:boolean}>,vendors:Array<{id:string;supplier_name:string;division_id:string;enabled:boolean}>):AllocationMappingIssue[] {
   const issues:AllocationMappingIssue[]=[];
-  for(const [supplier,name] of ALLOCATION_VENDOR_SEEDS)if(!vendors.some(v=>v.supplier_name===supplier)){
+  for(const [supplier,name] of ALLOCATION_VENDOR_SEEDS)if(!vendors.some(v=>normalizeAllocationSupplierName(v.supplier_name)===supplier)){
     const candidates=units.filter(u=>u.enabled&&u.name===name);
     const exact=units.filter(u=>u.name===name);
     const reason=candidates.length>1?`承接组织“${name}”存在重名，请按完整路径选择正确组织`:candidates.length===1?`请建立到“${name}”的映射`:exact.length?`承接组织“${name}”已停用`:units.some(u=>u.name.trim()===name)?`组织名称“${name}”有前后空格，请按完整路径选择现有组织`:`组织架构中不存在“${name}”，请确认现有组织`;
@@ -121,7 +122,10 @@ export function allocationMappingIssues(units:Array<{id:string;name:string;enabl
     if(!vendor.enabled)issues.push({code:"DISABLED_MAPPING",supplierName:vendor.supplier_name,mappingId:vendor.id,message:"映射已停用，请核实后启用"});
     const unit=units.find(u=>u.id===vendor.division_id);
     if(!unit?.enabled)issues.push({code:"INVALID_ORGANIZATION",supplierName:vendor.supplier_name,mappingId:vendor.id,message:"承接组织不存在或已停用，请选择有效组织"});
-    else {const error=allocationVendorTargetError(vendor.supplier_name,unit);if(error)issues.push({code:"INVALID_ORGANIZATION",supplierName:vendor.supplier_name,mappingId:vendor.id,message:error});}
+    else {const error=allocationVendorTargetError(vendor.supplier_name,unit,units);if(error)issues.push({code:"INVALID_ORGANIZATION",supplierName:vendor.supplier_name,mappingId:vendor.id,message:error});}
   }
+  const normalizedNames=new Map<string,typeof vendors>();
+  for(const vendor of vendors){const key=normalizeAllocationSupplierName(vendor.supplier_name);normalizedNames.set(key,[...(normalizedNames.get(key)??[]),vendor]);}
+  for(const [supplier,matches] of normalizedNames)if(matches.length>1)for(const vendor of matches)issues.push({code:"AMBIGUOUS_MAPPING",supplierName:vendor.supplier_name,mappingId:vendor.id,message:`供应商名称规范化后“${supplier}”存在重复映射，不能自动选择`});
   return issues;
 }

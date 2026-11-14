@@ -23,7 +23,7 @@ export class MasterPlanSyncService {
   private readonly runner: MasterPlanSyncRunner;
   constructor(private readonly dataSource: DataSource) {
     this.runner = new MasterPlanSyncRunner(dataSource,
-      (manager, key, tenant, actor, name, scope) => this.execute(key, tenant, actor, actor, scope, name, manager), MASTER_PLAN_SYSTEM_USER_ID);
+      (manager, key, tenant, actor, name, scope, trustedService) => this.execute(key, tenant, actor, actor, scope, name, manager, trustedService), MASTER_PLAN_SYSTEM_USER_ID);
   }
 
   async manual(syncKey: string, actor: MasterPlanActor) {
@@ -107,6 +107,118 @@ export class MasterPlanSyncService {
     });
   }
 
+  /** Build the target-division route while preserving the existing weekly snapshot for review. */
+  async previewDivisionTransferProcessRoute(manager: EntityManager, weekly: any, targetDivisionId: string, tenantId: string) {
+    const current = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date,status,exception_text,
+      daily_reported_quantity,execution_enabled,version FROM mps_weekly_process_plans
+      WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY sequence,process_code FOR SHARE`, [tenantId, weekly.id]);
+    const sourceDesired = await this.desiredProcessSnapshot(manager, weekly, tenantId, String(weekly.division_id));
+    const targetDesired = await this.desiredProcessSnapshot(manager, weekly, tenantId, targetDivisionId);
+    const [guard] = await manager.query(`SELECT (mps_weekly_has_execution($1,$2::uuid) OR EXISTS(
+      SELECT 1 FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND daily_reported_quantity>0)
+      OR EXISTS(SELECT 1 FROM mps_three_day_work_orders WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid
+        AND (blank_completion_date IS NOT NULL OR packaging_completion_date IS NOT NULL))) has_execution,
+      process_config_locked_at IS NOT NULL locked,to_jsonb(weekly)->>'lifecycle_status' lifecycle_status FROM mps_weekly_plans weekly WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weekly.id]);
+    const changes = this.processConfigDiff(current, targetDesired);
+    const sourceMap = new Map(sourceDesired.map((row: any) => [row.processCode, row]));
+    const targetMap = new Map(targetDesired.map((row: any) => [row.processCode, row]));
+    const blockers: string[] = [];
+    const manualAdjustments: any[] = [];
+    const removedCodes = changes.removed.map((row: any) => row.processCode);
+
+    if (guard?.has_execution) blockers.push("周计划存在报工、入库、外协/外购、领料或其他受保护执行事实/路线锁定");
+    if (guard?.lifecycle_status && guard.lifecycle_status !== "ACTIVE") blockers.push("周计划处于待确认、暂停或取消状态，不能迁移执行快照");
+    for (const task of current) {
+      const source = sourceMap.get(String(task.process_code));
+      const target = targetMap.get(String(task.process_code));
+      if (!source) {
+        manualAdjustments.push({ processCode: task.process_code, field: "processCode", current: task.process_code, reason: "当前快照工序不属于按来源事业部计算的正式路线" });
+        blockers.push(`工序 ${task.process_code} 不在来源事业部正式路线中，无法判断其人工身份`);
+      }
+      const fields = [
+        ["processName", String(task.process_name), source?.processName],
+        ["sequence", Number(task.sequence), source?.sequence],
+        ["cycleDays", task.cycle_days == null ? null : Number(task.cycle_days), source?.cycleDays],
+        ["executionEnabled", task.execution_enabled, source?.executionEnabled]
+      ] as const;
+      for (const [field, value, expected] of fields) if (expected !== undefined && value !== expected) {
+        manualAdjustments.push({ processCode: task.process_code, field, current: value, sourceRoute: expected, targetRoute: target ? (field === "processName" ? target.processName : field === "sequence" ? target.sequence : field === "cycleDays" ? target.cycleDays : target.executionEnabled) : null });
+        const targetValue = target ? (field === "processName" ? target.processName : field === "sequence" ? target.sequence : field === "cycleDays" ? target.cycleDays : target.executionEnabled) : null;
+        if (!target || value !== targetValue) blockers.push(`工序 ${task.process_code} 的人工${field}与目标路线冲突`);
+      }
+      const sourceDue = source?.dueDate ?? null;
+      if (this.dateOnly(task.due_date) !== sourceDue) manualAdjustments.push({ processCode: task.process_code, field: "dueDate", current: this.dateOnly(task.due_date), sourceRoute: sourceDue, targetRoute: target?.dueDate ?? null, willPreserve: Boolean(target) });
+      if (removedCodes.includes(String(task.process_code))) {
+        if (Number(task.reported_quantity ?? 0) !== 0 || !["未开始", "延期"].includes(String(task.status)) || String(task.exception_text ?? "").trim())
+          blockers.push(`待移除工序 ${task.process_code} 含有任务维护数据，需人工核查后再迁移`);
+        const references = await manager.query(`SELECT
+          EXISTS(SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND process_code=$3) report_reference,
+          EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$4::text) audit_reference,
+          (SELECT count(*)::int FROM pg_constraint WHERE contype='f' AND confrelid='mps_weekly_process_plans'::regclass) foreign_key_count`, [tenantId, weekly.id, task.process_code, task.id]);
+        if (references[0]?.report_reference) blockers.push(`待移除工序 ${task.process_code} 已被报工记录引用`);
+        if (references[0]?.audit_reference) blockers.push(`待移除工序 ${task.process_code} 已有独立审计引用`);
+        if (Number(references[0]?.foreign_key_count ?? 0) > 0) blockers.push("工序任务表存在外键引用，不能自动移除路线差异工序");
+      }
+    }
+    return {
+      weeklyPlanId: String(weekly.id), weeklyVersion: Number(weekly.version), sourceDivisionId: String(weekly.division_id), targetDivisionId,
+      sourceRoute: sourceDesired, targetRoute: targetDesired, current: current.map((row: any) => ({ id: String(row.id), processCode: row.process_code,
+        processName: row.process_name, sequence: Number(row.sequence), cycleDays: row.cycle_days == null ? null : Number(row.cycle_days),
+        dueDate: this.dateOnly(row.due_date), status: row.status, exceptionText: row.exception_text, reportedQuantity: String(row.daily_reported_quantity),
+        executionEnabled: row.execution_enabled, version: Number(row.version) })),
+      changes, manualAdjustments, locked: Boolean(guard?.locked), hasExecution: Boolean(guard?.has_execution), canMigrate: blockers.length === 0,
+      blockers: [...new Set(blockers)]
+    };
+  }
+
+  /** Apply route deltas within the caller's already locked allocation-transfer transaction. */
+  async migrateWeeklyProcessRouteForDivisionTransfer(manager: EntityManager, weeklyPlanId: string, targetDivisionId: string,
+    sourceDivisionId: string, tenantId: string, userId: string | null, updatedBy: string, actorName: string, requestId: string) {
+    const [weekly] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, weeklyPlanId]);
+    if (!weekly) throw new ConflictException("周计划已变化，无法重算目标事业部工序路线");
+    const preview = await this.previewDivisionTransferProcessRoute(manager, { ...weekly, division_id: sourceDivisionId }, targetDivisionId, tenantId);
+    if (!preview.canMigrate) throw new ConflictException(`工序路线不能安全迁移：${preview.blockers.join("；")}`);
+    const before = preview.current;
+    const desired = preview.targetRoute as any[];
+    await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+    const desiredCodes = desired.map((row) => row.processCode);
+    const removed = await manager.query(`DELETE FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid
+      AND NOT (process_code=ANY($3::text[])) RETURNING *`, [tenantId, weeklyPlanId, desiredCodes]);
+    const currentByCode = new Map<string, any>(before.map((row: any) => [String(row.processCode), row]));
+    for (const process of desired) {
+      const old = currentByCode.get(String(process.processCode)) as any;
+      if (old) {
+        const preserveManualDueDate = old.dueDate !== (preview.sourceRoute as any[]).find((r: any) => r.processCode === process.processCode)?.dueDate;
+        await manager.query(`UPDATE mps_weekly_process_plans SET process_name=$4,sequence=$5,cycle_days=$6,
+          due_date=CASE WHEN $7 THEN due_date ELSE $8::date END,updated_at=now(),updated_by=$9,version=version+1
+          WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid AND process_code=$3
+            AND (process_name,sequence,cycle_days,due_date) IS DISTINCT FROM ($4,$5,$6,CASE WHEN $7 THEN due_date ELSE $8::date END)`,
+        [tenantId, weeklyPlanId, process.processCode, process.processName, process.sequence, process.cycleDays, preserveManualDueDate, process.dueDate, updatedBy]);
+      } else {
+        await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,
+          exception_text,execution_enabled,created_by,updated_by) VALUES($1,$2::uuid,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10)`,
+        [tenantId, weeklyPlanId, process.processCode, process.processName, process.sequence, process.cycleDays, process.dueDate,
+          process.cycleDays == null ? "未维护工序周期" : null, userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy]);
+      }
+    }
+    await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+    const after = await manager.query(`SELECT id,process_code,process_name,sequence,cycle_days,due_date,status,exception_text,daily_reported_quantity,execution_enabled,version
+      FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY sequence,process_code`, [tenantId, weeklyPlanId]);
+    const afterByCode = new Map<string, any>(after.map((row: any) => [String(row.process_code), row]));
+    const beforeByCode = new Map<string, any>(before.map((row: any) => [String(row.processCode), row]));
+    for (const [code, old] of beforeByCode) {
+      const next = afterByCode.get(code);
+      if (next) {
+        if (JSON.stringify(old) !== JSON.stringify(next)) await this.auditProcessConfig(manager, { tenantId, userId, username: actorName, permissions: ["*"], tableDataScopes: [], requestId, source: "web" }, old.id, "mps-weekly-process-plans.division_transfer_reconfigured", old, next);
+      } else await this.auditProcessConfig(manager, { tenantId, userId, username: actorName, permissions: ["*"], tableDataScopes: [], requestId, source: "web" }, old.id, "mps-weekly-process-plans.division_transfer_removed", old, null);
+    }
+    for (const [code, next] of afterByCode) if (!beforeByCode.has(code)) await this.auditProcessConfig(manager, { tenantId, userId, username: actorName, permissions: ["*"], tableDataScopes: [], requestId, source: "web" }, next.id, "mps-weekly-process-plans.division_transfer_created", null, next);
+    if (before.length || after.length) await manager.query(`UPDATE mps_weekly_plans SET updated_at=now(),updated_by=$3,version=version+1
+      WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weeklyPlanId, updatedBy]);
+    return { weeklyPlanId, removedCount: removed.length, processCount: after.length,
+      preservedTaskIds: after.filter((row: any) => beforeByCode.has(String(row.process_code))).map((row: any) => String(row.id)) };
+  }
+
   async previewWeeklyProcessConfigBatch(weeklyPlanIds: string[], actor: MasterPlanActor) {
     this.assertProcessConfigAccess(actor);
     if (!Array.isArray(weeklyPlanIds)) throw new BadRequestException("批量预览需提交周计划ID列表");
@@ -144,8 +256,8 @@ export class MasterPlanSyncService {
     return { succeeded, failed: failed.length, items: failed };
   }
 
-  private async desiredProcessSnapshot(manager: EntityManager, weekly: any, tenantId: string) {
-    const definitions = await this.processDefinitions(manager, weekly, tenantId);
+  private async desiredProcessSnapshot(manager: EntityManager, weekly: any, tenantId: string, divisionId = String(weekly.division_id)) {
+    const definitions = await this.processDefinitions(manager, weekly, tenantId, divisionId);
     const reviewDueDate = this.dateOnly(weekly.latest_review_due_date);
     const schedule = reviewDueDate ? reverseScheduleForProcesses(reviewDueDate, definitions)
       : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
@@ -209,7 +321,7 @@ export class MasterPlanSyncService {
     catch { this.logger.error("主计划配置检查失败；未触发任何同步"); return; }
     for (const config of configs) {
       try {
-        await this.run(tenantId, config.sync_key, "SCHEDULED", MASTER_PLAN_SYSTEM_USER_ID, "KDOS系统任务",
+        await this.runInternal(tenantId, config.sync_key, "SCHEDULED", MASTER_PLAN_SYSTEM_USER_ID, "KDOS系统任务",
           `scheduled:${config.sync_key}:${new Date().toISOString().slice(0, 16)}`);
       } catch { this.logger.warn(`主计划任务未完成：${config.sync_key}；保留数据库失败/租约状态供重试`); }
     }
@@ -221,16 +333,53 @@ export class MasterPlanSyncService {
     return this.runner.processAvailableTenants();
   }
 
-  run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string,
-    idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, scope: SyncScope | null = null) {
-    return this.runner.run(tenantId, syncKey, runType, userId, username, idempotencyKey, scope);
+  processOutboxEvent(tenantId:string,eventId:string){
+    return this.runner.processOutboxEvent(tenantId,eventId);
   }
 
-  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: SyncScope | null = null, actorName = updatedBy, transaction?: EntityManager): Promise<SyncOutcome> {
+  run(tenantId: string, syncKey: string, runType: RunType, userId: string | null, username: string,
+    idempotencyKey = `${runType.toLowerCase()}:${syncKey}:${randomUUID()}`, scope: SyncScope | null = null) {
+    // Public/manual command arguments never confer the database service role.
+    return this.runner.run(tenantId, syncKey, runType, userId, username, idempotencyKey, scope, [], false);
+  }
+
+  private runInternal(tenantId:string,syncKey:string,runType:'SCHEDULED'|'RECONCILIATION',userId:string,username:string,
+    idempotencyKey:string,scope:SyncScope|null=null){
+    if(userId!==MASTER_PLAN_SYSTEM_USER_ID)throw new ConflictException('内部同步主体无效');
+    return this.runner.run(tenantId,syncKey,runType,userId,username,idempotencyKey,scope,[],true);
+  }
+
+  /** Operator-only, feature-off-by-default recovery for a reviewed set of missing monthly IDs. Not routed over HTTP. */
+  async restoreMissingMonthlyBaseBatch(tenantId:string,batchId:string,monthlyPlans:Array<{id:string;expectedVersion:number}>){
+    if(process.env.KDOS_MPS_TARGETED_RESTORE_ENABLED!=='true')throw new ConflictException('定向基础计划恢复开关未启用');
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(batchId)||monthlyPlans.length<1||monthlyPlans.length>25)throw new ConflictException('恢复批次或月度计划范围无效');
+    if(new Set(monthlyPlans.map(plan=>plan.id)).size!==monthlyPlans.length||monthlyPlans.some(plan=>!Number.isInteger(plan.expectedVersion)||plan.expectedVersion<1))throw new ConflictException('月度计划恢复ID/版本无效');
+    const [system]=await this.dataSource.query('SELECT username,enabled FROM users WHERE id=$1::uuid',[MASTER_PLAN_SYSTEM_USER_ID]);
+    if(system?.username!=='__kdos_system__'||system.enabled!==false)throw new ConflictException('系统同步账号身份或禁用登录状态不符合安全基线');
+    const selected=[...monthlyPlans].sort((a,b)=>a.id.localeCompare(b.id));
+    const shipping=await this.runInternal(tenantId,'shipping-to-base','RECONCILIATION',MASTER_PLAN_SYSTEM_USER_ID,'KDOS定向基础计划恢复',`mps-restore:${batchId}:shipping`,{monthlyPlans:selected});
+    if(shipping.status!=='SUCCESS')return {batchId,monthlyPlanCount:selected.length,basePlanCount:0,shipping,weekly:[]};
+    const baseRows:Array<{id:string;monthly_plan_id:string}>=await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      return manager.query('SELECT id,monthly_plan_id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=ANY($2::uuid[]) ORDER BY monthly_plan_id,id',[tenantId,selected.map(plan=>plan.id)]);
+    });
+    const perMonthly=new Map<string,number>();for(const row of baseRows)perMonthly.set(row.monthly_plan_id,(perMonthly.get(row.monthly_plan_id)??0)+1);
+    if(baseRows.length!==selected.length||selected.some(plan=>perMonthly.get(plan.id)!==1))throw new ConflictException('恢复后基础计划稳定关联不是每需求一条，停止周计划生成并保留已完成批次供幂等续跑');
+    const weekly:Array<Awaited<ReturnType<MasterPlanSyncService['run']>>>=[];
+    for(let offset=0;offset<baseRows.length;offset+=25){
+      const basePlanIds=baseRows.slice(offset,offset+25).map(row=>row.id);
+      weekly.push(await this.runInternal(tenantId,'base-to-weekly','RECONCILIATION',MASTER_PLAN_SYSTEM_USER_ID,'KDOS定向周计划恢复',`mps-restore:${batchId}:weekly:${offset/25}`,{basePlanIds}));
+    }
+    return {batchId,monthlyPlanCount:selected.length,basePlanCount:baseRows.length,shipping,weekly};
+  }
+
+  private async execute(syncKey: string, tenantId: string, userId: string | null, updatedBy: string, executionScope: SyncScope | null = null, actorName = updatedBy, transaction?: EntityManager, trustedInternalService = false): Promise<SyncOutcome> {
+    const monthlyPlans=executionScope&&'monthlyPlans' in executionScope?executionScope.monthlyPlans:null;
     const jobs: Record<string, () => Promise<number | SyncOutcome>> = {
       "erp-orders": () => this.projectOrders(tenantId, userId, updatedBy, transaction),
-      "plan-projections": () => this.projectPlans(tenantId, userId, actorName, transaction),
-      "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction),
+      "plan-projections": () => this.projectPlans(tenantId, userId, actorName, transaction,
+        executionScope&&'allocation' in executionScope?executionScope.allocation:null),
+      "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction, monthlyPlans, trustedInternalService),
       "base-to-weekly": () => this.baseToWeekly(tenantId, userId, updatedBy, transaction, executionScope&&'basePlanIds' in executionScope?executionScope.basePlanIds:null),
       "inbound-allocation": () => this.allocateInbound(tenantId, updatedBy, transaction),
       "execution-rollup": () => this.executionRollup(tenantId, updatedBy, executionScope, transaction)
@@ -392,15 +541,17 @@ export class MasterPlanSyncService {
 
   /** Approved active KDOS allocations own plan demand. ERP collection stays independent.
    * Preserve retained plan identities/manual metadata; receipts still use verified inbound facts. */
-  private projectPlans(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager): Promise<SyncOutcome> {
+  private projectPlans(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager,
+    allocationScope?:{id:string;expectedVersion:number;orderNumber:string;itemCode:string;divisionId:string}|null): Promise<SyncOutcome> {
     return this.syncTransaction(transaction, manager => reconcileAllocationPlans(manager, tenantId,
-      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy), "REPEATABLE READ");
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, updatedBy, [], allocationScope ?? undefined), "REPEATABLE READ");
   }
 
   /** Retain the existing task key and entrypoint; its sole input is now monthly plans. */
-  private shippingToBase(tenantId: string, userId: string | null, actorName: string, transaction?: EntityManager): Promise<SyncOutcome> {
+  private shippingToBase(tenantId: string, userId: string | null, actorName: string, transaction?: EntityManager, monthlyPlans: Array<{id:string;expectedVersion:number}>|null=null, trustedInternalService=false): Promise<SyncOutcome> {
     return this.syncTransaction(transaction, manager => reconcileMonthlyBasePlans(manager, tenantId,
-      userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName));
+      userId ?? MASTER_PLAN_SYSTEM_USER_ID, actorName, monthlyPlans?.map(plan=>plan.id), [], !monthlyPlans||!trustedInternalService,
+      trustedInternalService, monthlyPlans ? new Map(monthlyPlans.map(plan=>[plan.id,plan.expectedVersion])) : undefined));
   }
 
   private baseToWeekly(tenantId: string, userId: string | null, updatedBy: string, transaction?: EntityManager, basePlanIds:string[]|null=null): Promise<SyncOutcome> {
@@ -408,15 +559,42 @@ export class MasterPlanSyncService {
     const admission = weeklyAdmissionSql(basePlan, "base");
     const dictionaryColumn = (field: string, column: string) =>
       this.dictionaryCopySql(basePlan, field, column, `base.${column}`, `weekly.${column}`);
+    const targetManufacturing=this.dictionaryCopySql(basePlan,"manufacturingMethod","manufacturing_method","base.manufacturing_method","weekly.manufacturing_method").replace(/ AS manufacturing_method$/,'');
     return this.syncTransaction(transaction, async (manager): Promise<SyncOutcome> => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
-      // A scoped application must account for every selected batch. Missing admission
-      // data cannot be reported as a successful zero-row synchronization.
+      let scopeAdmissionMetrics: Record<string, number> = {};
       if(basePlanIds){
-        const [eligible]=await manager.query(`SELECT count(*)::int n FROM mps_base_plans base WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND ${admission}`,[tenantId,basePlanIds]);
-        if(eligible.n!==basePlanIds.length)return {count:0,status:'BLOCKED' as const,metrics:{selected_batches:basePlanIds.length,eligible_batches:eligible.n}};
+        // Lock the selected parent rows before evaluating admission. A partial
+        // employee edit is a valid saved draft; it must not turn the whole
+        // reconciliation attempt into FAILED/BLOCKED or delay eligible peers.
+        const foundRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
+          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) FOR UPDATE OF base`,[tenantId,basePlanIds]);
+        const eligibleRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
+          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) AND ${admission} FOR UPDATE OF base`,[tenantId,basePlanIds]);
+        const eligibleIds=eligibleRows.map(row=>String(row.id));
+        scopeAdmissionMetrics={selected_batches:basePlanIds.length,eligible_batches:eligibleIds.length,
+          waiting_admission_batches:foundRows.length-eligibleIds.length,missing_batches:basePlanIds.length-foundRows.length};
+        if(!eligibleIds.length)return {count:0,metrics:scopeAdmissionMetrics};
+        // Process eligible IDs only. Incomplete/deleted IDs remain visible as
+        // pending/missing in the base-plan query and cannot block the rest.
+        basePlanIds=eligibleIds;
       }
+      // Filter already-executed weekly rows before the upsert. Migration119's
+      // trigger remains authoritative; this prevents one protected row from
+      // rolling back unrelated eligible rows in the same tenant-wide sync.
+      const protectedExisting=await manager.query(`SELECT base.id AS base_plan_id,weekly.id AS weekly_plan_id,
+          weekly.order_number,weekly.item_code
+        FROM mps_base_plans base JOIN mps_weekly_plans weekly
+          ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
+        WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[]))
+          AND ${admission} AND mps_weekly_has_execution(weekly.tenant_id,weekly.id)
+          AND (NOT EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=weekly.tenant_id AND p.weekly_plan_id=weekly.id)
+            OR (weekly.division_id,weekly.order_number,weekly.item_code,weekly.delivery_number,weekly.manufacturing_method)
+              IS DISTINCT FROM (base.division_id,base.order_number,base.item_code,base.delivery_number,${targetManufacturing}))
+        ORDER BY base.id FOR UPDATE OF weekly`,[tenantId,basePlanIds]);
+      const protectedBaseIds=protectedExisting.map((row:any)=>String(row.base_plan_id));
+      for(const row of protectedExisting)await this.recordProcessSnapshotProtected(manager,tenantId,row.weekly_plan_id,row.order_number,row.item_code,userId);
       const rows = await manager.query(`
         INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,order_date,latest_customer_due_date,latest_review_due_date,model_age,image_refs,product_attribute,surface_nature,planned_quantity,pending_quantity,manufacturing_method,order_exception_info,inspection_required,inspection_quantity,remark,order_week_count,created_by,updated_by)
         SELECT base.tenant_id,base.id,base.division_id,base.customer_code,base.order_number,base.item_code,base.item_name,base.delivery_number,base.order_date,base.latest_customer_due_date,base.latest_review_due_date,
@@ -429,25 +607,31 @@ export class MasterPlanSyncService {
         FROM mps_base_plans base
         LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
         WHERE base.tenant_id=$1 AND ($4::uuid[] IS NULL OR base.id=ANY($4::uuid[])) AND ${admission}
-        ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
+          AND NOT(base.id=ANY($5::uuid[]))
+        ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,pending_quantity=greatest(excluded.planned_quantity-mps_weekly_plans.allocated_inbound_quantity,0),manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
-        RETURNING id`, [tenantId, userId, updatedBy, basePlanIds]);
+        RETURNING id`, [tenantId, userId, updatedBy, basePlanIds,protectedBaseIds]);
       /* 已有快照不重写；原外协周计划转为内部生产且从未初始化时，可首次建立空缺工艺。 */
       const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
-        ,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot
+        ,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot,
+        mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
-        WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}`, [tenantId,basePlanIds]);
-      let initializedSnapshots = 0, initializedTasks = 0;
+        WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}
+          AND NOT(base.id=ANY($3::uuid[]))`, [tenantId,basePlanIds,protectedBaseIds]);
+      let initializedSnapshots = 0, initializedTasks = 0, protectedSnapshots = protectedExisting.length;
       for (const weekly of weeklyRows) {
         const result = await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
         if (result.initialized) initializedSnapshots++;
         initializedTasks += result.taskCount;
+        if(result.blocked)protectedSnapshots++;
       }
       const weeklyChanges = this.changedCount(rows);
-      return { count: weeklyChanges + initializedTasks, metrics: {
-        weekly_plans_changed: weeklyChanges, process_snapshots_initialized: initializedSnapshots, process_tasks_initialized: initializedTasks
+      return { count: weeklyChanges + initializedTasks, status:protectedSnapshots?'BLOCKED':undefined, metrics: {
+        ...scopeAdmissionMetrics,
+        weekly_plans_changed: weeklyChanges, process_snapshots_initialized: initializedSnapshots, process_tasks_initialized: initializedTasks,
+        process_snapshots_protected:protectedSnapshots
       } };
     });
   }
@@ -459,16 +643,17 @@ export class MasterPlanSyncService {
    */
   async refreshWeeklyExecution(manager: EntityManager, weeklyPlanId: string, tenantId: string, userId: string | null, updatedBy: string) {
     const [weekly] = await manager.query(`SELECT w.*,c.technical_days,
-      EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot
+      EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot,
+      mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution
       FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) return false;
     await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, false);
     return true;
   }
 
-  private async processDefinitions(manager: EntityManager, weekly: any, tenantId: string): Promise<ProcessScheduleDefinition[]> {
+  private async processDefinitions(manager: EntityManager, weekly: any, tenantId: string, divisionId = String(weekly.division_id)): Promise<ProcessScheduleDefinition[]> {
     if (!shouldEnableProcess(weekly.manufacturing_method, "cutting")) return [];
-    const divisionRows = await manager.query(`SELECT process_code,cycle_days,default_enabled,sequence FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2::uuid ORDER BY sequence,process_code`, [tenantId, weekly.division_id]);
+    const divisionRows = await manager.query(`SELECT process_code,cycle_days,default_enabled,sequence FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2::uuid ORDER BY sequence,process_code`, [tenantId, divisionId]);
     const itemRows = await manager.query(`SELECT process_code,sequence FROM mps_item_process_routes WHERE tenant_id=$1 AND item_code=$2 ORDER BY sequence,process_code`, [tenantId, weekly.item_code]);
     const canonical = new Map(STANDARD_PROCESSES.map(([code, name]) => [code, name]));
     const cycles = new Map(divisionRows.map((row: any) => [String(row.process_code), row.cycle_days == null ? null : Number(row.cycle_days)]));
@@ -491,16 +676,21 @@ export class MasterPlanSyncService {
       || !shouldEnableProcess(weekly.manufacturing_method, "cutting")) return null;
     const [current] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, weekly.id]);
     if (!current || current.process_config_locked_at != null || !shouldEnableProcess(current.manufacturing_method, "cutting")) return null;
-    const [guard] = await manager.query(`SELECT
+      const [guard] = await manager.query(`SELECT
       EXISTS(SELECT 1 FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_tasks,
       EXISTS(SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_reports,
+      mps_weekly_has_execution($1,$2::uuid) AS has_execution,
       EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2::text
         AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')) AS was_initialized`, [tenantId, weekly.id]);
-    return guard && !guard.has_tasks && !guard.has_reports && !guard.was_initialized ? current : null;
+    return guard && !guard.has_tasks && !guard.has_reports && !guard.has_execution && !guard.was_initialized ? current : null;
   }
 
   private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig = false) {
     if (weekly.lifecycle_status && weekly.lifecycle_status !== 'ACTIVE') throw new ConflictException('LIFECYCLE_BLOCKED: 来源待确认、暂停或取消周计划不能生成或刷新执行任务');
+    if(weekly.has_process_snapshot!==true&&weekly.has_execution===true){
+      await this.recordProcessSnapshotProtected(manager,tenantId,weekly.id,weekly.order_number,weekly.item_code,userId);
+      return { initialized:false,taskCount:0,blocked:true };
+    }
     let mode = initializeProcessConfig ? "INITIALIZE" : null;
     if (!mode) {
       const current = await this.uninitializedInternalWeek(manager, weekly, tenantId);
@@ -541,7 +731,17 @@ export class MasterPlanSyncService {
     if (outsourcingEnabled) await manager.query(`INSERT INTO mps_outsourcing_reports(tenant_id,weekly_plan_id,division_id,order_number,item_code,item_name,delivery_number,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8::uuid,$9) ON CONFLICT(tenant_id,weekly_plan_id) DO UPDATE SET division_id=excluded.division_id,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,execution_enabled=true,updated_at=now(),updated_by=$9,version=mps_outsourcing_reports.version+1 WHERE (mps_outsourcing_reports.division_id,mps_outsourcing_reports.order_number,mps_outsourcing_reports.item_code,mps_outsourcing_reports.item_name,mps_outsourcing_reports.delivery_number,mps_outsourcing_reports.execution_enabled) IS DISTINCT FROM (excluded.division_id,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,true)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, userId, updatedBy]);
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
-    return { initialized, taskCount };
+    return { initialized, taskCount, blocked:false };
+  }
+
+  private async recordProcessSnapshotProtected(manager:EntityManager,tenantId:string,weeklyId:string,orderNumber:string,itemCode:string,userId:string|null){
+    const reason='已有报工、入库或其他生产执行事实，保留当前计划并阻止自动新建工序任务；需按受控流程核实';
+    const actor=userId??MASTER_PLAN_SYSTEM_USER_ID;
+    await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+      VALUES($1,$2,'mps-weekly-plans',$3::uuid,$4,'PROCESS_SNAPSHOT_PROTECTED','WARNING',$5,true,$6::uuid,$6::uuid)
+      ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,updated_at=now(),updated_by=excluded.updated_by
+      WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+      [tenantId,`process-snapshot-protected:${weeklyId}`,weeklyId,`${orderNumber}/${itemCode}`,reason,actor]);
   }
 
   /** 只按周计划已保存的工序集合、顺序和周期重算日期；永不读取最新路线配置。 */

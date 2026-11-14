@@ -36,6 +36,17 @@ export type TablePrintRowQuery = {
   action?: string;
 };
 
+/** Explicit candidate contract for derived list resources whose values do not live in `table`. */
+export type TableFilterCandidateQuery = {
+  fieldKey: string;
+  search: string;
+  limit: number;
+  actor: TableFilterActor;
+  context: Record<string, unknown>;
+  tableSearch: string;
+  filterGroup: unknown;
+};
+
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
 export type TableFilterActor = {
   tenantId: string; userId: string | null; permissions: string[]; roles?: string[];
@@ -114,6 +125,8 @@ export type TableFilterSource = {
    */
   /** Optional controlled provider for aggregate record lists; uses the same query contract as exports. */
   listRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
+  /** Optional typed candidates for a derived list whose candidate values cannot be read from `table`. */
+  candidateValues?: (query: TableFilterCandidateQuery) => Promise<{ options: Array<{ value: string; label: string }>; hasMore: boolean }>;
   printRows?: (query: TablePrintRowQuery) => Promise<{ rows: Array<Record<string, unknown>>; total: number }>;
   /** KN-PRINT-001：批量 label 解析器（member/department/reference/dictionary），禁止 N+1。 */
   printResolvers?: Record<string, (rows: Array<Record<string, unknown>>, actor?: TableFilterActor) => Promise<Map<string, unknown>>>;

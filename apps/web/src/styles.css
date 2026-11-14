@@ -44,6 +44,11 @@ body { margin: 0; min-width: 1180px; min-height: 100vh; background: #f3f6f8; }
 .app-shell .page-header:not(.page-header-show-title) h3 { display: none; }
 .dashboard-toolbar, .equipment-dashboard-toolbar { margin-bottom: 16px; }
 .master-data-toolbar { margin-bottom: 10px; }
+.rd-bom-report-table .kdos-column-title { position: relative; display: block; text-align: center; }
+.rd-bom-report-table .kdos-column-title-label { display: block; width: 100%; padding: 0 30px; text-align: center; }
+.rd-bom-report-table .kdos-column-state { position: absolute; top: 50%; right: 24px; transform: translateY(-50%); }
+.rd-bom-report-table .kdos-column-state + .kdos-column-state { right: 42px; }
+.rd-bom-report-table .kdos-column-menu-trigger { position: absolute; top: 50%; right: 0; margin: 0; transform: translateY(-50%); }
 .master-data-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
 .inbound-form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 58vh; overflow-y: auto; padding-right: 8px; }
 .master-data-form-wide { grid-column: 1 / -1; }

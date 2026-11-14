@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EntityManager } from "typeorm";
 import { allocationDemandCtesSql, allocationOrderTotalsSql } from "./master-plan.allocation-source";
 import { MASTER_PLAN_ERP_ADMISSION } from "./master-plan.erp-admission";
+import { yieldAllocationProjectionToWaitingWriters } from "./master-plan.allocation-projection-lock";
 
 // Existing shared-directory identity. Do not infer department ownership from its display name.
 export const MONTHLY_INBOUND_DIVISION_ID = "d23442f9-4862-4641-b4a7-c8d470bc56ea";
@@ -49,8 +50,11 @@ export const monthlyInboundParams = (tenantId: string) => [tenantId, MONTHLY_INB
 export async function reconcileExistingMonthlyInbound(manager: EntityManager, tenantId: string, actorName: string, actorId: string, allocationOnly = false) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-existing-monthly-inbound`]);
+  await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   const before: Array<Record<string, any>> = await manager.query(`${monthlyInboundCandidatesSql} ${allocationOnly ? `AND p.id IN (WITH ${allocationDemandCtesSql} SELECT existing_id FROM candidates WHERE skip_reason IS NULL)` : ""} FOR UPDATE OF p`, monthlyInboundParams(tenantId));
+  await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   const [blocked] = await manager.query(`${monthlyInboundFactsSql} SELECT count(*)::integer count FROM stock_facts WHERE NOT trusted`, monthlyInboundParams(tenantId));
+  await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   const requestId = `monthly-inbound:${randomUUID()}`;
   const audit = async (resource: string, rows: Array<Record<string, any>>) => {
     if (!rows.length) return;
@@ -91,6 +95,7 @@ export async function reconcileExistingMonthlyInbound(manager: EntityManager, te
       OR g.primary_division_id=$2::uuid)
       AND (g.required_quantity,g.completed_quantity,g.pending_quantity,g.completion_rate)
         IS DISTINCT FROM (t.required,t.completed,t.pending,round(t.rate,4)) FOR UPDATE OF g`, [tenantId, MONTHLY_INBOUND_DIVISION_ID]);
+  await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   if (groups.length) {
     await manager.query(`UPDATE mps_group_plans g SET required_quantity=x.after_required,completed_quantity=x.after_completed,
       pending_quantity=x.after_pending,completion_rate=x.after_rate,updated_at=now(),updated_by=$3,version=g.version+1
@@ -101,5 +106,6 @@ export async function reconcileExistingMonthlyInbound(manager: EntityManager, te
       after_json: { requiredQuantity: r.after_required, completedQuantity: r.after_completed, pendingQuantity: r.after_pending, completionRate: r.after_rate, version: Number(r.version) + 1 }
     })));
   }
+  await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   return { monthlyRows: before.length, groupRows: groups.length, unverifiedSourceItems: Number(blocked.count) };
 }

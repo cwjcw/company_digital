@@ -1,8 +1,8 @@
 import { loadReviewDueWorkbook } from './review-due-date-workbook';
 import { ReviewDueDateImportApplicationService, type ReviewDueImportRow } from './review-due-date-import.application.service';
 import { reviewDueImportCapabilities } from './review-due-date.query.service';
-import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tableResourceRegistry, type ReviewDueImportMode } from '@kdos/contracts';
-import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, parseAllocationWorkbook } from "./order-allocation.domain";
+import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tableResourceRegistry } from '@kdos/contracts';
+import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, normalizeAllocationSupplierName, parseAllocationWorkbook } from "./order-allocation.domain";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
@@ -275,8 +275,8 @@ export class MasterPlanSpreadsheetService {
   /** Resource adapter over the existing ExcelJS + preview ledger, never a second import store. */
   private async reviewPreview(file:Express.Multer.File,actor:MasterPlanActor) {
     if(!this.reviewImport)throw new ForbiddenException('评审交期导入服务未配置');
-    // New uploads always use explicit ID/version semantics. SOURCE remains only in historical preview ledgers.
-    const mode:ReviewDueImportMode='STANDARD';
+    // Only this table's standard user-uploaded workbook is accepted; old SOURCE previews are rejected on confirm.
+    const mode='STANDARD' as const;
     if(!file?.buffer?.length||!/\.xlsx$/i.test(file.originalname))throw new BadRequestException('请选择 .xlsx Excel 文件');
     assertSpreadsheetNotEncrypted(file.buffer);
     const workbook=await loadReviewDueWorkbook(file.buffer,actor.requestId);
@@ -298,7 +298,7 @@ export class MasterPlanSpreadsheetService {
       let v=cell.value;
       if(cell.type===ExcelJS.ValueType.Error)throw new Error('单元格包含错误值');
       if(cell.type===ExcelJS.ValueType.Formula){v=(v as ExcelJS.CellFormulaValue).result??null;if(v==null||typeof v==='object'&&!(v instanceof Date))throw new Error('公式缺少有效缓存结果，请在Excel重算并保存');}
-      if(['dueDate','inboundDate','previousInboundDate'].includes(key)&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
+      if(['orderDate','productReviewDueDate','inboundDate'].includes(key)&&typeof v==='number'){if(!Number.isInteger(v)||v<1||v>2958465)throw new Error('不是有效Excel日期');v=new Date((v-(workbook.properties.date1904?24107:25569))*86400000);}
       if(v instanceof Date)return v.toISOString().slice(0,10);
       if(key==='quantity'&&typeof v==='number'&&(!Number.isFinite(v)||Math.abs(v)>Number.MAX_SAFE_INTEGER||v.toString().replace(/[.e+-]/g,'').length>15))throw new Error('数量数值精度不可靠，请使用精确十进制文本');
       return v==null?'':typeof v==='object'?cell.text.trim():String(v).trim();
@@ -331,8 +331,16 @@ export class MasterPlanSpreadsheetService {
 
   private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
-    for (const [key] of ALLOCATION_FIELDS) if (!hasMasterPlanFieldPermission(actor,"mps-order-allocations",key,"read")) throw new ForbiddenException("导入预览需要全部非金额业务字段的读取权限");
     const parsed=await parseAllocationWorkbook(file.buffer),errors=[...parsed.errors];
+    // New/empty optional columns must not invalidate an existing import grant.
+    // Preview echoes only uploaded values plus the resolved organization; require
+    // read access to those fields before resolving mappings or returning values.
+    const previewFields = new Set(["divisionId", ...parsed.rows.flatMap(row => Object.keys(row.values))]);
+    for (const [key, label] of ALLOCATION_FIELDS) {
+      if (previewFields.has(key) && !hasMasterPlanFieldPermission(actor, "mps-order-allocations", key, "read")) {
+        throw new ForbiddenException(`导入预览没有字段读取权限：${label}，请联系管理员核实字段授权`);
+      }
+    }
     const hash=createHash("sha256").update(file.buffer).digest("hex");
     const resolved=await this.dataSource.transaction(async manager=>{
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
@@ -344,11 +352,14 @@ export class MasterPlanSpreadsheetService {
         const values={...input.values};
         if(values.divisionId){try{values.divisionId=this.directory.resolve(values.divisionId,organizations,"承接事业部")?.id;}catch{errors.push({row:input.row,reason:"承接事业部无法精确匹配"});}}
         if(values.supplierName){
-          const map=vendors.find((v:Record<string,unknown>)=>v.supplier_name===values.supplierName);
-          if(!map)errors.push({row:input.row,reason:`供应商名称未配置映射：${values.supplierName}`});
+          const normalized=normalizeAllocationSupplierName(values.supplierName);
+          const matchingMaps=vendors.filter((v:Record<string,unknown>)=>normalizeAllocationSupplierName(v.supplier_name)===normalized);
+          const map=matchingMaps.length===1?matchingMaps[0]:undefined;
+          if(matchingMaps.length>1)errors.push({row:input.row,reason:`供应商名称规范化后存在多个映射：${normalized}，请先修复映射配置`});
+          else if(!map)errors.push({row:input.row,reason:`供应商名称未配置映射：${normalized}`});
           else if(!map.enabled)errors.push({row:input.row,reason:`供应商名称映射已停用：${values.supplierName}，请联系PMC管理员核实并启用`});
           else if(!organizations.some(o=>o.id===map.division_id))errors.push({row:input.row,reason:"供应商映射的承接组织不存在或已停用"});
-          else if(allocationVendorTargetError(String(values.supplierName),organizations.find(o=>o.id===map.division_id)!))errors.push({row:input.row,reason:"供应链必须映射采购部，请联系PMC管理员修复映射"});
+          else if(allocationVendorTargetError(values.supplierName,organizations.find(o=>o.id===map.division_id)!,organizations))errors.push({row:input.row,reason:allocationVendorTargetError(values.supplierName,organizations.find(o=>o.id===map.division_id)!,organizations)!});
           else if(values.divisionId&&values.divisionId!==map.division_id){
             conflicts.push({row:input.row,before:organizations.find(u=>u.id===values.divisionId)?.name??values.divisionId,after:organizations.find(u=>u.id===map.division_id)?.name??map.division_id,overridden:overrideDivision});
             if(overrideDivision){

@@ -49,6 +49,7 @@ import { MasterPlanResourcePage } from "./modules/master-plan-system/MasterPlanP
 import { clearKnowledgeDraftCache, flushKnowledgeDrafts } from "./modules/knowledge/knowledge-autosave";
 import { KnowledgeRoutes } from "./modules/knowledge/KnowledgeRoutes";
 import { RdDuplicatesPage, RdItemsPage } from "./modules/rd/RdPages";
+import { RdOrderBomReportPage } from "./modules/rd/RdOrderBomReportPage";
 import {
   OrderProjectPlaceholderPage, SupervisionEmployeeDashboardPage, SupervisionFlowPage, SupervisionHowToPage,
   SupervisionOwnerReportPage, SupervisionProjectDashboardPage, SupervisionProjectsPage, SupervisionTasksPage
@@ -178,6 +179,7 @@ function Shell({ logout }: { logout: () => void }) {
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
   const canReadPmcProgress = hasSessionResourcePermission(user, "pmc-rd-progress", "read");
   const canReadRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
+  const canReadRdOrderBom = hasSessionResourcePermission(user, "rd-order-bom-report", "read");
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
   if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
@@ -185,6 +187,7 @@ function Shell({ logout }: { logout: () => void }) {
   if (["/master-plan-dashboard", "/master-plan-gaps", "/master-plan-reports"].includes(location.pathname) && !hasSessionResourcePermission(user, "mps-overview-dashboard", "read")) return <Navigate to="/" replace />;
   if (location.pathname === reportPath && !canReadPmcProgress) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
+  if (location.pathname === "/rd/bom-report" && !canReadRdOrderBom) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
   const moduleId = permissionResource ? permissionModuleId : location.pathname === "/sales-summary-dashboard" ? "cockpit"
@@ -281,6 +284,7 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     rd: [{ key: "rd-root", label: "研发中心", children: [
       { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
+      ...(canReadRdOrderBom ? [{ key: "/rd/bom-report", icon: <ReadOutlined />, label: "BOM报表" }] : []),
       ...(canReadRdDuplicates ? [{ key: "/rd/material-duplicates", icon: <ReadOutlined />, label: "一物多码检测" }] : [])
     ] }],
     system: [{ key: "system-root", label: "系统管理", children: isSystemAdmin ? [
@@ -326,6 +330,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/finance/orders/changes": "订单变更明细",
       "/knowledge": "知识空间与页面", "/knowledge/settings": "空间设置", "/knowledge/trash": "回收站",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
+      "/rd/bom-report": "BOM报表",
       [reportPath]: "研发进度",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
@@ -389,6 +394,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/knowledge/*" element={<KnowledgeRoutes />}/>
           <Route path="/rd/items" element={<RdItemsPage />} />
+          <Route path="/rd/bom-report" element={<RdOrderBomReportPage />} />
           <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />
           <Route path="/hr/workforce-planning" element={<HrFolderPage title="人力资源规划" />} />
           <Route path="/hr/recruitment" element={<HrFolderPage title="招聘与配置" />} />

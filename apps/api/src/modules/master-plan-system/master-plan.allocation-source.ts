@@ -16,24 +16,61 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
       AND nullif(btrim(a.customer_code),'') IS NOT NULL AND a.allocated_quantity>=0) valid
   FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.order_status='已审核'
   GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id
-), candidates AS MATERIALIZED (
-  SELECT a.*,p.id existing_id,p.allocation_id existing_allocation_id,
-    CASE WHEN a.demand_parent_count>1 OR (a.demand_parent_id IS NOT NULL AND (p.id IS NULL OR (p.order_number,p.item_code,p.division_id) IS DISTINCT FROM (a.order_number,a.item_code,a.division_id))) THEN '显式需求父关系冲突，禁止文本回退'
-      WHEN NOT a.valid OR a.customer_count<>1 THEN '分配客户或数量无效'
-      WHEN (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=a.order_number)<>1
-        THEN '同订单有效分配客户不一致'
-      WHEN EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=a.tenant_id AND g.order_number=a.order_number
-        AND g.customer_code IS NOT NULL AND g.customer_code IS DISTINCT FROM a.customer_code) THEN '集团历史客户归属冲突'
-      WHEN o.id IS NULL THEN '承接事业部无效'
-      WHEN p.id IS NOT NULL AND (parent.archived_at IS NOT NULL OR parent.id IS NULL
-        OR parent.order_number IS DISTINCT FROM a.order_number OR parent.item_code IS DISTINCT FROM a.item_code
-        OR parent.division_id IS DISTINCT FROM a.division_id OR p.customer_code IS DISTINCT FROM a.customer_code)
-        THEN '保留历史计划或人工归属'
-      ELSE NULL END skip_reason
+), joined AS MATERIALIZED (
+  SELECT a.*,p.id existing_id,p.allocation_id existing_allocation_id,p.order_number existing_order_number,
+    p.item_code existing_item_code,p.division_id existing_division_id,p.customer_code existing_customer_code,
+    parent.archived_at parent_archived_at,parent.order_number parent_order_number,parent.item_code parent_item_code,
+    parent.division_id parent_division_id,parent.customer_code parent_customer_code,parent.allocated_quantity parent_quantity,
+    o.id enabled_division_id,
+    (p.id IS NOT NULL AND parent.archived_at IS NOT NULL
+      AND (parent.order_number,parent.item_code,parent.division_id,parent.customer_code)
+        IS NOT DISTINCT FROM (a.order_number,a.item_code,a.division_id,a.customer_code)) archived_parent_matches,
+    (p.id IS NOT NULL AND parent.archived_at IS NULL
+      AND (parent.order_number,parent.item_code,parent.division_id,parent.customer_code)
+        IS NOT DISTINCT FROM (a.order_number,a.item_code,a.division_id,a.customer_code)) active_parent_matches,
+    (p.id IS NOT NULL AND (coalesce(p.cumulative_inbound_quantity,0)>0 OR EXISTS(
+      SELECT 1 FROM mps_base_plans b JOIN mps_weekly_plans w ON w.tenant_id=b.tenant_id AND w.base_plan_id=b.id
+      WHERE b.tenant_id=p.tenant_id
+        AND (b.monthly_plan_id=p.id OR (b.monthly_plan_id IS NULL AND
+          (b.order_number,b.item_code,b.division_id) IS NOT DISTINCT FROM (p.order_number,p.item_code,p.division_id)))
+        AND mps_weekly_has_execution(w.tenant_id,w.id)))) has_execution
   FROM allocations a LEFT JOIN organization_units o ON o.id=a.division_id AND o.enabled=true
   LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND (p.id=a.demand_parent_id::uuid OR (a.demand_parent_id IS NULL AND p.order_number=a.order_number
     AND p.item_code=a.item_code AND p.division_id IS NOT DISTINCT FROM a.division_id))
   LEFT JOIN mps_order_allocations parent ON parent.tenant_id=p.tenant_id AND parent.id=p.allocation_id
+), candidates AS MATERIALIZED (
+  SELECT j.*,
+    (j.archived_parent_matches AND j.allocation_count=1 AND j.demand_parent_count=0
+      AND coalesce(j.parent_quantity,0)=0 AND NOT j.has_execution
+      AND NOT EXISTS(SELECT 1 FROM mps_order_allocations linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)
+      AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)) recover_archived_source,
+    (j.valid AND j.customer_count=1
+      AND (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=j.order_number)=1
+      AND NOT EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=j.tenant_id AND g.order_number=j.order_number
+        AND g.customer_code IS NOT NULL AND g.customer_code IS DISTINCT FROM j.customer_code)
+      AND j.enabled_division_id IS NOT NULL
+      AND (j.existing_id IS NULL OR j.archived_parent_matches OR j.active_parent_matches)) group_source_safe,
+    CASE WHEN j.demand_parent_count>1 OR (j.demand_parent_id IS NOT NULL AND (j.existing_id IS NULL OR
+        (j.existing_order_number,j.existing_item_code,j.existing_division_id) IS DISTINCT FROM (j.order_number,j.item_code,j.division_id))) THEN '显式需求父关系冲突，禁止文本回退'
+      WHEN NOT j.valid OR j.customer_count<>1 THEN '分配客户或数量无效'
+      WHEN (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=j.order_number)<>1
+        THEN '同订单有效分配客户不一致'
+      WHEN EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=j.tenant_id AND g.order_number=j.order_number
+        AND g.customer_code IS NOT NULL AND g.customer_code IS DISTINCT FROM j.customer_code) THEN '集团历史客户归属冲突'
+      WHEN j.enabled_division_id IS NULL THEN '承接事业部无效'
+      WHEN j.existing_id IS NOT NULL AND NOT j.archived_parent_matches AND
+        (j.parent_archived_at IS NOT NULL OR j.parent_order_number IS DISTINCT FROM j.order_number OR
+          j.parent_item_code IS DISTINCT FROM j.item_code OR j.parent_division_id IS DISTINCT FROM j.division_id OR
+          j.existing_customer_code IS DISTINCT FROM j.customer_code) THEN '保留历史计划或人工归属'
+      WHEN j.archived_parent_matches AND NOT (j.allocation_count=1 AND j.demand_parent_count=0
+        AND coalesce(j.parent_quantity,0)=0 AND NOT j.has_execution
+        AND NOT EXISTS(SELECT 1 FROM mps_order_allocations linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id)
+        AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND linked.monthly_plan_id=j.existing_id))
+        THEN CASE WHEN j.has_execution THEN '归档来源仍有入库或执行事实，保留历史计划'
+          WHEN j.allocation_count<>1 THEN '存在多个有效分配来源，保留计划关联待核实'
+          ELSE '存在稳定计划关联或来源归属不明确，保留历史计划' END
+      ELSE NULL END skip_reason
+  FROM joined j
 )`;
 
 /** The existing order completion rule is the average of item completion fractions.
@@ -44,7 +81,7 @@ export const allocationOrderTotalsSql = `WITH ${allocationDemandCtesSql}, items 
   SELECT a.order_number,a.item_code,sum(a.quantity) required_quantity,
     least(sum(greatest(p.cumulative_inbound_quantity,0)),sum(a.quantity)) completed_quantity
   FROM candidates a JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
-  WHERE NOT EXISTS(SELECT 1 FROM candidates blocked WHERE blocked.order_number=a.order_number AND blocked.skip_reason IS NOT NULL)
+  WHERE a.group_source_safe AND NOT EXISTS(SELECT 1 FROM candidates blocked WHERE blocked.order_number=a.order_number AND NOT blocked.group_source_safe)
   GROUP BY a.order_number,a.item_code
 ), orders AS (
   SELECT order_number,sum(required_quantity) required_quantity,sum(completed_quantity) completed_quantity,
@@ -72,7 +109,7 @@ export function allocationOrderTotalsSqlWithAliases() {
     SELECT a.group_order_number order_number,a.item_code,sum(a.quantity) required_quantity,
       least(sum(greatest(p.cumulative_inbound_quantity,0)),sum(a.quantity)) completed_quantity
     FROM mapped a JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND p.id=a.existing_id
-    WHERE NOT EXISTS(SELECT 1 FROM mapped blocked WHERE blocked.group_order_number=a.group_order_number AND blocked.skip_reason IS NOT NULL)
+    WHERE a.group_source_safe AND NOT EXISTS(SELECT 1 FROM mapped blocked WHERE blocked.group_order_number=a.group_order_number AND NOT blocked.group_source_safe)
     GROUP BY a.group_order_number,a.item_code
   ), orders AS (
     SELECT order_number,sum(required_quantity) required_quantity,sum(completed_quantity) completed_quantity,

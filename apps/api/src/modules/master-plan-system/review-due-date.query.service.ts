@@ -10,15 +10,9 @@ import { normalizeKdosPageSize } from '../../common/pagination';
 import { OrganizationDirectoryService } from '../organization-directory/organization-directory.service';
 import { reviewDueDivisionOptions } from './review-due-date.domain';
 
-export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
-/** Display dates are live monthly-plan projections; they are never review-date write columns. */
-export function reviewDueExpression(column:string) {
-  const monthlyColumn:Record<string,string>={order_date:'order_date',product_review_due_date:'preproduction_review_date'};
-  if(!Object.hasOwn(monthlyColumn,column))return `record.${column}`;
-  return `(SELECT CASE WHEN count(*)=1 THEN max(monthly.${monthlyColumn[column]}) END FROM mps_monthly_plans monthly
-    WHERE monthly.tenant_id=record.tenant_id AND monthly.order_number=record.order_number
-      AND monthly.item_code=record.drawing_number AND record.division_id IS NOT NULL AND monthly.division_id=record.division_id)`;
-}
+export const reviewDueColumns = Object.fromEntries(reviewDueDateFields.map(f=>[f.key,f.key==='productReviewDueDate'?'customer_due_date':f.key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase())]));
+/** All business values are stored on this resource; this expression never joins another business table. */
+export function reviewDueExpression(column:string) { return `record.${column}`; }
 const searchFields=['orderNumber','batchNumber','drawingNumber','inspectionTimeName'];
 const admin=(a:TableFilterActor)=>a.isSystemAdmin||a.permissions.includes('*')||a.moduleAdminCodes?.includes('planning');
 const readable=(a:TableFilterActor,k:string)=>!!admin(a)||a.permissions.includes(`${RESOURCE}:${k}:read`);
@@ -30,7 +24,7 @@ export function reviewDueScope(a:TableFilterActor,p:unknown[],action='read') {
   if(admin(a))return '1=1';
   const operators=new Set(['EQ','NE','GT','GTE','LT','LTE','IN','NOT_IN','CONTAINS','NOT_CONTAINS','STARTS_WITH','IS_EMPTY','IS_NOT_EMPTY']);
   const scopes=(a.tableDataScopes??[]).filter(s=>s.resource===RESOURCE&&(!s.actions||s.actions.includes(action))).filter(s=>s.scope!=='CUSTOM'||(!!s.rules?.length&&s.rules.every(r=>Object.hasOwn(reviewDueColumns,String(r.fieldKey))&&operators.has(String(r.operator))&&(r.operator==='IS_EMPTY'||r.operator==='IS_NOT_EMPTY'||r.value!=null))));
-  return buildDataScopeClause({resource:RESOURCE,actor:{...a,tableDataScopes:scopes,moduleAdminCodes:[]},columns:reviewDueColumns,params:p,action,expression:reviewDueExpression,numericFields:['quantity','changeCount']});
+  return buildDataScopeClause({resource:RESOURCE,actor:{...a,tableDataScopes:scopes,moduleAdminCodes:[]},columns:reviewDueColumns,params:p,action,expression:reviewDueExpression,numericFields:['quantity']});
 }
 
 /** Only advertises a dedicated create command; the generic resource create flag stays false. */
@@ -94,7 +88,9 @@ export class ReviewDueDateQueryService implements OnModuleInit {
       const updateScope=hasMasterPlanPermission(q.actor as import('./master-plan.types').MasterPlanActor,RESOURCE,'update')?reviewDueScope(q.actor,params,'update'):'1=0';
       params.push(q.pageSize,(q.page-1)*q.pageSize);
       const selected=keys.map(k=>`${expression(reviewDueColumns[k])}${reviewDueDateFields.find(f=>f.key===k)?.type==='date'?'::text':''} "${k}"`);
-      const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",${keys.includes('divisionId')?'division.name AS "divisionName",':''}${selected.join(',')}
+      const rows=await m.query(`SELECT record.id,record.version,(${updateScope}) AS "canUpdate",
+        ${hasMasterPlanPermission(q.actor as import('./master-plan.types').MasterPlanActor,RESOURCE,'delete') ? `(${reviewDueScope(q.actor,p,'delete')})` : 'false'} AS "canDelete",
+        ${keys.includes('divisionId')?'division.name AS "divisionName",':''}${selected.join(',')}
         FROM mps_review_due_dates record LEFT JOIN organization_units division ON division.id=record.division_id
         WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length-1} OFFSET $${params.length}`,params);
       return {rows,total:Number(n),page:q.page,pageSize:q.pageSize,visibleFields:keys};

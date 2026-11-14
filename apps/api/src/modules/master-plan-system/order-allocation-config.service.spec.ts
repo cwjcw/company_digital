@@ -1,5 +1,5 @@
 import { allocationMappingIssues } from "./order-allocation-config.service";
-import { allocationVendorTargetError } from "./order-allocation.domain";
+import { allocationVendorTargetError, allocationVendorRequiredDivisionName, normalizeAllocationSupplierName } from "./order-allocation.domain";
 
 const procurement={id:"procurement",name:"采购部",enabled:true};
 const supply={id:"supply",supplier_name:"供应链",division_id:procurement.id,enabled:true};
@@ -27,5 +27,18 @@ describe("allocation mapping diagnostics",()=>{
     expect(allocationVendorTargetError("自定义供应商",unit)).toBeNull();
     expect(allocationVendorTargetError("事业二部",unit)).toBeNull();
     expect(allocationVendorTargetError("供应链",{name:" 采购部 "})).toBeNull();
+  });
+  it("normalizes exact supplier names and fullwidth parentheses without substring matches",()=>{
+    expect(normalizeAllocationSupplierName("  贻居（厦门）智能科技有限公司  ")).toBe("贻居(厦门)智能科技有限公司");
+    expect(allocationVendorRequiredDivisionName("贻居（厦门）智能科技有限公司")).toBe("贻居");
+    expect(allocationVendorRequiredDivisionName("贻居（厦门）智能科技有限公司分公司")).toBeNull();
+    expect(allocationVendorRequiredDivisionName("供应链物流商")).toBeNull();
+  });
+  it("requires the formal organization ID for both vendor rules",()=>{
+    const organizations=[procurement,{id:"yiju",name:"贻居",enabled:true}];
+    expect(allocationVendorTargetError("供应链",procurement,organizations)).toBeNull();
+    expect(allocationVendorTargetError("贻居(厦门)智能科技有限公司",organizations[1]!,organizations)).toBeNull();
+    expect(allocationVendorTargetError("供应链",{id:"other",name:"采购部"},organizations)).toContain("必须映射");
+    expect(allocationVendorTargetError("贻居(厦门)智能科技有限公司",{id:"yiju",name:"贻居"},[...organizations,{id:"yiju2",name:"贻居",enabled:true}])).toBeNull();
   });
 });

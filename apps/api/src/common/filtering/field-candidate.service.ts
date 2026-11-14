@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { isAuditActorField, tableFilterOperatorsFor, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { AuditActorIdentityResolver } from "../audit/audit-actor-identity.resolver";
@@ -25,6 +25,8 @@ export type CandidateContext = {
   /** 部门与成员候选解析器（平台通用目录）。 */
   departmentCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
   memberCandidates?: (search: string, limit: number) => Promise<FieldCandidate[]>;
+  /** Explicit provider for typed candidates over a derived report's authorized row set. */
+  candidateValues?: (fieldKey: string, search: string, limit: number) => Promise<CandidateResult>;
 };
 
 const maxCandidates = 200;
@@ -53,6 +55,14 @@ export class FieldCandidateService {
     const limit = Math.min(maxCandidates, Math.max(1, Math.floor(Number(limitInput) || 50)));
     if (search.length > 200) throw new BadRequestException("候选搜索词过长");
     if (["date", "datetime", "number", "boolean", "structured", "attachment"].includes(field.type)) return { options: [], hasMore: false };
+    if (context.candidateValues) {
+      const result = await context.candidateValues(field.key, search, limit);
+      if (!result || !Array.isArray(result.options) || typeof result.hasMore !== "boolean"
+        || !result.options.every((option) => option && typeof option.value === "string" && typeof option.label === "string")) {
+        throw new InternalServerErrorException("候选项服务返回的数据格式无效");
+      }
+      return { options: result.options.slice(0, limit), hasMore: result.hasMore || result.options.length > limit };
+    }
 
     /* 候选必须先在当前资源的完整授权数据范围内 DISTINCT；不能把目录/静态选项本身当作可见行。 */
     const expression = context.expressions[field.key];

@@ -3,7 +3,8 @@ import { DataSource, EntityManager } from "typeorm";
 
 export type SyncRunType = "SCHEDULED" | "MANUAL" | "EVENT" | "RECONCILIATION";
 export type SyncExecutionScope = { weeklyPlanId: string; processCode: string };
-export type SyncScope = SyncExecutionScope | {basePlanIds:string[]};
+export type SyncScope = SyncExecutionScope | {basePlanIds:string[]} | {monthlyPlans:Array<{id:string;expectedVersion:number}>}
+  | { allocation: { id:string; expectedVersion:number; orderNumber:string; itemCode:string; divisionId:string } };
 export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
 export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
@@ -13,7 +14,7 @@ type Log = { id: string; version: number; status: string; sync_key: string; atte
   scope_json: SyncScope | null; lease_expires_at: Date | null; sync_count: number; metrics: Record<string, number> | null };
 type Claim = { tenant: string; key: string; configId: string; version: number; actorId: string; actorName: string;
   logs: Log[]; events: Event[]; disabled: boolean };
-type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncScope | null) => Promise<SyncOutcome>;
+type Executor = (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: SyncScope | null, trustedInternalService: boolean) => Promise<SyncOutcome>;
 
 export class SyncLeaseLost extends ConflictException {
   constructor() { super("同步租约已失效，旧Worker不能提交结果"); }
@@ -38,6 +39,7 @@ export class MasterPlanSyncRunner {
   }
 
   async processAvailableTenants() {
+    await this.expireExhaustedLeases();
     // Same privileged system queue scan as the original consumer, now metadata
     // only. Actual claims, execution and acknowledgements each set tenant context.
     const tenants = await this.db.query(`SELECT tenant_id FROM mps_reconciliation_outbox
@@ -50,20 +52,22 @@ export class MasterPlanSyncRunner {
     return processed;
   }
 
-  async processOutbox(tenant: string, limit = 20) {
+  async processOutbox(tenant: string, limit = 20, preferredEventId?:string) {
+    await this.expireExhaustedLeases(tenant);
     let processed = 0;
     const seen = new Set<string>();
     // Claim the next same-scope group only when ready to execute it. Queued groups
     // cannot lose their leases while waiting behind a long first group.
     while (processed < limit) {
-      const events = await this.claimEvents(tenant, limit - processed, [...seen]);
+      const events = await this.claimEvents(tenant, limit - processed, [...seen],preferredEventId);
       if (!events.length) break;
+      preferredEventId=undefined;
       processed += events.length;
       for (const event of events) seen.add(event.id);
       const first = events[0]!;
       try {
         const result = await this.run(tenant, first.sync_key, "EVENT", first.actor_id, first.actor_name,
-          first.idempotency_key, this.scope(first.sync_key, first.scope_json), events);
+          first.idempotency_key, this.scope(first.sync_key, first.scope_json), events, false);
         // Do not trust "did not throw", skipped results, or an unverified SUCCESS.
         if (result.status === "SUCCESS") {
           const [verification] = await this.db.transaction(async manager => {
@@ -84,10 +88,15 @@ export class MasterPlanSyncRunner {
     return processed;
   }
 
+  async processOutboxEvent(tenant:string,eventId:string){
+    return this.processOutbox(tenant,1,eventId);
+  }
+
   async run(tenant: string, key: string, type: SyncRunType, actor: string | null, name: string,
-    idempotencyKey: string, scope: SyncScope | null = null, events: Event[] = []): Promise<SyncResult> {
+    idempotencyKey: string, scope: SyncScope | null = null, events: Event[] = [], trustedInternalService = false): Promise<SyncResult> {
     scope=this.scope(key,scope);
     const actorId = actor ?? this.systemUser;
+    if(trustedInternalService && (actorId!==this.systemUser || !['SCHEDULED','RECONCILIATION','EVENT'].includes(type)))throw new ConflictException('内部服务身份上下文无效');
     const claim = await this.claim(tenant, key, type, actorId, name, idempotencyKey, scope, events);
     if ("repeated" in claim) return claim;
     try {
@@ -97,7 +106,7 @@ export class MasterPlanSyncRunner {
           [String(Math.min(this.leaseMs, 120_000)), String(Math.min(this.leaseMs, 30_000)), String(this.leaseMs)]);
         await this.lockOwned(manager, claim);
         const raw = claim.disabled ? { count: 0, status: "DISABLED" as const }
-          : await this.execute(manager, key, tenant, actorId, name, scope);
+          : await this.execute(manager, key, tenant, actorId, name, scope, trustedInternalService);
         const outcome = this.verifyOutcome(key, raw);
         await this.finish(manager, claim, outcome);
         return { syncKey: key, repeated: false, count: outcome.count, metrics: outcome.metrics ?? null, status: outcome.status! };
@@ -108,21 +117,38 @@ export class MasterPlanSyncRunner {
     }
   }
 
-  private eligible = `(status IN ('PENDING','FAILED') AND next_attempt_at<=clock_timestamp())
-    OR (status='RUNNING' AND lease_expires_at<=clock_timestamp())`;
+  private eligible = `((status IN ('PENDING','FAILED') AND attempts<10 AND next_attempt_at<=clock_timestamp())
+    OR (status='RUNNING' AND attempts<10 AND lease_expires_at<=clock_timestamp()))`;
 
-  private async claimEvents(tenant: string, limit: number, exclude: string[] = []): Promise<Event[]> {
+  private async expireExhaustedLeases(tenant?:string) {
+    const tenants: Array<{tenant_id:string}> = tenant ? [{tenant_id:tenant}] : await this.db.query(`SELECT DISTINCT tenant_id
+      FROM mps_reconciliation_outbox WHERE status='RUNNING' AND attempts>=10 AND lease_expires_at<=clock_timestamp()`);
+    for(const row of tenants) await this.db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[row.tenant_id]);
+      const expired=this.rows(await manager.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error='自动重试上限已达10次；保留失败记录，等待人工核验',
+        lease_expires_at=NULL,completed_at=NULL,updated_at=clock_timestamp(),version=version+1
+        WHERE tenant_id=$1 AND status='RUNNING' AND attempts>=10 AND lease_expires_at<=clock_timestamp() RETURNING id,actor_id,attempts,version`,[row.tenant_id]));
+      for(const event of expired) await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,source,created_by,updated_by,request_id)
+        VALUES($1,$2::uuid,'KDOS Outbox Worker','mps-reconciliation-outbox',$3,'retry_limit_reached',$4::jsonb,$5::jsonb,'api',$2::uuid,$2::uuid,$6)`,
+        [row.tenant_id,event.actor_id,event.id,JSON.stringify({status:'RUNNING',attempts:Number(event.attempts),version:Number(event.version)-1}),
+          JSON.stringify({status:'FAILED',reason:'retry_limit_reached',version:Number(event.version)}),`mps-outbox:${event.id}:retry-limit`]);
+    });
+  }
+
+  private async claimEvents(tenant: string, limit: number, exclude: string[] = [], preferredEventId?:string): Promise<Event[]> {
     return this.db.transaction(async manager => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true),set_config('lock_timeout',$2,true)", [tenant, String(Math.min(this.leaseMs, 5000))]);
       const [first] = await manager.query(`SELECT * FROM mps_reconciliation_outbox
-        WHERE tenant_id=$1 AND NOT(id=ANY($2::uuid[])) AND (${this.eligible}) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, [tenant, exclude]);
+        WHERE tenant_id=$1 AND NOT(id=ANY($2::uuid[])) AND ($3::uuid IS NULL OR id=$3::uuid) AND (${this.eligible})
+        ORDER BY CASE WHEN id=$3::uuid THEN 0 ELSE 1 END,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, [tenant, exclude,preferredEventId??null]);
       if (!first) return [];
       const result = await manager.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=attempts+1,
         lease_expires_at=clock_timestamp()+$5::integer*interval '1 millisecond',completed_at=NULL,updated_at=clock_timestamp(),version=version+1
         WHERE tenant_id=$1 AND id IN (SELECT id FROM mps_reconciliation_outbox
-          WHERE tenant_id=$1 AND sync_key=$2 AND NOT(id=ANY($6::uuid[])) AND COALESCE(scope_json,'null'::jsonb) IS NOT DISTINCT FROM COALESCE($3::jsonb,'null'::jsonb) AND (${this.eligible})
+          WHERE tenant_id=$1 AND sync_key=$2 AND NOT(id=ANY($6::uuid[])) AND ($7::uuid IS NULL OR id=$7::uuid)
+            AND COALESCE(scope_json,'null'::jsonb) IS NOT DISTINCT FROM COALESCE($3::jsonb,'null'::jsonb) AND (${this.eligible})
           ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT $4) RETURNING *`,
-        [tenant, first.sync_key, first.scope_json == null ? null : JSON.stringify(first.scope_json), limit, this.leaseMs, exclude]);
+        [tenant, first.sync_key, first.scope_json == null ? null : JSON.stringify(first.scope_json), limit, this.leaseMs, exclude,preferredEventId??null]);
       return this.rows(result);
     });
   }
@@ -210,8 +236,7 @@ export class MasterPlanSyncRunner {
   private verifyOutcome(key: string, value: SyncOutcome): SyncOutcome {
     if (!value || !Number.isSafeInteger(value.count) || value.count < 0) throw new Error("同步执行结果计数无效，未验证成功");
     const status = value.status ?? (value.skipped ? "SKIPPED" : "SUCCESS");
-    const blocked = (key === "plan-projections" && Number(value.metrics?.skipped) > 0)
-      || (key === "shipping-to-base" && Number(value.metrics?.base_conflicts) > 0);
+    const blocked = key === "shipping-to-base" && Number(value.metrics?.base_conflicts) > 0;
     if (!["SUCCESS", "BLOCKED", "SKIPPED", "DISABLED"].includes(status)) throw new Error("同步执行返回未知状态，未验证成功");
     if (value.skipped && status === "SUCCESS") throw new Error("跳过的同步不能声明成功");
     return { ...value, status: status === "SUCCESS" && blocked ? "BLOCKED" : status };
@@ -289,11 +314,23 @@ export class MasterPlanSyncRunner {
   private scope(key: string, value: unknown): SyncScope | null {
     if(value==null)return null;
     const scope=value as Record<string,unknown>;
+    if(key==='shipping-to-base'&&scope&&Object.keys(scope).length===1&&'monthlyPlans' in scope&&Array.isArray(scope.monthlyPlans)&&scope.monthlyPlans.length>0&&scope.monthlyPlans.length<=25&&scope.monthlyPlans.every((plan:any)=>plan&&typeof plan.id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(plan.id)&&Number.isInteger(plan.expectedVersion)&&plan.expectedVersion>0)){
+      const unique=new Map((scope.monthlyPlans as Array<{id:string;expectedVersion:number}>).map(plan=>[plan.id,{id:plan.id,expectedVersion:plan.expectedVersion}]));
+      if(unique.size!==(scope.monthlyPlans as unknown[]).length)throw new ConflictException('月度计划恢复范围存在重复ID');
+      return {monthlyPlans:[...unique.values()].sort((a,b)=>a.id.localeCompare(b.id))};
+    }
     if(key==='base-to-weekly'&&scope&&Array.isArray(scope.basePlanIds)&&scope.basePlanIds.length>0&&scope.basePlanIds.length<=100&&scope.basePlanIds.every(id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))return {basePlanIds:[...new Set(scope.basePlanIds as string[])].sort()};
+    if(key==='plan-projections'&&scope&&Object.keys(scope).length===1&&scope.allocation&&Object.keys(scope.allocation).length===5){
+      const a=scope.allocation as Record<string,unknown>;
+      if(typeof a.id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(a.id)
+        &&Number.isInteger(a.expectedVersion)&&Number(a.expectedVersion)>0&&typeof a.orderNumber==='string'&&a.orderNumber.trim().length>0
+        &&typeof a.itemCode==='string'&&a.itemCode.trim().length>0&&typeof a.divisionId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(a.divisionId))
+        return {allocation:{id:a.id,expectedVersion:Number(a.expectedVersion),orderNumber:a.orderNumber,itemCode:a.itemCode,divisionId:a.divisionId}};
+    }
     if(key==='execution-rollup'&&scope&&typeof scope.weeklyPlanId==='string'&&typeof scope.processCode==='string')return {weeklyPlanId:scope.weeklyPlanId,processCode:scope.processCode};
     throw new ConflictException('同步范围无效，禁止回退全租户执行');
   }
-  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;return (a?.weeklyPlanId??null)===(b?.weeklyPlanId??null)&&(a?.processCode??null)===(b?.processCode??null);}
+  private sameScope(a:SyncScope|null,b:SyncScope|null){if(a&&'basePlanIds' in a)return !!b&&'basePlanIds' in b&&JSON.stringify([...a.basePlanIds].sort())===JSON.stringify([...b.basePlanIds].sort());if(b&&'basePlanIds' in b)return false;if(a&&'monthlyPlans' in a)return !!b&&'monthlyPlans' in b&&JSON.stringify(a.monthlyPlans)===JSON.stringify(b.monthlyPlans);if(b&&'monthlyPlans' in b)return false;if(a&&'allocation' in a)return !!b&&'allocation' in b&&JSON.stringify(a.allocation)===JSON.stringify(b.allocation);if(b&&'allocation' in b)return false;if(a&&'weeklyPlanId' in a)return !!b&&'weeklyPlanId' in b&&a.weeklyPlanId===b.weeklyPlanId&&a.processCode===b.processCode;return b==null;}
   private rows(result: any[]): any[] { return Array.isArray(result[0]) ? result[0] : result; }
   private errorText(error: unknown) {
     const e = error as { code?: string; message?: string };

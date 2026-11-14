@@ -91,6 +91,54 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     expect(calls[0]?.filterGroup).toEqual(appliedFilter);
   });
 
+  it("标准导出 SELECTED 只导出稳定 ID 集合，忽略搜索/筛选扩展但保留上下文、字段顺序和export范围", async () => {
+    const selected = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+    const calls: Array<{ ids?: string[]; search: string; filterGroup?: unknown; context: Record<string, unknown>; action?: string }> = [];
+    const registry = registryWith({
+      code: resource,
+      printRows: async (query) => {
+        calls.push({ ids: query.ids, search: query.search, filterGroup: query.filterGroup, context: query.context, action: query.action });
+        const rows = (query.ids ?? []).map((id, index) => ({ id, orderNumber: index === 0 ? "A-SELECTED" : "B-SELECTED", quantity: 1 }));
+        return { rows, total: rows.length };
+      }
+    });
+    const service = new TablePrintService(registry, {} as never);
+    const buffer = await service.exportXlsx(resource, {
+      rangeType: "SELECTED", selectedIds: selected, search: "exclude selected", filterGroup: { logic: "AND", rules: [{ field: "status", operator: "eq", value: "NORMAL" }] },
+      context: { view: "PENDING" }, columnKeys: ["quantity", "orderNumber"]
+    }, actor([`${resource}:*:export`, `${resource}:*:read`, `${resource}:quantity:read`, `${resource}:orderNumber:read`]));
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.getRow(1).values).toEqual([undefined, "数量", "订单编号"]);
+    expect([sheet.getCell("A2").text, sheet.getCell("A3").text]).toEqual(["1", "1"]);
+    expect([sheet.getCell("B2").text, sheet.getCell("B3").text]).toEqual(["A-SELECTED", "B-SELECTED"]);
+    expect(calls).toEqual([{ ids: selected, search: "", filterGroup: undefined, context: { view: "PENDING" }, action: "export" }]);
+  });
+
+  it("已选记录失效或超出当前可导出范围时明确拒绝，不能静默导出剩余行或当前视图", async () => {
+    const registry = registryWith({
+      code: resource,
+      printRows: async (query) => {
+        const id = query.ids?.[0] ?? "";
+        return { rows: [{ id, orderNumber: "DUPLICATED" }, { id, orderNumber: "DUPLICATED" }], total: query.ids?.length ?? 0 };
+      }
+    });
+    const service = new TablePrintService(registry, {} as never);
+    await expect(service.exportXlsx(resource, {
+      rangeType: "SELECTED", selectedIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+    }, actor([`${resource}:*:export`, `${resource}:*:read`, `${resource}:orderNumber:read`]))).rejects.toThrow("部分选中记录已失效或超出当前可导出范围");
+  });
+
+  it("显式选中导出拒绝空集和格式错误的ID，不会退化为当前视图导出", async () => {
+    const list = jest.fn().mockResolvedValue({ rows: [{ id: "row", orderNumber: "A" }], total: 1 });
+    const registry = registryWith({ code: resource, printRows: list });
+    const service = new TablePrintService(registry, {} as never);
+    const permissions = [`${resource}:*:export`, `${resource}:*:read`, `${resource}:orderNumber:read`];
+    await expect(service.exportXlsx(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
+    await expect(service.exportXlsx(resource, { rangeType: "SELECTED", selectedIds: ["not-a-uuid"] }, actor(permissions))).rejects.toThrow(/ID 格式无效/);
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it("标准导出没有 export 权限时拒绝 API 请求", async () => {
     const registry = registryWith({ code: resource, printRows: async () => ({ rows: [], total: 0 }) });
     const service = new TablePrintService(registry, {} as never);
@@ -157,7 +205,7 @@ describe("平台打印服务（KN-PRINT-001）", () => {
     const service = new TablePrintService(registry, {} as never);
     const permissions = fullPrintPermissions;
     await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
-    await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: ["not-a-uuid"] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
+    await expect(service.render(resource, { rangeType: "SELECTED", selectedIds: ["not-a-uuid"] }, actor(permissions))).rejects.toThrow(/ID 格式无效/);
     await expect(service.manifest(resource, { rangeType: "SELECTED", selectedIds: [] }, actor(permissions))).rejects.toThrow(/必须提供有效的记录 ID/);
   });
 

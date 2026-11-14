@@ -1,5 +1,15 @@
 # KDOS 自动化任务台账 / TASK REGISTRY
 
+## 当前有效状态及历史记录边界（2026-11-11主分支整合）
+
+- 本轮仅在`integration/main-production-20261111`整合main与生产源码；不修改任务配置、调度、生产容器或数据库。
+- 本轮执行前只读核实Web/API/Document Worker均为`9805baca4ed1053b72e3aef5b8c640cf09e83bbb`；下文44f61d3、ed81e55、28ab0eb等均是对应历史发布时点，不代表本轮当前版本。
+- 生产已执行118/119/121/122/1722920122500/123/124/125/126/127；120未执行。123只提供既有结构，三级同步运行模块未上线，本轮不引入或启用。
+- 124已解除旧评审申请与计划关联；125/126连续历史必须同时保留；127为BOM索引。六项原主计划同步继续原启用状态和30分钟配置，不因整合变更。
+- main的设备日报全零保护、组织字段read和更正幂等修复与生产BOM索引任务记录均保留。BOM工作流“已发布待运行时验收”不能因本轮合并标记为定时验收通过；本轮未启动任务。
+- 以下按原业务变更及发布时点保留历史证据；其中“当前/最终/未部署”仅指各历史章节记载当时的状态。最新运行判断优先本节及后续明确日期的核验记录。
+
+
 更新时间：2026-10-14。证据：(1) GitHub `company_digital` 主分支文件盘点；(2) 用户在生产 Ubuntu 主机运行 `bash scripts/audit-schedulers.sh` 的输出，采样时间 `2026-10-13T13:18:08+08:00`，主机时区 `Asia/Shanghai`。**已核实 systemd 列表、部分 cron 数量、Docker 容器运行状态；尚未读取 n8n 内部工作流、完整系统 cron 与业务执行成功日志。** 列表中的 `LAST` 是 Timer 最近触发时间，不等于脚本成功。
 
 ## 统一归属
@@ -466,3 +476,11 @@
 - 19:04更正已实际完成：原11人每人文字/运行图/填报图33组件均sent；四个设备群各3组件共12条SENT、response_code=0，群Outbox SENT/attempts1。近7天未满100%，已补齐原零分母误跳过的填报图。这里只证明企业微信成功响应，不等于人员已读。
 - Git代码c2073a4/8f3b8ff已从干净main68713ce独立提交，正常推送github/main；未推送MPS三级候选。根工作区保留原未提交260行及其他文件，日报代码已独立cherry-pick，避免下次构建退回旧适配。
 - 无数据库Migration、设备业务数据或权限授权改动；唯一新增业务写入是本次已获批的更正通知事件/投递记录。原API/Web44f61d3保持，Dispatcher active；次日自然12:00使用修复，不改变调度。诊断/备份/两图/回执/投递证据仅ignored test/equipment_daily/zero-20261107，含敏感记录不提交。
+
+### RD-BOM-INDEX-001：研发中心已审核 BOM 主档索引（2026-11-10）
+
+- 唯一周期入口：n8n 工作流 `RdBomMasterIndexDailyV1`，每日 01:00 `Asia/Shanghai`，只执行 E10 BOM 主档 Change Tracking 增量读取；E10 保持 SELECT-only。仓库定义文件：`automation/n8n/rd-bom-master-index-daily.json`。无新增 systemd、cron 或应用内定时入口。
+- 生产 API/Web 首轮已运行 `ed81e55216f368491194a157f30e37a2ed3ec493`；Migration 127 已按白名单执行，Migration 120 未执行。生产初次 FULL 成功插入 287,827 条，水位 23,368,782；首轮 API 容器执行 INCREMENTAL 成功，扫描及变更均为0，水位推进到23,368,795。
+- 生产工作流已由官方 CLI 导入并发布，持久库 `active=true`、上海时区及 cron 表达式核对通过。n8n 进程需要重启才能装载新发布版本；当前既有 `realtimesnap_每天_9:00` 执行1460仍在运行，因此本轮未重启、未中断它。状态为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，尚不能视为定时任务运行时验收通过。
+- 新增工作流通过容器 API 同步命令成功验证；尝试使用 CLI `n8n execute` 因 5679 Task Broker 已被现有 n8n 进程占用退出。待执行1460自然结束后受控重启，确认启动激活、SSH 节点 SUCCESS 与下次01:00触发，再将状态更新为 DEPLOYED。证据与步骤见`outputs/RD_ORDER_BOM_REPORT_RELEASE_ACCEPTANCE.md`。
+- 2026-11-10后续BOM计数热修复：生产确认E10 item UUID为大写、PostgreSQL UUID文本为小写；数据库UUID过滤成功，JavaScript字符串Map却区分大小写，致使已有BOM全显示0。API唯一变更为两侧UUID小写规范化，回归7/7、类型检查和Lint通过；API部署SHA `28ab0eb782adf4d94916a8cbdd83151a56a5e805`，镜像 `sha256:d5c2e9ffa6d59213fb0a9d87c12e3041aede4b135659ae0253ab650a69e0af12`，未执行Migration/全量同步。修复后只读复算2,365个有已审核BOM品号、3,565条分配明细；另有431个分配品号在E10 ITEM无匹配、保持待核实。运行台账状态仍为 `PUBLISHED_PENDING_RUNTIME_RELOAD`，不因API热修复改变。

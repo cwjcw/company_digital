@@ -2,9 +2,8 @@ import Decimal from 'decimal.js';
 import { reviewDueDateFields } from '@kdos/contracts';
 
 export type ReviewDueDateSnapshot = {
-  divisionId: string; orderNumber: string; batchNumber: string; drawingNumber: string;
-  inspectionTimeName: string | null; dueDate: string | null; inboundDate: string | null; quantity: string;
-  changeCount: number | null; previousInboundDate: string | null;
+  divisionId: string; orderNumber: string; batchNumber: string; drawingNumber: string; orderDate?: string | null;
+  inspectionTimeName: string | null; productReviewDueDate: string | null; inboundDate: string | null; quantity: string;
 };
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const date=(value:unknown,label:string,optional=false)=>{
@@ -17,15 +16,12 @@ export function reviewDueDateSnapshot(input: ReviewDueDateSnapshot): ReviewDueDa
   if(typeof input.divisionId!=='string'||!uuid.test(input.divisionId))throw new Error('事业部必须使用有效组织ID');
   for (const key of ['orderNumber','batchNumber','drawingNumber'] as const) if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`${reviewDueDateFields.find(field=>field.key===key)!.label}不能为空`);
   if (input.inspectionTimeName != null && typeof input.inspectionTimeName !== 'string') throw new Error('品项名称必须为文本');
-  const changeText=input.changeCount==null||String(input.changeCount).trim()===''?null:String(input.changeCount).trim();
-  if(changeText!==null&&(!/^\d+$/.test(changeText)||!Number.isSafeInteger(Number(changeText))||Number(changeText)>2147483647))throw new Error('交期变更次数必须为非负整数');
   if (typeof input.quantity !== 'string') throw new Error('数量必须使用精确十进制文本');
   let quantity: Decimal;
   try { quantity = new Decimal(input.quantity); } catch { throw new Error('数量无效'); }
   if (!quantity.isFinite()) throw new Error('数量必须为有限精确数值');
-  return { divisionId:input.divisionId,orderNumber:input.orderNumber.trim(),batchNumber:input.batchNumber.trim(),drawingNumber:input.drawingNumber.trim(),
-    inspectionTimeName:input.inspectionTimeName?.trim()||null,dueDate:date(input.dueDate,'交期',true),inboundDate:date(input.inboundDate,'最新交期',true),quantity:quantity.toFixed(),
-    changeCount:changeText===null?null:Number(changeText),previousInboundDate:date(input.previousInboundDate,'上次入库时间',true) };
+  return { divisionId:input.divisionId,orderNumber:input.orderNumber.trim(),batchNumber:input.batchNumber.trim(),drawingNumber:input.drawingNumber.trim(),orderDate:date(input.orderDate,'下单日期',true),
+    inspectionTimeName:input.inspectionTimeName?.trim()||null,productReviewDueDate:date(input.productReviewDueDate,'客户交期',true),inboundDate:date(input.inboundDate,'最新交期',true),quantity:quantity.toFixed() };
 }
 export const reviewDueDateBusinessKey = (row: ReviewDueDateSnapshot) => JSON.stringify([row.divisionId,row.orderNumber,row.batchNumber,row.drawingNumber]);
 /** Future source adapters must validate the whole source before submitting any commands. */

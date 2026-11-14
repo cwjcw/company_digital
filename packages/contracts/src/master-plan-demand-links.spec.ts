@@ -5,8 +5,8 @@ describe('stable demand identity contract',()=>{
     expect(tableResourceRegistry.find(r=>r.code===mpsDemandLinkCapability.code)).toMatchObject({moduleCode:'planning'});
     expect(tablePermissionFieldsFor(mpsDemandLinkCapability.code)).toEqual([]);
   });
-  it('exposes only the three missing edges, keeping downstream stable IDs',()=>{
-    expect(mpsDemandLinkResources).toEqual(['mps-order-allocations','mps-base-plans','mps-review-due-dates']);
+  it('exposes only the remaining planning identity edges, excluding the independent review table',()=>{
+    expect(mpsDemandLinkResources).toEqual(['mps-order-allocations','mps-base-plans']);
   });
   it('does not make parent UUIDs ordinary editable/importable table fields',()=>{
     for(const resource of mpsDemandLinkResources)expect(tablePermissionFieldsFor(resource).filter(f=>f.editable).map(f=>f.key)).not.toContain('monthlyPlanId');

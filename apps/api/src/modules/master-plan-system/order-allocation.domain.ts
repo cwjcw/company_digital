@@ -22,7 +22,7 @@ export const allocationColumn = (key: string) => key.replace(/[A-Z]/g, c => `_${
 export type AllocationSnapshot = Record<string, unknown>;
 export type AllocationChange = { before: AllocationSnapshot | null; after: AllocationSnapshot; fields: Array<{ key: string; label: string; before: unknown; after: unknown }> };
 export const normalizeAllocationHeader = (s: string) => s.replace(/\s+/g, "");
-const aliases: Record<string, string[]> = { customerCode: ["客户编码"], orderNumber: ["订单编号"], itemCode: ["品项编码"], itemName: ["品项名称"], expectedShippingDate: ["预计出货日期"], allocatedQuantity: ["分配数量"] };
+const aliases: Record<string, string[]> = { customerCode: ["客户编码"], orderNumber: ["订单编号"], itemCode: ["品项编码"], itemName: ["品项名称"], expectedShippingDate: ["预计出货日期", "预计发货日期"], allocatedQuantity: ["分配数量"] };
 export function normalizedAllocationValue(key: string, value: unknown): unknown {
   if (value == null || value === "") return null;
   const field = ALLOCATION_FIELDS.find(f => f[0] === key)!;
@@ -145,7 +145,33 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   return { rows, errors, sourceWorksheet:sheet.name, headerRow, fileTotalRows, quantitySource, ignoredIdentity:rows.some(r=>r.ignoredIdentity), orderCount: new Set(rows.map(r=>r.values.orderNumber)).size };
 }
 
-/** Only this mandatory supplier rule constrains the target name; other valid mappings remain configurable. */
-export function allocationVendorTargetError(supplierName:string,unit:{name:string}) {
-  return supplierName==="供应链"&&unit.name.trim()!=="采购部"?"供应链必须映射采购部，请选择正确的现有采购部组织":null;
+/** Normalize only Unicode compatibility forms and surrounding whitespace; never fuzzy-match suppliers. */
+export function normalizeAllocationSupplierName(value:unknown):string {
+  return String(value??"").normalize("NFKC").trim();
+}
+
+export function allocationVendorRequiredDivisionName(supplierName:unknown):string|null {
+  const normalized=normalizeAllocationSupplierName(supplierName);
+  if(normalized==="供应链") return "采购部";
+  if(normalized==="贻居(厦门)智能科技有限公司") return "贻居";
+  return null;
+}
+
+/** Known formal vendor rules resolve to a canonical enabled organization ID when options are supplied. */
+export function allocationVendorTargetError(
+  supplierName:unknown,
+  unit:{id?:string;name:string},
+  organizations?:Array<{id:string;name:string;enabled?:boolean}>
+) {
+  const expected=allocationVendorRequiredDivisionName(supplierName);
+  if(!expected)return null;
+  const supplier=normalizeAllocationSupplierName(supplierName);
+  const message=`供应商“${supplier}”必须映射${expected}，请核实正式组织映射`;
+  if(organizations){
+    const matches=organizations.filter(item=>item.enabled!==false&&normalizeAllocationSupplierName(item.name)===expected);
+    if(matches.length===0)return normalizeAllocationSupplierName(unit.name)===expected?`组织架构中不存在启用的“${expected}”组织`:message;
+    if(!unit.id||!matches.some(item=>item.id===unit.id))return message;
+    return null;
+  }
+  return normalizeAllocationSupplierName(unit.name)===expected?null:message;
 }

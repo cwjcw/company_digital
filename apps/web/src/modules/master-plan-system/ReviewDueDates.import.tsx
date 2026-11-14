@@ -26,7 +26,7 @@ export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCre
     {result&&error&&<Button loading={busy} onClick={()=>void onCreated().then(()=>setError(null)).catch(e=>setError((e as Error).message))}>重新刷新</Button>}
   </Space>}>
     <Space direction="vertical" style={{width:'100%'}}>
-      <Alert type="info" message="使用含事业部、交期和最新交期的当前模板；记录ID和版本同时为空表示新增，同时有效表示更新。更新时可选字段空白保留原值，填写[清空]才清空。交期变更次数及上次入库时间由人工维护，日期变化不自动计次。"/>
+      <Alert type="info" message="使用评审交期表当前模板；客户交期、下单日期均属于本表，修改其他计划不会联动。记录ID和版本同时为空表示新增，同时有效表示更新；更新时可选字段空白保留原值，填写[清空]才清空。"/>
       <Upload accept=".xlsx" disabled={busy||!!result} showUploadList={false} beforeUpload={file=>{void parse(file);return false;}}><Button disabled={busy||!!result} loading={busy}>选择Excel文件</Button></Upload>
       {error&&<Alert type="error" showIcon message={error}/>}
       {result&&<Alert type="success" message={`导入完成：新增${result.created}，更新${result.updated}，未变化${result.unchanged}`}/>}
@@ -35,7 +35,7 @@ export function ReviewDueImportModal({onClose,onCreated}:{onClose:()=>void;onCre
         <Space wrap>{Object.entries(summaryLabels).map(([key,label])=><span key={key}>{label}：{Object.hasOwn(preview.counts,key)?preview.counts[key]??'—':0}</span>)}</Space>
         {preview.errors.length>0&&<Alert type="error" message="整批未提交，请修正后重新预览" description={preview.errors.map(e=>`第${e.row}行：${e.reason}`).join('；')}/>}
         <Table size="small" rowKey="row" dataSource={preview.rows} pagination={{pageSize:20}} scroll={{x:'max-content'}} columns={[
-          {title:'行',dataIndex:'row'},{title:'处理',dataIndex:'classification'},...([['divisionName','事业部'],['orderNumber','订单号'],['batchNumber','批次号'],['drawingNumber','品项编码'],['dueDate','交期'],['oldInboundDate','原最新交期'],['newInboundDate','新最新交期'],['oldQuantity','原数量'],['newQuantity','新数量'],['expectedChangeCount','交期变更次数（手工）']] as const).map(([dataIndex,title])=>({dataIndex,title,render:(v:unknown)=>v==null?'—':String(v)}))
+          {title:'行',dataIndex:'row'},{title:'处理',dataIndex:'classification'},...([['divisionName','事业部'],['orderNumber','订单号'],['batchNumber','批次号'],['drawingNumber','品项编码'],['customerDueDate','客户交期'],['oldCustomerDueDate','原客户交期'],['oldInboundDate','原最新交期'],['newInboundDate','新最新交期'],['oldQuantity','原数量'],['newQuantity','新数量']] as const).map(([dataIndex,title])=>({dataIndex,title,render:(v:unknown)=>v==null?'—':String(v)}))
         ]}/>
       </>}
     </Space>

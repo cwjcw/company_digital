@@ -187,7 +187,7 @@ integration('round3: isolated full-chain + independent release B + optional120',
         await expect(db.query('DELETE FROM mps_review_base_plan_links WHERE review_id=$1', [f.r.id])).rejects.toMatchObject({ code: '23514' });
         await expect(db.query("UPDATE mps_review_base_plan_links SET applied_date='2026-12-30' WHERE review_id=$1", [f.r.id])).rejects.toMatchObject({ code: '23514' });
         await expect(review.manualEdit(f.r.id, { expectedVersion: 1, commandId: randomUUID(), batchNumber: '02' }, actor())).rejects.toMatchObject({ status: 409 });
-        const imports = new ReviewDueDateImportApplicationService(directory as never, db);
+        const imports = new ReviewDueDateImportApplicationService(directory as never);
         const before = await rows('mps_base_plans', 'monthly_plan_id=$1', [f.parent.id]);
         await db.transaction(m => imports.confirm([{ row: 2, id: f.r.id, expectedVersion: 1, values: { inboundDate: '2026-12-18' } }] as never, 'STANDARD', 'a'.repeat(64), randomUUID(), actor(), m));
         expect((await svc.info(f.r.id, actor())).reviewVersion).toBe(2);

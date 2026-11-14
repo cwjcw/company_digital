@@ -49,6 +49,7 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   afterEach(async()=>{await runner.query("ROLLBACK TO SAVEPOINT test_case");await runner.query("RELEASE SAVEPOINT test_case")});
   afterAll(async()=>{if(runner?.isTransactionActive)await runner.rollbackTransaction();await runner?.release();if(db?.isInitialized)await db.destroy()});
   const page=(kind:"orders"|"items",q:OrderProgressQuery={},who=actor)=>service.page(q,who,kind);
+  const add=async(table:string,value:Record<string,unknown>)=>{const e=Object.entries({tenant_id:tenant,created_by:actor.userId,...value});await runner.query(`INSERT INTO ${table}(${e.map(([k])=>k).join(",")}) VALUES(${e.map((_,i)=>`$${i+1}`).join(",")})`,e.map(([,v])=>v))};
   it("defaults to unfinished orders, preserves missing monthly and stale coverage without inventing completion",async()=>{
     const r=await page("orders");expect(r.rows.map(r=>r.id)).toEqual(expect.arrayContaining([id(10),id(12),id(13)]));expect(r.rows.map(r=>r.id)).not.toContain(id(11));expect(r.rows.map(r=>r.id)).not.toContain(id(15));
     expect(r.rows.find(r=>r.id===id(10))).toMatchObject({orderCompletionRate:"0.1234",orderCompletedQuantity:"200.0000",orderPendingQuantity:"800.0000"});
@@ -56,9 +57,18 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   });
   it("keeps independent repeated allocation rows; default hides completed items; absent monthly quantities are NULL",async()=>{
     const r=await page("items",{orderId:id(10)});expect(r.rows.map(r=>r.id)).toEqual([id(20),id(31),id(32)]);
-    for(const n of [31,32])expect(r.rows.find(r=>r.id===id(n))).toMatchObject({sourceKind:"订单分配",requiredQuantity:null,pendingQuantity:null,planStatus:"尚未建立月计划",cuttingProductionProgress:null});
+    for(const n of [31,32])expect(r.rows.find(r=>r.id===id(n))).toMatchObject({sourceKind:"订单分配",requiredQuantity:null,pendingQuantity:null,planStatus:"来源行与月计划关联待核实",cuttingProductionProgress:null});
     expect((await page("items",{orderId:id(10),onlyUnfinishedItems:"false"})).rows.map(r=>r.id)).toContain(id(21));
     expect((await page("items",{orderId:id(12)})).rows[0]).toMatchObject({id:id(90),sourceKind:"ERP订单行",sourceQuantity:"100.0000",requiredQuantity:null});
+  });
+  it("uses stable allocation links for coverage and flags mismatched links without crossing tenants",async()=>{
+    const insert=async(value:Record<string,unknown>)=>{const e=Object.entries({tenant_id:tenant,created_by:actor.userId,...value});await runner.query(`INSERT INTO mps_order_allocations(${e.map(([k])=>k).join(",")}) VALUES(${e.map((_,i)=>`$${i+1}`).join(",")})`,e.map(([,v])=>v))};
+    await insert({id:id(37),order_number:"ORDER-A",item_code:"ITEM-A",division_id:division,customer_code:"C1",order_date:"2026-10-01",item_name:"已关联来源",allocated_quantity:25,monthly_plan_id:id(20)});
+    await insert({id:id(38),order_number:"ORDER-A",item_code:"ITEM-A",division_id:other,customer_code:"C1",order_date:"2026-10-01",item_name:"事业部冲突来源",allocated_quantity:15,monthly_plan_id:id(20)});
+    await insert({id:id(39),tenant_id:tenant+"-OTHER",order_number:"ORDER-A",item_code:"ITEM-A",division_id:division,customer_code:"C1",order_date:"2026-10-01",item_name:"跨租户来源",allocated_quantity:30,monthly_plan_id:id(20)});
+    const rows=(await page("items",{orderId:id(10)})).rows;
+    expect(rows.map(r=>r.id)).toEqual([id(20),id(31),id(32),id(38)]);
+    expect(rows.find(r=>r.id===id(38))).toMatchObject({sourceKind:"订单分配",planStatus:"来源行与月计划关联待核实",requiredQuantity:null});
   });
   it("repeated independent ERP source lines survive even when one monthly aggregate exists, without assigning its progress twice",async()=>{
     const rows=(await page("items",{orderId:id(16)})).rows;expect(rows).toHaveLength(3);expect(rows.map(r=>r.id)).toEqual(expect.arrayContaining([id(24),id(91),id(92)]));
@@ -118,10 +128,41 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
   });
   it("订单包含已完成但被列表隐藏的品项；缺计划阻止不完整平均，品号筛选不改订单口径",async()=>{
     let row=(await page("orders",{orderId:id(10)})).rows[0]!;
-    expect(row.orderProductionProgress).toBeNull(); expect(row).not.toHaveProperty("orderProgressBasis");
+    expect(Number(row.orderProductionProgress)).toBeCloseTo(((.25+.51+1)/3+1)/2,10); expect(row).not.toHaveProperty("orderProgressBasis");
     await runner.query("DELETE FROM mps_order_allocations WHERE id IN ($1,$2)",[id(31),id(32)]);
     row=(await page("orders",{orderId:id(10),itemCodes:["ITEM-A"]})).rows[0]!;
     expect(Number(row.orderProductionProgress)).toBeCloseTo(((.25+.51+1)/3+1)/2,10);
+  });
+  it("keeps source-audit rows out of progress while exposing a historical monthly plan without a group plan",async()=>{
+    await add("mps_order_allocations",{id:id(100),order_number:"MANUAL-MONTH",item_code:"MANUAL-A",division_id:division,customer_code:"C1",order_date:"2026-10-01",item_name:"历史手工月计划",allocated_quantity:100,archived_at:"2026-10-02"});
+    await add("mps_monthly_plans",{id:id(101),allocation_id:id(100),order_number:"MANUAL-MONTH",item_code:"MANUAL-A",division_id:division,customer_code:"C1",order_date:"2026-10-01",item_name:"历史手工月计划",latest_customer_due_date:"2026-10-20",required_quantity:100,cumulative_inbound_quantity:40,pending_quantity:60,completion_rate:"0.4",manufacturing_method:"外协"});
+    await add("mps_base_plans",{id:id(105),shipping_plan_id:null,division_id:division,customer_code:"C1",order_number:"MANUAL-MONTH",item_code:"MANUAL-A",item_name:"同键下游计划",delivery_number:1,order_date:"2026-10-01",latest_customer_due_date:"2026-10-20",planned_quantity:100,manufacturing_method:"外协"});
+    await add("mps_weekly_plans",{id:id(106),base_plan_id:id(105),division_id:division,customer_code:"C1",order_number:"MANUAL-MONTH",item_code:"MANUAL-A",item_name:"同键下游计划",delivery_number:1,order_date:"2026-10-01",latest_customer_due_date:"2026-10-20",latest_review_due_date:"2026-10-20",planned_quantity:100,allocated_inbound_quantity:40,pending_quantity:60,manufacturing_method:"外协"});
+    const orders=(await page("orders",{orderNumbers:["MANUAL-MONTH"],onlyUnfinishedOrders:"false"}));
+    expect(orders.total).toBe(1);expect(orders.rows[0]).toMatchObject({id:id(101),orderNumber:"MANUAL-MONTH"});expect(Number(orders.rows[0]!.orderProductionProgress)).toBe(.4);
+    const items=await page("items",{orderId:id(101),onlyUnfinishedItems:"false"});expect(items.total).toBe(1);expect(items.rows[0]).toMatchObject({id:id(101),sourceKind:"月计划",planStatus:"已建立月计划"});expect(Number(items.rows[0]!.itemProductionProgress)).toBe(.4);
+    const divisionScoped=scoped();expect((await page("orders",{orderNumbers:["MANUAL-MONTH"],onlyUnfinishedOrders:"false"},divisionScoped)).total).toBe(1);
+    const otherDivision={...divisionScoped,tableDataScopes:[{...divisionScoped.tableDataScopes[0]!,rules:[{fieldKey:"divisionId",operator:"EQ",value:other}]},divisionScoped.tableDataScopes[1]!]};expect((await page("orders",{orderNumbers:["MANUAL-MONTH"],onlyUnfinishedOrders:"false"},otherDivision)).total).toBe(0);
+    expect((await page("orders",{orderNumbers:["MANUAL-MONTH"],onlyUnfinishedOrders:"false"},{...divisionScoped,tenantId:tenant+"-OTHER"})).total).toBe(0);
+    const exporter=new MasterPlanOrderProgressExportService(service,{recordOrderProgressExport:audit}as never),book=new ExcelJS.Workbook();await book.xlsx.load(await exporter.export("items",{orderNumbers:["MANUAL-MONTH"],onlyUnfinishedItems:"false"},actor)as never);expect(book.worksheets[0]!.rowCount-1).toBe(1);
+  });
+  it("reads a standalone historical base/week plan and reports from execution facts; missing process facts remain NULL",async()=>{
+    const addBase=async(n:number,order:string,item:string,inbound:number,method:string,plannedQuantity=100)=>{
+      await add("mps_base_plans",{id:id(n),shipping_plan_id:null,division_id:division,customer_code:"C1",order_number:order,item_code:item,item_name:"历史基础计划",delivery_number:1,order_date:"2026-10-01",latest_customer_due_date:"2026-10-20",planned_quantity:plannedQuantity,manufacturing_method:method});
+      await add("mps_weekly_plans",{id:id(n+1),base_plan_id:id(n),division_id:division,customer_code:"C1",order_number:order,item_code:item,item_name:"历史基础计划",delivery_number:1,order_date:"2026-10-01",latest_customer_due_date:"2026-10-20",latest_review_due_date:"2026-10-20",planned_quantity:plannedQuantity,allocated_inbound_quantity:inbound,pending_quantity:Math.max(0,plannedQuantity-inbound),manufacturing_method:method});
+    };
+    await addBase(110,"MANUAL-WEEK","MANUAL-B",25,"自制");
+    await add("mps_weekly_process_plans",{id:id(112),weekly_plan_id:id(111),process_code:"cutting",process_name:"下料",sequence:1,execution_enabled:true,status:"进行中"});
+    await add("mps_process_reports",{id:id(113),division_id:division,weekly_plan_id:id(111),order_number:"MANUAL-WEEK",item_code:"MANUAL-B",item_name:"历史基础计划",delivery_number:1,process_code:"cutting",process_name:"下料",production_date:"2026-10-15",planned_quantity:100,production_quantity:50});
+    await add("mps_order_allocations",{id:id(114),order_number:"MANUAL-WEEK",item_code:"MANUAL-B",division_id:division,customer_code:"C1",order_date:"2026-10-01",item_name:"历史基础计划来源",allocated_quantity:10});
+    await addBase(120,"MANUAL-INCOMPLETE","MANUAL-C",0,"自制");
+    await addBase(130,"MANUAL-INVALID","MANUAL-D",0,"自制",0);
+    const progressed=await page("items",{orderId:id(110),onlyUnfinishedItems:"false"});expect(progressed.total).toBe(2);expect(progressed.rows[0]).toMatchObject({id:id(110),sourceKind:"基础计划",planStatus:"已建立生产计划"});expect(Number(progressed.rows[0]!.itemProductionProgress)).toBe(.375);expect(Number(progressed.rows[0]!.cuttingReportedQuantity)).toBe(50);expect(progressed.rows.find(r=>r.id===id(114))).toMatchObject({sourceKind:"订单分配",planStatus:"来源行与月计划关联待核实",cuttingProductionProgress:null});
+    const order=(await page("orders",{orderId:id(110),onlyUnfinishedOrders:"false"})).rows[0]!;expect(Number(order.orderProductionProgress)).toBe(.375);
+    const incomplete=await page("items",{orderId:id(120),onlyUnfinishedItems:"false"});expect(incomplete.total).toBe(1);expect(incomplete.rows[0]!.itemProductionProgress).toBeNull();
+    await addBase(122,"MANUAL-COMPLETE","MANUAL-E",100,"外协");const completed=await page("items",{orderId:id(122),onlyUnfinishedOrders:"false",onlyUnfinishedItems:"false"});expect(completed.total).toBe(1);expect(Number(completed.rows[0]!.itemProductionProgress)).toBe(1);
+    const invalid=await page("items",{orderId:id(130)});expect(invalid.total).toBe(1);expect(invalid.rows[0]).toMatchObject({planStatus:"基础计划数量无效，待核实",itemProductionProgress:null});expect((await page("orders",{orderId:id(130)})).rows[0]).toMatchObject({coverageStatus:"生产计划数量待核实",orderProductionProgress:null});
+    const listed=await page("orders",{orderNumbers:["MANUAL-WEEK"],onlyUnfinishedOrders:"false"});expect(listed.total).toBe(1);expect(listed.rows[0]).toMatchObject({id:id(110),orderNumber:"MANUAL-WEEK"});
   });
   it("formal preparation status, absent records and absent process tasks stay distinguishable; only manual exceptions",async()=>{
     const row=(await page("items",{orderId:id(10),itemId:id(20)})).rows[0]!;
@@ -170,6 +211,6 @@ integration("Order progress actual PostgreSQL, temporary fixture tables only",()
       expect(typeof sheet.getRow(2).getCell(col).value).toBe("number");
       expect(Number(sheet.getRow(2).getCell(col).value)).toBeCloseTo((.25+.51+1)/3,10);
     }}
-    expect(audit).toHaveBeenCalledTimes(2);
+    expect(audit).toHaveBeenCalledTimes(3);
   });
 });

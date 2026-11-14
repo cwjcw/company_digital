@@ -13,7 +13,17 @@
     "db:revert": "pnpm build && node node_modules/typeorm/cli.js -d dist/data-source.js migration:revert",
     "db:seed": "pnpm build && node dist/seed.js",
     "db:migrate:phase-a": "pnpm build && node dist/migrate-phase-a.js",
-    "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js"
+    "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js",
+    "db:migrate:mps-demand-link-service": "pnpm build && node dist/migrate-mps-demand-link-service.js",
+    "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js",
+    "db:migrate:sync-maintenance": "pnpm build && node dist/migrate-sync-maintenance.js",
+    "db:migrate:review-due-independence": "pnpm build && node dist/migrate-review-due-independence.js",
+    "db:migrate:allocation-column-removal": "pnpm build && node dist/migrate-allocation-column-removal.js",
+    "db:migrate:rd-bom-report": "pnpm build && node dist/migrate-rd-bom-report.js",
+    "db:migrate:rd-bom-index": "pnpm build && node dist/migrate-rd-bom-master-index.js",
+    "db:migrate:mps-demand-identity-transfer:preflight": "pnpm build && node dist/migrate-mps-audited-demand-identity-transfer.js --preflight",
+    "db:migrate:mps-demand-identity-transfer": "pnpm build && node dist/migrate-mps-audited-demand-identity-transfer.js --execute",
+    "rd:bom-sync": "pnpm build && node dist/rd-bom-master-index-sync-cli.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",

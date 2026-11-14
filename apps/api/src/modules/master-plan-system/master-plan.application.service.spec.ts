@@ -46,6 +46,22 @@ describe("MasterPlanApplicationService order allocation deletion", () => {
   });
 });
 
+describe("MasterPlanApplicationService allocation division guard", () => {
+  const id="22222222-2222-4222-8222-222222222222";
+  it("rejects an ordinary PATCH when the allocation division changes",async()=>{
+    const current={id,tenant_id:actor.tenantId,version:4,division_id:"33333333-3333-4333-8333-333333333333",order_number:"SO-1",item_code:"ITEM-1",allocated_quantity:"10",order_status:"已审核",archived_at:null,created_by:actor.userId};
+    const query=jest.fn(async(sql:string)=>sql.startsWith("SELECT * FROM mps_order_allocations")?[current]:[]);
+    const manager={query};const service=new MasterPlanApplicationService({transaction:(work:(m:typeof manager)=>unknown)=>work(manager)} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.update("mps-order-allocations",id,{divisionId:"44444444-4444-4444-8444-444444444444",expectedVersion:4},actor)).rejects.toThrow("承接事业部变更必须先预览并使用专用变更操作");
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith("UPDATE mps_order_allocations"))).toBe(false);
+  });
+
+  it("rejects batch transfer of allocation divisions",async()=>{
+    const service=new MasterPlanApplicationService({transaction:jest.fn()} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.batchUpdate("mps-order-allocations",{records:[{id,expectedVersion:4}],fieldKey:"divisionId",value:"44444444-4444-4444-8444-444444444444",idempotencyKey:"55555555-5555-4555-8555-555555555555"},actor)).rejects.toThrow("承接事业部变更必须使用专用预览与确认操作");
+  });
+});
+
 describe("MasterPlanApplicationService imports", () => {
   it("generates a three-digit delivery code in the backend and rejects manual PATCH", async () => {
     const inserted = { id: "22222222-2222-4222-8222-222222222222", version: 1, order_number: "SO-1", item_code: "ITEM-1", delivery_number: "001" };
@@ -261,7 +277,7 @@ describe("MasterPlanApplicationService imports", () => {
     const manager = { query }; const sync = { processOutbox: jest.fn().mockResolvedValue(undefined) };
     const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
-      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
     expect(query.mock.calls.some(([sql]) => String(sql).includes("mps_reconciliation_outbox"))).toBe(true);
   });
@@ -281,7 +297,7 @@ describe("MasterPlanApplicationService imports", () => {
 
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
       id, version: 4, values: { latestReviewDueDate: "2026-09-20" },
-      reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
     expect(sync.processOutbox).toHaveBeenCalledTimes(1);
     expect(query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE mps_base_plans"))).toBe(true);
@@ -301,7 +317,7 @@ describe("MasterPlanApplicationService imports", () => {
     const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), manager, query } as never, sync as never);
 
     await expect(service.update("mps-base-plans", id, { latestReviewDueDate: "2026-09-20", expectedVersion: 3 }, actor)).resolves.toEqual({
-      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存，周计划正在生成，请稍后刷新查看。" }
+      id, version: 4, values: { latestReviewDueDate: "2026-09-20" }, reconciliation: { status: "PENDING", message: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" }
     });
   });
 
@@ -521,6 +537,12 @@ describe("MasterPlanApplicationService Division 3 residual command", () => {
     const transaction=jest.fn();const service=new MasterPlanApplicationService({transaction} as never,{processOutbox:jest.fn()} as never);
     await expect(service.finalizeDivisionThreeResidual({...body,allocationChanges:[{...body.allocationChanges[0],divisionId:"ad238002-66e1-47db-94c6-8680e25fcf33"}]},actor)).rejects.toThrow("参数、版本或业务范围无效");
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("accepts only explicitly reviewed group aliases without hard-coded business order numbers",async()=>{
+    const transaction=jest.fn(async()=>{throw new Error("transaction reached");});const service=new MasterPlanApplicationService({transaction} as never,{processOutbox:jest.fn()} as never);
+    await expect(service.finalizeDivisionThreeResidual({...body,groupPlanAliases:[{sourceOrderNumber:"SYN-ORDER-A",targetOrderNumber:"SYN-ORDER-A-1"}]},actor)).rejects.toThrow("transaction reached");
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
 
   it("rejects malformed stale-exception IDs before opening a transaction",async()=>{

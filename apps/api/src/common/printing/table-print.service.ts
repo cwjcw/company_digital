@@ -1,6 +1,6 @@
 import { PlatformStreamingWorkbook } from './streaming-workbook';
 import { PassThrough } from 'node:stream';
-import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import ExcelJS from "exceljs";
 import {
@@ -32,7 +32,7 @@ export type TablePrintQuery = {
   context?: Record<string, unknown>;
   /** 打印模式：显式声明，禁止用 selectedIds 是否为空来猜。 */
   rangeType?: unknown;
-  /** 打印已选：稳定记录 ID（后端会重新取数并做权限过滤）。 */
+  /** 打印/导出已选：稳定记录 ID（后端会重新取数并做权限过滤）。 */
   selectedIds?: unknown;
   /** 客户端只能收窄列集合；后端只做交集。 */
   columnKeys?: unknown;
@@ -177,20 +177,39 @@ export class TablePrintService {
     if (!this.canReadResource(actor, source)) throw new ForbiddenException("当前权限组没有此表的查看权限");
     const fields = this.exportableFields(source, actor, query.columnKeys);
     if (!fields.length) throw new ForbiddenException("当前权限组没有可导出字段");
+    const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
 
+    const keyField = recordKeyOf(source).field;
     const rows: Array<Record<string, unknown>> = [];
     let page = 1;
     let total = 0;
-    for (;;) {
-      const result = await this.queryRows(source, actor, query, fields, page, PRINT_BATCH_SIZE, undefined, "export");
-      total = result.total;
-      rows.push(...result.rows);
-      if (rows.length >= total || result.rows.length < PRINT_BATCH_SIZE) break;
-      if (page >= Math.ceil((source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE) / PRINT_BATCH_SIZE)) throw new BadRequestException(`导出数据超过 ${source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE} 行，请进一步筛选后再导出`);
-      page += 1;
+    if (rangeType === "SELECTED") {
+      /* 选择优先：搜索和筛选只描述页面视图，不得扩大或剔除已选集合；上下文及服务端权限仍强制执行。 */
+      if (selectedIds.length > MAX_BATCHES * PRINT_BATCH_SIZE) throw new BadRequestException("已选记录过多，请分批选择后导出");
+      const selectedQuery = { ...query, search: undefined, filterGroup: undefined };
+      for (let offset = 0; offset < selectedIds.length; offset += PRINT_BATCH_SIZE) {
+        const chunk = selectedIds.slice(offset, offset + PRINT_BATCH_SIZE);
+        const result = await this.queryRows(source, actor, selectedQuery, fields, 1, PRINT_BATCH_SIZE, chunk, "export");
+        const returnedIds = result.rows.map(row => String(row[keyField] ?? ""));
+        const exactIds = returnedIds.length === chunk.length && new Set(returnedIds).size === chunk.length
+          && chunk.every(id => returnedIds.includes(id));
+        if (result.total !== chunk.length || !exactIds) {
+          throw new ConflictException("部分选中记录已失效或超出当前可导出范围，请刷新后重新选择");
+        }
+        total += result.total;
+        rows.push(...result.rows);
+      }
+    } else {
+      for (;;) {
+        const result = await this.queryRows(source, actor, query, fields, page, PRINT_BATCH_SIZE, undefined, "export");
+        total = result.total;
+        rows.push(...result.rows);
+        if (rows.length >= total || result.rows.length < PRINT_BATCH_SIZE) break;
+        if (page >= Math.ceil((source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE) / PRINT_BATCH_SIZE)) throw new BadRequestException(`导出数据超过 ${source.exportMaxRows ?? MAX_BATCHES * PRINT_BATCH_SIZE} 行，请进一步筛选后再导出`);
+        page += 1;
+      }
     }
 
-    const keyField = recordKeyOf(source).field;
     const resolved = await this.resolveLabels(source, rows, fields, keyField, actor);
     // Validated large sources use the platform's streaming XLSX writer to avoid millions of resident cells.
     const large=(source.exportMaxRows??0)>MAX_BATCHES*PRINT_BATCH_SIZE;
@@ -305,24 +324,22 @@ export class TablePrintService {
     return new Set(list.map((entry) => String(entry).trim()).filter(Boolean));
   }
 
-  /**
-   * 解析打印模式（显式 rangeType）：SELECTED 必须带合法稳定 ID，否则 400，绝不退化为 FILTERED；
-   * FILTERED 即使误传 selectedIds 也一律忽略。
-   */
+  /** 显式解析行范围：SELECTED 必须带合法稳定 ID，否则 400，绝不退化为 FILTERED。 */
   private resolveRange(source: TableFilterSource, query: TablePrintQuery) {
     const raw = query.rangeType == null || String(query.rangeType).trim() === "" ? "FILTERED" : String(query.rangeType).toUpperCase();
-    if (raw !== "FILTERED" && raw !== "SELECTED") throw new BadRequestException("打印模式只能是 FILTERED 或 SELECTED");
+    if (raw !== "FILTERED" && raw !== "SELECTED") throw new BadRequestException("数据范围只能是 FILTERED 或 SELECTED");
     if (raw === "FILTERED") return { rangeType: "FILTERED" as const, ids: [] as string[] };
-    const ids = this.normalizeIds(source, query.selectedIds);
-    if (!ids.length) throw new BadRequestException("打印已选必须提供有效的记录 ID");
+    const ids = this.normalizeSelectedIds(source, query.selectedIds);
+    if (!ids.length) throw new BadRequestException("已选范围必须提供有效的记录 ID");
     return { rangeType: "SELECTED" as const, ids };
   }
 
   /** 按资源正式主键类型校验稳定 ID（不假设所有 resource 都是 UUID）。 */
-  private normalizeIds(source: TableFilterSource, value: unknown): string[] {
+  private normalizeSelectedIds(source: TableFilterSource, value: unknown): string[] {
     const key = recordKeyOf(source);
     const list = value == null || value === "" ? [] : Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-    const ids = list.flatMap((entry) => String(entry).split(",")).map((entry) => entry.trim()).filter((entry) => this.isValidKey(key.type, entry));
+    const ids = list.flatMap((entry) => String(entry).split(",")).map((entry) => entry.trim()).filter(Boolean);
+    if (ids.some(id => !this.isValidKey(key.type, id))) throw new BadRequestException("已选记录 ID 格式无效，请刷新后重新选择");
     return [...new Set(ids)];
   }
 

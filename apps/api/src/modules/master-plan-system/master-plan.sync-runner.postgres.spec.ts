@@ -20,7 +20,7 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
       ON CONFLICT DO NOTHING RETURNING business_key`);
     return { count: rows.length };
   };
-  const make = (execute: (manager: EntityManager) => Promise<SyncOutcome> = effect, ms = 300_000) => new MasterPlanSyncRunner(db, execute, actor, ms);
+  const make = (execute: (manager: EntityManager, key: string, tenant: string, actorId: string, actorName: string, scope: unknown, trustedInternalService: boolean) => Promise<SyncOutcome> = effect, ms = 300_000) => new MasterPlanSyncRunner(db, execute, actor, ms);
   const event = async (key = "fixture-key", task = "execution-rollup", who = tenant, eventScope: unknown = null) =>
     (await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,sync_key,idempotency_key,actor_id,actor_name,created_by,updated_by,scope_json)
       VALUES($1,'mps-process-reports',$2,$3,$4::uuid,'合成用户',$4::uuid,$4::uuid,$5::jsonb) RETURNING *`, [who, task, key, actor, eventScope == null ? null : JSON.stringify(eventScope)]))[0];
@@ -36,7 +36,12 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
       SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND status='RUNNING'`, [tenant]);
   };
 
-  beforeAll(async () => { db = await createMpsTestDatabase("sync_1a_fixture", actor, division); }, 30000);
+  beforeAll(async () => {
+    db = await createMpsTestDatabase("sync_1a_fixture", actor, division);
+    // The 1A fixture intentionally focuses on leases/outbox rather than 1B's
+    // migration; the current sync code probes this 1B capability before routes.
+    await db.query("CREATE FUNCTION mps_weekly_has_execution(t varchar,w uuid) RETURNS boolean LANGUAGE sql IMMUTABLE AS 'SELECT false'");
+  }, 30000);
   beforeEach(async () => {
     await db.query("TRUNCATE mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,fixture_effects,mps_order_allocations,mps_base_plans CASCADE");
     await db.query("DELETE FROM mps_sync_configs WHERE tenant_id=$1", [tenant]);
@@ -66,6 +71,17 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
     const s = await state(); expect(s.effects).toBe(0); expect(s.log.attempts).toBe(2);
     expect([s.log.status, s.event.status, s.config.status]).toEqual(["FAILED", "FAILED", "FAILED"]);
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not elevate an Outbox event based on actor_id alone", async () => {
+    await event();
+    let trusted: boolean | undefined;
+    const execute = jest.fn(async (manager: EntityManager, _key: string, _tenant: string, _actorId: string, _name: string, _scope: unknown, service: boolean) => {
+      trusted = service;
+      return effect(manager);
+    });
+    await make(execute).processOutbox(tenant);
+    expect(trusted).toBe(false);
   });
 
   it("recovers managed RUNNING after a crash between claim and transaction start", async () => {
@@ -171,12 +187,12 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
     expect((await run(runner, "manual-override", "MANUAL")).status).toBe("SUCCESS");
   });
 
-  it.each(["plan-projections", "shipping-to-base"])("reports protected conflicts in %s as BLOCKED while preserving committed partial progress", async key => {
+  it.each([["plan-projections","SUCCESS"],["shipping-to-base","BLOCKED"]] as const)("isolates a protected conflict in %s with status %s while preserving safe progress", async (key,expectedStatus) => {
     const metrics: Record<string, number> = key === "plan-projections" ? { skipped: 1 } : { base_conflicts: 1 };
     const runner = make(async m => ({ ...await effect(m), status: "SUCCESS", metrics }));
-    const result = await run(runner, "fixture-key", "EVENT", key); expect(result.status).toBe("BLOCKED");
+    const result = await run(runner, "fixture-key", "EVENT", key); expect(result.status).toBe(expectedStatus);
     const [log] = await db.query("SELECT status FROM mps_sync_logs WHERE tenant_id=$1 AND idempotency_key='fixture-key'", [tenant]);
-    expect(log.status).toBe("FAILED"); expect((await state()).effects).toBe(1);
+    expect(log.status).toBe(expectedStatus === "SUCCESS" ? "SUCCESS" : "FAILED"); expect((await state()).effects).toBe(1);
   });
 
   it("keeps intentional ERP admission filters distinct from task-level blocked results", async () => {
@@ -230,6 +246,17 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
       VALUES($1,$2,'execution-rollup','EVENT','RUNNING',clock_timestamp()-interval '2 days','fixture-key',$3,$3)`, [tenant, config.id, actor]);
     const before = await state(); await expect(run(make())).rejects.toThrow("历史RUNNING");
     expect((await state()).log).toEqual(before.log); expect((await state()).config).toEqual(before.config);
+  });
+
+  it("terminalizes an expired Outbox lease at the retry limit without claiming it or marking it successful", async () => {
+    const queued=await event("retry-limit-key");
+    await db.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=10,lease_expires_at=clock_timestamp()-interval '1 second'
+      WHERE tenant_id=$1 AND id=$2`,[tenant,queued.id]);
+    const execute=jest.fn(effect);await make(execute).processOutbox(tenant);
+    const [saved]=await db.query("SELECT status,attempts,last_error,lease_expires_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$2",[tenant,queued.id]);
+    expect(saved).toMatchObject({status:"FAILED",attempts:10,last_error:"自动重试上限已达10次；保留失败记录，等待人工核验",lease_expires_at:null});
+    expect(execute).not.toHaveBeenCalled();
+    expect(await db.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND resource='mps-reconciliation-outbox' AND action='retry_limit_reached'",[tenant,queued.id])).toHaveLength(1);
   });
 
   it("cannot turn an unverified SUCCESS return into a successful outbox acknowledgement", async () => {

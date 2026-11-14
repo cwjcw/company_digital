@@ -62,6 +62,19 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
   }
 }
 
+const pendingProcessReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
+
+/**
+ * 工序报工待报工视图的两个汇总字段由 API 按资源 read 权限裁剪，不配置独立字段权限。
+ * 这个例外严格限定在该资源的 PENDING 视图；其他列/视图仍执行正式字段权限检查。
+ */
+export function hasKdosTableFieldReadPermission(resource: string, field: string, viewKey?: string) {
+  if (resource === "mps-process-reports" && viewKey === "PENDING" && pendingProcessReportDerivedFields.has(field)) {
+    return hasResourcePermission(resource, "read");
+  }
+  return hasFieldPermission(resource, field, "read");
+}
+
 const registeredTableResources = new Set<string>(tableResourceRegistry.map((resource) => resource.code));
 const emptyHeaderRules: AdvancedFilterRule[] = [];
 export const kdosPageSizeOptions = [50, 100, 200, 500, 1000] as const;
@@ -469,7 +482,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   /* KN-PRINT-001：统一打印入口（能力 + batch_print 权限由后端给出，前端只控制显示）。 */
   const { message: printMessage } = AntApp.useApp();
-  const { message: exportMessage } = AntApp.useApp();
+  const { message: exportMessage, modal: exportModal } = AntApp.useApp();
   const { message: deleteMessage, modal: deleteModal } = AntApp.useApp();
   const [printing, setPrinting] = useState(false);
   const printCapabilities = useTablePrintCapabilities();
@@ -526,17 +539,32 @@ export function KdosDataTable<RecordType extends DataRecord>({
       setPrinting(false);
     }
   };
-  const runExport = async () => {
+  const runExport = () => {
     if (exporting) return;
-    setExporting(true);
-    try {
-      await exportTable({ resource, filename:exportFilename?.(), search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
-        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
-        context: printContext, columnKeys: displayedExportKeys(renderedColumns) });
-      exportMessage.success("导出已开始");
-    } catch (error) {
-      exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
-    } finally { setExporting(false); }
+    const selectedIds = [...new Set(selectedRowKeys.map(String))];
+    const rangeType = selectedIds.length ? "SELECTED" as const : "FILTERED" as const;
+    const request = { resource, rangeType, ...(rangeType === "SELECTED" ? { selectedIds } : {}),
+      search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
+      sortOrder: sortOrder === "descend" ? "desc" as const : sortOrder === "ascend" ? "asc" as const : undefined,
+      context: printContext, columnKeys: displayedExportKeys(renderedColumns), filename: exportFilename?.() };
+    const submitExport = async () => {
+      setExporting(true);
+      try {
+        await exportTable(request);
+        exportMessage.success(rangeType === "SELECTED" ? `已选 ${selectedIds.length} 条记录导出已开始` : "当前视图导出已开始");
+      } catch (error) {
+        exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
+      } finally { setExporting(false); }
+    };
+    if (rangeType === "SELECTED") {
+      exportModal.confirm({
+        title: "确认导出已选记录",
+        content: `本次仅导出已选中的 ${selectedIds.length} 条记录；当前筛选结果中的未选记录不会导出。`,
+        okText: `导出已选（${selectedIds.length}）`, cancelText: "取消", onOk: submitExport
+      });
+      return;
+    }
+    void submitExport();
   };
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -553,7 +581,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
   useEffect(() => {
     setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
-  }, [resource]);
+  }, [resource, viewKey]);
   const contextFilterKey = JSON.stringify(contextFilterGroup ?? emptyFilterGroup());
   useEffect(() => { setCurrentPage(1); }, [filters, search, tableFilterGroup, contextFilterKey, serverData?.resetKey]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);
@@ -576,8 +604,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   })();
   const availableFieldKeys = useMemo(() => fields.map((field) => {
     const metadata = columnMetadata(resolvedFilterFields,field.key,field.label,field.permissionField);
-    return metadata && hasFieldPermission(resource, metadata.key, "read") ? field.key : null;
-  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, fieldPermissionSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
+    return metadata && hasKdosTableFieldReadPermission(resource, metadata.key, viewKey) ? field.key : null;
+  }).filter((key): key is string => key !== null), [fields, resolvedFilterFields, resource, viewKey, fieldPermissionSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- sessionUser permission changes must invalidate this memo.
   const availableFieldSignature = JSON.stringify(availableFieldKeys);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const columnWidthsRef = useRef(columnWidths);
@@ -604,11 +632,23 @@ export function KdosDataTable<RecordType extends DataRecord>({
       setColumnWidths(current => Object.keys(current).every(key => allowed.has(key)) ? current : Object.fromEntries(Object.entries(current).filter(([key]) => allowed.has(key))));
       return;
     }
-    const ordered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)) : [];
+    const savedOrdered = Array.isArray(saved?.orderedFieldKeys) ? saved.orderedFieldKeys.filter((key): key is string => typeof key === "string") : [];
+    const savedVisible = Array.isArray(saved?.visibleFieldKeys) ? [...new Set(saved.visibleFieldKeys.filter((key): key is string => typeof key === "string"))] : null;
+    const ordered = savedOrdered.filter((key) => allowed.has(key));
     const mergedOrder = [...ordered, ...[...allowed].filter((key) => !ordered.includes(key))];
-    const visible = Array.isArray(saved?.visibleFieldKeys)
-      ? [...new Set(saved.visibleFieldKeys.filter((key): key is string => typeof key === "string" && allowed.has(key)))]
+    const visible = savedVisible
+      ? [...new Set(savedVisible.filter((key) => allowed.has(key)))]
       : [...allowed];
+    if (resource === "mps-process-reports" && viewKey === "PENDING" && savedVisible) {
+      /*
+       * Older layouts were saved while these derived fields were unavailable to the field selector.
+       * Such keys are absent from both arrays. A key present in order but absent from visibility is
+       * an explicit user hide and remains hidden. This only adds the two PENDING derived fields.
+       */
+      for (const key of pendingProcessReportDerivedFields) {
+        if (allowed.has(key) && !savedOrdered.includes(key) && !savedVisible.includes(key)) visible.push(key);
+      }
+    }
     const widths = saved?.columnWidths && typeof saved.columnWidths === "object" && !Array.isArray(saved.columnWidths)
       ? Object.fromEntries(Object.entries(saved.columnWidths).filter(([key, value]) => allowed.has(key) && typeof value === "number" && Number.isFinite(value) && value >= 40 && value <= 2000)) as Record<string, number>
       : {};
@@ -617,7 +657,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
     setPinnedKeys((Array.isArray(saved?.pinnedFieldKeys) ? saved.pinnedFieldKeys : []).filter((key): key is string => typeof key === "string" && allowed.has(key) && visible.includes(key)));
     appliedPreferenceIdentity.current = preferenceIdentity;
     setPreferenceDirty(false); setLoadedPreferenceIdentity(preferenceIdentity);
-  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity, preferenceDirty]);
+  }, [simple, displayPreference.isLoading, displayPreference.isError, displayPreference.dataUpdatedAt, displayPreference.data, availableFieldSignature, preferenceIdentity, preferenceDirty, resource, viewKey]);
   useEffect(() => { setPreferenceDirty(false); }, [preferenceIdentity]);
   const startColumnResize = useCallback<KdosResizeStart>((event, key, width, minWidth) => {
     event.preventDefault();
@@ -713,7 +753,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           } : {})
         })
       } as ColumnType<RecordType>;
-      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasFieldPermission(resource, field.key, "read")) return baseColumn;
+      if (!field || key.startsWith("__") || column.dataIndex == null || simple || !hasKdosTableFieldReadPermission(resource, field.key, viewKey)) return baseColumn;
       const systemFixed = Boolean(column.fixed);
       const pinned = pinnedKeys.includes(key);
       return { ...baseColumn, fixed: column.fixed ?? (pinned ? "left" : undefined),
@@ -728,7 +768,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
           onFilter={(rules) => setHeaderFilters((current) => ({ ...current, [field.key]: rules }))} /> };
     });
     return orderKdosFixedColumns(orderColumns(filterColumns(wrap(allColumns), visible), orderedKeys));
-  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
+  }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, viewKey, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -954,7 +994,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
-        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void runExport()}>导出</Button>}
+        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>
+          {selectedCount > 0 ? `导出已选（${selectedCount}）` : "导出当前视图"}
+        </Button>}
         {deleteAction?.permitted && <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={Boolean(deleteDisabledReason)}
           aria-label={deleteAction.label ?? "删除"} title={deleteDisabledReason} onClick={confirmDelete}>{deleteAction.label ?? "删除"}</Button>}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>

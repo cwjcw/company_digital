@@ -2,7 +2,7 @@ import { mpsQuantityBatchFields } from '@kdos/contracts';
 import { demandLinksReady, linkNewDemandRecord } from "./master-plan.demand-links";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { allocationChange, allocationSnapshot, allocationColumn, ALLOCATION_FIELDS, type AllocationChange } from "./order-allocation.domain";
+import { allocationChange, allocationSnapshot, allocationColumn, ALLOCATION_FIELDS, allocationVendorRequiredDivisionName, allocationVendorTargetError, type AllocationChange } from "./order-allocation.domain";
 import { ALLOCATION_EVENT, ALLOCATION_RULE_KEY } from "./order-allocation-config.service";
 import Decimal from "decimal.js";
 import { DataSource, EntityManager } from "typeorm";
@@ -13,7 +13,7 @@ import { assertShippingEditAllowed, normalizeShippingEditWeekday } from "./maste
 import { MASTER_PLAN_SYSTEM_USER_ID, MasterPlanSyncService } from "./master-plan.sync.service";
 import { NotificationService } from "../notifications/notification.service";
 import { nextMasterPlanDeliveryCode } from "./master-plan.delivery-code";
-import { reconcileAllocationPlans, ensureNewAllocationDemand } from "./master-plan.allocation-projection";
+import { reconcileAllocationPlans, ensureNewAllocationDemand, allocationProjectionCandidatesSql } from "./master-plan.allocation-projection";
 import { reconcileMonthlyBasePlans } from "./master-plan.monthly-base";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,7 +38,7 @@ const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
  */
 const RECONCILIATION_FEEDBACK: Partial<Record<string, { syncKey: string; failure: (error: string) => string; pending: string }>> = {
   "mps-order-allocations": { syncKey: "plan-projections", failure: (error) => `订单分配已保存，但计划生成失败：${error}`, pending: "订单分配已保存，集团/月度计划正在生成，请稍后刷新查看。" },
-  "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存，周计划正在生成，请稍后刷新查看。" },
+  "mps-base-plans": { syncKey: "base-to-weekly", failure: (error) => `基础计划已保存，但周计划生成失败：${error}`, pending: "基础计划已保存；符合准入条件的记录正在同步。缺少项可查看“周计划缺失字段”，补齐后自动生成。" },
   "mps-process-reports": { syncKey: "execution-rollup", failure: (error) => `报工已保存，但执行状态同步失败：${error}`, pending: "报工已保存，执行状态正在同步，请稍后刷新查看。" },
   "mps-weekly-process-plans": { syncKey: "execution-rollup", failure: (error) => `工序任务已保存，但执行状态同步失败：${error}`, pending: "工序任务已保存，执行状态正在同步，请稍后刷新查看。" },
   "mps-material-reports": { syncKey: "execution-rollup", failure: (error) => `主材报工已保存，但执行状态同步失败：${error}`, pending: "主材报工已保存，执行状态正在同步，请稍后刷新查看。" },
@@ -180,10 +180,9 @@ export class MasterPlanApplicationService {
         || (row.plannedQuantity !== undefined && (!Number.isFinite(Number(row.plannedQuantity)) || Number(row.plannedQuantity) < 0))
         || (row.divisionId === undefined && row.plannedQuantity === undefined))
       || zeroKeys.some(row => !row.orderNumber?.trim() || !row.itemCode?.trim() || row.divisionId !== RESIDUAL_TARGET_DIVISION_ID)
-      || requestedAliases.some(row => ![
-        "2301-2026C406004>2301-2026C406004-1",
-        "2301-2026C406006>2301-2026C406006-1"
-      ].includes(`${row.sourceOrderNumber}>${row.targetOrderNumber}`))
+      || requestedAliases.some(row => typeof row.sourceOrderNumber !== "string" || !row.sourceOrderNumber.trim()
+        || row.sourceOrderNumber.length > 100 || typeof row.targetOrderNumber !== "string" || !row.targetOrderNumber.trim()
+        || row.targetOrderNumber.length > 100 || row.sourceOrderNumber === row.targetOrderNumber)
       || new Set(requestedAliases.map(row=>row.sourceOrderNumber)).size!==requestedAliases.length
       || staleDemandExceptionIds.some(id=>!uuidPattern.test(id))
       || new Set(staleDemandExceptionIds).size!==staleDemandExceptionIds.length
@@ -303,10 +302,6 @@ export class MasterPlanApplicationService {
       }
       const groupPlanAliases: Array<{sourceOrderNumber:string;targetOrderNumber:string}> = [];
       const duplicateGroupPlanIds = new Set<string>();
-      const preferredGroupOrder: Record<string,string> = {
-        "2026C406004":"2301-2026C406004-1",
-        "2026C406006":"2301-2026C406006-1"
-      };
       const explicitAliasMap=new Map(requestedAliases.map(row=>[row.sourceOrderNumber,row.targetOrderNumber]));
       for (const sourceOrderNumber of new Set([...allocations
         .map(row=>String(allocationMap.get(row.id)!.order_number)),...requestedAliases.map(row=>row.sourceOrderNumber)])) {
@@ -314,7 +309,8 @@ export class MasterPlanApplicationService {
         const groupPlans: Array<{id:string;order_number:string;created_at:string}> = await manager.query(`SELECT id,order_number,created_at FROM mps_group_plans
           WHERE tenant_id=$1 AND regexp_replace(regexp_replace(order_number,'^23[0-9]{2}-',''),'-1$','')=$2
           ORDER BY created_at,id FOR UPDATE`,[actor.tenantId,normalizedOrder]);
-        const preferred=explicitAliasMap.get(sourceOrderNumber) ?? preferredGroupOrder[normalizedOrder];
+        const preferred=explicitAliasMap.get(sourceOrderNumber);
+        if(groupPlans.length>1&&!preferred)throw new ConflictException(`集团计划存在多个候选，必须明确指定并确认目标：${sourceOrderNumber}`);
         const target=groupPlans.find(row=>row.order_number===preferred)?.order_number ?? groupPlans[0]?.order_number ?? null;
         if(preferred && target!==preferred)throw new ConflictException(`指定集团计划别名不存在：${sourceOrderNumber} → ${preferred}`);
         for (const row of groupPlans) if(row.order_number!==target) duplicateGroupPlanIds.add(String(row.id));
@@ -376,6 +372,15 @@ export class MasterPlanApplicationService {
     return {shipping:Boolean(row.shipping),weekly:Boolean(row.weekly),reports:Boolean(row.reports),inbound:Boolean(row.inbound)};
   }
 
+  private async assertAllocationVendorTarget(manager:EntityManager,supplierName:unknown,divisionId:unknown) {
+    if(!divisionId){const expected=allocationVendorRequiredDivisionName(supplierName);if(expected)throw new BadRequestException(`供应商必须映射${expected}，承接组织ID不能为空`);return;}
+    const units=await manager.query("SELECT id,name,enabled FROM organization_units");
+    const target=units.find((unit:Record<string,any>)=>String(unit.id)===String(divisionId));
+    if(!target)throw new BadRequestException("承接组织不存在，不能保存供应商映射");
+    const error=allocationVendorTargetError(supplierName,target,units);
+    if(error)throw new BadRequestException(error);
+  }
+
   async create(code: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     const resource = this.resource(code);
     this.assertDirectCreateAllowed(resource);
@@ -391,6 +396,7 @@ export class MasterPlanApplicationService {
     }
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName,values.divisionId);
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
@@ -423,6 +429,84 @@ export class MasterPlanApplicationService {
     return this.update('mps-process-reports',id,body,actor);
   }
 
+  /** Explicitly reviewed, single-allocation recovery; never reuses or edits a failed historical event. */
+  async recoverArchivedAllocationSource(id:string,body:{expectedVersion?:number;reason?:string},actor:MasterPlanActor){
+    const resource=this.resource('mps-order-allocations');
+    if(!hasMasterPlanPermission(actor,resource.code,'update'))throw new ForbiddenException('没有订单分配计划修复权限');
+    if(!uuidPattern.test(id)||!Number.isInteger(body?.expectedVersion)||Number(body.expectedVersion)<1
+      ||typeof body.reason!=='string'||!body.reason.trim()||String(body.reason).length>1000)throw new BadRequestException('恢复请求版本或原因无效');
+    const recoveryReason=String(body.reason).trim();
+    const result=await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      const [allocation]=await manager.query(`SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL FOR UPDATE`,[actor.tenantId,id]);
+      if(!allocation||!this.recordAllowed(resource,allocation,actor,'update'))throw new NotFoundException('未找到可恢复的有效订单分配');
+      if(Number(allocation.version)!==Number(body.expectedVersion))throw new ConflictException('订单分配版本已变化，请重新核对');
+      const candidates:Array<Record<string,any>>=await manager.query(`${allocationProjectionCandidatesSql} WHERE allocation_id=$2::uuid`,[actor.tenantId,id]);
+      if(candidates.length!==1||!candidates[0]?.recover_archived_source){
+        const reason=String(candidates[0]?.skip_reason??'业务键不存在、存在多个有效来源或归属不明确');
+        throw new ConflictException(`不满足自动恢复条件：${reason}`);
+      }
+      const scope={allocation:{id,expectedVersion:Number(allocation.version),orderNumber:String(allocation.order_number),
+        itemCode:String(allocation.item_code),divisionId:String(allocation.division_id)}};
+      const key=`outbox:${actor.requestId}:mps-order-allocations:plan-projections:archived-source-recovery`;
+      const [existing]=await manager.query('SELECT id,status FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND idempotency_key=$2',[actor.tenantId,key]);
+      if(existing)return {eventId:String(existing.id),status:String(existing.status),allocationVersion:Number(allocation.version),repeated:true};
+      const [event]=await manager.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
+        VALUES($1,'mps-order-allocations',$2::uuid,'plan-projections',$3::jsonb,$4,$5::uuid,$6,$5::uuid,$5::uuid) RETURNING id,status`,
+        [actor.tenantId,id,JSON.stringify(scope),key,actor.userId??MASTER_PLAN_SYSTEM_USER_ID,actor.username]);
+      await this.audit(manager,actor,resource.code,id,'allocation.archived_source_recovery_requested',allocation,
+        {version:Number(allocation.version),scope,reason:recoveryReason,outboxId:event.id});
+      return {eventId:String(event.id),status:String(event.status),allocationVersion:Number(allocation.version),repeated:false};
+    });
+    const stages:Array<Record<string,unknown>>=[];
+    const readEvent=async(eventId:string)=>this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      const [event]=await manager.query('SELECT status,last_error,attempts FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,eventId]);
+      return event;
+    });
+    if(!result.repeated)await this.sync.processOutboxEvent(actor.tenantId,result.eventId);
+    let event=await readEvent(result.eventId);stages.push({syncKey:'plan-projections',...event});
+    if(event?.status==='SUCCESS'){
+      const links=await this.dataSource.transaction(async manager=>{
+        await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+        const [allocation]=await manager.query('SELECT monthly_plan_id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,id]);
+        if(!allocation?.monthly_plan_id)return null;
+        const [shipping]=await manager.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND record_id=$2::uuid
+          AND sync_key='shipping-to-base' AND created_at>=(SELECT created_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$3::uuid)
+          ORDER BY created_at DESC,id DESC LIMIT 1`,[actor.tenantId,allocation.monthly_plan_id,result.eventId]);
+        return {monthlyPlanId:String(allocation.monthly_plan_id),shippingEventId:shipping?String(shipping.id):null};
+      });
+      const processStage=async(syncKey:string,eventId:string)=>{
+        const before=await readEvent(eventId);
+        if(before?.status==='PENDING'||before?.status==='FAILED')await this.sync.processOutboxEvent(actor.tenantId,eventId);
+        const after=await readEvent(eventId);stages.push({syncKey,...after});
+        return after?.status==='SUCCESS';
+      };
+      let downstreamSucceeded=true;
+      if(links?.shippingEventId){
+        downstreamSucceeded=await processStage('shipping-to-base',links.shippingEventId);
+      }else downstreamSucceeded=false;
+      if(downstreamSucceeded&&links){
+        const weeklyEvent=await this.dataSource.transaction(async manager=>{
+          await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+          const [base]=await manager.query('SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id=$2::uuid ORDER BY id',[actor.tenantId,links.monthlyPlanId]);
+          if(!base)return null;
+          const [event]=await manager.query(`SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND record_id=$2::uuid
+            AND sync_key='base-to-weekly' AND created_at>=(SELECT created_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$3::uuid)
+            ORDER BY created_at DESC,id DESC LIMIT 1`,[actor.tenantId,base.id,result.eventId]);
+          return event?String(event.id):null;
+        });
+        if(weeklyEvent)await processStage('base-to-weekly',weeklyEvent);
+        else downstreamSucceeded=false;
+      }
+    }
+    event=await readEvent(result.eventId);
+    const allStagesSucceeded=stages.length===3&&stages.every(stage=>stage.status==='SUCCESS');
+    const failedStage=[...stages].reverse().find(stage=>stage.status!=='SUCCESS');
+    return {...result,status:allStagesSucceeded?'SUCCESS':event?.status==='SUCCESS'?'FAILED':event?.status??result.status,
+      lastError:failedStage?.last_error??event?.last_error??null,attempts:Number(event?.attempts??0),stages};
+  }
+
   async update(code: string, id: string, body: Record<string, unknown>, actor: MasterPlanActor) {
     if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期人工编辑必须使用专用命令，禁止通用修改路径");
     const resource = this.resource(code);
@@ -438,6 +522,11 @@ export class MasterPlanApplicationService {
       if (!current) throw new NotFoundException("记录不存在");
       if (!this.recordAllowed(resource, current, actor, "update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
       if (Number(current.version) !== expectedVersion) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
+      if (code === "mps-order-allocations" && Object.hasOwn(values, "divisionId")
+        && String(values.divisionId ?? "") !== String(current.division_id ?? "")) {
+        throw new ConflictException("承接事业部变更必须先预览并使用专用变更操作，不能通过普通编辑直接修改");
+      }
+      if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName??current.supplier_name,values.divisionId??current.division_id);
       if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values || "divisionId" in values)) {
         const [monthly] = await manager.query(`SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id IS NOT DISTINCT FROM $4::uuid`, [actor.tenantId, values.orderNumber ?? current.order_number, values.itemCode ?? current.item_code, (Object.hasOwn(values,"divisionId") ? values.divisionId : current.division_id)]);
         values.monthlyPlanId = monthly?.id ?? null;
@@ -478,6 +567,334 @@ export class MasterPlanApplicationService {
     return reconciliation ? { ...result, reconciliation } : result;
   }
 
+  /** Read-only preview of the identity-preserving move and all linked plan/process route effects. */
+  async previewAllocationDivisionTransfer(id: string, input: { targetDivisionId?: string; expectedVersion?: number }, actor: MasterPlanActor) {
+    const resource = this.resource("mps-order-allocations");
+    if (!hasMasterPlanPermission(actor, resource.code, "update")
+      || !hasMasterPlanFieldPermission(actor, resource.code, "divisionId", "update")) throw new ForbiddenException("没有订单分配事业部变更权限");
+    if (!uuidPattern.test(id) || !uuidPattern.test(String(input?.targetDivisionId ?? ""))) throw new BadRequestException("记录ID和目标事业部必须使用稳定ID");
+    return this.dataSource.transaction(async manager => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      const [row] = await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL", [actor.tenantId,id]);
+      if (!row) throw new NotFoundException("订单分配记录不存在");
+      if (!this.recordAllowed(resource,row,actor,"read") || !this.recordAllowed(resource,row,actor,"update")) throw new ForbiddenException("当前数据范围不允许核查或修改该记录");
+      if (input.expectedVersion !== undefined && Number(row.version)!==Number(input.expectedVersion)) throw new ConflictException("订单分配记录已变化，请刷新后重新预览");
+      const [target] = await manager.query("SELECT id,name FROM organization_units WHERE id=$1::uuid AND enabled=true",[input.targetDivisionId]);
+      if (!target) throw new BadRequestException("目标事业部不存在或已停用");
+      await this.assertAllocationVendorTarget(manager,row.supplier_name,target.id);
+      this.assertMappingTargetScope(resource,{...row,division_id:target.id},actor,"update");
+      if (!this.recordAllowed(resource,{...row,division_id:target.id},actor,"update")) throw new ForbiddenException("当前数据范围不允许将需求转入目标事业部");
+      if (String(row.division_id)===String(target.id)) throw new BadRequestException("目标事业部与当前事业部相同");
+      const sourcePlans=await this.allocationTransferPlanCoverage(manager,actor,row.order_number,row.item_code,String(row.division_id),String(target.id));
+      const targetPlans=await this.allocationTransferPlanCoverage(manager,actor,row.order_number,row.item_code,String(target.id));
+      const [facts] = await manager.query(`SELECT
+        EXISTS(SELECT 1 FROM erp_staging_raw_records r JOIN finished_goods_inbound f ON f.source_database=r.source_database AND f.source_system=r.source_system AND f.source_key=r.source_id
+          AND f.sales_order_number=r.order_number AND f.inventory_code=r.item_code AND f.received_quantity<>0
+          WHERE r.tenant_id=$1 AND r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b' AND r.order_link_stable=true AND r.status_code='189' AND r.order_number=$2 AND r.item_code=$3)
+        OR EXISTS(SELECT 1 FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.order_number=$2 AND m.item_code=$3 AND m.division_id=$4::uuid AND m.cumulative_inbound_quantity>0)
+        OR EXISTS(SELECT 1 FROM mps_weekly_plans w WHERE w.tenant_id=$1 AND w.order_number=$2 AND w.item_code=$3 AND w.division_id=$4::uuid AND w.allocated_inbound_quantity>0) has_inbound`,
+      [actor.tenantId,row.order_number,row.item_code,row.division_id]);
+      const reasons: string[]=[];
+      if (row.order_status!=="已审核" || row.archived_at!=null) reasons.push("订单分配不是有效的已审核需求");
+      if (new Decimal(String(row.allocated_quantity??0)).lte(0)) reasons.push("分配数量不是正数");
+      if (sourcePlans.monthly.length+sourcePlans.base.length+sourcePlans.weekly.length>0) {
+        reasons.push(...await this.allocationTransferPlanMigrationBlockers(manager,actor,row,sourcePlans));
+      } else if (row.monthly_plan_id!=null) reasons.push("订单分配声明了月度来源，但原事业部没有对应计划");
+      if (targetPlans.monthly.length+targetPlans.shipping.length+targetPlans.base.length+targetPlans.weekly.length>0) reasons.push("目标事业部已存在同订单品项计划，需先核对冲突");
+      if (facts.has_inbound) reasons.push("检测到入库事实，需核对其来源与归属");
+      const fingerprint=createHash("sha256").update(JSON.stringify({tenantId:actor.tenantId,id:row.id,version:Number(row.version),targetDivisionId:target.id,
+        orderNumber:row.order_number,itemCode:row.item_code,quantity:String(row.allocated_quantity),sourcePlans,targetPlans,facts})).digest("hex");
+      return {allocationId:String(row.id),version:Number(row.version),orderNumber:row.order_number,itemCode:row.item_code,
+        currentDivisionId:String(row.division_id),targetDivisionId:String(target.id),targetDivisionName:String(target.name),
+        allocatedQuantity:new Decimal(String(row.allocated_quantity??0)).toFixed(),monthlyPlanCount:sourcePlans.monthly.length,
+        shippingPlanCount:sourcePlans.shipping.length,basePlanCount:sourcePlans.base.length,weeklyPlanCount:sourcePlans.weekly.length,executionWeeklyPlanCount:sourcePlans.execution_weekly_count,
+        linkedPlans:{monthly:sourcePlans.monthly,base:sourcePlans.base,weekly:sourcePlans.weekly},
+        processRouteChanges:sourcePlans.processRoutes,
+        targetLinkedPlans:{monthly:targetPlans.monthly,base:targetPlans.base,weekly:targetPlans.weekly},
+        hasInbound:Boolean(facts.has_inbound),targetMonthlyPlanCount:targetPlans.monthly.length,canTransfer:reasons.length===0,
+        reasons,previewFingerprint:fingerprint};
+    });
+  }
+
+  /** Rechecks every preview condition under row lock, writes source+audit+outbox atomically,
+   * and relies on the existing plan-projection consumer for durable downstream reconciliation. */
+  async confirmAllocationDivisionTransfer(id: string, input: {targetDivisionId?:string;expectedVersion?:number;previewFingerprint?:string;reason?:string;idempotencyKey?:string}, actor: MasterPlanActor) {
+    const key=String(input?.idempotencyKey??"");
+    if(!hasMasterPlanPermission(actor,"mps-order-allocations","update") || !hasMasterPlanFieldPermission(actor,"mps-order-allocations","divisionId","update")) throw new ForbiddenException("没有订单分配事业部变更权限");
+    if(!uuidPattern.test(id) || !uuidPattern.test(String(input?.targetDivisionId??""))) throw new BadRequestException("记录ID和目标事业部必须使用稳定ID");
+    if(!uuidPattern.test(key) || typeof input.reason!=="string" || !input.reason.trim() || input.reason.trim().length>1000) throw new BadRequestException("需要有效的幂等请求ID和变更原因");
+    const reason=input.reason.trim();
+    const storageKey=`mps-allocation-division-transfer:${actor.tenantId}:${actor.userId??MASTER_PLAN_SYSTEM_USER_ID}:${key}`;
+    const requestHash=createHash("sha256").update(JSON.stringify({id,targetDivisionId:input.targetDivisionId,expectedVersion:input.expectedVersion,previewFingerprint:input.previewFingerprint,reason})).digest("hex");
+    const result=await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${actor.tenantId}:mps-allocation-projection`]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${actor.tenantId}:mps-existing-monthly-inbound`]);
+      await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))",[storageKey]);
+      const [existing]=await manager.query("SELECT request_hash,response_json FROM idempotency_keys WHERE key=$1",[storageKey]);
+      if(existing){if(existing.request_hash!==requestHash)throw new ConflictException("相同幂等键不能用于不同的事业部变更");return {...existing.response_json,repeated:true};}
+      const [current]=await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL FOR UPDATE",[actor.tenantId,id]);
+      if(!current || Number(current.version)!==Number(input.expectedVersion)) throw new ConflictException("订单分配记录已变化，请重新预览");
+      if(!this.recordAllowed(this.resource("mps-order-allocations"),current,actor,"update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
+      const [target] = await manager.query("SELECT id FROM organization_units WHERE id=$1::uuid AND enabled=true",[input.targetDivisionId]);
+      if(!target || !this.recordAllowed(this.resource("mps-order-allocations"),{...current,division_id:target.id},actor,"update")) throw new ForbiddenException("当前数据范围不允许将需求转入目标事业部");
+      await this.assertAllocationVendorTarget(manager,current.supplier_name,target.id);
+      const sourcePlans=await this.allocationTransferPlanCoverage(manager,actor,current.order_number,current.item_code,String(current.division_id),String(input.targetDivisionId));
+      const targetPlans=await this.allocationTransferPlanCoverage(manager,actor,current.order_number,current.item_code,String(target.id));
+      const [facts] = await manager.query(`SELECT
+        EXISTS(SELECT 1 FROM erp_staging_raw_records r JOIN finished_goods_inbound f ON f.source_database=r.source_database AND f.source_system=r.source_system AND f.source_key=r.source_id
+          AND f.sales_order_number=r.order_number AND f.inventory_code=r.item_code AND f.received_quantity<>0
+          WHERE r.tenant_id=$1 AND r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b' AND r.order_link_stable=true AND r.status_code='189' AND r.order_number=$2 AND r.item_code=$3)
+        OR EXISTS(SELECT 1 FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.order_number=$2 AND m.item_code=$3 AND m.division_id=$4::uuid AND m.cumulative_inbound_quantity>0)
+        OR EXISTS(SELECT 1 FROM mps_weekly_plans w WHERE w.tenant_id=$1 AND w.order_number=$2 AND w.item_code=$3 AND w.division_id=$4::uuid AND w.allocated_inbound_quantity>0) has_inbound`,
+        [actor.tenantId,current.order_number,current.item_code,current.division_id]);
+      const freshFingerprint=createHash("sha256").update(JSON.stringify({tenantId:actor.tenantId,id:current.id,version:Number(current.version),targetDivisionId:input.targetDivisionId,
+        orderNumber:current.order_number,itemCode:current.item_code,quantity:String(current.allocated_quantity),sourcePlans,targetPlans,facts})).digest("hex");
+      if(freshFingerprint!==input.previewFingerprint) throw new ConflictException("预览后相关数据已变化，请重新预览");
+      const migrationBlockers=sourcePlans.monthly.length+sourcePlans.base.length+sourcePlans.weekly.length>0
+        ? await this.allocationTransferPlanMigrationBlockers(manager,actor,current,sourcePlans) : [];
+      if(current.order_status!=="已审核" || new Decimal(String(current.allocated_quantity??0)).lte(0)
+        || (current.monthly_plan_id!=null && sourcePlans.monthly.length===0)
+        || migrationBlockers.length>0
+        || targetPlans.monthly.length+targetPlans.shipping.length+targetPlans.base.length+targetPlans.weekly.length>0 || facts.has_inbound) {
+        throw new ConflictException("需求或计划已变化，当前不能自动转移，请重新预览并转人工核查");
+      }
+      let migratedMonthly:Record<string,any>|null=null;
+      if(sourcePlans.monthly.length===1){
+        const [monthly]=await manager.query("SELECT * FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE",[actor.tenantId,sourcePlans.monthly[0]!.id]);
+        if(!monthly || Number(monthly.version)!==Number(sourcePlans.monthly[0]!.version)) throw new ConflictException("月度计划已变化，请重新预览");
+        const commandEvidence={allocationId:id,monthlyPlanId:String(monthly.id),sourceDivisionId:String(current.division_id),targetDivisionId:String(target.id),xactId:String((await manager.query("SELECT pg_current_xact_id()::text xact_id"))[0].xact_id)};
+        await this.audit(manager,actor,"mps-order-allocation-transfers",id,"division_transfer.plan_identity_authorized",null,commandEvidence);
+        const moved=await manager.query(`UPDATE mps_monthly_plans SET division_id=$3::uuid,updated_at=now(),updated_by=$4::uuid,version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND version=$5 RETURNING *`,[actor.tenantId,monthly.id,target.id,actor.userId??MASTER_PLAN_SYSTEM_USER_ID,monthly.version]);
+        migratedMonthly=Array.isArray(moved[0])?moved[0][0]:moved[0];
+        if(!migratedMonthly) throw new ConflictException("月度计划已被并发修改");
+        await this.audit(manager,actor,"mps-monthly-plans",String(monthly.id),"mps-monthly-plans.division_transferred",monthly,migratedMonthly);
+      }
+      const updated=await manager.query(`UPDATE mps_order_allocations SET division_id=$3::uuid,updated_at=now(),updated_by=$4::uuid,version=version+1
+        WHERE tenant_id=$1 AND id=$2::uuid AND version=$5 RETURNING *`,[actor.tenantId,id,input.targetDivisionId,actor.userId??MASTER_PLAN_SYSTEM_USER_ID,input.expectedVersion]);
+      const after=Array.isArray(updated[0])?updated[0][0]:updated[0];
+      if(!after) throw new ConflictException("订单分配记录已被并发修改");
+      if(migratedMonthly && (String(migratedMonthly.allocation_id)!==String(after.id) || String(after.monthly_plan_id)!==String(migratedMonthly.id)))
+        throw new ConflictException("订单分配与月度计划稳定来源关系不一致，已回滚事业部变更");
+      for(const [kind,table] of [["shipping","mps_shipping_plans"],["base","mps_base_plans"],["weekly","mps_weekly_plans"]] as const){
+        const plans=sourcePlans[kind];
+        for(const plan of plans){
+          const [currentPlan]=await manager.query(`SELECT * FROM ${table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`,[actor.tenantId,plan.id]);
+          if(!currentPlan || Number(currentPlan.version)!==Number(plan.version)) throw new ConflictException(`${kind}计划已变化，请重新预览`);
+          if(kind==="weekly" && currentPlan.base_plan_id!==plan.basePlanId) throw new ConflictException("周计划基础计划稳定关联已变化");
+          if(kind==="base" && (String(currentPlan.monthly_plan_id??"")!==String(migratedMonthly?.id??"") || String(currentPlan.shipping_plan_id)!==String(plan.shippingPlanId))) throw new ConflictException("基础计划月度/交期父关系与预览不一致");
+          if(kind==="shipping" && String(currentPlan.monthly_plan_id??"")!==String(migratedMonthly?.id??"")) throw new ConflictException("交期计划月度父关系与预览不一致");
+          if(kind==="weekly"){
+            const [guard]=await manager.query(`SELECT (mps_weekly_has_execution($1,$2::uuid) OR EXISTS(
+              SELECT 1 FROM mps_three_day_work_orders wo WHERE wo.tenant_id=$1 AND wo.weekly_plan_id=$2::uuid
+                AND (wo.blank_completion_date IS NOT NULL OR wo.packaging_completion_date IS NOT NULL))) has_execution,
+              to_jsonb(weekly)->>'lifecycle_status' lifecycle_status FROM mps_weekly_plans weekly WHERE tenant_id=$1 AND id=$2::uuid`,[actor.tenantId,plan.id]);
+            if(guard?.has_execution) throw new ConflictException("确认前发现周计划新增报工、入库、外协/外购、领料、完工日期或其他执行事实");
+            if(guard?.lifecycle_status && guard.lifecycle_status!=="ACTIVE") throw new ConflictException("周计划状态已变化，当前不能迁移执行快照");
+          }
+          const moved=await manager.query(`UPDATE ${table} SET division_id=$3::uuid,updated_at=now(),updated_by=$4::uuid,version=version+1
+            WHERE tenant_id=$1 AND id=$2::uuid AND version=$5 RETURNING *`,[actor.tenantId,plan.id,target.id,actor.userId??MASTER_PLAN_SYSTEM_USER_ID,plan.version]);
+          const afterPlan=Array.isArray(moved[0])?moved[0][0]:moved[0];
+          if(!afterPlan) throw new ConflictException(`${kind}计划已被并发修改`);
+          await this.audit(manager,actor,table,String(plan.id),`${table}.division_transferred`,currentPlan,afterPlan);
+          if(kind==="weekly" && sourcePlans.processRoutes.some(route=>route.weeklyPlanId===String(plan.id) && route.current.length>0)) {
+            await this.sync.migrateWeeklyProcessRouteForDivisionTransfer(manager,String(plan.id),String(target.id),String(current.division_id),
+              actor.tenantId,actor.userId,actor.userId??actor.username,actor.username,actor.requestId);
+          }
+          if(kind==="weekly") await this.migrateWeeklyExecutionContext(manager,String(plan.id),String(current.division_id),String(target.id),actor);
+        }
+      }
+      await this.allocationEvent(manager,"mps-order-allocations",actor,[{before:current,after}]);
+      await this.audit(manager,actor,"mps-order-allocations",id,"mps-order-allocations.division_transferred",current,after);
+      await this.audit(manager,actor,"mps-order-allocation-transfers",id,"division_transfer.confirmed",null,{idempotencyKey:key,reason,quantity:String(after.allocated_quantity),sourceDivisionId:current.division_id,targetDivisionId:after.division_id,allocationId:id});
+      const outboxKey=`outbox:${actor.requestId}:mps-order-allocations:plan-projections`;
+      await this.enqueueReconciliation(manager,this.resource("mps-order-allocations"),actor,id,after);
+      const transferExpectations={shipping:sourcePlans.shipping.map(plan=>String(plan.id)),base:sourcePlans.base.map(plan=>String(plan.id)),weekly:sourcePlans.weekly.map(plan=>String(plan.id)),
+        processRoutes:sourcePlans.processRoutes.filter(route=>route.current.length>0).map(route=>({weeklyPlanId:route.weeklyPlanId,processCodes:route.targetRoute.map((process:any)=>String(process.processCode)).sort()}))};
+      const response={allocationId:id,version:Number(after.version),status:"PENDING",reason,message:"分配事业部及已有计划链已在同一事务提交，集团/月度投影正在对账。",outboxKey,transferExpectations};
+      await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)",[storageKey,requestHash,JSON.stringify(response),actor.userId??MASTER_PLAN_SYSTEM_USER_ID]);
+      return response;
+    });
+    const persisted=await this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      const [saved]=await manager.query(`SELECT a.id,a.division_id,a.version,a.monthly_plan_id,m.division_id monthly_division_id,m.version monthly_version,
+        s.id shipping_plan_id,s.division_id shipping_division_id,b.id base_plan_id,b.division_id base_division_id,w.id weekly_plan_id,w.division_id weekly_division_id,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'processCode',p.process_code) ORDER BY p.process_code)
+          FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id),'[]'::jsonb) process_tasks
+        FROM mps_order_allocations a LEFT JOIN mps_monthly_plans m ON m.tenant_id=a.tenant_id AND m.id=a.monthly_plan_id
+        LEFT JOIN mps_shipping_plans s ON s.tenant_id=m.tenant_id AND s.monthly_plan_id=m.id
+        LEFT JOIN mps_base_plans b ON b.tenant_id=m.tenant_id AND (b.shipping_plan_id=s.id OR (s.id IS NULL AND b.monthly_plan_id=m.id AND b.shipping_plan_id IS NULL))
+        LEFT JOIN mps_weekly_plans w ON w.tenant_id=b.tenant_id AND w.base_plan_id=b.id
+        WHERE a.tenant_id=$1 AND a.id=$2::uuid`,[actor.tenantId,id]);
+      if(!saved || String(saved.division_id)!==String(input.targetDivisionId)
+        || (saved.monthly_plan_id!=null && String(saved.monthly_division_id)!==String(input.targetDivisionId)))
+        throw new ConflictException("变更已提交但重新读取结果不一致，请勿重复操作并联系管理员核查");
+      const expectations=result.transferExpectations??{};
+      for(const [kind,idColumn,divisionColumn] of [["shipping","shipping_plan_id","shipping_division_id"],["base","base_plan_id","base_division_id"],["weekly","weekly_plan_id","weekly_division_id"]] as const){
+        const expected=expectations[kind] as string[]|undefined;
+        if(expected?.length && (expected.length!==1 || String(saved[idColumn])!==expected[0] || String(saved[divisionColumn])!==String(input.targetDivisionId)))
+          throw new ConflictException(`变更已提交但重新读取${kind}计划结果不一致，请勿重复操作并联系管理员核查`);
+      }
+      const expectedRoutes=(expectations.processRoutes??[]) as Array<{weeklyPlanId:string;processCodes:string[]}>;
+      const route=expectedRoutes.find(item=>item.weeklyPlanId===String(saved.weekly_plan_id));
+      const savedTasks=(saved.process_tasks??[]) as Array<{processCode:string}>;
+      if(route && JSON.stringify(savedTasks.map(task=>task.processCode).sort())!==JSON.stringify(route.processCodes))
+        throw new ConflictException("变更已提交但重新读取工序路线不一致，请勿重复操作并联系管理员核查");
+      return {allocationDivisionId:String(saved.division_id),monthlyPlanId:saved.monthly_plan_id==null?null:String(saved.monthly_plan_id),monthlyDivisionId:saved.monthly_division_id==null?null:String(saved.monthly_division_id),
+        shippingPlanId:saved.shipping_plan_id==null?null:String(saved.shipping_plan_id),shippingDivisionId:saved.shipping_division_id==null?null:String(saved.shipping_division_id),
+        basePlanId:saved.base_plan_id==null?null:String(saved.base_plan_id),baseDivisionId:saved.base_division_id==null?null:String(saved.base_division_id),
+        weeklyPlanId:saved.weekly_plan_id==null?null:String(saved.weekly_plan_id),weeklyDivisionId:saved.weekly_division_id==null?null:String(saved.weekly_division_id),
+        processTasks:savedTasks,allocationVersion:Number(saved.version),monthlyVersion:saved.monthly_version==null?null:Number(saved.monthly_version)};
+    });
+    if(!result.repeated) void this.sync.processOutbox().catch(()=>undefined);
+    return {allocationId:result.allocationId,version:result.version,status:result.status,reason:result.reason,message:result.message,persisted,...(result.repeated?{repeated:true}:{})};
+  }
+
+  async allocationDivisionTransferStatus(id:string,key:string,actor:MasterPlanActor) {
+    if(!uuidPattern.test(id)||!uuidPattern.test(key)) throw new BadRequestException("请求ID无效");
+    const resource=this.resource("mps-order-allocations");
+    if(!hasMasterPlanPermission(actor,resource.code,"read")) throw new ForbiddenException("没有订单分配读取权限");
+    const storageKey=`mps-allocation-division-transfer:${actor.tenantId}:${actor.userId??MASTER_PLAN_SYSTEM_USER_ID}:${key}`;
+    return this.dataSource.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[actor.tenantId]);
+      const [allocation]=await manager.query("SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid",[actor.tenantId,id]);
+      if(!allocation||!this.recordAllowed(resource,allocation,actor,"read")) throw new NotFoundException("未找到事业部变更记录");
+      const [entry]=await manager.query("SELECT response_json FROM idempotency_keys WHERE key=$1",[storageKey]);
+      if(!entry || String(entry.response_json?.allocationId??"")!==id) throw new NotFoundException("未找到事业部变更记录");
+      const [event]=await manager.query(`SELECT status,last_error FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND idempotency_key=$2`,[actor.tenantId,entry.response_json.outboxKey]);
+      const state=event?.status??"PENDING";
+      const expectations=entry.response_json.transferExpectations;
+      const base=expectations ? (expectations.base?.length?"COMMITTED":"NOT_APPLICABLE") : "NOT_TRACKED";
+      const weekly=expectations ? (expectations.weekly?.length?"COMMITTED":"NOT_APPLICABLE") : "NOT_TRACKED";
+      const processTasks=expectations ? (expectations.processRoutes?.length?"COMMITTED":expectations.weekly?.length?"PENDING_SYNC":"NOT_APPLICABLE") : "NOT_TRACKED";
+      const hasUntracked=[base,weekly,processTasks].includes("NOT_TRACKED");
+      const status=state==="SUCCESS"?(processTasks==="PENDING_SYNC"||hasUntracked?"PARTIAL":"SUCCESS"):
+        state==="FAILED"||state==="BLOCKED"?"FAILED":state==="RUNNING"?"PROCESSING":"PENDING";
+      const message=event?.last_error??(state==="SUCCESS"&&processTasks==="PENDING_SYNC"
+        ?"订单分配、既有计划链及集团/月度投影已保存；空工序快照仍需由正式同步初始化。"
+        :state==="SUCCESS"&&hasUntracked
+          ?"订单分配及集团/月度投影已完成；历史请求缺少下游迁移台账，需继续核查。"
+          :entry.response_json.message);
+      return {allocationId:id,idempotencyKey:key,status,version:Number(entry.response_json.version),message,
+        stages:{allocation:"COMMITTED",groupAndMonthly:state,base,weekly,processTasks}};
+    });
+  }
+
+  private async allocationTransferPlanCoverage(manager: EntityManager, actor: MasterPlanActor, orderNumber: string, itemCode: string, divisionId: string, processTargetDivisionId?: string) {
+    const definitions=[
+      {resourceCode:"mps-monthly-plans",table:"mps_monthly_plans",kind:"monthly"},
+      {resourceCode:"mps-base-plans",table:"mps_base_plans",kind:"base"},
+      {resourceCode:"mps-weekly-plans",table:"mps_weekly_plans",kind:"weekly"}
+    ] as const;
+    const coverage:{monthly:Record<string,unknown>[];shipping:Record<string,unknown>[];base:Record<string,unknown>[];weekly:Record<string,any>[];processRoutes:Record<string,any>[];execution_weekly_count:number}={monthly:[],shipping:[],base:[],weekly:[],processRoutes:[],execution_weekly_count:0};
+    for(const definition of definitions){
+      const resource=this.resource(definition.resourceCode);
+      if(!hasMasterPlanPermission(actor,resource.code,"read")) throw new ForbiddenException("需要同时具备月度、基础和周计划读取权限才能完整核查事业部变更");
+      const rows=await manager.query(`SELECT * FROM ${definition.table} WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid ORDER BY id`,[actor.tenantId,orderNumber,itemCode,divisionId]);
+      if(rows.length && (!hasMasterPlanPermission(actor,resource.code,"update") || !hasMasterPlanFieldPermission(actor,resource.code,"divisionId","update"))) throw new ForbiddenException("需要具备所有关联计划的事业部修改权限才能执行安全迁移");
+      if(rows.some((row:Record<string,unknown>)=>!this.recordAllowed(resource,row,actor,"read") || !this.recordAllowed(resource,row,actor,"update")
+        || (processTargetDivisionId!=null && !this.recordAllowed(resource,{...row,division_id:processTargetDivisionId},actor,"update")))) throw new ForbiddenException("当前计划数据范围不足以核查或迁移完整事业部计划链");
+      coverage[definition.kind]=rows.map((row:Record<string,any>)=>({id:String(row.id),version:Number(row.version??0),plannedQuantity:String(row.required_quantity??row.planned_quantity??""),deliveryNumber:row.delivery_number??null,status:row.status??null,lifecycleStatus:row.lifecycle_status??null,divisionId:row.division_id==null?null:String(row.division_id),allocationId:row.allocation_id==null?null:String(row.allocation_id),monthlyPlanId:row.monthly_plan_id==null?null:String(row.monthly_plan_id),shippingPlanId:row.shipping_plan_id==null?null:String(row.shipping_plan_id),basePlanId:row.base_plan_id==null?null:String(row.base_plan_id)}));
+      if(definition.kind==="weekly"){
+        for(const row of rows){
+          const [execution]=await manager.query(`SELECT (mps_weekly_has_execution($1,$2::uuid) OR EXISTS(
+            SELECT 1 FROM mps_three_day_work_orders wo WHERE wo.tenant_id=$1 AND wo.weekly_plan_id=$2::uuid
+              AND (wo.blank_completion_date IS NOT NULL OR wo.packaging_completion_date IS NOT NULL))) has_execution`,[actor.tenantId,row.id]);
+          if(execution?.has_execution) coverage.execution_weekly_count++;
+          const [context]=await manager.query(`SELECT
+            EXISTS(SELECT 1 FROM mps_technical_reports r WHERE r.tenant_id=$1 AND r.weekly_plan_id=$2::uuid AND r.division_id IS DISTINCT FROM $3::uuid)
+            OR EXISTS(SELECT 1 FROM mps_material_reports r WHERE r.tenant_id=$1 AND r.weekly_plan_id=$2::uuid AND r.division_id IS DISTINCT FROM $3::uuid)
+            OR EXISTS(SELECT 1 FROM mps_outsourcing_reports r WHERE r.tenant_id=$1 AND r.weekly_plan_id=$2::uuid AND r.division_id IS DISTINCT FROM $3::uuid)
+            OR EXISTS(SELECT 1 FROM mps_three_day_work_orders r WHERE r.tenant_id=$1 AND r.weekly_plan_id=$2::uuid AND r.division_id IS DISTINCT FROM $3::uuid) conflict`,[actor.tenantId,row.id,row.division_id]);
+          const weeklySummary=coverage.weekly.find(plan=>plan.id===String(row.id));
+          if(weeklySummary) weeklySummary.executionContextConflict=Boolean(context?.conflict);
+          if(processTargetDivisionId){
+            const [taskCount]=await manager.query("SELECT count(*)::int count FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid",[actor.tenantId,row.id]);
+            if(Number(taskCount?.count)>0){
+              if(!hasMasterPlanPermission(actor,"mps-division-process-configs","read") || !hasMasterPlanPermission(actor,"mps-item-process-routes","read"))
+                throw new ForbiddenException("迁移已有工序快照需要读取事业部工序配置和品项工艺路线权限");
+              coverage.processRoutes.push(await this.sync.previewDivisionTransferProcessRoute(manager,row,processTargetDivisionId,actor.tenantId));
+            }
+          }
+        }
+      }
+    }
+    const shippingResource=this.resource("mps-shipping-plans");
+    if(!hasMasterPlanPermission(actor,shippingResource.code,"read")) throw new ForbiddenException("需要交期计划读取权限才能完整核查事业部变更");
+    const shippingRows=await manager.query("SELECT * FROM mps_shipping_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid ORDER BY id",[actor.tenantId,orderNumber,itemCode,divisionId]);
+    if(shippingRows.length && (!hasMasterPlanPermission(actor,shippingResource.code,"update") || !hasMasterPlanFieldPermission(actor,shippingResource.code,"divisionId","update"))) throw new ForbiddenException("需要交期计划事业部修改权限才能执行安全迁移");
+    if(shippingRows.some((row:Record<string,unknown>)=>!this.recordAllowed(shippingResource,row,actor,"read") || !this.recordAllowed(shippingResource,row,actor,"update")
+      || (processTargetDivisionId!=null && !this.recordAllowed(shippingResource,{...row,division_id:processTargetDivisionId},actor,"update")))) throw new ForbiddenException("当前交期计划数据范围不足以核查或迁移事业部计划链");
+    coverage.shipping=shippingRows.map((row:Record<string,unknown>)=>({id:String(row.id),version:Number(row.version??0),divisionId:row.division_id==null?null:String(row.division_id),monthlyPlanId:row.monthly_plan_id==null?null:String(row.monthly_plan_id),deliveryNumber:row.delivery_number??null,plannedQuantity:String(row.planned_quantity??"")}));
+    return coverage;
+  }
+
+  private async migrateWeeklyExecutionContext(manager:EntityManager,weeklyPlanId:string,sourceDivisionId:string,targetDivisionId:string,actor:MasterPlanActor){
+    const tables=[
+      {resource:"mps-technical-reports",table:"mps_technical_reports",updatedBy:actor.userId??actor.username},
+      {resource:"mps-material-reports",table:"mps_material_reports",updatedBy:actor.userId??actor.username},
+      {resource:"mps-outsourcing-reports",table:"mps_outsourcing_reports",updatedBy:actor.userId??actor.username},
+      {resource:"mps-three-day-work-orders",table:"mps_three_day_work_orders",updatedBy:actor.userId??MASTER_PLAN_SYSTEM_USER_ID}
+    ] as const;
+    for(const item of tables){
+      const rows=await manager.query(`SELECT * FROM ${item.table} WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid ORDER BY id FOR UPDATE`,[actor.tenantId,weeklyPlanId]);
+      for(const row of rows){
+        if(String(row.division_id)!==sourceDivisionId) throw new ConflictException(`${item.resource}事业部上下文已变化，需人工核对后再迁移`);
+        const [updated]=await manager.query(`UPDATE ${item.table} SET division_id=$3::uuid,updated_at=now(),updated_by=$4,version=version+1
+          WHERE tenant_id=$1 AND id=$2::uuid AND division_id=$5::uuid RETURNING *`,[actor.tenantId,row.id,targetDivisionId,item.updatedBy,sourceDivisionId]);
+        if(!updated) throw new ConflictException(`${item.resource}已被并发修改`);
+        await this.audit(manager,actor,item.resource,String(row.id),`${item.resource}.division_transferred`,row,updated);
+      }
+    }
+  }
+
+  private async allocationTransferPlanMigrationBlockers(manager:EntityManager,actor:MasterPlanActor,allocation:Record<string,any>,plans:{monthly:Record<string,any>[];shipping:Record<string,any>[];base:Record<string,any>[];weekly:Record<string,any>[];processRoutes?:Record<string,any>[];execution_weekly_count:number}):Promise<string[]> {
+    const blockers:string[]=[];
+    if(plans.monthly.length!==1) blockers.push("原事业部必须恰有一条月度计划才能保留稳定ID迁移");
+    if(plans.shipping.length>1 || plans.base.length>1 || plans.weekly.length>1) blockers.push("存在多个交期/批次计划，当前无法无歧义地逐链迁移");
+    if(plans.weekly.some(weekly=>weekly.lifecycleStatus && weekly.lifecycleStatus!=="ACTIVE")) blockers.push("周计划处于待确认、暂停或取消状态，不能迁移执行快照");
+    if(plans.weekly.some(weekly=>weekly.executionContextConflict)) blockers.push("周计划下游执行/工作单上下文与周计划事业部不一致，需先核对历史归属");
+    if(plans.monthly.length===1){
+      const monthly=plans.monthly[0]!;
+      const [source]=await manager.query(`SELECT count(*)::int source_count FROM mps_order_allocations
+        WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND archived_at IS NULL AND order_status='已审核'`,[actor.tenantId,allocation.order_number,allocation.item_code]);
+      if(Number(source?.source_count)!==1) blockers.push("同订单品项存在多条有效分配来源，不能单独迁移月度计划");
+      if(String(allocation.monthly_plan_id??"")!==String(monthly.id) || String(monthly.allocationId??"")!==String(allocation.id))
+        blockers.push("订单分配monthly_plan_id与月度计划allocation_id未形成双向稳定关联");
+      if(String(monthly.divisionId??allocation.division_id)!==String(allocation.division_id)) blockers.push("月度计划与订单分配当前事业部不一致");
+      const [shippingCount]=await manager.query("SELECT count(*)::int count FROM mps_shipping_plans WHERE tenant_id=$1 AND monthly_plan_id=$2::uuid",[actor.tenantId,monthly.id]);
+      if(Number(shippingCount?.count)!==plans.shipping.length) blockers.push("月度计划存在无法通过事业部与稳定父关系定位的交期记录");
+      if(plans.shipping.length===1 && String(plans.shipping[0]!.monthlyPlanId??"")!==String(monthly.id)) blockers.push("交期计划未稳定关联到来源月度计划");
+      const [baseParents]=await manager.query(`SELECT count(*)::int total,
+        count(*) FILTER(WHERE division_id=$3::uuid)::int source_count,
+        count(*) FILTER(WHERE shipping_plan_id IS NULL)::int direct_count
+        FROM mps_base_plans b WHERE b.tenant_id=$1 AND (b.monthly_plan_id=$2::uuid OR b.shipping_plan_id IN(
+          SELECT s.id FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND s.monthly_plan_id=$2::uuid))`,[actor.tenantId,monthly.id,allocation.division_id]);
+      const uniqueLegacyMonthlyParent=plans.shipping.length===0 && plans.base.length===1
+        && String(plans.base[0]!.monthlyPlanId??"")===String(monthly.id)
+        && plans.base[0]!.shippingPlanId==null
+        && Number(baseParents?.total)===1 && Number(baseParents?.source_count)===1 && Number(baseParents?.direct_count)===1;
+      const formallyLinkedShippingParent=plans.shipping.length===1 && plans.base.length<=1
+        && Number(baseParents?.total)===plans.base.length && Number(baseParents?.source_count)===plans.base.length
+        && plans.base.every(base=>String(base.shippingPlanId??"")===String(plans.shipping[0]!.id)
+          && String(base.monthlyPlanId??"")===String(monthly.id));
+      if(plans.base.length && !uniqueLegacyMonthlyParent && !formallyLinkedShippingParent) blockers.push("基础计划与月度/交期计划正式父关系不完整或冲突");
+      if(plans.weekly.length && (plans.base.length!==1 || plans.weekly.some(weekly=>String(weekly.basePlanId??"")!==String(plans.base[0]!.id)))) blockers.push("周计划与基础计划稳定父关系不完整或冲突");
+      if(plans.base.length && plans.shipping.length!==1 && !uniqueLegacyMonthlyParent) blockers.push("基础计划找不到唯一交期父记录或月度直连父记录");
+      if(plans.weekly.length && plans.base.length!==1) blockers.push("周计划找不到唯一基础计划父记录");
+      const [inbound]=await manager.query(`SELECT (m.cumulative_inbound_quantity>0 OR EXISTS(
+          SELECT 1 FROM erp_staging_raw_records r JOIN finished_goods_inbound f ON f.source_database=r.source_database AND f.source_system=r.source_system AND f.source_key=r.source_id
+            AND f.sales_order_number=r.order_number AND f.inventory_code=r.item_code AND f.received_quantity<>0
+          WHERE r.tenant_id=m.tenant_id AND r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b' AND r.order_link_stable=true AND r.status_code='189'
+            AND r.order_number=m.order_number AND r.item_code=m.item_code)) has_inbound FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.id=$2::uuid`,[actor.tenantId,monthly.id]);
+      if(inbound?.has_inbound) blockers.push("月度计划存在累计入库或可核实ERP入库事实，无法确认其周计划归属");
+      if(plans.execution_weekly_count>0) blockers.push("周计划存在生产执行事实，不能按未开工计划迁移");
+      for(const route of plans.processRoutes??[]) blockers.push(...(route.blockers??[]));
+    }
+    return blockers;
+  }
+
   /** KN-MPS-UI-WEEKLY-EXEC-001：业务人员按单条周计划手工重算执行任务，不走系统级同步权限或全租户扫描。 */
   async refreshWeeklyExecution(id: string, actor: MasterPlanActor) {
     const resource = this.resource("mps-weekly-plans");
@@ -504,6 +921,7 @@ export class MasterPlanApplicationService {
     const duplicateIds = records.map((record) => String(record.id ?? "")).filter((id, index, all) => all.indexOf(id) !== index);
     if (duplicateIds.length) throw new BadRequestException("选择记录中存在重复ID");
     const fieldKey = String(body.fieldKey ?? "");
+    if(code==="mps-order-allocations" && fieldKey==="divisionId") throw new ConflictException("承接事业部变更必须使用专用预览与确认操作");
     const field = fieldsFor(resource).find((candidate) => candidate.key === fieldKey && candidate.editable);
     if (!field || ["createdBy", "createdAt", "updatedBy", "updatedAt"].includes(fieldKey)) throw new BadRequestException("所选字段不支持批量修改");
     if (!hasMasterPlanFieldPermission(actor, code, fieldKey, "update")) throw new ForbiddenException(`当前权限组不能编辑字段：${field.label}`);
@@ -556,7 +974,10 @@ export class MasterPlanApplicationService {
       const response = { batchId: idempotencyKey, submitted: records.length, succeeded: items.filter((item) => item.success).length, failed: items.filter((item) => !item.success).length, fieldKey, items, repeated: false };
       await this.audit(manager, actor, code, null, `${code}.batch_updated`, null, { ...response, idempotencyKey });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$5)", [storageKey, requestHash, JSON.stringify(response), actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID]);
-      if (response.succeeded > 0) await this.enqueueReconciliation(manager, resource, actor);
+      if (response.succeeded > 0) {
+        if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else await this.enqueueReconciliation(manager, resource, actor);
+      }
       return response;
     }));
     if (result.repeated || !result.succeeded) { void this.sync.processOutbox().catch(() => undefined); return result; }
@@ -596,6 +1017,7 @@ export class MasterPlanApplicationService {
           if (!resource.create || !hasMasterPlanPermission(actor, code, "create")) throw new ForbiddenException("当前权限组没有该表新增权限，不能导入新增记录");
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
+          if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName,values.divisionId);
           await this.fillReportSource(resource, values, actor.tenantId, manager, shippingMonthlyPlanIds);
           this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
@@ -623,6 +1045,9 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
         const values = this.writable(resource, input.values, actor);
+        if(code==="mps-order-allocations" && Object.hasOwn(values,"divisionId")
+          && String(values.divisionId??"")!==String(current.division_id??"")) throw new ConflictException("Excel更新不能直接变更承接事业部，请使用专用预览与确认操作");
+        if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName??current.supplier_name,values.divisionId??current.division_id);
         this.normalizeSystemSetting(resource, current, values);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId, manager);
         if (resource.code === "mps-shipping-plans" && ("orderNumber" in values || "itemCode" in values || "divisionId" in values)) {
@@ -659,7 +1084,10 @@ export class MasterPlanApplicationService {
       const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false, ...(code==="mps-order-allocations"?{importBatchId:allocationBatch!.id}:{}) };
       await this.audit(manager, actor, code, null, `${code}.import_confirmed`, null, { ...response, fileHash });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
-      if (createdCount || updatedCount) await this.enqueueReconciliation(manager, resource, actor);
+      if (createdCount || updatedCount) {
+        if (resource.code === "mps-base-plans") await this.enqueueBasePlanReconciliation(manager, actor, allocationChanges.map(change => change.after));
+        else await this.enqueueReconciliation(manager, resource, actor);
+      }
       return response;
     };
     const result = await this.translateDatabaseError(() => transactionManager ? work(transactionManager) : this.dataSource.transaction(work));
@@ -704,6 +1132,8 @@ export class MasterPlanApplicationService {
         if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
         const values = this.writable(resource, input.values, actor);
+        if(code==="mps-order-allocations" && Object.hasOwn(values,"divisionId")
+          && String(values.divisionId??"")!==String(current.division_id??"")) throw new ConflictException("Excel更新不能直接变更承接事业部，请使用专用预览与确认操作");
         this.normalizeSystemSetting(resource, current, values);
         if (["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource.code) && "weeklyPlanId" in values) await this.fillReportSource(resource, values, actor.tenantId);
         this.validateRequiredOnUpdate(resource, values, current);
@@ -722,7 +1152,7 @@ export class MasterPlanApplicationService {
     await this.enforceShippingWindow(resource, actor);
     const version = Number(expectedVersion); if (!Number.isInteger(version) || version < 1) throw new BadRequestException("expectedVersion 必须是正整数");
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
-      if (resource.code === "mps-external-process-mappings") await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      if (["mps-external-process-mappings", "mps-review-due-dates"].includes(resource.code)) await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       const activeAllocationClause = resource.code === "mps-order-allocations" ? " AND archived_at IS NULL" : "";
       const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid${activeAllocationClause} FOR UPDATE`, [actor.tenantId, id]);
       if (!current) throw new NotFoundException("记录不存在");
@@ -735,12 +1165,17 @@ export class MasterPlanApplicationService {
         if (!archived) throw new ConflictException("记录已被其他用户修改，请刷新后重试");
         await this.audit(manager, actor, code, id, `${code}.archived`, current, archived);
       } else {
+        if (resource.code === "mps-review-due-dates") {
+          await manager.query("SELECT set_config('app.review_due_delete_authorized','true',true)");
+          await manager.query("DELETE FROM mps_review_due_date_changes WHERE tenant_id=$1 AND review_due_date_id=$2::uuid", [actor.tenantId, id]);
+        }
         await manager.query(`DELETE FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid AND version=$3`, [actor.tenantId, id, version]);
         await this.audit(manager, actor, code, id, `${code}.deleted`, current, null);
       }
-      await this.enqueueReconciliation(manager, resource, actor, id, current);
+      if (resource.code !== "mps-review-due-dates") await this.enqueueReconciliation(manager, resource, actor, id, current);
       return { id, deleted: true, ...(resource.code === "mps-order-allocations" ? { archived: true } : {}) };
     }));
+    if (resource.code === "mps-review-due-dates") return result;
     /* 删除实际报工后同样必须重新汇总，前端依据真实对账状态刷新周计划。 */
     const reconciliation = await this.completeReconciliation(resource);
     return reconciliation ? { ...result, reconciliation } : result;
@@ -1066,17 +1501,36 @@ export class MasterPlanApplicationService {
     return false;
   }
 
-  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null) {
+  private async enqueueBasePlanReconciliation(manager: EntityManager, actor: MasterPlanActor, records: Array<Record<string, unknown>>) {
+    const uniqueById = new Map<string, Record<string, unknown>>();
+    for (const row of records) { const id = String(row.id ?? ""); if (id) uniqueById.set(id, row); }
+    const unique = [...uniqueById.values()];
+    for (let offset = 0; offset < unique.length; offset += 100) {
+      const chunk = unique.slice(offset, offset + 100);
+      const ids = chunk.map(row => String(row.id));
+      await this.enqueueReconciliation(manager, this.resource("mps-base-plans"), actor, ids[0]!, chunk[0]!, { basePlanIds: ids });
+    }
+  }
+
+  private async enqueueReconciliation(manager: EntityManager, resource: MasterPlanResource, actor: MasterPlanActor, recordId: string | null = null, record: Record<string, unknown> | null = null, scopeOverride?: Record<string, unknown>) {
     const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
     /* 删除报工后事实行已不存在，故在同一事务内把稳定工序身份写入 durable outbox，而不是事后猜测。 */
-    const scope = resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
+    const scope = scopeOverride ?? (resource.code === "mps-base-plans" && recordId
+      ? { basePlanIds: [recordId] }
+      : resource.code === "mps-order-allocations" && recordId && record
+        && Number.isInteger(Number(record.version)) && typeof record.order_number === "string"
+        && typeof record.item_code === "string" && uuidPattern.test(String(record.division_id ?? ""))
+      ? { allocation: { id: recordId, expectedVersion: Number(record.version), orderNumber: String(record.order_number),
+          itemCode: String(record.item_code), divisionId: String(record.division_id) } }
+      : resource.code === "mps-process-reports" || resource.code === "mps-weekly-process-plans"
       ? this.executionScope(record)
-      : null;
+      : null);
+    const scopeIdentity = scope == null ? "" : `:${createHash("sha256").update(JSON.stringify(scope)).digest("hex").slice(0, 16)}`;
     for (const syncKey of RECONCILIATION_JOBS[resource.code] ?? []) await manager.query(`
       INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,$2,$3::uuid,$4,$5::jsonb,$6,$7::uuid,$8,$7::uuid,$7::uuid)
       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
-    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}`, actorId, actor.username]);
+    [actor.tenantId, resource.code, recordId, syncKey, scope == null ? null : JSON.stringify(scope), `outbox:${actor.requestId}:${resource.code}:${syncKey}${scopeIdentity}`, actorId, actor.username]);
   }
 
   private async enqueueShippingPlanKeyFieldsChanged(
@@ -1149,7 +1603,7 @@ export class MasterPlanApplicationService {
   }
 
   private async completeReconciliation(resource: MasterPlanResource) {
-    if (resource.code === "mps-external-process-mappings") return undefined;
+    if (resource.code === "mps-external-process-mappings" || resource.code === "mps-review-due-dates") return undefined;
     const feedback = RECONCILIATION_FEEDBACK[resource.code];
     if (!feedback) { void this.sync.processOutbox().catch(() => undefined); return undefined; }
     /* durable event 已随业务写入提交；仅触发后台消费者，HTTP 绝不等待全租户 reconciliation。 */

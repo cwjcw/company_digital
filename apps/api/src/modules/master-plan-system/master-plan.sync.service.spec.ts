@@ -68,7 +68,7 @@ describe("MasterPlanSyncService execution matrix", () => {
       return [];
     }) };
     const service = new MasterPlanSyncService({} as never);
-    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: true, taskCount: 10 });
+    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: true, taskCount: 10, blocked:false });
     const sql = manager.query.mock.calls.map(([query]) => query);
     expect(sql.filter(query => query.startsWith("INSERT INTO mps_weekly_process_plans"))).toHaveLength(10);
     expect(sql.some(query => query.includes("FOR UPDATE"))).toBe(true);
@@ -84,8 +84,19 @@ describe("MasterPlanSyncService execution matrix", () => {
       return [];
     }) };
     const service = new MasterPlanSyncService({} as never);
-    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: false, taskCount: 0 });
+    expect(await (service as any).ensureExecutionRows(manager, target, "KAINAN", null, "tester", false)).toEqual({ initialized: false, taskCount: 0, blocked:false });
     expect(manager.query.mock.calls.some(([sql]) => sql.startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+  });
+
+  it("blocks only an uninitialized execution snapshot with protected production facts",async()=>{
+    const query=jest.fn().mockResolvedValue([]),manager={query};
+    const service=new MasterPlanSyncService({} as never);
+    const result=await (service as any).ensureExecutionRows(manager,{...weekly("自制"),has_process_snapshot:false,has_execution:true},"KAINAN",null,"tester",true);
+    expect(result).toEqual({initialized:false,taskCount:0,blocked:true});
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(String(query.mock.calls[0]![0])).toContain("PROCESS_SNAPSHOT_PROTECTED");
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith("INSERT INTO mps_process_reports"))).toBe(false);
   });
 
   it("keeps the durable report lock even when no tasks or reports remain", async () => {
@@ -158,10 +169,11 @@ describe("MasterPlanSyncService execution matrix", () => {
     const statements = manager.query.mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toContain("set_config('app.tenant_id'");
     const sql = statements.filter(statement => !statement.includes("set_config('app.tenant_id'") && !statement.includes("lifecycle_rows") && !statement.includes('FROM pg_attribute'));
-    expect(sql[0]).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base");
-    expect(sql[0]).toContain("order_number=excluded.order_number");
-    expect(sql[0]).toContain("item_code=excluded.item_code");
-    expect(sql[0]).toContain("delivery_number=excluded.delivery_number");
+    const upsert=sql.find(statement=>statement.includes("INSERT INTO mps_weekly_plans"))!;
+    expect(upsert).toContain("ON CONFLICT ON CONSTRAINT uq_mps_weekly_base");
+    expect(upsert).toContain("order_number=excluded.order_number");
+    expect(upsert).toContain("item_code=excluded.item_code");
+    expect(upsert).toContain("delivery_number=excluded.delivery_number");
     expect(sql[0]).toContain(weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!, "base"));
     expect(sql.join(" ")).not.toContain("SET base_plan_id=NULL");
     expect(sql.join(" ")).not.toContain("ON CONFLICT(tenant_id,order_number,item_code,delivery_number)");
@@ -303,7 +315,7 @@ describe("existing allocation plan scheduler", () => {
   it("continues other due tasks and the outbox after one scheduled failure", async () => {
     const service = new MasterPlanSyncService({} as never);
     jest.spyOn((service as any).runner,"dueConfigurations").mockResolvedValue([{sync_key:"plan-projections"},{sync_key:"execution-rollup"}]);
-    const run = jest.spyOn(service,"run").mockRejectedValueOnce(new Error("synthetic failure"))
+    const run = jest.spyOn(service as any,"runInternal").mockRejectedValueOnce(new Error("synthetic failure"))
       .mockResolvedValueOnce({syncKey:"execution-rollup",count:0,repeated:false,metrics:null,status:"SUCCESS"});
     const process = jest.spyOn(service,"processOutbox").mockResolvedValue(0);
     await service.runDue(); expect(run).toHaveBeenCalledTimes(2); expect(process).toHaveBeenCalledTimes(1);
@@ -318,7 +330,7 @@ describe("existing allocation plan scheduler", () => {
     const service = new MasterPlanSyncService({} as never);
     const run = jest.spyOn((service as any).runner, "run").mockResolvedValue({count:2,status:"SUCCESS"});
     await expect(service.run("KAINAN","plan-projections",runType as never,null,"tester","synthetic-key")).resolves.toMatchObject({count:2,status:"SUCCESS"});
-    expect(run).toHaveBeenCalledWith("KAINAN","plan-projections",runType,null,"tester","synthetic-key",null);
+    expect(run).toHaveBeenCalledWith("KAINAN","plan-projections",runType,null,"tester","synthetic-key",null,[],false);
   });
   it("preserves the same busy conflict at the service boundary", async () => {
     const service = new MasterPlanSyncService({} as never);

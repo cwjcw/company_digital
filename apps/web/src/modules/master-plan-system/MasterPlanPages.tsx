@@ -4,14 +4,14 @@ import { MasterPlanLifecycleDialog } from './MasterPlanLifecycleDialog';
 import { mpsLifecycleResources, mpsLifecycleOperations, type MpsLifecycleOperation, type MpsLifecycleAvailability, auxiliaryPlanGroups } from "@kdos/contracts";
 /* eslint-disable react-refresh/only-export-components -- 工序配色/进度格式化等纯函数与页面组件同文件，供测试与表格渲染共用 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, App as AntApp, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
+import { useMutation, useQueries, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
+import { Alert, App as AntApp, Button, DatePicker, Dropdown, Flex, Form, Input, InputNumber, message, Modal, Select, Space, Spin, Switch, Tabs, Tag, Upload, Tooltip} from "antd";
 import { DownloadOutlined, MoreOutlined, SyncOutlined, UploadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { masterPlanResourceDefinitions, type TablePermissionFieldDefinition } from "@kdos/contracts";
 import { formatProductionProgress as sharedFormatProductionProgress } from "@tracker/shared";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, KdosDataTable, kdosDefaultPageSize, useKdosTableEditMode, type KdosTableSelection } from "../../shared/KdosDataTable";
 import { PageHeader } from "../../shared/legacy-ui";
 import { OrganizationSelect, type OrganizationSelectOption } from "../../shared/OrganizationSelect";
@@ -24,6 +24,8 @@ type PendingField = TablePermissionFieldDefinition & { input: boolean };
 type ProcessOption = { code: string; name: string; order: number };
 type Metadata = { resource: string; quantities?: {schemaReady:boolean;canRead:boolean}; demandLinks?: {schemaReady:boolean;canBind:boolean;canRead?:boolean}; lifecycle?: MpsLifecycleAvailability; fields: TablePermissionFieldDefinition[]; createFields: TablePermissionFieldDefinition[]; pendingFields?: PendingField[]; processes?: ProcessOption[]; actions: { create: boolean; createTemplate?: boolean; update: boolean; delete: boolean; import: boolean; updateTemplate?: boolean; export: boolean; batchUpdate: boolean; viewWeekly?: boolean; reportProcess?: boolean } };
 type Reconciliation = { status: string; message: string | null };
+type AllocationTransferTracking = { allocationId:string; requestId:string; status:string; message:string|null };
+type AllocationDivisionTransferPreview = { allocationId:string; version:number; currentDivisionId:string; targetDivisionId:string; canTransfer:boolean; reasons:string[]; previewFingerprint:string };
 /** 报工类资源写入后需要联动失效的事业部计划视图（周计划/月度计划都直接展示执行汇总）。 */
 const reportDependentResources = ["mps-weekly-plans", "mps-monthly-plans"];
 const reportResources = new Set(["mps-process-reports", "mps-weekly-process-plans", "mps-material-reports", "mps-outsourcing-reports", "mps-technical-reports"]);
@@ -131,9 +133,10 @@ const fallbackProcessGroups: ProcessOption[] = [
   { code: "surfaceTreatment", name: "表面处理", order: 9 }, { code: "packaging", name: "包装", order: 10 }
 ];
 
-function InlineMasterPlanCell({ resource, field, row, value, organizations, users, weeklyPlans, onSave }: {
+function InlineMasterPlanCell({ resource, field, row, value, organizations, users, weeklyPlans, transferTracking, onSave }: {
   resource: string; field: TablePermissionFieldDefinition; row: any; value: unknown;
   organizations: OrganizationSelectOption[]; users: AuditDirectoryUser[]; weeklyPlans: Array<{ id: string; label: string }>;
+  transferTracking?: AllocationTransferTracking;
   onSave: (row: any, field: TablePermissionFieldDefinition, value: unknown) => Promise<void>;
 }) {
   const { editing } = useKdosTableEditMode(); const [draft, setDraft] = useState<any>(value); const [saving, setSaving] = useState(false); const lock = useRef(false);
@@ -152,7 +155,23 @@ function InlineMasterPlanCell({ resource, field, row, value, organizations, user
   if (field.type === "boolean") return <Switch size="small" checked={Boolean(draft)} loading={saving} onChange={(next) => { setDraft(next); void commit(next); }} />;
   if (field.type === "date") return <DatePicker size="small" value={draft ? dayjs(draft) : null} disabled={saving} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
   if (field.type === "dictionary") return <Select size="small" value={draft || undefined} allowClear disabled={saving} onChange={(next) => { setDraft(next); void commit(next); }} options={field.options ?? []} style={{ width: "100%" }} />;
-  if (field.type === "department") return <OrganizationSelect size="small" value={draft || undefined} disabled={saving} organizations={organizations} onChange={(next) => { setDraft(next); void commit(next); }} />;
+  if (field.type === "department") {
+    const allocationDivision = resource === "mps-order-allocations" && field.key === "divisionId";
+    const verifying = allocationDivision && transferTracking?.status === "VERIFYING";
+    const status = allocationDivision ? transferTracking?.status : undefined;
+    const statusTag = saving ? <Tag icon={<Spin size="small" />} color="processing">保存中</Tag>
+      : verifying ? <Tooltip title={transferTracking?.message ?? "正在通过正式状态接口核实请求结果，请勿重复修改。"}><Tag color="warning">结果核实中</Tag></Tooltip>
+      : status === "PENDING" || status === "PROCESSING" ? <Tooltip title={transferTracking?.message ?? "事业部变更已提交，后续计划正在同步。"}><Tag color="processing">后续同步中</Tag></Tooltip>
+      : status === "PARTIAL" ? <Tooltip title={transferTracking?.message ?? "部分后续同步尚未完成。"}><Tag color="warning">部分同步</Tag></Tooltip>
+      : status === "STATUS_UNAVAILABLE" ? <Tooltip title={transferTracking?.message ?? "无法读取后台同步状态，请稍后刷新核实。"}><Tag color="warning">状态待核实</Tag></Tooltip>
+      : status === "FAILED" || status === "BLOCKED" ? <Tooltip title={transferTracking?.message ?? "后续计划同步失败。"}><Tag color="error">同步异常</Tag></Tooltip>
+      : status === "SUCCESS" || status === "COMPLETED" ? <Tooltip title={transferTracking?.message ?? "后续计划同步完成。"}><Tag color="success">已同步</Tag></Tooltip>
+      : null;
+    return <Space size={4}>
+      <OrganizationSelect size="small" value={draft || undefined} disabled={saving || Boolean(verifying)} organizations={organizations} onChange={(next) => { setDraft(next); void commit(next); }} />
+      {statusTag}
+    </Space>;
+  }
   if (field.type === "member") return <Select size="small" value={draft || undefined} allowClear showSearch optionFilterProp="label" disabled={saving} options={users.filter((user) => user.enabled).map((user) => ({ value: user.id, label: user.displayName?.trim() || user.username }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
   if (field.key === "weeklyPlanId") return <Select size="small" value={draft || undefined} showSearch optionFilterProp="label" disabled={saving} options={weeklyPlans.map((plan) => ({ value: plan.id, label: plan.label }))} onChange={(next) => { setDraft(next); void commit(next); }} style={{ width: "100%" }} />;
   if (resource === "mps-system-settings" && field.key === "valueJson") return <Input size="small" value={draft == null ? "" : String(draft)} disabled={saving} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commit()} onPressEnter={(event) => event.currentTarget.blur()} />;
@@ -443,6 +462,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const [processConfigPreview, setProcessConfigPreview] = useState<any | null>(null);
   const [processConfigBatchPreview, setProcessConfigBatchPreview] = useState<any | null>(null);
   const [processConfigLoading, setProcessConfigLoading] = useState(false);
+  const [allocationTransferTracking,setAllocationTransferTracking]=useState<Record<string,AllocationTransferTracking>>({});
   const [importPreview, setImportPreview] = useState<{ total: number; orderCount?: number; fileTotalRows?:number; validRows?:number; importBatchId?:string; ignoredIdentity?:boolean; repeatedFile?:boolean; quantitySource?:string; counts?: {created:number;updated:number;unchanged:number;errors:number}; rows?: Array<{row:number;id?:string|null;expectedVersion?:number|null;values?:Record<string,unknown>;classification?:string;fields?:Array<{label:string;before:unknown;after:unknown}>}>; conflicts?:Array<{row:number;before:string;after:string;overridden:boolean}>; byDivision?:Array<{name:string;count:number}>; bySalesperson?:Array<{name:string;count:number}>; recipients?:Array<{userId:string;displayName:string;count:number;identities:string[]}>; recipientErrors?:string[]; errors: Array<{ row: number; reason: string }>; previewId?: string | null; blockedReason?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -454,6 +474,20 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const users = useQuery({ queryKey: ["mps-directory-users"], queryFn: () => api<AuditDirectoryUser[]>("/directory/users"), staleTime: 300_000 });
   const weeklyPlans = useQuery({ queryKey: ["mps-weekly-plan-options", sessionSubject], queryFn: () => api<Array<{ id: string; label: string }>>("/master-plan-system/references/weekly-plans"), staleTime: 60_000, enabled: ["mps-weekly-process-plans", "mps-material-reports", "mps-process-reports"].includes(resource) && Boolean(metadata.data) });
   const rows = useQuery({ queryKey: ["mps-rows", sessionSubject, resource, tableQuery, view, basePlanId], queryFn: () => api<{ rows: any[]; total: number }>(pageUrl(resource, tableQuery, view, basePlanId)), placeholderData: (previous) => previous, enabled: Boolean(metadata.data), staleTime: 60_000 });
+  const allocationTransferTrackingEntries=useMemo(()=>Object.values(allocationTransferTracking),[allocationTransferTracking]);
+  const allocationTransferStatusQueries=useQueries({queries:allocationTransferTrackingEntries.map(transfer=>({
+    queryKey:["mps-allocation-division-transfer-status",sessionSubject,transfer.allocationId,transfer.requestId],
+    queryFn:async()=>{
+      try{return await api<{allocationId:string;status:string;message:string|null}>(`/master-plan-system/resources/mps-order-allocations/${transfer.allocationId}/division-transfer/${transfer.requestId}`);}
+      catch(error){
+        if(error instanceof ApiError&&error.status===404)return {allocationId:transfer.allocationId,status:"VERIFYING",message:"尚未查到已提交记录，正在核实请求结果。"};
+        if(error instanceof ApiError)return {allocationId:transfer.allocationId,status:transfer.status==="VERIFYING"?"VERIFYING":"STATUS_UNAVAILABLE",message:`同步状态暂不可读取：${error.message}`};
+        throw error;
+      }
+    },
+    refetchInterval:(query:Query<{allocationId:string;status:string;message:string|null},Error>)=>["PARTIAL","SUCCESS","COMPLETED","FAILED"].includes(query.state.data?.status??"")?false:3000,
+    staleTime:0
+  }))});
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, resource] }), [queryClient, resource, sessionSubject]);
   /* 报工保存后事业部周计划/月度计划展示的执行汇总必须立即失效，不能等 60 秒缓存过期。 */
   const refreshExecutionPlans = useCallback(async () => {
@@ -470,6 +504,18 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const refreshAllocationPlans = useCallback(async () => {
     await Promise.all(["mps-group-plans", "mps-monthly-plans", "mps-base-plans", "mps-weekly-plans"].map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
+  useEffect(()=>{
+    allocationTransferStatusQueries.forEach((query,index)=>{
+      const transfer=allocationTransferTrackingEntries[index],status=query.data;
+      if(!transfer||!status)return;
+      setAllocationTransferTracking(current=>{
+        const previous=current[transfer.allocationId];
+        if(!previous||previous.requestId!==transfer.requestId||previous.status===status.status&&previous.message===status.message)return current;
+        return {...current,[transfer.allocationId]:{...previous,status:status.status,message:status.message}};
+      });
+      if(status.status!=="VERIFYING"&&status.status!==transfer.status){void refresh();void refreshAllocationPlans();}
+    });
+  },[allocationTransferStatusQueries,allocationTransferTrackingEntries,refresh,refreshAllocationPlans]);
   const refreshWeeklyExecutionResources = useCallback(async () => {
     await Promise.all(weeklyExecutionRefreshResources.map((code) => queryClient.invalidateQueries({ queryKey: ["mps-rows", sessionSubject, code] })));
   }, [queryClient, sessionSubject]);
@@ -482,8 +528,35 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
   const clearWeeklyPlanFilter = useCallback(() => navigate("/master-plan-system/mps-weekly-plans"), [navigate]);
   const saveInline = useCallback(async (row: any, field: TablePermissionFieldDefinition, value: unknown) => {
     try {
+      if(resource==="mps-order-allocations" && field.key==="divisionId") {
+        const preview=await api<AllocationDivisionTransferPreview>(`/master-plan-system/resources/mps-order-allocations/${row.id}/division-transfer/preview`,{method:"POST",body:JSON.stringify({targetDivisionId:value,expectedVersion:row.version})});
+        if(!preview.canTransfer)throw new Error(preview.reasons?.length?preview.reasons.join("；"):"该记录当前不满足安全变更条件");
+        const requestId=globalThis.crypto.randomUUID();
+        const divisionName=(id:string)=>organizations.data?.find(option=>option.id===id)?.pathLabel??id;
+        const reason=`手工修正承接事业部：${divisionName(preview.currentDivisionId)}→${divisionName(preview.targetDivisionId)}`;
+        try {
+          const result=await api<{status:string;message:string|null}>(`/master-plan-system/resources/mps-order-allocations/${row.id}/division-transfer/confirm`,{method:"POST",body:JSON.stringify({targetDivisionId:preview.targetDivisionId,expectedVersion:preview.version,previewFingerprint:preview.previewFingerprint,reason,idempotencyKey:requestId})});
+          setAllocationTransferTracking(current=>({...current,[row.id]:{allocationId:row.id,requestId,status:result.status||"PENDING",message:result.message??"事业部变更已提交，后续计划正在同步。"}}));
+          void refresh();void refreshAllocationPlans();
+          return;
+        } catch(error) {
+          const status=(error as ApiError)?.status;
+          if(status===0||status>=500){
+            setAllocationTransferTracking(current=>({...current,[row.id]:{allocationId:row.id,requestId,status:"VERIFYING",message:"请求响应不明确，正在核实结果；请勿重复修改该记录。"}}));
+            appMessage.info("请求响应不明确，正在核实事业部变更结果；请勿重复修改该记录。");
+            void refresh();
+            return;
+          }
+          setAllocationTransferTracking(current=>{const next={...current};if(next[row.id]?.requestId===requestId)delete next[row.id];return next;});
+          throw error;
+        }
+      }
       const updated = await api<{ version: number; values: Record<string, unknown>; reconciliation?: Reconciliation }>(`/master-plan-system/resources/${resource}/${row.id}`, { method: "PATCH", body: JSON.stringify({ [field.key]: value, expectedVersion: row.version }) });
       const confirmedValue = updated.values[field.key];
+      if(resource==="mps-order-allocations") {
+        await refresh();await refreshAllocationPlans();
+        applyReconciliationFeedback(updated.reconciliation,`${field.label}已保存`);return;
+      }
       if (resource === "mps-base-plans") {
         await refreshRelatedPlans();
         if (updated.reconciliation?.status === "FAILED") message.warning(updated.reconciliation.message ?? "基础计划已保存，但周计划生成失败。");
@@ -499,7 +572,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         message.success(`${field.label}已保存`);
       }
     } catch (error) { message.error((error as Error).message || `${field.label}保存失败`); throw error; }
-  }, [applyReconciliationFeedback, organizations.data, queryClient, refresh, refreshExecutionPlans, refreshRelatedPlans, resource, sessionSubject]);
+  }, [appMessage, applyReconciliationFeedback, organizations.data, queryClient, refresh, refreshAllocationPlans, refreshExecutionPlans, refreshRelatedPlans, resource, sessionSubject]);
   /**
    * KN-MPS-WO-001：生产日期一次 PATCH 两个原子字段（productionStartDate + productionEndDate），
    * 仍带 expectedVersion 乐观锁；服务端负责「同时为空或同时有值 + 开始不晚于结束」的最终校验。
@@ -523,7 +596,8 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     } catch (error) { message.error((error as Error).message || "同步失败"); }
     finally { setSyncingWorkOrders(false); }
   }, [refresh, syncingWorkOrders]);
-  const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update"));
+  const editableFields = (metadata.data?.fields ?? []).filter((field) => field.editable && hasFieldPermission(resource, field.key, "update")
+    && !(resource==="mps-order-allocations"&&field.key==="divisionId"));
   const formFields = modal?.mode === "create" ? (metadata.data?.createFields ?? []) : editableFields;
   const openCreate = () => { form.resetFields(); setSaveError(null); if (resource === "mps-weekly-process-plans") form.setFieldValue("reportDate", dayjs()); setModal({ mode: "create" }); };
   const openReport = (row: any) => { form.resetFields(); setSaveError(null); form.setFieldsValue({ weeklyPlanId: row.weeklyPlanId, processCode: row.processCode, productionDate: dayjs() }); setModal({ mode: "create", row }); };
@@ -681,7 +755,7 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
     finally { setImporting(false); }
   };
   const businessFields = (metadata.data?.fields ?? []).filter((field) => !auditFields.has(field.key));
-  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values)), [businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes]);
+  const columns = useMemo(() => groupedColumns(resource, businessFields, (value, field, row) => <InlineMasterPlanCell resource={resource} field={field} row={row} value={value} organizations={organizations.data ?? []} users={users.data ?? []} weeklyPlans={weeklyPlans.data ?? []} transferTracking={resource==="mps-order-allocations"?allocationTransferTracking[String(row.id)]:undefined} onSave={saveInline} />, metadata.data?.processes ?? fallbackProcessGroups, (row, values) => void saveInlineFields(row, values)), [allocationTransferTracking, businessFields, resource, organizations.data, users.data, weeklyPlans.data, saveInline, saveInlineFields, metadata.data?.processes]);
   /* 待报工视图列严格来自唯一权威定义 pendingFields（订单编号→品项编码→品项名称→工序→计划数量→累计报工→剩余数量→本次报工数量→生产日期），
      不新增“操作”列；本次报工数量/生产日期是草稿输入，提交时 CREATE 实际报工记录。 */
   const pendingFields = useMemo(() => metadata.data?.pendingFields ?? [], [metadata.data?.pendingFields]);
@@ -929,5 +1003,6 @@ export function MasterPlanResourcePage({ resource }: { resource: string }) {
         await queryClient.invalidateQueries({queryKey:["mps-rows",sessionSubject]});
         appMessage.success("计划状态已更新，历史生产事实已保留");
       }} />}
+
   </div>;
 }

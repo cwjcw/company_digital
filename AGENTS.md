@@ -1,5 +1,7 @@
 # KDOS engineering rules
 
+- KDOS 默认开发目录、`main` 分支、Worktree 整合及发布后 GitHub 同步遵守 `.agents/skills/kdos-form-platform/SKILL.md` 第 1.1 节；该节适用于所有 KDOS 开发任务。
+
 - Controllers cannot access databases; they call Application or Query Services.
 - Domain code cannot depend on NestJS controllers.
 - Business modules cannot depend directly on Drizzle or external ERP clients.

@@ -3,14 +3,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App as AntApp } from "antd";
 import { api } from "../api";
-import { displayedExportKeys, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
+import { displayedExportKeys, hasKdosTableFieldReadPermission, KdosDataTable, orderKdosFixedColumns } from "./KdosDataTable";
 import { tablePreferenceQueryKey } from "./table-preferences";
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 vi.mock("../api", () => ({ api: vi.fn() }));
 const savedPreferences = new Map<string, unknown>();
 const prefKey = (resource: string, viewKey: string | undefined, type: string) => `${resource}:${viewKey ?? ""}:${type}`;
+function mockExportDownload() {
+  class TestUrl extends URL {}
+  Object.assign(TestUrl, { createObjectURL: vi.fn().mockReturnValue("blob:test-export"), revokeObjectURL: vi.fn() });
+  vi.stubGlobal("URL", TestUrl);
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+}
 
 describe("KdosDataTable server pagination", () => {
   it("导出沿用最终列树顺序，保留分组子列和展示别名，排除操作列", () => {
@@ -227,6 +233,61 @@ describe("KdosDataTable server pagination", () => {
       expect(JSON.parse(String(put?.[1]?.body)).config.visibleFieldKeys).toContain("productionQuantity");
     });
     expect(view.container.querySelector('th[data-kdos-column-key="productionQuantity"]')).toBeInTheDocument();
+  });
+
+  it("普通报工员工按资源读取权限查看待报工派生字段，并把旧布局中从未可用的派生列补为默认可见", async () => {
+    savedPreferences.set(prefKey("mps-process-reports", "PENDING", "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber"],
+      columnWidths: { orderNumber: 260 }, pinnedFieldKeys: ["orderNumber"]
+    });
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "ordinary-reporter", tenantId: "KAINAN", permissions: [
+      "mps-process-reports:*:read", "mps-process-reports:orderNumber:read"
+    ] }));
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "cumulativeReportedQuantity", label: "累计报工", type: "number" as const, editable: false },
+      { key: "remainingQuantity", label: "剩余数量", type: "number" as const, editable: false }
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-1", orderNumber: "SO-1", cumulativeReportedQuantity: 12, remainingQuantity: 88 }]} /></QueryClientProvider>);
+
+    await screen.findByText("SO-1");
+    expect(view.container.querySelector('th[data-kdos-column-key="cumulativeReportedQuantity"]')).toBeInTheDocument();
+    expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).toBeInTheDocument();
+    expect(screen.getByText("88")).toBeInTheDocument();
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveAttribute("data-kdos-column-width", "260");
+    expect(view.container.querySelector('th[data-kdos-column-key="orderNumber"]')).toHaveClass("ant-table-cell-fix-left");
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "PENDING")).toBe(true);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "ACTUAL")).toBe(false);
+  });
+
+  it("尊重用户明确隐藏的待报工剩余数量列，且无资源读取权限时不展示派生列", async () => {
+    savedPreferences.set(prefKey("mps-process-reports", "PENDING", "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber", "remainingQuantity"], columnWidths: {}, pinnedFieldKeys: []
+    });
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "report-reader", tenantId: "KAINAN", permissions: [
+      "mps-process-reports:*:read", "mps-process-reports:orderNumber:read"
+    ] }));
+    const fields = [
+      { key: "orderNumber", label: "订单编号", type: "text" as const, editable: false },
+      { key: "remainingQuantity", label: "剩余数量", type: "number" as const, editable: false }
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-1", orderNumber: "SO-1", remainingQuantity: 88 }]} /></QueryClientProvider>);
+    await screen.findByText("SO-1");
+    expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).not.toBeInTheDocument();
+
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "no-report-read", tenantId: "KAINAN", permissions: [] }));
+    view.rerender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><KdosDataTable resource="mps-process-reports" viewKey="PENDING"
+      rowKey="id" filterFields={fields} columns={fields.map(field => ({ title: field.label, dataIndex: field.key }))}
+      dataSource={[{ id: "task-2", orderNumber: "SO-2", remainingQuantity: 77 }]} /></QueryClientProvider>);
+    expect(hasKdosTableFieldReadPermission("mps-process-reports", "remainingQuantity", "PENDING")).toBe(false);
+    await waitFor(() => expect(view.container.querySelector('th[data-kdos-column-key="remainingQuantity"]')).not.toBeInTheDocument());
   });
 
   it("标准模式只保留横向滚动，内部纵向滚动必须显式开启", () => {
@@ -491,6 +552,80 @@ describe("KdosDataTable server pagination", () => {
       <KdosDataTable resource="mps-group-plans" columns={[{ title: "订单编号", dataIndex: "orderNumber" }]} dataSource={[]} />
     </QueryClientProvider>);
     await waitFor(() => expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument());
+  });
+
+  it("零选中时单一导出入口标明当前视图并沿用筛选结果模式", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["mps-group-plans:*:read", "mps-group-plans:*:export", "*"] }));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-group-plans", supported: true, allowed: true }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      if (path.startsWith("/table-exports/mps-group-plans?")) return new Blob(["xlsx"]) as never;
+      return [] as never;
+    });
+    mockExportDownload();
+    render(<AntApp><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <KdosDataTable resource="mps-group-plans" columns={[{ title: "订单编号", dataIndex: "orderNumber" }]}
+        dataSource={[{ id: "row-1", orderNumber: "A" }, { id: "row-2", orderNumber: "B" }]} />
+    </QueryClientProvider></AntApp>);
+    await screen.findByText("A");
+    fireEvent.click(await screen.findByRole("button", { name: /导出当前视图/ }));
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("rangeType=FILTERED"))).toBe(true), { timeout: 1500 });
+    const exportRequests = vi.mocked(api).mock.calls.filter(([path]) => String(path).startsWith("/table-exports/mps-group-plans?")).map(([path]) => String(path));
+    const request = exportRequests[exportRequests.length - 1] ?? "";
+    expect(request).toContain("rangeType=FILTERED");
+    expect(request).not.toContain("selectedIds=");
+  });
+
+  it("单一导出入口跨页保留所选ID，确认后只导出已选记录和当前可见列", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["*"] }));
+    savedPreferences.set(prefKey("mps-group-plans", undefined, "DISPLAY"), {
+      version: 1, visibleFieldKeys: ["orderNumber"], orderedFieldKeys: ["orderNumber", "itemName"], columnWidths: {}, pinnedFieldKeys: []
+    });
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-group-plans", supported: true, allowed: true }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      if (path === "/table-exports/mps-group-plans") return new Blob(["xlsx"]) as never;
+      return [] as never;
+    });
+    mockExportDownload();
+    const onQueryChange = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = { resource: "mps-group-plans", rowKey: "id" as const,
+      columns: [{ title: "订单编号", dataIndex: "orderNumber" }, { title: "品项名称", dataIndex: "itemName" }],
+      serverData: { total: 120, onQueryChange } };
+    const view = render(<AntApp><QueryClientProvider client={client}><KdosDataTable {...props}
+      dataSource={[{ id: "11111111-1111-4111-8111-111111111111", orderNumber: "A", itemName: "hidden-A" }]} /></QueryClientProvider></AntApp>);
+    await screen.findByText("A");
+    await screen.findByText("共 120 条");
+    const firstRow = view.container.querySelector('tr:has(td)')!;
+    fireEvent.click(firstRow.querySelector('input[type="checkbox"]')!);
+    fireEvent.click(await screen.findByRole("button", { name: /导出已选（1）/ }));
+    const singleDialog = await screen.findByRole("dialog", { name: "确认导出已选记录" });
+    fireEvent.click(singleDialog.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path) === "/table-exports/mps-group-plans" && String(init?.body).includes("11111111-1111-4111-8111-111111111111"))).toBe(true));
+    fireEvent.click(view.container.querySelector(".ant-pagination-item-2")!);
+    view.rerender(<AntApp><QueryClientProvider client={client}><KdosDataTable {...props}
+      dataSource={[{ id: "22222222-2222-4222-8222-222222222222", orderNumber: "B", itemName: "hidden-B" }]} /></QueryClientProvider></AntApp>);
+    await screen.findByText("B");
+    const secondRow = view.container.querySelector('tr:has(td)')!;
+    fireEvent.click(secondRow.querySelector('input[type="checkbox"]')!);
+    const exportButton = await screen.findByRole("button", { name: /导出已选（2）/ });
+    fireEvent.click(exportButton);
+    const dialog = await screen.findByRole("dialog", { name: "确认导出已选记录" });
+    expect(dialog).toHaveTextContent("本次仅导出已选中的 2 条记录；当前筛选结果中的未选记录不会导出。");
+    fireEvent.click(dialog.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path, init]) => String(path) === "/table-exports/mps-group-plans" && init?.method === "POST")).toBe(true));
+    const exportRequests = vi.mocked(api).mock.calls.filter(([path, init]) => String(path) === "/table-exports/mps-group-plans" && init?.method === "POST");
+    const requestBody = JSON.parse(String(exportRequests[exportRequests.length - 1]?.[1]?.body ?? "{}"));
+    expect(requestBody).toMatchObject({
+      rangeType: "SELECTED", selectedIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+    });
+    expect(requestBody.columnKeys).toContain("orderNumber");
+    expect(requestBody.columnKeys).not.toContain("itemName");
+    view.rerender(<AntApp><QueryClientProvider client={client}><KdosDataTable {...props} viewKey="different-view"
+      dataSource={[{ id: "22222222-2222-4222-8222-222222222222", orderNumber: "B", itemName: "hidden-B" }]} /></QueryClientProvider></AntApp>);
+    await screen.findByRole("button", { name: /导出当前视图/ });
+    await waitFor(() => expect(view.container.querySelector(".kdos-data-table-selection-toolbar")).toBeNull());
   });
   it('display aliases bind registered permission fields without changing saved layout keys or widths',async()=>{
     savedPreferences.set(prefKey('equipment-register',undefined,'DISPLAY'),{version:1,visibleFieldKeys:['divisionName','equipmentCode'],orderedFieldKeys:['divisionName','equipmentCode'],columnWidths:{divisionName:232},pinnedFieldKeys:[]});

@@ -4,10 +4,10 @@ import { message } from "antd";
 import { tablePermissionFieldsFor, type MpsLifecycleAvailability } from "@kdos/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation, useParams } from "react-router-dom";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { MasterPlanResourcePage } from "./MasterPlanPages";
 
-vi.mock("../../api", () => ({ api: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), api: vi.fn() }));
 
 const appMessage = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), destroy: vi.fn() }));
 vi.mock("antd", async (importOriginal) => {
@@ -320,6 +320,90 @@ describe("MasterPlanResourcePage create feedback", () => {
     await waitFor(() => expect(within(dialog).getByText(/本次整批数据均未写入/)).toBeInTheDocument());
     expect(dialog).toBeInTheDocument();
   }, 15_000);
+});
+
+describe("allocation division autosave",()=>{
+  const oldDivision="33333333-3333-4333-8333-333333333333",targetDivision="44444444-4444-4444-8444-444444444444";
+  const configure=({previewAllowed=true,confirmBehavior="success",status="PENDING"}:{previewAllowed?:boolean;confirmBehavior?:"success"|"committed-timeout"|"rejected";status?:string}={})=>{
+    vi.clearAllMocks();localStorage.clear();localStorage.setItem("sessionUser",JSON.stringify({sub:"allocation-user",permissions:["*"]}));
+    let division=oldDivision,confirmCalls=0,listReads=0;
+    vi.mocked(api).mockImplementation(async(path:string,init?:RequestInit)=>{
+      if(path.startsWith("/master-plan-system/references/organizations"))return [{id:oldDivision,pathLabel:"事业一部"},{id:targetDivision,pathLabel:"事业二部"}] as never;
+      if(path==="/directory/users")return [] as never;
+      if(path.endsWith("/meta")){const fields=tablePermissionFieldsFor("mps-order-allocations");return {resource:"mps-order-allocations",fields,createFields:[],actions:{create:true,update:true,delete:false,import:false,export:false,batchUpdate:true}} as never;}
+      if(path.startsWith("/master-plan-system/resources/mps-order-allocations?")&&!init){listReads++;return {rows:[{id:"row-1",version:4,orderNumber:"SO-1",itemCode:"ITEM-1",allocatedQuantity:"10",divisionId:division,divisionName:division===targetDivision?"事业二部":"事业一部",canUpdate:true}],total:1} as never;}
+      if(path.endsWith("/division-transfer/preview"))return {allocationId:"row-1",version:4,orderNumber:"SO-1",itemCode:"ITEM-1",currentDivisionId:oldDivision,targetDivisionId:targetDivision,targetDivisionName:"事业二部",allocatedQuantity:"10",monthlyPlanCount:1,basePlanCount:1,weeklyPlanCount:0,executionWeeklyPlanCount:0,hasInbound:false,targetMonthlyPlanCount:0,linkedPlans:{monthly:[{id:"monthly-1",version:3,plannedQuantity:"10",deliveryNumber:null,status:"ACTIVE"}],base:[{id:"base-1",version:2,plannedQuantity:"10",deliveryNumber:"001",status:"ACTIVE"}],weekly:[]},targetLinkedPlans:{monthly:[],base:[],weekly:[]},canTransfer:previewAllowed,reasons:previewAllowed?[]:["已发现实际执行事实，不能自动转移"],previewFingerprint:"synthetic"} as never;
+      if(path.endsWith("/division-transfer/confirm")){
+        confirmCalls++;const body=JSON.parse(String(init?.body??"{}"));expect(body.reason).toBe("手工修正承接事业部：事业一部→事业二部");expect(body.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
+        if(confirmBehavior==="rejected")throw new ApiError("执行事实保护：该计划已有入库记录",409);
+        if(confirmBehavior==="committed-timeout"){division=targetDivision;throw new ApiError("请求超时",0);}
+        division=targetDivision;return {status:"PENDING",message:"事业部变更已提交，后续计划正在同步。"} as never;
+      }
+      if(path.includes("/division-transfer/")){
+        if(status==="VERIFYING")throw new ApiError("未找到",404);
+        return {allocationId:"row-1",status,message:status==="PARTIAL"?"集团及月度投影完成，仍有下游阶段待核验。":"后续计划正在同步。"} as never;
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    return {getConfirmCalls:()=>confirmCalls,getDivision:()=>division,getListReads:()=>listReads};
+  };
+  const selectTarget=async()=>{
+    const {container}=renderPage("mps-order-allocations");
+    await screen.findByText("SO-1");
+    fireEvent.click(await screen.findByRole("button",{name:/进入\s*编辑模式/}));
+    fireEvent.mouseDown(container.querySelector(".ant-table-row .ant-select-selector")!);
+    fireEvent.click(await screen.findByText("事业二部",{selector:".kdos-organization-option"}));
+    return container;
+  };
+
+  it("saves immediately from the organization select without a modal and tracks pending sync per row",async()=>{
+    const fixture=configure({status:"PENDING"});const container=await selectTarget();
+    await screen.findByText("后续同步中");
+    expect(screen.queryByRole("dialog",{name:"变更承接事业部"})).not.toBeInTheDocument();
+    expect(fixture.getConfirmCalls()).toBe(1);expect(fixture.getDivision()).toBe(targetDivision);
+    expect(vi.mocked(api).mock.calls.some(([path,init])=>path.endsWith("/division-transfer/preview")&&init?.method==="POST")).toBe(true);
+    expect(vi.mocked(api).mock.calls.some(([path,init])=>path.endsWith("/division-transfer/confirm")&&init?.method==="POST")).toBe(true);
+    expect(vi.mocked(api).mock.calls.some(([path,init])=>path.endsWith("/row-1")&&init?.method==="PATCH")).toBe(false);
+    expect(container.querySelector(".ant-table-row .ant-select-disabled")).toBeNull();
+  },15_000);
+
+  it("refuses a preview blocker, restores the old value and never calls confirm",async()=>{
+    const fixture=configure({previewAllowed:false});const container=await selectTarget();
+    await waitFor(()=>expect(fixture.getConfirmCalls()).toBe(0));
+    expect((await screen.findAllByText("事业一部")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(container.querySelector(".ant-table-row .ant-select-disabled")).toBeNull();
+  },15_000);
+
+  it("restores the original organization and shows the exact confirmation error",async()=>{
+    const fixture=configure({confirmBehavior:"rejected"});const container=await selectTarget();
+    await waitFor(()=>expect(fixture.getConfirmCalls()).toBe(1));
+    await waitFor(()=>expect(container.querySelector(".kdos-organization-selected-label")?.textContent).toBe("事业一部"));
+    expect(appMessage.error).toHaveBeenCalledWith("执行事实保护：该计划已有入库记录");
+  },15_000);
+
+  it("checks the formal status after an ambiguous response and never repeats confirmation",async()=>{
+    const fixture=configure({confirmBehavior:"committed-timeout",status:"PENDING"});await selectTarget();
+    await screen.findByText("后续同步中");
+    expect(fixture.getConfirmCalls()).toBe(1);expect(fixture.getDivision()).toBe(targetDivision);
+    expect(vi.mocked(api).mock.calls.some(([path])=>path.includes("/division-transfer/")&&!path.endsWith("/preview")&&!path.endsWith("/confirm"))).toBe(true);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  },15_000);
+
+  it("surfaces PARTIAL without keeping the row in a saving state",async()=>{
+    configure({status:"PARTIAL"});const container=await selectTarget();
+    await screen.findByText("部分同步");
+    expect(screen.queryByText("保存中")).not.toBeInTheDocument();
+    expect(container.querySelector(".ant-table-row .ant-select-disabled")).toBeNull();
+  },15_000);
+
+  it("refreshes the allocation row from the server-confirmed division",async()=>{
+    const fixture=configure({status:"PENDING"});await selectTarget();
+    await screen.findByText("后续同步中");
+    await waitFor(()=>expect(fixture.getListReads()).toBeGreaterThan(1));
+    fireEvent.click(await screen.findByRole("button",{name:/退出\s*编辑模式/}));
+    expect(await screen.findByText("事业二部")).toBeInTheDocument();
+  },15_000);
 });
 
 describe("KDOS-SHIPPING-ORDER-DATE-ACTION-001 出货计划顶部删除", () => {

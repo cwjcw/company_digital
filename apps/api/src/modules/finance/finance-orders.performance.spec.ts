@@ -15,6 +15,12 @@ describe('Finance dashboard performance without changing authorization or amount
   expect((await s.ranking({year:2026},actor,{page:1,pageSize:100})).total).toBe(20);expect(query.mock.calls[0][1].slice(-2)).toEqual([20,0]);
   await expect(s.ranking({year:2026,rankLimit:0},actor,{page:1,pageSize:100})).rejects.toThrow('固定展示前20名');
  });
+ it('derives customer-ranking candidates from the authorized derived report contract',async()=>{
+  const query=jest.fn().mockResolvedValue([ranked]),registry=new TableFilterRegistry();const s=new FinanceOrdersQueryService(repository(query) as any,registry as any);s.onModuleInit();
+  const result=await registry.get('finance-e10-ranking').candidateValues!({fieldKey:'customerCode',search:'SYN',limit:50,actor,context:{year:2026,rankLimit:20},tableSearch:'',filterGroup:{logic:'AND',rules:[{field:'orderTotal',operator:'gt',value:'0.10'}]}});
+  expect(result).toEqual({options:[{value:'SYN-C',label:'SYN-C'}],hasMore:false});
+  const [sql,params]=query.mock.calls[0];expect(sql).toContain('record.customer_code ILIKE');expect(sql).toContain("NULLIF(record.order_total::text,'')::numeric > $4::numeric");expect(params).toEqual(['SYN-T','2026','%SYN%','0.10',20,0]);
+ });
  it('intersects export with read scopes and still parameterizes search and aggregate filters',async()=>{
   const r='finance-e10-ranking',a={...actor,isSystemAdmin:false,permissions:['finance-e10-dashboard:*:read',...financeMonthlyFields.map(f=>`finance-e10-dashboard:${f.key}:read`),`${r}:*:read`,`${r}:*:export`,...financeRankingFields.map(f=>`${r}:${f.key}:read`)],tableDataScopes:[{resource:'finance-e10-dashboard',scope:'ALL'},{resource:r,scope:'CUSTOM',actions:['read'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'SYN-READ'}]},{resource:r,scope:'CUSTOM',actions:['export'],rules:[{fieldKey:'customerCode',operator:'EQ',value:'SYN-EXPORT'}]}]};
   const query=jest.fn().mockResolvedValue([ranked]);const s=new FinanceOrdersQueryService(repository(query) as any,{} as any);

@@ -1,4 +1,5 @@
 import { DataSource, type QueryRunner } from "typeorm";
+import { randomUUID } from "node:crypto";
 import { MasterPlanSystem1722920047000 as Initial } from "../../migrations/1722920047000-MasterPlanSystem";
 import { MasterPlanIntegrityAndOutbox1722920048000 as Integrity } from "../../migrations/1722920048000-MasterPlanIntegrityAndOutbox";
 import { MasterPlanShippingMonthlyReference1722920049000 as ShippingReference } from "../../migrations/1722920049000-MasterPlanShippingMonthlyReference";
@@ -10,6 +11,7 @@ import { MasterPlanDeliveryCodeAuto1722920075000 as Codes } from "../../migratio
 import { MpsProcessRoutingV11722920107000 as Routing } from "../../migrations/1722920107000-MpsProcessRoutingV1";
 import { MpsProcessDueDateRefreshV11722920108000 as Dates } from "../../migrations/1722920108000-MpsProcessDueDateRefresh";
 import { MpsMonthlyBaseGeneration1722920111000 as Change } from "../../migrations/1722920111000-MpsMonthlyBaseGeneration";
+import { MasterPlanThreeDayWorkOrders1722920063000 as WorkOrders } from "../../migrations/1722920063000-MasterPlanThreeDayWorkOrders";
 import { MpsSyncLeases1722920118000 as Leases } from "../../migrations/1722920118000-MpsSyncLeases";
 import { MasterPlanSyncService } from "./master-plan.sync.service";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
@@ -48,10 +50,15 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
       INSERT INTO users(id,username,display_name)VALUES('${user}','synthetic','合成用户');
       INSERT INTO organization_units(id,name)VALUES('${division}','合成事业部'),('${other}','另一事业部');`);
     const runner={query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner;
-    for(const Migration of [Initial,Integrity,ShippingReference,Manual,Divisions,Eligibility,Identity,Codes,Routing,Dates,Change])await new Migration().up(runner);
+    for(const Migration of [Initial,Integrity,ShippingReference,Manual,Divisions,Eligibility,Identity,Codes,Routing,Dates,WorkOrders,Change])await new Migration().up(runner);
+    await new Leases().up(runner);
     await db.query(`ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS record_id uuid,ADD COLUMN IF NOT EXISTS scope_json jsonb;
+      ALTER TABLE mps_sync_logs ADD COLUMN IF NOT EXISTS metrics jsonb;
+      ALTER TABLE mps_base_plans ADD COLUMN IF NOT EXISTS monthly_plan_id uuid;
       ALTER TABLE mps_base_plans ADD COLUMN IF NOT EXISTS blank_completion_date date,ADD COLUMN IF NOT EXISTS packaging_completion_date date;
       ALTER TABLE mps_process_cycles ADD COLUMN IF NOT EXISTS blank_days integer;
+      CREATE FUNCTION mps_weekly_has_execution(t varchar,w uuid) RETURNS boolean LANGUAGE sql STABLE AS 'SELECT false';
+      CREATE TABLE idempotency_keys(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),key varchar NOT NULL UNIQUE,request_hash varchar NOT NULL,response_json jsonb NOT NULL,created_by uuid,updated_by uuid,created_at timestamptz NOT NULL DEFAULT now());
       INSERT INTO mps_system_settings(tenant_id,setting_key,name,value_json,created_by,updated_by) VALUES('MONTHLY-BASE-TEST','shipping_temporary_unlock_until','合成临时解锁','"2040-01-01T00:00:00Z"','0199bc00-0000-7000-8000-000000000003','0199bc00-0000-7000-8000-000000000003');
       UPDATE mps_system_settings SET value_json='"2040-01-01T00:00:00Z"' WHERE setting_key='shipping_temporary_unlock_until';`);
     service=new MasterPlanSyncService(db);
@@ -72,6 +79,54 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     expect(base.latest_customer_due_date).toBe("2026-11-03");
     await weeks();expect((await db.query("SELECT * FROM mps_weekly_plans")).length).toBe(0);
     const page=await queries.list("mps-base-plans",{search:"ORDER-A"},actor);expect(page.total).toBe(1);expect(page.rows[0].weeklyPlanMissingFields).toContain("最迟评审交期");
+  });
+  // This fixture intentionally omits Migration121; stable demand-link authorization has dedicated migration tests.
+  it("saves partial web, batch and Excel base edits without BLOCKED; complete admission wakes only its base and creates tasks",async()=>{
+    await month("ITEM-PARTIAL");await month("ITEM-READY");await run();const [base]=await db.query("SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND item_code='ITEM-PARTIAL'",[tenant]);
+    await db.query("UPDATE mps_base_plans SET latest_review_due_date='2026-11-20',product_attribute='五金',surface_nature='烤漆',manufacturing_method='自制' WHERE tenant_id=$1 AND item_code='ITEM-READY'",[tenant]);
+    const [readyBase]=await db.query("SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND item_code='ITEM-READY'",[tenant]);
+    expect(base.latest_customer_due_date).toBeTruthy();expect(base.latest_review_due_date).toBeNull();
+    await db.query("DELETE FROM mps_reconciliation_outbox WHERE tenant_id=$1",[tenant]);
+    await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)
+      VALUES($1,'base-to-weekly','合成周计划任务',true,30,$2,$2) ON CONFLICT(tenant_id,sync_key) DO UPDATE SET enabled=true,status='SUCCESS'`,[tenant,user]);
+    const request=()=>({...actor,requestId:randomUUID()});
+    let current=base;
+    const save=async(values:Record<string,unknown>)=>{
+      const result=await application.update('mps-base-plans',String(current.id),{...values,expectedVersion:Number(current.version)},request());
+      current=(await db.query('SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND id=$2',[tenant,current.id]))[0];
+      const [event]=await db.query(`SELECT id,scope_json,status,idempotency_key FROM mps_reconciliation_outbox WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`,[tenant]);
+      expect(event.scope_json).toEqual({basePlanIds:[current.id]});
+      await service.processOutbox();
+      const [receipt]=await db.query(`SELECT o.status,l.status AS log_status,l.metrics FROM mps_reconciliation_outbox o
+        JOIN mps_sync_logs l ON l.tenant_id=o.tenant_id AND l.sync_key=o.sync_key AND l.idempotency_key=o.idempotency_key WHERE o.id=$1`,[event.id]);
+      expect(receipt.status).toBe('SUCCESS');expect(receipt.log_status).toBe('SUCCESS');
+      expect(receipt.metrics.waiting_admission_batches ?? 0).toBeGreaterThanOrEqual(0);
+      return result;
+    };
+    await save({latestReviewDueDate:'2026-11-20'});
+    expect(await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,current.id])).toHaveLength(0);
+    const page=await queries.list('mps-base-plans',{search:'ITEM-PARTIAL'},actor);expect(page.rows[0].weeklyPlanState).toBe('待完善');expect(page.rows[0].weeklyPlanMissingFields).toContain('产品属性');
+
+    const batchResult=await application.batchUpdate('mps-base-plans',{records:[{id:current.id,expectedVersion:Number(current.version)},{id:readyBase.id,expectedVersion:Number(readyBase.version)}],fieldKey:'productAttribute',value:'五金',idempotencyKey:randomUUID()},request());
+    current=(await db.query('SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND id=$2',[tenant,current.id]))[0];
+    const [batchEvent]=await db.query(`SELECT id,scope_json FROM mps_reconciliation_outbox WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`,[tenant]);
+    expect(batchEvent.scope_json).toEqual({basePlanIds:[current.id,readyBase.id]});await service.processOutbox();
+    expect(batchResult.succeeded).toBe(2);
+    expect((await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,current.id]))).toHaveLength(0);
+    const [peerWeekly]=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,readyBase.id]);
+    expect(peerWeekly).toMatchObject({base_plan_id:readyBase.id,planned_quantity:'10.0000',manufacturing_method:'自制'});
+
+    await application.importUpdates('mps-base-plans',[{id:current.id,expectedVersion:Number(current.version),values:{surfaceNature:'烤漆'}}],'a'.repeat(64),request());
+    current=(await db.query('SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND id=$2',[tenant,current.id]))[0];
+    const [excelEvent]=await db.query(`SELECT id,scope_json FROM mps_reconciliation_outbox WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`,[tenant]);
+    expect(excelEvent.scope_json).toEqual({basePlanIds:[current.id]});await service.processOutbox();
+    expect((await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,current.id]))).toHaveLength(0);
+
+    await save({manufacturingMethod:'自制'});
+    const [weekly]=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,current.id]);
+    expect(weekly).toMatchObject({base_plan_id:current.id,planned_quantity:'10.0000',manufacturing_method:'自制'});
+    expect(await db.query('SELECT id FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,weekly.id])).toHaveLength(3);
+    expect(await db.query('SELECT id FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,weekly.id])).toHaveLength(0);
   });
   it("creates a zero-quantity base only when that monthly row is explicitly allowlisted",async()=>{
     const zero=await month("ITEM-ZERO",{required_quantity:0,pending_quantity:0});
@@ -196,8 +251,6 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     // Production synchronization has used the 1A runner since118. Exercise
     // that public entrypoint, including busy rejection and a real retry;
     // calling the private executor twice bypasses its lease/mutex contract.
-    await db.query('ALTER TABLE mps_sync_logs ADD COLUMN IF NOT EXISTS metrics jsonb');
-    await new Leases().up({query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner);
     await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,created_by,updated_by)
       VALUES($1,'base-to-weekly','合成正式同步',true,$2,$2) ON CONFLICT(tenant_id,sync_key) DO UPDATE SET enabled=true`,[tenant,user]);
     const keys=['fixture-concurrent-first','fixture-concurrent-second'];

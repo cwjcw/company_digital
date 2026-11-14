@@ -12,13 +12,13 @@ const fill=async()=>{
  const dialog=screen.getByRole('dialog',{name:'新增评审交期'});
  fireEvent.mouseDown(within(dialog).getByRole('combobox',{name:'事业部'}));fireEvent.click(await screen.findByText('凯南 / 事业一部'));
  for(const [name,value]of [['订单号','CREATE-1/2'],['批次号','CREATE-2/2'],['品项编码','CREATE-1/3'],['数量',quantity]])fireEvent.change(within(dialog).getByRole('textbox',{name}),{target:{value}});
- const date=within(dialog).getByRole('textbox',{name:'交期'});fireEvent.change(date,{target:{value:'2026-12-01'}});fireEvent.keyDown(date,{key:'Enter',code:'Enter'});fireEvent.blur(date);
+ const date=within(dialog).getByRole('textbox',{name:'客户交期'});fireEvent.change(date,{target:{value:'2026-12-01'}});fireEvent.keyDown(date,{key:'Enter',code:'Enter'});fireEvent.blur(date);
  const latest=within(dialog).getByRole('textbox',{name:'最新交期'});fireEvent.change(latest,{target:{value:'2026-12-01'}});fireEvent.keyDown(latest,{key:'Enter',code:'Enter'});fireEvent.blur(latest);
 };
 beforeEach(()=>{
  rows=[];localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({sub:'synthetic',permissions:['*']}));
  vi.mocked(api).mockImplementation(async(path,opts)=>{
-  if(opts?.method==='POST'){const body=JSON.parse(String(opts.body));rows=[{...body,id:'0199ea00-0000-7000-8000-000000000001',version:1,changeCount:null}];return {id:rows[0]!.id,version:1} as never;}
+  if(opts?.method==='POST'){const body=JSON.parse(String(opts.body));rows=[{...body,id:'0199ea00-0000-7000-8000-000000000001',version:1}];return {id:rows[0]!.id,version:1} as never;}
   if(path.includes('/references/organizations'))return [{id:'0199ea00-0000-7000-8000-000000000010',name:'事业一部',pathLabel:'凯南 / 事业一部'}] as never;if(path.endsWith('/meta'))return {fields:reviewDueDateFields,createFields:reviewDueDateCreateFields,actions:{update:true,create:true}} as never;
   if(path.includes('/resources/'))return {rows,total:rows.length} as never;
   return [] as never;
@@ -35,7 +35,7 @@ describe('Review due dates dedicated manual creation',()=>{
   mount();fireEvent.click(await screen.findByRole('button',{name:/^新\s*增$/}));fireEvent.click(screen.getByRole('button',{name:/^保\s*存$/}));await screen.findByText('订单号必填');expect(vi.mocked(api).mock.calls.some(([,opts])=>opts?.method==='POST')).toBe(false);
   await fill();const save=screen.getByRole('button',{name:/^保\s*存$/});fireEvent.click(save);fireEvent.click(save);
   await waitFor(()=>expect(screen.queryByRole('dialog',{name:'新增评审交期'})).toBeNull());await screen.findByText('CREATE-1/2');
-  const calls=vi.mocked(api).mock.calls.filter(([,opts])=>opts?.method==='POST');expect(calls).toHaveLength(1);expect(calls[0]![0]).toBe('/master-plan-system/review-due-dates/manual-create');expect(JSON.parse(String(calls[0]![1]?.body))).toMatchObject({quantity,dueDate:'2026-12-01',inboundDate:'2026-12-01',commandId:expect.any(String)});expect(rows[0]!.changeCount).toBeNull();
+  const calls=vi.mocked(api).mock.calls.filter(([,opts])=>opts?.method==='POST');expect(calls).toHaveLength(1);expect(calls[0]![0]).toBe('/master-plan-system/review-due-dates/manual-create');expect(JSON.parse(String(calls[0]![1]?.body))).toMatchObject({quantity,productReviewDueDate:'2026-12-01',inboundDate:'2026-12-01',commandId:expect.any(String)});expect(JSON.parse(String(calls[0]![1]?.body))).not.toHaveProperty('dueDate');
  });
  it('preserves failed drafts and reuses the command identity when retrying an unchanged payload',async()=>{
   const normal=vi.mocked(api).getMockImplementation()!;let attempts=0;

@@ -62,12 +62,34 @@ export class MasterPlanOrderProgressService {
     const authorized=(table:string,division="division_id",extra="")=>`SELECT record.* FROM ${table} record WHERE record.tenant_id=$1 AND (${this.scope(actor,params,division)}) ${action==="export"?`AND (${this.scope(actor,params,division,"export")})`:""} ${extra}`;
     const parent=q.orderId?`AND record.id=${bind(q.orderId)}::uuid`:"";
     const ctes=[`a_group AS MATERIALIZED (${authorized("mps_group_plans","primary_division_id",parent)})`,
-      ...["monthly","shipping","base","weekly"].map(k=>`a_${k} AS MATERIALIZED (${authorized(`mps_${k}_plans`,"division_id",q.orderId?"AND EXISTS(SELECT 1 FROM a_group g WHERE g.order_number=record.order_number)":"")})`),
+      // Plan rows are also an order-progress entry point: legacy plans can have no group row.
+      // Keep tenant/division authorization here, then constrain by the selected order in the final view.
+      ...["monthly","shipping","base","weekly"].map(k=>`a_${k} AS MATERIALIZED (${authorized(`mps_${k}_plans`)})`),
       `a_allocation AS MATERIALIZED (${authorized("mps_order_allocations","division_id","AND record.archived_at IS NULL")})`,
       // ERP has no division; its formal group is the only authoritative owner.
       `a_erp AS MATERIALIZED (SELECT record.* FROM (SELECT e.*,g.primary_division_id division_id,count(*) OVER(PARTITION BY e.tenant_id,e.order_number,e.item_code) source_line_count FROM mps_erp_order_lines e JOIN a_group g ON g.tenant_id=e.tenant_id AND g.order_number=e.order_number WHERE e.tenant_id=$1 AND e.source_active=true) record WHERE (${this.scope(actor,params)}) ${action==="export"?`AND (${this.scope(actor,params,"division_id","export")})`:""})`,
+      `progress_plans AS MATERIALIZED (
+        SELECT m.id,m.tenant_id,m.order_number,m.item_code,m.item_name,m.division_id,m.customer_code,m.order_date,m.latest_customer_due_date,
+          m.required_quantity,m.cumulative_inbound_quantity,m.pending_quantity,m.completion_rate,m.manufacturing_method,true monthly_plan
+        FROM a_monthly m
+        UNION ALL
+        SELECT (array_agg(b.id ORDER BY b.id))[1],b.tenant_id,b.order_number,b.item_code,max(b.item_name),b.division_id,max(b.customer_code),max(b.order_date),max(b.latest_customer_due_date),
+          sum(b.planned_quantity),COALESCE(sum(w.allocated_inbound_quantity),0),greatest(sum(b.planned_quantity)-COALESCE(sum(w.allocated_inbound_quantity),0),0),
+          CASE WHEN sum(b.planned_quantity)>0 THEN least(1,COALESCE(sum(w.allocated_inbound_quantity),0)/sum(b.planned_quantity)) ELSE 0 END,
+          max(b.manufacturing_method),false
+        FROM a_base b LEFT JOIN a_weekly w ON w.tenant_id=b.tenant_id AND w.base_plan_id=b.id
+        WHERE NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=b.tenant_id AND m.order_number=b.order_number AND m.item_code=b.item_code AND m.division_id IS NOT DISTINCT FROM b.division_id)
+          AND COALESCE(to_jsonb(b)->>'lifecycle_status','LEGACY_RETAINED') NOT IN ('ON_HOLD','CANCELLED')
+        GROUP BY b.tenant_id,b.order_number,b.item_code,b.division_id
+      )`,
       `weekly_parents AS MATERIALIZED (SELECT w.*,s.monthly_plan_id parent_monthly_id FROM a_weekly w LEFT JOIN a_base b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id LEFT JOIN a_shipping s ON s.tenant_id=b.tenant_id AND s.id=b.shipping_plan_id)`,
-      `related_weekly AS MATERIALIZED (SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.id=w.parent_monthly_id AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NOT NULL UNION ALL SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.order_number=w.order_number AND m.item_code=w.item_code AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NULL)`,
+      `related_weekly AS MATERIALIZED (
+        SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.id=w.parent_monthly_id AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NOT NULL
+        UNION ALL SELECT w.*,m.id monthly_id FROM weekly_parents w JOIN a_monthly m ON m.tenant_id=w.tenant_id AND m.order_number=w.order_number AND m.item_code=w.item_code AND m.division_id IS NOT DISTINCT FROM w.division_id WHERE w.parent_monthly_id IS NULL
+        UNION ALL SELECT w.*,p.id monthly_id FROM weekly_parents w JOIN a_base b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id
+          JOIN progress_plans p ON p.tenant_id=b.tenant_id AND p.order_number=b.order_number AND p.item_code=b.item_code AND p.division_id IS NOT DISTINCT FROM b.division_id AND p.monthly_plan=false
+          WHERE NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=w.tenant_id AND m.order_number=w.order_number AND m.item_code=w.item_code AND m.division_id IS NOT DISTINCT FROM w.division_id)
+      )`,
       `actual_tasks AS MATERIALIZED (SELECT t.* FROM mps_weekly_process_plans t JOIN related_weekly w ON w.tenant_id=t.tenant_id AND w.id=t.weekly_plan_id WHERE t.tenant_id=$1 AND t.execution_enabled=true AND w.manufacturing_method IN ('自制','自制+外协'))`];
     ctes.push(`actual_process AS MATERIALIZED (SELECT r.* FROM (${authorized("mps_process_reports")}) r JOIN related_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id AND r.division_id IS NOT DISTINCT FROM w.division_id)`);
     for(const name of ["technical","material","outsourcing"])ctes.push(`actual_${name} AS MATERIALIZED (SELECT r.* FROM (${authorized(`mps_${name}_reports`)}) r JOIN related_weekly w ON w.tenant_id=r.tenant_id AND w.id=r.weekly_plan_id)`);
@@ -91,7 +113,7 @@ export class MasterPlanOrderProgressService {
       `composite_stages AS MATERIALIZED (SELECT t.monthly_id,count(*) stage_count,
         string_agg(CASE t.process_code ${processNames} END,'、' ORDER BY t.process_code) process_names,
         sum(least(1,greatest(0,COALESCE(m.cumulative_inbound_quantity,0)/NULLIF(m.required_quantity,0),COALESCE(p.reported,0)/NULLIF(m.required_quantity,0)))) stage_sum
-        FROM task_facts t JOIN a_monthly m ON m.id=t.monthly_id
+        FROM task_facts t JOIN progress_plans m ON m.id=t.monthly_id
         LEFT JOIN process_facts p ON p.monthly_id=t.monthly_id AND p.process_code=t.process_code
         WHERE t.process_code IN (${processes.map(p=>`'${p.code}'`).join(',')}) GROUP BY t.monthly_id)`,
       `composite_methods AS MATERIALIZED (SELECT monthly_id,count(*) weekly_count,
@@ -114,29 +136,47 @@ export class MasterPlanOrderProgressService {
           WHEN methods.procurement_only OR m.manufacturing_method IN ('外协','纯外协','中心外购') THEN '纯外协/中心外购，仅按入库'
           WHEN m.cumulative_inbound_quantity>=m.required_quantity THEN '已全部入库'
           ELSE '有效工序未确认，综合进度待核实' END progress_basis
-        FROM a_monthly m LEFT JOIN composite_stages s ON s.monthly_id=m.id LEFT JOIN composite_methods methods ON methods.monthly_id=m.id)`
+        FROM progress_plans m LEFT JOIN composite_stages s ON s.monthly_id=m.id LEFT JOIN composite_methods methods ON methods.monthly_id=m.id)`
     );
     ctes.push(`source_items AS MATERIALIZED (
       SELECT m.id,m.tenant_id,m.order_number,m.item_code,m.item_name,m.division_id,m.customer_code,m.order_date,${masterPlanDeliveryDateSql("wt.outstanding_due","wt.latest_due","m.latest_customer_due_date")} delivery_date,'月计划'::text source_kind,NULL::numeric source_quantity,m.required_quantity,m.cumulative_inbound_quantity,m.pending_quantity,m.completion_rate,'已建立月计划'::text plan_status FROM a_monthly m LEFT JOIN weekly_totals wt ON wt.monthly_id=m.id
-      UNION ALL SELECT a.id,a.tenant_id,a.order_number,a.item_code,a.item_name,a.division_id,a.customer_code,a.order_date,NULL::date,'订单分配',a.allocated_quantity,NULL,NULL,NULL,NULL,'尚未建立月计划' FROM a_allocation a WHERE NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=a.tenant_id AND m.order_number=a.order_number AND m.item_code=a.item_code AND m.division_id IS NOT DISTINCT FROM a.division_id)
-      UNION ALL SELECT e.id,e.tenant_id,e.order_number,e.item_code,e.item_name,e.division_id,e.customer_code,e.order_date,NULL::date,'ERP订单行',e.order_quantity,NULL,NULL,NULL,NULL,CASE WHEN EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) THEN '来源行与月计划关联待核实' ELSE '尚未建立月计划' END FROM a_erp e WHERE e.source_line_count>1 OR (NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) AND NOT EXISTS(SELECT 1 FROM a_allocation a WHERE a.tenant_id=e.tenant_id AND a.order_number=e.order_number AND a.item_code=e.item_code))
+      UNION ALL SELECT p.id,p.tenant_id,p.order_number,p.item_code,p.item_name,p.division_id,p.customer_code,p.order_date,${masterPlanDeliveryDateSql("wt.outstanding_due","wt.latest_due","p.latest_customer_due_date")} delivery_date,'基础计划'::text,p.required_quantity,p.required_quantity,p.cumulative_inbound_quantity,p.pending_quantity,p.completion_rate,CASE WHEN p.required_quantity>0 THEN '已建立生产计划' ELSE '基础计划数量无效，待核实' END::text FROM progress_plans p LEFT JOIN weekly_totals wt ON wt.monthly_id=p.id WHERE NOT p.monthly_plan
+      UNION ALL SELECT a.id,a.tenant_id,a.order_number,a.item_code,a.item_name,a.division_id,a.customer_code,a.order_date,NULL::date,'订单分配',a.allocated_quantity,NULL,NULL,NULL,NULL,
+        CASE WHEN a.monthly_plan_id IS NOT NULL OR EXISTS(SELECT 1 FROM a_monthly linked WHERE linked.tenant_id=a.tenant_id AND linked.allocation_id=a.id)
+          OR EXISTS(SELECT 1 FROM progress_plans planned WHERE planned.tenant_id=a.tenant_id AND planned.order_number=a.order_number AND planned.item_code=a.item_code AND planned.division_id IS NOT DISTINCT FROM a.division_id)
+          THEN '来源行与月计划关联待核实' ELSE '尚未建立月计划' END
+      FROM a_allocation a WHERE NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=a.tenant_id
+        AND (m.allocation_id=a.id OR a.monthly_plan_id=m.id)
+        AND m.order_number=a.order_number AND m.item_code=a.item_code AND m.division_id IS NOT DISTINCT FROM a.division_id)
+      UNION ALL SELECT e.id,e.tenant_id,e.order_number,e.item_code,e.item_name,e.division_id,e.customer_code,e.order_date,NULL::date,'ERP订单行',e.order_quantity,NULL,NULL,NULL,NULL,CASE WHEN EXISTS(SELECT 1 FROM progress_plans p WHERE p.tenant_id=e.tenant_id AND p.order_number=e.order_number AND p.item_code=e.item_code AND p.division_id IS NOT DISTINCT FROM e.division_id) THEN '来源行与月计划关联待核实' ELSE '尚未建立月计划' END FROM a_erp e WHERE e.source_line_count>1 OR (NOT EXISTS(SELECT 1 FROM a_monthly m WHERE m.tenant_id=e.tenant_id AND m.order_number=e.order_number AND m.item_code=e.item_code) AND NOT EXISTS(SELECT 1 FROM a_allocation a WHERE a.tenant_id=e.tenant_id AND a.order_number=e.order_number AND a.item_code=e.item_code))
     )`);
     ctes.push(`composite_orders AS MATERIALIZED (SELECT i.order_number,
       CASE WHEN count(*) FILTER(WHERE c.production_progress IS NULL)>0 THEN NULL ELSE avg(c.production_progress) END production_progress
-      FROM source_items i LEFT JOIN composite_items c ON c.id=i.id GROUP BY i.order_number)`);
+      FROM source_items i LEFT JOIN composite_items c ON c.id=i.id AND i.source_kind IN ('月计划','基础计划')
+      WHERE i.source_kind IN ('月计划','基础计划') OR NOT EXISTS(SELECT 1 FROM progress_plans p WHERE p.tenant_id=i.tenant_id AND p.order_number=i.order_number AND p.item_code=i.item_code AND p.division_id IS NOT DISTINCT FROM i.division_id)
+      GROUP BY i.order_number)`);
+    ctes.push(`all_groups AS MATERIALIZED (
+      SELECT g.id,g.tenant_id,g.order_number,g.primary_division_id,g.customer_code,g.order_date,g.required_quantity,g.completed_quantity,g.pending_quantity,g.completion_rate,false synthetic FROM a_group g
+      UNION ALL
+      SELECT (array_agg(p.id ORDER BY p.id))[1],p.tenant_id,p.order_number,p.division_id,max(p.customer_code),min(p.order_date),sum(p.required_quantity),sum(p.cumulative_inbound_quantity),sum(p.pending_quantity),
+        CASE WHEN sum(p.required_quantity)>0 THEN least(1,sum(p.cumulative_inbound_quantity)/sum(p.required_quantity)) ELSE 0 END,true
+      FROM progress_plans p WHERE NOT EXISTS(SELECT 1 FROM mps_group_plans raw WHERE raw.tenant_id=p.tenant_id AND raw.order_number=p.order_number)
+      GROUP BY p.tenant_id,p.order_number,p.division_id
+    )`);
     const itemWhere:string[]=[],groupWhere:string[]=[];
     if(q.divisionId){const b=bind(q.divisionId);itemWhere.push(`i.division_id=${b}::uuid`);groupWhere.push(`g.primary_division_id=${b}::uuid`)}
     if(q.customerCode){const b=bind(q.customerCode);itemWhere.push(`i.customer_code=${b}`);groupWhere.push(`g.customer_code=${b}`)}
     if(q.orderNumbers?.length){const b=bind(q.orderNumbers);itemWhere.push(`i.order_number=ANY(${b}::text[])`);groupWhere.push(`g.order_number=ANY(${b}::text[])`)}
     if(q.itemCodes?.length){itemWhere.push(`i.item_code=ANY(${bind(q.itemCodes)}::text[])`);groupWhere.push("EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number)")}
+    if(q.orderId)groupWhere.push(`g.id=${bind(q.orderId)}::uuid`);
     const range=mpsDashboardDateRange(q);
     if(range){const from=bind(range.start),to=bind(range.end),column=q.dateType==="ORDER"?"COALESCE(g.order_date,i.order_date)":"i.delivery_date";
       itemWhere.push(`${column}>=${from}::date AND ${column}<${to}::date`);
       groupWhere.push(q.dateType==="ORDER"?`g.order_date>=${from}::date AND g.order_date<${to}::date`:"EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number)");}
-    ctes.push(`view_items AS MATERIALIZED (SELECT i.* FROM source_items i JOIN a_group g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number WHERE ${itemWhere.join(" AND ")||"true"})`,
-      `view_orders AS MATERIALIZED (SELECT g.*,(SELECT min(delivery_date) FROM view_items i WHERE i.order_number=g.order_number) delivery_date,(SELECT count(*) FROM view_items i WHERE i.order_number=g.order_number AND (i.pending_quantity>0 OR i.plan_status<>'已建立月计划')) unfinished_items,(SELECT count(*) FROM view_items i WHERE i.order_number=g.order_number AND i.plan_status<>'已建立月计划') uncovered_items FROM a_group g WHERE ${groupWhere.join(" AND ")||"true"})`,
-      `filtered_orders AS MATERIALIZED (SELECT * FROM view_orders WHERE ${q.onlyUnfinishedOrders==="true"?"pending_quantity>0 OR uncovered_items>0 OR NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=view_orders.order_number)":"true"})`,
-      `filtered_items AS MATERIALIZED (SELECT i.* FROM view_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number WHERE (${q.onlyUnfinishedItems==="true"?"i.pending_quantity>0 OR i.plan_status<>'已建立月计划'":"true"}) ${q.itemId?`AND i.id=${bind(q.itemId)}::uuid`:""})`);
+    ctes.push(`view_items AS MATERIALIZED (SELECT i.* FROM source_items i JOIN all_groups g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) WHERE ${itemWhere.join(" AND ")||"true"})`,
+      `view_orders AS MATERIALIZED (SELECT g.*,(SELECT min(delivery_date) FROM view_items i WHERE i.order_number=g.order_number AND i.tenant_id=g.tenant_id AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id)) delivery_date,(SELECT count(*) FROM view_items i WHERE i.order_number=g.order_number AND i.tenant_id=g.tenant_id AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) AND (i.pending_quantity>0 OR i.plan_status IN ('尚未建立月计划','基础计划数量无效，待核实'))) unfinished_items,(SELECT count(*) FROM view_items i WHERE i.order_number=g.order_number AND i.tenant_id=g.tenant_id AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) AND i.plan_status='尚未建立月计划') uncovered_items,(SELECT count(*) FROM view_items i WHERE i.order_number=g.order_number AND i.tenant_id=g.tenant_id AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) AND i.plan_status='基础计划数量无效，待核实') invalid_plan_items FROM all_groups g WHERE ${groupWhere.join(" AND ")||"true"})`,
+      `filtered_orders AS MATERIALIZED (SELECT * FROM view_orders WHERE ${q.onlyUnfinishedOrders==="true"?"pending_quantity>0 OR uncovered_items>0 OR invalid_plan_items>0 OR NOT EXISTS(SELECT 1 FROM view_items i WHERE i.tenant_id=view_orders.tenant_id AND i.order_number=view_orders.order_number AND (NOT view_orders.synthetic OR i.division_id IS NOT DISTINCT FROM view_orders.primary_division_id))":"true"})`,
+      `filtered_items AS MATERIALIZED (SELECT i.* FROM view_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) WHERE (${q.onlyUnfinishedItems==="true"?"i.pending_quantity>0 OR i.plan_status IN ('尚未建立月计划','来源行与月计划关联待核实','基础计划数量无效，待核实')":"true"}) ${q.itemId?`AND i.id=${bind(q.itemId)}::uuid`:""})`);
     return ctes.join(",\n");
   }
   /** Public for read-only production EXPLAIN/reconciliation and PostgreSQL regression. */
@@ -154,13 +194,13 @@ export class MasterPlanOrderProgressService {
       itemValues[k+"TaskCount"]=`CASE WHEN record.id IS NOT NULL THEN COALESCE((pt.metrics->'${k}'->>'count')::int,0) END`;
       itemValues[k+"LastReportDate"]=`pf.metrics->'${k}'->>'lastReport'`;
     }
-    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",orderProductionProgress:"co.production_progress::text",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.order_number=g.order_number) THEN '暂无品项数据' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
+    const orderValues:Record<string,string>={id:"g.id::text",divisionId:"g.primary_division_id",divisionName:"o.name",customerCode:"g.customer_code",orderNumber:"g.order_number",orderDate:"g.order_date::text",deliveryDate:"g.delivery_date::text",orderRequiredQuantity:"g.required_quantity::text",orderCompletedQuantity:"g.completed_quantity::text",orderPendingQuantity:"g.pending_quantity::text",orderCompletionRate:"g.completion_rate::text",orderProductionProgress:"co.production_progress::text",unfinishedItemCount:"g.unfinished_items",coverageStatus:"CASE WHEN g.uncovered_items>0 THEN '月计划未完全覆盖' WHEN g.invalid_plan_items>0 THEN '生产计划数量待核实' WHEN NOT EXISTS(SELECT 1 FROM view_items i WHERE i.tenant_id=g.tenant_id AND i.order_number=g.order_number) THEN '暂无品项数据' WHEN EXISTS(SELECT 1 FROM view_items i WHERE i.tenant_id=g.tenant_id AND i.order_number=g.order_number AND i.source_kind='基础计划') THEN '已建立生产计划' ELSE '已建立月计划' END",exceptionSummary:`CASE WHEN EXISTS(SELECT 1 FROM exception_facts e JOIN view_items i ON i.id=e.monthly_id WHERE i.order_number=g.order_number) THEN '存在人工报工异常' ELSE '' END`};
     const values=kind==="orders"?orderValues:itemValues,projection=json(values);
     // Whitelisted projection expressions are safe identifiers; never interpolate user SQL.
     const sort=q.sortField?`(${values[q.sortField]??"NULL"})${/Quantity$|Rate$|Progress$|Count$/.test(q.sortField)?"::numeric":""} ${q.sortOrder==="desc"?"DESC":"ASC"} NULLS LAST,`:"";
     const tail=all?"":`LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`;
     const rows=kind==="orders"?`SELECT ${projection} row FROM filtered_orders g LEFT JOIN composite_orders co ON co.order_number=g.order_number LEFT JOIN organization_units o ON o.id=g.primary_division_id ORDER BY ${sort}g.order_date DESC NULLS LAST,g.order_number,g.id ${tail}`:
-      `SELECT ${projection} row FROM filtered_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number LEFT JOIN a_monthly record ON record.tenant_id=i.tenant_id AND record.id=i.id LEFT JOIN composite_items ci ON ci.id=i.id LEFT JOIN weekly_totals wt ON wt.monthly_id=record.id LEFT JOIN exception_facts ef ON ef.monthly_id=record.id LEFT JOIN process_by_monthly pf ON pf.monthly_id=record.id LEFT JOIN task_by_monthly pt ON pt.monthly_id=record.id LEFT JOIN technical_facts tf ON tf.monthly_id=record.id LEFT JOIN material_facts hf ON hf.monthly_id=record.id AND hf.material_name='五金' LEFT JOIN material_facts wf ON wf.monthly_id=record.id AND wf.material_name='木作' LEFT JOIN outsourcing_facts ofc ON ofc.monthly_id=record.id LEFT JOIN organization_units o ON o.id=i.division_id ORDER BY ${sort}i.order_number,i.item_code,i.source_kind,i.id ${tail}`;
+      `SELECT ${projection} row FROM filtered_items i JOIN filtered_orders g ON g.tenant_id=i.tenant_id AND g.order_number=i.order_number AND (NOT g.synthetic OR i.division_id IS NOT DISTINCT FROM g.primary_division_id) LEFT JOIN progress_plans record ON record.tenant_id=i.tenant_id AND record.id=i.id LEFT JOIN composite_items ci ON ci.id=i.id LEFT JOIN weekly_totals wt ON wt.monthly_id=record.id LEFT JOIN exception_facts ef ON ef.monthly_id=record.id LEFT JOIN process_by_monthly pf ON pf.monthly_id=record.id LEFT JOIN task_by_monthly pt ON pt.monthly_id=record.id LEFT JOIN technical_facts tf ON tf.monthly_id=record.id LEFT JOIN material_facts hf ON hf.monthly_id=record.id AND hf.material_name='五金' LEFT JOIN material_facts wf ON wf.monthly_id=record.id AND wf.material_name='木作' LEFT JOIN outsourcing_facts ofc ON ofc.monthly_id=record.id LEFT JOIN organization_units o ON o.id=i.division_id ORDER BY ${sort}i.order_number,i.item_code,i.source_kind,i.id ${tail}`;
     return {sql:`WITH ${facts} SELECT jsonb_build_object('total',(SELECT count(*) FROM ${kind==="orders"?"filtered_orders":"filtered_items"}),'rows',COALESCE((SELECT jsonb_agg(row) FROM (${rows}) x),'[]'::jsonb)) data`,params,page,pageSize};
   }
   async page(input:OrderProgressQuery,actor:MasterPlanActor,kind:Kind,action:"read"|"export"="read",all=false):Promise<MpsProgressPage> {

@@ -17,6 +17,8 @@ import { isAuditActorField } from "./audit-actor";
 import { knowledgeStatusOptions } from "./knowledge";
 import { pmcRdProgressFields } from "./pmc-rd-progress";
 export { pmcRdProgressFields } from "./pmc-rd-progress";
+import { rdOrderBomReportFields } from "./rd-order-bom-report";
+export * from "./rd-order-bom-report";
 import { standardProcesses } from "@tracker/shared";
 
 /** 设备状态填报日期窗口：含上海当天在内的连续自然日数量。 */
@@ -36,6 +38,7 @@ export const tableResourcePermissionActionLabels: Partial<Record<string, Partial
   ...Object.fromEntries([...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(c=>[c.code,{read:`查看${c.label}预览`,update:c.label}])),
   "finance-e10-lines": { update: "刷新E10数据" },
   "pmc-rd-progress": { read: "查看研发进度报表" },
+  "rd-order-bom-report": { read: "查看订单 BOM 报表" },
   "rd-material-duplicates": {
     read: "一物多码查询",
     update: "一物多码全量计算"
@@ -79,7 +82,7 @@ export type AdministrableModuleCode = typeof administrableModuleRegistry[number]
 
 /** New master-plan tables. These stable codes are deliberately independent from the retained legacy planning forms. */
 export { reviewDueDateTemplateFilename, reviewDueDateTemplateNotes, reviewDueDateFields, reviewDueDateBusinessFields, reviewDueDateAuditFields, reviewDueDateCreateFields, reviewDueDateRequiredCreateKeys, reviewDueDateEditableKeys, reviewDueDateResource, reviewDueDateExportFilename } from './review-due-dates';
-export type { ReviewDueImportMode, ReviewDueDateHistoryRow } from './review-due-dates';
+export type { ReviewDueDateHistoryRow, ReviewDueDateBulkImportRow, ReviewDueDateBulkImportRequest, ReviewDueDateBulkImportResponse } from './review-due-dates';
 import { reviewDueDateFields } from './review-due-dates';
 export const masterPlanResourceDefinitions = [
   { code: "mps-erp-orders", label: "ERP订单明细", area: "数据准备" },
@@ -154,6 +157,7 @@ export const tableResourceRegistry = [
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
+  { code: "rd-order-bom-report", label: "订单 BOM 报表", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
   { code: "sales-summary-dashboard", label: "销售接单汇总大屏", module: "公司驾驶舱", moduleCode: "cockpit" },
   { code: "supervision-project-dashboard", label: "项目管理大屏", module: "项目与任务", moduleCode: "project-task" },
@@ -301,6 +305,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false]
   ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
+  "rd-order-bom-report": rdOrderBomReportFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
     ["remark", "备注", "text", false], ["isGroupItem", "归类品", "boolean", false], ["sourceCreatedAt", "创建日期", "datetime", false],
@@ -961,7 +966,8 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "api-keys": { status: "REGISTERED_AND_FILTERABLE" },
   "pmc-rd-progress": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-items": { status: "REGISTERED_AND_FILTERABLE" },
-  "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" }
+  "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" },
+  "rd-order-bom-report": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
 /**
@@ -977,7 +983,7 @@ const printNotApplicable: Record<string, string> = {
   "notification-group-webhook": "群机器人管理属于系统配置页面，Webhook 凭据为敏感信息，不提供标准业务打印。",
   "notification-recipient-group": "通知收件人组属于通知系统配置页面，不提供标准业务打印。",
   "notification-route": "消息路由属于通知系统配置页面，不是标准业务记录表，不提供打印。",
-  "mps-review-due-dates": "评审交期表开放查看、专用人工新增/编辑和Excel导出，不启用打印、通用新增、删除或批量修改；导入走专用事务命令，变更次数和上次入库时间由人工维护。",
+    "mps-review-due-dates": "评审交期表是独立业务记录，支持权限控制下的专用新增/编辑、勾选删除和Excel导入导出；不参与其他计划数据联动，不提供标准打印。",
   "knowledge-spaces": "知识空间是管理边界，没有独立业务打印需求。",
   "sales-summary-dashboard": "销售接单汇总大屏是按周期聚合的只读指标大屏，不是记录列表，没有可打印的业务记录行。",
   "supervision-project-dashboard": "项目管理大屏是实时 KPI、风险和甘特聚合视图，项目明细通过督办项目资源打印。",
@@ -1041,6 +1047,7 @@ const excelNotApplicableReasons: Record<string, string> = {
   "finance-e10-dashboard": "财务大屏是聚合统计视图，不存在可更新业务行。",
   "finance-e10-ranking": "客户年度金额排名是财务聚合只读视图，不存在可更新业务行。",
   "pmc-rd-progress": "研发进度由T+来源数据同步投影生成，不允许人工Excel覆盖来源值。",
+  "rd-order-bom-report": "订单BOM报表为订单分配和E10 BOM构成的只读查询视图；支持共享服务端导出，不支持Excel写入。",
   "rd-material-duplicates": "一物多码检测结果由全量计算产生，resource update 用于重新计算而非维护行字段。",
   "finished-goods-inbound": "入库事实由正式入库流程产生，不允许通过Excel覆盖库存事实。",
   "finished-goods-outbound": "出库事实由正式出库流程产生，不允许通过Excel覆盖库存事实。",
