@@ -6,6 +6,7 @@ req('reflect-metadata');const {DataSource}=req('typeorm');
 const {MasterPlanSyncService,MASTER_PLAN_SYSTEM_USER_ID:system}=req('./dist/modules/master-plan-system/master-plan.sync.service');
 const {MasterPlanApplicationService}=req('./dist/modules/master-plan-system/master-plan.application.service');
 const {inspectDemandKey}=req('./dist/modules/master-plan-system/master-plan.consistency');
+const {reconcileMonthlyBasePlans}=req('./dist/modules/master-plan-system/master-plan.monthly-base');
 const socket=process.env.KDOS_SYNC_RELIABILITY_TEST_SOCKET;
 if(!socket||!socket.includes('test/')||socket.includes('..'))throw Error('Dedicated test socket required');
 const database='mps_consistency_'+Date.now(),tenant='SYN-CONSISTENCY',user='0199f100-0000-7000-8000-000000000001',division='0199f100-0000-7000-8000-000000000002';
@@ -162,6 +163,12 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
    await owner.query('SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2 FOR SHARE NOWAIT',[tenant,f.monthly.id]);await owner.commitTransaction();
   }finally{if(owner.isTransactionActive)await owner.rollbackTransaction();await owner.release();}
   const result=await pending;assert.equal(result.status,'SUCCESS',result.last_error);assert.equal((await read(f)).monthly.required_quantity,'9.0000');
+ });
+ await check('legacy monthly/base batch classifies an unconfirmed source and commits its independent valid demand',async()=>{
+  const blocked=await fixture('BATCH-UNCONFIRMED',4,8,{oldSourceQty:4});const good=await fixture('BATCH-CONFIRMED',4,8,{linked:true});await run(good);
+  await db.query('UPDATE mps_order_allocations SET allocated_quantity=9,version=version+1 WHERE id=$1',[good.active.id]);await db.query('UPDATE mps_monthly_plans SET required_quantity=9,pending_quantity=9 WHERE id=$1',[good.monthly.id]);
+  const result=await db.transaction(m=>reconcileMonthlyBasePlans(m,tenant,system,'合成系统任务',[blocked.monthly.id,good.monthly.id],[],false,true));assert.equal(result.metrics.base_conflicts,1);assert.equal((await read(good)).bases[0].planned_quantity,'9.0000');assert.equal((await read(blocked)).bases[0].planned_quantity,'4.0000');
+  assert.equal((await db.query("SELECT count(*)::int n FROM mps_data_exceptions WHERE tenant_id=$1 AND exception_type='MONTHLY_SOURCE_UNCONFIRMED' AND record_id=$2 AND active",[tenant,blocked.monthly.id]))[0].n,1);
  });
  console.log(JSON.stringify({passed:passed.length,checks:passed}));
 })().catch(e=>{console.error(e.stack||e);process.exitCode=1}).finally(async()=>{if(db?.isInitialized)await db.destroy()});

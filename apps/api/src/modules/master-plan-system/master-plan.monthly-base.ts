@@ -60,7 +60,10 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
-  const monthly: Row[] = await manager.query(`SELECT m.*,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
+  const monthly: Row[] = await manager.query(`SELECT m.*,EXISTS(SELECT 1 FROM mps_order_allocations source WHERE source.tenant_id=m.tenant_id AND source.id=m.allocation_id
+      AND source.archived_at IS NULL AND source.order_status='已审核' AND source.manually_maintained
+      AND (source.monthly_plan_id IS NULL OR source.monthly_plan_id=m.id)
+      AND (source.order_number,source.item_code,source.division_id,source.customer_code) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id,m.customer_code)) source_confirmed,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
     JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
     WHERE m.tenant_id=$1 AND ($2::uuid[] IS NULL OR m.id=ANY($2::uuid[])) AND btrim(m.order_number)<>'' AND btrim(m.item_code)<>''
       AND (m.required_quantity>0 OR (m.required_quantity=0 AND m.id=ANY($3::uuid[])))
@@ -107,6 +110,17 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   const controlledIds=new Set(controlledRows.map(r=>r.record_id));
   const baselines = new Map(histories.map(row => [row.record_id,row.values as Row]));
   for (const monthlyPlan of monthly) {
+    const sourceKey=`monthly-source:${monthlyPlan.id}`;
+    if(monthlyPlan.source_confirmed===false){
+      conflicts++;
+      await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
+        VALUES($1,$2,'mps-monthly-plans',$3,$4,'MONTHLY_SOURCE_UNCONFIRMED','WARNING','月度正式来源尚未确认或身份不一致，保留原计划',true,$5,$5)
+        ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message
+        WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message`,
+        [tenantId,sourceKey,monthlyPlan.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,actorId]);
+      continue;
+    }
+    await manager.query('UPDATE mps_data_exceptions SET active=false,resolved_at=now() WHERE tenant_id=$1 AND exception_key=$2 AND active',[tenantId,sourceKey]);
     // Same lock as ordinary base creation: manual creation cannot race the absence check.
     await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mps-delivery-code:${tenantId}:${monthlyPlan.order_number}:${monthlyPlan.item_code}`]);
     const allBases: Row[] = await manager.query(monthlyBaseLookupSql(linksReady),
