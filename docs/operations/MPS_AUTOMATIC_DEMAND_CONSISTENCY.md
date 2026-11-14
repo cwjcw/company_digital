@@ -28,7 +28,7 @@ JSONB scope 使用字段语义比较，不依赖对象键顺序。临时失败�
 
 ## 周期检查与初次存量处理
 
-复用 MasterPlanSyncService.runDue 原一分钟检查器，未增加 n8n、Timer、cron 或第二个 interval。每次检查最多读取一页来源修改记录及一页历史有效来源；游标保留微秒时间和稳定 ID。每日历史复核可中断续跑，正常情况下优先增量，不反复全表扫描。
+复用 MasterPlanSyncService.runDue 原一分钟检查器，未增加 n8n、Timer、cron 或第二个 interval。每次优先检查一页已耗尽的历史失败来源，并读取一页来源修改记录及一页历史有效来源；游标保留微秒时间和稳定 ID。每日历史复核可中断续跑，正常情况下优先增量，不反复全表扫描。
 
 检查仅对不一致键生成幂等 Outbox。正式恢复与增量事件使用同一消费者。mps_consistency_checkpoints 记录扫描游标及发现/入队数量，Outbox/同步日志/异常记录提供核验、修复和待人工处理结果。
 
@@ -49,4 +49,4 @@ JSONB scope 使用字段语义比较，不依赖对象键顺序。临时失败�
 
 隔离验收：scripts/test-demand-consistency-postgres.cjs，以及同步可靠性和事业部变更 PostgreSQL 定向回归。
 
-隔离验收基线：22 项全链路合成场景、36 项可靠性、12 项事业部转移回归、105 项单元测试；类型检查与 API 构建通过。测试数据库仅使用 network-none PostgreSQL Unix socket。
+隔离验收基线：23 项全链路合成场景、36 项可靠性、12 项事业部转移回归、105 项单元测试；类型检查与 API 构建通过。测试数据库仅使用 network-none PostgreSQL Unix socket。
