@@ -144,5 +144,10 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
    const events=await db.query("SELECT id,scope_json FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND scope_json->'allocationKey'->>'orderNumber'=$2 AND status='PENDING' ORDER BY created_at",[tenant,routes.key.orderNumber]);assert.equal(events.length,3);assert(events.every(e=>e.scope_json.allocationKey&&e.scope_json.allocationKey.itemCode===routes.key.itemCode));
    for(const e of events)await sync.processOutboxEvent(tenant,e.id);assert.equal((await read(routes)).monthly.required_quantity,'11.0000');assert.deepEqual((await read(routes)).reasons,[]);
  });
+ await check('policy upgrade restarts the historical sweep exactly once and persists its next-page cursor',async()=>{
+  await db.query("UPDATE mps_consistency_checkpoints SET metrics=metrics-'policyVersion',sweep_id='ffffffff-ffff-ffff-ffff-ffffffffffff',last_sweep_at=now() WHERE tenant_id=$1",[tenant]);
+  const first=await sync.scanConsistencyPage(tenant,1);assert.equal(first.sweepRows,1);const [one]=await db.query('SELECT sweep_id,metrics FROM mps_consistency_checkpoints WHERE tenant_id=$1',[tenant]);assert.equal(one.metrics.policyVersion,'v2');
+  const second=await sync.scanConsistencyPage(tenant,1);assert.equal(second.sweepRows,1);const [two]=await db.query('SELECT sweep_id FROM mps_consistency_checkpoints WHERE tenant_id=$1',[tenant]);assert(two.sweep_id>one.sweep_id);
+ });
  console.log(JSON.stringify({passed:passed.length,checks:passed}));
 })().catch(e=>{console.error(e.stack||e);process.exitCode=1}).finally(async()=>{if(db?.isInitialized)await db.destroy()});
