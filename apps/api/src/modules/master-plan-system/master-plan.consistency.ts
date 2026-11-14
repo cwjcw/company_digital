@@ -65,7 +65,18 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
        AND o.superseded_by IS NULL AND isfinite(o.next_attempt_at) AND o.updated_at<clock_timestamp()-interval '6 hours'
        AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer WHERE newer.tenant_id=o.tenant_id
          AND newer.scope_json=o.scope_json AND (newer.created_at,newer.id)>(o.created_at,o.id)) ORDER BY o.updated_at,o.id LIMIT $2`,[tenant,limit]);
+   const historicalFailures=await m.query(`SELECT DISTINCT ON(a.order_number,a.item_code,a.division_id)
+       a.order_number,a.item_code,a.division_id FROM mps_reconciliation_outbox o JOIN mps_order_allocations a ON a.tenant_id=o.tenant_id
+       AND (a.id=o.record_id OR (a.order_number=o.scope_json#>>'{allocation,orderNumber}' AND a.item_code=o.scope_json#>>'{allocation,itemCode}' AND a.division_id::text=o.scope_json#>>'{allocation,divisionId}'))
+       WHERE o.tenant_id=$1 AND o.resource='mps-order-allocations' AND o.sync_key='plan-projections' AND o.status='FAILED'
+       AND (o.attempts>=10 OR NOT isfinite(o.next_attempt_at)) AND o.superseded_by IS NULL
+       AND a.archived_at IS NULL AND a.order_status='已审核' AND a.division_id IS NOT NULL
+       AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer WHERE newer.tenant_id=o.tenant_id
+         AND newer.resource='mps-demand-consistency' AND newer.created_at>=o.updated_at
+         AND newer.scope_json->'allocationKey'=jsonb_build_object('orderNumber',a.order_number,'itemCode',a.item_code,'divisionId',a.division_id::text))
+       ORDER BY a.order_number,a.item_code,a.division_id LIMIT $2`,[tenant,limit]);
    const keys=new Map<string,DemandKey>();
+   for(const a of historicalFailures){const key={orderNumber:a.order_number,itemCode:a.item_code,divisionId:String(a.division_id)};keys.set(demandKeyText(key),key);}
    const retries=new Map<string,string>();
    for(const row of exhausted)if(row.key?.orderNumber&&row.key?.itemCode&&row.key?.divisionId){keys.set(demandKeyText(row.key),row.key);retries.set(demandKeyText(row.key),row.id);}
    for(const a of [...changed,...sweep])if(a.division_id&&a.order_number&&a.item_code){const key={orderNumber:a.order_number,itemCode:a.item_code,divisionId:String(a.division_id)};keys.set(demandKeyText(key),key);}

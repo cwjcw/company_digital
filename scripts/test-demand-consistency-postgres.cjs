@@ -104,6 +104,14 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
   const [next]=await db.query("SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND scope_json=$2::jsonb AND id<>$3 ORDER BY created_at DESC LIMIT 1",[tenant,JSON.stringify({allocationKey:f.key}),old.id]);assert(next);
   await sync.processOutboxEvent(tenant,next.id);assert.deepEqual((await read(f)).reasons,[]);const [kept]=await db.query('SELECT status,superseded_by FROM mps_reconciliation_outbox WHERE id=$1',[old.id]);assert.equal(kept.status,'FAILED');assert.equal(kept.superseded_by,next.id);
  });
+ await check('legacy exhausted failures are prioritized without waiting for the historical sweep',async()=>{
+  const f=await fixture('LEGACY-PRIORITY',4,8);const old=await event(f,undefined,{status:'FAILED',attempts:10,last_error:'synthetic legacy'});
+  const [cp]=await db.query('SELECT source_updated_at::text cursor,source_id,sweep_id,last_sweep_at FROM mps_consistency_checkpoints WHERE tenant_id=$1',[tenant]);
+  await db.query("UPDATE mps_consistency_checkpoints SET source_updated_at=now()+interval '1 hour',last_sweep_at=now() WHERE tenant_id=$1",[tenant]);
+  await sync.scanConsistencyPage(tenant,100);const [next]=await db.query("SELECT id FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource='mps-demand-consistency' AND scope_json=$2::jsonb ORDER BY created_at DESC LIMIT 1",[tenant,JSON.stringify({allocationKey:f.key})]);assert(next);
+  await sync.processOutboxEvent(tenant,next.id);assert.deepEqual((await read(f)).reasons,[]);
+  await db.query('UPDATE mps_consistency_checkpoints SET source_updated_at=$2,source_id=$3,sweep_id=$4,last_sweep_at=$5 WHERE tenant_id=$1',[tenant,cp.cursor,cp.source_id,cp.sweep_id,cp.last_sweep_at]);
+ });
  await check('consistent reruns keep row versions, IDs and audits stable',async()=>{
   const before=await read(a),taskBefore=await tasks(a);assert.equal((await run(a)).status,'SUCCESS');const after=await read(a);assert.equal(before.monthly.version,after.monthly.version);assert.equal(before.bases[0].version,after.bases[0].version);assert.equal(before.weeks[0].version,after.weeks[0].version);assert.deepEqual(await tasks(a),taskBefore);
  });
