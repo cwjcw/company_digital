@@ -42,6 +42,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
       AND NOT EXISTS(SELECT 1 FROM mps_base_plans linked WHERE linked.tenant_id=j.tenant_id AND
         ((linked.monthly_plan_id=j.existing_id AND (linked.order_number,linked.item_code,linked.division_id,linked.customer_code)
           IS DISTINCT FROM (j.order_number,j.item_code,j.division_id,j.customer_code))
+        OR (linked.monthly_plan_id IS NULL AND (linked.order_number,linked.item_code,linked.division_id) IS NOT DISTINCT FROM (j.order_number,j.item_code,j.division_id) AND linked.customer_code IS NOT NULL AND linked.customer_code IS DISTINCT FROM j.customer_code)
         OR ((linked.order_number,linked.item_code,linked.division_id) IS NOT DISTINCT FROM (j.order_number,j.item_code,j.division_id)
           AND linked.monthly_plan_id IS NOT NULL AND linked.monthly_plan_id<>j.existing_id)))) recover_archived_source
   FROM joined j
@@ -52,7 +53,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
       AND NOT EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=j.tenant_id AND g.order_number=j.order_number
         AND g.customer_code IS NOT NULL AND g.customer_code IS DISTINCT FROM j.customer_code)
       AND j.enabled_division_id IS NOT NULL
-      AND (j.existing_id IS NULL OR j.archived_parent_matches OR j.active_parent_matches)) group_source_safe,
+      AND (j.existing_id IS NULL OR j.recover_archived_source OR j.active_parent_matches)) group_source_safe,
     CASE WHEN j.demand_parent_count>1 OR (j.demand_parent_id IS NOT NULL AND (j.existing_id IS NULL OR
         (j.existing_order_number,j.existing_item_code,j.existing_division_id) IS DISTINCT FROM (j.order_number,j.item_code,j.division_id))) THEN '显式需求父关系冲突，禁止文本回退'
       WHEN NOT j.valid OR j.customer_count<>1 THEN '分配客户或数量无效'

@@ -113,8 +113,9 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
       linksReady ? [tenantId,monthlyPlan.order_number,monthlyPlan.item_code,monthlyPlan.id] : [tenantId,monthlyPlan.order_number,monthlyPlan.item_code]);
     const conflictKey = `monthly-base:${monthlyPlan.id}`;
     const bases = allBases.filter(base => base.monthly_plan_id ? base.monthly_plan_id===monthlyPlan.id : base.division_id===monthlyPlan.division_id);
-    if (allBases.some(base => base.monthly_plan_id && ((base.monthly_plan_id===monthlyPlan.id && (base.order_number!==monthlyPlan.order_number || base.item_code!==monthlyPlan.item_code || base.division_id!==monthlyPlan.division_id)) || (base.division_id===monthlyPlan.division_id && base.monthly_plan_id!==monthlyPlan.id)))) throw new Error('显式需求父关系冲突，禁止文本回退');
-    if (bases.length>1 && bases.every(base=>base.monthly_plan_id===monthlyPlan.id)) {
+    const formalConflict=allBases.some(base => base.monthly_plan_id && ((base.monthly_plan_id===monthlyPlan.id && (base.order_number!==monthlyPlan.order_number || base.item_code!==monthlyPlan.item_code || base.division_id!==monthlyPlan.division_id)) || (base.division_id===monthlyPlan.division_id && base.monthly_plan_id!==monthlyPlan.id)));
+    const customerConflict=bases.some(base=>base.customer_code!=null&&monthlyPlan.customer_code!=null&&base.customer_code!==monthlyPlan.customer_code);
+    if (!formalConflict && !customerConflict && bases.length>1 && bases.every(base=>base.monthly_plan_id===monthlyPlan.id)) {
       const assigned=bases.reduce<Decimal>((sum,base)=>sum.add(base.planned_quantity),new Decimal(0));
       const delta=new Decimal(monthlyPlan.required_quantity).sub(assigned);
       unallocated=unallocated.add(Decimal.max(delta,0));overallocated=overallocated.add(Decimal.max(delta.negated(),0));
@@ -135,9 +136,9 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     const siblingMonthly:Row[]=allBases.some(base=>base.division_id!==monthlyPlan.division_id)?await manager.query(
       'SELECT division_id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3',[tenantId,monthlyPlan.order_number,monthlyPlan.item_code]):[];
     const unmatchedDivision=allBases.some(base=>base.division_id!==monthlyPlan.division_id&&!siblingMonthly.some(plan=>plan.division_id===base.division_id));
-    if (bases.length > 1 || unmatchedDivision) {
+    if (formalConflict || customerConflict || bases.length > 1 || unmatchedDivision) {
       conflicts++;
-      const reason = bases.length > 1 ? "多个历史批次尚未确认需求父关系，保留原记录" : "既有基础计划与月计划事业部不一致，保留原记录";
+      const reason = formalConflict ? "显式需求父关系冲突，禁止文本回退" : customerConflict ? "基础计划客户归属冲突，保留原记录" : bases.length > 1 ? "多个历史批次尚未确认需求父关系，保留原记录" : "既有基础计划与月计划事业部不一致，保留原记录";
       await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
         VALUES($1,$2,'mps-monthly-plans',$3::uuid,$4,'MONTHLY_BASE_CONFLICT','WARNING',$5,true,$6::uuid,$6::uuid)
         ON CONFLICT(tenant_id,exception_key) DO UPDATE SET message=excluded.message,active=true,resolved_at=NULL,

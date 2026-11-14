@@ -120,6 +120,16 @@ let db;const passed=[];const check=async(name,fn)=>{await fn();passed.push(name)
   assert.equal((await db.query('SELECT superseded_by FROM mps_reconciliation_outbox WHERE id=$1',[old.id]))[0].superseded_by,next.id);
   const retained=await fixture('RETIRED-RETAINED',4,8);await db.query('UPDATE mps_order_allocations SET archived_at=now() WHERE id=$1',[retained.active.id]);assert.equal((await run(retained)).status,'FAILED');const state=await read(retained);assert.equal(state.monthly.id,retained.monthly.id);assert(state.reasons.includes('没有可验证的有效分配来源'));assert.equal(state.monthly.required_quantity,'4.0000');
  });
+ await check('real conflict marks order rollup incomplete while its independent healthy sibling still progresses',async()=>{
+  const blocked=await fixture('SAME-ORDER-CONFLICT',4,8,{oldSourceQty:4});
+  await insert('mps_group_plans',{order_number:blocked.key.orderNumber,customer_code:'SYN-CUSTOMER',required_quantity:4,pending_quantity:4});
+  const source=await alloc(blocked.key.orderNumber,'SYN-HEALTHY-SIBLING',3);const healthy={active:source,key:{orderNumber:source.order_number,itemCode:source.item_code,divisionId:division}};
+  assert.equal((await run(healthy)).status,'FAILED');const state=await read(healthy);assert.equal(state.monthly.required_quantity,'3.0000');assert.equal(state.bases[0].planned_quantity,'3.0000');assert(state.reasons.includes('集团汇总来源存在未完成范围'));
+  assert.equal((await db.query('SELECT required_quantity FROM mps_group_plans WHERE tenant_id=$1 AND order_number=$2',[tenant,source.order_number]))[0].required_quantity,'4.0000');assert.equal((await read(blocked)).monthly.allocation_id,blocked.archived.id);
+ });
+ await check('manual base customer ownership is a permanent business conflict, not a transient retry loop',async()=>{
+  const f=await fixture('BASE-CUSTOMER',4,8);await db.query("UPDATE mps_base_plans SET customer_code='SYN-OTHER' WHERE id=$1",[f.base.id]);const event=await run(f);assert.equal(event.status,'FAILED');assert.equal(event.next_attempt_at,Infinity);const state=await read(f);assert.equal(state.monthly.allocation_id,f.archived.id);assert.equal(state.monthly.required_quantity,'4.0000');assert.equal(state.bases[0].customer_code,'SYN-OTHER');
+ });
  await check('consistent reruns keep row versions, IDs and audits stable',async()=>{
   const before=await read(a),taskBefore=await tasks(a);assert.equal((await run(a)).status,'SUCCESS');const after=await read(a);assert.equal(before.monthly.version,after.monthly.version);assert.equal(before.bases[0].version,after.bases[0].version);assert.equal(before.weeks[0].version,after.weeks[0].version);assert.deepEqual(await tasks(a),taskBefore);
  });
