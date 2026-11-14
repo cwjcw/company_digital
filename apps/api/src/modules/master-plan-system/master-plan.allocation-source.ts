@@ -27,13 +27,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
         IS NOT DISTINCT FROM (a.order_number,a.item_code,a.division_id,a.customer_code)) archived_parent_matches,
     (p.id IS NOT NULL AND parent.archived_at IS NULL
       AND (parent.order_number,parent.item_code,parent.division_id,parent.customer_code)
-        IS NOT DISTINCT FROM (a.order_number,a.item_code,a.division_id,a.customer_code)) active_parent_matches,
-    (p.id IS NOT NULL AND (coalesce(p.cumulative_inbound_quantity,0)>0 OR EXISTS(
-      SELECT 1 FROM mps_base_plans b JOIN mps_weekly_plans w ON w.tenant_id=b.tenant_id AND w.base_plan_id=b.id
-      WHERE b.tenant_id=p.tenant_id
-        AND (b.monthly_plan_id=p.id OR (b.monthly_plan_id IS NULL AND
-          (b.order_number,b.item_code,b.division_id) IS NOT DISTINCT FROM (p.order_number,p.item_code,p.division_id)))
-        AND mps_weekly_has_execution(w.tenant_id,w.id)))) has_execution
+        IS NOT DISTINCT FROM (a.order_number,a.item_code,a.division_id,a.customer_code)) active_parent_matches
   FROM allocations a LEFT JOIN organization_units o ON o.id=a.division_id AND o.enabled=true
   LEFT JOIN mps_monthly_plans p ON p.tenant_id=a.tenant_id AND (p.id=a.demand_parent_id::uuid OR (a.demand_parent_id IS NULL AND p.order_number=a.order_number
     AND p.item_code=a.item_code AND p.division_id IS NOT DISTINCT FROM a.division_id))
