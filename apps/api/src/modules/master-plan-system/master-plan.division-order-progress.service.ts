@@ -1,7 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
-import { mpsDivisionOrderProgressColumns, mpsDivisionOrderProgressFieldKeys, mpsDivisionOrderProgressResource, type MpsDivisionOrderProgressPage, type MpsDivisionOrderProgressRow } from "@kdos/contracts";
+import { normalizeKdosPageSize } from "../../common/pagination";
+import { SqlFilterCompiler } from "../../common/filtering/sql-filter.compiler";
+import type { TableFilterActor } from "../../common/filtering/table-filter.registry";
+import { mpsDivisionOrderProgressColumns, mpsDivisionOrderProgressFieldKeys, mpsDivisionOrderProgressResource, tablePermissionFieldsFor, type MpsDivisionOrderProgressPage, type MpsDivisionOrderProgressRow } from "@kdos/contracts";
 import { RdOrderBomReportQueryService } from "../rd/rd-order-bom-report.query.service";
 import { MASTER_PLAN_ERP_ADMISSION } from "./master-plan.erp-admission";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
@@ -12,7 +15,6 @@ export const MPS_DIVISION_ORDER_PROGRESS_CONFIGS = {
   fourth: { label: "事业四部", divisionId: "d23442f9-4862-4641-b4a7-c8d470bc56ea" }
 } as const;
 export type MpsDivisionReportCode = keyof typeof MPS_DIVISION_ORDER_PROGRESS_CONFIGS;
-const pageLimit = 500;
 export const mpsDivisionOrderProgressMaxExportRows = 50000;
 const processColumns = { welding: "welding_quantity", blank: "blank_quantity", surfaceTreatment: "surface_treatment_quantity", packaging: "packaging_quantity" } as const;
 const sortable: Record<string,string> = {
@@ -20,6 +22,12 @@ const sortable: Record<string,string> = {
   expectedShippingDate:"expected_shipping_date", orderQuantity:"order_quantity", reviewDueDate:"review_due_date",
   weldingQuantity:"welding_quantity", blankQuantity:"blank_quantity",
   surfaceTreatmentQuantity:"surface_treatment_quantity", packagingQuantity:"packaging_quantity", inboundQuantity:"inbound_quantity"
+};
+const filterExpressions: Record<string,string> = {
+  customerCode:"customer_code", orderNumber:"order_number", itemCode:"item_code", itemName:"item_name",
+  orderDate:"order_date", expectedShippingDate:"expected_shipping_date", orderQuantity:"order_quantity", reviewDueDate:"review_due_date",
+  weldingQuantity:"welding_quantity", blankQuantity:"blank_quantity", surfaceTreatmentQuantity:"surface_treatment_quantity", packagingQuantity:"packaging_quantity",
+  inboundQuantity:"CASE WHEN inbound_source_count=0 THEN 0::numeric WHEN inbound_verified THEN COALESCE(inbound_quantity,0) ELSE NULL END"
 };
 const dateParam = (value: unknown) => {
   if (value == null || value === "") return true;
@@ -31,6 +39,7 @@ type Query = {
   page?: unknown; pageSize?: unknown; search?: unknown; orderDateFrom?: unknown; orderDateTo?: unknown;
   shippingDateFrom?: unknown; shippingDateTo?: unknown; reviewDueFrom?: unknown; reviewDueTo?: unknown;
   incomplete?: unknown; processCode?: unknown; processStatus?: unknown; sortField?: unknown; sortOrder?: unknown;
+  filterGroup?: unknown; ids?: unknown;
 };
 
 @Injectable()
@@ -41,6 +50,12 @@ export class MasterPlanDivisionOrderProgressService {
     if (!hasMasterPlanPermission(actor, mpsDivisionOrderProgressResource, "read") || (action === "export" && !hasMasterPlanPermission(actor, mpsDivisionOrderProgressResource, "export"))) {
       throw new ForbiddenException("没有事业部订单生产进度报表权限");
     }
+  }
+
+  canReadFilterField(actor: TableFilterActor, field:string){
+    const principal:MasterPlanActor={tenantId:actor.tenantId,userId:actor.userId,username:actor.username??"",permissions:actor.permissions,
+      isSystemAdmin:actor.isSystemAdmin,moduleAdminCodes:actor.moduleAdminCodes,tableDataScopes:actor.tableDataScopes??[],requestId:"",source:"system"};
+    return hasMasterPlanFieldPermission(principal,mpsDivisionOrderProgressResource,field,"read");
   }
 
   metadata(actor: MasterPlanActor) {
@@ -56,6 +71,7 @@ export class MasterPlanDivisionOrderProgressService {
       if (input[key] != null && (typeof input[key] !== "string" || input[key].length > 200)) throw new BadRequestException("查询参数无效");
     }
     if (input.incomplete != null && !["true","false"].includes(String(input.incomplete))) throw new BadRequestException("未完成筛选条件无效");
+    if (input.ids != null && (!Array.isArray(input.ids) || !input.ids.length || input.ids.length > 5000 || input.ids.some(id => typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) throw new BadRequestException("选中记录范围无效");
     if (input.processCode != null && !Object.keys(processColumns).includes(String(input.processCode))) throw new BadRequestException("工序编码无效");
     if (input.processStatus != null && !["complete","incomplete"].includes(String(input.processStatus))) throw new BadRequestException("工序完成筛选无效");
     if (input.sortField != null && !Object.hasOwn(sortable,String(input.sortField))) throw new BadRequestException("排序字段无效");
@@ -64,12 +80,12 @@ export class MasterPlanDivisionOrderProgressService {
       if (input[from] && input[to] && String(input[from]) > String(input[to])) throw new BadRequestException("日期范围起止顺序无效");
     }
     const page = Math.max(1,Math.floor(Number(input.page)||1));
-    const pageSize = Math.min(pageLimit,Math.max(1,Math.floor(Number(input.pageSize)||100)));
+    const pageSize = normalizeKdosPageSize(input.pageSize);
     return { page,pageSize, search:String(input.search??"").trim(), orderDateFrom:input.orderDateFrom as string|undefined, orderDateTo:input.orderDateTo as string|undefined,
       shippingDateFrom:input.shippingDateFrom as string|undefined, shippingDateTo:input.shippingDateTo as string|undefined,
       reviewDueFrom:input.reviewDueFrom as string|undefined, reviewDueTo:input.reviewDueTo as string|undefined,
       incomplete:input.incomplete === "true", processCode:input.processCode as string|undefined, processStatus:input.processStatus as string|undefined,
-      sortField:String(input.sortField??"orderNumber"),sortOrder:String(input.sortOrder??"asc").toLowerCase() };
+      sortField:String(input.sortField??"orderNumber"),sortOrder:String(input.sortOrder??"asc").toLowerCase(),filterGroup:input.filterGroup,ids:input.ids as string[]|undefined };
   }
 
   private scope(actor: MasterPlanActor, params: unknown[], action: "read"|"export") {
@@ -81,6 +97,17 @@ export class MasterPlanDivisionOrderProgressService {
       }
     }
     return buildDataScopeClause({resource:mpsDivisionOrderProgressResource,actor,params,action,columns:{divisionId:"division_id",createdBy:"created_by"}});
+  }
+
+  /** Candidate requests use the approved allocation source and this report's existing data-scope rules. */
+  filterCandidateScope(actor: TableFilterActor, params: unknown[], action: "read"|"export" = "read") {
+    const principal: MasterPlanActor = { tenantId:actor.tenantId,userId:actor.userId,username:actor.username??"",permissions:actor.permissions,
+      isSystemAdmin:actor.isSystemAdmin,moduleAdminCodes:actor.moduleAdminCodes,tableDataScopes:actor.tableDataScopes??[],requestId:"",source:"system" };
+    this.assert(principal,action);
+    const scope=this.scope(principal,params,action);
+    params.push(MPS_DIVISION_ORDER_PROGRESS_CONFIGS.fourth.divisionId);
+    return `record.division_id=$${params.length}::uuid AND record.archived_at IS NULL AND record.order_status='已审核'
+      AND EXISTS(SELECT 1 FROM organization_units org WHERE org.id=record.division_id AND org.name='事业四部' AND org.enabled=true) AND (${scope})`;
   }
 
   private sourceCtes(actor: MasterPlanActor, divisionId: string, params: unknown[], action: "read"|"export") {
@@ -211,7 +238,13 @@ export class MasterPlanDivisionOrderProgressService {
     const readableFields=mpsDivisionOrderProgressFieldKeys.filter(key=>hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,key,"read"));
     if(readableFields.length!==mpsDivisionOrderProgressFieldKeys.length)throw new ForbiddenException("没有报表所需的字段查看权限");
     const params:unknown[]=[actor.tenantId],source=this.sourceCtes(actor,config.divisionId,params,action);
-    const where=this.filters(q,source.bind);
+    const businessWhere=this.filters(q,source.bind);
+    const compiler=new SqlFilterCompiler(tablePermissionFieldsFor(mpsDivisionOrderProgressResource),filterExpressions,
+      key=>hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,key,"read"));
+    const advancedWhere=compiler.compile(q.filterGroup,params);
+    const selectedWhere=q.ids?.length?`id=ANY(${source.bind(q.ids)}::uuid[])`:"true";
+    const clauses=[businessWhere.replace(/^WHERE\s+/i,""),advancedWhere,selectedWhere].filter(part=>part&&part!=="true");
+    const where=clauses.length?`WHERE ${clauses.map(part=>`(${part})`).join(" AND ")}`:"";
     const orderColumn=sortable[q.sortField]??"order_number",direction=q.sortOrder==="desc"?"DESC":"ASC";
     const limit=source.bind(q.pageSize),offset=source.bind((q.page-1)*q.pageSize);
     const sql=`WITH ${source.ctes}, filtered AS MATERIALIZED (SELECT * FROM fact_rows ${where}),

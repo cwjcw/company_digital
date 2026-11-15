@@ -1,5 +1,5 @@
 import { ForbiddenException } from "@nestjs/common";
-import { mpsDivisionOrderProgressColumns, mpsDivisionOrderProgressResource, tableResourceRegistry, tablePermissionFieldsFor } from "@kdos/contracts";
+import { mpsDivisionOrderProgressColumns, mpsDivisionOrderProgressResource, tableFilterResourceCapabilities, tableResourceRegistry, tablePermissionFieldsFor } from "@kdos/contracts";
 import { MasterPlanDivisionOrderProgressService } from "./master-plan.division-order-progress.service";
 import type { MasterPlanActor } from "./master-plan.types";
 
@@ -27,6 +27,7 @@ describe("事业部订单生产进度报表",()=>{
   });
   it("registers the exact 16-column read-only report under PMC",()=>{
     expect(tableResourceRegistry.find(r=>r.code===mpsDivisionOrderProgressResource)).toMatchObject({label:"事业部订单生产进度报表",moduleCode:"planning"});
+    expect(tableFilterResourceCapabilities[mpsDivisionOrderProgressResource]).toEqual({status:"REGISTERED_AND_FILTERABLE"});
     expect(mpsDivisionOrderProgressColumns.map(([,label])=>label)).toEqual(["客户代码","订单单号","品号","品名","下单日期","预计发货日期","订单数量","生管评审交期","图纸","物料齐套","下料","焊接","毛坯","表面处理","包装","入库"]);
     expect(tablePermissionFieldsFor(mpsDivisionOrderProgressResource)).toHaveLength(16);
   });
@@ -48,6 +49,26 @@ describe("事业部订单生产进度报表",()=>{
     bomResolver.resolveBomStatuses.mockResolvedValueOnce({statuses:new Map(),warning:"E10 unavailable"});
     const result=await service.page("fourth",{},actor);
     expect(result.rows[0]?.drawing).toBe("N");
+  });
+  it("applies typed FilterGroup to the same server-side report WHERE used for count and rows",async()=>{
+    const filterGroup={logic:"AND",rules:[{field:"orderQuantity",operator:"gte",value:"1000"}],groups:[{logic:"OR",rules:[{field:"weldingQuantity",operator:"lt",value:"1200"},{field:"reviewDueDate",operator:"eq",value:"2026-11-01"}]}]};
+    await service.page("fourth",{filterGroup},actor);
+    const calls=transactions[0]!.mock.calls;
+    const sql=String(calls.map(call=>call[0]).find(value=>String(value).includes("SELECT (SELECT count(*)::int FROM filtered)")));
+    expect(sql).toContain("order_quantity::text");expect(sql).toContain("welding_quantity::text");expect(sql).toContain("review_due_date::date");
+    expect(sql.match(/FROM filtered/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(calls.find(call=>String(call[0]).includes("SELECT (SELECT count(*)::int FROM filtered)"))?.[1]).toContain("1000");
+  });
+  it("keeps standard pagination and sort server-side with the validated report sort map",async()=>{
+    const result=await service.page("fourth",{page:2,pageSize:50,sortField:"orderQuantity",sortOrder:"desc"},actor);
+    expect(result).toMatchObject({page:2,pageSize:50});
+    const sql=String(transactions[0]!.mock.calls.map(call=>call[0]).find(value=>String(value).includes("SELECT (SELECT count(*)::int FROM filtered)")));
+    expect(sql).toContain("ORDER BY order_quantity DESC NULLS LAST,order_number,item_code,id");
+  });
+  it("rejects non-filterable derived BOM status and invalid page sizes use platform defaults",async()=>{
+    await expect(service.page("fourth",{filterGroup:{logic:"AND",rules:[{field:"drawing",operator:"contains",value:"Y"}]}},actor)).rejects.toThrow("不支持筛选");
+    const result=await service.page("fourth",{pageSize:37},actor);
+    expect(result.pageSize).toBe(100);
   });
   it("rejects missing report permission and validates dates, process codes, sorting and page inputs",async()=>{
     await expect(service.page("fourth",{}, {...actor,permissions:[]})).rejects.toBeInstanceOf(ForbiddenException);

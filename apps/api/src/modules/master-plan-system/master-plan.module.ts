@@ -34,12 +34,13 @@ import { MasterPlanExceptionNotificationInternalController } from "./master-plan
 import { MasterPlanDivisionOrderProgressService } from "./master-plan.division-order-progress.service";
 import { MasterPlanDivisionOrderProgressExportService } from "./master-plan.division-order-progress-export.service";
 import { MasterPlanDivisionOrderProgressController } from "./master-plan.division-order-progress.controller";
+import { MasterPlanDivisionOrderProgressFilterSource } from "./master-plan.division-order-progress.filter-source";
 import { RdModule } from "../rd/rd.module";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ApiKey, User]), OrganizationDirectoryModule, TableFilterModule, NotificationsModule, RdModule],
   controllers: [MasterPlanBomProcessController, ReviewDueDateController, MasterPlanOrderProgressController, MasterPlanDivisionOrderProgressController, MasterPlanController, MasterPlanDashboardController, MasterPlanExceptionNotificationInternalController],
-  providers: [MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDivisionOrderProgressService, MasterPlanDivisionOrderProgressExportService, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanExceptionNotificationService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
+  providers: [MasterPlanDemandQuantityService, MasterPlanDemandLinkService, MasterPlanLifecycleService, KejiaBomReader, MasterPlanBomProcessService, ReviewDueDateImportApplicationService,ReviewDueDateQueryService, ReviewDueDateApplicationService, MasterPlanOrderProgressService, MasterPlanOrderProgressExportService, MasterPlanDivisionOrderProgressService, MasterPlanDivisionOrderProgressExportService, MasterPlanDivisionOrderProgressFilterSource, MasterPlanDashboardService, MasterPlanDashboardExportService, OrderAllocationConfigService, AuthGuard, MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService, MasterPlanExceptionNotificationService, MasterPlanSpreadsheetService, MasterPlanWorkOrderService, MasterPlanFilterSourceProvider],
   exports: [MasterPlanApplicationService, MasterPlanQueryService, MasterPlanSyncService]
 })
 export class MasterPlanSystemModule {}

@@ -308,7 +308,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false]
   ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
-  [mpsDivisionOrderProgressResource]: mpsDivisionOrderProgressColumns.map(([key,label]) => ({ key, label, type: /Date$/.test(key) ? "date" as const : /Quantity$|orderQuantity/.test(key) ? "number" as const : "text" as const, editable: false })),
+  [mpsDivisionOrderProgressResource]: mpsDivisionOrderProgressColumns.map(([key,label]) => ({ key, label, type: /Date$/.test(key) ? "date" as const : /Quantity$|orderQuantity/.test(key) ? "number" as const : "text" as const, editable: false, ...(["drawing", "materialReady", "cutting"].includes(key) ? { filterable: false } : {}) })),
   "rd-order-bom-report": rdOrderBomReportFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
@@ -948,7 +948,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
   "mps-order-progress-dashboard": { status: "NOT_APPLICABLE", reason: "在制订单进度为订单/品号分层聚合报表，使用独立分页查询和受控顶部筛选，不对应单一记录表。" },
-  [mpsDivisionOrderProgressResource]: { status: "NOT_APPLICABLE", reason: "事业部订单生产进度报表通过专用Query Service按分配主表分页和筛选，不使用通用TableFilter记录接口。" },
+  [mpsDivisionOrderProgressResource]: { status: "REGISTERED_AND_FILTERABLE" },
   "mps-overview-dashboard": { status: "NOT_APPLICABLE", reason: "主计划综合大屏为多资源聚合驾驶舱，不存在单一记录表，不直接使用标准 TableFilter rows 接口。" },
   "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
   /* 上传即算即走 / 纯任务型资源：没有可持久化查询的业务记录表。 */
