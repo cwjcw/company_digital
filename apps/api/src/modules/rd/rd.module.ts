@@ -13,5 +13,5 @@ import { RdOrderBomReader } from "../../integrations/e10/rd-order-bom.reader";
 import { RdOrderBomReportQueryService } from "./rd-order-bom-report.query.service";
 import { RdBomMasterIndexSyncService } from "./rd-bom-master-index-sync.service";
 
-@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdHistoryScanService, RdE10Reader, RdQueryService, RdFilterSourceProvider, RdOrderBomReader, RdOrderBomReportQueryService, RdBomMasterIndexSyncService], exports: [RdApplicationService, RdQueryService, RdHistoryScanService, RdBomMasterIndexSyncService] })
+@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdHistoryScanService, RdE10Reader, RdQueryService, RdFilterSourceProvider, RdOrderBomReader, RdOrderBomReportQueryService, RdBomMasterIndexSyncService], exports: [RdApplicationService, RdQueryService, RdHistoryScanService, RdBomMasterIndexSyncService, RdOrderBomReportQueryService] })
 export class RdModule {}

@@ -1,0 +1,5 @@
+.mps-division-order-progress{display:flex;flex-direction:column;gap:12px;width:100%;max-width:1880px;margin:0 auto;min-width:0}
+.mps-division-order-progress .ant-card{min-width:0}
+.mps-division-order-progress-filters{margin-bottom:12px;max-width:100%}
+.mps-division-progress-number{font-variant-numeric:tabular-nums}
+.mps-division-progress-number.is-complete{color:#237804;font-weight:600}

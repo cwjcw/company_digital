@@ -81,6 +81,38 @@ function readable(actor: TableFilterActor, key: string) {
 export class RdOrderBomReportQueryService {
   constructor(private readonly dataSource: DataSource, private readonly registry: TableFilterRegistry, private readonly e10: RdOrderBomReader) {}
 
+  /** Internal read-model adapter for other reports. It uses the exact same E10 ITEM identity,
+   * approved-head generation and matcher as the public BOM report. Missing/stale source state
+   * remains unverified (null); callers must never convert it to NO_BOM. */
+  async resolveBomStatuses(itemCodes: string[], tenantId: string): Promise<{ statuses: Map<string, "HAS_BOM" | "NO_BOM" | null>; warning: string | null }> {
+    const codes = [...new Set(itemCodes.map(value => String(value ?? "").trim()).filter(Boolean))];
+    if (!codes.length) return { statuses: new Map(), warning: null };
+    const empty = () => new Map(codes.map(code => [code, null] as const));
+    try {
+      const snapshot = await this.e10.read(codes);
+      const itemIds = [...new Set(snapshot.items.filter(item => codes.includes(item.item_code)).map(item => item.item_id))];
+      const index = await this.dataSource.transaction("REPEATABLE READ", async manager => {
+        await manager.query("SET TRANSACTION READ ONLY");
+        await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
+        const [state] = await manager.query(`SELECT active_generation::text "activeGeneration",last_success_at "lastSuccessAt",last_status "lastStatus",last_error_code "lastErrorCode"
+          FROM rd_bom_sync_state WHERE tenant_id=$1`, [tenantId]);
+        if (!state?.activeGeneration || !state.lastSuccessAt) return { heads: [] as LocalBomHead[], warning: "BOM索引尚无可验证的成功快照" };
+        const heads: LocalBomHead[] = itemIds.length ? await manager.query(`SELECT source_bom_id::text bom_id,item_id::text,item_code,version_times,approve_status,
+          approve_date::text approved_at,create_date::text created_at,modified_date::text modified_at,last_modified_date::text "last_modified_at"
+          FROM rd_bom_master_heads WHERE tenant_id=$1 AND generation_id=$2::uuid AND item_id=ANY($3::uuid[]) AND approve_status='Y'`,
+        [tenantId,state.activeGeneration,itemIds]) : [];
+        const age=Date.now()-new Date(state.lastSuccessAt).getTime();
+        const warning=state.lastStatus!=="SUCCESS"||!Number.isFinite(age)||age>36*60*60*1000
+          ? "BOM数据使用最近一次成功快照，存在同步异常或快照过期；未核验的品项保持空值。" : null;
+        return { heads, warning };
+      });
+      const match=createBomMatcher(snapshot,index.heads);
+      return { statuses:new Map(codes.map(code=>[code,match(code).status] as const)), warning:index.warning };
+    } catch {
+      return { statuses:empty(), warning:"BOM来源暂不可用，图纸状态显示为未核验。" };
+    }
+  }
+
   onModuleInit() {
     const source: TableFilterSource = {
       code: rdOrderBomReportResource, table: 'mps_order_allocations', columns: allocationColumns, fields: rdOrderBomReportFields,

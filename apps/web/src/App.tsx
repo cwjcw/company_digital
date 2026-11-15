@@ -2,6 +2,7 @@ import { LogisticsLedgerPage } from "./modules/marketing/LogisticsLedgerPage";
 import { FinanceMovements } from './modules/finance/FinanceMovements';
 import { ReviewDueDates } from './modules/master-plan-system/ReviewDueDates';
 import { MasterPlanDashboardDestination } from "./modules/master-plan-system/MasterPlanDashboardDestination";
+import { MasterPlanDivisionOrderProgress } from "./modules/master-plan-system/MasterPlanDivisionOrderProgress";
 import { MasterPlanDashboard } from "./modules/master-plan-system/MasterPlanDashboard";
 import { FinanceOrderTable, FinanceOrderDashboard } from './modules/finance/FinanceOrders';
 import './modules/finance/finance-orders.css';
@@ -185,6 +186,7 @@ function Shell({ logout }: { logout: () => void }) {
   if (location.pathname.startsWith("/permissions/") && !canManagePermissionResource) return <Navigate to="/" replace />;
   if (location.pathname === "/master-plan-order-progress" && !hasSessionResourcePermission(user, "mps-order-progress-dashboard", "read")) return <Navigate to="/" replace />;
   if (["/master-plan-dashboard", "/master-plan-gaps", "/master-plan-reports"].includes(location.pathname) && !hasSessionResourcePermission(user, "mps-overview-dashboard", "read")) return <Navigate to="/" replace />;
+  if (location.pathname === "/pmc/division-order-progress/fourth" && !hasSessionResourcePermission(user, "mps-division-order-progress", "read")) return <Navigate to="/" replace />;
   if (location.pathname === reportPath && !canReadPmcProgress) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/bom-report" && !canReadRdOrderBom) return <Navigate to="/" replace />;
@@ -204,7 +206,8 @@ function Shell({ logout }: { logout: () => void }) {
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const pmcReports = [
     ...reportNavigation(user).flatMap(group => group.children).map(entry => ({ ...entry, icon: <ReadOutlined /> })),
-    ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-reports", icon: <ReadOutlined />, label: "PMC分析明细报表" }] : [])
+    ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-reports", icon: <ReadOutlined />, label: "PMC分析明细报表" }] : []),
+    ...(hasSessionResourcePermission(user, "mps-division-order-progress", "read") ? [{ key: "pmc-division-order-progress", icon: <FolderOpenOutlined />, label: "事业部订单生产进度报表", children: [{ key: "/pmc/division-order-progress/fourth", icon: <ReadOutlined />, label: "事业四部" }] }] : [])
   ];
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
@@ -315,7 +318,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/project-task/supervision/project-dashboard": "项目管理大屏", "/project-task/supervision/my-tasks": "员工待办大屏",
       "/project-task/supervision/owner-report": "责任人任务完成报表", "/project-task/supervision/projects": "项目管理",
       "/project-task/supervision/tasks": "任务管理", "/project-task/order-projects": "订单项目管理",
-      "/master-plan-gaps": "待处理事项大屏", "/master-plan-reports": "PMC分析明细报表", "/master-plan-dashboard": "PMC综合驾驶舱", "/master-plan-order-progress": "在制订单进度",
+      "/master-plan-gaps": "待处理事项大屏", "/master-plan-reports": "PMC分析明细报表", "/master-plan-dashboard": "PMC综合驾驶舱", "/master-plan-order-progress": "在制订单进度", "/pmc/division-order-progress/fourth": "事业四部订单生产进度报表",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
@@ -365,6 +368,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/master-plan-order-progress" element={<MasterPlanDashboardDestination kind="orders" />} />
           <Route path="/master-plan-gaps" element={<MasterPlanDashboardDestination kind="gaps" />} />
           <Route path="/master-plan-reports" element={<MasterPlanDashboardDestination kind="reports" />} />
+          <Route path="/pmc/division-order-progress/fourth" element={<MasterPlanDivisionOrderProgress />} />
           <Route path="/master-plan-dashboard" element={<MasterPlanDashboard />} />
           <Route path="/equipment-dashboard" element={<EquipmentDashboardPage />} />
           <Route path="/equipment-register" element={<EquipmentRegisterPage />} />

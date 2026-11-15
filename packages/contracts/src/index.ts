@@ -7,6 +7,8 @@ export * from "./logistics";
 import { financeMovementFields } from './finance-movements';
 export * from './finance-movements';
 import { mpsOrderProgressOrderColumns, mpsOrderProgressItemColumns, mpsOrderProgressProcessFields } from "./master-plan-order-progress";
+import { mpsDivisionOrderProgressColumns, mpsDivisionOrderProgressResource } from "./master-plan-division-order-progress";
+export * from "./master-plan-division-order-progress";
 import { auxiliaryPlanGroups, mpsDashboardOrderMetrics, mpsDashboardPlanMetrics, mpsDashboardGaps } from "./master-plan-dashboard";
 import { financeOrderFields, financeMonthlyFields, financeMonthlyFilterFields, financeRankingFields } from './finance-orders';
 export * from './finance-orders';
@@ -156,6 +158,7 @@ export const tableResourceRegistry = [
   { code: "knowledge-spaces", label: "知识空间", module: "知识库", moduleCode: "knowledge" },
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
+  { code: mpsDivisionOrderProgressResource, label: "事业部订单生产进度报表", module: "PMC中心", moduleCode: "planning" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
   { code: "rd-order-bom-report", label: "订单 BOM 报表", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
@@ -305,6 +308,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false]
   ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
+  [mpsDivisionOrderProgressResource]: mpsDivisionOrderProgressColumns.map(([key,label]) => ({ key, label, type: /Date$/.test(key) ? "date" as const : /Quantity$|orderQuantity/.test(key) ? "number" as const : "text" as const, editable: false })),
   "rd-order-bom-report": rdOrderBomReportFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
@@ -944,6 +948,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   /* 聚合大屏：只读聚合视图，没有可筛选的业务记录行。 */
   "sales-summary-dashboard": { status: "NOT_APPLICABLE", reason: "销售接单汇总大屏为按周期聚合的只读大屏，没有独立业务记录行，筛选语义不适用。" },
   "mps-order-progress-dashboard": { status: "NOT_APPLICABLE", reason: "在制订单进度为订单/品号分层聚合报表，使用独立分页查询和受控顶部筛选，不对应单一记录表。" },
+  [mpsDivisionOrderProgressResource]: { status: "NOT_APPLICABLE", reason: "事业部订单生产进度报表通过专用Query Service按分配主表分页和筛选，不使用通用TableFilter记录接口。" },
   "mps-overview-dashboard": { status: "NOT_APPLICABLE", reason: "主计划综合大屏为多资源聚合驾驶舱，不存在单一记录表，不直接使用标准 TableFilter rows 接口。" },
   "equipment-dashboard": { status: "NOT_APPLICABLE", reason: "集团设备大屏为按事业部/周期聚合的只读指标视图，没有独立业务记录行。" },
   /* 上传即算即走 / 纯任务型资源：没有可持久化查询的业务记录表。 */
@@ -990,6 +995,7 @@ const printNotApplicable: Record<string, string> = {
   "supervision-employee-dashboard": "员工待办大屏是当前用户的实时工作视图，任务明细通过督办任务资源打印。",
   "supervision-owner-report": "责任人完成报表是按用户和周期实时聚合结果，本阶段不生成独立打印快照，具体任务通过一致下钻查看。",
   "mps-order-progress-dashboard": "在制订单进度为分层聚合报表，本轮提供两类独立Excel导出，不生成打印快照。",
+  [mpsDivisionOrderProgressResource]: "事业部订单生产进度为只读实时聚合报表，使用专用分页和Excel服务，不提供标准打印快照。",
   "mps-overview-dashboard": "主计划综合大屏为多资源聚合视图，正式业务明细复用原资源，不提供大屏打印。",
   "equipment-dashboard": "集团设备大屏是聚合指标视图，不是记录列表，打印无业务意义。",
   "hr-departure-check": "离职人员检查是上传花名册后即时比对的结果页，数据不落库，没有可打印的持久记录集合。",
@@ -1082,14 +1088,20 @@ const excelSharedResources = new Set([
   "mps-customer-divisions", "mps-process-cycles", "mps-division-process-configs", "mps-item-process-routes",
   "mps-external-process-mappings", "mps-shipping-plans", "mps-base-plans", "mps-material-reports"
 ]);
+const excelSpecializedReadOnlyResources: Record<string,string> = {
+  [mpsDivisionOrderProgressResource]: "事业部订单生产进度报表复用只读订单、计划、报工、BOM及入库事实，专用服务端Excel导出继承读取/导出权限与过滤；不存在人工新增或更新模板。"
+};
 
 export const tableExcelResourceCapabilities: Record<string, TableExcelResourceCapability> = Object.fromEntries(
   tableResourceRegistry.map((resource) => {
     const code = resource.code as string;
     const notApplicable = excelNotApplicableReasons[code];
+    const specializedReadOnly = excelSpecializedReadOnlyResources[code];
     const specialized = excelSpecializedResources.has(code);
     const shared = excelSharedResources.has(code);
-    const capability: TableExcelResourceCapability = notApplicable
+    const capability: TableExcelResourceCapability = specializedReadOnly
+      ? { status: "SPECIALIZED", normalExport: "SPECIALIZED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: specializedReadOnly }
+      : notApplicable
       ? { status: "NOT_APPLICABLE", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: notApplicable }
       : specialized
         ? { status: "SPECIALIZED", normalExport: "SHARED", createTemplate: "SPECIALIZED", updateTemplate: "SPECIALIZED", excelCreate: "SPECIALIZED", excelUpdate: "SPECIALIZED", identityVersionContract: "SPECIALIZED_IDENTITY", reason: "该资源依赖业务专属身份、状态或写入规则，当前共享模板不覆盖；需在保留原Application Command的前提下单独接入并验收。" }
