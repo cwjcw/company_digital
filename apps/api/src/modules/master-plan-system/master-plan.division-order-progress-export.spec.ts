@@ -8,7 +8,7 @@ const row={id:"allocation-id",customerCode:"0001",orderNumber:"0000123",itemCode
 
 describe("事业部订单生产进度Excel导出",()=>{
   it("exports the exact 16 columns, textual identifiers, one-decimal number format and audits the download",async()=>{
-    const report={assert:jest.fn(),page:jest.fn(async()=>({rows:[row],total:1,page:1,pageSize:500}))};
+    const report={assert:jest.fn(),page:jest.fn(async()=>({rows:[row,{...row,id:"allocation-no-bom",drawing:"N",bomStatus:"NO_BOM"}],total:2,page:1,pageSize:500}))};
     const application={recordDivisionOrderProgressExport:jest.fn(async()=>undefined)};
     const service=new MasterPlanDivisionOrderProgressExportService(report as never,application as never);
     const file=await service.export({search:"0000123"},actor);
@@ -18,8 +18,9 @@ describe("事业部订单生产进度Excel导出",()=>{
     expect(sheet.getCell("B2").value).toBe("0000123");expect(sheet.getCell("C2").value).toBe("0000456");
     expect(sheet.getCell("G2").numFmt).toBe("0.0");expect(sheet.getCell("L2").value).toBe(1199.96);
     expect(sheet.getCell("N2").font?.color).toMatchObject({argb:"FF237804"});
+    expect(sheet.getCell("I2").value).toBe("Y");expect(sheet.getCell("I3").value).toBe("N");
     expect(report.assert).toHaveBeenCalledWith(actor,"export");
     expect(report.page).toHaveBeenCalledWith("fourth",expect.objectContaining({search:"0000123",page:1,pageSize:500}),actor,"export");
-    expect(application.recordDivisionOrderProgressExport).toHaveBeenCalledWith({rowCount:1,fields:mpsDivisionOrderProgressColumns.map(([key])=>key)},actor);
+    expect(application.recordDivisionOrderProgressExport).toHaveBeenCalledWith({rowCount:2,fields:mpsDivisionOrderProgressColumns.map(([key])=>key)},actor);
   });
 });
