@@ -14,7 +14,7 @@ export const mpsDivisionOrderProgressFieldKeys = mpsDivisionOrderProgressColumns
 export type MpsDivisionOrderProgressField = typeof mpsDivisionOrderProgressColumns[number][0];
 export type MpsDivisionOrderProgressRow = Record<MpsDivisionOrderProgressField, string | null> & {
   id: string;
-  bomStatus?: "HAS_BOM" | "NO_BOM" | null;
+  bomStatus?: "HAS_BOM" | "NO_BOM";
   weldingComplete?: boolean;
   blankComplete?: boolean;
   surfaceTreatmentComplete?: boolean;
@@ -24,11 +24,13 @@ export type MpsDivisionOrderProgressRow = Record<MpsDivisionOrderProgressField, 
   cuttingHint?: string;
   inboundVerified?: boolean;
   reviewDueTooltip?: string | null;
+  orderDateTooltip?: string | null;
+  shippingDateTooltip?: string | null;
 };
 export type MpsDivisionOrderProgressPage = {
   rows: MpsDivisionOrderProgressRow[];
   total: number;
   page: number;
   pageSize: number;
-  diagnostics: { basePlanUnlinked: number; baseDueDateMissing: number; processUnlinked: number; inboundUnverified: number; bomUnverified: boolean };
+  diagnostics: { basePlanUnlinked: number; baseDueDateMissing: number; processUnlinked: number; inboundUnverified: number };
 };

@@ -6,10 +6,10 @@ import type { E10BomBundle } from '../../modules/rd/rd-order-bom-report.calculat
 @Injectable()
 export class RdOrderBomReader {
   private cache = new Map<string, { expiresAt: number; value: E10BomBundle }>();
-  async read(itemCodes: string[]): Promise<E10BomBundle> {
+  async read(itemCodes: string[], includeBomHeads = false): Promise<E10BomBundle> {
     const codes = [...new Set(itemCodes.map(code => code.trim()).filter(Boolean))].sort();
     if (codes.length > 10000) throw new Error('E10品项核验超过单次读取上限，请缩小筛选范围');
-    const key = codes.join('\u001f'), cached = this.cache.get(key);
+    const key = `${includeBomHeads ? 'bom-heads' : 'items-only'}\u001e${codes.join('\u001f')}`, cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     const script = process.env.RD_ORDER_BOM_E10_READER ?? path.resolve(process.cwd(), '../../data-operations/e10/rd_order_bom_reader.py');
     const python = process.env.RD_E10_PYTHON ?? '/data/automation/code/work/basci/basic_code/.venv/bin/python';
@@ -27,11 +27,11 @@ export class RdOrderBomReader {
         if (code !== 0) return fail(new Error(`E10品项只读查询失败${error ? `：${error}` : ''}`));
         try {
           const result = JSON.parse(output) as E10BomBundle;
-          if (!result.sourceSnapshotAt || !Array.isArray(result.items)) throw new Error('E10品项核验结果契约无效');
+          if (!result.sourceSnapshotAt || !Array.isArray(result.items) || !Array.isArray(result.boms)) throw new Error('E10品项及BOM核验结果契约无效');
           settled = true; resolve(result);
         } catch (reason) { fail(reason instanceof Error ? reason : new Error('E10品项核验结果解析失败')); }
       });
-      child.stdin.on('error', fail); child.stdin.end(JSON.stringify(codes));
+      child.stdin.on('error', fail); child.stdin.end(JSON.stringify({ itemCodes: codes, includeBomHeads }));
     });
     this.cache.set(key, { value, expiresAt: Date.now() + 60_000 });
     if (this.cache.size > 20) for (const [cacheKey, entry] of this.cache) if (entry.expiresAt <= Date.now() || this.cache.size > 20) this.cache.delete(cacheKey);

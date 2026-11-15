@@ -2,7 +2,8 @@
  * 1900-01-01 is a real stored value and must not be erased by a shared parser. */
 export type E10BomItem = { item_id: string; item_code: string; item_name?: string | null };
 export type E10BomHead = { bom_id: string; item_id: string; item_code?: string | null; version_times: string | null; approve_status: string | null; approved_at: string | null; created_at?: string | null; modified_at?: string | null; last_modified_at?: string | null };
-export type E10BomBundle = { items: E10BomItem[]; sourceSnapshotAt: string };
+export type E10BomCandidate = { bom_id: string; item_id: string; approve_status: string | null };
+export type E10BomBundle = { items: E10BomItem[]; boms: E10BomCandidate[]; sourceSnapshotAt: string };
 export type LocalBomHead = E10BomHead;
 export type BomReportState = { status: "HAS_BOM" | "NO_BOM" | null; approvalDate: string | null };
 const normalizeItemId = (value: string) => value.trim().toLowerCase();

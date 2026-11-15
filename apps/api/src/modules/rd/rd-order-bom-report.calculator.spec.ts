@@ -2,7 +2,7 @@ import { dateOnly, matchE10Bom, naturalDayDifference, orderBomStatus, reliableAp
 
 const itemId='11111111-1111-4111-8111-111111111111';
 const bomId='22222222-2222-4222-8222-222222222222';
-const items: E10BomBundle={sourceSnapshotAt:'2026-11-10 01:00:00',items:[{item_id:itemId,item_code:'WHK472-1/1',item_name:'样件'}]};
+const items: E10BomBundle={sourceSnapshotAt:'2026-11-10 01:00:00',items:[{item_id:itemId,item_code:'WHK472-1/1',item_name:'样件'}],boms:[]};
 const approved: LocalBomHead={bom_id:bomId,item_id:itemId,item_code:'WHK472-1/1',version_times:'1',approve_status:'Y',approved_at:'2026-01-31 19:32:12.552702'};
 
 describe('R&D BOM report final matching and aggregation rules',()=>{

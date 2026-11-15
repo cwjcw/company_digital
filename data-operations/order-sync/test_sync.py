@@ -1,6 +1,7 @@
 import sys
 import json
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,29 @@ HERE = Path(__file__).parent
 
 
 class IncrementalCursorTests(unittest.TestCase):
+    def test_tplus_receipt_can_trace_sales_order_through_manufacture_order(self):
+        source = SimpleNamespace(adapter="tplus")
+        _, _, sql = sync.init_sql(source, "inbound_detail")
+
+        self.assertIn("dbo.MP_ManufactureOrder m ON m.ID=d.ManufactureOrderId", sql)
+        self.assertIn("dbo.SA_SaleOrder mo_h ON mo_h.ID=m.saleOrderId", sql)
+        self.assertIn("COALESCE(direct_h.ID,mo_h.ID,code_h.ID)", sql)
+        self.assertIn("exact_d.idinventory=d.idinventory", sql)
+        self.assertIn("ISNULL(r.isCancel,0)", sql)
+        self.assertIn("TPLUS_MANUFACTURE_ORDER_SALE_ORDER", sql)
+        self.assertIn("m.code manufacturing_order_code", sql)
+
+    def test_tplus_receipt_projection_preserves_cancellation_and_signed_quantity(self):
+        source = SimpleNamespace(adapter="tplus", system="T+", database="synthetic")
+        cancelled = sync.record(source, "inbound_detail", "ST_RDRecord_b", {
+            "source_id": 1, "quantity": Decimal("-2.5"), "is_cancelled": 1,
+            "status_code": "189", "link_stable": 0, "link_rule": "TPLUS_UNRESOLVED",
+        })
+
+        self.assertTrue(cancelled["isCancelled"])
+        self.assertEqual(cancelled["quantity"], "-2.5")
+        self.assertEqual(cancelled["linkRule"], "TPLUS_UNRESOLVED")
+
     def test_e10_uses_microsecond_precision_everywhere(self):
         source = SimpleNamespace(adapter="e10")
         _, _, sql = sync.incremental_sql(source, "outbound_detail")

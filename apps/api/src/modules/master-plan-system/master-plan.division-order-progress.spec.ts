@@ -9,6 +9,7 @@ const row={id:"allocation-id",customerCode:"C001",orderNumber:"0000123",itemCode
 describe("事业部订单生产进度报表",()=>{
   const transactions:jest.Mock[]=[];
   let service:MasterPlanDivisionOrderProgressService;
+  let bomResolver:{resolveBomStatuses:jest.Mock};
   beforeEach(()=>{
     transactions.length=0;
     const database={transaction:jest.fn(async(...args:unknown[])=>{
@@ -21,8 +22,8 @@ describe("事业部订单生产进度报表",()=>{
       });transactions.push(query);
       return callback({query});
     })};
-    const bom={resolveBomStatuses:jest.fn(async(codes:string[])=>({statuses:new Map(codes.map(code=>[code,code==="0000456"?"HAS_BOM":null])),warning:null}))};
-    service=new MasterPlanDivisionOrderProgressService(database as never,bom as never);
+    bomResolver={resolveBomStatuses:jest.fn(async(codes:string[])=>({statuses:new Map(codes.map(code=>[code,code==="0000456"?"HAS_BOM":null])),warning:null}))};
+    service=new MasterPlanDivisionOrderProgressService(database as never,bomResolver as never);
   });
   it("registers the exact 16-column read-only report under PMC",()=>{
     expect(tableResourceRegistry.find(r=>r.code===mpsDivisionOrderProgressResource)).toMatchObject({label:"事业部订单生产进度报表",moduleCode:"planning"});
@@ -37,7 +38,16 @@ describe("事业部订单生产进度报表",()=>{
     expect(sql).toContain("r.process_code=ANY(ARRAY['welding','blank','surfaceTreatment','packaging']");
     expect(sql).toContain("raw.trusted AND raw.has_business_keys");
     expect(sql).toContain("sum(f.received_quantity)");
+    expect(sql).toContain("NOT COALESCE(raw.is_cancelled,false)");
+    expect(sql).toContain("GROUP BY record.tenant_id,record.division_id,record.order_number,record.item_code");
+    expect(sql).toContain("r.order_number=f.sales_order_number AND r.item_code=f.inventory_code");
+    expect(sql).not.toContain("order_link_stable=true");
     expect(sql).not.toContain("GREATEST(f.received_quantity");
+  });
+  it("falls back to N when BOM query returns no status for a requested item code",async()=>{
+    bomResolver.resolveBomStatuses.mockResolvedValueOnce({statuses:new Map(),warning:"E10 unavailable"});
+    const result=await service.page("fourth",{},actor);
+    expect(result.rows[0]?.drawing).toBe("N");
   });
   it("rejects missing report permission and validates dates, process codes, sorting and page inputs",async()=>{
     await expect(service.page("fourth",{}, {...actor,permissions:[]})).rejects.toBeInstanceOf(ForbiddenException);

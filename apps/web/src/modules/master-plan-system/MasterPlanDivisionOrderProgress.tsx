@@ -28,9 +28,12 @@ export function MasterPlanDivisionOrderProgress(){
     const numeric=mpsDivisionOrderProgressFieldKeys.includes(key as never)&&/Quantity$|orderQuantity/.test(key);
     const render=(value:unknown,row:MpsDivisionOrderProgressRow)=>{
       if(key==="orderDate"||key==="expectedShippingDate"||key==="reviewDueDate"){
-        const text=dateText(value);return key==="reviewDueDate"&&row.reviewDueTooltip?<Tooltip title={`其他有效未完成基础计划交期：${row.reviewDueTooltip}`}>{text}</Tooltip>:text;
+        const dateTooltip=key==="orderDate"?row.orderDateTooltip:key==="expectedShippingDate"?row.shippingDateTooltip:null;
+        const text=value==="多日期"?"多日期":dateText(value);
+        if(value==="多日期"&&dateTooltip)return <Tooltip title={dateTooltip}>{text}</Tooltip>;
+        return key==="reviewDueDate"&&row.reviewDueTooltip?<Tooltip title={`其他有效未完成基础计划交期：${row.reviewDueTooltip}`}>{text}</Tooltip>:text;
       }
-      if(key==="drawing")return value==="Y"?<Tag color="green">Y</Tag>:value==="N"?"N":<Tooltip title="BOM来源暂不可用或品号未能与E10物料身份匹配">未核验</Tooltip>;
+      if(key==="drawing")return value==="Y"?<Tag color="green">Y</Tag>:"N";
       if(key==="materialReady")return <Tooltip title={row.materialReadyHint}>N</Tooltip>;
       if(key==="cutting")return <Tooltip title={row.cuttingHint}>N</Tooltip>;
       if(key==="inboundQuantity"&&!row.inboundVerified)return <Tooltip title="入库来源未能通过ERP状态或订单稳定关联校验">未核验</Tooltip>;
@@ -48,7 +51,6 @@ export function MasterPlanDivisionOrderProgress(){
     {meta.error&&<Alert type="error" showIcon message={(meta.error as Error).message}/>}
     {result.error&&<Alert type="error" showIcon message={(result.error as Error).message}/>}
     {result.data&&<Alert type="info" showIcon message={`事业四部有效订单品项 ${result.data.total.toLocaleString()} 条；无法关联基础计划 ${result.data.diagnostics.basePlanUnlinked} 条；基础计划未维护评审交期 ${result.data.diagnostics.baseDueDateMissing} 条；无法稳定关联入库来源 ${result.data.diagnostics.inboundUnverified} 条；无法关联主记录的工序事实 ${result.data.diagnostics.processUnlinked} 条。`} />}
-    {result.data?.diagnostics.bomUnverified&&<Alert type="warning" showIcon message="部分图纸状态未能核验；未核验状态以空值展示，不计为无BOM。"/>}
     <Card title="事业四部订单生产进度">
       <Space className="mps-division-order-progress-filters" wrap>
         <Input.Search allowClear placeholder="客户代码、订单号、品号或品名" value={draft.search} onChange={e=>setDraft({...draft,search:e.target.value})} onSearch={()=>{setFilters({...draft});setQuery(initialQuery)}} style={{width:280}}/>

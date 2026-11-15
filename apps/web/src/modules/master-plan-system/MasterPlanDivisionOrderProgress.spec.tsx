@@ -14,7 +14,7 @@ vi.mock("../../shared/KdosDataTable",()=>({
 
 const row={id:"synthetic",customerCode:"0001",orderNumber:"0000123",itemCode:"0000456",itemName:"合成品项",orderDate:"2026-10-01",expectedShippingDate:"2026-12-01",orderQuantity:"1200.0000",reviewDueDate:"2026-11-01",drawing:"Y",materialReady:"N",cutting:"N",weldingQuantity:"1199.9600",blankQuantity:"800.0000",surfaceTreatmentQuantity:"1250.0000",packagingQuantity:"0",inboundQuantity:"0",bomStatus:"HAS_BOM",inboundVerified:true,weldingComplete:false,blankComplete:false,surfaceTreatmentComplete:true,packagingComplete:false,inboundComplete:false,materialReadyHint:"齐套数据源暂未接入",cuttingHint:"下料状态数据源暂未接入"};
 const mount=()=>{const client=new QueryClient({defaultOptions:{queries:{retry:false}}});return render(<QueryClientProvider client={client}><MasterPlanDivisionOrderProgress/></QueryClientProvider>)};
-beforeEach(()=>{cleanup();vi.clearAllMocks();localStorage.setItem("sessionUser",JSON.stringify({permissions:[`${mpsDivisionOrderProgressResource}:*:read`,`${mpsDivisionOrderProgressResource}:*:export`]}));apiMock.mockImplementation(async(url:string)=>url.endsWith("/meta")?{columns:mpsDivisionOrderProgressColumns,canExport:true}:{rows:[row],total:1,page:1,pageSize:100,diagnostics:{basePlanUnlinked:0,baseDueDateMissing:0,processUnlinked:0,inboundUnverified:0,bomUnverified:false}})});
+beforeEach(()=>{cleanup();vi.clearAllMocks();localStorage.setItem("sessionUser",JSON.stringify({permissions:[`${mpsDivisionOrderProgressResource}:*:read`,`${mpsDivisionOrderProgressResource}:*:export`]}));apiMock.mockImplementation(async(url:string)=>url.endsWith("/meta")?{columns:mpsDivisionOrderProgressColumns,canExport:true}:{rows:[row],total:1,page:1,pageSize:100,diagnostics:{basePlanUnlinked:0,baseDueDateMissing:0,processUnlinked:0,inboundUnverified:0}})});
 
 describe("MasterPlanDivisionOrderProgress",()=>{
   it("renders all 16 fields, fixed textual business identifiers and source-aware status colors",async()=>{
@@ -31,5 +31,11 @@ describe("MasterPlanDivisionOrderProgress",()=>{
   it("does not call the report API without the new read permission",()=>{
     localStorage.setItem("sessionUser",JSON.stringify({permissions:["mps-overview-dashboard:*:read"]}));mount();
     expect(screen.getByText("没有事业部订单生产进度报表查看权限")).toBeInTheDocument();expect(apiMock).not.toHaveBeenCalled();
+  });
+  it("renders unavailable BOM results as N with no third page state",async()=>{
+    apiMock.mockImplementation(async(url:string)=>url.endsWith("/meta")?{columns:mpsDivisionOrderProgressColumns,canExport:true}:{rows:[{...row,drawing:"N",bomStatus:"NO_BOM"}],total:1,page:1,pageSize:100,diagnostics:{basePlanUnlinked:0,baseDueDateMissing:0,processUnlinked:0,inboundUnverified:0}});
+    mount();
+    const cell=await screen.findByText("N",{selector:"tbody tr td"});
+    expect(cell).toBeInTheDocument();expect(screen.queryByText("未核验")).not.toBeInTheDocument();
   });
 });

@@ -91,11 +91,16 @@ export class MasterPlanDivisionOrderProgressService {
     return { bind, ctes:`
       org_guard AS MATERIALIZED (SELECT id FROM organization_units WHERE id=${division}::uuid AND name='事业四部' AND enabled=true),
       allocation AS MATERIALIZED (
-        SELECT record.id,record.tenant_id,record.division_id,record.customer_code,record.order_number,record.item_code,record.item_name,
-          record.order_date,record.expected_shipping_date,record.order_quantity
+        SELECT min(record.id::text)::uuid id,record.tenant_id,record.division_id,min(record.customer_code) customer_code,record.order_number,record.item_code,max(record.item_name) item_name,
+          min(record.order_date) order_date,min(record.expected_shipping_date) expected_shipping_date,
+          array_agg(DISTINCT record.order_date ORDER BY record.order_date) FILTER(WHERE record.order_date IS NOT NULL) order_date_values,
+          array_agg(DISTINCT record.expected_shipping_date ORDER BY record.expected_shipping_date) FILTER(WHERE record.expected_shipping_date IS NOT NULL) shipping_date_values,
+          count(DISTINCT record.order_date)::int order_date_count,count(DISTINCT record.expected_shipping_date)::int shipping_date_count,
+          sum(record.order_quantity) order_quantity
         FROM mps_order_allocations record CROSS JOIN org_guard
         WHERE record.tenant_id=${tenant} AND record.division_id=${division}::uuid AND record.archived_at IS NULL AND record.order_status='已审核'
           AND (${readScope}) ${exportScope?`AND (${exportScope})`:""}
+        GROUP BY record.tenant_id,record.division_id,record.order_number,record.item_code
       ),
       base_valid AS MATERIALIZED (
         SELECT a.id allocation_id,b.id base_id,b.latest_review_due_date,w.id weekly_id,w.pending_quantity,
@@ -156,17 +161,22 @@ export class MasterPlanDivisionOrderProgressService {
       ),
       raw_inbound AS MATERIALIZED (
         SELECT r.tenant_id,r.source_system,r.source_database,r.source_id,
+          bool_and(r.source_active) source_active,bool_and(r.is_cancelled) is_cancelled,
           bool_and(r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b' AND r.source_active=true AND r.is_cancelled=false
-            AND r.status_code='189' AND r.order_link_stable=true) trusted,
+          AND r.status_code='189') trusted,
           bool_and(r.order_number IS NOT NULL AND r.item_code IS NOT NULL) has_business_keys
         FROM erp_staging_raw_records r WHERE r.tenant_id=${tenant} AND r.source_system='T+' AND r.source_database=${sourceDb}
           AND r.source_table='ST_RDRecord_b' AND r.record_type='INBOUND_LINE'
         GROUP BY r.tenant_id,r.source_system,r.source_database,r.source_id
       ),
+      -- T+ can carry the sales order number on the receipt line even when the detail ID is invalid.
+      -- Exact order+item equality below is the attribution gate; same-item-only matching is never used.
       inbound_rollup AS MATERIALIZED (
-        SELECT a.id allocation_id,count(f.id)::int row_count,
-          bool_and(COALESCE(raw.trusted AND raw.has_business_keys AND r.order_number=f.sales_order_number AND r.item_code=f.inventory_code,false)) trusted,
-          sum(f.received_quantity) FILTER(WHERE raw.trusted AND raw.has_business_keys AND r.order_number=f.sales_order_number AND r.item_code=f.inventory_code) quantity
+        SELECT a.id allocation_id,count(f.id) FILTER(WHERE COALESCE(raw.source_active,true) AND NOT COALESCE(raw.is_cancelled,false))::int row_count,
+          bool_and(COALESCE(raw.trusted AND raw.has_business_keys AND r.order_number=f.sales_order_number AND r.item_code=f.inventory_code,false))
+            FILTER(WHERE COALESCE(raw.source_active,true) AND NOT COALESCE(raw.is_cancelled,false)) trusted,
+          sum(f.received_quantity) FILTER(WHERE COALESCE(raw.source_active,true) AND NOT COALESCE(raw.is_cancelled,false)
+            AND raw.trusted AND raw.has_business_keys AND r.order_number=f.sales_order_number AND r.item_code=f.inventory_code) quantity
         FROM allocation a LEFT JOIN finished_goods_inbound f ON f.sales_order_number=a.order_number AND f.inventory_code=a.item_code
           AND f.source_system='T+' AND f.source_database=${sourceDb} AND f.source_key IS NOT NULL
         LEFT JOIN raw_inbound raw ON raw.tenant_id=a.tenant_id AND raw.source_system=f.source_system AND raw.source_database=f.source_database AND raw.source_id=f.source_key
@@ -185,7 +195,10 @@ export class MasterPlanDivisionOrderProgressService {
   private filters(q: ReturnType<MasterPlanDivisionOrderProgressService["normalize"]>, bind: (v:unknown)=>string) {
     const where:string[]=[];
     if(q.search){const p=bind(`%${q.search}%`);where.push(`(customer_code ILIKE ${p} OR order_number ILIKE ${p} OR item_code ILIKE ${p} OR item_name ILIKE ${p})`);}
-    for(const [field,operator,value] of [["order_date",">=",q.orderDateFrom],["order_date","<=",q.orderDateTo],["expected_shipping_date",">=",q.shippingDateFrom],["expected_shipping_date","<=",q.shippingDateTo],["review_due_date",">=",q.reviewDueFrom],["review_due_date","<=",q.reviewDueTo]] as const){if(value)where.push(`${field}${operator}${bind(value)}::date`);}
+    for(const [field,operator,value] of [["review_due_date",">=",q.reviewDueFrom],["review_due_date","<=",q.reviewDueTo]] as const){if(value)where.push(`${field}${operator}${bind(value)}::date`);}
+    for(const [values,from,to] of [["order_date_values",q.orderDateFrom,q.orderDateTo],["shipping_date_values",q.shippingDateFrom,q.shippingDateTo]] as const){
+      if(from||to){const start=bind(from??null),end=bind(to??null);where.push(`EXISTS(SELECT 1 FROM unnest(${values}) date_value WHERE (${start}::date IS NULL OR date_value>=${start}::date) AND (${end}::date IS NULL OR date_value<=${end}::date))`);}
+    }
     if(q.incomplete)where.push(`(order_quantity<=0 OR COALESCE(welding_quantity,0)<order_quantity OR COALESCE(blank_quantity,0)<order_quantity OR COALESCE(surface_treatment_quantity,0)<order_quantity OR COALESCE(packaging_quantity,0)<order_quantity OR inbound_verified IS DISTINCT FROM true OR COALESCE(inbound_quantity,0)<order_quantity)`);
     if(q.processCode&&q.processStatus){const field=({welding:"welding_quantity",blank:"blank_quantity",surfaceTreatment:"surface_treatment_quantity",packaging:"packaging_quantity"} as const)[q.processCode as keyof typeof processColumns];where.push(q.processStatus==="complete"?`order_quantity>0 AND COALESCE(${field},0)>=order_quantity`:`(order_quantity<=0 OR COALESCE(${field},0)<order_quantity)`);}
     return where.length?`WHERE ${where.join(" AND ")}`:"";
@@ -206,7 +219,9 @@ export class MasterPlanDivisionOrderProgressService {
         count(*) FILTER(WHERE unfinished_base_count>0 AND review_due_date IS NULL)::int base_due_date_missing,
         count(*) FILTER(WHERE inbound_source_count>0 AND inbound_verified IS DISTINCT FROM true)::int inbound_unverified FROM filtered),
       rows AS (SELECT id::text id,customer_code "customerCode",order_number "orderNumber",item_code "itemCode",item_name "itemName",
-        order_date::text "orderDate",expected_shipping_date::text "expectedShippingDate",order_quantity::text "orderQuantity",review_due_date::text "reviewDueDate",
+        CASE WHEN order_date_count>1 THEN '多日期' ELSE order_date::text END "orderDate",CASE WHEN shipping_date_count>1 THEN '多日期' ELSE expected_shipping_date::text END "expectedShippingDate",
+        array_to_string(order_date_values,', ') "orderDateTooltip",array_to_string(shipping_date_values,', ') "shippingDateTooltip",
+        order_quantity::text "orderQuantity",review_due_date::text "reviewDueDate",
         review_due_tooltip "reviewDueTooltip",welding_quantity::text "weldingQuantity",blank_quantity::text "blankQuantity",
         surface_treatment_quantity::text "surfaceTreatmentQuantity",packaging_quantity::text "packagingQuantity",
         CASE WHEN inbound_source_count=0 THEN '0' WHEN inbound_verified THEN COALESCE(inbound_quantity,0)::text ELSE NULL END "inboundQuantity",
@@ -227,11 +242,11 @@ export class MasterPlanDivisionOrderProgressService {
     const rows=data.rows as Array<Record<string,unknown>>;
     const bom=await this.bom.resolveBomStatuses(rows.map(row=>String(row.itemCode)),actor.tenantId);
     const resultRows=rows.map(row=>{
-      const status=bom.statuses.get(String(row.itemCode))??null;
-      const drawing=status==="HAS_BOM"?"Y":status==="NO_BOM"?"N":null;
+      const status=bom.statuses.get(String(row.itemCode))??"NO_BOM";
+      const drawing=status==="HAS_BOM"?"Y":"N";
       const val=(key:string)=>row[key]==null?null:String(row[key]);
       return {id:String(row.id),customerCode:val("customerCode"),orderNumber:val("orderNumber"),itemCode:val("itemCode"),itemName:val("itemName"),
-        orderDate:val("orderDate"),expectedShippingDate:val("expectedShippingDate"),orderQuantity:val("orderQuantity"),reviewDueDate:val("reviewDueDate"),
+        orderDate:val("orderDate"),expectedShippingDate:val("expectedShippingDate"),orderDateTooltip:val("orderDateTooltip"),shippingDateTooltip:val("shippingDateTooltip"),orderQuantity:val("orderQuantity"),reviewDueDate:val("reviewDueDate"),
         drawing,materialReady:"N",cutting:"N",weldingQuantity:val("weldingQuantity")??"0",blankQuantity:val("blankQuantity")??"0",
         surfaceTreatmentQuantity:val("surfaceTreatmentQuantity")??"0",packagingQuantity:val("packagingQuantity")??"0",inboundQuantity:val("inboundQuantity"),
         bomStatus:status,materialReadyHint:"齐套数据源暂未接入",cuttingHint:"下料状态数据源暂未接入",inboundVerified:Boolean(row.inboundVerified),
@@ -240,7 +255,7 @@ export class MasterPlanDivisionOrderProgressService {
         inboundComplete:row.inboundComplete==null?null:Boolean(row.inboundComplete)} as MpsDivisionOrderProgressRow;
     });
     const processUnlinked=await this.unlinkedProcessCount(actor,config.divisionId);
-    return {rows:resultRows,total:Number(data.total),page:q.page,pageSize:q.pageSize,diagnostics:{basePlanUnlinked:Number(data.base_unlinked),baseDueDateMissing:Number(data.base_due_date_missing),processUnlinked,inboundUnverified:Number(data.inbound_unverified),bomUnverified:bom.warning!=null||resultRows.some(row=>row.drawing==null)}};
+    return {rows:resultRows,total:Number(data.total),page:q.page,pageSize:q.pageSize,diagnostics:{basePlanUnlinked:Number(data.base_unlinked),baseDueDateMissing:Number(data.base_due_date_missing),processUnlinked,inboundUnverified:Number(data.inbound_unverified)}};
   }
 
   private async unlinkedProcessCount(actor:MasterPlanActor,divisionId:string) {

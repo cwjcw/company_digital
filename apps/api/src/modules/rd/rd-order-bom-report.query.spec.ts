@@ -8,12 +8,12 @@ describe('R&D order BOM report query source', () => {
     {id:'allocation-1',tenantId:tenant,divisionId:division,divisionName:'事业一部',orderNumber:'SO-1',itemCode:'ITEM-1',itemName:'品项',orderDate:'2026-11-01',expectedShippingDate:'2026-12-01'},
     {id:'allocation-2',tenantId:tenant,divisionId:division,divisionName:'事业一部',orderNumber:'SO-1',itemCode:'ITEM-1',itemName:'品项',orderDate:'2026-11-01',expectedShippingDate:'2026-12-01'}
   ];
-  const e10={read:jest.fn().mockResolvedValue({sourceSnapshotAt:'2026-11-10',items:[{item_id:itemId,item_code:'ITEM-1'}]})};
+  const e10={read:jest.fn().mockResolvedValue({sourceSnapshotAt:'2026-11-10',items:[{item_id:itemId,item_code:'ITEM-1'}],boms:[{bom_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',item_id:itemId,approve_status:'Y'}]})};
   const registry={register:jest.fn()} as any;
   const state:any={activeGeneration:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',lastSuccessAt:new Date().toISOString(),lastStatus:'SUCCESS',lastErrorCode:null};
   const heads=[{bom_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',item_id:itemId,item_code:'ITEM-1',version_times:'1',approve_status:'Y',approved_at:'2026-11-03 10:00:00'}];
   const dataSource={transaction:async (...args:any[])=>{const callback=args.at(-1);return callback({query:async(sql:string)=>{
-    if(sql.includes('set_config'))return [];
+    if(sql.includes('set_config')||sql.includes('SET TRANSACTION'))return [];
     if(sql.includes('DISTINCT record.division_id'))return [{value:division}];
     if(sql.includes('FROM mps_order_allocations'))return allocations;
     if(sql.includes('FROM rd_bom_sync_state'))return [state];
@@ -70,5 +70,19 @@ describe('R&D order BOM report query source', () => {
     const result=await source.listRows({actor,page:1,pageSize:20,search:'',filterGroup:null,context:{view:'detail'},fieldKeys:['orderNumber'],action:'read'});
     expect(result.total).toBe(2);expect(result.syncWarning).toContain('E10 BOM索引');
     state.lastStatus='SUCCESS';state.lastErrorCode=null;
+  });
+
+  it('resolves order progress status from exact E10 item code and any approved E10 BOM head',async()=>{
+    const result=await service.resolveBomStatuses(['ITEM-1','NOT-IN-E10'],tenant);
+    expect(e10.read).toHaveBeenCalledWith(['ITEM-1','NOT-IN-E10'],true);
+    expect(result.statuses.get('ITEM-1')).toBe('HAS_BOM');
+    expect(result.statuses.get('NOT-IN-E10')).toBe('NO_BOM');
+  });
+
+  it('returns N and logs through the resolver contract when E10 query fails',async()=>{
+    e10.read.mockRejectedValueOnce(new Error('synthetic query failure'));
+    const result=await service.resolveBomStatuses(['ITEM-1'],tenant);
+    expect(result.statuses.get('ITEM-1')).toBe('NO_BOM');
+    expect(result.warning).toContain('查询失败');
   });
 });

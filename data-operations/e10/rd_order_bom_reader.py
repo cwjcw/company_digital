@@ -26,11 +26,13 @@ def serialize(value: Any):
 
 
 def main() -> int:
-    codes = json.load(sys.stdin)
+    request = json.load(sys.stdin)
+    include_bom_heads = isinstance(request, dict) and request.get("includeBomHeads") is True
+    codes = request.get("itemCodes") if isinstance(request, dict) else request
     if not isinstance(codes, list) or len(codes) > 10000 or any(not isinstance(x, str) or not x.strip() for x in codes):
         raise ValueError("invalid bounded item code list")
     codes = list(dict.fromkeys(x.strip() for x in codes))
-    result: dict[str, Any] = {"items": [], "sourceSnapshotAt": datetime.now().isoformat(sep=" ")}
+    result: dict[str, Any] = {"items": [], "boms": [], "sourceSnapshotAt": datetime.now().isoformat(sep=" ")}
     if codes:
         with E10Repository() as repo:
             for batch in chunks(codes):
@@ -40,6 +42,17 @@ def main() -> int:
                            i.ITEM_CODE item_code, i.ITEM_NAME item_name
                     FROM dbo.ITEM i WHERE i.ITEM_CODE IN ({marks})
                 """, batch))
+            if include_bom_heads:
+                item_ids = list(dict.fromkeys(item["item_id"] for item in result["items"] if item.get("item_id")))
+                for batch in chunks(item_ids):
+                    marks = ",".join(["%s"] * len(batch))
+                    result["boms"].extend(repo._query(f"""
+                        SELECT CONVERT(varchar(36), b.BOM_ID) AS bom_id,
+                               CONVERT(varchar(36), b.ITEM_ID) AS item_id,
+                               b.ApproveStatus AS approve_status
+                        FROM dbo.BOM b
+                        WHERE b.ITEM_ID IN ({marks})
+                    """, batch))
     json.dump(result, sys.stdout, ensure_ascii=False, default=serialize)
     return 0
 
