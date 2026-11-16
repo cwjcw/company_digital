@@ -35,8 +35,10 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
   };
   const month=async(item="ITEM-A",values:Record<string,unknown>={})=>{
     const order=String(values.order_number??"ORDER-A"),who=String(values.tenant_id??tenant);
-    await insert("mps_order_allocations",{tenant_id:who,order_number:order,item_code:item,allocated_quantity:10,division_id:division});
-    return insert("mps_monthly_plans",{tenant_id:who,order_number:order,item_code:item,item_name:"合成品项",division_id:division,customer_code:"C1",required_quantity:10,pending_quantity:7,order_date:"2026-10-01",latest_customer_due_date:"2026-11-03",...values});
+    const allocation=await insert("mps_order_allocations",{tenant_id:who,order_number:order,item_code:item,allocated_quantity:10,division_id:values.division_id??division,customer_code:values.customer_code??"C1",order_status:"已审核",manually_maintained:true});
+    const monthly=await insert("mps_monthly_plans",{tenant_id:who,order_number:order,item_code:item,item_name:"合成品项",division_id:division,customer_code:"C1",required_quantity:10,pending_quantity:7,order_date:"2026-10-01",latest_customer_due_date:"2026-11-03",allocation_id:allocation.id,...values});
+    await db.query("UPDATE mps_order_allocations SET monthly_plan_id=$2 WHERE tenant_id=$1 AND id=$3",[who,monthly.id,allocation.id]);
+    return monthly;
   };
   const bases=()=>db.query("SELECT *,latest_customer_due_date::text AS latest_customer_due_date,blank_completion_date::text AS blank_completion_date FROM mps_base_plans WHERE tenant_id=$1 ORDER BY item_code,delivery_number",[tenant]);
   beforeAll(async()=>{
@@ -53,7 +55,10 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     for(const Migration of [Initial,Integrity,ShippingReference,Manual,Divisions,Eligibility,Identity,Codes,Routing,Dates,WorkOrders,Change])await new Migration().up(runner);
     await new Leases().up(runner);
     await db.query(`ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS record_id uuid,ADD COLUMN IF NOT EXISTS scope_json jsonb;
+      ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS business_key text;
       ALTER TABLE mps_sync_logs ADD COLUMN IF NOT EXISTS metrics jsonb;
+      ALTER TABLE mps_monthly_plans ADD COLUMN IF NOT EXISTS allocation_id uuid;
+      ALTER TABLE mps_order_allocations ADD COLUMN IF NOT EXISTS archived_at timestamptz,ADD COLUMN IF NOT EXISTS manually_maintained boolean NOT NULL DEFAULT false,ADD COLUMN IF NOT EXISTS monthly_plan_id uuid;
       ALTER TABLE mps_base_plans ADD COLUMN IF NOT EXISTS monthly_plan_id uuid;
       ALTER TABLE mps_base_plans ADD COLUMN IF NOT EXISTS blank_completion_date date,ADD COLUMN IF NOT EXISTS packaging_completion_date date;
       ALTER TABLE mps_process_cycles ADD COLUMN IF NOT EXISTS blank_days integer;
@@ -187,12 +192,12 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     expect((await db.query("SELECT * FROM mps_weekly_plans")).length).toBe(0);
     await expect(db.transaction(manager=>new Change().down({query:(s,p)=>manager.query(s,p)} as QueryRunner))).rejects.toThrow("待完善客户交期");
   });
-  it("completes a pending base through the actual command, then generates weekly tasks using routes and locks",async()=>{
+  it("completes a pending base through the actual command, generates weekly tasks from division defaults, and locks them",async()=>{
     await month();await insert("mps_item_process_routes",{item_code:"ITEM-A",process_code:"bending",sequence:1});await insert("mps_item_process_routes",{item_code:"ITEM-A",process_code:"packaging",sequence:2});
     await run();const [base]=await bases();
     await application.update("mps-base-plans",base.id,{expectedVersion:base.version,latestReviewDueDate:"2026-11-01",productAttribute:"五金",surfaceNature:"烤漆",manufacturingMethod:"自制"},{...actor,requestId:"complete"});
     await weeks();const [weekly]=await db.query("SELECT * FROM mps_weekly_plans");expect(weekly.base_plan_id).toBe(base.id);
-    const structure=await db.query("SELECT process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence");expect(structure).toEqual([{process_code:"bending",sequence:1,cycle_days:3},{process_code:"packaging",sequence:2,cycle_days:1}]);
+    const structure=await db.query("SELECT process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence");expect(structure).toEqual([{process_code:"cutting",sequence:1,cycle_days:2},{process_code:"bending",sequence:2,cycle_days:3},{process_code:"packaging",sequence:3,cycle_days:1}]);
     const report=await insert("mps_process_reports",{weekly_plan_id:weekly.id,order_number:"ORDER-A",item_code:"ITEM-A",division_id:division,delivery_number:base.delivery_number,process_code:"bending",process_name:"折弯",production_date:"2026-10-29",production_quantity:3,planned_quantity:10});
     expect((await db.query("SELECT process_config_locked_at FROM mps_weekly_plans"))[0].process_config_locked_at).not.toBeNull();
     await db.query("UPDATE mps_monthly_plans SET required_quantity=15,latest_customer_due_date='2026-11-10' WHERE tenant_id=$1",[tenant]);await run();await weeks();
@@ -200,6 +205,14 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     expect(await db.query("SELECT process_code,sequence,cycle_days FROM mps_weekly_process_plans ORDER BY sequence")).toEqual(structure);
     expect((await db.query("SELECT production_quantity FROM mps_process_reports WHERE id=$1",[report.id]))[0].production_quantity).toBe("3.0000");
     expect((await db.query("SELECT * FROM mps_shipping_plans")).length).toBe(0);
+  });
+
+  it("does not guess a standard route when a division has no active default configuration",async()=>{
+    await month("ITEM-NO-DEFAULT",{order_number:"ORDER-NO-DEFAULT",division_id:other});await run();const [base]=await bases();
+    await application.update("mps-base-plans",base.id,{expectedVersion:base.version,latestReviewDueDate:"2026-11-01",productAttribute:"五金",surfaceNature:"烤漆",manufacturingMethod:"自制"},{...actor,requestId:"missing-default"});
+    await weeks();const [weekly]=await db.query("SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND order_number='ORDER-NO-DEFAULT'",[tenant]);
+    expect(await db.query("SELECT * FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2",[tenant,weekly.id])).toHaveLength(0);
+    expect(await db.query("SELECT * FROM mps_data_exceptions WHERE tenant_id=$1 AND record_id=$2 AND exception_type='DIVISION_DEFAULT_PROCESS_CONFIG_MISSING' AND active=true",[tenant,weekly.id])).toHaveLength(1);
   });
   it("keeps shipping query/create/edit independent and never creates a base from a shipping-only item",async()=>{
     const ship=await application.create("mps-shipping-plans",{orderNumber:"SHIP-ONLY",itemCode:"ITEM-S",customerCode:"C1",divisionId:division,plannedQuantity:3,latestCustomerDueDate:"2026-11-10"},{...actor,requestId:"ship-create"});
@@ -301,14 +314,16 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     expect(await db.query("SELECT process_code,execution_enabled FROM mps_weekly_process_plans")).toEqual([{process_code:"cutting",execution_enabled:false}]);
   });
 
-  it("records an initialized empty default route so later default changes require confirmation",async()=>{
-    const {base}=await externalWeek();await enableInternal(base);
+  it("blocks generation while defaults are empty, then retries when defaults return",async()=>{
+    const {base,weekly}=await externalWeek();await enableInternal(base);
     try {
       await db.query("UPDATE mps_division_process_configs SET default_enabled=false WHERE tenant_id=$1",[tenant]);
-      expect((await weeks()).metrics).toMatchObject({process_snapshots_initialized:1,process_tasks_initialized:0});
+      expect((await weeks()).metrics).toMatchObject({process_snapshots_initialized:0,process_tasks_initialized:0});
+      expect(await db.query("SELECT * FROM mps_data_exceptions WHERE record_id=$1 AND exception_type='DIVISION_DEFAULT_PROCESS_CONFIG_MISSING' AND active=true",[weekly.id])).toHaveLength(1);
       await db.query("UPDATE mps_division_process_configs SET default_enabled=true WHERE tenant_id=$1",[tenant]);
-      expect((await weeks()).metrics.process_tasks_initialized).toBe(0);
-      expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(0);
+      expect((await weeks()).metrics.process_tasks_initialized).toBe(3);
+      expect(await db.query("SELECT * FROM mps_weekly_process_plans")).toHaveLength(3);
+      expect(await db.query("SELECT * FROM mps_data_exceptions WHERE record_id=$1 AND exception_type='DIVISION_DEFAULT_PROCESS_CONFIG_MISSING' AND active=true",[weekly.id])).toHaveLength(0);
     } finally {await db.query("UPDATE mps_division_process_configs SET default_enabled=true WHERE tenant_id=$1",[tenant]);}
   });
 

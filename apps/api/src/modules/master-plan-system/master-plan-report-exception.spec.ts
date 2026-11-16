@@ -79,6 +79,7 @@ describe("KN-MPS-UI-001 报工入口与实时刷新", () => {
     const query = jest.fn(async (...args: [string, unknown[]?]) => {
       const [sql] = args;
       if (sql.startsWith("SELECT division_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method FROM mps_weekly_plans")) return [weekly];
+      if (sql.startsWith("SELECT id FROM mps_weekly_process_plans")) return [{ id: "55555555-5555-4555-8555-555555555555" }];
       if (sql.startsWith("INSERT INTO mps_process_reports")) return [inserted];
       return [];
     });
@@ -140,11 +141,13 @@ describe("KN-MPS-UI-001 同步绝不伪造生产异常", () => {
     technical_days: null, cutting_days: null, machining_days: null, bending_days: null, spot_welding_days: null,
     welding_days: null, woodworking_days: null, grinding_days: null, surface_treatment_days: null, packaging_days: null
   };
+  const defaults = ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"]
+    .map((process_code, index) => ({ process_code, cycle_days: null, default_enabled: true, sequence: index + 1 }));
 
   it("技术周期缺失不会写入技术报工的异常字段（只保留计划提示渠道）", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const manager = { query: jest.fn(async (sql: string, params?: unknown[]) => { void params; return sql.includes("FROM mps_division_process_configs") ? defaults : []; }) };
     const service = new MasterPlanSyncService({} as never);
-    await (service as any).ensureExecutionRows(manager, weeklyWithMissingCycles, "KAINAN", actor.userId, "tester");
+    await (service as any).ensureExecutionRows(manager, weeklyWithMissingCycles, "KAINAN", actor.userId, "tester", true);
     const call = manager.query.mock.calls.find(([statement]) => String(statement).startsWith("INSERT INTO mps_technical_reports"))!;
     const [sql, params] = call as [string, unknown[]];
     expect(sql).toContain("drawing_due_date,exception_text,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL,");
@@ -155,16 +158,16 @@ describe("KN-MPS-UI-001 同步绝不伪造生产异常", () => {
   });
 
   it("工序周期缺失只写在工序任务（计划提示），报工事实表不产生任何行", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const manager = { query: jest.fn(async (sql: string, params?: unknown[]) => { void params; return sql.includes("FROM mps_division_process_configs") ? defaults : []; }) };
     const service = new MasterPlanSyncService({} as never);
-    await (service as any).ensureExecutionRows(manager, weeklyWithMissingCycles, "KAINAN", actor.userId, "tester");
+    await (service as any).ensureExecutionRows(manager, weeklyWithMissingCycles, "KAINAN", actor.userId, "tester", true);
     const statements = manager.query.mock.calls.map(([statement]) => String(statement));
     const processInsert = statements.find((statement) => statement.startsWith("INSERT INTO mps_weekly_process_plans"))!;
     const processCall = manager.query.mock.calls.find(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"))!;
     expect((processCall[1] as unknown[])).toContain("未维护工序周期");
     /* 该提示在工序任务上，且工序任务表不参与统一异常（由 SQL 契约测试锁定）。 */
     expect(statements.some((statement) => statement.startsWith("INSERT INTO mps_process_reports"))).toBe(false);
-    expect(processInsert.split("DO UPDATE SET")[1]).not.toContain("exception_text=");
+    expect(processInsert).not.toContain("exception_text=");
   });
 
   it("执行对账只更新状态与当日报工，不写异常文本", async () => {

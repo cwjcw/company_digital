@@ -4,6 +4,8 @@ import { MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionSql } from "./master-plan.conf
 import { ConflictException } from "@nestjs/common";
 
 describe("MasterPlanSyncService execution matrix", () => {
+  const activeDefaults = ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"]
+    .map((process_code, index) => ({ process_code, cycle_days: index + 1, default_enabled: true, sequence: index + 1 }));
   const weekly = (manufacturingMethod: string) => ({
     id: "11111111-1111-4111-8111-111111111111", division_id: "22222222-2222-4222-8222-222222222222",
     order_number: "SO-1", item_code: "ITEM-1", item_name: "品项", delivery_number: 1,
@@ -15,7 +17,7 @@ describe("MasterPlanSyncService execution matrix", () => {
   it.each([
     ["自制", true, false], ["中心外购", false, true], ["外协", false, true], ["自制+外协", true, true]
   ])("maps %s to internal route=%s outsourcing=%s without deleting history", async (method, processExpected, outsourcingExpected) => {
-    const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
+    const manager = { query: jest.fn(async (sql: string) => sql.includes("FROM mps_division_process_configs") ? activeDefaults : []) }; const service = new MasterPlanSyncService({} as never);
     await (service as any).ensureExecutionRows(manager, weekly(method), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester", true);
     const sql = manager.query.mock.calls.map(([statement]) => String(statement));
     const processWrites = manager.query.mock.calls.filter(([statement]) => String(statement).startsWith("INSERT INTO mps_weekly_process_plans"));
@@ -33,7 +35,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(processWrites).toHaveLength(0);
   });
 
-  it("prefers item routes and always reads their cycle days from the承接事业部", async () => {
+  it("uses the active division defaults even when an item-specific route exists", async () => {
     const manager = { query: jest.fn(async (sql: string) => {
       if (sql.includes("FROM mps_division_process_configs")) return [
         { process_code: "cutting", cycle_days: 5, default_enabled: true, sequence: 7 },
@@ -46,10 +48,22 @@ describe("MasterPlanSyncService execution matrix", () => {
     }) };
     const service = new MasterPlanSyncService({} as never);
     await expect((service as any).processDefinitions(manager, weekly("自制"), "KAINAN")).resolves.toEqual([
-      { code: "packaging", name: "包装", sequence: 1, cycleDays: 2 },
-      { code: "cutting", name: "下料", sequence: 2, cycleDays: 5 }
+      { code: "cutting", name: "下料", sequence: 7, cycleDays: 5 }
     ]);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_item_process_routes"))).toBe(false);
     await expect((service as any).processDefinitions(manager, weekly("外协"), "KAINAN")).resolves.toEqual([]);
+  });
+
+  it("does not initialize an internal route when the division has no enabled defaults", async () => {
+    const manager = { query: jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [weekly("自制")];
+      if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, has_execution: false, was_initialized: false }];
+      return [];
+    }) };
+    const result = await (new MasterPlanSyncService({} as never) as any).ensureExecutionRows(manager, weekly("自制"), "KAINAN", null, "tester", false);
+    expect(result).toMatchObject({ initialized: false, taskCount: 0, blocked: true });
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("DIVISION_DEFAULT_PROCESS_CONFIG_MISSING"))).toBe(true);
   });
 
   it("does not rewrite the process snapshot during refresh", async () => {
@@ -65,6 +79,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     const manager = { query: jest.fn(async (sql: string) => {
       if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [target];
       if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, was_initialized: false }];
+      if (sql.includes("FROM mps_division_process_configs")) return activeDefaults;
       return [];
     }) };
     const service = new MasterPlanSyncService({} as never);
@@ -277,7 +292,7 @@ describe("MasterPlanSyncService execution matrix", () => {
   });
 
   it("uses weekly-plan identity for every generated child and keeps manual execution fields", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([]) }; const service = new MasterPlanSyncService({} as never);
+    const manager = { query: jest.fn(async (sql: string) => sql.includes("FROM mps_division_process_configs") ? activeDefaults : []) }; const service = new MasterPlanSyncService({} as never);
     await (service as any).ensureExecutionRows(manager, weekly("自制+外协"), "KAINAN", "33333333-3333-4333-8333-333333333333", "tester", true);
     const statements = manager.query.mock.calls.map(([statement]) => String(statement));
     const process = statements.find((sql) => sql.startsWith("INSERT INTO mps_weekly_process_plans"))!;

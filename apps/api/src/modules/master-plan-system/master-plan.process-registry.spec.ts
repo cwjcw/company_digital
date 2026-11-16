@@ -67,7 +67,9 @@ describe("KN-PROC-001 unified process registry", () => {
   });
 
   it("creates the 毛坯 execution task and never duplicates it on re-run", async () => {
-    const manager = { query: jest.fn().mockResolvedValue([]) };
+    const defaults = ["cutting", "machining", "bending", "spotWelding", "welding", "woodworking", "grinding", "blank", "surfaceTreatment", "packaging"]
+      .map((process_code, index) => ({ process_code, cycle_days: index === 7 ? 2 : 1, default_enabled: true, sequence: index + 1 }));
+    const manager = { query: jest.fn(async (sql: string) => sql.includes("FROM mps_division_process_configs") ? defaults : []) };
     const service = new MasterPlanSyncService({} as never);
     const weekly = {
       id: "01a09d95-de03-7fe8-8fdc-934a6414ebf9", division_id: "22222222-2222-4222-8222-222222222222",
