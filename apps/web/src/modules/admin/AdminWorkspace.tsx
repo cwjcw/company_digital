@@ -33,8 +33,8 @@ export function AdminWorkspace() {
   const [action, setAction] = useState<{ kind: ActionKind; user: any }>(); const [actionValue, setActionValue] = useState<string>();
   const [employeeForm] = Form.useForm();
   const [resetUser, setResetUser] = useState<PasswordResetUser>();
-  let canResetPassword = false;
-  try { canResetPassword = JSON.parse(localStorage.getItem("sessionUser") ?? "{}").isSystemAdmin === true; } catch { /* Authentication remains enforced by the API. */ }
+  const session = useQuery({ queryKey: ["auth-session"], queryFn: () => api<{ isSystemAdmin?: boolean }>("/auth/me"), retry: false, staleTime: 0, refetchOnMount: "always" });
+  const canResetPassword = session.isSuccess && !session.isError && session.data?.isSystemAdmin === true;
   const resetAllowed = (user: { username: string }) => canResetPassword && user.username.trim().toLowerCase() !== "admin";
   const passwordResetDone = async (result: PasswordResetResult) => {
     await Promise.all([
@@ -157,7 +157,7 @@ export function AdminWorkspace() {
     { title: "手机", dataIndex: "mobile", width: 170, render: (value: string) => value || "—" },
     { title: "部门", dataIndex: "departmentPaths", width: 190, render: (paths: string[][]) => (paths ?? []).map((path) => path.at(-1)).filter(Boolean).join("、") || "—" },
     { title: "角色", dataIndex: "roles", width: 190, render: (values: string[]) => values?.join("、") || "—" },
-    { title: "操作", key: "actions", width: 90, align: "center" as const, fixed: "right" as const, render: (_: unknown, row: any) => <Dropdown menu={employeeMenu(row)} trigger={["click"]}><Button type="text" aria-label={`操作-${row.displayName}`} icon={<EllipsisOutlined />} /></Dropdown> }
+    { title: "", key: "__actions", width: 52, align: "center" as const, fixed: "right" as const, render: (_: unknown, row: any) => <Dropdown menu={employeeMenu(row)} trigger={["click"]}><Button type="text" aria-label={`操作-${row.displayName}`} title="成员操作" icon={<EllipsisOutlined />} /></Dropdown> }
   ];
 
   useEffect(() => { if (!selectedRoleId && roles.data?.length) setSelectedRoleId(roles.data[0].id); }, [roles.data, selectedRoleId]);

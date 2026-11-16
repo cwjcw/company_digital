@@ -12,10 +12,11 @@ const role = { id: "role-1", name: "计划员", roleGroupId: "group-1", userIds:
 describe("AdminWorkspace", () => {
   afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.removeItem("sessionUser"); });
   beforeEach(() => {
+    localStorage.setItem("sessionUser", JSON.stringify({ permissions: ["users:*:read", "users:displayName:read"] }));
     vi.mocked(api).mockReset();
     vi.mocked(api).mockImplementation(async (path) => {
+      if (path === "/auth/me") return JSON.parse(localStorage.getItem("sessionUser") ?? "{}");
       if (path === "/admin/users?options=1") return [employee] as never;
-      if (path.startsWith("/admin/users?")) return { rows: [employee], total: 1, page: 1, pageSize: 50 } as never;
       if (path.startsWith("/admin/users?")) return { rows: [employee], total: 1, page: 1, pageSize: 50 } as never;
       if (path === "/admin/roles") return [role] as never;
       if (path === "/admin/role-groups") return [{ id: "group-1", name: "系统角色", sortOrder: 0 }] as never;
@@ -28,6 +29,7 @@ describe("AdminWorkspace", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
     expect(await screen.findByText("演示员工")).toBeInTheDocument();
+    await waitFor(() => expect(client.isFetching()).toBe(0));
     fireEvent.click(screen.getByRole("button", { name: "操作-演示员工" }));
     for (const label of ["编辑", "交接工作", "停用", "转移", "离职"]) expect(await screen.findByText(label)).toBeInTheDocument();
   });
@@ -36,7 +38,9 @@ describe("AdminWorkspace", () => {
     localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: true, permissions: ["*"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
-    await screen.findByText("演示员工"); fireEvent.click(screen.getByRole("button", { name: "操作-演示员工" }));
+    await screen.findByText("演示员工");
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    fireEvent.click(screen.getByRole("button", { name: "操作-演示员工" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "重置密码" }));
     const confirmation = (await screen.findByText("重置密码", { selector: ".ant-modal-title" })).closest(".ant-modal") as HTMLElement; await waitFor(() => expect(confirmation).toBeVisible()); expect(within(confirmation).getByText(/demo001/)).toBeInTheDocument();
     fireEvent.click(within(confirmation).getByRole("button", { name: /取\s*消/ }));
@@ -49,11 +53,47 @@ describe("AdminWorkspace", () => {
   }, 15000);
 
   it("does not expose password reset to ordinary or module administrators", async () => {
-    localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: false, moduleAdminCodes: ["planning"], permissions: ["users:*:update"] }));
+    localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: false, moduleAdminCodes: ["planning"], permissions: ["users:*:update", "users:displayName:read"] }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
-    await screen.findByText("演示员工"); fireEvent.click(screen.getByRole("button", { name: "操作-演示员工" }));
+    await screen.findByText("演示员工");
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    fireEvent.click(screen.getByRole("button", { name: "操作-演示员工" }));
     await screen.findByText("编辑"); expect(screen.queryByText("重置密码")).not.toBeInTheDocument();
+  });
+
+  it("keeps member actions with a saved business-field layout and uses the live administrator session", async () => {
+    // A stale browser session must not hide a currently granted administrator action.
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (path === "/auth/me") return { isSystemAdmin: true, permissions: ["*"] } as never;
+      if (path.startsWith("/auth/preferences/table-config?")) return { config: { visibleFieldKeys: ["displayName"], orderedFieldKeys: ["displayName"] } } as never;
+      if (path === "/admin/users/user-1/reset-password") return { id: employee.id, reset: true, mustChangePassword: true, version: 4 } as never;
+      return original(path, init);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "操作-演示员工" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重置密码" }));
+    const confirmation = (await screen.findByText("重置密码", { selector: ".ant-modal-title" })).closest(".ant-modal") as HTMLElement;
+    fireEvent.click(within(confirmation).getByRole("button", { name: "确认重置" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/users/user-1/reset-password", {
+      method: "POST", body: JSON.stringify({ expectedVersion: employee.version })
+    }));
+    await waitFor(() => expect(confirmation).not.toBeInTheDocument());
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/reset-password"))).toHaveLength(1);
+  }, 15000);
+
+  it("hides reset when the live session revokes a cached administrator grant", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: true, permissions: ["*"] }));
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation(async (path, init) => path === "/auth/me"
+      ? { isSystemAdmin: false } as never : original(path, init));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><AdminWorkspace /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "操作-演示员工" }));
+    await screen.findByText("编辑");
+    expect(screen.queryByText("重置密码")).not.toBeInTheDocument();
   });
 
   it("separates role groups from roles and exposes role editing", async () => {
