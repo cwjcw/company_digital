@@ -24,8 +24,6 @@ export type MpsDivisionOrderProgressRow = Record<MpsDivisionOrderProgressField, 
   cuttingHint?: string;
   inboundVerified?: boolean;
   reviewDueTooltip?: string | null;
-  orderDateTooltip?: string | null;
-  shippingDateTooltip?: string | null;
 };
 export type MpsDivisionOrderProgressPage = {
   rows: MpsDivisionOrderProgressRow[];

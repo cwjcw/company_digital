@@ -95,6 +95,16 @@ describe("KdosDataTable server pagination", () => {
     expect(view.container.querySelector(".ant-pagination-item-2")).toHaveClass("ant-pagination-item-active");
   });
 
+  it("applies a report's initial sort to the first server query", async () => {
+    const onQueryChange = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KdosDataTable
+      resource="equipment-register" rowKey="id" columns={[{ title: "下单日期", dataIndex: "orderDate", sorter: true }]}
+      dataSource={[]} initialSort={{ field: "orderDate", order: "desc" }} serverData={{ total: 0, onQueryChange }}
+    /></QueryClientProvider>);
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({ sortField: "orderDate", sortOrder: "desc" })));
+  });
+
   it("keeps an explicit page size instead of replacing it with the platform default", async () => {
     const onQueryChange = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

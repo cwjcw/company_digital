@@ -85,7 +85,7 @@ export class MasterPlanDivisionOrderProgressService {
       shippingDateFrom:input.shippingDateFrom as string|undefined, shippingDateTo:input.shippingDateTo as string|undefined,
       reviewDueFrom:input.reviewDueFrom as string|undefined, reviewDueTo:input.reviewDueTo as string|undefined,
       incomplete:input.incomplete === "true", processCode:input.processCode as string|undefined, processStatus:input.processStatus as string|undefined,
-      sortField:String(input.sortField??"orderNumber"),sortOrder:String(input.sortOrder??"asc").toLowerCase(),filterGroup:input.filterGroup,ids:input.ids as string[]|undefined };
+      sortField:String(input.sortField??"orderDate"),sortOrder:String(input.sortOrder??"desc").toLowerCase(),filterGroup:input.filterGroup,ids:input.ids as string[]|undefined };
   }
 
   private scope(actor: MasterPlanActor, params: unknown[], action: "read"|"export") {
@@ -120,9 +120,6 @@ export class MasterPlanDivisionOrderProgressService {
       allocation AS MATERIALIZED (
         SELECT min(record.id::text)::uuid id,record.tenant_id,record.division_id,min(record.customer_code) customer_code,record.order_number,record.item_code,max(record.item_name) item_name,
           min(record.order_date) order_date,min(record.expected_shipping_date) expected_shipping_date,
-          array_agg(DISTINCT record.order_date ORDER BY record.order_date) FILTER(WHERE record.order_date IS NOT NULL) order_date_values,
-          array_agg(DISTINCT record.expected_shipping_date ORDER BY record.expected_shipping_date) FILTER(WHERE record.expected_shipping_date IS NOT NULL) shipping_date_values,
-          count(DISTINCT record.order_date)::int order_date_count,count(DISTINCT record.expected_shipping_date)::int shipping_date_count,
           sum(record.order_quantity) order_quantity
         FROM mps_order_allocations record CROSS JOIN org_guard
         WHERE record.tenant_id=${tenant} AND record.division_id=${division}::uuid AND record.archived_at IS NULL AND record.order_status='已审核'
@@ -223,8 +220,8 @@ export class MasterPlanDivisionOrderProgressService {
     const where:string[]=[];
     if(q.search){const p=bind(`%${q.search}%`);where.push(`(customer_code ILIKE ${p} OR order_number ILIKE ${p} OR item_code ILIKE ${p} OR item_name ILIKE ${p})`);}
     for(const [field,operator,value] of [["review_due_date",">=",q.reviewDueFrom],["review_due_date","<=",q.reviewDueTo]] as const){if(value)where.push(`${field}${operator}${bind(value)}::date`);}
-    for(const [values,from,to] of [["order_date_values",q.orderDateFrom,q.orderDateTo],["shipping_date_values",q.shippingDateFrom,q.shippingDateTo]] as const){
-      if(from||to){const start=bind(from??null),end=bind(to??null);where.push(`EXISTS(SELECT 1 FROM unnest(${values}) date_value WHERE (${start}::date IS NULL OR date_value>=${start}::date) AND (${end}::date IS NULL OR date_value<=${end}::date))`);}
+    for(const [field,from,to] of [["order_date",q.orderDateFrom,q.orderDateTo],["expected_shipping_date",q.shippingDateFrom,q.shippingDateTo]] as const){
+      if(from||to){const start=bind(from??null),end=bind(to??null);where.push(`(${start}::date IS NULL OR ${field}>=${start}::date) AND (${end}::date IS NULL OR ${field}<=${end}::date)`);}
     }
     if(q.incomplete)where.push(`(order_quantity<=0 OR COALESCE(welding_quantity,0)<order_quantity OR COALESCE(blank_quantity,0)<order_quantity OR COALESCE(surface_treatment_quantity,0)<order_quantity OR COALESCE(packaging_quantity,0)<order_quantity OR inbound_verified IS DISTINCT FROM true OR COALESCE(inbound_quantity,0)<order_quantity)`);
     if(q.processCode&&q.processStatus){const field=({welding:"welding_quantity",blank:"blank_quantity",surfaceTreatment:"surface_treatment_quantity",packaging:"packaging_quantity"} as const)[q.processCode as keyof typeof processColumns];where.push(q.processStatus==="complete"?`order_quantity>0 AND COALESCE(${field},0)>=order_quantity`:`(order_quantity<=0 OR COALESCE(${field},0)<order_quantity)`);}
@@ -252,8 +249,7 @@ export class MasterPlanDivisionOrderProgressService {
         count(*) FILTER(WHERE unfinished_base_count>0 AND review_due_date IS NULL)::int base_due_date_missing,
         count(*) FILTER(WHERE inbound_source_count>0 AND inbound_verified IS DISTINCT FROM true)::int inbound_unverified FROM filtered),
       rows AS (SELECT id::text id,customer_code "customerCode",order_number "orderNumber",item_code "itemCode",item_name "itemName",
-        CASE WHEN order_date_count>1 THEN '多日期' ELSE order_date::text END "orderDate",CASE WHEN shipping_date_count>1 THEN '多日期' ELSE expected_shipping_date::text END "expectedShippingDate",
-        array_to_string(order_date_values,', ') "orderDateTooltip",array_to_string(shipping_date_values,', ') "shippingDateTooltip",
+        order_date::text "orderDate",expected_shipping_date::text "expectedShippingDate",
         order_quantity::text "orderQuantity",review_due_date::text "reviewDueDate",
         review_due_tooltip "reviewDueTooltip",welding_quantity::text "weldingQuantity",blank_quantity::text "blankQuantity",
         surface_treatment_quantity::text "surfaceTreatmentQuantity",packaging_quantity::text "packagingQuantity",
@@ -279,7 +275,7 @@ export class MasterPlanDivisionOrderProgressService {
       const drawing=status==="HAS_BOM"?"Y":"N";
       const val=(key:string)=>row[key]==null?null:String(row[key]);
       return {id:String(row.id),customerCode:val("customerCode"),orderNumber:val("orderNumber"),itemCode:val("itemCode"),itemName:val("itemName"),
-        orderDate:val("orderDate"),expectedShippingDate:val("expectedShippingDate"),orderDateTooltip:val("orderDateTooltip"),shippingDateTooltip:val("shippingDateTooltip"),orderQuantity:val("orderQuantity"),reviewDueDate:val("reviewDueDate"),
+        orderDate:val("orderDate"),expectedShippingDate:val("expectedShippingDate"),orderQuantity:val("orderQuantity"),reviewDueDate:val("reviewDueDate"),
         drawing,materialReady:"N",cutting:"N",weldingQuantity:val("weldingQuantity")??"0",blankQuantity:val("blankQuantity")??"0",
         surfaceTreatmentQuantity:val("surfaceTreatmentQuantity")??"0",packagingQuantity:val("packagingQuantity")??"0",inboundQuantity:val("inboundQuantity"),
         bomStatus:status,materialReadyHint:"齐套数据源暂未接入",cuttingHint:"下料状态数据源暂未接入",inboundVerified:Boolean(row.inboundVerified),

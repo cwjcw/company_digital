@@ -12,7 +12,7 @@ import "./master-plan-division-order-progress.css";
 type Filters={orderDateFrom?:string;orderDateTo?:string;shippingDateFrom?:string;shippingDateTo?:string;reviewDueFrom?:string;reviewDueTo?:string;incomplete:boolean;processCode?:string;processStatus?:string};
 const initial:Filters={incomplete:false};
 type Query={page:number;pageSize:number;search?:string;filterGroup?:AdvancedFilterGroup;sortField?:string;sortOrder?:string};
-const initialQuery:Query={page:1,pageSize:kdosDefaultPageSize};
+const initialQuery:Query={page:1,pageSize:kdosDefaultPageSize,sortField:"orderDate",sortOrder:"desc"};
 const numberText=(value:unknown)=>value==null||value===""?"—":Number(value).toLocaleString("zh-CN",{minimumFractionDigits:1,maximumFractionDigits:1});
 const dateText=(value:unknown)=>value?dayjs(String(value)).format("YYYY-MM-DD"):"—";
 const dateRange=(value:[Dayjs|null,Dayjs|null]|null)=>({from:value?.[0]?.format("YYYY-MM-DD"),to:value?.[1]?.format("YYYY-MM-DD")});
@@ -28,9 +28,7 @@ export function MasterPlanDivisionOrderProgress(){
     const numeric=mpsDivisionOrderProgressFieldKeys.includes(key as never)&&/Quantity$|orderQuantity/.test(key);
     const render=(value:unknown,row:MpsDivisionOrderProgressRow)=>{
       if(key==="orderDate"||key==="expectedShippingDate"||key==="reviewDueDate"){
-        const dateTooltip=key==="orderDate"?row.orderDateTooltip:key==="expectedShippingDate"?row.shippingDateTooltip:null;
-        const text=value==="多日期"?"多日期":dateText(value);
-        if(value==="多日期"&&dateTooltip)return <Tooltip title={dateTooltip}>{text}</Tooltip>;
+        const text=dateText(value);
         return key==="reviewDueDate"&&row.reviewDueTooltip?<Tooltip title={`其他有效未完成基础计划交期：${row.reviewDueTooltip}`}>{text}</Tooltip>:text;
       }
       if(key==="drawing")return value==="Y"?<Tag color="green">Y</Tag>:"N";
@@ -41,7 +39,7 @@ export function MasterPlanDivisionOrderProgress(){
         return <span className={`mps-division-progress-number ${complete===true?"is-complete":""}`}>{numberText(value)}</span>;}
       return String(value??"—");
     };
-    return {key,dataIndex:key,title,width:index<4?160:145,fixed:index<4?"left":undefined,align:numeric?"right":undefined,sorter:!['drawing','materialReady','cutting'].includes(key),render};
+    return {key,dataIndex:key,title,width:index<4?160:145,fixed:index<4?"left":undefined,align:"center",sorter:!['drawing','materialReady','cutting'].includes(key),render};
   });
   const setRange=(field:"order"|"shipping"|"review",value:[Dayjs|null,Dayjs|null]|null)=>{
     const range=dateRange(value),keys=field==="order"?["orderDateFrom","orderDateTo"]:field==="shipping"?["shippingDateFrom","shippingDateTo"]:["reviewDueFrom","reviewDueTo"];
@@ -58,7 +56,7 @@ export function MasterPlanDivisionOrderProgress(){
   return <div className="mps-division-order-progress">
     {result.error&&<Alert type="error" showIcon message={(result.error as Error).message}/>}
     <Card title="事业四部订单生产进度">
-      <KdosDataTable<MpsDivisionOrderProgressRow> resource={mpsDivisionOrderProgressResource} viewKey="fourth-division-progress" systemFields={false} rowKey="id" loading={result.isFetching} dataSource={result.data?.rows??[]} columns={columns} scroll={{x:2500}} pagination={{pageSize:query.pageSize}} locale={{emptyText:"暂无匹配订单品项"}} searchPlaceholder="客户代码、订单号、品号或品名" searchValue={query.search??""} onSearchValueChange={search=>setQuery(current=>({...current,page:1,search}))} advancedFilterFields={advancedFields} advancedFilterSection={section} printContext={contextFilters(filters)} serverData={{resetKey:JSON.stringify(filters),total:result.data?.total??0,onQueryChange:q=>setQuery(current=>({...current,page:q.page,pageSize:q.pageSize,search:q.search,filterGroup:q.filterGroup,sortField:q.sortField,sortOrder:q.sortOrder}))}}/>
+      <KdosDataTable<MpsDivisionOrderProgressRow> resource={mpsDivisionOrderProgressResource} viewKey="fourth-division-progress" systemFields={false} rowKey="id" loading={result.isFetching} dataSource={result.data?.rows??[]} columns={columns} scroll={{x:2500}} pagination={{pageSize:query.pageSize}} locale={{emptyText:"暂无匹配订单品项"}} searchPlaceholder="客户代码、订单号、品号或品名" searchValue={query.search??""} onSearchValueChange={search=>setQuery(current=>({...current,page:1,search}))} initialSort={{field:"orderDate",order:"desc"}} advancedFilterFields={advancedFields} advancedFilterSection={section} printContext={contextFilters(filters)} serverData={{resetKey:JSON.stringify(filters),total:result.data?.total??0,onQueryChange:q=>setQuery(current=>({...current,page:q.page,pageSize:q.pageSize,search:q.search,filterGroup:q.filterGroup,sortField:q.sortField,sortOrder:q.sortOrder}))}}/>
     </Card>
   </div>;
 }

@@ -323,6 +323,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   editable?: boolean;
   /** Optional view discriminator so different views of one resource keep separate column and page-size preferences. */
   viewKey?: string;
+  /** Optional first-open server sort for reports; user-selected table sorting takes precedence. */
+  initialSort?: { field: string; order: "asc" | "desc" };
   /** Optional narrower set of columns eligible for advanced filtering; full field metadata still governs display and permissions. */
   advancedFilterFields?: TablePermissionFieldDefinition[];
   /** 正式字段 metadata：提供后启用类型化高级筛选（操作符与值控件全部由 metadata 决定）。 */
@@ -424,7 +426,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
-  advancedFilterFields,
+  advancedFilterFields, initialSort,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
   pagination, scroll, serverData, ...tableProps
@@ -456,8 +458,8 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
-  const [sortField, setSortField] = useState("");
-  const [sortOrder, setSortOrder] = useState<"ascend" | "descend">();
+  const [sortField, setSortField] = useState(initialSort?.field ?? "");
+  const [sortOrder, setSortOrder] = useState<"ascend" | "descend" | undefined>(initialSort?.order === "desc" ? "descend" : initialSort?.order === "asc" ? "ascend" : undefined);
   /* 类型化高级筛选：草稿在面板内维护，只有点击“筛选/清空”才写入 applied 并触发服务端查询。 */
   const [filterGroup, setFilterGroup] = useState<AdvancedFilterGroup>(emptyFilterGroup());
   const [headerFilters, setHeaderFilters] = useState<Record<string, AdvancedFilterRule[]>>({});
@@ -579,9 +581,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
   });
   const canEdit = editable && hasResourcePermission(resource, "update");
   useEffect(() => {
-    setEditing(false); setCurrentPage(1); setSortField(""); setSortOrder(undefined);
+    setEditing(false); setCurrentPage(1); setSortField(initialSort?.field ?? "");
+    setSortOrder(initialSort?.order === "desc" ? "descend" : initialSort?.order === "asc" ? "ascend" : undefined);
     setSelectedRowKeys([]); selectedRecords.current.clear();
-  }, [resource, viewKey]);
+  }, [resource, viewKey, initialSort?.field, initialSort?.order]);
   const contextFilterKey = JSON.stringify(contextFilterGroup ?? emptyFilterGroup());
   useEffect(() => { setCurrentPage(1); }, [filters, search, tableFilterGroup, contextFilterKey, serverData?.resetKey]);
   useEffect(() => { setFilterGroup(emptyFilterGroup()); setHeaderFilters({}); }, [resource, viewKey]);

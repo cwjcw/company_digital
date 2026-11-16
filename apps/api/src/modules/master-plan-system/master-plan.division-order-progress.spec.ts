@@ -65,6 +65,21 @@ describe("事业部订单生产进度报表",()=>{
     const sql=String(transactions[0]!.mock.calls.map(call=>call[0]).find(value=>String(value).includes("SELECT (SELECT count(*)::int FROM filtered)")));
     expect(sql).toContain("ORDER BY order_quantity DESC NULLS LAST,order_number,item_code,id");
   });
+  it("defaults to earliest order date descending, nulls last, with stable ties and one date for filter/sort/export rows",async()=>{
+    await service.page("fourth",{page:1,orderDateFrom:"2026-11-03",orderDateTo:"2026-11-08",shippingDateFrom:"2026-12-01"},actor);
+    const sql=String(transactions[0]!.mock.calls.map(call=>call[0]).find(value=>String(value).includes("SELECT (SELECT count(*)::int FROM filtered)")));
+    expect(sql).toContain("min(record.order_date) order_date");
+    expect(sql).toContain("min(record.expected_shipping_date) expected_shipping_date");
+    expect(sql).toContain("order_date::text \"orderDate\"");
+    expect(sql).toContain("expected_shipping_date::text \"expectedShippingDate\"");
+    expect(sql).toContain("order_date>=");
+    expect(sql).toContain("expected_shipping_date>=");
+    expect(sql).toContain("ORDER BY order_date DESC NULLS LAST,order_number,item_code,id");
+    expect(sql).not.toContain("order_date_values");
+    expect(sql).not.toContain("shipping_date_values");
+    expect(sql).not.toContain("多日期");
+    expect(sql).not.toContain("unnest(");
+  });
   it("rejects non-filterable derived BOM status and invalid page sizes use platform defaults",async()=>{
     await expect(service.page("fourth",{filterGroup:{logic:"AND",rules:[{field:"drawing",operator:"contains",value:"Y"}]}},actor)).rejects.toThrow("不支持筛选");
     const result=await service.page("fourth",{pageSize:37},actor);
