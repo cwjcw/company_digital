@@ -82,7 +82,7 @@ export async function reconcileExistingMonthlyInbound(manager: EntityManager, te
       avg(CASE WHEN p.required_quantity<=0 THEN 0 ELSE least(greatest(p.cumulative_inbound_quantity,0)/p.required_quantity,1) END) rate
     FROM mps_monthly_plans p WHERE p.tenant_id=$1 AND ${allocationOnly ? "false" : "true"}
       AND NOT EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=p.tenant_id
-        AND a.order_number=p.order_number AND a.archived_at IS NULL AND a.order_status='已审核')
+        AND a.order_number=p.order_number AND a.archived_at IS NULL AND a.allocated_quantity>0)
       GROUP BY p.order_number
   ), totals AS (
     SELECT order_number,required_quantity required,completed_quantity completed,pending_quantity pending,completion_rate rate FROM active_totals

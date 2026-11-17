@@ -1,20 +1,20 @@
-/** Allocation approval belongs to KDOS, independently of ERP status, quantities or dates.
- * Every physical active approved row contributes once, including separate import batches.
+/** KDOS allocation approval is metadata only; every positive active source row contributes once,
+ * including separate import batches and regardless of its approval value.
  * There is no persisted month key in the current model: calendar filters keep order_date.
  */
 export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
   SELECT a.tenant_id,a.order_number,a.item_code,a.division_id,
     (array_agg(a.id ORDER BY a.created_at,a.id))[1] allocation_id,
-    min(a.customer_code) customer_code,min(a.order_date) order_date,max(a.item_name) item_name,
+    CASE WHEN count(DISTINCT a.customer_code)=1 THEN min(a.customer_code) END customer_code,min(a.order_date) order_date,max(a.item_name) item_name,
     sum(a.allocated_quantity) quantity,count(*) allocation_count,
     min(to_jsonb(a)->>'monthly_plan_id') demand_parent_id,count(DISTINCT to_jsonb(a)->>'monthly_plan_id') demand_parent_count,
     count(*) FILTER(WHERE a.order_date IS NULL) missing_order_dates,
     count(*) FILTER(WHERE nullif(btrim(a.item_name),'') IS NULL) missing_item_names,
     count(DISTINCT a.customer_code) customer_count,
-    bool_and(a.manually_maintained AND a.division_id IS NOT NULL
+    bool_and(a.division_id IS NOT NULL
       AND nullif(btrim(a.order_number),'') IS NOT NULL AND nullif(btrim(a.item_code),'') IS NOT NULL
-      AND nullif(btrim(a.customer_code),'') IS NOT NULL AND a.allocated_quantity>=0) valid
-  FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.order_status='已审核'
+      AND a.allocated_quantity>0) valid
+  FROM mps_order_allocations a WHERE a.tenant_id=$1 AND a.archived_at IS NULL AND a.allocated_quantity>0
   GROUP BY a.tenant_id,a.order_number,a.item_code,a.division_id
 ), joined AS MATERIALIZED (
   SELECT a.*,p.id existing_id,p.allocation_id existing_allocation_id,p.order_number existing_order_number,
@@ -56,11 +56,7 @@ export const allocationDemandCtesSql = `allocations AS MATERIALIZED (
       AND (j.existing_id IS NULL OR j.recover_archived_source OR j.active_parent_matches)) group_source_safe,
     CASE WHEN j.demand_parent_count>1 OR (j.demand_parent_id IS NOT NULL AND (j.existing_id IS NULL OR
         (j.existing_order_number,j.existing_item_code,j.existing_division_id) IS DISTINCT FROM (j.order_number,j.item_code,j.division_id))) THEN '显式需求父关系冲突，禁止文本回退'
-      WHEN NOT j.valid OR j.customer_count<>1 THEN '分配客户或数量无效'
-      WHEN (SELECT count(DISTINCT x.customer_code) FROM allocations x WHERE x.order_number=j.order_number)<>1
-        THEN '同订单有效分配客户不一致'
-      WHEN EXISTS(SELECT 1 FROM mps_group_plans g WHERE g.tenant_id=j.tenant_id AND g.order_number=j.order_number
-        AND g.customer_code IS NOT NULL AND g.customer_code IS DISTINCT FROM j.customer_code) THEN '集团历史客户归属冲突'
+      WHEN NOT j.valid THEN '分配订单、品项、事业部或需求数量无效'
       WHEN j.enabled_division_id IS NULL THEN '承接事业部无效'
       WHEN j.existing_id IS NOT NULL AND NOT j.archived_parent_matches AND
         (j.parent_archived_at IS NOT NULL OR j.parent_order_number IS DISTINCT FROM j.order_number OR

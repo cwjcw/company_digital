@@ -44,7 +44,7 @@ export class MasterPlanDemandQuantityService {
         if (bases.some(b => b.lifecycle_status === 'LEGACY_RETAINED'))
             blockers.push('历史批次来源尚未确认');
         const sources: Row[] = await m.query(`SELECT id,version,monthly_plan_id,allocated_quantity,order_number,item_code,division_id,customer_code,archived_at,order_status,manually_maintained FROM mps_order_allocations WHERE tenant_id=$1 AND (monthly_plan_id=$2::uuid OR (order_number=$3 AND item_code=$4 AND division_id IS NOT DISTINCT FROM $5::uuid)) ORDER BY id`, [actor.tenantId, id, parent.order_number, parent.item_code, parent.division_id]);
-        const active = sources.filter(s => !s.archived_at && s.order_status === '已审核' && s.manually_maintained);
+        const active = sources.filter(s => !s.archived_at && new Decimal(String(s.allocated_quantity ?? 0)).gt(0));
         if (!active.length || active.some(s => s.allocated_quantity == null || s.monthly_plan_id !== id || s.order_number !== parent.order_number || s.item_code !== parent.item_code || s.division_id !== parent.division_id || s.customer_code !== parent.customer_code) || !active.reduce((n, s) => n.add(s.allocated_quantity), new Decimal(0)).eq(parent.required_quantity))
             blockers.push('有效来源关联或需求数量待确认');
         const weekly: Row[] = await m.query(`SELECT w.*,mps_weekly_has_execution(w.tenant_id,w.id) protected FROM mps_weekly_plans w WHERE tenant_id=$1 AND base_plan_id=ANY($2::uuid[]) ORDER BY id${lock ? ' FOR UPDATE' : ''}`, [actor.tenantId, bases.map(b => b.id)]);

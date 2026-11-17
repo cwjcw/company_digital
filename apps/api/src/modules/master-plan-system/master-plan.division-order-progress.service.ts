@@ -99,14 +99,14 @@ export class MasterPlanDivisionOrderProgressService {
     return buildDataScopeClause({resource:mpsDivisionOrderProgressResource,actor,params,action,columns:{divisionId:"division_id",createdBy:"created_by"}});
   }
 
-  /** Candidate requests use the approved allocation source and this report's existing data-scope rules. */
+  /** Candidate requests use all active positive allocation demand and this report's existing data-scope rules. */
   filterCandidateScope(actor: TableFilterActor, params: unknown[], action: "read"|"export" = "read") {
     const principal: MasterPlanActor = { tenantId:actor.tenantId,userId:actor.userId,username:actor.username??"",permissions:actor.permissions,
       isSystemAdmin:actor.isSystemAdmin,moduleAdminCodes:actor.moduleAdminCodes,tableDataScopes:actor.tableDataScopes??[],requestId:"",source:"system" };
     this.assert(principal,action);
     const scope=this.scope(principal,params,action);
     params.push(MPS_DIVISION_ORDER_PROGRESS_CONFIGS.fourth.divisionId);
-    return `record.division_id=$${params.length}::uuid AND record.archived_at IS NULL AND record.order_status='已审核'
+    return `record.division_id=$${params.length}::uuid AND record.archived_at IS NULL AND record.allocated_quantity>0
       AND EXISTS(SELECT 1 FROM organization_units org WHERE org.id=record.division_id AND org.name='事业四部' AND org.enabled=true) AND (${scope})`;
   }
 
@@ -122,7 +122,7 @@ export class MasterPlanDivisionOrderProgressService {
           min(record.order_date) order_date,min(record.expected_shipping_date) expected_shipping_date,
           sum(record.order_quantity) order_quantity
         FROM mps_order_allocations record CROSS JOIN org_guard
-        WHERE record.tenant_id=${tenant} AND record.division_id=${division}::uuid AND record.archived_at IS NULL AND record.order_status='已审核'
+        WHERE record.tenant_id=${tenant} AND record.division_id=${division}::uuid AND record.archived_at IS NULL AND record.allocated_quantity>0
           AND (${readScope}) ${exportScope?`AND (${exportScope})`:""}
         GROUP BY record.tenant_id,record.division_id,record.order_number,record.item_code
       ),
@@ -295,7 +295,7 @@ export class MasterPlanDivisionOrderProgressService {
         JOIN mps_base_plans b ON b.tenant_id=w.tenant_id AND b.id=w.base_plan_id AND b.division_id=w.division_id
         WHERE r.tenant_id=$1 AND r.division_id=$2::uuid AND r.process_code=ANY(ARRAY['welding','blank','surfaceTreatment','packaging']::varchar[])
           AND NOT EXISTS(SELECT 1 FROM mps_order_allocations a WHERE a.tenant_id=r.tenant_id AND a.order_number=r.order_number AND a.item_code=r.item_code
-            AND a.division_id=r.division_id AND a.archived_at IS NULL AND a.order_status='已审核')`,[actor.tenantId,divisionId]);
+            AND a.division_id=r.division_id AND a.archived_at IS NULL AND a.allocated_quantity>0)`,[actor.tenantId,divisionId]);
       return Number(row.count);
     });
   }

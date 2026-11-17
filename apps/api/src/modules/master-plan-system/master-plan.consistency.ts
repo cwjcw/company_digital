@@ -14,7 +14,7 @@ export async function inspectDemandKey(m:EntityManager,tenant:string,key:DemandK
  const candidates=await m.query(`WITH ${ctes} SELECT * FROM candidates WHERE item_code=$3 AND division_id=$4::uuid`,[tenant,key.orderNumber,key.itemCode,key.divisionId]);
  const candidate=candidates[0];
  const allocations=await m.query(`SELECT id,version,monthly_plan_id,allocated_quantity FROM mps_order_allocations WHERE tenant_id=$1
-   AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND archived_at IS NULL AND order_status='已审核' ORDER BY id`,[tenant,key.orderNumber,key.itemCode,key.divisionId]);
+   AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND archived_at IS NULL AND allocated_quantity>0 ORDER BY id`,[tenant,key.orderNumber,key.itemCode,key.divisionId]);
  const monthly=(await m.query(`SELECT id,version,allocation_id,required_quantity,pending_quantity,cumulative_inbound_quantity FROM mps_monthly_plans
    WHERE tenant_id=$1 AND (id=$2::uuid OR ($2::uuid IS NULL AND order_number=$3 AND item_code=$4 AND division_id=$5::uuid))`,[tenant,candidate?.existing_id??null,key.orderNumber,key.itemCode,key.divisionId]))[0]??null;
  const bases=await m.query(`SELECT base.*,(${weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get('mps-base-plans')!,'base')}) admitted
@@ -57,18 +57,18 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    if(!lock?.owned)return {ready:true,scanned:0,inconsistent:0,enqueued:0,busy:true};
    await m.query("INSERT INTO mps_consistency_checkpoints(tenant_id,source_updated_at) VALUES($1,clock_timestamp()-interval '1 day') ON CONFLICT DO NOTHING",[tenant]);
    const [cp]=await m.query('SELECT *,source_updated_at::text source_cursor FROM mps_consistency_checkpoints WHERE tenant_id=$1 FOR UPDATE',[tenant]);
-   if(cp.metrics?.policyVersion!=='v2'){
+   if(cp.metrics?.policyVersion!=='v3'){
      await m.query("UPDATE mps_consistency_checkpoints SET sweep_id=$2::uuid,last_sweep_at=NULL,sweep_started_at=clock_timestamp() WHERE tenant_id=$1",[tenant,zero]);
      cp.sweep_id=zero;cp.last_sweep_at=null;
    }
    const changed=await m.query(`SELECT id,updated_at::text updated_at,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1
      AND (updated_at,id)>($2::timestamptz,$3::uuid) ORDER BY updated_at,id LIMIT $4`,[tenant,cp.source_cursor,cp.source_id,limit]);
-   const sweep=await m.query(`SELECT id,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND order_status='已审核'
+   const sweep=await m.query(`SELECT id,order_number,item_code,division_id FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND allocated_quantity>0
      AND id>$2::uuid AND ($3::timestamptz IS NULL OR $3::timestamptz<clock_timestamp()-interval '24 hours') ORDER BY id LIMIT $4`,[tenant,cp.sweep_id,cp.last_sweep_at,limit]);
    const exhausted=await m.query(`SELECT o.scope_json->'allocationKey' key,o.id FROM mps_reconciliation_outbox o
      WHERE o.tenant_id=$1 AND o.resource='mps-demand-consistency' AND o.status='FAILED'
        AND o.superseded_by IS NULL AND ((o.attempts>=10 AND isfinite(o.next_attempt_at) AND o.updated_at<clock_timestamp()-interval '6 hours')
-         OR o.idempotency_key NOT LIKE 'mps-consistency:v2:%')
+         OR o.idempotency_key NOT LIKE 'mps-consistency:v3:%')
        AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer WHERE newer.tenant_id=o.tenant_id
          AND newer.scope_json=o.scope_json AND (newer.created_at,newer.id)>(o.created_at,o.id)) ORDER BY o.updated_at,o.id LIMIT $2`,[tenant,limit]);
    const historicalFailures=await m.query(`SELECT DISTINCT ON(a.order_number,a.item_code,a.division_id)
@@ -76,7 +76,7 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
        AND (a.id=o.record_id OR (a.order_number=o.scope_json#>>'{allocation,orderNumber}' AND a.item_code=o.scope_json#>>'{allocation,itemCode}' AND a.division_id::text=o.scope_json#>>'{allocation,divisionId}'))
        WHERE o.tenant_id=$1 AND o.resource='mps-order-allocations' AND o.sync_key='plan-projections' AND o.status='FAILED'
        AND (o.attempts>=10 OR NOT isfinite(o.next_attempt_at)) AND o.superseded_by IS NULL
-       AND a.archived_at IS NULL AND a.order_status='已审核' AND a.division_id IS NOT NULL
+       AND a.archived_at IS NULL AND a.allocated_quantity>0 AND a.division_id IS NOT NULL
        AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer WHERE newer.tenant_id=o.tenant_id
          AND newer.resource='mps-demand-consistency' AND newer.created_at>=o.updated_at
          AND newer.scope_json->'allocationKey'=jsonb_build_object('orderNumber',a.order_number,'itemCode',a.item_code,'divisionId',a.division_id::text))
@@ -102,7 +102,7 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
      if(pending)continue;
      const inserted=await m.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
        VALUES($1,'mps-demand-consistency',$2::uuid,'plan-projections',$3::jsonb,$4,$5::uuid,'KDOS一致性任务',$5::uuid,$5::uuid)
-       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v2:'+state.fingerprint+(unverified?':verify:'+unverified.id:'')+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
+       ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id`,[tenant,state.allocations[0]?.id??null,JSON.stringify(scope),'mps-consistency:v3:'+state.fingerprint+(unverified?':verify:'+unverified.id:'')+(retries.has(demandKeyText(key))?':compensate:'+retries.get(demandKeyText(key)):''),systemId]);
      if(inserted.length){enqueued++;await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,after_json,request_id,source,created_by,updated_by)
        VALUES($1,$2::uuid,'KDOS一致性任务','mps-demand-consistency',$3,'consistency.detected',$4::jsonb,$5,'api',$2::uuid,$2::uuid)`,[tenant,systemId,inserted[0].id,JSON.stringify({key,reasons}), 'mps-consistency:'+inserted[0].id]);}
    }
@@ -110,7 +110,7 @@ export async function scanDemandConsistencyPage(db:DataSource,tenant:string,syst
    await m.query(`UPDATE mps_consistency_checkpoints SET source_updated_at=coalesce($2,source_updated_at),source_id=coalesce($3,source_id),
      sweep_id=CASE WHEN $4::int<$5::int AND (last_sweep_at IS NULL OR last_sweep_at<clock_timestamp()-interval '24 hours') THEN $6::uuid ELSE coalesce($7::uuid,sweep_id) END,
      last_sweep_at=CASE WHEN $4::int<$5::int AND (last_sweep_at IS NULL OR last_sweep_at<clock_timestamp()-interval '24 hours') THEN clock_timestamp() ELSE last_sweep_at END,
-     metrics=metrics||jsonb_build_object('policyVersion','v2','scanned',coalesce((metrics->>'scanned')::int,0)+$8::int,'inconsistent',coalesce((metrics->>'inconsistent')::int,0)+$9::int,
+     metrics=metrics||jsonb_build_object('policyVersion','v3','scanned',coalesce((metrics->>'scanned')::int,0)+$8::int,'inconsistent',coalesce((metrics->>'inconsistent')::int,0)+$9::int,
        'enqueued',coalesce((metrics->>'enqueued')::int,0)+$10::int),updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1`,
      [tenant,latest?.updated_at??null,latest?.id??null,sweep.length,limit,zero,last?.id??null,keys.size,inconsistent,enqueued]);
    return {ready:true,scanned:keys.size,inconsistent,enqueued,incrementalRows:changed.length,sweepRows:sweep.length};

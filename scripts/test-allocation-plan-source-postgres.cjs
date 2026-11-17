@@ -18,9 +18,13 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  await control.connect();await control.query(`CREATE DATABASE ${database}`);
  db=new DataSource({type:'postgres',host:socket,username:'knplan',database,migrations:fs.readdirSync(path.join(root,'apps/api/dist/migrations')).filter(file=>/^\d.*\.js$/.test(file)&&!file.endsWith('.spec.js')).map(file=>path.join(root,'apps/api/dist/migrations',file)),logging:false});await db.initialize();await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');await db.runMigrations();
  console.log('PASS all migrations on fresh PostgreSQL18');
+ await db.query('ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS business_key text');
  const insert=async(table,values,manager=db)=>{const entries=Object.entries({tenant_id:'KAINAN',created_by:user,updated_by:user,...values});return(await manager.query(`INSERT INTO ${table}(${entries.map(([k])=>k)})VALUES(${entries.map((_,i)=>'$'+(i+1))})RETURNING *`,entries.map(([,v])=>v)))[0]};
  await db.query("INSERT INTO users(id,username,password_hash,display_name,tenant_id)VALUES($1,'allocation-fixture','unused','合成验收','KAINAN')",[user]);
  for(const [i,name]of[[division,'合成一部'],[other,'合成二部'],[four,'事业四部']])await db.query('INSERT INTO organization_units(id,name,level,enabled)VALUES($1,$2,1,true)',[i,name]);
+ await db.query(`INSERT INTO mps_division_process_configs(tenant_id,division_id,process_code,cycle_days,sequence,created_by)
+   SELECT 'KAINAN',$1,x.code,2,x.sequence,$2::uuid FROM unnest(ARRAY['cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging']::varchar[])
+   WITH ORDINALITY x(code,sequence)`,[four,user]);
  const alloc=(order,item,qty,values={})=>insert('mps_order_allocations',{order_number:order,item_code:item,allocated_quantity:qty,division_id:division,customer_code:'SYN-CUSTOMER',item_name:'合成品项',manually_maintained:true,order_status:'已审核',order_date:'2020-01-01',expected_shipping_date:'2030-01-01',...values});
  const month=(a,values={})=>insert('mps_monthly_plans',{allocation_id:a.id,order_number:a.order_number,item_code:a.item_code,division_id:a.division_id,customer_code:a.customer_code,required_quantity:a.allocated_quantity,pending_quantity:a.allocated_quantity,...values});
  const sync=new MasterPlanSyncService(db),project=()=>sync.run('KAINAN','plan-projections','MANUAL',user,'合成验收','fixture:'+Date.now()+Math.random()),base=()=>sync.shippingToBase('KAINAN',user,'合成验收');
@@ -34,7 +38,8 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  const erpBefore=await db.query('SELECT * FROM mps_erp_order_lines ORDER BY id');
  const unapproved=await alloc('SYN-UNAPPROVED','ITEM-U',50,{order_status:'未审核'});
  await alloc('SYN-SPLIT','ITEM-S',20);await alloc('SYN-SPLIT','ITEM-S',40);await alloc('SYN-SPLIT','ITEM-S',40,{division_id:other});
- await alloc('SYN-SPLIT','ITEM-S',999,{archived_at:new Date()});await alloc('SYN-SPLIT','ITEM-S',999,{order_status:'已撤销'});await alloc('SYN-SPLIT','ITEM-S',999,{order_status:'未审核'});
+ await alloc('SYN-SPLIT','ITEM-S',999,{archived_at:new Date()});await alloc('SYN-SPLIT','ITEM-S',0,{order_status:'已撤销'});await alloc('SYN-SPLIT','ITEM-S',0,{order_status:'未审核'});
+ await alloc('SYN-STATUS-METADATA','ITEM-STATUS',5,{order_status:'已撤销'});
  await alloc('SYN-SPLIT','ITEM-SECOND',50);
  await alloc('SYN-MISSING','ITEM-M',3,{order_date:null,item_name:null});
  await alloc('SYN-OTHER-TENANT','ITEM-T',700,{tenant_id:'ISOLATED-OTHER'});
@@ -43,15 +48,16 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  const conflictAlloc=await alloc('SYN-CONFLICT','ITEM-C',9,{archived_at:new Date()}),conflict=await month(conflictAlloc,{remark:'不可覆盖历史'});await alloc('SYN-CONFLICT','ITEM-C',77);
  await alloc('SYN-BAD','ITEM-X',8,{customer_code:null});await alloc('SYN-BAD','ITEM-Y',8,{manually_maintained:false});
  await check('A/B/D: absent ERP, over quantity, old order date; dates/unknown money remain NULL',async()=>{
-  const result=await project();assert.equal(result.status,'SUCCESS');assert.equal(result.metrics.unapproved_allocations,3);assert.equal(result.metrics.missing_order_dates,1);
+  const result=await project();assert.equal(result.status,'BLOCKED');assert.equal(result.metrics.skipped,1);assert.equal(result.metrics.unapproved_allocations,4);assert.equal(result.metrics.missing_order_dates,1);
   assert.equal((await db.query("SELECT count(*)::int n FROM mps_data_exceptions WHERE message='重复分配合计超过ERP订单数量' AND active"))[0].n,0);
   for(const a of[absent,over]){const[p]=await db.query('SELECT *,order_date::text AS source_day FROM mps_monthly_plans WHERE allocation_id=$1',[a.id]);assert(p);assert.equal(p.required_quantity,a.allocated_quantity);assert.equal(p.source_day,'2020-01-01');assert.equal(p.customer_due_date,null);assert.equal(p.latest_customer_due_date,null);assert.equal(p.preproduction_review_date,null);const[g]=await db.query('SELECT * FROM mps_group_plans WHERE order_number=$1',[a.order_number]);for(const field of['order_amount','source_accounts','order_type','customer_due_date','preproduction_review_date'])assert.equal(g[field],null);assert.equal(g.primary_division_id,division);}
  });
- await check('C: unapproved excluded; approval joins next existing sync run',async()=>{
-  assert.equal((await db.query("SELECT * FROM mps_monthly_plans WHERE order_number='SYN-UNAPPROVED'")).length,0);
-  await db.query("UPDATE mps_order_allocations SET order_status='已审核' WHERE id=$1",[unapproved.id]);await project();assert.equal((await db.query("SELECT required_quantity FROM mps_monthly_plans WHERE order_number='SYN-UNAPPROVED'"))[0].required_quantity,'50.0000');
+ await check('C: allocation status metadata never blocks a positive active demand, and source status is unchanged',async()=>{
+  const [plan]=await db.query("SELECT required_quantity FROM mps_monthly_plans WHERE order_number='SYN-UNAPPROVED'");assert.equal(plan.required_quantity,'50.0000');
+  assert.equal((await db.query('SELECT order_status FROM mps_order_allocations WHERE id=$1',[unapproved.id]))[0].order_status,'未审核');
+  assert.equal((await db.query("SELECT required_quantity FROM mps_monthly_plans WHERE order_number='SYN-STATUS-METADATA' AND item_code='ITEM-STATUS'"))[0].required_quantity,'5.0000');
  });
- await check('E/F: split 60/40, repeated rows once, archived/revoked/unapproved ignored, item completion average',async()=>{
+ await check('E/F: split 60/40, repeated rows once, archived/revoked/nonpositive ignored, item completion average',async()=>{
   const rows=await db.query("SELECT * FROM mps_monthly_plans WHERE order_number='SYN-SPLIT' AND item_code='ITEM-S' ORDER BY division_id");assert.equal(rows.length,2);assert.deepEqual(rows.map(x=>x.required_quantity),['60.0000','40.0000']);
   await db.query("UPDATE mps_monthly_plans SET cumulative_inbound_quantity=required_quantity,pending_quantity=0,completion_rate=1 WHERE order_number='SYN-SPLIT' AND item_code='ITEM-S'");
   await project();const[g]=await db.query("SELECT * FROM mps_group_plans WHERE order_number='SYN-SPLIT'");assert.equal(g.required_quantity,'150.0000');assert.equal(g.completed_quantity,'100.0000');assert.equal(g.completion_rate,'0.5000');assert.equal(g.primary_division_id,null);
@@ -62,18 +68,28 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  });
  await check('G: historical IDs/manual fields intact, archived-key collision diagnosed, no source deletion',async()=>{
   assert.deepEqual((await db.query('SELECT * FROM mps_monthly_plans WHERE id=$1',[history.id]))[0],history);assert.deepEqual((await db.query('SELECT * FROM mps_group_plans WHERE id=$1',[oldGroup.id]))[0],oldGroup);assert.deepEqual((await db.query('SELECT * FROM mps_monthly_plans WHERE id=$1',[conflict.id]))[0],conflict);
-  const exceptions=await db.query("SELECT message FROM mps_data_exceptions WHERE active AND exception_type='ALLOCATION_PROJECTION_BLOCKED'");assert(exceptions.some(x=>x.message.includes('历史')));assert(exceptions.some(x=>x.message.includes('无效')));
+  const exceptions=await db.query("SELECT message FROM mps_data_exceptions WHERE active AND exception_type='ALLOCATION_PROJECTION_BLOCKED'");assert(exceptions.some(x=>x.message.includes('历史')));
+  assert.equal((await db.query("SELECT count(*)::int n FROM mps_monthly_plans WHERE order_number='SYN-BAD' AND item_code IN('ITEM-X','ITEM-Y')"))[0].n,2);
  });
  await check('targeted archived-source recovery preserves identity, quantities, group totals and task idempotency',async()=>{
   const order='SYN-ARCHIVE-RECOVERY',item='ITEM-RECOVERY';
-  const archived=await alloc(order,item,0,{archived_at:new Date()}),targetMonth=await month(archived,{required_quantity:4,pending_quantity:4});
-  const active=await alloc(order,item,4);
-  const baseRow=await insert('mps_base_plans',{order_number:order,item_code:item,delivery_number:1,division_id:division,
-    customer_code:'SYN-CUSTOMER',item_name:'合成品项',planned_quantity:4,latest_customer_due_date:'2026-12-31',latest_review_due_date:'2026-12-15',
+  const archived=await alloc(order,item,0,{division_id:four,archived_at:new Date()}),targetMonth=await month(archived,{required_quantity:4,pending_quantity:4});
+  const active=await alloc(order,item,4,{division_id:four,order_status:'未审核'});
+  const baseRow=await insert('mps_base_plans',{order_number:order,item_code:item,delivery_number:1,division_id:four,
+    customer_code:'SYN-CUSTOMER',item_name:'合成品项',planned_quantity:8,latest_customer_due_date:'2026-12-31',latest_review_due_date:'2026-12-15',
     product_attribute:'五金',surface_nature:'毛坯',manufacturing_method:'自制'});
-  await insert('audit_logs',{actor_id:user,actor_name:'合成验收',resource:'mps-base-plans',record_id:baseRow.id,
-    action:'mps-base-plans.synchronized',after_json:JSON.stringify({...baseRow,syncValues:{division_id:division,customer_code:'SYN-CUSTOMER',item_name:'合成品项',order_date:'2020-01-01',planned_quantity:'4.0000',latest_customer_due_date:null,image_refs:[]}}),
-    request_id:'synthetic-base-baseline',source:'api'});
+  let weeklyId;
+  await db.transaction(async m=>{
+    await m.query("SELECT set_config('app.mps_process_config_write_mode','INITIALIZE',true)");
+    const week=await insert('mps_weekly_plans',{base_plan_id:baseRow.id,division_id:four,order_number:order,item_code:item,delivery_number:1,
+      planned_quantity:8,pending_quantity:8,manufacturing_method:'自制',latest_customer_due_date:'2026-12-31',latest_review_due_date:'2026-12-15',
+      product_attribute:'五金',surface_nature:'毛坯'},m);weeklyId=week.id;
+    await m.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,execution_enabled,created_by,updated_by)
+      SELECT c.tenant_id,$1,c.process_code,CASE c.process_code WHEN 'cutting' THEN '下料' WHEN 'machining' THEN '机加' WHEN 'bending' THEN '折弯'
+        WHEN 'spotWelding' THEN '点焊' WHEN 'welding' THEN '焊接' WHEN 'woodworking' THEN '木作' WHEN 'grinding' THEN '研磨'
+        WHEN 'blank' THEN '毛坯' WHEN 'surfaceTreatment' THEN '表面处理' ELSE '包装' END,c.sequence,c.cycle_days,true,$2::uuid,$2::uuid
+      FROM mps_division_process_configs c WHERE c.tenant_id='KAINAN' AND c.division_id=$3::uuid`,[week.id,user,four]);
+  });
   await insert('mps_group_plans',{order_number:order,required_quantity:4,completed_quantity:0,pending_quantity:4,completion_rate:0,customer_code:'SYN-CUSTOMER'});
   await db.query('UPDATE mps_order_allocations SET allocated_quantity=8,version=version+1 WHERE id=$1',[active.id]);
   const recovery=await app.recoverArchivedAllocationSource(active.id,{expectedVersion:Number(active.version)+1,reason:'合成隔离验证唯一归档来源恢复'},actor);
@@ -81,7 +97,10 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
   assert.equal((await db.query("SELECT status FROM mps_reconciliation_outbox WHERE id=$1",[recovery.eventId]))[0].status,'SUCCESS');
   let [monthly]=await db.query('SELECT * FROM mps_monthly_plans WHERE id=$1',[targetMonth.id]);
   let [linked]=await db.query('SELECT * FROM mps_order_allocations WHERE id=$1',[active.id]);
-  assert.equal(monthly.allocation_id,active.id);assert.equal(monthly.required_quantity,'8.0000');assert.equal(linked.monthly_plan_id,targetMonth.id);
+  assert.equal(monthly.allocation_id,active.id);assert.equal(monthly.required_quantity,'8.0000');assert.equal(linked.monthly_plan_id,targetMonth.id);assert.equal(linked.order_status,'未审核');
+  let [preservedBase]=await db.query('SELECT * FROM mps_base_plans WHERE id=$1',[baseRow.id]);assert.equal(preservedBase.monthly_plan_id,targetMonth.id);assert.equal(preservedBase.planned_quantity,'8.0000');
+  const [preservedWeek]=await db.query('SELECT * FROM mps_weekly_plans WHERE id=$1',[weeklyId]);assert.equal(preservedWeek.base_plan_id,baseRow.id);
+  const preservedTaskIds=(await db.query('SELECT id FROM mps_weekly_process_plans WHERE weekly_plan_id=$1 ORDER BY id',[weeklyId])).map(x=>x.id);assert.equal(preservedTaskIds.length,10);
   let [group]=await db.query('SELECT * FROM mps_group_plans WHERE order_number=$1',[order]);assert.equal(group.required_quantity,'8.0000');
   const shipping=await sync.run('KAINAN','shipping-to-base','MANUAL',user,'合成验收','synthetic-archived-base',
     {monthlyPlans:[{id:targetMonth.id,expectedVersion:Number(monthly.version)}]});
@@ -93,6 +112,7 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
   let [week]=await db.query('SELECT * FROM mps_weekly_plans WHERE base_plan_id=$1',[baseRow.id]);
   assert.equal(week.planned_quantity,'8.0000');assert.equal(week.pending_quantity,'8.0000');
   const taskCount=Number((await db.query('SELECT count(*)::int n FROM mps_weekly_process_plans WHERE weekly_plan_id=$1',[week.id]))[0].n);
+  assert.deepEqual((await db.query('SELECT id FROM mps_weekly_process_plans WHERE weekly_plan_id=$1 ORDER BY id',[week.id])).map(x=>x.id),preservedTaskIds);
   await sync.run('KAINAN','base-to-weekly','MANUAL',user,'合成验收','synthetic-archived-weekly-repeat',{basePlanIds:[baseRow.id]});
   assert.equal(Number((await db.query('SELECT count(*)::int n FROM mps_weekly_process_plans WHERE weekly_plan_id=$1',[week.id]))[0].n),taskCount);
   assert.equal((await db.query('SELECT id FROM mps_order_allocations WHERE id=$1',[archived.id])).length,1);
@@ -107,23 +127,27 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
   console.log(JSON.stringify({checks:checks.length,passed:checks}));return;
  }
  await check('K: existing monthly→base, separate division batches, manual protection and weekly/report history',async()=>{
-  await base();const bases=await db.query("SELECT * FROM mps_base_plans WHERE order_number='SYN-SPLIT' AND item_code='ITEM-S' ORDER BY division_id");assert.equal(bases.length,2);assert.deepEqual(bases.map(x=>x.planned_quantity),['60.0000','40.0000']);assert.notEqual(bases[0].delivery_number,bases[1].delivery_number);
+  const kOrder='SYN-K-SPLIT',kItem='ITEM-K';await alloc(kOrder,kItem,20,{division_id:division});await alloc(kOrder,kItem,40,{division_id:other});await project();
+  await base();const bases=await db.query("SELECT * FROM mps_base_plans WHERE order_number=$1 AND item_code=$2 ORDER BY division_id",[kOrder,kItem]);assert.equal(bases.length,2);assert.deepEqual(bases.map(x=>x.planned_quantity),['20.0000','40.0000']);assert.notEqual(bases[0].delivery_number,bases[1].delivery_number);
   await db.query("UPDATE mps_base_plans SET planned_quantity=99,latest_customer_due_date='2028-01-01' WHERE id=$1",[bases[0].id]);
   await db.transaction(async m=>{
   await m.query("SELECT set_config('app.mps_process_config_write_mode','INITIALIZE',true)");
-  const week=await insert('mps_weekly_plans',{base_plan_id:bases[0].id,division_id:division,order_number:'SYN-SPLIT',item_code:'ITEM-S',delivery_number:bases[0].delivery_number,planned_quantity:99,manufacturing_method:'自制',latest_customer_due_date:'2028-01-01',latest_review_due_date:'2027-01-01'},m);
+  const week=await insert('mps_weekly_plans',{base_plan_id:bases[0].id,division_id:division,order_number:kOrder,item_code:kItem,delivery_number:bases[0].delivery_number,planned_quantity:99,manufacturing_method:'自制',latest_customer_due_date:'2028-01-01',latest_review_due_date:'2027-01-01'},m);
   await insert('mps_weekly_process_plans',{weekly_plan_id:week.id,process_code:'welding',process_name:'焊接',sequence:1,cycle_days:2,execution_enabled:true},m);
-  await insert('mps_process_reports',{weekly_plan_id:week.id,division_id:division,order_number:'SYN-SPLIT',item_code:'ITEM-S',delivery_number:week.delivery_number,process_code:'welding',process_name:'焊接',planned_quantity:99,production_quantity:4,production_date:'2026-10-01'},m);
+  await insert('mps_process_reports',{weekly_plan_id:week.id,division_id:division,order_number:kOrder,item_code:kItem,delivery_number:week.delivery_number,process_code:'welding',process_name:'焊接',planned_quantity:99,production_quantity:4,production_date:'2026-10-01'},m);
   });
-  const before=await snapshot();await db.query("UPDATE mps_order_allocations SET allocated_quantity=30 WHERE order_number='SYN-SPLIT' AND item_code='ITEM-S' AND division_id=$1 AND allocated_quantity=20",[division]);await project();await base();const after=await snapshot();
+  const before=await snapshot();await db.query("UPDATE mps_order_allocations SET allocated_quantity=30 WHERE order_number=$1 AND item_code=$2 AND division_id=$3 AND allocated_quantity=20",[kOrder,kItem,division]);await project();await base();const after=await snapshot();
   assert.deepEqual(after.weekly,before.weekly);assert.deepEqual(after.tasks,before.tasks);assert.deepEqual(after.reports,before.reports);assert.deepEqual(after.base.find(x=>x.id===bases[0].id),before.base.find(x=>x.id===bases[0].id));
   // Monthly process aggregates must not borrow the other division's report.
-  const page=await query.list('mps-monthly-plans',{search:'SYN-SPLIT'},actor);const same=page.rows.filter(x=>x.itemCode==='ITEM-S');assert.equal(same.find(x=>x.divisionId===division).weldingReportedQuantity,'4.0000');assert.equal(Number(same.find(x=>x.divisionId===other).weldingReportedQuantity),0);
-  const dashboard=await new MasterPlanDashboardService(db,query).summary({dateType:'NONE',orderNumbers:['SYN-SPLIT']},actor);assert.equal(Number(dashboard.plans.requiredQuantity),160);assert.equal(Number(dashboard.processes.find(x=>x.code==='welding').values.reportedQuantity),4);
+  const page=await query.list('mps-monthly-plans',{search:kOrder},actor);const same=page.rows.filter(x=>x.itemCode===kItem);assert.equal(same.find(x=>x.divisionId===division).weldingReportedQuantity,'4.0000');assert.equal(Number(same.find(x=>x.divisionId===other).weldingReportedQuantity),0);
+  const dashboard=await new MasterPlanDashboardService(db,query).summary({dateType:'NONE',orderNumbers:[kOrder]},actor);assert.equal(Number(dashboard.plans.requiredQuantity),70);assert.equal(Number(dashboard.processes.find(x=>x.code==='welding').values.reportedQuantity),4);
  });
  await check('H: same-source rerun/concurrent calls preserve IDs, quantities, audits, outbox and versions',async()=>{
   const before=await snapshot();const first=await project();assert.equal(first.count,0);await base();assert.deepEqual(await snapshot(),before);
-  const run=()=>db.transaction(m=>req('./dist/modules/master-plan-system/master-plan.allocation-projection').reconcileAllocationPlans(m,'KAINAN',user,'合成验收'));await Promise.all([run(),run()]);assert.deepEqual(await snapshot(),before);
+  const run=()=>db.transaction(m=>req('./dist/modules/master-plan-system/master-plan.allocation-projection').reconcileAllocationPlans(m,'KAINAN',user,'合成验收'));
+  const concurrent=await Promise.allSettled([run(),run()]);
+  for(const result of concurrent)if(result.status==='rejected')assert.equal(result.reason.code,'MPS_ALLOCATION_PROJECTION_YIELDED');
+  await run();assert.deepEqual(await snapshot(),before);
  });
  await check('verified receipt facts stay independent of allocated demand and refresh group through existing inbound task',async()=>{
   const a=await alloc('SYN-INBOUND','ITEM-IN',10,{division_id:four});await project();

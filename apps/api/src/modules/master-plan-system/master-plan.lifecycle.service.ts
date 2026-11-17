@@ -164,19 +164,19 @@ export class MasterPlanLifecycleService {
         const allowedFrom: Record<MpsLifecycleOperation, string[]> = { HOLD: ['ACTIVE'], CANCEL: ['ACTIVE', 'ON_HOLD'], CANCEL_REMAINING: ['ACTIVE', 'ON_HOLD'], RESTORE: ['ON_HOLD', 'CANCELLED', 'LEGACY_RETAINED'] };
         if (!allowedFrom[operation].includes(status))
             blockers.push('当前生命周期不允许该转换；历史保留计划须先核实来源并确认有效');
-        const source = resource === 'mps-weekly-plans' ? base : resource === 'mps-base-plans' ? monthly : allocations.filter(a => a.archived_at == null && a.order_status === '已审核');
+        const source = resource === 'mps-weekly-plans' ? base : resource === 'mps-base-plans' ? monthly : allocations.filter(a => a.archived_at == null && new Decimal(a.allocated_quantity ?? 0).gt(0));
         if (operation !== 'HOLD') {
             if (resource !== 'mps-monthly-plans' && (monthly.length !== 1 || monthly[0]?.lifecycle_status !== 'ACTIVE'))
                 blockers.push('完整上游月度需求尚未确认有效，禁止直接取消或恢复');
             for (const month of monthly) {
-                const demand = allocations.filter(a => a.archived_at == null && a.order_status === '已审核'
+                const demand = allocations.filter(a => a.archived_at == null && new Decimal(a.allocated_quantity ?? 0).gt(0)
                     && a.order_number === month.order_number && a.item_code === month.item_code && a.division_id === month.division_id);
                 if (!demand.some(a => a.id === month.allocation_id) || demand.some(a => a.manually_maintained !== true || !a.customer_code?.trim() || a.customer_code !== month.customer_code)
                     || !demand.reduce((n,a) => n.plus(a.allocated_quantity),new Decimal(0)).eq(month.required_quantity))
                     blockers.push('上游订单分配已失效、归属未确认或需求数量存在冲突');
             }
             if (resource === 'mps-monthly-plans') {
-                const linked = allocations.find(a => a.id === plan.allocation_id && a.archived_at == null && a.order_status === '已审核');
+                const linked = allocations.find(a => a.id === plan.allocation_id && a.archived_at == null && new Decimal(a.allocated_quantity ?? 0).gt(0));
                 if (!linked || !source.length || source.some(p => p.order_number !== plan.order_number || p.item_code !== plan.item_code || p.division_id !== plan.division_id || p.manually_maintained !== true || !p.customer_code?.trim() || p.customer_code !== plan.customer_code))
                     blockers.push('上游有效需求或稳定来源归属未核实');
                 const total = source.reduce((n, p) => n.plus(p.allocated_quantity), new Decimal(0));

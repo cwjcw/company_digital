@@ -61,7 +61,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
   await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-monthly-base`]);
   const monthly: Row[] = await manager.query(`SELECT m.*,EXISTS(SELECT 1 FROM mps_order_allocations source WHERE source.tenant_id=m.tenant_id AND source.id=m.allocation_id
-      AND source.archived_at IS NULL AND source.order_status='已审核' AND source.manually_maintained
+      AND source.archived_at IS NULL AND source.allocated_quantity>0
       AND (source.monthly_plan_id IS NULL OR source.monthly_plan_id=m.id)
       AND (source.order_number,source.item_code,source.division_id,source.customer_code) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id,m.customer_code)) source_confirmed,m.order_date::text AS order_date,m.latest_customer_due_date::text AS latest_customer_due_date FROM mps_monthly_plans m
     JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
@@ -75,7 +75,7 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
       JOIN organization_units o ON o.id=m.division_id AND o.enabled=true
       JOIN mps_order_allocations a ON a.tenant_id=m.tenant_id AND a.id=m.allocation_id
       WHERE m.tenant_id=$1 AND m.id=ANY($2::uuid[]) AND m.required_quantity>0
-        AND a.archived_at IS NULL AND a.order_status='已审核' AND a.manually_maintained=true
+        AND a.archived_at IS NULL AND a.allocated_quantity>0
         AND (a.order_number,a.item_code,a.division_id) IS NOT DISTINCT FROM (m.order_number,m.item_code,m.division_id)
       ORDER BY m.id FOR SHARE OF m,a`,[tenantId,monthlyPlanIds]);
     if(sources.length!==monthlyPlanIds.length)throw new Error('定向恢复需求来源已归档、失效或身份不一致');
@@ -184,11 +184,13 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
     } else {
       after = before;
       if(linksReady && before.monthly_plan_id==null && (expectedVersions||trustedInternalService)){
-        if(!previous || String(previous.division_id)!==String(monthlyPlan.division_id)
-          || (previous.customer_code&&monthlyPlan.customer_code&&previous.customer_code!==monthlyPlan.customer_code)){
+        if(before.order_number!==monthlyPlan.order_number || before.item_code!==monthlyPlan.item_code || String(before.division_id)!==String(monthlyPlan.division_id)
+          || (before.customer_code&&monthlyPlan.customer_code&&before.customer_code!==monthlyPlan.customer_code)
+          || (previous && (String(previous.division_id)!==String(monthlyPlan.division_id)
+            || (previous.customer_code&&monthlyPlan.customer_code&&previous.customer_code!==monthlyPlan.customer_code)))){
           conflicts++;
           const [exception] = await manager.query(`INSERT INTO mps_data_exceptions(tenant_id,exception_key,resource,record_id,business_key,exception_type,severity,message,active,created_by,updated_by)
-            VALUES($1,$2,'mps-base-plans',$3,$4,'MONTHLY_BASE_CONFLICT','WARNING','历史基础计划没有可证明的自动来源基线，保留人工归属',true,$5,$5)
+            VALUES($1,$2,'mps-base-plans',$3,$4,'MONTHLY_BASE_CONFLICT','WARNING','历史基础计划与月度需求身份冲突，保留原归属',true,$5,$5)
             ON CONFLICT(tenant_id,exception_key) DO UPDATE SET active=true,resolved_at=NULL,message=excluded.message,updated_at=now(),version=mps_data_exceptions.version+1
             WHERE NOT mps_data_exceptions.active OR mps_data_exceptions.message IS DISTINCT FROM excluded.message
             RETURNING exception_key,exception_type,version,resource,record_id,business_key,message,created_by`,[tenantId,conflictKey,before.id,monthlyPlan.order_number+'/'+monthlyPlan.item_code,actorId]);
@@ -198,7 +200,10 @@ export async function reconcileMonthlyBasePlans(manager: EntityManager, tenantId
         after=await linkExistingDemandRecord(manager,'mps-base-plans',before,String(monthlyPlan.id),actorId,actorName,requestId,trustedInternalService);
         linkedExisting=true;linkedCount++;
       }
-      const patch = monthlyBasePatch(before,desired,previous);
+      // A legacy row without an automatic ownership baseline may be formally
+      // linked by its exact business identity, but none of its plan values are
+      // overwritten during that provenance-only repair.
+      const patch = linkedExisting&&!previous ? {} : monthlyBasePatch(before,desired,previous);
       if(controlledIds.has(before.id))delete patch.planned_quantity; // Explicit allocation remains user-owned even if quantities later coincide.
       const entries = Object.entries(patch);
       if (entries.length) {

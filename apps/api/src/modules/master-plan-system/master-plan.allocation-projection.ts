@@ -16,10 +16,13 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
   groupPlanAliases: Array<{ sourceOrderNumber: string; targetOrderNumber: string }> = [], scope?:AllocationProjectionScope, trustedInternalService=false, enqueueDownstream=true,
   notifyException?:(manager:EntityManager,tenantId:string,exception:Record<string,unknown>)=>Promise<unknown>) {
   await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
-  await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-allocation-projection`]);
   // Same lock as incoming-fact reconciliation: quantities and group totals cannot interleave.
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`${tenantId}:mps-existing-monthly-inbound`]);
+  // Acquire lifecycle row locks after advisory serialization; otherwise a waiter
+  // can retain SHARE locks while another projection holds the advisory lock and
+  // needs monthly rows FOR UPDATE.
+  await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans', 'mps-base-plans', 'mps-weekly-plans']);
   await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
   await manager.query("SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND ($2::text IS NULL OR order_number=$2) ORDER BY id FOR SHARE", [tenantId,scope?.orderNumber??null]);
   await yieldAllocationProjectionToWaitingWriters(manager, tenantId);
@@ -33,7 +36,7 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
     : await manager.query(allocationProjectionCandidatesSql, allocationProjectionParams(tenantId));
   if(scope?.id){
     const [current]=await manager.query(`SELECT id,version,order_number,item_code,division_id FROM mps_order_allocations
-      WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL AND order_status='已审核' FOR SHARE`,[tenantId,scope.id]);
+      WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL AND allocated_quantity>0 FOR SHARE`,[tenantId,scope.id]);
     if(!current||Number(current.version)!==scope.expectedVersion||current.order_number!==scope.orderNumber||current.item_code!==scope.itemCode||String(current.division_id)!==scope.divisionId)
       throw new Error('定向分配记录版本或业务身份已变化，停止投影');
   }
@@ -79,7 +82,7 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
     if(scope){
       const [parent]=await manager.query('SELECT id FROM mps_monthly_plans WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND division_id=$4::uuid',[tenantId,row.order_number,row.item_code,row.division_id]);
       const sources=await manager.query(`SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3
-        AND division_id=$4::uuid AND archived_at IS NULL AND order_status='已审核' ORDER BY id FOR UPDATE`,[tenantId,row.order_number,row.item_code,row.division_id]);
+        AND division_id=$4::uuid AND archived_at IS NULL AND allocated_quantity>0 ORDER BY id FOR UPDATE`,[tenantId,row.order_number,row.item_code,row.division_id]);
       for(const source of sources)if(source.monthly_plan_id==null){
         await linkExistingDemandRecord(manager,'mps-order-allocations',source,String(parent.id),actorId,actorName,requestId,trustedInternalService);
         sourceLinked++;downstreamMonthlyIds.add(String(parent.id));
@@ -141,8 +144,6 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
       AND exception_key LIKE 'allocation-projection:%' AND ($4::text[] IS NULL OR exception_key=ANY($4::text[])) AND NOT(exception_key=ANY($3::text[]))`, [tenantId,actorId,blockedKeys,scope?candidateKeys:null]);
   if(!scope) await manager.query(`UPDATE mps_data_exceptions SET active=false,resolved_at=now(),updated_at=now(),updated_by=$2::uuid,version=version+1
     WHERE tenant_id=$1 AND exception_key='sync:plan-projections' AND active=true`, [tenantId,actorId]);
-  const [sourceMetrics] = await manager.query(`SELECT count(*) FILTER(WHERE order_status IS DISTINCT FROM '已审核')::integer unapproved_allocations
-    FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL`, [tenantId]);
   if (enqueueDownstream && (monthlyCreated + monthlyUpdated > 0 || sourceRecovered+sourceLinked>0)) {
     const linked=scope&&downstreamMonthlyIds.size?await manager.query(`SELECT id,version FROM mps_monthly_plans WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id`,[tenantId,[...downstreamMonthlyIds]]):[];
     const scopeJson=scope&&linked.length?{monthlyPlans:linked.map((row:any)=>({id:String(row.id),expectedVersion:Number(row.version)}))}:null;
@@ -152,7 +153,7 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
       `${requestId}:shipping-to-base`,actorId,actorName]);
   }
   const metrics: Record<string, number> = { allocations: 0,
-    unapproved_allocations:Number(sourceMetrics.unapproved_allocations),source_recovered:sourceRecovered,source_linked:sourceLinked,
+    source_recovered:sourceRecovered,source_linked:sourceLinked,
     missing_order_dates:candidates.reduce((n,row)=>n+Number(row.missing_order_dates),0),
     missing_item_names:candidates.reduce((n,row)=>n+Number(row.missing_item_names),0),monthly_created:monthlyCreated,monthly_updated:monthlyUpdated,
     monthly_plans:monthlyCreated+monthlyUpdated,group_created:groupCreated,group_updated:groupUpdated,
@@ -166,7 +167,7 @@ export async function reconcileAllocationPlans(manager: EntityManager, tenantId:
 /** New source command only: establish this demand locally. Group/inbound/downstream
  * projections retain the existing transactional outbox boundary and failure semantics. */
 export async function ensureNewAllocationDemand(manager: EntityManager, row: Record<string,any>, actorId: string, actorName: string, requestId: string) {
-  if(row.order_status!=='已审核' || row.archived_at) return;
+  if(row.archived_at || Number(row.allocated_quantity)<=0) return;
   const tenant=row.tenant_id;
   await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`${tenant}:mps-allocation-projection`]);
   const scopedCandidates=allocationProjectionCandidatesSql.replace('WHERE a.tenant_id=$1 AND a.archived_at','WHERE a.tenant_id=$1 AND a.order_number=$2 AND a.archived_at');

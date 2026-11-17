@@ -28,7 +28,7 @@ export async function linkNewDemandRecord(m: Db, resource: keyof typeof demandLi
   const [parent] = await m.query(`SELECT m.* FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND m.order_number=$2 AND m.item_code=$3
     AND m.division_id IS NOT DISTINCT FROM $4::uuid FOR SHARE`,[row.tenant_id,row.order_number,item,row.division_id]);
   if (!parent || (parent.lifecycle_status && parent.lifecycle_status!=='ACTIVE')) return row;
-  const [source]=await m.query("SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL AND order_status='已审核' AND manually_maintained=true FOR SHARE",[row.tenant_id,parent.allocation_id]);
+  const [source]=await m.query("SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid AND archived_at IS NULL AND allocated_quantity>0 FOR SHARE",[row.tenant_id,parent.allocation_id]);
   if(!source)return row; // Historical membership requires an explicit reviewed command, never an automatic activation.
   await m.query('SELECT mps_assert_demand_link($1,$2::jsonb)',[demandLinkTables[resource],JSON.stringify({...row,monthly_plan_id:parent.id})]);
   if(trustedInternalService){
@@ -64,7 +64,7 @@ export async function linkExistingDemandRecord(m: Db, resource: keyof typeof dem
     || (parent.customer_code != null && row.customer_code != null && parent.customer_code!==row.customer_code))
     throw new ConflictException('历史记录与目标月度需求身份不一致，不能自动关联');
   const [source] = await m.query(`SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid
-    AND archived_at IS NULL AND order_status='已审核' AND manually_maintained=true FOR SHARE`,[row.tenant_id,parent.allocation_id]);
+    AND archived_at IS NULL AND allocated_quantity>0 FOR SHARE`,[row.tenant_id,parent.allocation_id]);
   if (!source) throw new ConflictException('月度需求来源未确认，不能关联历史计划');
   await m.query('SELECT mps_assert_demand_link($1,$2::jsonb)',[demandLinkTables[resource],JSON.stringify({...row,monthly_plan_id:parent.id})]);
   if (trustedInternalService) {

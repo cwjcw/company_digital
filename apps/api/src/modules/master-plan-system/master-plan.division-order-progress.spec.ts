@@ -31,11 +31,12 @@ describe("事业部订单生产进度报表",()=>{
     expect(mpsDivisionOrderProgressColumns.map(([,label])=>label)).toEqual(["客户代码","订单单号","品号","品名","下单日期","预计发货日期","订单数量","生管评审交期","图纸","物料齐套","下料","焊接","毛坯","表面处理","包装","入库"]);
     expect(tablePermissionFieldsFor(mpsDivisionOrderProgressResource)).toHaveLength(16);
   });
-  it("returns one row from approved allocation identity, keeps raw precision and marks source states",async()=>{
+  it("returns one row from active positive allocation identity regardless of approval, keeps precision and marks source states",async()=>{
     const result=await service.page("fourth",{page:1,pageSize:50},actor);
     expect(result.total).toBe(1);expect(result.rows[0]).toMatchObject({customerCode:"C001",orderNumber:"0000123",itemCode:"0000456",orderQuantity:"1200.0000",drawing:"Y",materialReady:"N",cutting:"N",weldingQuantity:"1199.9600",surfaceTreatmentQuantity:"1250.0000",inboundQuantity:"-1.2500",weldingComplete:false,surfaceTreatmentComplete:true});
     const sql=transactions[0]!.mock.calls.map(call=>String(call[0])).find(text=>text.includes("allocation AS MATERIALIZED"))!;
-    expect(sql).toContain("record.archived_at IS NULL AND record.order_status='已审核'");
+    expect(sql).toContain("record.archived_at IS NULL AND record.allocated_quantity>0");
+    expect(sql).not.toContain("order_status='已审核'");
     expect(sql).toContain("r.process_code=ANY(ARRAY['welding','blank','surfaceTreatment','packaging']");
     expect(sql).toContain("raw.trusted AND raw.has_business_keys");
     expect(sql).toContain("sum(f.received_quantity)");

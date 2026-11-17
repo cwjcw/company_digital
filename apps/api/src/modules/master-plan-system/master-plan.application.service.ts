@@ -831,7 +831,7 @@ export class MasterPlanApplicationService {
     if(plans.monthly.length===1){
       const monthly=plans.monthly[0]!;
       const [source]=await manager.query(`SELECT count(*)::int source_count FROM mps_order_allocations
-        WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND archived_at IS NULL AND order_status='已审核'`,[actor.tenantId,allocation.order_number,allocation.item_code]);
+        WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND archived_at IS NULL AND allocated_quantity>0`,[actor.tenantId,allocation.order_number,allocation.item_code]);
       if(Number(source?.source_count)!==1) blockers.push("同订单品项存在多条有效分配来源，不能单独迁移月度计划");
       if(String(allocation.monthly_plan_id??"")!==String(monthly.id) || String(monthly.allocationId??"")!==String(allocation.id))
         blockers.push("订单分配monthly_plan_id与月度计划allocation_id未形成双向稳定关联");
@@ -1046,7 +1046,7 @@ export class MasterPlanApplicationService {
       }
       if(importedLinks && newAllocations.length) {
         // One demand calculation per newly imported business group, never an entire-tenant projection.
-        const groups=new Map(newAllocations.filter(row=>row.order_status==='已审核').map(row=>[JSON.stringify([row.order_number,row.item_code,row.division_id]),row]));
+        const groups=new Map(newAllocations.filter(row=>row.archived_at==null && new Decimal(String(row.allocated_quantity??0)).gt(0)).map(row=>[JSON.stringify([row.order_number,row.item_code,row.division_id]),row]));
         for(const row of groups.values())await ensureNewAllocationDemand(manager,row,actorId,actor.username,actor.requestId);
         const changesById=new Map(allocationChanges.map(change=>[String(change.after.id),change]));
         for(const row of newAllocations) {
