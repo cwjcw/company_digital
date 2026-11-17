@@ -19,6 +19,19 @@ function mockExportDownload() {
 }
 
 describe("KdosDataTable server pagination", () => {
+  it("管理员名单只对后端允许的系统管理员或模块管理员开放字段", () => {
+    const resource = "administrators";
+    localStorage.setItem("sessionUser", JSON.stringify({ permissions: ["*"] }));
+    expect(hasKdosTableFieldReadPermission(resource, "displayName")).toBe(false);
+    expect(hasKdosTableFieldReadPermission(resource, "username")).toBe(false);
+    localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: true }));
+    expect(hasKdosTableFieldReadPermission(resource, "displayName")).toBe(true);
+    localStorage.setItem("sessionUser", JSON.stringify({ moduleAdminCodes: ["planning"] }));
+    expect(hasKdosTableFieldReadPermission(resource, "username")).toBe(true);
+    localStorage.setItem("sessionUser", JSON.stringify({ moduleAdminCodes: [] }));
+    expect(hasKdosTableFieldReadPermission(resource, "username")).toBe(false);
+  });
+
   it("导出沿用最终列树顺序，保留分组子列和展示别名，排除操作列", () => {
     expect(displayedExportKeys([
       { key: "orderNumber", dataIndex: "orderNumber" },

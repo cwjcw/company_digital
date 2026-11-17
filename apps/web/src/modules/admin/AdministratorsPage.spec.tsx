@@ -37,6 +37,7 @@ describe("AdministratorsPage", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
     vi.mocked(api).mockImplementation(async (path) => path === "/admin/administrators" ? response as never : {} as never);
+    localStorage.setItem("sessionUser", JSON.stringify({ isSystemAdmin: true, permissions: [] }));
   });
   afterEach(() => cleanup());
 
@@ -82,5 +83,33 @@ describe("AdministratorsPage", () => {
     expect(await screen.findByText("模块管理员甲")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /添加模块管理员/ })).not.toBeInTheDocument();
     expect(screen.getAllByText("仅查看").length).toBeGreaterThan(0);
+  });
+
+  it("shows display names, usernames and departments in both tabs without exposing UUID as a name", async () => {
+    const roster = {
+      ...response,
+      users: [
+        ...response.users,
+        { id: "module-uuid-123", username: "lin.chen", displayName: "林晨", enabled: true, departmentPaths: [["凯南", "工程部"]], grant: { id: "grant-2", systemAdmin: false, moduleCodes: ["planning"], version: 2 } },
+        { id: "missing-name-uuid", username: "no-name", displayName: null, enabled: true, departmentPaths: [], grant: { id: "grant-3", systemAdmin: false, moduleCodes: ["marketing"], version: 1 } }
+      ]
+    };
+    vi.mocked(api).mockImplementation(async (path) => path === "/admin/administrators" ? roster as never : {} as never);
+    renderPage();
+    await screen.findByText("默认账号");
+    expect(screen.getAllByText("姓名").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("登录账号").length).toBeGreaterThan(0);
+    expect(screen.getByRole("columnheader", { name: "管理员状态" })).toBeInTheDocument();
+    expect(screen.getByText("默认账号")).toBeInTheDocument();
+    expect(screen.getByText("admin")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "模块管理员" }));
+    expect(await screen.findByText("林晨")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "管理模块" })).toBeInTheDocument();
+    expect(screen.getByText("lin.chen")).toBeInTheDocument();
+    expect(screen.getByText("凯南 / 工程部")).toBeInTheDocument();
+    expect(screen.getByText("PMC中心")).toBeInTheDocument();
+    expect(screen.getByText("姓名未维护")).toBeInTheDocument();
+    expect(screen.queryByText("module-uuid-123")).not.toBeInTheDocument();
+    expect(screen.queryByText("missing-name-uuid")).not.toBeInTheDocument();
   });
 });

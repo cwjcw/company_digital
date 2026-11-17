@@ -69,6 +69,17 @@ const pendingProcessReportDerivedFields = new Set(["cumulativeReportedQuantity",
  * 这个例外严格限定在该资源的 PENDING 视图；其他列/视图仍执行正式字段权限检查。
  */
 export function hasKdosTableFieldReadPermission(resource: string, field: string, viewKey?: string) {
+  /* The administrators endpoint has its own narrow list gate: system admins or module admins only.
+   * Keep this exact-resource exception aligned with requireAdministratorViewer; ordinary table grants
+   * (including wildcard permissions) do not authorize disclosure of the administrator roster. */
+  if (resource === "administrators") {
+    try {
+      const session = JSON.parse(localStorage.getItem("sessionUser") ?? "{}") as { isSystemAdmin?: boolean; moduleAdminCodes?: unknown };
+      return session.isSystemAdmin === true || (Array.isArray(session.moduleAdminCodes) && session.moduleAdminCodes.length > 0);
+    } catch {
+      return false;
+    }
+  }
   if (resource === "mps-process-reports" && viewKey === "PENDING" && pendingProcessReportDerivedFields.has(field)) {
     return hasResourcePermission(resource, "read");
   }

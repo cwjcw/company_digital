@@ -25,6 +25,17 @@ describe("AdministratorGrantApplicationService", () => {
     await expect(service.replace("KAINAN", "user-1", { systemAdmin: false, moduleCodes: ["planning"], expectedVersion: 3 }, actor)).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it("protects the built-in admin grant from removal or transfer", async () => {
+    const current = { id: "grant-admin", tenantId: "KAINAN", userId: "admin-id", systemAdmin: true, moduleCodes: [], version: 1 } as unknown as AdministratorGrant;
+    const manager = {
+      findOneBy: jest.fn(async (entity) => entity === User ? ({ id: "admin-id", username: "admin", enabled: true }) : null),
+      createQueryBuilder: jest.fn(() => builder(current)), save: jest.fn(), query: jest.fn()
+    };
+    const service = new AdministratorGrantApplicationService({ transaction: jest.fn(async (work) => work(manager)) } as never);
+    await expect(service.replace("KAINAN", "admin-id", { systemAdmin: false, expectedVersion: 1 }, actor)).rejects.toBeInstanceOf(BadRequestException);
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
   it("creates a module grant and audit record in one transaction", async () => {
     const save = jest.fn(async (entity, value) => entity === AdministratorGrant
       ? ({ id: "grant-2", ...value, version: 1 })
