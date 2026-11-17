@@ -72,6 +72,10 @@ export function hasKdosTableFieldReadPermission(resource: string, field: string,
   if (resource === "mps-process-reports" && viewKey === "PENDING" && pendingProcessReportDerivedFields.has(field)) {
     return hasResourcePermission(resource, "read");
   }
+  /* The progress status is derived only from demand and verified net inbound; access follows both source fields. */
+  if (resource === "mps-division-order-progress" && field === "productionStatus") {
+    return hasFieldPermission(resource, "orderQuantity", "read") && hasFieldPermission(resource, "inboundQuantity", "read");
+  }
   return hasFieldPermission(resource, field, "read");
 }
 

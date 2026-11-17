@@ -4,7 +4,7 @@ import { MasterPlanDivisionOrderProgressService } from "./master-plan.division-o
 import type { MasterPlanActor } from "./master-plan.types";
 
 const actor:MasterPlanActor={tenantId:"SYNTHETIC",userId:null,username:"test",permissions:["*"],tableDataScopes:[],requestId:"test",source:"web"};
-const row={id:"allocation-id",customerCode:"C001",orderNumber:"0000123",itemCode:"0000456",itemName:"合成品项",orderDate:"2026-10-01",expectedShippingDate:"2026-12-01",orderQuantity:"1200.0000",reviewDueDate:"2026-11-01",reviewDueTooltip:"2026-11-01",weldingQuantity:"1199.9600",blankQuantity:"800.0000",surfaceTreatmentQuantity:"1250.0000",packagingQuantity:"0",inboundQuantity:"-1.2500",inboundVerified:true,weldingComplete:false,blankComplete:false,surfaceTreatmentComplete:true,packagingComplete:false,inboundComplete:false};
+const row={id:"allocation-id",customerCode:"C001",orderNumber:"0000123",itemCode:"0000456",itemName:"合成品项",orderDate:"2026-10-01",expectedShippingDate:"2026-12-01",orderQuantity:"1200.0000",reviewDueDate:"2026-11-01",reviewDueTooltip:"2026-11-01",weldingQuantity:"1199.9600",blankQuantity:"800.0000",surfaceTreatmentQuantity:"1250.0000",packagingQuantity:"0",inboundQuantity:"-1.2500",productionStatus:"未完成",inboundVerified:true,weldingComplete:false,blankComplete:false,surfaceTreatmentComplete:true,packagingComplete:false,inboundComplete:false};
 
 describe("事业部订单生产进度报表",()=>{
   const transactions:jest.Mock[]=[];
@@ -25,21 +25,29 @@ describe("事业部订单生产进度报表",()=>{
     bomResolver={resolveBomStatuses:jest.fn(async(codes:string[])=>({statuses:new Map(codes.map(code=>[code,code==="0000456"?"HAS_BOM":null])),warning:null}))};
     service=new MasterPlanDivisionOrderProgressService(database as never,bomResolver as never);
   });
-  it("registers the exact 16-column read-only report under PMC",()=>{
+  it("registers the exact 17-column read-only report under PMC with filterable production status",()=>{
     expect(tableResourceRegistry.find(r=>r.code===mpsDivisionOrderProgressResource)).toMatchObject({label:"事业部订单生产进度报表",moduleCode:"planning"});
     expect(tableFilterResourceCapabilities[mpsDivisionOrderProgressResource]).toEqual({status:"REGISTERED_AND_FILTERABLE"});
-    expect(mpsDivisionOrderProgressColumns.map(([,label])=>label)).toEqual(["客户代码","订单单号","品号","品名","下单日期","预计发货日期","订单数量","生管评审交期","图纸","物料齐套","下料","焊接","毛坯","表面处理","包装","入库"]);
-    expect(tablePermissionFieldsFor(mpsDivisionOrderProgressResource)).toHaveLength(16);
+    expect(mpsDivisionOrderProgressColumns.map(([,label])=>label)).toEqual(["客户代码","订单单号","品号","品名","下单日期","预计发货日期","订单数量","生管评审交期","图纸","物料齐套","下料","焊接","毛坯","表面处理","包装","入库","生产状态"]);
+    expect(tablePermissionFieldsFor(mpsDivisionOrderProgressResource)).toHaveLength(17);
+    expect(tablePermissionFieldsFor(mpsDivisionOrderProgressResource).find(field=>field.key==="productionStatus")).toMatchObject({type:"dictionary",options:[{value:"已完成",label:"已完成"},{value:"未完成",label:"未完成"}]});
+  });
+  it("authorizes production status through its two source fields without changing existing grants",()=>{
+    const filterActor={tenantId:"SYNTHETIC",userId:null,permissions:[`${mpsDivisionOrderProgressResource}:orderQuantity:read`,`${mpsDivisionOrderProgressResource}:inboundQuantity:read`]};
+    expect(service.canReadFilterField(filterActor as never,"productionStatus")).toBe(true);
+    expect(service.canReadFilterField({...filterActor,permissions:filterActor.permissions.slice(0,1)} as never,"productionStatus")).toBe(false);
   });
   it("returns one row from active positive allocation identity regardless of approval, keeps precision and marks source states",async()=>{
     const result=await service.page("fourth",{page:1,pageSize:50},actor);
-    expect(result.total).toBe(1);expect(result.rows[0]).toMatchObject({customerCode:"C001",orderNumber:"0000123",itemCode:"0000456",orderQuantity:"1200.0000",drawing:"Y",materialReady:"N",cutting:"N",weldingQuantity:"1199.9600",surfaceTreatmentQuantity:"1250.0000",inboundQuantity:"-1.2500",weldingComplete:false,surfaceTreatmentComplete:true});
+    expect(result.total).toBe(1);expect(result.rows[0]).toMatchObject({customerCode:"C001",orderNumber:"0000123",itemCode:"0000456",orderQuantity:"1200.0000",drawing:"Y",materialReady:"N",cutting:"N",weldingQuantity:"1199.9600",surfaceTreatmentQuantity:"1250.0000",inboundQuantity:"-1.2500",productionStatus:"未完成",weldingComplete:false,surfaceTreatmentComplete:true});
     const sql=transactions[0]!.mock.calls.map(call=>String(call[0])).find(text=>text.includes("allocation AS MATERIALIZED"))!;
     expect(sql).toContain("record.archived_at IS NULL AND record.allocated_quantity>0");
     expect(sql).not.toContain("order_status='已审核'");
     expect(sql).toContain("r.process_code=ANY(ARRAY['welding','blank','surfaceTreatment','packaging']");
     expect(sql).toContain("raw.trusted AND raw.has_business_keys");
     expect(sql).toContain("sum(f.received_quantity)");
+    expect(sql).toContain("COALESCE(ir.quantity,0)>=a.order_quantity THEN '已完成' ELSE '未完成' END production_status");
+    expect(sql).toContain("ir.trusted IS TRUE");
     expect(sql).toContain("NOT COALESCE(raw.is_cancelled,false)");
     expect(sql).toContain("GROUP BY record.tenant_id,record.division_id,record.order_number,record.item_code");
     expect(sql).toContain("r.order_number=f.sales_order_number AND r.item_code=f.inventory_code");
@@ -59,6 +67,17 @@ describe("事业部订单生产进度报表",()=>{
     expect(sql).toContain("order_quantity::text");expect(sql).toContain("welding_quantity::text");expect(sql).toContain("review_due_date::date");
     expect(sql.match(/FROM filtered/g)?.length).toBeGreaterThanOrEqual(3);
     expect(calls.find(call=>String(call[0]).includes("SELECT (SELECT count(*)::int FROM filtered)"))?.[1]).toContain("1000");
+  });
+  it.each(["已完成","未完成"])("filters computed production status (%s) in the server result before total, pagination and export rows",async(status)=>{
+    await service.page("fourth",{page:2,pageSize:50,filterGroup:{logic:"AND",rules:[{field:"productionStatus",operator:"eq",value:status}]}},actor,"export");
+    const call=transactions[0]!.mock.calls.find(args=>String(args[0]).includes("SELECT (SELECT count(*)::int FROM filtered)"))!;
+    const sql=String(call[0]);
+    expect(sql).toContain("production_status::text =ANY(");
+    expect(sql).toContain("filtered AS MATERIALIZED (SELECT * FROM fact_rows WHERE ((production_status::text =ANY(");
+    expect(sql).toContain("(SELECT count(*)::int FROM filtered)");
+    expect(sql).toContain("FROM filtered ORDER BY");
+    expect(call[1]).toContainEqual([status]);
+    expect(sql).toContain("production_status::text \"productionStatus\"");
   });
   it("keeps standard pagination and sort server-side with the validated report sort map",async()=>{
     const result=await service.page("fourth",{page:2,pageSize:50,sortField:"orderQuantity",sortOrder:"desc"},actor);

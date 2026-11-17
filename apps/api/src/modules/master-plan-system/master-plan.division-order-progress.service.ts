@@ -21,13 +21,15 @@ const sortable: Record<string,string> = {
   customerCode:"customer_code", orderNumber:"order_number", itemCode:"item_code", itemName:"item_name", orderDate:"order_date",
   expectedShippingDate:"expected_shipping_date", orderQuantity:"order_quantity", reviewDueDate:"review_due_date",
   weldingQuantity:"welding_quantity", blankQuantity:"blank_quantity",
-  surfaceTreatmentQuantity:"surface_treatment_quantity", packagingQuantity:"packaging_quantity", inboundQuantity:"inbound_quantity"
+  surfaceTreatmentQuantity:"surface_treatment_quantity", packagingQuantity:"packaging_quantity", inboundQuantity:"inbound_quantity",
+  productionStatus:"production_status"
 };
 const filterExpressions: Record<string,string> = {
   customerCode:"customer_code", orderNumber:"order_number", itemCode:"item_code", itemName:"item_name",
   orderDate:"order_date", expectedShippingDate:"expected_shipping_date", orderQuantity:"order_quantity", reviewDueDate:"review_due_date",
   weldingQuantity:"welding_quantity", blankQuantity:"blank_quantity", surfaceTreatmentQuantity:"surface_treatment_quantity", packagingQuantity:"packaging_quantity",
-  inboundQuantity:"CASE WHEN inbound_source_count=0 THEN 0::numeric WHEN inbound_verified THEN COALESCE(inbound_quantity,0) ELSE NULL END"
+  inboundQuantity:"CASE WHEN inbound_source_count=0 THEN 0::numeric WHEN inbound_verified THEN COALESCE(inbound_quantity,0) ELSE NULL END",
+  productionStatus:"production_status"
 };
 const dateParam = (value: unknown) => {
   if (value == null || value === "") return true;
@@ -55,6 +57,8 @@ export class MasterPlanDivisionOrderProgressService {
   canReadFilterField(actor: TableFilterActor, field:string){
     const principal:MasterPlanActor={tenantId:actor.tenantId,userId:actor.userId,username:actor.username??"",permissions:actor.permissions,
       isSystemAdmin:actor.isSystemAdmin,moduleAdminCodes:actor.moduleAdminCodes,tableDataScopes:actor.tableDataScopes??[],requestId:"",source:"system"};
+    if(field==="productionStatus")return hasMasterPlanFieldPermission(principal,mpsDivisionOrderProgressResource,"orderQuantity","read")
+      &&hasMasterPlanFieldPermission(principal,mpsDivisionOrderProgressResource,"inboundQuantity","read");
     return hasMasterPlanFieldPermission(principal,mpsDivisionOrderProgressResource,field,"read");
   }
 
@@ -210,7 +214,9 @@ export class MasterPlanDivisionOrderProgressService {
       ),
       fact_rows AS MATERIALIZED (
         SELECT a.*,bi.base_plan_count,br.unfinished_base_count,br.review_due_date,br.review_due_tooltip,pr.welding_quantity,pr.blank_quantity,pr.surface_treatment_quantity,pr.packaging_quantity,
-          ir.row_count inbound_source_count,ir.trusted inbound_verified,ir.quantity inbound_quantity
+          ir.row_count inbound_source_count,ir.trusted inbound_verified,ir.quantity inbound_quantity,
+          CASE WHEN a.order_quantity>0 AND (COALESCE(ir.row_count,0)=0 OR ir.trusted IS TRUE)
+            AND COALESCE(ir.quantity,0)>=a.order_quantity THEN '已完成' ELSE '未完成' END production_status
         FROM allocation a LEFT JOIN base_identity bi ON bi.allocation_id=a.id LEFT JOIN base_rollup br ON br.allocation_id=a.id LEFT JOIN process_rollup pr ON pr.allocation_id=a.id
         LEFT JOIN inbound_rollup ir ON ir.allocation_id=a.id
       )` };
@@ -232,7 +238,9 @@ export class MasterPlanDivisionOrderProgressService {
     this.assert(actor,action);
     if(!Object.hasOwn(MPS_DIVISION_ORDER_PROGRESS_CONFIGS,report))throw new BadRequestException("事业部报表配置不存在");
     const config=MPS_DIVISION_ORDER_PROGRESS_CONFIGS[report as MpsDivisionReportCode],q=this.normalize(input);
-    const readableFields=mpsDivisionOrderProgressFieldKeys.filter(key=>hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,key,"read"));
+    const readableFields=mpsDivisionOrderProgressFieldKeys.filter(key=>key==="productionStatus"
+      ? hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,"orderQuantity","read")&&hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,"inboundQuantity","read")
+      : hasMasterPlanFieldPermission(actor,mpsDivisionOrderProgressResource,key,"read"));
     if(readableFields.length!==mpsDivisionOrderProgressFieldKeys.length)throw new ForbiddenException("没有报表所需的字段查看权限");
     const params:unknown[]=[actor.tenantId],source=this.sourceCtes(actor,config.divisionId,params,action);
     const businessWhere=this.filters(q,source.bind);
@@ -257,6 +265,7 @@ export class MasterPlanDivisionOrderProgressService {
         (inbound_source_count=0 OR inbound_verified) "inboundVerified",
         (order_quantity>0 AND COALESCE(welding_quantity,0)>=order_quantity) "weldingComplete",(order_quantity>0 AND COALESCE(blank_quantity,0)>=order_quantity) "blankComplete",
         (order_quantity>0 AND COALESCE(surface_treatment_quantity,0)>=order_quantity) "surfaceTreatmentComplete",(order_quantity>0 AND COALESCE(packaging_quantity,0)>=order_quantity) "packagingComplete",
+        production_status::text "productionStatus",
         CASE WHEN inbound_source_count=0 OR inbound_verified THEN order_quantity>0 AND COALESCE(inbound_quantity,0)>=order_quantity ELSE NULL END "inboundComplete"
         FROM filtered ORDER BY ${orderColumn} ${direction} NULLS LAST,order_number,item_code,id LIMIT ${limit} OFFSET ${offset})
       SELECT (SELECT count(*)::int FROM filtered) total,COALESCE((SELECT jsonb_agg(to_jsonb(rows)) FROM rows),'[]'::jsonb) rows,
@@ -278,6 +287,7 @@ export class MasterPlanDivisionOrderProgressService {
         orderDate:val("orderDate"),expectedShippingDate:val("expectedShippingDate"),orderQuantity:val("orderQuantity"),reviewDueDate:val("reviewDueDate"),
         drawing,materialReady:"N",cutting:"N",weldingQuantity:val("weldingQuantity")??"0",blankQuantity:val("blankQuantity")??"0",
         surfaceTreatmentQuantity:val("surfaceTreatmentQuantity")??"0",packagingQuantity:val("packagingQuantity")??"0",inboundQuantity:val("inboundQuantity"),
+        productionStatus:val("productionStatus")??"未完成",
         bomStatus:status,materialReadyHint:"齐套数据源暂未接入",cuttingHint:"下料状态数据源暂未接入",inboundVerified:Boolean(row.inboundVerified),
         reviewDueTooltip:val("reviewDueTooltip"),weldingComplete:Boolean(row.weldingComplete),blankComplete:Boolean(row.blankComplete),
         surfaceTreatmentComplete:Boolean(row.surfaceTreatmentComplete),packagingComplete:Boolean(row.packagingComplete),

@@ -7,7 +7,7 @@ export const mpsDivisionOrderProgressColumns = [
   ["orderDate", "下单日期"], ["expectedShippingDate", "预计发货日期"], ["orderQuantity", "订单数量"],
   ["reviewDueDate", "生管评审交期"], ["drawing", "图纸"], ["materialReady", "物料齐套"], ["cutting", "下料"],
   ["weldingQuantity", "焊接"], ["blankQuantity", "毛坯"], ["surfaceTreatmentQuantity", "表面处理"],
-  ["packagingQuantity", "包装"], ["inboundQuantity", "入库"]
+  ["packagingQuantity", "包装"], ["inboundQuantity", "入库"], ["productionStatus", "生产状态"]
 ] as const;
 
 export const mpsDivisionOrderProgressFieldKeys = mpsDivisionOrderProgressColumns.map(([key]) => key);

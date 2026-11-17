@@ -207,7 +207,7 @@ function Shell({ logout }: { logout: () => void }) {
   const pmcReports = [
     ...reportNavigation(user).flatMap(group => group.children).map(entry => ({ ...entry, icon: <ReadOutlined /> })),
     ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-reports", icon: <ReadOutlined />, label: "PMC分析明细报表" }] : []),
-    ...(hasSessionResourcePermission(user, "mps-division-order-progress", "read") ? [{ key: "pmc-division-order-progress", icon: <FolderOpenOutlined />, label: "事业部订单生产进度报表", children: [{ key: "/pmc/division-order-progress/fourth", icon: <ReadOutlined />, label: "事业四部" }] }] : [])
+    ...(hasSessionResourcePermission(user, "mps-division-order-progress", "read") ? [{ key: "pmc-division-order-progress", icon: <FolderOpenOutlined />, label: "生产进度表", children: [{ key: "/pmc/division-order-progress/fourth", icon: <ReadOutlined />, label: "事业四部" }] }] : [])
   ];
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],

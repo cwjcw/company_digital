@@ -308,7 +308,11 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ["publishedBy", "发布人", "member", false], ["publishedAt", "发布时间", "datetime", false]
   ]),
   "pmc-rd-progress": [...pmcRdProgressFields, ...auditPermissionFields],
-  [mpsDivisionOrderProgressResource]: mpsDivisionOrderProgressColumns.map(([key,label]) => ({ key, label, type: /Date$/.test(key) ? "date" as const : /Quantity$|orderQuantity/.test(key) ? "number" as const : "text" as const, editable: false, ...(["drawing", "materialReady", "cutting"].includes(key) ? { filterable: false } : {}) })),
+  [mpsDivisionOrderProgressResource]: mpsDivisionOrderProgressColumns.map(([key,label]) => ({ key, label,
+    type: key === "productionStatus" ? "dictionary" as const : /Date$/.test(key) ? "date" as const : /Quantity$|orderQuantity/.test(key) ? "number" as const : "text" as const,
+    editable: false,
+    ...(key === "productionStatus" ? { options: [{ value: "已完成", label: "已完成" }, { value: "未完成", label: "未完成" }] } : {}),
+    ...(["drawing", "materialReady", "cutting"].includes(key) ? { filterable: false } : {}) })),
   "rd-order-bom-report": rdOrderBomReportFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],

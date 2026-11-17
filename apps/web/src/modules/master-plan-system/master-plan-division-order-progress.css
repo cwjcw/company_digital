@@ -1,5 +1,12 @@
 .mps-division-order-progress{display:flex;flex-direction:column;gap:12px;width:100%;max-width:1880px;margin:0 auto;min-width:0}
 .mps-division-order-progress .ant-card{min-width:0}
+.mps-division-order-progress .mps-division-order-progress-table .ant-table-thead>tr>th,
+.mps-division-order-progress .mps-division-order-progress-table .ant-table-tbody>tr>td{ text-align:center!important }
+.mps-division-order-progress .mps-division-order-progress-table .kdos-column-title{position:relative;display:flex;align-items:center;justify-content:center;width:100%;min-width:0}
+.mps-division-order-progress .mps-division-order-progress-table .kdos-column-title-label{display:block;width:100%;text-align:center}
+.mps-division-order-progress .mps-division-order-progress-table .kdos-column-state{position:absolute;right:22px}
+.mps-division-order-progress .mps-division-order-progress-table .kdos-column-state+.kdos-column-state{right:38px}
+.mps-division-order-progress .mps-division-order-progress-table .kdos-column-menu-trigger{position:absolute;right:0;margin-left:0}
 .mps-division-order-progress-filters{margin-bottom:12px;max-width:100%}
 .mps-division-progress-number{font-variant-numeric:tabular-nums}
 .mps-division-progress-number.is-complete{color:#237804;font-weight:600}

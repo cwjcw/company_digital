@@ -650,5 +650,12 @@ describe("KdosDataTable server pagination", () => {
     localStorage.setItem('sessionUser',JSON.stringify({permissions:['equipment-register:*:read','equipment-register:equipmentName:read']}));
     render(<QueryClientProvider client={new QueryClient()}><KdosDataTable resource="equipment-register" simple columns={[{title:'组织',children:[{title:'事业部',dataIndex:'equipmentName',permissionField:'divisionId'}]}]} dataSource={[{id:'1',equipmentName:'不得借用其他字段授权'}]}/></QueryClientProvider>);expect(screen.queryByText('不得借用其他字段授权')).toBeNull();
   });
+  it('derived production status is visible only when both demand and net inbound source fields are readable',()=>{
+    const resource="mps-division-order-progress";
+    localStorage.setItem('sessionUser',JSON.stringify({permissions:[`${resource}:orderQuantity:read`,`${resource}:inboundQuantity:read`]}));
+    expect(hasKdosTableFieldReadPermission(resource,"productionStatus")).toBe(true);
+    localStorage.setItem('sessionUser',JSON.stringify({permissions:[`${resource}:orderQuantity:read`]}));
+    expect(hasKdosTableFieldReadPermission(resource,"productionStatus")).toBe(false);
+  });
 
 });
