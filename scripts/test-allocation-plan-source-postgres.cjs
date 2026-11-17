@@ -18,7 +18,6 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  await control.connect();await control.query(`CREATE DATABASE ${database}`);
  db=new DataSource({type:'postgres',host:socket,username:'knplan',database,migrations:fs.readdirSync(path.join(root,'apps/api/dist/migrations')).filter(file=>/^\d.*\.js$/.test(file)&&!file.endsWith('.spec.js')).map(file=>path.join(root,'apps/api/dist/migrations',file)),logging:false});await db.initialize();await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');await db.runMigrations();
  console.log('PASS all migrations on fresh PostgreSQL18');
- await db.query('ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS business_key text');
  const insert=async(table,values,manager=db)=>{const entries=Object.entries({tenant_id:'KAINAN',created_by:user,updated_by:user,...values});return(await manager.query(`INSERT INTO ${table}(${entries.map(([k])=>k)})VALUES(${entries.map((_,i)=>'$'+(i+1))})RETURNING *`,entries.map(([,v])=>v)))[0]};
  await db.query("INSERT INTO users(id,username,password_hash,display_name,tenant_id)VALUES($1,'allocation-fixture','unused','合成验收','KAINAN')",[user]);
  for(const [i,name]of[[division,'合成一部'],[other,'合成二部'],[four,'事业四部']])await db.query('INSERT INTO organization_units(id,name,level,enabled)VALUES($1,$2,1,true)',[i,name]);
@@ -48,7 +47,7 @@ let db;const check=async(name,run)=>{await run();checks.push(name);console.log('
  const conflictAlloc=await alloc('SYN-CONFLICT','ITEM-C',9,{archived_at:new Date()}),conflict=await month(conflictAlloc,{remark:'不可覆盖历史'});await alloc('SYN-CONFLICT','ITEM-C',77);
  await alloc('SYN-BAD','ITEM-X',8,{customer_code:null});await alloc('SYN-BAD','ITEM-Y',8,{manually_maintained:false});
  await check('A/B/D: absent ERP, over quantity, old order date; dates/unknown money remain NULL',async()=>{
-  const result=await project();assert.equal(result.status,'BLOCKED');assert.equal(result.metrics.skipped,1);assert.equal(result.metrics.unapproved_allocations,4);assert.equal(result.metrics.missing_order_dates,1);
+  const result=await project();assert.equal(result.status,'BLOCKED');assert.equal(result.metrics.skipped,1);assert.equal(Object.hasOwn(result.metrics,'unapproved_allocations'),false);assert.equal(result.metrics.missing_order_dates,1);
   assert.equal((await db.query("SELECT count(*)::int n FROM mps_data_exceptions WHERE message='重复分配合计超过ERP订单数量' AND active"))[0].n,0);
   for(const a of[absent,over]){const[p]=await db.query('SELECT *,order_date::text AS source_day FROM mps_monthly_plans WHERE allocation_id=$1',[a.id]);assert(p);assert.equal(p.required_quantity,a.allocated_quantity);assert.equal(p.source_day,'2020-01-01');assert.equal(p.customer_due_date,null);assert.equal(p.latest_customer_due_date,null);assert.equal(p.preproduction_review_date,null);const[g]=await db.query('SELECT * FROM mps_group_plans WHERE order_number=$1',[a.order_number]);for(const field of['order_amount','source_accounts','order_type','customer_due_date','preproduction_review_date'])assert.equal(g[field],null);assert.equal(g.primary_division_id,division);}
  });

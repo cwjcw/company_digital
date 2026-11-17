@@ -134,7 +134,7 @@ export class MasterPlanSyncRunner {
       const expired=this.rows(await manager.query(`UPDATE mps_reconciliation_outbox SET status='FAILED',last_error='自动重试上限已达10次；保留失败记录，等待人工核验',
         lease_expires_at=NULL,completed_at=NULL,updated_at=clock_timestamp(),version=version+1
         WHERE tenant_id=$1 AND status='RUNNING' AND attempts>=10 AND lease_expires_at<=clock_timestamp()
-        RETURNING id,actor_id,resource,record_id,business_key,scope_json,last_error,attempts,version`,[row.tenant_id]));
+        RETURNING id,actor_id,resource,record_id,scope_json,last_error,attempts,version`,[row.tenant_id]));
       for(const event of expired) await manager.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,source,created_by,updated_by,request_id)
         VALUES($1,$2::uuid,'KDOS Outbox Worker','mps-reconciliation-outbox',$3,'retry_limit_reached',$4::jsonb,$5::jsonb,'api',$2::uuid,$2::uuid,$6)`,
         [row.tenant_id,event.actor_id,event.id,JSON.stringify({status:'RUNNING',attempts:Number(event.attempts),version:Number(event.version)-1}),
@@ -308,7 +308,7 @@ export class MasterPlanSyncRunner {
         next_attempt_at=CASE WHEN $7::boolean THEN 'infinity'::timestamptz ELSE clock_timestamp()+least(attempts,30)*interval '1 minute' END,lease_expires_at=NULL,
         updated_at=clock_timestamp(),updated_by=$6::uuid,version=version+1
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp()
-        RETURNING id,resource,record_id,business_key,scope_json,last_error,attempts,version,actor_id`,
+        RETURNING id,resource,record_id,scope_json,last_error,attempts,version,actor_id`,
         [event.tenant_id, event.id, event.version, status, error, event.actor_id,permanentBlocked]));
       if (!updated.length) throw new SyncLeaseLost();
       if(status==='FAILED'&&this.onTerminalFailure&&(permanentBlocked||Number(updated[0]!.attempts)>=10)) await this.onTerminalFailure(manager,event.tenant_id,updated[0]!);
@@ -334,7 +334,7 @@ export class MasterPlanSyncRunner {
         lease_expires_at=NULL,updated_at=clock_timestamp(),updated_by=$6::uuid,version=version+1,
         next_attempt_at=clock_timestamp()+CASE WHEN $4::varchar='PENDING' THEN interval '5 seconds' ELSE least(attempts,30)*interval '1 minute' END
         WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 AND status='RUNNING' AND lease_expires_at>clock_timestamp()
-        RETURNING id,resource,record_id,business_key,scope_json,last_error,attempts,version,actor_id`,
+        RETURNING id,resource,record_id,scope_json,last_error,attempts,version,actor_id`,
         [event.tenant_id, event.id, event.version, busy ? "PENDING" : "FAILED", busy ? null : error, event.actor_id]);
         if(updated&&updated.status==='FAILED'&&Number(updated.attempts)>=10&&this.onTerminalFailure) await this.onTerminalFailure(manager,event.tenant_id,updated);
       }

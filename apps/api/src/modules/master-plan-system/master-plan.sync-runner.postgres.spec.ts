@@ -45,8 +45,12 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
   beforeEach(async () => {
     await db.query("TRUNCATE mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,fixture_effects,mps_order_allocations,mps_base_plans CASCADE");
     await db.query("DELETE FROM mps_sync_configs WHERE tenant_id=$1", [tenant]);
+    await db.query("DELETE FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2::uuid",[tenant,division]);
     for (const key of ["execution-rollup", "base-to-weekly", "plan-projections", "shipping-to-base", "erp-orders"]) await db.query(`INSERT INTO mps_sync_configs(
       tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)VALUES($1,$2,'合成同步',true,30,$3::uuid,$3::uuid)`, [tenant, key, actor]);
+    await db.query(`INSERT INTO mps_division_process_configs(tenant_id,division_id,process_code,cycle_days,sequence,default_enabled,created_by,updated_by)
+      SELECT $1,$2,process_code,1,sequence,true,$3::uuid,$3::uuid FROM unnest(ARRAY['cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging']::varchar[])
+      WITH ORDINALITY AS routes(process_code,sequence)`,[tenant,division,actor]);
   });
   afterAll(async () => { if (db?.isInitialized) await db.destroy(); });
 
@@ -252,10 +256,13 @@ integration("MPS 1A reliability on dedicated PostgreSQL18 (never production)", (
     const queued=await event("retry-limit-key");
     await db.query(`UPDATE mps_reconciliation_outbox SET status='RUNNING',attempts=10,lease_expires_at=clock_timestamp()-interval '1 second'
       WHERE tenant_id=$1 AND id=$2`,[tenant,queued.id]);
-    const execute=jest.fn(effect);await make(execute).processOutbox(tenant);
+    const execute=jest.fn(effect),terminal=jest.fn().mockImplementation(async (...args:[EntityManager,string,Record<string,unknown>])=>args);
+    await new MasterPlanSyncRunner(db,execute,actor,300_000,terminal).processOutbox(tenant);
     const [saved]=await db.query("SELECT status,attempts,last_error,lease_expires_at FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND id=$2",[tenant,queued.id]);
     expect(saved).toMatchObject({status:"FAILED",attempts:10,last_error:"自动重试上限已达10次；保留失败记录，等待人工核验",lease_expires_at:null});
     expect(execute).not.toHaveBeenCalled();
+    expect(terminal).toHaveBeenCalledWith(expect.anything(),tenant,expect.objectContaining({id:queued.id,record_id:null,scope_json:null}));
+    expect(terminal.mock.calls[0]?.[2]).not.toHaveProperty("business_key");
     expect(await db.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND resource='mps-reconciliation-outbox' AND action='retry_limit_reached'",[tenant,queued.id])).toHaveLength(1);
   });
 

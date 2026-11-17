@@ -55,7 +55,6 @@ integration("monthly to base on isolated PostgreSQL (no production settings)",()
     for(const Migration of [Initial,Integrity,ShippingReference,Manual,Divisions,Eligibility,Identity,Codes,Routing,Dates,WorkOrders,Change])await new Migration().up(runner);
     await new Leases().up(runner);
     await db.query(`ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS record_id uuid,ADD COLUMN IF NOT EXISTS scope_json jsonb;
-      ALTER TABLE mps_reconciliation_outbox ADD COLUMN IF NOT EXISTS business_key text;
       ALTER TABLE mps_sync_logs ADD COLUMN IF NOT EXISTS metrics jsonb;
       ALTER TABLE mps_monthly_plans ADD COLUMN IF NOT EXISTS allocation_id uuid;
       ALTER TABLE mps_order_allocations ADD COLUMN IF NOT EXISTS archived_at timestamptz,ADD COLUMN IF NOT EXISTS manually_maintained boolean NOT NULL DEFAULT false,ADD COLUMN IF NOT EXISTS monthly_plan_id uuid;
