@@ -51,6 +51,36 @@ test("production build shows the production progress table centered with server-
   await expect(page.locator(".kdos-column-title-label").first()).toHaveCSS("text-align", "center");
   await expect(page.locator(".kdos-data-table-toolbar")).toBeVisible();
 
+  const fixedKeys = ["customerCode", "orderNumber", "itemCode"];
+  for (const key of fixedKeys) {
+    await expect(page.locator(`th[data-kdos-column-key="${key}"]`)).toHaveClass(/ant-table-cell-fix-left/);
+  }
+  await expect(page.locator("td.ant-table-cell-fix-left")).toHaveCount(4);
+  await expect(page.locator('th[data-kdos-column-key="itemName"]')).not.toHaveClass(/ant-table-cell-fix-left/);
+  await expect(page.locator('th[data-kdos-column-key="itemCode"]')).toHaveClass(/ant-table-cell-fix-left-last/);
+  const fixedCell = page.locator("td.ant-table-cell-fix-left").nth(3);
+  const movingCell = page.locator("td").nth(4);
+  const fixedBefore = await fixedCell.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, width: rect.width, background: getComputedStyle(element).backgroundColor };
+  });
+  const headerBefore = await page.locator('th[data-kdos-column-key="itemCode"]').evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, width: rect.width };
+  });
+  expect(Math.abs(fixedBefore.left - headerBefore.left)).toBeLessThan(1);
+  expect(Math.abs(fixedBefore.width - headerBefore.width)).toBeLessThan(1);
+  const movingBefore = await movingCell.evaluate(element => element.getBoundingClientRect().left);
+  const scrollBody = page.locator(".ant-table-body");
+  expect(await scrollBody.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  await scrollBody.evaluate(element => { element.scrollLeft = Math.min(400, element.scrollWidth - element.clientWidth); });
+  await expect.poll(() => scrollBody.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+  const fixedAfter = await fixedCell.evaluate(element => element.getBoundingClientRect().left);
+  const movingAfter = await movingCell.evaluate(element => element.getBoundingClientRect().left);
+  expect(Math.abs(fixedAfter - fixedBefore.left)).toBeLessThan(2);
+  expect(movingAfter).toBeLessThan(movingBefore - 100);
+  expect(fixedBefore.background).not.toBe("rgba(0, 0, 0, 0)");
+
   await page.getByRole("button", { name: /高级筛选/ }).click();
   const filter = page.getByTestId("advanced-filter-panel");
   await filter.getByRole("button", { name: "添加过滤条件" }).click();

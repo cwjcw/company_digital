@@ -21,7 +21,8 @@ describe("MasterPlanDivisionOrderProgress",()=>{
   it("renders all 17 fields, fixed textual business identifiers and source-aware status colors",async()=>{
     mount();
     for(const [,label] of mpsDivisionOrderProgressColumns)await screen.findByText(label,{selector:"th"});
-    expect(document.querySelectorAll(`th[data-fixed="left"]`)).toHaveLength(4);
+    expect([...document.querySelectorAll(`th[data-fixed="left"]`)].map(cell=>cell.textContent?.trim())).toEqual(["客户代码","订单单号","品号"]);
+    expect(screen.getByText("品名",{selector:"th"})).toHaveAttribute("data-fixed","false");
     expect(screen.getByText("图纸",{selector:"th"})).toHaveAttribute("data-sorter","false");
     expect(screen.getByTestId("table-mode")).toHaveAttribute("data-simple","false");
     expect(screen.getByTestId("table-mode")).toHaveAttribute("data-initial-sort","orderDate:desc");

@@ -39,7 +39,7 @@ export function MasterPlanDivisionOrderProgress(){
         return <span className={`mps-division-progress-number ${complete===true?"is-complete":""}`}>{numberText(value)}</span>;}
       return String(value??"—");
     };
-    return {key,dataIndex:key,title,width:index<4?160:145,fixed:index<4?"left":undefined,align:"center",sorter:!['drawing','materialReady','cutting'].includes(key),render};
+    return {key,dataIndex:key,title,width:index<3?160:145,fixed:index<3?"left":undefined,align:"center",sorter:!['drawing','materialReady','cutting'].includes(key),render};
   });
   const setRange=(field:"order"|"shipping"|"review",value:[Dayjs|null,Dayjs|null]|null)=>{
     const range=dateRange(value),keys=field==="order"?["orderDateFrom","orderDateTo"]:field==="shipping"?["shippingDateFrom","shippingDateTo"]:["reviewDueFrom","reviewDueTo"];
