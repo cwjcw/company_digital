@@ -9,6 +9,7 @@ describe("MpsPresetImportPermissions migration", () => {
     expect(sql).toContain("p.field_key='*'");
     expect(sql).toContain('UPDATE permissions p SET "import"=(r.permission_group_type <> \'VIEW_ALL\')');
     expect(sql).toContain("table_permission_group.preset_import_matrix_migrated");
+    expect(sql).toContain("'api',NULL,'migration'");
     expect(sql).not.toMatch(/permission_group_subjects|permission_group_scope|permission_group_data_rules|p\.update\s*=/i);
   });
 

@@ -32,7 +32,7 @@ export class MpsPresetImportPermissions1722920131000 implements MigrationInterfa
         'table_permission_group.preset_import_matrix_migrated',
         jsonb_build_object('roleId',role_id,'resource',resource,'fieldKey',field_key,'groupType',group_type,'import',old_import),
         jsonb_build_object('roleId',role_id,'resource',resource,'fieldKey',field_key,'groupType',group_type,'import',(group_type <> 'VIEW_ALL')),
-        'migration:MpsPresetImportPermissions1722920131000','api','migration','migration'
+        'migration:MpsPresetImportPermissions1722920131000','api',NULL,'migration'
       FROM mps_preset_import_permission_before;
     `);
   }
