@@ -8,11 +8,15 @@ import { createMpsTestDatabase } from './master-plan.test-database';
 import { MasterPlanProcessReportException1722920061000 as ReportException } from '../../migrations/1722920061000-MasterPlanProcessReportException';
 import { MasterPlanThreeDayWorkOrders1722920063000 as WorkOrders } from '../../migrations/1722920063000-MasterPlanThreeDayWorkOrders';
 import { MpsExecutionFactProtection1722920119000 as Protection } from '../../migrations/1722920119000-MpsExecutionFactProtection';
+import { MasterPlanImportPreviews1722920055000 as ImportPreviews } from '../../migrations/1722920055000-MasterPlanImportPreviews';
 import { MasterPlanApplicationService } from './master-plan.application.service';
 import { MasterPlanSyncService } from './master-plan.sync.service';
 import { MasterPlanQueryService } from './master-plan.query.service';
 import { MASTER_PLAN_RESOURCE_MAP, queryColumnsFor, virtualColumns } from './master-plan.config';
 import type { MasterPlanActor } from './master-plan.types';
+import { TableFilterRegistry } from '../../common/filtering/table-filter.registry';
+import { MasterPlanFilterSourceProvider } from './master-plan.filter-sources';
+import { TablePrintService } from '../../common/printing/table-print.service';
 
 const integration = process.env.KDOS_SYNC_RELIABILITY_TEST_SOCKET ? describe : describe.skip;
 const tenant = 'FACTS-1B-ISOLATED', legacyTenant = 'FACTS-1B-LEGACY';
@@ -22,7 +26,7 @@ const principal = (who = tenant): MasterPlanActor => ({ tenantId: who, userId: u
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve=r; }); return { promise, resolve }; };
 
 integration('MPS 1B historical facts on isolated PG18 (no production DSN)', () => {
-  let db: DataSource, sync: MasterPlanSyncService, app: MasterPlanApplicationService, query: MasterPlanQueryService;
+  let db: DataSource, sync: MasterPlanSyncService, app: MasterPlanApplicationService, query: MasterPlanQueryService, spreadsheets: MasterPlanSpreadsheetService;
   const resource = MASTER_PLAN_RESOURCE_MAP.get('mps-process-reports')!;
   const directory = { listEnabled: async () => [{ id: division, name: '合成一部', pathLabel: '合成一部' }, { id: otherDivision, name: '合成二部', pathLabel: '合成二部' }] };
   const allReports = () => db.query('SELECT * FROM mps_process_reports WHERE tenant_id=$1 ORDER BY id', [tenant]);
@@ -43,8 +47,13 @@ integration('MPS 1B historical facts on isolated PG18 (no production DSN)', () =
   beforeAll(async () => {
     db=await createMpsTestDatabase('facts_1b_fixture',user,division);
     const qr={query:(sql: string,args?: unknown[])=>db.query(sql,args)} as QueryRunner;
-    await db.query(`ALTER TABLE mps_monthly_plans ADD COLUMN allocation_id uuid;
-      ALTER TABLE mps_order_allocations ADD COLUMN archived_at timestamptz;
+    await db.query(`ALTER TABLE users ADD COLUMN tenant_id varchar(64) NOT NULL DEFAULT '${tenant}';
+      ALTER TABLE mps_monthly_plans ADD COLUMN allocation_id uuid;
+      ALTER TABLE mps_order_allocations ADD COLUMN archived_at timestamptz, ADD COLUMN manually_maintained boolean NOT NULL DEFAULT false,
+        ADD COLUMN order_sequence varchar(128), ADD COLUMN specification text, ADD COLUMN approval_date date, ADD COLUMN supplier_code varchar(128),
+        ADD COLUMN supplier_name varchar(255), ADD COLUMN plan_number varchar(128), ADD COLUMN currency varchar(32),
+        ADD COLUMN financial_exchange_rate numeric(20,8), ADD COLUMN settlement_ratio numeric(20,8), ADD COLUMN scheduled_quantity numeric(20,4),
+        ADD COLUMN import_batch_id uuid, ADD COLUMN source_worksheet varchar(128), ADD COLUMN source_row_number integer, ADD COLUMN imported_at timestamptz, ADD COLUMN imported_by uuid;
 
       CREATE TABLE roles(id uuid,permission_group_resource text);
       CREATE TABLE permissions(role_id uuid,resource text,field_key text,"read" boolean,"create" boolean,"copy" boolean,"update" boolean,"delete" boolean,batch_print boolean,batch_update boolean,"import" boolean,"export" boolean,updated_by text);
@@ -57,14 +66,48 @@ integration('MPS 1B historical facts on isolated PG18 (no production DSN)', () =
     // Execute actual commands; keep the HTTP after-commit consumer dormant in this synthetic fixture.
     app=new MasterPlanApplicationService(db,{processOutbox:async()=>0,refreshWeeklyExecution:sync.refreshWeeklyExecution.bind(sync)} as never);
     query=new MasterPlanQueryService(db,directory as never);
-    await new Protection().up(qr);
+    await new Protection().up(qr); await new ImportPreviews().up(qr);
+    spreadsheets=new MasterPlanSpreadsheetService(db,query,app,directory as never);
   },30000);
   beforeEach(async () => {
-    await db.query('TRUNCATE mps_group_plans,mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,idempotency_keys,mps_order_allocations,mps_base_plans,erp_staging_raw_records,finished_goods_inbound CASCADE');
+    await db.query('TRUNCATE mps_import_previews,mps_group_plans,mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,idempotency_keys,mps_order_allocations,mps_base_plans,erp_staging_raw_records,finished_goods_inbound CASCADE');
     await db.query('DELETE FROM mps_sync_configs WHERE tenant_id=$1',[tenant]);
     for(const key of ['base-to-weekly','execution-rollup']) await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)VALUES($1,$2,'合成任务',true,30,$3,$3)`,[tenant,key,user]);
   });
   afterAll(async()=>{if(db?.isInitialized)await db.destroy();});
+
+  it('imports an allocation workbook by data_id, previews before write and confirms an update idempotently',async()=>{
+    const allocationId=randomUUID();
+    await db.query(`INSERT INTO mps_order_allocations(id,tenant_id,order_number,item_code,division_id,allocated_quantity,remark,created_by,updated_by)
+      VALUES($1,$2,'SYN-EXCEL-ORDER','SYN-EXCEL-ITEM',$3,5,'原备注',$4,$4)`,[allocationId,tenant,division,user]);
+    const registry=new TableFilterRegistry();new MasterPlanFilterSourceProvider(registry,query,app).onModuleInit();
+    const exporter=new TablePrintService(registry,db);
+    const exported=await exporter.exportXlsx('mps-order-allocations',{rangeType:'ALL',columnKeys:['allocatedQuantity','remark'],includeDataId:true},{...principal(),requestId:randomUUID()});
+    const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(exported as never);const sheet=workbook.getWorksheet('订单分配表')!;
+    expect(sheet.getRow(1).values).toEqual([undefined,'已分配数量','备注','data_id','版本']);
+    expect(sheet.getRow(2).getCell(3).text).toBe(allocationId);
+    sheet.getRow(2).getCell(1).value=0;sheet.getRow(2).getCell(2).value='新备注';
+    const file={originalname:'allocation-update.xlsx',buffer:Buffer.from(await workbook.xlsx.writeBuffer())} as Express.Multer.File;
+    const preview=await spreadsheets.preview('mps-order-allocations',file,principal(),'ACTUAL','UPDATE');
+    expect(preview.previewId).toBeTruthy();expect(preview.counts).toMatchObject({total:1,matched:1,updated:1,errors:0,conflicts:0});
+    expect((await db.query('SELECT allocated_quantity,remark,version FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2',[tenant,allocationId]))[0]).toMatchObject({allocated_quantity:'5.0000',remark:'原备注',version:1});
+    const result=await spreadsheets.confirm('mps-order-allocations',preview.previewId!,principal());
+    expect(result).toMatchObject({created:0,updated:1,repeated:false,reconciliation:{status:'PENDING'}});
+    const [updated]=await db.query('SELECT allocated_quantity,remark,version,manually_maintained FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2',[tenant,allocationId]);
+    expect(updated).toMatchObject({allocated_quantity:'0.0000',remark:'新备注',version:2,manually_maintained:true});
+    expect(await db.query("SELECT action FROM audit_logs WHERE tenant_id=$1 AND record_id=$2 AND action='mps-order-allocations.import_updated'",[tenant,allocationId])).toHaveLength(1);
+    expect(await db.query("SELECT 1 FROM mps_reconciliation_outbox WHERE tenant_id=$1 AND resource='mps-order-allocations'",[tenant])).not.toHaveLength(0);
+    const repeated=await spreadsheets.confirm('mps-order-allocations',preview.previewId!,principal());
+    expect(repeated).toMatchObject({created:0,updated:1,repeated:true});
+    expect((await db.query('SELECT version FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2',[tenant,allocationId]))[0].version).toBe(2);
+    sheet.getRow(2).getCell(2).value=9;sheet.getRow(2).getCell(4).value=1;
+    const stale=await spreadsheets.preview('mps-order-allocations',{...file,buffer:Buffer.from(await workbook.xlsx.writeBuffer())},principal(),'ACTUAL','UPDATE');
+    expect(stale.previewId).toBeNull();expect(stale.counts).toMatchObject({conflicts:1});expect(stale.errors[0].reason).toContain('版本已变化');
+    const foreignId=randomUUID();await db.query(`INSERT INTO mps_order_allocations(id,tenant_id,order_number,item_code,division_id,allocated_quantity,created_by,updated_by) VALUES($1,$2,'FOREIGN-ORDER','FOREIGN-ITEM',$3,1,$4,$4)`,[foreignId,legacyTenant,division,user]);
+    sheet.getRow(2).getCell(3).value=foreignId;sheet.getRow(2).getCell(4).value=1;
+    const foreign=await spreadsheets.preview('mps-order-allocations',{...file,buffer:Buffer.from(await workbook.xlsx.writeBuffer())},principal(),'ACTUAL','UPDATE');
+    expect(foreign.previewId).toBeNull();expect(foreign.errors[0].reason).toContain('不存在、已归档或超出当前读取数据范围');
+  });
 
   it('creates tasks and multiple reports; quantity/dates/product changes and repeated refresh preserve every report byte and process identity',async()=>{
     const {base,week}=await makeWeek(); const first=await report(week.id); await report(week.id,4);

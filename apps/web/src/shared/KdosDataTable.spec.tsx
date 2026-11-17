@@ -577,6 +577,51 @@ describe("KdosDataTable server pagination", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument());
   });
 
+  it("订单分配导出无筛选时禁用筛选范围，全部数据进入字段选择并包含 data_id 选项", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["*"] }));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-order-allocations", supported: true, allowed: true }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      if (path.startsWith("/table-exports/mps-order-allocations?")) return new Blob(["xlsx"]) as never;
+      return [] as never;
+    });
+    mockExportDownload();
+    render(<AntApp><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <KdosDataTable resource="mps-order-allocations" exportWorkflow="RANGE_FIELDS_WITH_DATA_ID"
+        columns={[{ title: "订单单号", dataIndex: "orderNumber" }]} dataSource={[{ id: "0199bb00-0000-7000-8000-000000000108", orderNumber: "SO-1" }]} />
+    </QueryClientProvider></AntApp>);
+    fireEvent.click(await screen.findByRole("button", { name: /导出/ }));
+    expect(await screen.findByRole("menuitem", { name: "筛选后的数据" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "全部数据" }));
+    const dialog = await screen.findByRole("dialog", { name: "导出 Excel" });
+    expect(dialog).toHaveTextContent("请选择导出字段");
+    expect(screen.getByRole("checkbox", { name: /同时导出 data_id/ })).toBeChecked();
+    fireEvent.click(dialog.querySelector(".ant-modal-footer .ant-btn-primary")!);
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => String(path).startsWith("/table-exports/mps-order-allocations?") && String(path).includes("rangeType=ALL") && String(path).includes("includeDataId=true"))).toBe(true));
+  }, 15000);
+
+  it("订单分配存在搜索条件时筛选与全部范围均可选，筛选范围保留搜索值", async () => {
+    localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["*"] }));
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === "/table-exports/capabilities") return [{ code: "mps-order-allocations", supported: true, allowed: true }] as never;
+      if (path === "/table-filters/resources") return [] as never;
+      if (path.startsWith("/table-exports/mps-order-allocations?")) return new Blob(["xlsx"]) as never;
+      return [] as never;
+    });
+    mockExportDownload();
+    render(<AntApp><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <KdosDataTable resource="mps-order-allocations" exportWorkflow="RANGE_FIELDS_WITH_DATA_ID" searchValue="SO-2" onSearchValueChange={vi.fn()}
+        columns={[{ title: "订单单号", dataIndex: "orderNumber" }]} dataSource={[{ id: "0199bb00-0000-7000-8000-000000000108", orderNumber: "SO-2" }]} />
+    </QueryClientProvider></AntApp>);
+    fireEvent.click(await screen.findByRole("button", { name: /导出/ }));
+    expect(await screen.findByRole("menuitem", { name: "筛选后的数据" })).toHaveAttribute("aria-disabled", "false");
+    expect(screen.getByRole("menuitem", { name: "全部数据" })).not.toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "筛选后的数据" }));
+    const dialog=await screen.findByRole("dialog",{name:"导出 Excel"});
+    fireEvent.click(dialog.querySelector(".ant-modal-footer .ant-btn-primary")!);
+    await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([path])=>String(path).startsWith("/table-exports/mps-order-allocations?")&&String(path).includes("rangeType=FILTERED")&&String(path).includes("search=SO-2"))).toBe(true));
+  },15000);
+
   it("零选中时单一导出入口标明当前视图并沿用筛选结果模式", async () => {
     localStorage.setItem("sessionUser", JSON.stringify({ sub: "exporter", permissions: ["mps-group-plans:*:read", "mps-group-plans:*:export", "*"] }));
     vi.mocked(api).mockImplementation(async (path: string) => {

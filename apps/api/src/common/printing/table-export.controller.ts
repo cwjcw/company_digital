@@ -30,7 +30,8 @@ export class TableExportController {
       context: this.parseObject(query.context, "导出上下文格式无效"),
       columnKeys: query.columnKeys,
       rangeType: query.rangeType,
-      selectedIds: query.selectedIds
+      selectedIds: query.selectedIds,
+      ...this.parseIncludeDataId(query.includeDataId)
     }, this.actor(request));
     this.sendWorkbook(resource, workbook, response);
   }
@@ -43,6 +44,7 @@ export class TableExportController {
     const workbook = await this.exports.exportXlsx(resource, {
       rangeType: body.rangeType,
       selectedIds: body.selectedIds,
+      ...(body.includeDataId == null ? {} : { includeDataId: body.includeDataId }),
       sortField: body.sortField,
       sortOrder: body.sortOrder,
       context: this.bodyObject(body.context, "导出上下文格式无效"),
@@ -76,10 +78,18 @@ export class TableExportController {
     return raw as Record<string, unknown>;
   }
 
+  private parseIncludeDataId(raw: string | undefined) {
+    if (raw == null) return {};
+    if (raw === "true") return { includeDataId: true };
+    if (raw === "false") return { includeDataId: false };
+    throw new BadRequestException("data_id 导出选项无效");
+  }
+
   private actor(request: ExportRequest): TableFilterActor {
     return {
       tenantId: process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN",
       userId: request.user?.sub ?? null,
+      requestId: request.user?.requestId ?? "table-export",
       displayName: request.user?.displayName ?? undefined,
       username: request.user?.username ?? undefined,
       permissions: request.user?.permissions ?? [],

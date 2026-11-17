@@ -99,7 +99,7 @@ export class MasterPlanController {
   }
 
   @Post("resources/:resource/import-preview") @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 20 * 1024 * 1024 } }))
-  importPreview(@Param("resource") resource: string, @Query("view") view: string, @UploadedFile() file: Express.Multer.File, @Req() request: MasterPlanRequest) { return this.spreadsheets.preview(resource, file, this.actor(request), view); }
+  importPreview(@Param("resource") resource: string, @Query("view") view: string, @Query("mode") mode: string, @UploadedFile() file: Express.Multer.File, @Req() request: MasterPlanRequest) { return this.spreadsheets.preview(resource, file, this.actor(request), view, mode); }
 
   @Post("resources/:resource/import-confirm")
   importConfirm(@Param("resource") resource: string, @Body("previewId") previewId: string, @Req() request: MasterPlanRequest) { return this.spreadsheets.confirm(resource, previewId, this.actor(request)); }

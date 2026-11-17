@@ -36,6 +36,8 @@ export type TablePrintQuery = {
   selectedIds?: unknown;
   /** 客户端只能收窄列集合；后端只做交集。 */
   columnKeys?: unknown;
+  /** Only the order allocation resource may export its stable external identity. */
+  includeDataId?: unknown;
 };
 
 @Injectable()
@@ -177,7 +179,10 @@ export class TablePrintService {
     if (!this.canReadResource(actor, source)) throw new ForbiddenException("当前权限组没有此表的查看权限");
     const fields = this.exportableFields(source, actor, query.columnKeys);
     if (!fields.length) throw new ForbiddenException("当前权限组没有可导出字段");
-    const { rangeType, ids: selectedIds } = this.resolveRange(source, query);
+    const includeDataId = query.includeDataId === true;
+    if (query.includeDataId != null && typeof query.includeDataId !== "boolean") throw new BadRequestException("data_id 导出选项无效");
+    if (includeDataId && resourceCode !== "mps-order-allocations") throw new BadRequestException("该表不支持导出 data_id");
+    const { rangeType, ids: selectedIds } = this.resolveRange(source, query, true);
 
     const keyField = recordKeyOf(source).field;
     const rows: Array<Record<string, unknown>> = [];
@@ -200,8 +205,9 @@ export class TablePrintService {
         rows.push(...result.rows);
       }
     } else {
+      const exportQuery = rangeType === "ALL" ? { ...query, search: undefined, filterGroup: undefined } : query;
       for (;;) {
-        const result = await this.queryRows(source, actor, query, fields, page, PRINT_BATCH_SIZE, undefined, "export");
+        const result = await this.queryRows(source, actor, exportQuery, fields, page, PRINT_BATCH_SIZE, undefined, "export");
         total = result.total;
         rows.push(...result.rows);
         if (rows.length >= total || result.rows.length < PRINT_BATCH_SIZE) break;
@@ -219,19 +225,33 @@ export class TablePrintService {
     const workbook=large?new PlatformStreamingWorkbook({stream,useSharedStrings:false}):new ExcelJS.Workbook();
     workbook.creator = "KDOS 平台";
     const sheet = workbook.addWorksheet(resource.label.slice(0, 31),{views:[{state:'frozen',ySplit:1}]});
-    sheet.columns = fields.map((field) => ({ header: field.label, key: field.key, width: Math.max(12, this.widthFor(field) * 1.5) }));
+    sheet.columns = [
+      ...fields.map((field) => ({ header: field.label, key: field.key, width: Math.max(12, this.widthFor(field) * 1.5) })),
+      ...(includeDataId ? [{ header: "data_id", key: "data_id", width: 38 }, { header: "版本", key: "version", width: 12, hidden: true }] : [])
+    ];
     for (const row of rows) {
       const output: Record<string, string> = {};
       for (const field of fields) {
         const value = resolved.get(String(row[keyField] ?? ""))?.[field.key] ?? row[field.key];
         output[field.key] = source.exportDisplayValue?.(field, value, row) ?? (source.exportNullAsBlank && value == null ? "" : source.exportExactNumbers && field.type === "number" && value != null ? String(value) : this.formatValue(field, value));
       }
+      if (includeDataId) {
+        const dataId = String(row[keyField] ?? "");
+        const version = Number(row.version);
+        if (!dataId || !Number.isInteger(version) || version < 1) throw new ConflictException("订单分配导出缺少稳定记录身份或版本，请刷新后重试");
+        output.data_id = dataId;
+        output.version = String(version);
+      }
       const added=sheet.addRow(output);if(large)added.commit();
     }
+    if (includeDataId) sheet.getColumn(fields.length + 2).hidden = true;
     if(!large)sheet.views = [{ state: "frozen", ySplit: 1 }];
     sheet.autoFilter = { from: "A1", to: `${this.columnLetter(Math.max(fields.length, 1))}1` };
-    if(workbook instanceof ExcelJS.stream.xlsx.WorkbookWriter){await workbook.commit();await ended;return Buffer.concat(chunks);}
-    stream.destroy();return Buffer.from(await workbook.xlsx.writeBuffer());
+    let result: Buffer;
+    if(workbook instanceof ExcelJS.stream.xlsx.WorkbookWriter){await workbook.commit();await ended;result=Buffer.concat(chunks);}
+    else { stream.destroy(); result=Buffer.from(await workbook.xlsx.writeBuffer()); }
+    await source.recordExport?.({ rowCount: rows.length, rangeType, fields: fields.map(field=>field.key), includeDataId }, actor);
+    return result;
   }
 
   /** 打印人展示值：displayName → username → "—"（userId 仅用于审计与内部识别，不上纸）。 */
@@ -325,10 +345,16 @@ export class TablePrintService {
   }
 
   /** 显式解析行范围：SELECTED 必须带合法稳定 ID，否则 400，绝不退化为 FILTERED。 */
-  private resolveRange(source: TableFilterSource, query: TablePrintQuery) {
+  private resolveRange(source: TableFilterSource, query: TablePrintQuery): { rangeType: "FILTERED" | "SELECTED"; ids: string[] };
+  private resolveRange(source: TableFilterSource, query: TablePrintQuery, allowAll: true): { rangeType: "FILTERED" | "SELECTED" | "ALL"; ids: string[] };
+  private resolveRange(source: TableFilterSource, query: TablePrintQuery, allowAll = false) {
     const raw = query.rangeType == null || String(query.rangeType).trim() === "" ? "FILTERED" : String(query.rangeType).toUpperCase();
-    if (raw !== "FILTERED" && raw !== "SELECTED") throw new BadRequestException("数据范围只能是 FILTERED 或 SELECTED");
+    if (raw !== "FILTERED" && raw !== "SELECTED" && !(allowAll && raw === "ALL")) throw new BadRequestException("数据范围只能是 FILTERED、SELECTED 或 ALL");
     if (raw === "FILTERED") return { rangeType: "FILTERED" as const, ids: [] as string[] };
+    if (raw === "ALL") {
+      if (query.selectedIds != null && this.normalizeKeys(query.selectedIds).size) throw new BadRequestException("全部数据导出不能携带已选记录");
+      return { rangeType: "ALL" as const, ids: [] as string[] };
+    }
     const ids = this.normalizeSelectedIds(source, query.selectedIds);
     if (!ids.length) throw new BadRequestException("已选范围必须提供有效的记录 ID");
     return { rangeType: "SELECTED" as const, ids };

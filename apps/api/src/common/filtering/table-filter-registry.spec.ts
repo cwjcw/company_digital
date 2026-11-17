@@ -29,7 +29,7 @@ function buildRegistry() {
   new FinanceMovementsQueryService({query:async()=>[]} as never,registry).onModuleInit();
   new FinanceOrdersQueryService({query:async()=>[]} as never,registry).onModuleInit();
   new FinanceFilterSourceProvider(registry, { query: async () => [] } as never).onModuleInit();
-  new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
+  new MasterPlanFilterSourceProvider(registry, { list: async () => ({ rows: [], total: 0 }) } as never, {} as never).onModuleInit();
   new MasterPlanDivisionOrderProgressFilterSource(registry, { assert: () => undefined, filterCandidateScope: () => "1=1", canReadFilterField: () => true, page: async () => ({ rows: [], total: 0 }) } as never).onModuleInit();
   new ReviewDueDateQueryService({} as never,registry,{} as never).onModuleInit();
   new MasterDataFilterSourceProvider(registry).onModuleInit();

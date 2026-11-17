@@ -1,12 +1,13 @@
 import { loadReviewDueWorkbook } from './review-due-date-workbook';
 import { ReviewDueDateImportApplicationService, type ReviewDueImportRow } from './review-due-date-import.application.service';
 import { reviewDueImportCapabilities } from './review-due-date.query.service';
-import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tableResourceRegistry } from '@kdos/contracts';
-import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, normalizeAllocationSupplierName, parseAllocationWorkbook } from "./order-allocation.domain";
+import { reviewDueDateCreateFields, reviewDueDateTemplateNotes, tablePermissionFieldsFor, tableResourceRegistry } from '@kdos/contracts';
+import { allocationVendorTargetError, allocationChange, allocationColumn, ALLOCATION_FIELDS, normalizedAllocationValue, normalizeAllocationSupplierName, parseAllocationWorkbook, parseAllocationUpdateWorkbook } from "./order-allocation.domain";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import ExcelJS from "exceljs";
+import Decimal from "decimal.js";
 import { DataSource } from "typeorm";
 import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
 import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, processReportPendingFields } from "./master-plan.config";
@@ -138,11 +139,13 @@ export class MasterPlanSpreadsheetService {
     });
   }
 
-  async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown) {
+  async preview(code: string, file: Express.Multer.File, actor: MasterPlanActor, view?: unknown, mode?: unknown) {
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
     if(code==='mps-review-due-dates')return this.reviewPreview(file,actor);
-    if (code === "mps-order-allocations") return this.allocationPreview(file, actor, view === "OVERRIDE_DIVISION");
+    if (code === "mps-order-allocations") return String(mode ?? "CREATE").toUpperCase() === "UPDATE"
+      ? this.allocationUpdatePreview(file, actor)
+      : this.allocationPreview(file, actor, view === "OVERRIDE_DIVISION");
     const pending = this.isPendingImport(code, view);
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
     assertSpreadsheetNotEncrypted(file.buffer);
@@ -264,7 +267,9 @@ export class MasterPlanSpreadsheetService {
       }
       if (preview.confirmed_at) return { ...preview.confirmation_result, repeated: true };
       const result = code === "mps-order-allocations"
-        ? await this.application.importUpdates(code, preview.payload_json.rows, `${preview.file_hash}:${preview.id}`, actor, manager, {id:preview.payload_json.importBatchId,worksheet:preview.payload_json.sourceWorksheet,fileHash:preview.file_hash})
+        ? preview.payload_json.mode === "UPDATE"
+          ? await this.application.importUpdates(code, preview.payload_json.rows, preview.file_hash, actor, manager)
+          : await this.application.importUpdates(code, preview.payload_json.rows, `${preview.file_hash}:${preview.id}`, actor, manager, {id:preview.payload_json.importBatchId,worksheet:preview.payload_json.sourceWorksheet,fileHash:preview.file_hash})
         : await this.application.importUpdates(code, preview.payload_json.rows, preview.file_hash, actor, manager);
       await manager.query("UPDATE mps_import_previews SET confirmed_at=now(),confirmation_result=$2::jsonb,updated_at=now(),updated_by=$3::uuid,version=version+1 WHERE id=$1::uuid", [previewId, JSON.stringify(result), actor.userId]);
       return result;
@@ -329,6 +334,116 @@ export class MasterPlanSpreadsheetService {
     });
   }
 
+  private async allocationUpdatePreview(file: Express.Multer.File, actor: MasterPlanActor) {
+    if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
+    for (const action of ["import", "update", "batch_update"]) {
+      if (!hasMasterPlanPermission(actor, "mps-order-allocations", action)) throw new ForbiddenException(`更新订单分配需要${action === "import" ? "导入" : action === "update" ? "修改" : "批量修改"}权限`);
+    }
+    const parsed = await parseAllocationUpdateWorkbook(file.buffer);
+    const errors = [...parsed.errors];
+    for (const key of parsed.fieldKeys) {
+      if (!hasMasterPlanFieldPermission(actor, "mps-order-allocations", key, "read")) throw new ForbiddenException(`更新文件包含无读取权限字段：${key}`);
+    }
+    const organizationOptions = await this.directory.listEnabled();
+    const entries = parsed.rows.map(row => ({ row: row.row, id: row.id, expectedVersion: row.expectedVersion, values: {} as Record<string, unknown>, submitted: row.submittedValues, readonly: row.readonlyValues }));
+    const matched = new Map<string, Record<string, unknown>>();
+    for (let offset = 0; offset < entries.length; offset += 200) {
+      const chunk = entries.slice(offset, offset + 200);
+      const result = await this.queries.list("mps-order-allocations", { page: 1, pageSize: 200, ids: chunk.map(row => row.id) }, actor);
+      for (const row of result.rows as Array<Record<string, unknown>>) matched.set(String(row.id), row);
+    }
+    const previewRows: Array<Record<string, unknown>> = [];
+    for (const entry of entries) {
+      const current = matched.get(entry.id);
+      if (!current) {
+        errors.push({ row: entry.row, reason: "记录不存在、已归档或超出当前读取数据范围" });
+        previewRows.push({ row: entry.row, id: entry.id, expectedVersion: entry.expectedVersion, classification: "ERROR", values: {}, fields: [] });
+        continue;
+      }
+      if (Number(current.version) !== entry.expectedVersion) errors.push({ row: entry.row, reason: "记录版本已变化，请重新导出后上传" });
+      for (const [key, uploaded] of Object.entries(entry.readonly)) {
+        const definition=tablePermissionFieldsFor("mps-order-allocations").find(field=>field.key===key);
+        const existing=current[key];
+        const normalizeReadonly=(value:unknown)=>{
+          if(value==null)return "";
+          if(definition?.type==="number")try{return new Decimal(String(value).replace(/,/g,"")).toString();}catch{return String(value).trim();}
+          if(definition?.type==="date")return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);
+          if(definition?.type==="datetime")return value instanceof Date?value.toISOString().slice(0,16):String(value).replace(" ","T").slice(0,16);
+          return String(value).trim();
+        };
+        if(normalizeReadonly(uploaded)!==normalizeReadonly(existing)) errors.push({row:entry.row,reason:`${definition?.label??key}是只读字段，Excel 中的修改不会被接受`});
+      }
+      const changes: Array<{ key: string; label: string; before: unknown; after: unknown }> = [];
+      const updateValues: Record<string, unknown> = {};
+      for (const [key, rawValue] of Object.entries(entry.submitted)) {
+        const field = ALLOCATION_FIELDS.find(item => item[0] === key);
+        if (!field) { errors.push({ row: entry.row, reason: `未知字段：${key}` }); continue; }
+        if (!hasMasterPlanFieldPermission(actor, "mps-order-allocations", key, "read")) {
+          errors.push({ row: entry.row, reason: `没有读取字段权限：${field[1]}` }); continue;
+        }
+        let newValue = rawValue;
+        if (key === "divisionId" && rawValue != null) {
+          try { newValue = this.directory.resolve(String(rawValue), organizationOptions, "承接事业部")?.id ?? null; }
+          catch { errors.push({ row: entry.row, reason: "承接事业部无法精确匹配组织完整路径" }); continue; }
+        }
+        const oldValue = current[key];
+        const oldNormalized = normalizedAllocationValue(key, oldValue);
+        const newNormalized = normalizedAllocationValue(key, newValue);
+        if (oldNormalized === newNormalized) continue;
+        const definition = tablePermissionFieldsFor("mps-order-allocations").find(item => item.key === key);
+        if (!definition?.editable || !hasMasterPlanFieldPermission(actor, "mps-order-allocations", key, "update")) {
+          errors.push({ row: entry.row, reason: `${field[1]}为只读字段或没有字段修改权限` }); continue;
+        }
+        if (key === "divisionId") {
+          errors.push({ row: entry.row, reason: "承接事业部不能通过 Excel 直接变更；请使用专用事业部变更预览与确认" }); continue;
+        }
+        updateValues[key] = newValue;
+        const before = key === "divisionId" ? current.divisionName ?? oldValue : oldValue;
+        const after = key === "divisionId" ? organizationOptions.find(option => option.id === newValue)?.pathLabel ?? newValue : newValue;
+        changes.push({ key, label: field[1], before, after });
+      }
+      entry.values = updateValues;
+      previewRows.push({ row: entry.row, id: entry.id, expectedVersion: entry.expectedVersion, classification: changes.length ? "UPDATE" : "UNCHANGED", values: updateValues, fields: changes });
+    }
+    const invalidRows=new Set(errors.map(error=>error.row));
+    const applicationRows=entries.filter(entry=>{
+      const current=matched.get(entry.id);
+      return current&&Number(current.version)===entry.expectedVersion&&!invalidRows.has(entry.row);
+    });
+    if (applicationRows.length) {
+      errors.push(...await this.application.validateImportUpdates("mps-order-allocations", applicationRows.map(entry => ({
+        row: entry.row, id: entry.id, expectedVersion: entry.expectedVersion, values: entry.values
+      })), actor));
+    }
+    const errorRows = new Set(errors.map(error => error.row));
+    for (const row of previewRows) if (errorRows.has(Number(row.row))) row.classification = "ERROR";
+    const counts = {
+      created: 0,
+      updated: previewRows.filter(row => row.classification === "UPDATE").length,
+      unchanged: previewRows.filter(row => row.classification === "UNCHANGED").length,
+      errors: errorRows.size,
+      matched: matched.size,
+      conflicts: errors.filter(error => /版本已变化/.test(error.reason)).length
+    };
+    let previewId: string | null = null;
+    const hash = createHash("sha256").update(file.buffer).digest("hex");
+    if (!errors.length) {
+      if (!actor.userId) throw new ForbiddenException("当前用户身份无效");
+      const [preview] = await this.dataSource.transaction(async manager => {
+        await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+        return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by)
+          VALUES($1,$2::uuid,'mps-order-allocations',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,
+        [actor.tenantId, actor.userId, hash, JSON.stringify({ mode: "UPDATE", rows: entries.map(({row,id,expectedVersion,values})=>({row,id,expectedVersion,values})) })]);
+      });
+      previewId = preview.id;
+    }
+    return {
+      previewId, mode: "UPDATE", total: parsed.rows.length, matchedCount: counts.matched,
+      counts: { ...counts, total: parsed.rows.length }, errors, rows: previewRows,
+      changes: previewRows.flatMap(row => (row.fields as Array<Record<string, unknown>>).map(field => ({ row: row.row, id: row.id, ...field, status: row.classification })))
+    };
+  }
+
   private async allocationPreview(file: Express.Multer.File, actor: MasterPlanActor, overrideDivision: boolean) {
     if (!file?.buffer?.length || !/\.xlsx$/i.test(file.originalname)) throw new BadRequestException("请选择 .xlsx Excel 文件");
     const parsed=await parseAllocationWorkbook(file.buffer),errors=[...parsed.errors];
@@ -389,7 +504,7 @@ export class MasterPlanSpreadsheetService {
         return manager.query(`INSERT INTO mps_import_previews(tenant_id,user_id,resource,file_hash,payload_json,expires_at,created_by,updated_by) VALUES($1,$2::uuid,'mps-order-allocations',$3,$4::jsonb,now()+interval '30 minutes',$2::uuid,$2::uuid) RETURNING id`,[actor.tenantId,actor.userId,hash,JSON.stringify({rows:resolved.rows.map(({row,id,expectedVersion,values})=>({row,id,expectedVersion,values})),importBatchId:resolved.importBatchId,sourceWorksheet:parsed.sourceWorksheet,overrideDivision})]);
       });previewId=preview.id;
     }
-    return {previewId,total:resolved.rows.length,fileTotalRows:parsed.fileTotalRows,validRows:counts.created,orderCount:parsed.orderCount,importBatchId:resolved.importBatchId,quantitySource:parsed.quantitySource,ignoredIdentity:parsed.ignoredIdentity,repeatedFile:resolved.repeatedFile,
+    return {previewId,mode:"CREATE",total:resolved.rows.length,fileTotalRows:parsed.fileTotalRows,validRows:counts.created,orderCount:parsed.orderCount,importBatchId:resolved.importBatchId,quantitySource:parsed.quantitySource,ignoredIdentity:parsed.ignoredIdentity,repeatedFile:resolved.repeatedFile,
       errors,counts,rows:resolved.rows,conflicts:resolved.conflicts,byDivision:group("divisionId"),bySalesperson:group("salespersonName"),
       recipients:(errors.length?[]:resolved.routing.recipients).map(r=>({userId:r.userId,displayName:r.displayName,count:r.changes.length,identities:r.identities})),recipientErrors:resolved.routing.errors};
   }

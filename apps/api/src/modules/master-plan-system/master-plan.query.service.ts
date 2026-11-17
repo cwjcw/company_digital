@@ -47,6 +47,7 @@ export class MasterPlanQueryService {
         delete: resource.remove && hasMasterPlanPermission(actor, code, "delete"),
         import: hasMasterPlanPermission(actor, code, "import"),
         updateTemplate: hasMasterPlanPermission(actor, code, "import") && hasMasterPlanPermission(actor, code, "update")
+          && hasMasterPlanPermission(actor, code, "batch_update")
           && !["mps-order-allocations", "mps-review-due-dates", "mps-process-reports"].includes(code)
           && fieldsFor(resource).some((field) => field.editable && this.visible(actor, code, field.key) && hasMasterPlanFieldPermission(actor, code, field.key, "update")),
         export: hasMasterPlanPermission(actor, code, "export"),

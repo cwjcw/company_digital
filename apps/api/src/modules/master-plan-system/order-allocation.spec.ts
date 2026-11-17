@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { ALLOCATION_FIELDS, allocationChange, allocationSnapshot, parseAllocationWorkbook } from "./order-allocation.domain";
+import { ALLOCATION_FIELDS, allocationChange, allocationSnapshot, parseAllocationWorkbook, parseAllocationUpdateWorkbook } from "./order-allocation.domain";
 import { allocationAttachmentFilename, allocationWorkbook } from "../notifications/order-allocation.delivery.service";
 import { resolveAllocationRoutes } from "../notifications/order-allocation.routing";
 
@@ -77,6 +77,27 @@ describe("ERP allocation parser and immutable nonmoney snapshots",()=>{
  });
  it("ignores price-only differences and normalizes exact numeric and date values",()=>{const before={id:"a",item_code:"01",order_quantity:"2.0000",order_date:new Date("2026-10-14T00:00:00Z"),tax_included_amount:"123"};const after={...before,order_quantity:"2",order_date:"2026-10-14",tax_included_amount:"999"};expect(allocationChange(before,after).fields).toEqual([]);expect(allocationSnapshot(before)).not.toHaveProperty("tax_included_amount");});
  it("builds three sheets with fieldwise changes, date formats and formula-safe leading-zero strings",async()=>{const change=allocationChange({id:"a",salesperson_name:"旧业务员",division_id:"old"},{id:"a",order_number:"=FORMULA",order_sequence:"001",item_code:"00001",order_date:"2026-10-14",salesperson_name:"新业务员",division_id:"new"});const content=await allocationWorkbook([allocationChange(null,{id:"new",order_number:"NEW-ORDER",order_sequence:"002",item_code:"00002",allocated_quantity:"3"}),change],"测试操作人","2026-10-14T02:00:00Z");const book=new ExcelJS.Workbook();await book.xlsx.load(content as never);expect(book.worksheets.map(s=>s.name)).toEqual(["新增订单","变更订单","字段变更明细"]);expect(book.getWorksheet("新增订单")!.rowCount).toBe(2);expect(book.getWorksheet("新增订单")!.getCell("C2").text).toBe("NEW-ORDER");expect(book.getWorksheet("变更订单")!.rowCount).toBe(2);expect(book.getWorksheet("变更订单")!.getCell("C2").text).toBe("'=FORMULA");expect(book.getWorksheet("变更订单")!.getRow(2).getCell((book.getWorksheet("变更订单")!.getRow(1).values as unknown[]).indexOf("订单序号")).text).toBe("001");expect(book.getWorksheet("变更订单")!.getCell("D2").numFmt).toBe("yyyy-mm-dd");const details=book.getWorksheet("字段变更明细")!;const existing=Array.from({length:details.rowCount-1},(_,i)=>details.getRow(i+2).values as ExcelJS.CellValue[]).filter(values=>values[1]==="'=FORMULA");expect(existing).toHaveLength(change.fields.length);expect(existing.find(values=>values[8]==="业务员")).toEqual(expect.arrayContaining(["旧业务员","新业务员","变更"]));expect(book.worksheets.every(s=>s.views[0].state==="frozen")).toBe(true);expect(book.worksheets.flatMap(s=>s.getRow(1).values as ExcelJS.CellValue[]).join(" ")).not.toMatch(/含税|采购金额|原币单价/);});
+});
+
+describe("allocation stable-identity update workbook",()=>{
+ const id="0199bb00-0000-7000-8000-000000000108";
+ const updateBook=async(rows:unknown[][],headers=["data_id","版本","已分配数量","备注"])=>{
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("订单分配表");sheet.addRow(headers);for(const values of rows)sheet.addRow(values);return Buffer.from(await book.xlsx.writeBuffer());
+ };
+ it("requires stable data_id and version and rejects duplicate identities",async()=>{
+  const duplicate=await parseAllocationUpdateWorkbook(await updateBook([[id,1,0,""],[id,1,2,""]]));
+  expect(duplicate.errors).toContainEqual({row:3,reason:`data_id 重复：${id}`});
+  await expect(parseAllocationUpdateWorkbook(await updateBook([[id,1,0]], ["版本","已分配数量","备注"]))).rejects.toThrow("data_id 和版本列");
+ });
+ it("preserves zero as a change and treats ordinary blank cells as unchanged",async()=>{
+  const parsed=await parseAllocationUpdateWorkbook(await updateBook([[id,3,0,"  "]]));
+  expect(parsed.errors).toEqual([]);expect(parsed.rows[0]).toMatchObject({id,expectedVersion:3,submittedValues:{allocatedQuantity:"0"}});
+  expect(parsed.rows[0].submittedValues).not.toHaveProperty("remark");
+ });
+ it("parses the explicit clear marker without treating it as a blank",async()=>{
+  const parsed=await parseAllocationUpdateWorkbook(await updateBook([[id,3,"","【清空】"]]));
+  expect(parsed.errors).toEqual([]);expect(parsed.rows[0].submittedValues).toEqual({remark:null});
+ });
 });
 describe("tenant exact-name and old/new routing",()=>{
  const users=[{id:"u1",display_name:"张三",wechat_user_id:"w1",enabled:true},{id:"u2",display_name:"张三",wechat_user_id:"w2",enabled:true},{id:"u3",display_name:"李四",wechat_user_id:"w3",enabled:true},{id:"u4",display_name:"禁用",enabled:false},{id:"u5",display_name:"缺号",enabled:true}];

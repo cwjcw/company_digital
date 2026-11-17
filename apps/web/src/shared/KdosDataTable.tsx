@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- table edit context and permission helpers are shared by cell components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type Key, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { Alert, App as AntApp, Button, Checkbox, Drawer, Flex, Input, Modal, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, App as AntApp, Button, Checkbox, Drawer, Dropdown, Flex, Input, Modal, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
 import { DeleteOutlined, DownloadOutlined, DownOutlined, EditOutlined, EyeOutlined, LogoutOutlined, PrinterOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UpOutlined } from "@ant-design/icons";
 import type { ColumnType, ColumnsType, TableProps } from "antd/es/table";
 import { isTableFieldFilterable, tablePermissionFieldsFor, tableResourceRegistry } from "@kdos/contracts";
@@ -248,6 +248,10 @@ function flatten<RecordType>(columns: ColumnsType<RecordType>): Array<{ key: str
   });
 }
 
+function filterGroupHasRules(group?: AdvancedFilterGroup | null): boolean {
+  return Boolean(group && (group.rules.length > 0 || group.groups?.some(filterGroupHasRules)));
+}
+
 /** Export leaves of the final visible/fixed column tree in screen order. */
 export function displayedExportKeys<RecordType>(columns: ColumnsType<RecordType>): string[] {
   const keys = columns.flatMap(raw => {
@@ -313,6 +317,8 @@ export function KdosTableQuickSearch({ search, onSearchChange, searchPlaceholder
 
 export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<RecordType>, "columns" | "dataSource"> & {
   exportFilename?: () => string;
+  /** Allocation-only export workflow with explicit range, field picker and stable data_id. */
+  exportWorkflow?: "STANDARD" | "RANGE_FIELDS_WITH_DATA_ID";
   resource: string;
   columns: KdosDataColumn<RecordType>[];
   dataSource?: readonly RecordType[];
@@ -440,7 +446,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 }
 
 export function KdosDataTable<RecordType extends DataRecord>({
-  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename,
+  resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename, exportWorkflow = "STANDARD",
   advancedFilterFields, initialSort,
   filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
   internalVerticalScroll = false,
@@ -507,6 +513,9 @@ export function KdosDataTable<RecordType extends DataRecord>({
   const exportCapabilities = useTableExportCapabilities();
   const exportingSupported = tableExportAllowed(exportCapabilities.data, resource);
   const [exporting, setExporting] = useState(false);
+  const [pendingExport, setPendingExport] = useState<{ rangeType: "FILTERED" | "SELECTED" | "ALL"; selectedIds?: string[] } | null>(null);
+  const [exportFieldKeys, setExportFieldKeys] = useState<string[]>([]);
+  const [includeDataId, setIncludeDataId] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [pendingPrint, setPendingPrint] = useState<{ manifest: TablePrintManifest; rangeType: "FILTERED" | "SELECTED"; selectedIds?: string[] } | null>(null);
   /* KN-PRINT-001：单一主打印入口——有选中记录就是「打印已选（N）」（SELECTED 优先），否则「打印筛选结果」。 */
@@ -556,10 +565,20 @@ export function KdosDataTable<RecordType extends DataRecord>({
       setPrinting(false);
     }
   };
+  const openExportFields = (rangeType: "FILTERED" | "SELECTED" | "ALL", selectedIds?: string[]) => {
+    const allowed = new Set(availableFieldKeys);
+    setExportFieldKeys(displayedExportKeys(renderedColumns).filter(key => allowed.has(key)));
+    setIncludeDataId(true);
+    setPendingExport({ rangeType, ...(selectedIds?.length ? { selectedIds } : {}) });
+  };
   const runExport = () => {
     if (exporting) return;
     const selectedIds = [...new Set(selectedRowKeys.map(String))];
     const rangeType = selectedIds.length ? "SELECTED" as const : "FILTERED" as const;
+    if (exportWorkflow === "RANGE_FIELDS_WITH_DATA_ID") {
+      openExportFields(rangeType, selectedIds);
+      return;
+    }
     const request = { resource, rangeType, ...(rangeType === "SELECTED" ? { selectedIds } : {}),
       search, filterGroup: effectiveFilterGroup, sortField: sortField || undefined,
       sortOrder: sortOrder === "descend" ? "desc" as const : sortOrder === "ascend" ? "asc" as const : undefined,
@@ -582,6 +601,28 @@ export function KdosDataTable<RecordType extends DataRecord>({
       return;
     }
     void submitExport();
+  };
+  const submitPickedExport = async () => {
+    if (!pendingExport || exporting) return;
+    if (!exportFieldKeys.length) { exportMessage.error("请至少选择一个业务字段"); return; }
+    const range = pendingExport;
+    setExporting(true);
+    try {
+      await exportTable({
+        resource, rangeType: range.rangeType,
+        ...(range.rangeType === "SELECTED" ? { selectedIds: range.selectedIds ?? [] } : {}),
+        ...(range.rangeType === "FILTERED" ? { search, filterGroup: effectiveFilterGroup } : {}),
+        sortField: sortField || undefined,
+        sortOrder: sortOrder === "descend" ? "desc" : sortOrder === "ascend" ? "asc" : undefined,
+        context: printContext, columnKeys: exportFieldKeys, includeDataId,
+        filename: exportFilename?.()
+      });
+      exportMessage.success(range.rangeType === "SELECTED" ? `已选 ${range.selectedIds?.length ?? 0} 条记录导出完成`
+        : range.rangeType === "ALL" ? "全部有权数据导出完成" : "筛选后的数据导出完成");
+      setPendingExport(null);
+    } catch (error) {
+      exportMessage.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
+    } finally { setExporting(false); }
   };
   const selectedRecords = useRef(new Map<Key, RecordType>());
   const serverMode = Boolean(serverData);
@@ -787,6 +828,14 @@ export function KdosDataTable<RecordType extends DataRecord>({
     });
     return orderKdosFixedColumns(orderColumns(filterColumns(wrap(allColumns), visible), orderedKeys));
   }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, viewKey, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
+  const displayedExportKeyOrder = displayedExportKeys(renderedColumns);
+  const exportFieldOptions = [...displayedExportKeyOrder, ...orderedKeys, ...fields.map(field=>field.key)]
+    .filter((key,index,all)=>all.indexOf(key)===index && availableFieldKeys.includes(key))
+    .map(key=>({key,label:fields.find(field=>field.key===key)?.label??key}));
+  const exportAllFieldKeys=exportFieldOptions.map(field=>field.key);
+  const exportHasAllFields=exportAllFieldKeys.length>0&&exportAllFieldKeys.every(key=>exportFieldKeys.includes(key));
+  const exportHasSomeFields=exportFieldKeys.length>0&&!exportHasAllFields;
+  const hasAppliedExportFilter=Boolean(search.trim()||Object.values(filters).some(value=>value.trim())||filterGroupHasRules(effectiveFilterGroup));
   const searchableKeys = useMemo(() => fields.map((field) => field.key), [fields]);
   const clientRows = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -990,6 +1039,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
       onOk={() => void confirmPrint()} onCancel={() => setPendingPrint(null)}>
       {pendingPrint ? printConfirmMessage(pendingPrint.manifest) : null}
     </Modal>
+    {exportWorkflow === "RANGE_FIELDS_WITH_DATA_ID" && <Modal open={Boolean(pendingExport)} title="导出 Excel" okText="导出" cancelText="取消"
+      confirmLoading={exporting} okButtonProps={{ disabled: exportFieldKeys.length === 0 }} onOk={() => void submitPickedExport()} onCancel={() => setPendingExport(null)}>
+      <Typography.Paragraph>请选择导出字段</Typography.Paragraph>
+      <Checkbox indeterminate={exportHasSomeFields} checked={exportHasAllFields}
+        onChange={(event)=>setExportFieldKeys(event.target.checked?exportAllFieldKeys:[])}>全选 / 取消全选</Checkbox>
+      <Checkbox.Group value={exportFieldKeys} onChange={(values)=>setExportFieldKeys(values.map(String))}
+        options={exportFieldOptions.map(field=>({label:field.label,value:field.key}))}
+        style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:"8px 12px",maxHeight:360,overflowY:"auto",padding:"10px 0"}} />
+      <div style={{borderTop:"1px solid #f0f0f0",paddingTop:12,marginTop:8}}>
+        <Checkbox checked={includeDataId} onChange={event=>setIncludeDataId(event.target.checked)}>同时导出 data_id</Checkbox>
+      </div>
+    </Modal>}
     <section className={["kdos-data-table-shell", density === "compact" ? "kdos-data-table-shell-compact" : "", internalVerticalScroll ? "kdos-data-table-shell-internal" : "", shellClassName].filter(Boolean).join(" ")} data-resource={resource} data-density={density} data-edit-mode={editing && canEdit ? "editing" : "readonly"}>
     {!simple && <Flex className="kdos-data-table-toolbar" justify="space-between" align="center" gap={12} wrap>
       <Space wrap>
@@ -1012,9 +1073,18 @@ export function KdosDataTable<RecordType extends DataRecord>({
           : resolvedFilterFields?.length && !filterCapabilities.isLoading
             ? <Button disabled title="该表暂未接入统一筛选平台，请使用顶部搜索">高级筛选（暂不支持）</Button>
             : null}
-        {exportingSupported && <Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>
-          {selectedCount > 0 ? `导出已选（${selectedCount}）` : "导出当前视图"}
-        </Button>}
+        {exportingSupported && (exportWorkflow === "RANGE_FIELDS_WITH_DATA_ID" ? selectedCount > 0
+          ? <Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>导出</Button>
+          : <Dropdown trigger={["click"]} menu={{
+            items: [
+              { key: "FILTERED", label: "筛选后的数据", disabled: !hasAppliedExportFilter },
+              { key: "ALL", label: "全部数据" }
+            ],
+            onClick: ({ key }) => openExportFields(key === "ALL" ? "ALL" : "FILTERED")
+          }}><Button icon={<DownloadOutlined />} loading={exporting}>导出</Button></Dropdown>
+          : <Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>
+            {selectedCount > 0 ? `导出已选（${selectedCount}）` : "导出当前视图"}
+          </Button>)}
         {deleteAction?.permitted && <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={Boolean(deleteDisabledReason)}
           aria-label={deleteAction.label ?? "删除"} title={deleteDisabledReason} onClick={confirmDelete}>{deleteAction.label ?? "删除"}</Button>}
         {printingSupported && <Button icon={<PrinterOutlined />} loading={printing} onClick={() => void runPrint()}>

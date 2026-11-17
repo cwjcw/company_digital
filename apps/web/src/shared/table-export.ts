@@ -6,7 +6,7 @@ export type TableExportRequest = {
   filename?: string;
   resource: string;
   /** Explicit row range; selected exports never fall back to the current view. */
-  rangeType: "FILTERED" | "SELECTED";
+  rangeType: "FILTERED" | "SELECTED" | "ALL";
   /** Stable record IDs, preserved across server pages and revalidated by the API. */
   selectedIds?: string[];
   search?: string;
@@ -15,6 +15,7 @@ export type TableExportRequest = {
   sortOrder?: "asc" | "desc";
   context?: Record<string, unknown>;
   columnKeys?: string[];
+  includeDataId?: boolean;
 };
 
 export type TableExportCapability = { code: string; supported: boolean; allowed: boolean };
@@ -35,14 +36,15 @@ export function tableExportAllowed(capabilities: TableExportCapability[] | undef
 
 export async function exportTable(request: TableExportRequest) {
   const rangeType = request.rangeType;
-  if (rangeType !== "FILTERED" && rangeType !== "SELECTED") throw new Error("导出模式无效");
+  if (rangeType !== "FILTERED" && rangeType !== "SELECTED" && rangeType !== "ALL") throw new Error("导出模式无效");
   if (rangeType === "SELECTED" && !request.selectedIds?.length) throw new Error("请先选择要导出的记录");
-  if (rangeType === "FILTERED" && request.selectedIds?.length) throw new Error("筛选结果导出不能携带选中记录");
+  if (rangeType !== "SELECTED" && request.selectedIds?.length) throw new Error("当前导出范围不能携带选中记录");
   const path = `/table-exports/${encodeURIComponent(request.resource)}`;
   const blob = rangeType === "SELECTED"
     ? await api<Blob>(path, { method: "POST", body: JSON.stringify({
       rangeType, selectedIds: [...new Set(request.selectedIds!.map(String))], sortField: request.sortField,
-      sortOrder: request.sortOrder, context: request.context ?? {}, columnKeys: request.columnKeys
+      sortOrder: request.sortOrder, context: request.context ?? {}, columnKeys: request.columnKeys,
+      includeDataId: request.includeDataId
     }) })
     : await api<Blob>(`${path}?${new URLSearchParams({
       rangeType,
@@ -51,7 +53,8 @@ export async function exportTable(request: TableExportRequest) {
       ...(request.sortField ? { sortField: request.sortField } : {}),
       ...(request.sortOrder ? { sortOrder: request.sortOrder } : {}),
       ...(request.context && Object.keys(request.context).length ? { context: JSON.stringify(request.context) } : {}),
-      ...(request.columnKeys ? { columnKeys: request.columnKeys.join(",") } : {})
+      ...(request.columnKeys ? { columnKeys: request.columnKeys.join(",") } : {}),
+      ...(request.includeDataId != null ? { includeDataId: String(request.includeDataId) } : {})
     })}`);
   if (!(blob instanceof Blob) || blob.size === 0) throw new Error("导出文件为空");
   const url = URL.createObjectURL(blob);

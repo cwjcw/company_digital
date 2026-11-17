@@ -8,7 +8,7 @@ const admin: TableFilterActor = { tenantId: "KAINAN", userId: "user", permission
 function setup(row: Record<string, unknown>) {
   const registry = new TableFilterRegistry();
   const list = jest.fn().mockResolvedValue({ rows: [row], total: 1 });
-  new MasterPlanFilterSourceProvider(registry, { list } as never).onModuleInit();
+  new MasterPlanFilterSourceProvider(registry, { list } as never, { recordAllocationExport: jest.fn() } as never).onModuleInit();
   return { service: new TablePrintService(registry, {} as never), list };
 }
 async function sheet(buffer: Buffer) {

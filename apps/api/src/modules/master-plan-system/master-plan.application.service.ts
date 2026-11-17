@@ -107,6 +107,16 @@ export class MasterPlanApplicationService {
     });
   }
 
+  /** Audit the allocation table's opt-in stable identity export through Application. */
+  async recordAllocationExport(summary: { rowCount: number; rangeType: string; fields: string[]; includeDataId: boolean }, actor: MasterPlanActor) {
+    const resource = "mps-order-allocations";
+    if (!["read", "export"].every(action => hasMasterPlanPermission(actor, resource, action))) throw new ForbiddenException("当前权限组没有订单分配表导出权限");
+    return this.dataSource.transaction(async manager => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
+      await this.audit(manager, actor, resource, null, `${resource}.exported`, null, summary);
+    });
+  }
+
   /** One-off administrator command; no employee UI/delete permission is introduced. */
   async archiveAllocations(records: Array<{ id: string; expectedVersion: number }>, idempotencyKey: string, actor: MasterPlanActor) {
     if (actor.isSystemAdmin !== true || !actor.userId || !actor.tenantId) throw new ForbiddenException("仅系统管理员可以归档清空订单分配表");
@@ -963,21 +973,30 @@ export class MasterPlanApplicationService {
     if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用事务命令");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    const containsUpdates = rows.some(row => row.id != null);
+    if (containsUpdates && (!hasMasterPlanPermission(actor, code, "update") || !hasMasterPlanPermission(actor, code, "batch_update"))) {
+      throw new ForbiddenException("Excel 更新需要导入、修改和批量修改权限");
+    }
     await this.enforceShippingWindow(resource, actor);
     if (!rows.length || rows.length > 50_000) throw new BadRequestException("导入数据必须为1至50000行");
     if(code==="mps-order-allocations"){
-      if(!allocationBatch||!uuidPattern.test(allocationBatch.id)||!allocationBatch.worksheet||!/^[0-9a-f]{64}$/.test(allocationBatch.fileHash))throw new BadRequestException("导入预览已升级，请重新上传文件创建独立批次");
-      if(rows.some(row=>row.id!=null||row.expectedVersion!=null||!Number.isInteger(row.row)||row.row!<2))throw new BadRequestException("订单分配导入必须按原始行号新增，不能更新历史记录");
-      if(new Set(rows.map(row=>row.row)).size!==rows.length)throw new BadRequestException("同一批次原始行号重复");
+      if(allocationBatch){
+        if(!uuidPattern.test(allocationBatch.id)||!allocationBatch.worksheet||!/^[0-9a-f]{64}$/.test(allocationBatch.fileHash))throw new BadRequestException("导入预览已升级，请重新上传文件创建独立批次");
+        if(rows.some(row=>row.id!=null||row.expectedVersion!=null||!Number.isInteger(row.row)||row.row!<2))throw new BadRequestException("订单分配新增批次不得携带历史记录身份");
+        if(new Set(rows.map(row=>row.row)).size!==rows.length)throw new BadRequestException("同一批次原始行号重复");
+      } else if(rows.some(row=>row.id==null||row.expectedVersion==null)) {
+        throw new BadRequestException("订单分配新增必须使用独立批次；更新必须提供 data_id 和版本");
+      }
     }
-    const storageKey = `mps-import:${actor.tenantId}:${code}:${actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID}:${code==="mps-order-allocations"?allocationBatch!.id:fileHash}`;
+    const allocationAppend = code === "mps-order-allocations" && Boolean(allocationBatch);
+    const storageKey = `mps-import:${actor.tenantId}:${code}:${actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID}:${allocationAppend?allocationBatch!.id:fileHash}`;
     const work = async (manager: EntityManager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [storageKey]);
       const [existing] = await manager.query("SELECT response_json FROM idempotency_keys WHERE key=$1", [storageKey]);
       if (existing) return { ...existing.response_json, repeated: true };
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
-      if(code==="mps-order-allocations")await manager.query(`INSERT INTO mps_allocation_import_batches(id,tenant_id,file_hash,source_worksheet,row_count,imported_by) VALUES($1::uuid,$2,$3,$4,$5,$6::uuid)`,[allocationBatch!.id,actor.tenantId,allocationBatch!.fileHash,allocationBatch!.worksheet,rows.length,actorId]);
+      if(allocationAppend)await manager.query(`INSERT INTO mps_allocation_import_batches(id,tenant_id,file_hash,source_worksheet,row_count,imported_by) VALUES($1::uuid,$2,$3,$4,$5,$6::uuid)`,[allocationBatch!.id,actor.tenantId,allocationBatch!.fileHash,allocationBatch!.worksheet,rows.length,actorId]);
       const shippingMonthlyPlanIds = await this.shippingMonthlyPlanIds(resource, rows, actor.tenantId, manager);
       const importedLinks = ["mps-order-allocations","mps-base-plans"].includes(code) && await demandLinksReady(manager);
       const newAllocations: Array<Record<string,any>>=[];
@@ -1000,7 +1019,7 @@ export class MasterPlanApplicationService {
           if (!entries.length) throw new BadRequestException("新增导入没有可写入的业务字段");
           const params: unknown[] = [actor.tenantId, actorId, ...entries.map(([, value]) => value)];
           let extraColumns="",extraValues="";
-          if(code==="mps-order-allocations"){
+          if(allocationAppend){
             const start=params.length+1;params.push(allocationBatch!.id,allocationBatch!.worksheet,input.row);
             extraColumns=",manually_maintained,import_batch_id,source_worksheet,source_row_number,imported_at,imported_by";
             extraValues=`,true,$${start}::uuid,$${start+1},$${start+2}::integer,now(),$2::uuid`;
@@ -1016,7 +1035,8 @@ export class MasterPlanApplicationService {
         if (!uuidPattern.test(input.id!) || !Number.isInteger(input.expectedVersion) || input.expectedVersion! < 1) throw new BadRequestException("导入文件包含无效的记录ID或版本");
         const [current] = await manager.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [actor.tenantId, input.id]);
         if (!current) throw new BadRequestException(`记录不存在或已超出当前租户：${input.id}`);
-        if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
+        if (!this.recordAllowed(resource, current, actor, "import") || !this.recordAllowed(resource, current, actor, "read")
+          || !this.recordAllowed(resource, current, actor, "update") || !this.recordAllowed(resource, current, actor, "batch_update")) throw new ForbiddenException(`当前数据范围不允许导入修改记录：${input.id}`);
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException(`记录版本已变化，请重新导出后导入：${input.id}`);
         const values = this.writable(resource, input.values, actor);
         if(code==="mps-order-allocations" && Object.hasOwn(values,"divisionId")
@@ -1034,7 +1054,7 @@ export class MasterPlanApplicationService {
         const databaseValues = this.toDatabaseRecord(resource, values);
         this.validateRequiredOnUpdate(resource, values, current);
         this.validateCrossFields(resource, { ...current, ...databaseValues });
-        this.assertMappingTargetScope(resource, { ...current, ...databaseValues }, actor, "import");
+        this.assertMappingTargetScope(resource, { ...current, ...databaseValues }, actor, "batch_update");
         if (code === "mps-order-allocations" && !allocationChange(current, { ...current, ...databaseValues }).fields.length) continue;
         const params: unknown[] = [actor.tenantId, input.id, input.expectedVersion, actorId, ...entries.map(([, value]) => value)];
         const updated = await manager.query(`UPDATE ${resource.table} SET ${entries.map(([field], index) => `${columns[field]}=$${index + 5}`).join(",")},updated_at=now(),updated_by=$4::uuid,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid AND version=$3 RETURNING *`, params);
@@ -1055,7 +1075,7 @@ export class MasterPlanApplicationService {
         }
       }
       await this.allocationEvent(manager, code, actor, allocationChanges);
-      const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false, ...(code==="mps-order-allocations"?{importBatchId:allocationBatch!.id}:{}) };
+      const response = { total: rows.length, created: createdCount, updated: updatedCount, repeated: false, ...(allocationAppend?{importBatchId:allocationBatch!.id}:{}) };
       await this.audit(manager, actor, code, null, `${code}.import_confirmed`, null, { ...response, fileHash });
       await manager.query("INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by) VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)", [storageKey, fileHash, JSON.stringify(response), actorId]);
       if (createdCount || updatedCount) {
@@ -1076,6 +1096,9 @@ export class MasterPlanApplicationService {
     if (code === "mps-review-due-dates") throw new ForbiddenException("评审交期导入必须使用专用事务命令");
     const resource = this.resource(code);
     if (!hasMasterPlanPermission(actor, code, "import")) throw new ForbiddenException("当前权限组没有该表导入权限");
+    if (rows.some(row => row.id != null) && (!hasMasterPlanPermission(actor, code, "update") || !hasMasterPlanPermission(actor, code, "batch_update"))) {
+      throw new ForbiddenException("Excel 更新需要导入、修改和批量修改权限");
+    }
     const errors: Array<{ row: number; reason: string }> = [];
     const seen = new Set<string>(); const seenBusinessKeys = new Set<string>();
     for (const input of rows) {
@@ -1104,7 +1127,8 @@ export class MasterPlanApplicationService {
         if (!Number.isInteger(input.expectedVersion) || input.expectedVersion! < 1) throw new BadRequestException("版本必须为正整数");
         const [current] = await this.dataSource.query(`SELECT * FROM ${resource.table} WHERE tenant_id=$1 AND id=$2::uuid`, [actor.tenantId, input.id]);
         if (!current) throw new BadRequestException("记录不存在或已超出当前租户");
-        if (!this.recordAllowed(resource, current, actor, "import")) throw new ForbiddenException("当前数据范围不允许修改该记录");
+        if (!this.recordAllowed(resource, current, actor, "import") || !this.recordAllowed(resource, current, actor, "read")
+          || !this.recordAllowed(resource, current, actor, "update") || !this.recordAllowed(resource, current, actor, "batch_update")) throw new ForbiddenException("当前数据范围不允许修改该记录");
         if (Number(current.version) !== input.expectedVersion) throw new ConflictException("记录版本已变化，请重新导出");
         const values = this.writable(resource, input.values, actor);
         if(code==="mps-order-allocations" && Object.hasOwn(values,"divisionId")

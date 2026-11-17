@@ -36,6 +36,13 @@ export type TablePrintRowQuery = {
   action?: string;
 };
 
+export type TableExportAuditSummary = {
+  rowCount: number;
+  rangeType: "FILTERED" | "SELECTED" | "ALL";
+  fields: string[];
+  includeDataId: boolean;
+};
+
 /** Explicit candidate contract for derived list resources whose values do not live in `table`. */
 export type TableFilterCandidateQuery = {
   fieldKey: string;
@@ -50,6 +57,7 @@ export type TableFilterCandidateQuery = {
 /** 平台筛选 actor 视图：只暴露筛选所需的最小身份与数据范围信息。 */
 export type TableFilterActor = {
   tenantId: string; userId: string | null; permissions: string[]; roles?: string[];
+  requestId?: string;
   /** KN-PRINT-001：可信认证身份（来自 AuthGuard 后的 request.user），用于打印页眉等展示字段；不得用于权限判断。 */
   displayName?: string; username?: string;
   isSystemAdmin?: boolean; moduleAdminCodes?: string[];
@@ -67,6 +75,8 @@ export type TableFilterSource = {
   code: string;
   /** Explicit, bounded export limit for validated large record sources; default remains 80000. */
   exportMaxRows?: number;
+  /** Optional Application boundary for audit of resource-specific export identity columns. */
+  recordExport?: (summary: TableExportAuditSummary, actor: TableFilterActor) => Promise<void>;
   /** Template exports may preserve source NULL as an empty cell. Default remains the platform placeholder. */
   exportNullAsBlank?: boolean;
   /** Verified financial source strings retain all numeric digits in template exports. */

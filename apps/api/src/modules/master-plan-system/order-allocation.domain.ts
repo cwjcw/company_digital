@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import Decimal from "decimal.js";
 import { BadRequestException } from "@nestjs/common";
 import { assertSpreadsheetNotEncrypted } from "../../spreadsheet-upload";
+import { tablePermissionFieldsFor } from "@kdos/contracts";
 
 /** The only import/event/attachment field allowlist. Money is never read. */
 export const ALLOCATION_FIELDS = [
@@ -144,6 +145,103 @@ export async function parseAllocationWorkbook(buffer: Buffer) {
   if (!rows.length) errors.push({row:2,reason:"文件中没有可导入的数据"});
   return { rows, errors, sourceWorksheet:sheet.name, headerRow, fileTotalRows, quantitySource, ignoredIdentity:rows.some(r=>r.ignoredIdentity), orderCount: new Set(rows.map(r=>r.values.orderNumber)).size };
 }
+
+export type ParsedAllocationUpdateRow = { row: number; id: string; expectedVersion: number; submittedValues: Record<string, unknown>; readonlyValues: Record<string, unknown> };
+
+/** Parse an ordinary allocation export with its optional data_id and hidden version identity. */
+export async function parseAllocationUpdateWorkbook(buffer: Buffer) {
+  assertSpreadsheetNotEncrypted(buffer);
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.load(buffer as never); } catch { throw new BadRequestException("Excel 未解密或文件损坏，请解密或检查确保文件正确后导入。"); }
+  const sheet = workbook.getWorksheet("订单分配表") ?? workbook.getWorksheet("mps-order-allocations") ?? workbook.worksheets[0];
+  if (!sheet) throw new BadRequestException("Excel 文件没有工作表");
+  if (sheet.rowCount > 50_001) throw new BadRequestException("单次最多更新50000行");
+  const labels = new Map<string, string>();
+  for (const field of tablePermissionFieldsFor("mps-order-allocations")) labels.set(normalizeAllocationHeader(field.label), field.key);
+  for (const [key, names] of Object.entries(aliases)) {
+    for (const alias of names) labels.set(normalizeAllocationHeader(alias), key);
+  }
+  const columns = new Map<string, number>(), seenHeaders = new Set<string>();
+  sheet.getRow(1).eachCell((cell, column) => {
+    const header = normalizeAllocationHeader(cell.text);
+    if (!header) return;
+    if (seenHeaders.has(header)) throw new BadRequestException(`表头重复：${header}`);
+    seenHeaders.add(header);
+    if (header === "data_id") columns.set("data_id", column);
+    else if (header === "版本") columns.set("version", column);
+    else if (labels.has(header)) columns.set(labels.get(header)!, column);
+    else throw new BadRequestException(`不支持的更新字段：${header}`);
+  });
+  if (!columns.has("data_id") || !columns.has("version")) throw new BadRequestException("更新文件必须保留 data_id 和版本列，请从订单分配表导出时勾选 data_id");
+  if (![...columns.keys()].some(key => !["data_id", "version"].includes(key))) throw new BadRequestException("更新文件至少保留一个业务字段列");
+  const rows: ParsedAllocationUpdateRow[] = [], errors: Array<{row:number;reason:string}> = [];
+  const fieldKeys = [...columns.keys()].filter(key=>key!=="data_id"&&key!=="version");
+  const seenIds = new Set<string>();
+  sheet.eachRow((excelRow, rowNumber) => {
+    if (rowNumber === 1 || ![...columns.values()].some(column => excelRow.getCell(column).value != null && excelRow.getCell(column).text.trim() !== "")) return;
+    const id = excelRow.getCell(columns.get("data_id")!).text.trim();
+    const versionText = excelRow.getCell(columns.get("version")!).text.trim();
+    if (!uuidPattern.test(id)) { errors.push({row:rowNumber,reason:"data_id 必须是有效的系统记录 UUID"}); return; }
+    if (seenIds.has(id.toLowerCase())) { errors.push({row:rowNumber,reason:`data_id 重复：${id}`}); return; }
+    seenIds.add(id.toLowerCase());
+    const version=Number(versionText);
+    if (!Number.isInteger(version)||version<1) { errors.push({row:rowNumber,reason:"版本必须为正整数"}); return; }
+    const submittedValues:Record<string,unknown>={},readonlyValues:Record<string,unknown>={};
+    for (const [key,column] of columns) {
+      if (key === "data_id" || key === "version") continue;
+      const cell=excelRow.getCell(column);
+      if (cell.value==null || (cell.type!==ExcelJS.ValueType.Formula && cell.text.trim()==="")) continue; // blank means unchanged
+      try {
+        if(cell.type===ExcelJS.ValueType.Error)throw Error("Excel错误值");
+        const raw=cell.type===ExcelJS.ValueType.Formula?cell.result:cell.value;
+        if(cell.type===ExcelJS.ValueType.Formula && (raw==null || (typeof raw!=="string"&&typeof raw!=="number"&&!(raw instanceof Date)))) throw Error("公式缺少有效缓存结果，请在Excel重新计算并保存");
+        const text=(raw instanceof Date?raw.toISOString().slice(0,10):String(raw)).trim();
+        if (!ALLOCATION_FIELDS.some(field=>field[0]===key)) {
+          const definition=tablePermissionFieldsFor("mps-order-allocations").find(field=>field.key===key);
+          if(raw instanceof Date)readonlyValues[key]=raw.toISOString();
+          else if(typeof raw==="number"&&["date","datetime"].includes(definition?.type??"")){
+            const serial=Math.floor(raw),date1904=workbook.properties.date1904;
+            if(!Number.isFinite(raw)||serial<(date1904?0:1)||serial>(date1904?2957003:2958465)||(!date1904&&serial===60))throw Error("日期序列无效");
+            const day=new Date(Date.UTC(date1904?1904:1899,date1904?0:11,date1904?1:31)+(serial-(!date1904&&serial>60?1:0))*86400000).toISOString().slice(0,10);
+            readonlyValues[key]=definition?.type==="datetime"?`${day}T00:00:00.000Z`:day;
+          }else readonlyValues[key]=raw;
+          continue;
+        }
+        if(text==="【清空】"||text==="[清空]"){submittedValues[key]=null;continue;}
+        const field=ALLOCATION_FIELDS.find(item=>item[0]===key)!;
+        if(field[2]==="number"){
+          const value=new Decimal(text.replace(/,/g,""));if(!value.isFinite())throw Error("数字无效");
+          if(["orderQuantity","allocatedQuantity","scheduledQuantity"].includes(key)&&value.isNegative())throw Error("数量不能为负数");
+          const scale=["financialExchangeRate","settlementRatio"].includes(key)?8:4;
+          if(value.decimalPlaces()>scale||value.abs().gte(new Decimal(10).pow(20-scale)))throw Error(`超出数据库精度（最多${scale}位小数）`);
+          submittedValues[key]=value.toString();
+        }else if(field[2]==="date"){
+          let day:string;
+          if(raw instanceof Date)day=raw.toISOString().slice(0,10);
+          else if(typeof raw==="number"){
+            const serial=Math.floor(raw),date1904=workbook.properties.date1904;
+            if(!Number.isFinite(raw)||serial<(date1904?0:1)||serial>(date1904?2957003:2958465)||(!date1904&&serial===60))throw Error("日期序列无效");
+            day=new Date(Date.UTC(date1904?1904:1899,date1904?0:11,date1904?1:31)+(serial-(!date1904&&serial>60?1:0))*86400000).toISOString().slice(0,10);
+          }else{
+            const match=text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+00:00(?::00)?)?$/);if(!match)throw Error("日期格式无效");
+            day=`${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`;
+          }
+          if(new Date(`${day}T00:00:00Z`).toISOString().slice(0,10)!==day)throw Error("日期无效");
+          submittedValues[key]=day;
+        }else{
+          if(typeof raw==="boolean")throw Error("文本字段类型无效");
+          const value=String(raw).trim();
+          submittedValues[key]=typeof raw==="number"&&/^0+$/.test(cell.numFmt??"")?value.padStart(cell.numFmt.length,"0"):value;
+        }
+      }catch(error){errors.push({row:rowNumber,reason:`${ALLOCATION_FIELDS.find(item=>item[0]===key)?.[1]??key} (${cell.address})：${(error as Error).message}`});}
+    }
+    rows.push({row:rowNumber,id,expectedVersion:version,submittedValues,readonlyValues});
+  });
+  if(!rows.length&&!errors.length)errors.push({row:2,reason:"文件中没有可更新的数据"});
+  return {rows,errors,sourceWorksheet:sheet.name,fieldKeys};
+}
+
+const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Normalize only Unicode compatibility forms and surrounding whitespace; never fuzzy-match suppliers. */
 export function normalizeAllocationSupplierName(value:unknown):string {

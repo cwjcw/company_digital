@@ -10,6 +10,13 @@ describe("TablePermissionGroupApplicationService", () => {
     for (const groupType of presetPermissionGroupTypes) {
       expect(service.actions({ groupType })).toEqual(tablePermissionActions.filter((action) => presetTablePermissionMatrix[groupType][action]));
     }
+    expect(presetTablePermissionMatrix).toMatchObject({
+      ADD_ONLY: { import: true, export: false },
+      ADD_MANAGE_OWN: { import: true, export: true },
+      ADD_VIEW_ALL: { import: true, export: false },
+      MANAGE_ALL: { import: true, export: true },
+      VIEW_ALL: { import: false, export: false }
+    });
   });
 
   it("requires read whenever custom permissions manage existing rows", () => {

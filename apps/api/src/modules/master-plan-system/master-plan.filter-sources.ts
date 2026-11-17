@@ -4,6 +4,7 @@ import { MASTER_PLAN_RESOURCES, columnsFor, fieldsFor, processReportPendingColum
 import { buildDataScopeClause } from "../../common/filtering/data-scope";
 import { TableFilterRegistry, type TableFilterSource, type TablePrintRowQuery } from "../../common/filtering/table-filter.registry";
 import { MasterPlanQueryService } from "./master-plan.query.service";
+import { MasterPlanApplicationService } from "./master-plan.application.service";
 import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanActor } from "./master-plan.types";
 
 /**
@@ -12,7 +13,7 @@ import { hasMasterPlanFieldPermission, hasMasterPlanPermission, type MasterPlanA
  */
 @Injectable()
 export class MasterPlanFilterSourceProvider implements OnModuleInit {
-  constructor(private readonly registry: TableFilterRegistry, private readonly queries: MasterPlanQueryService) {}
+  constructor(private readonly registry: TableFilterRegistry, private readonly queries: MasterPlanQueryService, private readonly application: MasterPlanApplicationService) {}
 
   onModuleInit() {
     for (const resource of MASTER_PLAN_RESOURCES) {
@@ -37,6 +38,11 @@ export class MasterPlanFilterSourceProvider implements OnModuleInit {
         columns,
         fields: fieldsFor(resource),
         exportVariant: presentationVariant,
+        ...(resource.code === "mps-order-allocations" ? { recordExport: (summary, actor) => this.application.recordAllocationExport(summary, {
+          tenantId: actor.tenantId, userId: actor.userId, username: actor.username ?? "", isSystemAdmin: actor.isSystemAdmin,
+          moduleAdminCodes: actor.moduleAdminCodes ?? [], permissions: actor.permissions, tableDataScopes: actor.tableDataScopes ?? [],
+          requestId: actor.requestId ?? "table-export", source: "web"
+        }) } : {}),
         printVariant: context => {
           const variant = presentationVariant(context);
           // Pending report inputs are UI drafts, not persisted task facts.
