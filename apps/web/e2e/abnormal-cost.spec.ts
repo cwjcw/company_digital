@@ -51,3 +51,23 @@ test('a notification detail target survives login and opens the authorized judgm
   await expect(page).toHaveURL(new RegExp(`/workflow/abnormal-cost/judgments/${judgmentId}$`));await expect(page.getByRole('heading',{name:'YC261118SYN00101',exact:true})).toBeVisible();
   await expect(page.getByRole('link',{name:'查看异常信息'})).toHaveAttribute('target','_blank');
 });
+
+
+test('request table exposes working templates and preview-confirm import without bypassing the standard toolbar',async({page})=>{
+  const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};let confirms=0;
+  await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
+  await page.route('**/api/v1/**',async route=>{
+    const path=new URL(route.request().url()).pathname.replace('/api/v1','');
+    if(path==='/auth/me')return route.fulfill({json:user});if(path==='/abnormal-cost/options')return route.fulfill({json:options});
+    if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
+    if(path==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
+    if(path.endsWith('/template'))return route.fulfill({contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',body:Buffer.from('synthetic-download-fixture')});
+    if(path.endsWith('/import-preview'))return route.fulfill({json:{previewId:attachment,total:1,rows:[{row:2,values:{customer_code:'SYN-CUSTOMER'}}],errors:[]}});
+    if(path.endsWith('/import-confirm')){confirms++;return route.fulfill({json:{created:1,updated:0,total:1}});}
+    if(route.request().method()!=='GET')return route.abort();return route.fulfill({json:[]});
+  });
+  await page.goto('/workflow/abnormal-cost/requests');await expect(page.getByRole('button',{name:'准备导入附件',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'下载导入模板',exact:true}).click();const downloading=page.waitForEvent('download');await page.getByText('新增数据模板',{exact:true}).click();expect((await downloading).suggestedFilename()).toBe('abnormal_import_template.xlsx');
+  await page.locator('input[type=file]').first().setInputFiles({name:'request-import.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic-upload-fixture')});
+  const preview=page.getByRole('dialog',{name:'导入预览',exact:true});await expect(preview.getByText('共1行')).toBeVisible();await preview.getByRole('button',{name:'确认导入',exact:true}).click();await expect(preview).toHaveCount(0);expect(confirms).toBe(1);
+});

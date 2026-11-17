@@ -4,17 +4,20 @@ import { tablePermissionFieldsFor, type AbnormalCostResource } from '@kdos/contr
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { assertSpreadsheetNotEncrypted } from '../../spreadsheet-upload';
 import { AbnormalCostApplicationService } from './abnormal-cost.application.service';
-import { costAssert, costColumns, costField, costResource, costScope, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
+import { costAssert, costCan, costColumns, costField, costResource, costScope, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
 import { costUuid } from './abnormal-cost.domain';
+import { AbnormalCostGraphSpreadsheetService } from './abnormal-cost.graph-spreadsheet.service';
 @Injectable()
 export class AbnormalCostSpreadsheetService {
-  constructor(private readonly app:AbnormalCostApplicationService){}
-  private basic(code:AbnormalCostResource){if(!['abnormal-categories','incident-severity-levels'].includes(code))throw new BadRequestException('主单和责任判定须使用业务表单及受控明细附件，不接受平面Excel直接写入');}
+  constructor(private readonly app:AbnormalCostApplicationService,private readonly graph:AbnormalCostGraphSpreadsheetService){}
+  private basic(code:AbnormalCostResource){if(!['abnormal-categories','incident-severity-levels'].includes(code))throw new BadRequestException('基础资料资源无效');}
   async template(code:AbnormalCostResource,mode:string,query:Record<string,unknown>,actor:AbnormalActor){
+    if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.template(code,mode,query,actor);
     this.basic(code);costAssert(actor,code,'import');if(!['CREATE','UPDATE'].includes(mode))throw new BadRequestException('模板模式无效');
-    const fields=tablePermissionFieldsFor(code).filter(f=>f.editable&&(costField(actor,code,f.key,'read')||mode==='CREATE'));
+    const fields=tablePermissionFieldsFor(code).filter(f=>f.editable&&(mode==='CREATE'?(costField(actor,code,f.key,'read')||costField(actor,code,f.key,'update')||!costCan(actor,code,'read')):costField(actor,code,f.key,'read')&&costField(actor,code,f.key,'update')));
     const book=new ExcelJS.Workbook(),sheet=book.addWorksheet(costResource(code).label);
     sheet.columns=[{header:'记录ID',key:'id',width:38},{header:'版本',key:'version',width:12},...fields.map(f=>({header:f.label,key:f.key,width:24}))];
+    sheet.getColumn(1).numFmt='@';for(const f of fields)if(f.type!=='number')sheet.getColumn(f.key).numFmt='@';
     if(mode==='UPDATE'){
       costAssert(actor,code,'read');costAssert(actor,code,'update');costAssert(actor,code,'batch_update');
       await this.app.transaction(actor,async m=>{
@@ -29,6 +32,7 @@ export class AbnormalCostSpreadsheetService {
     return Buffer.from(await book.xlsx.writeBuffer());
   }
   async preview(code:AbnormalCostResource,buffer:Buffer,actor:AbnormalActor){
+    if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.preview(code,buffer,actor);
     this.basic(code);costAssert(actor,code,'import');assertSpreadsheetNotEncrypted(buffer);
     const book=new ExcelJS.Workbook();try{await book.xlsx.load(buffer as never);}catch{throw new BadRequestException('无效Excel文件');}
     const sheet=book.worksheets[0];if(!sheet||sheet.rowCount>5001)throw new BadRequestException('文件必须包含不超过5000行的数据');
@@ -52,7 +56,7 @@ export class AbnormalCostSpreadsheetService {
     class PreviewRollback extends Error {}
     if(!errors.length)try{await this.app.transaction(actor,async m=>{
       for(const row of rows){try{if(row.id){costAssert(actor,code,'update');costAssert(actor,code,'batch_update');await this.app.locked(m,code,row.id,'import',actor);await this.app.locked(m,code,row.id,'batch_update',actor);}else costAssert(actor,code,'create');
-        await this.app.saveBasic(code,row.id??null,{...row.values,...(row.id?{expectedVersion:row.expectedVersion}:{})},actor,m);
+        const saved=await this.app.saveBasic(code,row.id??null,{...row.values,...(row.id?{expectedVersion:row.expectedVersion}:{})},actor,m);await this.app.locked(m,code,saved.id,'import',actor);
       }catch(error){errors.push({row:row.row,reason:(error as Error).message});break;}}
       throw new PreviewRollback();
     });}catch(error){if(!(error instanceof PreviewRollback))throw error;}
@@ -60,10 +64,10 @@ export class AbnormalCostSpreadsheetService {
     if(!errors.length)result.previewId=await this.app.transaction(actor,async m=>{const [r]=await m.query('INSERT INTO abnormal_cost_import_previews(tenant_id,actor_id,resource,rows) VALUES($1,$2::uuid,$3,$4::jsonb) RETURNING id',[actor.tenantId,actor.userId,code,JSON.stringify(rows)]);return r.id;});
     return result;
   }
-  confirm(code:AbnormalCostResource,id:string,actor:AbnormalActor){this.basic(code);costAssert(actor,code,'import');return this.app.transaction(actor,async m=>{
+  async confirm(code:AbnormalCostResource,id:string,actor:AbnormalActor){if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.confirm(code,id,actor);this.basic(code);costAssert(actor,code,'import');return this.app.transaction(actor,async m=>{
     const [preview]=await m.query('SELECT * FROM abnormal_cost_import_previews WHERE tenant_id=$1 AND actor_id=$2::uuid AND id=$3::uuid AND resource=$4 FOR UPDATE',[actor.tenantId,actor.userId,costUuid(id),code]);
     if(!preview)throw new NotFoundException('预览不存在');if(preview.result)return {...preview.result,repeated:true};if(new Date(preview.expires_at).getTime()<Date.now())throw new ConflictException('预览已过期，请重新上传');
-    let created=0,updated=0;for(const row of preview.rows){if(row.id){costAssert(actor,code,'batch_update');await this.app.locked(m,code,row.id,'import',actor);await this.app.locked(m,code,row.id,'batch_update',actor);}await this.app.saveBasic(code,row.id??null,{...row.values,...(row.id?{expectedVersion:row.expectedVersion}:{})},actor,m);if(row.id)updated++;else created++;}
+    let created=0,updated=0;for(const row of preview.rows){if(row.id){costAssert(actor,code,'batch_update');await this.app.locked(m,code,row.id,'import',actor);await this.app.locked(m,code,row.id,'batch_update',actor);}const saved=await this.app.saveBasic(code,row.id??null,{...row.values,...(row.id?{expectedVersion:row.expectedVersion}:{})},actor,m);await this.app.locked(m,code,saved.id,'import',actor);if(row.id)updated++;else created++;}
     const result={created,updated,total:preview.rows.length};await this.app.audit(m,actor,code,null,`${code}.import_confirmed`,null,{...result,previewId:id});await m.query('UPDATE abnormal_cost_import_previews SET result=$2::jsonb WHERE id=$1::uuid',[id,JSON.stringify(result)]);return result;
   });}
 }

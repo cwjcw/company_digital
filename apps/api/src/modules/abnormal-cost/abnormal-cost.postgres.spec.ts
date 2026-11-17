@@ -8,13 +8,14 @@ import { NotificationRoutingAndRecipientDeliveries1722920068000 } from '../../mi
 import { NotificationGroupWebhookRouting1722920113000 } from '../../migrations/1722920113000-NotificationGroupWebhookRouting';
 import { NotificationService } from '../notifications/notification.service';
 import { AbnormalCostApplicationService } from './abnormal-cost.application.service';
+import { AbnormalCostGraphSpreadsheetService } from './abnormal-cost.graph-spreadsheet.service';
 import { AbnormalCostSpreadsheetService } from './abnormal-cost.spreadsheet.service';
 import { AbnormalCostFilterSources } from './abnormal-cost.filter-sources';
 import { TableFilterRegistry } from '../../common/filtering/table-filter.registry';
 import { TableFilterController } from '../../common/filtering/table-filter.controller';
 import { TablePrintService } from '../../common/printing/table-print.service';
 import { detailWorkbookTemplate } from './abnormal-cost.domain';
-import type { AbnormalActor } from './abnormal-cost.policy';
+import type { AbnormalActor, CostRow } from './abnormal-cost.policy';
 
 const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
 (socket?describe:describe.skip)('Abnormal cost isolated PostgreSQL workflow',()=>{
@@ -35,7 +36,7 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     await db.query('INSERT INTO organization_units(id,name) VALUES($1,\'合成部门\')',[department]);await db.query('INSERT INTO administrator_grants VALUES($1,$2,true)',[tenant,admin]);
     const runner={query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner;
     await new NotificationInfrastructure1722920067000().up(runner);await new NotificationRoutingAndRecipientDeliveries1722920068000().up(runner);await db.query("ALTER TABLE notification_delivery_logs ADD COLUMN component varchar(32) NOT NULL DEFAULT 'text',ADD COLUMN attachment_id uuid");await new NotificationGroupWebhookRouting1722920113000().up(runner);await new AbnormalCost1722920132000().up(runner);
-    notifications=new NotificationService(db);app=new AbnormalCostApplicationService(db,notifications,storage as never);sheets=new AbnormalCostSpreadsheetService(app);
+    notifications=new NotificationService(db);app=new AbnormalCostApplicationService(db,notifications,storage as never);sheets=new AbnormalCostSpreadsheetService(app,new AbnormalCostGraphSpreadsheetService(app,{listEnabled:async()=>[{id:department,name:'合成部门',pathLabel:'合成部门'}]} as never));
   },30000);
   beforeEach(async()=>{
     await db.query('TRUNCATE abnormal_cost_import_previews,abnormal_cost_commands,abnormal_cost_counters,abnormal_responsibility_judgments,abnormal_responsibility_requests,abnormal_cost_attachments,abnormal_categories,incident_severity_levels,audit_logs,notification_outbox CASCADE');
@@ -145,4 +146,37 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     const file=await new TablePrintService(registry,db).exportXlsx('abnormal-responsibility-judgments',{rangeType:'FILTERED',columnKeys:['judgment_no','category_id'],filterGroup:JSON.stringify({logic:'AND',rules:[{field:'judgment_no',operator:'eq',value:r.judgments[0].judgment_no}]})},actor);
     const book=new ExcelJS.Workbook();await book.xlsx.load(file as never);expect(book.worksheets[0].getCell('B2').text).toBe('品质');expect(book.worksheets[0].rowCount).toBe(2);
   });
+  const excelRow=(book:ExcelJS.Workbook,values:CostRow,index=2)=>{const sheet=book.worksheets[0];sheet.getRow(1).eachCell((cell,column)=>{if(cell.text in values)sheet.getRow(index).getCell(column).value=values[cell.text];});};
+  const graphBook=async(code:'abnormal-responsibility-requests'|'abnormal-responsibility-judgments',mode='CREATE',query:CostRow={})=>{const book=new ExcelJS.Workbook();await book.xlsx.load(await sheets.template(code,mode,query,actor) as never);return book;};
+  const mainExcel=()=>({'客户':'SYN-EXCEL','订单号':'SYN-ORDER','事业部':'合成部门','发起人':'admin','异常描述':'Excel合成异常','预估金额':'100.00','明细附件':'details.xlsx','责任划分':JSON.stringify([{'异常类别':'品质','判定部门':'合成部门','判定人':'judge','承担费用比例':null}])});
+  it('imports complete request graphs with business labels, validated attachment names and file-level idempotence',async()=>{
+    const book=await graphBook('abnormal-responsibility-requests');excelRow(book,mainExcel());const file=Buffer.from(await book.xlsx.writeBuffer());
+    const preview=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(preview.errors).toEqual([]);expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(0);expect(await db.query('SELECT * FROM notification_outbox')).toHaveLength(0);expect(await db.query('SELECT * FROM abnormal_cost_counters')).toHaveLength(0);
+    const simultaneous=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(simultaneous.errors).toEqual([]);const confirmed=await Promise.all([sheets.confirm('abnormal-responsibility-requests',preview.previewId,actor),sheets.confirm('abnormal-responsibility-requests',simultaneous.previewId,actor)]);expect(confirmed.reduce((sum,r)=>sum+r.created,0)).toBe(1);expect((await sheets.confirm('abnormal-responsibility-requests',preview.previewId,actor)).repeated).toBe(true);
+    const again=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(again.errors).toEqual([]);expect(await sheets.confirm('abnormal-responsibility-requests',again.previewId,actor)).toMatchObject({created:0,repeated:1});
+    expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(1);expect(await db.query('SELECT * FROM abnormal_responsibility_judgments')).toHaveLength(1);expect(await db.query('SELECT * FROM notification_outbox')).toHaveLength(1);
+    const update=await graphBook('abnormal-responsibility-requests','UPDATE');expect(update.worksheets[0].getRow(2).values?.toString()).toContain('合成部门');expect(update.worksheets[0].getRow(2).values?.toString()).toContain('details.xlsx');expect(update.worksheets[0].getRow(1).values?.toString()).not.toContain('责任划分');
+  });
+  it('accepts mixed graph creates and updates, and rolls the entire confirm back on a concurrent stale version',async()=>{
+    const old=await create(),book=await graphBook('abnormal-responsibility-requests');excelRow(book,mainExcel());excelRow(book,{'记录ID':old.id,'版本':old.version,'异常描述':'更新说明'},3);
+    const preview=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor);expect(preview.errors).toEqual([]);expect(await sheets.confirm('abnormal-responsibility-requests',preview.previewId,actor)).toMatchObject({created:1,updated:1});
+    const stale=await graphBook('abnormal-responsibility-requests');excelRow(stale,{...mainExcel(),'客户':'SYN-ROLLBACK'});excelRow(stale,{'记录ID':old.id,'版本':2,'异常描述':'并发说明'},3);const pending=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await stale.xlsx.writeBuffer()),actor);expect(pending.errors).toEqual([]);
+    await app.updateRequest(old.id,{expectedVersion:2,abnormal_description:'其他操作者更新'},actor);await expect(sheets.confirm('abnormal-responsibility-requests',pending.previewId,actor)).rejects.toThrow('记录已修改');expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(2);expect(await db.query('SELECT * FROM notification_outbox')).toHaveLength(2);expect(await db.query("SELECT * FROM abnormal_cost_counters WHERE customer_code='SYN-ROLLBACK'")).toHaveLength(0);
+  });
+  it('imports child configurations against a real parent and preserves allocation identities through business JSON templates',async()=>{
+    const parent=await create(),book=await graphBook('abnormal-responsibility-judgments');excelRow(book,{'主表异常单号':parent.abnormal_no,'异常类别':'品质','判定部门':'合成部门','判定人':'judge','承担费用比例':'60'});const preview=await sheets.preview('abnormal-responsibility-judgments',Buffer.from(await book.xlsx.writeBuffer()),actor);expect(preview.errors).toEqual([]);await sheets.confirm('abnormal-responsibility-judgments',preview.previewId,actor);
+    const children=await db.query('SELECT * FROM abnormal_responsibility_judgments ORDER BY judgment_no');expect(children).toHaveLength(2);expect(children[1].judgment_no).toBe(`${parent.abnormal_no}02`);expect(children[0].id).toBe(parent.judgments[0].id);
+    const update=await graphBook('abnormal-responsibility-judgments','UPDATE',{requestId:parent.id});let index=0;update.worksheets[0].eachRow((row,i)=>{if(row.getCell(1).text===children[1].id)index=i;});expect(index).toBeGreaterThan(1);
+    excelRow(update,{'责任划分':JSON.stringify([{'人员类型':'公司','公司说明':'公司','人员层级':'总经理','责任比例':'100.0','申诉后责任比例':'100.0'}])},index);const change=await sheets.preview('abnormal-responsibility-judgments',Buffer.from(await update.xlsx.writeBuffer()),actor);expect(change.errors).toEqual([]);await sheets.confirm('abnormal-responsibility-judgments',change.previewId,actor);
+    const current=await app.detail('abnormal-responsibility-judgments',children[1].id,actor);expect(current.judgment_status).toBe('PENDING');expect(current.responsibility_allocations[0].responsible_user_id).toBe(admin);
+    const retained=await graphBook('abnormal-responsibility-judgments','UPDATE',{requestId:parent.id});const keep=await sheets.preview('abnormal-responsibility-judgments',Buffer.from(await retained.xlsx.writeBuffer()),actor);expect(keep.errors).toEqual([]);await sheets.confirm('abnormal-responsibility-judgments',keep.previewId,actor);expect((await app.detail('abnormal-responsibility-judgments',children[1].id,actor)).responsibility_allocations[0].id).toBe(current.responsibility_allocations[0].id);
+  });
+  it('rejects graph UUID references, missing validated files, invalid allocations and revoked import access without partial data',async()=>{
+    await expect(sheets.preview('abnormal-responsibility-requests',Buffer.from([0x88,0x7d,0x1c,0xe4]),actor)).rejects.toThrow('该文件被加密,请解密后再导入.');
+    const book=await graphBook('abnormal-responsibility-requests');excelRow(book,{...mainExcel(),'发起人':admin});const invalid=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor);expect(invalid.errors[0].reason).toContain('不接受内部UUID');expect(invalid.previewId).toBeUndefined();
+    excelRow(book,{...mainExcel(),'明细附件':'not-uploaded.xlsx'});expect((await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor)).errors[0].reason).toContain('未准备');
+    excelRow(book,mainExcel());const valid=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor);await expect(sheets.confirm('abnormal-responsibility-requests',valid.previewId,{...actor,isSystemAdmin:false,permissions:[]})).rejects.toThrow('没有此表');expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(0);
+    const parent=await create();await expect(app.updateJudgment(parent.judgments[0].id,{expectedVersion:1,responsibility_allocations:{}},actor)).rejects.toThrow('责任划分必须为数组');await expect(app.updateJudgment(parent.judgments[0].id,{expectedVersion:1,responsibility_allocations:[null]},actor)).rejects.toThrow('第1行责任划分无效');
+  });
+
 });

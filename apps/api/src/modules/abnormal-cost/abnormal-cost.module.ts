@@ -9,6 +9,7 @@ import { AbnormalCostApplicationService } from './abnormal-cost.application.serv
 import { AbnormalCostController } from './abnormal-cost.controller';
 import { AbnormalCostFilterSources } from './abnormal-cost.filter-sources';
 import { AbnormalCostQueryService } from './abnormal-cost.query.service';
+import { AbnormalCostGraphSpreadsheetService } from './abnormal-cost.graph-spreadsheet.service';
 import { AbnormalCostSpreadsheetService } from './abnormal-cost.spreadsheet.service';
-@Module({imports:[TypeOrmModule.forFeature([User,ApiKey]),TableFilterModule,NotificationsModule,OrganizationDirectoryModule],controllers:[AbnormalCostController],providers:[AuthGuard,AbnormalCostApplicationService,AbnormalCostQueryService,AbnormalCostFilterSources,AbnormalCostSpreadsheetService]})
+@Module({imports:[TypeOrmModule.forFeature([User,ApiKey]),TableFilterModule,NotificationsModule,OrganizationDirectoryModule],controllers:[AbnormalCostController],providers:[AuthGuard,AbnormalCostApplicationService,AbnormalCostQueryService,AbnormalCostFilterSources,AbnormalCostSpreadsheetService,AbnormalCostGraphSpreadsheetService]})
 export class AbnormalCostModule {}

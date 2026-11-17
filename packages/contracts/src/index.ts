@@ -1109,10 +1109,7 @@ export const tableExcelResourceCapabilities: Record<string, TableExcelResourceCa
     const specializedReadOnly = excelSpecializedReadOnlyResources[code];
     const specialized = excelSpecializedResources.has(code);
     const shared = excelSharedResources.has(code);
-    const graphOwned = ["abnormal-responsibility-requests","abnormal-responsibility-judgments"].includes(code);
-    const capability: TableExcelResourceCapability = graphOwned
-      ? { status: "SPECIALIZED", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: "异常主单/判定单由本业务的关联图命令生成和维护；主单必须绑定已验证明细附件及至少一条判定配置，禁止平面Excel绕过该流程。明细附件提供专用模板与校验；基础资料另提供正式ID+version预览确认导入。" }
-      : specializedReadOnly
+    const capability: TableExcelResourceCapability = specializedReadOnly
       ? { status: "SPECIALIZED", normalExport: "SPECIALIZED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: specializedReadOnly }
       : notApplicable
       ? { status: "NOT_APPLICABLE", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: notApplicable }
