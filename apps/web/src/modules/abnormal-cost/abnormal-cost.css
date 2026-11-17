@@ -1,0 +1,11 @@
+.abnormal-allocation-scroll { overflow-x: auto; margin-top: 12px; }
+.abnormal-allocation-table, .abnormal-detail-preview { width: 100%; border-collapse: collapse; }
+.abnormal-allocation-table { min-width: 1150px; }
+.abnormal-allocation-table th, .abnormal-allocation-table td, .abnormal-detail-preview th, .abnormal-detail-preview td { padding: 8px; border: 1px solid var(--ant-color-border, #d9d9d9); vertical-align: top; text-align: center; }
+.abnormal-allocation-table .ant-form-item { margin-bottom: 0; }
+.abnormal-allocation-table td:nth-child(2), .abnormal-allocation-table td:nth-child(4), .abnormal-allocation-table td:nth-child(5) { min-width: 140px; }
+.abnormal-allocation-table td:nth-child(6), .abnormal-allocation-table td:nth-child(7) { min-width: 145px; }
+.abnormal-row-number { position: relative; width: 48px; min-width: 48px; }
+.abnormal-row-number .abnormal-row-delete { display: none; position: absolute; inset: 2px; }
+.abnormal-row-number:hover .abnormal-row-delete, .abnormal-row-number:focus-within .abnormal-row-delete { display: inline-flex; }
+.abnormal-row-number:has(.abnormal-row-delete):hover > span, .abnormal-row-number:has(.abnormal-row-delete):focus-within > span { visibility: hidden; }

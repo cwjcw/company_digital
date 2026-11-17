@@ -1,3 +1,4 @@
+import { AbnormalCostPage } from './modules/abnormal-cost/AbnormalCostPage';
 import { LogisticsLedgerPage } from "./modules/marketing/LogisticsLedgerPage";
 import { FinanceMovements } from './modules/finance/FinanceMovements';
 import { ReviewDueDates } from './modules/master-plan-system/ReviewDueDates';
@@ -92,7 +93,8 @@ function Login({ onLogin }: { onLogin: () => void }) {
       localStorage.setItem("accessToken", result.accessToken);
       localStorage.setItem("refreshToken", result.refreshToken);
       localStorage.setItem("sessionUser", JSON.stringify(result.user));
-      window.history.replaceState(null, "", "/");
+      // Preserve only this workflow's validated internal detail targets after login.
+      if (!/^\/workflow\/abnormal-cost\/(?:requests|judgments)\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(window.location.pathname)) window.history.replaceState(null, "", "/");
       onLogin();
     } catch (error) {
       const errorMessage = error instanceof ApiError
@@ -201,7 +203,7 @@ function Shell({ logout }: { logout: () => void }) {
     : location.pathname.startsWith("/hr") ? "hr"
     : location.pathname.startsWith("/knowledge") ? "knowledge"
     : location.pathname.startsWith("/rd/") ? "rd"
-    : ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
+    : location.pathname.startsWith("/workflow/abnormal-cost") || ["/development-requests", "/workflow-settings"].includes(location.pathname) ? "workflow"
     : location.pathname === "/profile" ? "profile" : "system";
   const activeModule = portalModules.find((module) => module.id === moduleId)!;
   const pmcReports = [
@@ -283,7 +285,13 @@ function Shell({ logout }: { logout: () => void }) {
     ] }],
     workflow: [{ key: "workflow-root", label: "流程审批", children: [
       { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
-      { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }
+      { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" },
+      { key: 'workflow-abnormal', label: '异常费用', icon: <FolderOpenOutlined/>, children: [
+        { key: 'workflow-abnormal-base',label:'基础资料',icon:<FolderOpenOutlined/>,children:[
+          ...([['abnormal-categories','categories','异常类别'],['incident-severity-levels','severities','事故级别']] as const).filter(([code])=>hasSessionResourcePermission(user,code,'read')||hasSessionResourcePermission(user,code,'create')).map(([,kind,label])=>({key:`/workflow/abnormal-cost/${kind}`,label,icon:<DatabaseOutlined/>}))
+        ] },
+        ...(hasSessionResourcePermission(user,'abnormal-responsibility-requests','read')||hasSessionResourcePermission(user,'abnormal-responsibility-requests','create')?[{key:'/workflow/abnormal-cost/requests',label:'发起异常责任判定',icon:<FileExcelOutlined/>}]:[])
+      ] }
     ] }],
     rd: [{ key: "rd-root", label: "研发中心", children: [
       { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
@@ -320,6 +328,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/project-task/supervision/tasks": "任务管理", "/project-task/order-projects": "订单项目管理",
       "/master-plan-gaps": "待处理事项大屏", "/master-plan-reports": "PMC分析明细报表", "/master-plan-dashboard": "PMC综合驾驶舱", "/master-plan-order-progress": "在制订单进度", "/pmc/division-order-progress/fourth": "事业四部订单生产进度报表",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
+      "/workflow/abnormal-cost/categories":"异常类别", "/workflow/abnormal-cost/severities":"事故级别", "/workflow/abnormal-cost/requests":"发起异常责任判定",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",
@@ -377,6 +386,8 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/master-plan-system/order-allocation-notification-config" element={isSystemAdmin || user.moduleAdminCodes?.includes("planning") ? <OrderAllocationNotificationConfig /> : <Navigate to="/" replace />} />
           <Route path="/master-plan-system/:resource" element={<MasterPlanResourceRoute />} />
           <Route path="/development-requests" element={<DevelopmentRequestsPage />} />
+          <Route path="/workflow/abnormal-cost/:kind" element={<AbnormalCostPage/>}/>
+          <Route path="/workflow/abnormal-cost/:kind/:id" element={<AbnormalCostPage/>}/>
           <Route path="/workflow-settings" element={<ApprovalFlowSettingsPage />} />
           <Route path="/master-data" element={<DataOperations />} />
           <Route path="/data-operations" element={<DataOperations />} />

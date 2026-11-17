@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { DataSource, EntityManager } from "typeorm";
 import {
   EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE,
+  ABNORMAL_JUDGE_RECIPIENT_RULE,
   FIXED_USERS_RECIPIENT_RULE,
   notificationEventDefinition
 } from "./notification-event.registry";
@@ -200,6 +201,10 @@ export class NotificationService {
             await this.quarantine(manager, tenantId, outbox, workerId, "FINANCE_MONTHLY_ATTACHMENT_FAILED", "财务月度附件准备失败，请查看规则、接收人导出权限并重试");
           }
           await manager.query("RELEASE SAVEPOINT finance_file_delivery");
+          continue;
+        }
+        if(eventDefinition.eventType==='workflow.abnormal.judgment_assigned'&&(!users.length||users.some((user:Record<string,unknown>)=>user.enabled!==true||!String(user.wechatUserId??'').trim()))){
+          await this.quarantine(manager,tenantId,outbox,workerId,'ABNORMAL_JUDGE_NOT_DELIVERABLE','判定单已变更、判定人停用或未配置企业微信UserId；请复核后在通知中心重试');
           continue;
         }
         const deliveryRecipients = await this.prepareRecipientDeliveries(manager, tenantId, outbox, users);
@@ -403,6 +408,14 @@ export class NotificationService {
   private async resolveRecipients(manager: EntityManager, tenantId: string, rule: NotificationRuleRow, eventDefinition: NotificationEventDefinition, payload: Record<string, unknown>) {
     const recipientRule = String(rule.recipient_rule ?? "");
     if (!eventDefinition.allowedRecipientRules.includes(recipientRule)) throw new ConflictException("通知事件不允许使用该接收人规则");
+    if (recipientRule === ABNORMAL_JUDGE_RECIPIENT_RULE) {
+      const judgmentId=this.requiredPayloadText(payload.judgmentId,'judgmentId');
+      return manager.query(`SELECT u.id "userId",COALESCE(NULLIF(u.display_name,''),u.username) "displayName",u.wechat_user_id "wechatUserId",u.enabled "enabled"
+        FROM abnormal_responsibility_judgments j JOIN abnormal_responsibility_requests r ON r.tenant_id=j.tenant_id AND r.id=j.request_id
+        JOIN users u ON u.id=j.judge_user_id AND u.tenant_id=j.tenant_id
+        WHERE j.tenant_id=$1 AND j.id=$2::uuid AND j.deleted_at IS NULL AND r.deleted_at IS NULL
+          AND j.judgment_status='PENDING' AND j.judge_user_id::text=$3`,[tenantId,judgmentId,String(payload.judgeUserId??'')]);
+    }
     if (recipientRule === EQUIPMENT_RESPONSIBLE_RECIPIENT_RULE) return this.resolveEquipmentResponsible(manager, tenantId, payload);
     if (recipientRule === FIXED_USERS_RECIPIENT_RULE) return this.resolveConfiguredRecipients(manager, this.recipientTargets(rule.config), tenantId);
     throw new ConflictException("通知接收人解析器未实现");

@@ -2,7 +2,8 @@ import { notificationEventDefinition, notificationEventDefinitions } from "./not
 
 describe("Notification Event Registry", () => {
   it("registers the equipment fault and shipping plan events", () => {
-    expect(notificationEventDefinitions()).toHaveLength(5);
+    expect(new Set(notificationEventDefinitions().map(e=>e.eventType)).size).toBe(notificationEventDefinitions().length);
+    expect(notificationEventDefinition('workflow.abnormal.judgment_assigned')).toMatchObject({moduleCode:'workflow',resourceCode:'abnormal-responsibility-judgments',allowedRecipientRules:['ABNORMAL_JUDGE']});
     expect(notificationEventDefinition("mps.order_allocation.batch_changed")).toMatchObject({messageType:"text_file",allowedRecipientRules:["ORDER_ALLOCATION_DYNAMIC"],resourceCode:"mps-order-allocations"});
     expect(notificationEventDefinition("equipment.status.fault_changed")).toMatchObject({
       eventType: "equipment.status.fault_changed",

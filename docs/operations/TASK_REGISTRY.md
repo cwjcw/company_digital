@@ -508,3 +508,15 @@
 - 消息中心当前有4个已配置的设备管理群机器人，但没有“主计划同步异常群”机器人，也没有上述两类事件路由。Webhook不写入仓库；用户表示先自行在消息中心创建配置。待群机器人和两条路由正式可用后，才能启用n8n、执行一次性聚合历史汇总并验证真实回执；当前不得标记为已上线。
 - 2026-11-15联合版本 `c4feb47ffd0fa8aa3c8b2f6381006b3205914c91` 已正常提交、推送并完成API/Web联合部署；生产 `/api/v1/health`、`/build-info.json` 与仓库 SHA 一致，容器健康。部署前完成 legacy、KDOS 数据库及 uploads 备份并校验 SHA256；未执行Migration、未修改生产计划数据或现有个人/群通知设置。
 - 运行时验收仍待管理员在消息中心创建“主计划同步异常群”机器人并启用 `mps.sync_exception.immediate`、`mps.sync_exception.daily_summary` 两条路由。当前复核仍只有4个设备管理机器人、两条路由缺失；n8n流程已导入但保持inactive，未真实发送测试/首次汇总。完成管理员配置后方可验证企业微信成功回执并启用08:35工作日汇总；未完成前不得将MPS群通知标记为上线。
+
+## MSG-ABNORMAL-001 异常责任判定人事务通知（2026-11-18）
+
+- 新业务事件 `workflow.abnormal.judgment_assigned`；归属流程审批 / `abnormal-responsibility-judgments`，负责人沿用流程审批模块管理员。主单和关联子单成功创建/判定人变更时，由 `AbnormalCostApplicationService` 在同一事务调用现有 `NotificationService.enqueueEvent`。
+- 唯一消费入口：现有 `kdos-notification-dispatcher.service` → KDOS internal claim/result API → 现有 `WeChatPusher()` 个人工作通知；不新增n8n、Timer、cron、应用scheduler或第二套发送脚本。新增事件1个，新增调度器/周期定义0个；既有Dispatcher 1个实测active/running。
+- 运行时盘点：系统Timer列表22项、用户Timer列表10项（列表项不是成功任务数），用户cron 1条；n8n已激活14个工作流。既有 `TT8raJ9ndXSOnTwb` / “异常费用_周五_8点” 实测active=true，Schedule为每周五08:00并经SSH执行Python，保持原状；本次事务判定通知不替换该周报。盘点脱敏证据保留本地 `outputs/KDOS_异常费用_调度只读核查_20261118.txt`。
+- `1722920132000-AbnormalCost` 仅为当前租户初始化该事件默认启用的 `ABNORMAL_JUDGE` 动态收件人规则，不更改其他路由/接收人，不导入事故金额或异常业务记录。
+- 接收人从同租户真实子单的当前 `judge_user_id` 解析，并核对事件里的指派身份，不能由前端传企业微信收件人。已删除、判定人已变更或已完成的记录不按旧事件发送。个人WeChat UserId来自现有users映射；没有有效身份时outbox=FAILED，日志为ABNORMAL_JUDGE_NOT_DELIVERABLE，可在现有消息中心复核并重试，不冒充发送成功。
+- 幂等/防并发：主单命令Idempotency-Key+业务事务；事件dedup_key=`abnormal-judge:<judgmentId>:v<version>`；Dispatcher既有SKIP LOCKED/lease/按recipient的delivery日志防重复与失败退避。外部网络错误沿用现有失败重试；不可达接收人停止自动重试并明确记录，修复身份后由获权管理员重试。进程崩溃沿用现有锁超时恢复。
+- 通知链接使用 `PUBLIC_WEB_URL` / `WEB_BASE_URL`，缺省为已验证在线的 `https://knplan.cuixiaoyuan.cn`；目标详情另行校验字段/数据范围。测试仅在隔离PostgreSQL验证claim、收件人和失败恢复，不向真实员工发送合成消息。
+- 回退：回退应用镜像并保留全部新增业务/附件/编号/审计数据；必要时在现有消息中心停用**本事件规则**以停止新发送，未经变更批准不修改既有周报/Dispatcher。新增Migration禁止自动删表down。
+- 发布门禁与验收状态：实现、隔离数据库claim/失败恢复与真实SPA合成交互已验证；通过备份、Migration 1722920132000、生产部署、健康及版本检查后提供功能。最终生产SHA、备份和Migration结果统一记入本轮 outputs/CODEX_PROGRESS.md 与交付报告；真人发送保持 WAITING_BUSINESS_ACCEPTANCE，不能把claim测试写成企业微信真人已收到。

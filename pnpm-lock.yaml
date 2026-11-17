@@ -277,6 +277,9 @@ importers:
       dayjs:
         specifier: ^1.11.13
         version: 1.11.21
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       echarts:
         specifier: ^6.1.0
         version: 6.1.0

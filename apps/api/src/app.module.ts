@@ -1,3 +1,4 @@
+import { AbnormalCostModule } from './modules/abnormal-cost/abnormal-cost.module';
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
@@ -54,6 +55,7 @@ import { FinanceModule } from "./modules/finance/finance.module";
     ScheduleModule.forRoot(),
     StorageModule,
     ApprovalFlowConfigModule,
+    AbnormalCostModule,
     MarketingModule,
     OrganizationDirectoryModule,
     DevelopmentRequestModule,

@@ -46,7 +46,7 @@ export class NotificationAdminService {
       recipientRules: event.allowedRecipientRules,
       variables: event.templateVariables.map(({ key }) => key),
       module: resourceModule(event.resourceCode), resourceLabel: resourceLabel(event.resourceCode), channel: event.defaultChannel,
-      channelLabel: "企业微信工作通知", recipientLabels: RECIPIENT_LABELS,
+      channelLabel: "企业微信工作通知", recipientLabels: event.eventType==='workflow.abnormal.judgment_assigned'?{...RECIPIENT_LABELS,ABNORMAL_JUDGE:'异常单对应判定人'}:RECIPIENT_LABELS,
       templateVariables: event.templateVariables
     }));
   }

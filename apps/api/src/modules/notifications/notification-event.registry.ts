@@ -7,7 +7,9 @@ export const FIXED_USERS_RECIPIENT_RULE = "FIXED_USERS";
 const EQUIPMENT_FAULT_TEMPLATE = "【设备故障提醒】\n\n事业部：{divisionName}\n设备编号：{equipmentCode}\n设备名称：{equipmentName}\n\n故障时间：{oldFaultMinutes}分钟 → {newFaultMinutes}分钟\n故障原因：{faultReason}\n\n填报人：{actorName}\n时间：{occurredAt}\n\n请及时处理。";
 const SHIPPING_PLAN_KEY_FIELDS_CHANGED_TEMPLATE = "【出货计划变更】\n\n客户：{customerCode}\n订单：{orderNumber}\n品项：{itemCode} {itemName}\n事业部：{divisionName}\n\n变更内容：\n{changeSummary}\n\n修改人：{actorName}\n时间：{occurredAt}\n\n请相关人员确认后续计划。";
 
+export const ABNORMAL_JUDGE_RECIPIENT_RULE = 'ABNORMAL_JUDGE';
 const definitions = [
+  { eventType:'workflow.abnormal.judgment_assigned',moduleCode:'workflow',resourceCode:'abnormal-responsibility-judgments',label:'异常责任判定人通知',conditionDescription:'异常单事务提交后，按真实关联子单的当前判定人通知待处理事项',defaultChannel:'WECHAT_WORK',messageType:'text',defaultTemplate:'【异常责任待判定】\n异常单号：{abnormal_no}\n异常类别：{category_name}\n客户：{customer_code}\n订单号：{order_no}\n判定部门：{department}\n请完成责任划分。\n{link}',allowedRecipientRules:[ABNORMAL_JUDGE_RECIPIENT_RULE],templateVariables:[{key:'abnormal_no',label:'异常单号'},{key:'category_name',label:'异常类别'},{key:'customer_code',label:'客户'},{key:'order_no',label:'订单号'},{key:'department',label:'判定部门'},{key:'link',label:'责任判定链接'}] },
   {
     eventType: "finance.monthly.daily_summary",
     moduleCode: "finance",

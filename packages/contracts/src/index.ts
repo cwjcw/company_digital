@@ -1,3 +1,5 @@
+import { abnormalCostResources, abnormalCostFields } from './abnormal-cost';
+export * from './abnormal-cost';
 import { mpsDemandLinkCapability } from './master-plan-demand-links';
 import { mpsLifecycleCapabilities, mpsLifecycleResources, mpsPlanLifecycleOptions } from "./master-plan-lifecycle";
 export * from "./master-plan-lifecycle";
@@ -184,6 +186,7 @@ export const tableResourceRegistry = [
   { code: "equipment-dashboard", label: "集团设备大屏", module: "PMC中心", moduleCode: "planning" },
   ...[...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(({code,label})=>({code,label,module:"PMC中心" as const,moduleCode:"planning" as const})),
   ...masterPlanResourceDefinitions.map(({ code, label }) => ({ code, label, module: "PMC中心" as const, moduleCode: "planning" as const })),
+  ...abnormalCostResources.map(({code,label})=>({code,label,module:"流程审批" as const,moduleCode:"workflow" as const})),
   { code: "development-requests", label: "需求提报与审批", module: "流程审批", moduleCode: "workflow" },
   { code: "approval-flow-configs", label: "审批流程配置", module: "流程审批", moduleCode: "workflow" },
   { code: "dictionaries", label: "字典", module: "系统管理", moduleCode: "system" },
@@ -283,6 +286,7 @@ const fields = (items: Array<[string, string, TablePermissionFieldType?, boolean
 
 /** Server-validated field identities used by the per-table permission editor. */
 export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, TablePermissionFieldDefinition[]>> = {
+  ...Object.fromEntries(abnormalCostResources.map(r=>[r.code,[...abnormalCostFields[r.code],...auditPermissionFields]])),
   "notification-recipient-group": [],
   "mps-review-due-dates": reviewDueDateFields,
   "knowledge-spaces": fields([
@@ -916,6 +920,7 @@ const mpsFilterCapabilities = Object.fromEntries(
 );
 
 export const tableFilterResourceCapabilities: Record<string, TableFilterResourceCapability> = {
+  ...Object.fromEntries(abnormalCostResources.map(r=>[r.code,{status:"REGISTERED_AND_FILTERABLE" as const}])),
   ...Object.fromEntries([...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(c=>[c.code,{status:"NOT_APPLICABLE" as const,reason:"计划专用命令能力，数据范围由原计划资源校验，不是第二套业务表。"}])),
   "notification-group-webhook": { status: "NOT_APPLICABLE", reason: "群机器人管理是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
   "notification-recipient-group": { status: "NOT_APPLICABLE", reason: "通知收件人组是带权限控制的系统配置页，不展示可供标准业务表筛选的记录集。" },
@@ -1081,6 +1086,7 @@ const excelNotApplicableReasons: Record<string, string> = {
   "notification-route": "消息路由由专用管理服务维护，尚未接入双向模板适配器。"
 };
 const excelSpecializedResources = new Set([
+  ...abnormalCostResources.map(r=>r.code),
   "mps-review-due-dates", "mps-order-allocations", "mps-process-reports", "mps-data-exceptions",
   "mps-three-day-work-orders", "mps-technical-reports", "mps-weekly-process-plans", "mps-outsourcing-reports",
   "business-customer-mapping", "logistics-ledger", "order-schedule", "equipment-status-report",
@@ -1103,7 +1109,10 @@ export const tableExcelResourceCapabilities: Record<string, TableExcelResourceCa
     const specializedReadOnly = excelSpecializedReadOnlyResources[code];
     const specialized = excelSpecializedResources.has(code);
     const shared = excelSharedResources.has(code);
-    const capability: TableExcelResourceCapability = specializedReadOnly
+    const graphOwned = ["abnormal-responsibility-requests","abnormal-responsibility-judgments"].includes(code);
+    const capability: TableExcelResourceCapability = graphOwned
+      ? { status: "SPECIALIZED", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: "异常主单/判定单由本业务的关联图命令生成和维护；主单必须绑定已验证明细附件及至少一条判定配置，禁止平面Excel绕过该流程。明细附件提供专用模板与校验；基础资料另提供正式ID+version预览确认导入。" }
+      : specializedReadOnly
       ? { status: "SPECIALIZED", normalExport: "SPECIALIZED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: specializedReadOnly }
       : notApplicable
       ? { status: "NOT_APPLICABLE", normalExport: "SHARED", createTemplate: "NOT_APPLICABLE", updateTemplate: "NOT_APPLICABLE", excelCreate: "NOT_APPLICABLE", excelUpdate: "NOT_APPLICABLE", identityVersionContract: "NOT_APPLICABLE", reason: notApplicable }

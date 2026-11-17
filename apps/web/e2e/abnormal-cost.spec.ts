@@ -1,0 +1,53 @@
+import { expect, test } from '@playwright/test';
+// Real SPA/shared tables, synthetic HTTP fixtures; every API write is intercepted.
+test.use({trace:'off',screenshot:'off',video:'off',actionTimeout:10000});
+const admin='019a0000-0000-7000-8000-000000000001',department='019a0000-0000-7000-8000-000000000002',category='019a0000-0000-7000-8000-000000000003',attachment='019a0000-0000-7000-8000-000000000004';
+const options={users:[{id:admin,name:'合成管理员',username:'fixture-admin',enabled:true,position:'课长'}],departments:[{id:department,name:'合成事业部',pathLabel:'合成事业部'}],categories:[{id:category,category_name:'合成品质'}],severities:[{id:'019a0000-0000-7000-8000-000000000005',severity_name:'一般',amount_min:'0.00',amount_max:'1000.00'}],systemAdminId:admin};
+test('workflow navigation and submitted request retain linked identities without requiring allocation ratios',async({page})=>{
+  const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
+  const errors:string[]=[],commands:any[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
+  await page.route('**/api/v1/**',async route=>{
+    const request=route.request(),url=new URL(request.url()),path=url.pathname.replace('/api/v1','');
+    if(path==='/auth/me')return route.fulfill({json:user});
+    if(path==='/abnormal-cost/options')return route.fulfill({json:options});
+    if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
+    if(path==='/table-filters/resources')return route.fulfill({json:['abnormal-categories','incident-severity-levels','abnormal-responsibility-requests','abnormal-responsibility-judgments'].map(code=>({code,filterableFields:[]}))});
+    if(path==='/table-exports/capabilities')return route.fulfill({json:[{code:'abnormal-responsibility-requests',supported:true,allowed:true}]});
+    if(path==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
+    if(path==='/abnormal-cost/attachments')return route.fulfill({json:{id:attachment,name:'abnormal.xlsx',parsed_rows:[{订单号:'SYN-ORDER',品号:'SYN-ITEM',品名:'合成品名',订单数量:'10',异常数量:'1'}]}});
+    if(path==='/abnormal-cost/requests'&&request.method()==='POST'){commands.push(request.postDataJSON());return route.fulfill({json:{id:admin,version:1,abnormal_no:'YC261118SYN001'}});}
+    if(request.method()!=='GET')return route.abort();return route.fulfill({json:[]});
+  });
+  await page.goto('/workflow/abnormal-cost/requests');
+  await page.getByRole('menuitem',{name:'流程审批',exact:true}).click();await expect(page.getByText('异常费用',{exact:true})).toBeVisible();await page.getByText('异常费用',{exact:true}).click();await expect(page.getByRole('menuitem',{name:/发起异常责任判定/})).toBeVisible();await expect(page.getByRole('button',{name:/高级筛选/})).toBeVisible();
+  await page.getByRole('button',{name:/新增/}).click();const dialog=page.getByRole('dialog',{name:'新增',exact:true});await expect(dialog.getByLabel('异常类别',{exact:true})).toBeVisible();
+  await dialog.getByLabel('客户',{exact:true}).fill('SYN-CUSTOMER');await dialog.getByLabel('订单号',{exact:true}).fill('SYN-ORDER');
+  await dialog.getByLabel('事业部',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('合成事业部',{exact:true}).click();
+  await dialog.getByLabel('异常描述',{exact:true}).fill('合成异常');await dialog.getByLabel('预估金额',{exact:true}).fill('100');await dialog.getByLabel('预估金额',{exact:true}).blur();
+  await expect(dialog.getByLabel('核定金额',{exact:true})).toHaveValue('100.00');
+  await dialog.getByLabel('异常类别',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('合成品质',{exact:true}).click();
+  await dialog.getByLabel('判定部门',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('合成事业部',{exact:true}).click();
+  await dialog.getByLabel('判定人',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('合成管理员（fixture-admin）',{exact:true}).click();
+  await dialog.locator('input[type=file]').first().setInputFiles({name:'abnormal.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic fixture upload')});
+  await expect(dialog.getByText('已校验1行，预览前20行')).toBeVisible();await dialog.getByRole('button',{name:/^保\s*存$/}).click();await expect(dialog).toHaveCount(0);
+  expect(commands).toHaveLength(1);expect(commands[0]).toMatchObject({customer_code:'SYN-CUSTOMER',detail_attachment:attachment,responsibility_judgments:[{category_id:category,judgment_department_id:department,judge_user_id:admin}]});expect(commands[0].responsibility_judgments[0].responsibility_allocations).toBeUndefined();expect(errors).toEqual([]);
+});
+
+test('a notification detail target survives login and opens the authorized judgment',async({page})=>{
+  const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
+  const judgmentId='019a0000-0000-7000-8000-000000000099',path=`/workflow/abnormal-cost/judgments/${judgmentId}`;
+  await page.route('**/api/v1/**',async route=>{
+    const url=new URL(route.request().url()),apiPath=url.pathname.replace('/api/v1','');
+    if(apiPath==='/auth/login')return route.fulfill({json:{accessToken:'synthetic-fixture',refreshToken:'synthetic-refresh',user}});
+    if(apiPath==='/auth/me')return route.fulfill({json:user});
+    if(apiPath==='/abnormal-cost/options')return route.fulfill({json:options});
+    if(apiPath==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
+    if(apiPath==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
+    if(apiPath===`/abnormal-cost/resources/abnormal-responsibility-judgments/${judgmentId}`)return route.fulfill({json:{id:judgmentId,version:1,judgment_no:'YC261118SYN00101',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,abnormal_request_link:`/workflow/abnormal-cost/requests/${admin}`,responsibility_allocations:[],judgment_evidence:[],judgment_status:'PENDING'}});
+    return route.fulfill({json:[]});
+  });
+  await page.goto(path);await page.getByLabel('用户名',{exact:true}).fill('fixture-admin');await page.getByLabel('密码',{exact:true}).fill('synthetic-fixture-password');await page.getByRole('button',{name:/^登\s*录$/}).click();
+  await expect(page).toHaveURL(new RegExp(`/workflow/abnormal-cost/judgments/${judgmentId}$`));await expect(page.getByRole('heading',{name:'YC261118SYN00101',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'查看异常信息'})).toHaveAttribute('target','_blank');
+});
