@@ -1,5 +1,0 @@
-Repository HEAD : c15f017
-Web Build       : c15f017
-API Build       : c15f017
-
-STATUS          : CONSISTENT

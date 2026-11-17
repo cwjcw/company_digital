@@ -1,5 +1,0 @@
-Repository HEAD : e35d453
-Web Build       : e35d453
-API Build       : e35d453
-
-STATUS          : CONSISTENT

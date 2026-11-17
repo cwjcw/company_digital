@@ -46,4 +46,8 @@ __pycache__/
 *.xlsx
 *.xls
 !docs/*导入模板.xlsx
+# 本机生成的报告、测试证据与临时验收目录不进入 Git。
+# 精确匹配目录名，不影响 tests/ 或 __tests__/。
+outputs/
+outpus/
 test/
