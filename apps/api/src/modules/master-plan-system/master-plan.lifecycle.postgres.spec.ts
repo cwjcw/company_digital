@@ -124,14 +124,16 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     await db.query(`INSERT INTO erp_staging_raw_records(tenant_id,order_number,item_code,record_type,source_table,order_link_stable,status_code,source_database,source_system,source_id)
       VALUES($1,'2301-SYN-ORDER','SYN-ITEM','INBOUND_LINE','ST_RDRecord_b',true,'189','synthetic','E10','inbound-1')`,[tenant]);
     await db.query("INSERT INTO finished_goods_inbound(source_database,source_system,source_key,sales_order_number,inventory_code,received_quantity)VALUES('synthetic','E10','inbound-1','2301-SYN-ORDER','SYN-ITEM',2)");
-    const monthPreview=await lifecycle.preview('mps-monthly-plans',monthly.id,'RESTORE',actor());
+    const systemActor={...actor(),source:'system' as const};
+    const monthPreview=await lifecycle.preview('mps-monthly-plans',monthly.id,'RESTORE',systemActor);
     expect(monthPreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
-    const baseBeforeParentRestore=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',actor());
+    const baseBeforeParentRestore=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',systemActor);
     expect(baseBeforeParentRestore).toMatchObject({allowed:true,facts:{hasInbound:true}});
-    await lifecycle.confirm('mps-monthly-plans',monthly.id,input(monthPreview),actor());
-    const basePreview=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',actor());
+    await lifecycle.confirm('mps-monthly-plans',monthly.id,input(monthPreview),systemActor);
+    const basePreview=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',systemActor);
     expect(basePreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
-    await lifecycle.confirm('mps-base-plans',base.id,input(basePreview),actor());
+    await lifecycle.confirm('mps-base-plans',base.id,input(basePreview),systemActor);
+    expect(await db.query("SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND source='api' AND resource IN ('mps-monthly-plans','mps-base-plans')",[tenant])).toEqual([{n:2}]);
     expect((await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID())).status).toBe('SUCCESS');
     const weeks=await db.query('SELECT id,planned_quantity,pending_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
     expect(weeks).toHaveLength(1);

@@ -277,8 +277,10 @@ export class MasterPlanLifecycleService {
                 const after = Array.isArray(rows[0]) ? rows[0][0] : rows[0];
                 if (!after)
                     throw new ConflictException('计划版本冲突，请重新预览');
+                // Audit persistence only accepts web/api/import; system actors are recorded as API-origin.
+                const auditSource = actor.source === 'system' ? 'api' : actor.source;
                 await m.query(`INSERT INTO audit_logs(tenant_id,actor_id,actor_name,resource,record_id,action,before_json,after_json,request_id,source,created_by,updated_by)
-        VALUES($1,$2::uuid,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$2::uuid,$2::uuid)`, [actor.tenantId, actor.userId, actor.username, resource, id, `${resource}.lifecycle.${input.operation.toLowerCase()}`, JSON.stringify(plan), JSON.stringify({ ...after, lifecycleReason: input.reason.trim(), previewHash: snapshotHash, facts: result.facts }), actor.requestId, actor.source]);
+        VALUES($1,$2::uuid,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$2::uuid,$2::uuid)`, [actor.tenantId, actor.userId, actor.username, resource, id, `${resource}.lifecycle.${input.operation.toLowerCase()}`, JSON.stringify(plan), JSON.stringify({ ...after, lifecycleReason: input.reason.trim(), previewHash: snapshotHash, facts: result.facts }), actor.requestId, auditSource]);
                 const response = { id, version: Number(after.version), lifecycleStatus: after.lifecycle_status, operation: input.operation };
                 await m.query('INSERT INTO idempotency_keys(key,request_hash,response_json,created_by,updated_by)VALUES($1,$2,$3::jsonb,$4::uuid,$4::uuid)', [key, requestHash, JSON.stringify(response), actor.userId]);
                 return response;
