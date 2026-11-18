@@ -115,7 +115,7 @@ describe("MasterPlanSyncService execution matrix", () => {
   });
 
   it("initializes a missing internal process snapshot when inbound is the only protected fact", async () => {
-    const target = { ...weekly("自制+外协"), has_process_snapshot: false, has_execution: true, has_process_execution: false };
+    const target = { ...weekly("自制+外协"), lifecycle_status: "LEGACY_RETAINED", has_process_snapshot: false, has_execution: true, has_process_execution: false };
     const manager = { query: jest.fn(async (sql: string) => {
       if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [target];
       if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, has_process_execution: false, was_initialized: false }];

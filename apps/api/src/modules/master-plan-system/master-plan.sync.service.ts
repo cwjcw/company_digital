@@ -771,7 +771,8 @@ export class MasterPlanSyncService {
   }
 
   private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig = false) {
-    if (weekly.lifecycle_status && weekly.lifecycle_status !== 'ACTIVE') throw new ConflictException('LIFECYCLE_BLOCKED: 来源待确认、暂停或取消周计划不能生成或刷新执行任务');
+    if (weekly.lifecycle_status && !['ACTIVE', 'LEGACY_RETAINED'].includes(weekly.lifecycle_status))
+      throw new ConflictException('LIFECYCLE_BLOCKED: 暂停或取消周计划不能生成或刷新执行任务');
     if(weekly.has_process_snapshot!==true&&weekly.has_process_execution===true){
       await this.recordProcessSnapshotProtected(manager,tenantId,weekly.id,weekly.order_number,weekly.item_code,userId);
       return { initialized:false,taskCount:0,blocked:true };
