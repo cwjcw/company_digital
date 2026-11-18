@@ -57,12 +57,12 @@
 | --- | --- | --- | --- | --- | --- |
 | FIN-001 | 财务E10客户同步；`automation/finance_customer_sync/main.py` | `kdos-finance-customer-sync.timer` 每天01:00 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 优先迁移；138条初始客户保留；只增不覆盖分类 |
 | IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先验证备份、停用账号动作和漏跑补偿 |
-| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 09:30 CST | 09:30五条流均完成；保留原调度，失败由运行预警覆盖 |
-| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 09:30 CST | 09:30五条流均完成；保留原调度，失败由运行预警覆盖 |
-| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用复合脚本 | **现状保留（用户认定业务任务不重复）** | TWO_TRIGGERS_KNOWN / TIMER_LAST_SUCCESS 2026-11-18 09:30 CST / N8N_LAST_SUCCESS 2026-11-18 01:00 CST | 技术上共享 staging 采集代码和 flock；n8n 额外执行 `sales-orders-v1` 投影。按用户业务判断不做合并、停用或迁移 |
-| ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先确认准入、启用状态和业务验收 |
-| ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
-| ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
+| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 10:00 CST | 10:00五条流均完成；保留原调度，失败由运行预警覆盖 |
+| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 10:00 CST | 10:00五条流均完成；保留原调度，失败由运行预警覆盖 |
+| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用复合脚本 | **现状保留（用户认定业务任务不重复）** | TWO_TRIGGERS_KNOWN / TIMER_LAST_SUCCESS 2026-11-18 10:08 CST / N8N_LAST_SUCCESS 2026-11-18 01:00 CST | 10:00定时及10:08补偿运行均成功；技术上共享 staging 采集代码和 flock；n8n 额外执行 `sales-orders-v1` 投影。按用户业务判断不做合并、停用或迁移 |
+| ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / LAST_SUCCESS 2026-11-18 10:05 CST | 10:05投影运行完成；保留原定时任务 |
+| ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / LAST_SUCCESS 2026-11-18 10:08 CST | 10:05定时运行和10:08补偿投影均成功；保留原定时任务 |
+| ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / LAST_SUCCESS 2026-11-18 10:05 CST | 10:05投影运行完成；保留原定时任务 |
 | RD-001 | E10研发物料；`data-operations/rd-sync/sync-rd-items.sh` | 仓库有受控脚本；既有 n8n SSH 方案 | n8n | UNVERIFIED_RUNTIME | 验证工作流 ID/启用及最近成功 |
 | EQ-001 | 设备运行/填报双日报；`equipment-governance-daily/report.py` | 复用e0dwMjv9OnWmcESk；12:00 Asia/Shanghai；正式名单11人，SSH双确认 | n8n | ACTIVE_VERIFIED（2026-11-04运行加载已核验） | 12:00执行旧版本的原因已查明；无运行任务窗口安全重启后加载个人+群新版，11人不发送预检PASS，下一次11月5日12:00；未提前补发 |
 | MSG-001 | 企业微信 Dispatcher；`dispatcher.py` | 常驻 systemd user Service，约1秒轮询；现有 release `d0e7bbf` 支持 WECHAT_WORK 与按 API claim 返回的 WECHAT_GROUP_WEBHOOK 路由 | systemd Service | Dispatcher ACTIVE_VERIFIED（2026-11-04）；EQ-001新版本已加载 | 保留同一常驻服务；“设备管理群”收件人组含四个事业部设备群，`equipment.daily_report` 绑定该组；EQ-001新版保留11人个人发送并在个人成功后另提交幂等群日报。`equipment.status.fault_changed` 支持额外群路由，仍需在消息中心将该事件绑定到设备管理群；无群路由时仍走原个人规则。11月4日22时已在无运行任务窗口重启加载，17个工作流定义/13个激活及全部配置hash不变；日报群提交默认地址修正为现有15172端口。 |
@@ -85,6 +85,9 @@
 - 2026-11-18 09:30 CST，三源实际Timer运行均COMPLETED、来源状态ACTIVE：E10五条流、T+凯南五条流、T+科加五条流全部成功。科加入库流读取341条。所有现有Timer/n8n调度、锁和入口保持原状。
 - n8n只读核验：`cfxCKnLl0YqRZYDj`每日科加同步流程激活，最近一次2026-11-18 01:00 CST成功；`KnKjOrders083026`实际调用订单导出脚本，不是KDOS staging同步。
 - 新增逐流异常隔离：失败流留详细错误且整个run必须FAILED，其余独立流继续；失败状态持久化后按run ID幂等进入现有Notification Outbox，通过MSG-001发送个人企业微信。Migration133只增加唯一接收人规则及事件唯一索引，不新增发送器或调度任务。
+- 生产部署：本地提交`a2ce3dd`已通过`deploy.sh all/check`和健康检查，API/Web同版本；迁移133已应用。系统用户级主同步unit现配置`OnFailure`异常收尾unit，原三个ERP Timer与三个投影Timer均保持启用及原间隔。
+- 10:00三源Timer全成功；科加10:08又完成一次增量补偿，入库投影10:08完成。指定入库145764=81、148106=19，暂存/正式各唯一一条、净额100；科加源ID148310=1也进入暂存与正式表。11/15以来科加源和暂存均368个唯一来源ID，源中无遗漏；暂存多一条源系统当前已不存在的148289（订单2026A027458、品号602000010、数量15、状态181），保留历史暂存且不执行删除，该状态不计入已审核入库进度。
+- 失败预警使用标记为ALERT_TEST的真实API失败运行验证：接收人唯一匹配启用的崔玮杰账号且WeCom映射有效，Dispatcher一轮尝试后delivery=`SENT`、响应码0；随后科加增量恢复为ACTIVE。测试失败运行保留为审计记录。API健康、数据库状态、通知规则与来源最终状态已核验。
 - 指定订单源ID145764=81、148106=19均已进staging及正式入库表，唯一来源两条、净额100。11月15日起凯南ERP/staging各2996条一致；科加ERP/staging各361条一致，但当前对账发现ERP已不存在的旧未审核staging记录148289（status181、不计有效进度），以及09:30扫描水位后新增ERP记录148310（数量1、审核189，待下一轮读取）。旧记录保留，不直改历史事实；新记录由下一轮正常增量补齐。
 
 
