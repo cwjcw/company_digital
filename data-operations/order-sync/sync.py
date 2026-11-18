@@ -6,7 +6,7 @@ Command API. Initialization and incremental cursors are intentionally separate.
 """
 from __future__ import annotations
 
-import argparse, csv, hashlib, io, json, os, sys, time
+import argparse, csv, hashlib, io, json, os, signal, sys, time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -120,7 +120,10 @@ def init_sql(source:Source,stream:str)->tuple[str,str,str]:
         table,bd,pk,base=selections[stream];return table,pk0,base+f" WHERE {scope} AND ({bd}>%s OR ({bd}=%s AND {pk}>%s)) ORDER BY {bd},{pk}"
     if stream in ("outbound_detail","inbound_detail"):
         direction=0 if stream=="outbound_detail" else 1
-        return "ST_RDRecord_b",pk0,f"SELECT TOP ({LIMIT}) d.ID source_id,h.ID source_order_id,d.saleOrderDetailId source_order_line_id,COALESCE(h.code,d.saleOrderCode) order_number,COALESCE(h.voucherdate,r.voucherdate) business_date,d.updated modified_at,c.code customer_code,c.name customer_name,i.code item_code,i.name item_name,d.quantity quantity,CAST(NULL AS decimal(28,6)) delivered_quantity,CAST(NULL AS datetime) delivery_date,CONVERT(nvarchar(30),r.voucherState) status_code,CASE WHEN ISNULL(r.isCancel,0)<>0 THEN 1 ELSE 0 END is_cancelled,CAST(NULL AS int) close_code,m.ID manufacturing_order_id,m.code manufacturing_order_code,CASE WHEN h.ID IS NOT NULL AND EXISTS(SELECT 1 FROM dbo.SA_SaleOrder_b exact_d WHERE exact_d.idSaleOrderDTO=h.ID AND exact_d.idinventory=d.idinventory) THEN 1 ELSE 0 END link_stable,CASE WHEN direct_h.ID IS NOT NULL THEN N'TPLUS_SALE_ORDER_DETAIL_ID' WHEN mo_h.ID IS NOT NULL THEN N'TPLUS_MANUFACTURE_ORDER_SALE_ORDER' WHEN code_h.ID IS NOT NULL THEN N'TPLUS_SALE_ORDER_CODE_ITEM' ELSE N'TPLUS_UNRESOLVED' END link_rule FROM dbo.ST_RDRecord_b d JOIN dbo.ST_RDRecord r ON r.id=d.idRDRecordDTO LEFT JOIN dbo.SA_SaleOrder_b od ON od.id=d.saleOrderDetailId LEFT JOIN dbo.SA_SaleOrder direct_h ON direct_h.ID=od.idSaleOrderDTO LEFT JOIN dbo.MP_ManufactureOrder m ON m.ID=d.ManufactureOrderId LEFT JOIN dbo.SA_SaleOrder mo_h ON mo_h.ID=m.saleOrderId LEFT JOIN dbo.SA_SaleOrder code_h ON code_h.code=d.saleOrderCode LEFT JOIN dbo.SA_SaleOrder h ON h.ID=COALESCE(direct_h.ID,mo_h.ID,code_h.ID) LEFT JOIN dbo.AA_PartnerEntity c ON c.id=h.idcustomer LEFT JOIN dbo.AA_InventoryEntity i ON i.id=d.idinventory WHERE r.rdDirectionFlag={direction} AND ((h.ID IS NOT NULL AND {scope}) OR (h.ID IS NULL AND r.voucherdate>=%s AND r.voucherdate<=%s)) AND (COALESCE(h.voucherdate,r.voucherdate)>%s OR (COALESCE(h.voucherdate,r.voucherdate)=%s AND d.ID>%s)) ORDER BY COALESCE(h.voucherdate,r.voucherdate),d.ID"
+        # ST_RDRecord has no isCancel column in either live T+ account. Eligibility is
+        # determined by voucherState (only audited 189 records enter progress); keep
+        # source quantity signed so red/return lines reduce the net amount.
+        return "ST_RDRecord_b",pk0,f"SELECT TOP ({LIMIT}) d.ID source_id,h.ID source_order_id,d.saleOrderDetailId source_order_line_id,COALESCE(h.code,d.saleOrderCode) order_number,COALESCE(h.voucherdate,r.voucherdate) business_date,d.updated modified_at,c.code customer_code,c.name customer_name,i.code item_code,i.name item_name,d.quantity quantity,CAST(NULL AS decimal(28,6)) delivered_quantity,CAST(NULL AS datetime) delivery_date,CONVERT(nvarchar(30),r.voucherState) status_code,CAST(0 AS bit) is_cancelled,CAST(NULL AS int) close_code,m.ID manufacturing_order_id,m.code manufacturing_order_code,CASE WHEN h.ID IS NOT NULL AND EXISTS(SELECT 1 FROM dbo.SA_SaleOrder_b exact_d WHERE exact_d.idSaleOrderDTO=h.ID AND exact_d.idinventory=d.idinventory) THEN 1 ELSE 0 END link_stable,CASE WHEN direct_h.ID IS NOT NULL THEN N'TPLUS_SALE_ORDER_DETAIL_ID' WHEN mo_h.ID IS NOT NULL THEN N'TPLUS_MANUFACTURE_ORDER_SALE_ORDER' WHEN code_h.ID IS NOT NULL THEN N'TPLUS_SALE_ORDER_CODE_ITEM' ELSE N'TPLUS_UNRESOLVED' END link_rule FROM dbo.ST_RDRecord_b d JOIN dbo.ST_RDRecord r ON r.id=d.idRDRecordDTO LEFT JOIN dbo.SA_SaleOrder_b od ON od.id=d.saleOrderDetailId LEFT JOIN dbo.SA_SaleOrder direct_h ON direct_h.ID=od.idSaleOrderDTO LEFT JOIN dbo.MP_ManufactureOrder m ON m.ID=d.ManufactureOrderId LEFT JOIN dbo.SA_SaleOrder mo_h ON mo_h.ID=m.saleOrderId LEFT JOIN dbo.SA_SaleOrder code_h ON code_h.code=d.saleOrderCode LEFT JOIN dbo.SA_SaleOrder h ON h.ID=COALESCE(direct_h.ID,mo_h.ID,code_h.ID) LEFT JOIN dbo.AA_PartnerEntity c ON c.id=h.idcustomer LEFT JOIN dbo.AA_InventoryEntity i ON i.id=d.idinventory WHERE r.rdDirectionFlag={direction} AND ((h.ID IS NOT NULL AND {scope}) OR (h.ID IS NULL AND r.voucherdate>=%s AND r.voucherdate<=%s)) AND (COALESCE(h.voucherdate,r.voucherdate)>%s OR (COALESCE(h.voucherdate,r.voucherdate)=%s AND d.ID>%s)) ORDER BY COALESCE(h.voucherdate,r.voucherdate),d.ID"
     return "ST_NewCurrentStock",pk0,f"SELECT TOP ({LIMIT}) s.id source_id,CAST(NULL AS int) source_order_id,CAST(NULL AS int) source_order_line_id,CAST(NULL AS nvarchar(100)) order_number,CAST('19000101' AS datetime) business_date,s.updated modified_at,CAST(NULL AS nvarchar(100)) customer_code,CAST(NULL AS nvarchar(200)) customer_name,i.code item_code,i.name item_name,s.baseQuantity quantity,CAST(NULL AS decimal(28,6)) delivered_quantity,CAST(NULL AS datetime) delivery_date,CAST(NULL AS nvarchar(30)) status_code,CAST(NULL AS int) close_code FROM dbo.ST_NewCurrentStock s LEFT JOIN dbo.AA_InventoryEntity i ON i.id=s.idinventory WHERE s.id>%s ORDER BY s.id"
 
 def params_for_init(source:Source,stream:str,snapshot:datetime,cursor_date:datetime,cursor_pk:Any)->tuple:
@@ -129,6 +132,28 @@ def params_for_init(source:Source,stream:str,snapshot:datetime,cursor_date:datet
     if stream=="outbound_initial":return base+(START,snapshot,cursor_pk)
     if stream in ("outbound_detail","inbound_detail"):return base+(START,snapshot,cursor_date,cursor_date,cursor_pk)
     return base+(cursor_date,cursor_date,cursor_pk)
+
+def select_projection_before_outer_where(sql:str)->str:
+    """Return the SELECT/FROM/JOIN portion, ignoring WHERE inside expressions."""
+    depth=0; quote=False; bracket=False; i=0
+    while i<len(sql):
+        ch=sql[i]
+        if quote:
+            if ch=="'":
+                if i+1<len(sql) and sql[i+1]=="'": i+=2; continue
+                quote=False
+        elif bracket:
+            if ch=="]": bracket=False
+        elif ch=="'": quote=True
+        elif ch=="[": bracket=True
+        elif ch=="(": depth+=1
+        elif ch==")": depth=max(0,depth-1)
+        elif depth==0 and sql[i:i+5].upper()=="WHERE":
+            before=sql[i-1] if i else " "
+            after=sql[i+5] if i+5<len(sql) else " "
+            if before.isspace() and after.isspace(): return sql[:i].rstrip()
+        i+=1
+    raise ValueError("SQL缺少顶层WHERE，无法构造增量查询")
 
 def incremental_sql(source:Source,stream:str)->tuple[str,str,str]:
     """Build a keyset query whose timestamp precision matches the Python cursor.
@@ -140,7 +165,7 @@ def incremental_sql(source:Source,stream:str)->tuple[str,str,str]:
     projection, predicate and ordering so the returned cursor is exact.
     """
     table,minimum,base=init_sql(source,stream)
-    marker=" WHERE ";projection=base.split(marker,1)[0]
+    projection=select_projection_before_outer_where(base)
     alias={"order_header":"h","order_detail":"d","delivery_plan":"s","outbound_detail":"x" if source.adapter=="e10" else "d","inbound_detail":"d","inventory":"s"}[stream]
     modified="LastModifiedDate" if source.adapter=="e10" else "updated"
     raw_modified=f"{alias}.{modified}"
@@ -175,21 +200,29 @@ def record(source:Source,stream:str,table:str,row:dict,overlap=False)->dict:
 
 def initialize(source:Source,api:Api):
     snapshot=source.now(); start=api.call("POST","/data-operations/order-sync/runs",{"sourceKey":source.key,"sourceSystem":source.system,"sourceDatabase":source.database,"sourceAccountName":source.config["account_name"],"fieldMapping":source.config["field_mapping"],"runType":"INITIALIZATION","sourceSnapshotAt":iso(snapshot)})
-    run=start["run"]; snapshot=source_time(run.get("source_snapshot_at") or snapshot); state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}"); cursors={(x["phase"],x["stream"]):x for x in state.get("cursors",[])}; metrics={"streams":{}}
+    run=start["run"]; snapshot=source_time(run.get("source_snapshot_at") or snapshot); state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}"); cursors={(x["phase"],x["stream"]):x for x in state.get("cursors",[])}; metrics={"streams":{}}; failures=[]
     streams=["order_header","order_detail"]+(["delivery_plan"] if source.adapter=="e10" else [])+(["outbound_initial"] if source.adapter=="e10" else ["outbound_detail","inbound_detail"])+["inventory"]
     for stream in streams:
-        table,minimum,sql=init_sql(source,stream); cur=cursors.get(("INITIALIZATION",stream),{}); cdate=source_time(cur.get("initialization_business_date") or MIN_BUSINESS_DATE); cpk=cur.get("initialization_source_pk") or minimum; cpk=int(cpk) if source.adapter=="tplus" else cpk; batch=int(start.get("lastBatchByStream",{}).get(stream,0)); total=0
-        while True:
-            before={"businessDate":iso(cdate),"sourcePk":str(cpk)}
-            began=time.perf_counter();rows=source.query(sql,params_for_init(source,stream,snapshot,cdate,cpk));batch+=1
-            records=[record(source,stream,table,x) for x in rows]
-            if rows:
-                cdate=rows[-1]["business_date"] if stream not in ("inventory","outbound_initial") else cdate;cpk=str(rows[-1]["source_id"])
-            after={"businessDate":iso(cdate),"sourcePk":str(cpk)}
-            api.call("POST","/data-operations/order-sync/batches",{"sourceKey":source.key,"runId":run["id"],"phase":"INITIALIZATION","stream":stream,"sourceTable":table,"batchNumber":batch,"idempotencyKey":f"{source.key}:init:{stream}:{after['businessDate']}:{after['sourcePk']}","cursorBefore":before,"cursorAfter":after,"batchFull":len(rows)==LIMIT,"durationMs":round((time.perf_counter()-began)*1000,3),"records":records})
-            total+=len(rows)
-            if len(rows)<LIMIT:break
-        metrics["streams"][stream]={"records":total,"batches":batch}
+        try:
+            table,minimum,sql=init_sql(source,stream); cur=cursors.get(("INITIALIZATION",stream),{}); cdate=source_time(cur.get("initialization_business_date") or MIN_BUSINESS_DATE); cpk=cur.get("initialization_source_pk") or minimum; cpk=int(cpk) if source.adapter=="tplus" else cpk; batch=int(start.get("lastBatchByStream",{}).get(stream,0)); total=0
+            while True:
+                before={"businessDate":iso(cdate),"sourcePk":str(cpk)}
+                began=time.perf_counter();rows=source.query(sql,params_for_init(source,stream,snapshot,cdate,cpk));batch+=1
+                records=[record(source,stream,table,x) for x in rows]
+                if rows:
+                    cdate=rows[-1]["business_date"] if stream not in ("inventory","outbound_initial") else cdate;cpk=str(rows[-1]["source_id"])
+                after={"businessDate":iso(cdate),"sourcePk":str(cpk)}
+                api.call("POST","/data-operations/order-sync/batches",{"sourceKey":source.key,"runId":run["id"],"phase":"INITIALIZATION","stream":stream,"sourceTable":table,"batchNumber":batch,"idempotencyKey":f"{source.key}:init:{stream}:{after['businessDate']}:{after['sourcePk']}","cursorBefore":before,"cursorAfter":after,"batchFull":len(rows)==LIMIT,"durationMs":round((time.perf_counter()-began)*1000,3),"records":records})
+                total+=len(rows)
+                if len(rows)<LIMIT:break
+            metrics["streams"][stream]={"records":total,"batches":batch,"status":"COMPLETED"}
+        except Exception as error:
+            message=f"阶段=INITIALIZATION，流={stream}，错误={type(error).__name__}: {error}"
+            failures.append(message);metrics["streams"][stream]={"status":"FAILED","error":message}
+    if failures:
+        error_message="\n".join(failures)
+        api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/fail",{"sourceKey":source.key,"errorMessage":error_message,"retryCount":0})
+        raise RuntimeError(error_message)
     api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/complete",{"sourceKey":source.key,"metrics":metrics});incremental(source,api,"COMPENSATION",snapshot)
 
 def incremental(source:Source,api:Api,run_type="INCREMENTAL",snapshot:datetime|None=None):
@@ -197,24 +230,34 @@ def incremental(source:Source,api:Api,run_type="INCREMENTAL",snapshot:datetime|N
     start=api.call("POST","/data-operations/order-sync/runs",{"sourceKey":source.key,"sourceSystem":source.system,"sourceDatabase":source.database,"sourceAccountName":source.config["account_name"],"fieldMapping":source.config["field_mapping"],"runType":run_type,"sourceSnapshotAt":iso(snapshot) if snapshot else None,"scanUpperBound":iso(proposed_upper)});run=start["run"]
     upper=source_time(run.get("scan_upper_bound") or proposed_upper); state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}"); cursors={(x["phase"],x["stream"]):x for x in (state or {}).get("cursors",[])}
     metrics={"streams":{}};streams=["order_header","order_detail"]+(["delivery_plan"] if source.adapter=="e10" else [])+["outbound_detail"]+(["inbound_detail"] if source.adapter=="tplus" else [])+["inventory"]
+    failures=[]
     for stream in streams:
-        table,minimum,sql=incremental_sql(source,stream); cur=cursors.get(("INCREMENTAL",stream),{}); overlap_boundary=source_time(cur.get("last_successful_scan_upper_bound") or snapshot or state.get("source_snapshot_at") or upper); anchor=overlap_boundary-OVERLAP
-        resumed=bool(cur.get("active_run_id") and str(cur.get("active_run_id"))==str(run["id"]))
-        page_time=source_time(cur.get("active_page_modified_at")) if resumed and cur.get("active_page_modified_at") else anchor
-        page_pk=cur.get("active_page_source_pk") if resumed and cur.get("active_page_source_pk") is not None else minimum
-        last_actual_time=source_time(cur.get("last_processed_modified_at")) if cur.get("last_processed_modified_at") else None
-        last_actual_pk=cur.get("last_processed_source_pk")
-        page_pk=int(page_pk) if source.adapter=="tplus" else page_pk;batch=int(start.get("lastBatchByStream",{}).get(stream,0));total=0
-        while True:
-            before={"modifiedAt":iso(page_time),"sourcePk":str(page_pk)}
-            began=time.perf_counter();rows=source.query(sql,(page_time,page_time,page_pk,upper));batch+=1;records=[record(source,stream,table,x, bool(x.get("modified_at") and x["modified_at"]<=overlap_boundary)) for x in rows]
-            if rows:
-                page_time=rows[-1]["modified_at"];page_pk=str(rows[-1]["source_id"]);last_actual_time=page_time;last_actual_pk=page_pk
-            after={"modifiedAt":iso(last_actual_time),"sourcePk":str(last_actual_pk)} if last_actual_time is not None and last_actual_pk is not None else None
-            assert_cursor_progress(stream,before,after,len(rows))
-            api.call("POST","/data-operations/order-sync/batches",{"sourceKey":source.key,"runId":run["id"],"phase":"INCREMENTAL","stream":stream,"sourceTable":table,"batchNumber":batch,"idempotencyKey":f"{source.key}:{run_type}:{stream}:{iso(upper)}:{batch}","cursorBefore":before,"cursorAfter":after,"scanUpperBound":iso(upper),"batchFull":len(rows)==LIMIT,"durationMs":round((time.perf_counter()-began)*1000,3),"records":records});total+=len(rows)
-            if len(rows)<LIMIT:break
-        metrics["streams"][stream]={"records":total,"batches":batch}
+        try:
+            table,minimum,sql=incremental_sql(source,stream); cur=cursors.get(("INCREMENTAL",stream),{}); overlap_boundary=source_time(cur.get("last_successful_scan_upper_bound") or snapshot or state.get("source_snapshot_at") or upper); anchor=overlap_boundary-OVERLAP
+            resumed=bool(cur.get("active_run_id") and str(cur.get("active_run_id"))==str(run["id"]))
+            page_time=source_time(cur.get("active_page_modified_at")) if resumed and cur.get("active_page_modified_at") else anchor
+            page_pk=cur.get("active_page_source_pk") if resumed and cur.get("active_page_source_pk") is not None else minimum
+            last_actual_time=source_time(cur.get("last_processed_modified_at")) if cur.get("last_processed_modified_at") else None
+            last_actual_pk=cur.get("last_processed_source_pk")
+            page_pk=int(page_pk) if source.adapter=="tplus" else page_pk;batch=int(start.get("lastBatchByStream",{}).get(stream,0));total=0
+            while True:
+                before={"modifiedAt":iso(page_time),"sourcePk":str(page_pk)}
+                began=time.perf_counter();rows=source.query(sql,(page_time,page_time,page_pk,upper));batch+=1;records=[record(source,stream,table,x, bool(x.get("modified_at") and x["modified_at"]<=overlap_boundary)) for x in rows]
+                if rows:
+                    page_time=rows[-1]["modified_at"];page_pk=str(rows[-1]["source_id"]);last_actual_time=page_time;last_actual_pk=page_pk
+                after={"modifiedAt":iso(last_actual_time),"sourcePk":str(last_actual_pk)} if last_actual_time is not None and last_actual_pk is not None else None
+                assert_cursor_progress(stream,before,after,len(rows))
+                api.call("POST","/data-operations/order-sync/batches",{"sourceKey":source.key,"runId":run["id"],"phase":"INCREMENTAL","stream":stream,"sourceTable":table,"batchNumber":batch,"idempotencyKey":f"{source.key}:{run_type}:{stream}:{iso(upper)}:{batch}","cursorBefore":before,"cursorAfter":after,"scanUpperBound":iso(upper),"batchFull":len(rows)==LIMIT,"durationMs":round((time.perf_counter()-began)*1000,3),"records":records});total+=len(rows)
+                if len(rows)<LIMIT:break
+            metrics["streams"][stream]={"records":total,"batches":batch,"status":"COMPLETED"}
+        except Exception as error:
+            message=f"阶段={run_type}，流={stream}，错误={type(error).__name__}: {error}"
+            failures.append(message);metrics["streams"][stream]={"status":"FAILED","error":message}
+    if failures:
+        metrics["failures"]=failures
+        error_message="\n".join(failures)
+        api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/fail",{"sourceKey":source.key,"errorMessage":error_message,"retryCount":0})
+        raise RuntimeError(error_message)
     api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/complete",{"sourceKey":source.key,"metrics":metrics})
 
 def save_reports(api:Api,source:Source):
@@ -227,18 +270,65 @@ def save_reports(api:Api,source:Source):
         fields=["sourceKey","runType","stream","sourceTable","batchCount","recordCount","insertedCount","updatedCount","overlapReplayCount","trueDuplicateCount","averageDurationMs","maxDurationMs","retryCount"]
         writer=csv.DictWriter(handle,fieldnames=fields,extrasaction="ignore");writer.writeheader();writer.writerows(rows)
 
+def record_pre_run_failure(api:Api,source_key:str,command:str,error:Exception)->None:
+    """Persist and alert failures that happen before the normal run has started."""
+    config=next(x for x in json.loads(CONFIG.read_text())["sources"] if x["key"]==source_key)
+    source_database=config.get("source_database")
+    if not source_database and config.get("adapter")=="e10":
+        load_dotenv(config["credential_store"],override=False)
+        source_database=os.getenv(config["credential_env"]["database"])
+    if not source_database:
+        raise RuntimeError("来源数据库标识不可用，无法建立可追踪失败运行")
+    state=api.call("GET",f"/data-operations/order-sync/sources/{source_key}")
+    run_type="INITIALIZATION" if needs_initialization(command,state) else "INCREMENTAL"
+    started=api.call("POST","/data-operations/order-sync/runs",{
+        "sourceKey":source_key,"sourceSystem":config["source_system"],"sourceDatabase":source_database,
+        "sourceAccountName":config["account_name"],"fieldMapping":config["field_mapping"],"runType":run_type,
+        "sourceSnapshotAt":state.get("source_snapshot_at") if state else None,
+    })
+    run=started["run"]
+    api.last_run=run
+    message=f"阶段=SOURCE_PREFLIGHT，错误={type(error).__name__}: {error}"
+    api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/fail",{
+        "sourceKey":source_key,"errorMessage":message,"retryCount":0,
+    })
+
+def report_unclosed_run(api:Api,source_key:str)->bool:
+    """Systemd OnFailure recovery for a process killed before its run could be closed."""
+    run=api.call("GET",f"/data-operations/order-sync/sources/{source_key}/running-run")
+    if not run:
+        print(json.dumps({"event":"erp_sync_process_failure_already_recorded","source":source_key},ensure_ascii=False))
+        return False
+    message=f"阶段=PROCESS_EXIT，错误=systemd检测到同步进程异常退出；运行未正常结束，请检查对应unit日志。runType={run.get('runType')} startedAt={run.get('startedAt')}"
+    api.call("POST",f"/data-operations/order-sync/runs/{run['id']}/fail",{
+        "sourceKey":source_key,"errorMessage":message,"retryCount":0,
+    })
+    print(json.dumps({"event":"erp_sync_unclosed_run_marked_failed","source":source_key,"runId":run["id"]},ensure_ascii=False))
+    return True
+
 def main():
-    p=argparse.ArgumentParser();p.add_argument("command",choices=["initialize","incremental","run"]);p.add_argument("--source",required=True,choices=[x["key"] for x in json.loads(CONFIG.read_text())["sources"]]);p.add_argument("--save-report",action="store_true",help="仅在人工验收时生成完整JSON/CSV，例行定时任务不生成");a=p.parse_args();source=load_source(a.source);api=Api();began=time.perf_counter()
+    p=argparse.ArgumentParser();p.add_argument("command",choices=["initialize","incremental","run","fail-running"]);p.add_argument("--source",required=True,choices=[x["key"] for x in json.loads(CONFIG.read_text())["sources"]]);p.add_argument("--save-report",action="store_true",help="仅在人工验收时生成完整JSON/CSV，例行定时任务不生成");a=p.parse_args();api=Api();source=None;began=time.perf_counter()
+    def terminate(signum,frame): raise InterruptedError(f"sync process received signal {signum}")
+    signal.signal(signal.SIGTERM,terminate)
     try:
+        if a.command=="fail-running":
+            report_unclosed_run(api,a.source)
+            return
+        source=load_source(a.source)
         state=api.call("GET",f"/data-operations/order-sync/sources/{source.key}")
         if needs_initialization(a.command,state):initialize(source,api)
         else:incremental(source,api)
         if a.save_report:save_reports(api,source)
         print(json.dumps({"event":"erp_sync_completed","source":source.key,"durationMs":round((time.perf_counter()-began)*1000,3),"fullReportSaved":a.save_report},ensure_ascii=False))
     except Exception as error:
-        if api.last_run and api.last_run.get("status")=="RUNNING":
-            try:api.call("POST",f"/data-operations/order-sync/runs/{api.last_run['id']}/fail",{"sourceKey":source.key,"errorMessage":str(error),"retryCount":3})
-            except Exception:pass
+        try:
+            if api.last_run and api.last_run.get("status")=="RUNNING":
+                api.call("POST",f"/data-operations/order-sync/runs/{api.last_run['id']}/fail",{"sourceKey":a.source,"errorMessage":str(error),"retryCount":0})
+            elif api.last_run is None and a.command!="fail-running":
+                record_pre_run_failure(api,a.source,a.command,error)
+        except Exception as record_error:
+            print(json.dumps({"event":"erp_sync_failure_record_failed","source":a.source,"reason":str(record_error)},ensure_ascii=False),file=sys.stderr)
         raise
-    finally:source.close()
+    finally:
+        if source is not None:source.close()
 if __name__=="__main__":main()

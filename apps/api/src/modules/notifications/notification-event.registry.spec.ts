@@ -1,6 +1,14 @@
 import { notificationEventDefinition, notificationEventDefinitions } from "./notification-event.registry";
 
 describe("Notification Event Registry", () => {
+  it("registers ERP failure alerts for fixed individual recipients", () => {
+    expect(notificationEventDefinition("erp.sync.failed")).toMatchObject({
+      moduleCode: "data-operations", resourceCode: "erp-order-sync", defaultChannel: "WECHAT_WORK",
+      allowedRecipientRules: ["FIXED_USERS"],
+      templateVariables: expect.arrayContaining([{ key: "runId", label: "运行ID" }, { key: "errorReason", label: "错误原因" }]),
+    });
+  });
+
   it("registers the equipment fault and shipping plan events", () => {
     expect(new Set(notificationEventDefinitions().map(e=>e.eventType)).size).toBe(notificationEventDefinitions().length);
     expect(notificationEventDefinition('workflow.abnormal.judgment_assigned')).toMatchObject({moduleCode:'workflow',resourceCode:'abnormal-responsibility-judgments',allowedRecipientRules:['ABNORMAL_JUDGE']});

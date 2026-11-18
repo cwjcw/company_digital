@@ -6,6 +6,7 @@ import { OrderSyncApplicationService } from "./order-sync.application.service";
 import { OrderSyncController } from "./order-sync.controller";
 import { OrderSyncRepository } from "./order-sync.repository";
 import { FormalProjectionRepository } from "./formal-projection.repository";
+import { NotificationsModule } from "../../modules/notifications/notifications.module";
 
-@Module({ imports:[TypeOrmModule.forFeature([ApiKey,User])],controllers: [OrderSyncController], providers: [AuthGuard,OrderSyncApplicationService,OrderSyncRepository,FormalProjectionRepository], exports: [OrderSyncApplicationService] })
+@Module({ imports:[TypeOrmModule.forFeature([ApiKey,User]),NotificationsModule],controllers: [OrderSyncController], providers: [AuthGuard,OrderSyncApplicationService,OrderSyncRepository,FormalProjectionRepository], exports: [OrderSyncApplicationService] })
 export class OrderSyncModule {}

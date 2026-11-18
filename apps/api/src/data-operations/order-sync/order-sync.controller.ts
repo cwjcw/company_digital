@@ -18,6 +18,7 @@ const assertImport = (req: UserRequest) => {
 export class OrderSyncController {
   constructor(private readonly application: OrderSyncApplicationService, private readonly repository: OrderSyncRepository) {}
   @Get("sources") state(@Req() req: UserRequest) { assertImport(req); return this.repository.state(); }
+  @Get("sources/:sourceKey/running-run") runningRun(@Param("sourceKey") sourceKey: string, @Req() req: UserRequest) { assertImport(req); return this.repository.latestRunningRun(sourceKey); }
   @Get("sources/:sourceKey") sourceState(@Param("sourceKey") sourceKey: string, @Req() req: UserRequest) { assertImport(req); return this.repository.state(sourceKey); }
   @Post("runs") start(@Body() body: StartSyncRun, @Req() req: UserRequest) { assertImport(req); return this.application.start(body, actor(req)); }
   @Post("batches") commit(@Body() body: CommitSyncBatch, @Req() req: UserRequest) { assertImport(req); return this.application.commit(body, actor(req)); }

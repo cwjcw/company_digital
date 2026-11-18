@@ -1,13 +1,17 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { OrderSyncRepository } from "./order-sync.repository";
 import { FormalProjectionRepository } from "./formal-projection.repository";
 import type { CommitSyncBatch, ConfigureProjectionConsumer, StartSyncRun, SyncActor } from "./order-sync.types";
+import { NotificationService } from "../../modules/notifications/notification.service";
 
 const recordTypes = new Set(["ORDER_HEADER","ORDER_LINE","DELIVERY_PLAN","OUTBOUND_LINE","INBOUND_LINE","INVENTORY"]);
+const tenantId = () => process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
 
 @Injectable()
 export class OrderSyncApplicationService {
-  constructor(private readonly repository: OrderSyncRepository, private readonly formalProjection: FormalProjectionRepository) {}
+  private readonly logger = new Logger(OrderSyncApplicationService.name);
+  constructor(private readonly repository: OrderSyncRepository, private readonly formalProjection: FormalProjectionRepository,
+    private readonly notifications: NotificationService) {}
 
   start(input: StartSyncRun, actor: SyncActor) {
     if (!input?.sourceKey || !input.sourceSystem || !input.sourceDatabase || !input.sourceAccountName) throw new BadRequestException("来源配置不完整");
@@ -44,9 +48,31 @@ export class OrderSyncApplicationService {
     return this.repository.completeRun(runId, sourceKey, metrics, actor);
   }
 
-  fail(runId: string, sourceKey: string, errorMessage: string, retryCount: number, actor: SyncActor) {
+  async fail(runId: string, sourceKey: string, errorMessage: string, retryCount: number, actor: SyncActor) {
     if (!sourceKey || !errorMessage || !Number.isInteger(retryCount) || retryCount < 0) throw new BadRequestException("失败记录参数无效");
-    return this.repository.failRun(runId,sourceKey,errorMessage,retryCount,actor);
+    const failed = await this.repository.failRun(runId,sourceKey,errorMessage,retryCount,actor);
+    if (!failed) return null;
+    try {
+      const phase = errorMessage.match(/阶段=([^，,]+)/)?.[1] ?? failed.run_type ?? "同步运行";
+      await this.notifications.enqueueEvent(tenantId(), {
+        eventType: "erp.sync.failed",
+        channel: "WECHAT_WORK",
+        dedupKey: `erp-sync-failure:${runId}`,
+        payload: {
+          sourceName: failed.source_account_name ?? failed.source_system ?? sourceKey,
+          syncTask: `${String(failed.run_type ?? "ERP")}同步`,
+          failedAt: failed.completed_at,
+          failedPhase: phase,
+          errorReason: errorMessage.slice(0, 1200),
+          lastSuccessfulAt: failed.last_successful_sync_at ?? "无成功记录",
+          runId,
+        },
+        createdBy: actor.userId,
+      });
+    } catch (error) {
+      this.logger.error(`ERP同步失败已落库，但失败预警未能入队；source=${sourceKey}; run=${runId}; reason=${error instanceof Error ? error.message : String(error)}`);
+    }
+    return failed;
   }
 
   configureProjection(consumerKey: string, input: ConfigureProjectionConsumer, actor: SyncActor) {

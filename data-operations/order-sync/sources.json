@@ -17,7 +17,7 @@
       "account_name": "凯南智能",
       "adapter": "tplus",
       "credential_store": "project:.env:TPLUS_SQL_*",
-      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+isCancel+CloseDate+line IsClose/IsCCClose", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
+      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+CloseDate+line IsClose/IsCCClose（入库仅voucherState=189计入业务进度）", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
     },
     {
       "key": "tplus-kejia",
@@ -26,7 +26,7 @@
       "account_name": "科加智能",
       "adapter": "tplus",
       "credential_store": "project:.env:TPLUS_SQL_*",
-      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+isCancel+CloseDate+line IsClose/IsCCClose", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
+      "field_mapping": { "businessDate": "SA_SaleOrder.voucherdate", "modifiedAt": "updated", "primaryKey": "ID", "status": "voucherState+CloseDate+line IsClose/IsCCClose（入库仅voucherState=189计入业务进度）", "deliveryPlan": "SA_SaleOrder_b.deliveryDate+deliveryQuantity（与明细同条，不重复导入）" }
     }
   ]
 }

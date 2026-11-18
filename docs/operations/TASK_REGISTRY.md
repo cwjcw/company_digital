@@ -57,9 +57,9 @@
 | --- | --- | --- | --- | --- | --- |
 | FIN-001 | 财务E10客户同步；`automation/finance_customer_sync/main.py` | `kdos-finance-customer-sync.timer` 每天01:00 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 优先迁移；138条初始客户保留；只增不覆盖分类 |
 | IAM-001 | 企业微信通讯录；`automation/wecom_sync/main.py sync` | `kdos-wecom-contact-sync.timer` 每天03:00并开机后运行 | n8n | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先验证备份、停用账号动作和漏跑补偿 |
-| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 核查来源游标、运行时间及重复入口 |
-| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 独立来源、锁和失败处理 |
-| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用复合脚本 | **现状保留（用户认定业务任务不重复）** | TWO_TRIGGERS_KNOWN / SYSTEMD_RUN_SUCCESS / N8N_RUN_UNVERIFIED | 技术上共享 staging 采集代码和 flock；n8n 额外执行 `sales-orders-v1` 投影。按用户业务判断不做合并、停用或迁移 |
+| ERP-001 | E10 staging，来源`e10-main` | `kdos-erp-order-sync@.timer` 每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 09:30 CST | 09:30五条流均完成；保留原调度，失败由运行预警覆盖 |
+| ERP-002 | T+凯南 staging，来源`tplus-kainan` | 同一 Timer 模板每30分钟 | n8n（后续） | TIMER_LAST_SUCCESS 2026-11-18 09:30 CST | 09:30五条流均完成；保留原调度，失败由运行预警覆盖 |
+| ERP-003 | T+科加 staging，来源`tplus-kejia`；另有`sync-kejia-orders.sh` | systemd 每30分钟；激活的 n8n `cfxCKnLl0YqRZYDj` 每天01:00 调用复合脚本 | **现状保留（用户认定业务任务不重复）** | TWO_TRIGGERS_KNOWN / TIMER_LAST_SUCCESS 2026-11-18 09:30 CST / N8N_LAST_SUCCESS 2026-11-18 01:00 CST | 技术上共享 staging 采集代码和 flock；n8n 额外执行 `sales-orders-v1` 投影。按用户业务判断不做合并、停用或迁移 |
 | ERP-004 | `sales-orders-v1` 投影消费者 | `kdos-erp-projection@.timer` 每30分钟05/35 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 先确认准入、启用状态和业务验收 |
 | ERP-005 | `finished-goods-inbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
 | ERP-006 | `finished-goods-outbound-v1` 投影消费者 | 同一 Timer 模板 | 已验证消费者 / 后续 KDOS Worker | TIMER_ENABLED / RUN_SUCCESS_UNVERIFIED | 已启用，先查真实运行结果与投影准入 |
@@ -75,8 +75,17 @@
 ### ERP-003 入库来源关联修复（2026-11-15）
 
 - 保留原有科加 T+ staging 和 `finished-goods-inbound-v1` 投影任务、调度入口、游标与增量策略，不新增或停用任务。
-- 收货明细的销售订单归属按现有 ERP 关联候选解析：有效销售订单明细、生产工单回指销售订单、源行销售订单代码；只有已解析订单中存在相同库存ID明细时才标记稳定关联。同步同时读取T+单据作废标记，保留源数量正负号；入库报表仍要求有效单据状态、未作废及严格订单号+品号一致，不因品号相同单独归属。
+- 收货明细的销售订单归属按现有 ERP 关联候选解析：有效销售订单明细、生产工单回指销售订单、源行销售订单代码；只有已解析订单中存在相同库存ID明细时才标记稳定关联。2026-11-18真实schema复核后更正：T+ `ST_RDRecord` 没有 `isCancel` 列；入库报表采用审核状态`189`并保留源数量正负号，仍严格按订单号+品号一致核验，不因品号相同单独归属。
 - 当前投影未核验案例为失效销售订单明细ID，但源行有订单号/品号且生产工单可回溯同一订单；报表端按严格业务键核验该事实，不要求人工补填ERP源数据。2026-11-15已部署并通过版本一致性/健康检查；未执行源写入、重放、全量同步或游标变更。历史原始行的作废标记只由下次正常同步更新，不做追溯全量重放。
+
+### ERP增量SQL恢复和失败预警（2026-11-18）
+
+- `incremental_sql()`先前按第一个` WHERE `拆基础SQL；T+入/出库SELECT列内的`EXISTS(SELECT ... WHERE ...)`被误识别为外层WHERE，截掉FROM/JOIN并触发SQL Server ORDER BY子查询错误。现用括号/字符串/标识符感知的顶层WHERE扫描，排序仍按修改时间＋来源主键，保留原分页游标。
+- 科加和凯南真实表结构均不含`ST_RDRecord.isCancel`。入库链路保留`voucherState`和原始有符号数量，进度只计已审核状态189；科加实查14条负数量明细、9张单据、净额-13811。
+- 2026-11-18 09:30 CST，三源实际Timer运行均COMPLETED、来源状态ACTIVE：E10五条流、T+凯南五条流、T+科加五条流全部成功。科加入库流读取341条。所有现有Timer/n8n调度、锁和入口保持原状。
+- n8n只读核验：`cfxCKnLl0YqRZYDj`每日科加同步流程激活，最近一次2026-11-18 01:00 CST成功；`KnKjOrders083026`实际调用订单导出脚本，不是KDOS staging同步。
+- 新增逐流异常隔离：失败流留详细错误且整个run必须FAILED，其余独立流继续；失败状态持久化后按run ID幂等进入现有Notification Outbox，通过MSG-001发送个人企业微信。Migration133只增加唯一接收人规则及事件唯一索引，不新增发送器或调度任务。
+- 指定订单源ID145764=81、148106=19均已进staging及正式入库表，唯一来源两条、净额100。11月15日起凯南ERP/staging各2996条一致；科加ERP/staging各361条一致，但当前对账发现ERP已不存在的旧未审核staging记录148289（status181、不计有效进度），以及09:30扫描水位后新增ERP记录148310（数量1、审核189，待下一轮读取）。旧记录保留，不直改历史事实；新记录由下一轮正常增量补齐。
 
 
 ## n8n 工作流实测清单（2026-10-13，已核实激活状态）

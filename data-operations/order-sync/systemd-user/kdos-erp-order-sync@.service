@@ -2,6 +2,7 @@
 Description=KDOS ERP order staging sync (%i)
 After=network-online.target
 Wants=network-online.target
+OnFailure=kdos-erp-order-sync-failure@%i.service
 
 [Service]
 Type=oneshot

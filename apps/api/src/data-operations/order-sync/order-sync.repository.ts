@@ -25,6 +25,17 @@ export class OrderSyncRepository {
     });
   }
 
+  async latestRunningRun(sourceKey: string) {
+    return this.dataSource.transaction(async (manager) => {
+      await this.scope(manager);
+      const [run] = await manager.query(`SELECT r.id,r.run_type "runType",r.started_at "startedAt",s.source_key "sourceKey"
+        FROM erp_sync_runs r JOIN erp_sync_sources s ON s.tenant_id=r.tenant_id AND s.id=r.source_id
+        WHERE r.tenant_id=$1 AND s.source_key=$2 AND r.status='RUNNING'
+        ORDER BY r.started_at DESC,r.id DESC LIMIT 1`, [tenant(), sourceKey]);
+      return run ?? null;
+    });
+  }
+
   async startRun(input: StartSyncRun, actor: SyncActor) {
     return this.dataSource.transaction(async (manager) => {
       await this.scope(manager);
@@ -167,11 +178,13 @@ export class OrderSyncRepository {
         WHERE tenant_id=$1 AND id=$2 AND source_id=$3 AND status='RUNNING' FOR UPDATE`, [tenant(), runId, source.id]);
       const run = runRows[0];
       if (run) {
-        await manager.query(`UPDATE erp_sync_runs SET status='FAILED',completed_at=now(),error_message=$4,retry_count=$5,updated_by=$6,updated_at=now(),version=version+1
-          WHERE tenant_id=$1 AND id=$2 AND source_id=$3`,[tenant(),runId,source.id,errorMessage.slice(0,2000),retryCount,actor.displayName]);
+        const [failed] = await manager.query(`UPDATE erp_sync_runs SET status='FAILED',completed_at=now(),error_message=$4,retry_count=$5,updated_by=$6,updated_at=now(),version=version+1
+          WHERE tenant_id=$1 AND id=$2 AND source_id=$3 RETURNING *`,[tenant(),runId,source.id,errorMessage.slice(0,2000),retryCount,actor.displayName]);
         await manager.query(`UPDATE erp_sync_sources SET status='FAILED',updated_by=$3,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2`,[tenant(),source.id,actor.displayName]);
+        return { ...failed, source_key: source.source_key, source_system: source.source_system,
+          source_account_name: source.source_account_name, last_successful_sync_at: source.last_sync_at };
       }
-      return run ?? null;
+      return null;
     });
   }
 

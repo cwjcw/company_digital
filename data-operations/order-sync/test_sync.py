@@ -2,6 +2,7 @@ import sys
 import json
 import unittest
 from decimal import Decimal
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,32 @@ HERE = Path(__file__).parent
 
 
 class IncrementalCursorTests(unittest.TestCase):
+    def test_unclosed_process_run_is_failed_and_alertable(self):
+        class FakeApi:
+            calls = []
+            def call(self, method, path, body=None):
+                self.calls.append((method, path, body))
+                if method == "GET":
+                    return {"id": "run-unclosed", "runType": "INCREMENTAL", "startedAt": "2026-11-18T09:00:00"}
+                return {"ok": True}
+
+        api = FakeApi()
+        self.assertTrue(sync.report_unclosed_run(api, "tplus-kejia"))
+        self.assertEqual(api.calls[0][:2], ("GET", "/data-operations/order-sync/sources/tplus-kejia/running-run"))
+        self.assertEqual(api.calls[1][1], "/data-operations/order-sync/runs/run-unclosed/fail")
+        self.assertIn("PROCESS_EXIT", api.calls[1][2]["errorMessage"])
+
+    def test_process_failure_does_not_duplicate_alert_when_run_already_closed(self):
+        class FakeApi:
+            calls = []
+            def call(self, method, path, body=None):
+                self.calls.append((method, path, body))
+                return None
+
+        api = FakeApi()
+        self.assertFalse(sync.report_unclosed_run(api, "tplus-kejia"))
+        self.assertEqual(len(api.calls), 1)
+
     def test_tplus_receipt_can_trace_sales_order_through_manufacture_order(self):
         source = SimpleNamespace(adapter="tplus")
         _, _, sql = sync.init_sql(source, "inbound_detail")
@@ -20,7 +47,8 @@ class IncrementalCursorTests(unittest.TestCase):
         self.assertIn("dbo.SA_SaleOrder mo_h ON mo_h.ID=m.saleOrderId", sql)
         self.assertIn("COALESCE(direct_h.ID,mo_h.ID,code_h.ID)", sql)
         self.assertIn("exact_d.idinventory=d.idinventory", sql)
-        self.assertIn("ISNULL(r.isCancel,0)", sql)
+        self.assertNotIn("r.isCancel", sql)
+        self.assertIn("CAST(0 AS bit) is_cancelled", sql)
         self.assertIn("TPLUS_MANUFACTURE_ORDER_SALE_ORDER", sql)
         self.assertIn("m.code manufacturing_order_code", sql)
 
@@ -54,6 +82,54 @@ class IncrementalCursorTests(unittest.TestCase):
         self.assertIn("WHERE d.updated IS NOT NULL", sql)
         self.assertNotIn("datetime2(6)", sql)
 
+    def test_incremental_builder_ignores_nested_where_in_select_expression(self):
+        source = SimpleNamespace(adapter="tplus")
+        _, _, sql = sync.incremental_sql(source, "inbound_detail")
+
+        self.assertIn("EXISTS(SELECT 1 FROM dbo.SA_SaleOrder_b exact_d WHERE", sql)
+        self.assertIn("LEFT JOIN dbo.AA_InventoryEntity i", sql)
+        self.assertIn("WHERE d.updated IS NOT NULL AND r.rdDirectionFlag=1", sql)
+        self.assertTrue(sql.endswith("ORDER BY d.updated,d.ID"))
+
+    def test_outer_where_parser_respects_quotes_and_parentheses(self):
+        sql = "SELECT CASE WHEN EXISTS(SELECT 1 WHERE x=1) THEN N'WHERE' ELSE N'' END x FROM t WHERE y=2"
+        self.assertEqual(sync.select_projection_before_outer_where(sql),
+                         "SELECT CASE WHEN EXISTS(SELECT 1 WHERE x=1) THEN N'WHERE' ELSE N'' END x FROM t")
+
+    def test_incremental_stream_failure_does_not_skip_independent_streams_or_complete_run(self):
+        now = datetime(2026, 11, 18, 9, 0)
+        class FakeSource:
+            adapter = "tplus"
+            key = "tplus-kejia"
+            system = "T+"
+            database = "synthetic"
+            config = {"account_name": "synthetic", "field_mapping": {"businessDate": "d", "modifiedAt": "u", "primaryKey": "id"}}
+            calls = []
+            def now(self): return now
+            def query(self, sql, params=()):
+                stream = "inbound_detail" if "r.rdDirectionFlag=1" in sql else next((name for name in ["outbound_detail", "order_header", "order_detail", "inventory"] if sync.incremental_sql(self, name)[2] == sql), "unknown")
+                self.calls.append(stream)
+                if stream == "inbound_detail": raise RuntimeError("schema failure")
+                return []
+        class FakeApi:
+            last_run = None
+            calls = []
+            def call(self, method, path, body=None):
+                self.calls.append((method, path, body))
+                if path.endswith("/sources/tplus-kejia"):
+                    return {"source_snapshot_at": "2026-11-18T08:00:00", "cursors": []}
+                if path == "/data-operations/order-sync/runs":
+                    self.last_run = {"id": "run-1", "scan_upper_bound": now.isoformat()}
+                    return {"run": self.last_run, "lastBatchByStream": {}}
+                return {"ok": True}
+        source=FakeSource();api=FakeApi()
+        with self.assertRaisesRegex(RuntimeError, "inbound_detail"):
+            sync.incremental(source,api)
+        self.assertEqual(set(source.calls), {"order_header", "order_detail", "outbound_detail", "inbound_detail", "inventory"})
+        posted=[path for method,path,_ in api.calls if method=="POST"]
+        self.assertTrue(any(path.endswith("/runs/run-1/fail") for path in posted))
+        self.assertFalse(any(path.endswith("/runs/run-1/complete") for path in posted))
+
     def test_stops_immediately_when_a_nonempty_page_does_not_advance(self):
         cursor = {"modifiedAt": "2026-09-04T15:08:48.833814", "sourcePk": "id-1"}
         with self.assertRaisesRegex(RuntimeError, "分页游标未推进"):
@@ -77,6 +153,10 @@ class KejiaOnlyEntrypointTests(unittest.TestCase):
         self.assertEqual(len(kejia), 1)
         self.assertEqual(kejia[0]["source_database"], "UFTData418971_000003")
         self.assertEqual(kejia[0]["adapter"], "tplus")
+        for source in sources:
+            if source["adapter"] == "tplus":
+                self.assertNotIn("isCancel", source["field_mapping"]["status"])
+                self.assertIn("voucherState=189", source["field_mapping"]["status"])
 
     def test_entrypoint_script_only_starts_the_kejia_source(self):
         script = (HERE / "sync-kejia-orders.sh").read_text(encoding="utf-8")

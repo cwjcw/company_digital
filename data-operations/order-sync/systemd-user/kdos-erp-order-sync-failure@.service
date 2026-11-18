@@ -1,0 +1,10 @@
+[Unit]
+Description=Mark an unclosed KDOS ERP sync run failed (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/automation/code/work/PMC/knweb
+Environment=PYTHONPATH=/data/automation/code/work/basci/basic_code
+ExecStart=/usr/bin/flock -n /tmp/kdos-erp-order-sync-failure-%i.lock /data/automation/code/work/basci/basic_code/.venv/bin/python data-operations/order-sync/sync.py fail-running --source %i
+TimeoutStartSec=60
