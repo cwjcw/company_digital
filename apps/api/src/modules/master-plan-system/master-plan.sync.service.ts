@@ -759,7 +759,7 @@ export class MasterPlanSyncService {
   private async uninitializedInternalWeek(manager: EntityManager, weekly: any, tenantId: string) {
     if (weekly.has_process_snapshot === true || weekly.process_config_locked_at != null
       || !shouldEnableProcess(weekly.manufacturing_method, "cutting")) return null;
-    const [current] = await manager.query(`SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, weekly.id]);
+    const [current] = await manager.query(`SELECT * FROM mps_weekly_plans AS mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, weekly.id]);
     if (!current || current.process_config_locked_at != null || !shouldEnableProcess(current.manufacturing_method, "cutting")) return null;
       const [guard] = await manager.query(`SELECT
       EXISTS(SELECT 1 FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_tasks,
