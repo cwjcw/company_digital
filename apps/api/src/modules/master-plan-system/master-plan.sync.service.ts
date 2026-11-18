@@ -766,7 +766,8 @@ export class MasterPlanSyncService {
       EXISTS(SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_reports,
       ${weeklyHasProcessExecutionSql("mps_weekly_plans")} AS has_process_execution,
       EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2::text
-        AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')) AS was_initialized`, [tenantId, weekly.id]);
+        AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')) AS was_initialized
+      FROM mps_weekly_plans AS mps_weekly_plans WHERE tenant_id=$1 AND id=$2::uuid`, [tenantId, weekly.id]);
     return guard && !guard.has_tasks && !guard.has_reports && !guard.has_process_execution && !guard.was_initialized ? current : null;
   }
 
