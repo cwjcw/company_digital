@@ -1,7 +1,7 @@
 {
   "id": "RdBomMasterIndexDailyV1",
   "name": "研发中心 BOM 主档每日增量同步",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -25,7 +25,7 @@
         "resource": "command",
         "operation": "execute",
         "authentication": "password",
-        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js INCREMENTAL'"
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && timeout --signal=TERM --kill-after=30s 600s env RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js INCREMENTAL'"
       },
       "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07002",
       "name": "执行BOM增量同步",
@@ -38,6 +38,64 @@
           "name": "本机SSH"
         }
       }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result = $input.first()?.json ?? {};\nconst code = Number(result.code);\nif (code !== 0) {\n  const match = String(result.stderr ?? '').match(/RD_BOM_SYNC_FAILED:[A-Z0-9_]+/);\n  throw new Error(match?.[0] ?? `RD_BOM_SYNC_COMMAND_EXIT_${Number.isFinite(code) ? code : 'UNKNOWN'}`);\n}\nconst lines = String(result.stdout ?? '').split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);\nconst jsonLine = [...lines].reverse().find(line => line.startsWith('{') && line.endsWith('}'));\nif (!jsonLine) throw new Error('RD_BOM_SYNC_RESULT_MISSING');\nlet summary;\ntry { summary = JSON.parse(jsonLine); } catch { throw new Error('RD_BOM_SYNC_RESULT_INVALID'); }\nif (summary.status !== 'SUCCESS' || summary.mode !== 'INCREMENTAL') throw new Error('RD_BOM_SYNC_RESULT_NOT_SUCCESS');\nreturn [{ json: summary }];"
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07003",
+      "name": "校验增量同步结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07004",
+      "name": "每小时检查同步成功时效",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 240]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && timeout --signal=TERM --kill-after=10s 30s env RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js HEALTH'"
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07005",
+      "name": "检查36小时及48小时预警",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [260, 240],
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result = $input.first()?.json ?? {};\nconst code = Number(result.code);\nif (code !== 0) {\n  const match = String(result.stderr ?? '').match(/RD_BOM_[A-Z0-9_]+/);\n  throw new Error(match?.[0] ?? `RD_BOM_HEALTH_COMMAND_EXIT_${Number.isFinite(code) ? code : 'UNKNOWN'}`);\n}\nconst lines = String(result.stdout ?? '').split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);\nconst jsonLine = [...lines].reverse().find(line => line.startsWith('{') && line.endsWith('}'));\nif (!jsonLine) throw new Error('RD_BOM_HEALTH_RESULT_MISSING');\nlet status;\ntry { status = JSON.parse(jsonLine); } catch { throw new Error('RD_BOM_HEALTH_RESULT_INVALID'); }\nif (status.status !== 'SUCCESS' || (status.alertLevel && status.alertEnqueueOk !== true)) throw new Error('RD_BOM_HEALTH_ALERT_NOT_QUEUED');\nreturn [{ json: status }];"
+      },
+      "id": "2c21f25a-dcd2-4f50-a071-e8b2f9f07006",
+      "name": "校验时效预警结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 240]
     }
   ],
   "connections": {
@@ -46,6 +104,39 @@
         [
           {
             "node": "执行BOM增量同步",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "执行BOM增量同步": {
+      "main": [
+        [
+          {
+            "node": "校验增量同步结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "每小时检查同步成功时效": {
+      "main": [
+        [
+          {
+            "node": "检查36小时及48小时预警",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "检查36小时及48小时预警": {
+      "main": [
+        [
+          {
+            "node": "校验时效预警结果",
             "type": "main",
             "index": 0
           }

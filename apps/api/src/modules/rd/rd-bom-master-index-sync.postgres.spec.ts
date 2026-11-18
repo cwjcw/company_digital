@@ -4,6 +4,7 @@ import path from 'node:path';
 import { DataSource } from 'typeorm';
 import { RdBomMasterIndex1722920127000 } from '../../migrations/1722920127000-RdBomMasterIndex';
 import { RdBomMasterIndexSyncService } from './rd-bom-master-index-sync.service';
+import { NotificationService } from '../notifications/notification.service';
 
 const socket=process.env.RD_BOM_INDEX_TEST_SOCKET;
 const integration=socket?describe:describe.skip;
@@ -16,6 +17,7 @@ const eventScript=`let raw='';process.stdin.setEncoding('utf8');process.stdin.on
 integration('R&D BOM master index: isolated PostgreSQL full and incremental sync',()=>{
   let db:DataSource;
   let scriptPath:string;
+  const notifications={enqueueEvent:jest.fn().mockResolvedValue({created:true})};
   let oldPython:string|undefined,oldReader:string|undefined,oldEvent:string|undefined;
   beforeAll(async()=>{
     if(!socket?.startsWith('/tmp/')||!socket.includes('rd-bom'))throw new Error('Only the isolated R&D BOM PostgreSQL socket is allowed');
@@ -35,7 +37,7 @@ integration('R&D BOM master index: isolated PostgreSQL full and incremental sync
     if(scriptPath)fs.rmSync(path.dirname(scriptPath),{recursive:true,force:true});
     if(db?.isInitialized)await db.destroy();
   });
-  const service=()=>new RdBomMasterIndexSyncService(db);
+  const service=()=>new RdBomMasterIndexSyncService(db,notifications as unknown as NotificationService);
   const read=async()=>db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);const rows=await manager.query('SELECT source_bom_id::text,approve_date::text FROM rd_bom_master_heads WHERE tenant_id=$1 ORDER BY source_bom_id',[tenant]);const [state]=await manager.query('SELECT active_generation::text,last_change_version::text,last_status FROM rd_bom_sync_state WHERE tenant_id=$1',[tenant]);return {rows,state};});
 
   it('initial full snapshot activates atomically after all pages and captures the source watermark',async()=>{
@@ -44,10 +46,23 @@ integration('R&D BOM master index: isolated PostgreSQL full and incremental sync
     expect(snapshot.state).toMatchObject({last_change_version:'11',last_status:'SUCCESS'});
   });
   it('a failed replacement full snapshot preserves the prior active generation and watermark',async()=>{
-    const before=await read();process.env.RD_BOM_TEST_EVENT='failure';
+    const before=await read();notifications.enqueueEvent.mockClear();process.env.RD_BOM_TEST_EVENT='failure';
     await expect(service().sync(tenant,'FULL')).rejects.toThrow('RD_BOM_SYNC_FAILED');
     const after=await read();expect(after.rows).toEqual(before.rows);expect(after.state.active_generation).toBe(before.state.active_generation);expect(after.state.last_change_version).toBe(before.state.last_change_version);expect(after.state.last_status).toBe('FAILED');
+    expect(notifications.enqueueEvent).toHaveBeenCalledWith(tenant,expect.objectContaining({eventType:'erp.sync.failed',dedupKey:expect.stringMatching(/^rd-bom-sync-failure:/),payload:expect.objectContaining({sourceName:'E10',syncTask:expect.stringContaining('水位'),failedPhase:'FULL',errorReason:'E10_READ_OR_SYNC_FAILURE',lastSuccessfulAt:expect.any(String)})}));
     await db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);const [row]=await manager.query('SELECT count(*)::int count FROM rd_bom_master_heads WHERE tenant_id=$1 AND generation_id<>$2',[tenant,before.state.active_generation]);expect(row.count).toBe(0);});
+  });
+
+  it('health monitoring emits idempotent 36-hour warning and 48-hour severe escalation',async()=>{
+    notifications.enqueueEvent.mockClear();
+    await db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);await manager.query("UPDATE rd_bom_sync_state SET last_success_at=now()-interval '37 hours' WHERE tenant_id=$1",[tenant]);});
+    expect(await service().health(tenant)).toMatchObject({status:'SUCCESS',alertLevel:'WARNING'});
+    expect(await service().health(tenant)).toMatchObject({alertLevel:'WARNING'});
+    const warningCalls=notifications.enqueueEvent.mock.calls.filter(([,_event])=>_event.dedupKey.includes(':WARNING:'));
+    expect(warningCalls).toHaveLength(2);expect(warningCalls[0][1].dedupKey).toBe(warningCalls[1][1].dedupKey);
+    await db.transaction(async manager=>{await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);await manager.query("UPDATE rd_bom_sync_state SET last_success_at=now()-interval '49 hours' WHERE tenant_id=$1",[tenant]);});
+    expect(await service().health(tenant)).toMatchObject({status:'SUCCESS',alertLevel:'SEVERE'});
+    const severe=notifications.enqueueEvent.mock.calls.at(-1)?.[1];expect(severe?.dedupKey).toContain(':SEVERE:');expect(severe?.payload.errorReason).toContain('48小时');
   });
   it('incremental approval changes, revocation, deletion, and repeated events are idempotent',async()=>{
     process.env.RD_BOM_TEST_EVENT='delta';expect(await service().sync(tenant,'INCREMENTAL')).toMatchObject({inserted:0,updated:1,revoked:1,deleted:1});

@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { DataSource } from 'typeorm';
+import { NotificationService } from '../notifications/notification.service';
 
 type SourceRecord = {
   source_bom_id: string; item_id: string | null; item_code: string | null; owner_org_id: string | null;
@@ -20,7 +21,54 @@ const valueRows = (rows: unknown[][]) => {
 
 @Injectable()
 export class RdBomMasterIndexSyncService {
-  constructor(private readonly dataSource: DataSource) {}
+  private readonly logger = new Logger(RdBomMasterIndexSyncService.name);
+
+  constructor(private readonly dataSource: DataSource, @Optional() private readonly notifications?: NotificationService) {}
+
+  async health(tenantId: string) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(tenantId)) throw new Error('RD_BOM_TENANT_ID_INVALID');
+    const state = await this.dataSource.transaction(async manager => {
+      await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      const [row] = await manager.query(`SELECT last_success_at "lastSuccessAt",last_change_version "lastChangeVersion",last_status "lastStatus",last_error_code "lastErrorCode" FROM rd_bom_sync_state WHERE tenant_id=$1`,[tenantId]);
+      return row ?? null;
+    });
+    const observedAt = new Date();
+    const lastSuccessAt = state?.lastSuccessAt ? new Date(state.lastSuccessAt) : null;
+    const ageHours = lastSuccessAt ? Math.max(0,(observedAt.getTime()-lastSuccessAt.getTime())/3_600_000) : null;
+    const level = ageHours == null ? 'SEVERE' : ageHours >= 48 ? 'SEVERE' : ageHours >= 36 ? 'WARNING' : null;
+    let alertEnqueueOk = level == null;
+    if (level && this.notifications) {
+      const watermark = state?.lastChangeVersion == null ? '无' : String(state.lastChangeVersion);
+      const lastSuccessfulAt = lastSuccessAt?.toISOString() ?? '无成功记录';
+      const threshold = level === 'SEVERE' ? 48 : 36;
+      try {
+        await this.notifications.enqueueEvent(tenantId, {
+          eventType: 'erp.sync.failed', channel: 'WECHAT_WORK',
+          dedupKey: `rd-bom-stale:${tenantId}:${level}:${lastSuccessAt?.toISOString() ?? 'never'}`,
+          payload: {
+            sourceName: 'E10',
+            syncTask: `研发中心 BOM 主档索引；当前水位 ${watermark}`,
+            failedAt: observedAt.toISOString(),
+            failedPhase: '定时同步健康监测',
+            errorReason: level === 'SEVERE'
+              ? `BOM索引超过48小时没有成功同步（${ageHours == null ? '从未成功' : `${ageHours.toFixed(1)}小时`}），请立即处理。`
+              : `BOM索引超过36小时没有成功同步（${ageHours!.toFixed(1)}小时），请检查每日01:00任务。`,
+            lastSuccessfulAt,
+            runId: `rd-bom-health-${threshold}-${lastSuccessAt?.toISOString() ?? 'never'}`
+          },
+          createdBy: null
+        });
+        alertEnqueueOk = true;
+      } catch (error) {
+        this.logger.error(`RD_BOM_HEALTH_ALERT_ENQUEUE_FAILED level=${level} code=${this.safeErrorCode(error instanceof Error ? error.message : 'NOTIFICATION_FAILURE')}`);
+      }
+    }
+    return {
+      status: 'SUCCESS', syncStatus: state?.lastStatus ?? 'NEVER_RUN', lastErrorCode: state?.lastErrorCode ?? null,
+      lastSuccessAt: lastSuccessAt?.toISOString() ?? null, ageHours: ageHours == null ? null : Number(ageHours.toFixed(2)),
+      lastChangeVersion: state?.lastChangeVersion == null ? null : String(state.lastChangeVersion), alertLevel: level, alertEnqueueOk
+    };
+  }
 
   async sync(tenantId: string, requestedMode: 'FULL' | 'INCREMENTAL' = 'INCREMENTAL') {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(tenantId)) throw new Error('RD_BOM_TENANT_ID_INVALID');
@@ -97,6 +145,22 @@ export class RdBomMasterIndexSyncService {
       child?.kill('SIGTERM');
       const code = this.safeErrorCode(error instanceof Error ? error.message : 'RD_BOM_SYNC_FAILED');
       await this.fail(tenantId, runId, leaseToken, code, scanned, mode, generationId).catch(() => undefined);
+      if (this.notifications) {
+        const watermark = state.lastChangeVersion == null ? '无' : String(state.lastChangeVersion);
+        try {
+          await this.notifications.enqueueEvent(tenantId, {
+            eventType: 'erp.sync.failed', channel: 'WECHAT_WORK', dedupKey: `rd-bom-sync-failure:${runId}`,
+            payload: {
+              sourceName: 'E10', syncTask: `研发中心 BOM 主档索引 ${mode}；当前水位 ${watermark}`,
+              failedAt: new Date().toISOString(), failedPhase: mode, errorReason: code,
+              lastSuccessfulAt: state.lastSuccessAt ? new Date(state.lastSuccessAt).toISOString() : '无成功记录', runId
+            },
+            createdBy: null
+          });
+        } catch (notificationError) {
+          this.logger.error(`RD_BOM_FAILURE_ALERT_ENQUEUE_FAILED run=${runId} code=${this.safeErrorCode(notificationError instanceof Error ? notificationError.message : 'NOTIFICATION_FAILURE')}`);
+        }
+      }
       throw new Error(`RD_BOM_SYNC_FAILED:${code}`);
     } finally { clearInterval(heartbeat); }
   }
@@ -111,13 +175,13 @@ export class RdBomMasterIndexSyncService {
     return this.dataSource.transaction(async manager => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
       await manager.query(`INSERT INTO rd_bom_sync_state(tenant_id) VALUES($1) ON CONFLICT(tenant_id) DO NOTHING`,[tenantId]);
-      const [state] = await manager.query(`SELECT active_generation::text "activeGeneration",last_change_version "lastChangeVersion",lease_until "leaseUntil" FROM rd_bom_sync_state WHERE tenant_id=$1 FOR UPDATE`,[tenantId]);
+      const [state] = await manager.query(`SELECT active_generation::text "activeGeneration",last_change_version "lastChangeVersion",last_success_at "lastSuccessAt",lease_until "leaseUntil" FROM rd_bom_sync_state WHERE tenant_id=$1 FOR UPDATE`,[tenantId]);
       if (state.leaseUntil && new Date(state.leaseUntil).getTime() > Date.now()) throw new Error('RD_BOM_SYNC_ALREADY_RUNNING');
       const mode = requestedMode === 'INCREMENTAL' && !state.activeGeneration ? 'FULL' : requestedMode;
       if (mode === 'INCREMENTAL' && state.lastChangeVersion == null) throw new Error('RD_BOM_SYNC_WATERMARK_MISSING');
       await manager.query(`UPDATE rd_bom_sync_state SET lease_token=$2,lease_until=now()+interval '30 minutes',last_started_at=now(),last_status='RUNNING',last_error_code=NULL,updated_at=now() WHERE tenant_id=$1`,[tenantId,leaseToken]);
       await manager.query(`INSERT INTO rd_bom_sync_runs(id,tenant_id,mode,status,from_change_version) VALUES($1,$2,$3,'RUNNING',$4)`,[runId,tenantId,mode,state.lastChangeVersion]);
-      return { mode, activeGeneration: state.activeGeneration, lastChangeVersion: state.lastChangeVersion == null ? null : Number(state.lastChangeVersion) };
+      return { mode, activeGeneration: state.activeGeneration, lastChangeVersion: state.lastChangeVersion == null ? null : Number(state.lastChangeVersion), lastSuccessAt: state.lastSuccessAt ?? null };
     });
   }
 

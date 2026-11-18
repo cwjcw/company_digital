@@ -11,8 +11,8 @@
 
 1. 仅通过 `db:migrate:rd-bom-index` 执行 Migration 127；入口只选择 `1722920127000-RdBomMasterIndex`，会核对迁移台账、表和必要列。不得运行默认全量 pending migrations。
 2. 首次初始化执行一次 `FULL`。全量写入新的 generation，读取开始水位后按主键分页，随后回放该期间 CT 事件，最后在单一事务切换活动 generation。失败保留旧索引，不推进水位。
-3. n8n 工作流 `RdBomMasterIndexDailyV1` 使用 `Asia/Shanghai` 每日 01:00 触发 `INCREMENTAL`。执行命令位于 `automation/n8n/rd-bom-master-index-daily.json`，复用本机既有 SSH credential；不新增 systemd、cron 或应用内周期任务。
-4. 应用数据库租约防止并发；失败保留 last success、水位及活动索引，写入失败码/错误计数。报表显示最后成功快照时间和失败提示。n8n 的失败执行保留在任务历史中；CT 保留期缺口必须人工受控重跑 `FULL`，不可静默推进水位。
+3. n8n 工作流 `RdBomMasterIndexDailyV1` 使用 `Asia/Shanghai` 每日 01:00 触发 `INCREMENTAL`，命令最多运行 10 分钟；后置校验器同时检查 SSH 退出码和 CLI JSON 中的 `status/mode`，失败必须落为 n8n execution error。工作流每小时 :15 调用只读 `HEALTH`，最近成功超过 36 小时发送预警、超过 48 小时升级严重预警；按最近成功时间和等级幂等去重。执行命令位于 `automation/n8n/rd-bom-master-index-daily.json`，复用本机既有 SSH credential，不新增 systemd、cron 或应用内周期任务。
+4. 应用数据库租约防止并发；失败保留 last success、水位及活动索引，写入失败码/错误计数，并沿用 `erp.sync.failed` 已启用的个人企业微信通知规则发送失败、时间预警和当前水位。通知无法入队会保留脱敏错误码并使健康执行失败。报表显示最后成功快照时间和失败提示；CT 保留期缺口必须人工受控重跑 `FULL`，不可静默推进水位。
 
 ## 受控命令
 
@@ -32,6 +32,12 @@ RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js FULL
 
 ```sh
 RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js INCREMENTAL
+```
+
+同步新鲜度检查（只读索引状态；超过阈值时通过既有通知 Outbox 幂等入队）：
+
+```sh
+RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js HEALTH
 ```
 
 命令只输出执行 ID、安全计数、结果状态和 CT 水位，不输出 BOM 明细或连接凭据。只有成功的 run 才推进水位。报表“最近成功时间”可用于核对同步新鲜度。
