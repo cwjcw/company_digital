@@ -133,6 +133,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("FOR UPDATE"))).toBe(true);
     expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_weekly_plans AS mps_weekly_plans"))).toBe(true);
     expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("AS was_initialized\n      FROM mps_weekly_plans AS mps_weekly_plans"))).toBe(true);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("set_config('app.mps_inbound_only_snapshot_init','1',true)"))).toBe(true);
   });
 
   it("keeps the durable report lock even when no tasks or reports remain", async () => {

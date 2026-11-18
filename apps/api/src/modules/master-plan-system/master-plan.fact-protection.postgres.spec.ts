@@ -8,6 +8,7 @@ import { createMpsTestDatabase } from './master-plan.test-database';
 import { MasterPlanProcessReportException1722920061000 as ReportException } from '../../migrations/1722920061000-MasterPlanProcessReportException';
 import { MasterPlanThreeDayWorkOrders1722920063000 as WorkOrders } from '../../migrations/1722920063000-MasterPlanThreeDayWorkOrders';
 import { MpsExecutionFactProtection1722920119000 as Protection } from '../../migrations/1722920119000-MpsExecutionFactProtection';
+import { MpsInboundOnlySnapshotInitialization1722920134000 as InboundSnapshotInitialization } from '../../migrations/1722920134000-MpsInboundOnlySnapshotInitialization';
 import { MasterPlanImportPreviews1722920055000 as ImportPreviews } from '../../migrations/1722920055000-MasterPlanImportPreviews';
 import { MasterPlanApplicationService } from './master-plan.application.service';
 import { MasterPlanSyncService } from './master-plan.sync.service';
@@ -66,12 +67,14 @@ integration('MPS 1B historical facts on isolated PG18 (no production DSN)', () =
     // Execute actual commands; keep the HTTP after-commit consumer dormant in this synthetic fixture.
     app=new MasterPlanApplicationService(db,{processOutbox:async()=>0,refreshWeeklyExecution:sync.refreshWeeklyExecution.bind(sync)} as never);
     query=new MasterPlanQueryService(db,directory as never);
-    await new Protection().up(qr); await new ImportPreviews().up(qr);
+    await new Protection().up(qr); await new InboundSnapshotInitialization().up(qr); await new ImportPreviews().up(qr);
     spreadsheets=new MasterPlanSpreadsheetService(db,query,app,directory as never);
   },30000);
   beforeEach(async () => {
-    await db.query('TRUNCATE mps_import_previews,mps_group_plans,mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,idempotency_keys,mps_order_allocations,mps_base_plans,erp_staging_raw_records,finished_goods_inbound CASCADE');
+    await db.query('TRUNCATE mps_import_previews,mps_group_plans,mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,idempotency_keys,mps_order_allocations,mps_base_plans,mps_division_process_configs,erp_staging_raw_records,finished_goods_inbound CASCADE');
     await db.query('DELETE FROM mps_sync_configs WHERE tenant_id=$1',[tenant]);
+    for(const who of [tenant,legacyTenant]) await db.query(`INSERT INTO mps_division_process_configs(tenant_id,division_id,process_code,cycle_days,default_enabled,sequence,created_by,updated_by)
+      SELECT $1,$2,process_code,1,true,sequence,$3::uuid,$3::text FROM unnest(ARRAY['cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging']::text[]) WITH ORDINALITY AS route(process_code,sequence)`,[who,division,user]);
     for(const key of ['base-to-weekly','execution-rollup']) await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)VALUES($1,$2,'合成任务',true,30,$3,$3)`,[tenant,key,user]);
   });
   afterAll(async()=>{if(db?.isInitialized)await db.destroy();});
@@ -245,6 +248,48 @@ integration('MPS 1B historical facts on isolated PG18 (no production DSN)', () =
     expect((await db.query('SELECT process_config_locked_at FROM mps_weekly_plans WHERE id=$1',[week.id]))[0].process_config_locked_at).toBeNull();
     await expect(db.transaction(async m=>{await m.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");await m.query('UPDATE mps_weekly_process_plans SET cycle_days=20 WHERE weekly_plan_id=$1',[week.id]);})).rejects.toMatchObject({constraint:'ck_mps_executed_identity'});
     expect(await tasks(week.id)).toEqual(structure);
+  });
+
+  it('initializes a never-configured route with inbound-only facts through the application command',async()=>{
+    const {week}=await makeWeek('自制');
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      await manager.query('DELETE FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id]);
+      await manager.query("DELETE FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2 AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')",[tenant,week.id]);
+    });
+    await db.query('UPDATE mps_weekly_plans SET allocated_inbound_quantity=1 WHERE tenant_id=$1 AND id=$2',[tenant,week.id]);
+    expect((await tasks(week.id))).toHaveLength(0);
+    expect((await db.query('SELECT mps_weekly_has_execution($1,$2) fact',[tenant,week.id]))[0].fact).toBe(true);
+
+    await expect(db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,execution_enabled,created_by,updated_by)
+        VALUES($1,$2,'cutting','下料',1,1,true,$3::uuid,$3::uuid)`,[tenant,week.id,user]);
+    })).rejects.toThrow('已有生产执行事实，不能迁移、重建或停用执行任务');
+
+    await app.refreshWeeklyExecution(week.id,principal());
+
+    expect(await tasks(week.id)).toHaveLength(10);
+    expect(await db.query('SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id])).toHaveLength(0);
+    expect(await db.query("SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2 AND action='mps-weekly-plans.process_config_initialized'",[tenant,week.id])).toHaveLength(1);
+  });
+
+  it('still rejects first task inserts when material execution exists',async()=>{
+    const {week}=await makeWeek('自制');
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      await manager.query('DELETE FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id]);
+      await manager.query("DELETE FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2 AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')",[tenant,week.id]);
+    });
+    await db.query("UPDATE mps_material_reports SET received=true,actual_inbound_date='2026-11-01' WHERE tenant_id=$1 AND weekly_plan_id=$2 AND material_name='五金'",[tenant,week.id]);
+
+    await expect(db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_process_config_write_mode','CONFIRM',true)");
+      await manager.query("SELECT set_config('app.mps_inbound_only_snapshot_init','1',true)");
+      await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,execution_enabled,created_by,updated_by)
+        VALUES($1,$2,'cutting','下料',1,1,true,$3::uuid,$3::uuid)`,[tenant,week.id,user]);
+    })).rejects.toThrow('已有生产执行事实，不能迁移、重建或停用执行任务');
+    expect(await tasks(week.id)).toHaveLength(0);
   });
 
   it('exports current quantity and preserved snapshot from the same query, with field and export scopes enforced',async()=>{

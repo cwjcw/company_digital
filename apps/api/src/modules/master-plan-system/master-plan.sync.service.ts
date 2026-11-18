@@ -797,7 +797,11 @@ export class MasterPlanSyncService {
       const scheduled = reviewDueDate
         ? reverseScheduleForProcesses(reviewDueDate, definitions)
         : [...definitions].sort((a,b) => a.sequence-b.sequence || a.code.localeCompare(b.code)).map((process) => ({ ...process, dueDate: null }));
-      if (!routeBlocked) await manager.query("SELECT set_config('app.mps_process_config_write_mode',$1,true)", [mode]);
+      if (!routeBlocked) {
+        await manager.query("SELECT set_config('app.mps_process_config_write_mode',$1,true)", [mode]);
+        if(mode==="CONFIRM"&&weekly.has_execution===true&&weekly.has_process_execution!==true)
+          await manager.query("SELECT set_config('app.mps_inbound_only_snapshot_init','1',true)");
+      }
       if (!routeBlocked) for (const schedule of scheduled) await manager.query(`INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name,sequence,cycle_days,due_date,exception_text,execution_enabled,created_by,updated_by)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9::uuid,$10) ON CONFLICT(tenant_id,weekly_plan_id,process_code) DO NOTHING`,
       [tenantId, weekly.id, schedule.code, schedule.name, schedule.sequence, schedule.cycleDays, schedule.dueDate, schedule.cycleDays == null ? "未维护工序周期" : null, userId, updatedBy]);
@@ -811,7 +815,10 @@ export class MasterPlanSyncService {
           trigger: initializeProcessConfig ? "NEW_WEEKLY" : "EMPTY_INTERNAL_SNAPSHOT", processes: scheduled });
       }
       // SET LOCAL is cleared by rollback on error; avoid masking the original SQLSTATE with 25P02.
-      if (!routeBlocked) await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+      if (!routeBlocked) {
+        await manager.query("SELECT set_config('app.mps_inbound_only_snapshot_init','',true)");
+        await manager.query("SELECT set_config('app.mps_process_config_write_mode','',true)");
+      }
     }
     await this.recalculateSnapshotDueDates(manager, weekly, tenantId, updatedBy);
     const technicalDays = this.nullableNumber(weekly.technical_days);

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { DataSource } from "typeorm";
 import { AppModule } from "../../app.module";
 import { MasterPlanApplicationService } from "./master-plan.application.service";
+import { MasterPlanQueryService } from "./master-plan.query.service";
 import { weeklyLifecycleExecutableSql } from "./master-plan.lifecycle-sql";
 import { MASTER_PLAN_SYSTEM_USER_ID } from "./master-plan.sync.service";
 import type { MasterPlanActor } from "./master-plan.types";
@@ -16,6 +17,7 @@ async function main() {
   try {
     const dataSource = context.get(DataSource);
     const application = context.get(MasterPlanApplicationService);
+    const query = context.get(MasterPlanQueryService);
     const candidates = await dataSource.query<Array<{ id: string; order_number: string; item_code: string }>>(`
       SELECT w.id,w.order_number,w.item_code
       FROM mps_weekly_plans w
@@ -68,7 +70,11 @@ async function main() {
     if (Number(before.reportCount) !== Number(after.reportCount) || before.reportQuantity !== after.reportQuantity)
       throw new Error("修复前后实际报工事实发生变化，停止并检查");
     if (Number(after.taskCount) < candidates.length) throw new Error("部分候选仍未生成工序任务");
-    console.log(JSON.stringify({ repaired: candidates.length, after, remaining: Number(remaining[0]?.count ?? 0) }));
+    const pending = await query.list("mps-process-reports", { view: "PENDING", search: "2025A027058", pageSize: 500 }, actor);
+    const targetTasks = pending.rows.filter((row: Record<string, unknown>) => row.orderNumber === "2025A027058" && row.itemCode === "TGH121HT-1/1");
+    if (!targetTasks.length) throw new Error("应用层 PENDING 查询未返回目标订单/品号，不能确认修复完成");
+    console.log(JSON.stringify({ repaired: candidates.length, after, remaining: Number(remaining[0]?.count ?? 0),
+      targetPendingTasks: targetTasks.length, targetProcessCodes: targetTasks.map((row: Record<string, unknown>) => row.processCode) }));
   } finally {
     await context.close();
   }
