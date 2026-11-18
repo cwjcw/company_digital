@@ -20,7 +20,15 @@ beforeEach(()=>{localStorage.clear();localStorage.setItem('sessionUser',JSON.str
 });});
 function page(kind='requests'){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});return render(<StrictMode><App><QueryClientProvider client={client}><MemoryRouter initialEntries={[`/workflow/abnormal-cost/${kind}`]}><Routes><Route path="/workflow/abnormal-cost/:kind" element={<AbnormalCostPage/>}/></Routes></MemoryRouter></QueryClientProvider></App></StrictMode>);}
 describe('Abnormal cost business forms',()=>{
-  it('opens the manual creation form with linked judgments but without premature responsibility ratios',async()=>{page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByText('下载明细附件模板');expect(screen.getByText('添加责任判定')).toBeInTheDocument();expect(await screen.findByLabelText('异常类别')).toBeInTheDocument();expect(screen.queryByText('责任比例合计：')).not.toBeInTheDocument();expect(screen.queryByText('异常单号')).not.toBeInTheDocument();});
+  it('opens the responsive request form with the ordered fields, attachments, and linked judgments',async()=>{
+    page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByText('下载明细附件模板');
+    expect(screen.getByDisplayValue('提交后自动生成')).toBeInTheDocument();
+    expect(screen.getByText('基本信息')).toBeInTheDocument();expect(screen.getByText('附件资料')).toBeInTheDocument();expect(screen.getByText('责任划分')).toBeInTheDocument();
+    expect(screen.getByLabelText('客户')).toBeInTheDocument();expect(screen.getByLabelText('订单号')).toBeInTheDocument();expect(screen.getByLabelText('事业部')).toBeInTheDocument();
+    expect(screen.getByText('添加责任判定')).toBeInTheDocument();expect(screen.getByText('异常类别')).toBeInTheDocument();expect(screen.getByText(/关联记录/)).toBeInTheDocument();
+    expect(screen.queryByText('责任比例合计：')).not.toBeInTheDocument();
+    expect(document.querySelector('.abnormal-request-modal')).toBeInTheDocument();expect(document.querySelector('.abnormal-request-modal .ant-modal-footer')).toBeInTheDocument();
+  });
   it('defaults confirmed money and recomputes severity while retaining a manual confirmed value',async()=>{
     page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByText('下载明细附件模板');
     const estimated=screen.getByLabelText('预估金额'),confirmed=screen.getByLabelText('核定金额');await waitFor(()=>expect(estimated).toBeEnabled());

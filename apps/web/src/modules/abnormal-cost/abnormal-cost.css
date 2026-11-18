@@ -9,3 +9,49 @@
 .abnormal-row-number .abnormal-row-delete { display: none; position: absolute; inset: 2px; }
 .abnormal-row-number:hover .abnormal-row-delete, .abnormal-row-number:focus-within .abnormal-row-delete { display: inline-flex; }
 .abnormal-row-number:has(.abnormal-row-delete):hover > span, .abnormal-row-number:has(.abnormal-row-delete):focus-within > span { visibility: hidden; }
+
+.abnormal-request-modal .ant-modal-content { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); border-radius: 16px; overflow: hidden; }
+.abnormal-request-modal .ant-modal-header, .abnormal-request-modal .ant-modal-footer { flex: 0 0 auto; }
+.abnormal-request-modal .ant-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.abnormal-request-form-layout { display: flex; flex-direction: column; gap: 18px; }
+.abnormal-request-section { min-width: 0; padding: 16px; border: 1px solid var(--ant-color-border-secondary, #f0f0f0); border-radius: 12px; background: #fff; }
+.abnormal-request-basic, .abnormal-request-attachments-section { container-type: inline-size; }
+.abnormal-request-section > .ant-typography { margin: 0 0 14px; }
+.abnormal-request-info-grid { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 19px; row-gap: 0; }
+.abnormal-request-info-grid > .ant-form-item { min-width: 0; margin-bottom: 13px; }
+.abnormal-request-info-grid .ant-form-item-control, .abnormal-request-info-grid .ant-form-item-control-input, .abnormal-request-info-grid .ant-form-item-control-input-content { min-width: 0; }
+.abnormal-request-info-grid .ant-form-item-control-input { min-height: 40px; }
+.abnormal-request-info-grid .ant-input, .abnormal-request-info-grid .ant-select-selector, .abnormal-request-info-grid .ant-input-number { min-height: 40px; }
+.abnormal-request-info-grid .ant-input-number { width: 100%; }
+.abnormal-request-info-grid .ant-input-number-input { height: 38px; }
+.abnormal-request-info-grid .abnormal-request-description { grid-column: 1 / -1; }
+.abnormal-request-info-grid .abnormal-request-description textarea { min-height: 88px; }
+.abnormal-request-attachment-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 17px 19px; }
+.abnormal-request-attachment { min-width: 0; margin-bottom: 0; }
+.abnormal-request-upload-card { display: flex; min-height: 112px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; padding: 14px; border: 1px dashed var(--ant-color-border, #d9d9d9); border-radius: 10px; background: #fafafa; }
+.abnormal-request-judgments-section { min-width: 0; }
+.abnormal-request-judgment-scroll { width: 100%; overflow-x: auto; }
+.abnormal-request-judgment-table { width: 100%; min-width: 960px; border-collapse: collapse; }
+.abnormal-request-judgment-table th, .abnormal-request-judgment-table td { padding: 8px 10px; border: 1px solid var(--ant-color-border, #d9d9d9); text-align: left; vertical-align: middle; }
+.abnormal-request-judgment-table th { background: #f5f5f5; font-weight: 600; white-space: nowrap; }
+.abnormal-request-judgment-table td:first-child, .abnormal-request-judgment-table td:last-child { width: 72px; text-align: center; }
+.abnormal-request-judgment-table td:nth-child(2) { min-width: 190px; }
+.abnormal-request-judgment-table td:nth-child(3), .abnormal-request-judgment-table td:nth-child(4) { min-width: 220px; }
+.abnormal-request-judgment-table td:nth-child(5) { min-width: 170px; }
+.abnormal-request-judgment-table .ant-form-item { margin: 0; }
+.abnormal-request-judgment-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+
+@container (min-width: 701px) {
+  .abnormal-request-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .abnormal-request-attachment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (min-width: 1101px) {
+  .abnormal-request-info-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .abnormal-request-modal.ant-modal { max-width: calc(100vw - 24px); margin: 12px auto; padding-bottom: 0; }
+  .abnormal-request-modal .ant-modal-content { max-height: calc(100dvh - 24px); }
+  .abnormal-request-modal .ant-modal-body { padding: 16px; }
+  .abnormal-request-section { padding: 12px; }
+  .abnormal-request-judgment-actions { align-items: flex-start; flex-direction: column; }
+}
