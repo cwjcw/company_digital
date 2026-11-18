@@ -19,6 +19,16 @@ import { MasterPlanExceptionNotificationService } from "./master-plan-exception-
 import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncScope, type SyncOutcome } from "./master-plan.sync-runner";
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
 
+/** Inbound allocation protects plan identity, but does not prove an internal process route was initialized. */
+const weeklyHasProcessExecutionSql = (alias: string) => `(
+  ${alias}.process_config_locked_at IS NOT NULL
+  OR EXISTS(SELECT 1 FROM mps_process_reports r WHERE r.tenant_id=${alias}.tenant_id AND r.weekly_plan_id=${alias}.id)
+  OR EXISTS(SELECT 1 FROM mps_technical_reports r WHERE r.tenant_id=${alias}.tenant_id AND r.weekly_plan_id=${alias}.id AND mps_execution_content('mps_technical_reports',to_jsonb(r)))
+  OR EXISTS(SELECT 1 FROM mps_material_reports r WHERE r.tenant_id=${alias}.tenant_id AND r.weekly_plan_id=${alias}.id AND mps_execution_content('mps_material_reports',to_jsonb(r)))
+  OR EXISTS(SELECT 1 FROM mps_outsourcing_reports r WHERE r.tenant_id=${alias}.tenant_id AND r.weekly_plan_id=${alias}.id AND mps_execution_content('mps_outsourcing_reports',to_jsonb(r)))
+  OR EXISTS(SELECT 1 FROM mps_three_day_work_orders r WHERE r.tenant_id=${alias}.tenant_id AND r.weekly_plan_id=${alias}.id AND mps_execution_content('mps_three_day_work_orders',to_jsonb(r)))
+)`;
+
 @Injectable()
 export class MasterPlanSyncService {
   private readonly logger = new Logger(MasterPlanSyncService.name);
@@ -655,7 +665,10 @@ export class MasterPlanSyncService {
           ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
         WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[]))
           AND ${admission} AND mps_weekly_has_execution(weekly.tenant_id,weekly.id)
-          AND (NOT EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=weekly.tenant_id AND p.weekly_plan_id=weekly.id)
+          AND ((NOT EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=weekly.tenant_id AND p.weekly_plan_id=weekly.id)
+                AND (${weeklyHasProcessExecutionSql("weekly")} OR EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=weekly.tenant_id
+                  AND a.resource='mps-weekly-process-plans' AND a.record_id=weekly.id::text
+                  AND a.action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized'))))
             OR (weekly.division_id,weekly.order_number,weekly.item_code,weekly.delivery_number,weekly.manufacturing_method)
               IS DISTINCT FROM (base.division_id,base.order_number,base.item_code,base.delivery_number,${targetManufacturing}))
         ORDER BY base.id FOR UPDATE OF weekly`,[tenantId,basePlanIds]);
@@ -688,7 +701,8 @@ export class MasterPlanSyncService {
       /* 已有快照不重写；原外协周计划转为内部生产且从未初始化时，可首次建立空缺工艺。 */
       const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
         ,EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot,
-        mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution
+        mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution,
+        ${weeklyHasProcessExecutionSql("w")} AS has_process_execution
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
         WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}
@@ -717,7 +731,8 @@ export class MasterPlanSyncService {
   async refreshWeeklyExecution(manager: EntityManager, weeklyPlanId: string, tenantId: string, userId: string | null, updatedBy: string) {
     const [weekly] = await manager.query(`SELECT w.*,c.technical_days,
       EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=w.tenant_id AND p.weekly_plan_id=w.id) AS has_process_snapshot,
-      mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution
+      mps_weekly_has_execution(w.tenant_id,w.id) AS has_execution,
+      ${weeklyHasProcessExecutionSql("w")} AS has_process_execution
       FROM mps_weekly_plans w LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code WHERE w.tenant_id=$1 AND w.id=$2::uuid`, [tenantId, weeklyPlanId]);
     if (!weekly) return false;
     await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, false);
@@ -749,15 +764,15 @@ export class MasterPlanSyncService {
       const [guard] = await manager.query(`SELECT
       EXISTS(SELECT 1 FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_tasks,
       EXISTS(SELECT 1 FROM mps_process_reports WHERE tenant_id=$1 AND weekly_plan_id=$2::uuid) AS has_reports,
-      mps_weekly_has_execution($1,$2::uuid) AS has_execution,
+      ${weeklyHasProcessExecutionSql("mps_weekly_plans")} AS has_process_execution,
       EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id=$1 AND resource='mps-weekly-process-plans' AND record_id=$2::text
         AND action IN ('mps-weekly-plans.process_config_confirmed','mps-weekly-plans.process_config_initialized')) AS was_initialized`, [tenantId, weekly.id]);
-    return guard && !guard.has_tasks && !guard.has_reports && !guard.has_execution && !guard.was_initialized ? current : null;
+    return guard && !guard.has_tasks && !guard.has_reports && !guard.has_process_execution && !guard.was_initialized ? current : null;
   }
 
   private async ensureExecutionRows(manager: EntityManager, weekly: any, tenantId: string, userId: string | null, updatedBy: string, initializeProcessConfig = false) {
     if (weekly.lifecycle_status && weekly.lifecycle_status !== 'ACTIVE') throw new ConflictException('LIFECYCLE_BLOCKED: 来源待确认、暂停或取消周计划不能生成或刷新执行任务');
-    if(weekly.has_process_snapshot!==true&&weekly.has_execution===true){
+    if(weekly.has_process_snapshot!==true&&weekly.has_process_execution===true){
       await this.recordProcessSnapshotProtected(manager,tenantId,weekly.id,weekly.order_number,weekly.item_code,userId);
       return { initialized:false,taskCount:0,blocked:true };
     }

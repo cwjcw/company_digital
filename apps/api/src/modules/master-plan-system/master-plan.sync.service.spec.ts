@@ -106,12 +106,31 @@ describe("MasterPlanSyncService execution matrix", () => {
   it("blocks only an uninitialized execution snapshot with protected production facts",async()=>{
     const query=jest.fn().mockResolvedValue([]),manager={query};
     const service=new MasterPlanSyncService({} as never);
-    const result=await (service as any).ensureExecutionRows(manager,{...weekly("自制"),has_process_snapshot:false,has_execution:true},"KAINAN",null,"tester",true);
+    const result=await (service as any).ensureExecutionRows(manager,{...weekly("自制"),has_process_snapshot:false,has_process_execution:true,has_execution:true},"KAINAN",null,"tester",true);
     expect(result).toEqual({initialized:false,taskCount:0,blocked:true});
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0]![0])).toContain("PROCESS_SNAPSHOT_PROTECTED");
     expect(query.mock.calls.some(([sql])=>String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);
     expect(query.mock.calls.some(([sql])=>String(sql).startsWith("INSERT INTO mps_process_reports"))).toBe(false);
+  });
+
+  it("initializes a missing internal process snapshot when inbound is the only protected fact", async () => {
+    const target = { ...weekly("自制+外协"), has_process_snapshot: false, has_execution: true, has_process_execution: false };
+    const manager = { query: jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM mps_weekly_plans")) return [target];
+      if (sql.startsWith("SELECT\n      EXISTS")) return [{ has_tasks: false, has_reports: false, has_process_execution: false, was_initialized: false }];
+      if (sql.includes("FROM mps_division_process_configs")) return activeDefaults;
+      return [];
+    }) };
+    const service = new MasterPlanSyncService({} as never);
+    const result = await (service as any).ensureExecutionRows(manager, {
+      ...target
+    }, "KAINAN", null, "tester", false);
+    expect(result).toEqual({ initialized: true, taskCount: 10, blocked: false });
+    expect(manager.query.mock.calls.filter(([sql]) => String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toHaveLength(10);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("PROCESS_SNAPSHOT_PROTECTED"))).toBe(false);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).startsWith("INSERT INTO mps_process_reports"))).toBe(false);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes("FOR UPDATE"))).toBe(true);
   });
 
   it("keeps the durable report lock even when no tasks or reports remain", async () => {
@@ -255,6 +274,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     const service = new MasterPlanSyncService(dataSource as never);
     await (service as any).baseToWeekly("KAINAN", "33333333-3333-4333-8333-333333333333", "tester");
     const insert = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.includes("INSERT INTO mps_weekly_plans"))!;
+    const protectedRows = manager.query.mock.calls.map(([statement]) => String(statement)).find((statement) => statement.includes("SELECT base.id AS base_plan_id,weekly.id AS weekly_plan_id"))!;
 
     /* 准入谓词继续强制要求评审交期（历史初始化 base 为 NULL → 永远不满足）。 */
     expect(insert).toContain("NULLIF(btrim(base.latest_review_due_date::text),'') IS NOT NULL");
@@ -266,6 +286,9 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(insert).toContain("IS DISTINCT FROM");
     /* 仍然按 base_plan_id 一对一，不会新增第二条 weekly（唯一约束保证 1:1）。 */
     expect(insert).toContain("LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id");
+    expect(protectedRows).toContain("mps_weekly_has_execution(weekly.tenant_id,weekly.id)");
+    expect(protectedRows).toContain("mps_process_reports r WHERE r.tenant_id=weekly.tenant_id AND r.weekly_plan_id=weekly.id");
+    expect(protectedRows).toContain("IS DISTINCT FROM (base.division_id,base.order_number,base.item_code,base.delivery_number,");
   });
 
   it("never copies an illegal dictionary value from the base plan into the weekly plan", async () => {
