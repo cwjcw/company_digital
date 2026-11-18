@@ -64,7 +64,7 @@ async function run() {
           FROM mps_order_allocations WHERE tenant_id=$1 AND archived_at IS NULL AND allocated_quantity>0
           GROUP BY order_number,item_code,division_id,customer_code
         )
-        SELECT m.id monthly_plan_id,m.version monthly_version,b.id base_plan_id,b.version base_version
+        SELECT m.id AS "monthlyPlanId",m.version AS "monthlyVersion",b.id AS "basePlanId",b.version AS "baseVersion"
         FROM mps_monthly_plans m JOIN mps_base_plans b ON b.tenant_id=m.tenant_id AND b.monthly_plan_id=m.id
         JOIN mps_order_allocations anchor ON anchor.tenant_id=m.tenant_id AND anchor.id=m.allocation_id
         JOIN active_source source ON (source.order_number,source.item_code,source.division_id,source.customer_code)
