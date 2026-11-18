@@ -8,6 +8,7 @@ import { MpsExecutionFactProtection1722920119000 as Protection } from '../../mig
 import { MpsPlanLifecycle1722920120000 as Lifecycle } from '../../migrations/1722920120000-MpsPlanLifecycle';
 import { MasterPlanLifecycleService } from './master-plan.lifecycle.service';
 import { MasterPlanSyncService } from './master-plan.sync.service';
+import { STANDARD_PROCESSES } from './master-plan.domain';
 import { MasterPlanApplicationService } from './master-plan.application.service';
 import { MasterPlanQueryService } from './master-plan.query.service';
 import { MASTER_PLAN_RESOURCE_MAP, fieldsFor } from './master-plan.config';
@@ -26,16 +27,15 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
   const facts = () => db.query('SELECT * FROM mps_process_reports ORDER BY id');
   const tasks = () => db.query('SELECT id,weekly_plan_id,process_code,sequence,cycle_days,execution_enabled FROM mps_weekly_process_plans ORDER BY id');
   const report = (id: string, quantity=3) => app.create('mps-process-reports', { weeklyPlanId: id, processCode: 'bending', productionDate: '2026-11-01', productionQuantity: quantity, exceptionText: '合成历史异常' }, actor());
-  const makePlan = async (quantity=10, method='自制') => {
+  const makePlan = async (quantity=10, method='自制', generateWeekly=true) => {
     const [allocation] = await db.query(`INSERT INTO mps_order_allocations(tenant_id,division_id,order_number,item_code,customer_code,allocated_quantity,order_status,manually_maintained,created_by,updated_by)
       VALUES($1,$2,'SYN-ORDER','SYN-ITEM','SYN-CUSTOMER',$3,'已审核',true,$4,$4) RETURNING *`, [tenant,division,quantity,user]);
     const [monthly] = await db.query(`INSERT INTO mps_monthly_plans(tenant_id,division_id,order_number,item_code,customer_code,allocation_id,required_quantity,created_by,updated_by)
       VALUES($1,$2,'SYN-ORDER','SYN-ITEM','SYN-CUSTOMER',$3,$4,$5,$5) RETURNING *`, [tenant,division,allocation.id,quantity,user]);
     const [base] = await db.query(`INSERT INTO mps_base_plans(tenant_id,division_id,order_number,item_code,item_name,delivery_number,planned_quantity,
-      latest_customer_due_date,latest_review_due_date,product_attribute,surface_nature,manufacturing_method,created_by,updated_by)
-      VALUES($1,$2,'SYN-ORDER','SYN-ITEM','合成品项',1,$3,'2026-12-20','2026-12-01','五金','烤漆',$4,$5,$5) RETURNING *`, [tenant,division,quantity,method,user]);
-    const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());
-    expect(result.status).toBe('SUCCESS');
+      latest_customer_due_date,latest_review_due_date,product_attribute,surface_nature,manufacturing_method,monthly_plan_id,created_by,updated_by)
+      VALUES($1,$2,'SYN-ORDER','SYN-ITEM','合成品项',1,$3,'2026-12-20','2026-12-01','五金','烤漆',$4,$5,$6,$6) RETURNING *`, [tenant,division,quantity,method,monthly.id,user]);
+    if(generateWeekly){const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());expect(result.status).toBe('SUCCESS');}
     const [week] = await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
     return { allocation, monthly, base, week };
   };
@@ -49,6 +49,7 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     db=await createMpsTestDatabase('lifecycle_1c_fixture',user,division);
     const qr={ query: (sql:string,args?:unknown[]) => db.query(sql,args) } as QueryRunner;
     await db.query(`ALTER TABLE mps_monthly_plans ADD COLUMN allocation_id uuid;
+      ALTER TABLE mps_base_plans ADD COLUMN monthly_plan_id uuid;
       ALTER TABLE mps_order_allocations ADD COLUMN archived_at timestamptz,ADD COLUMN manually_maintained boolean DEFAULT true;
       CREATE TABLE roles(id uuid,permission_group_resource text);
       CREATE TABLE permissions(role_id uuid,resource text,field_key text,"read" boolean,"create" boolean,"copy" boolean,"update" boolean,"delete" boolean,batch_print boolean,batch_update boolean,"import" boolean,"export" boolean,updated_by text);
@@ -67,6 +68,9 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
   beforeEach(async () => {
     process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='true';
     await db.query('TRUNCATE mps_group_plans,mps_reconciliation_outbox,mps_sync_logs,mps_data_exceptions,audit_logs,idempotency_keys,mps_order_allocations,mps_monthly_plans,mps_base_plans,erp_staging_raw_records,finished_goods_inbound CASCADE');
+    await db.query('DELETE FROM mps_division_process_configs WHERE tenant_id=$1',[tenant]);
+    await db.query(`INSERT INTO mps_division_process_configs(tenant_id,division_id,process_code,cycle_days,default_enabled,sequence,created_by,updated_by)
+      SELECT $1,$2,process_code,1,true,sequence,$3::uuid,$3 FROM unnest(ARRAY['cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging']::text[]) WITH ORDINALITY p(process_code,sequence)`,[tenant,division,user]);
     await db.query('DELETE FROM mps_sync_configs WHERE tenant_id=$1',[tenant]);
     for(const key of ['base-to-weekly','execution-rollup']) await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)VALUES($1,$2,'合成任务',true,30,$3,$3)`,[tenant,key,user]);
   });
@@ -106,6 +110,44 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     expect((await query.list('mps-process-reports',{},actor())).rows).toHaveLength(1);
     expect(await facts()).toEqual(before);expect(await tasks()).toEqual(structure);
   });
+  it('restores source-confirmed legacy month and base despite a normalized inbound order alias, then generates one weekly route',async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false);
+    await db.query('DELETE FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2',[tenant,division]);
+    for(const [index,[processCode]] of STANDARD_PROCESSES.entries()) await app.create('mps-division-process-configs',
+      {divisionId:division,processCode,defaultEnabled:true,sequence:index+1},actor());
+    await db.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+    await db.transaction(async m=>{
+      await m.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await m.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await m.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    await db.query(`INSERT INTO erp_staging_raw_records(tenant_id,order_number,item_code,record_type,source_table,order_link_stable,status_code,source_database,source_system,source_id)
+      VALUES($1,'2301-SYN-ORDER','SYN-ITEM','INBOUND_LINE','ST_RDRecord_b',true,'189','synthetic','E10','inbound-1')`,[tenant]);
+    await db.query("INSERT INTO finished_goods_inbound(source_database,source_system,source_key,sales_order_number,inventory_code,received_quantity)VALUES('synthetic','E10','inbound-1','2301-SYN-ORDER','SYN-ITEM',2)");
+    const monthPreview=await lifecycle.preview('mps-monthly-plans',monthly.id,'RESTORE',actor());
+    expect(monthPreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
+    await lifecycle.confirm('mps-monthly-plans',monthly.id,input(monthPreview),actor());
+    const basePreview=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',actor());
+    expect(basePreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
+    await lifecycle.confirm('mps-base-plans',base.id,input(basePreview),actor());
+    expect((await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID())).status).toBe('SUCCESS');
+    const weeks=await db.query('SELECT id,planned_quantity,pending_quantity FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(weeks).toHaveLength(1);
+    expect(await db.query('SELECT process_code,sequence FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2 ORDER BY sequence',[tenant,weeks[0].id])).toHaveLength(10);
+    expect((await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0].lifecycle_status).toBe('ACTIVE');
+    expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe('ACTIVE');
+  });
+  it('keeps legacy base plans quarantined from weekly generation while unrelated active sync succeeds',async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false);
+    await db.transaction(async m=>{
+      await m.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await m.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await m.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());
+    expect(result.status).toBe('SUCCESS');
+    expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+  });
   it('cancels an unexecuted leaf without zeroing quantities and restores the same IDs and tasks',async()=>{
     const {week}=await makePlan();const structure=await tasks();
     await change(week.id,'CANCEL');await expect(report(week.id)).rejects.toBeDefined();
@@ -138,7 +180,7 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
   });
   it('keeps zero quantity independent of cancellation',async()=>{
     const {week}=await makePlan(0);expect(week.lifecycle_status).toBe('ACTIVE');
-    const p=await lifecycle.preview(weekResource,week.id,'CANCEL',actor());expect(p.plannedQuantity).toBe('0.0000');expect(p.allowed).toBe(true);
+    const p=await lifecycle.preview(weekResource,week.id,'CANCEL',actor());expect(p.plannedQuantity).toBe('0.0000');expect(p.blockers).toEqual([]);expect(p.allowed).toBe(true);
   });
   it('fails closed when the write switch is missing, including preview and direct confirmation',async()=>{
     const {week}=await makePlan();const p=await lifecycle.preview(weekResource,week.id,'CANCEL',actor());

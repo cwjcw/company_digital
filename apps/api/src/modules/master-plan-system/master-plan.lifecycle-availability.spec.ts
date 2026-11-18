@@ -16,6 +16,11 @@ describe('lifecycle deployment availability', () => {
     await expect(assertMpsLifecycleSyncReady({ query } as never, 'SYN', ['mps-base-plans'])).rejects.toThrow('LIFECYCLE_BLOCKED');
     expect(query.mock.calls.some(([sql]) => sql.includes('FOR SHARE'))).toBe(true);
   });
+  it('does not make a tenant-wide sync fail because of retained legacy rows', async () => {
+    const query = jest.fn(async (sql: string) => sql.includes('pg_attribute') ? [{ schema_ready: true }] : [{ count: 0 }]);
+    await expect(assertMpsLifecycleSyncReady({ query } as never, 'SYN', ['mps-base-plans'])).resolves.toBeUndefined();
+    expect(query.mock.calls.some(([sql]) => sql.includes("status IN ('ON_HOLD','CANCELLED')"))).toBe(true);
+  });
   it('does not ignore an unavailable schema probe', async () => {
     const query = jest.fn().mockRejectedValue(new Error('synthetic catalog unavailable'));
     await expect(assertMpsLifecycleSyncReady({ query }, 'SYN', ['mps-base-plans'])).rejects.toThrow('synthetic catalog unavailable');

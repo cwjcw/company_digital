@@ -229,10 +229,13 @@ describe("MasterPlanSyncService execution matrix", () => {
 
     /* 唯一权威 admission：执行范围与主投影必须使用同一份 weeklyAdmissionSql 输出，而不是手写第二套准入条件。 */
     expect(upsert).toContain(admission);
-    expect(scope).toContain(`WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}`);
-    /* 稳定 parent ID + tenant 关联：不能只用 base.id = weekly.base_plan_id（会跨租户），也不能按订单号/品项/交期推算来源。 */
+    expect(scope).toContain(admission);
+    expect(scope).toContain("COALESCE(to_jsonb(base)->>'lifecycle_status','ACTIVE')='ACTIVE'");
+    expect(scope).toContain("lifecycle_month.id::text=to_jsonb(base)->>'monthly_plan_id'");
+    expect(scope).toContain("COALESCE(to_jsonb(lifecycle_month)->>'lifecycle_status','ACTIVE')='ACTIVE'");
+    /* Stable parent ID + tenant linkage is required; a business key never recreates missing ancestry. */
     expect(scope).toContain("JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id");
-    /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配（cycle 的 item_code JOIN 仍允许）。 */
+    /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配。 */
     const scopeWhere = scope.slice(scope.lastIndexOf("WHERE w.tenant_id=$1"));
     expect(scopeWhere).not.toMatch(/order_number|item_code|delivery_number/);
     /* 越界反模式：不得再出现「只按 tenant 全表扫描周计划」（缺 base 关联/admission 的旧查询）。 */

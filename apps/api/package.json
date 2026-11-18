@@ -16,6 +16,8 @@
     "db:migrate:unified-core": "pnpm build && node dist/migrate-unified-core.js",
     "db:migrate:mps-demand-link-service": "pnpm build && node dist/migrate-mps-demand-link-service.js",
     "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js",
+    "mps:restore-verified-legacy-plans": "pnpm build && node dist/restore-mps-verified-legacy-plans.js",
+    "mps:restore-verified-division-routes": "pnpm build && node dist/restore-mps-division-process-routes.js",
     "db:migrate:sync-maintenance": "pnpm build && node dist/migrate-sync-maintenance.js",
     "db:migrate:review-due-independence": "pnpm build && node dist/migrate-review-due-independence.js",
     "db:migrate:allocation-column-removal": "pnpm build && node dist/migrate-allocation-column-removal.js",

@@ -640,6 +640,15 @@ export class MasterPlanSyncService {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
       await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
       let scopeAdmissionMetrics: Record<string, number> = {};
+      // Legacy rows are individually quarantined until their source has been
+      // confirmed through the lifecycle command. They must not block an
+      // otherwise valid tenant sync or become new weekly plans by accident.
+      const lifecycleAdmission = `COALESCE(to_jsonb(base)->>'lifecycle_status','ACTIVE')='ACTIVE'
+        AND NULLIF(to_jsonb(base)->>'monthly_plan_id','') IS NOT NULL
+        AND EXISTS(SELECT 1 FROM mps_monthly_plans lifecycle_month
+          WHERE lifecycle_month.tenant_id=base.tenant_id
+            AND lifecycle_month.id::text=to_jsonb(base)->>'monthly_plan_id'
+            AND COALESCE(to_jsonb(lifecycle_month)->>'lifecycle_status','ACTIVE')='ACTIVE')`;
       if(basePlanIds){
         // Lock the selected parent rows before evaluating admission. A partial
         // employee edit is a valid saved draft; it must not turn the whole
@@ -647,7 +656,7 @@ export class MasterPlanSyncService {
         const foundRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
           WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) FOR UPDATE OF base`,[tenantId,basePlanIds]);
         const eligibleRows: Array<{id:string}> = await manager.query(`SELECT base.id FROM mps_base_plans base
-          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) AND ${admission} FOR UPDATE OF base`,[tenantId,basePlanIds]);
+          WHERE base.tenant_id=$1 AND base.id=ANY($2::uuid[]) AND ${lifecycleAdmission} AND ${admission} FOR UPDATE OF base`,[tenantId,basePlanIds]);
         const eligibleIds=eligibleRows.map(row=>String(row.id));
         scopeAdmissionMetrics={selected_batches:basePlanIds.length,eligible_batches:eligibleIds.length,
           waiting_admission_batches:foundRows.length-eligibleIds.length,missing_batches:basePlanIds.length-foundRows.length};
@@ -663,7 +672,7 @@ export class MasterPlanSyncService {
           weekly.order_number,weekly.item_code
         FROM mps_base_plans base JOIN mps_weekly_plans weekly
           ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
-        WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[]))
+        WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${lifecycleAdmission}
           AND ${admission} AND mps_weekly_has_execution(weekly.tenant_id,weekly.id)
           AND ((NOT EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=weekly.tenant_id AND p.weekly_plan_id=weekly.id)
                 AND (${weeklyHasProcessExecutionSql("weekly")} OR EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=weekly.tenant_id
@@ -692,7 +701,7 @@ export class MasterPlanSyncService {
           NULL,false,NULL,NULL,CASE WHEN base.order_date IS NULL THEN NULL ELSE greatest(0,floor((CURRENT_DATE-base.order_date)/7.0))::integer END,$2::uuid,$3
         FROM mps_base_plans base
         LEFT JOIN mps_weekly_plans weekly ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
-        WHERE base.tenant_id=$1 AND ($4::uuid[] IS NULL OR base.id=ANY($4::uuid[])) AND ${admission}
+        WHERE base.tenant_id=$1 AND ($4::uuid[] IS NULL OR base.id=ANY($4::uuid[])) AND ${lifecycleAdmission} AND ${admission}
           AND NOT(base.id=ANY($5::uuid[]))
         ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,pending_quantity=greatest(excluded.planned_quantity-mps_weekly_plans.allocated_inbound_quantity,0),manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
@@ -705,7 +714,7 @@ export class MasterPlanSyncService {
         ${weeklyHasProcessExecutionSql("w")} AS has_process_execution
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
-        WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${admission}
+        WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${lifecycleAdmission} AND ${admission}
           AND NOT(base.id=ANY($3::uuid[]))`, [tenantId,basePlanIds,protectedBaseIds]);
       let initializedSnapshots = 0, initializedTasks = 0, protectedSnapshots = protectedExisting.length+manualQuantity.length;
       for (const weekly of weeklyRows) {

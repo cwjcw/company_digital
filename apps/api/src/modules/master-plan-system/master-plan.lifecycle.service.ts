@@ -30,9 +30,9 @@ export async function assertMpsLifecycleSyncReady(manager: Pick<EntityManager, '
         // A concurrent lifecycle command cannot pass between the guard and projection writes.
         const [row] = await manager.query(`WITH lifecycle_rows AS MATERIALIZED (
           SELECT COALESCE(to_jsonb(p)->>'lifecycle_status','ACTIVE') status FROM ${table} p WHERE p.tenant_id=$1 FOR SHARE
-        ) SELECT count(*)::integer count FROM lifecycle_rows WHERE status<>'ACTIVE'`, [tenant]);
+        ) SELECT count(*)::integer count FROM lifecycle_rows WHERE status IN ('ON_HOLD','CANCELLED')`, [tenant]);
         if (Number(row?.count) > 0)
-            throw new ConflictException(`LIFECYCLE_BLOCKED: ${resource}存在暂停、取消或来源待确认计划；本阶段不自动重激活或级联处理`);
+            throw new ConflictException(`LIFECYCLE_BLOCKED: ${resource}存在暂停或取消计划；本阶段不自动重激活或级联处理`);
     }
 }
 @Injectable()
@@ -146,11 +146,11 @@ export class MasterPlanLifecycleService {
         const inbound: Row[] = await m.query(`SELECT r.source_database,r.source_system,r.source_id,f.received_quantity FROM erp_staging_raw_records r
       JOIN finished_goods_inbound f ON f.source_database=r.source_database AND f.source_system=r.source_system AND f.source_key=r.source_id
       AND f.sales_order_number=r.order_number AND f.inventory_code=r.item_code
-      WHERE r.tenant_id=$1 AND r.order_number=$2 AND r.item_code=$3 AND r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b'
+      WHERE r.tenant_id=$1 AND regexp_replace(btrim(r.order_number),'^2301-','')=regexp_replace(btrim($2),'^2301-','') AND r.item_code=$3 AND r.record_type='INBOUND_LINE' AND r.source_table='ST_RDRecord_b'
       AND r.order_link_stable=true AND r.status_code='189' AND f.received_quantity<>0 ORDER BY r.source_database,r.source_system,r.source_id,f.received_quantity`, [t, plan.order_number, plan.item_code]);
         const [divisionInfo] = await m.query('SELECT name FROM organization_units WHERE id=$1::uuid', [plan.division_id]);
         const unresolvedInbound: Row[] = await m.query(`SELECT source_database,source_system,source_id,order_link_stable,status_code FROM erp_staging_raw_records
-      WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND record_type='INBOUND_LINE'
+      WHERE tenant_id=$1 AND regexp_replace(btrim(order_number),'^2301-','')=regexp_replace(btrim($2),'^2301-','') AND item_code=$3 AND record_type='INBOUND_LINE'
       AND (order_link_stable IS DISTINCT FROM true OR status_code IS DISTINCT FROM '189') ORDER BY source_database,source_system,source_id`, [t, plan.order_number, plan.item_code]);
         const quantity = String(resource === 'mps-monthly-plans' ? plan.required_quantity : plan.planned_quantity);
         const hasInbound = inbound.length > 0 || monthly.some(p => new Decimal(p.cumulative_inbound_quantity ?? 0).gt(0)) || weekly.some(p => new Decimal(p.allocated_inbound_quantity ?? 0).gt(0));
@@ -169,7 +169,8 @@ export class MasterPlanLifecycleService {
             if (resource !== 'mps-monthly-plans' && (monthly.length !== 1 || monthly[0]?.lifecycle_status !== 'ACTIVE'))
                 blockers.push('完整上游月度需求尚未确认有效，禁止直接取消或恢复');
             for (const month of monthly) {
-                const demand = allocations.filter(a => a.archived_at == null && new Decimal(a.allocated_quantity ?? 0).gt(0)
+                const demand = allocations.filter(a => a.archived_at == null && (new Decimal(a.allocated_quantity ?? 0).gt(0)
+                    || (new Decimal(month.required_quantity ?? 0).isZero() && a.id === month.allocation_id && new Decimal(a.allocated_quantity ?? 0).isZero()))
                     && a.order_number === month.order_number && a.item_code === month.item_code && a.division_id === month.division_id);
                 if (!demand.some(a => a.id === month.allocation_id) || demand.some(a => a.manually_maintained !== true || !a.customer_code?.trim() || a.customer_code !== month.customer_code)
                     || !demand.reduce((n,a) => n.plus(a.allocated_quantity),new Decimal(0)).eq(month.required_quantity))
@@ -199,7 +200,7 @@ export class MasterPlanLifecycleService {
         ${resource === 'mps-monthly-plans' ? '' : 'AND delivery_number=$6'} AND lifecycle_status IN ('ACTIVE','ON_HOLD') LIMIT 1`, resource === 'mps-monthly-plans' ? [t, id, plan.order_number, plan.item_code, plan.division_id] : [t, id, plan.order_number, plan.item_code, plan.division_id, plan.delivery_number]);
             if (duplicate.length)
                 blockers.push('存在新的重复有效计划，禁止直接恢复或取消归属不明需求');
-            if (hasInbound)
+            if (hasInbound && !(operation === 'RESTORE' && status === 'LEGACY_RETAINED'))
                 blockers.push('存在真实入库关联；请先完成库存业务核验，可选择暂停');
             if (unresolvedInbound.length)
                 blockers.push('存在来源或状态尚未确认的入库关联，可选择暂停后核验');
