@@ -26,6 +26,7 @@ integration('pending lifecycle SQL: absent120 and protected ancestry', () => {
         weekly_plan_id uuid,process_code text,process_name text,execution_enabled boolean DEFAULT true,
         created_by uuid,created_at timestamptz,updated_by uuid,updated_at timestamptz);
       CREATE TABLE mps_process_reports(tenant_id text,weekly_plan_id uuid,process_code text,division_id uuid,production_quantity numeric);
+      CREATE UNIQUE INDEX uq_test_monthly_business_key ON mps_monthly_plans(tenant_id,order_number,item_code,division_id) NULLS NOT DISTINCT;
       INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code) SELECT 'SYN-PENDING','SYN-'||n,'ITEM' FROM generate_series(1,8000)n;
       INSERT INTO mps_shipping_plans(tenant_id,monthly_plan_id) SELECT tenant_id,id FROM mps_monthly_plans;
       INSERT INTO mps_base_plans(tenant_id,shipping_plan_id) SELECT tenant_id,id FROM mps_shipping_plans;
@@ -58,6 +59,23 @@ integration('pending lifecycle SQL: absent120 and protected ancestry', () => {
     await db.query("UPDATE mps_weekly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE order_number='SYN-4'");
     expect(await db.query(query(), ['SYN-PENDING'])).toEqual([{ count: 2 }]);
     expect(await db.query(query(), ['OTHER-TENANT'])).toEqual([{ count: 0 }]);
+  });
+  it('keeps large active histories on indexed monthly ancestry lookups', async () => {
+    await db.query(`INSERT INTO mps_monthly_plans(tenant_id,order_number,item_code,division_id,lifecycle_status)
+      SELECT 'SYN-PENDING','ACTIVE-'||n,'ITEM',NULL,'ACTIVE' FROM generate_series(8001,12000)n;
+      INSERT INTO mps_weekly_plans(tenant_id,base_plan_id,order_number,item_code,item_name,delivery_number,planned_quantity,manufacturing_method,lifecycle_status)
+      SELECT 'SYN-PENDING',NULL,'ACTIVE-'||n,'ITEM','合成品项',1,10,'自制','ACTIVE' FROM generate_series(8001,12000)n;
+      INSERT INTO mps_weekly_process_plans(tenant_id,weekly_plan_id,process_code,process_name)
+      SELECT 'SYN-PENDING',id,'bending','折弯' FROM mps_weekly_plans WHERE order_number LIKE 'ACTIVE-%';
+      ANALYZE mps_monthly_plans; ANALYZE mps_weekly_plans; ANALYZE mps_weekly_process_plans;`);
+    const [row] = await db.query('EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) ' + query(), ['SYN-PENDING']);
+    const plans = (p: any): any[] => [p, ...(p.Plans ?? []).flatMap(plans)];
+    const nodes = plans(row['QUERY PLAN'][0].Plan);
+    const monthlyChecks = nodes.filter(p => p.Alias === 'lifecycle_month');
+    expect(monthlyChecks.length).toBeGreaterThan(0);
+    expect(monthlyChecks.every(p => p['Node Type'] !== 'Seq Scan')).toBe(true);
+    expect(nodes.some(p => p['Index Name'] === 'uq_test_monthly_business_key')).toBe(true);
+    expect(await db.query(query(), ['SYN-PENDING'])).toEqual([{ count: 4002 }]);
   });
   it('keeps cancellation blocking with a partial schema instead of treating it as absent', async () => {
     await db.query('ALTER TABLE mps_base_plans DROP COLUMN lifecycle_status; ALTER TABLE mps_monthly_plans DROP COLUMN lifecycle_status');

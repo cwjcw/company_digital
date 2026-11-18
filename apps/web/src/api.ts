@@ -57,7 +57,11 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   let response: Response;
   try { response = await fetch(`${API_ROOT}${path}`, { ...init, headers }); }
-  catch (error) { throw connectionError(error); }
+  catch (error) {
+    /* Query/request cancellation is control flow, not evidence of a timeout. */
+    if (String((error as { name?: unknown })?.name) === "AbortError") throw error;
+    throw connectionError(error);
+  }
   if (response.status === 401 && !retried && await refreshAccessToken()) return api<T>(path, init, true);
   if (!response.ok) {
     let details: any;

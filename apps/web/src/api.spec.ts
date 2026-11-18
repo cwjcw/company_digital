@@ -58,6 +58,11 @@ describe("api response parsing", () => {
     await expect(api("/auth/preferences/table-config")).rejects.toMatchObject({ status: 0, message: "请求超时，请稍后重试" });
   });
 
+  it("preserves caller cancellation instead of labeling it a timeout", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("aborted", "AbortError"));
+    await expect(api("/auth/preferences/table-config")).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("normalizes a connection failure during token refresh without leaking token values", async () => {
     localStorage.setItem("refreshToken", "private-refresh");
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 401 })).mockRejectedValueOnce(new TypeError("Failed to fetch"));
