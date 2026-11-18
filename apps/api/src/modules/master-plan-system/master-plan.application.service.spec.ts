@@ -66,6 +66,7 @@ describe("MasterPlanApplicationService imports", () => {
   it("generates a three-digit delivery code in the backend and rejects manual PATCH", async () => {
     const inserted = { id: "22222222-2222-4222-8222-222222222222", version: 1, order_number: "SO-1", item_code: "ITEM-1", delivery_number: "001" };
     const query = jest.fn(async (sql: string) => {
+      if (sql.includes("FROM mps_order_allocations") && sql.includes("allocated_quantity>0")) return [{ id: "33333333-3333-4333-8333-333333333333", division_id: "44444444-4444-4444-8444-444444444444" }];
       if (sql.includes("INSERT INTO mps_delivery_code_counters")) return [{ generated: "1" }];
       if (sql.startsWith("INSERT INTO mps_base_plans")) return [inserted];
       return [];
@@ -75,6 +76,7 @@ describe("MasterPlanApplicationService imports", () => {
     const values = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
 
     await expect(service.create("mps-base-plans", values, actor)).resolves.toEqual(expect.objectContaining({ delivery_number: "001" }));
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM mps_order_allocations") && String(sql).includes("order_number=$2 AND item_code=$3"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("pg_advisory_xact_lock"))).toBe(true);
     await expect(service.update("mps-base-plans", inserted.id, { deliveryNumber: "002", expectedVersion: 1 }, actor)).rejects.toThrow("字段 deliveryNumber 不允许写入");
   });
@@ -207,6 +209,33 @@ describe("MasterPlanApplicationService imports", () => {
     await expect(service.create("mps-base-plans", {
       ...common, latestReviewDueDate: "2026-09-20", productAttribute: "玻璃", modelAge: "新", surfaceNature: "烤漆", manufacturingMethod: "自制"
     }, actor)).rejects.toThrow("产品属性只能选择：五金、木作、亚克力、五金+木作、其他、五金+亚克力、塑料");
+  });
+
+  it("rejects new base plans without an exact active allocation in both API and Excel confirm paths", async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const manager = { query };
+    const service = new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), query, manager } as never, { processOutbox: jest.fn() } as never);
+    const values = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+
+    await expect(service.create("mps-base-plans", values, actor)).rejects.toThrow("基础计划必须关联同租户、同订单号和品项编码的有效订单分配");
+    await expect(service.importUpdates("mps-base-plans", [{ row: 2, id: null, expectedVersion: null, values }], "a".repeat(64), actor)).rejects.toThrow("基础计划必须关联同租户、同订单号和品项编码的有效订单分配");
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO mps_base_plans/.test(String(sql)))).toBe(false);
+  });
+
+  it("rejects ambiguous allocation divisions and rejects a selected division with no exact allocation", async () => {
+    const values = { orderNumber: "SO-1", itemCode: "ITEM-1", latestCustomerDueDate: "2026-10-01", plannedQuantity: 1, latestReviewDueDate: "2026-09-20", productAttribute: "五金", surfaceNature: "烤漆", manufacturingMethod: "自制" };
+    const makeService = (allocations: unknown[]) => {
+      const query = jest.fn(async (sql: string) => sql.includes("FROM mps_order_allocations") ? allocations : []);
+      const manager = { query };
+      return { service: new MasterPlanApplicationService({ transaction: (work: (value: typeof manager) => unknown) => work(manager), query, manager } as never, { processOutbox: jest.fn() } as never), query };
+    };
+    const ambiguous = makeService([
+      { id: "33333333-3333-4333-8333-333333333333", division_id: "44444444-4444-4444-8444-444444444444" },
+      { id: "55555555-5555-4555-8555-555555555555", division_id: "66666666-6666-4666-8666-666666666666" }
+    ]);
+    await expect(ambiguous.service.create("mps-base-plans", values, actor)).rejects.toThrow("存在多个承接事业部");
+    const mismatch = makeService([]);
+    await expect(mismatch.service.create("mps-base-plans", { ...values, divisionId: "44444444-4444-4444-8444-444444444444" }, actor)).rejects.toThrow("基础计划必须关联同租户、同订单号和品项编码的有效订单分配");
   });
 
   describe("dictionary values outside the field options", () => {

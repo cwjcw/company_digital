@@ -421,6 +421,7 @@ export class MasterPlanApplicationService {
     const result = await this.translateDatabaseError(() => this.dataSource.transaction(async (manager) => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [actor.tenantId]);
       if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName,values.divisionId);
+      if (code === "mps-base-plans") await this.assertBasePlanAllocation(manager, values, actor.tenantId);
       const columns = columnsFor(resource);
       await this.assignDeliveryCode(resource, values, actor.tenantId, manager, actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID);
       const actorId = actor.userId ?? MASTER_PLAN_SYSTEM_USER_ID;
@@ -1011,6 +1012,7 @@ export class MasterPlanApplicationService {
           const values = this.writable(resource, input.values, actor, "create");
           this.validateRequiredOnCreate(resource, values);
           if(code==="mps-order-allocations")await this.assertAllocationVendorTarget(manager,values.supplierName,values.divisionId);
+          if (code === "mps-base-plans") await this.assertBasePlanAllocation(manager, values, actor.tenantId);
           await this.fillReportSource(resource, values, actor.tenantId, manager, shippingMonthlyPlanIds);
           this.assertCreateScope(resource, this.toDatabaseRecord(resource, values), actor);
           this.validateCrossFields(resource, this.toDatabaseRecord(resource, values));
@@ -1240,6 +1242,26 @@ export class MasterPlanApplicationService {
     for (const field of resource.requiredOnCreate ?? []) {
       if (values[field] == null || values[field] === "") throw new BadRequestException(`${this.label(resource, field)}不能为空`);
     }
+  }
+
+  /** New manual/imported base plans must originate from one active positive allocation.
+   * Resolve a missing division only when the exact order+item has one unambiguous division.
+   * The row lock keeps the allocation valid through the base-plan insert transaction.
+   */
+  private async assertBasePlanAllocation(manager: EntityManager, values: Record<string, unknown>, tenantId: string) {
+    const orderNumber = String(values.orderNumber ?? "").trim();
+    const itemCode = String(values.itemCode ?? "").trim();
+    const requestedDivision = values.divisionId == null || values.divisionId === "" ? null : String(values.divisionId);
+    const allocations = await manager.query(`SELECT id,division_id FROM mps_order_allocations
+      WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3 AND archived_at IS NULL
+        AND allocated_quantity>0
+      ${requestedDivision ? "AND division_id=$4::uuid" : ""} ORDER BY id FOR SHARE`,
+      requestedDivision ? [tenantId, orderNumber, itemCode, requestedDivision] : [tenantId, orderNumber, itemCode]);
+    const divisions = [...new Set(allocations.map((row: Record<string, unknown>) => String(row.division_id ?? "")))].filter(Boolean);
+    if (!allocations.length || !divisions.length) throw new BadRequestException("基础计划必须关联同租户、同订单号和品项编码的有效订单分配");
+    if (requestedDivision && !divisions.includes(requestedDivision)) throw new BadRequestException("基础计划承接事业部与有效订单分配不一致");
+    if (!requestedDivision && divisions.length !== 1) throw new BadRequestException("该订单和品项存在多个承接事业部，请明确选择与订单分配一致的事业部");
+    values.divisionId = requestedDivision ?? divisions[0];
   }
 
   private validateRequiredOnUpdate(resource: MasterPlanResource, values: Record<string, unknown>, current: Record<string, unknown>) {
