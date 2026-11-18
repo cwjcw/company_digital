@@ -15,7 +15,7 @@ export class ErpSyncFailureNotifications1722920133000 implements MigrationInterf
     await queryRunner.query(`INSERT INTO notification_rules(
         tenant_id,rule_key,name,event_type,channel,resource,recipient_rule,module_code,enabled,config,created_by,updated_by
       ) VALUES('KAINAN','erp.sync.failed.cui-weijie','ERP同步失败通知崔玮杰','erp.sync.failed','WECHAT_WORK',
-        'erp-order-sync','FIXED_USERS','data-operations',true,$1::jsonb,NULL,'system')
+        'erp-order-sync','FIXED_USERS','data-operations',true,$1::jsonb,NULL,NULL)
       ON CONFLICT(tenant_id,rule_key) DO UPDATE SET
         name=EXCLUDED.name,event_type=EXCLUDED.event_type,channel=EXCLUDED.channel,
         resource=EXCLUDED.resource,recipient_rule=EXCLUDED.recipient_rule,module_code=EXCLUDED.module_code,
