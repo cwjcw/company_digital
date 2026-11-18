@@ -19,7 +19,7 @@ export class ErpSyncFailureNotifications1722920133000 implements MigrationInterf
       ON CONFLICT(tenant_id,rule_key) DO UPDATE SET
         name=EXCLUDED.name,event_type=EXCLUDED.event_type,channel=EXCLUDED.channel,
         resource=EXCLUDED.resource,recipient_rule=EXCLUDED.recipient_rule,module_code=EXCLUDED.module_code,
-        enabled=true,config=EXCLUDED.config,updated_by='system',updated_at=now(),version=notification_rules.version+1`, [config]);
+        enabled=true,config=EXCLUDED.config,updated_by=NULL,updated_at=now(),version=notification_rules.version+1`, [config]);
     await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_notification_erp_sync_failure_rule
       ON notification_rules(tenant_id,event_type) WHERE event_type='erp.sync.failed'`);
   }
