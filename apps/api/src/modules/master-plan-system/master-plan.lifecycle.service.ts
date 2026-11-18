@@ -111,9 +111,10 @@ export class MasterPlanLifecycleService {
         if (!monthly.length && base.length) {
             const source = base[0];
             monthly = await m.query(`SELECT m.* FROM mps_monthly_plans m WHERE m.tenant_id=$1 AND (
-        m.id=(SELECT s.monthly_plan_id FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND s.id=$2::uuid)
-        OR (NOT EXISTS(SELECT 1 FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND s.id=$2::uuid AND s.monthly_plan_id IS NOT NULL)
-          AND m.order_number=$3 AND m.item_code=$4 AND m.division_id IS NOT DISTINCT FROM $5::uuid)) ORDER BY m.id${suffix}`, [t, source.shipping_plan_id, source.order_number, source.item_code, source.division_id]);
+        ($6::uuid IS NOT NULL AND m.id=$6::uuid)
+        OR ($6::uuid IS NULL AND m.id=(SELECT s.monthly_plan_id FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND s.id=$2::uuid))
+        OR ($6::uuid IS NULL AND NOT EXISTS(SELECT 1 FROM mps_shipping_plans s WHERE s.tenant_id=$1 AND s.id=$2::uuid AND s.monthly_plan_id IS NOT NULL)
+          AND m.order_number=$3 AND m.item_code=$4 AND m.division_id IS NOT DISTINCT FROM $5::uuid)) ORDER BY m.id${suffix}`, [t, source.shipping_plan_id, source.order_number, source.item_code, source.division_id, source.monthly_plan_id]);
         }
         if (resource === 'mps-monthly-plans')
             base = await m.query(`SELECT b.* FROM mps_base_plans b LEFT JOIN mps_shipping_plans s ON s.tenant_id=b.tenant_id AND s.id=b.shipping_plan_id
@@ -166,7 +167,9 @@ export class MasterPlanLifecycleService {
             blockers.push('当前生命周期不允许该转换；历史保留计划须先核实来源并确认有效');
         const source = resource === 'mps-weekly-plans' ? base : resource === 'mps-base-plans' ? monthly : allocations.filter(a => a.archived_at == null && new Decimal(a.allocated_quantity ?? 0).gt(0));
         if (operation !== 'HOLD') {
-            if (resource !== 'mps-monthly-plans' && (monthly.length !== 1 || monthly[0]?.lifecycle_status !== 'ACTIVE'))
+            const restorableLegacyParent = resource === 'mps-base-plans' && operation === 'RESTORE'
+                && monthly.length === 1 && monthly[0]?.lifecycle_status === 'LEGACY_RETAINED';
+            if (resource !== 'mps-monthly-plans' && (monthly.length !== 1 || (monthly[0]?.lifecycle_status !== 'ACTIVE' && !restorableLegacyParent)))
                 blockers.push('完整上游月度需求尚未确认有效，禁止直接取消或恢复');
             for (const month of monthly) {
                 const demand = allocations.filter(a => a.archived_at == null && (new Decimal(a.allocated_quantity ?? 0).gt(0)
@@ -185,7 +188,9 @@ export class MasterPlanLifecycleService {
                     blockers.push('当前计划数量与上游有效需求冲突');
             }
             else {
-                if (source.length !== 1 || source[0]?.lifecycle_status !== 'ACTIVE' || source[0]?.order_number !== plan.order_number || source[0]?.item_code !== plan.item_code || source[0]?.division_id !== plan.division_id)
+                const sourceRestorable = resource === 'mps-base-plans' && operation === 'RESTORE'
+                    && source.length === 1 && source[0]?.lifecycle_status === 'LEGACY_RETAINED';
+                if (source.length !== 1 || (source[0]?.lifecycle_status !== 'ACTIVE' && !sourceRestorable) || source[0]?.order_number !== plan.order_number || source[0]?.item_code !== plan.item_code || source[0]?.division_id !== plan.division_id)
                     blockers.push('上游计划来源不唯一、不活动或历史身份冲突');
                 else if (!new Decimal(source[0].planned_quantity ?? source[0].required_quantity).eq(quantity))
                     blockers.push('当前计划数量与上游计划数量冲突');

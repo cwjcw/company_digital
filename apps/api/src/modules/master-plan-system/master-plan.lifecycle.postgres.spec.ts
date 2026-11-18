@@ -126,6 +126,8 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     await db.query("INSERT INTO finished_goods_inbound(source_database,source_system,source_key,sales_order_number,inventory_code,received_quantity)VALUES('synthetic','E10','inbound-1','2301-SYN-ORDER','SYN-ITEM',2)");
     const monthPreview=await lifecycle.preview('mps-monthly-plans',monthly.id,'RESTORE',actor());
     expect(monthPreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
+    const baseBeforeParentRestore=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',actor());
+    expect(baseBeforeParentRestore).toMatchObject({allowed:true,facts:{hasInbound:true}});
     await lifecycle.confirm('mps-monthly-plans',monthly.id,input(monthPreview),actor());
     const basePreview=await lifecycle.preview('mps-base-plans',base.id,'RESTORE',actor());
     expect(basePreview).toMatchObject({allowed:true,facts:{hasInbound:true}});
