@@ -2,7 +2,7 @@ import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { abnormalCostResources, tablePermissionFieldsFor } from '@kdos/contracts';
 import { TableFilterRegistry } from '../../common/filtering/table-filter.registry';
-import { costAssert, costColumns, costScope } from './abnormal-cost.policy';
+import { costAssert, costCan, costColumns, costField, costScope } from './abnormal-cost.policy';
 import { costUuid } from './abnormal-cost.domain';
 import { AbnormalCostApplicationService } from './abnormal-cost.application.service';
 @Injectable()
@@ -13,7 +13,7 @@ export class AbnormalCostFilterSources implements OnModuleInit {
     this.registry.register({code,table:resource.table,columns:costColumns(code),fields:tablePermissionFieldsFor(code),
       expressions:code==='abnormal-responsibility-requests'?{responsibility_judgments:'NULL::jsonb'}:code==='abnormal-responsibility-judgments'?{abnormal_request_link:"'/workflow/abnormal-cost/requests/'||record.request_id::text"}:{},
       defaultSort:{field:'createdAt',order:'desc',stableColumns:['id']},exportFilename:()=>`${resource.kind}.xlsx`,exportNullAsBlank:true,exportExactNumbers:true,
-      authorize:actor=>costAssert(actor,code,'read'),buildScope:(actor,params,action)=>costScope(actor,code,action??'read',params),
+      authorize:actor=>costAssert(actor,code,'read'),canReadResource:actor=>costCan(actor,code,'read'),fieldReadPermission:(actor,key)=>costField(actor,code,key,'read'),buildScope:(actor,params,action)=>costScope(actor,code,action??'read',params),
       buildContext:(context,params)=>{
         if(code!=='abnormal-responsibility-judgments'||!context.requestId)return '1=1';params.push(costUuid(context.requestId));return `record.request_id=$${params.length}::uuid`;
       },

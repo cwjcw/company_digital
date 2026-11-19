@@ -36,7 +36,7 @@ export class TableFilterController {
     const context = { ...this.context(query.context), ...(query.view === "PENDING" ? { view: "PENDING" } : {}) };
     const source = { ...registeredSource, ...registeredSource.candidateVariant?.(context) };
     source.authorize?.(actor);
-    this.assertReadResource(actor, source.code);
+    this.assertReadResource(actor, source.code, source.canReadResource?.(actor));
     // Candidate requests always use the field candidate contract below. listRows
     // is a paginated report API and must never be returned from this endpoint.
     const params: unknown[] = [actor.tenantId];
@@ -55,12 +55,12 @@ export class TableFilterController {
     const currentField = String(query.currentHeaderField ?? query.field ?? "");
     const withoutSelf = this.withoutHeaderField(header, currentField);
     const group: ParsedFilterGroup = { logic: "AND", rules: [], groups: [advanced, withoutSelf] };
-    const compiler = new SqlFilterCompiler(source.fields, this.expressions(source), (key) => this.canReadField(actor, source.code, key));
+    const compiler = new SqlFilterCompiler(source.fields, this.expressions(source), (key) => this.canReadField(actor, source.code, key, source));
     clauses.push(compiler.compile(group, params));
     const result = await this.candidates.resolveWithMeta(String(query.field ?? ""), query.search, query.limit, {
       fields: source.fields,
       expressions: this.expressions(source),
-      canReadField: (key) => this.canReadField(actor, source.code, key),
+      canReadField: (key) => this.canReadField(actor, source.code, key, source),
       scopedSource: `${source.table} record`,
       scopedWhere: clauses.filter((clause) => clause !== "true").join(" AND "),
       scopedParams: params,
@@ -97,13 +97,13 @@ export class TableFilterController {
     const actor = this.actor(request);
     const source = this.registry.get(String(query.resource ?? ""));
     source.authorize?.(actor);
-    this.assertReadResource(actor, source.code);
+    this.assertReadResource(actor, source.code, source.canReadResource?.(actor));
     if(source.listRows){
       const pageSize=normalizeKdosPageSize(query.pageSize),page=Math.max(Number(query.page)||1,1);
       const sortKey=String(query.sortField??'');
       if(sortKey&&!source.fields.some(f=>f.key===sortKey))throw new BadRequestException('排序字段无效');
-      if(sortKey&&!this.canReadField(actor,source.code,sortKey))throw new ForbiddenException('当前权限组不能按该字段排序');
-      const fieldKeys=source.fields.filter(f=>this.canReadField(actor,source.code,f.key)).map(f=>f.key);
+      if(sortKey&&!this.canReadField(actor,source.code,sortKey,source))throw new ForbiddenException('当前权限组不能按该字段排序');
+      const fieldKeys=source.fields.filter(f=>this.canReadField(actor,source.code,f.key,source)).map(f=>f.key);
       const result=await source.listRows({actor,page,pageSize,search:String(query.search??'').trim(),filterGroup:query.filterGroup,sortField:query.sortField,sortOrder:query.sortOrder,context:this.context(query.context),fieldKeys,action:'read'});
       const readable=new Set(['id','version',...fieldKeys]);
       return {...result,rows:result.rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>readable.has(key)))),page,pageSize};
@@ -124,7 +124,7 @@ export class TableFilterController {
       const compiler = new SqlFilterCompiler(
         source.fields,
         this.expressions(source),
-        (key: string) => this.canReadField(actor, source.code, key),
+        (key: string) => this.canReadField(actor, source.code, key, source),
         (column: string) => column
       );
       clauses.push(compiler.compile(query.filterGroup, params));
@@ -134,16 +134,16 @@ export class TableFilterController {
     const sortColumn = source.columns[sortKey] ?? source.expressions?.[sortKey];
     const sortAlias = source.sortAliases?.[sortKey];
     if (sortKey && (!sortColumn && !sortAlias || !source.fields.some((field) => field.key === (sortAlias?.permissionField ?? sortKey)))) throw new BadRequestException("排序字段无效");
-    if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey)) throw new ForbiddenException("当前权限组不能按该字段排序");
+    if (sortKey && !this.canReadField(actor, source.code, sortAlias?.permissionField ?? sortKey, source)) throw new ForbiddenException("当前权限组不能按该字段排序");
     const sortExpression = sortKey ? sortAlias?.expression ?? this.expressions(source)[sortKey] : undefined;
-    const orderBy = registeredOrderBy(source, sortExpression, query.sortOrder, key => this.canReadField(actor, source.code, key))
+    const orderBy = registeredOrderBy(source, sortExpression, query.sortOrder, key => this.canReadField(actor, source.code, key, source))
       ?? `${sortExpression ?? (source.columns.id ? "record.id" : "record.ctid")} ${String(query.sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC"} NULLS LAST`;
     const pageSize = normalizeKdosPageSize(query.pageSize);
     const page = Math.max(Number(query.page) || 1, 1);
     const selected = [
       /* id/version 是受控并发元数据，不进入字段权限、筛选、打印或业务列，但已获 resource read 时列表必须返回。 */
-      ...Object.entries(source.columns).filter(([key]) => ["id", "version"].includes(key) || this.canReadField(actor, source.code, key)).map(([key, column]) => `record.${column} AS "${key}"`),
-      ...Object.entries(source.expressions ?? {}).filter(([key]) => !source.columns[key] && this.canReadField(actor, source.code, key)).map(([key, expression]) => `${expression} AS "${key}"`)
+      ...Object.entries(source.columns).filter(([key]) => ["id", "version"].includes(key) || this.canReadField(actor, source.code, key, source)).map(([key, column]) => `record.${column} AS "${key}"`),
+      ...Object.entries(source.expressions ?? {}).filter(([key]) => !source.columns[key] && this.canReadField(actor, source.code, key, source)).map(([key, expression]) => `${expression} AS "${key}"`)
     ];
     if (!selected.length) throw new ForbiddenException("当前权限组没有可读字段");
     const run = source.runQuery ?? ((sql: string, values: unknown[]) => this.dataSource.query(sql, values));
@@ -164,9 +164,9 @@ export class TableFilterController {
   private searchExpressions(source: ReturnType<TableFilterRegistry["get"]>, actor: TableFilterActor): string[] {
     return [
       ...(source.searchColumns ?? this.defaultSearchColumns(source))
-        .filter((key) => this.canReadField(actor, source.code, key))
+        .filter((key) => this.canReadField(actor, source.code, key, source))
         .map((key) => this.expressions(source)[key]),
-      ...(source.searchAliases ?? []).filter((alias) => this.canReadField(actor, source.code, alias.permissionField)).map((alias) => alias.expression)
+      ...(source.searchAliases ?? []).filter((alias) => this.canReadField(actor, source.code, alias.permissionField, source)).map((alias) => alias.expression)
     ].filter((expression): expression is string => Boolean(expression));
   }
 
@@ -180,15 +180,17 @@ export class TableFilterController {
     } catch { throw new BadRequestException("表格上下文格式无效"); }
   }
 
-  private canReadField(actor: TableFilterActor, resource: string, key: string) {
+  private canReadField(actor: TableFilterActor, resource: string, key: string, source?: { fieldReadPermission?: (actor: TableFilterActor, key: string) => boolean }) {
     const definition = tableResourceRegistry.find((item) => item.code === resource);
     return actor.isSystemAdmin === true || actor.permissions.includes("*")
       || Boolean(definition && actor.moduleAdminCodes?.includes(definition.moduleCode))
-      || actor.permissions.includes(`${resource}:${key}:read`);
+      || actor.permissions.includes(`${resource}:${key}:read`)
+      || source?.fieldReadPermission?.(actor, key) === true;
   }
 
-  private assertReadResource(actor: TableFilterActor, resource: string) {
+  private assertReadResource(actor: TableFilterActor, resource: string, dynamicallyAllowed = false) {
     if (actor.isSystemAdmin === true || actor.permissions.includes("*") || actor.permissions.includes(`${resource}:*:read`)) return;
+    if (dynamicallyAllowed) return;
     throw new ForbiddenException("当前权限组没有此表的查看权限");
   }
 
@@ -252,6 +254,7 @@ export class TableFilterController {
   private async referenceCandidates(referenceResource: string, binding: { valueField?: string; labelField?: string } | undefined, term: string, size: number, actor: TableFilterActor) {
     const target = this.registry.get(referenceResource);
     target.authorize?.(actor);
+    this.assertReadResource(actor,target.code,target.canReadResource?.(actor));
     const params: unknown[] = [actor.tenantId];
     let clause = this.scopedWhere(target, await target.buildScope(actor, params));
     /* 标签列来自字段显式 labelField 或目标资源的标签定义；缺失时直接拒绝，不允许猜测。 */

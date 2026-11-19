@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { abnormalSeverityOptions, type AbnormalCostResource } from '@kdos/contracts';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../storage/object-storage';
 import { NotificationService } from '../notifications/notification.service';
-import { costAssert, costCan, costCrop, costField, costResource, costScope, costWriteFields, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
+import { costAdmin, costAssert, costCan, costCrop, costField, costResource, costScope, costWriteFields, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
 import { costDecimal, costText, costUuid, normalizeAllocations, parseCostDetail } from './abnormal-cost.domain';
 
 const REQUEST='abnormal-responsibility-requests',JUDGMENT='abnormal-responsibility-judgments';
@@ -141,7 +141,10 @@ export class AbnormalCostApplicationService {
     await this.notifications.enqueueEvent(actor.tenantId,{eventType:'workflow.abnormal.judgment_assigned',channel:'WECHAT_WORK',dedupKey:`abnormal-judge:${judgment.id}:v${judgment.version}`,payload:{...row,judgmentId:judgment.id,judgeUserId:judgment.judge_user_id,link:`${base}/workflow/abnormal-cost/judgments/${judgment.id}`},createdBy:actor.userId},m);
   }
   async updateJudgment(id:string,body:CostRow,actor:AbnormalActor,manager?:EntityManager){
-    const {expectedVersion,complete=false,...input}=body;if(expectedVersion==null)throw new BadRequestException('请提供记录版本');if(typeof complete!=='boolean')throw new BadRequestException('完成标记无效');if(complete&&(!costField(actor,JUDGMENT,'responsibility_allocations','update')||!costField(actor,JUDGMENT,'responsibility_allocations','read')))throw new ForbiddenException('没有责任划分提交权限');costWriteFields(actor,JUDGMENT,input,false);
+    const {expectedVersion,complete=false,...input}=body;if(expectedVersion==null)throw new BadRequestException('请提供记录版本');if(typeof complete!=='boolean')throw new BadRequestException('完成标记无效');if(complete&&(!costField(actor,JUDGMENT,'responsibility_allocations','update')||!costField(actor,JUDGMENT,'responsibility_allocations','read')))throw new ForbiddenException('没有责任划分提交权限');
+    const assigneeOnly=!costAdmin(actor)&&!actor.permissions.includes(`${JUDGMENT}:*:update`);
+    if(assigneeOnly&&Object.keys(input).some(key=>!['responsibility_allocations','responsibility_reason','judgment_evidence'].includes(key)))throw new ForbiddenException('判定人只能维护本人记录的责任划分、说明和证据');
+    costWriteFields(actor,JUDGMENT,input,false);
     const work=async(m:EntityManager)=>{
       // Lock parent first across all child commands to avoid delete/update deadlocks.
       const [link]=await m.query('SELECT request_id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,costUuid(id)]);if(!link)throw new NotFoundException('记录不存在');
@@ -161,7 +164,9 @@ export class AbnormalCostApplicationService {
       const allocations=normalizeAllocations(input.responsibility_allocations??old.responsibility_allocations,adminId,complete||old.judgment_status==='COMPLETED');
       const previous:CostRow[]=old.responsibility_allocations;
       if(Array.isArray(input.responsibility_allocations)&&input.responsibility_allocations.some((row:CostRow)=>row.id&&!previous.some(p=>p.id===row.id)))throw new BadRequestException('责任划分新增行不能指定内部ID');
-      if(previous.some(p=>!allocations.some(a=>a.id===p.id)))await this.locked(m,JUDGMENT,id,'delete',actor);
+      // Assignment gives the judge update rights over their own embedded rows;
+      // delegated table editors still need the explicit delete action.
+      if(previous.some(p=>!allocations.some(a=>a.id===p.id))&&!assigneeOnly)await this.locked(m,JUDGMENT,id,'delete',actor);
       for(const allocation of allocations){const retained=previous.some(row=>row.id===allocation.id&&row.responsible_user_id===allocation.responsible_user_id&&row.personnel_type===allocation.personnel_type);if(!retained)await this.activeUser(m,allocation.responsible_user_id,actor,'责任人员',allocation.personnel_type==='一线员工');}
       const evidence=await this.attachmentIds(m,input.judgment_evidence??old.judgment_evidence,'EVIDENCE',actor,old.judgment_evidence);
       const result=await this.persist(m,JUDGMENT,id,{...config,responsibility_allocations:allocations,responsibility_reason:costText(Object.hasOwn(input,'responsibility_reason')?input.responsibility_reason:old.responsibility_reason,'责任划分理由'),judgment_evidence:evidence,judgment_status:complete?'COMPLETED':old.judgment_status},actor);

@@ -38,6 +38,13 @@ describe('Abnormal cost business forms',()=>{
     fireEvent.change(estimated,{target:{value:'200'}});await waitFor(()=>expect(confirmed).toHaveValue('1,500.00'));
   });
   it('does not offer create or import actions to a read-only member',async()=>{localStorage.setItem('sessionUser',JSON.stringify({permissions:['abnormal-categories:*:read']}));page('categories');expect(screen.queryByRole('button',{name:/新增/})).not.toBeInTheDocument();expect(screen.queryByText('导入')).not.toBeInTheDocument();});
+  it('opens the independent judgment table for assigned members without global table permission',async()=>{
+    localStorage.setItem('sessionUser',JSON.stringify({sub:'assigned-user'}));page('judgments');
+    await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining('/table-filters/rows?resource=abnormal-responsibility-judgments')));
+    expect(screen.queryByText('没有此页面的访问权限')).not.toBeInTheDocument();
+    cleanup();localStorage.setItem('sessionUser',JSON.stringify({sub:'assigned-user'}));page('judgments');
+    await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining('/table-filters/rows?resource=abnormal-responsibility-judgments')));
+  });
   it('keeps the company assignee read-only and hides row deletion without delete permission',async()=>{
     function TestForm(){const [form]=Form.useForm();return <Form form={form} initialValues={{responsibility_allocations:[{id:'row-1',personnel_type:'公司',company_description:'公司',responsible_user_id:'admin',personnel_level:'经理',responsibility_ratio:'100.0',adjusted_ratio:'100.0'}]}}><ResponsibilityAllocationEditor form={form} options={options} canDelete={false}/></Form>;}
     render(<App><TestForm/></App>);await screen.findByText('责任比例合计：100.0%；申诉后责任比例合计：100.0%');expect(screen.queryByLabelText('删除责任划分第1行')).not.toBeInTheDocument();expect(screen.getByText('合成管理员（admin）').closest('.ant-select')).toHaveClass('ant-select-disabled');expect(screen.getByRole('button',{name:/添加/})).toBeInTheDocument();

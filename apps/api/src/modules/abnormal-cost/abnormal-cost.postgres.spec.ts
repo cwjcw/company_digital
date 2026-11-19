@@ -57,6 +57,20 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).responsibility_judgments).toHaveLength(1);
     const claims=await notifications.claimForDispatcher(tenant,'isolated-dispatcher');expect(claims).toHaveLength(1);expect(claims[0].content).toContain(r.abnormal_no);expect(claims[0].content).toContain('品质');expect(claims[0].content).toContain('/workflow/abnormal-cost/judgments/');expect(claims[0].recipients[0]).toMatchObject({userId:judge,wechatUserId:'wx-judge'});
   });
+  it('creates one independent judgment per submitted responsibility row, preserving duplicate categories and nullable ratios',async()=>{
+    const base=body();const rows=[
+      {category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:'60'},
+      {category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:'40'},
+      {category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:null}
+    ];
+    const parent=await app.createRequest({...base,responsibility_judgments:rows},'three-judgments',actor);
+    const children=await db.query('SELECT id,request_id,judgment_no,category_id,judgment_department_id,judge_user_id,expense_bearing_ratio,judgment_status FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid ORDER BY judgment_no',[tenant,parent.id]);
+    expect(children).toHaveLength(3);
+    expect(children.map((row:CostRow)=>row.judgment_no)).toEqual([`${parent.abnormal_no}01`,`${parent.abnormal_no}02`,`${parent.abnormal_no}03`]);
+    expect(children.every((row:CostRow)=>row.request_id===parent.id&&row.category_id===category&&row.judgment_department_id===department&&row.judge_user_id===judge&&row.judgment_status==='PENDING')).toBe(true);
+    expect(children.map((row:CostRow)=>row.expense_bearing_ratio)).toEqual([60,40,null]);
+    expect(await db.query("SELECT id FROM notification_outbox WHERE tenant_id=$1 AND event_type='workflow.abnormal.judgment_assigned'",[tenant])).toHaveLength(3);
+  });
   it('allocates unique three-digit numbers under concurrent requests and rejects exhausted counters without partial rows',async()=>{
     const created=await Promise.all(Array.from({length:8},()=>create()));expect(new Set(created.map(r=>r.abnormal_no)).size).toBe(8);expect(created.every(r=>/\d{3}$/.test(r.abnormal_no))).toBe(true);
     await db.query('UPDATE abnormal_cost_counters SET last_number=999');await expect(create()).rejects.toThrow('三位异常编号已耗尽');expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(8);
@@ -92,10 +106,32 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     await expect(app.detail('abnormal-responsibility-requests',r.id,assigned)).rejects.toThrow('没有此表');
     await expect(app.detail('abnormal-responsibility-judgments',child.id,{...actor,tenantId:'OTHER'})).rejects.toThrow('无权操作');
     await expect(app.remove('abnormal-responsibility-judgments',child.id,1,assigned)).rejects.toThrow('没有此表');
-    await expect(app.updateJudgment(child.id,{expectedVersion:1,responsibility_reason:'试写'},{...assigned,permissions:assigned.permissions.filter(p=>p!=='abnormal-responsibility-judgments:responsibility_reason:update')})).rejects.toThrow('无字段编辑权限');
     await expect(app.remove('abnormal-categories',category,1,actor)).rejects.toThrow('已被引用');
     await expect(app.remove('abnormal-responsibility-judgments',child.id,1,actor)).rejects.toThrow('至少保留');
     await app.updateJudgment(child.id,{expectedVersion:1,complete:true,responsibility_allocations:allocations()},assigned);
+  });
+  it('grants an assigned judge access only to their own judgment without a global permission grant',async()=>{
+    const r=await app.createRequest({...body(),responsibility_judgments:[
+      {category_id:category,judgment_department_id:department,judge_user_id:judge},
+      {category_id:category,judgment_department_id:department,judge_user_id:other}
+    ]},'assignment-scope',actor);
+    const assigned:AbnormalActor={...actor,userId:judge,isSystemAdmin:false,permissions:[]};
+    expect((await app.detail('abnormal-responsibility-judgments',r.judgments[0].id,assigned)).id).toBe(r.judgments[0].id);
+    await expect(app.detail('abnormal-responsibility-judgments',r.judgments[1].id,assigned)).rejects.toThrow('无权操作');
+    const registry=new TableFilterRegistry();new AbnormalCostFilterSources(registry,db,app).onModuleInit();
+    const controller=new TableFilterController({} as never,registry,{} as never,db),previous=process.env.KDOS_DEFAULT_TENANT_CODE;process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
+    try{
+      const listed=await controller.rows({resource:'abnormal-responsibility-judgments',page:'1',pageSize:'50'},{user:{sub:judge,permissions:[]}} as never);
+      expect(listed.total).toBe(1);expect(listed.rows).toHaveLength(1);expect(listed.rows[0]).toMatchObject({id:r.judgments[0].id,judge_user_id:judge});
+      const otherListed=await controller.rows({resource:'abnormal-responsibility-judgments',page:'1',pageSize:'50'},{user:{sub:other,permissions:[]}} as never);
+      expect(otherListed.total).toBe(1);expect(otherListed.rows[0]).toMatchObject({id:r.judgments[1].id,judge_user_id:other});
+    }finally{if(previous==null)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=previous;}
+    await expect(app.detail('abnormal-responsibility-requests',r.id,assigned)).rejects.toThrow('没有此表');
+    await expect(app.updateJudgment(r.judgments[0].id,{expectedVersion:1,judge_user_id:other},assigned)).rejects.toThrow('只能维护本人记录');
+    await expect(app.remove('abnormal-responsibility-judgments',r.judgments[0].id,1,assigned)).rejects.toThrow('没有此表');
+    const completed=await app.updateJudgment(r.judgments[0].id,{expectedVersion:1,complete:true,responsibility_allocations:allocations()},assigned);
+    expect(completed.judgment_status).toBe('COMPLETED');
+    expect((await app.detail('abnormal-responsibility-judgments',r.judgments[0].id,assigned)).responsibility_allocations).toHaveLength(1);
   });
   it('blocks forged attachments and deletion of persisted allocation rows without delete permission',async()=>{
     const r=await create(),id=r.judgments[0].id;

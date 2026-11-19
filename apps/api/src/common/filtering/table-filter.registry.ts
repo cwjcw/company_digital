@@ -118,6 +118,8 @@ export type TableFilterSource = {
    * 未提供时按字段读权限判定，与各模块现有 read 权限保持一致。
    */
   authorize?: (actor: TableFilterActor) => void;
+  /** Dynamic read capability; buildScope must still enforce the row boundary. */
+  canReadResource?: (actor: TableFilterActor) => boolean;
   /** 快速搜索使用的列（默认取 text/数字/日期/字典类字段列）。 */
   searchColumns?: string[];
   /** 资源自己的索引匹配搜索谓词；必须在这里检查参与搜索的字段权限。 */

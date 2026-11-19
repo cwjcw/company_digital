@@ -1,4 +1,5 @@
 import { AbnormalCostPage } from './modules/abnormal-cost/AbnormalCostPage';
+import { abnormalJudgmentNavigationItem } from './modules/abnormal-cost/abnormal-cost-navigation';
 import { LogisticsLedgerPage } from "./modules/marketing/LogisticsLedgerPage";
 import { FinanceMovements } from './modules/finance/FinanceMovements';
 import { ReviewDueDates } from './modules/master-plan-system/ReviewDueDates';
@@ -211,6 +212,7 @@ function Shell({ logout }: { logout: () => void }) {
     ...(hasSessionResourcePermission(user, "mps-overview-dashboard", "read") ? [{ key: "/master-plan-reports", icon: <ReadOutlined />, label: "PMC分析明细报表" }] : []),
     ...(hasSessionResourcePermission(user, "mps-division-order-progress", "read") ? [{ key: "pmc-division-order-progress", icon: <FolderOpenOutlined />, label: "生产进度表", children: [{ key: "/pmc/division-order-progress/fourth", icon: <ReadOutlined />, label: "事业四部" }] }] : [])
   ];
+  const abnormalJudgmentMenu = abnormalJudgmentNavigationItem(user);
   const navigationByModule: Record<string, any[]> = {
     knowledge: [],
     finance: [
@@ -290,7 +292,8 @@ function Shell({ logout }: { logout: () => void }) {
         { key: 'workflow-abnormal-base',label:'基础资料',icon:<FolderOpenOutlined/>,children:[
           ...([['abnormal-categories','categories','异常类别'],['incident-severity-levels','severities','事故级别']] as const).filter(([code])=>hasSessionResourcePermission(user,code,'read')||hasSessionResourcePermission(user,code,'create')).map(([,kind,label])=>({key:`/workflow/abnormal-cost/${kind}`,label,icon:<DatabaseOutlined/>}))
         ] },
-        ...(hasSessionResourcePermission(user,'abnormal-responsibility-requests','read')||hasSessionResourcePermission(user,'abnormal-responsibility-requests','create')?[{key:'/workflow/abnormal-cost/requests',label:'发起异常责任判定',icon:<FileExcelOutlined/>}]:[])
+        ...(hasSessionResourcePermission(user,'abnormal-responsibility-requests','read')||hasSessionResourcePermission(user,'abnormal-responsibility-requests','create')?[{key:'/workflow/abnormal-cost/requests',label:'发起异常责任判定',icon:<FileExcelOutlined/>}]:[]),
+        ...(abnormalJudgmentMenu?[{...abnormalJudgmentMenu,icon:<AuditOutlined/>}]:[])
       ] }
     ] }],
     rd: [{ key: "rd-root", label: "研发中心", children: [
@@ -328,7 +331,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/project-task/supervision/tasks": "任务管理", "/project-task/order-projects": "订单项目管理",
       "/master-plan-gaps": "待处理事项大屏", "/master-plan-reports": "PMC分析明细报表", "/master-plan-dashboard": "PMC综合驾驶舱", "/master-plan-order-progress": "在制订单进度", "/pmc/division-order-progress/fourth": "事业四部订单生产进度报表",
       "/equipment-dashboard": "集团设备大屏", "/equipment-register": "设备总台账", "/equipment-status-report": "设备状态填报",
-      "/workflow/abnormal-cost/categories":"异常类别", "/workflow/abnormal-cost/severities":"事故级别", "/workflow/abnormal-cost/requests":"发起异常责任判定",
+      "/workflow/abnormal-cost/categories":"异常类别", "/workflow/abnormal-cost/severities":"事故级别", "/workflow/abnormal-cost/requests":"发起异常责任判定", "/workflow/abnormal-cost/judgments":"责任判定表",
       "/development-requests": "需求提报与审批", "/workflow-settings": "审批流程配置",
       "/master-data": "基础资料维护", "/data-operations": "基础资料维护", "/finished-goods-inbound": "成品入库",
       "/data-center/sales-orders": "订单表", "/data-center/inbound": "入库表", "/data-center/outbound": "出库表",

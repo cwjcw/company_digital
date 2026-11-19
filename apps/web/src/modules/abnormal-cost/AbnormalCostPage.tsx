@@ -16,7 +16,11 @@ type Options={users:Array<{id:string;name:string;username:string;enabled:boolean
 const REQUEST='abnormal-responsibility-requests',JUDGMENT='abnormal-responsibility-judgments';
 const errorText=(error:unknown)=>error instanceof Error?error.message:'操作失败';
 const sessionUser=()=>{try{return JSON.parse(localStorage.getItem('sessionUser')??'{}');}catch{return {};}};
-const canWrite=(code:string,key:string,creating:boolean)=>hasFieldPermission(code,key,'update')||creating&&(hasFieldPermission(code,key,'read')||!hasResourcePermission(code,'read'));
+const ASSIGNEE_EDIT_FIELDS=new Set(['responsibility_allocations','responsibility_reason','judgment_evidence']);
+const hasOwnJudgmentAccess=(code:string)=>code===JUDGMENT&&Boolean(sessionUser().sub??sessionUser().userId);
+const canReadResource=(code:string)=>hasResourcePermission(code,'read')||hasOwnJudgmentAccess(code);
+const canUpdateResource=(code:string)=>hasResourcePermission(code,'update')||hasOwnJudgmentAccess(code);
+const canWrite=(code:string,key:string,creating:boolean)=>hasFieldPermission(code,key,'update')||!creating&&hasOwnJudgmentAccess(code)&&ASSIGNEE_EDIT_FIELDS.has(key)||creating&&(hasFieldPermission(code,key,'read')||!hasResourcePermission(code,'read'));
 function matchAbnormalSeverity(amount:unknown,levels:Options['severities']){
   try{if(amount==null||amount==='')return null;const number=new Decimal(String(amount));const matches=levels.filter(level=>number.gte(level.amount_min)&&number.lte(level.amount_max));return matches.length===1?matches[0]:null;}catch{return null;}
 }
@@ -81,7 +85,7 @@ function fieldLabel(field:TablePermissionFieldDefinition,value:any,options?:Opti
 export function AbnormalCostPage(){
   const {kind='requests',id}=useParams();const def=abnormalCostResources.find(r=>r.kind===kind);
   if(!def)return <Alert type="error" message="页面不存在"/>;
-  if(!hasResourcePermission(def.code,'read')&&!hasResourcePermission(def.code,'create'))return <Alert type="error" message="没有此页面的访问权限"/>;
+  if(def.code===JUDGMENT?!canReadResource(def.code):!hasResourcePermission(def.code,'read')&&!hasResourcePermission(def.code,'create'))return <Alert type="error" message="没有此页面的访问权限"/>;
   return <AbnormalCostTable key={def.code} resource={def.code} initialId={id}/>;
 }
 export function AbnormalCostTable({resource,requestId,initialId}:{resource:AbnormalCostResource;requestId?:string;initialId?:string}){
@@ -89,7 +93,7 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
   const [query,setQuery]=useState<PlatformTableQuery>(()=>blankPlatformQuery());
   const context=requestId?{requestId}:undefined;
   const listUrl=(q:PlatformTableQuery)=>platformRowsUrl(resource,q)+(context?`&context=${encodeURIComponent(JSON.stringify(context))}`:'');
-  const rows=useQuery({queryKey:[...platformRowsKey(resource,query),requestId],queryFn:()=>api<PlatformTablePage<Row>>(listUrl(query)),enabled:hasResourcePermission(resource,'read')});
+  const rows=useQuery({queryKey:[...platformRowsKey(resource,query),requestId],queryFn:()=>api<PlatformTablePage<Row>>(listUrl(query)),enabled:canReadResource(resource)});
   const options=useQuery({queryKey:['abnormal-cost-options'],queryFn:()=>api<Options>('/abnormal-cost/options')});
   const [detail,setDetail]=useState<KdosRecordDetailTarget<Row>|null>(null),[detailQuery,setDetailQuery]=useState(query),[editing,setEditing]=useState<Row|null|undefined>(undefined),[saving,setSaving]=useState(false),[formReady,setFormReady]=useState(false),[form]=Form.useForm();
   const [preview,setPreview]=useState<Row|null>(null),[importing,setImporting]=useState(false),[preparing,setPreparing]=useState(false),[preparedDetail,setPreparedDetail]=useState<FileRef[]>([]),[preparedOther,setPreparedOther]=useState<FileRef[]>([]);const idempotency=useRef(crypto.randomUUID()),confirmedManually=useRef(false);
@@ -148,7 +152,7 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
   const readonlyAllocations=detail?.record.responsibility_allocations;
   return <>
     {rows.error&&<Alert type="error" showIcon message={errorText(rows.error)}/>}
-    <KdosDataTable<Row> resource={resource} rowKey="id" editable={hasResourcePermission(resource,'update')} filterFields={tablePermissionFieldsFor(resource)} printContext={context}
+    <KdosDataTable<Row> resource={resource} rowKey="id" editable={canUpdateResource(resource)} filterFields={tablePermissionFieldsFor(resource)} printContext={context}
       columns={fieldDefs.map(f=>({key:f.key,dataIndex:f.key,title:f.label,width:f.type==='structured'?160:180,render:v=>fieldLabel(f,v,options.data)}))}
       dataSource={rows.data?.rows??[]} loading={rows.isLoading} scroll={{x:'max-content'}} serverData={{total:rows.data?.total??0,onQueryChange:setQuery}}
       toolbar={<Space>{hasResourcePermission(resource,'create')&&(basic||resource===REQUEST)&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>begin(null)}>新增</Button>}
@@ -156,12 +160,12 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
       </Space>}
       deleteAction={hasResourcePermission(resource,'delete')?{permitted:true,onDelete:async selected=>{const result=await deleteTableRowsSequentially(selected,r=>r.id,r=>api(`/abnormal-cost/resources/${resource}/${r.id}?expectedVersion=${r.version}`,{method:'DELETE'}));await refresh();return result;}}:undefined}
       onRecordDoubleClick={onDouble}/>
-    <KdosRecordDetailModal open={Boolean(detail)} target={detail} title={title} onClose={()=>setDetail(null)} onNavigate={navigate} onEdit={hasResourcePermission(resource,'update')?()=>begin(detail!.record):undefined}>
+    <KdosRecordDetailModal open={Boolean(detail)} target={detail} title={title} onClose={()=>setDetail(null)} onNavigate={navigate} onEdit={canUpdateResource(resource)?()=>begin(detail!.record):undefined}>
       {detail&&<>
         <Descriptions bordered size="small" column={2} items={tablePermissionFieldsFor(resource).filter(f=>f.key in detail.record&&!['responsibility_judgments','responsibility_allocations','detail_attachment','other_attachments','judgment_evidence'].includes(f.key)).map(f=>({key:f.key,label:f.label,children:fieldLabel(f,detail.record[f.key],options.data)}))}/>
         {['detail_attachment','other_attachments','judgment_evidence'].filter(key=>Array.isArray(detail.record[key])).map(key=><div key={key}><Typography.Title level={5}>{fieldDefs.find(f=>f.key===key)?.label}</Typography.Title>{detail.record[key].map((file:FileRef)=><Button key={file.id} type="link" onClick={()=>void download(`/abnormal-cost/resources/${resource}/${detail.record.id}/attachments/${file.id}`,file.name).catch(e=>message.error(errorText(e)))}>{file.name}</Button>)}</div>)}
         {Array.isArray(readonlyAllocations)&&<><Typography.Title level={5}>责任划分</Typography.Title><div style={{overflowX:'auto'}}><table className="abnormal-detail-preview"><thead><tr>{['人员类型','一线员工姓名 / 公司说明','责任人员','人员层级','责任比例','申诉后责任比例','备注'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{readonlyAllocations.map((r:Row)=><tr key={r.id}><td>{r.personnel_type}</td><td>{r.frontline_name??r.company_description??'—'}</td><td>{options.data?.users.find(u=>u.id===r.responsible_user_id)?.name??'—'}</td><td>{r.personnel_level}</td><td>{r.responsibility_ratio}%</td><td>{r.adjusted_ratio}%</td><td>{r.remark}</td></tr>)}</tbody></table></div></>}
-        {resource===REQUEST&&'responsibility_judgments' in detail.record&&<><Typography.Title level={5}>责任划分</Typography.Title>{hasResourcePermission(JUDGMENT,'create')&&hasResourcePermission(REQUEST,'update')&&hasFieldPermission(REQUEST,'responsibility_judgments','update')&&<Button onClick={()=>{childKey.current=crypto.randomUUID();childForm.resetFields();setExtraJudgment(true);}}>添加责任判定</Button>}<AbnormalCostTable resource={JUDGMENT} requestId={detail.record.id}/></>}
+        {resource===REQUEST&&'responsibility_judgments' in detail.record&&<><Typography.Title level={5}>责任判定表</Typography.Title>{hasResourcePermission(JUDGMENT,'create')&&hasResourcePermission(REQUEST,'update')&&hasFieldPermission(REQUEST,'responsibility_judgments','update')&&<Button onClick={()=>{childKey.current=crypto.randomUUID();childForm.resetFields();setExtraJudgment(true);}}>添加责任判定</Button>}<AbnormalCostTable resource={JUDGMENT} requestId={detail.record.id}/></>}
       </>}
     </KdosRecordDetailModal>
     <Modal className={resource===REQUEST?'abnormal-request-modal':undefined} open={editing!==undefined} title={editing?'编辑':'新增'} afterOpenChange={open=>{if(open){form.setFieldsValue(editing?{...editing}:resource===REQUEST?{initiator_id:sessionUser().id??sessionUser().sub,responsibility_judgments:[{}]}:{});setFormReady(true);}}} width={resource===REQUEST?1320:resource===JUDGMENT?1250:900} destroyOnHidden maskClosable={false} onCancel={()=>setEditing(undefined)} confirmLoading={saving}
