@@ -86,28 +86,28 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
   const rows=useQuery({queryKey:[...platformRowsKey(resource,query),requestId],queryFn:()=>api<PlatformTablePage<Row>>(listUrl(query)),enabled:canReadResource(resource)});
   const options=useQuery({queryKey:['abnormal-cost-options'],queryFn:()=>api<Options>('/abnormal-cost/options')});
   const [editing,setEditing]=useState<Row|null|undefined>(undefined),[formMode,setFormMode]=useState<'create'|'view'|'edit'>('create'),[saving,setSaving]=useState(false),[formReady,setFormReady]=useState(false),[form]=Form.useForm();
-  const [linkedJudgments,setLinkedJudgments]=useState<Row[]>([]);
+  const [linkedJudgments,setLinkedJudgments]=useState<Row[]>([]),[linkedJudgmentsDirty,setLinkedJudgmentsDirty]=useState(false);
   useEffect(()=>{if(formReady)form.setFieldsValue(editing?{...editing}:resource===REQUEST?{initiator_id:sessionUser().id??sessionUser().sub,responsibility_judgments:[{}]}:{});},[editing,form,formReady,resource]);
   const [preview,setPreview]=useState<Row|null>(null),[importing,setImporting]=useState(false),[preparing,setPreparing]=useState(false),[preparedDetail,setPreparedDetail]=useState<FileRef[]>([]),[preparedOther,setPreparedOther]=useState<FileRef[]>([]);const idempotency=useRef(crypto.randomUUID()),confirmedManually=useRef(false);
   const fieldDefs=abnormalCostFields[resource];
   const refresh=async()=>{await client.invalidateQueries({predicate:q=>String(q.queryKey[0]).startsWith('abnormal-')||['incident-severity-levels','abnormal-cost-options'].includes(String(q.queryKey[0]))});};
-  const begin=(record:Row|null)=>{form.resetFields();confirmedManually.current=false;idempotency.current=crypto.randomUUID();setFormMode(record?'edit':'create');setFormReady(!record);setLinkedJudgments(Array.isArray(record?.responsibility_judgments)?record.responsibility_judgments:record?[]:[{}]);setEditing(record);};
+  const begin=(record:Row|null)=>{form.resetFields();setLinkedJudgmentsDirty(false);confirmedManually.current=false;idempotency.current=crypto.randomUUID();setFormMode(record?'edit':'create');setFormReady(!record);setLinkedJudgments(Array.isArray(record?.responsibility_judgments)?record.responsibility_judgments:record?[]:[{}]);setEditing(record);};
   const beginEdit=async(record:Row)=>{
     setEditing(undefined);setFormReady(false);form.resetFields();
     message.loading({content:'正在读取最新记录…',key:'abnormal-cost-record-load',duration:0});
     try{
       const fresh=await api<Row>(`/abnormal-cost/resources/${resource}/${record.id}`);
-      confirmedManually.current=true;idempotency.current=crypto.randomUUID();setFormMode('edit');if(resource===REQUEST)setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setEditing(fresh);
+      confirmedManually.current=true;idempotency.current=crypto.randomUUID();setFormMode('edit');if(resource===REQUEST){setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setLinkedJudgmentsDirty(false);}setEditing(fresh);
     }catch(error){message.error(`读取最新记录失败，未打开编辑表单：${errorText(error)}`);}finally{message.destroy('abnormal-cost-record-load');}
   };
   const beginView=useCallback(async(record:Row)=>{
     setEditing(undefined);setFormReady(false);form.resetFields();
     message.loading({content:'正在读取最新记录…',key:'abnormal-cost-record-load',duration:0});
-    try{const fresh=await api<Row>(`/abnormal-cost/resources/${resource}/${record.id}`);setFormMode('view');if(resource===REQUEST)setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setEditing(fresh);}
+    try{const fresh=await api<Row>(`/abnormal-cost/resources/${resource}/${record.id}`);setFormMode('view');if(resource===REQUEST){setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setLinkedJudgmentsDirty(false);}setEditing(fresh);}
     catch(error){message.error(`读取最新记录失败，未打开查看表单：${errorText(error)}`);}finally{message.destroy('abnormal-cost-record-load');}
   },[resource,message,form]);
   useEffect(()=>{if(initialId)void beginView({id:initialId,version:0});},[initialId,beginView]); // resource remounts the table at the route boundary
-  const closeEditor=()=>{if(form.isFieldsTouched()){modal.confirm({title:'放弃未保存的修改？',content:'当前修改尚未保存，确定放弃吗？',okText:'放弃修改',cancelText:'继续编辑',onOk:()=>setEditing(undefined)});return;}setEditing(undefined);};
+  const closeEditor=()=>{if(form.isFieldsTouched()||linkedJudgmentsDirty){modal.confirm({title:'放弃未保存的修改？',content:'当前修改尚未保存，确定放弃吗？',okText:'放弃修改',cancelText:'继续编辑',onOk:()=>setEditing(undefined)});return;}setEditing(undefined);};
 
   const save=async(complete=false)=>{
     if(saving||formMode==='view')return;setSaving(true);try{
@@ -118,7 +118,7 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
       if(resource===JUDGMENT){if('judgment_evidence' in body)body.judgment_evidence=(body.judgment_evidence as FileRef[]|undefined)?.map(f=>f.id)??[];body.complete=complete;}
       if(editing)body.expectedVersion=editing.version;
       const route=basic?`/abnormal-cost/resources/${resource}${editing?`/${editing.id}`:''}`:`/abnormal-cost/${resource===REQUEST?'requests':'judgments'}${editing?`/${editing.id}`:''}`;
-      await api(route,{method:editing?'PATCH':'POST',headers:{'Idempotency-Key':idempotency.current},body:JSON.stringify(body)});message.success(complete?'责任判定已完成':'保存成功');setEditing(undefined);await refresh();
+      await api(route,{method:editing?'PATCH':'POST',headers:{'Idempotency-Key':idempotency.current},body:JSON.stringify(body)});message.success(complete?'责任判定已完成':'保存成功');setLinkedJudgmentsDirty(false);setEditing(undefined);await refresh();
     }catch(error){if(error instanceof Error)message.error(error.message);}finally{setSaving(false);}
   };
   const creating=formMode==='create';
@@ -194,15 +194,15 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
             <Form.List key={`${editing?.id??'new'}-${formMode}`} name="responsibility_judgments" initialValue={editing?.responsibility_judgments??[{}]} rules={[{validator:async(_,v)=>{if(!v?.length)throw new Error('至少配置一条责任判定记录');}}]}>{(fields,{add,remove},meta)=><>
               <div className="abnormal-request-judgment-scroll"><table className="abnormal-request-judgment-table"><thead><tr>{['序号','异常类别','判定部门','判定人','承担费用比例','操作'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>
                 {fields.map((field,index)=><tr key={field.key}><td><span>{linkedJudgments[index]?.judgment_no??index+1}</span></td>
-                  <td><Select value={linkedJudgments[index]?.category_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,category_id:value}:child))} disabled={!canWrite(JUDGMENT,'category_id',!editing)} options={options.data?.categories.map(c=>({value:c.id,label:c.category_name}))}/></td>
-                  <td><DepartmentSelect value={linkedJudgments[index]?.judgment_department_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judgment_department_id:value}:child))} disabled={!canWrite(JUDGMENT,'judgment_department_id',!editing)} options={options.data}/></td>
-                  <td><MemberSelect value={linkedJudgments[index]?.judge_user_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judge_user_id:value}:child))} disabled={!canWrite(JUDGMENT,'judge_user_id',!editing)} options={options.data}/></td>
-                  <td><InputNumber value={linkedJudgments[index]?.expense_bearing_ratio} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,expense_bearing_ratio:value}:child))} disabled={!canWrite(JUDGMENT,'expense_bearing_ratio',!editing)} min={0} max={100} precision={0} suffix="%" stringMode style={{width:'100%'}}/></td>
-                  <td>{formMode!=='view'&&fields.length>1&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'delete')&&<Button danger type="text" aria-label={`删除第${index+1}条责任判定`} onClick={()=>{remove(field.name);setLinkedJudgments(current=>current.filter((_,i)=>i!==index));}}>删除</Button>}</td>
+                  <td><Select value={linkedJudgments[index]?.category_id} onChange={value=>{setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,category_id:value}:child));}} disabled={!canWrite(JUDGMENT,'category_id',!editing)} options={options.data?.categories.map(c=>({value:c.id,label:c.category_name}))}/></td>
+                  <td><DepartmentSelect value={linkedJudgments[index]?.judgment_department_id} onChange={value=>{setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judgment_department_id:value}:child));}} disabled={!canWrite(JUDGMENT,'judgment_department_id',!editing)} options={options.data}/></td>
+                  <td><MemberSelect value={linkedJudgments[index]?.judge_user_id} onChange={value=>{setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judge_user_id:value}:child));}} disabled={!canWrite(JUDGMENT,'judge_user_id',!editing)} options={options.data}/></td>
+                  <td><InputNumber value={linkedJudgments[index]?.expense_bearing_ratio} onChange={value=>{setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,expense_bearing_ratio:value}:child));}} disabled={!canWrite(JUDGMENT,'expense_bearing_ratio',!editing)} min={0} max={100} precision={0} suffix="%" stringMode style={{width:'100%'}}/></td>
+                  <td>{formMode!=='view'&&fields.length>1&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'delete')&&<Button danger type="text" aria-label={`删除第${index+1}条责任判定`} onClick={()=>{remove(field.name);setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>current.filter((_,i)=>i!==index));}}>删除</Button>}</td>
                 </tr>)}
               </tbody></table></div>
               <Form.ErrorList errors={meta.errors}/>
-              <div className="abnormal-request-judgment-actions">{formMode!=='view'&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'create')&&<Button icon={<PlusOutlined/>} onClick={()=>{add({});setLinkedJudgments(current=>[...current,{} as Row]);}}>添加责任判定</Button>}<Typography.Text type="secondary">共 {fields.length} 条关联记录</Typography.Text></div>
+              <div className="abnormal-request-judgment-actions">{formMode!=='view'&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'create')&&<Button icon={<PlusOutlined/>} onClick={()=>{add({});setLinkedJudgmentsDirty(true);setLinkedJudgments(current=>[...current,{} as Row]);}}>添加责任判定</Button>}<Typography.Text type="secondary">共 {fields.length} 条关联记录</Typography.Text></div>
             </>}</Form.List>
           </section>}
         </div>:resource===JUDGMENT?<div className="abnormal-judgment-form-layout">

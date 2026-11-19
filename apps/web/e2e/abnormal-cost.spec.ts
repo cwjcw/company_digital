@@ -93,8 +93,10 @@ test('request and judgment rows open fresh edit forms and preserve linked child 
   await requestDialog.getByLabel('异常描述',{exact:true}).fill('修改后异常描述');await requestDialog.locator('.abnormal-request-judgment-table input[role="spinbutton"]').fill('60');
   await requestDialog.getByRole('button',{name:/保\s*存/}).click();await expect(requestDialog).toHaveCount(0);
   expect(saved[0]?.body.responsibility_judgments).toHaveLength(1);expect(saved[0]?.body.responsibility_judgments[0]).toMatchObject({id:childId,version:1,expense_bearing_ratio:'60'});
-  await page.getByRole('button',{name:'编辑',exact:false}).first().click();await expect(page.getByRole('dialog',{name:'编辑',exact:true}).getByLabel('异常描述',{exact:true})).toHaveValue('修改后异常描述');
-  await page.getByRole('button',{name:/取\s*消|关闭/}).click();
+  await page.getByRole('button',{name:'编辑',exact:false}).first().click();const reopenedRequest=page.getByRole('dialog',{name:'编辑',exact:true});await expect(reopenedRequest.getByLabel('异常描述',{exact:true})).toHaveValue('修改后异常描述');
+  await reopenedRequest.locator('.abnormal-request-judgment-table input[role="spinbutton"]').fill('70');await reopenedRequest.getByRole('button',{name:/取\s*消/}).click();
+  const discard=page.getByRole('dialog',{name:'放弃未保存的修改？',exact:true});await discard.getByRole('button',{name:/继续编辑/}).click();await expect(reopenedRequest.locator('.abnormal-request-judgment-table input[role="spinbutton"]')).toHaveValue('70');
+  await reopenedRequest.getByRole('button',{name:/取\s*消/}).click();await page.getByRole('dialog',{name:'放弃未保存的修改？',exact:true}).getByRole('button',{name:/放弃修改/}).click();await expect(reopenedRequest).toHaveCount(0);
   await page.goto('/workflow/abnormal-cost/judgments');await page.getByRole('button',{name:'编辑',exact:false}).first().click();
   const judgmentDialog=page.getByRole('dialog',{name:'编辑',exact:true}),grid=judgmentDialog.locator('.abnormal-judgment-info-grid');
   await expect(judgmentDialog.getByLabel('责任划分理由',{exact:true})).toHaveValue('原判定理由');
