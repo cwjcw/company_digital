@@ -159,6 +159,25 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     const current=await app.detail('abnormal-responsibility-requests',r.id,actor);await app.updateRequest(r.id,{expectedVersion:current.version,confirmed_amount:'1500.00'},actor);
     expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).severity_level_id).toBe(severity.id);
   });
+  it('synchronizes pristine request children atomically and idempotently while preserving child identity and protecting started work',async()=>{
+    const r=await create(),initial=await app.detail('abnormal-responsibility-requests',r.id,actor),child=initial.responsibility_judgments[0];
+    const second={category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:'60'};
+    const change={expectedVersion:initial.version,abnormal_description:'编辑后的异常说明',responsibility_judgments:[{id:child.id,version:child.version,category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:'40'},second]};
+    const saved=await app.updateRequest(r.id,change,actor,undefined,'request-edit-key');expect(saved.version).toBe(initial.version+1);
+    expect((await app.updateRequest(r.id,change,actor,undefined,'request-edit-key') as CostRow).repeated).toBe(true);
+    let all=await db.query('SELECT id,judgment_no,version,expense_bearing_ratio,deleted_at FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid ORDER BY judgment_no',[tenant,r.id]);
+    expect(all).toHaveLength(2);expect(all[0]).toMatchObject({id:child.id,judgment_no:child.judgment_no,expense_bearing_ratio:40});expect(all[1].judgment_no).toBe(`${r.abnormal_no}02`);
+    expect(await db.query("SELECT id FROM notification_outbox WHERE event_type='workflow.abnormal.judgment_assigned'")).toHaveLength(2);
+    const latest=await app.detail('abnormal-responsibility-requests',r.id,actor),kept=latest.responsibility_judgments[0];
+    await app.updateRequest(r.id,{expectedVersion:latest.version,responsibility_judgments:[{id:kept.id,version:kept.version,category_id:kept.category_id,judgment_department_id:kept.judgment_department_id,judge_user_id:kept.judge_user_id,expense_bearing_ratio:kept.expense_bearing_ratio}]},actor,undefined,'request-edit-remove');
+    all=await db.query('SELECT id,deleted_at FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid ORDER BY judgment_no',[tenant,r.id]);expect(all[1].deleted_at).not.toBeNull();expect(all[0].id).toBe(child.id);
+    await app.addJudgment(r.id,second,'add-before-start',actor);
+    const current=await app.detail('abnormal-responsibility-requests',r.id,actor),started=current.responsibility_judgments[0],pristine=current.responsibility_judgments[1];
+    await app.updateJudgment(started.id,{expectedVersion:started.version,responsibility_reason:'已开始处理'},actor);
+    const afterStart=await app.detail('abnormal-responsibility-requests',r.id,actor);
+    await expect(app.updateRequest(r.id,{expectedVersion:afterStart.version,responsibility_judgments:[{id:pristine.id,version:pristine.version,category_id:pristine.category_id,judgment_department_id:pristine.judgment_department_id,judge_user_id:pristine.judge_user_id}]},actor,undefined,'remove-started')).rejects.toThrow('已开始或已完成');
+    expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).responsibility_judgments[0].responsibility_reason).toBe('已开始处理');
+  });
   it('quarantines an undeliverable judge with an explicit recoverable failure log',async()=>{
     await create();await db.query('UPDATE users SET wechat_user_id=NULL WHERE id=$1',[judge]);
     expect(await notifications.claimForDispatcher(tenant,'missing-wechat')).toEqual([]);

@@ -105,16 +105,59 @@ export class AbnormalCostApplicationService {
       await this.audit(m,actor,REQUEST,request.id,'abnormal.request.created',null,{...request,judgmentIds:children.map(c=>c.id)});return {id:request.id,abnormal_no:request.abnormal_no,version:request.version,judgments:children};
     });return manager?work(manager):this.transaction(actor,work);
   }
-  async updateRequest(id:string,body:CostRow,actor:AbnormalActor,manager?:EntityManager){
-    const {expectedVersion,...input}=body;if(expectedVersion==null)throw new BadRequestException('请提供记录版本');costWriteFields(actor,REQUEST,input,false);
-    if('responsibility_judgments' in input)throw new BadRequestException('责任判定记录请通过关联子表独立维护');
+  async updateRequest(id:string,body:CostRow,actor:AbnormalActor,manager?:EntityManager,key?:unknown){
+    const {expectedVersion,responsibility_judgments:children,...input}=body;if(expectedVersion==null)throw new BadRequestException('请提供记录版本');costWriteFields(actor,REQUEST,input,false);
+    const hasChildren=Object.hasOwn(body,'responsibility_judgments');
+    if(hasChildren){costWriteFields(actor,REQUEST,{responsibility_judgments:children},false);if(!Array.isArray(children)||!children.length||children.length>99)throw new BadRequestException('至少保留一条责任判定记录，最多99条');if(typeof key!=='string'||!key.trim())throw new BadRequestException('关联责任判定变更需要Idempotency-Key');}
     const work=async(m:EntityManager)=>{
       const old=await this.locked(m,REQUEST,id,'update',actor,expectedVersion);
       const [completed]=await m.query("SELECT id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL AND judgment_status='COMPLETED' LIMIT 1",[actor.tenantId,id]);
       if(completed&&Object.keys(input).some(k=>!['other_attachments'].includes(k)))throw new ConflictException('已有已完成责任判定，不能修改判责基础信息');
       const values=await this.requestValues(m,input,actor,old),result=await this.persist(m,REQUEST,id,values,actor);
+      if(hasChildren)await this.syncRequestJudgments(m,result,children,actor);
       await this.assertTargetScope(m,REQUEST,id,'update',actor);await this.audit(m,actor,REQUEST,id,'abnormal.request.updated',old,result);return {id,version:result.version};
-    };return manager?work(manager):this.transaction(actor,work);
+    };
+    const command=(m:EntityManager)=>hasChildren?this.idempotent(m,actor,key,body,()=>work(m)):work(m);
+    return manager?command(manager):this.transaction(actor,command);
+  }
+  private async syncRequestJudgments(m:EntityManager,parent:CostRow,submitted:CostRow[],actor:AbnormalActor){
+    if(!costField(actor,REQUEST,'responsibility_judgments','update'))throw new ForbiddenException('无责任划分关联编辑权限');
+    const params:unknown[]=[actor.tenantId,parent.id],scope=costScope(actor,JUDGMENT,'read',params);
+    const visible:CostRow[]=await m.query(`SELECT record.* FROM abnormal_responsibility_judgments record WHERE record.tenant_id=$1 AND record.request_id=$2::uuid AND (${scope}) ORDER BY record.judgment_no FOR UPDATE`,params);
+    const visibleById=new Map(visible.map(row=>[row.id,row]));
+    const ids=submitted.filter(row=>row?.id).map(row=>String(row.id));
+    if(new Set(ids).size!==ids.length)throw new BadRequestException('责任判定记录重复');
+    if(ids.some(childId=>!visibleById.has(childId)))throw new NotFoundException('责任判定记录不存在或无权操作');
+    const retained=new Set(ids);
+    const configKeys=['category_id','judgment_department_id','judge_user_id','expense_bearing_ratio'];
+    for(const row of submitted){
+      if(!row||typeof row!=='object'||Array.isArray(row))throw new BadRequestException('责任判定记录格式无效');
+      const unexpected=Object.keys(row).filter(k=>!['id','version',...configKeys].includes(k));if(unexpected.length)throw new BadRequestException(`发起阶段不能修改字段：${unexpected[0]}`);
+      if(!row.id){if(row.version!=null)throw new BadRequestException('新增责任判定记录不能指定版本');await this.createJudgmentIn(m,parent,row,actor);continue;}
+      const current=visibleById.get(String(row.id))!;
+      const changed:CostRow={};for(const field of configKeys)if(row[field]!==undefined&&String(row[field]??'')!==String(current[field]??''))changed[field]=row[field];
+      if(!Object.keys(changed).length)continue;
+      if(row.version==null)throw new BadRequestException('请提供责任判定记录版本');
+      for(const field of Object.keys(changed))costWriteFields(actor,JUDGMENT,{[field]:changed[field]},false);
+      const old=await this.locked(m,JUDGMENT,current.id,'update',actor,row.version);
+      if(old.judgment_status!=='PENDING'||!this.isPristineJudgment(old))throw new ConflictException(`责任判定 ${old.judgment_no} 已开始或已完成，不能修改配置`);
+      const config=await this.judgmentConfig(m,{...old,...changed},actor,old),next=await this.persist(m,JUDGMENT,old.id,config,actor);
+      await this.assertTargetScope(m,JUDGMENT,old.id,'update',actor);await this.audit(m,actor,JUDGMENT,old.id,'abnormal.judgment.updated',old,next);
+      if(config.judge_user_id!==old.judge_user_id)await this.enqueue(m,next,actor);
+    }
+    for(const old of visible){
+      if(retained.has(old.id))continue;
+      const current=await this.locked(m,JUDGMENT,old.id,'delete',actor,old.version);
+      if(current.judgment_status!=='PENDING'||!this.isPristineJudgment(current))throw new ConflictException(`责任判定 ${current.judgment_no} 已开始或已完成，不能移除`);
+      await this.softDelete(m,JUDGMENT,current.id,actor);await this.audit(m,actor,JUDGMENT,current.id,'abnormal.judgment.deleted',current,null);
+    }
+    const [{count}]=await m.query('SELECT count(*)::int count FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL',[actor.tenantId,parent.id]);
+    if(count<1)throw new ConflictException('异常单至少保留一条责任判定记录');
+  }
+  private isPristineJudgment(row:CostRow){
+    const allocations=Array.isArray(row.responsibility_allocations)?row.responsibility_allocations:[];
+    const evidence=Array.isArray(row.judgment_evidence)?row.judgment_evidence:[];
+    return allocations.length===0&&!String(row.responsibility_reason??'').trim()&&evidence.length===0;
   }
   private async judgmentConfig(m:EntityManager,input:CostRow,actor:AbnormalActor,old?:CostRow){
     const category=costUuid(input.category_id,'异常类别');const [row]=await m.query('SELECT id FROM abnormal_categories WHERE tenant_id=$1 AND id=$2::uuid AND deleted_at IS NULL FOR SHARE',[actor.tenantId,category]);if(!row)throw new BadRequestException('异常类别无效');

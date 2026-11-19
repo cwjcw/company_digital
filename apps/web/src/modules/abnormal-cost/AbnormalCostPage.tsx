@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, App, Button, Descriptions, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, Upload } from 'antd';
-import { DeleteOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, Upload } from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import Decimal from 'decimal.js';
 import { abnormalCostFields, abnormalCostResources, abnormalPersonnelLevels, abnormalPersonnelOptions, tablePermissionFieldsFor, type AbnormalCostResource, type TablePermissionFieldDefinition } from '@kdos/contracts';
 import { api } from '../../api';
-import { KdosDataTable, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission, type KdosRecordDoubleClickContext } from '../../shared/KdosDataTable';
-import { KdosRecordDetailModal, type KdosRecordDetailTarget } from '../../shared/KdosRecordDetailModal';
+import { KdosDataTable, deleteTableRowsSequentially, hasFieldPermission, hasResourcePermission } from '../../shared/KdosDataTable';
 import { blankPlatformQuery, platformRowsKey, platformRowsUrl, type PlatformTablePage, type PlatformTableQuery } from '../../shared/platform-table';
 import './abnormal-cost.css';
 type Row=Record<string,any>&{id:string;version:number};
@@ -38,15 +37,6 @@ function FileInput({value,onChange,purpose,disabled=false,multipleDetail=false}:
     {(value??[]).map(file=><Space key={file.id}><Typography.Text>{file.name}</Typography.Text>{!disabled&&<Button type="link" onClick={()=>onChange?.(value?.filter(v=>v.id!==file.id)??[])}>移除</Button>}</Space>)}
     {purpose==='DETAIL'&&value?.[0]?.parsed_rows&&<div style={{maxHeight:180,overflow:'auto'}}><table className="abnormal-detail-preview"><thead><tr>{Object.keys(value[0].parsed_rows[0]??{}).map(key=><th key={key}>{key}</th>)}</tr></thead><tbody>{value[0].parsed_rows.slice(0,20).map((row,index)=><tr key={index}>{Object.entries(row).map(([key,v])=><td key={key}>{String(v??'')}</td>)}</tr>)}</tbody></table><Typography.Text type="secondary">已校验{value[0].parsed_rows.length}行，预览前20行</Typography.Text></div>}
   </Space>;
-}
-function JudgmentConfigFields({options,base}:{options?:Options;base?:number}){
-  const name=(key:string)=>base==null?key:[base,key];
-  return <>
-    <Form.Item name={name('category_id')} label="异常类别" rules={[{required:true,message:'请选择异常类别'}]}><Select options={options?.categories.map(c=>({value:c.id,label:c.category_name}))}/></Form.Item>
-    <Form.Item name={name('judgment_department_id')} label="判定部门" rules={[{required:true,message:'请选择判定部门'}]}><DepartmentSelect options={options}/></Form.Item>
-    <Form.Item name={name('judge_user_id')} label="判定人" rules={[{required:true,message:'请选择判定人'}]}><MemberSelect options={options}/></Form.Item>
-    <Form.Item name={name('expense_bearing_ratio')} label="承担费用比例"><InputNumber min={0} max={100} precision={0} suffix="%" stringMode/></Form.Item>
-  </>;
 }
 export function ResponsibilityAllocationEditor({options,form,canDelete,disabled=false}:{options?:Options;form:ReturnType<typeof Form.useForm>[0];canDelete:boolean;disabled?:boolean}){
   const {modal}=App.useApp();const rows=Form.useWatch('responsibility_allocations',form)??[];
@@ -89,39 +79,50 @@ export function AbnormalCostPage(){
   return <AbnormalCostTable key={def.code} resource={def.code} initialId={id}/>;
 }
 export function AbnormalCostTable({resource,requestId,initialId}:{resource:AbnormalCostResource;requestId?:string;initialId?:string}){
-  const {message}=App.useApp(),client=useQueryClient(),basic=['abnormal-categories','incident-severity-levels'].includes(resource);
+  const {message,modal}=App.useApp(),client=useQueryClient(),basic=['abnormal-categories','incident-severity-levels'].includes(resource);
   const [query,setQuery]=useState<PlatformTableQuery>(()=>blankPlatformQuery());
   const context=requestId?{requestId}:undefined;
   const listUrl=(q:PlatformTableQuery)=>platformRowsUrl(resource,q)+(context?`&context=${encodeURIComponent(JSON.stringify(context))}`:'');
   const rows=useQuery({queryKey:[...platformRowsKey(resource,query),requestId],queryFn:()=>api<PlatformTablePage<Row>>(listUrl(query)),enabled:canReadResource(resource)});
   const options=useQuery({queryKey:['abnormal-cost-options'],queryFn:()=>api<Options>('/abnormal-cost/options')});
-  const [detail,setDetail]=useState<KdosRecordDetailTarget<Row>|null>(null),[detailQuery,setDetailQuery]=useState(query),[editing,setEditing]=useState<Row|null|undefined>(undefined),[saving,setSaving]=useState(false),[formReady,setFormReady]=useState(false),[form]=Form.useForm();
+  const [editing,setEditing]=useState<Row|null|undefined>(undefined),[formMode,setFormMode]=useState<'create'|'view'|'edit'>('create'),[saving,setSaving]=useState(false),[formReady,setFormReady]=useState(false),[form]=Form.useForm();
+  const [linkedJudgments,setLinkedJudgments]=useState<Row[]>([]);
+  useEffect(()=>{if(formReady)form.setFieldsValue(editing?{...editing}:resource===REQUEST?{initiator_id:sessionUser().id??sessionUser().sub,responsibility_judgments:[{}]}:{});},[editing,form,formReady,resource]);
   const [preview,setPreview]=useState<Row|null>(null),[importing,setImporting]=useState(false),[preparing,setPreparing]=useState(false),[preparedDetail,setPreparedDetail]=useState<FileRef[]>([]),[preparedOther,setPreparedOther]=useState<FileRef[]>([]);const idempotency=useRef(crypto.randomUUID()),confirmedManually=useRef(false);
-  const [extraJudgment,setExtraJudgment]=useState(false),[childForm]=Form.useForm();const childKey=useRef(crypto.randomUUID());
   const fieldDefs=abnormalCostFields[resource];
-  const refresh=async()=>{await client.invalidateQueries({predicate:q=>String(q.queryKey[0]).startsWith('abnormal-')||['incident-severity-levels','abnormal-cost-options'].includes(String(q.queryKey[0]))});if(detail)await openDetail(detail.record.id,detail.index,detail.total);};
-  const openDetail=useCallback(async(id:string,index=1,total=1)=>{try{const record=await api<Row>(`/abnormal-cost/resources/${resource}/${id}`);setDetail({record,index,total});}catch(error){message.error(errorText(error));}},[resource,message]);
-  useEffect(()=>{if(initialId)void openDetail(initialId);},[initialId,openDetail]); // resource remounts the table at the route boundary
-  const begin=(record:Row|null)=>{confirmedManually.current=Boolean(record);idempotency.current=crypto.randomUUID();setFormReady(false);form.resetFields();setEditing(record);};
-
-  const navigate=async(direction:-1|1)=>{
-    if(!detail)return null;const index=detail.index+direction;if(index<1||index>detail.total)return null;
-    const page=Math.ceil(index/detailQuery.pageSize);const result=await api<PlatformTablePage<Row>>(listUrl({...detailQuery,page}));const row=result.rows[(index-1)%detailQuery.pageSize];if(!row)return null;
-    const record=await api<Row>(`/abnormal-cost/resources/${resource}/${row.id}`),target={record,index,total:result.total};setDetail(target);return target;
+  const refresh=async()=>{await client.invalidateQueries({predicate:q=>String(q.queryKey[0]).startsWith('abnormal-')||['incident-severity-levels','abnormal-cost-options'].includes(String(q.queryKey[0]))});};
+  const begin=(record:Row|null)=>{form.resetFields();confirmedManually.current=false;idempotency.current=crypto.randomUUID();setFormMode(record?'edit':'create');setFormReady(!record);setLinkedJudgments(Array.isArray(record?.responsibility_judgments)?record.responsibility_judgments:record?[]:[{}]);setEditing(record);};
+  const beginEdit=async(record:Row)=>{
+    setEditing(undefined);setFormReady(false);form.resetFields();
+    message.loading({content:'正在读取最新记录…',key:'abnormal-cost-record-load',duration:0});
+    try{
+      const fresh=await api<Row>(`/abnormal-cost/resources/${resource}/${record.id}`);
+      confirmedManually.current=true;idempotency.current=crypto.randomUUID();setFormMode('edit');if(resource===REQUEST)setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setEditing(fresh);
+    }catch(error){message.error(`读取最新记录失败，未打开编辑表单：${errorText(error)}`);}finally{message.destroy('abnormal-cost-record-load');}
   };
+  const beginView=useCallback(async(record:Row)=>{
+    setEditing(undefined);setFormReady(false);form.resetFields();
+    message.loading({content:'正在读取最新记录…',key:'abnormal-cost-record-load',duration:0});
+    try{const fresh=await api<Row>(`/abnormal-cost/resources/${resource}/${record.id}`);setFormMode('view');if(resource===REQUEST)setLinkedJudgments(Array.isArray(fresh.responsibility_judgments)?fresh.responsibility_judgments:[]);setEditing(fresh);}
+    catch(error){message.error(`读取最新记录失败，未打开查看表单：${errorText(error)}`);}finally{message.destroy('abnormal-cost-record-load');}
+  },[resource,message,form]);
+  useEffect(()=>{if(initialId)void beginView({id:initialId,version:0});},[initialId,beginView]); // resource remounts the table at the route boundary
+  const closeEditor=()=>{if(form.isFieldsTouched()){modal.confirm({title:'放弃未保存的修改？',content:'当前修改尚未保存，确定放弃吗？',okText:'放弃修改',cancelText:'继续编辑',onOk:()=>setEditing(undefined)});return;}setEditing(undefined);};
+
   const save=async(complete=false)=>{
-    if(saving)return;setSaving(true);try{
+    if(saving||formMode==='view')return;setSaving(true);try{
       const values=await form.validateFields();const body:Record<string,unknown>={};
+      if(resource===REQUEST&&linkedJudgments.some(child=>!child.category_id||!child.judgment_department_id||!child.judge_user_id))throw new Error('请补全每条责任判定的异常类别、判定部门和判定人');
       for(const field of fieldDefs.filter(f=>f.editable&&canWrite(resource,f.key,!editing))){if(values[field.key]!==undefined&&field.key!=='responsibility_judgments')body[field.key]=values[field.key];}
-      if(resource===REQUEST){if(Array.isArray(body.detail_attachment))body.detail_attachment=body.detail_attachment[0]?.id;if('other_attachments' in body)body.other_attachments=(body.other_attachments as FileRef[]|undefined)?.map(f=>f.id)??[];if(!editing)body.responsibility_judgments=values.responsibility_judgments;}
+      if(resource===REQUEST){if(Array.isArray(body.detail_attachment))body.detail_attachment=body.detail_attachment[0]?.id;if('other_attachments' in body)body.other_attachments=(body.other_attachments as FileRef[]|undefined)?.map(f=>f.id)??[];if(canWrite(REQUEST,'responsibility_judgments',!editing))body.responsibility_judgments=linkedJudgments;}
       if(resource===JUDGMENT){if('judgment_evidence' in body)body.judgment_evidence=(body.judgment_evidence as FileRef[]|undefined)?.map(f=>f.id)??[];body.complete=complete;}
       if(editing)body.expectedVersion=editing.version;
       const route=basic?`/abnormal-cost/resources/${resource}${editing?`/${editing.id}`:''}`:`/abnormal-cost/${resource===REQUEST?'requests':'judgments'}${editing?`/${editing.id}`:''}`;
       await api(route,{method:editing?'PATCH':'POST',headers:{'Idempotency-Key':idempotency.current},body:JSON.stringify(body)});message.success(complete?'责任判定已完成':'保存成功');setEditing(undefined);await refresh();
     }catch(error){if(error instanceof Error)message.error(error.message);}finally{setSaving(false);}
   };
-  const title=(record:Row)=>String(record.abnormal_no??record.judgment_no??record.category_name??record.severity_name??'记录详情');
-  const creating=editing===null;
+  const creating=formMode==='create';
+  const canDisplay=(key:string)=>formMode==='view'?hasFieldPermission(resource,key,'read'):canWrite(resource,key,creating);
   const renderInput=(f:TablePermissionFieldDefinition)=>{
     if(f.type==='member')return <MemberSelect options={options.data}/>;
     if(f.type==='department')return <DepartmentSelect options={options.data}/>;
@@ -132,45 +133,38 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
   };
   const renderRequestField=(key:string,className='')=>{
     const field=fieldDefs.find(f=>f.key===key);
-    if(!field||!field.editable||!canWrite(resource,field.key,creating))return null;
+    if(!field||!canDisplay(field.key))return null;
     return <Form.Item className={className} key={field.key} name={field.key} label={field.label} rules={[{required:field.required,message:`请填写${field.label}`},...(field.type==='number'&&['estimated_amount','confirmed_amount'].includes(field.key)?[{validator:async(_:unknown,value:unknown)=>{if(value==null||value==='')return;try{if(new Decimal(String(value)).gt(0))return;}catch{ /* invalid decimals use the same validation message */ }throw new Error('金额必须大于0');}}]:[])]}>{renderInput(field)}</Form.Item>;
   };
   const renderRequestSeverity=()=>hasFieldPermission(REQUEST,'severity_level_id','read')&&<Form.Item className="abnormal-request-severity" noStyle shouldUpdate>{()=>{const severity=matchAbnormalSeverity(form.getFieldValue('confirmed_amount'),options.data?.severities??[]);return <Form.Item label="事故级别"><Input readOnly value={severity?.severity_name??''}/>{!severity&&form.getFieldValue('confirmed_amount')&&<Typography.Text type="danger">请管理员完善事故级别配置</Typography.Text>}</Form.Item>;}}</Form.Item>;
   const renderRequestAttachment=(key:'detail_attachment'|'other_attachments')=>{
     const field=fieldDefs.find(f=>f.key===key);
-    if(!field||!canWrite(resource,key,creating))return null;
+    if(!field||!canDisplay(key))return null;
     return <Form.Item className="abnormal-request-attachment" key={key} label={field.label} required={field.required}>
       <div className="abnormal-request-upload-card">
         <Typography.Text type="secondary">{key==='detail_attachment'?'请使用标准Excel模板，上传后系统会校验内容。':'可上传多个补充资料文件。'}</Typography.Text>
-        <Form.Item name={key} rules={[{required:field.required,message:`请上传${field.label}`}]} noStyle><FileInput purpose={key==='detail_attachment'?'DETAIL':'OTHER'}/></Form.Item>
+        {formMode==='view'?<Space direction="vertical">{(editing?.[key]??[]).map((file:FileRef)=><Button key={file.id} type="link" onClick={()=>void download(`/abnormal-cost/resources/${resource}/${editing!.id}/attachments/${file.id}`,file.name).catch(error=>message.error(errorText(error)))}>{file.name}</Button>)}</Space>:<Form.Item name={key} rules={[{required:field.required,message:`请上传${field.label}`}]} noStyle><FileInput purpose={key==='detail_attachment'?'DETAIL':'OTHER'}/></Form.Item>}
       </div>
     </Form.Item>;
   };
   const importFile=async(file:File)=>{setImporting(true);try{const body=new FormData();body.append('file',file);setPreview(await api<Row>(`/abnormal-cost/resources/${resource}/import-preview`,{method:'POST',body}));}catch(error){message.error(errorText(error));}finally{setImporting(false);}return false;};
   const downloadTemplate=async(mode:string)=>{try{await download(`/abnormal-cost/resources/${resource}/template?${new URLSearchParams({mode,...(requestId?{requestId}:{}),...(query.search?{search:query.search}:{}),...(query.filterGroup?{filterGroup:JSON.stringify(query.filterGroup)}:{})})}`,'abnormal_import_template.xlsx');}catch(error){message.error(errorText(error));}};
-  const onDouble=(record:Row,ctx:KdosRecordDoubleClickContext)=>{setDetailQuery({...query,...ctx});void openDetail(record.id,(ctx.page-1)*ctx.pageSize+ctx.rowIndex+1,ctx.total);};
-  const readonlyAllocations=detail?.record.responsibility_allocations;
+  const onDouble=(record:Row)=>{void beginView(record);};
+  const mayEdit=canUpdateResource(resource)&&fieldDefs.some(f=>f.editable&&canWrite(resource,f.key,false));
   return <>
     {rows.error&&<Alert type="error" showIcon message={errorText(rows.error)}/>}
-    <KdosDataTable<Row> resource={resource} rowKey="id" editable={canUpdateResource(resource)} filterFields={tablePermissionFieldsFor(resource)} printContext={context}
+    <KdosDataTable<Row> resource={resource} rowKey="id" filterFields={tablePermissionFieldsFor(resource)} printContext={context}
       columns={fieldDefs.map(f=>({key:f.key,dataIndex:f.key,title:f.label,width:f.type==='structured'?160:180,render:v=>fieldLabel(f,v,options.data)}))}
       dataSource={rows.data?.rows??[]} loading={rows.isLoading} scroll={{x:'max-content'}} serverData={{total:rows.data?.total??0,onQueryChange:setQuery}}
       toolbar={<Space>{hasResourcePermission(resource,'create')&&(basic||resource===REQUEST)&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>begin(null)}>新增</Button>}
         {hasResourcePermission(resource,'import')&&<><Dropdown menu={{items:[{key:'CREATE',label:'新增数据模板'},{key:'UPDATE',label:'更新已有数据模板',disabled:!hasResourcePermission(resource,'update')||!hasResourcePermission(resource,'batch_update')}],onClick:({key})=>void downloadTemplate(key)}}><Button>下载导入模板</Button></Dropdown><Upload accept=".xlsx" showUploadList={false} beforeUpload={importFile}><Button loading={importing}>导入</Button></Upload>{!basic&&<Button onClick={()=>setPreparing(true)}>准备导入附件</Button>}</>}
       </Space>}
       deleteAction={hasResourcePermission(resource,'delete')?{permitted:true,onDelete:async selected=>{const result=await deleteTableRowsSequentially(selected,r=>r.id,r=>api(`/abnormal-cost/resources/${resource}/${r.id}?expectedVersion=${r.version}`,{method:'DELETE'}));await refresh();return result;}}:undefined}
+      rowActions={mayEdit?record=><Button size="small" icon={<EditOutlined/>} onClick={event=>{event.stopPropagation();void beginEdit(record);}}>编辑</Button>:undefined}
       onRecordDoubleClick={onDouble}/>
-    <KdosRecordDetailModal open={Boolean(detail)} target={detail} title={title} onClose={()=>setDetail(null)} onNavigate={navigate} onEdit={canUpdateResource(resource)?()=>begin(detail!.record):undefined}>
-      {detail&&<>
-        <Descriptions bordered size="small" column={2} items={tablePermissionFieldsFor(resource).filter(f=>f.key in detail.record&&!['responsibility_judgments','responsibility_allocations','detail_attachment','other_attachments','judgment_evidence'].includes(f.key)).map(f=>({key:f.key,label:f.label,children:fieldLabel(f,detail.record[f.key],options.data)}))}/>
-        {['detail_attachment','other_attachments','judgment_evidence'].filter(key=>Array.isArray(detail.record[key])).map(key=><div key={key}><Typography.Title level={5}>{fieldDefs.find(f=>f.key===key)?.label}</Typography.Title>{detail.record[key].map((file:FileRef)=><Button key={file.id} type="link" onClick={()=>void download(`/abnormal-cost/resources/${resource}/${detail.record.id}/attachments/${file.id}`,file.name).catch(e=>message.error(errorText(e)))}>{file.name}</Button>)}</div>)}
-        {Array.isArray(readonlyAllocations)&&<><Typography.Title level={5}>责任划分</Typography.Title><div style={{overflowX:'auto'}}><table className="abnormal-detail-preview"><thead><tr>{['人员类型','一线员工姓名 / 公司说明','责任人员','人员层级','责任比例','申诉后责任比例','备注'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{readonlyAllocations.map((r:Row)=><tr key={r.id}><td>{r.personnel_type}</td><td>{r.frontline_name??r.company_description??'—'}</td><td>{options.data?.users.find(u=>u.id===r.responsible_user_id)?.name??'—'}</td><td>{r.personnel_level}</td><td>{r.responsibility_ratio}%</td><td>{r.adjusted_ratio}%</td><td>{r.remark}</td></tr>)}</tbody></table></div></>}
-        {resource===REQUEST&&'responsibility_judgments' in detail.record&&<><Typography.Title level={5}>责任判定表</Typography.Title>{hasResourcePermission(JUDGMENT,'create')&&hasResourcePermission(REQUEST,'update')&&hasFieldPermission(REQUEST,'responsibility_judgments','update')&&<Button onClick={()=>{childKey.current=crypto.randomUUID();childForm.resetFields();setExtraJudgment(true);}}>添加责任判定</Button>}<AbnormalCostTable resource={JUDGMENT} requestId={detail.record.id}/></>}
-      </>}
-    </KdosRecordDetailModal>
-    <Modal className={resource===REQUEST?'abnormal-request-modal':undefined} open={editing!==undefined} title={editing?'编辑':'新增'} afterOpenChange={open=>{if(open){form.setFieldsValue(editing?{...editing}:resource===REQUEST?{initiator_id:sessionUser().id??sessionUser().sub,responsibility_judgments:[{}]}:{});setFormReady(true);}}} width={resource===REQUEST?1320:resource===JUDGMENT?1250:900} destroyOnHidden maskClosable={false} onCancel={()=>setEditing(undefined)} confirmLoading={saving}
-      footer={<Space><Button onClick={()=>setEditing(undefined)}>取消</Button><Button type="primary" loading={saving} disabled={!formReady} onClick={()=>void save(false)}>{resource===JUDGMENT?'保存判定草稿':resource===REQUEST&&creating?'提交':'保存'}</Button>{resource===JUDGMENT&&canWrite(resource,'responsibility_allocations',false)&&<Button type="primary" loading={saving} disabled={!formReady} onClick={()=>void save(true)}>完成责任判定</Button>}</Space>}>
-      <Form form={form} disabled={!formReady} layout="vertical" preserve={false} onValuesChange={(changed)=>{
+    <Modal className={resource===REQUEST?'abnormal-request-modal':resource===JUDGMENT?'abnormal-judgment-modal':undefined} open={editing!==undefined} title={formMode==='view'?'查看':formMode==='edit'?'编辑':'新增'} afterOpenChange={open=>{if(open&&!formReady)setFormReady(true);}} width={resource===REQUEST?1320:resource===JUDGMENT?1250:900} destroyOnHidden maskClosable={false} onCancel={closeEditor} confirmLoading={saving}
+      footer={<Space><Button onClick={closeEditor}>{formMode==='view'?'关闭':'取消'}</Button>{formMode==='view'&&mayEdit&&<Button type="primary" onClick={()=>{if(editing)void beginEdit(editing);}}>编辑</Button>}{formMode!=='view'&&<><Button type="primary" loading={saving} disabled={!formReady} onClick={()=>void save(false)}>{resource===JUDGMENT?'保存判定草稿':resource===REQUEST&&creating?'提交':'保存'}</Button>{resource===JUDGMENT&&canWrite(resource,'responsibility_allocations',false)&&<Button type="primary" loading={saving} disabled={!formReady} onClick={()=>void save(true)}>完成责任判定</Button>}</>}</Space>}>
+      <Form form={form} disabled={!formReady||formMode==='view'} layout="vertical" preserve={false} onValuesChange={(changed)=>{
         if(changed.estimated_amount!==undefined&&!confirmedManually.current)form.setFieldValue('confirmed_amount',changed.estimated_amount);
       }}>
         {resource===REQUEST?<div className="abnormal-request-form-layout">
@@ -195,30 +189,31 @@ export function AbnormalCostTable({resource,requestId,initialId}:{resource:Abnor
               {renderRequestAttachment('other_attachments')}
             </div>
           </section>
-          {creating&&<section className="abnormal-request-section abnormal-request-judgments-section">
+          {(creating||Array.isArray(editing?.responsibility_judgments))&&hasFieldPermission(REQUEST,'responsibility_judgments','read')&&<section className="abnormal-request-section abnormal-request-judgments-section">
             <Typography.Title level={5}>责任划分</Typography.Title>
-            <Form.List name="responsibility_judgments" rules={[{validator:async(_,v)=>{if(!v?.length)throw new Error('至少配置一条责任判定记录');}}]}>{(fields,{add,remove},meta)=><>
+            <Form.List key={`${editing?.id??'new'}-${formMode}`} name="responsibility_judgments" initialValue={editing?.responsibility_judgments??[{}]} rules={[{validator:async(_,v)=>{if(!v?.length)throw new Error('至少配置一条责任判定记录');}}]}>{(fields,{add,remove},meta)=><>
               <div className="abnormal-request-judgment-scroll"><table className="abnormal-request-judgment-table"><thead><tr>{['序号','异常类别','判定部门','判定人','承担费用比例','操作'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>
-                {fields.map((field,index)=><tr key={field.key}><td>{index+1}</td>
-                  <td><Form.Item name={[field.name,'category_id']} rules={[{required:true,message:'请选择异常类别'}]}><Select options={options.data?.categories.map(c=>({value:c.id,label:c.category_name}))}/></Form.Item></td>
-                  <td><Form.Item name={[field.name,'judgment_department_id']} rules={[{required:true,message:'请选择判定部门'}]}><DepartmentSelect options={options.data}/></Form.Item></td>
-                  <td><Form.Item name={[field.name,'judge_user_id']} rules={[{required:true,message:'请选择判定人'}]}><MemberSelect options={options.data}/></Form.Item></td>
-                  <td><Form.Item name={[field.name,'expense_bearing_ratio']}><InputNumber min={0} max={100} precision={0} suffix="%" stringMode style={{width:'100%'}}/></Form.Item></td>
-                  <td>{fields.length>1&&hasResourcePermission(JUDGMENT,'delete')&&<Button danger type="text" aria-label={`删除第${index+1}条责任判定`} onClick={()=>remove(field.name)}>删除</Button>}</td>
+                {fields.map((field,index)=><tr key={field.key}><td><span>{linkedJudgments[index]?.judgment_no??index+1}</span></td>
+                  <td><Select value={linkedJudgments[index]?.category_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,category_id:value}:child))} disabled={!canWrite(JUDGMENT,'category_id',!editing)} options={options.data?.categories.map(c=>({value:c.id,label:c.category_name}))}/></td>
+                  <td><DepartmentSelect value={linkedJudgments[index]?.judgment_department_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judgment_department_id:value}:child))} disabled={!canWrite(JUDGMENT,'judgment_department_id',!editing)} options={options.data}/></td>
+                  <td><MemberSelect value={linkedJudgments[index]?.judge_user_id} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,judge_user_id:value}:child))} disabled={!canWrite(JUDGMENT,'judge_user_id',!editing)} options={options.data}/></td>
+                  <td><InputNumber value={linkedJudgments[index]?.expense_bearing_ratio} onChange={value=>setLinkedJudgments(current=>current.map((child,i)=>i===index?{...child,expense_bearing_ratio:value}:child))} disabled={!canWrite(JUDGMENT,'expense_bearing_ratio',!editing)} min={0} max={100} precision={0} suffix="%" stringMode style={{width:'100%'}}/></td>
+                  <td>{formMode!=='view'&&fields.length>1&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'delete')&&<Button danger type="text" aria-label={`删除第${index+1}条责任判定`} onClick={()=>{remove(field.name);setLinkedJudgments(current=>current.filter((_,i)=>i!==index));}}>删除</Button>}</td>
                 </tr>)}
               </tbody></table></div>
               <Form.ErrorList errors={meta.errors}/>
-              <div className="abnormal-request-judgment-actions"><Button icon={<PlusOutlined/>} onClick={()=>add({})}>添加责任判定</Button><Typography.Text type="secondary">共 {fields.length} 条关联记录</Typography.Text></div>
+              <div className="abnormal-request-judgment-actions">{formMode!=='view'&&canWrite(REQUEST,'responsibility_judgments',!editing)&&hasResourcePermission(JUDGMENT,'create')&&<Button icon={<PlusOutlined/>} onClick={()=>{add({});setLinkedJudgments(current=>[...current,{} as Row]);}}>添加责任判定</Button>}<Typography.Text type="secondary">共 {fields.length} 条关联记录</Typography.Text></div>
             </>}</Form.List>
           </section>}
-        </div>:<>
-          {fieldDefs.filter(f=>f.editable&&canWrite(resource,f.key,creating)&&!['detail_attachment','other_attachments','judgment_evidence','responsibility_judgments','responsibility_allocations'].includes(f.key)).map(f=><Form.Item key={f.key} name={f.key} label={f.label} rules={[{required:f.required,message:`请填写${f.label}`},...(f.type==='number'&&['estimated_amount','confirmed_amount'].includes(f.key)?[{validator:async(_:unknown,value:unknown)=>{if(value==null||value==='')return;try{if(new Decimal(String(value)).gt(0))return;}catch{ /* invalid decimals use the same validation message */ }throw new Error('金额必须大于0');}}]:[])]}>{renderInput(f)}</Form.Item>)}
-          {resource===JUDGMENT&&<>{fieldDefs.filter(f=>f.type==='attachment'&&canWrite(resource,f.key,creating)).map(f=><Form.Item key={f.key} name={f.key} label={f.label} rules={[{required:f.required,message:`请上传${f.label}`}]}><FileInput purpose="EVIDENCE"/></Form.Item>)}</>}
-          {resource===JUDGMENT&&canWrite(resource,'responsibility_allocations',creating)&&<ResponsibilityAllocationEditor options={options.data} form={form} canDelete={hasResourcePermission(resource,'delete')}/>}
-        </>}
+        </div>:resource===JUDGMENT?<div className="abnormal-judgment-form-layout">
+          <section className="abnormal-judgment-section"><Typography.Title level={5}>判定信息</Typography.Title><div className="abnormal-judgment-info-grid">
+            {fieldDefs.filter(f=>(formMode==='view'?hasFieldPermission(resource,f.key,'read'):f.editable&&canWrite(resource,f.key,creating))&&!['detail_attachment','other_attachments','judgment_evidence','responsibility_judgments','responsibility_allocations'].includes(f.key)).map(f=><Form.Item className={f.key==='responsibility_reason'?'abnormal-judgment-reason':''} key={f.key} name={f.key} label={f.label} rules={[{required:f.required,message:`请填写${f.label}`}]}>{renderInput(f)}</Form.Item>)}
+          </div></section>
+          {canDisplay('judgment_evidence')&&<section className="abnormal-judgment-section abnormal-judgment-evidence"><Typography.Title level={5}>责任判定证据</Typography.Title>{formMode==='view'?<Space direction="vertical">{(editing?.judgment_evidence??[]).map((file:FileRef)=><Button key={file.id} type="link" onClick={()=>void download(`/abnormal-cost/resources/${resource}/${editing!.id}/attachments/${file.id}`,file.name).catch(error=>message.error(errorText(error)))}>{file.name}</Button>)}</Space>:<Form.Item name="judgment_evidence" rules={[{required:false,message:'请上传责任判定证据'}]}><FileInput purpose="EVIDENCE"/></Form.Item>}</section>}
+          {(formMode==='view'?hasFieldPermission(resource,'responsibility_allocations','read'):canWrite(resource,'responsibility_allocations',creating))&&<section className="abnormal-judgment-section abnormal-judgment-allocations"><Typography.Title level={5}>责任划分</Typography.Title><ResponsibilityAllocationEditor options={options.data} form={form} canDelete={formMode!=='view'&&hasResourcePermission(resource,'delete')} disabled={formMode==='view'}/></section>}
+        </div>:<>{fieldDefs.filter(f=>(formMode==='view'?hasFieldPermission(resource,f.key,'read'):f.editable&&canWrite(resource,f.key,creating))&&!['detail_attachment','other_attachments','judgment_evidence','responsibility_judgments','responsibility_allocations'].includes(f.key)).map(f=><Form.Item key={f.key} name={f.key} label={f.label} rules={[{required:f.required,message:`请填写${f.label}`}]}>{renderInput(f)}</Form.Item>)}</>}
       </Form>
     </Modal>
-    <Modal title="新增责任判定" open={extraJudgment} onCancel={()=>setExtraJudgment(false)} confirmLoading={saving} onOk={()=>{if(saving||!detail)return;setSaving(true);void childForm.validateFields().then(body=>api(`/abnormal-cost/requests/${detail.record.id}/judgments`,{method:'POST',headers:{'Idempotency-Key':childKey.current},body:JSON.stringify(body)})).then(async()=>{setExtraJudgment(false);await refresh();}).catch(e=>message.error(errorText(e))).finally(()=>setSaving(false));}}><Form form={childForm} layout="vertical"><JudgmentConfigFields options={options.data}/></Form></Modal>
     <Modal title="准备导入附件" open={preparing} onCancel={()=>setPreparing(false)} footer={<Button onClick={()=>setPreparing(false)}>完成附件准备</Button>}>
       <Alert type="info" message="先上传，Excel附件列填写唯一文件名（多个附件使用JSON字符串数组），服务器校验用途和归属；同名文件会被拒绝。主单责任划分配置及判定责任划分请按模板填写说明填写JSON数组。"/>
       {resource===REQUEST&&canWrite(resource,'detail_attachment',hasResourcePermission(resource,'create'))&&<><Typography.Title level={5}>明细附件</Typography.Title><FileInput value={preparedDetail} onChange={setPreparedDetail} purpose="DETAIL" multipleDetail/></>}

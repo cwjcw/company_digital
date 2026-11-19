@@ -358,6 +358,8 @@ export type KdosDataTableProps<RecordType extends DataRecord> = Omit<TableProps<
   selectable?: boolean;
   /** Optional actions that consume the table's stable, cross-page selection. */
   selectionActions?: (selection: KdosTableSelection<RecordType>) => ReactNode;
+  /** Optional per-row business actions; callers must gate visibility by permission and APIs must recheck authorization. */
+  rowActions?: (record: RecordType) => ReactNode;
   /** Standard destructive action: select records, use the top toolbar, confirm, then call formal application APIs. */
   deleteAction?: KdosTableDeleteAction<RecordType>;
   /** Called on a business row double click; the context is the applied server query and visual page position. */
@@ -448,7 +450,7 @@ function recordKey<RecordType extends DataRecord>(row: RecordType, rowKey: Table
 export function KdosDataTable<RecordType extends DataRecord>({
   resource, columns, dataSource, systemFields = true, toolbar, permissionButtonLabel, searchPlaceholder = "搜索当前表格", searchValue, onSearchValueChange, shellClassName, className, density = "compact", editable = false, simple = false, viewKey, exportFilename, exportWorkflow = "STANDARD",
   advancedFilterFields, initialSort,
-  filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, onRecordDoubleClick,
+  filterFields, onFilterGroupChange, printContext, quickSearch = true, advancedFilterSection, contextFilterGroup, selectable, selectionActions, deleteAction, rowActions, onRecordDoubleClick,
   internalVerticalScroll = false,
   pagination, scroll, serverData, ...tableProps
 }: KdosDataTableProps<RecordType>) {
@@ -828,6 +830,10 @@ export function KdosDataTable<RecordType extends DataRecord>({
     });
     return orderKdosFixedColumns(orderColumns(filterColumns(wrap(allColumns), visible), orderedKeys));
   }, [allColumns, visible, resolvedFilterFields, supportedFilterFields, simple, pinnedKeys, resource, viewKey, sortField, sortOrder, headerFilters, search, filterGroup, headerGroup, contextFilterGroup, printContext, effectiveVisible, columnWidths, orderedKeys]);
+  const tableColumns = rowActions ? [...renderedColumns, {
+    key: "__rowActions", title: "操作", width: 112, fixed: "right" as const,
+    render: (_value: unknown, record: RecordType) => rowActions(record)
+  }] : renderedColumns;
   const displayedExportKeyOrder = displayedExportKeys(renderedColumns);
   const exportFieldOptions = [...displayedExportKeyOrder, ...orderedKeys, ...fields.map(field=>field.key)]
     .filter((key,index,all)=>all.indexOf(key)===index && availableFieldKeys.includes(key))
@@ -1113,7 +1119,7 @@ export function KdosDataTable<RecordType extends DataRecord>({
       onRow={rowEventHandlers}
       rowSelection={effectiveRowSelection}
       dataSource={rows}
-      columns={preferenceLoaded ? renderedColumns : []}
+      columns={preferenceLoaded ? tableColumns : []}
       loading={Boolean(tableProps.loading) || (!simple && !preferenceLoaded)}
       pagination={resolvedPagination}
       scroll={internalVerticalScroll ? (scroll ?? { x: "max-content", y: "calc(100vh - 310px)" }) : { ...(scroll ?? { x: "max-content" }), y: undefined }}

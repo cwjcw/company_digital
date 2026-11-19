@@ -60,6 +60,50 @@ test('request form adapts its columns to the modal content width and keeps its a
   await expect(dialog.getByRole('button',{name:/^提\s*交$/})).toBeVisible();
 });
 
+test('request and judgment rows open fresh edit forms and preserve linked child identity on save',async({page})=>{
+  const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
+  const requestId='019a0000-0000-7000-8000-000000000020',childId='019a0000-0000-7000-8000-000000000021',judgmentId='019a0000-0000-7000-8000-000000000022';
+  const requestRecord:any={id:requestId,version:1,abnormal_no:'YC261118SYN001',customer_code:'SYN-CUSTOMER',order_no:'SYN-ORDER',division_id:department,initiator_id:admin,abnormal_description:'原描述',estimated_amount:'100.00',confirmed_amount:'100.00',severity_level_id:options.severities[0].id,detail_attachment:[{id:attachment,name:'abnormal.xlsx',purpose:'DETAIL'}],other_attachments:[],responsibility_judgments:[{id:childId,version:1,judgment_no:'YC261118SYN00101',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,judgment_status:'PENDING',responsibility_allocations:[],responsibility_reason:'',judgment_evidence:[]}]};
+  const judgmentRecord:any={id:judgmentId,version:1,judgment_no:'YC261118SYN00102',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,abnormal_request_link:'/workflow/abnormal-cost/requests/'+requestId,responsibility_allocations:[],responsibility_reason:'原判定理由',judgment_evidence:[],judgment_status:'PENDING'};
+  const saved:any[]=[];
+  await page.setViewportSize({width:1440,height:900});await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
+  await page.route('**/api/v1/**',async route=>{
+    const request=route.request(),url=new URL(request.url()),path=url.pathname.replace('/api/v1','');
+    if(path==='/auth/me')return route.fulfill({json:user});if(path==='/abnormal-cost/options')return route.fulfill({json:options});
+    if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
+    if(path==='/table-filters/resources')return route.fulfill({json:['abnormal-responsibility-requests','abnormal-responsibility-judgments'].map(code=>({code,filterableFields:[]}))});
+    if(path==='/table-exports/capabilities')return route.fulfill({json:[]});
+    if(path==='/table-filters/rows'){
+      const resource=url.searchParams.get('resource');const row=resource==='abnormal-responsibility-requests'?{...requestRecord,...saved[0]?.requestData}:resource==='abnormal-responsibility-judgments'?judgmentRecord:null;
+      return route.fulfill({json:{rows:row?[{id:row.id,version:row.version,abnormal_no:row.abnormal_no,judgment_no:row.judgment_no,category_id:row.category_id,category_name:'合成品质'}]:[],total:row?1:0,page:1,pageSize:100}});
+    }
+    if(path===`/abnormal-cost/resources/abnormal-responsibility-requests/${requestId}`)return route.fulfill({json:{...requestRecord,...saved[0]?.requestData}});
+    if(path===`/abnormal-cost/resources/abnormal-responsibility-judgments/${judgmentId}`)return route.fulfill({json:judgmentRecord});
+    if(path===`/abnormal-cost/requests/${requestId}`&&request.method()==='PATCH'){
+      const body=request.postDataJSON();saved[0]={requestData:{version:2,abnormal_description:body.abnormal_description},body};return route.fulfill({json:{id:requestId,version:2}});
+    }
+    if(path===`/abnormal-cost/judgments/${judgmentId}`&&request.method()==='PATCH'){
+      saved.push({judgmentBody:request.postDataJSON()});return route.fulfill({json:{id:judgmentId,version:2,judgment_status:'PENDING'}});
+    }
+    if(request.method()!=='GET')return route.abort();return route.fulfill({json:[]});
+  });
+  await page.goto('/workflow/abnormal-cost/requests');await page.getByRole('button',{name:'编辑',exact:false}).first().click();
+  const requestDialog=page.getByRole('dialog',{name:'编辑',exact:true});await expect(requestDialog.getByLabel('异常描述',{exact:true})).toHaveValue('原描述');
+  await expect(requestDialog.locator('.abnormal-request-judgment-table .ant-select-selection-item')).toHaveText(['合成品质','合成事业部','合成管理员（fixture-admin）']);
+  await requestDialog.getByLabel('异常描述',{exact:true}).fill('修改后异常描述');await requestDialog.locator('.abnormal-request-judgment-table input[role="spinbutton"]').fill('60');
+  await requestDialog.getByRole('button',{name:/保\s*存/}).click();await expect(requestDialog).toHaveCount(0);
+  expect(saved[0]?.body.responsibility_judgments).toHaveLength(1);expect(saved[0]?.body.responsibility_judgments[0]).toMatchObject({id:childId,version:1,expense_bearing_ratio:'60'});
+  await page.getByRole('button',{name:'编辑',exact:false}).first().click();await expect(page.getByRole('dialog',{name:'编辑',exact:true}).getByLabel('异常描述',{exact:true})).toHaveValue('修改后异常描述');
+  await page.getByRole('button',{name:/取\s*消|关闭/}).click();
+  await page.goto('/workflow/abnormal-cost/judgments');await page.getByRole('button',{name:'编辑',exact:false}).first().click();
+  const judgmentDialog=page.getByRole('dialog',{name:'编辑',exact:true}),grid=judgmentDialog.locator('.abnormal-judgment-info-grid');
+  await expect(judgmentDialog.getByLabel('责任划分理由',{exact:true})).toHaveValue('原判定理由');
+  const columns=async()=>grid.evaluate(el=>getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
+  await expect.poll(columns).toBe(4);await page.setViewportSize({width:900,height:800});await expect.poll(columns).toBe(2);await page.setViewportSize({width:640,height:700});await expect.poll(columns).toBe(1);
+  await judgmentDialog.getByLabel('责任划分理由',{exact:true}).fill('修改后责任说明');await judgmentDialog.getByRole('button',{name:'保存判定草稿',exact:true}).click();
+  expect(saved.some(row=>row.judgmentBody?.responsibility_reason==='修改后责任说明')).toBe(true);
+});
+
 test('a notification detail target survives login and opens the authorized judgment',async({page})=>{
   const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
   const judgmentId='019a0000-0000-7000-8000-000000000099',path=`/workflow/abnormal-cost/judgments/${judgmentId}`;

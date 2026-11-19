@@ -13,6 +13,23 @@
 .abnormal-request-modal .ant-modal-content { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); border-radius: 16px; overflow: hidden; }
 .abnormal-request-modal .ant-modal-header, .abnormal-request-modal .ant-modal-footer { flex: 0 0 auto; }
 .abnormal-request-modal .ant-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.abnormal-judgment-modal .ant-modal-content { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); border-radius: 16px; overflow: hidden; }
+.abnormal-judgment-modal .ant-modal-header, .abnormal-judgment-modal .ant-modal-footer { flex: 0 0 auto; }
+.abnormal-judgment-modal .ant-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.abnormal-judgment-form-layout { display: flex; flex-direction: column; gap: 18px; }
+.abnormal-judgment-section { min-width: 0; padding: 16px; border: 1px solid var(--ant-color-border-secondary, #f0f0f0); border-radius: 12px; background: #fff; container-type: inline-size; }
+.abnormal-judgment-section > .ant-typography { margin: 0 0 14px; }
+.abnormal-judgment-info-grid { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 19px; row-gap: 0; }
+.abnormal-judgment-info-grid > .ant-form-item { min-width: 0; margin-bottom: 13px; }
+.abnormal-judgment-info-grid .ant-form-item-control, .abnormal-judgment-info-grid .ant-form-item-control-input, .abnormal-judgment-info-grid .ant-form-item-control-input-content { min-width: 0; }
+.abnormal-judgment-info-grid .ant-form-item-control-input { min-height: 40px; }
+.abnormal-judgment-info-grid .ant-input, .abnormal-judgment-info-grid .ant-select-selector, .abnormal-judgment-info-grid .ant-input-number { min-height: 40px; }
+.abnormal-judgment-info-grid .ant-input-number { width: 100%; }
+.abnormal-judgment-info-grid .ant-input-number-input { height: 38px; }
+.abnormal-judgment-info-grid .abnormal-judgment-reason { grid-column: 1 / -1; }
+.abnormal-judgment-info-grid .abnormal-judgment-reason textarea { min-height: 88px; }
+.abnormal-judgment-evidence .ant-form-item { margin-bottom: 0; }
+.abnormal-judgment-allocations { min-width: 0; }
 .abnormal-request-form-layout { display: flex; flex-direction: column; gap: 18px; }
 .abnormal-request-section { min-width: 0; padding: 16px; border: 1px solid var(--ant-color-border-secondary, #f0f0f0); border-radius: 12px; background: #fff; }
 .abnormal-request-basic, .abnormal-request-attachments-section { container-type: inline-size; }
@@ -43,15 +60,19 @@
 
 @container (min-width: 701px) {
   .abnormal-request-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .abnormal-judgment-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .abnormal-request-attachment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container (min-width: 1101px) {
   .abnormal-request-info-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+@container (min-width: 1101px) {
+  .abnormal-judgment-info-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 @media (max-width: 700px) {
-  .abnormal-request-modal.ant-modal { max-width: calc(100vw - 24px); margin: 12px auto; padding-bottom: 0; }
-  .abnormal-request-modal .ant-modal-content { max-height: calc(100dvh - 24px); }
-  .abnormal-request-modal .ant-modal-body { padding: 16px; }
+  .abnormal-request-modal.ant-modal, .abnormal-judgment-modal.ant-modal { max-width: calc(100vw - 24px); margin: 12px auto; padding-bottom: 0; }
+  .abnormal-request-modal .ant-modal-content, .abnormal-judgment-modal .ant-modal-content { max-height: calc(100dvh - 24px); }
+  .abnormal-request-modal .ant-modal-body, .abnormal-judgment-modal .ant-modal-body { padding: 16px; }
   .abnormal-request-section { padding: 12px; }
   .abnormal-request-judgment-actions { align-items: flex-start; flex-direction: column; }
 }

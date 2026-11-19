@@ -33,7 +33,7 @@ export class AbnormalCostController {
   @Get('resources/:resource/:id/attachment-preview/:attachmentId') async attachmentPreview(@Param('resource') code:string,@Param('id') id:string,@Param('attachmentId') attachmentId:string,@Req() req:CostRequest){const file=await this.app.attachment(costResource(code).code,id,attachmentId,this.actor(req));return {rows:file.parsedRows};}
   @Post('requests') createRequest(@Body() body:CostRow,@Req() req:CostRequest){return this.app.createRequest(body,req.headers['idempotency-key'],this.actor(req));}
   @Post('requests/:id/judgments') addJudgment(@Param('id') id:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.addJudgment(id,body,req.headers['idempotency-key'],this.actor(req));}
-  @Patch('requests/:id') updateRequest(@Param('id') id:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.updateRequest(id,body,this.actor(req));}
+  @Patch('requests/:id') updateRequest(@Param('id') id:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.updateRequest(id,body,this.actor(req),undefined,req.headers['idempotency-key']);}
   @Patch('judgments/:id') updateJudgment(@Param('id') id:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.updateJudgment(id,body,this.actor(req));}
   @Post('resources/:resource') createBasic(@Param('resource') code:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.saveBasic(costResource(code).code,null,body,this.actor(req));}
   @Patch('resources/:resource/:id') updateBasic(@Param('resource') code:string,@Param('id') id:string,@Body() body:CostRow,@Req() req:CostRequest){return this.app.saveBasic(costResource(code).code,id,body,this.actor(req));}
