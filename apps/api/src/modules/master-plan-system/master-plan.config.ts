@@ -180,7 +180,13 @@ export function virtualColumns(resource: MasterPlanResource) {
     Object.assign(output, {
       weeklyPlanState: `(CASE WHEN ${linkedWeekly} THEN '已进入周计划' WHEN ${admission} THEN '已具备条件' ELSE '待完善' END)`,
       weeklyPlanMissingFields: `(CASE WHEN ${linkedWeekly} OR ${admission} THEN NULL ELSE ${missing} END)`,
-      weeklyPlanGenerationIssue: `(SELECT event.last_error FROM mps_reconciliation_outbox event WHERE event.tenant_id=record.tenant_id AND event.resource='mps-base-plans' AND event.record_id=record.id AND event.sync_key='base-to-weekly' ORDER BY event.created_at DESC LIMIT 1)`
+      weeklyPlanGenerationIssue: `(SELECT event.last_error FROM mps_reconciliation_outbox event
+        WHERE event.tenant_id=record.tenant_id AND event.resource='mps-base-plans' AND event.record_id=record.id
+          AND event.sync_key='base-to-weekly' AND event.status='FAILED' AND event.last_error IS NOT NULL
+          AND NOT EXISTS(SELECT 1 FROM mps_weekly_plans generated
+            WHERE generated.tenant_id=record.tenant_id AND generated.base_plan_id=record.id
+              AND generated.created_at>event.updated_at)
+        ORDER BY event.created_at DESC LIMIT 1)`
     });
   }
   if (resource.code === "mps-monthly-plans") {

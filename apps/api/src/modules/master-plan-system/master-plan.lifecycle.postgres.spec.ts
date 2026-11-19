@@ -88,6 +88,22 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     expect((await lifecycle.availability('mps-base-plans')).operations.CANCEL).toMatchObject({ writeSupported: false, confirmEnabled: false });
   });
 
+  it('hides a terminal failure older than weekly creation but keeps a new failure after generation',async()=>{
+    const {base,week}=await makePlan();
+    const currentIssue=async()=>{
+      const result=await query.list('mps-base-plans',{},actor());
+      return result.rows.find((row:any)=>row.id===base.id)?.weeklyPlanGenerationIssue;
+    };
+    const before=await db.query('SELECT (SELECT count(*) FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2) weekly,(SELECT count(*) FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$3) tasks',[tenant,base.id,week.id]);
+    await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,status,attempts,last_error,completed_at,created_by,updated_by,created_at,updated_at)
+      VALUES($1,'mps-base-plans',$2,'base-to-weekly',$3,$4,'合成测试','FAILED',10,'LIFECYCLE_BLOCKED: 历史失败',clock_timestamp(),$4,$4,clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour')`,[tenant,base.id,randomUUID(),user]);
+    expect(await currentIssue()).toBeNull();
+    await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,status,attempts,last_error,completed_at,created_by,updated_by)
+      VALUES($1,'mps-base-plans',$2,'base-to-weekly',$3,$4,'合成测试','FAILED',1,'LIFECYCLE_BLOCKED: 新失败',clock_timestamp(),$4,$4)`,[tenant,base.id,randomUUID(),user]);
+    expect(await currentIssue()).toBe('LIFECYCLE_BLOCKED: 新失败');
+    expect(await db.query('SELECT (SELECT count(*) FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2) weekly,(SELECT count(*) FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$3) tasks',[tenant,base.id,week.id])).toEqual(before);
+  });
+
   it.each([
     ['aa_mps_plan_lifecycle', 'mps_base_plans', 'schemaReady'],
     ['trg_mps_report_context', 'mps_process_reports', 'serviceReady']

@@ -88,6 +88,8 @@ describe("MasterPlanQueryService base plan weekly feedback", () => {
     expect(dataSql).toContain("weekly.base_plan_id=record.id");
     expect(dataSql).toContain("FROM mps_reconciliation_outbox event");
     expect(dataSql).toContain("event.record_id=record.id");
+    expect(dataSql).toContain("event.status='FAILED' AND event.last_error IS NOT NULL");
+    expect(dataSql).toContain("generated.created_at>event.updated_at");
     expect(dataSql).toContain("THEN '已进入周计划'");
     expect(dataSql).toContain("NULLIF(btrim(record.latest_review_due_date::text),'') IS NOT NULL");
     expect(dataSql).toContain("'最迟评审交期'");
