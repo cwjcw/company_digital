@@ -2,6 +2,7 @@
 
 - KDOS 默认开发目录、`main` 分支、Worktree 整合及发布后 GitHub 同步遵守 `.agents/skills/kdos-form-platform/SKILL.md` 第 1.1 节；该节适用于所有 KDOS 开发任务。
 - 新建或调整 KDOS 业务表单页面布局时，读取 `.agents/skills/form-layout-design/SKILL.md`；目录即项目 Skill 入口，按其 description 自动识别适用任务。字段、权限和业务规则仍遵守 `kdos-form-platform` 与业务 `docskill`。
+- 新建或修改业务表格行级编辑、新增/查看/编辑弹窗及主子表回填保存时，读取 `.agents/skills/form-modal-edit/SKILL.md`；目录即项目 Skill 入口，按其 description 自动识别适用任务。业务权限、状态和数据生命周期仍遵守 `kdos-form-platform` 与业务 `docskill`。
 
 - Controllers cannot access databases; they call Application or Query Services.
 - Domain code cannot depend on NestJS controllers.
