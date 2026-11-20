@@ -28,7 +28,7 @@ export class AbnormalCostOrders1722920137000 implements MigrationInterface {
         AND NOT EXISTS(SELECT 1 FROM permissions e WHERE e.role_id=p.role_id AND e.resource=p.resource AND e.field_key=f.key)
       RETURNING role_id,resource,field_key,"read","update"
     ) INSERT INTO audit_logs(tenant_id,actor_name,resource,record_id,action,after_json,request_id,source,updated_by)
-      SELECT NULL,'系统迁移','permissions:'||resource,role_id::text,'abnormal.required_fields.inherited',jsonb_build_object('field',field_key,'read',"read",'update',"update"),'migration:AbnormalCostOrders137','system','migration' FROM inserted`);
+      SELECT NULL,'系统迁移','permissions:'||resource,role_id::text,'abnormal.required_fields.inherited',jsonb_build_object('field',field_key,'read',"read",'update',"update"),'migration:AbnormalCostOrders137','api','migration' FROM inserted`);
     const tenants=await r.query('SELECT DISTINCT tenant_id FROM users WHERE tenant_id IS NOT NULL');
     for(const {tenant_id} of tenants){
       await r.query("SELECT set_config('app.tenant_id',$1,true)",[tenant_id]);

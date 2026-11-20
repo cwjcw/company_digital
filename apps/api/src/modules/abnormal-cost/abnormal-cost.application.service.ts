@@ -51,7 +51,7 @@ export class AbnormalCostApplicationService {
         const [dupe]=await m.query('SELECT id FROM abnormal_categories WHERE tenant_id=$1 AND category_name=$2 AND deleted_at IS NULL AND ($3::uuid IS NULL OR id<>$3::uuid)',[actor.tenantId,write.category_name,id]);
         if(dupe)throw new ConflictException('异常类别已存在');
       }else if(code==='abnormal-expense-categories'){
-        write={major_category:costText(values.major_category,'异常大类',100,true),sub_category:costText(values.sub_category,'异常二级分类',100,true),is_enabled:values.is_enabled??true};
+        write={major_category:costText(values.major_category,'异常大类',100,true),sub_category:costText(values.sub_category,'异常二级分类',100,true),is_enabled:values.is_enabled===undefined?true:values.is_enabled};
         if(typeof write.is_enabled!=='boolean')throw new BadRequestException('是否启用必须为开关值');
         const [dupe]=await m.query('SELECT id FROM abnormal_expense_categories WHERE tenant_id=$1 AND major_category=$2 AND sub_category=$3 AND deleted_at IS NULL AND ($4::uuid IS NULL OR id<>$4::uuid)',[actor.tenantId,write.major_category,write.sub_category,id]);
         if(dupe)throw new ConflictException('该异常费用分类已存在');

@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AbnormalOrderReader } from '../../integrations/abnormal-orders/abnormal-order.reader';
 import { NotificationService } from '../notifications/notification.service';
-import { abnormalExpenseCategorySeeds } from '@kdos/contracts';
 import { abnormalOrderSources, mergeOrderSources, normalizeOrderSource } from './abnormal-order.domain';
 
 @Injectable()
@@ -60,15 +59,14 @@ export class AbnormalOrderSyncService {
     await r.query(`INSERT INTO abnormal_cost_order_items(tenant_id,order_no,item_code,item_name,required_quantity,order_date,customer_due_date,source,source_line_ids,conflicts,sync_batch_id,last_synced_at) SELECT $1,s.*,$2::uuid,now() FROM abnormal_order_stage s ON CONFLICT(tenant_id,order_no,item_code) DO NOTHING`,[tenant,runId]);
     await r.query(`UPDATE abnormal_cost_order_items o SET is_active=false,deleted_at=now(),updated_at=now(),version=version+1,sync_batch_id=$2::uuid,last_synced_at=now() WHERE o.tenant_id=$1 AND o.source<>'SYSTEM_FIXED' AND o.is_active AND NOT EXISTS(SELECT 1 FROM abnormal_order_stage s WHERE s.order_no=o.order_no AND s.item_code=o.item_code)`,[tenant,runId]);
     await r.query(`UPDATE abnormal_cost_order_items SET sync_batch_id=$2::uuid,last_synced_at=now() WHERE tenant_id=$1 AND source<>'SYSTEM_FIXED' AND is_active`,[tenant,runId]);
-    // Idempotent initialization never changes existing human-maintained category state.
+    // Only the immutable virtual order is owned by this ERP command. Category
+    // initialization belongs to Migration137 and never undoes administrator edits.
     await r.query(`INSERT INTO abnormal_cost_order_items(tenant_id,order_no,item_code,item_name,required_quantity,order_date,customer_due_date,source) VALUES($1,'虚拟订单','虚拟品号','虚拟品名',0,'2026-01-01','2026-01-01','SYSTEM_FIXED') ON CONFLICT DO NOTHING`,[tenant]);
-    await r.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`abnormal-basic:${tenant}:abnormal-expense-categories`]);
-    for(const [major,sub] of abnormalExpenseCategorySeeds)await r.query('INSERT INTO abnormal_expense_categories(tenant_id,major_category,sub_category) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[tenant,major,sub]);
     await r.query('DELETE FROM abnormal_cost_order_source_lines WHERE tenant_id=$1',[tenant]);
     for(let s=0;s<sources.length;s++)for(let i=0;i<sources[s].lines.length;i+=1000)await r.query(`INSERT INTO abnormal_cost_order_source_lines SELECT $1,$2,x->>'source_line_id',x,$3::uuid FROM jsonb_array_elements($4::jsonb) x`,[tenant,abnormalOrderSources[s],runId,JSON.stringify(sources[s].lines.slice(i,i+1000))]);
     const metrics={...counts,...inactive,beforeDedup:merged.beforeDedup,crossConflicts:merged.crossConflicts,total:merged.items.length,validLines:sources.reduce((n,s)=>n+s.validLines,0),read:sources.reduce((n,s)=>n+s.read,0)};
     await r.query("UPDATE abnormal_cost_order_sync_runs SET status='SUCCESS',finished_at=now(),sources=$3::jsonb,metrics=$4::jsonb WHERE tenant_id=$1 AND id=$2::uuid",[tenant,runId,JSON.stringify(results),JSON.stringify(metrics)]);
-    await r.query(`INSERT INTO audit_logs(tenant_id,resource,record_id,action,after_json,source,updated_by) VALUES($1,'abnormal-cost-orders',$2,'abnormal.orders.synchronized',$3::jsonb,'system','abnormal-order-sync')`,[tenant,runId,JSON.stringify(metrics)]);
+    await r.query(`INSERT INTO audit_logs(tenant_id,actor_name,resource,record_id,action,after_json,request_id,source,updated_by) VALUES($1,'异常费用订单同步','abnormal-cost-orders',$2,'abnormal.orders.synchronized',$3::jsonb,$2,'api','abnormal-order-sync')`,[tenant,runId,JSON.stringify(metrics)]);
     await r.commitTransaction();return {status:'SUCCESS',runId,sources:results,metrics};
    }catch(e){await r.rollbackTransaction();throw e;}
   }catch(e){

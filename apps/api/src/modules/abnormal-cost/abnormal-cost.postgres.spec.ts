@@ -35,7 +35,7 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
       CREATE TABLE permissions(id uuid PRIMARY KEY DEFAULT uuidv7(),role_id uuid,resource text,field_key text,"read" boolean,"create" boolean,"copy" boolean,"update" boolean,"delete" boolean,batch_print boolean,batch_update boolean,"import" boolean,"export" boolean,updated_by text);
       CREATE TABLE organization_units(id uuid PRIMARY KEY,name text,enabled boolean DEFAULT true);
       CREATE TABLE administrator_grants(tenant_id text,user_id uuid,system_admin boolean);
-      CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text,record_id text,action text,before_json jsonb,after_json jsonb,request_id text,source text,created_by uuid,updated_by text,created_at timestamptz DEFAULT now());`);
+      CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text NOT NULL,record_id text,action text NOT NULL,before_json jsonb,after_json jsonb,request_id text NOT NULL,source text NOT NULL CHECK(source IN('web','api','import')),created_by uuid,updated_by text,created_at timestamptz DEFAULT now());`);
     await db.query(`INSERT INTO users VALUES($1,$4,'admin','合成管理员',true,'wx-admin','总经理'),($2,$4,'judge','合成判定人',true,'wx-judge','课长'),($3,$4,'other','合成他人',true,'wx-other','员工')`,[admin,judge,other,tenant]);
     await db.query('INSERT INTO organization_units(id,name) VALUES($1,\'合成部门\')',[department]);await db.query('INSERT INTO administrator_grants VALUES($1,$2,true)',[tenant,admin]);
     const runner={query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner;
@@ -289,6 +289,7 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
   it('keeps disabled historical category references, rejects new disabled selection, rename/delete while referenced and duplicate pairs',async()=>{
     const r=await create(),[cat]=await db.query("SELECT * FROM abnormal_expense_categories WHERE major_category='粉末报废' AND sub_category='呆滞废粉'");
     await expect(app.saveBasic('abnormal-expense-categories',null,{major_category:cat.major_category,sub_category:cat.sub_category},actor)).rejects.toThrow('该异常费用分类已存在');
+    await expect(app.saveBasic('abnormal-expense-categories',cat.id,{expectedVersion:1,is_enabled:null},actor)).rejects.toThrow('是否启用必须为开关值');
     await app.saveBasic('abnormal-expense-categories',cat.id,{expectedVersion:1,is_enabled:false},actor);
     await expect(app.createRequest(body(),'disabled',actor)).rejects.toThrow('已关闭');
     await app.updateRequest(r.id,{expectedVersion:1,abnormal_description:'仍保留原分类'},actor);expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).sub_categories).toEqual(['呆滞废粉']);
@@ -314,6 +315,12 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     await db.query(`CREATE ROLE ${role};GRANT USAGE ON SCHEMA ${schema} TO ${role};GRANT SELECT ON abnormal_cost_order_items,abnormal_expense_categories,abnormal_cost_order_source_lines,abnormal_cost_order_sync_runs,abnormal_cost_order_source_changes TO ${role}`);
     const r=db.createQueryRunner();await r.connect();try{await r.query(`SET ROLE ${role}`);await r.query("SELECT set_config('app.tenant_id','OTHER',false)");for(const table of ['abnormal_cost_order_items','abnormal_expense_categories','abnormal_cost_order_source_lines','abnormal_cost_order_sync_runs','abnormal_cost_order_source_changes'])expect(await r.query(`SELECT * FROM ${table}`)).toHaveLength(0);}finally{await r.query('RESET ROLE');await r.query('RESET app.tenant_id');await r.release();}
     await expect(new AbnormalCostOrders1722920137000().down()).rejects.toThrow('Forward-only');
+  });
+
+  it('does not recreate deleted/renamed classification master data during ERP synchronization',async()=>{
+    const [category]=await db.query("SELECT * FROM abnormal_expense_categories WHERE major_category='异常工时' AND sub_category='内部原因'");await app.remove('abnormal-expense-categories',category.id,category.version,actor);
+    const reader={read:jest.fn(async()=>[])},sync=new AbnormalOrderSyncService(db,reader as never,notifications);await sync.sync(tenant);await sync.sync(tenant);
+    expect(await db.query("SELECT id FROM abnormal_expense_categories WHERE deleted_at IS NULL")).toHaveLength(14);expect(await db.query("SELECT id FROM abnormal_cost_order_items WHERE source='SYSTEM_FIXED'")).toHaveLength(1);
   });
 
 });

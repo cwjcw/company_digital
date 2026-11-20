@@ -8,6 +8,7 @@
 - 三ERP仅通过只读适配器和既有basic_code.MSSQLDatabase读取。E10凭据在工具包，T+沿用现有受限服务端配置。容器使用既有只读工具包挂载、原Python/pytds和现有T+socket；无新服务、端口或数据库。Docker显式复制新reader目录，不复制outputs/业务证据。
 - E10订单/明细审核Y，0/2未结束/正常结束保留，指定结束1（头/明细计划）排除；T+要求auditeddate有值、189审核且isCancel=NULL/0，无头CloseDate/Closer及行IsClose/IsCCClose中止；实查231均为中止，排除。完整交付而未中止的189保留，不按欠数过滤。数量E10明细BUSINESS_QTY/T+明细quantity，日期E10 ORDER_DATE/明细PLAN_DELIVERY_DATE、T+voucherdate/客户交期NULL。不取制造计划完成日期。
 - 三来源自2026-01-01按原始行ID分页，两次完整读取SHA256一致才接受；对不完整CT/删除增量采取有界完整读取＋差异发布。原始行ID去除JOIN重复；真实多明细精确加总，同源最早有效交期并保留冲突，跨源整行E10>凯南>科加。三来源都成功才能单事务发布，不修改其它订单模块。来源切换保留日志，失效采用软标记，固定虚拟行独立保护。
+- 分类仅在Migration137幂等初始化；日常ERP同步不重新创建管理员已删除/改名的分类，也不覆盖启停状态。
 - 新任务 `AbnormalCostOrdersDailyV1` 每日02:30 Asia/Shanghai；手工重放仍走同一SSH→CLI→Application Command。n8n定义默认inactive，完成受控执行后才发布激活。原工作流均保留。主进程advisory lock防并发，发布与表单验证共享/独占事务锁；每来源最多两次、每次180秒，整命令1200秒，工作流1500秒。
 - 正常执行：`docker exec knplan-api-1 sh -lc 'cd /app/apps/api && env ABNORMAL_ORDER_TENANT_ID=KAINAN node dist/abnormal-order-sync-cli.js'`。只返回运行ID/来源结果/计数，不输出业务行或凭据。失败非0，旧快照保留，记录各来源和整体失败，经现有 `erp.sync.failed` 规则与通知Dispatcher报警。n8n包装在异常退出后调用 `REPORT_FAILURE`，仅在取得同一锁后补记未完成运行及幂等告警，不篡改仍在运行的任务。
 - 补偿：受控手工重跑完整对账，不依赖不可靠修改水位；重试不改变未变化记录的版本/业务更新时间。n8n重启不会自动补偿历史窗口，应检查最近成功时间再手动重跑。页面只读取快照/状态，不能触发ERP抓取。
