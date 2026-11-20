@@ -10,9 +10,9 @@ import { AbnormalCostGraphSpreadsheetService } from './abnormal-cost.graph-sprea
 @Injectable()
 export class AbnormalCostSpreadsheetService {
   constructor(private readonly app:AbnormalCostApplicationService,private readonly graph:AbnormalCostGraphSpreadsheetService){}
-  private basic(code:AbnormalCostResource){if(!['abnormal-categories','incident-severity-levels'].includes(code))throw new BadRequestException('基础资料资源无效');}
+  private basic(code:AbnormalCostResource){if(!['abnormal-categories','incident-severity-levels','abnormal-expense-categories'].includes(code))throw new BadRequestException('基础资料资源无效');}
   async template(code:AbnormalCostResource,mode:string,query:Record<string,unknown>,actor:AbnormalActor){
-    if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.template(code,mode,query,actor);
+    if(!['abnormal-categories','incident-severity-levels','abnormal-expense-categories'].includes(code))return this.graph.template(code,mode,query,actor);
     this.basic(code);costAssert(actor,code,'import');if(!['CREATE','UPDATE'].includes(mode))throw new BadRequestException('模板模式无效');
     const fields=tablePermissionFieldsFor(code).filter(f=>f.editable&&(mode==='CREATE'?(costField(actor,code,f.key,'read')||costField(actor,code,f.key,'update')||!costCan(actor,code,'read')):costField(actor,code,f.key,'read')&&costField(actor,code,f.key,'update')));
     const book=new ExcelJS.Workbook(),sheet=book.addWorksheet(costResource(code).label);
@@ -32,7 +32,7 @@ export class AbnormalCostSpreadsheetService {
     return Buffer.from(await book.xlsx.writeBuffer());
   }
   async preview(code:AbnormalCostResource,buffer:Buffer,actor:AbnormalActor){
-    if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.preview(code,buffer,actor);
+    if(!['abnormal-categories','incident-severity-levels','abnormal-expense-categories'].includes(code))return this.graph.preview(code,buffer,actor);
     this.basic(code);costAssert(actor,code,'import');assertSpreadsheetNotEncrypted(buffer);
     const book=new ExcelJS.Workbook();try{await book.xlsx.load(buffer as never);}catch{throw new BadRequestException('无效Excel文件');}
     const sheet=book.worksheets[0];if(!sheet||sheet.rowCount>5001)throw new BadRequestException('文件必须包含不超过5000行的数据');
@@ -64,7 +64,7 @@ export class AbnormalCostSpreadsheetService {
     if(!errors.length)result.previewId=await this.app.transaction(actor,async m=>{const [r]=await m.query('INSERT INTO abnormal_cost_import_previews(tenant_id,actor_id,resource,rows) VALUES($1,$2::uuid,$3,$4::jsonb) RETURNING id',[actor.tenantId,actor.userId,code,JSON.stringify(rows)]);return r.id;});
     return result;
   }
-  async confirm(code:AbnormalCostResource,id:string,actor:AbnormalActor){if(!['abnormal-categories','incident-severity-levels'].includes(code))return this.graph.confirm(code,id,actor);this.basic(code);costAssert(actor,code,'import');return this.app.transaction(actor,async m=>{
+  async confirm(code:AbnormalCostResource,id:string,actor:AbnormalActor){if(!['abnormal-categories','incident-severity-levels','abnormal-expense-categories'].includes(code))return this.graph.confirm(code,id,actor);this.basic(code);costAssert(actor,code,'import');return this.app.transaction(actor,async m=>{
     const [preview]=await m.query('SELECT * FROM abnormal_cost_import_previews WHERE tenant_id=$1 AND actor_id=$2::uuid AND id=$3::uuid AND resource=$4 FOR UPDATE',[actor.tenantId,actor.userId,costUuid(id),code]);
     if(!preview)throw new NotFoundException('预览不存在');if(preview.result)return {...preview.result,repeated:true};if(new Date(preview.expires_at).getTime()<Date.now())throw new ConflictException('预览已过期，请重新上传');
     let created=0,updated=0;for(const row of preview.rows){if(row.id){costAssert(actor,code,'batch_update');await this.app.locked(m,code,row.id,'import',actor);await this.app.locked(m,code,row.id,'batch_update',actor);}const saved=await this.app.saveBasic(code,row.id??null,{...row.values,...(row.id?{expectedVersion:row.expectedVersion}:{})},actor,m);await this.app.locked(m,code,saved.id,'import',actor);if(row.id)updated++;else created++;}

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { DataSource, type EntityManager } from 'typeorm';
 import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
-import { abnormalSeverityOptions, type AbnormalCostResource } from '@kdos/contracts';
+import { abnormalAllowsVirtual, abnormalSeverityOptions, type AbnormalCostResource } from '@kdos/contracts';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../storage/object-storage';
 import { NotificationService } from '../notifications/notification.service';
 import { costAdmin, costAssert, costCan, costCrop, costField, costResource, costScope, costWriteFields, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
@@ -36,7 +36,8 @@ export class AbnormalCostApplicationService {
     await manager.query('INSERT INTO abnormal_cost_commands(tenant_id,actor_id,command_key,body_hash,result) VALUES($1,$2::uuid,$3,$4,$5::jsonb)',[actor.tenantId,actor.userId,key,hash,JSON.stringify(result)]);return result;
   }
   async saveBasic(code:AbnormalCostResource,id:string|null,body:CostRow,actor:AbnormalActor,manager?:EntityManager) {
-    if(!['abnormal-categories','incident-severity-levels'].includes(code))throw new BadRequestException('基础资料资源无效');
+    if(code==='abnormal-cost-orders')throw new ForbiddenException('ERP订单表只允许系统同步维护');
+    if(!['abnormal-categories','incident-severity-levels','abnormal-expense-categories'].includes(code))throw new BadRequestException('基础资料资源无效');
     const action=id?'update':'create';costAssert(actor,code,action);
     const {expectedVersion,...input}=body;costWriteFields(actor,code,input,!id);
     if(id&&expectedVersion==null)throw new BadRequestException('请提供记录版本');
@@ -49,6 +50,15 @@ export class AbnormalCostApplicationService {
         write={category_name:costText(values.category_name,'异常类别',100,true),remark:costText(values.remark,'备注')};
         const [dupe]=await m.query('SELECT id FROM abnormal_categories WHERE tenant_id=$1 AND category_name=$2 AND deleted_at IS NULL AND ($3::uuid IS NULL OR id<>$3::uuid)',[actor.tenantId,write.category_name,id]);
         if(dupe)throw new ConflictException('异常类别已存在');
+      }else if(code==='abnormal-expense-categories'){
+        write={major_category:costText(values.major_category,'异常大类',100,true),sub_category:costText(values.sub_category,'异常二级分类',100,true),is_enabled:values.is_enabled??true};
+        if(typeof write.is_enabled!=='boolean')throw new BadRequestException('是否启用必须为开关值');
+        const [dupe]=await m.query('SELECT id FROM abnormal_expense_categories WHERE tenant_id=$1 AND major_category=$2 AND sub_category=$3 AND deleted_at IS NULL AND ($4::uuid IS NULL OR id<>$4::uuid)',[actor.tenantId,write.major_category,write.sub_category,id]);
+        if(dupe)throw new ConflictException('该异常费用分类已存在');
+        if(old&&(old.major_category!==write.major_category||old.sub_category!==write.sub_category)){
+          const [used]=await m.query('SELECT id FROM abnormal_responsibility_requests WHERE tenant_id=$1 AND major_category=$2 AND sub_categories ? $3 LIMIT 1',[actor.tenantId,old.major_category,old.sub_category]);
+          if(used)throw new ConflictException('该分类已被历史单据引用，不能改名；可关闭并新增分类');
+        }
       }else{
         write={amount_min:costDecimal(values.amount_min,'金额下限'),amount_max:costDecimal(values.amount_max,'金额上限'),severity_name:costText(values.severity_name,'事故级别',10,true)};
         if(!abnormalSeverityOptions.some(o=>o.value===write.severity_name))throw new BadRequestException('事故级别无效');
@@ -89,8 +99,33 @@ export class AbnormalCostApplicationService {
   private async requestValues(m:EntityManager,input:CostRow,actor:AbnormalActor,old?:CostRow) {
     const value={...old,...input};
     const confirmed=costDecimal(value.confirmed_amount===undefined?value.estimated_amount:value.confirmed_amount,'核定金额',2,undefined,true);
-    return {customer_code:costText(value.customer_code,'客户',100,true,true),order_no:costText(value.order_no,'订单号',100,true,true),division_id:old&&value.division_id===old.division_id?old.division_id:await this.department(m,value.division_id),initiator_id:old&&value.initiator_id===old.initiator_id?old.initiator_id:await this.activeUser(m,value.initiator_id??actor.userId,actor,'发起人'),abnormal_description:costText(value.abnormal_description,'异常描述',4000,true),estimated_amount:costDecimal(value.estimated_amount,'预估金额',2,undefined,true),confirmed_amount:confirmed,severity_level_id:await this.severity(m,confirmed,actor),detail_attachment:(await this.attachmentIds(m,[value.detail_attachment],'DETAIL',actor,old?[old.detail_attachment]:[]))[0],other_attachments:await this.attachmentIds(m,value.other_attachments??[],'OTHER',actor,old?.other_attachments??[])};
+    const basisKeys=['order_no','item_codes','abnormal_quantity','major_category','sub_categories'];
+    const basisUnchanged=old&&basisKeys.every(k=>!(k in input)||JSON.stringify(input[k])===JSON.stringify(old[k])||k==='abnormal_quantity'&&String(input[k])===String(old[k]));
+    const preserveLegacy=old&&old.order_validation_version===0&&basisUnchanged&&Object.keys(input).every(k=>k==='other_attachments');
+    const selections=preserveLegacy?{}:await this.validateOrderSelection(m,value,actor,old);
+    if('abnormal_quantity' in input&&(typeof input.abnormal_quantity!=='number'||!Number.isSafeInteger(input.abnormal_quantity)||input.abnormal_quantity<0))throw new BadRequestException('异常数量必须为大于等于0的整数');
+    const abnormalQuantity=Number(value.abnormal_quantity??0);
+    if(!Number.isSafeInteger(abnormalQuantity)||abnormalQuantity<0)throw new BadRequestException('异常数量必须为大于等于0的整数');
+    return {customer_code:costText(value.customer_code,'客户',100,true,true),order_no:costText(value.order_no,'订单号',100,true,true),...selections,abnormal_quantity:abnormalQuantity,division_id:old&&value.division_id===old.division_id?old.division_id:await this.department(m,value.division_id),initiator_id:old&&value.initiator_id===old.initiator_id?old.initiator_id:await this.activeUser(m,value.initiator_id??actor.userId,actor,'发起人'),abnormal_description:costText(value.abnormal_description,'异常描述',4000,true),estimated_amount:costDecimal(value.estimated_amount,'预估金额',2,undefined,true),confirmed_amount:confirmed,severity_level_id:await this.severity(m,confirmed,actor),other_attachments:await this.attachmentIds(m,value.other_attachments??[],'OTHER',actor,old?.other_attachments??[])};
   }
+  private async validateOrderSelection(m:EntityManager,value:CostRow,actor:AbnormalActor,old?:CostRow){
+    if(!String(value.order_no??'').trim())throw new BadRequestException('请选择订单号');
+    if(!String(value.major_category??'').trim())throw new BadRequestException('请选择异常大类');
+    const order=costText(value.order_no,'订单号',100,true),major=costText(value.major_category,'异常大类',100,true);
+    const array=(raw:unknown,label:string,max:number)=>{if(!Array.isArray(raw)||!raw.length||raw.length>500||raw.some(v=>typeof v!=='string'||!v.trim()||v!==v.trim()||v.length>max)||new Set(raw).size!==raw.length)throw new BadRequestException(label);return raw as string[];};
+    const items=array(value.item_codes,'请至少选择一个品号',128),secondary=array(value.sub_categories,'请至少选择一个异常二级分类',100);
+    // Same lock order as publication and category changes; membership cannot change mid-command.
+    await m.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,0))',[`abnormal-order-publish:${actor.tenantId}`]);
+    await m.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`abnormal-basic:${actor.tenantId}:abnormal-expense-categories`]);
+    const categories:CostRow[]=await m.query('SELECT sub_category,is_enabled FROM abnormal_expense_categories WHERE tenant_id=$1 AND major_category=$2 AND sub_category=ANY($3::text[]) AND deleted_at IS NULL FOR SHARE',[actor.tenantId,major,secondary]);
+    if(secondary.some(v=>!categories.some(c=>c.sub_category===v&&(c.is_enabled||old?.major_category===major&&old?.sub_categories?.includes(v)))))throw new BadRequestException('异常费用分类不存在、已关闭或不属于当前异常大类');
+    const virtual=order==='虚拟订单'||items.includes('虚拟品号');
+    if(virtual&&(!abnormalAllowsVirtual(major,secondary)||order!=='虚拟订单'||items.length!==1||items[0]!=='虚拟品号'))throw new BadRequestException('当前异常分类必须选择真实订单和对应品号，仅‘粉末报废-回收粉’允许使用虚拟订单');
+    const rows:CostRow[]=await m.query('SELECT item_code,source FROM abnormal_cost_order_items WHERE tenant_id=$1 AND order_no=$2 AND item_code=ANY($3::text[]) AND is_active AND deleted_at IS NULL FOR SHARE',[actor.tenantId,order,items]);
+    if(rows.length!==items.length||rows.some(r=>(r.source==='SYSTEM_FIXED')!==virtual))throw new BadRequestException('所选品号不属于当前订单，请重新选择');
+    return {item_codes:items,major_category:major,sub_categories:secondary,order_validation_version:1};
+  }
+
   async createRequest(body:CostRow,key:unknown,actor:AbnormalActor,manager?:EntityManager){
     costAssert(actor,REQUEST,'create');const {responsibility_judgments,...input}=body;costWriteFields(actor,REQUEST,body,true);
     if(!Array.isArray(responsibility_judgments)||!responsibility_judgments.length||responsibility_judgments.length>99)throw new BadRequestException('至少配置一条责任判定记录，最多99条');
@@ -111,9 +146,10 @@ export class AbnormalCostApplicationService {
     if(hasChildren){costWriteFields(actor,REQUEST,{responsibility_judgments:children},false);if(!Array.isArray(children)||!children.length||children.length>99)throw new BadRequestException('至少保留一条责任判定记录，最多99条');if(typeof key!=='string'||!key.trim())throw new BadRequestException('关联责任判定变更需要Idempotency-Key');}
     const work=async(m:EntityManager)=>{
       const old=await this.locked(m,REQUEST,id,'update',actor,expectedVersion);
-      const [completed]=await m.query("SELECT id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL AND judgment_status='COMPLETED' LIMIT 1",[actor.tenantId,id]);
-      if(completed&&Object.keys(input).some(k=>!['other_attachments'].includes(k)))throw new ConflictException('已有已完成责任判定，不能修改判责基础信息');
-      const values=await this.requestValues(m,input,actor,old),result=await this.persist(m,REQUEST,id,values,actor);
+      const [protectedChild]=await m.query("SELECT id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL AND (judgment_status='COMPLETED' OR responsibility_allocations<>'[]'::jsonb OR COALESCE(responsibility_reason,'')<>'' OR judgment_evidence<>'[]'::jsonb) LIMIT 1",[actor.tenantId,id]);
+      const changed=Object.fromEntries(Object.entries(input).filter(([k,v])=>JSON.stringify(v)!==JSON.stringify(old[k])&&!(k==='abnormal_quantity'&&String(v)===String(old[k]))));
+      if(protectedChild&&Object.keys(changed).some(k=>k!=='other_attachments'))throw new ConflictException('已有已开始或已完成责任判定，不能修改判责基础信息');
+      const values=protectedChild?{other_attachments:await this.attachmentIds(m,input.other_attachments??old.other_attachments,'OTHER',actor,old.other_attachments)}:await this.requestValues(m,input,actor,old),result=await this.persist(m,REQUEST,id,values,actor);
       if(hasChildren)await this.syncRequestJudgments(m,result,children,actor);
       await this.assertTargetScope(m,REQUEST,id,'update',actor);await this.audit(m,actor,REQUEST,id,'abnormal.request.updated',old,result);return {id,version:result.version};
     };
@@ -220,8 +256,13 @@ export class AbnormalCostApplicationService {
   async remove(code:AbnormalCostResource,id:string,version:unknown,actor:AbnormalActor){
     costAssert(actor,code,'delete');if(version==null)throw new BadRequestException('请提供记录版本');
     return this.transaction(actor,async m=>{
+      if(code==='abnormal-expense-categories')await m.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`abnormal-basic:${actor.tenantId}:abnormal-expense-categories`]);
       if(code===JUDGMENT){const [r]=await m.query('SELECT request_id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,costUuid(id)]);if(r)await m.query('SELECT id FROM abnormal_responsibility_requests WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE',[actor.tenantId,r.request_id]);}
       const old=await this.locked(m,code,id,'delete',actor,version);
+      if(code==='abnormal-expense-categories'){
+        const [used]=await m.query('SELECT id FROM abnormal_responsibility_requests WHERE tenant_id=$1 AND major_category=$2 AND sub_categories ? $3 LIMIT 1',[actor.tenantId,old.major_category,old.sub_category]);
+        if(used)throw new ConflictException('基础资料已被历史单据引用，不能删除；请关闭分类');
+      }
       if(code==='abnormal-categories'||code==='incident-severity-levels'){
         const [used]=await m.query(`SELECT id FROM ${code==='abnormal-categories'?'abnormal_responsibility_judgments':'abnormal_responsibility_requests'} WHERE tenant_id=$1 AND ${code==='abnormal-categories'?'category_id':'severity_level_id'}=$2::uuid LIMIT 1`,[actor.tenantId,id]);if(used)throw new ConflictException('基础资料已被引用，不能删除');
       }
@@ -238,6 +279,7 @@ export class AbnormalCostApplicationService {
   }
   private async softDelete(m:EntityManager,code:AbnormalCostResource,id:string,actor:AbnormalActor){await m.query(`UPDATE ${costResource(code).table} SET deleted_at=now(),updated_at=now(),updated_by=$3::text,version=version+1 WHERE tenant_id=$1 AND id=$2::uuid`,[actor.tenantId,id,actor.userId]);}
   async upload(file:Express.Multer.File,purpose:string,actor:AbnormalActor){
+    if(purpose==='DETAIL')throw new BadRequestException('明细附件已停用，请使用订单与品号字段；历史附件仍可查看');
     if(!file?.buffer?.length)throw new BadRequestException('请选择附件');if(file.buffer.length>20*1024*1024)throw new BadRequestException('附件不能超过20MB');
     const resource=purpose==='EVIDENCE'?JUDGMENT:REQUEST,field=purpose==='DETAIL'?'detail_attachment':purpose==='OTHER'?'other_attachments':'judgment_evidence';
     if(!['DETAIL','OTHER','EVIDENCE'].includes(purpose))throw new BadRequestException('附件用途无效');
@@ -254,6 +296,11 @@ export class AbnormalCostApplicationService {
   }
   async detail(code:AbnormalCostResource,id:string,actor:AbnormalActor){return this.transaction(actor,async m=>{
     const row=await this.locked(m,code,id,'read',actor);const out=costCrop(actor,code,row);
+    if(code===REQUEST){
+      out.legacy_fields_incomplete=row.order_validation_version===0;
+      out.base_info_locked=Boolean((await m.query("SELECT id FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2 AND deleted_at IS NULL AND (judgment_status='COMPLETED' OR responsibility_allocations<>'[]'::jsonb OR COALESCE(responsibility_reason,'')<>'' OR judgment_evidence<>'[]'::jsonb) LIMIT 1",[actor.tenantId,id]))[0]);
+      if(out.abnormal_quantity!==undefined)out.abnormal_quantity=Number(out.abnormal_quantity);
+    }
     if(code===JUDGMENT&&costField(actor,code,'abnormal_request_link','read'))out.abnormal_request_link=`/workflow/abnormal-cost/requests/${row.request_id}`;
     if(code===REQUEST&&costField(actor,code,'responsibility_judgments','read')&&costCan(actor,JUDGMENT,'read')){
       const params:unknown[]=[actor.tenantId,id],scope=costScope(actor,JUDGMENT,'read',params);const children=await m.query(`SELECT record.* FROM abnormal_responsibility_judgments record WHERE record.tenant_id=$1 AND record.request_id=$2::uuid AND (${scope}) ORDER BY record.judgment_no`,params);out.responsibility_judgments=children.map((child:CostRow)=>({...costCrop(actor,JUDGMENT,child),...(costField(actor,JUDGMENT,'abnormal_request_link','read')?{abnormal_request_link:`/workflow/abnormal-cost/requests/${id}`}:{})}));

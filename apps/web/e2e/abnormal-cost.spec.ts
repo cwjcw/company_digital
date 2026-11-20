@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 // Real SPA/shared tables, synthetic HTTP fixtures; every API write is intercepted.
 test.use({trace:'off',screenshot:'off',video:'off',actionTimeout:10000});
 const admin='019a0000-0000-7000-8000-000000000001',department='019a0000-0000-7000-8000-000000000002',category='019a0000-0000-7000-8000-000000000003',attachment='019a0000-0000-7000-8000-000000000004';
-const options={users:[{id:admin,name:'合成管理员',username:'fixture-admin',enabled:true,position:'课长'}],departments:[{id:department,name:'合成事业部',pathLabel:'合成事业部'}],categories:[{id:category,category_name:'合成品质'}],severities:[{id:'019a0000-0000-7000-8000-000000000005',severity_name:'一般',amount_min:'0.00',amount_max:'1000.00'}],systemAdminId:admin};
+const options={users:[{id:admin,name:'合成管理员',username:'fixture-admin',enabled:true,position:'课长'}],departments:[{id:department,name:'合成事业部',pathLabel:'合成事业部'}],categories:[{id:category,category_name:'合成品质'}],severities:[{id:'019a0000-0000-7000-8000-000000000005',severity_name:'一般',amount_min:'0.00',amount_max:'1000.00'}],expenseCategories:[{major_category:'粉末报废',sub_category:'回收粉'},{major_category:'粉末报废',sub_category:'呆滞废粉'},{major_category:'异常工时',sub_category:'内部原因'}],systemAdminId:admin};
 test('workflow navigation and submitted request retain linked identities without requiring allocation ratios',async({page})=>{
   const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
   const errors:string[]=[],commands:any[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -10,6 +10,7 @@ test('workflow navigation and submitted request retain linked identities without
   await page.route('**/api/v1/**',async route=>{
     const request=route.request(),url=new URL(request.url()),path=url.pathname.replace('/api/v1','');
     if(path==='/auth/me')return route.fulfill({json:user});
+    if(path==='/abnormal-cost/order-options')return route.fulfill({json:{options:url.searchParams.has('orderNo')?[{value:'SYN-ITEM',label:'SYN-ITEM · 合成品名'}]:[{value:'SYN-ORDER',label:'SYN-ORDER'}],hasMore:false}});
     if(path==='/abnormal-cost/options')return route.fulfill({json:options});
     if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
     if(path==='/table-filters/resources')return route.fulfill({json:['abnormal-categories','incident-severity-levels','abnormal-responsibility-requests','abnormal-responsibility-judgments'].map(code=>({code,filterableFields:[]}))});
@@ -22,7 +23,11 @@ test('workflow navigation and submitted request retain linked identities without
   await page.goto('/workflow/abnormal-cost/requests');
   await page.getByRole('menuitem',{name:'流程审批',exact:true}).click();await expect(page.getByText('异常费用',{exact:true})).toBeVisible();await page.getByText('异常费用',{exact:true}).click();await expect(page.getByRole('menuitem',{name:/发起异常责任判定/})).toBeVisible();await expect(page.getByRole('button',{name:/高级筛选/})).toBeVisible();
   await page.getByRole('button',{name:/新增/}).click();const dialog=page.getByRole('dialog',{name:'新增',exact:true});
-  await dialog.getByLabel('客户',{exact:true}).fill('SYN-CUSTOMER');await dialog.getByLabel('订单号',{exact:true}).fill('SYN-ORDER');
+  await expect(dialog.getByLabel('异常数量',{exact:true})).toHaveValue('0');
+  await dialog.getByLabel('客户',{exact:true}).fill('SYN-CUSTOMER');await dialog.getByLabel('异常大类',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('粉末报废',{exact:true}).click();
+  await dialog.getByLabel('异常二级分类',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('呆滞废粉',{exact:true}).click();await page.keyboard.press('Escape');
+  await dialog.getByLabel('订单号',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('SYN-ORDER',{exact:true}).click();
+  await dialog.getByLabel('品号',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('SYN-ITEM · 合成品名',{exact:true}).click();await page.keyboard.press('Escape');
   await dialog.getByLabel('事业部',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('合成事业部',{exact:true}).click();
   await dialog.getByLabel('异常描述',{exact:true}).fill('合成异常');await dialog.getByLabel('预估金额',{exact:true}).fill('100');await dialog.getByLabel('预估金额',{exact:true}).blur();
   await expect(dialog.getByLabel('核定金额',{exact:true})).toHaveValue('100.00');
@@ -30,9 +35,8 @@ test('workflow navigation and submitted request retain linked identities without
   await judgmentFields.nth(0).click();await page.locator('.ant-select-dropdown:visible').getByText('合成品质',{exact:true}).click();
   await judgmentFields.nth(1).click();await page.locator('.ant-select-dropdown:visible').getByText('合成事业部',{exact:true}).click();
   await judgmentFields.nth(2).click();await page.locator('.ant-select-dropdown:visible').getByText('合成管理员（fixture-admin）',{exact:true}).click();
-  await dialog.locator('input[type=file]').first().setInputFiles({name:'abnormal.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic fixture upload')});
-  await expect(dialog.getByText('已校验1行，预览前20行')).toBeVisible();await dialog.getByRole('button',{name:/^提\s*交$/}).click();await expect(dialog).toHaveCount(0);
-  expect(commands).toHaveLength(1);expect(commands[0]).toMatchObject({customer_code:'SYN-CUSTOMER',detail_attachment:attachment,responsibility_judgments:[{category_id:category,judgment_department_id:department,judge_user_id:admin}]});expect(commands[0].responsibility_judgments[0].responsibility_allocations).toBeUndefined();expect(errors).toEqual([]);
+  await expect(dialog.getByText('下载明细附件模板')).toHaveCount(0);await dialog.getByRole('button',{name:/^提\s*交$/}).click();await expect(dialog).toHaveCount(0);
+  expect(commands).toHaveLength(1);expect(commands[0]).toMatchObject({customer_code:'SYN-CUSTOMER',item_codes:['SYN-ITEM'],abnormal_quantity:0,major_category:'粉末报废',sub_categories:['呆滞废粉'],responsibility_judgments:[{category_id:category,judgment_department_id:department,judge_user_id:admin}]});expect(commands[0].responsibility_judgments[0].responsibility_allocations).toBeUndefined();expect(errors).toEqual([]);
 });
 
 test('request form adapts its columns to the modal content width and keeps its action bar available',async({page})=>{
@@ -41,6 +45,7 @@ test('request form adapts its columns to the modal content width and keeps its a
   await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
   await page.route('**/api/v1/**',async route=>{
     const path=new URL(route.request().url()).pathname.replace('/api/v1','');
+    if(path==='/abnormal-cost/order-options')return route.fulfill({json:{options:[{value:'SYN-ORDER',label:'SYN-ORDER'}],hasMore:false}});
     if(path==='/auth/me')return route.fulfill({json:user});if(path==='/abnormal-cost/options')return route.fulfill({json:options});
     if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
     if(path==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
@@ -63,12 +68,13 @@ test('request form adapts its columns to the modal content width and keeps its a
 test('request and judgment rows open fresh edit forms and preserve linked child identity on save',async({page})=>{
   const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
   const requestId='019a0000-0000-7000-8000-000000000020',childId='019a0000-0000-7000-8000-000000000021',judgmentId='019a0000-0000-7000-8000-000000000022';
-  const requestRecord:any={id:requestId,version:1,abnormal_no:'YC261118SYN001',customer_code:'SYN-CUSTOMER',order_no:'SYN-ORDER',division_id:department,initiator_id:admin,abnormal_description:'原描述',estimated_amount:'100.00',confirmed_amount:'100.00',severity_level_id:options.severities[0].id,detail_attachment:[{id:attachment,name:'abnormal.xlsx',purpose:'DETAIL'}],other_attachments:[],responsibility_judgments:[{id:childId,version:1,judgment_no:'YC261118SYN00101',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,judgment_status:'PENDING',responsibility_allocations:[],responsibility_reason:'',judgment_evidence:[]}]};
+  const requestRecord:any={id:requestId,version:1,abnormal_no:'YC261118SYN001',customer_code:'SYN-CUSTOMER',order_no:'SYN-ORDER',item_codes:['SYN-ITEM'],abnormal_quantity:2,major_category:'粉末报废',sub_categories:['呆滞废粉'],division_id:department,initiator_id:admin,abnormal_description:'原描述',estimated_amount:'100.00',confirmed_amount:'100.00',severity_level_id:options.severities[0].id,detail_attachment:[{id:attachment,name:'abnormal.xlsx',purpose:'DETAIL'}],other_attachments:[],responsibility_judgments:[{id:childId,version:1,judgment_no:'YC261118SYN00101',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,judgment_status:'PENDING',responsibility_allocations:[],responsibility_reason:'',judgment_evidence:[]}]};
   const judgmentRecord:any={id:judgmentId,version:1,judgment_no:'YC261118SYN00102',category_id:category,judgment_department_id:department,judge_user_id:admin,expense_bearing_ratio:null,abnormal_request_link:'/workflow/abnormal-cost/requests/'+requestId,responsibility_allocations:[],responsibility_reason:'原判定理由',judgment_evidence:[],judgment_status:'PENDING'};
   const saved:any[]=[];
   await page.setViewportSize({width:1440,height:900});await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
   await page.route('**/api/v1/**',async route=>{
     const request=route.request(),url=new URL(request.url()),path=url.pathname.replace('/api/v1','');
+    if(path==='/abnormal-cost/order-options')return route.fulfill({json:{options:[{value:'SYN-ORDER',label:'SYN-ORDER'}],hasMore:false}});
     if(path==='/auth/me')return route.fulfill({json:user});if(path==='/abnormal-cost/options')return route.fulfill({json:options});
     if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
     if(path==='/table-filters/resources')return route.fulfill({json:['abnormal-responsibility-requests','abnormal-responsibility-judgments'].map(code=>({code,filterableFields:[]}))});
@@ -120,8 +126,8 @@ test('a notification detail target survives login and opens the authorized judgm
     return route.fulfill({json:[]});
   });
   await page.goto(path);await page.getByLabel('用户名',{exact:true}).fill('fixture-admin');await page.getByLabel('密码',{exact:true}).fill('synthetic-fixture-password');await page.getByRole('button',{name:/^登\s*录$/}).click();
-  await expect(page).toHaveURL(new RegExp(`/workflow/abnormal-cost/judgments/${judgmentId}$`));await expect(page.getByRole('heading',{name:'YC261118SYN00101',exact:true})).toBeVisible();
-  await expect(page.getByRole('link',{name:'查看异常信息'})).toHaveAttribute('target','_blank');
+  await expect(page).toHaveURL(new RegExp(`/workflow/abnormal-cost/judgments/${judgmentId}$`));await expect(page.getByLabel('子表单号',{exact:true})).toHaveValue('YC261118SYN00101');
+  await expect(page.getByLabel('异常信息',{exact:true})).toHaveValue(`/workflow/abnormal-cost/requests/${admin}`);
 });
 
 
@@ -130,6 +136,7 @@ test('request table exposes working templates and preview-confirm import without
   await page.addInitScript(u=>{localStorage.setItem('accessToken','synthetic-fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
   await page.route('**/api/v1/**',async route=>{
     const path=new URL(route.request().url()).pathname.replace('/api/v1','');
+    if(path==='/abnormal-cost/order-options')return route.fulfill({json:{options:[{value:'SYN-ORDER',label:'SYN-ORDER'}],hasMore:false}});
     if(path==='/auth/me')return route.fulfill({json:user});if(path==='/abnormal-cost/options')return route.fulfill({json:options});
     if(path==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
     if(path==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
@@ -142,4 +149,35 @@ test('request table exposes working templates and preview-confirm import without
   await page.getByRole('button',{name:'下载导入模板',exact:true}).click();const downloading=page.waitForEvent('download');await page.getByText('新增数据模板',{exact:true}).click();expect((await downloading).suggestedFilename()).toBe('abnormal_import_template.xlsx');
   await page.locator('input[type=file]').first().setInputFiles({name:'request-import.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic-upload-fixture')});
   const preview=page.getByRole('dialog',{name:'导入预览',exact:true});await expect(preview.getByText('共1行')).toBeVisible();await preview.getByRole('button',{name:'确认导入',exact:true}).click();await expect(preview).toHaveCount(0);expect(confirms).toBe(1);
+});
+
+test('virtual order follows exact category selection and long responsibility labels support hover/focus without page overflow',async({page})=>{
+ const user={sub:admin,username:'fixture-admin',displayName:'合成管理员',permissions:['*'],isSystemAdmin:true,moduleAdminCodes:[],mustChangePassword:false};
+ const fullPath='凯南 / 营销中心 / 跨事业部客户服务与异常费用责任判定业务管理部门';
+ await page.setViewportSize({width:1440,height:900});await page.addInitScript(u=>{localStorage.setItem('accessToken','fixture');localStorage.setItem('sessionUser',JSON.stringify(u));},user);
+ await page.route('**/api/v1/**',async route=>{
+  const u=new URL(route.request().url()),p=u.pathname.replace('/api/v1','');
+  if(p==='/auth/me')return route.fulfill({json:user});
+  if(p==='/abnormal-cost/options')return route.fulfill({json:{...options,departments:[{id:department,name:'长部门',pathLabel:fullPath}]}});
+  if(p==='/auth/preferences/table-config')return route.fulfill({json:{config:null}});
+  if(p==='/table-filters/rows')return route.fulfill({json:{rows:[],total:0,page:1,pageSize:100}});
+  if(p==='/abnormal-cost/order-options'){
+   const allowed=u.searchParams.get('majorCategory')==='粉末报废'&&u.searchParams.get('subCategories')==='["回收粉"]';
+   return route.fulfill({json:{options:allowed?(u.searchParams.has('orderNo')?[{value:'虚拟品号',label:'虚拟品号 · 虚拟品名'}]:[{value:'虚拟订单',label:'虚拟订单'}]):[],hasMore:false}});
+  }
+  return route.fulfill({json:[]});
+ });
+ await page.goto('/workflow/abnormal-cost/requests');await page.getByRole('button',{name:/新增/}).click();const dialog=page.getByRole('dialog',{name:'新增',exact:true});
+ await dialog.getByLabel('异常大类',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('粉末报废',{exact:true}).click();
+ await dialog.getByLabel('异常二级分类',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('回收粉',{exact:true}).click();await page.keyboard.press('Escape');
+ await dialog.getByLabel('订单号',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('虚拟订单',{exact:true}).click();
+ await dialog.getByLabel('品号',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('虚拟品号 · 虚拟品名',{exact:true}).click();await page.keyboard.press('Escape');
+ await dialog.getByLabel('异常二级分类',{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('呆滞废粉',{exact:true}).click();await page.keyboard.press('Escape');
+ await expect(dialog.getByLabel('订单号',{exact:true})).toHaveValue('');await expect(dialog.locator('.ant-select-selection-item').filter({hasText:'虚拟品号'})).toHaveCount(0);
+ const dept=dialog.locator('.abnormal-request-judgment-table tbody td').nth(2);await dept.getByRole('combobox').click();await page.locator('.ant-select-dropdown:visible').getByText(fullPath,{exact:true}).click();
+ const selected=dept.locator('.abnormal-select-label').first();await selected.hover();await expect(page.getByRole('tooltip').getByText(fullPath,{exact:true})).toBeVisible();await selected.focus();await expect(page.getByRole('tooltip').getByText(fullPath,{exact:true})).toBeVisible();
+ expect(await dept.evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(300);
+ await page.setViewportSize({width:640,height:700});await expect.poll(()=>dialog.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=window.innerWidth;})).toBe(true);
+ // The existing KDOS desktop shell has body min-width:1180px. The modal must not add any further page overflow.
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=Math.max(window.innerWidth,parseFloat(getComputedStyle(document.body).minWidth)||0))).toBe(true);await expect(dialog.getByRole('button',{name:/^提\s*交$/})).toBeVisible();
 });

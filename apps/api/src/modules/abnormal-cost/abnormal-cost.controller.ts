@@ -6,8 +6,7 @@ import { AuthGuard } from '../../auth';
 import { AbnormalCostApplicationService } from './abnormal-cost.application.service';
 import { AbnormalCostQueryService } from './abnormal-cost.query.service';
 import { AbnormalCostSpreadsheetService } from './abnormal-cost.spreadsheet.service';
-import { costAssert, costCan, costResource, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
-import { detailWorkbookTemplate } from './abnormal-cost.domain';
+import { costResource, type AbnormalActor, type CostRow } from './abnormal-cost.policy';
 type CostRequest=Request&{user:any;requestId:string};
 @ApiTags('流程审批·异常费用')
 @ApiBearerAuth()
@@ -16,8 +15,9 @@ type CostRequest=Request&{user:any;requestId:string};
 export class AbnormalCostController {
   constructor(private readonly app:AbnormalCostApplicationService,private readonly queries:AbnormalCostQueryService,private readonly spreadsheets:AbnormalCostSpreadsheetService){}
   private actor(req:CostRequest):AbnormalActor{return {tenantId:req.user?.tenantId??process.env.KDOS_DEFAULT_TENANT_CODE??'KAINAN',userId:req.user?.sub??null,displayName:req.user?.displayName,username:req.user?.username,permissions:req.user?.permissions??[],isSystemAdmin:req.user?.isSystemAdmin===true,moduleAdminCodes:req.user?.moduleAdminCodes??[],tableDataScopes:req.user?.tableDataScopes??[],requestId:req.requestId};}
+  @Get('order-options') orderOptions(@Query() query:CostRow,@Req() req:CostRequest){return this.queries.orderOptions(query,this.actor(req));}
+  @Get('order-status') orderStatus(@Req() req:CostRequest){return this.queries.orderStatus(this.actor(req));}
   @Get('options') options(@Req() req:CostRequest){return this.queries.options(this.actor(req));}
-  @Get('detail-template') async detailTemplate(@Req() req:CostRequest,@Res() res:Response){const actor=this.actor(req);costAssert(actor,'abnormal-responsibility-requests',costCan(actor,'abnormal-responsibility-requests','create')?'create':'update');return this.xlsx(res,await detailWorkbookTemplate(),'abnormal_detail_template.xlsx');}
   @Post('attachments')
   @UseInterceptors(FileInterceptor('file',{limits:{fileSize:20*1024*1024,files:1}}))
   upload(@UploadedFile() file:Express.Multer.File,@Query('purpose') purpose:string,@Req() req:CostRequest){return this.app.upload(file?{...file,originalname:typeof req.body?.originalName==='string'?req.body.originalName:file.originalname}:file,purpose,this.actor(req));}

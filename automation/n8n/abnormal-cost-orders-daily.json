@@ -1,0 +1,116 @@
+{
+  "id": "AbnormalCostOrdersDailyV1",
+  "name": "异常费用 三ERP独立订单每日差异同步",
+  "active": false,
+  "nodes": [
+    {
+      "id": "orders-schedule",
+      "name": "每天02点30分上海时间",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "orders-replay",
+      "name": "受控手工重跑",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "orders-ssh",
+      "name": "三ERP只读采集与原子发布",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api; timeout --signal=TERM --kill-after=15s 1200s env ABNORMAL_ORDER_TENANT_ID=KAINAN node dist/abnormal-order-sync-cli.js; result=$?; if [ \"$result\" -ne 0 ]; then timeout 60s env ABNORMAL_ORDER_TENANT_ID=KAINAN node dist/abnormal-order-sync-cli.js REPORT_FAILURE; exit \"$result\"; fi'"
+      },
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    },
+    {
+      "id": "orders-check",
+      "name": "严格验证三来源及同步计数",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first()?.json??{};\nif(r.code!==0&&r.code!=='0')throw new Error('ABNORMAL_ORDER_COMMAND_EXIT_FAILED');\nlet value;try{const lines=String(r.stdout??'').split(/\\r?\\n/).filter(s=>s.trim().startsWith('{'));value=JSON.parse(lines.at(-1)??'');}catch{throw new Error('ABNORMAL_ORDER_RESULT_INVALID');}\nif(value.status!=='SUCCESS'||!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.runId)||!Array.isArray(value.sources)||value.sources.length!==3)throw new Error('ABNORMAL_ORDER_RESULT_FAILED');\nfor(const source of ['e10-main','tplus-kainan','tplus-kejia']){const rows=value.sources.filter(s=>s.source===source);if(rows.length!==1||rows[0].status!=='SUCCESS'||!Number.isSafeInteger(rows[0].read)||rows[0].read<0||!Number.isSafeInteger(rows[0].validLines)||rows[0].validLines<0)throw new Error('ABNORMAL_ORDER_SOURCE_UNVERIFIED');}\nfor(const key of ['read','validLines','beforeDedup','crossConflicts','total','added','updated','invalidated'])if(!Number.isSafeInteger(value.metrics?.[key])||value.metrics[key]<0)throw new Error('ABNORMAL_ORDER_METRICS_INVALID');\nreturn [{json:value}];"
+      }
+    }
+  ],
+  "connections": {
+    "每天02点30分上海时间": {
+      "main": [
+        [
+          {
+            "node": "三ERP只读采集与原子发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受控手工重跑": {
+      "main": [
+        [
+          {
+            "node": "三ERP只读采集与原子发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "三ERP只读采集与原子发布": {
+      "main": [
+        [
+          {
+            "node": "严格验证三来源及同步计数",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1",
+    "executionTimeout": 1500
+  }
+}

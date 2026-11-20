@@ -562,3 +562,14 @@
 - 观察/告警：原报表显示最近成功/失败/60分钟过期，n8n失败执行留痕，不新增消息推送；运行审计保留时间/count/error。回滚只停本工作流及旧镜像，不删快照或变更现有任务。
 - 变更前实测20个n8n定义/15激活，未发现PLM流程；主机Timer/cron/常驻服务盘点保存在本地`schedulers-before.txt`，现有全部保持。新增仓库定义不是已激活数量；本轮实际导入/执行/激活、旧流程指纹及最终版本以`outputs/plm_dashboard_release/n8n-verification.json`和最终验收报告为准，发布过程需逐项核验后才标PASS。
 - 详见`docs/operations/RD_PLM_PROJECT_PROGRESS.md`。本任务原始JSON、运行日志及ZIP.git不提交；用户要求仅本地提交，不push。
+
+## WF-ABNORMAL-001 异常费用三ERP独立订单（2026-11-21新增）
+
+- 权威入口：n8n `AbnormalCostOrdersDailyV1`，每日02:30，Asia/Shanghai。仓库定义 `automation/n8n/abnormal-cost-orders-daily.json`；不新增systemd/cron/常驻循环。原n8n/systemd/cron任务保持。
+- 用途：异常费用专属、2026-01-01起有效订单，只供本表单引用；不依赖既有staging/PMC订单，不同步ERP写入。
+- 调用：既有本机SSH凭据→现有API容器 `abnormal-order-sync-cli.js` → 只读Python Integration Adapter → Application原子差异发布。身份：受控KAINAN系统命令，凭据仅既有服务器配置。n8n不持有SQL密码或业务写SQL。
+- 运行保护：tenant advisory lock、源原始ID/双读摘要核验、完整三来源后单事务发布、稳定业务键、源切换日志、SYSTEM_FIXED行保护。来源独立结果和批次计数；失败保留当前全部快照且非0，原erp.sync.failed规则/Dispatcher报警；超时REPORT_FAILURE补记中断。不在生产注入失败来测试消息。
+- 增量判断证据：E10头/ITEM有CT，明细/交货计划无CT；完整删除/修改集合无法由头水位证明，选择有界全读取和差异写入，重复运行幂等。补偿为同一CLI受控重跑。
+- 超时：每来源两次180秒，整同步1200秒，n8n1500秒。02:30与现有PLM半小时任务时间相同但数据/锁/调用独立，原任务不迁移；读取成本及实际耗时见证据。
+- 回滚：仅停用本任务、前向修复优先，保留表和历史，新旧应用兼容风险见 `docs/operations/ABNORMAL_COST_ORDERS.md`。
+- 责任归属：流程审批/异常费用维护者。发布前实际盘点21个n8n定义/16个激活，无本任务；最终激活、执行ID、成功时间及原工作流一致性在 `outputs/abnormal_cost_orders_release/` 最终报告登记。部署前未宣称已启用。

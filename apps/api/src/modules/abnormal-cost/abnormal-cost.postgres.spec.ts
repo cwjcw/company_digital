@@ -1,7 +1,10 @@
 import { DataSource, type QueryRunner } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import ExcelJS from 'exceljs';
-import { tablePermissionFieldsFor } from '@kdos/contracts';
+import { abnormalExpenseCategorySeeds, tablePermissionFieldsFor } from '@kdos/contracts';
+import { AbnormalCostOrders1722920137000 } from '../../migrations/1722920137000-AbnormalCostOrders';
+import { AbnormalOrderSyncService } from './abnormal-order-sync.service';
+import { AbnormalCostQueryService } from './abnormal-cost.query.service';
 import { AbnormalCost1722920132000 } from '../../migrations/1722920132000-AbnormalCost';
 import { NotificationInfrastructure1722920067000 } from '../../migrations/1722920067000-NotificationInfrastructure';
 import { NotificationRoutingAndRecipientDeliveries1722920068000 } from '../../migrations/1722920068000-NotificationRoutingAndRecipientDeliveries';
@@ -14,7 +17,6 @@ import { AbnormalCostFilterSources } from './abnormal-cost.filter-sources';
 import { TableFilterRegistry } from '../../common/filtering/table-filter.registry';
 import { TableFilterController } from '../../common/filtering/table-filter.controller';
 import { TablePrintService } from '../../common/printing/table-print.service';
-import { detailWorkbookTemplate } from './abnormal-cost.domain';
 import type { AbnormalActor, CostRow } from './abnormal-cost.policy';
 
 const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
@@ -29,24 +31,33 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
     const schema=`abnormal_${randomUUID().replace(/-/g,'')}`;
     db=new DataSource({type:'postgres',host:socket,username:'postgres',database:'abnormal_test',extra:{max:12,options:`-c search_path=${schema},public`}});await db.initialize();await db.query(`CREATE SCHEMA ${schema}`);
     await db.query(`CREATE TABLE users(id uuid PRIMARY KEY,tenant_id text,username text,display_name text,enabled boolean NOT NULL DEFAULT true,wechat_user_id text,position text);
+      CREATE TABLE roles(id uuid PRIMARY KEY DEFAULT uuidv7(),permission_group_resource text,permission_group_type text);
+      CREATE TABLE permissions(id uuid PRIMARY KEY DEFAULT uuidv7(),role_id uuid,resource text,field_key text,"read" boolean,"create" boolean,"copy" boolean,"update" boolean,"delete" boolean,batch_print boolean,batch_update boolean,"import" boolean,"export" boolean,updated_by text);
       CREATE TABLE organization_units(id uuid PRIMARY KEY,name text,enabled boolean DEFAULT true);
       CREATE TABLE administrator_grants(tenant_id text,user_id uuid,system_admin boolean);
       CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT uuidv7(),tenant_id text,actor_id uuid,actor_name text,resource text,record_id text,action text,before_json jsonb,after_json jsonb,request_id text,source text,created_by uuid,updated_by text,created_at timestamptz DEFAULT now());`);
     await db.query(`INSERT INTO users VALUES($1,$4,'admin','合成管理员',true,'wx-admin','总经理'),($2,$4,'judge','合成判定人',true,'wx-judge','课长'),($3,$4,'other','合成他人',true,'wx-other','员工')`,[admin,judge,other,tenant]);
     await db.query('INSERT INTO organization_units(id,name) VALUES($1,\'合成部门\')',[department]);await db.query('INSERT INTO administrator_grants VALUES($1,$2,true)',[tenant,admin]);
     const runner={query:(sql:string,params?:unknown[])=>db.query(sql,params)} as QueryRunner;
-    await new NotificationInfrastructure1722920067000().up(runner);await new NotificationRoutingAndRecipientDeliveries1722920068000().up(runner);await db.query("ALTER TABLE notification_delivery_logs ADD COLUMN component varchar(32) NOT NULL DEFAULT 'text',ADD COLUMN attachment_id uuid");await new NotificationGroupWebhookRouting1722920113000().up(runner);await new AbnormalCost1722920132000().up(runner);
+    await new NotificationInfrastructure1722920067000().up(runner);await new NotificationRoutingAndRecipientDeliveries1722920068000().up(runner);await db.query("ALTER TABLE notification_delivery_logs ADD COLUMN component varchar(32) NOT NULL DEFAULT 'text',ADD COLUMN attachment_id uuid");await new NotificationGroupWebhookRouting1722920113000().up(runner);await new AbnormalCost1722920132000().up(runner);await db.query(`INSERT INTO roles(permission_group_resource,permission_group_type) VALUES('abnormal-responsibility-requests','ADD_MANAGE_OWN'),('abnormal-responsibility-requests','CUSTOM');INSERT INTO permissions(role_id,resource,field_key,"read","update") SELECT id,'abnormal-responsibility-requests','order_no',true,true FROM roles`);
+    await new AbnormalCostOrders1722920137000().up(runner);
+    expect((await db.query("SELECT field_key FROM permissions p JOIN roles g ON g.id=p.role_id WHERE g.permission_group_type='ADD_MANAGE_OWN'")).map((r:CostRow)=>r.field_key).sort()).toEqual(['abnormal_quantity','item_codes','major_category','order_no','sub_categories']);
+    expect(await db.query("SELECT field_key FROM permissions p JOIN roles g ON g.id=p.role_id WHERE g.permission_group_type='CUSTOM'")).toHaveLength(1);
     notifications=new NotificationService(db);app=new AbnormalCostApplicationService(db,notifications,storage as never);sheets=new AbnormalCostSpreadsheetService(app,new AbnormalCostGraphSpreadsheetService(app,{listEnabled:async()=>[{id:department,name:'合成部门',pathLabel:'合成部门'}]} as never));
   },30000);
   beforeEach(async()=>{
     await db.query('TRUNCATE abnormal_cost_import_previews,abnormal_cost_commands,abnormal_cost_counters,abnormal_responsibility_judgments,abnormal_responsibility_requests,abnormal_cost_attachments,abnormal_categories,incident_severity_levels,audit_logs,notification_outbox CASCADE');
+    await db.query('TRUNCATE abnormal_cost_order_source_changes,abnormal_cost_order_source_lines,abnormal_cost_order_sync_runs,abnormal_cost_order_items,abnormal_expense_categories CASCADE');
+    await db.query(`INSERT INTO abnormal_cost_order_items(tenant_id,order_no,item_code,item_name,required_quantity,order_date,customer_due_date,source) VALUES($1,'虚拟订单','虚拟品号','虚拟品名',0,'2026-01-01','2026-01-01','SYSTEM_FIXED')`,[tenant]);
+    for(const [major,sub] of abnormalExpenseCategorySeeds)await db.query('INSERT INTO abnormal_expense_categories(tenant_id,major_category,sub_category) VALUES($1,$2,$3)',[tenant,major,sub]);
     category=(await app.saveBasic('abnormal-categories',null,{category_name:'品质',remark:''},actor)).id;
     await app.saveBasic('incident-severity-levels',null,{amount_min:'0.00',amount_max:'1000.00',severity_name:'一般'},actor);
-    const book=new ExcelJS.Workbook();await book.xlsx.load(await detailWorkbookTemplate() as never);book.worksheets[0].addRow(['SYN-ORDER','SYN-ITEM','合成品名',10,1,'']);
-    detail=(await app.upload({originalname:'details.xlsx',buffer:Buffer.from(await book.xlsx.writeBuffer()),mimetype:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'} as Express.Multer.File,'DETAIL',actor)).id;
+    // Historical attachment seeded only in isolated DB; new uploads no longer accept DETAIL.
+    detail=(await db.query("INSERT INTO abnormal_cost_attachments(tenant_id,object_key,name,mime_type,size,purpose,parsed_rows,created_by) VALUES($1,'fixture','historical.xlsx','application/octet-stream',1,'DETAIL','[{}]'::jsonb,$2) RETURNING id",[tenant,admin]))[0].id;
+    await db.query(`INSERT INTO abnormal_cost_order_items(tenant_id,order_no,item_code,item_name,required_quantity,order_date,customer_due_date,source) VALUES($1,'SYN-ORDER','SYN-ITEM','合成品名',10,'2026-01-01','2026-05-01','e10-main') ON CONFLICT DO NOTHING`,[tenant]);
   });
   afterAll(async()=>{if(db?.isInitialized)await db.destroy();});
-  const body=()=>({customer_code:'SYN-CUSTOMER',order_no:'SYN-ORDER',division_id:department,initiator_id:admin,abnormal_description:'合成异常',estimated_amount:'100.00',confirmed_amount:'100.00',detail_attachment:detail,other_attachments:[],responsibility_judgments:[{category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:null}]});
+  const body=()=>({customer_code:'SYN-CUSTOMER',order_no:'SYN-ORDER',division_id:department,initiator_id:admin,abnormal_description:'合成异常',estimated_amount:'100.00',confirmed_amount:'100.00',item_codes:['SYN-ITEM'],major_category:'粉末报废',sub_categories:['呆滞废粉'],abnormal_quantity:0,other_attachments:[],responsibility_judgments:[{category_id:category,judgment_department_id:department,judge_user_id:judge,expense_bearing_ratio:null}]});
   const create=(key:string=randomUUID())=>app.createRequest(body(),key,actor);
   const allocations=(responsibility='100.0',adjusted='100.0')=>[{personnel_type:'公司',company_description:'公司',responsible_user_id:other,personnel_level:'总经理',responsibility_ratio:responsibility,adjusted_ratio:adjusted}];
   it('creates a parent and unjudged linked children atomically with stable numbers, detail data, audit and outbox',async()=>{
@@ -136,7 +147,7 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
   it('blocks forged attachments and deletion of persisted allocation rows without delete permission',async()=>{
     const r=await create(),id=r.judgments[0].id;
     await expect(app.attachment('abnormal-responsibility-requests',r.id,randomUUID(),actor)).rejects.toThrow('无附件读取权限');
-    await expect(app.createRequest({...body(),detail_attachment:randomUUID()},'bad-attachment',actor)).rejects.toThrow('附件不存在');
+    await expect(app.createRequest({...body(),detail_attachment:randomUUID()},'bad-attachment',actor)).rejects.toThrow('不可填写字段');
     await app.updateJudgment(id,{expectedVersion:1,responsibility_allocations:allocations()},actor);
     const scoped:AbnormalActor={...actor,isSystemAdmin:false,permissions:[`abnormal-responsibility-judgments:*:update`,...tablePermissionFieldsFor('abnormal-responsibility-judgments').flatMap(f=>[`abnormal-responsibility-judgments:${f.key}:read`,`abnormal-responsibility-judgments:${f.key}:update`])],tableDataScopes:[{resource:'abnormal-responsibility-judgments',scope:'ALL'}]};
     await expect(app.updateJudgment(id,{expectedVersion:2,responsibility_allocations:[]},scoped)).rejects.toThrow('没有此表');
@@ -203,14 +214,14 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
   });
   const excelRow=(book:ExcelJS.Workbook,values:CostRow,index=2)=>{const sheet=book.worksheets[0];sheet.getRow(1).eachCell((cell,column)=>{if(cell.text in values)sheet.getRow(index).getCell(column).value=values[cell.text];});};
   const graphBook=async(code:'abnormal-responsibility-requests'|'abnormal-responsibility-judgments',mode='CREATE',query:CostRow={})=>{const book=new ExcelJS.Workbook();await book.xlsx.load(await sheets.template(code,mode,query,actor) as never);return book;};
-  const mainExcel=()=>({'客户':'SYN-EXCEL','订单号':'SYN-ORDER','事业部':'合成部门','发起人':'admin','异常描述':'Excel合成异常','预估金额':'100.00','明细附件':'details.xlsx','责任划分':JSON.stringify([{'异常类别':'品质','判定部门':'合成部门','判定人':'judge','承担费用比例':null}])});
+  const mainExcel=()=>({'客户':'SYN-EXCEL','订单号':'SYN-ORDER','事业部':'合成部门','发起人':'admin','异常描述':'Excel合成异常','预估金额':'100.00','品号':'["SYN-ITEM"]','异常数量':0,'异常大类':'粉末报废','异常二级分类':'["呆滞废粉"]','责任划分':JSON.stringify([{'异常类别':'品质','判定部门':'合成部门','判定人':'judge','承担费用比例':null}])});
   it('imports complete request graphs with business labels, validated attachment names and file-level idempotence',async()=>{
     const book=await graphBook('abnormal-responsibility-requests');excelRow(book,mainExcel());const file=Buffer.from(await book.xlsx.writeBuffer());
     const preview=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(preview.errors).toEqual([]);expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(0);expect(await db.query('SELECT * FROM notification_outbox')).toHaveLength(0);expect(await db.query('SELECT * FROM abnormal_cost_counters')).toHaveLength(0);
     const simultaneous=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(simultaneous.errors).toEqual([]);const confirmed=await Promise.all([sheets.confirm('abnormal-responsibility-requests',preview.previewId,actor),sheets.confirm('abnormal-responsibility-requests',simultaneous.previewId,actor)]);expect(confirmed.reduce((sum,r)=>sum+r.created,0)).toBe(1);expect((await sheets.confirm('abnormal-responsibility-requests',preview.previewId,actor)).repeated).toBe(true);
     const again=await sheets.preview('abnormal-responsibility-requests',file,actor);expect(again.errors).toEqual([]);expect(await sheets.confirm('abnormal-responsibility-requests',again.previewId,actor)).toMatchObject({created:0,repeated:1});
     expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(1);expect(await db.query('SELECT * FROM abnormal_responsibility_judgments')).toHaveLength(1);expect(await db.query('SELECT * FROM notification_outbox')).toHaveLength(1);
-    const update=await graphBook('abnormal-responsibility-requests','UPDATE');expect(update.worksheets[0].getRow(2).values?.toString()).toContain('合成部门');expect(update.worksheets[0].getRow(2).values?.toString()).toContain('details.xlsx');expect(update.worksheets[0].getRow(1).values?.toString()).not.toContain('责任划分');
+    const update=await graphBook('abnormal-responsibility-requests','UPDATE');expect(update.worksheets[0].getRow(2).values?.toString()).toContain('合成部门');expect(update.worksheets[0].getRow(1).values?.toString()).not.toContain('明细附件');expect(update.worksheets[0].getRow(1).values?.toString()).not.toContain('责任划分');
   });
   it('accepts mixed graph creates and updates, and rolls the entire confirm back on a concurrent stale version',async()=>{
     const old=await create(),book=await graphBook('abnormal-responsibility-requests');excelRow(book,mainExcel());excelRow(book,{'记录ID':old.id,'版本':old.version,'异常描述':'更新说明'},3);
@@ -229,9 +240,80 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
   it('rejects graph UUID references, missing validated files, invalid allocations and revoked import access without partial data',async()=>{
     await expect(sheets.preview('abnormal-responsibility-requests',Buffer.from([0x88,0x7d,0x1c,0xe4]),actor)).rejects.toThrow('该文件被加密,请解密后再导入.');
     const book=await graphBook('abnormal-responsibility-requests');excelRow(book,{...mainExcel(),'发起人':admin});const invalid=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor);expect(invalid.errors[0].reason).toContain('不接受内部UUID');expect(invalid.previewId).toBeUndefined();
-    excelRow(book,{...mainExcel(),'明细附件':'not-uploaded.xlsx'});expect((await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor)).errors[0].reason).toContain('未准备');
+    excelRow(book,{...mainExcel(),'品号':'["OTHER-ITEM"]'});expect((await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor)).errors[0].reason).toContain('不属于当前订单');
     excelRow(book,mainExcel());const valid=await sheets.preview('abnormal-responsibility-requests',Buffer.from(await book.xlsx.writeBuffer()),actor);await expect(sheets.confirm('abnormal-responsibility-requests',valid.previewId,{...actor,isSystemAdmin:false,permissions:[]})).rejects.toThrow('没有此表');expect(await db.query('SELECT * FROM abnormal_responsibility_requests')).toHaveLength(0);
     const parent=await create();await expect(app.updateJudgment(parent.judgments[0].id,{expectedVersion:1,responsibility_allocations:{}},actor)).rejects.toThrow('责任划分必须为数组');await expect(app.updateJudgment(parent.judgments[0].id,{expectedVersion:1,responsibility_allocations:[null]},actor)).rejects.toThrow('第1行责任划分无效');
+  });
+
+  const sourceLine=(patch:CostRow={})=>({source_line_id:'1',order_no:'SYNC-ORDER',item_code:'SYNC-ITEM',item_name:'ERP合成品名',required_quantity:'2.12345678901234',order_date:'2026-01-01',customer_due_date:'2026-04-01',header_approved:'Y',line_approved:'Y',header_close:'2',specified_close:0,voucher_state:189,cancelled:null,audited:1,header_stopped:0,line_stopped:0,commercial_stopped:false,...patch});
+  it('publishes three independent sources atomically, deduplicates, retries idempotently, updates/inactivates and records source fallback',async()=>{
+    const reader={read:jest.fn(async()=>[sourceLine()])},sync=new AbnormalOrderSyncService(db,reader as never,notifications);
+    const first=await sync.sync(tenant);expect(first.metrics).toMatchObject({added:1,beforeDedup:3,crossConflicts:2,total:1});
+    const [row]=await db.query("SELECT * FROM abnormal_cost_order_items WHERE order_no='SYNC-ORDER'");expect(row).toMatchObject({source:'e10-main',required_quantity:'2.12345678901234'});
+    expect((await sync.sync(tenant)).metrics).toMatchObject({added:0,updated:0,invalidated:0});
+    reader.read.mockImplementation(async(source?:string)=>source==='e10-main'?[]:[sourceLine({required_quantity:'7'})]);
+    expect((await sync.sync(tenant)).metrics).toMatchObject({updated:1,total:1});const [fallback]=await db.query("SELECT * FROM abnormal_cost_order_items WHERE order_no='SYNC-ORDER'");expect(fallback.id).toBe(row.id);expect(fallback.source).toBe('tplus-kainan');expect(fallback.required_quantity).toBe('7.00000000000000');expect(await db.query('SELECT * FROM abnormal_cost_order_source_changes')).toHaveLength(1);
+    reader.read.mockResolvedValue([]);expect((await sync.sync(tenant)).metrics.invalidated).toBe(1);expect((await db.query("SELECT is_active FROM abnormal_cost_order_items WHERE id=$1",[row.id]))[0].is_active).toBe(false);
+    expect(await db.query("SELECT id FROM abnormal_cost_order_items WHERE source='SYSTEM_FIXED' AND is_active")).toHaveLength(1);
+  });
+  it('retains all successful current source rows and winners on any source failure or malformed snapshot',async()=>{
+    const reader={read:jest.fn(async()=>[sourceLine()])},sync=new AbnormalOrderSyncService(db,reader as never,notifications);await sync.sync(tenant);
+    const before=await db.query('SELECT * FROM abnormal_cost_order_items ORDER BY id'),rawBefore=await db.query('SELECT * FROM abnormal_cost_order_source_lines ORDER BY source,source_line_id');
+    reader.read.mockImplementation(async(source?:string)=>{if(source==='e10-main')throw Error('fixture timeout');return [];});await expect(sync.sync(tenant)).rejects.toThrow('SOURCE_FAILED');
+    expect(await db.query('SELECT * FROM abnormal_cost_order_items ORDER BY id')).toEqual(before);expect(await db.query('SELECT * FROM abnormal_cost_order_source_lines ORDER BY source,source_line_id')).toEqual(rawBefore);
+    expect((await db.query("SELECT sources FROM abnormal_cost_order_sync_runs WHERE status='FAILED'"))[0].sources).toHaveLength(3);
+    reader.read.mockResolvedValue([sourceLine({required_quantity:'NaN'})]);await expect(sync.sync(tenant)).rejects.toThrow();expect(await db.query('SELECT * FROM abnormal_cost_order_items ORDER BY id')).toEqual(before);
+  });
+  it('refuses concurrent sync without losing the running batch',async()=>{
+    let release!:(v:ReturnType<typeof sourceLine>[])=>void;let started=false;const reader={read:jest.fn(async()=>[sourceLine()])};reader.read.mockImplementationOnce(()=>new Promise(r=>{started=true;release=r;}));
+    const sync=new AbnormalOrderSyncService(db,reader as never,notifications),running=sync.sync(tenant);for(let i=0;i<100&&!started;i++)await new Promise(r=>setTimeout(r,10));await expect(sync.sync(tenant)).rejects.toThrow('ALREADY_RUNNING');release([sourceLine()]);await running;
+  });
+  it('enforces virtual exception, wrong order/item, quantity integer and category membership with complete transaction rollback',async()=>{
+    const before=async()=>({requests:(await db.query('SELECT count(*)::int n FROM abnormal_responsibility_requests'))[0].n,children:(await db.query('SELECT count(*)::int n FROM abnormal_responsibility_judgments'))[0].n,outbox:(await db.query('SELECT count(*)::int n FROM notification_outbox'))[0].n});
+    const initial=await before();
+    for(const patch of [{order_no:'虚拟订单',item_codes:['虚拟品号']},{order_no:'SYN-ORDER',item_codes:['OTHER']},{abnormal_quantity:-1},{abnormal_quantity:1.5},{abnormal_quantity:'1'},{sub_categories:['回收粉','内部原因']}])await expect(app.createRequest({...body(),...patch},randomUUID(),actor)).rejects.toThrow();
+    expect(await before()).toEqual(initial);
+    const virtual=await app.createRequest({...body(),major_category:'粉末报废',sub_categories:['回收粉'],order_no:'虚拟订单',item_codes:['虚拟品号']},'virtual-valid',actor);expect((await app.detail('abnormal-responsibility-requests',virtual.id,actor)).item_codes).toEqual(['虚拟品号']);
+    await expect(app.createRequest({...body(),sub_categories:['回收粉','呆滞废粉'],order_no:'虚拟订单',item_codes:['虚拟品号']},'mixed',actor)).rejects.toThrow('仅‘粉末报废-回收粉’');
+  });
+  it('preserves historical attachments, incomplete old facts and stable children while guiding allowed edits to valid new fields',async()=>{
+    const r=await create(),child=r.judgments[0];await db.query("UPDATE abnormal_responsibility_requests SET detail_attachment=$2,item_codes='[]',major_category=NULL,sub_categories='[]',order_validation_version=0 WHERE id=$1",[r.id,detail]);
+    const old=await app.detail('abnormal-responsibility-requests',r.id,actor);expect(old.legacy_fields_incomplete).toBe(true);expect(old.detail_attachment[0].id).toBe(detail);
+    await expect(app.updateRequest(r.id,{expectedVersion:1,abnormal_description:'不得绕过补齐'},actor)).rejects.toThrow('请选择异常大类');
+    await app.updateRequest(r.id,{expectedVersion:1,item_codes:['SYN-ITEM'],major_category:'粉末报废',sub_categories:['呆滞废粉'],abnormal_quantity:3},actor);
+    const latest=await app.detail('abnormal-responsibility-requests',r.id,actor);expect(latest).toMatchObject({abnormal_quantity:3,item_codes:['SYN-ITEM'],legacy_fields_incomplete:false});expect(latest.detail_attachment[0].id).toBe(detail);expect(latest.responsibility_judgments[0]).toMatchObject({id:child.id,judgment_no:child.judgment_no});
+    await app.updateJudgment(child.id,{expectedVersion:1,responsibility_reason:'判定已开始'},actor);
+    await expect(app.updateRequest(r.id,{expectedVersion:2,abnormal_quantity:4},actor)).rejects.toThrow('已开始或已完成');
+    expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).base_info_locked).toBe(true);
+  });
+  it('keeps disabled historical category references, rejects new disabled selection, rename/delete while referenced and duplicate pairs',async()=>{
+    const r=await create(),[cat]=await db.query("SELECT * FROM abnormal_expense_categories WHERE major_category='粉末报废' AND sub_category='呆滞废粉'");
+    await expect(app.saveBasic('abnormal-expense-categories',null,{major_category:cat.major_category,sub_category:cat.sub_category},actor)).rejects.toThrow('该异常费用分类已存在');
+    await app.saveBasic('abnormal-expense-categories',cat.id,{expectedVersion:1,is_enabled:false},actor);
+    await expect(app.createRequest(body(),'disabled',actor)).rejects.toThrow('已关闭');
+    await app.updateRequest(r.id,{expectedVersion:1,abnormal_description:'仍保留原分类'},actor);expect((await app.detail('abnormal-responsibility-requests',r.id,actor)).sub_categories).toEqual(['呆滞废粉']);
+    await expect(app.saveBasic('abnormal-expense-categories',cat.id,{expectedVersion:2,sub_category:'改名'},actor)).rejects.toThrow('历史单据引用');await expect(app.remove('abnormal-expense-categories',cat.id,2,actor)).rejects.toThrow('不能删除');
+    expect(await db.query('SELECT id FROM abnormal_expense_categories')).toHaveLength(15);
+  });
+  it('provides limited authorized remote candidates and denies every manual order write even to administrators',async()=>{
+    const query=new AbnormalCostQueryService(db,{listEnabled:async()=>[]} as never);
+    expect((await query.orderOptions({search:'SYN'},actor)).options.map(o=>o.value)).toEqual(['SYN-ORDER']);expect((await query.orderOptions({},actor)).options.some(o=>o.value==='虚拟订单')).toBe(false);
+    expect((await query.orderOptions({majorCategory:'粉末报废',subCategories:'["回收粉"]'},actor)).options.some(o=>o.value==='虚拟订单')).toBe(true);
+    expect((await query.orderOptions({orderNo:'SYN-ORDER'},actor)).options[0].value).toBe('SYN-ITEM');
+    await expect(query.orderOptions({}, {...actor,isSystemAdmin:false,permissions:[]})).rejects.toThrow();
+    await expect(app.saveBasic('abnormal-cost-orders',null,{},actor)).rejects.toThrow('系统同步');await expect(sheets.template('abnormal-cost-orders','CREATE',{},actor)).rejects.toThrow('没有此表');
+    const [fixed]=await db.query("SELECT * FROM abnormal_cost_order_items WHERE source='SYSTEM_FIXED'");await expect(app.remove('abnormal-cost-orders',fixed.id,1,actor)).rejects.toThrow('没有此表');
+    expect((await query.orderOptions({}, {...actor,tenantId:'OTHER'})).options).toHaveLength(0);
+  });
+  it('imports expense categories through real preview/confirm without bypassing enable and duplicate rules',async()=>{
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await sheets.template('abnormal-expense-categories','CREATE',{},actor) as never);book.worksheets[0].addRow(['','','合成大类','合成子类',false]);const preview=await sheets.preview('abnormal-expense-categories',Buffer.from(await book.xlsx.writeBuffer()),actor);expect(preview.errors).toEqual([]);expect((await sheets.confirm('abnormal-expense-categories',preview.previewId,actor)).created).toBe(1);expect((await db.query("SELECT is_enabled FROM abnormal_expense_categories WHERE major_category='合成大类'"))[0].is_enabled).toBe(false);
+  });
+
+  it('enforces forced tenant RLS with an actual non-superuser database role',async()=>{
+    const role='abnormal_rls_'+Date.now(),schema=(await db.query('SELECT current_schema() name'))[0].name;
+    await db.query(`CREATE ROLE ${role};GRANT USAGE ON SCHEMA ${schema} TO ${role};GRANT SELECT ON abnormal_cost_order_items,abnormal_expense_categories,abnormal_cost_order_source_lines,abnormal_cost_order_sync_runs,abnormal_cost_order_source_changes TO ${role}`);
+    const r=db.createQueryRunner();await r.connect();try{await r.query(`SET ROLE ${role}`);await r.query("SELECT set_config('app.tenant_id','OTHER',false)");for(const table of ['abnormal_cost_order_items','abnormal_expense_categories','abnormal_cost_order_source_lines','abnormal_cost_order_sync_runs','abnormal_cost_order_source_changes'])expect(await r.query(`SELECT * FROM ${table}`)).toHaveLength(0);}finally{await r.query('RESET ROLE');await r.query('RESET app.tenant_id');await r.release();}
+    await expect(new AbnormalCostOrders1722920137000().down()).rejects.toThrow('Forward-only');
   });
 
 });

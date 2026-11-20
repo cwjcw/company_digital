@@ -47,6 +47,8 @@ export class AbnormalCostGraphSpreadsheetService {
       const f=tablePermissionFieldsFor(code).find(field=>field.key===key)!;
       if(value!==null&&f.type==='member')input[key]=user(value);
       if(value!==null&&f.type==='department')input[key]=department(value);
+      if(['item_codes','sub_categories'].includes(key)&&value!==null)input[key]=this.jsonNames(value,f.label);
+      if(key==='abnormal_quantity'&&value!==null){const n=Number(value);if(!Number.isSafeInteger(n)||n<0||typeof value==='string'&&!/^\d+$/.test(value))throw new BadRequestException('异常数量必须为大于等于0的整数');input[key]=n;}
       if(key==='category_id'&&value!==null)input[key]=this.unique(value,catalog.categories,['category_name'],'异常类别');
       if(key==='responsibility_judgments'){
         if(row.id)throw new BadRequestException('已有主单的责任判定请使用子表独立导入，不能改写关联配置');
@@ -93,10 +95,12 @@ export class AbnormalCostGraphSpreadsheetService {
       for(const record of records){const out:CostRow={id:record.id,version:record.version};for(const f of fields){let v=record[f.key];if(f.type==='member')v=member(v);if(f.type==='department')v=department(v);if(f.key==='category_id')v=catalog.categories.find(c=>c.id===v)?.category_name;
         if(f.key==='responsibility_allocations')v=JSON.stringify((v as CostRow[]).map((a,index)=>Object.fromEntries([['行序号',index+1],...Object.entries(allocationKeys).map(([label,k])=>[label,k==='responsible_user_id'?(a.personnel_type==='公司'?null:member(a[k])):a[k]])])));
         if(f.type==='attachment'){const ids=Array.isArray(v)?v:v?[v]:[];const files=await m.query('SELECT id,name FROM abnormal_cost_attachments WHERE tenant_id=$1 AND id=ANY($2::uuid[])',[actor.tenantId,ids]);const names=ids.map((id:string)=>files.find((a:CostRow)=>a.id===id)?.name);v=f.key==='detail_attachment'?names[0]:JSON.stringify(names);}
+        if(['item_codes','sub_categories'].includes(f.key))v=JSON.stringify(v??[]);
         out[f.key]=v;
       }sheet.addRow(out);}
     });
     book.addWorksheet('填写说明').addRows([
+      ['品号、异常二级分类使用JSON字符串数组，如["品号1","品号2"]；异常数量为非负整数，默认0；订单及分类仍执行正式关联校验。历史明细附件不再填写。'],
       [fields.map(f=>`${f.label}：${f.required?'必填':'可空'}${f.options?`；选项${f.options.map(o=>o.label).join('/')}`:''}`).join('；')],
       ['ID与版本同时为空新增，同时有效更新；空白不改，【清空】清空可空字段。更新模板仅携带有读写权限且范围允许的数据。'],
       ['成员填写唯一登录账号；部门填写完整组织路径；异常类别填写唯一名称；不得填内部UUID。'],

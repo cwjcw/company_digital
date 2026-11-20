@@ -76,3 +76,13 @@
   .abnormal-request-section { padding: 12px; }
   .abnormal-request-judgment-actions { align-items: flex-start; flex-direction: column; }
 }
+
+/* Responsibility configuration: readable choices with internal horizontal scroll only. */
+.abnormal-request-judgment-table { min-width: 1290px; table-layout: fixed; }
+.abnormal-request-judgment-table td:nth-child(2) { width: 240px; min-width: 240px; }
+.abnormal-request-judgment-table td:nth-child(3) { width: 320px; min-width: 320px; }
+.abnormal-request-judgment-table td:nth-child(4) { width: 260px; min-width: 260px; }
+.abnormal-request-judgment-table .ant-select { width: 100%; min-width: 0; }
+.abnormal-select-label { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.abnormal-select-more { padding: 8px 12px; color: #666; font-size: 12px; }
+.abnormal-request-info-grid .ant-select { width: 100%; }

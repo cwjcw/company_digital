@@ -1073,6 +1073,7 @@ const excelNotApplicableReasons: Record<string, string> = {
   "rd-material-duplicates": "一物多码检测结果由全量计算产生，resource update 用于重新计算而非维护行字段。",
   "finished-goods-inbound": "入库事实由正式入库流程产生，不允许通过Excel覆盖库存事实。",
   "finished-goods-outbound": "出库事实由正式出库流程产生，不允许通过Excel覆盖库存事实。",
+  "abnormal-cost-orders": "异常费用独立ERP只读订单表与系统固定行，禁止人工Excel覆盖。",
   "supplier-list": "供应商清单是T+同步只读投影，只允许集成适配器维护。",
   "audit-logs": "审计日志是不可变系统记录，不提供新增或更新导入。",
   "api-keys": "API Key属于安全凭据配置，不允许导出或Excel维护。",
@@ -1093,7 +1094,7 @@ const excelNotApplicableReasons: Record<string, string> = {
   "notification-route": "消息路由由专用管理服务维护，尚未接入双向模板适配器。"
 };
 const excelSpecializedResources = new Set([
-  ...abnormalCostResources.map(r=>r.code),
+  ...abnormalCostResources.filter(r=>r.code!=="abnormal-cost-orders").map(r=>r.code),
   "mps-review-due-dates", "mps-order-allocations", "mps-process-reports", "mps-data-exceptions",
   "mps-three-day-work-orders", "mps-technical-reports", "mps-weekly-process-plans", "mps-outsourcing-reports",
   "business-customer-mapping", "logistics-ledger", "order-schedule", "equipment-status-report",

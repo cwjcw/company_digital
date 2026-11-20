@@ -21,6 +21,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps/api apps/api
 COPY data-operations/e10 data-operations/e10
 COPY data-operations/tplus data-operations/tplus
+COPY data-operations/abnormal-orders data-operations/abnormal-orders
 COPY packages/shared packages/shared
 COPY packages/contracts packages/contracts
 COPY packages/database packages/database
@@ -47,6 +48,7 @@ COPY --from=build /app/apps/api/package.json ./package.json
 COPY --from=build /app/apps/api/dist ./dist
 COPY --from=build /app/data-operations/e10 /app/data-operations/e10
 COPY --from=build /app/data-operations/tplus /app/data-operations/tplus
+COPY --from=build /app/data-operations/abnormal-orders /app/data-operations/abnormal-orders
 COPY --from=build /app/packages/shared/package.json /app/packages/shared/package.json
 COPY --from=build /app/packages/shared/dist /app/packages/shared/dist
 COPY --from=build /app/packages/contracts /app/packages/contracts

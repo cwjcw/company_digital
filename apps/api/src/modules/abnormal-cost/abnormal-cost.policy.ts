@@ -15,6 +15,7 @@ const ASSIGNEE_EDIT_FIELDS=new Set(['responsibility_allocations','responsibility
 const hasResourceGrant=(actor:AbnormalActor,code:string,action:string)=>costAdmin(actor)||actor.permissions.includes(`${code}:*:${action}`);
 const isAssignedJudge=(actor:AbnormalActor)=>Boolean(actor.userId);
 export function costCan(actor: AbnormalActor, code: string, action: string) {
+  if(code==='abnormal-cost-orders'&&!['read','export','batch_print'].includes(action))return false;
   if(hasResourceGrant(actor,code,action))return true;
   // A judgment assignment itself grants access to that user's own record only;
   // costScope below enforces the row boundary for every read/update query.
@@ -30,13 +31,13 @@ export const costColumns = (code: AbnormalCostResource) => Object.fromEntries([
   ['id','id'],['version','version'],...tablePermissionFieldsFor(code).filter(f=>!['responsibility_judgments','abnormal_request_link'].includes(f.key)).map(f=>[f.key,({createdBy:'created_by',createdAt:'created_at',updatedBy:'updated_by',updatedAt:'updated_at'} as Record<string,string>)[f.key]??f.key])
 ]);
 export function costScope(actor: AbnormalActor, code: AbnormalCostResource, action: string, params: unknown[]) {
-  const base='record.deleted_at IS NULL';
+  const base=code==='abnormal-cost-orders'?'record.deleted_at IS NULL AND record.is_active':'record.deleted_at IS NULL';
   if(costAdmin(actor))return base;
   if(code===JUDGMENT&&!hasResourceGrant(actor,code,action)){
     params.push(actor.userId);
     return `(${base}) AND (record.judge_user_id=$${params.length}::uuid)`;
   }
-  return `(${base}) AND (${buildDataScopeClause({resource:code,action,columns:costColumns(code),actor:{...actor,moduleAdminCodes:[]},params,numericFields:['estimated_amount','confirmed_amount','amount_min','amount_max','expense_bearing_ratio']})})`;
+  return `(${base}) AND (${buildDataScopeClause({resource:code,action,columns:costColumns(code),actor:{...actor,moduleAdminCodes:[]},params,numericFields:['estimated_amount','confirmed_amount','amount_min','amount_max','expense_bearing_ratio','required_quantity','abnormal_quantity']})})`;
 }
 export function costWriteFields(actor: AbnormalActor, code: AbnormalCostResource, body: CostRow, creating: boolean) {
   const fields=tablePermissionFieldsFor(code);

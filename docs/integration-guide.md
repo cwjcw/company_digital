@@ -207,3 +207,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ### A1-PLM研发项目进度
 
 服务端HTTP Integration Adapter → 原始口径Calculator → PlmSyncService原子快照Application Command → 既有认证/资源/字段/租户范围Query及Excel → 研发中心/报表/项目进度。无前端PLM登录、公开JSON、独立服务或认证变更。系统项目总数与启动完成阶段明细分别统计。配置与n8n单入口每30分钟见[运行说明](operations/RD_PLM_PROJECT_PROGRESS.md)。
+
+### 异常费用独立订单与费用分类
+
+三ERP只读适配器→统一订单事实→AbnormalOrderSyncService Application Command→异常费用专属私有投影；三来源校验成功后才原子发布。候选 `GET /abnormal-cost/order-options` 按主单字段填写授权限量搜索，不能借此绕过独立表的查询权限；`order-status` 单独要求订单表read。主表所有Web/Excel保存经同一服务强制验证分类/订单/品号，只有粉末报废且二级仅回收粉可用系统虚拟行。历史明细附件只读下载仍逐记录/字段鉴权，关闭分类保留历史引用。接口、Migration137、单一n8n入口、告警和回退见 [运行说明](operations/ABNORMAL_COST_ORDERS.md)。

@@ -11,17 +11,18 @@ vi.mock('../../shared/KdosDataTable',async()=>{
   const actual=await vi.importActual<typeof import('../../shared/KdosDataTable')>('../../shared/KdosDataTable');
   return {...actual,KdosDataTable:({toolbar,onRecordDoubleClick,rowActions,dataSource}:any)=><div>{toolbar}{dataSource?.map((r:any)=><div key={r.id}><button onDoubleClick={()=>onRecordDoubleClick(r,{page:1,pageSize:100,rowIndex:0,total:1})}>记录{r.category_name}</button>{rowActions?.(r)}</div>)}</div>};
 });
-const options={users:[{id:'admin',name:'合成管理员',username:'admin',enabled:true}],departments:[],categories:[],severities:[{id:'s1',severity_name:'一般',amount_min:'0.00',amount_max:'1000.00'},{id:'s2',severity_name:'重大',amount_min:'1000.01',amount_max:'2000.00'}],systemAdminId:'admin'};
+const options={users:[{id:'admin',name:'合成管理员',username:'admin',enabled:true}],departments:[],categories:[],severities:[{id:'s1',severity_name:'一般',amount_min:'0.00',amount_max:'1000.00'},{id:'s2',severity_name:'重大',amount_min:'1000.01',amount_max:'2000.00'}],expenseCategories:[],systemAdminId:'admin'};
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 beforeEach(()=>{localStorage.clear();localStorage.setItem('sessionUser',JSON.stringify({sub:'admin',permissions:['*'],isSystemAdmin:true}));vi.mocked(api).mockImplementation(async(path)=>{
   if(path==='/abnormal-cost/options')return options as never;
+  if(path.startsWith('/abnormal-cost/order-options'))return {options:[],hasMore:false} as never;
   if(path.startsWith('/table-filters/rows'))return {rows:[],total:0,page:1,pageSize:100} as never;
   return {} as never;
 });});
 function page(kind='requests'){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});return render(<StrictMode><App><QueryClientProvider client={client}><MemoryRouter initialEntries={[`/workflow/abnormal-cost/${kind}`]}><Routes><Route path="/workflow/abnormal-cost/:kind" element={<AbnormalCostPage/>}/></Routes></MemoryRouter></QueryClientProvider></App></StrictMode>);}
 describe('Abnormal cost business forms',()=>{
   it('opens the responsive request form with the ordered fields, attachments, and linked judgments',async()=>{
-    page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByText('下载明细附件模板');
+    page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByLabelText('异常数量');expect(screen.queryByText('下载明细附件模板')).not.toBeInTheDocument();expect(screen.getByLabelText('异常数量')).toHaveValue('0');
     expect(screen.getByDisplayValue('提交后自动生成')).toBeInTheDocument();
     expect(screen.getByText('基本信息')).toBeInTheDocument();expect(screen.getByText('附件资料')).toBeInTheDocument();expect(screen.getByText('责任划分')).toBeInTheDocument();
     expect(screen.getByLabelText('客户')).toBeInTheDocument();expect(screen.getByLabelText('订单号')).toBeInTheDocument();expect(screen.getByLabelText('事业部')).toBeInTheDocument();
@@ -32,10 +33,11 @@ describe('Abnormal cost business forms',()=>{
   it('defaults confirmed money and recomputes severity while retaining a manual confirmed value',async()=>{
     vi.mocked(api).mockImplementation(async(path)=>{
       if(path==='/abnormal-cost/options')return {...options,categories:[{id:'category-1',category_name:'品质'}]} as never;
-      if(path.startsWith('/table-filters/rows'))return {rows:[],total:0,page:1,pageSize:100} as never;
+      if(path.startsWith('/abnormal-cost/order-options'))return {options:[],hasMore:false} as never;
+  if(path.startsWith('/table-filters/rows'))return {rows:[],total:0,page:1,pageSize:100} as never;
       return {} as never;
     });
-    page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByText('下载明细附件模板');
+    page();fireEvent.click(screen.getByRole('button',{name:/新增/}));await screen.findByLabelText('异常数量');expect(screen.queryByText('下载明细附件模板')).not.toBeInTheDocument();
     await waitFor(()=>expect(document.querySelector('.abnormal-request-judgment-table .ant-select-selector')).toBeInTheDocument());
     fireEvent.mouseDown(document.querySelector('.abnormal-request-judgment-table .ant-select-selector')!);await screen.findByText('品质');fireEvent.keyDown(document.body,{key:'Escape'});
     const estimated=screen.getByLabelText('预估金额'),confirmed=screen.getByLabelText('核定金额');await waitFor(()=>expect(estimated).toBeEnabled());
