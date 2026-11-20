@@ -203,3 +203,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 ### R&D unified BOM existence
 
 `rd-order-bom-report` keeps its existing table-filter/Excel endpoints and read/export scopes. After both T+ snapshots pass reconciliation and the controlled ACTIVATE command, `bomStatus` is `Y`/`N`, and detail rows expose permission-controlled `bomSources`, `sourceModifiedTimes` (candidate dates only), `sourceSyncStatus`, and `bomSourceNote`. All three existing views deduplicate by allocation order/item and department, never by ERP count. Multiple effective heads suppress a claimed unique approval date. `unmatchedBomItemCount` is an auxiliary subset of N indicating incomplete verification, not a third status. No new public write API or notification event is introduced. E10 synchronization and other consumers retain their contracts. See `docs/operations/RD_BOM_MASTER_INDEX_SYNC.md` for Migration135, CLI, activation gate and rollback.
+
+### A1-PLM研发项目进度
+
+服务端HTTP Integration Adapter → 原始口径Calculator → PlmSyncService原子快照Application Command → 既有认证/资源/字段/租户范围Query及Excel → 研发中心/报表/项目进度。无前端PLM登录、公开JSON、独立服务或认证变更。系统项目总数与启动完成阶段明细分别统计。配置与n8n单入口每30分钟见[运行说明](operations/RD_PLM_PROJECT_PROGRESS.md)。

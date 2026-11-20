@@ -23,6 +23,8 @@ import { pmcRdProgressFields } from "./pmc-rd-progress";
 export { pmcRdProgressFields } from "./pmc-rd-progress";
 import { rdOrderBomReportFields } from "./rd-order-bom-report";
 export * from "./rd-order-bom-report";
+import { plmProgressFields } from "./rd-plm-progress";
+export * from "./rd-plm-progress";
 import { standardProcesses } from "@tracker/shared";
 
 /** 设备状态填报日期窗口：含上海当天在内的连续自然日数量。 */
@@ -161,6 +163,7 @@ export const tableResourceRegistry = [
   { code: "knowledge-pages", label: "知识页面", module: "知识库", moduleCode: "knowledge" },
   { code: "pmc-rd-progress", label: "研发进度", module: "PMC中心", moduleCode: "planning" },
   { code: mpsDivisionOrderProgressResource, label: "事业部订单生产进度报表", module: "PMC中心", moduleCode: "planning" },
+  { code: "rd-plm-project-progress", label: "PLM项目进度", module: "研发中心", moduleCode: "rd" },
   { code: "rd-items", label: "物料数据", module: "研发中心", moduleCode: "rd" },
   { code: "rd-order-bom-report", label: "订单 BOM 报表", module: "研发中心", moduleCode: "rd" },
   { code: "rd-material-duplicates", label: "一物多码检测", module: "研发中心", moduleCode: "rd" },
@@ -318,6 +321,7 @@ export const tablePermissionFieldRegistry: Partial<Record<TableResourceCode, Tab
     ...(key === "productionStatus" ? { options: [{ value: "已完成", label: "已完成" }, { value: "未完成", label: "未完成" }] } : {}),
     ...(["drawing", "materialReady", "cutting"].includes(key) ? { filterable: false } : {}) })),
   "rd-order-bom-report": rdOrderBomReportFields,
+  "rd-plm-project-progress": plmProgressFields,
   "rd-items": fields([
     ["itemCode", "品号", "text", false], ["itemName", "品名", "text", false], ["specification", "规格", "text", false],
     ["remark", "备注", "text", false], ["isGroupItem", "归类品", "boolean", false], ["sourceCreatedAt", "创建日期", "datetime", false],
@@ -981,6 +985,7 @@ export const tableFilterResourceCapabilities: Record<string, TableFilterResource
   "pmc-rd-progress": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-items": { status: "REGISTERED_AND_FILTERABLE" },
   "rd-material-duplicates": { status: "REGISTERED_AND_FILTERABLE" },
+  "rd-plm-project-progress": { status: "NOT_APPLICABLE", reason: "PLM原子快照大屏，明细全量只读项目列表，无独立标准记录筛选。" },
   "rd-order-bom-report": { status: "REGISTERED_AND_FILTERABLE" }
 };
 
@@ -993,6 +998,7 @@ export type TablePrintResourceStatus = "PRINTABLE" | "NOT_APPLICABLE";
 export interface TablePrintResourceCapability { status: TablePrintResourceStatus; reason?: string }
 
 const printNotApplicable: Record<string, string> = {
+  "rd-plm-project-progress": "PLM快照大屏不生成标准打印，明细使用受控服务端Excel。",
   ...Object.fromEntries([...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(c=>[c.code,"计划专用命令能力，不提供独立打印。"])),
   "notification-group-webhook": "群机器人管理属于系统配置页面，Webhook 凭据为敏感信息，不提供标准业务打印。",
   "notification-recipient-group": "通知收件人组属于通知系统配置页面，不提供标准业务打印。",
@@ -1044,6 +1050,7 @@ export type TableExcelResourceCapability = {
 };
 
 const excelNotApplicableReasons: Record<string, string> = {
+  "rd-plm-project-progress": "A1-PLM权威只读派生报表，仅服务端明细导出，不允许人工创建/编辑/导入。",
   ...Object.fromEntries([...mpsLifecycleCapabilities, mpsDemandLinkCapability].map(c => [c.code, "计划专用命令能力，没有独立业务记录或Excel导入导出。"])),
   "sales-orders": "ERP订单镜像由E10/T+作为权威来源，业务页面只读，不允许Excel回写。",
   "mps-erp-orders": "ERP订单明细由E10同步适配器维护，只读页面不允许Excel回写。",

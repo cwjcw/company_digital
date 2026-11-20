@@ -1,3 +1,4 @@
+import { PlmProjectProgressPage } from "./modules/rd/plm/PlmProjectProgressPage";
 import { AbnormalCostPage } from './modules/abnormal-cost/AbnormalCostPage';
 import { abnormalJudgmentNavigationItem } from './modules/abnormal-cost/abnormal-cost-navigation';
 import { LogisticsLedgerPage } from "./modules/marketing/LogisticsLedgerPage";
@@ -183,6 +184,7 @@ function Shell({ logout }: { logout: () => void }) {
   const canManagePermissionResource = Boolean(permissionResource && (isSystemAdmin || user.moduleAdminCodes?.includes(permissionResource.moduleCode)));
   const canReadPmcProgress = hasSessionResourcePermission(user, "pmc-rd-progress", "read");
   const canReadRdDuplicates = hasSessionResourcePermission(user, "rd-material-duplicates", "read");
+  const canReadPlm = hasSessionResourcePermission(user, "rd-plm-project-progress", "read");
   const canReadRdOrderBom = hasSessionResourcePermission(user, "rd-order-bom-report", "read");
   if (location.pathname === "/") return <ModulePortal user={user} onOpen={(module) => navigate(module.id === "system" && !isSystemAdmin ? "/administrators" : module.path)} onLogout={logout} />;
   if (systemPaths.includes(location.pathname) && !isSystemAdmin && !(["/administrators", "/system/notifications"].includes(location.pathname) && isAnyAdministrator)) return <Navigate to="/" replace />;
@@ -192,6 +194,7 @@ function Shell({ logout }: { logout: () => void }) {
   if (location.pathname === "/pmc/division-order-progress/fourth" && !hasSessionResourcePermission(user, "mps-division-order-progress", "read")) return <Navigate to="/" replace />;
   if (location.pathname === reportPath && !canReadPmcProgress) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/material-duplicates" && !canReadRdDuplicates) return <Navigate to="/" replace />;
+  if (location.pathname === "/rd/reports/project-progress" && !canReadPlm) return <Navigate to="/" replace />;
   if (location.pathname === "/rd/bom-report" && !canReadRdOrderBom) return <Navigate to="/" replace />;
   const permissionModuleId = permissionResource?.moduleCode ?? "system";
 
@@ -300,7 +303,7 @@ function Shell({ logout }: { logout: () => void }) {
       { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
       ...(canReadRdOrderBom ? [{ key: "/rd/bom-report", icon: <ReadOutlined />, label: "BOM报表" }] : []),
       ...(canReadRdDuplicates ? [{ key: "/rd/material-duplicates", icon: <ReadOutlined />, label: "一物多码检测" }] : [])
-    ] }],
+    ] }, ...(canReadPlm ? [{ key: "rd-reports", label: "报表", children: [{ key: "/rd/reports/project-progress", icon: <ReadOutlined />, label: "项目进度" }] }] : [])],
     system: [{ key: "system-root", label: "系统管理", children: isSystemAdmin ? [
       { key: "system-master", label: "基础资料", children: [
         { key: "/master-data", icon: <DatabaseOutlined />, label: "基础资料维护" }
@@ -346,6 +349,7 @@ function Shell({ logout }: { logout: () => void }) {
       "/knowledge": "知识空间与页面", "/knowledge/settings": "空间设置", "/knowledge/trash": "回收站",
       "/rd/items": "物料数据", "/rd/material-duplicates": "一物多码检测",
       "/rd/bom-report": "BOM报表",
+      "/rd/reports/project-progress": "项目进度",
       [reportPath]: "研发进度",
       "/hr/workforce-planning": "人力资源规划", "/hr/recruitment": "招聘与配置", "/hr/training": "培训与开发",
       "/hr/performance": "绩效管理", "/hr/compensation": "薪酬福利管理", "/hr/employee-relations/departure-check": "离职人员检查",
@@ -411,6 +415,7 @@ function Shell({ logout }: { logout: () => void }) {
           <Route path="/marketing/logistics-ledger" element={<LogisticsLedgerPage />} />
           <Route path="/marketing/order-schedule" element={<OrderSchedulePage />} />
           <Route path="/knowledge/*" element={<KnowledgeRoutes />}/>
+          <Route path="/rd/reports/project-progress" element={<PlmProjectProgressPage />} />
           <Route path="/rd/items" element={<RdItemsPage />} />
           <Route path="/rd/bom-report" element={<RdOrderBomReportPage />} />
           <Route path="/rd/material-duplicates" element={<RdDuplicatesPage user={user} />} />

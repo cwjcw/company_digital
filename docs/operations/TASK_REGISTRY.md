@@ -552,3 +552,13 @@
 - 已发布`RdTplusBomReconcileDailyV1`并在无进行中execution窗口重启原n8n使新计划生效；每天01:20上海时间。临时CLI broker使用5689避免与常驻5679冲突，不改常驻配置、没有新增永久服务。
 - 变更前19定义/14激活，变更后20定义/15激活；19个原流程的nodes/connections/settings/active指纹逐个相同，原E10工作流保持激活。仓库本任务新增1个n8n定义，生产对应1个激活逻辑任务；本任务新增systemd Timer、cron、常驻Service、应用内scheduler均0。
 - 运行摘要及完整旧/新配置核验留在本地`outputs/tplus_bom_unified_release/n8n-verification.json`，不提交业务数据、凭据或完整执行响应。
+
+## RD-003：A1-PLM项目进度双接口快照（2026-11-20新增）
+
+- 归属研发中心/报表，责任人为研发中心及平台维护；任务ID RD-003，时区Asia/Shanghai。
+- 仓库新增1个n8n定义：`automation/n8n/plm-project-progress-half-hourly.json`；ID `RdPlmProjectProgressHalfHourlyV1`，每30分钟00/30分，受控本机SSH→既有API容器`PLM_TENANT_ID=KAINAN node dist/plm-sync-cli.js`。无新增永久服务、cron、systemd Timer或应用循环。
+- Ubuntu直接HTTP实测成功，Node原生fetch，不依赖Edge；登录及getProjectDetail/getAllProjectDetail均成功有效后，由PlmSyncService Application事务整体更新租户快照，保留系统总数与明细数原范围。源凭据只在受限服务端.env，不进n8n命令/源码/日志。
+- tenant advisory lock防并发；每请求20秒最多3次、命令240秒/工作流300秒；失败非0、固定错误码、n8n校验真实退出码/两接口/SUCCESS/快照UUID/计数。失败旧数据不动，完整下轮可补偿，手工重跑复用同入口。
+- 观察/告警：原报表显示最近成功/失败/60分钟过期，n8n失败执行留痕，不新增消息推送；运行审计保留时间/count/error。回滚只停本工作流及旧镜像，不删快照或变更现有任务。
+- 变更前实测20个n8n定义/15激活，未发现PLM流程；主机Timer/cron/常驻服务盘点保存在本地`schedulers-before.txt`，现有全部保持。新增仓库定义不是已激活数量；本轮实际导入/执行/激活、旧流程指纹及最终版本以`outputs/plm_dashboard_release/n8n-verification.json`和最终验收报告为准，发布过程需逐项核验后才标PASS。
+- 详见`docs/operations/RD_PLM_PROJECT_PROGRESS.md`。本任务原始JSON、运行日志及ZIP.git不提交；用户要求仅本地提交，不push。

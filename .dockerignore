@@ -19,3 +19,6 @@ test/
 .codex-tmp
 *.xlsx
 *.xls
+# Local investigation inputs, source ZIP extracts and private acceptance evidence.
+outputs/
+outpus/

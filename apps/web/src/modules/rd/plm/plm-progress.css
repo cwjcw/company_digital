@@ -1,0 +1,398 @@
+/* Visual styles adapted from the supplied one-screen.html and plm-dashboard.html. */
+
+    .plm-overview {
+      --bg: #0a0f1e;
+      --panel: rgba(17, 26, 48, 0.82);
+      --panel-line: rgba(88, 130, 255, 0.16);
+      --ink: #e8eeff;
+      --muted: #7e8db0;
+      --cyan: #2fd4e6;
+      --green: #3ddc97;
+      --amber: #ffb454;
+      --red: #ff5d5d;
+      --blue: #4f7cff;
+      --font-disp: "Bahnschrift", "Microsoft YaHei", sans-serif;
+      --font-body: "Microsoft YaHei", "PingFang SC", sans-serif;
+      --font-mono: "Cascadia Code", Consolas, monospace;
+    }
+    .plm-overview *, .plm-overview *::before, .plm-overview *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    .plm-overview, .plm-overview { height: 100%; }
+    .plm-overview {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background:
+        radial-gradient(1100px 520px at 78% -12%, rgba(79, 124, 255, 0.14), transparent 62%),
+        radial-gradient(820px 460px at 6% 108%, rgba(47, 212, 230, 0.10), transparent 60%),
+        repeating-linear-gradient(0deg, transparent 0 47px, rgba(88,130,255,0.045) 47px 48px),
+        repeating-linear-gradient(90deg, transparent 0 47px, rgba(88,130,255,0.045) 47px 48px),
+        var(--bg);
+      overflow: hidden;
+    }
+    /* flex 容器独立于 body：ECharts appendToBody 的 tooltip div 直接挂在 body 下，不参与布局 */
+    .plm-overview .app {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 18px 16px;
+      gap: 12px;
+    }
+
+    /* ===== Header ===== */
+    .plm-overview header.bar {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      flex: 0 0 auto;
+      padding: 10px 18px;
+      background: linear-gradient(90deg, rgba(79,124,255,0.12), rgba(47,212,230,0.07) 55%, transparent);
+      border: 1px solid var(--panel-line);
+      border-radius: 12px;
+
+    }
+    .plm-overview .plm-brand { display: flex; align-items: baseline; gap: 12px; }
+    .plm-overview .plm-brand h1 {
+      font-family: var(--font-disp);
+      font-size: 1.32rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    .plm-overview .plm-brand h1 em { color: var(--cyan); font-style: normal; }
+    .plm-overview .plm-brand .tag {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      border: 1px solid var(--panel-line);
+      border-radius: 4px;
+      padding: 2px 8px;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .plm-overview .kpis {
+      margin-left: auto;
+      display: flex;
+      gap: 26px;
+    }
+    .plm-overview .kpi { text-align: right; }
+    .plm-overview .kpi b {
+      display: block;
+      font-family: var(--font-disp);
+      font-size: 1.52rem;
+      font-weight: 700;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .plm-overview .kpi span { font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em; }
+    .plm-overview .kpi.c1 b { color: var(--cyan); }
+    .plm-overview .kpi.c2 b { color: var(--blue); }
+    .plm-overview .kpi.c3 b { color: var(--amber); }
+    .plm-overview .kpi.c5 b { color: var(--green); }
+    .plm-overview .kpi.c6 b { color: var(--red); }
+
+    /* ===== Panel grid ===== */
+    .plm-overview main.grid {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .plm-overview .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-line);
+      border-radius: 12px;
+      padding: 10px 12px 6px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      backdrop-filter: blur(6px);
+      position: relative;
+      overflow: hidden;
+
+    }
+    .plm-overview .panel:nth-child(1) { animation-delay: 0.05s; }
+    .plm-overview .panel:nth-child(2) { animation-delay: 0.10s; }
+    .plm-overview .panel:nth-child(3) { animation-delay: 0.15s; }
+    .plm-overview .panel:nth-child(4) { animation-delay: 0.20s; }
+    .plm-overview .panel:nth-child(5) { animation-delay: 0.25s; }
+    .plm-overview .panel:nth-child(6) { animation-delay: 0.30s; }
+    .plm-overview .panel:nth-child(7) { animation-delay: 0.35s; }
+    .plm-overview .panel:nth-child(8) { animation-delay: 0.40s; }
+    .plm-overview .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      opacity: 0.35;
+    }
+    .plm-overview .panel h2 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+    .plm-overview .panel h2::before {
+      content: "";
+      width: 7px; height: 7px;
+      border-radius: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+    .plm-overview .panel .chart { flex: 1 1 auto; min-height: 0; }
+
+    /* ===== Footer ticker ===== */
+    .plm-overview footer.ticker {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 7px 16px;
+      background: rgba(255, 93, 93, 0.08);
+      border: 1px solid rgba(255, 93, 93, 0.22);
+      border-radius: 10px;
+      font-size: 0.78rem;
+
+    }
+    .plm-overview footer.ticker .lamp {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 10px var(--red);
+
+      flex: 0 0 auto;
+    }
+    .plm-overview footer.ticker b { color: var(--red); font-family: var(--font-disp); }
+    .plm-overview footer.ticker .muted { color: var(--muted); margin-left: auto; font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.05em; }
+
+
+
+    /* 小屏兜底：允许滚动 */
+    @media (max-width: 1100px), (max-height: 640px) {
+    .plm-overview { overflow: auto; }
+    .plm-overview .app { height: auto; min-height: 100%; }
+    .plm-overview main.grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: none; }
+    .plm-overview .panel .chart { min-height: 240px; }
+    .plm-overview .kpis { flex-wrap: wrap; gap: 12px; }
+    }
+
+
+    .plm-full {
+      --bg: #f4f6fb;
+      --bg2: #ffffff;
+      --ink: #17213a;
+      --muted: #5f6b85;
+      --rule: rgba(47, 111, 237, 0.12);
+      --accent: #2f6fed;
+      --accent2: #12b886;
+      --accent3: #f0a13a;
+      --warn: #e8590c;
+      --font: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      --max: 1200px;
+    }
+
+    .plm-full *, .plm-full *::before, .plm-full *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    .plm-full { font-size: 16px; scroll-behavior: smooth; }
+    .plm-full {
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 12% -6%, rgba(47, 111, 237, 0.08), transparent 60%),
+        radial-gradient(820px 420px at 92% 4%, rgba(18, 184, 134, 0.07), transparent 60%),
+        var(--bg);
+      line-height: 1.7;
+      padding: 2rem 1.25rem 3rem;
+    }
+    .plm-full article.page { max-width: var(--max); margin: 0 auto; }
+
+    /* === Header === */
+    .plm-full header.hero {
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--rule);
+      border-radius: 16px;
+      padding: 2.2rem 2.4rem 2rem;
+      box-shadow: 0 10px 30px rgba(47, 111, 237, 0.08);
+      margin-bottom: 1.75rem;
+    }
+    .plm-full header.hero h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .plm-full header.hero h1 span {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .plm-full header.hero .sub {
+      margin-top: 0.5rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .plm-full header.hero .sub strong { color: var(--ink); font-weight: 600; }
+
+    /* === KPI cards === */
+    .plm-full .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 0.9rem;
+      margin-bottom: 2.25rem;
+    }
+    .plm-full .kpi {
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 1.1rem 1rem 0.95rem;
+      box-shadow: 0 6px 18px rgba(47, 111, 237, 0.06);
+    }
+    .plm-full .kpi .num {
+      font-size: 1.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+    }
+    .plm-full .kpi:nth-child(2) .num { color: var(--accent2); }
+    .plm-full .kpi:nth-child(3) .num { color: var(--accent3); }
+    .plm-full .kpi:nth-child(5) .num { color: var(--accent2); }
+    .plm-full .kpi:nth-child(6) .num { color: var(--warn); }
+    .plm-full .kpi .label { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+
+    /* === Sections === */
+    .plm-full section { margin-bottom: 2.25rem; }
+    .plm-full h2 {
+      font-size: 1.18rem;
+      font-weight: 700;
+      margin-bottom: 1.1rem;
+      padding-bottom: 0.45rem;
+      position: relative;
+    }
+    .plm-full h2::after {
+      content: "";
+      position: absolute;
+      left: 0; bottom: 0;
+      width: 3.2rem; height: 3px;
+      border-radius: 2px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+    }
+    .plm-full .sec-note { color: var(--muted); font-size: 0.86rem; margin: -0.6rem 0 1rem; }
+
+    .plm-full .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    .plm-full .card {
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 1.25rem 1.25rem 0.9rem;
+      box-shadow: 0 6px 18px rgba(47, 111, 237, 0.06);
+    }
+    .plm-full .card.full { grid-column: 1 / -1; }
+    .plm-full figure.chart-figure { margin: 0; }
+    .plm-full figure.chart-figure figcaption {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 0.6rem;
+    }
+    .plm-full .chart-box { width: 100%; min-height: 380px; }
+    .plm-full .chart-box.tall { min-height: 460px; }
+
+    /* === Table === */
+    .plm-full .table-wrap {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 620px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.8);
+    }
+    .plm-full table { width: 100%; border-collapse: collapse; font-size: 0.87rem; min-width: 860px; }
+    .plm-full thead th {
+      position: sticky; top: 0;
+      background: linear-gradient(135deg, rgba(47,111,237,0.92), rgba(18,184,134,0.88));
+      color: #ffffff;
+      font-weight: 600;
+      padding: 0.65rem 0.7rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .plm-full tbody td {
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--rule);
+      white-space: nowrap;
+    }
+    .plm-full tbody tr:hover { background: rgba(47, 111, 237, 0.05); }
+    .plm-full td.num { font-variant-numeric: tabular-nums; text-align: right; }
+    .plm-full .progress-cell { min-width: 120px; }
+    .plm-full .pbar {
+      height: 7px; border-radius: 4px;
+      background: rgba(47, 111, 237, 0.12);
+      overflow: hidden;
+    }
+    .plm-full .pbar i {
+      display: block; height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+    .plm-full .dot {
+      display: inline-block; width: 9px; height: 9px;
+      border-radius: 50%; margin-right: 0.35rem;
+      vertical-align: middle;
+    }
+    .plm-full .dot.red { background: var(--warn); }
+    .plm-full .dot.green { background: var(--accent2); }
+    .plm-full td .pname { font-weight: 600; }
+
+    .plm-full footer {
+      margin-top: 2.5rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--rule);
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    @media (max-width: 900px) {
+    .plm-full .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+    .plm-full .chart-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+    .plm-full .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .plm-full { padding: 1.25rem 0.75rem 2rem; }
+    }
+    @media print {
+    .plm-full { background: #ffffff; padding: 0; }
+    .plm-full .card, .plm-full header.hero, .plm-full .kpi { box-shadow: none; backdrop-filter: none; }
+    }
+
+
+.plm-progress-page { width:100%; min-width:0; }
+.plm-progress-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+.plm-sync-line {color:#56647a;font-size:12px;display:flex;gap:12px;flex-wrap:wrap;}
+.plm-overview { border-radius:14px; overflow:hidden; }
+.plm-overview .app { height:100%;min-height:0;padding:12px;gap:10px; }
+.plm-overview header.bar {flex-wrap:wrap;gap:10px;padding:10px 12px;}
+.plm-overview .plm-brand {gap:8px;flex-wrap:wrap;}
+.plm-overview .plm-brand h1 {font-size:18px;}
+.plm-overview .plm-brand .tag {font-size:10px;}
+.plm-overview .kpis {gap:18px;flex-wrap:nowrap;}
+.plm-overview .kpi b {font-size:23px;}
+.plm-overview main.grid {grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:10px;}
+.plm-overview .panel {min-width:0;padding:10px 6px 6px;}
+.plm-overview .panel .chart {min-height:0;}
+.plm-overview footer.ticker {flex-wrap:wrap;gap:8px;}
+.plm-overview footer.ticker .muted {margin-left:auto;}
+.plm-full {border-radius:14px; padding:24px;}
+.plm-full .table-wrap {max-height:none;overflow-y:visible;}
+.plm-full tbody td,.plm-full thead th {text-align:center;}
+.plm-full .table-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.plm-full .chart-box {min-height:0;}
+@media(max-width:1000px) { .plm-overview .kpis {gap:12px;} .plm-overview .plm-brand .tag {display:none;} }
+@media(max-width:800px) { .plm-overview {height:auto!important;} .plm-overview .app{height:auto;} .plm-overview main.grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:240px;grid-template-rows:none;} .plm-overview .kpis{margin-left:0;flex-wrap:wrap;} }

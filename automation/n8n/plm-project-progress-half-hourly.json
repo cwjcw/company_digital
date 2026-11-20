@@ -1,0 +1,116 @@
+{
+  "id": "RdPlmProjectProgressHalfHourlyV1",
+  "name": "研发中心 PLM项目进度每30分钟快照",
+  "active": true,
+  "nodes": [
+    {
+      "id": "plm-schedule",
+      "name": "每30分钟上海时间",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "plm-sync",
+      "name": "服务器抓取PLM双接口",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && timeout --signal=TERM --kill-after=15s 240s env PLM_TENANT_ID=KAINAN node dist/plm-sync-cli.js'"
+      },
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    },
+    {
+      "id": "plm-check",
+      "name": "严格校验退出码及原子快照",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first()?.json??{};\nif(r.code!==0&&r.code!=='0')throw new Error('PLM_COMMAND_EXIT_FAILED');\nlet v;try{v=JSON.parse(String(r.stdout??'').split(/\\r?\\n/).reverse().find(x=>x.trim().startsWith('{'))??'');}catch{throw new Error('PLM_RESULT_INVALID');}\nif(v.status!=='SUCCESS'||v.source!=='A1-PLM'||v.interfaces!==2||typeof v.snapshotId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.snapshotId))throw new Error('PLM_SNAPSHOT_NOT_VERIFIED');\nfor(const key of ['systemCount','detailCount','milestoneCount','taskCount'])if(!Number.isSafeInteger(v[key])||v[key]<0)throw new Error('PLM_COUNT_INVALID');\nif(v.detailCount>v.systemCount)throw new Error('PLM_SCOPE_COUNT_INVALID');\nreturn [{json:v}];"
+      }
+    },
+    {
+      "id": "plm-replay",
+      "name": "受控手工重跑",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    }
+  ],
+  "connections": {
+    "每30分钟上海时间": {
+      "main": [
+        [
+          {
+            "node": "服务器抓取PLM双接口",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受控手工重跑": {
+      "main": [
+        [
+          {
+            "node": "服务器抓取PLM双接口",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "服务器抓取PLM双接口": {
+      "main": [
+        [
+          {
+            "node": "严格校验退出码及原子快照",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1",
+    "executionTimeout": 300
+  }
+}

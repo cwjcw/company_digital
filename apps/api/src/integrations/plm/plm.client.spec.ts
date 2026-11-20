@@ -1,0 +1,12 @@
+import {PlmClient} from './plm.client';
+describe('PLM server HTTP adapter',()=>{
+ const old={base:process.env.PLM_BASE_URL,user:process.env.PLM_USERNAME,password:process.env.PLM_PASSWORD};
+ beforeEach(()=>{process.env.PLM_BASE_URL='http://plm.invalid/a1-kainice';process.env.PLM_USERNAME='synthetic-user';process.env.PLM_PASSWORD='synthetic-password';});
+ afterEach(()=>{jest.restoreAllMocks();for(const [key,value] of Object.entries({PLM_BASE_URL:old.base,PLM_USERNAME:old.user,PLM_PASSWORD:old.password})){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+ const response=(v:unknown,status=200)=>new Response(JSON.stringify(v),{status,headers:{'Content-Type':'application/json'}});
+ it('logs in and reads both fixed APIs with server-only token; never accepts a partial pair',async()=>{const fetch=jest.spyOn(globalThis,'fetch').mockResolvedValueOnce(response({data:{ticket:'synthetic-ticket'}})).mockResolvedValueOnce(response({allPjNum:1,datas:[]})).mockResolvedValueOnce(response({datas:[]}));expect(await new PlmClient().fetchSnapshot()).toEqual({summary:{allPjNum:1,datas:[]},detail:{datas:[]}});expect(fetch).toHaveBeenCalledTimes(3);expect(fetch.mock.calls[2]?.[1]).toMatchObject({method:'POST',headers:{'Share-Token':'synthetic-ticket'}});});
+ it('rejects login failure without logging the body or calling data endpoints',async()=>{const fetch=jest.spyOn(globalThis,'fetch').mockResolvedValue(response({error:'sensitive upstream text'},401));await expect(new PlmClient().fetchSnapshot()).rejects.toThrow('PLM_AUTH_FAILED');expect(fetch).toHaveBeenCalledTimes(1);});
+ it('fails if the second API fails and does not return the first result as a snapshot',async()=>{jest.spyOn(globalThis,'fetch').mockResolvedValueOnce(response({data:{ticket:'synthetic-ticket'}})).mockResolvedValueOnce(response({datas:[]})).mockResolvedValueOnce(response({},403));await expect(new PlmClient().fetchSnapshot()).rejects.toThrow('PLM_AUTH_FAILED');});
+ it('limits timeout retries and returns a fixed error code',async()=>{const fetch=jest.spyOn(globalThis,'fetch').mockRejectedValue(new DOMException('sensitive request','TimeoutError'));await expect(new PlmClient().fetchSnapshot()).rejects.toThrow('PLM_TIMEOUT');expect(fetch).toHaveBeenCalledTimes(3);});
+ it('rejects malformed JSON',async()=>{jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('not json',{status:200}));await expect(new PlmClient().fetchSnapshot()).rejects.toThrow('PLM_RESPONSE_INVALID');});
+});
