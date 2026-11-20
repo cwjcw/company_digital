@@ -12,7 +12,9 @@ import { RdHistoryScanService } from "./rd-history-scan.service";
 import { RdOrderBomReader } from "../../integrations/e10/rd-order-bom.reader";
 import { RdOrderBomReportQueryService } from "./rd-order-bom-report.query.service";
 import { RdBomMasterIndexSyncService } from "./rd-bom-master-index-sync.service";
+import { TplusBomSyncService } from "./tplus-bom-sync.service";
+import { UnifiedBomQueryService } from "./unified-bom.query.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 
-@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule, NotificationsModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdHistoryScanService, RdE10Reader, RdQueryService, RdFilterSourceProvider, RdOrderBomReader, RdBomMasterIndexSyncService, RdOrderBomReportQueryService], exports: [RdApplicationService, RdQueryService, RdHistoryScanService, RdBomMasterIndexSyncService, RdOrderBomReportQueryService] })
+@Module({ imports: [TypeOrmModule.forFeature([ApiKey, User]), TableFilterModule, NotificationsModule], controllers: [RdController, RdInternalController], providers: [AuthGuard, RdApplicationService, RdHistoryScanService, RdE10Reader, RdQueryService, RdFilterSourceProvider, RdOrderBomReader, RdBomMasterIndexSyncService, TplusBomSyncService, UnifiedBomQueryService, RdOrderBomReportQueryService], exports: [RdApplicationService, RdQueryService, RdHistoryScanService, RdBomMasterIndexSyncService, TplusBomSyncService, UnifiedBomQueryService, RdOrderBomReportQueryService] })
 export class RdModule {}

@@ -35,7 +35,7 @@ describe('研发中心订单BOM报表页面', () => {
     expect(screen.getByRole('tab', { name: '订单BOM汇总' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '事业部BOM统计' })).toBeInTheDocument();
     expect(await screen.findByText('rd-bom-detail')).toBeInTheDocument();
-    expect(screen.getByTestId('column-titles')).toHaveTextContent('承接事业部|订单号|品号|品名|下单日期|客户交期|BOM状态|BOM审核日期|BOM等待天数|当前等待天数');
+    expect(screen.getByTestId('column-titles')).toHaveTextContent('承接事业部|订单号|品号|品名|下单日期|客户交期|BOM状态|BOM来源系统|来源候选更新时间|同步状态|来源说明|BOM审核日期|BOM等待天数|当前等待天数');
     expect(screen.getByTestId('column-alignments')).toHaveTextContent(/^center(\|center)*$/);
     expect(screen.getByTestId('date-render')).toHaveTextContent('2026-11-10');
     expect(screen.getByTestId('empty-date-render')).toHaveTextContent('""');

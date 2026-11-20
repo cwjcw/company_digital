@@ -199,3 +199,7 @@ Equipment management is a native PMC function, not an ERP projection. `GET/POST/
 `TablePrintColumn.width` 继续表示相对推荐权重（兼容旧DTO），不是百分比/mm；`@kdos/contracts/table-print-layout`（经主入口导出）的共享计算将选中列及个人宽度转换为毫米，统一colgroup与纸张。A4/A3、方向及宽度适配仅控制布局，不改变查询范围。真实行高分批测量产生同一分页范围，预览逐页展示，正式打印全部页面；原生直接打印页面时提示使用“本次打印”，避免误印预览当前页。
 
 个人打印偏好复用当前浏览器localStorage，独立版本键 `kdos-print-v1:<tenant>:<user>:<resource>:<viewKey>`（各段URL编码），保存version/columnKeys/widths(mm)/paperSize/orientation/widthMode，不含业务行、凭据或原表偏好。不跨浏览器同步；默认ACTUAL/PENDING分别使用既有viewKey。“恢复默认”恢复当前配置，需显式“保存为我的默认配置”才覆盖已保存值。无Migration、新权限资源或调度。
+
+### R&D unified BOM existence
+
+`rd-order-bom-report` keeps its existing table-filter/Excel endpoints and read/export scopes. After both T+ snapshots pass reconciliation and the controlled ACTIVATE command, `bomStatus` is `Y`/`N`, and detail rows expose permission-controlled `bomSources`, `sourceModifiedTimes` (candidate dates only), `sourceSyncStatus`, and `bomSourceNote`. All three existing views deduplicate by allocation order/item and department, never by ERP count. Multiple effective heads suppress a claimed unique approval date. `unmatchedBomItemCount` is an auxiliary subset of N indicating incomplete verification, not a third status. No new public write API or notification event is introduced. E10 synchronization and other consumers retain their contracts. See `docs/operations/RD_BOM_MASTER_INDEX_SYNC.md` for Migration135, CLI, activation gate and rollback.

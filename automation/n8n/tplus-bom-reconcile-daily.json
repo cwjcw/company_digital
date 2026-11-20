@@ -1,0 +1,91 @@
+{
+  "id": "RdTplusBomReconcileDailyV1",
+  "name": "研发中心 T+双账套BOM每日表头对账",
+  "active": true,
+  "nodes": [
+    {
+      "id": "tplus-schedule",
+      "name": "每天01点20分上海时间",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 1 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tplus-ssh",
+      "name": "串行对账科加和凯南",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "password",
+        "command": "docker exec knplan-api-1 sh -lc 'cd /app/apps/api && timeout --signal=TERM --kill-after=30s 1200s env RD_BOM_INDEX_TENANT_ID=KAINAN node dist/tplus-bom-sync-cli.js RECONCILE'"
+      },
+      "credentials": {
+        "sshPassword": {
+          "id": "n1srD34qpT6DIgae",
+          "name": "本机SSH"
+        }
+      }
+    },
+    {
+      "id": "tplus-check",
+      "name": "校验退出码和两个活动代次",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first()?.json??{};\nif(Number(r.code)!==0) throw new Error('TPLUS_BOM_COMMAND_EXIT_FAILED');\nconst lines=String(r.stdout??'').split(/\\r?\\n/).map(s=>s.trim()).filter(Boolean);\nlet result;\ntry{result=JSON.parse([...lines].reverse().find(s=>s.startsWith('{'))??'');}catch{throw new Error('TPLUS_BOM_RESULT_INVALID');}\nif(result.status!=='SUCCESS'||result.mode!=='RECONCILE'||!Array.isArray(result.sources)||result.sources.length!==2)throw new Error('TPLUS_BOM_RESULT_FAILED');\nfor(const key of ['tplus-kejia','tplus-kainan']){const s=result.sources.filter(s=>s.source===key);if(s.length!==1||s[0].status!=='SUCCESS'||s[0].sourceVerified!==true||!s[0].activeGeneration||!Number.isInteger(s[0].scanned)||!Number.isInteger(s[0].valid))throw new Error('TPLUS_BOM_GENERATION_NOT_VERIFIED');}\nreturn [{json:result}];"
+      }
+    }
+  ],
+  "connections": {
+    "每天01点20分上海时间": {
+      "main": [
+        [
+          {
+            "node": "串行对账科加和凯南",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "串行对账科加和凯南": {
+      "main": [
+        [
+          {
+            "node": "校验退出码和两个活动代次",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1"
+  }
+}

@@ -532,3 +532,15 @@
 - 通知链接使用 `PUBLIC_WEB_URL` / `WEB_BASE_URL`，缺省为已验证在线的 `https://knplan.cuixiaoyuan.cn`；目标详情另行校验字段/数据范围。测试仅在隔离PostgreSQL验证claim、收件人和失败恢复，不向真实员工发送合成消息。
 - 回退：回退应用镜像并保留全部新增业务/附件/编号/审计数据；必要时在现有消息中心停用**本事件规则**以停止新发送，未经变更批准不修改既有周报/Dispatcher。新增Migration禁止自动删表down。
 - 发布门禁与验收状态：实现、隔离数据库claim/失败恢复与真实SPA合成交互已验证；通过备份、Migration 1722920132000、生产部署、健康及版本检查后提供功能。最终生产SHA、备份和Migration结果统一记入本轮 outputs/CODEX_PROGRESS.md 与交付报告；真人发送保持 WAITING_BUSINESS_ACCEPTANCE，不能把claim测试写成企业微信真人已收到。
+
+## RD-002：T+双账套BOM存在性表头对账（2026-11-20新增）
+
+- 任务ID：RD-002；责任：研发中心/平台维护；业务时区Asia/Shanghai。
+- 唯一调度定义：`automation/n8n/tplus-bom-reconcile-daily.json`，工作流ID `RdTplusBomReconcileDailyV1`，每日01:20。
+- 调用：复用本机SSH→既有API容器→`RD_BOM_INDEX_TENANT_ID=KAINAN node dist/tplus-bom-sync-cli.js RECONCILE`；依次科加、凯南，不并发；源为AA_BOM与AA_InventoryEntity，只读、500头/页；无子件/ERP写入。
+- 写入：TplusBomSyncService Application Command，tenant/source独立状态和generation，完整页+源前后指纹/数量一致后切换；首次两个成功且显式ACTIVATE才启用三来源报表。
+- 防并发：tenant/source会话advisory锁，进程退出自动释放；失败旧代次不动，可幂等重跑；无永久日期水位漏删除风险。进程中断的RUNNING审计下次同来源接管时置FAILED。
+- 失败：CLI非0、n8n后置强校验；原BOM报表显示异常/过期及最后成功日期，本次用户明确不新增业务消息推送，覆盖Skill通用消息告警建议。每天完整轻量头对账可补偿漏跑，手工同一CLI可重试。回滚仅撤新工作流及旧应用，不删镜像或源资料。
+- 原E10每日增量及其既有监测保持原样，不执行每日E10 FULL；其他所有n8n/Timer/cron原样。
+- 变更前生产盘点：19个n8n工作流，15个激活；新增定义前无T+ BOM索引专用对账入口，未把已有订单同步判作本任务。主机实际Timer/cron/常驻服务摘要保存受控本地`outputs/tplus_bom_unified_release/schedulers-before.txt`。
+- 当前阶段：定义与隔离测试已完成，生产启用/最近执行证据待本轮发布后追加，不能将仓库active=true当作已上线。

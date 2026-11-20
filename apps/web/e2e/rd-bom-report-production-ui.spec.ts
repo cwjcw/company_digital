@@ -37,6 +37,15 @@ test('production R&D BOM report dates, alignment, tabs and duplicate heading', a
     expect(headerAlignment.every(item => item.cellAlign === 'center' && item.labelAlign === 'center' && item.centerOffset < 2)).toBe(true);
     expect(await table.locator('tbody td').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).textAlign === 'center'))).toBe(true);
     const headers = await table.locator('thead th').allTextContents();
+    expect(headers.some(header=>header.includes('同步状态'))).toBe(true);
+    if (tab === '订单BOM明细') {
+      expect(headers.some(header=>header.includes('BOM来源系统'))).toBe(true);
+      expect(headers.some(header=>header.includes('来源候选更新时间'))).toBe(true);
+      const statusIndex=headers.findIndex(header=>header.includes('BOM状态'));
+      const statuses=await table.locator(`tbody tr td:nth-child(${statusIndex+1})`).allTextContents();
+      expect(statuses.length).toBeGreaterThan(0);
+      expect(statuses.every(value=>['Y','N'].includes(value.trim()))).toBe(true);
+    }
     for (const field of dateFields) {
       const index = headers.findIndex(header => header.includes(field));
       expect(index).toBeGreaterThanOrEqual(0);

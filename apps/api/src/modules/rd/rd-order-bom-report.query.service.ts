@@ -1,16 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, rdOrderBomReportFields, rdOrderBomReportResource } from '@kdos/contracts';
 import { buildDataScopeClause } from '../../common/filtering/data-scope';
-import { TableFilterRegistry, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery } from '../../common/filtering/table-filter.registry';
+import { TableFilterRegistry, type TableFilterActor, type TableFilterSource, type TablePrintRowQuery, type TableFilterCandidateQuery } from '../../common/filtering/table-filter.registry';
 import { parseFilterGroup, type ParsedFilterGroup } from '../../common/filtering/filter.contract';
 import { SqlFilterCompiler } from '../../common/filtering/sql-filter.compiler';
 import { RdOrderBomReader } from '../../integrations/e10/rd-order-bom.reader';
+import { UnifiedBomQueryService } from './unified-bom.query.service';
 import { createBomMatcher, orderBomStatus, waitingDays, type E10BomBundle, type LocalBomHead } from './rd-order-bom-report.calculator';
 
 type Allocation = { id: string; tenantId: string; divisionId: string | null; divisionName: string | null; orderNumber: string; itemCode: string; itemName: string | null; orderDate: string | null; expectedShippingDate: string | null };
-type ReportRow = Record<string, unknown> & { id: string; tenantId?: string; divisionId: string | null; orderNumber?: string; itemCode?: string; bomStatus?: string | null; bomWaitingDays?: number | null; currentWaitingDays?: number | null };
+type ReportRow = Record<string, unknown> & { id: string; tenantId?: string; divisionId: string | null; orderNumber?: string; itemCode?: string; bomStatus?: string | null; bomVerified?: boolean; bomWaitingDays?: number | null; currentWaitingDays?: number | null };
 const viewColumns = { detail: rdOrderBomDetailColumns, orders: rdOrderBomOrderColumns, divisions: rdOrderBomDivisionColumns } as const;
 const allocationColumns = { id: 'id', createdBy: 'created_by', divisionId: 'division_id', orderNumber: 'order_number', itemCode: 'item_code', itemName: 'item_name', orderDate: 'order_date', customerDueDate: 'expected_shipping_date' };
 const dateKeys = new Set(['orderDate', 'customerDueDate', 'bomApprovalDate']);
@@ -44,7 +45,7 @@ function testRule(row: ReportRow, rule: any): boolean {
   const key = String(rule.field ?? ''), value = row[key], operator = String(rule.operator ?? '').toLowerCase();
   const empty = value == null || value === '';
   const numeric = ['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderCount','averageBomWaitingDays'].includes(key);
-  const compare = (left: unknown, right: unknown) => numeric ? Number(left) - Number(right) : String(left ?? '').slice(0,10).localeCompare(String(right ?? '').slice(0,10));
+  const compare = (left: unknown, right: unknown) => numeric ? Number(left) - Number(right) : (dateKeys.has(key) ? String(left ?? '').slice(0,10) : String(left ?? '')).localeCompare(dateKeys.has(key) ? String(right ?? '').slice(0,10) : String(right ?? ''));
   if (operator === 'is_empty') return empty;
   if (operator === 'is_not_empty') return !empty;
   if (operator === 'in' || operator === 'not_in') { const hit = valuesOf(rule).map(String).includes(String(value ?? '')); return operator === 'in' ? hit : !hit; }
@@ -52,8 +53,8 @@ function testRule(row: ReportRow, rule: any): boolean {
   if (operator === 'dynamic') throw new BadRequestException('BOM报表日期筛选不支持动态范围，请指定明确日期');
   const expected = String(rule.value ?? ''), actual = String(value ?? '');
   switch (operator) {
-    case 'eq': return actual === expected || actual.slice(0,10) === expected.slice(0,10);
-    case 'neq': return actual !== expected && actual.slice(0,10) !== expected.slice(0,10);
+    case 'eq': return actual === expected || (dateKeys.has(key) && actual.slice(0,10) === expected.slice(0,10));
+    case 'neq': return actual !== expected && (!dateKeys.has(key) || actual.slice(0,10) !== expected.slice(0,10));
     case 'contains': return actual.toLowerCase().includes(expected.toLowerCase());
     case 'not_contains': return !actual.toLowerCase().includes(expected.toLowerCase());
     case 'starts_with': return actual.toLowerCase().startsWith(expected.toLowerCase());
@@ -80,7 +81,7 @@ function readable(actor: TableFilterActor, key: string) {
 @Injectable()
 export class RdOrderBomReportQueryService {
   private readonly logger = new Logger(RdOrderBomReportQueryService.name);
-  constructor(private readonly dataSource: DataSource, private readonly registry: TableFilterRegistry, private readonly e10: RdOrderBomReader) {}
+  constructor(private readonly dataSource: DataSource, private readonly registry: TableFilterRegistry, private readonly e10: RdOrderBomReader, @Optional() private readonly unified?: UnifiedBomQueryService) {}
 
   /** Current order-progress rule: exact E10 ITEM code plus any approved E10 BOM head. */
   async resolveBomStatuses(itemCodes: string[], tenantId: string): Promise<{ statuses: Map<string, "HAS_BOM" | "NO_BOM">; warning: string | null }> {
@@ -121,7 +122,7 @@ export class RdOrderBomReportQueryService {
 
   onModuleInit() {
     const source: TableFilterSource = {
-      code: rdOrderBomReportResource, table: 'mps_order_allocations', columns: allocationColumns, fields: rdOrderBomReportFields,
+      code: rdOrderBomReportResource, table: 'mps_order_allocations', columns: Object.fromEntries(rdOrderBomReportFields.map(f=>[f.key,allocationColumns[f.key as keyof typeof allocationColumns]??f.key])), fields: rdOrderBomReportFields,
       runQuery: (sql, params) => this.dataSource.transaction(async manager => {
         await manager.query("SELECT set_config('app.tenant_id',$1,true)", [String(params[0])]);
         return manager.query(sql, params);
@@ -142,6 +143,7 @@ export class RdOrderBomReportQueryService {
       exportDisplayValue: reportDateDisplay,
       printDisplayValue: reportDateDisplay,
       listRows: query => this.listRows(query),
+      candidateValues: query => this.candidateValues(query),
       printRows: query => this.listRows(query)
     };
     this.registry.register(source);
@@ -156,7 +158,22 @@ export class RdOrderBomReportQueryService {
     if (view !== 'detail' && view !== 'orders' && view !== 'divisions') throw new BadRequestException('BOM报表视图无效');
     return view;
   }
-  private async listRows(query: TablePrintRowQuery) {
+  private async candidateValues(query: TableFilterCandidateQuery) {
+    const fields=viewFields(this.view(query.context.view));
+    if (!fields.some(f=>f.key===query.fieldKey)) throw new BadRequestException('字段不属于当前BOM报表视图');
+    if (!readable(query.actor,query.fieldKey)) throw new ForbiddenException('当前权限组不能按该字段筛选');
+    const result=await this.listRows({actor:query.actor,context:query.context,search:query.tableSearch,filterGroup:query.filterGroup,
+      fieldKeys:[query.fieldKey],page:1,pageSize:1000,action:'read'},query.fieldKey);
+    const values=new Map<string,string>();
+    for (const row of result.rows) {
+      const raw=row.value,label=row.label;
+      if (raw==null || raw==='' || !String(label??raw).toLowerCase().includes(query.search.toLowerCase())) continue;
+      values.set(String(raw),String(label??raw));
+    }
+    const options=[...values.entries()].sort((a,b)=>a[1].localeCompare(b[1],'zh-CN')).map(([value,label])=>({value,label}));
+    return {options:options.slice(0,query.limit),hasMore:options.length>query.limit};
+  }
+  private async listRows(query: TablePrintRowQuery, candidateField?: string) {
     const view = this.view(query.context.view), fields = viewFields(view);
     const invalidFilter = (group: ParsedFilterGroup) => {
       for (const rule of group.rules) {
@@ -200,13 +217,15 @@ export class RdOrderBomReportQueryService {
     }) as Allocation[];
     if (allocations.length > 20000) throw new BadRequestException('当前BOM报表记录较多，请先按日期、事业部或订单筛选后查询');
     if (!allocations.length) return { rows: [], total: 0, page: Math.max(1, Number(query.page) || 1), pageSize: Math.min(1000, Math.max(1, Number(query.pageSize) || 100)) };
+    const unified = this.unified ? await this.unified.read(query.actor.tenantId,[...new Set(allocations.map(row=>row.itemCode))]) : {enabled:false as const};
+    const index = unified.enabled ? {heads:[] as LocalBomHead[],warning:unified.warning} : await (async()=> {
     // ITEM existence is checked against E10 for current allocation item codes;
     // absence from the local BOM index can therefore safely mean NO_BOM only
     // when E10 confirmed that the ITEM exists.
     const snapshot: E10BomBundle = await this.e10.read(allocations.map(row => row.itemCode));
     const allocationCodes = new Set(allocations.map(row => row.itemCode));
     const itemIds = [...new Set(snapshot.items.filter(item => allocationCodes.has(item.item_code)).map(item => item.item_id))];
-    const index = await this.dataSource.transaction('REPEATABLE READ', async manager => {
+    const legacyIndex = await this.dataSource.transaction('REPEATABLE READ', async manager => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [query.actor.tenantId]);
       const [state] = await manager.query(`SELECT active_generation::text "activeGeneration",last_success_at "lastSuccessAt",last_status "lastStatus",last_error_code "lastErrorCode" FROM rd_bom_sync_state WHERE tenant_id=$1`, [query.actor.tenantId]);
       if (!state?.activeGeneration || !state.lastSuccessAt) throw new ServiceUnavailableException('E10 BOM主档首次同步尚未完成，当前报表暂不可计算；请检查同步任务状态');
@@ -218,15 +237,19 @@ export class RdOrderBomReportQueryService {
         : null;
       return { heads, warning };
     });
+    return {...legacyIndex,snapshot};
+    })();
     const today = shanghaiToday();
-    const matchBom = createBomMatcher(snapshot, index.heads);
+    const matchBom = unified.enabled ? unified.match : createBomMatcher((index as {snapshot:E10BomBundle}).snapshot,index.heads);
     const details: ReportRow[] = allocations.map(row => {
       const matched = matchBom(row.itemCode);
       const waits = waitingDays(row.orderDate, matched.approvalDate, today, matched.status);
+      if ('bomVerified' in matched && !matched.bomVerified && matched.status==='NO_BOM') waits.current=null;
       const orderDay = row.orderDate?.slice(0,10) ?? null;
       return { id: row.id, divisionId: row.divisionId, divisionName: row.divisionName ?? '待匹配', orderNumber: row.orderNumber,
         itemCode: row.itemCode, itemName: row.itemName, orderDate: textDateTime(orderDay), customerDueDate: textDateTime(row.expectedShippingDate?.slice(0,10) ?? null),
-        bomStatus: matched.status, bomApprovalDate: matched.approvalDate, bomWaitingDays: waits.bom,
+        ...(unified.enabled ? { ...matched, sourceSyncStatus:unified.syncText } : {}),
+        bomStatus: unified.enabled ? (matched.status==='HAS_BOM'?'Y':'N') : matched.status, bomApprovalDate: matched.approvalDate, bomWaitingDays: waits.bom,
         currentWaitingDays: waits.current };
     });
     const rows = view === 'detail' ? details : view === 'orders' ? this.aggregateOrders(details) : this.aggregateDivisions(details);
@@ -248,11 +271,12 @@ export class RdOrderBomReportQueryService {
       const cmp = String(av).localeCompare(String(bv), 'zh-CN', { numeric: true }); return cmp * sortOrder;
     });
     const total = authorizedRows.length, page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(1000, Math.max(1, Number(query.pageSize) || 100));
+    if (candidateField) return {rows:authorizedRows.map(row=>({id:row.id,value:row[candidateField],label:candidateField==='divisionId'?row.divisionName:row[candidateField]})),total,page,pageSize};
     const selected = new Set(query.fieldKeys.filter(key => fields.some(field => field.key === key) && readable(query.actor,key)));
     const pageRows = authorizedRows.slice((page-1)*pageSize, page*pageSize).map(row => Object.fromEntries([
       ['id',row.id], ...Object.entries(row).filter(([key]) => selected.has(key)).map(([key,value]) => [key,key === 'divisionId' ? row.divisionName : value])
     ]));
-    return { rows: pageRows, total, page, pageSize, syncWarning: index.warning };
+    return { rows: pageRows, total, page, pageSize, syncWarning: readable(query.actor,'sourceSyncStatus') ? index.warning : null };
   }
   private aggregateOrders(details: ReportRow[]): ReportRow[] {
     const groups = new Map<string, ReportRow[]>();
@@ -260,13 +284,13 @@ export class RdOrderBomReportQueryService {
     return [...groups.entries()].map(([key, entries]) => {
       const unique = new Map<string, ReportRow>();
       for (const row of entries) unique.set(String(row.itemCode), row);
-      const items = [...unique.values()], existing = items.filter(row => row.bomStatus === 'HAS_BOM').length;
-      const noBom = items.filter(row => row.bomStatus === 'NO_BOM').length;
-      const unmatched = items.filter(row => row.bomStatus == null).length;
+      const items = [...unique.values()], existing = items.filter(row => (row.bomStatus === 'Y' || row.bomStatus === 'HAS_BOM')).length;
+      const noBom = items.filter(row => (row.bomStatus === 'N' || row.bomStatus === 'NO_BOM')).length;
+      const unmatched = items.filter(row => (row.bomStatus == null || (row.bomStatus==='N' && row.bomVerified===false))).length;
       const states = items.map(row => ({ bomStatus: row.bomStatus ?? null }));
       const orderDates = [...new Set(entries.map(row => row.orderDate).filter((value): value is string => typeof value === 'string'))];
       return { id: stableId(`${entries[0].tenantId}\u001f${key}`), divisionId: entries[0].divisionId, divisionName: entries[0].divisionName, orderNumber: entries[0].orderNumber,
-        orderDate: orderDates.length === 1 ? orderDates[0] : null, itemCount: items.length, existingBomItemCount: existing, missingBomItemCount: noBom, unmatchedBomItemCount: unmatched,
+        sourceSyncStatus:entries[0].sourceSyncStatus, orderDate: orderDates.length === 1 ? orderDates[0] : null, itemCount: items.length, existingBomItemCount: existing, missingBomItemCount: noBom, unmatchedBomItemCount: unmatched,
         completionRate: existing + noBom ? Number((existing / (existing + noBom) * 100).toFixed(2)) : null, orderBomStatus: orderBomStatus(states) };
     });
   }
@@ -276,14 +300,14 @@ export class RdOrderBomReportQueryService {
     return [...grouped.entries()].map(([key, entries]) => {
       const unique = new Map<string, ReportRow>();
       for (const row of entries) unique.set(JSON.stringify([row.orderNumber,row.itemCode]),row);
-      const rows = [...unique.values()], existing = rows.filter(row => row.bomStatus === 'HAS_BOM').length;
-      const waits = rows.filter(row => row.bomStatus === 'HAS_BOM' && row.bomWaitingDays != null).map(row => Number(row.bomWaitingDays));
+      const rows = [...unique.values()], existing = rows.filter(row => (row.bomStatus === 'Y' || row.bomStatus === 'HAS_BOM')).length;
+      const waits = rows.filter(row => (row.bomStatus === 'Y' || row.bomStatus === 'HAS_BOM') && row.bomWaitingDays != null).map(row => Number(row.bomWaitingDays));
       const orderKeys = new Set(rows.map(row => row.orderNumber));
       return { id: stableId(`${entries[0].tenantId}\u001f${key}`), divisionId: key === '__UNMATCHED__' ? null : entries[0].divisionId, divisionName: entries[0].divisionName,
-        orderCount: orderKeys.size, itemCount: rows.length, existingBomItemCount: existing,
-        missingBomItemCount: rows.filter(row => row.bomStatus === 'NO_BOM').length,
-        unmatchedBomItemCount: rows.filter(row => row.bomStatus == null).length,
-        completionRate: existing + rows.filter(row => row.bomStatus === 'NO_BOM').length ? Number((existing / (existing + rows.filter(row => row.bomStatus === 'NO_BOM').length) * 100).toFixed(2)) : null,
+        sourceSyncStatus:entries[0].sourceSyncStatus, orderCount: orderKeys.size, itemCount: rows.length, existingBomItemCount: existing,
+        missingBomItemCount: rows.filter(row => (row.bomStatus === 'N' || row.bomStatus === 'NO_BOM')).length,
+        unmatchedBomItemCount: rows.filter(row => (row.bomStatus == null || (row.bomStatus==='N' && row.bomVerified===false))).length,
+        completionRate: existing + rows.filter(row => (row.bomStatus === 'N' || row.bomStatus === 'NO_BOM')).length ? Number((existing / (existing + rows.filter(row => (row.bomStatus === 'N' || row.bomStatus === 'NO_BOM')).length) * 100).toFixed(2)) : null,
         averageBomWaitingDays: waits.length ? Number((waits.reduce((sum,value) => sum+value,0)/waits.length).toFixed(2)) : null };
     });
   }

@@ -66,7 +66,7 @@ export function waitingDays(orderDate: unknown, approvalDate: unknown, today: st
 
 export function orderBomStatus(rows: Array<{ bomStatus: string | null }>): string | null {
   if (!rows.length || rows.every(row => row.bomStatus == null)) return null;
-  if (rows.some(row => row.bomStatus === "NO_BOM")) return "未全部完成";
-  if (rows.every(row => row.bomStatus === "HAS_BOM")) return "全部完成";
+  if (rows.some(row => (row.bomStatus === "N" || row.bomStatus === "NO_BOM"))) return "未全部完成";
+  if (rows.every(row => (row.bomStatus === "Y" || row.bomStatus === "HAS_BOM"))) return "全部完成";
   return "待核实";
 }
